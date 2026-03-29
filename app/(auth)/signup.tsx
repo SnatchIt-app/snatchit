@@ -1,0 +1,198 @@
+/**
+ * app/(auth)/signup.tsx — Create Account screen
+ *
+ * Calls supabase.auth.signUp.
+ * Supabase sends a confirmation email by default.
+ * To skip confirmation during development:
+ *   Supabase dashboard → Authentication → Sign In / Up → Confirm email → OFF
+ */
+
+import { Link } from 'expo-router';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+import { supabase } from '@/src/lib/supabase';
+import { colors, fontSize, radius, spacing } from '@/src/theme';
+
+export default function SignUpScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+
+  async function handleSignUp() {
+    if (!email.trim() || !password.trim()) {
+      setMessage({ text: 'Please enter your email and password.', type: 'error' });
+      return;
+    }
+    if (password.length < 6) {
+      setMessage({ text: 'Password must be at least 6 characters.', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage({ text: error.message, type: 'error' });
+    } else {
+      setMessage({
+        text: 'Account created! Check your email to confirm, then sign in.',
+        type: 'success',
+      });
+    }
+  }
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={styles.inner}>
+
+        {/* ── Header ── */}
+        <Text style={styles.logo}>SnatchIt</Text>
+        <Text style={styles.heading}>Create an account</Text>
+
+        {/* ── Inputs ── */}
+        <TextInput
+          style={styles.input}
+          placeholder="Email"
+          placeholderTextColor={colors.textPlaceholder}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Password (min 6 characters)"
+          placeholderTextColor={colors.textPlaceholder}
+          secureTextEntry
+          autoCapitalize="none"
+          autoComplete="new-password"
+          value={password}
+          onChangeText={setPassword}
+        />
+
+        {/* ── Feedback ── */}
+        {message && (
+          <Text style={[styles.messageText, message.type === 'error' ? styles.error : styles.success]}>
+            {message.text}
+          </Text>
+        )}
+
+        {/* ── Create Account button ── */}
+        <TouchableOpacity
+          style={[styles.button, loading && styles.buttonDisabled]}
+          onPress={handleSignUp}
+          disabled={loading}
+          activeOpacity={0.8}>
+          {loading
+            ? <ActivityIndicator color={colors.text} />
+            : <Text style={styles.buttonText}>Create Account</Text>}
+        </TouchableOpacity>
+
+        {/* ── Link to Sign In ── */}
+        <Link href="/(auth)/login" asChild>
+          <TouchableOpacity style={styles.linkRow}>
+            <Text style={styles.linkText}>Already have an account? </Text>
+            <Text style={[styles.linkText, styles.linkAccent]}>Sign in</Text>
+          </TouchableOpacity>
+        </Link>
+
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  inner: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+  },
+  logo: {
+    fontSize: fontSize.xxl,
+    fontWeight: '800',
+    color: colors.text,
+    letterSpacing: 2,
+    marginBottom: spacing.xs,
+  },
+  heading: {
+    fontSize: fontSize.md,
+    color: colors.textMuted,
+    marginBottom: spacing.xl,
+  },
+  input: {
+    backgroundColor: colors.bgInput,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.borderInput,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    fontSize: fontSize.md,
+    marginBottom: spacing.sm + 2,
+  },
+  messageText: {
+    fontSize: fontSize.sm,
+    marginBottom: spacing.sm,
+    lineHeight: 20,
+  },
+  error: {
+    color: colors.error,
+  },
+  success: {
+    color: colors.success,
+  },
+  button: {
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: fontSize.md,
+    letterSpacing: 1,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  linkText: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+  },
+  linkAccent: {
+    color: colors.accent,
+    fontWeight: '600',
+  },
+});
