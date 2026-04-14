@@ -24,18 +24,30 @@ function isAuthorized(req: Request): boolean {
   return diff === 0;
 }
 
+function getSecurityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-DNS-Prefetch-Control': 'off',
+    'X-Download-Options': 'noopen',
+    'X-Permitted-Cross-Domain-Policies': 'none',
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  };
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { status: 200 });
+    return new Response('ok', { status: 200, headers: getSecurityHeaders() });
   }
 
   // Reject any caller that is not presenting the service-role key.
   if (!isAuthorized(req)) {
     return new Response(
       JSON.stringify({ error: 'Unauthorized' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } },
+      { status: 401, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } },
     );
   }
 
@@ -45,7 +57,7 @@ serve(async (req: Request) => {
     if (!user_id || !title || !body) {
       return new Response(
         JSON.stringify({ error: 'Missing user_id, title, or body' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } }
       );
     }
 
@@ -61,7 +73,7 @@ serve(async (req: Request) => {
     if (tokensErr || !tokens || tokens.length === 0) {
       return new Response(
         JSON.stringify({ sent: 0, reason: 'No push tokens found' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        { status: 200, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } }
       );
     }
 
@@ -83,13 +95,13 @@ serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({ sent: messages.length, results: pushData }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+      { status: 200, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } }
     );
   } catch (err) {
     console.error('send-push error:', err);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      { status: 500, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } }
     );
   }
 });
