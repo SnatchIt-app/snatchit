@@ -1,4 +1,4 @@
-import { supabase, supabaseUrl, supabaseAnonKey } from '@/src/lib/supabase';
+import { supabase } from '@/src/lib/supabase';
 
 type CreatePaymentIntentParams = {
   listingId: string;
@@ -14,50 +14,69 @@ type PaymentIntentResult = {
   total: number;
 };
 
+// Expected business-rule errors that should show in the UI without
+// polluting logs. These are normal user-facing outcomes, not system failures.
+const EXPECTED_ERROR_PATTERNS = [
+  /cannot purchase your own/i,
+  /listing.*unavailable/i,
+  /listing.*not found/i,
+  /not reserved for purchase/i,
+  /reservation expired/i,
+  /already sold/i,
+  /already reserved/i,
+  /auction.*not ended/i,
+  /not the winner/i,
+  /not authenticated/i,
+];
+
+export function isExpectedCheckoutError(message: string): boolean {
+  return EXPECTED_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
 export async function createPaymentIntent(
   params: CreatePaymentIntentParams
 ): Promise<PaymentIntentResult> {
-  // getUser() validates the token server-side and triggers a refresh if it is
-  // close to expiry — more reliable than getSession() which returns a cached copy.
-  const { data: { user: currentUser }, error: userErr } = await supabase.auth.getUser();
-
-  if (userErr || !currentUser) {
-    console.error('[payments] auth check failed:', userErr?.message);
-    throw new Error('Not authenticated. Please sign in and try again.');
-  }
-
-  // After getUser() validates/refreshes, getSession() holds the fresh token.
+  // Explicitly read the session and inject the access token as a header so
+  // fetchWithAuth never falls back to the sb_publishable_* anon key.
+  // (_getAccessToken() returns supabaseKey when getSession() resolves null,
+  // which happens during stale-token sign-out races; the gateway then rejects
+  // with 401 "Invalid JWT" because sb_publishable_* is not a JWT.)
   const { data: { session } } = await supabase.auth.getSession();
-
   if (!session?.access_token) {
     throw new Error('Not authenticated. Please sign in and try again.');
   }
 
-  const url = `${supabaseUrl}/functions/v1/create-payment-intent`;
+  const { data, error: fnError } = await supabase.functions.invoke<PaymentIntentResult>(
+    'create-payment-intent',
+    {
+      body: {
+        listing_id: params.listingId,
+        mode: params.mode,
+      },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }
+  );
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'apikey': supabaseAnonKey!,
-    },
-    body: JSON.stringify({
-      listing_id: params.listingId,
-      mode: params.mode,
-    }),
-  });
+  if (fnError || !data) {
+    // FunctionsHttpError stores the raw Response in .context — read it once
+    // to surface the function's own { error } / { message } body when present.
+    let reason = fnError?.message ?? 'Payment setup failed';
+    try {
+      const ctx = (fnError as any)?.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        reason = body.error ?? body.message ?? reason;
+      }
+    } catch {}
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    // Supabase gateway errors use { message } — function errors use { error }
-    const reason = errorData.error ?? errorData.message ?? 'unknown';
-    console.error('[payments] create-payment-intent failed:', response.status, reason, errorData);
-    throw new Error(errorData.error || `Payment setup failed (${response.status}: ${reason})`);
+    // Only log unexpected/system errors — business-rule rejections are normal
+    if (!isExpectedCheckoutError(reason)) {
+      console.error('[payments] create-payment-intent failed:', reason);
+    }
+    throw new Error(reason);
   }
 
-  const data = await response.json();
-  return data as PaymentIntentResult;
+  return data;
 }
 
 /**
@@ -71,32 +90,22 @@ export async function createPaymentIntent(
 export async function confirmPaymentSuccess(
   paymentIntentId: string
 ): Promise<void> {
-  // Explicitly fetch the current session so we can attach the JWT
   const { data: { session } } = await supabase.auth.getSession();
-
   if (!session?.access_token) {
-    console.error('[payments] No session for confirm-payment — skipping');
+    console.error('[payments] confirm-payment skipped — no session');
     return;
   }
 
-  const url = `${supabaseUrl}/functions/v1/confirm-payment`;
+  const { error: fnError } = await supabase.functions.invoke(
+    'confirm-payment',
+    {
+      body: { payment_intent_id: paymentIntentId },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }
+  );
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'apikey': supabaseAnonKey!,
-    },
-    body: JSON.stringify({
-      payment_intent_id: paymentIntentId,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    console.error('[payments] confirm-payment failed:', response.status, errorData.error ?? 'unknown');
+  if (fnError) {
+    console.error('[payments] confirm-payment failed:', fnError.message);
     // Don't throw — payment already went through, this is just bookkeeping
-    return;
   }
 }

@@ -50,11 +50,19 @@ import { sendLocalNotification } from '@/src/utils/notifications';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import TransferStatusBadge from '@/src/components/TransferStatusBadge';
-import type { Bid, Listing } from '@/src/types';
+import type { Bid, Listing, TransferStatus } from '@/src/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 type Props = { id: string };
+
+const VALID_TRANSFER_STATUSES: readonly TransferStatus[] = [
+  'pending', 'seller_sent', 'buyer_confirmed', 'disputed', 'expired', 'auto_released',
+];
+function toTransferStatus(s: string | null | undefined): TransferStatus | null {
+  if (s && (VALID_TRANSFER_STATUSES as readonly string[]).includes(s)) return s as TransferStatus;
+  return null;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -218,7 +226,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const [reserving,  setReserving]  = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean } | null>(null);
-  const [transferStatus,        setTransferStatus]        = useState<string | null>(null);
+  const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
   const [transferId,            setTransferId]            = useState<string | null>(null);
   const [transferBuyerId,       setTransferBuyerId]       = useState<string | null>(null);
   const [transferActionLoading, setTransferActionLoading] = useState(false);
@@ -354,7 +362,11 @@ export default function ListingDetailScreen({ id }: Props) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      setTransferStatus(transfer?.status ?? null);
+      console.log('[DIAG] fetchData transfer query:', {
+        listing_id: fetchedListing.id,
+        transfer: transfer ?? 'NULL',
+      });
+      setTransferStatus(toTransferStatus(transfer?.status));
       setTransferId(transfer?.id ?? null);
       setTransferBuyerId(transfer?.buyer_id ?? null);
     }
@@ -384,6 +396,53 @@ export default function ListingDetailScreen({ id }: Props) {
       fetchData(true);
     }, [id]),
   );
+
+  // ── Re-fetch transfer data when listing transitions to sold ────────────────
+  // Covers the timing gap where the initial fetchData() ran while the listing
+  // was still 'reserved', so the transfer query was skipped. Once the realtime
+  // UPDATE patches listing.status to 'sold', this effect fires and loads the
+  // transfer row that the webhook inserted.
+  //
+  // Retry-aware: the webhook inserts the transfer row AFTER the RPC that sets
+  // listing.status='sold'. The realtime UPDATE may arrive before the insert
+  // completes, so the first query can find nothing. We retry up to 5 times
+  // with 2-second gaps to cover this window (10s total).
+  useEffect(() => {
+    if (listing?.status !== 'sold' || !listing?.id || transferId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      for (let attempt = 0; attempt < 5 && !cancelled; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
+
+        const { data: transfer } = await supabase
+          .from('transfers')
+          .select('id, status, buyer_id')
+          .eq('listing_id', listing.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        console.log('[DIAG] sold-state retry transfer query:', {
+          listing_id: listing.id,
+          attempt,
+          transfer: transfer ?? 'NULL',
+        });
+
+        if (cancelled) return;
+
+        if (transfer) {
+          setTransferStatus(toTransferStatus(transfer.status));
+          setTransferId(transfer.id);
+          setTransferBuyerId(transfer.buyer_id);
+          return; // found it, stop retrying
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [listing?.status, listing?.id, transferId]);
 
   // ── Animation helpers ──────────────────────────────────────────────────────
   const animateOutbidIn = useCallback(() => {
@@ -701,6 +760,9 @@ export default function ListingDetailScreen({ id }: Props) {
   async function handleBuyNow() {
     if (!listing) return;
     if (!user?.id) { Alert.alert('Sign in required', 'Please log in to buy tickets.'); return; }
+    if (listing.seller_id === user.id) {
+      Alert.alert('Not allowed', 'You cannot purchase your own listing.'); return;
+    }
     if (!listing.buy_now_enabled || listing.buy_now_price == null) {
       Alert.alert('Buy Now unavailable', 'This listing does not have Buy Now enabled.'); return;
     }
@@ -745,14 +807,73 @@ export default function ListingDetailScreen({ id }: Props) {
   async function handleConfirmReceived() {
     if (!transferId || !user?.id) return;
     setTransferActionLoading(true);
-    const { error } = await supabase.rpc('confirm_transfer_received', {
-      p_transfer_id: transferId,
-      p_user_id:     user.id,
-    });
-    setTransferActionLoading(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    setTransferStatus('buyer_confirmed');
-    Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event! 🎉');
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke(
+        'confirm-and-release',
+        {
+          body: { transfer_id: transferId },
+        },
+      );
+
+      setTransferActionLoading(false);
+
+      if (fnError) {
+        let message = 'Something went wrong. Please try again.';
+        try {
+          const ctx = (fnError as any).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json();
+            console.error('[confirm-and-release] server error:', JSON.stringify(body));
+            if (body?.error) message = body.error;
+          } else {
+            const body = typeof data === 'string' ? JSON.parse(data) : data;
+            if (body?.error) message = body.error;
+          }
+        } catch {
+        }
+        Alert.alert('Error', message);
+        return;
+      }
+
+      // Success — includes both fresh confirmations and idempotent retries
+      // (already_released: true). Either way, the transfer is confirmed
+      // and the seller payout has been released.
+      setTransferStatus('buyer_confirmed');
+      Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event! 🎉');
+    } catch (err) {
+      setTransferActionLoading(false);
+      console.error('handleConfirmReceived: unexpected error:', err);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    }
+  }
+
+  async function handleReportIssue() {
+    if (!transferId || !user?.id) return;
+    Alert.alert(
+      'Report Issue',
+      'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report Issue',
+          style: 'destructive',
+          onPress: async () => {
+            setTransferActionLoading(true);
+            const { error } = await supabase.rpc('buyer_dispute_transfer', {
+              p_transfer_id: transferId,
+            });
+            setTransferActionLoading(false);
+            if (error) {
+              Alert.alert('Error', error.message);
+              return;
+            }
+            setTransferStatus('disputed');
+            Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
+          },
+        },
+      ],
+    );
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────
@@ -813,7 +934,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const hardLocked    = ended || isSold || reservedByOther || reserving || finalizing;
   const bidLocked     = hardLocked || auctionEnded;
   const buyNowVisible = listing.buy_now_enabled && listing.buy_now_price != null
-                        && !ended && !isSold && !auctionEnded;
+                        && !ended && !isSold && !auctionEnded && !isSeller;
   const buyNowLabel   = reservedByMe ? 'Continue' : `Buy ${fmt$(listing.buy_now_price!)}`;
   const placeBidLabel = isSold        ? 'Sold'
     : reservedByOther                 ? 'Reserved'
@@ -870,34 +991,53 @@ export default function ListingDetailScreen({ id }: Props) {
           )}
         </View>
       )}
-      {/* ── Transfer action buttons ───────────────────────────────────── */}
-      {isSold && isSeller && transferStatus === 'pending' && (
+      {/* ── Seller refresh hint when transfer not yet visible ─────────── */}
+      {isSold && isSeller && !transferStatus && !loading && (
+        <TouchableOpacity
+          style={s.refreshHint}
+          onPress={() => fetchData(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={s.refreshHintText}>
+            Transfer loading… tap to refresh
+          </Text>
+        </TouchableOpacity>
+      )}
+      {/* ── Transfer action buttons — route to dedicated screens ──────── */}
+      {isSold && isSeller && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
         <View style={s.transferActionRow}>
           <TouchableOpacity
-            style={[s.transferBtn, transferActionLoading && s.transferBtnDisabled]}
-            onPress={transferActionLoading ? undefined : handleMarkSent}
-            disabled={transferActionLoading}
+            style={s.transferBtn}
+            onPress={() => router.push(`/transfer/send/${transferId}`)}
             activeOpacity={0.8}
           >
-            {transferActionLoading
-              ? <ActivityIndicator color={colors.text} size="small" />
-              : <Text style={s.transferBtnText}>📤 Mark as Sent</Text>
-            }
+            <Text style={s.transferBtnText}>
+              {transferStatus === 'pending' ? '📤 Send Tickets' : '📋 View Transfer'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
-      {isSold && isBuyer && transferStatus === 'seller_sent' && (
+      {isSold && isBuyer && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
         <View style={s.transferActionRow}>
           <TouchableOpacity
-            style={[s.transferBtn, s.transferBtnConfirm, transferActionLoading && s.transferBtnDisabled]}
-            onPress={transferActionLoading ? undefined : handleConfirmReceived}
-            disabled={transferActionLoading}
+            style={[s.transferBtn, s.transferBtnConfirm]}
+            onPress={() => router.push(`/transfer/receive/${transferId}`)}
             activeOpacity={0.8}
           >
-            {transferActionLoading
-              ? <ActivityIndicator color={colors.text} size="small" />
-              : <Text style={s.transferBtnText}>✅ Confirm Received</Text>
-            }
+            <Text style={s.transferBtnText}>
+              {transferStatus === 'seller_sent' ? '📥 Review Transfer' : '📋 View Transfer'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {isSold && isBuyer && transferId && transferStatus === 'disputed' && (
+        <View style={s.transferActionRow}>
+          <TouchableOpacity
+            style={[s.transferBtn, s.transferBtnDispute]}
+            onPress={() => router.push(`/transfer/receive/${transferId}`)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.transferBtnText}>⚠️ View Dispute</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1166,6 +1306,31 @@ const s = StyleSheet.create({
   bidBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
   btnTextDisabled:{ color: colors.textDim },
 
+  // Transfer refresh hint (seller sees SOLD but transfer not yet loaded)
+  refreshHint: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical:   spacing.sm,
+    alignItems:        'center',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  refreshHintText: {
+    color:      colors.textMuted,
+    fontSize:   fontSize.xs,
+    fontWeight: '600',
+  },
+  disputedBanner: {
+    backgroundColor: 'rgba(139, 0, 0, 0.15)',
+    borderRadius:    10,
+    padding:         14,
+    marginTop:       10,
+  },
+  disputedBannerText: {
+    color:     '#FF6B6B',
+    fontSize:  14,
+    textAlign: 'center' as const,
+  },
+
   // Transfer action buttons
   transferActionRow: {
     paddingHorizontal: spacing.lg,
@@ -1181,6 +1346,7 @@ const s = StyleSheet.create({
     justifyContent:  'center',
   },
   transferBtnConfirm:  { backgroundColor: colors.success },
+  transferBtnDispute:  { backgroundColor: '#8B0000' },
   transferBtnDisabled: { opacity: 0.4 },
   transferBtnText: {
     color:      colors.text,

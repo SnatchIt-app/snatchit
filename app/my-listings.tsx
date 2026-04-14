@@ -251,34 +251,36 @@ export default function MyListingsScreen() {
 
       {/* ── Filter tabs ──────────────────────────────────────────── */}
       {!loading && listings.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.filterRow}
-        >
-          {(
-            [
-              { key: 'all',    label: 'All' },
-              { key: 'active', label: 'Active' },
-              { key: 'ended',  label: 'Ended' },
-              { key: 'sold',   label: 'Sold' },
-            ] as const
-          ).map((tab) => {
-            const active = filter === tab.key;
-            const count  = filterCounts[tab.key];
-            return (
-              <Pressable
-                key={tab.key}
-                style={[s.filterTab, active && s.filterTabActive]}
-                onPress={() => setFilter(tab.key)}
-              >
-                <Text style={[s.filterTabText, active && s.filterTabTextActive]}>
-                  {tab.label} ({count})
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <View style={s.filterBarWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.filterRow}
+          >
+            {(
+              [
+                { key: 'all',    label: 'All' },
+                { key: 'active', label: 'Active' },
+                { key: 'ended',  label: 'Ended' },
+                { key: 'sold',   label: 'Sold' },
+              ] as const
+            ).map((tab) => {
+              const active = filter === tab.key;
+              const count  = filterCounts[tab.key];
+              return (
+                <Pressable
+                  key={tab.key}
+                  style={[s.filterTab, active && s.filterTabActive]}
+                  onPress={() => setFilter(tab.key)}
+                >
+                  <Text style={[s.filterTabText, active && s.filterTabTextActive]}>
+                    {tab.label} ({count})
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
 
       {/* ── Content ────────────────────────────────────────────────── */}
@@ -345,31 +347,39 @@ const s = StyleSheet.create({
   topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
 
   // Filter tabs
+  filterBarWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   filterRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.sm,
   },
   filterTab: {
+    height: 32,
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: 'transparent',
+    backgroundColor: colors.bgCard,
   },
   filterTabActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primarySoft,
     borderColor: colors.primary,
   },
   filterTabText: {
     fontSize: fontSize.xs,
     fontWeight: '700',
     color: colors.textMuted,
+    lineHeight: 16,
   },
   filterTabTextActive: {
-    color: colors.text,
+    color: colors.primary,
   },
 
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },

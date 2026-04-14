@@ -35,25 +35,18 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { ImageUploadTile } from '@/src/components/ImageUploadTile';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
-import type { DurationHours, Neighborhood, TicketType, TransferMethod } from '@/src/types';
+import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
+import type {
+  CanCreateListingReason,
+  DurationHours,
+  Neighborhood,
+  RiskTier,
+  TicketPlatform,
+  TicketType,
+  TransferMethod,
+} from '@/src/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const NEIGHBORHOODS: Neighborhood[] = [
-  'south beach', 'wynwood', 'brickell', 'downtown miami',
-  'design district', 'coconut grove', 'little havana', 'miami beach', 'midtown',
-];
-const NEIGHBORHOOD_LABELS: Record<Neighborhood, string> = {
-  'south beach':     'South Beach',
-  'wynwood':         'Wynwood',
-  'brickell':        'Brickell',
-  'downtown miami':  'Downtown Miami',
-  'design district': 'Design District',
-  'coconut grove':   'Coconut Grove',
-  'little havana':   'Little Havana',
-  'miami beach':     'Miami Beach',
-  'midtown':         'Midtown',
-};
 
 const TICKET_TYPES:     TicketType[]     = ['GA', 'VIP'];
 const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
@@ -61,6 +54,15 @@ const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
   { value: 'email',           label: 'Email' },
 ];
 const DURATION_OPTIONS: DurationHours[]  = [1, 3, 6, 12, 24, 48];
+
+const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
+  { value: 'dice',         label: 'DICE' },
+  { value: 'eventbrite',   label: 'Eventbrite' },
+  { value: 'posh',         label: 'Posh' },
+  { value: 'axs',          label: 'AXS' },
+  { value: 'ticketmaster', label: 'Ticketmaster' },
+  { value: 'other',        label: 'Other' },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -129,17 +131,32 @@ export default function CreateListingScreen() {
   const [buyNowPrice,    setBuyNowPrice]    = useState('');
   const [durationHours,  setDurationHours]  = useState<DurationHours | null>(null);
 
-  // D — Media
+  // D — Platform & Trust (Phase A)
+  const [ticketPlatform,           setTicketPlatform]           = useState<TicketPlatform>('other');
+  const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(false);
+
+  // E — Media
   const coverUpload = useImageUpload({
     userId: user?.id ?? '',
     folder: 'covers',
     aspect: [16, 9],
     quality: 0.85,
   });
+  const proofUpload = useImageUpload({
+    userId: user?.id ?? '',
+    folder: 'proofs',
+    aspect: null,
+    quality: 0.85,
+  });
 
   // Picker modal
   const [pickerMode,    setPickerMode]    = useState<'date' | 'time'>('date');
   const [pickerVisible, setPickerVisible] = useState(false);
+
+  // Phase D — risk check state
+  const [riskWarningVisible, setRiskWarningVisible] = useState(false);
+  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason; tier: RiskTier | null } | null>(null);
+  const [riskCheckPassed,    setRiskCheckPassed]    = useState(false);
 
   // UI
   const [submitted, setSubmitted] = useState(false);
@@ -160,9 +177,12 @@ export default function CreateListingScreen() {
                      ? `Buy Now must be > starting bid ($${startingBidNum || 0}).`                : '',
     durationHours: !durationHours                          ? 'Select an auction duration.'        : '',
     coverImage:    !coverUpload.localUri                   ? 'Cover image is required.'           : '',
+    proofImage:    !proofUpload.localUri                   ? 'Proof of ownership is required.'    : '',
+    commitment:    !sellerCommitmentAccepted               ? 'You must accept the commitment.'    : '',
   }), [eventName, venue, neighborhood, ticketType, transferMethod,
        startingBid, startingBidNum, buyNowEnabled, buyNowPrice, buyNowPriceNum,
-       durationHours, coverUpload.localUri]);
+       durationHours, coverUpload.localUri, proofUpload.localUri,
+       sellerCommitmentAccepted]);
 
   const isValid = Object.values(errors).every(e => !e);
 
@@ -175,6 +195,106 @@ export default function CreateListingScreen() {
     else setEventTime(selected);
   }
 
+  // ── Phase D risk-check copy ────────────────────────────────────────────────
+  const RISK_COPY = {
+    medium_risk_warning: "We've noticed some recent issues. Please double-check your listing details.",
+    high_risk_warning:   'Your account is under review. Incorrect listings may result in restrictions.',
+    critical_risk:       'You cannot create listings at this time. Contact support.',
+    listing_blocked:     'You cannot create listings at this time. Contact support.',
+  } as const;
+
+  // ── Phase D: parse + validate RPC response ─────────────────────────────────
+
+  const VALID_REASONS = new Set<CanCreateListingReason>([
+    'ok', 'medium_risk_warning', 'high_risk_warning', 'critical_risk', 'listing_blocked',
+  ]);
+
+  type RiskCheckResult =
+    | { status: 'ok';          reason: 'ok';                         tier: RiskTier | null }
+    | { status: 'warn';        reason: CanCreateListingReason;       tier: RiskTier | null }
+    | { status: 'block';       reason: CanCreateListingReason;       tier: RiskTier | null }
+    | { status: 'transient';   message: string }
+    | { status: 'bad_shape';   raw: unknown };
+
+  function parseRiskCheckResponse(
+    data: unknown,
+    error: { message: string } | null,
+  ): RiskCheckResult {
+    // 1. Network / transient RPC error → fail-open with warning
+    if (error) {
+      return { status: 'transient', message: error.message };
+    }
+
+    // 2. Normalize: Supabase returns RETURNS TABLE as an array
+    const row = Array.isArray(data) ? data[0] : data;
+
+    // 3. Validate shape: must have allowed (boolean), reason (known string)
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      typeof (row as Record<string, unknown>).allowed !== 'boolean' ||
+      typeof (row as Record<string, unknown>).reason  !== 'string' ||
+      !VALID_REASONS.has((row as Record<string, unknown>).reason as CanCreateListingReason)
+    ) {
+      return { status: 'bad_shape', raw: row };
+    }
+
+    const { allowed, reason, risk_tier } = row as {
+      allowed:   boolean;
+      reason:    CanCreateListingReason;
+      risk_tier: RiskTier | null;
+    };
+
+    if (!allowed) return { status: 'block', reason, tier: risk_tier };
+    if (reason === 'high_risk_warning' || reason === 'medium_risk_warning') {
+      return { status: 'warn', reason, tier: risk_tier };
+    }
+    return { status: 'ok', reason: 'ok', tier: risk_tier };
+  }
+
+  // ── Phase D pre-submit risk check ─────────────────────────────────────────
+
+  async function runRiskCheck(): Promise<boolean> {
+    if (!user) return false;
+
+    const { data, error } = await supabase.rpc('can_create_listing', {
+      p_seller_id: user.id,
+    });
+
+    const result = parseRiskCheckResponse(data, error);
+
+    switch (result.status) {
+      case 'ok':
+        setRiskBanner(null);
+        return true;
+
+      case 'transient':
+        // Fail-open: allow submit but warn the seller + log for ops visibility
+        console.warn('[CreateListingScreen] risk check transient error — allowing submit:', result.message);
+        setRiskBanner({ reason: 'medium_risk_warning', tier: null });
+        return true;
+
+      case 'bad_shape':
+        // Unexpected payload: block submit with generic error, log raw data
+        console.error('[CreateListingScreen] risk check returned unexpected shape:', JSON.stringify(result.raw));
+        Alert.alert('Something went wrong', 'Unable to verify your account status. Please try again.');
+        return false;
+
+      case 'block':
+        setRiskBanner({ reason: result.reason, tier: result.tier });
+        Alert.alert('Listing blocked', RISK_COPY[result.reason as keyof typeof RISK_COPY]);
+        return false;
+
+      case 'warn':
+        setRiskBanner({ reason: result.reason, tier: result.tier });
+        if (result.reason === 'high_risk_warning') {
+          setRiskWarningVisible(true);
+          return false; // handlePublish re-called after modal confirm
+        }
+        return true; // medium_risk_warning → banner only, allow through
+    }
+  }
+
   // Publish
   async function handlePublish() {
     setSubmitted(true);
@@ -182,14 +302,82 @@ export default function CreateListingScreen() {
     setLoading(true);
 
     try {
+      // Gate: require FULLY connected Stripe payout account before listing.
+      // Two-tier check:
+      //   1. DB fast-path: stripe_onboarding_complete === true → pass
+      //   2. Edge function: authoritative Stripe details_submitted check
+      // If the profile query fails (e.g. column mismatch, network blip),
+      // fall through to the edge function rather than blocking immediately.
+      let payoutConnected = false;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('stripe_connect_id, stripe_onboarding_complete')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.stripe_onboarding_complete) {
+        // Fast path: DB already flagged onboarding complete.
+        payoutConnected = true;
+      } else {
+        // Authoritative check: always ask the edge function.
+        // This covers: no profile data, stripe_connect_id missing, or
+        // onboarding_complete not yet set.
+        try {
+          const { data: statusData, error: statusErr } = await supabase.functions.invoke(
+            'create-connect-account',
+            { body: { status_only: true } },
+          );
+          if (!statusErr && statusData) {
+            const parsed = typeof statusData === 'string' ? JSON.parse(statusData) : statusData;
+            payoutConnected = parsed?.status === 'connected';
+          }
+        } catch {
+          // Edge function unreachable — keep payoutConnected = false
+        }
+      }
+
+      if (!payoutConnected) {
+        if (Platform.OS === 'web') {
+          const goSetup = window.confirm(
+            'Payout Account Required\n\nComplete your payout setup before creating a listing. Go to payout setup now?',
+          );
+          if (goSetup) router.push('/settings/payout-setup');
+        } else {
+          Alert.alert(
+            'Payout Account Required',
+            'Complete your payout setup before creating a listing.',
+            [
+              { text: 'Set Up Now', onPress: () => router.push('/settings/payout-setup') },
+              { text: 'Cancel', style: 'cancel' },
+            ],
+          );
+        }
+        return;
+      }
+
+      // Phase D: pre-submit risk gate (skip if already passed via modal confirm)
+      if (!riskCheckPassed) {
+        const canProceed = await runRiskCheck();
+        if (!canProceed) return;
+      }
+      setRiskCheckPassed(false); // reset for next attempt
+
       // 1. Upload cover image
       const coverPath = await coverUpload.uploadImage();
       if (!coverPath) {
-        // coverUpload.error is the exact Supabase Storage error message.
-        // Show it verbatim so policy/bucket issues are immediately actionable.
         const msg = coverUpload.error ?? 'Unknown upload error — check console for details.';
         console.error('[CreateListingScreen] cover upload failed:', msg);
-        Alert.alert('Upload failed', msg);
+        if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Upload failed', msg); }
+        return;
+      }
+
+      // 1b. Upload proof of ownership image
+      const proofPath = await proofUpload.uploadImage();
+      if (!proofPath) {
+        const msg = proofUpload.error ?? 'Unknown upload error — check console for details.';
+        console.error('[CreateListingScreen] proof upload failed:', msg);
+        if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Proof upload failed', msg); }
         return;
       }
 
@@ -200,23 +388,27 @@ export default function CreateListingScreen() {
       const { data, error } = await supabase
         .from('listings')
         .insert({
-          seller_id:        user.id,
-          event_name:       eventName.trim(),
-          venue:            venue.trim(),
-          neighborhood:     neighborhood!,
-          event_date:       toDateStr(eventDate),
-          event_time:       toTimeStr(eventTime),
-          ticket_type:      ticketType!,
+          seller_id:                     user.id,
+          event_name:                    eventName.trim(),
+          venue:                         venue.trim(),
+          neighborhood:                  neighborhood!,
+          event_date:                    toDateStr(eventDate),
+          event_time:                    toTimeStr(eventTime),
+          ticket_type:                   ticketType!,
           quantity,
-          transfer_method:  transferMethod!,
-          restrictions:     restrictions.trim() || null,
-          starting_bid:     startingBidNum,
-          buy_now_enabled:  buyNowEnabled,
-          buy_now_price:    buyNowEnabled ? buyNowPriceNum : null,
-          duration_hours:   durationHours!,
-          ends_at:          endsAt.toISOString(),
-          current_bid:      startingBidNum,   // initialised to starting_bid
-          cover_image_path: coverPath,
+          transfer_method:               transferMethod!,
+          restrictions:                  restrictions.trim() || null,
+          starting_bid:                  startingBidNum,
+          buy_now_enabled:               buyNowEnabled,
+          buy_now_price:                 buyNowEnabled ? buyNowPriceNum : null,
+          duration_hours:                durationHours!,
+          ends_at:                       endsAt.toISOString(),
+          current_bid:                   startingBidNum,
+          cover_image_path:              coverPath,
+          // Phase A fields
+          ticket_platform:               ticketPlatform,
+          proof_of_ownership_path:       proofPath,
+          seller_commitment_accepted_at: sellerCommitmentAccepted ? new Date().toISOString() : null,
         })
         .select('id')
         .single();
@@ -229,20 +421,32 @@ export default function CreateListingScreen() {
       setTicketType(null); setQuantity(1); setTransferMethod(null); setRestrictions('');
       setStartingBid(''); setBuyNowEnabled(false); setBuyNowPrice('');
       setDurationHours(null);
+      setTicketPlatform('other'); setSellerCommitmentAccepted(false);
       coverUpload.reset();
+      proofUpload.reset();
       setSubmitted(false);
+      setRiskBanner(null);
 
       // 5. Navigate to detail screen
       router.push(`/listing/${data.id}`);
 
     } catch (err: unknown) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not publish.');
+      const msg = err instanceof Error ? err.message : 'Could not publish.';
+      if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
     } finally {
       setLoading(false);
     }
   }
 
-  const busy = loading || coverUpload.status === 'uploading';
+  /** Called when user confirms past the high-risk warning modal */
+  function handleRiskWarningContinue() {
+    setRiskWarningVisible(false);
+    setRiskCheckPassed(true);
+    // Re-trigger publish — this time it will skip the risk check
+    handlePublish();
+  }
+
+  const busy = loading || coverUpload.status === 'uploading' || proofUpload.status === 'uploading';
 
   // ────────────────────────────────────────────────────────────────────────────
   return (
@@ -332,6 +536,17 @@ export default function CreateListingScreen() {
         </View>
         {submitted && <FieldError msg={errors.transferMethod} />}
 
+        <Text style={s.label}>Ticket platform *</Text>
+        <View style={[s.pills, { flexWrap: 'wrap' }]}>
+          {TICKET_PLATFORMS.map(({ value, label }) => (
+            <TouchableOpacity key={value}
+              style={[s.pill, ticketPlatform === value && s.pillOn]}
+              onPress={() => setTicketPlatform(value)} activeOpacity={0.75}>
+              <Text style={[s.pillText, ticketPlatform === value && s.pillTextOn]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <Text style={s.label}>Restrictions (optional)</Text>
         <TextInput
           style={[s.input, s.textarea]}
@@ -412,9 +627,53 @@ export default function CreateListingScreen() {
         />
         {submitted && <FieldError msg={errors.coverImage} />}
 
-        {/* ── E) PUBLISH ───────────────────────────────────── */}
+        <Text style={s.label}>Proof of ownership *</Text>
+        <ImageUploadTile
+          localUri={proofUpload.localUri}
+          status={proofUpload.status}
+          error={proofUpload.error}
+          onPress={proofUpload.pickImage}
+          label="Upload proof of ownership"
+          hint="Screenshot of ticket in app or confirmation email"
+          icon="🎟️"
+          height={140}
+          hasError={submitted && !!errors.proofImage}
+          disabled={busy}
+        />
+        {submitted && <FieldError msg={errors.proofImage} />}
+
+        {/* ── F) COMMITMENT + PUBLISH ─────────────────────── */}
+        <SectionHeader title="Seller commitment" />
+
+        <Pressable
+          style={s.commitRow}
+          onPress={() => setSellerCommitmentAccepted(v => !v)}
+        >
+          <View style={[s.checkbox, sellerCommitmentAccepted && s.checkboxOn]}>
+            {sellerCommitmentAccepted && <Text style={s.checkMark}>{'\u2713'}</Text>}
+          </View>
+          <Text style={s.commitText}>
+            I confirm I own these tickets and will transfer them within 24 hours of sale.
+          </Text>
+        </Pressable>
+        {submitted && <FieldError msg={errors.commitment} />}
+
         {submitted && !isValid && (
           <Text style={s.validationMsg}>Please fix the errors above before publishing.</Text>
+        )}
+
+        {/* ── Phase D: risk banner ───────────────────────────── */}
+        {riskBanner && riskBanner.reason !== 'ok' && (
+          <View style={[
+            s.riskBanner,
+            (!riskBanner || riskBanner.reason === 'medium_risk_warning') && s.riskBannerMedium,
+            riskBanner.reason === 'high_risk_warning'                    && s.riskBannerHigh,
+            (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked') && s.riskBannerCritical,
+          ]}>
+            <Text style={s.riskBannerText}>
+              {RISK_COPY[riskBanner.reason as keyof typeof RISK_COPY]}
+            </Text>
+          </View>
         )}
 
         <TouchableOpacity
@@ -486,6 +745,32 @@ export default function CreateListingScreen() {
           />
         )
       )}
+      {/* ── Phase D: high-risk warning modal ──────────────── */}
+      <Modal visible={riskWarningVisible} transparent animationType="fade"
+        onRequestClose={() => setRiskWarningVisible(false)}>
+        <View style={s.riskModalOverlay}>
+          <View style={s.riskModalCard}>
+            <Text style={s.riskModalTitle}>Account Under Review</Text>
+            <Text style={s.riskModalBody}>
+              {RISK_COPY.high_risk_warning}
+            </Text>
+            <View style={s.riskModalActions}>
+              <TouchableOpacity
+                style={s.riskModalBtnCancel}
+                onPress={() => setRiskWarningVisible(false)}
+                activeOpacity={0.75}>
+                <Text style={s.riskModalBtnCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.riskModalBtnContinue}
+                onPress={handleRiskWarningContinue}
+                activeOpacity={0.85}>
+                <Text style={s.riskModalBtnContinueText}>Continue Anyway</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -570,4 +855,121 @@ const s = StyleSheet.create({
            paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
            borderBottomWidth: 1, borderBottomColor: colors.border },
   nText: { color: colors.text, fontSize: fontSize.md },
+
+  // Commitment checkbox
+  commitRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: colors.borderInput,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+    marginTop: 1,
+  },
+  checkboxOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  checkMark: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  commitText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+
+  // Phase D — risk banner
+  riskBanner: {
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  riskBannerMedium: {
+    backgroundColor: '#332B00',
+    borderWidth: 1,
+    borderColor: '#665500',
+  },
+  riskBannerHigh: {
+    backgroundColor: '#331A00',
+    borderWidth: 1,
+    borderColor: '#663300',
+  },
+  riskBannerCritical: {
+    backgroundColor: '#330000',
+    borderWidth: 1,
+    borderColor: '#660000',
+  },
+  riskBannerText: {
+    color: '#FFDDBB',
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+
+  // Phase D — high-risk warning modal
+  riskModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.bgOverlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  riskModalCard: {
+    backgroundColor: colors.bgModal,
+    borderRadius: radius.xl,
+    padding: spacing.lg + 4,
+    width: '100%',
+    maxWidth: 360,
+  },
+  riskModalTitle: {
+    color: colors.text,
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  riskModalBody: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  riskModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  riskModalBtnCancel: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderInput,
+  },
+  riskModalBtnCancelText: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+  },
+  riskModalBtnContinue: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+  },
+  riskModalBtnContinueText: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
 });

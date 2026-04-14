@@ -18,7 +18,7 @@
 
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
@@ -29,6 +29,7 @@ import {
   Text,
   View,
 } from 'react-native';
+
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -345,18 +346,44 @@ export default function BidsScreen() {
     setRefreshing(false);
   }
 
+  // ── Filter state ────────────────────────────────────────────────────────────
+  type BidFilter = 'total' | 'winning' | 'outbid' | 'won';
+  const [bidFilter, setBidFilter] = useState<BidFilter>('total');
+
   // ── Summary counts ─────────────────────────────────────────────────────────
-  const counts = bids.reduce(
-    (acc, bid) => {
+  const counts = useMemo(() => {
+    const c = { winning: 0, outbid: 0, won: 0, lost: 0 };
+    for (const bid of bids) {
       const status = getBidStatus(bid, userId);
-      if (status === 'winning') acc.winning++;
-      else if (status === 'outbid') acc.outbid++;
-      else if (status === 'won') acc.won++;
-      else if (status === 'lost') acc.lost++;
-      return acc;
-    },
-    { winning: 0, outbid: 0, won: 0, lost: 0 },
-  );
+      if (status === 'winning') c.winning++;
+      else if (status === 'outbid') c.outbid++;
+      else if (status === 'won') c.won++;
+      else if (status === 'lost') c.lost++;
+    }
+    return c;
+  }, [bids, userId]);
+
+  const filteredBids = useMemo(() => {
+    if (bidFilter === 'total') return bids;
+    return bids.filter(b => {
+      const status = getBidStatus(b, userId);
+      if (bidFilter === 'winning') return status === 'winning';
+      if (bidFilter === 'outbid')  return status === 'outbid';
+      if (bidFilter === 'won')     return status === 'won';
+      return true;
+    });
+  }, [bids, bidFilter, userId]);
+
+  function onPillTap(key: BidFilter) {
+    setBidFilter(prev => prev === key ? 'total' : key);
+  }
+
+  const PILLS: { key: BidFilter; label: string; count: number; color: string }[] = [
+    { key: 'winning', label: 'Winning', count: counts.winning, color: colors.success },
+    { key: 'outbid',  label: 'Outbid',  count: counts.outbid,  color: colors.error },
+    { key: 'won',     label: 'Won',     count: counts.won,     color: '#FFD700' },
+    { key: 'total',   label: 'Total',   count: bids.length,    color: colors.text },
+  ];
 
   return (
     <View style={s.container}>
@@ -366,25 +393,26 @@ export default function BidsScreen() {
         <Text style={s.subtitle}>{"Auctions you've bid on"}</Text>
       </View>
 
-      {/* ── Summary pills ── */}
+      {/* ── Interactive summary pills ── */}
       {!loading && bids.length > 0 && (
         <View style={s.summaryRow}>
-          <View style={[s.pill, { borderColor: colors.success }]}>
-            <Text style={[s.pillNum, { color: colors.success }]}>{counts.winning}</Text>
-            <Text style={[s.pillLabel, { color: colors.success }]}>Winning</Text>
-          </View>
-          <View style={[s.pill, { borderColor: colors.error }]}>
-            <Text style={[s.pillNum, { color: colors.error }]}>{counts.outbid}</Text>
-            <Text style={[s.pillLabel, { color: colors.error }]}>Outbid</Text>
-          </View>
-          <View style={[s.pill, { borderColor: '#FFD700' }]}>
-            <Text style={[s.pillNum, { color: '#FFD700' }]}>{counts.won}</Text>
-            <Text style={[s.pillLabel, { color: '#FFD700' }]}>Won</Text>
-          </View>
-          <View style={[s.pill, { borderColor: colors.border }]}>
-            <Text style={[s.pillNum, { color: colors.text }]}>{bids.length}</Text>
-            <Text style={[s.pillLabel, { color: colors.textMuted }]}>Total</Text>
-          </View>
+          {PILLS.map(({ key, label, count, color }) => {
+            const active = bidFilter === key;
+            return (
+              <Pressable
+                key={key}
+                style={[
+                  s.pill,
+                  { borderColor: active ? color : colors.border },
+                  active && s.pillActive,
+                ]}
+                onPress={() => onPillTap(key)}
+              >
+                <Text style={[s.pillNum, { color }]}>{count}</Text>
+                <Text style={[s.pillLabel, { color: active ? color : colors.textMuted }]}>{label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
@@ -395,7 +423,7 @@ export default function BidsScreen() {
         </View>
       ) : (
         <FlatList
-          data={bids}
+          data={filteredBids}
           keyExtractor={(item) => item.id}
           contentContainerStyle={s.list}
           refreshControl={
@@ -408,9 +436,16 @@ export default function BidsScreen() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyIcon}>🎯</Text>
-              <Text style={s.emptyTitle}>No bids yet</Text>
+              <Text style={s.emptyTitle}>
+                {bidFilter === 'total' ? 'No bids yet'
+                  : bidFilter === 'winning' ? 'No winning bids'
+                  : bidFilter === 'outbid' ? 'No outbid auctions'
+                  : 'No won auctions'}
+              </Text>
               <Text style={s.emptyText}>
-                Head to the Home tab and place your first bid!
+                {bidFilter === 'total'
+                  ? 'Head to the Home tab and place your first bid!'
+                  : 'Try a different filter.'}
               </Text>
             </View>
           }
@@ -451,7 +486,11 @@ const s = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
+    borderColor: colors.border,
     backgroundColor: colors.bgCard,
+  },
+  pillActive: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   pillNum:   { fontSize: fontSize.lg, fontWeight: '800' },
   pillLabel: { fontSize: fontSize.xs, fontWeight: '600', marginTop: 2 },

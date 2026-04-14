@@ -294,6 +294,7 @@ alter table public.profiles add column if not exists is_verified_buyer  boolean 
 alter table public.profiles add column if not exists is_verified_seller boolean not null default false;
 alter table public.profiles add column if not exists wallet_balance     numeric(10,2) not null default 0;
 alter table public.profiles add column if not exists bio                text;
+alter table public.profiles add column if not exists preferred_neighborhoods text[] not null default '{}';
 
 -- ── listings — reservation / sale lifecycle ─────────────────────────────────
 alter table public.listings add column if not exists status          text        not null default 'active'
@@ -401,6 +402,14 @@ begin
 
   if not found then
     raise exception 'Listing not found.';
+  end if;
+
+  -- 1b) Reject self-purchase — seller cannot reserve their own listing.
+  if exists (
+    select 1 from public.listings
+     where id = p_listing_id and seller_id = v_caller_id
+  ) then
+    raise exception 'You cannot purchase your own listing.';
   end if;
 
   -- 2) Reject if already sold.

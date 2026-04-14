@@ -1,84 +1,245 @@
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { supabase, supabaseUrl, supabaseAnonKey } from '@/src/lib/supabase';
+import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
+
+type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 
 export default function PayoutSetupScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
 
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<PayoutStatus>('not_connected');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const checkStatus = useCallback(async () => {
-    if (!userId) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('stripe_connect_id')
-      .eq('id', userId)
-      .single();
-    setConnected(!!data?.stripe_connect_id);
-    setLoading(false);
-  }, [userId]);
+  // ── Debounced status check ──────────────────────────────────────────────
+  // Mount, focus, and AppState all call requestStatusCheck(). A debounce
+  // timer ensures only one real network call fires per burst.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkingRef = useRef(false);
 
-  useEffect(() => { checkStatus(); }, [checkStatus]);
+  const checkStatusReal = useCallback(async () => {
+    if (checkingRef.current) return;   // already in-flight
+    checkingRef.current = true;
 
-  async function handleSetup() {
-    setSubmitting(true);
-
-    const { data: { session: currentSession } } = await supabase.auth.getSession();
-    if (!currentSession?.access_token) {
-      Alert.alert('Error', 'Not authenticated. Please sign in.');
-      setSubmitting(false);
+    if (!userId) {
+      setLoading(false);
+      checkingRef.current = false;
       return;
     }
 
     try {
-      const res = await fetch(`${supabaseUrl}/functions/v1/create-connect-account`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentSession.access_token}`,
-          'apikey': supabaseAnonKey!,
+      // Quick local check: does a stripe_connect_id even exist?
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('stripe_connect_id')
+        .eq('id', userId)
+        .single();
+
+      if (!profile?.stripe_connect_id) {
+        setStatus('not_connected');
+        setLoading(false);
+        checkingRef.current = false;
+        return;
+      }
+
+      // Account exists — ask the edge function for the real Stripe status
+      // (details_submitted). This is the only reliable source.
+      const { data, error } = await supabase.functions.invoke(
+        'create-connect-account',
+        { body: { status_only: true } },
+      );
+
+      if (!error && data) {
+        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+        const serverStatus = parsed?.status as PayoutStatus | undefined;
+        if (serverStatus === 'connected' || serverStatus === 'onboarding_required' || serverStatus === 'not_connected') {
+          setStatus(serverStatus);
+        }
+        // If serverStatus is unrecognised, keep previous status — don't regress
+      }
+      // On error: keep whatever status we already have. Never regress to
+      // onboarding_required just because a network call failed.
+    } catch {
+      // Keep current status on network errors
+    }
+
+    setLoading(false);
+    checkingRef.current = false;
+  }, [userId]);
+
+  const requestStatusCheck = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      checkStatusReal();
+    }, 300);
+  }, [checkStatusReal]);
+
+  // ── Refresh on mount ─────────────────────────────────────────────────────
+  useEffect(() => {
+    requestStatusCheck();
+  }, [requestStatusCheck]);
+
+  // ── Refresh when app returns to foreground ──────────────────────────────
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        requestStatusCheck();
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [requestStatusCheck]);
+
+  // ── Refresh when screen regains focus (e.g. navigating back) ───────────
+  useFocusEffect(
+    useCallback(() => {
+      requestStatusCheck();
+    }, [requestStatusCheck]),
+  );
+
+  // ── Handle button tap ───────────────────────────────────────────────────
+  async function handleSetup() {
+    setSubmitting(true);
+
+    // Web: pre-open a blank tab BEFORE the async call so the browser treats
+    // it as part of the user gesture. Popup blockers kill window.open()
+    // calls that happen after an await.
+    let webWindow: Window | null = null;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      webWindow = window.open('', '_blank');
+    }
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke<{ url: string; status: string }>(
+        'create-connect-account',
+        {
+          body: {},
         },
-        body: JSON.stringify({
-          refresh_url: 'snatchit://settings/payout-setup',
-          return_url: 'snatchit://settings/payout-setup',
-        }),
-      });
+      );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        Alert.alert('Error', data.error || 'Failed to set up payouts');
+      if (fnError || !data) {
+        let reason = fnError?.message ?? 'Failed to set up payouts';
+        try {
+          const ctx = (fnError as any)?.context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json();
+            reason = body.error ?? body.message ?? reason;
+            if (body.status) {
+              setStatus(body.status as PayoutStatus);
+            }
+          }
+        } catch {}
+        if (webWindow) webWindow.close();
+        if (Platform.OS === 'web') {
+          window.alert(reason);
+        } else {
+          Alert.alert('Error', reason);
+        }
         setSubmitting(false);
         return;
       }
 
-      if (data.url) {
-        await Linking.openURL(data.url);
-        // Re-check status when they come back
-        setTimeout(() => checkStatus(), 2000);
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      const url: string | undefined = parsed?.url;
+      const returnedStatus = parsed?.status as PayoutStatus | undefined;
+
+      if (returnedStatus) {
+        setStatus(returnedStatus);
       }
-    } catch (err) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+
+      if (!url || typeof url !== 'string' || !(url.startsWith('https://') || url.startsWith('http://'))) {
+        if (webWindow) webWindow.close();
+        if (Platform.OS === 'web') {
+          window.alert('Unable to open payout dashboard right now. Please try again.');
+        } else {
+          Alert.alert('Error', 'Unable to open payout dashboard right now. Please try again.');
+        }
+        setSubmitting(false);
+        return;
+      }
+
+      if (Platform.OS === 'web') {
+        // Navigate the pre-opened tab to the Stripe URL.
+        if (webWindow) {
+          webWindow.location.href = url;
+        } else {
+          // Fallback: direct navigation if pre-open was blocked
+          window.location.href = url;
+        }
+      } else {
+        await Linking.openURL(url);
+      }
+      // AppState listener + useFocusEffect will re-check when user returns
+    } catch {
+      if (webWindow) webWindow.close();
+      if (Platform.OS === 'web') {
+        window.alert('Something went wrong. Please try again.');
+      } else {
+        Alert.alert('Error', 'Something went wrong. Please try again.');
+      }
     }
 
     setSubmitting(false);
   }
+
+  // ── UI copy per state ───────────────────────────────────────────────────
+  const uiMap: Record<PayoutStatus, {
+    icon: string;
+    title: string;
+    description: string;
+    dotColor: string;
+    statusLabel: string;
+    statusSub: string;
+    btnLabel: string;
+  }> = {
+    not_connected: {
+      icon: '\u{1F3E6}',
+      title: 'Set Up Payouts',
+      description: 'Connect your bank account via Stripe to receive payouts when your listings sell.',
+      dotColor: colors.warning,
+      statusLabel: 'Not connected',
+      statusSub: 'Set up takes just a few minutes.',
+      btnLabel: 'Set Up Payouts',
+    },
+    onboarding_required: {
+      icon: '\u{1F3E6}',
+      title: 'Complete Payout Setup',
+      description: 'Your Stripe account was created but onboarding is incomplete. Finish setup to start receiving payouts.',
+      dotColor: colors.warning,
+      statusLabel: 'Onboarding incomplete',
+      statusSub: 'Tap below to continue where you left off.',
+      btnLabel: 'Continue Setup',
+    },
+    connected: {
+      icon: '\u2705',
+      title: 'Payouts Connected',
+      description: 'Your Stripe account is connected. Payouts will be deposited automatically when your listings sell.',
+      dotColor: colors.success,
+      statusLabel: 'Connected',
+      statusSub: 'Your banking details are securely managed by Stripe.',
+      btnLabel: 'Manage Payouts',
+    },
+  };
+
+  const ui = uiMap[status];
 
   return (
     <SafeAreaView style={s.safe}>
@@ -96,26 +257,18 @@ export default function PayoutSetupScreen() {
         </View>
       ) : (
         <View style={s.body}>
-          <Text style={s.icon}>{connected ? '\u2705' : '\U0001F3E6'}</Text>
-          <Text style={s.title}>{connected ? 'Payouts Connected' : 'Set Up Payouts'}</Text>
-          <Text style={s.description}>
-            {connected
-              ? 'Your Stripe account is connected. Payouts will be deposited automatically when your listings sell.'
-              : 'Connect your bank account via Stripe to receive payouts when your listings sell.'}
-          </Text>
+          <Text style={s.icon}>{ui.icon}</Text>
+          <Text style={s.title}>{ui.title}</Text>
+          <Text style={s.description}>{ui.description}</Text>
 
           <View style={s.statusCard}>
             <View style={s.statusRow}>
-              <View style={[s.statusDot, { backgroundColor: connected ? colors.success : colors.warning }]} />
-              <Text style={[s.statusText, { color: connected ? colors.success : colors.warning }]}>
-                {connected ? 'Connected' : 'Not connected'}
+              <View style={[s.statusDot, { backgroundColor: ui.dotColor }]} />
+              <Text style={[s.statusText, { color: ui.dotColor }]}>
+                {ui.statusLabel}
               </Text>
             </View>
-            <Text style={s.statusSub}>
-              {connected
-                ? 'Your banking details are securely managed by Stripe.'
-                : 'Set up takes just a few minutes.'}
-            </Text>
+            <Text style={s.statusSub}>{ui.statusSub}</Text>
           </View>
 
           <Pressable
@@ -126,16 +279,14 @@ export default function PayoutSetupScreen() {
             {submitting ? (
               <ActivityIndicator color={colors.text} size="small" />
             ) : (
-              <Text style={s.actionBtnText}>
-                {connected ? 'Manage Payouts' : 'Set Up Payouts'}
-              </Text>
+              <Text style={s.actionBtnText}>{ui.btnLabel}</Text>
             )}
           </Pressable>
 
-          {!connected && (
+          {status !== 'connected' && (
             <Pressable
               style={s.refreshBtn}
-              onPress={() => { setLoading(true); checkStatus(); }}
+              onPress={() => { setLoading(true); checkStatusReal(); }}
             >
               <Text style={s.refreshBtnText}>Refresh Status</Text>
             </Pressable>

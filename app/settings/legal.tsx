@@ -52,7 +52,7 @@ export default function LegalScreen() {
         <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
           <Text style={s.backArrow}>←</Text>
         </Pressable>
-        <Text style={s.topTitle}>Terms & Privacy</Text>
+        <Text style={s.topTitle}>Terms of Service</Text>
         <View style={s.backBtn} />
       </View>
 
@@ -62,7 +62,7 @@ export default function LegalScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Text style={s.pageTitle}>Terms & Privacy</Text>
+        <Text style={s.pageTitle}>Terms of Service</Text>
         <Text style={s.effectiveDate}>Effective Date: March 20, 2026</Text>
 
         {/* 1. About */}
@@ -119,11 +119,12 @@ export default function LegalScreen() {
           <Bullet>Process transactions and facilitate communication between users.</Bullet>
           <Bullet>Provide customer support and respond to inquiries.</Bullet>
           <Bullet>Improve the platform and develop new features.</Bullet>
-          <Body>
-            Your use of the platform is also governed by our Privacy Policy. Please review our
-            Privacy Policy carefully to understand how we collect, use, and protect your
-            personal information.
-          </Body>
+          <Pressable
+            style={s.privacyLink}
+            onPress={() => router.push('/settings/privacy')}
+          >
+            <Text style={s.privacyLinkText}>View Full Privacy Policy {'\u2192'}</Text>
+          </Pressable>
         </Section>
 
         {/* 4. Contact */}
@@ -333,6 +334,13 @@ const s = StyleSheet.create({
   ftBody:          { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
   ftNote:          { color: colors.textDim, fontSize: fontSize.xs, lineHeight: 18,
                      marginTop: spacing.lg, textAlign: 'center' },
+
+  // Privacy link
+  privacyLink:     { backgroundColor: colors.bgCard, borderRadius: radius.md,
+                     borderWidth: 1, borderColor: colors.border,
+                     paddingVertical: spacing.md, paddingHorizontal: spacing.md,
+                     alignItems: 'center', marginTop: spacing.xs },
+  privacyLinkText: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '700' },
 
   bottomPad:    { height: spacing.xxl },
 });

@@ -5,9 +5,8 @@
  *   1) Header          — "Profile" title + settings icon
  *   2) Identity        — avatar (image or initials), display name, masked phone
  *   3) Badges          — Verified Buyer / Verified Seller pills
- *   4) Wallet card     — balance + Payment/Payout method toggle
- *   5) Seller dashboard— Active / Sold / Avg Sale stat cards
- *   6) Sign Out        — at bottom
+ *   4) Seller dashboard— Active / Sold / Avg Sale stat cards
+ *   5) Sign Out        — at bottom
  */
 
 import { Image } from 'expo-image';
@@ -44,6 +43,8 @@ type Profile = {
   wallet_balance:      number;
   stripe_connect_id:   string | null;
 };
+
+type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 
 type SellerStats = {
   active:  number;
@@ -139,9 +140,8 @@ export default function ProfileScreen() {
   // Resolved signed URL for the avatar (async, computed from avatar_path or avatar_url)
   const [avatarUrl,       setAvatarUrl]       = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
-
-  // Wallet toggle: 'payment' | 'payout'
-  const [walletTab, setWalletTab] = useState<'payment' | 'payout'>('payment');
+  // Real payout status from backend (not from local DB column)
+  const [payoutStatus,    setPayoutStatus]    = useState<PayoutStatus>('not_connected');
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
 
@@ -197,6 +197,27 @@ export default function ProfileScreen() {
       sold:    soldCount,
       revenue: totalRevenue,
     });
+
+    // 4. Payout status — ask backend for real Stripe state
+    if (profileData?.stripe_connect_id) {
+      try {
+        const { data: statusData, error: statusErr } = await supabase.functions.invoke(
+          'create-connect-account',
+          { body: { status_only: true } },
+        );
+        if (!statusErr && statusData) {
+          const parsed = typeof statusData === 'string' ? JSON.parse(statusData) : statusData;
+          const s = parsed?.status;
+          if (s === 'connected' || s === 'onboarding_required' || s === 'not_connected') {
+            setPayoutStatus(s);
+          }
+        }
+      } catch {
+        // Keep current payoutStatus on error
+      }
+    } else {
+      setPayoutStatus('not_connected');
+    }
   }
 
   useEffect(() => {
@@ -277,8 +298,6 @@ export default function ProfileScreen() {
   const displayName  = profile?.display_name ?? user?.email?.split('@')[0] ?? 'User';
   const initials     = getInitials(displayName);
   const maskedPhone  = maskPhone(profile?.phone_number ?? null);
-  const walletBal    = profile?.wallet_balance ?? 0;
-
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
@@ -367,60 +386,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* ── 4. WALLET CARD ─────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionLabel text="Payments" />
-          <View style={s.walletCard}>
-            {/* Balance hidden for beta — legal risk */}
-            <Text style={s.walletLabel}>PAYMENT & PAYOUTS</Text>
-
-            {/* Payment / Payout toggle */}
-            <View style={s.walletToggle}>
-              <Pressable
-                style={[s.walletTab, walletTab === 'payment' && s.walletTabActive]}
-                onPress={() => setWalletTab('payment')}
-              >
-                <Text style={[s.walletTabText, walletTab === 'payment' && s.walletTabTextActive]}>
-                  Payment Method
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[s.walletTab, walletTab === 'payout' && s.walletTabActive]}
-                onPress={() => setWalletTab('payout')}
-              >
-                <Text style={[s.walletTabText, walletTab === 'payout' && s.walletTabTextActive]}>
-                  Payout Method
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* Tab content — tapping the payment row navigates to Payment Methods */}
-            <Pressable
-              style={s.walletMethodRow}
-              onPress={
-                walletTab === 'payment'
-                  ? () => router.push('/settings/payment-methods')
-                  : undefined
-              }
-              android_ripple={walletTab === 'payment' ? { color: colors.primarySoft } : undefined}
-            >
-              <Text style={s.walletMethodIcon}>
-                {walletTab === 'payment' ? '' : '🏦'}
-              </Text>
-              <View style={s.walletMethodInfo}>
-                <Text style={s.walletMethodName}>
-                  {walletTab === 'payment' ? 'Apple Pay' : 'Bank Account'}
-                </Text>
-                <Text style={s.walletMethodSub}>
-                  {walletTab === 'payment' ? 'Manage payment methods' : 'Not connected'}
-                </Text>
-              </View>
-              <Text style={s.walletMethodChevron}>›</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* ── 5. SELLER DASHBOARD ────────────────────────────────────────── */}
+        {/* ── 4. SELLER DASHBOARD ────────────────────────────────────────── */}
         <View style={s.section}>
           <SectionLabel text="Seller Dashboard" />
           <View style={s.statsRow}>
@@ -459,7 +425,7 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        {/* ── 5b. PAYOUT STATUS ──────────────────────────────────────────── */}
+        {/* ── 4b. PAYOUT STATUS ──────────────────────────────────────────── */}
         {(stats.sold > 0 || stats.active > 0) && (
           <View style={s.section}>
             <SectionLabel text="Payouts" />
@@ -468,21 +434,29 @@ export default function ProfileScreen() {
               onPress={() => router.push('/settings/payout-setup')}
               android_ripple={{ color: colors.primarySoft }}
             >
-              <Text style={s.payoutIcon}>{profile?.stripe_connect_id ? '🏦' : '⚠️'}</Text>
+              <Text style={s.payoutIcon}>{payoutStatus === 'connected' ? '✅' : '⚠️'}</Text>
               <View style={s.payoutInfo}>
                 <Text style={s.payoutTitle}>
-                  {profile?.stripe_connect_id ? 'Manage Payouts' : 'Set Up Payouts'}
+                  {payoutStatus === 'connected'
+                    ? 'Connected to Stripe'
+                    : payoutStatus === 'onboarding_required'
+                      ? 'Complete Payout Setup'
+                      : 'Set Up Payouts'}
                 </Text>
                 <View style={s.payoutStatusRow}>
                   <View style={[
                     s.payoutDot,
-                    { backgroundColor: profile?.stripe_connect_id ? colors.success : colors.warning },
+                    { backgroundColor: payoutStatus === 'connected' ? colors.success : colors.warning },
                   ]} />
                   <Text style={[
                     s.payoutStatusText,
-                    { color: profile?.stripe_connect_id ? colors.success : colors.warning },
+                    { color: payoutStatus === 'connected' ? colors.success : colors.warning },
                   ]}>
-                    {profile?.stripe_connect_id ? 'Payouts Connected' : 'Payouts Not Set Up'}
+                    {payoutStatus === 'connected'
+                      ? 'Payouts enabled'
+                      : payoutStatus === 'onboarding_required'
+                        ? 'Onboarding Incomplete'
+                        : 'Payouts Not Set Up'}
                   </Text>
                 </View>
               </View>
@@ -491,7 +465,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* ── 6. SIGN OUT ────────────────────────────────────────────────── */}
+        {/* ── 5. SIGN OUT ────────────────────────────────────────────────── */}
         <View style={s.section}>
           <TouchableOpacity
             style={[s.signOutBtn, signOutBusy && { opacity: 0.6 }]}
@@ -657,69 +631,6 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
-
-  // ── Wallet card ───────────────────────────────────────────────────────────
-  walletCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius:    radius.lg,
-    borderWidth:     1,
-    borderColor:     colors.border,
-    padding:         spacing.lg,
-    ...shadow.card,
-  },
-  walletLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-    color: colors.textDim,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: spacing.xs,
-  },
-  walletBalance: {
-    fontSize:   fontSize.xxxl ?? 42,
-    fontWeight: '900',
-    color:      colors.text,
-    marginBottom: spacing.lg,
-  },
-
-  // Segmented toggle
-  walletToggle: {
-    flexDirection:    'row',
-    backgroundColor:  colors.bgInput,
-    borderRadius:     radius.md,
-    borderWidth:      1,
-    borderColor:      colors.border,
-    padding:          3,
-    marginBottom:     spacing.md,
-  },
-  walletTab: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems:      'center',
-    borderRadius:    radius.md - 2,
-  },
-  walletTabActive: {
-    backgroundColor: colors.primary,
-  },
-  walletTabText: {
-    fontSize:   fontSize.sm,
-    fontWeight: '600',
-    color:      colors.textMuted,
-  },
-  walletTabTextActive: { color: colors.text },
-
-  // Method row
-  walletMethodRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           spacing.md,
-    marginTop:     spacing.xs,
-  },
-  walletMethodIcon: { fontSize: 28, width: 36, textAlign: 'center' },
-  walletMethodInfo: { flex: 1 },
-  walletMethodName: { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-  walletMethodSub:  { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
-  walletMethodChevron: { color: colors.textMuted, fontSize: fontSize.lg, fontWeight: '300' },
 
   // ── Seller stats ──────────────────────────────────────────────────────────
   statsRow: {

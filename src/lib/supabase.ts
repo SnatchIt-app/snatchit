@@ -5,34 +5,76 @@
  * Required .env variables (prefix EXPO_PUBLIC_ so they're bundled by Expo):
  *   EXPO_PUBLIC_SUPABASE_URL
  *   EXPO_PUBLIC_SUPABASE_ANON_KEY
+ *
+ * Storage strategy:
+ *   - Native: AsyncStorage (persistent sessions across app restarts)
+ *   - Web (browser): localStorage via a thin wrapper
+ *   - Web (SSR/static export): in-memory no-op (avoids "window is not defined")
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
+
+// ── Platform-safe storage ────────────────────────────────────────────────────
+
+function getStorage() {
+  if (Platform.OS !== 'web') {
+    // Native: use AsyncStorage for persistent sessions.
+    // require() keeps the import out of the web bundle's static analysis.
+    return require('@react-native-async-storage/async-storage').default;
+  }
+
+  // Web: guard against SSR / static export where `window` doesn't exist.
+  if (typeof window === 'undefined') {
+    // No-op storage during static rendering — session won't persist,
+    // which is fine because static export only produces HTML shells.
+    return {
+      getItem: (_key: string) => Promise.resolve(null),
+      setItem: (_key: string, _value: string) => Promise.resolve(),
+      removeItem: (_key: string) => Promise.resolve(),
+    };
+  }
+
+  // Browser: thin wrapper around localStorage matching Supabase's expected interface.
+  return {
+    getItem: (key: string) => Promise.resolve(localStorage.getItem(key)),
+    setItem: (key: string, value: string) => {
+      localStorage.setItem(key, value);
+      return Promise.resolve();
+    },
+    removeItem: (key: string) => {
+      localStorage.removeItem(key);
+      return Promise.resolve();
+    },
+  };
+}
+
+// ── Env vars ─────────────────────────────────────────────────────────────────
 
 export const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 export const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-// ── Runtime guard ─────────────────────────────────────────────────────────────
+// ── Runtime guard ────────────────────────────────────────────────────────────
 // Fail loudly during development so the missing-env problem is obvious.
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
     '[SnatchIt] Supabase env vars are missing.\n' +
     'Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your .env file.\n' +
-    'Get them from: Supabase dashboard → Project Settings → API.'
+    'Get them from: Supabase dashboard \u2192 Project Settings \u2192 API.'
   );
 }
 
-// ── Client ────────────────────────────────────────────────────────────────────
+// ── Client ───────────────────────────────────────────────────────────────────
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Persist the session across app restarts using AsyncStorage.
-    storage: AsyncStorage,
+    // Platform-safe storage: AsyncStorage on native, localStorage on web,
+    // no-op during SSR/static export.
+    storage: getStorage(),
     persistSession: true,
     // Automatically refresh the JWT before it expires.
     autoRefreshToken: true,
     // Must be false for React Native – there is no browser URL to detect.
-    detectSessionInUrl: false,
+    detectSessionInUrl: Platform.OS === 'web',
   },
 });

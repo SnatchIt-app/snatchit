@@ -32,7 +32,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -126,7 +125,11 @@ export default function EditProfileScreen() {
     if (!result.ok) {
       // Cancelled silently — don't show an alert for cancellation
       if (result.error !== 'Cancelled.') {
-        Alert.alert('Upload Failed', result.error);
+        if (Platform.OS === 'web') {
+          window.alert(result.error);
+        } else {
+          Alert.alert('Upload Failed', result.error);
+        }
       }
       return;
     }
@@ -138,7 +141,11 @@ export default function EditProfileScreen() {
       .eq('id', user.id);
 
     if (dbError) {
-      Alert.alert('Save Failed', dbError.message);
+      if (Platform.OS === 'web') {
+        window.alert(dbError.message);
+      } else {
+        Alert.alert('Save Failed', dbError.message);
+      }
       return;
     }
 
@@ -190,10 +197,19 @@ export default function EditProfileScreen() {
         .eq('id', user.id);
 
       if (error) throw error;
-      Alert.alert('Saved', 'Your profile has been updated.');
+      if (Platform.OS === 'web') {
+        window.alert('Your profile has been updated.');
+      } else {
+        Alert.alert('Saved', 'Your profile has been updated.');
+      }
       router.back();
     } catch (err: unknown) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save profile.');
+      const msg = err instanceof Error ? err.message : 'Failed to save profile.';
+      if (Platform.OS === 'web') {
+        window.alert(msg);
+      } else {
+        Alert.alert('Error', msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -250,11 +266,11 @@ export default function EditProfileScreen() {
         style={s.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <ScrollView
             contentContainerStyle={s.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            onScrollBeginDrag={Platform.OS !== 'web' ? Keyboard.dismiss : undefined}
           >
 
             {/* ── Avatar ─────────────────────────────────────── */}
@@ -372,7 +388,6 @@ export default function EditProfileScreen() {
 
             <View style={{ height: 56 }} />
           </ScrollView>
-        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

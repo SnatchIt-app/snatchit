@@ -6,7 +6,7 @@
  *
  * Sections:
  *   ACCOUNT    — Edit Profile, Notifications
- *   PAYMENTS   — Payment Methods, Payout Method
+ *   PAYMENTS   — Payout Method
  *   PREFERENCES— Neighborhood
  *   SUPPORT    — Help & Support, Terms & Privacy
  *   DANGER     — Log Out
@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -34,11 +35,11 @@ import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 type SettingsRoute =
   | '/settings/edit-profile'
   | '/settings/notifications'
-  | '/settings/payment-methods'
   | '/settings/payout-setup'
   | '/settings/preferences'
   | '/settings/support'
-  | '/settings/legal';
+  | '/settings/legal'
+  | '/settings/privacy';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
 
 export default function SettingsScreen() {
   const [signingOut, setSigningOut] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   function nav(path: SettingsRoute) {
     router.push(path);
@@ -111,11 +113,89 @@ export default function SettingsScreen() {
         onPress: async () => {
           setSigningOut(true);
           await supabase.auth.signOut();
-          // useAuth in _layout.tsx routes to /(auth)/login when session is null
           setSigningOut(false);
         },
       },
     ]);
+  }
+
+  function alertWeb(msg: string) {
+    if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
+  }
+
+  async function executeDeleteAccount() {
+    setDeleting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', { body: {} });
+
+      if (error) {
+        let reason = 'Failed to delete account. Please try again or contact support.';
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json();
+            reason = body.error ?? reason;
+          }
+        } catch {}
+        alertWeb(reason);
+        setDeleting(false);
+        return;
+      }
+
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      if (parsed?.error) {
+        alertWeb(parsed.error);
+        setDeleting(false);
+        return;
+      }
+
+      // Success — sign out locally
+      await supabase.auth.signOut();
+      // _layout.tsx will route to login
+    } catch {
+      alertWeb('Something went wrong. Please try again.');
+      setDeleting(false);
+    }
+  }
+
+  function handleDeleteAccount() {
+    if (Platform.OS === 'web') {
+      const first = window.confirm(
+        'Delete Account\n\nThis will permanently delete your account, profile, and all associated data. Active listings will be cancelled. This cannot be undone.\n\nAre you sure?',
+      );
+      if (!first) return;
+      const second = window.confirm(
+        'Final Confirmation\n\nThis action is irreversible. Your account and data will be permanently deleted.\n\nProceed with deletion?',
+      );
+      if (!second) return;
+      executeDeleteAccount();
+    } else {
+      Alert.alert(
+        'Delete Account',
+        'This will permanently delete your account, profile, and all associated data. Active listings will be cancelled.\n\nThis cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete My Account',
+            style: 'destructive',
+            onPress: () => {
+              Alert.alert(
+                'Are you absolutely sure?',
+                'This action is irreversible. Your account and data will be permanently deleted.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Yes, Delete Everything',
+                    style: 'destructive',
+                    onPress: executeDeleteAccount,
+                  },
+                ],
+              );
+            },
+          },
+        ],
+      );
+    }
   }
 
   return (
@@ -155,11 +235,6 @@ export default function SettingsScreen() {
         <SectionLabel text="Payments" />
         <SettingsCard>
           <SettingsRow
-            icon="💳"
-            label="Payment Methods"
-            onPress={() => nav('/settings/payment-methods')}
-          />
-          <SettingsRow
             icon="🏦"
             label="Payout Setup"
             onPress={() => nav('/settings/payout-setup')}
@@ -172,7 +247,7 @@ export default function SettingsScreen() {
         <SettingsCard>
           <SettingsRow
             icon="📍"
-            label="Neighborhood"
+            label="Your Scene"
             onPress={() => nav('/settings/preferences')}
             showBorder={false}
           />
@@ -188,8 +263,13 @@ export default function SettingsScreen() {
           />
           <SettingsRow
             icon="📄"
-            label="Terms & Privacy"
+            label="Terms of Service"
             onPress={() => nav('/settings/legal')}
+          />
+          <SettingsRow
+            icon="🔒"
+            label="Privacy Policy"
+            onPress={() => nav('/settings/privacy')}
             showBorder={false}
           />
         </SettingsCard>
@@ -205,6 +285,18 @@ export default function SettingsScreen() {
           {signingOut
             ? <ActivityIndicator color={colors.error} size="small" />
             : <Text style={s.signOutText}>Sign Out</Text>
+          }
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[s.deleteBtn, deleting && { opacity: 0.6 }]}
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          activeOpacity={0.8}
+        >
+          {deleting
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={s.deleteText}>Delete Account</Text>
           }
         </TouchableOpacity>
 
@@ -272,6 +364,21 @@ const s = StyleSheet.create({
   },
   signOutText: {
     color:         colors.error,
+    fontWeight:    '700',
+    fontSize:      fontSize.md,
+    letterSpacing: 0.5,
+  },
+
+  // ── Delete Account button ─────────────────────────────────────────────
+  deleteBtn: {
+    backgroundColor: colors.error,
+    borderRadius:    radius.md,
+    paddingVertical: spacing.md,
+    alignItems:      'center',
+    marginBottom:    spacing.sm,
+  },
+  deleteText: {
+    color:         '#fff',
     fontWeight:    '700',
     fontSize:      fontSize.md,
     letterSpacing: 0.5,
