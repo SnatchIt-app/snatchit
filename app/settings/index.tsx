@@ -111,9 +111,19 @@ export default function SettingsScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
+          console.log('[settings] sign out start');
           setSigningOut(true);
-          await supabase.auth.signOut();
-          setSigningOut(false);
+          try {
+            await supabase.auth.signOut();
+            console.log('[settings] sign out success, navigating to login');
+            router.replace('/(auth)/login');
+          } catch (err) {
+            console.error('[settings] sign out error:', err);
+            alertWeb('Failed to sign out. Please try again.');
+          } finally {
+            console.log('[settings] finally clearing loading');
+            setSigningOut(false);
+          }
         },
       },
     ]);
@@ -124,9 +134,11 @@ export default function SettingsScreen() {
   }
 
   async function executeDeleteAccount() {
+    console.log('[settings] delete start');
     setDeleting(true);
     try {
       const { data, error } = await supabase.functions.invoke('delete-account', { body: {} });
+      console.log('[settings] delete function response', { data, error: error?.message });
 
       if (error) {
         let reason = 'Failed to delete account. Please try again or contact support.';
@@ -138,22 +150,25 @@ export default function SettingsScreen() {
           }
         } catch {}
         alertWeb(reason);
-        setDeleting(false);
         return;
       }
 
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
       if (parsed?.error) {
         alertWeb(parsed.error);
-        setDeleting(false);
         return;
       }
 
-      // Success — sign out locally
+      // Success — sign out locally and navigate immediately
+      console.log('[settings] sign out after delete success');
       await supabase.auth.signOut();
-      // _layout.tsx will route to login
-    } catch {
+      console.log('[settings] navigating to login');
+      router.replace('/(auth)/login');
+    } catch (err) {
+      console.error('[settings] delete error:', err);
       alertWeb('Something went wrong. Please try again.');
+    } finally {
+      console.log('[settings] finally clearing loading');
       setDeleting(false);
     }
   }

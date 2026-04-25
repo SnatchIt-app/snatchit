@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Snatch It — Payout Setup Complete</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+  .card { text-align: center; max-width: 400px; }
+  .icon { font-size: 48px; margin-bottom: 16px; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  p { font-size: 15px; color: #999; line-height: 1.5; margin-bottom: 24px; }
+  .btn { display: inline-block; background: #6c5ce7; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 10px; font-weight: 600; font-size: 15px; }
+  .btn:hover { opacity: 0.9; }
+  .sub { font-size: 13px; color: #666; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">&#x2705;</div>
+  <h1>Payout Setup Complete</h1>
+  <p>Your Stripe account is connected. You can close this page and return to the Snatch It app.</p>
+  <a class="btn" id="open-app" href="snatchit://settings/payout-setup">Open Snatch It</a>
+  <p class="sub">If the button doesn't work, open the Snatch It app manually.</p>
+</div>
+<script>
+  // Attempt auto-redirect to the app
+  setTimeout(function () { window.location.href = 'snatchit://settings/payout-setup'; }, 500);
+</script>
+</body>
+</html>

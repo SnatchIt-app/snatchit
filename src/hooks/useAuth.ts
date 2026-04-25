@@ -100,23 +100,29 @@ export function useAuth(): AuthState {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      // Update session state FIRST so navigation reacts immediately.
+      // The stale-token check below is a diagnostic side-effect that should
+      // never delay the UI transition to the login screen.
+      setSession(newSession);
+
       if (
         event === 'SIGNED_OUT' &&
         newSession === null &&
         !staleHandledRef.current &&
         !_staleWarnEmitted
       ) {
-        // We can't distinguish a stale-token sign-out from a normal one here,
-        // but if neither path has warned yet we attempt to verify via a silent
-        // getSession() call to surface the error reason without blocking.
-        const { error: chk } = await supabase.auth.getSession();
-        if (chk && isStaleTokenError(chk.message)) {
-          staleHandledRef.current = true;
-          await clearStaleSession(chk.message);
+        // Best-effort stale-token diagnostic — runs after state is already
+        // updated so it can't block navigation.
+        try {
+          const { error: chk } = await supabase.auth.getSession();
+          if (chk && isStaleTokenError(chk.message)) {
+            staleHandledRef.current = true;
+            await clearStaleSession(chk.message);
+          }
+        } catch {
+          // Ignore — user may already be deleted (account deletion flow).
         }
       }
-
-      setSession(newSession);
     });
 
     return () => subscription.unsubscribe();

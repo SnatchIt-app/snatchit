@@ -62,12 +62,14 @@ create unique index if not exists idx_payments_one_success_per_listing
 -- Stripe PaymentIntent. The existing transferErr handler in the webhook
 -- already logs and continues, so this is a silent, safe guard.
 -- ===========================================================================
-alter table public.transfers
-  add constraint if not exists transfers_payment_id_key unique (payment_id);
--- NOTE: PostgreSQL <15 does not support ADD CONSTRAINT IF NOT EXISTS.
--- If your Postgres version is < 15, use:
---   alter table public.transfers add constraint transfers_payment_id_key unique (payment_id);
--- and run only if the constraint does not already exist.
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'transfers_payment_id_key'
+  ) then
+    alter table public.transfers
+      add constraint transfers_payment_id_key unique (payment_id);
+  end if;
+end $$;
 
 
 -- ===========================================================================
@@ -78,8 +80,14 @@ alter table public.transfers
 -- exist as the result of the buy_now + auction double-sale bug. This constraint
 -- ensures the DB rejects any second insert regardless of how it is triggered.
 -- ===========================================================================
-alter table public.transfers
-  add constraint if not exists transfers_listing_id_key unique (listing_id);
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'transfers_listing_id_key'
+  ) then
+    alter table public.transfers
+      add constraint transfers_listing_id_key unique (listing_id);
+  end if;
+end $$;
 
 
 -- ===========================================================================

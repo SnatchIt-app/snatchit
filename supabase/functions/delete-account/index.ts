@@ -147,57 +147,26 @@ serve(async (req) => {
       }, 409, getResponseHeaders(req));
     }
 
-    // ── 2. Cancel active listings ────────────────────────────────────────
-    // NOTE: The 'status' column CHECK only allows ('active','reserved','sold').
-    // The 'cancelled' value belongs to auction_status, not status.
-    const { error: cancelErr } = await supabase
-      .from('listings')
-      .update({ auction_status: 'cancelled' })
-      .eq('seller_id', userId)
-      .in('status', ['active', 'reserved']);
+    // ── 2 & 3. Cancel listings + anonymize financial records ────────────
+    // Uses the delete_account_cleanup RPC (migration 020) which runs as
+    // SECURITY DEFINER to bypass:
+    //   - guard_listing_state_columns (blocks direct auction_status changes)
+    //   - guard_listing_identity_columns (blocks ALL seller_id changes)
+    // The RPC cancels active listings, anonymizes seller_id on all listings,
+    // and anonymizes buyer_id/seller_id on payments and transfers using the
+    // sentinel UUID (00000000-0000-0000-0000-000000000000).
+    const { error: cleanupErr } = await supabase.rpc('delete_account_cleanup', {
+      p_user_id: userId,
+    });
 
-    if (cancelErr) {
-      console.error('[delete-account] cancel listings error:', cancelErr.message);
+    if (cleanupErr) {
+      console.error('[delete-account] cleanup RPC error:', cleanupErr.message);
+      return json({
+        error: 'Failed to clean up account data. Please try again or contact support.',
+      }, 500, getResponseHeaders(req));
     }
 
-    // ── 3. Anonymize financial records ───────────────────────────────────
-    // Payments and transfers must be retained for legal/tax/dispute purposes.
-    // Replace user ID with the sentinel ANONYMIZED_USER_ID so the record
-    // survives CASCADE but is no longer personally identifiable.
-    // NOTE: buyer_id/seller_id have NOT NULL constraints — setting to null
-    // would silently fail. The sentinel UUID has a matching auth.users +
-    // profiles row (migration 019).
-
-    // Anonymize payments where user is buyer
-    await supabase
-      .from('payments')
-      .update({ buyer_id: ANONYMIZED_USER_ID })
-      .eq('buyer_id', userId);
-
-    // Anonymize payments where user is seller
-    await supabase
-      .from('payments')
-      .update({ seller_id: ANONYMIZED_USER_ID })
-      .eq('seller_id', userId);
-
-    // Anonymize transfers where user is buyer
-    await supabase
-      .from('transfers')
-      .update({ buyer_id: ANONYMIZED_USER_ID })
-      .eq('buyer_id', userId);
-
-    // Anonymize transfers where user is seller
-    await supabase
-      .from('transfers')
-      .update({ seller_id: ANONYMIZED_USER_ID })
-      .eq('seller_id', userId);
-
-    // Anonymize listings (sold/ended ones are historical records)
-    await supabase
-      .from('listings')
-      .update({ seller_id: ANONYMIZED_USER_ID })
-      .eq('seller_id', userId)
-      .in('auction_status', ['sold', 'cancelled']);
+    console.log('[delete-account] listings cancelled and financial records anonymized');
 
     // ── 4. Delete bids ───────────────────────────────────────────────────
     await supabase
