@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,7 +21,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useStripe } from '@stripe/stripe-react-native';
+import {
+  isPlatformPaySupported,
+  PlatformPay,
+  useStripe,
+} from '@stripe/stripe-react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -66,6 +71,10 @@ export default function CheckoutScreen() {
   const [paymentLoading,  setPaymentLoading]  = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [paymentError,    setPaymentError]    = useState<string | null>(null);
+  // null = probe hasn't run yet; true/false = result. Used only for analytics
+  // and to soften the payment-method subtext while applePay config flows
+  // entirely through initPaymentSheet (no separate button rendered).
+  const [applePayAvailable, setApplePayAvailable] = useState<boolean | null>(null);
 
   const confirmedRef = useRef(false);
   const setupPaymentRef = useRef<(() => void) | null>(null);
@@ -119,14 +128,81 @@ export default function CheckoutScreen() {
 
         setPaymentIntentId(result.paymentIntentId);
 
+        // ── Apple Pay availability probe (iOS only) ──────────────────────
+        // isPlatformPaySupported() returns false on:
+        //   • iOS Simulator (no Wallet integration)
+        //   • iPad without Apple Pay (older devices)
+        //   • iOS devices in regions where Apple Pay is unavailable
+        //   • devices where the user has explicitly disabled Apple Pay
+        // In every false case PaymentSheet still works — it just shows
+        // card-only (and Link if enabled). That's the desired fallback.
+        // We never call this on Android; we don't surface Google Pay here.
+        let applePayAvailable = false;
+        if (Platform.OS === 'ios') {
+          try {
+            applePayAvailable = await isPlatformPaySupported();
+          } catch (probeErr) {
+            // Treat a probe failure exactly like "unsupported" — never block
+            // the card-only fallback path because of a wallet probe error.
+            console.warn('[checkout] isPlatformPaySupported threw:', probeErr);
+            applePayAvailable = false;
+          }
+        }
+        setApplePayAvailable(applePayAvailable);
+
+        // ── Apple Pay cart line items ────────────────────────────────────
+        // Stripe / PassKit convention: the LAST item is the grand total and
+        // its label is the merchant name shown in the Apple Pay sheet
+        // (e.g. "Snatch It — $55.00"). All amounts are decimal-dollar
+        // strings; internal math stays in integer cents.
+        const applePayCartItems: PlatformPay.CartSummaryItem[] = [
+          {
+            paymentType: PlatformPay.PaymentType.Immediate,
+            label: 'Ticket',
+            amount: (result.amount / 100).toFixed(2),
+          },
+          {
+            paymentType: PlatformPay.PaymentType.Immediate,
+            label: 'Service fee',
+            amount: (result.buyer_fee / 100).toFixed(2),
+          },
+          {
+            paymentType: PlatformPay.PaymentType.Immediate,
+            label: 'Snatch It',
+            amount: (result.total / 100).toFixed(2),
+          },
+        ];
+
+        // Defensive invariant: Apple Pay sheet will hang or display wrong
+        // total if items don't sum. With integer-cent math upstream this
+        // should never fire; surface as Sentry breadcrumb if it ever does.
+        const itemsSum =
+          Math.round(parseFloat(applePayCartItems[0].amount) * 100) +
+          Math.round(parseFloat(applePayCartItems[1].amount) * 100);
+        if (itemsSum !== result.total) {
+          console.warn('[checkout] cart items do not sum to total', {
+            itemsSum, total: result.total,
+          });
+        }
+
         const { error } = await initPaymentSheet({
           paymentIntentClientSecret: result.clientSecret,
-          merchantDisplayName: 'SnatchIt',
+          merchantDisplayName: 'Snatch It',
           returnURL: 'snatchit://checkout',
           allowsDelayedPaymentMethods: false,
-          defaultBillingDetails: {
-            email: user!.email,
-          },
+          defaultBillingDetails: { email: user!.email },
+          // P1-03: passing both customerId and the ephemeral key activates
+          // PaymentSheet's "saved cards" UI. On the first checkout the user
+          // enters a card; on subsequent checkouts the same card appears
+          // as a saved option at the top of the sheet.
+          customerId:                 result.customerId,
+          customerEphemeralKeySecret: result.customerEphemeralKeySecret,
+          ...(applePayAvailable && {
+            applePay: {
+              merchantCountryCode: 'US',
+              cartItems: applePayCartItems,
+            },
+          }),
         });
 
         if (error) {
@@ -400,7 +476,7 @@ export default function CheckoutScreen() {
           <View style={s.divider} />
 
           <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>Service fee (5%)</Text>
+            <Text style={s.summaryLabel}>Service fee (10%)</Text>
             <Text style={s.summaryValue}>{fmt$(total - bidAmount)}</Text>
           </View>
 
@@ -437,8 +513,10 @@ export default function CheckoutScreen() {
               <>
                 <Text style={s.paymentIcon}>{'\uD83D\uDCB3'}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Stripe Checkout</Text>
-                  <Text style={s.paymentSub}>Tap Pay to enter card details</Text>
+                  <Text style={s.paymentName}>Secure checkout</Text>
+                  <Text style={s.paymentSub}>
+                    {applePayAvailable ? 'Apple Pay or card' : 'Card payment'}
+                  </Text>
                 </View>
               </>
             ) : paymentError ? (
@@ -460,7 +538,7 @@ export default function CheckoutScreen() {
               <>
                 <Text style={s.paymentIcon}>{'\uD83D\uDCB3'}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Stripe Checkout</Text>
+                  <Text style={s.paymentName}>Secure checkout</Text>
                   <Text style={s.paymentSub}>Initializing{'\u2026'}</Text>
                 </View>
               </>

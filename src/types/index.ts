@@ -22,6 +22,11 @@ export type Profile = {
   wallet_balance:      number;          // ADD COLUMN IF NOT EXISTS
   bio:                 string | null;   // ADD COLUMN IF NOT EXISTS
   preferred_neighborhoods: string[];   // ADD COLUMN IF NOT EXISTS
+  // Stripe Connect (seller side)
+  stripe_connect_id:          string | null;   // migration 002
+  stripe_onboarding_complete: boolean;         // migration 017
+  // Stripe Customer (buyer side) — saved cards / PaymentSheet (migration 026)
+  stripe_customer_id:         string | null;
 };
 
 // ─── Listing ──────────────────────────────────────────────────────────────────
@@ -146,9 +151,15 @@ export type Payment = {
   listing_id:                string;
   buyer_id:                  string;
   seller_id:                 string;
-  amount:                    number;           // in cents
-  service_fee:               number;           // in cents
-  total:                     number;           // in cents
+  /** Listing price in cents (what seller listed). */
+  amount:                    number;
+  /** 10% buyer fee in cents — added on top of `amount`. (Renamed from
+   *  service_fee in migration 022.) */
+  buyer_fee:                 number;
+  /** 10% seller fee in cents — withheld from seller payout at release. */
+  seller_fee:                number;
+  /** Card charge total in cents = amount + buyer_fee. */
+  total:                     number;
   stripe_payment_intent_id:  string | null;
   stripe_client_secret:      string | null;
   status:                    PaymentStatus;
@@ -317,5 +328,77 @@ export type SellerRiskScore = {
   is_listing_blocked:     boolean;
   listing_blocked_at:     string | null;
   listing_blocked_reason: string | null;
+};
+
+// ─── UGC moderation (migration 023) ──────────────────────────────────────────
+
+export type ReportTargetType = 'listing' | 'user';
+
+export type ReportReason =
+  | 'fraud_or_scam'
+  | 'counterfeit_or_invalid'
+  | 'inappropriate_content'
+  | 'misleading'
+  | 'harassment'
+  | 'other';
+
+export type ReportStatus = 'pending' | 'reviewing' | 'actioned' | 'dismissed';
+
+export type Report = {
+  id:           string;
+  reporter_id:  string;
+  target_type:  ReportTargetType;
+  target_id:    string;
+  reason:       ReportReason;
+  notes:        string | null;
+  status:       ReportStatus;
+  created_at:   string;
+  resolved_at:  string | null;
+};
+
+export type UserBlock = {
+  blocker_id: string;
+  blocked_id: string;
+  created_at: string;
+};
+
+// ─── Stripe disputes (migration 024) ──────────────────────────────────────────
+
+export type DisputeStatus =
+  | 'warning_needs_response'
+  | 'warning_under_review'
+  | 'warning_closed'
+  | 'needs_response'
+  | 'under_review'
+  | 'won'
+  | 'lost'
+  | 'charge_refunded';
+
+export type Dispute = {
+  id:                  string;
+  stripe_dispute_id:   string;
+  stripe_charge_id:    string;
+  stripe_pi_id:        string | null;
+  payment_id:          string | null;
+  transfer_id:         string | null;
+  amount:              number;       // cents
+  currency:            string;
+  reason:              string;
+  status:              DisputeStatus;
+  evidence_due_by:     string | null;
+  created_at:          string;
+  updated_at:          string;
+};
+
+// ─── Stripe webhook event dedup (migration 025) ───────────────────────────────
+
+export type StripeWebhookEvent = {
+  event_id:     string;
+  event_type:   string;
+  received_at:  string;
+  processed:    boolean;
+  processed_at: string | null;
+  last_error:   string | null;
+  retry_count:  number;
 };
 

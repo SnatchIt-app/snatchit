@@ -1,6 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/payout-return", "destination": "/payout-return.html" },
-    { "source": "/payout-refresh", "destination": "/payout-refresh.html" }
-  ]
-}

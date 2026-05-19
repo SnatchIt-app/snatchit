@@ -19,6 +19,13 @@ import {
 
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { TransferMethod } from '@/src/types';
+import {
+  formatPhoneDisplay,
+  isValidUSPhone,
+  normalizeUSPhone,
+  PHONE_DISPLAY_MAXLENGTH,
+  toPhoneDigits,
+} from '@/src/utils/phone';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -46,18 +53,28 @@ export default function DeliveryInfoForm({
 
   function handleSubmit() {
     const trimEmail = email.trim() || null;
-    const trimPhone = phone.trim() || null;
+    // Normalize at the boundary — always store a clean 10-digit string or
+    // null. If the validator was somehow bypassed, this returns null and
+    // the upstream RPC stores null rather than a malformed value.
+    const normalizedPhone = showPhone ? normalizeUSPhone(phone) : null;
 
-    // Validate at least the required field is filled
     if (showEmail && !trimEmail) return;
-    if (showPhone && !trimPhone) return;
+    if (showPhone && !normalizedPhone) return;
 
-    onSubmit(trimEmail, trimPhone);
+    onSubmit(trimEmail, normalizedPhone);
   }
 
+  const phoneValid = isValidUSPhone(phone);
   const canSubmit =
     (showEmail ? email.trim().length > 0 : true) &&
-    (showPhone ? phone.trim().length > 0 : true);
+    (showPhone ? phoneValid : true);
+
+  // Inline error: only after the user has typed something invalid.
+  // Empty input is "not yet ready", not "wrong" — don't flash an error.
+  const phoneErrorText =
+    showPhone && phone.length > 0 && !phoneValid
+      ? 'Enter a valid 10-digit US phone number.'
+      : null;
 
   return (
     <View style={s.container}>
@@ -86,15 +103,22 @@ export default function DeliveryInfoForm({
       {showPhone && (
         <>
           <Text style={s.label}>Phone number for ticket transfer</Text>
+          {/* Internal state `phone` is digits-only. TextInput renders the
+              formatted display while the user types and accepts pasted
+              numbers in any common format. */}
           <TextInput
             style={s.input}
-            placeholder="(555) 123-4567"
+            placeholder="(305) 555-1234"
             placeholderTextColor={colors.textPlaceholder}
-            value={phone}
-            onChangeText={setPhone}
+            value={formatPhoneDisplay(phone)}
+            onChangeText={(v) => setPhone(toPhoneDigits(v))}
             keyboardType="phone-pad"
+            textContentType="telephoneNumber"
+            autoComplete="tel-national"
+            maxLength={PHONE_DISPLAY_MAXLENGTH}
             editable={!loading}
           />
+          {phoneErrorText && <Text style={s.errorText}>{phoneErrorText}</Text>}
         </>
       )}
 
@@ -149,6 +173,12 @@ const s = StyleSheet.create({
     color: colors.text,
     fontSize: fontSize.md,
     padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: fontSize.xs,
+    marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },
   submitBtn: {

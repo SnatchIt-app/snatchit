@@ -14,6 +14,7 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -62,15 +63,19 @@ function getResponseHeaders(req: Request): Record<string, string> {
 }
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-// Returns true if the request is within limits (or if the DB check fails —
-// fail-open so a DB hiccup never blocks a legitimate deletion).
+// Fail-CLOSED: distinguishes 'allowed' / 'over_limit' / 'error' so callers
+// can return 429 vs 503 instead of silently bypassing rate limits on RPC
+// errors. Account deletion is irreversible; we will not let a DB hiccup
+// open the door to abuse.
+type RateLimitResult = 'allowed' | 'over_limit' | 'error';
+
 async function checkRateLimit(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   action: string,
   maxRequests: number,
   windowSeconds: number,
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   try {
     const { data, error } = await supabase.rpc('check_rate_limit', {
       p_user_id:        userId,
@@ -79,13 +84,13 @@ async function checkRateLimit(
       p_window_seconds: windowSeconds,
     });
     if (error) {
-      console.warn('Rate limit RPC error (failing open):', error.message);
-      return true;
+      console.warn('Rate limit RPC error (failing closed):', error.message);
+      return 'error';
     }
-    return data === true;
+    return data === true ? 'allowed' : 'over_limit';
   } catch (err) {
-    console.warn('Rate limit check threw (failing open):', err);
-    return true;
+    console.warn('Rate limit check threw (failing closed):', err);
+    return 'error';
   }
 }
 
@@ -126,8 +131,16 @@ serve(async (req) => {
     // ── Rate limit ───────────────────────────────────────────────────────
     // 3 requests per 300 seconds (5 minutes). Account deletion is rare;
     // anything faster is likely abuse or a runaway retry loop.
-    const withinLimit = await checkRateLimit(supabase, userId, 'delete_account', 3, 300);
-    if (!withinLimit) {
+    // Fail-closed: any RPC failure returns 503 instead of bypassing limits.
+    const rl = await checkRateLimit(supabase, userId, 'delete_account', 3, 300);
+    if (rl === 'error') {
+      return json(
+        { error: 'Service temporarily unavailable. Please try again shortly.' },
+        503,
+        getResponseHeaders(req),
+      );
+    }
+    if (rl === 'over_limit') {
       return json({ error: 'Too many requests. Please try again later.' }, 429, getResponseHeaders(req));
     }
 
@@ -214,7 +227,9 @@ serve(async (req) => {
     return json({ success: true }, 200, getResponseHeaders(req));
 
   } catch (err) {
-    console.error('[delete-account] unexpected error:', err);
+    // Account deletion is irreversible — every unexpected failure here
+    // demands ops attention, so capture unconditionally.
+    await captureException('delete-account', err);
     return json({ error: 'Internal server error' }, 500, getResponseHeaders(req));
   }
 });

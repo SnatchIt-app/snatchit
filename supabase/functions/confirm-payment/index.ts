@@ -21,6 +21,8 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
+import { stripeFetchRaw } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -64,13 +66,16 @@ function getResponseHeaders(req: Request): Record<string, string> {
 }
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Fail-CLOSED.
+type RateLimitResult = 'allowed' | 'over_limit' | 'error';
+
 async function checkRateLimit(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   action: string,
   maxRequests: number,
   windowSeconds: number,
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   try {
     const { data, error } = await supabase.rpc('check_rate_limit', {
       p_user_id:        userId,
@@ -79,13 +84,13 @@ async function checkRateLimit(
       p_window_seconds: windowSeconds,
     });
     if (error) {
-      console.warn('Rate limit RPC error (failing open):', error.message);
-      return true;
+      console.warn('Rate limit RPC error (failing closed):', error.message);
+      return 'error';
     }
-    return data === true;
+    return data === true ? 'allowed' : 'over_limit';
   } catch (err) {
-    console.warn('Rate limit check threw (failing open):', err);
-    return true;
+    console.warn('Rate limit check threw (failing closed):', err);
+    return 'error';
   }
 }
 
@@ -123,10 +128,23 @@ serve(async (req: Request) => {
   try {
     const buyerId = await getAuthenticatedUserId(req);
 
-    // Rate limit: 10 requests per 60 seconds per user.
+    // Rate limit: 10 requests per 60 seconds per user. Fail-closed.
     const rlClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const allowed = await checkRateLimit(rlClient, buyerId, 'confirm-payment', 10, 60);
-    if (!allowed) {
+    const rl = await checkRateLimit(rlClient, buyerId, 'confirm-payment', 10, 60);
+    if (rl === 'error') {
+      return new Response(
+        JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+        {
+          status: 503,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '30',
+            ...getResponseHeaders(req),
+          },
+        },
+      );
+    }
+    if (rl === 'over_limit') {
       return new Response(
         JSON.stringify({ error: 'Too many requests. Please try again later.' }),
         {
@@ -157,15 +175,10 @@ serve(async (req: Request) => {
     let stripePaymentMethod: string = 'card';
 
     try {
-      const stripeRes = await fetch(
-        `https://api.stripe.com/v1/payment_intents/${payment_intent_id}`,
-        {
-          headers: { 'Authorization': `Bearer ${STRIPE_SECRET_KEY}` },
-        }
-      );
+      const stripeRes = await stripeFetchRaw(`/payment_intents/${payment_intent_id}`);
 
       if (stripeRes.ok) {
-        const stripeData = await stripeRes.json();
+        const stripeData = stripeRes.data as { status?: string; payment_method_types?: string[] };
 
         if (stripeData.status === 'succeeded') {
           stripeVerified = true;
@@ -277,9 +290,13 @@ serve(async (req: Request) => {
       { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
     );
   } catch (err) {
-    console.error('confirm-payment: unhandled error:', err);
     const message = err instanceof Error ? err.message : '';
     const isAuthError = /authorization|token/i.test(message);
+    if (isAuthError) {
+      console.warn('confirm-payment: auth error:', message);
+    } else {
+      await captureException('confirm-payment', err);
+    }
     return new Response(
       JSON.stringify({ error: isAuthError ? message : 'Internal server error' }),
       { status: isAuthError ? 401 : 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }

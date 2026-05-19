@@ -34,6 +34,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { ImageUploadTile } from '@/src/components/ImageUploadTile';
+import { APP_CONFIG } from '@/src/config/app';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import type {
@@ -568,6 +569,11 @@ export default function CreateListingScreen() {
             value={startingBid} onChangeText={t => setStartingBid(digitsOnly(t))} />
         </View>
         {submitted && <FieldError msg={errors.startingBid} />}
+        {startingBidNum > 0 && (
+          <Text style={s.feeHint}>
+            You receive ${Math.round(startingBidNum * (1 - APP_CONFIG.SELLER_FEE_RATE)).toLocaleString('en-US')} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% marketplace fee.
+          </Text>
+        )}
 
         <View style={s.toggleCard}>
           <View style={{ flex: 1, marginRight: spacing.md }}>
@@ -592,6 +598,11 @@ export default function CreateListingScreen() {
                 value={buyNowPrice} onChangeText={t => setBuyNowPrice(digitsOnly(t))} />
             </View>
             {submitted && <FieldError msg={errors.buyNowPrice} />}
+            {buyNowPriceNum > 0 && (
+              <Text style={s.feeHint}>
+                You receive ${Math.round(buyNowPriceNum * (1 - APP_CONFIG.SELLER_FEE_RATE)).toLocaleString('en-US')} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% marketplace fee.
+              </Text>
+            )}
           </>
         )}
 
@@ -782,6 +793,7 @@ const s = StyleSheet.create({
   inner:     { paddingTop: 60, paddingHorizontal: spacing.lg, paddingBottom: 48 },
   pageTitle: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text, marginBottom: 4 },
   label:     { fontSize: fontSize.sm, color: colors.textMuted, marginBottom: 6 },
+  feeHint:   { fontSize: fontSize.xs, color: colors.textMuted, marginTop: -8, marginBottom: spacing.md, fontStyle: 'italic' },
 
   input: {
     backgroundColor: colors.bgInput, color: colors.text,

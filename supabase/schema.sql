@@ -976,9 +976,14 @@ create table if not exists public.payments (
   buyer_id                   uuid        not null references auth.users(id),
   seller_id                  uuid        not null references auth.users(id),
 
-  -- Amounts (stored in cents for precision)
+  -- Amounts (stored in cents for precision). 10/10 fee model:
+  --   amount      = listing price (what seller listed)
+  --   buyer_fee   = 10% added on top of `amount`, charged to buyer
+  --   seller_fee  = 10% withheld from seller payout at release
+  --   total       = amount + buyer_fee (= what Stripe charges the card)
   amount                     int         not null check (amount > 0),
-  service_fee                int         not null check (service_fee >= 0),
+  buyer_fee                  int         not null check (buyer_fee >= 0),
+  seller_fee                 int         not null default 0 check (seller_fee >= 0),
   total                      int         not null check (total > 0),
 
   -- Stripe references

@@ -7,7 +7,7 @@
  *   Supabase dashboard → Authentication → Sign In / Up → Confirm email → OFF
  */
 
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -97,6 +97,27 @@ export default function SignUpScreen() {
             {message.text}
           </Text>
         )}
+
+        {/* ── Legal disclosure (App Store Guideline 5.1.1) ── */}
+        <Text style={styles.legalText}>
+          By creating an account you agree to our{' '}
+          <Text
+            style={styles.legalLink}
+            onPress={() => router.push('/settings/legal')}
+            accessibilityRole="link"
+          >
+            Terms of Service
+          </Text>
+          {' '}and{' '}
+          <Text
+            style={styles.legalLink}
+            onPress={() => router.push('/settings/privacy')}
+            accessibilityRole="link"
+          >
+            Privacy Policy
+          </Text>
+          .
+        </Text>
 
         {/* ── Create Account button ── */}
         <TouchableOpacity
@@ -194,5 +215,19 @@ const styles = StyleSheet.create({
   linkAccent: {
     color: colors.accent,
     fontWeight: '600',
+  },
+  legalText: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  legalLink: {
+    color: colors.accent,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

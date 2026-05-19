@@ -4,7 +4,6 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,10 +12,25 @@ import {
 } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
+
+// Deep-link the Stripe-hosted onboarding return back into the app via the
+// `snatchit://` scheme (declared in app.json `scheme` + CFBundleURLSchemes
+// in Info.plist). iOS's ASWebAuthenticationSession watches for any URL
+// starting with this pattern and auto-closes the in-app browser as soon as
+// it sees one — returning the seller seamlessly to the app.
+//
+// Stripe's actual `return_url` / `refresh_url` are HTTPS (per Stripe's
+// requirements); the hosted /payout-return and /payout-refresh pages may
+// optionally trigger the deep link via `window.location.href` to invoke
+// auto-close. With or without that optimization, the session always
+// terminates cleanly when the user taps Done, and we re-check status on
+// every result type.
+const PAYOUT_AUTH_CALLBACK = 'snatchit://payout-return';
 
 type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 
@@ -185,9 +199,34 @@ export default function PayoutSetupScreen() {
           window.location.href = url;
         }
       } else {
-        await Linking.openURL(url);
+        // ── In-app browser flow (iOS / Android native) ───────────────────
+        // Use ASWebAuthenticationSession (iOS) / Chrome Custom Tabs (Android)
+        // via expo-web-browser so the seller never leaves the app shell.
+        // The session auto-closes if the in-browser page navigates to
+        // PAYOUT_AUTH_CALLBACK, and resolves with `type: 'dismiss'` if the
+        // user taps Done before that. We re-check Stripe status on every
+        // outcome — success, cancel, or dismiss — so the visible state is
+        // always derived from Stripe's authoritative `details_submitted`
+        // rather than from the browser-session result.
+        try {
+          const result = await WebBrowser.openAuthSessionAsync(
+            url,
+            PAYOUT_AUTH_CALLBACK,
+          );
+          // result.type ∈ 'success' | 'cancel' | 'dismiss' | 'locked' | 'opened'
+          // We log only for observability; do NOT branch behavior on it.
+          console.log('[payout-setup] auth session ended:', result.type);
+        } catch (browserErr) {
+          // openAuthSessionAsync can throw if the OS denies the session
+          // (e.g. another auth session already running). Treat exactly
+          // like a dismiss and let the status check be the source of truth.
+          console.warn('[payout-setup] openAuthSessionAsync threw:', browserErr);
+        }
+        // Force-refresh status now (not waiting on AppState change) so the
+        // seller sees their new "Connected" state immediately on return.
+        await checkStatusReal();
       }
-      // AppState listener + useFocusEffect will re-check when user returns
+      // AppState listener + useFocusEffect will also re-check when user returns
     } catch {
       if (webWindow) webWindow.close();
       if (Platform.OS === 'web') {

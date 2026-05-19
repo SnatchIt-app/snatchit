@@ -8,19 +8,34 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "development"
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51T6FarGdOzCmGbHwvYE6N8WDcb7TsQu09cEQm3WAHgOepXrAH2V3S3tPzME8E5gcHqhYpr6ai2zdTOnyYj0Ugg9K008NKC1RB6",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hqycwntpfoztoinemqns.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_dBAq-Yv22vguzP9QSC-Jew_4mmx64Yc",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://f83fffa8c787e41e509b17b384787aed@o4511123980877825.ingest.us.sentry.io/4511123983695872",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "staging"
+        "EXPO_PUBLIC_APP_ENV": "staging",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51T6FarGdOzCmGbHwvYE6N8WDcb7TsQu09cEQm3WAHgOepXrAH2V3S3tPzME8E5gcHqhYpr6ai2zdTOnyYj0Ugg9K008NKC1RB6",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hqycwntpfoztoinemqns.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_dBAq-Yv22vguzP9QSC-Jew_4mmx64Yc",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://f83fffa8c787e41e509b17b384787aed@o4511123980877825.ingest.us.sentry.io/4511123983695872",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51T6FarGdOzCmGbHw7VV8G5RvQ45R54VUV97hcCmvDGmLRk5hgx4DjIEmU9tWpCvklI9DiRyQeO6T1d3PkJN1IoGw00vJoXWDIA",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hqycwntpfoztoinemqns.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxeWN3bnRwZm96dG9pbmVtcW5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNzkyMDgsImV4cCI6MjA4Njk1NTIwOH0.rIhpma8iyXorXRxWUVMqpT2Csimdj2hedtPzuzV6C_E",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://f83fffa8c787e41e509b17b384787aed@o4511123980877825.ingest.us.sentry.io/4511123983695872",
+        "SENTRY_ALLOW_FAILURE": "true"
       }
     }
   },

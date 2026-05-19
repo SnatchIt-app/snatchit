@@ -28,9 +28,11 @@ import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   Animated,
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -362,10 +364,6 @@ export default function ListingDetailScreen({ id }: Props) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      console.log('[DIAG] fetchData transfer query:', {
-        listing_id: fetchedListing.id,
-        transfer: transfer ?? 'NULL',
-      });
       setTransferStatus(toTransferStatus(transfer?.status));
       setTransferId(transfer?.id ?? null);
       setTransferBuyerId(transfer?.buyer_id ?? null);
@@ -423,12 +421,6 @@ export default function ListingDetailScreen({ id }: Props) {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
-
-        console.log('[DIAG] sold-state retry transfer query:', {
-          listing_id: listing.id,
-          attempt,
-          transfer: transfer ?? 'NULL',
-        });
 
         if (cancelled) return;
 
@@ -671,30 +663,25 @@ export default function ListingDetailScreen({ id }: Props) {
     // 1. Haptic — success pattern
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
-    // 2. In-app animated banner (slides in from top, auto-hides after 6 s)
-    animateWinIn();
-    if (winHideTimerRef.current) clearTimeout(winHideTimerRef.current);
-    winHideTimerRef.current = setTimeout(() => animateWinOut(), 6_000);
-
-    // 3. Mallet-hit sound — disabled until asset is added.
-    // To enable: add assets/sounds/mallet-hit.mp3, run `npx expo install expo-av`,
-    // then uncomment the Audio import above and this block.
+    // 2. Local notification — replaces the previous slide-in in-screen
+    //    banner. The banner overlapped the screen header (looked broken)
+    //    and only fired in-foreground, so users who already navigated
+    //    away never saw it. A system notification is visible in the
+    //    Notification Center regardless of foreground/background state.
+    //    The legacy animateWinIn / animateWinOut / winTitleRef / WIN_TITLES
+    //    declarations are intentionally left in place — they're harmless
+    //    dead refs and removing them is out of scope for this fix.
     //
-    // Audio.Sound.createAsync(
-    //   require('@/assets/sounds/mallet-hit.mp3'),
-    // ).then(({ sound }) => {
-    //   sound.playAsync().catch(() => {});
-    //   sound.setOnPlaybackStatusUpdate((s) => {
-    //     if (s.isLoaded && s.didJustFinish) sound.unloadAsync().catch(() => {});
-    //   });
-    // }).catch((e) => console.warn('[win-sound] skipped:', e));
-
-    // 4. Background / system notification (for when app is foregrounded but
-    //    user navigates away before the banner can show)
+    //    TODO (deep-link routing): when the user taps the notification,
+    //    iOS opens the app and the response payload arrives in the
+    //    notification-response listener. Wire that listener (in
+    //    NativeAppShell or app/_layout.tsx) to read
+    //    `data.listingId` + `data.type === 'auction_won'` and call
+    //    `router.push('/listing/' + listingId)`. Out of scope here.
     sendLocalNotification({
-      title: '🎉 You Won the Auction!',
-      body: `Congratulations! You won ${listing.event_name}. Tap to complete your purchase.`,
-      data: { listingId: listing.id, type: 'auction_won' },
+      title: 'You Snatched It 🎉',
+      body:  `You won ${listing.event_name}. Complete checkout to claim your ticket.`,
+      data:  { listingId: listing.id, type: 'auction_won' },
     });
   }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id, animateWinIn, animateWinOut]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -733,11 +720,11 @@ export default function ListingDetailScreen({ id }: Props) {
     setCoverUrl(raw ? getCoverImageUrl(raw) : null);
   }, [(listing as any)?.cover_image_path, (listing as any)?.cover_image_url]);
 
-  // ── Checkout navigation ────────────────────────────────────────────────────
+  // ── Checkout navigation (10/10 fee model: total = price * (1 + buyer fee)) ─
   function navigateToCheckout() {
     if (!listing || listing.buy_now_price == null) return;
     const price = listing.buy_now_price;
-    const fee   = Math.round(price * APP_CONFIG.SERVICE_FEE_RATE);
+    const fee   = Math.round(price * APP_CONFIG.BUYER_FEE_RATE);
     router.push({
       pathname: '/checkout/[id]',
       params: { id: listing.id, mode: 'buy_now', bidAmount: String(price),
@@ -748,7 +735,7 @@ export default function ListingDetailScreen({ id }: Props) {
   function navigateToWinnerCheckout() {
     if (!listing) return;
     const winAmount = (listing as any).winning_bid_amount ?? listing.current_bid ?? 0;
-    const fee = Math.round(winAmount * APP_CONFIG.SERVICE_FEE_RATE);
+    const fee = Math.round(winAmount * APP_CONFIG.BUYER_FEE_RATE);
     router.push({
       pathname: '/checkout/[id]',
       params: { id: listing.id, mode: 'bid', bidAmount: String(winAmount),
@@ -876,6 +863,102 @@ export default function ListingDetailScreen({ id }: Props) {
     );
   }
 
+  // ── UGC moderation actions (App Store Guideline 1.2) ───────────────────────
+  // Opens an ActionSheet (iOS-native) / Alert (Android) with three options
+  // applicable to viewers who are NOT the seller of the listing:
+  //   • Report listing      → /report/listing/<listing-id>
+  //   • Report user (seller)→ /report/user/<seller-id>
+  //   • Block user (seller) → inserts into public.user_blocks; the seller's
+  //                            listings are filtered out of the home/explore
+  //                            feeds on the next refresh.
+  function openListingActions() {
+    if (!listing) return;
+    const sellerId   = listing.seller_id;
+    const sellerName = sellerProfile?.display_name?.trim() || 'this seller';
+
+    // expo-router typed routes regenerate on next `expo prebuild` /
+    // dev-server start; until then, the string-path form bypasses the
+    // outdated route manifest cleanly.
+    const actions: { label: string; handler: () => void }[] = [
+      {
+        label: 'Report this listing',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        handler: () => router.push(`/report/listing/${listing.id}` as any),
+      },
+      {
+        label: 'Report this seller',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        handler: () => router.push(`/report/user/${sellerId}` as any),
+      },
+      {
+        label: `Block ${sellerName}`,
+        handler: () => handleBlockSeller(sellerId, sellerName),
+      },
+    ];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options:           [...actions.map(a => a.label), 'Cancel'],
+          cancelButtonIndex: actions.length,
+          destructiveButtonIndex: 2, // "Block …"
+        },
+        (idx) => {
+          if (idx >= 0 && idx < actions.length) actions[idx].handler();
+        },
+      );
+    } else {
+      // Android: native Alert with one button per action.
+      Alert.alert(
+        'More actions',
+        '',
+        [
+          ...actions.map(a => ({ text: a.label, onPress: a.handler, style: a.label.startsWith('Block') ? 'destructive' as const : 'default' as const })),
+          { text: 'Cancel', style: 'cancel' as const },
+        ],
+      );
+    }
+  }
+
+  async function handleBlockSeller(sellerId: string, sellerName: string) {
+    if (!user) {
+      Alert.alert('Sign in required', 'You need to be signed in to block users.');
+      return;
+    }
+    if (sellerId === user.id) {
+      // Defensive — the trigger should be hidden via !isSeller above, but
+      // ActionSheet handlers can fire after listing/user state changes.
+      return;
+    }
+    Alert.alert(
+      `Block ${sellerName}?`,
+      'Their listings will be hidden from your feed. You can unblock from Settings → Blocked Users.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase.from('user_blocks').insert({
+              blocker_id: user.id,
+              blocked_id: sellerId,
+            });
+            // 23505 = unique_violation → already blocked. Treat as success.
+            if (error && error.code !== '23505') {
+              Alert.alert('Could not block', error.message);
+              return;
+            }
+            Alert.alert(
+              'Blocked',
+              `${sellerName} is hidden from your feed. Unblock anytime in Settings.`,
+              [{ text: 'OK', onPress: () => router.back() }],
+            );
+          },
+        },
+      ],
+    );
+  }
+
   // ─── Guards ────────────────────────────────────────────────────────────────
 
   if (loading) return (
@@ -953,7 +1036,21 @@ export default function ListingDetailScreen({ id }: Props) {
           <Text style={s.backArrow}>←</Text>
         </Pressable>
         <Text style={s.topTitle} numberOfLines={1}>{listing.event_name}</Text>
-        <View style={{ width: 44 }} />
+        {/* Overflow menu — hidden for the seller's own listing (no point
+            reporting yourself), shown for everyone else (App Store 1.2). */}
+        {!isSeller ? (
+          <Pressable
+            onPress={openListingActions}
+            style={s.backBtn}
+            hitSlop={8}
+            accessibilityLabel="More actions"
+            accessibilityRole="button"
+          >
+            <Text style={s.backArrow}>{'⋯'}</Text>{/* horizontal ellipsis */}
+          </Pressable>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
       </View>
 
       {/* ── Animated outbid banner ──────────────────────────────────────────
@@ -968,17 +1065,14 @@ export default function ListingDetailScreen({ id }: Props) {
         <Text style={s.outbidBannerText}>You've been outbid</Text>
       </Animated.View>
 
-      {/* ── Animated win banner ─────────────────────────────────────────────
-          Same mount strategy as outbid banner.  Sits at top:60, zIndex:1.
-          Title chosen once per win event (wonNotifSentRef guards).
-          Auto-hides after 6 s.  pointerEvents="none" — never blocks taps. */}
-      <Animated.View
-        pointerEvents="none"
-        style={[s.winBanner, { transform: [{ translateY: winAnimY }], opacity: winAnimOpacity }]}
-      >
-        <Text style={s.winBannerTitle}>{winTitleRef.current}</Text>
-        <Text style={s.winBannerBody}>Complete checkout to claim your ticket.</Text>
-      </Animated.View>
+      {/* ── Win notification ────────────────────────────────────────────────
+          The slide-in win banner that previously rendered here has been
+          removed — it overlapped the navigation header and only worked when
+          the user was foregrounded on this screen. The win signal is now
+          delivered via a system notification (see the win-detect effect).
+          The static "You Won — Tap Pay Now below" pill remains in
+          AuctionBanner; that one sits inside the content area and never
+          overlaps the header. */}
 
       {/* ── Reservation / sold banners ─────────────────────── */}
       {isSold && (

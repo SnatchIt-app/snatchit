@@ -58,15 +58,25 @@ export const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 // ── Runtime guard ────────────────────────────────────────────────────────────
 // Fail loudly during development so the missing-env problem is obvious.
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
+  // Soft warning, NOT a throw. Throwing at module load terminates the JS
+  // runtime before React mounts \u2014 this manifests as an instant iOS launch
+  // crash with no useful Console output. Let the app boot with placeholder
+  // values so every Supabase call fails with a clear network error that
+  // existing UI error states (or ErrorBoundary) can surface.
+  console.error(
     '[SnatchIt] Supabase env vars are missing.\n' +
-    'Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your .env file.\n' +
-    'Get them from: Supabase dashboard \u2192 Project Settings \u2192 API.'
+    '  EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY must be set.\n' +
+    '  Configure via eas.json env block (preferred) or .env.<profile> file.\n' +
+    '  Source: Supabase dashboard \u2192 Project Settings \u2192 API.',
   );
 }
 
+// Placeholder values keep createClient from throwing on URL parsing.
+const _safeSupabaseUrl  = supabaseUrl  || 'https://missing.supabase.invalid';
+const _safeSupabaseAnon = supabaseAnonKey || 'missing-anon-key';
+
 // ── Client ───────────────────────────────────────────────────────────────────
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(_safeSupabaseUrl, _safeSupabaseAnon, {
   auth: {
     // Platform-safe storage: AsyncStorage on native, localStorage on web,
     // no-op during SSR/static export.

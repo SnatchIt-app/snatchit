@@ -44,9 +44,12 @@ export default class ErrorBoundary extends Component<Props, State> {
           <Text style={s.buttonText}>Try Again</Text>
         </TouchableOpacity>
 
-        {this.state.error && (
-          <Text style={s.errorText}>{this.state.error.message}</Text>
-        )}
+        {/*
+          We deliberately do NOT render this.state.error.message in production:
+          internal exception text (DB errors, third-party API failures, stack
+          fragments) must not leak to end-users. The full error is captured by
+          Sentry in componentDidCatch().
+        */}
       </View>
     );
   }
@@ -59,5 +62,4 @@ const s = StyleSheet.create({
   subtitle:   { fontSize: 14, color: '#999', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
   button:     { backgroundColor: '#E63946', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  errorText:  { marginTop: 24, fontSize: 11, color: '#555', textAlign: 'center', maxWidth: 300 },
 });

@@ -1,6 +1,7 @@
 // READY TO DEPLOY
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
@@ -54,6 +55,11 @@ function timingSafeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
+// Replay-attack window for Stripe webhooks. Matches the default tolerance
+// used by Stripe's official server-side libraries. If `t` in the signature
+// header is older than this many seconds vs. our wall clock, we reject.
+const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
+
 async function verifyStripeSignature(rawBody: string, sigHeader: string): Promise<boolean> {
   const parts = sigHeader.split(',').reduce((acc: Record<string, string>, part) => {
     const [key, val] = part.split('=');
@@ -64,6 +70,22 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
   const timestamp = parts['t'];
   const signature = parts['v1'];
   if (!timestamp || !signature) return false;
+
+  // ── Replay protection ──────────────────────────────────────────────────
+  // Stripe sends `t` as a Unix epoch in seconds. Reject anything older than
+  // our tolerance, OR anything skewed too far into the future (clock issues
+  // / forged timestamps).
+  const tsSeconds = parseInt(timestamp, 10);
+  if (!Number.isFinite(tsSeconds)) return false;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const delta      = Math.abs(nowSeconds - tsSeconds);
+  if (delta > STRIPE_WEBHOOK_TOLERANCE_SECONDS) {
+    console.warn('Webhook: signature timestamp outside tolerance', {
+      delta_seconds: delta,
+      tolerance:     STRIPE_WEBHOOK_TOLERANCE_SECONDS,
+    });
+    return false;
+  }
 
   const payload = `${timestamp}.${rawBody}`;
   const encoder = new TextEncoder();
@@ -120,6 +142,50 @@ serve(async (req: Request) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ─── Idempotency gate (migration 025) ────────────────────────────────
+    // INSERT-with-ON-CONFLICT against stripe_webhook_events. If the
+    // event_id is already present, we short-circuit with HTTP 200 and
+    // skip every side effect. This is the SINGLE source of truth for
+    // dedup; per-event logic below no longer needs its own replay guards
+    // (the existing .neq('status','succeeded') claim semantics in
+    // payment_intent.succeeded remain as defense in depth).
+    {
+      const { error: dedupErr } = await supabase
+        .from('stripe_webhook_events')
+        .insert({ event_id: event.id, event_type: event.type });
+      if (dedupErr) {
+        // 23505 = unique_violation = we've already processed this event
+        if (dedupErr.code === '23505') {
+          console.log('Webhook: duplicate event, skipping', {
+            event_id: event.id, event_type: event.type,
+          });
+          return new Response(
+            JSON.stringify({ received: true, duplicate: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+          );
+        }
+        // Any other DB error: log and CONTINUE. Failing-closed at the
+        // dedup gate would force Stripe to retry until they give up.
+        // Better to risk a duplicate (the per-event handlers below are
+        // also idempotent at the row level) than to leak retries.
+        console.error('Webhook: dedup insert failed (continuing):', dedupErr);
+      }
+    }
+
+    // Helper to mark this event processed at end-of-handler (or to record
+    // a partial-failure last_error for ops to investigate).
+    async function markProcessed(opts: { error?: string } = {}) {
+      const { error: markErr } = await supabase
+        .from('stripe_webhook_events')
+        .update({
+          processed:    !opts.error,
+          processed_at: new Date().toISOString(),
+          last_error:   opts.error ?? null,
+        })
+        .eq('event_id', event.id);
+      if (markErr) console.warn('Webhook: markProcessed failed:', markErr.message);
+    }
+
     if (event.type === 'payment_intent.succeeded') {
       // FIX: Use .neq('status', 'succeeded') so this UPDATE is a "claim" operation.
       // If the payment is already 'succeeded' (replay or race with confirm-payment),
@@ -131,7 +197,7 @@ serve(async (req: Request) => {
         .update({ status: 'succeeded', paid_at: new Date().toISOString() })
         .eq('stripe_payment_intent_id', piId)
         .neq('status', 'succeeded')          // FIX: only claim if not yet processed
-        .select('id, listing_id, amount, service_fee')
+        .select('id, listing_id, amount, buyer_fee, seller_fee')
         .maybeSingle();                        // FIX: was .single() — returns null instead of error when 0 rows
 
       if (lookupErr) {
@@ -334,6 +400,10 @@ serve(async (req: Request) => {
         { listingId: metadata.listing_id, type: 'ticket_sold' },
       );
 
+      // Mark processed for ops visibility. Pure telemetry — no behavioral
+      // change to the P0 payment-intent flow.
+      await markProcessed();
+
     } else if (event.type === 'payment_intent.payment_failed') {
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
@@ -366,6 +436,283 @@ serve(async (req: Request) => {
           console.log('Webhook: release_reservation succeeded', { listing_id: metadata.listing_id });
         }
       }
+      await markProcessed();
+
+    // ─────────────────────────────────────────────────────────────────────
+    // P1-02 — Full event coverage with dedup at the top of the handler.
+    //   • Dispute handlers freeze the related transfer so auto-release
+    //     and confirm-and-release cannot fire while the case is pending.
+    //   • Refund / payout / transfer events sync DB state for the
+    //     admin SQL-pack ops queries (DAY8_P1_02_ADMIN_SQL_PACK.sql).
+    //   • Every branch awaits markProcessed() so the
+    //     public.stripe_webhook_events row reflects the actual outcome.
+    // ─────────────────────────────────────────────────────────────────────
+
+    } else if (event.type === 'charge.dispute.created') {
+      // ── P1-02: real dispute handling + transfer freeze ────────────────
+      // event.data.object is a Stripe Dispute, NOT a PaymentIntent.
+      const dispute = event.data.object as {
+        id:               string;
+        charge:           string;
+        payment_intent?:  string | null;
+        amount:           number;
+        currency:         string;
+        reason:           string;
+        status:           string;
+        evidence_details?: { due_by?: number };
+      };
+
+      // 1. Find the related payment + transfer (best-effort; PI id may be
+      //    missing on some Stripe API versions).
+      let paymentId:  string | null = null;
+      let transferId: string | null = null;
+      if (dispute.payment_intent) {
+        const { data: payment } = await supabase
+          .from('payments')
+          .select('id')
+          .eq('stripe_payment_intent_id', dispute.payment_intent)
+          .maybeSingle();
+        paymentId = payment?.id ?? null;
+        if (paymentId) {
+          const { data: transfer } = await supabase
+            .from('transfers')
+            .select('id, status, payout_released_at')
+            .eq('payment_id', paymentId)
+            .maybeSingle();
+          transferId = transfer?.id ?? null;
+
+          // 2. Freeze the transfer so auto-release / confirm-and-release
+          //    cannot fire while the dispute is open. Skip if already paid
+          //    out — at that point we can only attempt a transfer reversal
+          //    when the dispute is lost (handled in dispute.closed).
+          if (transferId && !transfer!.payout_released_at && transfer!.status !== 'disputed') {
+            const { error: freezeErr } = await supabase
+              .from('transfers')
+              .update({ status: 'disputed', disputed_at: new Date().toISOString() })
+              .eq('id', transferId);
+            if (freezeErr) {
+              console.error('Webhook: dispute transfer freeze failed:', {
+                transfer_id: transferId, dispute_id: dispute.id, error: freezeErr,
+              });
+            } else {
+              console.log('Webhook: transfer frozen due to dispute', { transfer_id: transferId });
+            }
+          }
+        }
+      }
+
+      // 3. Upsert disputes row (idempotent on stripe_dispute_id).
+      const evidenceDueIso = dispute.evidence_details?.due_by
+        ? new Date(dispute.evidence_details.due_by * 1000).toISOString()
+        : null;
+      const { error: upsertErr } = await supabase.from('disputes').upsert({
+        stripe_dispute_id: dispute.id,
+        stripe_charge_id:  dispute.charge,
+        stripe_pi_id:      dispute.payment_intent ?? null,
+        payment_id:        paymentId,
+        transfer_id:       transferId,
+        amount:            dispute.amount,
+        currency:          dispute.currency ?? 'usd',
+        reason:            dispute.reason,
+        status:            dispute.status,
+        evidence_due_by:   evidenceDueIso,
+      }, { onConflict: 'stripe_dispute_id' });
+      if (upsertErr) {
+        // High-signal inner capture: a dispute event was received but we
+        // failed to record it. Ops needs to know immediately so the
+        // 7-day Stripe evidence window doesn't quietly close against us.
+        await captureException(
+          'stripe-webhook:charge.dispute.created',
+          new Error(`dispute upsert failed: ${upsertErr.message}`),
+          { dispute_id: dispute.id, charge_id: dispute.charge, payment_id: paymentId, transfer_id: transferId },
+        );
+        await markProcessed({ error: `dispute upsert: ${upsertErr.message}` });
+      } else {
+        console.log('Webhook: dispute recorded', {
+          dispute_id: dispute.id, charge_id: dispute.charge, amount: dispute.amount,
+          reason: dispute.reason, status: dispute.status,
+          evidence_due_by: evidenceDueIso,
+          payment_id: paymentId, transfer_id: transferId,
+        });
+        await markProcessed();
+      }
+
+    } else if (event.type === 'charge.dispute.closed') {
+      // ── P1-02: dispute outcome sync ───────────────────────────────────
+      const dispute = event.data.object as {
+        id:     string;
+        charge: string;
+        payment_intent?: string | null;
+        status: string; // 'won' | 'lost' | 'warning_closed' | 'charge_refunded'
+      };
+
+      // Update our disputes row's status.
+      const { data: ourDispute, error: lookupErr } = await supabase
+        .from('disputes')
+        .update({ status: dispute.status })
+        .eq('stripe_dispute_id', dispute.id)
+        .select('id, payment_id, transfer_id')
+        .maybeSingle();
+      if (lookupErr) {
+        console.error('Webhook: dispute status update failed:', lookupErr);
+        await markProcessed({ error: `dispute close update: ${lookupErr.message}` });
+      } else if (!ourDispute) {
+        console.warn('Webhook: dispute.closed for unknown dispute_id', { dispute_id: dispute.id });
+        await markProcessed();
+      } else {
+        // Won (rare under marketplace rules) → resume payout path.
+        // Lost (most common) → ops decides between transfer-reversal (if
+        // already paid out) or simply mark the payment refunded.
+        // Don't make autonomous money moves here. Just sync state.
+        if (dispute.status === 'lost' && ourDispute.payment_id) {
+          const { error: payErr } = await supabase
+            .from('payments')
+            .update({ status: 'refunded', refunded_at: new Date().toISOString() })
+            .eq('id', ourDispute.payment_id)
+            .neq('status', 'refunded');
+          if (payErr) console.error('Webhook: payment refund mark failed:', payErr);
+        }
+        console.log('Webhook: dispute closed', {
+          dispute_id: dispute.id, status: dispute.status,
+          payment_id: ourDispute.payment_id, transfer_id: ourDispute.transfer_id,
+        });
+        await markProcessed();
+      }
+
+    } else if (event.type === 'charge.refunded') {
+      // ── P1-02: refund sync (e.g. manual Dashboard refund) ─────────────
+      const charge = event.data.object as { payment_intent?: string | null };
+      if (charge.payment_intent) {
+        const { error: refErr } = await supabase
+          .from('payments')
+          .update({ status: 'refunded', refunded_at: new Date().toISOString() })
+          .eq('stripe_payment_intent_id', charge.payment_intent)
+          .neq('status', 'refunded');
+        if (refErr) {
+          console.error('Webhook: refund sync failed:', refErr);
+          await markProcessed({ error: `refund sync: ${refErr.message}` });
+        } else {
+          console.log('Webhook: payment marked refunded', { pi_id: charge.payment_intent });
+          await markProcessed();
+        }
+      } else {
+        console.warn('Webhook: charge.refunded with no payment_intent', { event_id: event.id });
+        await markProcessed();
+      }
+
+    } else if (event.type === 'transfer.created') {
+      // ── P1-02: ops observability for seller-net Transfer creation ─────
+      // confirm-and-release / enforce-transfer-expiry already wrote
+      // stripe_transfer_id on our transfers row before Stripe fires this
+      // event. We just log for ops; no state change needed.
+      const tr = event.data.object as { id: string; amount: number; destination?: string };
+      console.log('Webhook: stripe Transfer created', {
+        stripe_transfer_id: tr.id, amount: tr.amount, destination: tr.destination,
+      });
+      await markProcessed();
+
+    } else if (event.type === 'transfer.reversed') {
+      // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
+      const tr = event.data.object as { id: string; amount_reversed?: number };
+      const { error: revErr } = await supabase
+        .from('transfers')
+        .update({ status: 'reversed' })
+        .eq('stripe_transfer_id', tr.id)
+        .neq('status', 'reversed');
+      if (revErr) {
+        console.error('Webhook: transfer.reversed mark failed:', revErr);
+        await markProcessed({ error: `transfer reverse: ${revErr.message}` });
+      } else {
+        console.log('Webhook: transfer marked reversed', {
+          stripe_transfer_id: tr.id, amount_reversed: tr.amount_reversed,
+        });
+        await markProcessed();
+      }
+
+    } else if (event.type === 'payout.paid') {
+      // ── P1-02: log Stripe payout to seller's bank cleared ─────────────
+      // Fires on the Connect account, not the platform. Use it for the
+      // seller payout timeline in the admin view (DAY8 SQL pack).
+      const po = event.data.object as { id: string; amount: number; arrival_date?: number };
+      console.log('Webhook: stripe payout.paid', {
+        payout_id: po.id, amount: po.amount, arrival_date: po.arrival_date,
+        connect_account: (event as { account?: string }).account ?? null,
+      });
+      await markProcessed();
+
+    } else if (event.type === 'payout.failed') {
+      // ── P1-02: payout.failed — seller's bank rejected ─────────────────
+      // Stripe will retry automatically; ops should reach out so the
+      // seller updates their bank info via the in-app onboarding flow.
+      const po = event.data.object as { id: string; amount: number; failure_message?: string; failure_code?: string };
+      console.error('Webhook: stripe payout.FAILED', {
+        payout_id: po.id, amount: po.amount,
+        failure_code: po.failure_code, failure_message: po.failure_message,
+        connect_account: (event as { account?: string }).account ?? null,
+      });
+      await markProcessed();
+
+    } else if (event.type === 'account.updated') {
+      // event.data.object is a Stripe Account (Connect Express seller).
+      // Per Stripe docs, `details_submitted` flips true after onboarding
+      // form submission; `charges_enabled` and `payouts_enabled` flip true
+      // only after Stripe finishes verification. We gate listing creation
+      // on the AND of all three to avoid sellers listing tickets before
+      // Stripe is actually willing to accept funds for them.
+      const account = event.data.object as {
+        id?:                 string;
+        details_submitted?:  boolean;
+        charges_enabled?:    boolean;
+        payouts_enabled?:    boolean;
+      };
+      const accountId = account.id;
+
+      if (!accountId) {
+        console.warn('Webhook: account.updated received with no id', { event_id: event.id });
+        return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
+        });
+      }
+
+      const onboardingComplete =
+        account.details_submitted === true &&
+        account.charges_enabled   === true &&
+        account.payouts_enabled   === true;
+
+      const { data: updatedProfiles, error: profileErr } = await supabase
+        .from('profiles')
+        .update({ stripe_onboarding_complete: onboardingComplete })
+        .eq('stripe_connect_id', accountId)
+        .select('id');
+
+      if (profileErr) {
+        // Log + ACK; Stripe will not retry account.updated and we don't
+        // want to surface 5xx for transient DB errors on a non-critical
+        // sync path.
+        console.error('Webhook: account.updated profile update failed', {
+          account_id: accountId,
+          error:      profileErr.message,
+        });
+        await markProcessed({ error: `account.updated profile update: ${profileErr.message}` });
+      } else {
+        console.log('Webhook: account.updated synced', {
+          account_id:           accountId,
+          onboarding_complete:  onboardingComplete,
+          details_submitted:    account.details_submitted ?? false,
+          charges_enabled:      account.charges_enabled ?? false,
+          payouts_enabled:      account.payouts_enabled ?? false,
+          matched_profiles:     updatedProfiles?.length ?? 0,
+        });
+        await markProcessed();
+      }
+
+    } else {
+      // Unknown / unhandled event type. Mark processed so ops doesn't
+      // see it as a stuck-pending entry. (Stripe Dashboard configuration
+      // determines which events even reach this endpoint.)
+      console.log('Webhook: unhandled event type (ack only)', { event_type: event.type });
+      await markProcessed();
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -373,7 +720,7 @@ serve(async (req: Request) => {
       headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
     });
   } catch (err) {
-    console.error('Webhook error:', err);
+    await captureException('stripe-webhook', err);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }

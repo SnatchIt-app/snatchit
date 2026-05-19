@@ -10,7 +10,9 @@
 --   • Probabilistic cleanup (1-in-20) removes stale rows inline so no cron
 --     job is needed during private beta.
 --   • SECURITY DEFINER + search_path = '' prevents privilege escalation.
---   • No RLS needed — only service-role callers (edge functions) use this.
+--   • RLS is enabled with no policies — service-role bypasses RLS, so edge
+--     functions still work, but anon/authenticated PostgREST callers get a
+--     hard deny (defense in depth on top of REVOKE ALL).
 -- =============================================================================
 
 -- ── Table ────────────────────────────────────────────────────────────────────
@@ -28,6 +30,11 @@ CREATE TABLE IF NOT EXISTS public.rate_limits (
 -- Deny direct client access — only service-role (edge functions) may touch this.
 REVOKE ALL ON public.rate_limits FROM anon, authenticated;
 
+-- Enable RLS as a defense-in-depth layer. No policies are created, so any
+-- non-service-role caller is denied. (Service role bypasses RLS, so edge
+-- functions are unaffected.)
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
+
 -- ── RPC ──────────────────────────────────────────────────────────────────────
 
 -- check_rate_limit
@@ -37,10 +44,12 @@ REVOKE ALL ON public.rate_limits FROM anon, authenticated;
 --   p_window_seconds int     — rolling window length in seconds
 --
 -- Returns TRUE  → request is within limits, counter has been incremented.
--- Returns FALSE → request exceeds the limit, caller should return HTTP 429.
+-- Returns FALSE → request exceeds the limit OR the rate-limit check failed.
+--                 Callers MUST treat FALSE as "deny" and return HTTP 429
+--                 (over-limit) or HTTP 503 (RPC failure — caller decides).
 --
--- Fail-open: the EXCEPTION block catches all DB errors and returns TRUE so
--- that a transient DB hiccup never blocks a real payment.
+-- Fail-CLOSED: the EXCEPTION block returns FALSE so a DB hiccup cannot be
+-- used to bypass abuse protection on payment / account-management paths.
 
 CREATE OR REPLACE FUNCTION public.check_rate_limit(
   p_user_id        uuid,
@@ -89,9 +98,11 @@ BEGIN
   RETURN v_counter <= p_max;
 
 EXCEPTION WHEN OTHERS THEN
-  -- Fail-open: never block a legitimate request due to a rate-limit DB error.
-  RAISE WARNING 'check_rate_limit error (failing open): %', SQLERRM;
-  RETURN true;
+  -- Fail-CLOSED: surface the error to the caller as "deny". Payment and
+  -- account-management endpoints must not silently disable abuse protection
+  -- on a DB error.
+  RAISE WARNING 'check_rate_limit error (failing closed): %', SQLERRM;
+  RETURN false;
 END;
 $$;
 

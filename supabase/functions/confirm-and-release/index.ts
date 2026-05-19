@@ -25,6 +25,8 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
+import { stripeFetch } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -92,14 +94,17 @@ async function getAuthenticatedUserId(req: Request): Promise<string> {
 }
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
-// Identical to confirm-payment and create-connect-account.
+// Fail-CLOSED. Identical pattern in confirm-payment, create-payment-intent,
+// create-connect-account, delete-account.
+type RateLimitResult = 'allowed' | 'over_limit' | 'error';
+
 async function checkRateLimit(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   action: string,
   maxRequests: number,
   windowSeconds: number,
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   try {
     const { data, error } = await supabase.rpc('check_rate_limit', {
       p_user_id:        userId,
@@ -108,30 +113,22 @@ async function checkRateLimit(
       p_window_seconds: windowSeconds,
     });
     if (error) {
-      console.warn('Rate limit RPC error (failing open):', error.message);
-      return true;
+      console.warn('Rate limit RPC error (failing closed):', error.message);
+      return 'error';
     }
-    return data === true;
+    return data === true ? 'allowed' : 'over_limit';
   } catch (err) {
-    console.warn('Rate limit check threw (failing open):', err);
-    return true;
+    console.warn('Rate limit check threw (failing closed):', err);
+    return 'error';
   }
 }
 
 // ── Stripe helper ────────────────────────────────────────────────────────────
-// Identical to create-connect-account stripePost.
+// Thin wrapper around the shared stripeFetch so this file's existing
+// `stripePost(path, body)` call sites keep working without churn. The
+// shared helper handles auth header + STRIPE_API_VERSION pinning.
 async function stripePost(path: string, body: Record<string, string>) {
-  const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(body).toString(),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message ?? 'Stripe API error');
-  return data;
+  return stripeFetch(path, { method: 'POST', body });
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -147,10 +144,23 @@ serve(async (req: Request) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // ── 2. Rate limit ───────────────────────────────────────────────────
-    // 5 requests per 300 seconds (5 min). Generous for retries after
-    // network errors, strict enough to prevent abuse.
-    const allowed = await checkRateLimit(supabase, buyerId, 'confirm-and-release', 5, 300);
-    if (!allowed) {
+    // 5 requests per 300 seconds (5 min). Fail-closed: any RPC failure
+    // returns 503 instead of silently bypassing rate limiting.
+    const rl = await checkRateLimit(supabase, buyerId, 'confirm-and-release', 5, 300);
+    if (rl === 'error') {
+      return new Response(
+        JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+        {
+          status: 503,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '30',
+            ...getResponseHeaders(req),
+          },
+        },
+      );
+    }
+    if (rl === 'over_limit') {
       return new Response(
         JSON.stringify({ error: 'Too many requests. Please try again later.' }),
         {
@@ -293,12 +303,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // ── 7. Look up payment amount ───────────────────────────────────────
-    // Seller receives payment.amount (listing price in cents).
-    // Service fee (payment.service_fee) stays with the platform.
+    // ── 7. Look up payment amount + seller fee ──────────────────────────
+    // 10/10 fee model: seller receives (amount − seller_fee).
+    // Buyer fee + seller fee stay with the platform.
     const { data: payment, error: paymentErr } = await supabase
       .from('payments')
-      .select('amount, stripe_payment_intent_id')
+      .select('amount, seller_fee, stripe_payment_intent_id')
       .eq('id', transfer.payment_id)
       .single();
 
@@ -322,17 +332,22 @@ serve(async (req: Request) => {
     // enforced by the atomic UPDATE in step 9 below. The read check in
     // step 5a prevents most redundant Stripe calls, but the atomic UPDATE
     // is the true guard against double payouts in a race condition.
+    // Seller net = listing price − seller fee (10/10 fee model).
+    const sellerNetCents = (payment.amount as number) - (payment.seller_fee as number ?? 0);
+
     console.log('confirm-and-release: creating Stripe Transfer', {
       transfer_id,
       seller_connect_id: sellerProfile.stripe_connect_id,
-      amount:            payment.amount,
+      listing_amount:    payment.amount,
+      seller_fee:        payment.seller_fee,
+      seller_net:        sellerNetCents,
       currency:          'usd',
     });
 
     let stripeTransfer;
     try {
       stripeTransfer = await stripePost('/transfers', {
-        'amount':      String(payment.amount),
+        'amount':      String(sellerNetCents),
         'currency':    'usd',
         'destination': sellerProfile.stripe_connect_id,
         'metadata[transfer_id]':  transfer_id,
@@ -344,7 +359,7 @@ serve(async (req: Request) => {
       console.error('confirm-and-release: Stripe Transfer failed:', {
         transfer_id,
         seller_connect_id: sellerProfile.stripe_connect_id,
-        amount:            payment.amount,
+        seller_net:        sellerNetCents,
         error:             stripeErr instanceof Error ? stripeErr.message : stripeErr,
       });
       return new Response(
@@ -418,9 +433,13 @@ serve(async (req: Request) => {
     );
 
   } catch (err) {
-    console.error('confirm-and-release: unhandled error:', err);
     const message = err instanceof Error ? err.message : '';
     const isAuthError = /authorization|token/i.test(message);
+    if (isAuthError) {
+      console.warn('confirm-and-release: auth error:', message);
+    } else {
+      await captureException('confirm-and-release', err);
+    }
     return new Response(
       JSON.stringify({ error: isAuthError ? message : 'Internal server error' }),
       { status: isAuthError ? 401 : 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },

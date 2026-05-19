@@ -1,5 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
+import { stripeFetch } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -62,13 +64,16 @@ async function getAuthenticatedUserId(req: Request): Promise<string> {
 }
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Fail-CLOSED.
+type RateLimitResult = 'allowed' | 'over_limit' | 'error';
+
 async function checkRateLimit(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   action: string,
   maxRequests: number,
   windowSeconds: number,
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   try {
     const { data, error } = await supabase.rpc('check_rate_limit', {
       p_user_id:        userId,
@@ -77,53 +82,32 @@ async function checkRateLimit(
       p_window_seconds: windowSeconds,
     });
     if (error) {
-      console.warn('Rate limit RPC error (failing open):', error.message);
-      return true;
+      console.warn('Rate limit RPC error (failing closed):', error.message);
+      return 'error';
     }
-    return data === true;
+    return data === true ? 'allowed' : 'over_limit';
   } catch (err) {
-    console.warn('Rate limit check threw (failing open):', err);
-    return true;
+    console.warn('Rate limit check threw (failing closed):', err);
+    return 'error';
   }
 }
 
-const STRIPE_API_BASE = 'https://api.stripe.com/v1/';
-const REFRESH_URL = 'https://project-tsnbr.vercel.app/payout-refresh';
-const RETURN_URL = 'https://project-tsnbr.vercel.app/payout-return';
+// Hosted onboarding redirect targets — production domain only.
+// SnatchIt serves /payout-refresh and /payout-return on snatchitapp.com which
+// deep-link back into the app via the snatchit:// scheme.
+const REFRESH_URL = Deno.env.get('STRIPE_CONNECT_REFRESH_URL') ?? 'https://snatchitapp.com/payout-refresh';
+const RETURN_URL  = Deno.env.get('STRIPE_CONNECT_RETURN_URL')  ?? 'https://snatchitapp.com/payout-return';
 
-function stripeUrl(path: string): string {
-  const url = new URL(path.replace(/^\//, ''), STRIPE_API_BASE).toString();
-  return url;
+// Thin shims over shared stripeFetch (Stripe-Version pinned centrally).
+// Existing call sites keep their `stripeGet('accounts/x')` / `stripePost(...)`
+// shape so this file's diff is contained to the helper.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function stripeGet(path: string): Promise<any> {
+  return stripeFetch(path);
 }
-
-async function stripeGet(path: string) {
-  const url = stripeUrl(path);
-  console.log('[stripeGet] url:', url, 'path:', path);
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
-    },
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message ?? 'Stripe API error');
-  return data;
-}
-
-async function stripePost(path: string, body: Record<string, string>) {
-  const url = stripeUrl(path);
-  console.log('[stripePost] url:', url, 'path:', path, 'bodyKeys:', Object.keys(body));
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(body).toString(),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message ?? 'Stripe API error');
-  return data;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function stripePost(path: string, body: Record<string, string>): Promise<any> {
+  return stripeFetch(path, { method: 'POST', body });
 }
 
 serve(async (req: Request) => {
@@ -142,9 +126,23 @@ serve(async (req: Request) => {
     // Rate limit only mutating calls (account creation, link generation).
     // status_only is a read-only check and must never be rate-limited —
     // the client fires it on mount, focus, and foreground.
+    // Fail-closed: any RPC failure returns 503 instead of bypassing limits.
     if (!status_only) {
-      const allowed = await checkRateLimit(supabase, userId, 'create-connect-account', 5, 600);
-      if (!allowed) {
+      const rl = await checkRateLimit(supabase, userId, 'create-connect-account', 5, 600);
+      if (rl === 'error') {
+        return new Response(
+          JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': '30',
+              ...getResponseHeaders(req),
+            },
+          },
+        );
+      }
+      if (rl === 'over_limit') {
         return new Response(
           JSON.stringify({ error: 'Too many requests. Please try again later.' }),
           {
@@ -288,9 +286,16 @@ serve(async (req: Request) => {
       { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
     );
   } catch (err) {
-    console.error('Connect account error:', err);
     const message = err instanceof Error ? err.message : '';
     const isAuthError = /authorization|token/i.test(message);
+    // Skip Sentry for auth errors — they're expected (stale tokens) and
+    // would otherwise flood the dashboard. Real failures (Stripe API
+    // 5xx, DB errors) still bubble up.
+    if (!isAuthError) {
+      await captureException('create-connect-account', err);
+    } else {
+      console.error('Connect account error:', err);
+    }
     return new Response(
       JSON.stringify({ error: message || 'Internal server error' }),
       { status: isAuthError ? 401 : 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }

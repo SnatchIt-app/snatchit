@@ -1,6 +1,11 @@
 export const APP_CONFIG = {
-  // Fees
-  SERVICE_FEE_RATE: 0.05,           // 5% service fee on all transactions
+  // ── Marketplace fees (10/10 model) ──────────────────────────────────────
+  // Buyer pays listing × (1 + BUYER_FEE_RATE) at checkout.
+  // Seller receives listing × (1 − SELLER_FEE_RATE) on payout release.
+  // Platform retains (BUYER_FEE_RATE + SELLER_FEE_RATE) × listing
+  // (before Stripe processing fees).
+  BUYER_FEE_RATE:  0.10,
+  SELLER_FEE_RATE: 0.10,
 
   // Auction timing
   RESERVATION_MINUTES: 10,          // Buy Now reservation window

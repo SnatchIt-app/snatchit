@@ -46,3 +46,28 @@ app-example
 /ios
 /android
 .vercel
+
+# Local/export artifacts
+mac-export/
+export-tools/
+landing-v2/
+skills/
+*.xlsx
+.~lock.*
+
+# Supabase CLI scratch
+supabase/.temp/
+
+# Fundraising / pitch / internal docs (not for git)
+SNATCHIT_300K_*
+SNATCHIT_Partner_*
+SNATCHIT_WarRoom_*
+SNATCHIT_Second_Pass_*
+SNATCHIT_Deck_*
+SNATCHIT_Financial_Model*
+snatch-it-deck-*
+snatch-it-landing-audit.md
+snatch-it-pitch-deck*.html
+snatch-it-pitch-deck*.md
+snatch-it-vc-review.md
+pitch-deck-system.md

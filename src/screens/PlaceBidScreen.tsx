@@ -39,9 +39,9 @@ type Props = { id: string };
 
 function fmt$(n: number) { return `$${Math.round(n).toLocaleString('en-US')}`; }
 
-const SERVICE_FEE_RATE = APP_CONFIG.SERVICE_FEE_RATE;
-const MIN_INCREMENT    = APP_CONFIG.MIN_BID_INCREMENT;
-const QUICK_CHIPS      = [5, 10, 25] as const;
+const BUYER_FEE_RATE = APP_CONFIG.BUYER_FEE_RATE;
+const MIN_INCREMENT  = APP_CONFIG.MIN_BID_INCREMENT;
+const QUICK_CHIPS    = [5, 10, 25] as const;
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -81,7 +81,8 @@ export default function PlaceBidScreen({ id }: Props) {
   function increase() { setSelectedBid(p => p + MIN_INCREMENT); }
   function addQuick(n: number) { setSelectedBid(p => p + n); }
 
-  const fee   = Math.round(selectedBid * SERVICE_FEE_RATE);
+  // 10/10 fee model: buyer pays selectedBid * (1 + BUYER_FEE_RATE).
+  const fee   = Math.round(selectedBid * BUYER_FEE_RATE);
   const total = selectedBid + fee;
 
   async function handleConfirm() {
@@ -205,7 +206,7 @@ export default function PlaceBidScreen({ id }: Props) {
             <Text style={s.breakVal}>{fmt$(selectedBid)}</Text>
           </View>
           <View style={s.breakRow}>
-            <Text style={s.breakLabel}>Service fee ({Math.round(SERVICE_FEE_RATE * 100)}%)</Text>
+            <Text style={s.breakLabel}>Service fee ({Math.round(BUYER_FEE_RATE * 100)}%)</Text>
             <Text style={s.breakVal}>{fmt$(fee)}</Text>
           </View>
           <View style={s.breakDivider} />

@@ -47,6 +47,8 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { captureException } from '../_shared/sentry.ts';
+import { stripeFetch } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -89,19 +91,9 @@ function getResponseHeaders(req: Request): Record<string, string> {
 }
 
 // ── Stripe helper ────────────────────────────────────────────────────────────
-// Identical to confirm-and-release stripePost.
+// Thin wrapper over shared stripeFetch (Stripe-Version pinned centrally).
 async function stripePost(path: string, body: Record<string, string>) {
-  const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(body).toString(),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message ?? 'Stripe API error');
-  return data;
+  return stripeFetch(path, { method: 'POST', body });
 }
 
 // ── Push notification helper ─────────────────────────────────────────────────
@@ -304,10 +296,10 @@ serve(async (req: Request) => {
 
         } catch (err) {
           // ── Error isolation: one failure must NOT block the batch ───────
-          console.error('enforce-transfer-expiry: error processing expired transfer:', {
+          // Phase 1 = expiry refund (real money). Capture every failure.
+          await captureException('enforce-transfer-expiry:phase1-refund', err, {
             transfer_id: t.transfer_id,
             payment_id:  t.payment_id,
-            error:       err instanceof Error ? err.message : err,
           });
           errorCount++;
           // Continue to next transfer
@@ -361,12 +353,12 @@ serve(async (req: Request) => {
             continue;
           }
 
-          // ── 2b. Look up payment amount ─────────────────────────────────
-          // Seller receives payment.amount (listing price in cents).
-          // Service fee stays with the platform.
+          // ── 2b. Look up payment amount + seller fee ────────────────────
+          // 10/10 fee model: seller receives (amount − seller_fee).
+          // Buyer fee + seller fee stay with the platform.
           const { data: payment, error: paymentErr } = await supabase
             .from('payments')
-            .select('amount, stripe_payment_intent_id')
+            .select('amount, seller_fee, stripe_payment_intent_id')
             .eq('id', t.payment_id)
             .single();
 
@@ -401,17 +393,22 @@ serve(async (req: Request) => {
           // ── 2d. Create Stripe Transfer to seller ───────────────────────
           // Moves funds from platform Stripe balance to seller's Connected
           // Express account. Same logic as confirm-and-release step 8.
+          // 10/10 fee model: seller net = amount − seller_fee.
+          const sellerNetCents = (payment.amount as number) - (payment.seller_fee as number ?? 0);
+
           console.log('enforce-transfer-expiry: creating Stripe Transfer (auto-release):', {
             transfer_id:       t.transfer_id,
             seller_connect_id: sellerProfile.stripe_connect_id,
-            amount:            payment.amount,
+            listing_amount:    payment.amount,
+            seller_fee:        payment.seller_fee,
+            seller_net:        sellerNetCents,
             currency:          'usd',
           });
 
           let stripeTransfer;
           try {
             stripeTransfer = await stripePost('/transfers', {
-              'amount':                 String(payment.amount),
+              'amount':                 String(sellerNetCents),
               'currency':               'usd',
               'destination':            sellerProfile.stripe_connect_id,
               'metadata[transfer_id]':  t.transfer_id,
@@ -423,7 +420,7 @@ serve(async (req: Request) => {
             console.error('enforce-transfer-expiry: Stripe Transfer failed (auto-release):', {
               transfer_id:       t.transfer_id,
               seller_connect_id: sellerProfile.stripe_connect_id,
-              amount:            payment.amount,
+              seller_net:        sellerNetCents,
               error:             stripeErr instanceof Error ? stripeErr.message : stripeErr,
             });
             errorCount++;
@@ -494,7 +491,9 @@ serve(async (req: Request) => {
           console.log('enforce-transfer-expiry: auto-release payout complete:', {
             transfer_id:        t.transfer_id,
             stripe_transfer_id: stripeTransfer.id,
-            amount:             payment.amount,
+            listing_amount:     payment.amount,
+            seller_fee:         payment.seller_fee,
+            seller_net:         sellerNetCents,
             seller_id:          t.seller_id,
             buyer_id:           t.buyer_id,
           });
@@ -533,7 +532,7 @@ serve(async (req: Request) => {
     );
 
   } catch (err) {
-    console.error('enforce-transfer-expiry: unhandled error:', err);
+    await captureException('enforce-transfer-expiry', err);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },

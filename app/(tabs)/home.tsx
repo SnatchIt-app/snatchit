@@ -28,6 +28,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
+import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import type { Listing } from '@/src/types';
@@ -333,6 +334,9 @@ export default function HomeScreen() {
   const endedLoadedOnce   = useRef(false);
   const neighborhoodPrefs = useRef<Set<string>>(new Set());
 
+  // UGC moderation: filter out blocked-seller listings from every feed.
+  const { blockedIds } = useBlockedUserIds();
+
   // ── Clock ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -343,12 +347,13 @@ export default function HomeScreen() {
   async function fetchListings() {
     neighborhoodPrefs.current = await getUserNeighborhoods();
 
-    const { data, error } = await supabase
+    const baseQuery = supabase
       .from('listings')
       .select('*')
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(50);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
     if (error) { console.warn('[HomeScreen] fetch error:', error.message); return; }
     if (!data) return;
@@ -362,12 +367,13 @@ export default function HomeScreen() {
   }
 
   async function fetchSoldListings() {
-    const { data, error } = await supabase
+    const baseQuery = supabase
       .from('listings')
       .select('*')
       .eq('status', 'sold')
       .order('sold_at', { ascending: false })
       .limit(30);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
     if (error) { console.warn('[HomeScreen] sold fetch error:', error.message); return; }
     if (!data) return;
@@ -383,13 +389,14 @@ export default function HomeScreen() {
 
   async function fetchEndedListings() {
     // Ended = auction_status 'ended' but not yet sold
-    const { data, error } = await supabase
+    const baseQuery = supabase
       .from('listings')
       .select('*')
       .eq('auction_status', 'ended')
       .neq('status', 'sold')
       .order('ends_at', { ascending: false })
       .limit(30);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
     if (error) { console.warn('[HomeScreen] ended fetch error:', error.message); return; }
     if (!data) return;

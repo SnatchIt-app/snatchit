@@ -20,6 +20,7 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
+import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { Listing } from '@/src/types';
 
@@ -40,16 +41,23 @@ export default function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
 
+  // UGC moderation: hide listings from sellers the caller has blocked.
+  const { blockedIds } = useBlockedUserIds();
+
   const fetchListings = useCallback(async () => {
     try {
       setError(null);
 
-      const { data, error: fetchErr } = await supabase
+      const baseQuery = supabase
         .from('listings')
         .select('*')
         .eq('auction_status', 'active')
         .order('created_at', { ascending: false })
         .limit(50);
+      const { data, error: fetchErr } = await applyBlockedSellerFilter(
+        baseQuery,
+        blockedIds,
+      );
 
       if (fetchErr) {
         setError("Couldn't load listings. Pull to refresh.");
@@ -67,7 +75,7 @@ export default function ExploreScreen() {
       console.warn('[ExploreScreen] unexpected error:', err);
       setError("Couldn't load listings. Pull to refresh.");
     }
-  }, []);
+  }, [blockedIds]);
 
   useEffect(() => {
     fetchListings().finally(() => setLoading(false));

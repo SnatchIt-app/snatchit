@@ -24,6 +24,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import { normalizeUSPhone } from '@/src/utils/phone';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
 
@@ -114,10 +115,15 @@ export default function TransferReceiveScreen() {
     if (!id) return;
     setSavingDelivery(true);
 
+    // Defense in depth: DeliveryInfoForm normalizes before calling us, but
+    // re-normalize here so even programmatic callers (tests, future hooks)
+    // can't push a malformed phone into the RPC.
+    const safePhone = phone ? normalizeUSPhone(phone) : null;
+
     const { error: rpcErr } = await supabase.rpc('set_transfer_delivery_info', {
-      p_transfer_id: id,
+      p_transfer_id:    id,
       p_delivery_email: email,
-      p_delivery_phone: phone,
+      p_delivery_phone: safePhone,
     });
 
     setSavingDelivery(false);
@@ -129,7 +135,7 @@ export default function TransferReceiveScreen() {
 
     // Update local state immediately so the gate clears
     setTransfer(prev =>
-      prev ? { ...prev, delivery_email: email, delivery_phone: phone } : prev,
+      prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev,
     );
 
     // Also re-fetch to ensure server state is fully in sync

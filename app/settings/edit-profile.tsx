@@ -13,7 +13,7 @@
  *
  * Fields:
  *   - Display Name (required, 2–50 chars)
- *   - Phone Number (optional, 10+ digits if provided)
+ *   - Phone Number (optional, exactly 10 US digits if provided; validates NANP)
  *   - Bio (optional, max 200 chars)
  */
 
@@ -39,6 +39,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
+import {
+  digitsOnly,
+  formatPhoneDisplay,
+  isValidUSPhone,
+  normalizeUSPhone,
+  PHONE_DISPLAY_MAXLENGTH,
+  toPhoneDigits,
+} from '@/src/utils/phone';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -99,7 +107,9 @@ export default function EditProfileScreen() {
 
       if (data) {
         setDisplayName(data.display_name ?? '');
-        setPhoneNumber(data.phone_number ?? '');
+        // Phone is stored as a clean 10-digit string. Some legacy rows may
+        // still have +1 / formatting — normalizeUSPhone handles both.
+        setPhoneNumber(normalizeUSPhone(data.phone_number) ?? '');
         setBio(data.bio ?? '');
         // Resolve avatar: prefer avatar_path (storage), fall back to avatar_url (legacy)
         setAvatarUrl(getAvatarUrl(data.avatar_path ?? data.avatar_url));
@@ -156,9 +166,9 @@ export default function EditProfileScreen() {
   // ── Validation (useMemo pattern from CreateListingScreen) ───────────────────
 
   const errors = useMemo(() => {
-    const trimName  = displayName.trim();
-    const digits    = phoneNumber.replace(/\D/g, '');
-    const trimBio   = bio.trim();
+    const trimName    = displayName.trim();
+    const phoneDigits = digitsOnly(phoneNumber);
+    const trimBio     = bio.trim();
 
     return {
       displayName:
@@ -166,9 +176,11 @@ export default function EditProfileScreen() {
         : trimName.length < 2 ? 'Display name must be at least 2 characters.'
         : trimName.length > 50 ? 'Display name must be 50 characters or fewer.'
         : '',
+      // Phone is optional. If provided, must be exactly 10 digits AND
+      // satisfy NANP rules. Empty input = no error (clears the field).
       phoneNumber:
-        phoneNumber.trim() && digits.length < 10
-          ? 'Phone number must be at least 10 digits.'
+        phoneDigits.length > 0 && !isValidUSPhone(phoneDigits)
+          ? 'Enter a valid 10-digit US phone number.'
           : '',
       bio:
         trimBio.length > 200
@@ -187,12 +199,17 @@ export default function EditProfileScreen() {
     setLoading(true);
 
     try {
+      // Backend write guard: always normalize before persisting. If the
+      // client-side validator was somehow bypassed, normalizeUSPhone()
+      // returns null for invalid input and we store null rather than a
+      // malformed value.
+      const normalizedPhone = normalizeUSPhone(phoneNumber);
       const { error } = await supabase
         .from('profiles')
         .update({
           display_name: displayName.trim(),
-          phone_number: phoneNumber.trim() || null,
-          bio: bio.trim() || null,
+          phone_number: normalizedPhone, // clean 10-digit string or null
+          bio:          bio.trim() || null,
         })
         .eq('id', user.id);
 
@@ -334,14 +351,21 @@ export default function EditProfileScreen() {
             {submitted && <FieldError msg={errors.displayName} />}
 
             {/* ── Phone Number ───────────────────────────────── */}
+            {/* Internal state `phoneNumber` is digits-only. The TextInput
+                renders the formatted display "(305) 555-1234" while
+                typing. onChangeText strips formatting characters and
+                caps at 10 digits so paste from any source normalizes. */}
             <Text style={s.label}>Phone Number</Text>
             <TextInput
               style={[s.input, submitted && errors.phoneNumber ? s.inputErr : null]}
-              placeholder="For ticket transfer coordination"
+              placeholder="(305) 555-1234"
               placeholderTextColor={colors.textPlaceholder}
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
+              value={formatPhoneDisplay(phoneNumber)}
+              onChangeText={(v) => setPhoneNumber(toPhoneDigits(v))}
               keyboardType="phone-pad"
+              textContentType="telephoneNumber"
+              autoComplete="tel-national"
+              maxLength={PHONE_DISPLAY_MAXLENGTH}
               returnKeyType="next"
             />
             {submitted && <FieldError msg={errors.phoneNumber} />}

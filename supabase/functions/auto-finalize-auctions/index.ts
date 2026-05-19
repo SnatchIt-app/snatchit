@@ -39,13 +39,27 @@ function getResponseHeaders(req: Request): Record<string, string> {
   };
 }
 
+// Constant-time comparison — never use `===` on secrets.
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: { ...getResponseHeaders(req) } });
   }
 
-  const token = req.headers.get('Authorization')?.replace('Bearer ', '');
-  if (token !== SUPABASE_SERVICE_ROLE_KEY) {
+  const token = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
+  if (
+    !SUPABASE_SERVICE_ROLE_KEY ||
+    SUPABASE_SERVICE_ROLE_KEY.length === 0 ||
+    !constantTimeEqual(token, SUPABASE_SERVICE_ROLE_KEY)
+  ) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 

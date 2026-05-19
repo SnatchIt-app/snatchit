@@ -39,7 +39,8 @@ type SettingsRoute =
   | '/settings/preferences'
   | '/settings/support'
   | '/settings/legal'
-  | '/settings/privacy';
+  | '/settings/privacy'
+  | '/settings/blocked-users';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -101,7 +102,11 @@ export default function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
 
   function nav(path: SettingsRoute) {
-    router.push(path);
+    // The new "/settings/blocked-users" route hasn't been picked up by
+    // expo-router's typed-route manifest until the next dev-server
+    // start / prebuild — cast through `any` so this compiles today.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.push(path as any);
   }
 
   async function handleSignOut() {
@@ -111,17 +116,15 @@ export default function SettingsScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          console.log('[settings] sign out start');
           setSigningOut(true);
           try {
             await supabase.auth.signOut();
-            console.log('[settings] sign out success, navigating to login');
             router.replace('/(auth)/login');
-          } catch (err) {
-            console.error('[settings] sign out error:', err);
+          } catch {
+            // Sign-out errors are surfaced to the user via the alert below.
+            // The full error is captured by Sentry's auth state listener.
             alertWeb('Failed to sign out. Please try again.');
           } finally {
-            console.log('[settings] finally clearing loading');
             setSigningOut(false);
           }
         },
@@ -134,11 +137,9 @@ export default function SettingsScreen() {
   }
 
   async function executeDeleteAccount() {
-    console.log('[settings] delete start');
     setDeleting(true);
     try {
       const { data, error } = await supabase.functions.invoke('delete-account', { body: {} });
-      console.log('[settings] delete function response', { data, error: error?.message });
 
       if (error) {
         let reason = 'Failed to delete account. Please try again or contact support.';
@@ -160,15 +161,11 @@ export default function SettingsScreen() {
       }
 
       // Success — sign out locally and navigate immediately
-      console.log('[settings] sign out after delete success');
       await supabase.auth.signOut();
-      console.log('[settings] navigating to login');
       router.replace('/(auth)/login');
-    } catch (err) {
-      console.error('[settings] delete error:', err);
+    } catch {
       alertWeb('Something went wrong. Please try again.');
     } finally {
-      console.log('[settings] finally clearing loading');
       setDeleting(false);
     }
   }
@@ -264,6 +261,17 @@ export default function SettingsScreen() {
             icon="📍"
             label="Your Scene"
             onPress={() => nav('/settings/preferences')}
+            showBorder={false}
+          />
+        </SettingsCard>
+
+        {/* ── SAFETY ──────────────────────────────────────────────────────── */}
+        <SectionLabel text="Safety" />
+        <SettingsCard>
+          <SettingsRow
+            icon="🚫"
+            label="Blocked Users"
+            onPress={() => nav('/settings/blocked-users')}
             showBorder={false}
           />
         </SettingsCard>

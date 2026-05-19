@@ -140,6 +140,24 @@ export default function PrivacyPolicyScreen() {
           <Body>We use industry-standard security measures to protect your data, including encrypted connections (TLS/SSL), secure authentication tokens, and access controls. Payment processing is handled entirely by Stripe, which is PCI DSS Level 1 certified. However, no method of electronic transmission or storage is 100% secure.</Body>
         </Section>
 
+        {/* 6b. Reports & Moderation */}
+        <Section title="6b. Reports & Moderation">
+          <Body>
+            Snatch It is a peer-to-peer marketplace, and we expect all users to
+            behave respectfully and within the rules.
+          </Body>
+          <Bullet>You can report a listing or another user at any time from the listing's overflow menu.</Bullet>
+          <Bullet>You can block another user from your account; their listings will be hidden from your feed. Manage blocks at Settings → Blocked Users.</Bullet>
+          <Bullet>Reports are reviewed by the Snatch It team within 24 hours.</Bullet>
+          <Bullet>Listings or accounts that violate our rules may be removed, suspended, or permanently banned.</Bullet>
+          <Bullet>Submitting false or repeated bad-faith reports may itself be grounds for suspension.</Bullet>
+          <Body>
+            For urgent safety concerns, contact us at the email below; we treat
+            these reports with priority.
+          </Body>
+          <Text style={s.contactEmail}>legal@snatchitapp.com</Text>
+        </Section>
+
         {/* 7. Children's Privacy */}
         <Section title="7. Children's Privacy">
           <Body>Snatch It is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If you believe a child has provided us with personal data, contact us and we will delete it promptly.</Body>

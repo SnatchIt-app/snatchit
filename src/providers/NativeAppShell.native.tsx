@@ -73,12 +73,46 @@ interface AppShellProps {
 
 /**
  * Wraps children in StripeProvider.
+ *
+ * Notes on the publishableKey check:
+ *   - A missing publishable key still results in failed checkout, but the
+ *     failure is surfaced LATER (inside PaymentSheet) with a clear error
+ *     code instead of crashing native at module load. A previous version
+ *     of this file threw at module load, which manifested as an instant
+ *     iOS crash on TestFlight builds whose env vars weren't bundled
+ *     (e.g. preview profile with no .env.staging file).
+ *   - The Stripe SDK does not crash on empty publishableKey; it logs an
+ *     error when initPaymentSheet is called. CheckoutNative already
+ *     captures that error and shows the existing "Setup Failed" UI.
+ *   - For visibility, we log a clear console.error at module load. EAS
+ *     build logs will show it; runtime devs will see it in dev tools.
+ *
+ *   `urlScheme` lets the Stripe iOS SDK bring the app back into focus
+ *   after Apple Pay interstitial sheets and 3DS redirects. Must match
+ *   `scheme` in app.json and CFBundleURLSchemes in Info.plist.
+ *
+ *   `merchantIdentifier` must match the Apple Pay merchant ID registered
+ *   in the Apple Developer portal, attached to the App ID, and uploaded
+ *   to Stripe Dashboard (verified `merchant.com.snatchit`).
  */
+if (!APP_CONFIG.STRIPE_PUBLISHABLE_KEY) {
+  // Soft warning, NOT a throw. A throw here would terminate the JS runtime
+  // before React mounts; the app would crash on launch with no UI to
+  // recover. Instead, let the app boot and surface a clean payment error
+  // when checkout is attempted.
+  console.error(
+    '[SnatchIt] EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty. Checkout will fail until this is set.\n' +
+    '  • Production builds need pk_live_…; preview/dev builds need pk_test_….\n' +
+    '  • Configure via eas.json env block (preferred) or .env.<profile> file.',
+  );
+}
+
 export function AppShell({ children }: AppShellProps) {
   return (
     <StripeProvider
       publishableKey={APP_CONFIG.STRIPE_PUBLISHABLE_KEY}
       merchantIdentifier="merchant.com.snatchit"
+      urlScheme="snatchit"
     >
       {children}
     </StripeProvider>

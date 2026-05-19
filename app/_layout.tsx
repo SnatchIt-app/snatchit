@@ -95,10 +95,10 @@ function RootLayout() {
         <Stack.Screen name="my-listings" />
         <Stack.Screen name="transfer/receive/[id]" />
         <Stack.Screen name="transfer/send/[id]" />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: 'modal', headerShown: true, title: 'Modal' }}
-        />
+        <Stack.Screen name="payout-return" />
+        <Stack.Screen name="payout-refresh" />
+        <Stack.Screen name="report/[type]/[id]" />
+        <Stack.Screen name="settings/blocked-users" />
       </Stack>
 
       {loading && (
