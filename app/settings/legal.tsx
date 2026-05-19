@@ -92,11 +92,26 @@ export default function LegalScreen() {
           </Bullet>
           <Bullet>
             All payments are processed by third-party payment providers (currently Stripe).
-            Snatch It does not store, process, or hold user funds at any point.
+            Snatch It does not store payment card details. Under our protected payment flow,
+            payment funds are held by Stripe on Snatch It's behalf until the buyer confirms
+            receipt of the ticket (or the auto-release window expires), at which point the
+            seller's net payout is released.
           </Bullet>
           <Bullet>
-            A 5% service fee is added to the buyer's total at checkout. Snatch It reserves
+            A 10% service fee is added to the buyer's total at checkout, and a 10%
+            marketplace fee is deducted from the seller's payout. Snatch It reserves
             the right to modify fee structures with reasonable notice.
+          </Bullet>
+          <Bullet>
+            Chargebacks and refunds: if a buyer disputes a charge through their
+            bank, or if a refund is issued after a payout has been released to
+            the seller, Stripe may debit the disputed or refunded amount from
+            the seller's future payouts to recover the funds. By accepting
+            payouts through Snatch It, sellers authorize Stripe to debit their
+            connected account balance as needed. Sellers receive a tax form
+            (Form 1099-K) from Stripe each year for payouts that exceed the
+            applicable IRS reporting threshold; Stripe files this directly with
+            the IRS on the seller's behalf.
           </Bullet>
           <Bullet>
             Use of the platform is at your own risk. Snatch It does not guarantee the
@@ -195,10 +210,33 @@ export default function LegalScreen() {
 
               <Text style={s.ftSubhead}>6. Payments & Fees</Text>
               <Text style={s.ftBody}>
-                Payments are processed by Stripe. A 5% service fee is added at checkout.
-                Snatch It does not store payment card details or take custody of funds at any
-                point. Funds flow directly from buyer to payment processor and, where applicable,
-                to the seller's connected payout account. All transactions are denominated in USD.
+                Payments are processed by Stripe. A 10% service fee is added to the buyer's
+                total at checkout, and a 10% marketplace fee is deducted from the seller's
+                payout. Snatch It does not store payment card details. Under our protected
+                payment flow, funds are held by Stripe on Snatch It's behalf until the buyer
+                confirms ticket receipt (or the auto-release window expires), at which point
+                the seller's net is transferred to their connected Stripe account. All
+                transactions are denominated in USD.
+              </Text>
+
+              <Text style={s.ftSubhead}>6a. Chargebacks, Refunds & Negative Balances</Text>
+              <Text style={s.ftBody}>
+                If a buyer disputes a charge through their bank, or if a refund is issued
+                after a payout has been released to the seller, Stripe may debit the disputed
+                or refunded amount from the seller's future payouts to recover the funds. By
+                accepting payouts through Snatch It, sellers authorize Stripe to debit their
+                connected Stripe Express account balance as needed. Sellers remain responsible
+                for any negative balance not covered by future payouts.
+              </Text>
+
+              <Text style={s.ftSubhead}>6b. Tax Reporting (Form 1099-K)</Text>
+              <Text style={s.ftBody}>
+                Stripe issues IRS Form 1099-K to US sellers whose annual gross payment volume
+                meets or exceeds the IRS reporting threshold for the applicable tax year, and
+                files the form directly with the IRS on the seller's behalf. Sellers are
+                responsible for keeping their tax information (SSN/EIN) accurate within
+                Stripe's onboarding and for reporting their income to the relevant tax
+                authorities. Snatch It does not provide tax advice.
               </Text>
 
               <Text style={s.ftSubhead}>7. Prohibited Activities</Text>
