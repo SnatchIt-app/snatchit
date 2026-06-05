@@ -784,7 +784,7 @@ APPLE PAY:
 PaymentSheet exposes Apple Pay as the default option. To test Apple Pay during review, please ensure your test device has a card in Wallet. The marketplace fee is broken out as a separate line item in the Apple Pay summary.
 
 CONTACT:
-snatchit.appsupport@gmail.com
+support@snatchitapp.com
 legal@snatchitapp.com
 ```
 

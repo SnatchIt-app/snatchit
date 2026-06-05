@@ -812,7 +812,7 @@ Sentry.captureException(err);
 
 ### 15.7 Support URL live
 
-**Evidence:** `legal@snatchitapp.com` in legal/privacy. Support URL — `grep -n "support" app/settings/support.tsx` → uses `snatchit.appsupport@gmail.com`. **No `https://snatchitapp.com/support` page is in the repo.**
+**Evidence:** `legal@snatchitapp.com` in legal/privacy. Support URL — `grep -n "support" app/settings/support.tsx` → uses `support@snatchitapp.com`. **No `https://snatchitapp.com/support` page is in the repo.**
 
 **Status: ⚠️ NEEDS FINE-TUNING** — either spin up a static support page on the same Vercel deployment as the new Expo Router screens, or use the gmail address for App Store Connect's "Support URL" via `mailto:` (Apple accepts this in some categories).
 
@@ -909,7 +909,7 @@ UGC MODERATION:
 [Update this section once Top-10 #1 ships.]
 
 SUPPORT:
-snatchit.appsupport@gmail.com
+support@snatchitapp.com
 ```
 
 ## 5. Open Questions

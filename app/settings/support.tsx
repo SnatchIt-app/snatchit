@@ -54,7 +54,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-const SUPPORT_EMAIL = 'snatchit.appsupport@gmail.com';
+const SUPPORT_EMAIL = 'support@snatchitapp.com';
 
 function openEmail() {
   Linking.openURL(
