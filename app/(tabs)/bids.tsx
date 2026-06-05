@@ -55,7 +55,18 @@ type ListingJoin = {
   reserved_by: string | null;
 };
 
+type PurchaseTransferStatus =
+  | 'pending'
+  | 'seller_sent'
+  | 'disputed'
+  | 'buyer_confirmed'
+  | 'auto_released';
+
 type BidRow = {
+  /** When set, this row represents a purchase the buyer has made (auction
+   *  win + paid, or Buy Now). The transfer's lifecycle drives the badge.
+   *  See getBidStatus(). */
+  purchaseTransferStatus?: PurchaseTransferStatus;
   id: string;
   created_at: string;
   amount: number;
@@ -65,7 +76,17 @@ type BidRow = {
   coverUrl: string | null;
 };
 
-type BidStatus = 'winning' | 'outbid' | 'won' | 'lost' | 'sold';
+type BidStatus =
+  | 'winning'
+  | 'outbid'
+  | 'won'
+  | 'lost'
+  | 'sold'
+  // Purchases the buyer made — transfer is in-flight or done.
+  | 'awaiting_transfer'   // transfer.status = 'pending'
+  | 'seller_sent'         // transfer.status = 'seller_sent'
+  | 'purchase_disputed'   // transfer.status = 'disputed'
+  | 'purchase_confirmed'; // 'buyer_confirmed' | 'auto_released'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +121,16 @@ function formatDate(iso: string): string {
  *   3. auction still live                            → winning vs outbid
  */
 function getBidStatus(bid: BidRow, userId: string): BidStatus {
+  // Purchase-track takes precedence — once the buyer owns the ticket,
+  // the bid history is no longer the source of truth for this card.
+  switch (bid.purchaseTransferStatus) {
+    case 'pending':         return 'awaiting_transfer';
+    case 'seller_sent':     return 'seller_sent';
+    case 'disputed':        return 'purchase_disputed';
+    case 'buyer_confirmed':
+    case 'auto_released':   return 'purchase_confirmed';
+  }
+
   const listing = bid.listing;
   if (!listing) return 'lost';
 
@@ -120,19 +151,27 @@ function getBidStatus(bid: BidRow, userId: string): BidStatus {
 }
 
 const STATUS_LABELS: Record<BidStatus, string> = {
-  winning: '● Winning',
-  outbid:  '● Outbid',
-  won:     '🏆 Won',
-  lost:    'Ended',
-  sold:    'Sold',
+  winning:             '● Winning',
+  outbid:              '● Outbid',
+  won:                 '🏆 Won',
+  lost:                'Ended',
+  sold:                'Sold',
+  awaiting_transfer:   '⏳ Awaiting seller transfer',
+  seller_sent:         '📨 Seller sent — confirm receipt',
+  purchase_disputed:   '⚠️ Disputed — support reviewing',
+  purchase_confirmed:  '✅ Confirmed',
 };
 
 const STATUS_COLORS: Record<BidStatus, string> = {
-  winning: colors.success,
-  outbid:  colors.error,
-  won:     '#FFD700',      // gold
-  lost:    colors.textMuted,
-  sold:    colors.textMuted,
+  winning:             colors.success,
+  outbid:              colors.error,
+  won:                 '#FFD700',      // gold
+  lost:                colors.textMuted,
+  sold:                colors.textMuted,
+  awaiting_transfer:   colors.accent,
+  seller_sent:         colors.success,
+  purchase_disputed:   colors.error,
+  purchase_confirmed:  colors.success,
 };
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
@@ -322,6 +361,47 @@ export default function BidsScreen() {
       }
     }
 
+    // ── Merge in PURCHASES (transfers where this user is the buyer) ──────
+    // This covers two gaps:
+    //   • Buy Now purchases have no bid row → never appeared in Bids tab.
+    //   • Auction wins that completed checkout — transfer status drives
+    //     the badge instead of the stale listing.status='sold' tile.
+    const { data: txData } = await supabase
+      .from('transfers')
+      .select(`
+        listing_id,
+        status,
+        created_at,
+        listing:listings (
+          id, event_name, venue, ends_at, current_bid, status, auction_status,
+          winner_user_id, winning_bid_amount, cover_image_path, reserved_until, reserved_by
+        )
+      `)
+      .eq('buyer_id', userId)
+      .in('status', ['pending','seller_sent','disputed','buyer_confirmed','auto_released'])
+      .order('created_at', { ascending: false });
+
+    for (const t of (txData ?? []) as any[]) {
+      const listing  = Array.isArray(t.listing) ? t.listing[0] : t.listing;
+      const coverUrl = getCoverImageUrl(listing?.cover_image_path ?? null);
+      const ts       = t.status as PurchaseTransferStatus;
+      const existing = byListing.get(t.listing_id);
+
+      if (existing) {
+        existing.purchaseTransferStatus = ts;
+      } else {
+        byListing.set(t.listing_id, {
+          id:                       `tx-${t.listing_id}`,
+          amount:                   listing?.winning_bid_amount ?? listing?.current_bid ?? 0,
+          created_at:               t.created_at,
+          listing_id:               t.listing_id,
+          listing:                  listing ?? null,
+          coverUrl,
+          purchaseTransferStatus:   ts,
+        });
+      }
+    }
+
     setBids(Array.from(byListing.values()));
   }, [userId]);
 
@@ -347,18 +427,24 @@ export default function BidsScreen() {
   }
 
   // ── Filter state ────────────────────────────────────────────────────────────
-  type BidFilter = 'total' | 'winning' | 'outbid' | 'won';
+  type BidFilter = 'total' | 'winning' | 'outbid' | 'won' | 'purchases';
   const [bidFilter, setBidFilter] = useState<BidFilter>('total');
 
   // ── Summary counts ─────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { winning: 0, outbid: 0, won: 0, lost: 0 };
+    const c = { winning: 0, outbid: 0, won: 0, lost: 0, purchases: 0 };
     for (const bid of bids) {
       const status = getBidStatus(bid, userId);
       if (status === 'winning') c.winning++;
       else if (status === 'outbid') c.outbid++;
       else if (status === 'won') c.won++;
       else if (status === 'lost') c.lost++;
+      else if (
+        status === 'awaiting_transfer' ||
+        status === 'seller_sent' ||
+        status === 'purchase_disputed' ||
+        status === 'purchase_confirmed'
+      ) c.purchases++;
     }
     return c;
   }, [bids, userId]);
@@ -367,9 +453,15 @@ export default function BidsScreen() {
     if (bidFilter === 'total') return bids;
     return bids.filter(b => {
       const status = getBidStatus(b, userId);
-      if (bidFilter === 'winning') return status === 'winning';
-      if (bidFilter === 'outbid')  return status === 'outbid';
-      if (bidFilter === 'won')     return status === 'won';
+      if (bidFilter === 'winning')   return status === 'winning';
+      if (bidFilter === 'outbid')    return status === 'outbid';
+      if (bidFilter === 'won')       return status === 'won';
+      if (bidFilter === 'purchases') return (
+        status === 'awaiting_transfer' ||
+        status === 'seller_sent' ||
+        status === 'purchase_disputed' ||
+        status === 'purchase_confirmed'
+      );
       return true;
     });
   }, [bids, bidFilter, userId]);
@@ -379,10 +471,11 @@ export default function BidsScreen() {
   }
 
   const PILLS: { key: BidFilter; label: string; count: number; color: string }[] = [
-    { key: 'winning', label: 'Winning', count: counts.winning, color: colors.success },
-    { key: 'outbid',  label: 'Outbid',  count: counts.outbid,  color: colors.error },
-    { key: 'won',     label: 'Won',     count: counts.won,     color: '#FFD700' },
-    { key: 'total',   label: 'Total',   count: bids.length,    color: colors.text },
+    { key: 'winning',   label: 'Winning',   count: counts.winning,   color: colors.success },
+    { key: 'outbid',    label: 'Outbid',    count: counts.outbid,    color: colors.error },
+    { key: 'won',       label: 'Won',       count: counts.won,       color: '#FFD700' },
+    { key: 'purchases', label: 'Purchases', count: counts.purchases, color: colors.accent },
+    { key: 'total',     label: 'Total',     count: bids.length,      color: colors.text },
   ];
 
   return (

@@ -199,7 +199,11 @@ export default function TransferReceiveScreen() {
             setSubmitting(false);
 
             if (rpcErr) {
-              Alert.alert('Error', rpcErr.message);
+              Alert.alert(
+                "Couldn't submit dispute",
+                'Please try again in a moment. If the problem persists, contact support.',
+              );
+              console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
               return;
             }
             setTransfer(prev => prev ? { ...prev, status: 'disputed' } : prev);
