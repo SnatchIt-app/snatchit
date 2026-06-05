@@ -48,9 +48,13 @@ export default function BlockedUsersScreen() {
   // Always sets loading=false on every exit path so the spinner can never
   // stick.  Console-logs every shape so we can verify in the device console
   // exactly what the API returns.
+  // Dev/preview-only debug logger so device console stays clean in production.
+  const isDev = process.env.EXPO_PUBLIC_APP_ENV !== 'production';
+  const dlog = (...args: unknown[]) => { if (isDev) console.log(...args); };
+
   const fetchRows = useCallback(async () => {
     if (!userId) {
-      console.log('[blocked-users] fetchRows skipped — no user yet');
+      dlog('[blocked-users] fetchRows skipped — no user yet');
       setLoading(false);   // ← never let spinner stick when auth is delayed
       return;
     }
@@ -61,7 +65,7 @@ export default function BlockedUsersScreen() {
         .eq('blocker_id', userId)
         .order('created_at', { ascending: false });
 
-      console.log('[blocked-users] user_blocks fetched:',
+      dlog('[blocked-users] user_blocks fetched:',
         { count: blocks?.length ?? 0, error: blocksErr?.message ?? null });
 
       if (blocksErr) {
@@ -81,7 +85,7 @@ export default function BlockedUsersScreen() {
         .from('profiles')
         .select('id, display_name')
         .in('id', ids);
-      console.log('[blocked-users] profiles fetched:',
+      dlog('[blocked-users] profiles fetched:',
         { count: profs?.length ?? 0, error: profsErr?.message ?? null });
       for (const p of (profs ?? []) as { id: string; display_name: string | null }[]) {
         profileMap.set(p.id, p.display_name);
@@ -92,7 +96,7 @@ export default function BlockedUsersScreen() {
         created_at: b.created_at,
         blocked:    { display_name: profileMap.get(b.blocked_id) ?? null },
       }));
-      console.log('[blocked-users] rendering rows:', merged.length);
+      dlog('[blocked-users] rendering rows:', merged.length);
       setRows(merged);
     } catch (e) {
       console.warn('[blocked-users] unexpected error:', e);
@@ -100,7 +104,7 @@ export default function BlockedUsersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, isDev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hard load on mount AND every time userId changes from null → set.
   useEffect(() => { fetchRows(); }, [fetchRows]);

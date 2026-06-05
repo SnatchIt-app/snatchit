@@ -672,12 +672,11 @@ export default function ListingDetailScreen({ id }: Props) {
     //    declarations are intentionally left in place — they're harmless
     //    dead refs and removing them is out of scope for this fix.
     //
-    //    TODO (deep-link routing): when the user taps the notification,
-    //    iOS opens the app and the response payload arrives in the
-    //    notification-response listener. Wire that listener (in
-    //    NativeAppShell or app/_layout.tsx) to read
-    //    `data.listingId` + `data.type === 'auction_won'` and call
-    //    `router.push('/listing/' + listingId)`. Out of scope here.
+    //    Notification-tap deep-link routing is implemented in
+    //    src/providers/NativeAppShell.native.tsx via
+    //    Notifications.addNotificationResponseReceivedListener — it reads
+    //    data.type === 'auction_won' + data.listingId and routes to
+    //    /listing/<id>. See useNativeEffects().
     sendLocalNotification({
       title: 'You Snatched It 🎉',
       body:  `You won ${listing.event_name}. Complete checkout to claim your ticket.`,
