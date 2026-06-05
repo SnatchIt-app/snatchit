@@ -864,13 +864,30 @@ export default function ListingDetailScreen({ id }: Props) {
   }
 
   // ── Seller actions on their own listing ────────────────────────────────────
-  // Visible only when listing.seller_id === user.id. Decisions match the
-  // /my-listings card pills:
-  //   • bid_count === 0 && auction_status active → Edit + Delete
-  //   • bid_count >  0 && auction_status active → Cancel (voids bids)
-  //   • otherwise (sold / ended / cancelled)    → nothing
+  // Section is ALWAYS rendered when isSeller === true (no gate).
+  // Each handler decides legality at the moment it's tapped and surfaces a
+  // user-friendly alert when the action isn't allowed.
+  function handleSellerEdit() {
+    if (!listing) return;
+    // Block edit once any sale activity exists.
+    if (listing.status === 'sold' || transferId) {
+      Alert.alert('Cannot edit', 'Sold listings can’t be edited.');
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.push(`/listing/edit/${listing.id}` as any);
+  }
+
   async function handleSellerDelete() {
     if (!listing || !user) return;
+    // Refuse delete when activity already exists.
+    if (listing.status === 'sold' || transferId || (listing.bid_count ?? 0) > 0) {
+      Alert.alert(
+        'Cannot delete',
+        'This listing can’t be deleted because activity already exists. Cancel it instead.',
+      );
+      return;
+    }
     Alert.alert(
       'Delete listing?',
       `Delete "${listing.event_name}" permanently? This cannot be undone.`,
@@ -889,7 +906,6 @@ export default function ListingDetailScreen({ id }: Props) {
               Alert.alert('Delete failed', error.message);
               return;
             }
-            // Best-effort cover cleanup
             if (listing.cover_image_path) {
               try { await supabase.storage.from('auction-media').remove([listing.cover_image_path]); }
               catch (e) { console.warn('[ListingDetail] cover cleanup:', e); }
@@ -905,9 +921,19 @@ export default function ListingDetailScreen({ id }: Props) {
 
   async function handleSellerCancel() {
     if (!listing || !user) return;
+    if (listing.status === 'sold' || transferId) {
+      Alert.alert('Cannot cancel', 'Sold listings can’t be canceled.');
+      return;
+    }
+    if (listing.auction_status === 'cancelled') {
+      Alert.alert('Already cancelled', 'This listing has already been cancelled.');
+      return;
+    }
     Alert.alert(
       'Cancel listing?',
-      'This listing has bids. Cancelling will void all bids. Continue?',
+      (listing.bid_count ?? 0) > 0
+        ? 'This listing has bids. Cancelling will void all bids. Continue?'
+        : 'Cancel this listing? Buyers will no longer see it.',
       [
         { text: 'Keep Listing', style: 'cancel' },
         {
@@ -1205,51 +1231,46 @@ export default function ListingDetailScreen({ id }: Props) {
       )}
 
       {/* ── Seller-owner actions ───────────────────────────────
-          Widened gate (previous version required auction_status === 'active',
-          which excluded clock-expired listings whose finalize cron hadn't run).
-          Now shown for ANY of the seller's own listings that are not sold
-          and not already cancelled. Inner branch decides Edit/Delete vs Cancel.
-          Logged once per render so device console shows exactly why hidden. */}
-      {isSeller && (() => {
-        // eslint-disable-next-line no-console
-        console.log('[ListingDetail] owner-actions gate:', {
-          isSeller, isSold,
-          status:         listing.status,
-          auction_status: listing.auction_status,
-          bid_count:      listing.bid_count,
-        });
-        return null;
-      })()}
-      {isSeller && !isSold && listing.auction_status !== 'cancelled' && (
-        <View style={s.ownerActionsRow}>
-          {listing.bid_count === 0 ? (
-            <>
-              <TouchableOpacity
-                style={[s.ownerBtn, s.ownerBtnEdit]}
-                onPress={() => router.push(`/listing/edit/${listing.id}` as any)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-              >
-                <Text style={s.ownerBtnText}>✏️  Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.ownerBtn, s.ownerBtnDelete]}
-                onPress={handleSellerDelete}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-              >
-                <Text style={s.ownerBtnText}>🗑  Delete</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
+          ALWAYS rendered when isSeller === true. No status/bid_count/sold
+          gate. Each handler validates legality and surfaces an alert when
+          the action isn't allowed. Debug strip shows runtime state.       */}
+      {isSeller && (
+        <View style={s.ownerActionsWrap}>
+          <Text style={s.ownerActionsHeader}>Owner Actions</Text>
+          <View style={s.ownerActionsRow}>
+            <TouchableOpacity
+              style={[s.ownerBtn, s.ownerBtnEdit]}
+              onPress={handleSellerEdit}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Edit listing"
+            >
+              <Text style={s.ownerBtnText}>✏️  Edit</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[s.ownerBtn, s.ownerBtnCancel]}
               onPress={handleSellerCancel}
               activeOpacity={0.8}
               accessibilityRole="button"
+              accessibilityLabel="Cancel listing"
             >
-              <Text style={s.ownerBtnText}>⛔️  Cancel Listing</Text>
+              <Text style={s.ownerBtnText}>⛔️  Cancel</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.ownerBtn, s.ownerBtnDelete]}
+              onPress={handleSellerDelete}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Delete listing"
+            >
+              <Text style={s.ownerBtnText}>🗑  Delete</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Debug strip — dev / preview builds only. Production hides it. */}
+          {process.env.EXPO_PUBLIC_APP_ENV !== 'production' && (
+            <Text style={s.ownerActionsDebug}>
+              owner={String(isSeller)} · status={listing.status ?? 'null'} · auction={listing.auction_status ?? 'null'} · bids={listing.bid_count ?? 0}
+            </Text>
           )}
         </View>
       )}
@@ -1566,14 +1587,32 @@ const s = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Seller-owner action row (Edit / Delete / Cancel) on own listing
-  ownerActionsRow: {
-    flexDirection:     'row',
-    gap:               spacing.sm,
+  // Seller-owner action section (Edit / Cancel / Delete) — always visible
+  ownerActionsWrap: {
     paddingHorizontal: spacing.lg,
-    paddingVertical:   spacing.sm,
+    paddingTop:        spacing.sm,
+    paddingBottom:     spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    backgroundColor:   colors.bgCard,
+  },
+  ownerActionsHeader: {
+    color:          colors.textMuted,
+    fontSize:       fontSize.xs,
+    fontWeight:     '700',
+    letterSpacing:  1.2,
+    textTransform:  'uppercase',
+    marginBottom:   spacing.xs,
+  },
+  ownerActionsRow: {
+    flexDirection: 'row',
+    gap:           spacing.sm,
+  },
+  ownerActionsDebug: {
+    color:     colors.textDim,
+    fontSize:  10,
+    marginTop: spacing.xs,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   ownerBtn: {
     flex:            1,
