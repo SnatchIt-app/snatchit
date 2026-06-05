@@ -198,23 +198,29 @@ export default function ProfileScreen() {
       revenue: totalRevenue,
     });
 
-    // 4. Payout status — ask backend for real Stripe state
+    // 4. Payout status — non-blocking. The Stripe round-trip can take
+    //    several seconds; the UI must render before it resolves. Fire-
+    //    and-forget with a 6 s timeout so a slow Stripe call can never
+    //    wedge the profile tab.
     if (profileData?.stripe_connect_id) {
-      try {
-        const { data: statusData, error: statusErr } = await supabase.functions.invoke(
-          'create-connect-account',
-          { body: { status_only: true } },
-        );
-        if (!statusErr && statusData) {
-          const parsed = typeof statusData === 'string' ? JSON.parse(statusData) : statusData;
-          const s = parsed?.status;
-          if (s === 'connected' || s === 'onboarding_required' || s === 'not_connected') {
-            setPayoutStatus(s);
+      void (async () => {
+        try {
+          const result = await Promise.race([
+            supabase.functions.invoke('create-connect-account', { body: { status_only: true } }),
+            new Promise<{ data: null; error: { message: string } }>((resolve) =>
+              setTimeout(() => resolve({ data: null, error: { message: 'timeout' } }), 6000),
+            ),
+          ]);
+          const { data: statusData, error: statusErr } = result as { data: unknown; error: { message: string } | null };
+          if (!statusErr && statusData) {
+            const parsed = typeof statusData === 'string' ? JSON.parse(statusData) : statusData;
+            const s = (parsed as { status?: string })?.status;
+            if (s === 'connected' || s === 'onboarding_required' || s === 'not_connected') {
+              setPayoutStatus(s);
+            }
           }
-        }
-      } catch {
-        // Keep current payoutStatus on error
-      }
+        } catch { /* keep current */ }
+      })();
     } else {
       setPayoutStatus('not_connected');
     }

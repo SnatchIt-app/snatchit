@@ -74,11 +74,15 @@ export default function PayoutSetupScreen() {
       }
 
       // Account exists — ask the edge function for the real Stripe status
-      // (details_submitted). This is the only reliable source.
-      const { data, error } = await supabase.functions.invoke(
-        'create-connect-account',
-        { body: { status_only: true } },
-      );
+      // (details_submitted). 6 s hard timeout so a slow Stripe round-trip
+      // can never freeze this screen behind the loading spinner.
+      const result = await Promise.race([
+        supabase.functions.invoke('create-connect-account', { body: { status_only: true } }),
+        new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'timeout' } }), 6000),
+        ),
+      ]);
+      const { data, error } = result as { data: unknown; error: { message: string } | null };
 
       if (!error && data) {
         const parsed = typeof data === 'string' ? JSON.parse(data) : data;
