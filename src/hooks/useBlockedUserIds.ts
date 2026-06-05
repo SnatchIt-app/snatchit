@@ -20,6 +20,7 @@
  *   • Stays empty for unauthenticated users.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -58,6 +59,16 @@ export function useBlockedUserIds(): {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Re-fetch the block set every time the consumer screen regains focus.
+  // Without this, blocking a seller from ListingDetailScreen → router.back()
+  // returns to Home/Explore with a stale empty set, and the blocked seller's
+  // listings stay visible until app relaunch.
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   return { blockedIds, refresh, loading };
 }

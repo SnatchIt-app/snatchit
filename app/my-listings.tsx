@@ -324,6 +324,8 @@ export default function MyListingsScreen() {
               coverUrl={item.coverUrl}
               onPress={() => router.push(`/listing/${item.id}`)}
               onDelete={() => handleDelete(item)}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              onEdit={() => router.push(`/listing/edit/${item.id}` as any)}
             />
           )}
         />

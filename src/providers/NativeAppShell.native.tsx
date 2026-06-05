@@ -160,4 +160,43 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
     const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
     return () => sub.remove();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Notification tap → deep link routing ────────────────────────────────
+  // Routes the user when they tap an Expo push notification. Safe if router
+  // is not ready yet (queued via setTimeout). Never throws.
+  useEffect(() => {
+    function routeFromNotificationData(raw: unknown) {
+      try {
+        if (!raw || typeof raw !== 'object') return;
+        const data    = raw as Record<string, unknown>;
+        const dataType    = typeof data.type === 'string' ? data.type : null;
+        const listingId   = typeof data.listingId === 'string' ? data.listingId : null;
+
+        if (dataType === 'auction_won' && listingId) {
+          // Defer one tick — router may not be mounted at cold-start
+          setTimeout(() => {
+            try { router.push(`/listing/${listingId}` as any); }
+            catch (e) { console.warn('[push] route failed:', e); }
+          }, 0);
+        }
+      } catch (e) {
+        console.warn('[push] routeFromNotificationData failed:', e);
+      }
+    }
+
+    // Cold-start: app launched by tapping a notification
+    Notifications.getLastNotificationResponseAsync()
+      .then(resp => {
+        if (resp?.notification?.request?.content?.data) {
+          routeFromNotificationData(resp.notification.request.content.data);
+        }
+      })
+      .catch(e => console.warn('[push] getLastNotificationResponseAsync:', e));
+
+    // Warm: app already running when notification is tapped
+    const sub = Notifications.addNotificationResponseReceivedListener(resp => {
+      routeFromNotificationData(resp?.notification?.request?.content?.data);
+    });
+    return () => sub.remove();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }

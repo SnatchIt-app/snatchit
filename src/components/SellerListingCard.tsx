@@ -25,6 +25,7 @@ type Props = {
   coverUrl: string | null;
   onPress: () => void;
   onDelete?: () => void;
+  onEdit?: () => void;
   isVerifiedSeller?: boolean;
 };
 
@@ -76,11 +77,14 @@ function shortDate(iso: string): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, isVerifiedSeller }: Props) {
+export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller }: Props) {
   const badge      = getBadge(listing);
   const badgeS     = BADGE_STYLE[badge];
   const ended      = badge === 'ENDED' || badge === 'SOLD' || badge === 'CANCELLED';
   const cancelled  = badge === 'CANCELLED';
+  // Edit allowed only when no bids have come in AND the auction is active.
+  // Once bids exist, listings become contractual — sellers must Cancel.
+  const canEdit    = !ended && listing.bid_count === 0 && listing.auction_status === 'active';
   const canDelete  = !ended && listing.bid_count === 0 && listing.auction_status === 'active';
   const canCancel  = !ended && listing.bid_count > 0 && listing.auction_status === 'active';
 
@@ -146,6 +150,13 @@ export default function SellerListingCard({ listing, coverUrl, onPress, onDelete
             <Text style={s.bottomText}>{ended ? 'No winner' : ''}</Text>
           )}
 
+          {/* Edit — no bids, active */}
+          {canEdit && onEdit && (
+            <TouchableOpacity onPress={onEdit} hitSlop={8}>
+              <Text style={s.editText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Delete — no bids, active */}
           {canDelete && onDelete && (
             <TouchableOpacity onPress={onDelete} hitSlop={8}>
@@ -204,4 +215,5 @@ const s = StyleSheet.create({
   bottomText: { fontSize: fontSize.xs, color: colors.textDim, fontWeight: '600' },
   deleteText: { fontSize: fontSize.xs, color: colors.error, fontWeight: '700' },
   cancelText: { fontSize: fontSize.xs, color: colors.warning, fontWeight: '700' },
+  editText:   { fontSize: fontSize.xs, color: colors.primary, fontWeight: '700', marginRight: spacing.sm },
 });

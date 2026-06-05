@@ -82,6 +82,7 @@ function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="listing/[id]" />
+        <Stack.Screen name="listing/edit/[id]" />
         <Stack.Screen name="bid/[id]" />
         <Stack.Screen name="checkout/[id]" />
         <Stack.Screen name="settings/index" />

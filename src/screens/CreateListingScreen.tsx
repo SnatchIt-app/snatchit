@@ -69,6 +69,35 @@ const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
 
 function digitsOnly(s: string) { return s.replace(/\D/g, ''); }
 
+// ─── Content moderation (Apple Guideline 1.4.3 — controlled substances /
+// ─── illegal resale). Word-boundary regex over a small lexicon. Keeps false
+// ─── positives low; lives client-side as a first gate. Server-side review
+// ─── is in P1-01 (reports + moderation).
+const BANNED_CONTENT_PATTERNS: { pattern: RegExp; label: string }[] = [
+  { pattern: /\balcohol\b/i,         label: 'alcohol' },
+  { pattern: /\bdrugs?\b/i,          label: 'drugs' },
+  { pattern: /\bweed\b/i,            label: 'weed' },
+  { pattern: /\bcocaine\b/i,         label: 'cocaine' },
+  { pattern: /\bmolly\b/i,           label: 'molly' },
+  { pattern: /\bopen[\s-]?bar\b/i,   label: 'open bar' },
+  { pattern: /\bbottle[\s-]?service\b/i, label: 'bottle service' },
+  { pattern: /\bfake[\s-]?tickets?\b/i,  label: 'fake ticket' },
+  { pattern: /\bcounterfeit\b/i,     label: 'counterfeit' },
+  { pattern: /\bunderage\b/i,        label: 'underage' },
+];
+
+/**
+ * Scan listing free-text fields for banned content.
+ * @returns the first matched label, or null if clean.
+ */
+function findBannedContent(fields: (string | null | undefined)[]): string | null {
+  const haystack = fields.filter(Boolean).join(' \n ');
+  for (const { pattern, label } of BANNED_CONTENT_PATTERNS) {
+    if (pattern.test(haystack)) return label;
+  }
+  return null;
+}
+
 function defaultDate() { const d = new Date(); d.setHours(0,0,0,0); return d; }
 function defaultTime() { const d = new Date(); d.setHours(d.getHours()+1,0,0,0); return d; }
 
@@ -300,6 +329,16 @@ export default function CreateListingScreen() {
   async function handlePublish() {
     setSubmitted(true);
     if (!isValid || !user) return;
+
+    // Content moderation gate (Guideline 1.4.3)
+    const banned = findBannedContent([eventName, venue, restrictions]);
+    if (banned) {
+      const msg = `Listings can't mention "${banned}". Please revise your event name, venue, or restrictions and try again.`;
+      if (Platform.OS === 'web') { window.alert(msg); }
+      else { Alert.alert('Listing not allowed', msg); }
+      return;
+    }
+
     setLoading(true);
 
     try {

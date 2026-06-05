@@ -336,6 +336,11 @@ export default function HomeScreen() {
 
   // UGC moderation: filter out blocked-seller listings from every feed.
   const { blockedIds } = useBlockedUserIds();
+  // Mirror to a ref so realtime postgres_changes handlers (mounted once via
+  // an empty-deps useEffect below) always see the current block set without
+  // re-subscribing on every block/unblock.
+  const blockedIdsRef = useRef<Set<string>>(blockedIds);
+  useEffect(() => { blockedIdsRef.current = blockedIds; }, [blockedIds]);
 
   // ── Clock ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -429,9 +434,13 @@ export default function HomeScreen() {
         async (payload) => {
           // Only add active listings to the default feed
           if (payload.new.status !== 'active') return;
+          // UGC moderation — never surface a blocked seller's new listing.
+          if (payload.new.seller_id && blockedIdsRef.current.has(payload.new.seller_id)) return;
           const { data } = await supabase.from('listings').select('*').eq('id', payload.new.id).single();
           if (data) {
             const nl = data as Listing;
+            // Re-check after the round trip in case the user just blocked.
+            if (blockedIdsRef.current.has(nl.seller_id)) return;
             setAllListings(prev => [nl, ...prev]);
             const urlMap = await resolveCoverUrls([imagePath(nl)]);
             setCoverUrls(prev => new Map([...prev, ...urlMap]));
@@ -439,7 +448,12 @@ export default function HomeScreen() {
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'listings' },
         (payload) => {
-          const updated = payload.new as Partial<Listing> & { id: string };
+          const updated = payload.new as Partial<Listing> & { id: string; seller_id?: string };
+          // UGC moderation — drop updates for blocked sellers' listings.
+          if (updated.seller_id && blockedIdsRef.current.has(updated.seller_id)) {
+            setAllListings(prev => prev.filter(l => l.id !== updated.id));
+            return;
+          }
           // If a listing transitions to sold, remove it from active feed
           if (updated.status === 'sold') {
             setAllListings(prev => prev.filter(l => l.id !== updated.id));

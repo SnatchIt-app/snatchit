@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +27,7 @@ import { colors, fontSize, radius, spacing } from '@/src/theme';
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
 
@@ -36,6 +38,10 @@ export default function SignUpScreen() {
     }
     if (password.length < 6) {
       setMessage({ text: 'Password must be at least 6 characters.', type: 'error' });
+      return;
+    }
+    if (!ageConfirmed) {
+      setMessage({ text: 'You must confirm you are 18 or older to use Snatch It.', type: 'error' });
       return;
     }
 
@@ -98,6 +104,18 @@ export default function SignUpScreen() {
           </Text>
         )}
 
+        {/* ── 18+ confirmation (App Store Guideline 1.4.3 / 18+ marketplace) ── */}
+        <Pressable
+          style={styles.ageRow}
+          onPress={() => setAgeConfirmed(v => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: ageConfirmed }}>
+          <View style={[styles.checkbox, ageConfirmed && styles.checkboxOn]}>
+            {ageConfirmed && <Text style={styles.checkMark}>{'✓'}</Text>}
+          </View>
+          <Text style={styles.ageText}>I confirm I am 18 years of age or older.</Text>
+        </Pressable>
+
         {/* ── Legal disclosure (App Store Guideline 5.1.1) ── */}
         <Text style={styles.legalText}>
           By creating an account you agree to our{' '}
@@ -121,9 +139,9 @@ export default function SignUpScreen() {
 
         {/* ── Create Account button ── */}
         <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
+          style={[styles.button, (loading || !ageConfirmed) && styles.buttonDisabled]}
           onPress={handleSignUp}
-          disabled={loading}
+          disabled={loading || !ageConfirmed}
           activeOpacity={0.8}>
           {loading
             ? <ActivityIndicator color={colors.text} />
@@ -229,5 +247,38 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  ageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: colors.borderInput,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  checkboxOn: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  checkMark: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  ageText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
   },
 });
