@@ -47,6 +47,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
+import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
@@ -227,7 +228,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const [coverUrl,   setCoverUrl]   = useState<string | null>(null);
   const [reserving,  setReserving]  = useState(false);
   const [finalizing, setFinalizing] = useState(false);
-  const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean } | null>(null);
+  const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null>(null);
   const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
   const [transferId,            setTransferId]            = useState<string | null>(null);
   const [transferBuyerId,       setTransferBuyerId]       = useState<string | null>(null);
@@ -349,7 +350,7 @@ export default function ListingDetailScreen({ id }: Props) {
     if (fetchedListing.seller_id) {
       const { data: sp } = await supabase
         .from('profiles')
-        .select('display_name, is_verified_seller')
+        .select('display_name, is_verified_seller, avatar_url, avatar_path')
         .eq('id', fetchedListing.seller_id)
         .single();
       if (sp) setSellerProfile(sp);
@@ -1324,10 +1325,27 @@ export default function ListingDetailScreen({ id }: Props) {
           </View>
 
           {sellerProfile && (
-            <View style={s.sellerRow}>
+            <Pressable
+              style={s.sellerRow}
+              onPress={() => router.push(`/profile/${listing.seller_id}` as any)}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${sellerProfile.display_name || 'seller'}'s profile`}
+            >
+              {(() => {
+                const sellerAvatar = getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url);
+                const initial = (sellerProfile.display_name || 'S').trim().charAt(0).toUpperCase();
+                return sellerAvatar ? (
+                  <Image source={{ uri: sellerAvatar }} style={s.sellerAvatar} contentFit="cover" />
+                ) : (
+                  <View style={[s.sellerAvatar, s.sellerAvatarFallback]}>
+                    <Text style={s.sellerAvatarInitial}>{initial}</Text>
+                  </View>
+                );
+              })()}
               <Text style={s.sellerName}>{sellerProfile.display_name || 'Seller'}</Text>
               <VerifiedSellerBadge isVerified={sellerProfile.is_verified_seller} />
-            </View>
+              <Text style={s.sellerChevron}>{'›'}</Text>
+            </Pressable>
           )}
 
           <Text style={s.sectionHead}>EVENT DETAILS</Text>
@@ -1499,7 +1517,11 @@ const s = StyleSheet.create({
                    fontVariant:['tabular-nums'] },
 
   sellerRow:   { flexDirection:'row', alignItems:'center', gap: spacing.sm, marginBottom: spacing.md },
+  sellerAvatar:{ width: 28, height: 28, borderRadius: 14 },
+  sellerAvatarFallback: { backgroundColor: colors.primarySoft, alignItems:'center', justifyContent:'center' },
+  sellerAvatarInitial:  { color: colors.primary, fontSize: fontSize.xs, fontWeight:'800' },
   sellerName:  { fontSize: fontSize.sm, fontWeight:'600', color: colors.text },
+  sellerChevron: { marginLeft:'auto', color: colors.textDim, fontSize: fontSize.lg, fontWeight:'700' },
 
   sectionHead: { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
                  letterSpacing:1.4, textTransform:'uppercase', marginBottom: spacing.sm },

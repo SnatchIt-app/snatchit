@@ -100,6 +100,7 @@ function RootLayout() {
         <Stack.Screen name="payout-refresh" />
         <Stack.Screen name="report/[type]/[id]" />
         <Stack.Screen name="settings/blocked-users" />
+        <Stack.Screen name="profile/[id]" />
       </Stack>
 
       {loading && (
