@@ -402,3 +402,25 @@ export type StripeWebhookEvent = {
   retry_count:  number;
 };
 
+// ─── Profile trust metrics (migration 029) ────────────────────────────────────
+// One-row payload from get_profile_trust_stats RPC. Marketplace-safe — never
+// includes email, phone, Stripe IDs, transaction amounts, or wallet data.
+
+export type ProfileTrustStats = {
+  completed_sales:            number;
+  completed_purchases:        number;
+  active_listings:            number;
+  disputes_opened:            number;
+  disputes_lost:              number;
+  seller_terminal_total:      number;  // denominator for transfer success rate
+  seller_terminal_successful: number;  // numerator   for transfer success rate
+  member_since:               string | null;
+};
+
+export type SellerReputationTier =
+  | 'new_seller'      // < 1 terminal transfer — insufficient data
+  | 'excellent'       // 0 lost disputes AND success rate >= 95%
+  | 'good'            // success rate >= 85%
+  | 'fair'            // success rate >= 70%
+  | 'needs_review';   // success rate < 70%
+

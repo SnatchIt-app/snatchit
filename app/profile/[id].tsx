@@ -44,7 +44,7 @@ import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-import type { Listing } from '@/src/types';
+import type { Listing, ProfileTrustStats, SellerReputationTier } from '@/src/types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,68 @@ function memberSince(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
+
+// ─── Reputation tier derivation ───────────────────────────────────────────────
+//   Excellent     — 0 lost disputes AND success rate >= 95%
+//   Good          — success rate >= 85%
+//   Fair          — success rate >= 70%
+//   Needs Review  — success rate <  70%
+//   New Seller    — fewer than 1 terminal transfer (insufficient data)
+function deriveReputation(stats: ProfileTrustStats | null): {
+  tier:        SellerReputationTier;
+  label:       string;
+  blurb:       string;
+  successRate: number | null;  // null when insufficient data
+} {
+  if (!stats || stats.seller_terminal_total < 1) {
+    return {
+      tier:        'new_seller',
+      label:       'New Seller',
+      blurb:       'No completed transfers yet',
+      successRate: null,
+    };
+  }
+  const rate = stats.seller_terminal_successful / stats.seller_terminal_total;
+  const ratePct = Math.round(rate * 100);
+  if (stats.disputes_lost === 0 && rate >= 0.95) {
+    return {
+      tier:        'excellent',
+      label:       'Excellent',
+      blurb:       `No disputes · ${ratePct}% transfer success`,
+      successRate: ratePct,
+    };
+  }
+  if (rate >= 0.85) {
+    return {
+      tier:        'good',
+      label:       'Good',
+      blurb:       `${ratePct}% transfer success`,
+      successRate: ratePct,
+    };
+  }
+  if (rate >= 0.70) {
+    return {
+      tier:        'fair',
+      label:       'Fair',
+      blurb:       `${ratePct}% transfer success`,
+      successRate: ratePct,
+    };
+  }
+  return {
+    tier:        'needs_review',
+    label:       'Needs Review',
+    blurb:       `${ratePct}% transfer success`,
+    successRate: ratePct,
+  };
+}
+
+const TIER_COLORS: Record<SellerReputationTier, { bg: string; fg: string; border: string }> = {
+  excellent:    { bg: 'rgba(34,197,94,0.10)',   fg: '#22C55E', border: 'rgba(34,197,94,0.45)' },
+  good:         { bg: 'rgba(59,130,246,0.10)',  fg: '#3B82F6', border: 'rgba(59,130,246,0.45)' },
+  fair:         { bg: 'rgba(234,179,8,0.10)',   fg: '#EAB308', border: 'rgba(234,179,8,0.45)' },
+  needs_review: { bg: 'rgba(239,68,68,0.10)',   fg: '#EF4444', border: 'rgba(239,68,68,0.45)' },
+  new_seller:   { bg: 'rgba(148,163,184,0.10)', fg: '#94A3B8', border: 'rgba(148,163,184,0.45)' },
+};
 
 function fmt$(n: number | null | undefined): string {
   if (n == null) return '$0';
@@ -115,6 +177,28 @@ function ActiveListingRow({ listing }: { listing: Listing }) {
   );
 }
 
+// ─── Trust & Activity row (compact, label + value) ─────────────────────────
+function TrustRow({
+  label,
+  value,
+  emphasize,
+  last,
+}: {
+  label:      string;
+  value:      string;
+  emphasize?: boolean;
+  last?:      boolean;
+}) {
+  return (
+    <View style={[s.trustRow, !last && s.trustRowBorder]}>
+      <Text style={s.trustRowLabel}>{label}</Text>
+      <Text style={[s.trustRowValue, emphasize && s.trustRowValueEmphasize]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 // ─── Screen ────────────────────────────────────────────────────────────────
 
 export default function PublicProfileScreen() {
@@ -124,13 +208,13 @@ export default function PublicProfileScreen() {
 
   const isSelf = !!user?.id && user.id === sellerId;
 
-  const [loading,      setLoading]      = useState(true);
-  const [profile,      setProfile]      = useState<PublicProfile | null>(null);
-  const [avatarUrl,    setAvatarUrl]    = useState<string | null>(null);
-  const [salesCount,   setSalesCount]   = useState(0);
+  const [loading,        setLoading]        = useState(true);
+  const [profile,        setProfile]        = useState<PublicProfile | null>(null);
+  const [avatarUrl,      setAvatarUrl]      = useState<string | null>(null);
+  const [trustStats,     setTrustStats]     = useState<ProfileTrustStats | null>(null);
   const [activeListings, setActiveListings] = useState<Listing[]>([]);
-  const [isBlocked,    setIsBlocked]    = useState(false);
-  const [working,      setWorking]      = useState(false);
+  const [isBlocked,      setIsBlocked]      = useState(false);
+  const [working,        setWorking]        = useState(false);
 
   const load = useCallback(async () => {
     if (!sellerId) { setLoading(false); return; }
@@ -166,19 +250,24 @@ export default function PublicProfileScreen() {
 
     // If blocked, skip loading the seller's listings entirely.
     if (blocked) {
-      setSalesCount(0);
+      setTrustStats(null);
       setActiveListings([]);
       setLoading(false);
       return;
     }
 
-    // 3. Completed sales count — listings this seller has sold.
-    const { count } = await supabase
-      .from('listings')
-      .select('id', { count: 'exact', head: true })
-      .eq('seller_id', sellerId)
-      .eq('status', 'sold');
-    setSalesCount(count ?? 0);
+    // 3. Trust + activity stats — single RPC round-trip.
+    //    Returns counts only; never amounts/Stripe IDs/emails.
+    const { data: statsRow, error: statsErr } = await supabase
+      .rpc('get_profile_trust_stats', { p_user_id: sellerId });
+    if (statsErr) {
+      console.warn('[profile] get_profile_trust_stats error:', statsErr.message);
+      setTrustStats(null);
+    } else {
+      // RPC returns array (TABLE function) — take first row.
+      const row = Array.isArray(statsRow) ? statsRow[0] : statsRow;
+      setTrustStats((row as ProfileTrustStats) ?? null);
+    }
 
     // 4. Active listings by this seller.
     const { data: actives } = await supabase
@@ -358,18 +447,71 @@ export default function PublicProfileScreen() {
           {profile.bio ? <Text style={s.bio}>{profile.bio}</Text> : null}
         </View>
 
-        {/* Stats */}
-        <View style={s.statsRow}>
-          <View style={s.statBox}>
-            <Text style={s.statValue}>{salesCount}</Text>
-            <Text style={s.statLabel}>Completed sales</Text>
-          </View>
-          <View style={s.statDivider} />
-          <View style={s.statBox}>
-            <Text style={s.statValue}>{memberSince(profile.created_at)}</Text>
-            <Text style={s.statLabel}>Member since</Text>
-          </View>
-        </View>
+        {/* ── Trust & Activity ────────────────────────────────────────
+             Premium marketplace trust panel (Airbnb/StubHub/StockX pattern).
+             Hero row: Transfer Success Rate + Seller Reputation tier.
+             Detail rows: counts only — never amounts. */}
+        {(() => {
+          const rep = deriveReputation(trustStats);
+          const tone = TIER_COLORS[rep.tier];
+          const insufficientData = !trustStats || trustStats.seller_terminal_total < 1;
+          return (
+            <>
+              <Text style={s.sectionHead}>TRUST & ACTIVITY</Text>
+              <View style={s.trustCard}>
+                {/* Hero row */}
+                <View style={s.trustHero}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.trustHeroLabel}>Transfer Success Rate</Text>
+                    <Text style={s.trustHeroValue}>
+                      {rep.successRate == null ? '—' : `${rep.successRate}%`}
+                    </Text>
+                    {insufficientData && (
+                      <Text style={s.trustHeroSub}>No completed transfers yet</Text>
+                    )}
+                  </View>
+                  <View style={[
+                    s.tierPill,
+                    { backgroundColor: tone.bg, borderColor: tone.border },
+                  ]}>
+                    <Text style={s.tierPillKicker}>Seller Reputation</Text>
+                    <Text style={[s.tierPillLabel, { color: tone.fg }]}>{rep.label}</Text>
+                    <Text style={s.tierPillBlurb}>{rep.blurb}</Text>
+                  </View>
+                </View>
+
+                {/* Detail rows */}
+                <View style={s.trustDivider} />
+                <TrustRow
+                  label="Completed Sales"
+                  value={String(trustStats?.completed_sales ?? 0)}
+                />
+                <TrustRow
+                  label="Completed Purchases"
+                  value={String(trustStats?.completed_purchases ?? 0)}
+                />
+                <TrustRow
+                  label="Active Listings"
+                  value={String(trustStats?.active_listings ?? activeListings.length)}
+                />
+                <TrustRow
+                  label="Disputes Opened"
+                  value={String(trustStats?.disputes_opened ?? 0)}
+                />
+                <TrustRow
+                  label="Disputes Lost"
+                  value={String(trustStats?.disputes_lost ?? 0)}
+                  emphasize={!!trustStats && trustStats.disputes_lost > 0}
+                />
+                <TrustRow
+                  label="Member Since"
+                  value={memberSince(trustStats?.member_since ?? profile.created_at)}
+                  last
+                />
+              </View>
+            </>
+          );
+        })()}
 
         {/* Active listings */}
         <Text style={s.sectionHead}>ACTIVE LISTINGS ({activeListings.length})</Text>
@@ -442,19 +584,63 @@ const s = StyleSheet.create({
   bio:      { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20,
               textAlign: 'center', marginTop: spacing.md },
 
-  // Stats
-  statsRow: {
-    flexDirection: 'row', alignItems: 'center',
+  // Trust & Activity (premium marketplace pattern — Airbnb/StubHub/StockX)
+  trustCard: {
+    marginHorizontal: spacing.lg, marginTop: spacing.sm,
     backgroundColor: colors.bgCard, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border,
-    marginHorizontal: spacing.lg, marginTop: spacing.lg,
-    paddingVertical: spacing.md, ...shadow.card,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    ...shadow.card,
   },
-  statBox:     { flex: 1, alignItems: 'center', gap: 2 },
-  statDivider: { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginVertical: spacing.xs },
-  statValue:   { color: colors.text, fontSize: fontSize.md, fontWeight: '800' },
-  statLabel:   { color: colors.textDim, fontSize: fontSize.xs, fontWeight: '600',
-                 letterSpacing: 0.3, textTransform: 'uppercase' },
+  trustHero: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  trustHeroLabel: {
+    color: colors.textDim, fontSize: fontSize.xs, fontWeight: '600',
+    letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4,
+  },
+  trustHeroValue: {
+    color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5,
+  },
+  trustHeroSub: {
+    color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2,
+  },
+  tierPill: {
+    minWidth: 130,
+    borderWidth: 1, borderRadius: radius.md,
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.sm,
+    alignItems: 'flex-start',
+  },
+  tierPillKicker: {
+    color: colors.textDim, fontSize: 10, fontWeight: '700',
+    letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 2,
+  },
+  tierPillLabel: {
+    fontSize: fontSize.md, fontWeight: '800', letterSpacing: -0.2,
+  },
+  tierPillBlurb: {
+    color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2, lineHeight: 16,
+  },
+  trustDivider: {
+    height: 1, backgroundColor: colors.border, marginBottom: spacing.xs,
+  },
+  trustRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: spacing.sm + 2,
+  },
+  trustRowBorder: {
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  trustRowLabel: {
+    color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '500',
+  },
+  trustRowValue: {
+    color: colors.text, fontSize: fontSize.sm, fontWeight: '700',
+  },
+  trustRowValueEmphasize: {
+    color: colors.error,
+  },
 
   // Sections
   sectionHead: {
