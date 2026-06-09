@@ -418,9 +418,9 @@ export type ProfileTrustStats = {
 };
 
 export type SellerReputationTier =
-  | 'new_seller'      // < 1 terminal transfer — insufficient data
-  | 'excellent'       // 0 lost disputes AND success rate >= 95%
-  | 'good'            // success rate >= 85%
-  | 'fair'            // success rate >= 70%
-  | 'needs_review';   // success rate < 70%
+  | 'new_seller'      // < 5 completed sales — insufficient marketplace history
+  | 'trusted'         // 5+   sales, 95%+ success, 0 lost disputes
+  | 'top'             // 25+  sales, 98%+ success, 0 lost disputes
+  | 'elite'           // 100+ sales, 99%+ success, 0 lost disputes
+  | 'needs_review';   // any lost dispute OR success rate below tier floor
 

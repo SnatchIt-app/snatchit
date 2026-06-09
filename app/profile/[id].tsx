@@ -77,64 +77,96 @@ function memberSince(iso: string | null): string {
 }
 
 // ─── Reputation tier derivation ───────────────────────────────────────────────
-//   Excellent     — 0 lost disputes AND success rate >= 95%
-//   Good          — success rate >= 85%
-//   Fair          — success rate >= 70%
-//   Needs Review  — success rate <  70%
-//   New Seller    — fewer than 1 terminal transfer (insufficient data)
+// Sales-volume × success-rate × dispute-floor ladder. Sourced strictly from
+// get_profile_trust_stats RPC fields — no hardcoded tiers.
+//
+//   Needs Review  — ANY lost dispute, OR insufficient success rate (< 95%)
+//                   relative to completed sales floor (≥ 5).
+//   New Seller    — < 5 completed sales (insufficient marketplace history).
+//   Trusted       — 5+   sales · 95%+ success · 0 lost disputes
+//   Top           — 25+  sales · 98%+ success · 0 lost disputes
+//   Elite         — 100+ sales · 99%+ success · 0 lost disputes
+//
+// Edge cases:
+//   • disputes_lost > 0 ALWAYS forces 'needs_review' regardless of sales
+//     volume or rate — a single lost dispute is the trust floor.
+//   • completed_sales < 5 → new_seller regardless of rate.
+//   • denominator zero → rate treated as 0% (caller already gates
+//     "No completed transfers yet" copy for new_seller).
 function deriveReputation(stats: ProfileTrustStats | null): {
   tier:        SellerReputationTier;
   label:       string;
   blurb:       string;
-  successRate: number | null;  // null when insufficient data
+  successRate: number | null;
 } {
-  if (!stats || stats.seller_terminal_total < 1) {
+  if (!stats) {
     return {
-      tier:        'new_seller',
-      label:       'New Seller',
-      blurb:       'No completed transfers yet',
-      successRate: null,
+      tier: 'new_seller', label: 'New Seller',
+      blurb: 'No completed transfers yet', successRate: null,
     };
   }
-  const rate = stats.seller_terminal_successful / stats.seller_terminal_total;
-  const ratePct = Math.round(rate * 100);
-  if (stats.disputes_lost === 0 && rate >= 0.95) {
+
+  const sales = stats.completed_sales;
+  const denom = stats.seller_terminal_total;
+  const num   = stats.seller_terminal_successful;
+  const rate  = denom > 0 ? num / denom : 0;
+  const ratePct = denom > 0 ? Math.round(rate * 100) : null;
+
+  // Any lost dispute → trust floor. Highest precedence after no-data.
+  if (stats.disputes_lost > 0) {
     return {
-      tier:        'excellent',
-      label:       'Excellent',
-      blurb:       `No disputes · ${ratePct}% transfer success`,
+      tier: 'needs_review', label: 'Needs Review',
+      blurb: `${stats.disputes_lost} lost dispute${stats.disputes_lost === 1 ? '' : 's'}${ratePct == null ? '' : ` · ${ratePct}% success`}`,
       successRate: ratePct,
     };
   }
-  if (rate >= 0.85) {
+
+  // Insufficient history → new seller.
+  if (sales < 5) {
     return {
-      tier:        'good',
-      label:       'Good',
-      blurb:       `${ratePct}% transfer success`,
+      tier: 'new_seller', label: 'New Seller',
+      blurb: sales === 0 ? 'No completed transfers yet' : `${sales} of 5 sales toward Trusted`,
       successRate: ratePct,
     };
   }
-  if (rate >= 0.70) {
+
+  // Elite — 100+ sales, 99%+ success
+  if (sales >= 100 && rate >= 0.99) {
     return {
-      tier:        'fair',
-      label:       'Fair',
-      blurb:       `${ratePct}% transfer success`,
+      tier: 'elite', label: 'Elite Seller',
+      blurb: `${sales} sales · ${ratePct}% transfer success`,
       successRate: ratePct,
     };
   }
+  // Top — 25+ sales, 98%+ success
+  if (sales >= 25 && rate >= 0.98) {
+    return {
+      tier: 'top', label: 'Top Seller',
+      blurb: `${sales} sales · ${ratePct}% transfer success`,
+      successRate: ratePct,
+    };
+  }
+  // Trusted — 5+ sales, 95%+ success
+  if (sales >= 5 && rate >= 0.95) {
+    return {
+      tier: 'trusted', label: 'Trusted Seller',
+      blurb: `${sales} sales · ${ratePct}% transfer success`,
+      successRate: ratePct,
+    };
+  }
+  // Has volume but rate below tier floor → review
   return {
-    tier:        'needs_review',
-    label:       'Needs Review',
-    blurb:       `${ratePct}% transfer success`,
+    tier: 'needs_review', label: 'Needs Review',
+    blurb: `${ratePct}% transfer success`,
     successRate: ratePct,
   };
 }
 
 const TIER_COLORS: Record<SellerReputationTier, { bg: string; fg: string; border: string }> = {
-  excellent:    { bg: 'rgba(34,197,94,0.10)',   fg: '#22C55E', border: 'rgba(34,197,94,0.45)' },
-  good:         { bg: 'rgba(59,130,246,0.10)',  fg: '#3B82F6', border: 'rgba(59,130,246,0.45)' },
-  fair:         { bg: 'rgba(234,179,8,0.10)',   fg: '#EAB308', border: 'rgba(234,179,8,0.45)' },
-  needs_review: { bg: 'rgba(239,68,68,0.10)',   fg: '#EF4444', border: 'rgba(239,68,68,0.45)' },
+  elite:        { bg: 'rgba(168,85,247,0.10)',  fg: '#A855F7', border: 'rgba(168,85,247,0.45)' },
+  top:          { bg: 'rgba(34,197,94,0.10)',   fg: '#22C55E', border: 'rgba(34,197,94,0.45)'  },
+  trusted:      { bg: 'rgba(59,130,246,0.10)',  fg: '#3B82F6', border: 'rgba(59,130,246,0.45)' },
+  needs_review: { bg: 'rgba(239,68,68,0.10)',   fg: '#EF4444', border: 'rgba(239,68,68,0.45)'  },
   new_seller:   { bg: 'rgba(148,163,184,0.10)', fg: '#94A3B8', border: 'rgba(148,163,184,0.45)' },
 };
 
