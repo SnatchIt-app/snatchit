@@ -27,10 +27,8 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -258,55 +256,17 @@ export default function PublicProfileScreen() {
     load();
   }
 
-  function openActions() {
-    const actions: { label: string; destructive?: boolean; handler: () => void }[] = [
-      { label: 'Report this user', handler: handleReport },
-      isBlocked
-        ? { label: 'Unblock user', handler: handleUnblock }
-        : { label: 'Block user', destructive: true, handler: handleBlock },
-    ];
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map(a => a.label), 'Cancel'],
-          cancelButtonIndex: actions.length,
-          destructiveButtonIndex: actions.findIndex(a => a.destructive),
-        },
-        (idx) => { if (idx >= 0 && idx < actions.length) actions[idx].handler(); },
-      );
-    } else {
-      Alert.alert('Actions', '', [
-        ...actions.map(a => ({
-          text: a.label,
-          onPress: a.handler,
-          style: (a.destructive ? 'destructive' : 'default') as 'destructive' | 'default',
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]);
-    }
-  }
-
   // ── Header bar (shared) ──────────────────────────────────────────────────
+  // No three-dot overflow menu: moderation actions live in the dedicated
+  // "Report User" / "Block User" buttons at the bottom of the profile.
+  // A right-side spacer keeps the title visually centered.
   const TopBar = (
     <View style={s.topBar}>
       <Pressable onPress={() => router.back()} style={s.iconBtn} hitSlop={8}>
         <Text style={s.backArrow}>←</Text>
       </Pressable>
       <Text style={s.topTitle}>Profile</Text>
-      {!isSelf ? (
-        <Pressable
-          onPress={openActions}
-          style={s.iconBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="More actions"
-        >
-          <Text style={s.backArrow}>{'⋯'}</Text>
-        </Pressable>
-      ) : (
-        <View style={s.iconBtn} />
-      )}
+      <View style={s.iconBtn} />
     </View>
   );
 
