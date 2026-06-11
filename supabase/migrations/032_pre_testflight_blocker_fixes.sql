@@ -27,11 +27,16 @@
 --         Succeeds every 2 min. The RPC is UPDATE…RETURNING — pg_cron discards
 --         the returned rows, so transfers flip pending→expired and the refund
 --         step NEVER runs. Two live buyers are expired+paid+unrefunded.
---       → unschedule the refund-less shadow job (6), set the NON-SECRET url
---         GUC the http job needs, and document the manual secret step below.
---       Fail-safe note: until the service_role_key GUC is set, transfer expiry
---       PAUSES entirely (transfers stay 'pending' a little longer). That is
---       the correct failure mode — no transition without its refund.
+--       → unschedule the refund-less shadow job (6) and RESCHEDULE the HTTP
+--         job with the (public, non-secret) project URL inlined and the
+--         service-role key read from Supabase Vault at runtime. ALTER DATABASE
+--         SET is NOT used — the managed `postgres` role lacks permission to
+--         set custom GUCs at database level (v1 of this migration failed on
+--         exactly that), and Vault is the Supabase-recommended pattern.
+--       Fail-safe note: until the Vault secret 'service_role_key' is created
+--       (manual step below), transfer expiry PAUSES entirely (transfers stay
+--       'pending' a little longer). That is the correct failure mode — no
+--       transition without its refund.
 --
 --   Bonus (verified identical commands): jobid 1 'finalize-auctions' is an
 --   exact duplicate of jobid 7 'auto-finalize-auctions' (both run
@@ -76,32 +81,51 @@ SELECT cron.unschedule(jobname)
   FROM cron.job
  WHERE jobname = 'finalize-auctions';
 
--- ── C1c: set the NON-SECRET database setting the HTTP cron job reads ────────
--- The project URL is public (already shipped in the client bundle).
--- ALTER DATABASE needs a literal name → resolve current_database() dynamically.
-DO $$
-BEGIN
-  EXECUTE format(
-    'ALTER DATABASE %I SET app.settings.supabase_url = %L',
-    current_database(),
-    'https://hqycwntpfoztoinemqns.supabase.co'
+-- ── C1c: reschedule the HTTP refund cron without GUC dependencies ───────────
+-- Old command read current_setting('app.settings.supabase_url') and
+-- current_setting('app.settings.service_role_key') — GUCs that were never set
+-- and that the managed postgres role cannot set via ALTER DATABASE.
+-- New command: project URL inlined (it is public — already shipped in the
+-- client bundle / eas.json); service-role key resolved AT RUNTIME from
+-- Supabase Vault (extension verified installed). NO SECRET IS COMMITTED HERE.
+-- If the Vault secret does not exist yet, each run errors harmlessly until
+-- the manual step below is performed (same fail-safe pause as today).
+SELECT cron.unschedule(jobname)
+  FROM cron.job
+ WHERE jobname = 'enforce-transfer-expiry';
+
+SELECT cron.schedule(
+  'enforce-transfer-expiry',
+  '*/2 * * * *',
+  $cron$
+  SELECT net.http_post(
+    url     := 'https://hqycwntpfoztoinemqns.supabase.co/functions/v1/enforce-transfer-expiry',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || (
+        SELECT decrypted_secret
+          FROM vault.decrypted_secrets
+         WHERE name = 'service_role_key'
+         ORDER BY created_at DESC
+         LIMIT 1
+      ),
+      'Content-Type', 'application/json'
+    ),
+    body    := '{}'::jsonb
   );
-END $$;
+  $cron$
+);
 
 COMMIT;
 
 -- =============================================================================
 -- MANUAL STEP (REQUIRED — DO NOT COMMIT THE VALUE):
--- The HTTP cron job also reads app.settings.service_role_key. The service-role
--- key is a secret and must NOT live in a migration. After applying this
--- migration, run ONCE in the Supabase Dashboard SQL Editor (as postgres):
+-- Store the service-role key in Supabase Vault. Run ONCE in the Supabase
+-- Dashboard SQL Editor (Dashboard → Project Settings → API → service_role):
 --
---   ALTER DATABASE postgres
---     SET app.settings.service_role_key = '<SERVICE_ROLE_KEY_FROM_DASHBOARD>';
+--   SELECT vault.create_secret('<SERVICE_ROLE_KEY_FROM_DASHBOARD>', 'service_role_key');
 --
---   (Dashboard → Project Settings → API → service_role key. ALTER DATABASE
---    settings apply to NEW sessions; pg_cron opens a fresh session per run,
---    so the next 2-minute tick picks it up automatically.)
+--   The cron job reads it at runtime on every tick, so the next 2-minute run
+--   picks it up automatically. No GUCs, no ALTER DATABASE, nothing committed.
 --
 -- VERIFICATION (run after the manual step, wait ≥4 minutes):
 --
