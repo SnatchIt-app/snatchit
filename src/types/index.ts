@@ -30,17 +30,44 @@ export type Profile = {
 };
 
 // ─── Listing ──────────────────────────────────────────────────────────────────
+// Areas + named venues. Stored as lowercase text in listings.neighborhood.
+// Grouping/labels live in src/constants/neighborhoods.ts.
 export type Neighborhood =
-  | 'south beach' | 'wynwood'       | 'brickell'     | 'downtown miami'
+  // Areas (original 9)
+  | 'south beach' | 'wynwood' | 'brickell' | 'downtown miami'
   | 'design district' | 'coconut grove' | 'little havana' | 'miami beach'
-  | 'midtown';
+  | 'midtown'
+  // Areas (migration 033 expansion)
+  | 'little river' | 'little haiti' | 'hialeah' | 'doral' | 'kendall'
+  | 'coral gables' | 'aventura' | 'sunny isles' | 'fort lauderdale' | 'hollywood'
+  // Venues — clubs & nightlife
+  | 'club space' | 'the ground' | 'e11even' | 'liv' | 'story' | 'm2 miami'
+  | 'daer' | 'oasis wynwood' | 'factory town' | 'mana wynwood'
+  // Venues — arenas, stadiums & live music
+  | 'kaseya center' | 'hard rock stadium' | 'loandepot park'
+  | 'fpl solar amphitheater' | 'bayfront park' | 'hard rock live'
+  | 'amerant bank arena' | 'chase stadium' | 'the fillmore miami beach'
+  | 'miami beach bandshell';
 
 export type TicketType     = 'GA' | 'VIP';
 export type TransferMethod = 'mobile_transfer' | 'email';
 export type DurationHours  = 1 | 3 | 6 | 12 | 24 | 48;
 
+// ── Event category (migration 033) — Snatch It is a full event marketplace ──
+export type EventCategory =
+  | 'nightlife' | 'clubs' | 'concerts' | 'festivals'
+  | 'sports' | 'music' | 'special_events' | 'other';
+
+// ── Proof-of-ownership review state (migration 033) ─────────────────────────
+export type ProofStatus = 'pending_review' | 'approved' | 'rejected';
+
 // ── Phase A: V1 Transfer Enhancement types (migration 011) ──────────────────
-export type TicketPlatform = 'dice' | 'eventbrite' | 'posh' | 'axs' | 'ticketmaster' | 'other';
+// Expanded in migration 033 from official-source research
+// (see TRANSFER_METHOD_RESEARCH.md — only confirmed platforms are listed).
+export type TicketPlatform =
+  | 'dice' | 'eventbrite' | 'posh' | 'axs' | 'ticketmaster' | 'other'
+  | 'seatgeek' | 'tixr' | 'fever' | 'shotgun' | 'universe'
+  | 'see_tickets' | 'mlb_ballpark' | 'stubhub' | 'vivid_seats' | 'gametime';
 
 export type DisputeReason =
   | 'never_received'
@@ -87,6 +114,10 @@ export type Listing = {
   ticket_platform:                TicketPlatform;              // required, defaults to 'other'
   proof_of_ownership_path:        string | null;               // storage path to proof screenshot
   seller_commitment_accepted_at:  string | null;               // ISO timestamptz, null = not accepted
+
+  // ── Marketplace expansion (migration 033) ─────────────────────────────────
+  category:                       EventCategory;               // defaults to 'nightlife'
+  proof_status:                   ProofStatus;                 // admin review state; badge only when 'approved'
 
   // ── Reservation / sale fields (added by migration) ────────────────────────
   status:           ListingStatus;        // 'active' | 'reserved' | 'sold'

@@ -36,10 +36,12 @@ import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { ImageUploadTile } from '@/src/components/ImageUploadTile';
 import { APP_CONFIG } from '@/src/config/app';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
-import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
+import { NEIGHBORHOOD_GROUPS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
+import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
 import type {
   CanCreateListingReason,
   DurationHours,
+  EventCategory,
   Neighborhood,
   RiskTier,
   TicketPlatform,
@@ -56,12 +58,24 @@ const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
 ];
 const DURATION_OPTIONS: DurationHours[]  = [1, 3, 6, 12, 24, 48];
 
+// Confirmed platforms only — see TRANSFER_METHOD_RESEARCH.md for the official
+// source behind each. Ordered by Miami-market relevance.
 const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
-  { value: 'dice',         label: 'DICE' },
-  { value: 'eventbrite',   label: 'Eventbrite' },
-  { value: 'posh',         label: 'Posh' },
-  { value: 'axs',          label: 'AXS' },
   { value: 'ticketmaster', label: 'Ticketmaster' },
+  { value: 'tixr',         label: 'Tixr' },
+  { value: 'dice',         label: 'DICE' },
+  { value: 'posh',         label: 'Posh' },
+  { value: 'eventbrite',   label: 'Eventbrite' },
+  { value: 'axs',          label: 'AXS' },
+  { value: 'seatgeek',     label: 'SeatGeek' },
+  { value: 'mlb_ballpark', label: 'MLB Ballpark' },
+  { value: 'fever',        label: 'Fever' },
+  { value: 'shotgun',      label: 'Shotgun' },
+  { value: 'universe',     label: 'Universe' },
+  { value: 'see_tickets',  label: 'See Tickets' },
+  { value: 'stubhub',      label: 'StubHub' },
+  { value: 'vivid_seats',  label: 'Vivid Seats' },
+  { value: 'gametime',     label: 'Gametime' },
   { value: 'other',        label: 'Other' },
 ];
 
@@ -146,6 +160,8 @@ export default function CreateListingScreen() {
   const [venue,            setVenue]            = useState('');
   const [neighborhood,     setNeighborhood]     = useState<Neighborhood | null>(null);
   const [neighborhoodOpen, setNeighborhoodOpen] = useState(false);
+  const [neighborhoodQuery, setNeighborhoodQuery] = useState('');
+  const [category,         setCategory]         = useState<EventCategory>('nightlife');
   const [eventDate,        setEventDate]        = useState<Date>(defaultDate);
   const [eventTime,        setEventTime]        = useState<Date>(defaultTime);
 
@@ -177,6 +193,7 @@ export default function CreateListingScreen() {
     folder: 'proofs',
     aspect: null,
     quality: 0.85,
+    bucket: 'proof-docs',   // PRIVATE bucket (migration 033) — owner + admin only
   });
 
   // Picker modal
@@ -449,6 +466,8 @@ export default function CreateListingScreen() {
           ticket_platform:               ticketPlatform,
           proof_of_ownership_path:       proofPath,
           seller_commitment_accepted_at: sellerCommitmentAccepted ? new Date().toISOString() : null,
+          // Migration 033 — marketplace expansion
+          category,
         })
         .select('id')
         .single();
@@ -538,6 +557,17 @@ export default function CreateListingScreen() {
 
         {/* ── B) TICKET INFO ───────────────────────────────── */}
         <SectionHeader title="Ticket info" />
+
+        <Text style={s.label}>Category *</Text>
+        <View style={[s.pills, { flexWrap: 'wrap' }]}>
+          {CATEGORIES.map(c => (
+            <TouchableOpacity key={c}
+              style={[s.pill, category === c && s.pillOn]}
+              onPress={() => setCategory(c)} activeOpacity={0.75}>
+              <Text style={[s.pillText, category === c && s.pillTextOn]}>{CATEGORY_LABELS[c]}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         <Text style={s.label}>Ticket type *</Text>
         <View style={s.pills}>
@@ -744,23 +774,44 @@ export default function CreateListingScreen() {
         <Pressable style={s.modalBdrop} onPress={() => setNeighborhoodOpen(false)} />
         <View style={s.modalSheet}>
           <View style={s.modalHead}>
-            <Text style={s.modalTitle}>Select Neighborhood</Text>
-            <TouchableOpacity onPress={() => setNeighborhoodOpen(false)}>
+            <Text style={s.modalTitle}>Select Area or Venue</Text>
+            <TouchableOpacity onPress={() => { setNeighborhoodOpen(false); setNeighborhoodQuery(''); }}>
               <Text style={s.modalDone}>Done</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView>
-            {NEIGHBORHOODS.map(n => (
-              <TouchableOpacity key={n}
-                style={[s.nRow, neighborhood === n && { backgroundColor: colors.primarySoft }]}
-                onPress={() => { setNeighborhood(n); setNeighborhoodOpen(false); }}
-                activeOpacity={0.7}>
-                <Text style={[s.nText, neighborhood === n && { color: colors.primary, fontWeight: '600' }]}>
-                  {NEIGHBORHOOD_LABELS[n]}
-                </Text>
-                {neighborhood === n && <Text style={{ color: colors.primary, fontWeight: '700' }}>✓</Text>}
-              </TouchableOpacity>
-            ))}
+          <TextInput
+            style={[s.input, { marginHorizontal: spacing.md, marginBottom: spacing.sm }]}
+            placeholder="Search areas and venues…"
+            placeholderTextColor={colors.textPlaceholder}
+            value={neighborhoodQuery}
+            onChangeText={setNeighborhoodQuery}
+            autoCorrect={false}
+          />
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {NEIGHBORHOOD_GROUPS.map(group => {
+              const q = neighborhoodQuery.trim().toLowerCase();
+              const items = q
+                ? group.items.filter(n =>
+                    n.includes(q) || NEIGHBORHOOD_LABELS[n].toLowerCase().includes(q))
+                : group.items;
+              if (items.length === 0) return null;
+              return (
+                <View key={group.title}>
+                  <Text style={s.nGroupHead}>{group.title.toUpperCase()}</Text>
+                  {items.map(n => (
+                    <TouchableOpacity key={n}
+                      style={[s.nRow, neighborhood === n && { backgroundColor: colors.primarySoft }]}
+                      onPress={() => { setNeighborhood(n); setNeighborhoodOpen(false); setNeighborhoodQuery(''); }}
+                      activeOpacity={0.7}>
+                      <Text style={[s.nText, neighborhood === n && { color: colors.primary, fontWeight: '600' }]}>
+                        {NEIGHBORHOOD_LABELS[n]}
+                      </Text>
+                      {neighborhood === n && <Text style={{ color: colors.primary, fontWeight: '700' }}>✓</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              );
+            })}
           </ScrollView>
         </View>
       </Modal>
@@ -906,6 +957,9 @@ const s = StyleSheet.create({
            paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
            borderBottomWidth: 1, borderBottomColor: colors.border },
   nText: { color: colors.text, fontSize: fontSize.md },
+  nGroupHead: { color: colors.textDim, fontSize: fontSize.xs, fontWeight: '700',
+                letterSpacing: 1.2, paddingHorizontal: spacing.lg,
+                paddingTop: spacing.md, paddingBottom: spacing.xs },
 
   // Commitment checkbox
   commitRow: {

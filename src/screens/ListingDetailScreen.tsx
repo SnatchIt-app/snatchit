@@ -1352,7 +1352,9 @@ export default function ListingDetailScreen({ id }: Props) {
           <View style={s.card}>
             <InfoRow label="Venue"        value={listing.venue} />
             <InfoRow label="Date & Time"  value={fmtDate(listing.event_date, listing.event_time)} />
-            <InfoRow label="Neighborhood" value={listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase())} />
+            <InfoRow label="Area / Venue" value={listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase())} />
+            <InfoRow label="Category"
+              value={(listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} />
           </View>
 
           <Text style={s.sectionHead}>TICKET INFO</Text>
@@ -1360,6 +1362,11 @@ export default function ListingDetailScreen({ id }: Props) {
             <InfoRow label="Type"     value={ticketLabel} />
             <InfoRow label="Quantity" value={String(listing.quantity)} />
             <InfoRow label="Transfer" value={transferLabel} />
+            {/* Ownership-proof badge: shown ONLY after manual admin approval
+                (migration 033). Never claims verification before review. */}
+            {listing.proof_status === 'approved' && (
+              <InfoRow label="Ownership proof" value="✓ Reviewed by Snatch It" />
+            )}
             {listing.restrictions ? <InfoRow label="Restrictions" value={listing.restrictions} /> : null}
           </View>
 

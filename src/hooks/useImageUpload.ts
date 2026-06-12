@@ -49,6 +49,13 @@ export type UseImageUploadOptions = {
   aspect?: [number, number] | null;
   /** JPEG quality 0–1. Defaults to 0.85. */
   quality?: number;
+  /**
+   * Storage bucket. Defaults to the public 'auction-media' bucket.
+   * Proof-of-ownership uploads use the PRIVATE 'proof-docs' bucket
+   * (migration 033) so proof screenshots are never publicly fetchable —
+   * only the owner (RLS) and admin review (service role) can read them.
+   */
+  bucket?: 'auction-media' | 'proof-docs';
 };
 
 export type UseImageUploadReturn = {
@@ -70,6 +77,7 @@ export function useImageUpload({
   folder,
   aspect  = [16, 9],
   quality = 0.85,
+  bucket  = 'auction-media',
 }: UseImageUploadOptions): UseImageUploadReturn {
   const [localUri,    setLocalUri]    = useState<string | null>(null);
   const [publicUrl,   setPublicUrl]   = useState<string | null>(null);
@@ -170,7 +178,7 @@ export function useImageUpload({
 
       // ── UPLOAD UINT8ARRAY TO SUPABASE ────────────────────────────────────────
       const { error: uploadError } = await supabase.storage
-        .from('auction-media')
+        .from(bucket)
         .upload(path, bytes, {
           contentType:  mime,
           upsert:       false,  // timestamp makes each path unique
@@ -180,19 +188,24 @@ export function useImageUpload({
       if (uploadError) {
         console.error('[useImageUpload] upload error:', {
           message: uploadError.message,
-          bucket:  'auction-media',
+          bucket,
           path,
         });
         throw new Error(uploadError.message);
       }
 
-      // Derive public URL (sync — public bucket, no RLS needed)
-      const { data: urlData } = supabase.storage
-        .from('auction-media')
-        .getPublicUrl(path);
+      // Public URL only exists for the public bucket. Private buckets
+      // (proof-docs) return null — callers store the path only.
+      if (bucket === 'auction-media') {
+        const { data: urlData } = supabase.storage
+          .from('auction-media')
+          .getPublicUrl(path);
+        setPublicUrl(urlData.publicUrl);
+      } else {
+        setPublicUrl(null);
+      }
 
       setStoragePath(path);
-      setPublicUrl(urlData.publicUrl);
       setStatus('done');
       return path;
 

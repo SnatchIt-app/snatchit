@@ -31,6 +31,7 @@ import { resolveCoverUrls } from '@/src/lib/coverImage';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
+import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
 import type { Listing } from '@/src/types';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
@@ -74,6 +75,7 @@ const QUICK_CHIPS: { key: QuickChip; label: string }[] = [
 type Filters = {
   chip: QuickChip;
   neighborhoods: Set<string>;
+  categories: Set<string>;
   priceMin: string;
   priceMax: string;
 };
@@ -81,12 +83,13 @@ type Filters = {
 const DEFAULT_FILTERS: Filters = {
   chip: 'all',
   neighborhoods: new Set(),
+  categories: new Set(),
   priceMin: '',
   priceMax: '',
 };
 
 function hasAdvancedFilters(f: Filters): boolean {
-  return f.neighborhoods.size > 0 || f.priceMin !== '' || f.priceMax !== '';
+  return f.neighborhoods.size > 0 || f.categories.size > 0 || f.priceMin !== '' || f.priceMax !== '';
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -216,6 +219,7 @@ function FiltersModal({
   onClose: () => void;
 }) {
   const [localHoods, setLocalHoods] = useState<Set<string>>(new Set(filters.neighborhoods));
+  const [localCats,  setLocalCats]  = useState<Set<string>>(new Set(filters.categories));
   const [minP, setMinP] = useState(filters.priceMin);
   const [maxP, setMaxP] = useState(filters.priceMax);
 
@@ -223,6 +227,7 @@ function FiltersModal({
   useEffect(() => {
     if (visible) {
       setLocalHoods(new Set(filters.neighborhoods));
+      setLocalCats(new Set(filters.categories));
       setMinP(filters.priceMin);
       setMaxP(filters.priceMax);
     }
@@ -236,12 +241,21 @@ function FiltersModal({
     });
   }
 
+  function toggleCat(c: string) {
+    setLocalCats(prev => {
+      const next = new Set(prev);
+      next.has(c) ? next.delete(c) : next.add(c);
+      return next;
+    });
+  }
+
   function apply() {
-    onApply({ ...filters, neighborhoods: localHoods, priceMin: minP, priceMax: maxP });
+    onApply({ ...filters, neighborhoods: localHoods, categories: localCats, priceMin: minP, priceMax: maxP });
   }
 
   function clearAll() {
     setLocalHoods(new Set());
+    setLocalCats(new Set());
     setMinP('');
     setMaxP('');
   }
@@ -259,8 +273,27 @@ function FiltersModal({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.lg }}>
+            {/* Categories */}
+            <Text style={ms.sectionLabel}>CATEGORY</Text>
+            <View style={ms.chipGrid}>
+              {CATEGORIES.map(c => {
+                const active = localCats.has(c);
+                return (
+                  <Pressable
+                    key={c}
+                    style={[ms.chip, active && ms.chipActive]}
+                    onPress={() => toggleCat(c)}
+                  >
+                    <Text style={[ms.chipText, active && ms.chipTextActive]}>
+                      {CATEGORY_LABELS[c]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {/* Neighborhoods */}
-            <Text style={ms.sectionLabel}>NEIGHBORHOOD</Text>
+            <Text style={ms.sectionLabel}>AREA / VENUE</Text>
             <View style={ms.chipGrid}>
               {NEIGHBORHOODS.map(h => {
                 const active = localHoods.has(h);
@@ -502,6 +535,12 @@ export default function HomeScreen() {
       result = result.filter(l => filters.neighborhoods.has(l.neighborhood));
     }
 
+    // Advanced: categories (migration 033 — listings without a category yet
+    // default to 'nightlife' server-side, so l.category is always present)
+    if (filters.categories.size > 0) {
+      result = result.filter(l => filters.categories.has(l.category ?? 'nightlife'));
+    }
+
     // Advanced: price
     const minP = parseFloat(filters.priceMin);
     const maxP = parseFloat(filters.priceMax);
@@ -532,6 +571,7 @@ export default function HomeScreen() {
   const activeCount =
     (filters.chip !== 'all' ? 1 : 0) +
     filters.neighborhoods.size +
+    filters.categories.size +
     (filters.priceMin ? 1 : 0) +
     (filters.priceMax ? 1 : 0);
 
@@ -583,7 +623,7 @@ export default function HomeScreen() {
               s.filterChipText,
               hasAdvancedFilters(filters) && s.filterChipTextActive,
             ]}>
-              Filters{hasAdvancedFilters(filters) ? ` (${filters.neighborhoods.size + (filters.priceMin ? 1 : 0) + (filters.priceMax ? 1 : 0)})` : ''}
+              Filters{hasAdvancedFilters(filters) ? ` (${filters.neighborhoods.size + filters.categories.size + (filters.priceMin ? 1 : 0) + (filters.priceMax ? 1 : 0)})` : ''}
             </Text>
           </Pressable>
         </ScrollView>
