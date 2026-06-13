@@ -41,8 +41,7 @@ export type Neighborhood =
   | 'little river' | 'little haiti' | 'hialeah' | 'doral' | 'kendall'
   | 'coral gables' | 'aventura' | 'sunny isles' | 'fort lauderdale' | 'hollywood'
   // Venues — clubs & nightlife
-  | 'club space' | 'the ground' | 'e11even' | 'liv' | 'story' | 'm2 miami'
-  | 'daer' | 'oasis wynwood' | 'factory town' | 'mana wynwood'
+  | 'club space' | 'e11even' | 'liv' | 'm2 miami' | 'factory town'
   // Venues — arenas, stadiums & live music
   | 'kaseya center' | 'hard rock stadium' | 'loandepot park'
   | 'fpl solar amphitheater' | 'bayfront park' | 'hard rock live'

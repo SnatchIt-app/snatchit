@@ -162,6 +162,8 @@ export default function CreateListingScreen() {
   const [neighborhoodOpen, setNeighborhoodOpen] = useState(false);
   const [neighborhoodQuery, setNeighborhoodQuery] = useState('');
   const [category,         setCategory]         = useState<EventCategory>('nightlife');
+  const [platformOpen,     setPlatformOpen]     = useState(false);
+  const [platformQuery,    setPlatformQuery]    = useState('');
   const [eventDate,        setEventDate]        = useState<Date>(defaultDate);
   const [eventTime,        setEventTime]        = useState<Date>(defaultTime);
 
@@ -607,15 +609,15 @@ export default function CreateListingScreen() {
         {submitted && <FieldError msg={errors.transferMethod} />}
 
         <Text style={s.label}>Ticket platform *</Text>
-        <View style={[s.pills, { flexWrap: 'wrap' }]}>
-          {TICKET_PLATFORMS.map(({ value, label }) => (
-            <TouchableOpacity key={value}
-              style={[s.pill, ticketPlatform === value && s.pillOn]}
-              onPress={() => setTicketPlatform(value)} activeOpacity={0.75}>
-              <Text style={[s.pillText, ticketPlatform === value && s.pillTextOn]}>{label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <TouchableOpacity
+          style={[s.input, s.row]}
+          onPress={() => setPlatformOpen(true)}
+          activeOpacity={0.75}>
+          <Text style={s.inputText}>
+            {TICKET_PLATFORMS.find(p => p.value === ticketPlatform)?.label ?? 'Select platform'}
+          </Text>
+          <Text style={s.placeholder}>▾</Text>
+        </TouchableOpacity>
 
         <Text style={s.label}>Restrictions (optional)</Text>
         <TextInput
@@ -812,6 +814,46 @@ export default function CreateListingScreen() {
                 </View>
               );
             })}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ── Ticket platform modal ───────────────────────────── */}
+      <Modal visible={platformOpen} transparent animationType="slide"
+        onRequestClose={() => setPlatformOpen(false)}>
+        <Pressable style={s.modalBdrop} onPress={() => setPlatformOpen(false)} />
+        <View style={s.modalSheet}>
+          <View style={s.modalHead}>
+            <Text style={s.modalTitle}>Select Ticket Platform</Text>
+            <TouchableOpacity onPress={() => { setPlatformOpen(false); setPlatformQuery(''); }}>
+              <Text style={s.modalDone}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={[s.input, { marginHorizontal: spacing.md, marginBottom: spacing.sm }]}
+            placeholder="Search platforms…"
+            placeholderTextColor={colors.textPlaceholder}
+            value={platformQuery}
+            onChangeText={setPlatformQuery}
+            autoCorrect={false}
+          />
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {TICKET_PLATFORMS
+              .filter(({ label }) => {
+                const q = platformQuery.trim().toLowerCase();
+                return !q || label.toLowerCase().includes(q);
+              })
+              .map(({ value, label }) => (
+                <TouchableOpacity key={value}
+                  style={[s.nRow, ticketPlatform === value && { backgroundColor: colors.primarySoft }]}
+                  onPress={() => { setTicketPlatform(value); setPlatformOpen(false); setPlatformQuery(''); }}
+                  activeOpacity={0.7}>
+                  <Text style={[s.nText, ticketPlatform === value && { color: colors.primary, fontWeight: '600' }]}>
+                    {label}
+                  </Text>
+                  {ticketPlatform === value && <Text style={{ color: colors.primary, fontWeight: '700' }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
           </ScrollView>
         </View>
       </Modal>

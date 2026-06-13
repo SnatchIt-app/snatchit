@@ -31,8 +31,7 @@ export const NEIGHBORHOOD_GROUPS: NeighborhoodGroup[] = [
   {
     title: 'Clubs & Nightlife',
     items: [
-      'club space', 'the ground', 'e11even', 'liv', 'story', 'm2 miami',
-      'daer', 'oasis wynwood', 'factory town', 'mana wynwood',
+      'club space', 'e11even', 'liv', 'm2 miami', 'factory town',
     ],
   },
   {
@@ -74,15 +73,10 @@ export const NEIGHBORHOOD_LABELS: Record<Neighborhood, string> = {
   'hollywood':       'Hollywood (FL)',
   // Clubs & nightlife
   'club space':      'Club Space',
-  'the ground':      'The Ground',
   'e11even':         'E11EVEN',
   'liv':             'LIV',
-  'story':           'Story',
   'm2 miami':        'M2 Miami',
-  'daer':            'Daer',
-  'oasis wynwood':   'Oasis Wynwood',
   'factory town':    'Factory Town',
-  'mana wynwood':    'Mana Wynwood',
   // Arenas, stadiums & live music
   'kaseya center':            'Kaseya Center',
   'hard rock stadium':        'Hard Rock Stadium',
