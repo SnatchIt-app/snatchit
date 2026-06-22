@@ -131,7 +131,7 @@ export default function PrivacyPolicyScreen() {
           <Bullet>Opt out of push notifications through your device's system settings</Bullet>
           <Bullet>Request a copy of the personal data we hold about you</Bullet>
           <Body>To exercise any of these rights, contact us at:</Body>
-          <Text style={s.contactEmail}>legal@snatchitapp.com</Text>
+          <Text style={s.contactEmail}>support@snatchitapp.com</Text>
           <Body>We will respond to data requests within 30 days. Certain data may be retained where required by law.</Body>
         </Section>
 
@@ -155,7 +155,7 @@ export default function PrivacyPolicyScreen() {
             For urgent safety concerns, contact us at the email below; we treat
             these reports with priority.
           </Body>
-          <Text style={s.contactEmail}>legal@snatchitapp.com</Text>
+          <Text style={s.contactEmail}>support@snatchitapp.com</Text>
         </Section>
 
         {/* 7. Children's Privacy */}
@@ -171,7 +171,7 @@ export default function PrivacyPolicyScreen() {
         {/* 9. Contact */}
         <Section title="9. Contact">
           <Body>For privacy-related questions, data requests, or concerns:</Body>
-          <Text style={s.contactEmail}>legal@snatchitapp.com</Text>
+          <Text style={s.contactEmail}>support@snatchitapp.com</Text>
           <Text style={s.footerNote}>
             JDT LLC {'\u00B7'} Snatch It{'\n'}
             Effective March 20, 2026

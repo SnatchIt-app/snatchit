@@ -147,7 +147,7 @@ export default function LegalScreen() {
           <Body>
             For legal inquiries, dispute resolution, or questions about these terms, contact us at:
           </Body>
-          <Text style={s.contactEmail}>legal@snatchitapp.com</Text>
+          <Text style={s.contactEmail}>support@snatchitapp.com</Text>
           <Body>
             Before initiating any formal dispute, you agree to first contact us at this address
             and attempt to resolve the matter informally for at least 30 days.
@@ -289,7 +289,7 @@ export default function LegalScreen() {
                 These Terms are governed by the laws of the State of Florida. Any dispute shall
                 be resolved through binding individual arbitration administered by the AAA under
                 its Consumer Arbitration Rules, in Miami-Dade County, Florida. Class action
-                claims are waived. Before initiating arbitration, contact legal@snatchitapp.com
+                claims are waived. Before initiating arbitration, contact support@snatchitapp.com
                 and attempt informal resolution for at least 30 days.
               </Text>
 
@@ -302,7 +302,7 @@ export default function LegalScreen() {
               </Text>
 
               <Text style={s.ftNote}>
-                JDT LLC · Snatch It · legal@snatchitapp.com{'\n'}
+                JDT LLC · Snatch It · support@snatchitapp.com{'\n'}
                 Effective March 20, 2026
               </Text>
             </View>
