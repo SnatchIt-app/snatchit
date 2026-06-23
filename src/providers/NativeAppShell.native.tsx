@@ -171,13 +171,22 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
         const data    = raw as Record<string, unknown>;
         const dataType    = typeof data.type === 'string' ? data.type : null;
         const listingId   = typeof data.listingId === 'string' ? data.listingId : null;
+        const transferId  = typeof data.transferId === 'string' ? data.transferId : null;
+
+        // Defer one tick — router may not be mounted at cold-start.
+        const go = (path: string) => setTimeout(() => {
+          try { router.push(path as any); }
+          catch (e) { console.warn('[push] route failed:', e); }
+        }, 0);
 
         if (dataType === 'auction_won' && listingId) {
-          // Defer one tick — router may not be mounted at cold-start
-          setTimeout(() => {
-            try { router.push(`/listing/${listingId}` as any); }
-            catch (e) { console.warn('[push] route failed:', e); }
-          }, 0);
+          go(`/listing/${listingId}`);
+        } else if (dataType === 'seller_action' && transferId) {
+          go(`/transfer/send/${transferId}`);
+        } else if ((dataType === 'buyer_confirm' || dataType === 'buyer_info_needed') && transferId) {
+          // No dedicated transfer-info screen — the receive screen gates on the
+          // delivery-info form, so it covers both confirm and info-needed.
+          go(`/transfer/receive/${transferId}`);
         }
       } catch (e) {
         console.warn('[push] routeFromNotificationData failed:', e);

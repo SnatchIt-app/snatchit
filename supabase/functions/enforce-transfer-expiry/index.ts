@@ -514,12 +514,82 @@ serve(async (req: Request) => {
     }
 
     // =====================================================================
+    // PHASE 3 — Progress reminders (idempotent, one per transfer per type)
+    // =====================================================================
+    // Additive and fully isolated: any failure here is swallowed so it can
+    // never affect the expiry/auto-release phases above. No new sweep window
+    // is introduced — both reminders fire inside the EXISTING expiry (24h) and
+    // auto-release (72h) windows, so they cannot extend a transfer's lifetime.
+    let remindedSeller = 0;
+    let remindedBuyer = 0;
+    try {
+      const nowMs = Date.now();
+      const in6h  = new Date(nowMs + 6 * 60 * 60 * 1000).toISOString();
+      const in24h = new Date(nowMs + 24 * 60 * 60 * 1000).toISOString();
+      const nowIso = new Date(nowMs).toISOString();
+
+      // claim() inserts the idempotency row; returns true only if WE inserted it.
+      const claim = async (transferId: string, eventType: string): Promise<boolean> => {
+        const { data, error } = await supabase
+          .from('transfer_notifications')
+          .upsert({ transfer_id: transferId, event_type: eventType },
+                  { onConflict: 'transfer_id,event_type', ignoreDuplicates: true })
+          .select();
+        if (error) { console.error('enforce-transfer-expiry: reminder claim failed:', eventType, error); return false; }
+        return Array.isArray(data) && data.length > 0;
+      };
+
+      // Seller reminder — pending transfers approaching the 24h send deadline.
+      const { data: sellerDue } = await supabase
+        .from('transfers')
+        .select('id, seller_id, listing:listings!listing_id(event_name)')
+        .eq('status', 'pending')
+        .gt('expires_at', nowIso)
+        .lt('expires_at', in6h);
+      for (const t of (sellerDue ?? []) as Array<{ id: string; seller_id: string; listing?: { event_name?: string } }>) {
+        if (await claim(t.id, 'transfer_reminder_seller')) {
+          await sendPush(
+            t.seller_id,
+            'Reminder: send the tickets to complete your sale',
+            `Your sale of "${t.listing?.event_name ?? 'your order'}" is waiting — send the tickets before it expires.`,
+            { type: 'seller_action', transferId: t.id },
+          );
+          remindedSeller++;
+        }
+      }
+
+      // Buyer reminder — seller_sent transfers approaching the 72h auto-release.
+      const { data: buyerDue } = await supabase
+        .from('transfers')
+        .select('id, buyer_id, listing:listings!listing_id(event_name)')
+        .eq('status', 'seller_sent')
+        .not('auto_release_at', 'is', null)
+        .gt('auto_release_at', nowIso)
+        .lt('auto_release_at', in24h);
+      for (const t of (buyerDue ?? []) as Array<{ id: string; buyer_id: string; listing?: { event_name?: string } }>) {
+        if (await claim(t.id, 'transfer_reminder_buyer')) {
+          await sendPush(
+            t.buyer_id,
+            'Reminder: confirm your tickets',
+            `Confirm your "${t.listing?.event_name ?? 'order'}" tickets — or open a dispute if something is wrong.`,
+            { type: 'buyer_confirm', transferId: t.id },
+          );
+          remindedBuyer++;
+        }
+      }
+    } catch (remErr) {
+      console.error('enforce-transfer-expiry: Phase 3 reminders failed (non-fatal):', remErr);
+    }
+
+    // =====================================================================
     // COMBINED SUMMARY
     // =====================================================================
     const summary = {
       expired:       expiredCount,
       refunded:      refundedCount,
       auto_released: autoReleasedCount,
+      reminded_seller: remindedSeller,
+      reminded_buyer:  remindedBuyer,
       errors:        errorCount,
       timestamp:     new Date().toISOString(),
     };

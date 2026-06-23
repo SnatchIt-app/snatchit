@@ -85,6 +85,7 @@ export default function TransferSendScreen() {
     folder: 'transfer-evidence',
     aspect: null,
     quality: 0.85,
+    bucket: 'proof-docs',   // PRIVATE — only buyer/seller/admin can read (migration 034)
   });
 
   // ── Fetch ──────────────────────────────────────────────────────────────────

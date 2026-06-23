@@ -12,6 +12,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,6 +39,7 @@ type TransferData = {
   expires_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
+  transfer_evidence_path: string | null;
   seller: { display_name: string | null };
   listing: {
     event_name: string | null;
@@ -71,6 +74,20 @@ export default function TransferReceiveScreen() {
   const [countdown, setCountdown] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Seller's sent-proof: signed URL into the PRIVATE proof-docs bucket. RLS
+  // (migration 034) only lets this transfer's buyer/seller read the object.
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const path = transfer?.transfer_evidence_path;
+    if (!path || transfer?.status !== 'seller_sent') { setProofUrl(null); return; }
+    let active = true;
+    supabase.storage.from('proof-docs').createSignedUrl(path, 60 * 60)
+      .then(({ data }) => { if (active) setProofUrl(data?.signedUrl ?? null); })
+      .catch(() => { if (active) setProofUrl(null); });
+    return () => { active = false; };
+  }, [transfer?.transfer_evidence_path, transfer?.status]);
+
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchTransfer = useCallback(async () => {
@@ -80,7 +97,7 @@ export default function TransferReceiveScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, status, transfer_method, expires_at, delivery_email, delivery_phone, ' +
+        'id, status, transfer_method, expires_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
       )
@@ -344,6 +361,16 @@ export default function TransferReceiveScreen() {
         {/* ── Seller sent → confirm / dispute ─────────────────────── */}
         {transfer.status === 'seller_sent' && !needsDeliveryInfo && (
           <>
+            {proofUrl && (
+              <View style={s.proofBlock}>
+                <Text style={s.proofLabel}>Seller's proof of transfer</Text>
+                <Pressable onPress={() => Linking.openURL(proofUrl)}>
+                  <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
+                </Pressable>
+                <Text style={s.proofHint}>Tap to open full size. Review it before confirming.</Text>
+              </View>
+            )}
+
             <View style={s.confirmPrompt}>
               <Text style={s.confirmPromptText}>
                 By confirming, you release payment to the seller. Only confirm if
@@ -426,6 +453,27 @@ const s = StyleSheet.create({
                 alignItems: 'center' },
   bannerText: { color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '600',
                 textAlign: 'center', lineHeight: 22 },
+
+  proofBlock: {
+    marginBottom: spacing.md,
+  },
+  proofLabel: {
+    color: colors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  proofImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgCard,
+  },
+  proofHint: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginTop: spacing.xs,
+  },
 
   confirmPrompt: {
     backgroundColor: 'rgba(251,191,36,0.10)',
