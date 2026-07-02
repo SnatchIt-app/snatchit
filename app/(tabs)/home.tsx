@@ -27,6 +27,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { finalSoldPrice } from '@/src/lib/salePrice';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
@@ -193,7 +194,7 @@ function ListingCard({
           <View>
             <Text style={s.cardBidLabel}>{status === 'SOLD' ? 'Sold for' : 'Current bid'}</Text>
             <Text style={[s.cardBidAmount, status === 'SOLD' && s.cardBidAmountSold]}>
-              ${listing.current_bid.toLocaleString()}
+              ${(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid).toLocaleString()}
             </Text>
           </View>
           <View style={[s.bidNowBtn, isEnded && s.bidNowBtnEnded]}>

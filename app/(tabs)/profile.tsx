@@ -26,6 +26,7 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { finalSoldPrice } from '@/src/lib/salePrice';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
@@ -174,20 +175,22 @@ export default function ProfileScreen() {
     //    Fetch the amounts so we can compute total revenue.
     const { data: soldData } = await supabase
       .from('listings')
-      .select('winning_bid_amount, current_bid, status, auction_status')
+      .select('winning_bid_amount, current_bid, buy_now_enabled, buy_now_price, status, auction_status')
       .eq('seller_id', user.id)
       .or('status.eq.sold,auction_status.eq.ended');
 
     const soldCount = soldData?.length ?? 0;
 
     // Revenue: auction wins use winning_bid_amount (set by finalize_auction);
-    // buy-now sales use current_bid as the sale price.
+    // buy-now sales use buy_now_price — mark_listing_sold never updates
+    // current_bid, so current_bid is only a last-resort fallback.
     const totalRevenue = (soldData ?? []).reduce((sum, row) => {
       if (row.winning_bid_amount != null && row.winning_bid_amount > 0) {
         return sum + row.winning_bid_amount;
       }
-      if (row.status === 'sold' && row.current_bid > 0) {
-        return sum + row.current_bid;
+      if (row.status === 'sold') {
+        const price = finalSoldPrice(row);
+        return sum + (price > 0 ? price : 0);
       }
       return sum;
     }, 0);

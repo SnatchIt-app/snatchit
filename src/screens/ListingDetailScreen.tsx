@@ -47,6 +47,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
+import { finalSoldPrice } from '@/src/lib/salePrice';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -1313,8 +1314,8 @@ export default function ListingDetailScreen({ id }: Props) {
           {/* Hero card */}
           <View style={s.heroCard}>
             <View style={{ flex: 1 }}>
-              <Text style={s.heroLabel}>CURRENT BID</Text>
-              <Text style={s.heroAmount}>{fmt$(currentHighest)}</Text>
+              <Text style={s.heroLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
+              <Text style={s.heroAmount}>{fmt$(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
             </View>
             <View style={s.heroRight}>
               <Text style={s.heroLabel}>TIME LEFT</Text>
@@ -1393,8 +1394,8 @@ export default function ListingDetailScreen({ id }: Props) {
       {/* ── Sticky bottom action bar ─────────────────────────────────────── */}
       <View style={s.bar}>
         <View style={{ flex: 1 }}>
-          <Text style={s.barLabel}>CURRENT BID</Text>
-          <Text style={s.barAmount}>{fmt$(currentHighest)}</Text>
+          <Text style={s.barLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
+          <Text style={s.barAmount}>{fmt$(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
         </View>
 
         <View style={s.barActions}>

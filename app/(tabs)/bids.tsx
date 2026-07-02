@@ -33,6 +33,7 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { finalSoldPrice } from '@/src/lib/salePrice';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 
@@ -374,7 +375,8 @@ export default function BidsScreen() {
         created_at,
         listing:listings (
           id, event_name, venue, ends_at, current_bid, status, auction_status,
-          winner_user_id, winning_bid_amount, cover_image_path, reserved_until, reserved_by
+          winner_user_id, winning_bid_amount, buy_now_enabled, buy_now_price,
+          cover_image_path, reserved_until, reserved_by
         )
       `)
       .eq('buyer_id', userId)
@@ -392,7 +394,9 @@ export default function BidsScreen() {
       } else {
         byListing.set(t.listing_id, {
           id:                       `tx-${t.listing_id}`,
-          amount:                   listing?.winning_bid_amount ?? listing?.current_bid ?? 0,
+          // Actual sale price: winning bid (auction) → buy_now_price (Buy Now)
+          // → current_bid fallback. Buy Now sales never stamp winning_bid_amount.
+          amount:                   listing ? finalSoldPrice(listing) : 0,
           created_at:               t.created_at,
           listing_id:               t.listing_id,
           listing:                  listing ?? null,
