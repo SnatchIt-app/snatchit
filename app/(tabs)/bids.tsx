@@ -35,6 +35,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
+import StatCardStrip from '@/src/components/StatCardStrip';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -522,27 +523,16 @@ export default function BidsScreen() {
         <Text style={s.subtitle}>{"Auctions you've bid on"}</Text>
       </View>
 
-      {/* ── Interactive summary pills ── */}
+      {/* ── Interactive summary stat strip ── */}
       {!loading && bids.length > 0 && (
-        <View style={s.summaryRow}>
-          {PILLS.map(({ key, label, count, color }) => {
-            const active = bidFilter === key;
-            return (
-              <Pressable
-                key={key}
-                style={[
-                  s.pill,
-                  { borderColor: active ? color : colors.border },
-                  active && s.pillActive,
-                ]}
-                onPress={() => onPillTap(key)}
-              >
-                <Text style={[s.pillNum, { color }]}>{count}</Text>
-                <Text style={[s.pillLabel, { color: active ? color : colors.textMuted }]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <StatCardStrip
+          style={s.summaryStrip}
+          activeKey={bidFilter}
+          onItemPress={(key) => onPillTap(key as BidFilter)}
+          items={PILLS.map(({ key, label, count, color }) => ({
+            key, label, value: count, color,
+          }))}
+        />
       )}
 
       {/* ── Content ── */}
@@ -602,29 +592,12 @@ const s = StyleSheet.create({
   pageTitle: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text },
   subtitle:  { fontSize: fontSize.sm, color: colors.textMuted, marginTop: 2 },
 
-  // Summary pills row
-  summaryRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
+  // Summary stat strip (cards live in StatCardStrip)
+  summaryStrip: {
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  pill: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgCard,
-  },
-  pillActive: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  pillNum:   { fontSize: fontSize.lg, fontWeight: '800' },
-  pillLabel: { fontSize: fontSize.xs, fontWeight: '600', marginTop: 2 },
 
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list:   { padding: spacing.md, paddingBottom: 120 },

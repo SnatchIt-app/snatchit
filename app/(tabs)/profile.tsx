@@ -27,9 +27,10 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
+import StatCardStrip from '@/src/components/StatCardStrip';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
+import { colors, fontSize, radius, spacing } from '@/src/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,31 +102,6 @@ const sc = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: spacing.md,
   },
-});
-
-/** A single stat card in the Seller Dashboard — optionally tappable */
-function StatCard({ label, value, onPress }: { label: string; value: string; onPress?: () => void }) {
-  const Wrapper = onPress ? Pressable : View;
-  return (
-    <Wrapper style={st.card} onPress={onPress} android_ripple={onPress ? { color: colors.primarySoft } : undefined}>
-      <Text style={st.value}>{value}</Text>
-      <Text style={st.label}>{label}</Text>
-    </Wrapper>
-  );
-}
-const st = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: colors.bgInput,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.sm,
-  },
-  value: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text, marginBottom: 4 },
-  label: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textDim, textTransform: 'uppercase', letterSpacing: 1 },
 });
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -398,24 +374,29 @@ export default function ProfileScreen() {
         {/* ── 4. SELLER DASHBOARD ────────────────────────────────────────── */}
         <View style={s.section}>
           <SectionLabel text="Seller Dashboard" />
-          <View style={s.statsRow}>
-            <StatCard
-              label="Active"
-              value={String(stats.active)}
-              onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })}
-            />
-            <View style={{ width: spacing.sm }} />
-            <StatCard
-              label="Sold"
-              value={String(stats.sold)}
-              onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })}
-            />
-            <View style={{ width: spacing.sm }} />
-            <StatCard
-              label="Revenue"
-              value={stats.revenue > 0 ? formatMoney(stats.revenue) : '—'}
-            />
-          </View>
+          <StatCardStrip
+            style={s.statsStrip}
+            contentPaddingHorizontal={0}
+            items={[
+              {
+                key: 'active',
+                label: 'Active',
+                value: String(stats.active),
+                onPress: () => router.push({ pathname: '/my-listings', params: { filter: 'active' } }),
+              },
+              {
+                key: 'sold',
+                label: 'Sold',
+                value: String(stats.sold),
+                onPress: () => router.push({ pathname: '/my-listings', params: { filter: 'sold' } }),
+              },
+              {
+                key: 'revenue',
+                label: 'Revenue',
+                value: stats.revenue > 0 ? formatMoney(stats.revenue) : '—',
+              },
+            ]}
+          />
 
           {/* My Listings — full-width navigation row */}
           <Pressable
@@ -642,10 +623,7 @@ const s = StyleSheet.create({
   },
 
   // ── Seller stats ──────────────────────────────────────────────────────────
-  statsRow: {
-    flexDirection: 'row',
-    alignItems:    'stretch',
-  },
+  statsStrip: {},
 
   // ── My Listings button ──────────────────────────────────────────────────
   myListingsBtn: {
