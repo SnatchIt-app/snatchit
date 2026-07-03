@@ -349,7 +349,7 @@ serve(async (req: Request) => {
 
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-      const { error: transferErr } = await supabase.from('transfers').insert({
+      const { data: newTransfer, error: transferErr } = await supabase.from('transfers').insert({
         listing_id:       metadata.listing_id,
         payment_id:       payment.id,
         seller_id:        metadata.seller_id,
@@ -357,7 +357,7 @@ serve(async (req: Request) => {
         transfer_method:  listing?.transfer_method ?? 'mobile_transfer',
         status:           'pending',
         expires_at:       expiresAt,
-      });
+      }).select('id').single();
 
       if (transferErr) {
         // On replay: this will be a unique-constraint violation — expected and safe.
@@ -383,21 +383,24 @@ serve(async (req: Request) => {
         seller_id:  metadata.seller_id,
       });
 
-      // Send push notifications
+      // Send push notifications. transferId (when the insert succeeded) lets
+      // the tap deep-link straight to the send/receive screens; listingId
+      // remains the fallback route.
       const listingTitle = listing?.event_name || 'your listing';
+      const transferIdData = newTransfer?.id ? { transferId: String(newTransfer.id) } : {};
 
       sendPush(
         metadata.buyer_id,
         'Payment Confirmed!',
         `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
-        { listingId: metadata.listing_id, type: 'payment_succeeded' },
+        { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
       );
 
       sendPush(
         metadata.seller_id,
         'Your ticket sold!',
         `Send the transfer now for ${listingTitle}.`,
-        { listingId: metadata.listing_id, type: 'ticket_sold' },
+        { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
       );
 
       // Mark processed for ops visibility. Pure telemetry — no behavioral

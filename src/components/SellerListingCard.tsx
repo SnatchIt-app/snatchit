@@ -27,6 +27,8 @@ type Props = {
   onDelete?: () => void;
   onEdit?: () => void;
   isVerifiedSeller?: boolean;
+  /** Sold but tickets not sent yet — surfaces the "Send tickets" call to action. */
+  needsTicketSend?: boolean;
 };
 
 // ─── Status badge ────────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ function shortDate(iso: string): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller }: Props) {
+export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
   const badge      = getBadge(listing);
   const badgeS     = BADGE_STYLE[badge];
   const ended      = badge === 'ENDED' || badge === 'SOLD' || badge === 'CANCELLED';
@@ -144,6 +146,10 @@ export default function SellerListingCard({ listing, coverUrl, onPress, onDelete
             </Text>
           ) : badge === 'ENDED' && listing.winner_user_id ? (
             <Text style={[s.bottomText, { color: colors.success }]}>Winner selected</Text>
+          ) : badge === 'SOLD' && needsTicketSend ? (
+            <Text style={[s.bottomText, { color: colors.warning, fontWeight: '700' }]}>
+              🎟 Action needed — send the tickets
+            </Text>
           ) : badge === 'SOLD' && listing.sold_at ? (
             <Text style={s.bottomText}>Sold {shortDate(listing.sold_at)}</Text>
           ) : (

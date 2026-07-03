@@ -68,6 +68,10 @@ type BidRow = {
    *  win + paid, or Buy Now). The transfer's lifecycle drives the badge.
    *  See getBidStatus(). */
   purchaseTransferStatus?: PurchaseTransferStatus;
+  /** Transfer id for purchase rows — tap routes to /transfer/receive/[id]. */
+  transferId?: string;
+  /** True while the buyer still has to provide delivery email/phone. */
+  needsDeliveryInfo?: boolean;
   id: string;
   created_at: string;
   amount: number;
@@ -184,10 +188,17 @@ function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
   const status = getBidStatus(bid, userId);
   const ended  = listing.auction_status === 'ended' || new Date(listing.ends_at) <= new Date();
 
+  // In-flight purchases route straight to the receive/confirm screen — the
+  // buyer's next action lives there, not on the listing page.
+  const inFlight = status === 'awaiting_transfer' || status === 'seller_sent' || status === 'purchase_disputed';
+  const target = inFlight && bid.transferId
+    ? `/transfer/receive/${bid.transferId}`
+    : `/listing/${bid.listing_id}`;
+
   return (
     <Pressable
       style={s.card}
-      onPress={() => router.push(`/listing/${bid.listing_id}`)}
+      onPress={() => router.push(target as any)}
       android_ripple={{ color: colors.primarySoft }}
     >
       {/* Cover image */}
@@ -205,7 +216,9 @@ function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
         {/* Status badge overlay */}
         <View style={[s.statusBadge, { borderColor: STATUS_COLORS[status] }]}>
           <Text style={[s.statusText, { color: STATUS_COLORS[status] }]}>
-            {STATUS_LABELS[status]}
+            {status === 'awaiting_transfer' && bid.needsDeliveryInfo
+              ? '📇 Add your transfer info'
+              : STATUS_LABELS[status]}
           </Text>
         </View>
       </View>
@@ -370,9 +383,12 @@ export default function BidsScreen() {
     const { data: txData } = await supabase
       .from('transfers')
       .select(`
+        id,
         listing_id,
         status,
         created_at,
+        delivery_email,
+        delivery_phone,
         listing:listings (
           id, event_name, venue, ends_at, current_bid, status, auction_status,
           winner_user_id, winning_bid_amount, buy_now_enabled, buy_now_price,
@@ -389,11 +405,16 @@ export default function BidsScreen() {
       const ts       = t.status as PurchaseTransferStatus;
       const existing = byListing.get(t.listing_id);
 
+      const needsInfo = !t.delivery_email && !t.delivery_phone;
       if (existing) {
         existing.purchaseTransferStatus = ts;
+        existing.transferId             = t.id;
+        existing.needsDeliveryInfo      = needsInfo;
       } else {
         byListing.set(t.listing_id, {
           id:                       `tx-${t.listing_id}`,
+          transferId:               t.id,
+          needsDeliveryInfo:        needsInfo,
           // Actual sale price: winning bid (auction) → buy_now_price (Buy Now)
           // → current_bid fallback. Buy Now sales never stamp winning_bid_amount.
           amount:                   listing ? finalSoldPrice(listing) : 0,
@@ -431,12 +452,12 @@ export default function BidsScreen() {
   }
 
   // ── Filter state ────────────────────────────────────────────────────────────
-  type BidFilter = 'total' | 'winning' | 'outbid' | 'won' | 'purchases';
+  type BidFilter = 'total' | 'winning' | 'outbid' | 'won' | 'needs_action' | 'purchases';
   const [bidFilter, setBidFilter] = useState<BidFilter>('total');
 
   // ── Summary counts ─────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { winning: 0, outbid: 0, won: 0, lost: 0, purchases: 0 };
+    const c = { winning: 0, outbid: 0, won: 0, lost: 0, needsAction: 0, purchases: 0 };
     for (const bid of bids) {
       const status = getBidStatus(bid, userId);
       if (status === 'winning') c.winning++;
@@ -448,7 +469,12 @@ export default function BidsScreen() {
         status === 'seller_sent' ||
         status === 'purchase_disputed' ||
         status === 'purchase_confirmed'
-      ) c.purchases++;
+      ) {
+        c.purchases++;
+        // Unfinished purchases — buyer still has a step to take (add transfer
+        // info, confirm receipt, or follow a dispute).
+        if (status !== 'purchase_confirmed') c.needsAction++;
+      }
     }
     return c;
   }, [bids, userId]);
@@ -460,6 +486,11 @@ export default function BidsScreen() {
       if (bidFilter === 'winning')   return status === 'winning';
       if (bidFilter === 'outbid')    return status === 'outbid';
       if (bidFilter === 'won')       return status === 'won';
+      if (bidFilter === 'needs_action') return (
+        status === 'awaiting_transfer' ||
+        status === 'seller_sent' ||
+        status === 'purchase_disputed'
+      );
       if (bidFilter === 'purchases') return (
         status === 'awaiting_transfer' ||
         status === 'seller_sent' ||
@@ -475,6 +506,7 @@ export default function BidsScreen() {
   }
 
   const PILLS: { key: BidFilter; label: string; count: number; color: string }[] = [
+    { key: 'needs_action', label: 'Needs Action', count: counts.needsAction, color: colors.warning },
     { key: 'winning',   label: 'Winning',   count: counts.winning,   color: colors.success },
     { key: 'outbid',    label: 'Outbid',    count: counts.outbid,    color: colors.error },
     { key: 'won',       label: 'Won',       count: counts.won,       color: '#FFD700' },
@@ -537,6 +569,8 @@ export default function BidsScreen() {
                 {bidFilter === 'total' ? 'No bids yet'
                   : bidFilter === 'winning' ? 'No winning bids'
                   : bidFilter === 'outbid' ? 'No outbid auctions'
+                  : bidFilter === 'needs_action' ? 'All caught up — nothing needs your action'
+                  : bidFilter === 'purchases' ? 'No purchases yet'
                   : 'No won auctions'}
               </Text>
               <Text style={s.emptyText}>

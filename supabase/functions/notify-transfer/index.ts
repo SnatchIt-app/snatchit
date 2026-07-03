@@ -83,6 +83,35 @@ serve(async (req: Request) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const payload = await req.json();
     const event: string = payload?.event ?? 'unknown';
+
+    // ── bid_placed (migration 035): push seller on every new bid ────────────
+    // One trigger fire per bid insert = exactly one push per valid bid, so no
+    // idempotency row is needed. Never notify a seller about their own bid.
+    if (event === 'bid_placed') {
+      const listingId: string | undefined = payload?.listing_id;
+      const bidderId: string | undefined = payload?.bidder_id;
+      const amount: number = Number(payload?.amount ?? 0);
+      if (listingId && bidderId) {
+        const { data: l } = await supabase
+          .from('listings')
+          .select('seller_id, event_name')
+          .eq('id', listingId)
+          .single();
+        const sellerId = (l as { seller_id?: string } | null)?.seller_id;
+        if (sellerId && sellerId !== bidderId) {
+          await sendPush(
+            sellerId,
+            'New bid on your listing',
+            `"${(l as { event_name?: string } | null)?.event_name ?? 'Your listing'}" just got a $${amount.toLocaleString('en-US')} bid.`,
+            { type: 'bid_received', listingId },
+          );
+        }
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const transferId: string | undefined = payload?.transfer_id;
     const buyerId: string | undefined = payload?.buyer_id;
     const sellerId: string | undefined = payload?.seller_id;

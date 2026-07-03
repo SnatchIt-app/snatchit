@@ -179,14 +179,25 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
           catch (e) { console.warn('[push] route failed:', e); }
         }, 0);
 
-        if (dataType === 'auction_won' && listingId) {
-          go(`/listing/${listingId}`);
-        } else if (dataType === 'seller_action' && transferId) {
+        // Seller-side transfer actions → send screen.
+        const SELLER_TRANSFER = ['seller_action', 'ticket_sold'];
+        // Buyer-side transfer actions → receive screen (it gates on the
+        // delivery-info form, so it also covers "add your transfer info").
+        const BUYER_TRANSFER = ['buyer_confirm', 'buyer_info_needed', 'payment_succeeded'];
+
+        if (transferId && SELLER_TRANSFER.includes(dataType ?? '')) {
           go(`/transfer/send/${transferId}`);
-        } else if ((dataType === 'buyer_confirm' || dataType === 'buyer_info_needed') && transferId) {
-          // No dedicated transfer-info screen — the receive screen gates on the
-          // delivery-info form, so it covers both confirm and info-needed.
+        } else if (transferId && BUYER_TRANSFER.includes(dataType ?? '')) {
           go(`/transfer/receive/${transferId}`);
+        } else if (transferId && dataType === 'dispute_review') {
+          // notify-report sends role: 'buyer' | 'seller' — route each party
+          // to their side of the disputed transfer.
+          go(data.role === 'seller' ? `/transfer/send/${transferId}` : `/transfer/receive/${transferId}`);
+        } else if (listingId) {
+          // Everything listing-scoped lands on the listing detail:
+          // bid_received, auction_won, transfer_expired_*, auto_release_*,
+          // and ticket_sold / payment_succeeded fallbacks without transferId.
+          go(`/listing/${listingId}`);
         }
       } catch (e) {
         console.warn('[push] routeFromNotificationData failed:', e);

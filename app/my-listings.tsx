@@ -40,8 +40,11 @@ type ListingRow = Listing & { coverUrl: string | null };
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
-type FilterKey = 'all' | 'active' | 'ended' | 'sold';
-const VALID_FILTERS: FilterKey[] = ['all', 'active', 'ended', 'sold'];
+type FilterKey = 'all' | 'active' | 'needs_action' | 'ended' | 'sold';
+const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 'sold'];
+
+/** Per-listing transfer state for the seller workflow (send-tickets CTA). */
+type TransferInfo = { transferId: string; status: string };
 
 export default function MyListingsScreen() {
   const { session } = useAuth();
@@ -55,6 +58,7 @@ export default function MyListingsScreen() {
       : 'all';
 
   const [listings,   setListings]   = useState<ListingRow[]>([]);
+  const [transfers,  setTransfers]  = useState<Map<string, TransferInfo>>(new Map());
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -83,6 +87,18 @@ export default function MyListingsScreen() {
     }));
 
     setListings(rows);
+
+    // Transfer state per sold listing — drives the "Send Tickets" tab/CTA.
+    // Read-only visibility; the transfer state machine is untouched.
+    const { data: txData } = await supabase
+      .from('transfers')
+      .select('id, listing_id, status')
+      .eq('seller_id', userId);
+    const map = new Map<string, TransferInfo>();
+    for (const t of (txData ?? []) as { id: string; listing_id: string; status: string }[]) {
+      map.set(t.listing_id, { transferId: t.id, status: t.status });
+    }
+    setTransfers(map);
   }, [userId]);
 
   // Hard load on mount
@@ -213,16 +229,24 @@ export default function MyListingsScreen() {
   const [filter, setFilter] = useState<FilterKey>(resolvedInitialFilter);
 
   // Counts are always computed from the FULL array so tab badges stay accurate.
+  // Sold + transfer still 'pending' = seller must send the tickets now.
+  const needsTicketSend = useCallback((l: ListingRow) =>
+    l.status === 'sold' && transfers.get(l.id)?.status === 'pending',
+  [transfers]);
+
   const filterCounts = useMemo(() => {
-    const c = { all: listings.length, active: 0, ended: 0, sold: 0 };
+    const c = { all: listings.length, active: 0, needs_action: 0, ended: 0, sold: 0 };
     for (const l of listings) {
-      if (l.status === 'sold')                                                            c.sold++;
+      if (l.status === 'sold') {
+        c.sold++;
+        if (needsTicketSend(l)) c.needs_action++;
+      }
       else if (l.auction_status === 'ended' || l.auction_status === 'cancelled'
             || new Date(l.ends_at) <= new Date())                                         c.ended++;
       else                                                                                c.active++;
     }
     return c;
-  }, [listings]);
+  }, [listings, needsTicketSend]);
 
   const filteredListings = useMemo(() => {
     if (filter === 'all')    return listings;
@@ -230,12 +254,13 @@ export default function MyListingsScreen() {
       l.status !== 'sold' && l.auction_status !== 'ended' && l.auction_status !== 'cancelled'
         && new Date(l.ends_at) > new Date(),
     );
+    if (filter === 'needs_action') return listings.filter(needsTicketSend);
     if (filter === 'ended')  return listings.filter(l =>
       l.status !== 'sold' && (l.auction_status === 'ended' || l.auction_status === 'cancelled'
         || new Date(l.ends_at) <= new Date()),
     );
     /* sold */ return listings.filter(l => l.status === 'sold');
-  }, [listings, filter]);
+  }, [listings, filter, needsTicketSend]);
 
   return (
     <SafeAreaView style={s.safe}>
@@ -259,10 +284,11 @@ export default function MyListingsScreen() {
           >
             {(
               [
-                { key: 'all',    label: 'All' },
-                { key: 'active', label: 'Active' },
-                { key: 'ended',  label: 'Ended' },
-                { key: 'sold',   label: 'Sold' },
+                { key: 'all',          label: 'All' },
+                { key: 'active',       label: 'Active' },
+                { key: 'needs_action', label: '🎟 Send Tickets' },
+                { key: 'sold',         label: 'Sold' },
+                { key: 'ended',        label: 'Ended' },
               ] as const
             ).map((tab) => {
               const active = filter === tab.key;
@@ -303,11 +329,13 @@ export default function MyListingsScreen() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyIcon}>
-                {filter === 'all' ? '📋' : filter === 'active' ? '🔴' : filter === 'ended' ? '🏁' : '💰'}
+                {filter === 'all' ? '📋' : filter === 'active' ? '🔴'
+                  : filter === 'needs_action' ? '🎟' : filter === 'ended' ? '🏁' : '💰'}
               </Text>
               <Text style={s.emptyTitle}>
                 {filter === 'all'    ? 'No listings yet'
                   : filter === 'active' ? 'No active auctions'
+                  : filter === 'needs_action' ? 'All caught up — no tickets to send'
                   : filter === 'ended'  ? 'No ended auctions'
                   : 'Nothing sold yet'}
               </Text>
@@ -318,16 +346,28 @@ export default function MyListingsScreen() {
               )}
             </View>
           }
-          renderItem={({ item }) => (
-            <SellerListingCard
-              listing={item}
-              coverUrl={item.coverUrl}
-              onPress={() => router.push(`/listing/${item.id}`)}
-              onDelete={() => handleDelete(item)}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onEdit={() => router.push(`/listing/edit/${item.id}` as any)}
-            />
-          )}
+          renderItem={({ item }) => {
+            const sendPending = needsTicketSend(item);
+            const transferId  = transfers.get(item.id)?.transferId;
+            return (
+              <SellerListingCard
+                listing={item}
+                coverUrl={item.coverUrl}
+                needsTicketSend={sendPending}
+                onPress={() =>
+                  // Sold-but-unsent goes straight to the send screen; the
+                  // seller shouldn't have to hunt through listing detail.
+                  sendPending && transferId
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ? router.push(`/transfer/send/${transferId}` as any)
+                    : router.push(`/listing/${item.id}`)
+                }
+                onDelete={() => handleDelete(item)}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onEdit={() => router.push(`/listing/edit/${item.id}` as any)}
+              />
+            );
+          }}
         />
       )}
 
