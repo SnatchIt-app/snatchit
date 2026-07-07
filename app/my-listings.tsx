@@ -31,6 +31,8 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import SellerListingCard from '@/src/components/SellerListingCard';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { Listing } from '@/src/types';
 
@@ -61,6 +63,7 @@ export default function MyListingsScreen() {
   const [transfers,  setTransfers]  = useState<Map<string, TransferInfo>>(new Map());
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(null);
 
   const initialLoadDone = useRef(false);
 
@@ -78,8 +81,10 @@ export default function MyListingsScreen() {
 
     if (error || !data) {
       console.warn('[MyListings] fetch error:', error?.message);
+      setLoadError(isNetworkError(error) ? 'offline' : 'error');
       return;
     }
+    setLoadError(null);
 
     const rows: ListingRow[] = (data as Listing[]).map((listing) => ({
       ...listing,
@@ -314,6 +319,8 @@ export default function MyListingsScreen() {
         <View style={s.loader}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
+      ) : loadError && listings.length === 0 ? (
+        <ScreenState state={loadError} onRetry={() => fetchMyListings(false)} />
       ) : (
         <FlatList
           data={filteredListings}
@@ -358,12 +365,12 @@ export default function MyListingsScreen() {
                   // Sold-but-unsent goes straight to the send screen; the
                   // seller shouldn't have to hunt through listing detail.
                   sendPending && transferId
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                     
                     ? router.push(`/transfer/send/${transferId}` as any)
                     : router.push(`/listing/${item.id}`)
                 }
                 onDelete={() => handleDelete(item)}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                 
                 onEdit={() => router.push(`/listing/edit/${item.id}` as any)}
               />
             );

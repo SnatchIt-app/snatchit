@@ -29,6 +29,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
@@ -359,6 +361,7 @@ export default function HomeScreen() {
   const [coverUrls,     setCoverUrls]     = useState<Map<string, string | null>>(new Map());
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
+  const [loadError,     setLoadError]     = useState<'offline' | 'error' | null>(null);
   const [now,           setNow]           = useState(() => Date.now());
   const [filters,       setFilters]       = useState<Filters>(DEFAULT_FILTERS);
   const [modalOpen,     setModalOpen]     = useState(false);
@@ -394,8 +397,13 @@ export default function HomeScreen() {
       .limit(50);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
-    if (error) { console.warn('[HomeScreen] fetch error:', error.message); return; }
+    if (error) {
+      console.warn('[HomeScreen] fetch error:', error.message);
+      setLoadError(isNetworkError(error) ? 'offline' : 'error');
+      return;
+    }
     if (!data) return;
+    setLoadError(null);
 
     const rows = data as Listing[];
     setAllListings(rows);
@@ -653,6 +661,12 @@ export default function HomeScreen() {
             </View>
           ))}
         </View>
+      ) : loadError && allListings.length === 0 ? (
+        // Connectivity/server fallback only when there's nothing cached to show.
+        <ScreenState
+          state={loadError}
+          onRetry={() => fetchListings().finally(() => setLoading(false))}
+        />
       ) : (
         <FlatList
           data={filteredListings}

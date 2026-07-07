@@ -28,6 +28,8 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import StatCardStrip from '@/src/components/StatCardStrip';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
@@ -112,6 +114,7 @@ export default function ProfileScreen() {
   const [profile,         setProfile]         = useState<Profile | null>(null);
   const [stats,           setStats]           = useState<SellerStats>({ active: 0, sold: 0, revenue: 0 });
   const [pageLoading,     setPageLoading]     = useState(true);
+  const [loadError,       setLoadError]       = useState<'offline' | 'error' | null>(null);
   const [refreshing,      setRefreshing]      = useState(false);
   const [signOutBusy,     setSignOutBusy]     = useState(false);
   // Resolved signed URL for the avatar (async, computed from avatar_path or avatar_url)
@@ -126,11 +129,15 @@ export default function ProfileScreen() {
     if (!user) return;
 
     // 1. Fetch profile row (avatar_path added; falls back gracefully if column missing)
-    const { data: profileData } = await supabase
+    const { data: profileData, error: profileErr } = await supabase
       .from('profiles')
       .select('id, display_name, phone_number, avatar_url, avatar_path, is_verified_buyer, is_verified_seller, wallet_balance, stripe_connect_id')
       .eq('id', user.id)
       .single();
+
+    setLoadError(profileData ? null
+      : profileErr && isNetworkError(profileErr) ? 'offline'
+      : profileErr ? 'error' : null);
 
     if (profileData) {
       const p = profileData as Profile;
@@ -274,6 +281,16 @@ export default function ProfileScreen() {
     return (
       <View style={s.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  // Nothing loaded at all (fresh open while offline / server down) — show the
+  // dedicated fallback. With cached profile data the screen renders normally.
+  if (!profile && loadError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <ScreenState state={loadError} onRetry={loadData} />
       </View>
     );
   }

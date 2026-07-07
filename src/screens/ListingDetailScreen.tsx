@@ -54,6 +54,8 @@ import { sendLocalNotification } from '@/src/utils/notifications';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import TransferStatusBadge from '@/src/components/TransferStatusBadge';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import type { Bid, Listing, TransferStatus } from '@/src/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -1063,11 +1065,13 @@ export default function ListingDetailScreen({ id }: Props) {
   );
 
   if (error) return (
-    <SafeAreaView style={s.centered}>
-      <Text style={s.errText}>{error}</Text>
-      <TouchableOpacity style={s.retryBtn} onPress={() => fetchData()}>
-        <Text style={s.retryText}>Retry</Text>
-      </TouchableOpacity>
+    // Raw fetch failure → dedicated offline / server-error screen. The
+    // "Listing not found" (data null) case below stays its own state.
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ScreenState
+        state={isNetworkError(error) ? 'offline' : 'error'}
+        onRetry={() => fetchData()}
+      />
     </SafeAreaView>
   );
 

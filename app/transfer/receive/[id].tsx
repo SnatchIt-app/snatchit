@@ -26,6 +26,8 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
@@ -106,8 +108,11 @@ export default function TransferReceiveScreen() {
       .single();
 
     if (fetchErr || !data) {
-      setError('Transfer not found');
+      // Connectivity failure gets the offline screen; a genuine miss
+      // (bad id / not this buyer's transfer) keeps "Transfer not found".
+      setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
     } else {
+      setError('');
       setTransfer(data as unknown as TransferData);
     }
     setLoading(false);
@@ -266,9 +271,13 @@ export default function TransferReceiveScreen() {
           <Text style={s.topTitle}>Receive Transfer</Text>
           <View style={s.backBtn} />
         </View>
-        <View style={s.center}>
-          <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
-        </View>
+        {error === '__offline__' ? (
+          <ScreenState state="offline" onRetry={fetchTransfer} />
+        ) : (
+          <View style={s.center}>
+            <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
+          </View>
+        )}
       </SafeAreaView>
     );
   }
@@ -363,7 +372,7 @@ export default function TransferReceiveScreen() {
           <>
             {proofUrl && (
               <View style={s.proofBlock}>
-                <Text style={s.proofLabel}>Seller's proof of transfer</Text>
+                <Text style={s.proofLabel}>{"Seller's proof of transfer"}</Text>
                 <Pressable onPress={() => Linking.openURL(proofUrl)}>
                   <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
                 </Pressable>
@@ -398,7 +407,7 @@ export default function TransferReceiveScreen() {
               {submitting ? (
                 <ActivityIndicator color={colors.error} size="small" />
               ) : (
-                <Text style={s.disputeBtnText}>I Haven't Received Them</Text>
+                <Text style={s.disputeBtnText}>{"I Haven't Received Them"}</Text>
               )}
             </Pressable>
           </>

@@ -15,7 +15,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 
-const CARD_MIN_WIDTH = 104;
+const CARD_MIN_WIDTH = 92;
 const CARD_GAP = spacing.sm;
 
 export type StatCardItem = {
@@ -97,7 +97,7 @@ const s = StyleSheet.create({
     flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm + 2,
     paddingHorizontal: spacing.sm + spacing.xs,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -105,15 +105,18 @@ const s = StyleSheet.create({
     backgroundColor: colors.bgCard,
   },
   value: {
-    fontSize: fontSize.xl,
+    // Between fontSize.lg and .xl — the number stays the focal point
+    // without the card reading as an oversized button.
+    fontSize: 20,
     fontWeight: '800',
     marginBottom: 2,
   },
   label: {
+    // Sentence case (not uppercase) so "Needs Action" fits one line
+    // inside the tighter card — Apple Wallet-style quiet label.
     fontSize: fontSize.xs,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
 });

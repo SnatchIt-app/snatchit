@@ -27,6 +27,8 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { ImageUploadTile } from '@/src/components/ImageUploadTile';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
 
@@ -107,8 +109,11 @@ export default function TransferSendScreen() {
       .single();
 
     if (fetchErr || !data) {
-      setError('Transfer not found');
+      // Connectivity failure gets the offline screen; a genuine miss
+      // (bad id / not this seller's transfer) keeps "Transfer not found".
+      setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
     } else {
+      setError('');
       setTransfer(data as unknown as TransferData);
     }
     setLoading(false);
@@ -221,9 +226,13 @@ export default function TransferSendScreen() {
           <Text style={s.topTitle}>Send Transfer</Text>
           <View style={s.backBtn} />
         </View>
-        <View style={s.center}>
-          <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
-        </View>
+        {error === '__offline__' ? (
+          <ScreenState state="offline" onRetry={fetchTransfer} />
+        ) : (
+          <View style={s.center}>
+            <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
+          </View>
+        )}
       </SafeAreaView>
     );
   }
@@ -261,7 +270,7 @@ export default function TransferSendScreen() {
             <View style={s.deliveryMissingBox}>
               <Text style={s.deliveryMissingTitle}>Delivery info not yet provided</Text>
               <Text style={s.deliveryMissingText}>
-                The buyer must provide their delivery info before you can send tickets. They'll be prompted to do so when they open the transfer.
+                {"The buyer must provide their delivery info before you can send tickets. They'll be prompted to do so when they open the transfer."}
               </Text>
             </View>
           )}
@@ -362,7 +371,7 @@ export default function TransferSendScreen() {
             </Text>
             {releaseCountdown && releaseCountdown !== 'Expired' && (
               <Text style={s.releaseText}>
-                Payment auto-releases in {releaseCountdown} if the buyer doesn't respond.
+                Payment auto-releases in {releaseCountdown}{" if the buyer doesn't respond."}
               </Text>
             )}
             {releaseCountdown === 'Expired' && (

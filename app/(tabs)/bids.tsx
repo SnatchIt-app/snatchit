@@ -36,6 +36,8 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import StatCardStrip from '@/src/components/StatCardStrip';
+import ScreenState from '@/src/components/ScreenState';
+import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -311,6 +313,7 @@ export default function BidsScreen() {
   const [bids,       setBids]       = useState<BidRow[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(null);
 
   const initialLoadDone = useRef(false);
 
@@ -347,8 +350,10 @@ export default function BidsScreen() {
 
     if (error || !data) {
       console.warn('[BidsScreen] fetch error:', error?.message);
+      setLoadError(isNetworkError(error) ? 'offline' : 'error');
       return;
     }
+    setLoadError(null);
 
     // Collapse multiple bids on the same listing into ONE card.
     // `amount` on the card = user's MAX bid for that listing (used for
@@ -520,7 +525,7 @@ export default function BidsScreen() {
       {/* ── Header ── */}
       <View style={s.header}>
         <Text style={s.pageTitle}>My Bids</Text>
-        <Text style={s.subtitle}>{"Auctions you've bid on"}</Text>
+        <Text style={s.subtitle}>{'Your bids & purchases'}</Text>
       </View>
 
       {/* ── Interactive summary stat strip ── */}
@@ -540,6 +545,9 @@ export default function BidsScreen() {
         <View style={s.loader}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
+      ) : loadError && bids.length === 0 ? (
+        // Connectivity/server fallback only when there's nothing cached to show.
+        <ScreenState state={loadError} onRetry={() => fetchMyBids(false)} />
       ) : (
         <FlatList
           data={filteredBids}
