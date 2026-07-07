@@ -191,11 +191,25 @@ serve(async (req: Request) => {
     }
 
     if (!accountId) {
-      // Create new Express account
-      const account = await stripePost('accounts', {
+      // Create new Express account — individual seller, payouts only.
+      // business_type=individual + a consumer-friendly product description
+      // keeps Stripe's hosted onboarding in "person" mode instead of asking
+      // for business registration details. NEW accounts only — existing
+      // accounts are never mutated (this branch requires no stripe_connect_id).
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+      const email = authUser?.user?.email ?? '';
+
+      const accountParams: Record<string, string> = {
         'type': 'express',
+        'country': 'US',
+        'business_type': 'individual',
+        'capabilities[transfers][requested]': 'true',
+        'business_profile[product_description]': 'Individual reselling event tickets on Snatch It',
         'metadata[user_id]': userId,
-      });
+      };
+      if (email) accountParams['email'] = email;
+
+      const account = await stripePost('accounts', accountParams);
       accountId = account.id;
 
       // Save to profile

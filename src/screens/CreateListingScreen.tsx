@@ -399,13 +399,13 @@ export default function CreateListingScreen() {
       if (!payoutConnected) {
         if (Platform.OS === 'web') {
           const goSetup = window.confirm(
-            'Payout Account Required\n\nComplete your payout setup before creating a listing. Go to payout setup now?',
+            'Payout Setup Required\n\nVerify your identity and add a bank account to get paid. This usually takes about 2 minutes. Go to payout setup now?',
           );
           if (goSetup) router.push('/settings/payout-setup');
         } else {
           Alert.alert(
-            'Payout Account Required',
-            'Complete your payout setup before creating a listing.',
+            'Payout Setup Required',
+            'Verify your identity and add a bank account to get paid. This usually takes about 2 minutes.',
             [
               { text: 'Set Up Now', onPress: () => router.push('/settings/payout-setup') },
               { text: 'Cancel', style: 'cancel' },
