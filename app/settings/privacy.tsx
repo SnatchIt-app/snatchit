@@ -72,7 +72,7 @@ export default function PrivacyPolicyScreen() {
           <Text style={s.subhead}>Account Information</Text>
           <Bullet>Email address (required for account creation and login)</Bullet>
           <Bullet>Display name (shown to other users)</Bullet>
-          <Bullet>Phone number (optional, used for ticket transfer coordination)</Bullet>
+          <Bullet>Phone number (optional for buyers; verified via a one-time SMS code before selling. Used only for account verification and ticket transfer coordination — never shown on your public profile and never used for marketing)</Bullet>
           <Bullet>Bio (optional, shown on your profile)</Bullet>
           <Bullet>Profile photo (optional, stored securely)</Bullet>
 

@@ -36,6 +36,7 @@ type SettingsRoute =
   | '/settings/edit-profile'
   | '/settings/notifications'
   | '/settings/payout-setup'
+  | '/settings/verify-phone'
   | '/settings/preferences'
   | '/settings/support'
   | '/settings/legal'
@@ -239,6 +240,11 @@ export default function SettingsScreen() {
             icon="🔔"
             label="Notifications"
             onPress={() => nav('/settings/notifications')}
+          />
+          <SettingsRow
+            icon="📱"
+            label="Phone Verification"
+            onPress={() => nav('/settings/verify-phone')}
             showBorder={false}
           />
         </SettingsCard>

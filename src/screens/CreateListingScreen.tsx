@@ -361,6 +361,25 @@ export default function CreateListingScreen() {
     setLoading(true);
 
     try {
+      // Gate 0: verified phone (trust step — matches the RLS guard in 038).
+      // Fresh getUser() — the cached session predates any recent verification.
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData?.user?.phone_confirmed_at) {
+        setLoading(false);
+        const gateMsg = 'Verify your phone number to sell tickets on Snatch It.';
+        if (Platform.OS === 'web') {
+          if (window.confirm(`Phone Verification Required\n\n${gateMsg} Verify now?`)) {
+            router.push('/settings/verify-phone' as never);
+          }
+        } else {
+          Alert.alert('Phone Verification Required', gateMsg, [
+            { text: 'Verify phone', onPress: () => router.push('/settings/verify-phone' as never) },
+            { text: 'Cancel', style: 'cancel' },
+          ]);
+        }
+        return;
+      }
+
       // Gate: require FULLY connected Stripe payout account before listing.
       // Two-tier check:
       //   1. DB fast-path: stripe_onboarding_complete === true → pass

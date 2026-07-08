@@ -89,6 +89,7 @@ function RootLayout() {
         <Stack.Screen name="settings/edit-profile" />
         <Stack.Screen name="settings/notifications" />
         <Stack.Screen name="settings/payout-setup" />
+        <Stack.Screen name="settings/verify-phone" />
         <Stack.Screen name="settings/preferences" />
         <Stack.Screen name="settings/support" />
         <Stack.Screen name="settings/legal" />
