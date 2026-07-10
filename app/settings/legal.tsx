@@ -244,7 +244,9 @@ export default function LegalScreen() {
                 You agree not to list counterfeit, stolen, invalid, or fraudulent tickets;
                 engage in fraud or misrepresentation; manipulate bids or auction outcomes;
                 use automated tools to access the platform; harass other users; or violate
-                any applicable law, including ticket resale regulations.
+                any applicable law, including ticket resale regulations. Snatch It has no
+                tolerance for objectionable content or abusive behavior — violating
+                listings are removed and offending accounts may be suspended or banned.
               </Text>
 
               <Text style={s.ftSubhead}>8. Listings & Accuracy</Text>

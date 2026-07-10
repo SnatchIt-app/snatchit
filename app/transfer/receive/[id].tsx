@@ -426,8 +426,8 @@ export default function TransferReceiveScreen() {
         {transfer.status === 'disputed' && (
           <View style={s.banner}>
             <Text style={[s.bannerText, { color: colors.warning }]}>
-              Issue reported — our team will review within 24 hours.{'\n'}
-              Your payment is protected.
+              Issue reported — our team typically reviews within 24 hours.{'\n'}
+              Your payment stays on hold until this is resolved.
             </Text>
           </View>
         )}

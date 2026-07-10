@@ -416,7 +416,9 @@ export default function PublicProfileScreen() {
   }
 
   const displayName = profile.display_name?.trim() || 'Seller';
-  const verified    = profile.stripe_onboarding_complete === true;
+  // Badge = admin-reviewed proof of ownership (is_verified_seller), matching
+  // every other surface. Stripe onboarding alone must NOT show "Verified".
+  const verified    = profile.is_verified_seller === true;
 
   // ── Blocked state ────────────────────────────────────────────────────────
   if (isBlocked) {
