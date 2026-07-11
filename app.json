@@ -14,8 +14,8 @@
       "buildNumber": "1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": null,
-        "NSMicrophoneUsageDescription": null
+        "NSCameraUsageDescription": "Snatch It uses the camera only if you choose to take a new photo for a listing cover or ticket transfer proof.",
+        "NSMicrophoneUsageDescription": "Snatch It does not record audio; microphone access is only requested if you capture a video for a listing."
       },
       "entitlements": {
         "aps-environment": "production"
