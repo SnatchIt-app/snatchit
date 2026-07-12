@@ -62,19 +62,46 @@ miami,concert,festival,nightlife,rave,club,edm,resale,marketplace,music,vip,show
 17+ (unrestricted web-adjacent marketplace, nightlife context; app itself enforces 18+ at signup). Answer the ASC questionnaire honestly — no alcohol/drug content is allowed in listings (moderation regex enforces this).
 
 ## App Review Notes (as saved in ASC "Notes" field)
-Sign-in fields in ASC hold the demo account: `snatchitreviewbuyer@gmail.com` / `Snatchitreview` (contact phone 7862017279).
+Sign-in fields in ASC hold the buyer demo account: `snatchitreviewbuyer@gmail.com` / `Snatchitreview` (contact phone 7862017279).
 ```
-Snatch It is a peer-to-peer marketplace for reselling event tickets. Payments are for physical-world services and processed by Stripe, per Guideline 3.1.5(a). No digital goods, no IAP.
+Snatch It is a live ticket marketplace where buyers and sellers interact. Payments are for physical-world services and processed by Stripe, per Guideline 3.1.5(a). No digital goods, no IAP.
 
-DEMO ACCOUNT (above): signed in, you can browse live listings, watch real-time auctions, place bids (free, a card is charged only if you win), and view the full checkout flow. Two live demo listings are on the Home feed.
+To fully test the app, please use both demo accounts.
 
-SELLING: creating a listing requires SMS phone verification and Stripe payout onboarding (identity + bank via Stripe hosted flow). The demo account is pre-verified so you can open Create Listing directly. Test phone if needed: +1 800 555 0123, code 789012.
+BUYER ACCOUNT
+Email: snatchitreviewbuyer@gmail.com
+Password: Snatchitreview
+
+SELLER ACCOUNT
+Email: snatchitreviewseller@gmail.com
+Password: Snatchitreview
+
+The Buyer account allows you to:
+• Browse events
+• Place bids
+• Win auctions
+• Complete purchases
+• Receive ticket transfers
+
+The Seller account allows you to:
+• Create listings
+• Manage auctions
+• Accept bids
+• Upload transfer confirmations
+• Complete the seller workflow
+
+Both accounts contain demo data specifically for App Review.
+
+PHONE VERIFICATION: if you create a fresh account, use test number +1 800 555 0123 with code 789012 (a configured Supabase test number, no SMS is sent).
 
 UGC SAFETY (Guideline 1.2): every listing/user can be reported (listing ⋯ menu → Report) and users blocked (profile → Block). Reports are reviewed within 24 hours. A content filter blocks alcohol/drug/counterfeit listings at creation.
 
 ACCOUNT DELETION: Settings → Delete Account (double confirmation).
 
-Payments are held by the platform until the buyer confirms ticket receipt (escrow-style, 72h auto-release). Contact us at support@snatchitapp.com with any questions.
+Payments are held by the platform until the buyer confirms ticket receipt (escrow-style, 72h auto-release).
+
+If additional assistance is needed during review, please contact:
+support@snatchitapp.com
 ```
 
 ## URLs for ASC
