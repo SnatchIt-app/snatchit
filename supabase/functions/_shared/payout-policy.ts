@@ -116,7 +116,9 @@ export interface PayoutDecision {
 //            BUYER_NEVER_VIEWED, UNSUPPORTED_PLATFORM, ROTATING_BARCODE,
 //            HIGH_VALUE_ORDER, EVENT_DATE_UNKNOWN
 //   RELEASE → LOW_RISK_ESTABLISHED_SELLER, HOLD_ELAPSED_POST_EVENT,
-//             MEDIUM_HOLD_CAP_ELAPSED
+//             MEDIUM_HOLD_CAP_ELAPSED (weak-only reasons — see cap rules)
+//   HOLD    → MEDIUM_HOLD_EXTENDED_POST_EVENT (strong reasons, near event:
+//             bounded extension past the cap to the post-event grace)
 //
 // SIGNAL WEIGHTS — documented semantics:
 //
@@ -141,6 +143,98 @@ export interface PayoutDecision {
 //   so it raises risk for UNPROVEN sellers only. An established seller with
 //   clean history and accepted evidence is not demoted for platform choice
 //   alone — the official-transfer flow on these platforms is itself sound.
+
+// ── Cap behavior: which MEDIUM reasons may release at the operational cap ───
+//
+// The 7-day cap ends an INDEFINITE automated wait — it is not itself a
+// release justification. Whether an expired cap releases, extends to the
+// post-event point, or goes to an operator depends on WHY the transaction
+// was medium:
+//
+//   WEAK (cap-releasable) — signals that do not question seller reliability,
+//   ticket transferability, or provider support:
+//     HIGH_VALUE_ORDER   (established, KYC-complete, clean seller — price
+//                         alone; every reliability signal already passed)
+//     BUYER_NEVER_VIEWED (engagement absence only — cap-releasable ONLY when
+//                         the transfer evidence is corroborative, see below)
+//
+//   STRONG (never cap-release) — seller-reliability or transfer-completion
+//   doubts that buyer silence cannot resolve:
+//     SELLER_UNPROVEN, SELLER_RISK_TIER_MEDIUM, PRIOR_DISPUTES,
+//     UNSUPPORTED_PLATFORM, ROTATING_BARCODE, EVENT_DATE_UNKNOWN
+//   Unknown/future reason codes are treated as STRONG (conservative default).
+//
+// EVIDENCE STRENGTH (documented limitation): ALL transfer evidence today is a
+// seller-uploaded screenshot. On rotating-barcode providers (Ticketmaster,
+// AXS) a screenshot proves nothing about transfer acceptance, so it is NEVER
+// "strong". On supported non-rotating platforms (dice, eventbrite, posh) the
+// official-transfer confirmation screenshot is the strongest corroboration
+// available and is accepted for cap purposes. No provider API corroboration
+// exists; when it does, plug it in here.
+//
+// STRONG-reason outcomes at the cap: if the post-event point lands within one
+// further cap-length (policy.medium_max_hold_days), extend the hold to the
+// post-event grace (bounded extension — prevents a manual-review flood for a
+// hold that would resolve itself days later); otherwise MANUAL_REVIEW. An
+// unknown event date is always MANUAL_REVIEW — elapsed time alone never
+// releases it.
+
+export type MediumCapAction = 'RELEASE_AT_CAP' | 'HOLD_TO_POST_EVENT' | 'MANUAL_REVIEW';
+
+export const WEAK_MEDIUM_REASONS = ['HIGH_VALUE_ORDER', 'BUYER_NEVER_VIEWED'];
+export const STRONG_MEDIUM_REASONS = [
+  'SELLER_UNPROVEN',
+  'SELLER_RISK_TIER_MEDIUM',
+  'PRIOR_DISPUTES',
+  'UNSUPPORTED_PLATFORM',
+  'ROTATING_BARCODE',
+  'EVENT_DATE_UNKNOWN',
+];
+
+export interface MediumEvidenceState {
+  hasEvidence: boolean;
+  /** Ticketmaster/AXS — screenshots are not acceptance proof there. */
+  rotatingBarcodePlatform: boolean;
+  platformSupported: boolean;
+}
+
+export interface MediumEventState {
+  eventDateKnown: boolean;
+  /** Post-event safe point (event-day end + grace), ms epoch; null if unknown. */
+  postEventPointMs: number | null;
+  nowMs: number;
+  /** Max further wait (ms) a strong-reason hold may extend past the cap. */
+  extensionLimitMs: number;
+}
+
+export function classifyMediumCapAction(
+  reasonCodes: string[],
+  evidence: MediumEvidenceState,
+  event: MediumEventState,
+): MediumCapAction {
+  // Unknown event dates never release from elapsed time alone.
+  if (!event.eventDateKnown || event.postEventPointMs === null) return 'MANUAL_REVIEW';
+
+  // Weak-only medium: every reason must be an explicitly documented weak
+  // signal (unknown codes are conservative-strong by construction).
+  const weakOnly = reasonCodes.every((r) => WEAK_MEDIUM_REASONS.includes(r));
+
+  // Self-uploaded screenshots are corroborative only on supported,
+  // non-rotating platforms — never for Ticketmaster/AXS.
+  const evidenceStrong =
+    evidence.hasEvidence && evidence.platformSupported && !evidence.rotatingBarcodePlatform;
+
+  if (weakOnly && (!reasonCodes.includes('BUYER_NEVER_VIEWED') || evidenceStrong)) {
+    return 'RELEASE_AT_CAP';
+  }
+
+  // Strong reasons (or weak signals lacking corroboration): a bounded
+  // post-event extension when the event resolves soon; otherwise an operator.
+  if (event.postEventPointMs <= event.nowMs + event.extensionLimitMs) {
+    return 'HOLD_TO_POST_EVENT';
+  }
+  return 'MANUAL_REVIEW';
+}
 
 export function classifyPayout(
   c: PayoutCandidate,
@@ -241,14 +335,55 @@ export function classifyPayout(
     }
 
     if (now >= holdCap.getTime()) {
-      // Far-future event: the seller has already waited the maximum hold on
-      // a silent buyer. Evidence is present (missing evidence is HIGH) and
-      // no dispute exists, so release rather than flooding manual review —
-      // the buyer retains the dispute channel until the money moves.
+      // The operational cap has expired with the event still ahead. The cap
+      // ends the indefinite automated wait — it is NOT a release
+      // justification by itself. What happens next depends on WHY this
+      // transaction was medium (see classifyMediumCapAction docs above).
+      const capAction = classifyMediumCapAction(
+        mediumReasons,
+        {
+          hasEvidence: c.has_evidence,
+          rotatingBarcodePlatform:
+            c.ticket_platform !== null && ROTATING_BARCODE_PLATFORMS.includes(c.ticket_platform),
+          platformSupported:
+            c.ticket_platform !== null && SUPPORTED_PLATFORMS.includes(c.ticket_platform),
+        },
+        {
+          eventDateKnown: true,
+          postEventPointMs: target.getTime(),
+          nowMs: now,
+          extensionLimitMs: policy.medium_max_hold_days * 86_400_000,
+        },
+      );
+
+      if (capAction === 'RELEASE_AT_CAP') {
+        // Weak-only signals (documented cap-releasable set) with every
+        // supporting condition passed — controlled release.
+        return {
+          action: 'release',
+          tier: 'medium',
+          reasons: ['MEDIUM_HOLD_CAP_ELAPSED', ...mediumReasons],
+          hold_until: null,
+        };
+      }
+
+      if (capAction === 'HOLD_TO_POST_EVENT') {
+        // Strong reasons, but the event resolves within one more cap-length:
+        // bounded extension to the post-event grace instead of an operator.
+        return {
+          action: 'hold',
+          tier: 'medium',
+          reasons: ['MEDIUM_HOLD_EXTENDED_POST_EVENT', ...mediumReasons],
+          hold_until: target.toISOString(),
+        };
+      }
+
+      // Seller-reliability / transfer-risk unresolved and the event is too
+      // far out — an operator decides; silence never pays this one.
       return {
-        action: 'release',
-        tier: 'medium',
-        reasons: ['MEDIUM_HOLD_CAP_ELAPSED', ...mediumReasons],
+        action: 'manual_review',
+        tier: 'high',
+        reasons: ['MEDIUM_HOLD_EXPIRED_UNRESOLVED', ...mediumReasons],
         hold_until: null,
       };
     }

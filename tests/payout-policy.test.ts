@@ -377,14 +377,16 @@ describe('event time & timezone (conservative UTC handling)', () => {
     // buyer's dispute channel are the mitigation.
   });
 
-  it('an event sold >7 days before showtime holds to the cap, then releases (no manual-review flood)', () => {
+  it('an event sold >7 days before showtime holds to the cap, then routes by reason (unproven → operator)', () => {
     // auto_release_at 07-14T09:00Z; cap = +7d = 07-21T09:00Z; event 08-15.
     const held = classifyPayout(medium({ event_date: '2026-08-15' }), DEFAULT_POLICY, NOW);
     expect(held.action).toBe('hold');
     expect(held.hold_until).toBe('2026-07-21T09:00:00.000Z'); // cap, not post-event
+    // SELLER_UNPROVEN is a STRONG medium reason: the elapsed cap must NOT pay
+    // it while the event is still weeks away — an operator decides.
     const capElapsed = classifyPayout(medium({ event_date: '2026-08-15' }), DEFAULT_POLICY, '2026-07-21T09:00:01Z');
-    expect(capElapsed.action).toBe('release');
-    expect(capElapsed.reasons).toContain('MEDIUM_HOLD_CAP_ELAPSED');
+    expect(capElapsed.action).toBe('manual_review');
+    expect(capElapsed.reasons).toContain('MEDIUM_HOLD_EXPIRED_UNRESOLVED');
   });
 });
 
@@ -419,14 +421,179 @@ describe('medium hold policy examples', () => {
     expect(d.hold_until).toBe('2026-07-20T12:00:00.000Z');
   });
 
-  it('event in thirty days → holds to the 7-day cap, then releases', () => {
+  it('event in thirty days → holds to the 7-day cap; at the cap the reason codes decide', () => {
     const d = classifyPayout(medium({ event_date: '2026-08-13' }), DEFAULT_POLICY, NOW);
     expect(d.action).toBe('hold');
     expect(d.hold_until).toBe('2026-07-21T09:00:00.000Z'); // the cap
+    // strong reason (SELLER_UNPROVEN) + event still ~23 days out at the cap → operator
+    const atCap = classifyPayout(medium({ event_date: '2026-08-13' }), DEFAULT_POLICY, '2026-07-21T10:00:00Z');
+    expect(atCap.action).toBe('manual_review');
   });
 
   it('event already passed → immediate controlled release', () => {
     const d = classifyPayout(medium({ event_date: '2026-07-10' }), DEFAULT_POLICY, NOW);
     expect(d.action).toBe('release');
+  });
+});
+
+// ─── Cap behavior is reason-code dependent (final policy correction) ─────────
+// The 7-day cap ends an indefinite automated wait; it is not itself a release
+// justification. Weak-only mediums may release at the cap; strong reasons
+// (seller reliability / transfer risk) extend to the post-event grace when
+// the event is near, or go to an operator when it is far. Unknown event dates
+// never release on elapsed time.
+
+import { classifyMediumCapAction } from '../supabase/functions/_shared/payout-policy';
+
+describe('medium cap action — reason-code classification', () => {
+  const AT_CAP = '2026-07-21T10:00:00Z'; // past cap (auto_release 07-14T09:00Z + 7d)
+  const establishedClean = (overrides: Partial<PayoutCandidate>) =>
+    lowRiskCandidate({ auto_release_at: '2026-07-14T09:00:00Z', ...overrides });
+
+  it('1. $250 established clean seller, buyer never viewed, strong evidence → releases at cap', () => {
+    // Medium reasons: HIGH_VALUE_ORDER + BUYER_NEVER_VIEWED — both weak;
+    // evidence on a supported non-rotating platform (dice) is corroborative.
+    const d = classifyPayout(
+      establishedClean({ base_cents: 25_000, buyer_viewed: false, event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('release');
+    expect(d.reasons).toContain('MEDIUM_HOLD_CAP_ELAPSED');
+  });
+
+  it('2. unproven seller, event 30 days away → manual review at cap, not release', () => {
+    const d = classifyPayout(
+      establishedClean({ total_completed: 1, account_age_days: 10, event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('MEDIUM_HOLD_EXPIRED_UNRESOLVED');
+    expect(d.reasons).toContain('SELLER_UNPROVEN');
+  });
+
+  it('3. Ticketmaster rotating-barcode (unproven seller), event 30 days away → no cap release', () => {
+    const d = classifyPayout(
+      establishedClean({
+        total_completed: 1, account_age_days: 10,
+        ticket_platform: 'ticketmaster', event_date: '2026-08-20',
+      }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('ROTATING_BARCODE');
+  });
+
+  it('3b. …and a screenshot is never strong evidence on a rotating-barcode provider', () => {
+    // Established seller, $250 Ticketmaster, buyer never viewed: the only
+    // medium reasons are weak (HIGH_VALUE_ORDER, BUYER_NEVER_VIEWED — no
+    // ROTATING_BARCODE since the seller is established), but the screenshot
+    // cannot corroborate a SafeTix transfer → NOT cap-releasable.
+    const d = classifyPayout(
+      establishedClean({
+        base_cents: 25_000, buyer_viewed: false,
+        ticket_platform: 'ticketmaster', event_date: '2026-08-20',
+      }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).not.toBe('release');
+  });
+
+  it('4. seller with prior disputes → no cap release', () => {
+    const d = classifyPayout(
+      establishedClean({ total_disputes: 1, event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('PRIOR_DISPUTES');
+  });
+
+  it('5. unsupported platform → no cap release', () => {
+    const d = classifyPayout(
+      establishedClean({ ticket_platform: 'other', event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('UNSUPPORTED_PLATFORM');
+  });
+
+  it('6. event date unknown → manual review at cap, never a timer release', () => {
+    const d = classifyPayout(
+      establishedClean({ buyer_viewed: false, event_date: null }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('EVENT_DATE_UNKNOWN');
+    // and directly on the helper:
+    expect(classifyMediumCapAction(
+      ['BUYER_NEVER_VIEWED'],
+      { hasEvidence: true, rotatingBarcodePlatform: false, platformSupported: true },
+      { eventDateKnown: false, postEventPointMs: null, nowMs: 0, extensionLimitMs: 0 },
+    )).toBe('MANUAL_REVIEW');
+  });
+
+  it('7. buyer explicit confirmation releases a medium transaction (documented contract)', () => {
+    // confirm-and-release bypasses the classifier entirely: buyer_confirmed
+    // status + no dispute → immediate payout, regardless of medium reasons.
+    // (Asserted at the protocol level in tests/payout-races.test.ts; the
+    // classifier only ever sees SILENT buyers by construction.)
+    const d = classifyPayout(
+      establishedClean({ total_completed: 1, account_age_days: 10, event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).not.toBe('release'); // silence alone does not pay this…
+    // …but the buyer-confirmed path is a different, preserved release route.
+  });
+
+  it('8. mixed reasons — HIGH_VALUE_ORDER + SELLER_UNPROVEN: the stronger risk wins', () => {
+    // NOTE: at classifyPayout level this combination is already HIGH
+    // (HIGH_VALUE_UNPROVEN_SELLER). At the cap-action level the same
+    // invariant holds: any strong reason forbids RELEASE_AT_CAP.
+    expect(classifyMediumCapAction(
+      ['HIGH_VALUE_ORDER', 'SELLER_UNPROVEN'],
+      { hasEvidence: true, rotatingBarcodePlatform: false, platformSupported: true },
+      { eventDateKnown: true, postEventPointMs: 100, nowMs: 0, extensionLimitMs: 10 },
+    )).not.toBe('RELEASE_AT_CAP');
+    const d = classifyPayout(
+      establishedClean({ base_cents: 25_000, total_completed: 1, account_age_days: 10, event_date: '2026-08-20' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('manual_review'); // HIGH tier, not even medium
+  });
+
+  it('9. weak-only reasons with all supporting conditions → RELEASE_AT_CAP', () => {
+    expect(classifyMediumCapAction(
+      ['HIGH_VALUE_ORDER'],
+      { hasEvidence: true, rotatingBarcodePlatform: false, platformSupported: true },
+      { eventDateKnown: true, postEventPointMs: 10_000, nowMs: 0, extensionLimitMs: 5_000 },
+    )).toBe('RELEASE_AT_CAP');
+    // unknown/future reason codes are conservative-strong:
+    expect(classifyMediumCapAction(
+      ['HIGH_VALUE_ORDER', 'SOME_FUTURE_SIGNAL'],
+      { hasEvidence: true, rotatingBarcodePlatform: false, platformSupported: true },
+      { eventDateKnown: true, postEventPointMs: 10_000, nowMs: 0, extensionLimitMs: 5_000 },
+    )).not.toBe('RELEASE_AT_CAP');
+  });
+
+  it('strong reasons with a NEAR event extend to post-event grace instead of an operator', () => {
+    // Unproven seller, cap expired, event only 2 days later: bounded
+    // extension to the post-event point — no manual-review flood for a hold
+    // that resolves itself within one more cap-length.
+    const d = classifyPayout(
+      establishedClean({ total_completed: 1, account_age_days: 10, event_date: '2026-07-23' }),
+      DEFAULT_POLICY,
+      AT_CAP,
+    );
+    expect(d.action).toBe('hold');
+    expect(d.reasons).toContain('MEDIUM_HOLD_EXTENDED_POST_EVENT');
+    expect(d.hold_until).toBe('2026-07-25T12:00:00.000Z'); // 07-23 +36h +24h
   });
 });

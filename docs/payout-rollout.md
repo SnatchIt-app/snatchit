@@ -94,6 +94,38 @@ SQL
 # legacy blanket release (supabase/migrations/016_fix_auto_release_payout.sql).
 ```
 
+## Medium-hold cap behavior (reason-code dependent)
+
+The 7-day cap ends an indefinite automated wait — it is **not** a release
+justification. At the cap, `classifyMediumCapAction()` routes by why the
+transaction was medium:
+
+| Medium reason | At the 7-day cap |
+|---|---|
+| `HIGH_VALUE_ORDER` (established, KYC-complete, clean seller) | **Release** (weak signal — every reliability check already passed) |
+| `BUYER_NEVER_VIEWED` with corroborative evidence (supported non-rotating platform) | **Release** |
+| `BUYER_NEVER_VIEWED` on a rotating-barcode provider (screenshot ≠ acceptance proof) | No release → post-event hold if near, else manual review |
+| `SELLER_UNPROVEN` | No release → post-event hold if near, else **manual review** |
+| `SELLER_RISK_TIER_MEDIUM` | Same |
+| `PRIOR_DISPUTES` | Same |
+| `UNSUPPORTED_PLATFORM` | Same |
+| `ROTATING_BARCODE` | Same |
+| `EVENT_DATE_UNKNOWN` | **Manual review, always** — elapsed time never releases an unknown date |
+| Any unknown/future reason code | Treated as strong (conservative) — no cap release |
+
+"Near" = the post-event point lands within one further cap-length
+(`medium_max_hold_days`); those holds extend to the post-event grace
+(`MEDIUM_HOLD_EXTENDED_POST_EVENT`) instead of going to an operator.
+Buyer explicit confirmation remains an immediate release path at any time
+(absent a dispute), and disputes freeze everything regardless of tier.
+
+Examples (defaults: 24h grace, 7-day cap, sale at 72h mark 07-14):
+- **Event tomorrow** (07-15): hold to 07-17T12:00Z (post-event grace) → release.
+- **Event in five days** (07-19): hold to the earlier of grace/cap → release at the post-event point.
+- **Event in thirty days** (08-13): hold to the cap (07-21); at the cap —
+  weak-only reasons release; seller/transfer-risk reasons go to manual review
+  (the event is too far for a bounded extension).
+
 ## Stripe/DB consistency model (honest statement)
 
 Postgres and Stripe cannot be updated atomically. The protocol instead
