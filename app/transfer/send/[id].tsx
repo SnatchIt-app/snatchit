@@ -41,6 +41,7 @@ type TransferData = {
   transfer_method: TransferMethod;
   expires_at: string | null;
   auto_release_at: string | null;
+  payout_review_status: 'held' | 'manual_review' | null;
   delivery_email: string | null;
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
@@ -99,7 +100,7 @@ export default function TransferSendScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_review_status, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -369,14 +370,28 @@ export default function TransferSendScreen() {
             <Text style={s.sentText}>
               Waiting for the buyer to confirm receipt.
             </Text>
-            {releaseCountdown && releaseCountdown !== 'Expired' && (
+            {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' && (
               <Text style={s.releaseText}>
-                Payment auto-releases in {releaseCountdown}{" if the buyer doesn't respond."}
+                Buyer review window: {releaseCountdown}. Your payout releases once it clears
+                review — sooner if the buyer confirms receipt.
               </Text>
             )}
-            {releaseCountdown === 'Expired' && (
-              <Text style={[s.releaseText, { color: colors.success }]}>
-                Auto-release period has passed. Your payout should be released.
+            {transfer.payout_review_status == null && releaseCountdown === 'Expired' && (
+              <Text style={s.releaseText}>
+                The buyer review window has passed. Payout pending — it releases automatically
+                once it clears review.
+              </Text>
+            )}
+            {transfer.payout_review_status === 'held' && (
+              <Text style={s.releaseText}>
+                Payout pending — funds are held until shortly after the event as a standard
+                protection. No action needed unless the buyer reports an issue.
+              </Text>
+            )}
+            {transfer.payout_review_status === 'manual_review' && (
+              <Text style={s.releaseText}>
+                Payout pending — this transfer is under manual review. Our team may contact
+                you; you can also reach support@snatchitapp.com.
               </Text>
             )}
             <Text style={s.sentWarning}>
@@ -404,7 +419,7 @@ export default function TransferSendScreen() {
               Payout released
             </Text>
             <Text style={s.sentText}>
-              The auto-release period passed without a dispute. Your payout has been released.
+              The buyer review window passed without a dispute. Your payout has been released.
             </Text>
           </View>
         )}

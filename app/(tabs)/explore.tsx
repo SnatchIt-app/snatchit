@@ -20,6 +20,7 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
+import { allInLabel } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { Listing } from '@/src/types';
@@ -149,7 +150,8 @@ export default function ExploreScreen() {
                   <Text style={s.cardVenue} numberOfLines={1}>
                     {item.venue} · {item.neighborhood?.replace(/\b\w/g, c => c.toUpperCase())}
                   </Text>
-                  <Text style={s.cardBid}>${item.current_bid.toLocaleString()}</Text>
+                  {/* All-in pricing: first displayed price includes the 10% service fee. */}
+                  <Text style={s.cardBid}>{allInLabel(item.current_bid)}</Text>
                 </View>
               </Pressable>
             );

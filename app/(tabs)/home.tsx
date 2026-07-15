@@ -28,6 +28,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { finalSoldPrice } from '@/src/lib/salePrice';
+import { allInLabel } from '@/src/lib/money';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -195,8 +196,9 @@ function ListingCard({
         <View style={s.cardFooter}>
           <View>
             <Text style={s.cardBidLabel}>{status === 'SOLD' ? 'Sold for' : 'Current bid'}</Text>
+            {/* All-in pricing: the first price a buyer sees includes the 10% service fee. */}
             <Text style={[s.cardBidAmount, status === 'SOLD' && s.cardBidAmountSold]}>
-              ${(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid).toLocaleString()}
+              {allInLabel(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid)}
             </Text>
           </View>
           <View style={[s.bidNowBtn, isEnded && s.bidNowBtnEnded]}>

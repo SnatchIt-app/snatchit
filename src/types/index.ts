@@ -209,7 +209,12 @@ export type TransferStatus =
   | 'buyer_confirmed'
   | 'disputed'
   | 'expired'
-  | 'auto_released';
+  | 'auto_released'
+  | 'reversed';          // migration 024 — Stripe transfer reversal
+
+// Risk-based payout (migration 039)
+export type PayoutRiskTier = 'low' | 'medium' | 'high';
+export type PayoutReviewStatus = 'held' | 'manual_review';
 
 export type Transfer = {
   id:                     string;
@@ -249,6 +254,32 @@ export type Transfer = {
   dispute_resolution:     DisputeResolution | null;
   dispute_resolved_at:    string | null;
   dispute_resolved_by:    string | null;     // admin user id
+
+  // ── Risk-based payout (migration 039) ─────────────────────────────────────
+  buyer_viewed_at:        string | null;     // buyer opened transfer screen
+  payout_hold_until:      string | null;     // medium-risk hold deadline
+  payout_risk_tier:       PayoutRiskTier | null;
+  payout_reason_codes:    string[] | null;
+  payout_review_status:   PayoutReviewStatus | null;
+};
+
+// Audit row for every payout decision (migration 039; service-role only).
+export type PayoutDecision = {
+  id:              string;
+  transfer_id:     string;
+  payment_id:      string | null;
+  seller_id:       string | null;
+  buyer_id:        string | null;
+  risk_tier:       PayoutRiskTier;
+  decision:        'release' | 'hold' | 'manual_review' | 'refund';
+  reason_codes:    string[];
+  evidence:        Record<string, unknown>;
+  buyer_confirmed: boolean;
+  dispute_open:    boolean;
+  event_date:      string | null;
+  hold_until:      string | null;
+  actor:           string;
+  decided_at:      string;
 };
 
 // ─── RPC Argument Types (migration 011) ─────────────────────────────────────

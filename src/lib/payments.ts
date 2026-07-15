@@ -4,6 +4,8 @@ type CreatePaymentIntentParams = {
   listingId: string;
   buyerId: string;
   mode: 'buy_now' | 'auction';
+  /** All-in total (cents) the buyer was shown — server rejects a mismatch. */
+  expectedTotalCents?: number;
 };
 
 type PaymentIntentResult = {
@@ -64,6 +66,9 @@ export async function createPaymentIntent(
       body: {
         listing_id: params.listingId,
         mode: params.mode,
+        // Server authority: send the all-in total the buyer was shown; the
+        // server 409s if its canonical calculation disagrees.
+        expected_total_cents: params.expectedTotalCents,
       },
       headers: { Authorization: `Bearer ${session.access_token}` },
     }

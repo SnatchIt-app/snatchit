@@ -48,6 +48,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import { finalSoldPrice } from '@/src/lib/salePrice';
+import { allInFromDollars, allInLabel, baseFromDollars, buyerFeeFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -723,26 +724,28 @@ export default function ListingDetailScreen({ id }: Props) {
     setCoverUrl(raw ? getCoverImageUrl(raw) : null);
   }, [(listing as any)?.cover_image_path, (listing as any)?.cover_image_url]);
 
-  // ── Checkout navigation (10/10 fee model: total = price * (1 + buyer fee)) ─
+  // ── Checkout navigation ─────────────────────────────────────────────────
+  // Display estimates use the canonical money util (integer cents); the
+  // server independently recomputes and rejects any total mismatch.
   function navigateToCheckout() {
     if (!listing || listing.buy_now_price == null) return;
     const price = listing.buy_now_price;
-    const fee   = Math.round(price * APP_CONFIG.BUYER_FEE_RATE);
     router.push({
       pathname: '/checkout/[id]',
       params: { id: listing.id, mode: 'buy_now', bidAmount: String(price),
-                total: String(price + fee), eventName: listing.event_name, venue: listing.venue },
+                totalCents: String(buyerTotalCents(dollarsToCents(price))),
+                eventName: listing.event_name, venue: listing.venue },
     });
   }
 
   function navigateToWinnerCheckout() {
     if (!listing) return;
     const winAmount = (listing as any).winning_bid_amount ?? listing.current_bid ?? 0;
-    const fee = Math.round(winAmount * APP_CONFIG.BUYER_FEE_RATE);
     router.push({
       pathname: '/checkout/[id]',
       params: { id: listing.id, mode: 'bid', bidAmount: String(winAmount),
-                total: String(winAmount + fee), eventName: listing.event_name, venue: listing.venue },
+                totalCents: String(buyerTotalCents(dollarsToCents(winAmount))),
+                eventName: listing.event_name, venue: listing.venue },
     });
   }
 
@@ -1117,7 +1120,8 @@ export default function ListingDetailScreen({ id }: Props) {
   const bidLocked     = hardLocked || auctionEnded;
   const buyNowVisible = listing.buy_now_enabled && listing.buy_now_price != null
                         && !ended && !isSold && !auctionEnded && !isSeller;
-  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy ${fmt$(listing.buy_now_price!)}`;
+  // Buy Now CTA carries the all-in total the buyer will actually pay.
+  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy ${allInFromDollars(listing.buy_now_price!)} total`;
   const placeBidLabel = isSold        ? 'Sold'
     : reservedByOther                 ? 'Reserved'
     : auctionEnded                    ? 'Ended'
@@ -1319,7 +1323,12 @@ export default function ListingDetailScreen({ id }: Props) {
           <View style={s.heroCard}>
             <View style={{ flex: 1 }}>
               <Text style={s.heroLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
-              <Text style={s.heroAmount}>{fmt$(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
+              {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
+              <Text style={s.heroAmount}>{allInLabel(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
+              <Text style={s.heroFeeNote}>
+                Includes {baseFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} ticket
+                {' + '}{buyerFeeFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} service fee
+              </Text>
             </View>
             <View style={s.heroRight}>
               <Text style={s.heroLabel}>TIME LEFT</Text>
@@ -1377,10 +1386,12 @@ export default function ListingDetailScreen({ id }: Props) {
 
           <Text style={s.sectionHead}>PRICING</Text>
           <View style={s.card}>
-            <InfoRow label="Starting bid" value={fmt$(listing.starting_bid)} />
+            {/* All-in pricing: every buyer-facing price includes the 10% service fee. */}
+            <InfoRow label="Starting bid" value={allInLabel(listing.starting_bid)} />
             {listing.buy_now_enabled && listing.buy_now_price != null && (
-              <InfoRow label="Buy Now" value={fmt$(listing.buy_now_price)} />
+              <InfoRow label="Buy Now" value={allInLabel(listing.buy_now_price)} />
             )}
+            <InfoRow label="Pricing" value="Totals include the 10% service fee" />
           </View>
 
           <Text style={s.sectionHead}>BID HISTORY ({bids.length})</Text>
@@ -1399,7 +1410,7 @@ export default function ListingDetailScreen({ id }: Props) {
       <View style={s.bar}>
         <View style={{ flex: 1 }}>
           <Text style={s.barLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
-          <Text style={s.barAmount}>{fmt$(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
+          <Text style={s.barAmount}>{allInLabel(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
         </View>
 
         <View style={s.barActions}>
@@ -1524,6 +1535,7 @@ const s = StyleSheet.create({
   heroLabel:     { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
                    letterSpacing:1.2, textTransform:'uppercase', marginBottom:4 },
   heroAmount:    { fontSize: fontSize.xxl, fontWeight:'900', color: colors.text },
+  heroFeeNote:   { fontSize: fontSize.xs, color: colors.textDim, marginTop: 2 },
   heroRight:     { alignItems:'flex-end' },
   heroCountdown: { fontSize: fontSize.lg, fontWeight:'800', color: colors.primary,
                    fontVariant:['tabular-nums'] },
