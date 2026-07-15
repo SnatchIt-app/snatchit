@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { APP_CONFIG } from '@/src/config/app';
+import { buyerFeeCents, buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { Listing } from '@/src/types';
 
@@ -81,9 +82,11 @@ export default function PlaceBidScreen({ id }: Props) {
   function increase() { setSelectedBid(p => p + MIN_INCREMENT); }
   function addQuick(n: number) { setSelectedBid(p => p + n); }
 
-  // 10/10 fee model: buyer pays selectedBid * (1 + BUYER_FEE_RATE).
-  const fee   = Math.round(selectedBid * BUYER_FEE_RATE);
-  const total = selectedBid + fee;
+  // 10/10 fee model, canonical integer-cent math (src/lib/money.ts):
+  // a bid is the seller's BASE price; the buyer's all-in commitment is
+  // base + 10% service fee, shown before the bid is submitted.
+  const feeCents   = buyerFeeCents(dollarsToCents(selectedBid));
+  const totalCents = buyerTotalCents(dollarsToCents(selectedBid));
 
   async function handleConfirm() {
     // Guard: must be signed in
@@ -117,7 +120,7 @@ export default function PlaceBidScreen({ id }: Props) {
 
     // Bid placed successfully — go back to the listing.
     // Checkout is only available after the auction ends (via the "Pay Now" button on the listing).
-    Alert.alert('Bid placed!', `Your bid of ${fmt$(selectedBid)} is in. You'll be notified if you win.`, [
+    Alert.alert('Bid placed!', `Your bid of ${fmt$(selectedBid)} is in. If you win, you'll pay ${formatCents(totalCents)} total (includes the 10% service fee).`, [
       { text: 'OK', onPress: () => router.back() },
     ]);
   }
@@ -207,12 +210,12 @@ export default function PlaceBidScreen({ id }: Props) {
           </View>
           <View style={s.breakRow}>
             <Text style={s.breakLabel}>Service fee ({Math.round(BUYER_FEE_RATE * 100)}%)</Text>
-            <Text style={s.breakVal}>{fmt$(fee)}</Text>
+            <Text style={s.breakVal}>{formatCents(feeCents)}</Text>
           </View>
           <View style={s.breakDivider} />
           <View style={s.breakRow}>
-            <Text style={[s.breakLabel, s.totalLabel]}>Estimated total</Text>
-            <Text style={[s.breakVal, s.totalVal]}>{fmt$(total)}</Text>
+            <Text style={[s.breakLabel, s.totalLabel]}>You pay if you win</Text>
+            <Text style={[s.breakVal, s.totalVal]}>{formatCents(totalCents)} total</Text>
           </View>
           <Text style={s.breakNote}>* Only charged if you win the auction.</Text>
         </View>
@@ -233,7 +236,7 @@ export default function PlaceBidScreen({ id }: Props) {
         >
           {submitting
             ? <ActivityIndicator color={colors.text} />
-            : <Text style={s.ctaText}>⚡ Confirm bid · {fmt$(total)}</Text>
+            : <Text style={s.ctaText}>⚡ Place bid · {formatCents(totalCents)} total</Text>
           }
         </TouchableOpacity>
       </View>

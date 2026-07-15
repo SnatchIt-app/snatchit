@@ -31,14 +31,7 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { createPaymentIntent, confirmPaymentSuccess, isExpectedCheckoutError } from '@/src/lib/payments';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-
-// --- Helper ----------------------------------------------------------------
-
-function fmt$(n: number): string {
-  return n % 1 === 0
-    ? `$${n.toLocaleString('en-US')}`
-    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
 
 // --- Screen ----------------------------------------------------------------
 
@@ -47,18 +40,22 @@ export default function CheckoutScreen() {
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
   const params = useLocalSearchParams<{
-    id:        string;
-    mode:      string;
-    bidAmount: string;
-    total:     string;
-    eventName: string;
-    venue:     string;
+    id:         string;
+    mode:       string;
+    bidAmount:  string;
+    totalCents: string;
+    eventName:  string;
+    venue:      string;
   }>();
 
   const listingId = params.id ?? '';
   const isBuyNow  = params.mode === 'buy_now';
   const bidAmount = parseInt(params.bidAmount ?? '0', 10);
-  const total     = parseInt(params.total     ?? '0', 10);
+  // Display estimate only \u2014 computed with the canonical money util by the
+  // caller. The server result (below) is the authority for what is charged,
+  // and create-payment-intent rejects a mismatched expected total.
+  const estimatedTotalCents = parseInt(params.totalCents ?? '0', 10)
+    || buyerTotalCents(dollarsToCents(bidAmount));
   const eventName = params.eventName ?? '\u2014';
   const venue     = params.venue     ?? '\u2014';
 
@@ -70,6 +67,11 @@ export default function CheckoutScreen() {
   const [paymentReady,    setPaymentReady]    = useState(false);
   const [paymentLoading,  setPaymentLoading]  = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  // Server-computed money (cents). Once loaded, the order summary and pay
+  // buttons render ONLY these numbers — never a client-derived total.
+  const [serverBreakdown, setServerBreakdown] = useState<{
+    amount: number; buyerFee: number; total: number;
+  } | null>(null);
   const [paymentError,    setPaymentError]    = useState<string | null>(null);
   // null = probe hasn't run yet; true/false = result. Used only for analytics
   // and to soften the payment-method subtext while applePay config flows
@@ -124,9 +126,18 @@ export default function CheckoutScreen() {
           listingId: listingId,
           buyerId: user!.id,
           mode: isBuyNow ? 'buy_now' : 'auction',
+          // Server authority: this is the total we showed the buyer; the
+          // server 409s rather than charge a different number.
+          expectedTotalCents: estimatedTotalCents || undefined,
         });
 
         setPaymentIntentId(result.paymentIntentId);
+        // The order summary renders these server-computed amounts.
+        setServerBreakdown({
+          amount: result.amount,
+          buyerFee: result.buyer_fee,
+          total: result.total,
+        });
 
         // ── Apple Pay availability probe (iOS only) ──────────────────────
         // isPlatformPaySupported() returns false on:
@@ -466,25 +477,34 @@ export default function CheckoutScreen() {
 
           <View style={s.divider} />
 
+          {/* Server-computed once loaded; canonical client estimate before. */}
           <View style={s.summaryRow}>
             <Text style={s.summaryLabel}>
               {isBuyNow ? 'Buy Now price' : 'Winning bid'}
             </Text>
-            <Text style={s.summaryValue}>{fmt$(bidAmount)}</Text>
+            <Text style={s.summaryValue}>
+              {formatCents(serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount))}
+            </Text>
           </View>
 
           <View style={s.divider} />
 
           <View style={s.summaryRow}>
             <Text style={s.summaryLabel}>Service fee (10%)</Text>
-            <Text style={s.summaryValue}>{fmt$(total - bidAmount)}</Text>
+            <Text style={s.summaryValue}>
+              {formatCents(serverBreakdown
+                ? serverBreakdown.buyerFee
+                : estimatedTotalCents - dollarsToCents(bidAmount))}
+            </Text>
           </View>
 
           <View style={s.divider} />
 
           <View style={s.summaryRow}>
-            <Text style={[s.summaryLabel, s.totalLabel]}>Total charged</Text>
-            <Text style={[s.summaryValue, s.totalValue]}>{fmt$(total)}</Text>
+            <Text style={[s.summaryLabel, s.totalLabel]}>Total</Text>
+            <Text style={[s.summaryValue, s.totalValue]}>
+              {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}
+            </Text>
           </View>
         </View>
 
@@ -578,7 +598,7 @@ export default function CheckoutScreen() {
                 <Text style={s.payBtnText}>Processing...</Text>
               </View>
             ) : paymentReady ? (
-              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {fmt$(total)}</Text>
+              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)} total</Text>
             ) : (
               <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
             )}
@@ -610,7 +630,7 @@ export default function CheckoutScreen() {
                 <Text style={s.payBtnText}>Processing...</Text>
               </View>
             ) : paymentReady ? (
-              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {fmt$(total)}</Text>
+              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)} total</Text>
             ) : (
               <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
             )}

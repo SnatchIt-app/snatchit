@@ -2,18 +2,16 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw, STRIPE_MOBILE_API_VERSION } from '../_shared/stripe.ts';
+import { feeBreakdown, dollarsToCents } from '../_shared/money.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 // ── Marketplace fee model (10/10) ────────────────────────────────────────────
-// Buyer pays listing × (1 + BUYER_FEE_RATE).
-// Seller receives listing × (1 − SELLER_FEE_RATE) at payout release.
-// Platform retains (BUYER_FEE_RATE + SELLER_FEE_RATE) × listing
-// (before Stripe processing fees of ~2.9% + $0.30 per charge).
-const BUYER_FEE_RATE  = 0.10;
-const SELLER_FEE_RATE = 0.10;
+// Canonical math lives in _shared/money.ts (single source of truth):
+// buyer pays base + 10%, seller receives base − 10%, both fees computed
+// from the BASE price in integer cents, rounded half-up.
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 // Fail-CLOSED: distinguish "allowed", "over_limit", and "error" so callers can
@@ -231,7 +229,7 @@ serve(async (req: Request) => {
       );
     }
 
-    const { listing_id, mode } = await req.json();
+    const { listing_id, mode, expected_total_cents } = await req.json();
 
     if (!listing_id || !mode) {
       return new Response(
@@ -303,21 +301,35 @@ serve(async (req: Request) => {
       );
     }
 
-    // Listing prices are stored in dollars. Convert to cents for Stripe
-    // (Stripe requires smallest currency unit: $50 → 5000).
-    //
-    // 10/10 fee model:
-    //   amountCents      = listing price (what seller listed) in cents
-    //   buyerFeeCents    = 10% added on top of listing — what buyer is charged
-    //                      ABOVE the listing price
-    //   sellerFeeCents   = 10% withheld from listing at payout release
-    //   totalCents       = listing + buyer fee = what Stripe charges the card
-    //   Seller net (computed at payout time): amountCents − sellerFeeCents
-    //   Platform gross retained: buyerFeeCents + sellerFeeCents
-    const amountCents     = Math.round(amount * 100);
-    const buyerFeeCents   = Math.round(amountCents * BUYER_FEE_RATE);
-    const sellerFeeCents  = Math.round(amountCents * SELLER_FEE_RATE);
-    const totalCents      = amountCents + buyerFeeCents;
+    // Listing prices are stored in whole dollars. Convert once, then all fee
+    // math is the canonical integer-cent model in _shared/money.ts:
+    //   amountCents    = base listing price (what the seller listed)
+    //   buyerFeeCents  = round(base × 10%) added ON TOP — buyer pays it
+    //   sellerFeeCents = round(base × 10%) withheld at payout — from BASE,
+    //                    never from the buyer's all-in total
+    //   totalCents     = base + buyer fee = what Stripe charges the card
+    const breakdown = feeBreakdown(dollarsToCents(amount));
+    const amountCents    = breakdown.baseCents;
+    const buyerFeeCents  = breakdown.buyerFeeCents;
+    const sellerFeeCents = breakdown.sellerFeeCents;
+    const totalCents     = breakdown.buyerTotalCents;
+
+    // ── Server authority: reject a client whose displayed total disagrees ──
+    // The client may send the all-in total it showed the buyer. If it doesn't
+    // match the server's canonical calculation, refuse to charge — the buyer
+    // would be charged a number they never saw.
+    if (expected_total_cents != null && expected_total_cents !== totalCents) {
+      console.warn('create-payment-intent: client/server total mismatch:', {
+        listing_id, mode, expected_total_cents, server_total_cents: totalCents,
+      });
+      return new Response(
+        JSON.stringify({
+          error: 'Price changed. Please review the updated total and try again.',
+          server_total_cents: totalCents,
+        }),
+        { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+      );
+    }
 
     // ── P1-03: Get-or-create Stripe Customer + ephemeral key (hoisted) ──
     // Hoisted above the existing-PI lookup so the response shape is

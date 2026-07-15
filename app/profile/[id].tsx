@@ -39,6 +39,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
+import { allInLabel } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
@@ -170,11 +171,6 @@ const TIER_COLORS: Record<SellerReputationTier, { bg: string; fg: string; border
   new_seller:   { bg: 'rgba(148,163,184,0.10)', fg: '#94A3B8', border: 'rgba(148,163,184,0.45)' },
 };
 
-function fmt$(n: number | null | undefined): string {
-  if (n == null) return '$0';
-  return `$${Math.round(n).toLocaleString('en-US')}`;
-}
-
 // ─── Active-listing card (compact, tappable) ────────────────────────────────
 
 function ActiveListingRow({ listing }: { listing: Listing }) {
@@ -203,7 +199,8 @@ function ActiveListingRow({ listing }: { listing: Listing }) {
       </View>
       <View style={s.listingRight}>
         <Text style={s.listingBidLabel}>Current bid</Text>
-        <Text style={s.listingBid}>{fmt$(listing.current_bid)}</Text>
+        {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
+        <Text style={s.listingBid}>{allInLabel(listing.current_bid)}</Text>
       </View>
     </Pressable>
   );

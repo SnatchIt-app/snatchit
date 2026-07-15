@@ -8,7 +8,8 @@ const config: Record<TransferStatus, { bg: string; text: string; label: string }
   buyer_confirmed:  { bg: 'rgba(74,222,128,0.15)',  text: '#4ade80', label: 'Transfer Complete' },
   disputed:         { bg: 'rgba(255,77,109,0.15)',   text: '#ff4d6d', label: 'Disputed' },
   expired:          { bg: 'rgba(138,148,166,0.15)',  text: '#8a94a6', label: 'Transfer Expired' },
-  auto_released:    { bg: 'rgba(74,222,128,0.15)',  text: '#4ade80', label: 'Auto-Released' },
+  auto_released:    { bg: 'rgba(74,222,128,0.15)',  text: '#4ade80', label: 'Payout Released' },
+  reversed:         { bg: 'rgba(255,77,109,0.15)',   text: '#ff4d6d', label: 'Payment Reversed' },
 };
 
 type Props = { status: TransferStatus | null | undefined };

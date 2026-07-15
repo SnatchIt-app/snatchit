@@ -120,6 +120,16 @@ export default function TransferReceiveScreen() {
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
+  // Record that the buyer opened the transfer screen (buyer-only RPC, sets
+  // transfers.buyer_viewed_at once). This is a payout risk signal: a buyer
+  // who never even viewed the transfer weighs against silent auto-release.
+  useEffect(() => {
+    if (!userId || !id) return;
+    supabase.rpc('mark_transfer_viewed', { p_transfer_id: id }).then(({ error: rpcErr }) => {
+      if (rpcErr) console.warn('[transfer] mark_transfer_viewed failed:', rpcErr.message);
+    });
+  }, [userId, id]);
+
   // ── Countdown ──────────────────────────────────────────────────────────────
 
   useEffect(() => {

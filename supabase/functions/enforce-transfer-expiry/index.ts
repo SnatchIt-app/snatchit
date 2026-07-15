@@ -10,13 +10,17 @@
 //     3. Updates the payment record with refund details
 //     4. Sends push notifications to buyer and seller
 //
-//   PHASE 2 — Auto-Release Payout (Day 3):
-//     1. Calls enforce_auto_release() RPC to atomically claim seller_sent
-//        transfers past their 72h auto_release_at deadline
-//     2. For each auto-released transfer, creates a Stripe Transfer (payout)
-//        to the seller's Connect account
-//     3. Atomically updates transfers with payout_released_at + stripe_transfer_id
-//     4. Sends push notifications to buyer and seller
+//   PHASE 2 — Risk-based payout decision (migration 039):
+//     1. get_auto_release_candidates() returns due seller_sent transfers past
+//        auto_release_at with all risk signals (risk scores refreshed inline)
+//     2. _shared/payout-policy.ts classifies each: LOW → release,
+//        MEDIUM → hold to a post-event safe point, HIGH → manual review
+//     3. Releases claim the row via apply_auto_release() (guarded flip),
+//        then create the Stripe Transfer (Idempotency-Key: payout_<id>)
+//     4. Every decision is recorded in payout_decisions
+//
+//   PHASE 2b — Self-heal: pays auto_released rows whose Stripe Transfer never
+//     completed (crashed run or admin release). Idempotency key makes retries safe.
 //
 // AUTH: Dedicated INTERNAL_CRON_SECRET (custom secret set via supabase secrets set).
 //       The reserved SUPABASE_SERVICE_ROLE_KEY cannot be used for manual bearer-token
@@ -49,6 +53,12 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
+import {
+  classifyPayout,
+  DEFAULT_POLICY,
+  type PayoutCandidate,
+  type PayoutPolicyConfig,
+} from '../_shared/payout-policy.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -310,207 +320,234 @@ serve(async (req: Request) => {
     }
 
     // =====================================================================
-    // PHASE 2 — Auto-Release Payout (Day 3)
+    // PHASE 2 — Risk-based payout decision (replaces the blanket 72h release)
     // =====================================================================
-    // Buyer ghost protection: if seller marked ticket as sent and buyer
-    // did not confirm or dispute within 72 hours, release payout to seller.
+    // Buyer silence alone no longer releases every transaction. Each due
+    // candidate (seller_sent, past auto_release_at, undisputed, not held,
+    // not frozen for manual review) is classified by the deterministic
+    // policy in _shared/payout-policy.ts:
+    //   LOW    → apply_auto_release() claims the row, then the Stripe
+    //            Transfer is created (same money path as before).
+    //   MEDIUM → apply_payout_hold() parks it until a post-event safe point.
+    //   HIGH   → apply_manual_review() freezes it for an operator.
+    // Every decision is recorded in payout_decisions.
     //
-    // The enforce_auto_release() RPC:
-    //   - Selects transfers WHERE status='seller_sent'
-    //     AND auto_release_at < now() AND payout_released_at IS NULL
-    //   - Locks them with FOR UPDATE SKIP LOCKED
-    //   - Updates status='auto_released', payout_released_at=now()
-    //   - Returns affected rows
-    //
-    // Disputed transfers are automatically excluded (WHERE status='seller_sent').
+    // Disputed transfers are excluded twice: the candidate query requires
+    // status='seller_sent', and apply_auto_release() re-checks it under lock.
     // =====================================================================
 
-    const { data: autoReleaseTransfers, error: autoReleaseRpcErr } = await supabase
-      .rpc('enforce_auto_release');
+    let heldCount = 0;
+    let manualReviewCount = 0;
 
-    if (autoReleaseRpcErr) {
-      console.error('enforce-transfer-expiry: Phase 2 RPC failed:', autoReleaseRpcErr);
+    // Load ops-tunable thresholds; fall back to code defaults if unreadable.
+    let policy: PayoutPolicyConfig = DEFAULT_POLICY;
+    {
+      const { data: policyRow } = await supabase
+        .from('payout_policy').select('*').eq('id', 1).maybeSingle();
+      if (policyRow) policy = policyRow as unknown as PayoutPolicyConfig;
+    }
+
+    const logDecision = async (
+      c: PayoutCandidate,
+      decision: { action: string; tier: string; reasons: string[]; hold_until: string | null },
+    ) => {
+      const { error } = await supabase.from('payout_decisions').insert({
+        transfer_id: c.transfer_id,
+        payment_id: c.payment_id,
+        seller_id: c.seller_id,
+        buyer_id: c.buyer_id,
+        risk_tier: decision.tier,
+        decision: decision.action,
+        reason_codes: decision.reasons,
+        evidence: {
+          base_cents: c.base_cents,
+          has_evidence: c.has_evidence,
+          buyer_viewed: c.buyer_viewed,
+          ticket_platform: c.ticket_platform,
+          proof_status: c.proof_status,
+          risk_tier: c.risk_tier,
+          account_age_days: c.account_age_days,
+          total_completed: c.total_completed,
+          total_disputes: c.total_disputes,
+          total_dispute_losses: c.total_dispute_losses,
+          stripe_onboarding_complete: c.stripe_onboarding_complete,
+        },
+        buyer_confirmed: false,
+        dispute_open: false,
+        event_date: c.event_date,
+        hold_until: decision.hold_until,
+        actor: 'cron:enforce-transfer-expiry',
+      });
+      if (error) console.error('enforce-transfer-expiry: payout_decisions insert failed:', error);
+    };
+
+    // Money mover shared by Phase 2 (fresh releases) and Phase 2b (stuck
+    // auto_released rows). The Stripe Idempotency-Key is keyed on the
+    // transfer id, so even a cron/direct race that reaches Stripe twice
+    // yields ONE Stripe Transfer.
+    const payReleasedTransfer = async (t: {
+      transfer_id: string; payment_id: string; listing_id: string;
+      seller_id: string; buyer_id: string;
+    }): Promise<boolean> => {
+      const { data: sellerProfile } = await supabase
+        .from('profiles').select('stripe_connect_id').eq('id', t.seller_id).single();
+      if (!sellerProfile?.stripe_connect_id) {
+        console.error('enforce-transfer-expiry: seller has no Connect account:', t.transfer_id);
+        return false;
+      }
+
+      const { data: payment } = await supabase
+        .from('payments').select('amount, seller_fee').eq('id', t.payment_id).single();
+      if (!payment) {
+        console.error('enforce-transfer-expiry: payment lookup failed:', t.transfer_id);
+        return false;
+      }
+
+      const { data: transferCheck } = await supabase
+        .from('transfers').select('stripe_transfer_id').eq('id', t.transfer_id).single();
+      if (transferCheck?.stripe_transfer_id) return true;   // already paid
+
+      // 10/10 fee model: seller net = base amount − seller fee (both cents).
+      const sellerNetCents = (payment.amount as number) - ((payment.seller_fee as number) ?? 0);
+
+      const stripeTransfer = await stripeFetch<{ id: string }>('/transfers', {
+        method: 'POST',
+        idempotencyKey: `payout_${t.transfer_id}`,
+        body: {
+          'amount': String(sellerNetCents),
+          'currency': 'usd',
+          'destination': sellerProfile.stripe_connect_id,
+          'metadata[transfer_id]': t.transfer_id,
+          'metadata[payment_id]': t.payment_id,
+          'metadata[seller_id]': t.seller_id,
+          'metadata[source]': 'enforce-transfer-expiry-auto-release',
+        },
+      });
+
+      // Atomic write AFTER money moved; WHERE stripe_transfer_id IS NULL
+      // means overlapping runs record exactly one payout.
+      const { data: updated } = await supabase
+        .from('transfers')
+        .update({
+          payout_released_at: new Date().toISOString(),
+          stripe_transfer_id: stripeTransfer.id,
+        })
+        .eq('id', t.transfer_id)
+        .is('stripe_transfer_id', null)
+        .select('id')
+        .maybeSingle();
+      if (!updated) {
+        console.warn('enforce-transfer-expiry: payout raced (idempotency key prevented dupe):', t.transfer_id);
+      }
+
+      const { data: listing } = await supabase
+        .from('listings').select('event_name').eq('id', t.listing_id).maybeSingle();
+      const listingTitle = listing?.event_name || 'your listing';
+
+      sendPush(
+        t.seller_id,
+        'Payout released',
+        `Your payout for ${listingTitle} has been released.`,
+        { listingId: t.listing_id, type: 'auto_release_seller' },
+      );
+      sendPush(
+        t.buyer_id,
+        'Order complete',
+        `Your order for ${listingTitle} is complete. If anything is wrong with your tickets, contact support.`,
+        { listingId: t.listing_id, type: 'auto_release_buyer' },
+      );
+      return true;
+    };
+
+    const { data: candidates, error: candidatesErr } = await supabase
+      .rpc('get_auto_release_candidates');
+
+    if (candidatesErr) {
+      console.error('enforce-transfer-expiry: Phase 2 candidates RPC failed:', candidatesErr);
       errorCount++;
-    } else if (autoReleaseTransfers && autoReleaseTransfers.length > 0) {
-      console.log(`enforce-transfer-expiry: Phase 2 found ${autoReleaseTransfers.length} auto-release transfer(s)`);
+    } else if (candidates && candidates.length > 0) {
+      console.log(`enforce-transfer-expiry: Phase 2 evaluating ${candidates.length} candidate(s)`);
+      const nowIso = new Date().toISOString();
 
-      for (const t of autoReleaseTransfers) {
+      for (const c of candidates as PayoutCandidate[]) {
         try {
-          // ── 2a. Look up seller's Connect account ───────────────────────
-          const { data: sellerProfile, error: profileErr } = await supabase
-            .from('profiles')
-            .select('stripe_connect_id')
-            .eq('id', t.seller_id)
-            .single();
+          const decision = classifyPayout(c, policy, nowIso);
 
-          if (profileErr || !sellerProfile?.stripe_connect_id) {
-            console.error('enforce-transfer-expiry: seller has no Connect account:', {
-              transfer_id: t.transfer_id,
-              seller_id:   t.seller_id,
-              error:       profileErr,
+          if (decision.action === 'release') {
+            // Claim first (guarded flip under lock), pay only if we won it.
+            const { data: claimed, error: claimErr } = await supabase
+              .rpc('apply_auto_release', { p_transfer_id: c.transfer_id });
+            if (claimErr) { console.error('apply_auto_release failed:', claimErr); errorCount++; continue; }
+            if (!claimed) continue;               // raced or state changed — skip
+            await logDecision(c, decision);
+            if (await payReleasedTransfer(c)) autoReleasedCount++;
+            else errorCount++;
+          } else if (decision.action === 'hold') {
+            // Only log the first time this hold is set (idempotent update).
+            const alreadyHeld = c.payout_hold_until !== null &&
+              new Date(c.payout_hold_until).getTime() >= new Date(decision.hold_until!).getTime();
+            const { data: heldOk } = await supabase.rpc('apply_payout_hold', {
+              p_transfer_id: c.transfer_id,
+              p_hold_until: decision.hold_until,
+              p_tier: decision.tier,
+              p_reasons: decision.reasons,
             });
-            errorCount++;
-            continue;
+            if (heldOk && !alreadyHeld) await logDecision(c, decision);
+            heldCount++;
+          } else {
+            // manual_review — freeze; log only on the first transition.
+            const { data: frozen } = await supabase.rpc('apply_manual_review', {
+              p_transfer_id: c.transfer_id,
+              p_tier: decision.tier,
+              p_reasons: decision.reasons,
+            });
+            if (frozen) await logDecision(c, decision);
+            manualReviewCount++;
           }
-
-          // ── 2b. Look up payment amount + seller fee ────────────────────
-          // 10/10 fee model: seller receives (amount − seller_fee).
-          // Buyer fee + seller fee stay with the platform.
-          const { data: payment, error: paymentErr } = await supabase
-            .from('payments')
-            .select('amount, seller_fee, stripe_payment_intent_id')
-            .eq('id', t.payment_id)
-            .single();
-
-          if (paymentErr || !payment) {
-            console.error('enforce-transfer-expiry: payment lookup failed:', {
-              transfer_id: t.transfer_id,
-              payment_id:  t.payment_id,
-              error:       paymentErr,
-            });
-            errorCount++;
-            continue;
-          }
-
-          // ── 2c. Idempotency: skip if payout already released ───────────
-          // The RPC already filters payout_released_at IS NULL and sets it
-          // atomically, but check the transfer row as defense-in-depth.
-          const { data: transferCheck } = await supabase
-            .from('transfers')
-            .select('payout_released_at, stripe_transfer_id')
-            .eq('id', t.transfer_id)
-            .single();
-
-          if (transferCheck?.stripe_transfer_id) {
-            console.log('enforce-transfer-expiry: payout already released, skipping:', {
-              transfer_id:       t.transfer_id,
-              stripe_transfer_id: transferCheck.stripe_transfer_id,
-            });
-            autoReleasedCount++;
-            continue;
-          }
-
-          // ── 2d. Create Stripe Transfer to seller ───────────────────────
-          // Moves funds from platform Stripe balance to seller's Connected
-          // Express account. Same logic as confirm-and-release step 8.
-          // 10/10 fee model: seller net = amount − seller_fee.
-          const sellerNetCents = (payment.amount as number) - (payment.seller_fee as number ?? 0);
-
-          console.log('enforce-transfer-expiry: creating Stripe Transfer (auto-release):', {
-            transfer_id:       t.transfer_id,
-            seller_connect_id: sellerProfile.stripe_connect_id,
-            listing_amount:    payment.amount,
-            seller_fee:        payment.seller_fee,
-            seller_net:        sellerNetCents,
-            currency:          'usd',
-          });
-
-          let stripeTransfer;
-          try {
-            stripeTransfer = await stripePost('/transfers', {
-              'amount':                 String(sellerNetCents),
-              'currency':               'usd',
-              'destination':            sellerProfile.stripe_connect_id,
-              'metadata[transfer_id]':  t.transfer_id,
-              'metadata[payment_id]':   t.payment_id,
-              'metadata[seller_id]':    t.seller_id,
-              'metadata[source]':       'enforce-transfer-expiry-auto-release',
-            });
-          } catch (stripeErr) {
-            console.error('enforce-transfer-expiry: Stripe Transfer failed (auto-release):', {
-              transfer_id:       t.transfer_id,
-              seller_connect_id: sellerProfile.stripe_connect_id,
-              seller_net:        sellerNetCents,
-              error:             stripeErr instanceof Error ? stripeErr.message : stripeErr,
-            });
-            errorCount++;
-            continue;
-          }
-
-          // ── 2e. Atomic DB update (true idempotency guard) ──────────────
-          // UPDATE ... WHERE stripe_transfer_id IS NULL ensures that even if
-          // two runs overlap, only one writes the payout columns.
-          // Both payout_released_at and stripe_transfer_id are written AFTER
-          // Stripe Transfer succeeds — never before. This guarantees
-          // payout_released_at is only set when money has actually moved.
-          const { data: updated, error: updateErr } = await supabase
-            .from('transfers')
-            .update({
-              payout_released_at: new Date().toISOString(),
-              stripe_transfer_id: stripeTransfer.id,
-            })
-            .eq('id', t.transfer_id)
-            .is('stripe_transfer_id', null)
-            .select('id')
-            .maybeSingle();
-
-          if (updateErr) {
-            console.error('enforce-transfer-expiry: DB update failed after Stripe Transfer:', {
-              transfer_id:        t.transfer_id,
-              stripe_transfer_id: stripeTransfer.id,
-              error:              updateErr,
-            });
-            // Still count — the Stripe Transfer was created, money is moving
-          }
-
-          if (!updated) {
-            // Another run won the race — log the duplicate for manual cleanup
-            console.warn('enforce-transfer-expiry: race condition — duplicate Stripe Transfer:', {
-              transfer_id:                  t.transfer_id,
-              duplicate_stripe_transfer_id: stripeTransfer.id,
-            });
-          }
-
-          autoReleasedCount++;
-
-          // ── 2f. Send push notifications ────────────────────────────────
-          const { data: listing } = await supabase
-            .from('listings')
-            .select('event_name')
-            .eq('id', t.listing_id)
-            .maybeSingle();
-
-          const listingTitle = listing?.event_name || 'your listing';
-
-          // Notify seller: payout released
-          sendPush(
-            t.seller_id,
-            'Payout Released',
-            `Your payout for ${listingTitle} has been automatically released. The buyer did not respond within 72 hours.`,
-            { listingId: t.listing_id, type: 'auto_release_seller' },
-          );
-
-          // Notify buyer: transfer auto-confirmed
-          sendPush(
-            t.buyer_id,
-            'Transfer Auto-Confirmed',
-            `The transfer for ${listingTitle} was automatically confirmed after 72 hours. If you have any issues, please contact support.`,
-            { listingId: t.listing_id, type: 'auto_release_buyer' },
-          );
-
-          console.log('enforce-transfer-expiry: auto-release payout complete:', {
-            transfer_id:        t.transfer_id,
-            stripe_transfer_id: stripeTransfer.id,
-            listing_amount:     payment.amount,
-            seller_fee:         payment.seller_fee,
-            seller_net:         sellerNetCents,
-            seller_id:          t.seller_id,
-            buyer_id:           t.buyer_id,
-          });
-
         } catch (err) {
-          // ── Error isolation: one failure must NOT block the batch ───────
-          console.error('enforce-transfer-expiry: error processing auto-release transfer:', {
-            transfer_id: t.transfer_id,
-            payment_id:  t.payment_id,
-            error:       err instanceof Error ? err.message : err,
+          await captureException('enforce-transfer-expiry:phase2-decision', err, {
+            transfer_id: c.transfer_id,
           });
           errorCount++;
-          // Continue to next transfer
         }
       }
     } else {
-      console.log('enforce-transfer-expiry: Phase 2 — no auto-release transfers found');
+      console.log('enforce-transfer-expiry: Phase 2 — no payout candidates due');
+    }
+
+    // =====================================================================
+    // PHASE 2b — Pay stuck releases (self-heal)
+    // =====================================================================
+    // Rows already flipped to auto_released (by this function, an admin
+    // release, or a crashed earlier run) whose Stripe Transfer never
+    // completed. The per-transfer Stripe idempotency key makes retries safe.
+    try {
+      const { data: stuck } = await supabase
+        .from('transfers')
+        .select('id, payment_id, listing_id, seller_id, buyer_id')
+        .eq('status', 'auto_released')
+        .is('stripe_transfer_id', null)
+        .is('payout_released_at', null)
+        .limit(20);
+
+      for (const s of stuck ?? []) {
+        try {
+          const ok = await payReleasedTransfer({
+            transfer_id: s.id,
+            payment_id: s.payment_id,
+            listing_id: s.listing_id,
+            seller_id: s.seller_id,
+            buyer_id: s.buyer_id,
+          });
+          if (ok) autoReleasedCount++;
+          else errorCount++;
+        } catch (err) {
+          await captureException('enforce-transfer-expiry:phase2b-stuck-payout', err, { transfer_id: s.id });
+          errorCount++;
+        }
+      }
+    } catch (err) {
+      console.error('enforce-transfer-expiry: Phase 2b sweep failed (non-fatal):', err);
     }
 
     // =====================================================================
@@ -588,6 +625,8 @@ serve(async (req: Request) => {
       expired:       expiredCount,
       refunded:      refundedCount,
       auto_released: autoReleasedCount,
+      held:          heldCount,
+      manual_review: manualReviewCount,
       reminded_seller: remindedSeller,
       reminded_buyer:  remindedBuyer,
       errors:        errorCount,

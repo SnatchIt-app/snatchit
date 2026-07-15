@@ -241,7 +241,7 @@ serve(async (req: Request) => {
     // is an optimization to avoid unnecessary Stripe calls.
     const { data: transfer, error: transferErr } = await supabase
       .from('transfers')
-      .select('id, seller_id, buyer_id, payment_id, status, payout_released_at')
+      .select('id, seller_id, buyer_id, payment_id, listing_id, status, payout_released_at, disputed_at, payout_risk_tier')
       .eq('id', transfer_id)
       .single();
 
@@ -261,6 +261,17 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({ error: 'Only the buyer can release payout' }),
         { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+      );
+    }
+
+    // ── Dispute freeze (explicit, in addition to the status gate below) ──
+    // A disputed transfer must NEVER pay out through any path, even if a
+    // future refactor loosens the state machine. Frozen until an operator
+    // resolves it.
+    if (transfer.status === 'disputed' || transfer.disputed_at !== null) {
+      return new Response(
+        JSON.stringify({ error: 'This order is under review. Payout is frozen until the dispute is resolved.' }),
+        { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
       );
     }
 
@@ -346,14 +357,21 @@ serve(async (req: Request) => {
 
     let stripeTransfer;
     try {
-      stripeTransfer = await stripePost('/transfers', {
-        'amount':      String(sellerNetCents),
-        'currency':    'usd',
-        'destination': sellerProfile.stripe_connect_id,
-        'metadata[transfer_id]':  transfer_id,
-        'metadata[payment_id]':   transfer.payment_id,
-        'metadata[seller_id]':    transfer.seller_id,
-        'metadata[source]':       'confirm-and-release',
+      // Idempotency-Key keyed on the transfer id: if the buyer-confirm path
+      // and the cron path (or two buyer taps) ever race to Stripe, Stripe
+      // returns the SAME Transfer object instead of moving money twice.
+      stripeTransfer = await stripeFetch<{ id: string }>('/transfers', {
+        method: 'POST',
+        idempotencyKey: `payout_${transfer_id}`,
+        body: {
+          'amount':      String(sellerNetCents),
+          'currency':    'usd',
+          'destination': sellerProfile.stripe_connect_id,
+          'metadata[transfer_id]':  transfer_id,
+          'metadata[payment_id]':   transfer.payment_id,
+          'metadata[seller_id]':    transfer.seller_id,
+          'metadata[source]':       'confirm-and-release',
+        },
       });
     } catch (stripeErr) {
       console.error('confirm-and-release: Stripe Transfer failed:', {
@@ -417,6 +435,31 @@ serve(async (req: Request) => {
         JSON.stringify({ success: true, already_released: true }),
         { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
       );
+    }
+
+    // ── 9b. Audit record: buyer-confirmed release ────────────────────────
+    // Positive buyer confirmation is the strongest release signal; record it
+    // in the same payout_decisions trail the risk engine writes to.
+    {
+      const { error: auditErr } = await supabase.from('payout_decisions').insert({
+        transfer_id,
+        payment_id: transfer.payment_id,
+        seller_id: transfer.seller_id,
+        buyer_id: transfer.buyer_id,
+        risk_tier: 'low',
+        decision: 'release',
+        reason_codes: ['BUYER_CONFIRMED'],
+        evidence: {
+          base_cents: payment.amount,
+          seller_fee_cents: payment.seller_fee,
+          seller_net_cents: sellerNetCents,
+          stripe_transfer_id: stripeTransfer.id,
+        },
+        buyer_confirmed: true,
+        dispute_open: false,
+        actor: 'edge:confirm-and-release',
+      });
+      if (auditErr) console.error('confirm-and-release: payout_decisions insert failed:', auditErr);
     }
 
     // ── 10. Success ─────────────────────────────────────────────────────

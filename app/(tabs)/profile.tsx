@@ -27,6 +27,7 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
+import { sellerNetDollars } from '@/src/lib/money';
 import StatCardStrip from '@/src/components/StatCardStrip';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -60,7 +61,10 @@ type SellerStats = {
 
 /** formatMoney(1234.5) => "$1,235" (whole dollars) */
 function formatMoney(value: number): string {
-  return `$${Math.round(value).toLocaleString('en-US')}`;
+  // Proceeds can carry real cents (net of the 10% seller fee) — keep them.
+  return Number.isInteger(value)
+    ? `$${value.toLocaleString('en-US')}`
+    : `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
@@ -164,16 +168,17 @@ export default function ProfileScreen() {
 
     const soldCount = soldData?.length ?? 0;
 
-    // Revenue: auction wins use winning_bid_amount (set by finalize_auction);
-    // buy-now sales use buy_now_price — mark_listing_sold never updates
-    // current_bid, so current_bid is only a last-resort fallback.
+    // Proceeds: what the seller actually receives — base sale price minus the
+    // 10% seller fee, computed per transaction with the canonical money util
+    // (matches the real per-payout rounding). Auction wins use
+    // winning_bid_amount; Buy Now uses buy_now_price via finalSoldPrice.
     const totalRevenue = (soldData ?? []).reduce((sum, row) => {
       if (row.winning_bid_amount != null && row.winning_bid_amount > 0) {
-        return sum + row.winning_bid_amount;
+        return sum + sellerNetDollars(row.winning_bid_amount);
       }
       if (row.status === 'sold') {
         const price = finalSoldPrice(row);
-        return sum + (price > 0 ? price : 0);
+        return sum + (price > 0 ? sellerNetDollars(price) : 0);
       }
       return sum;
     }, 0);
@@ -409,7 +414,7 @@ export default function ProfileScreen() {
               },
               {
                 key: 'revenue',
-                label: 'Revenue',
+                label: 'Proceeds',
                 value: stats.revenue > 0 ? formatMoney(stats.revenue) : '—',
               },
             ]}

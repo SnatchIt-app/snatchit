@@ -35,6 +35,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { ImageUploadTile } from '@/src/components/ImageUploadTile';
 import { APP_CONFIG } from '@/src/config/app';
+import { allInLabel, sellerNetFromDollars } from '@/src/lib/money';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import { NEIGHBORHOOD_GROUPS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
@@ -661,7 +662,7 @@ export default function CreateListingScreen() {
         {submitted && <FieldError msg={errors.startingBid} />}
         {startingBidNum > 0 && (
           <Text style={s.feeHint}>
-            You receive ${Math.round(startingBidNum * (1 - APP_CONFIG.SELLER_FEE_RATE)).toLocaleString('en-US')} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% marketplace fee.
+            Listing price ${startingBidNum.toLocaleString('en-US')} · you receive {sellerNetFromDollars(startingBidNum)} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% seller fee. Buyers see {allInLabel(startingBidNum)} (includes their 10% service fee).
           </Text>
         )}
 
@@ -690,7 +691,7 @@ export default function CreateListingScreen() {
             {submitted && <FieldError msg={errors.buyNowPrice} />}
             {buyNowPriceNum > 0 && (
               <Text style={s.feeHint}>
-                You receive ${Math.round(buyNowPriceNum * (1 - APP_CONFIG.SELLER_FEE_RATE)).toLocaleString('en-US')} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% marketplace fee.
+                Listing price ${buyNowPriceNum.toLocaleString('en-US')} · you receive {sellerNetFromDollars(buyNowPriceNum)} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% seller fee. Buyers see {allInLabel(buyNowPriceNum)} (includes their 10% service fee).
               </Text>
             )}
           </>

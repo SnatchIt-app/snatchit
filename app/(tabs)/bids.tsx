@@ -34,6 +34,7 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
+import { allInLabel } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import StatCardStrip from '@/src/components/StatCardStrip';
 import ScreenState from '@/src/components/ScreenState';
@@ -97,10 +98,6 @@ type BidStatus =
   | 'purchase_confirmed'; // 'buyer_confirmed' | 'auto_released'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatMoney(amount: number): string {
-  return `$${Math.round(amount).toLocaleString('en-US')}`;
-}
 
 function timeLabel(endsAt: string): string {
   const diff = new Date(endsAt).getTime() - Date.now();
@@ -235,8 +232,9 @@ function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
         {/* Bid info row */}
         <View style={s.bidRow}>
           <View>
-            <Text style={s.bidLabel}>Your bid</Text>
-            <Text style={s.bidAmount}>{formatMoney(bid.amount)}</Text>
+            <Text style={s.bidLabel}>You pay if you win</Text>
+            {/* All-in: bid + 10% service fee — matches the total shown at bid time. */}
+            <Text style={s.bidAmount}>{allInLabel(bid.amount)}</Text>
           </View>
           <View style={s.rightCol}>
             <Text style={s.timeText}>
@@ -254,7 +252,7 @@ function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
               s.currentBidValue,
               { color: status === 'winning' ? colors.success : colors.error },
             ]}>
-              {formatMoney(listing.current_bid)}
+              {allInLabel(listing.current_bid)}
             </Text>
           </View>
         )}
@@ -267,7 +265,7 @@ function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
               s.currentBidValue,
               { color: status === 'won' ? '#FFD700' : colors.textMuted },
             ]}>
-              {formatMoney(listing.winning_bid_amount)}
+              {allInLabel(listing.winning_bid_amount)}
             </Text>
           </View>
         )}
