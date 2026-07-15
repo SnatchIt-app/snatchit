@@ -61,8 +61,8 @@ describe('MEDIUM risk — hold to post-event safe point', () => {
     expect(d.action).toBe('hold');
     expect(d.tier).toBe('medium');
     expect(d.reasons).toContain('SELLER_UNPROVEN');
-    // Hold until event end (2026-07-16T23:59:59Z) + 24h grace.
-    expect(d.hold_until).toBe(new Date('2026-07-17T23:59:59Z').toISOString());
+    // Hold until conservative event-day end (07-16 +36h = 07-17T12:00Z) + 24h grace.
+    expect(d.hold_until).toBe('2026-07-18T12:00:00.000Z');
   });
 
   it('holds when the buyer never viewed the transfer', () => {
@@ -75,14 +75,43 @@ describe('MEDIUM risk — hold to post-event safe point', () => {
     expect(d.reasons).toContain('BUYER_NEVER_VIEWED');
   });
 
-  it('rotating-barcode platforms are never LOW risk', () => {
+  it('rotating-barcode platforms hold UNPROVEN sellers (evidence is weaker)', () => {
     const d = classifyPayout(
-      lowRiskCandidate({ ticket_platform: 'ticketmaster', event_date: '2026-07-16' }),
+      lowRiskCandidate({
+        ticket_platform: 'ticketmaster',
+        event_date: '2026-07-16',
+        total_completed: 1,           // unproven
+        account_age_days: 10,
+      }),
       DEFAULT_POLICY,
       NOW,
     );
     expect(d.action).toBe('hold');
     expect(d.reasons).toContain('ROTATING_BARCODE');
+  });
+
+  it('Ticketmaster established seller with strong evidence still qualifies for LOW', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({ ticket_platform: 'ticketmaster' }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('release');
+    expect(d.tier).toBe('low');
+  });
+
+  it('Ticketmaster NEW seller goes to manual review (new + rotating barcode)', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({
+        ticket_platform: 'ticketmaster',
+        total_completed: 0,
+        account_age_days: 2,
+      }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('NEW_SELLER_NO_HISTORY');
   });
 
   it('releases a MEDIUM candidate once the post-event grace has already passed', () => {
@@ -134,10 +163,58 @@ describe('HIGH risk — manual review, never auto-release', () => {
     expect(d.reasons).toContain('NEW_SELLER_NO_HISTORY');
   });
 
-  it('freezes high-value orders ($200+)', () => {
-    const d = classifyPayout(lowRiskCandidate({ base_cents: 20_000 }), DEFAULT_POLICY, NOW);
+  it('a $250 order from a NEW/unproven seller goes to manual review', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({ base_cents: 25_000, total_completed: 1, account_age_days: 10 }),
+      DEFAULT_POLICY,
+      NOW,
+    );
     expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('HIGH_VALUE_UNPROVEN_SELLER');
+  });
+
+  it('a $250 order from an ESTABLISHED clean seller is NOT high risk — post-event hold, not manual review', () => {
+    // Miami festival/nightlife tickets routinely exceed $200. Price alone is
+    // one signal, not proof of risk.
+    const d = classifyPayout(
+      lowRiskCandidate({ base_cents: 25_000, event_date: '2026-07-16' }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('hold');
+    expect(d.tier).toBe('medium');
     expect(d.reasons).toContain('HIGH_VALUE_ORDER');
+    expect(d.reasons).not.toContain('HIGH_VALUE_UNPROVEN_SELLER');
+  });
+
+  it('a $250 established clean seller releases after the post-event grace', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({ base_cents: 25_000, event_date: '2026-07-10' }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('release');
+    expect(d.reasons).toContain('HOLD_ELAPSED_POST_EVENT');
+  });
+
+  it('a $500 established seller with MISSING evidence goes to manual review', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({ base_cents: 50_000, has_evidence: false }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('EVIDENCE_MISSING');
+  });
+
+  it('high value + prior disputes goes to manual review', () => {
+    const d = classifyPayout(
+      lowRiskCandidate({ base_cents: 25_000, total_disputes: 1 }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(d.action).toBe('manual_review');
+    expect(d.reasons).toContain('HIGH_VALUE_PRIOR_DISPUTES');
   });
 
   it('freezes when transfer evidence is missing', () => {
@@ -174,7 +251,7 @@ describe('HIGH risk — manual review, never auto-release', () => {
     );
     expect(d.action).toBe('manual_review');
     expect(d.reasons).toEqual(
-      expect.arrayContaining(['HIGH_VALUE_ORDER', 'EVIDENCE_MISSING', 'NEW_SELLER_NO_HISTORY']),
+      expect.arrayContaining(['HIGH_VALUE_UNPROVEN_SELLER', 'EVIDENCE_MISSING', 'NEW_SELLER_NO_HISTORY']),
     );
   });
 });
@@ -243,6 +320,113 @@ describe('historical transaction compatibility', () => {
 
   it('pre-039 rows with seller_fee=0 style payments still classify (base_cents only input)', () => {
     const d = classifyPayout(lowRiskCandidate({ base_cents: 500 }), DEFAULT_POLICY, NOW);
+    expect(d.action).toBe('release');
+  });
+});
+
+// ─── AUDIT 4: event time & timezone behavior ─────────────────────────────────
+// Schema stores event_date (DATE) + venue-local TIME with no timezone. The
+// classifier does not invent precision: "event day over" = event_date + 36h
+// UTC (noon UTC next day ≈ 7-8am Miami), all comparisons in UTC.
+
+describe('event time & timezone (conservative UTC handling)', () => {
+  const medium = (overrides: Partial<PayoutCandidate>) =>
+    lowRiskCandidate({ total_completed: 1, account_age_days: 10, ...overrides });
+
+  it('an 11:59 PM Miami event does NOT release the morning after (UTC boundary safe)', () => {
+    // Event 2026-07-13 (a Miami set starting 11:59 PM runs into 07-14 ET).
+    // Old buggy math (event_date T23:59:59Z + 24h) would release at
+    // 07-14T23:59Z. New math: eventDayEnd 07-14T12:00Z + 24h grace →
+    // releases only after 07-15T12:00Z.
+    const d = classifyPayout(medium({ event_date: '2026-07-13' }), DEFAULT_POLICY, '2026-07-14T13:00:00Z');
+    expect(d.action).toBe('hold');
+    expect(d.hold_until).toBe('2026-07-15T12:00:00.000Z');
+  });
+
+  it('releases after the conservative post-event point passes', () => {
+    const d = classifyPayout(medium({ event_date: '2026-07-13' }), DEFAULT_POLICY, '2026-07-15T12:00:01Z');
+    expect(d.action).toBe('release');
+    expect(d.reasons).toContain('HOLD_ELAPSED_POST_EVENT');
+  });
+
+  it('unknown event time/date never causes a false automatic release', () => {
+    const early = classifyPayout(medium({ event_date: null }), DEFAULT_POLICY, NOW);
+    expect(early.action).toBe('hold');
+    expect(early.reasons).toContain('EVENT_DATE_UNKNOWN');
+    // At the cap, unknown-date holds go to an operator — never a timer release.
+    const late = classifyPayout(
+      medium({ event_date: null, auto_release_at: '2026-07-01T00:00:00Z' }),
+      DEFAULT_POLICY,
+      NOW,
+    );
+    expect(late.action).toBe('manual_review');
+    expect(late.reasons).toContain('MEDIUM_HOLD_EXPIRED_UNRESOLVED');
+  });
+
+  it('a rescheduled event re-enters the calculation with the new date', () => {
+    // Candidates are re-read from listings on every evaluation, so an updated
+    // event_date changes the hold on the next cron pass.
+    const before = classifyPayout(medium({ event_date: '2026-07-16' }), DEFAULT_POLICY, NOW);
+    const rescheduled = classifyPayout(medium({ event_date: '2026-07-18' }), DEFAULT_POLICY, NOW);
+    expect(before.action).toBe('hold');
+    expect(rescheduled.action).toBe('hold');
+    expect(new Date(rescheduled.hold_until!).getTime())
+      .toBeGreaterThan(new Date(before.hold_until!).getTime());
+    // Limitation (documented in payout-policy.ts): a postponement that is NOT
+    // written to listings.event_date is undetectable; the hold cap + the
+    // buyer's dispute channel are the mitigation.
+  });
+
+  it('an event sold >7 days before showtime holds to the cap, then releases (no manual-review flood)', () => {
+    // auto_release_at 07-14T09:00Z; cap = +7d = 07-21T09:00Z; event 08-15.
+    const held = classifyPayout(medium({ event_date: '2026-08-15' }), DEFAULT_POLICY, NOW);
+    expect(held.action).toBe('hold');
+    expect(held.hold_until).toBe('2026-07-21T09:00:00.000Z'); // cap, not post-event
+    const capElapsed = classifyPayout(medium({ event_date: '2026-08-15' }), DEFAULT_POLICY, '2026-07-21T09:00:01Z');
+    expect(capElapsed.action).toBe('release');
+    expect(capElapsed.reasons).toContain('MEDIUM_HOLD_CAP_ELAPSED');
+  });
+});
+
+// ─── AUDIT 6: medium-hold policy — documented examples ───────────────────────
+// 72h initial window (auto_release_at) → then, for MEDIUM candidates:
+// hold to min(event_day_end + 24h grace, auto_release_at + 7d cap);
+// at the post-event point → release; at the cap with the event still ahead →
+// release (evidence present, no dispute); unknown date at cap → manual review.
+
+describe('medium hold policy examples', () => {
+  const medium = (overrides: Partial<PayoutCandidate>) =>
+    lowRiskCandidate({ total_completed: 1, account_age_days: 10, ...overrides });
+
+  it('event tomorrow → holds ~2 days to post-event grace', () => {
+    const d = classifyPayout(medium({ event_date: '2026-07-15' }), DEFAULT_POLICY, NOW);
+    expect(d.action).toBe('hold');
+    expect(d.hold_until).toBe('2026-07-17T12:00:00.000Z'); // 07-15 +36h +24h
+  });
+
+  it('event in five days → holds to the earlier of post-event grace and the cap', () => {
+    // post-event point = 07-19 +36h +24h = 07-21T12:00Z; cap = 07-21T09:00Z →
+    // the cap is 3h earlier and wins (never longer than 7 days past the 72h mark).
+    const d = classifyPayout(medium({ event_date: '2026-07-19' }), DEFAULT_POLICY, NOW);
+    expect(d.action).toBe('hold');
+    expect(d.hold_until).toBe('2026-07-21T09:00:00.000Z');
+  });
+
+  it('event in four days → post-event grace wins (inside the cap)', () => {
+    // post-event point = 07-18 +36h +24h = 07-20T12:00Z < cap 07-21T09:00Z.
+    const d = classifyPayout(medium({ event_date: '2026-07-18' }), DEFAULT_POLICY, NOW);
+    expect(d.action).toBe('hold');
+    expect(d.hold_until).toBe('2026-07-20T12:00:00.000Z');
+  });
+
+  it('event in thirty days → holds to the 7-day cap, then releases', () => {
+    const d = classifyPayout(medium({ event_date: '2026-08-13' }), DEFAULT_POLICY, NOW);
+    expect(d.action).toBe('hold');
+    expect(d.hold_until).toBe('2026-07-21T09:00:00.000Z'); // the cap
+  });
+
+  it('event already passed → immediate controlled release', () => {
+    const d = classifyPayout(medium({ event_date: '2026-07-10' }), DEFAULT_POLICY, NOW);
     expect(d.action).toBe('release');
   });
 });

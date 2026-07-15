@@ -355,6 +355,35 @@ serve(async (req: Request) => {
       currency:          'usd',
     });
 
+    // ── 8a. Final dispute recheck, immediately before money moves ────────
+    // A Stripe chargeback webhook can dispute this transfer between our
+    // earlier read and now. Re-read the row; if anything about it is no
+    // longer releasable, freeze instead of paying.
+    {
+      const { data: finalCheck } = await supabase
+        .from('transfers')
+        .select('status, disputed_at, payout_released_at')
+        .eq('id', transfer_id)
+        .single();
+      if (
+        !finalCheck ||
+        finalCheck.disputed_at !== null ||
+        finalCheck.status !== 'buyer_confirmed' ||
+        finalCheck.payout_released_at !== null
+      ) {
+        if (finalCheck?.payout_released_at) {
+          return new Response(
+            JSON.stringify({ success: true, already_released: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ error: 'This order is under review. Payout is frozen until the dispute is resolved.' }),
+          { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        );
+      }
+    }
+
     let stripeTransfer;
     try {
       // Idempotency-Key keyed on the transfer id: if the buyer-confirm path

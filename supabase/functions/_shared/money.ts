@@ -78,6 +78,24 @@ export interface FeeBreakdown {
   platformGrossCents: number;
 }
 
+/**
+ * Server-authority contract for client-shown totals.
+ *
+ * BACKWARD COMPATIBLE BY DESIGN: legacy clients (every build distributed
+ * before all-in pricing, including 1.0 build 7) send no expected total —
+ * `expected` is undefined → NOT a mismatch → checkout proceeds on the
+ * server-calculated amount. The server always charges its own calculation;
+ * the expected value is only ever compared, never used.
+ *
+ * Returns true (→ HTTP 409) only when a client DID claim a total and that
+ * claim differs from the server's canonical number — including non-numeric
+ * garbage, which is treated as a mismatch rather than trusted.
+ */
+export function totalMismatch(expected: unknown, serverTotalCents: number): boolean {
+  if (expected === undefined || expected === null) return false; // legacy client
+  return !(typeof expected === 'number' && Number.isInteger(expected) && expected === serverTotalCents);
+}
+
 export function feeBreakdown(baseCents: number): FeeBreakdown {
   assertCents(baseCents, 'baseCents');
   const bFee = buyerFeeCents(baseCents);

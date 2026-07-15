@@ -403,9 +403,28 @@ serve(async (req: Request) => {
         return false;
       }
 
+      // Final pre-payment recheck, as close to the Stripe call as possible:
+      //   • already paid (stripe_transfer_id set) → success, nothing to do
+      //   • disputed/reversed since the claim (chargeback webhook can flip an
+      //     unpaid auto_released row to 'disputed') → ABORT, payout frozen
       const { data: transferCheck } = await supabase
-        .from('transfers').select('stripe_transfer_id').eq('id', t.transfer_id).single();
+        .from('transfers')
+        .select('stripe_transfer_id, status, disputed_at')
+        .eq('id', t.transfer_id)
+        .single();
       if (transferCheck?.stripe_transfer_id) return true;   // already paid
+      if (
+        !transferCheck ||
+        transferCheck.disputed_at !== null ||
+        !['auto_released', 'buyer_confirmed'].includes(transferCheck.status as string)
+      ) {
+        console.warn('enforce-transfer-expiry: payout aborted — transfer no longer releasable:', {
+          transfer_id: t.transfer_id,
+          status: transferCheck?.status,
+          disputed_at: transferCheck?.disputed_at,
+        });
+        return false;
+      }
 
       // 10/10 fee model: seller net = base amount − seller fee (both cents).
       const sellerNetCents = (payment.amount as number) - ((payment.seller_fee as number) ?? 0);
@@ -518,17 +537,30 @@ serve(async (req: Request) => {
     // =====================================================================
     // PHASE 2b — Pay stuck releases (self-heal)
     // =====================================================================
-    // Rows already flipped to auto_released (by this function, an admin
-    // release, or a crashed earlier run) whose Stripe Transfer never
-    // completed. The per-transfer Stripe idempotency key makes retries safe.
+    // Two stuck shapes, both safe to retry because the Stripe Idempotency-Key
+    // (payout_<transfer_id>) makes the transfer call replay-safe:
+    //   a) status='auto_released' rows (claimed by this function, an admin
+    //      release, or a crashed earlier run) never paid.
+    //   b) status='buyer_confirmed' rows where confirm-and-release created
+    //      the Stripe Transfer or crashed before persisting it — swept only
+    //      after a 15-minute quiet period so we never race the in-flight
+    //      buyer request.
     try {
+      const staleIso = new Date(Date.now() - 15 * 60_000).toISOString();
       const { data: stuck } = await supabase
         .from('transfers')
-        .select('id, payment_id, listing_id, seller_id, buyer_id')
-        .eq('status', 'auto_released')
+        .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at')
+        .in('status', ['auto_released', 'buyer_confirmed'])
         .is('stripe_transfer_id', null)
         .is('payout_released_at', null)
-        .limit(20);
+        .is('disputed_at', null)
+        .limit(20)
+        .then((res) => ({
+          ...res,
+          data: (res.data ?? []).filter((r: { status: string; buyer_confirmed_at: string | null }) =>
+            r.status === 'auto_released' ||
+            (r.buyer_confirmed_at !== null && r.buyer_confirmed_at < staleIso)),
+        }));
 
       for (const s of stuck ?? []) {
         try {

@@ -108,13 +108,39 @@ export interface PayoutDecision {
 
 // Reason codes (stable API for the audit trail / admin queue):
 //   HIGH → SELLER_RISK_TIER_HIGH, SELLER_RISK_TIER_CRITICAL, SELLER_BLOCKED,
-//          PRIOR_DISPUTE_LOSS, HIGH_VALUE_ORDER, EVIDENCE_MISSING,
-//          PROOF_REJECTED, SELLER_KYC_INCOMPLETE, NEW_SELLER_NO_HISTORY,
+//          PRIOR_DISPUTE_LOSS, EVIDENCE_MISSING, PROOF_REJECTED,
+//          SELLER_KYC_INCOMPLETE, NEW_SELLER_NO_HISTORY,
+//          HIGH_VALUE_UNPROVEN_SELLER, HIGH_VALUE_PRIOR_DISPUTES,
 //          MEDIUM_HOLD_EXPIRED_UNRESOLVED
 //   MEDIUM → SELLER_UNPROVEN, SELLER_RISK_TIER_MEDIUM, PRIOR_DISPUTES,
 //            BUYER_NEVER_VIEWED, UNSUPPORTED_PLATFORM, ROTATING_BARCODE,
-//            EVENT_DATE_UNKNOWN
-//   RELEASE → LOW_RISK_ESTABLISHED_SELLER, HOLD_ELAPSED_POST_EVENT
+//            HIGH_VALUE_ORDER, EVENT_DATE_UNKNOWN
+//   RELEASE → LOW_RISK_ESTABLISHED_SELLER, HOLD_ELAPSED_POST_EVENT,
+//             MEDIUM_HOLD_CAP_ELAPSED
+//
+// SIGNAL WEIGHTS — documented semantics:
+//
+//   buyer_viewed (transfers.buyer_viewed_at) is ENGAGEMENT EVIDENCE ONLY.
+//   It records that the buyer opened the transfer screen. It is NEVER treated
+//   as proof that tickets were received, accepted, valid, or that entry
+//   occurred. Its only effect: its ABSENCE (BUYER_NEVER_VIEWED) is one
+//   medium-risk signal that prevents silent LOW-tier release; its presence
+//   never upgrades a decision past what the other signals allow. Positive
+//   receipt proof remains exclusively the buyer's explicit confirmation
+//   (confirm-and-release).
+//
+//   HIGH VALUE (base ≥ high_value_cents) is one signal among several, not
+//   automatic proof of high risk — Miami festival/nightlife tickets routinely
+//   exceed $200. It escalates to HIGH only in combination with an unproven
+//   seller or prior disputes (missing evidence / rejected proof / incomplete
+//   KYC are independently HIGH already). For an established, KYC-complete,
+//   clean-history seller with accepted evidence it is a MEDIUM signal: the
+//   payout holds to the post-event safe point instead of manual review.
+//
+//   ROTATING_BARCODE (Ticketmaster/AXS SafeTix) weakens screenshot evidence,
+//   so it raises risk for UNPROVEN sellers only. An established seller with
+//   clean history and accepted evidence is not demoted for platform choice
+//   alone — the official-transfer flow on these platforms is itself sound.
 
 export function classifyPayout(
   c: PayoutCandidate,
@@ -125,12 +151,16 @@ export function classifyPayout(
   const highReasons: string[] = [];
   const mediumReasons: string[] = [];
 
+  const established =
+    (c.total_completed ?? 0) >= policy.low_min_completed_sales &&
+    (c.account_age_days ?? 0) >= policy.low_min_account_age_days;
+  const highValue = c.base_cents >= policy.high_value_cents;
+
   // ── HIGH-risk signals: never auto-release, operator must act ──────────────
   if (c.risk_tier === 'critical') highReasons.push('SELLER_RISK_TIER_CRITICAL');
   if (c.risk_tier === 'high') highReasons.push('SELLER_RISK_TIER_HIGH');
   if (c.is_listing_blocked) highReasons.push('SELLER_BLOCKED');
   if ((c.total_dispute_losses ?? 0) > 0) highReasons.push('PRIOR_DISPUTE_LOSS');
-  if (c.base_cents >= policy.high_value_cents) highReasons.push('HIGH_VALUE_ORDER');
   if (!c.has_evidence) highReasons.push('EVIDENCE_MISSING');
   if (c.proof_status === 'rejected') highReasons.push('PROOF_REJECTED');
   if (!c.stripe_onboarding_complete) highReasons.push('SELLER_KYC_INCOMPLETE');
@@ -138,29 +168,33 @@ export function classifyPayout(
   if ((c.total_completed ?? 0) === 0 && (c.account_age_days ?? 0) < 7) {
     highReasons.push('NEW_SELLER_NO_HISTORY');
   }
+  // High value is HIGH only in combination with another independent concern.
+  if (highValue && !established) highReasons.push('HIGH_VALUE_UNPROVEN_SELLER');
+  if (highValue && (c.total_disputes ?? 0) > 0) highReasons.push('HIGH_VALUE_PRIOR_DISPUTES');
 
   if (highReasons.length > 0) {
     return { action: 'manual_review', tier: 'high', reasons: highReasons, hold_until: null };
   }
 
   // ── MEDIUM-risk signals: hold to an event-relative safe point ─────────────
-  const established =
-    (c.total_completed ?? 0) >= policy.low_min_completed_sales &&
-    (c.account_age_days ?? 0) >= policy.low_min_account_age_days;
   if (!established) mediumReasons.push('SELLER_UNPROVEN');
   if (c.risk_tier === 'medium') mediumReasons.push('SELLER_RISK_TIER_MEDIUM');
   if ((c.total_disputes ?? 0) > 0) mediumReasons.push('PRIOR_DISPUTES');
+  // Engagement evidence only — see SIGNAL WEIGHTS above.
   if (!c.buyer_viewed) mediumReasons.push('BUYER_NEVER_VIEWED');
   if (!c.ticket_platform || !SUPPORTED_PLATFORMS.includes(c.ticket_platform)) {
     mediumReasons.push('UNSUPPORTED_PLATFORM');
   }
-  if (c.ticket_platform && ROTATING_BARCODE_PLATFORMS.includes(c.ticket_platform)) {
+  // Rotating barcodes weaken evidence for unproven sellers only.
+  if (!established && c.ticket_platform && ROTATING_BARCODE_PLATFORMS.includes(c.ticket_platform)) {
     mediumReasons.push('ROTATING_BARCODE');
   }
+  // High value for an established, clean, KYC'd seller: post-event hold.
+  if (highValue) mediumReasons.push('HIGH_VALUE_ORDER');
 
   if (mediumReasons.length > 0) {
-    // Safe release point: after the event has happened plus a grace window —
-    // if the tickets were bad, the buyer had the event itself to notice.
+    // Hold cap: never keep a seller waiting more than medium_max_hold_days
+    // past the original auto_release_at on a silent buyer.
     const holdCap = new Date(
       new Date(c.auto_release_at).getTime() + policy.medium_max_hold_days * 86_400_000,
     );
@@ -168,7 +202,8 @@ export function classifyPayout(
     if (!c.event_date) {
       // Without an event date there is no "post-event" moment to verify
       // against — hold to the cap, then require an operator (never a blind
-      // release on a timer).
+      // release on a timer). listings.event_date is NOT NULL in the schema,
+      // so this branch is defensive only.
       mediumReasons.push('EVENT_DATE_UNKNOWN');
       if (now >= holdCap.getTime()) {
         return {
@@ -181,14 +216,22 @@ export function classifyPayout(
       return { action: 'hold', tier: 'medium', reasons: mediumReasons, hold_until: holdCap.toISOString() };
     }
 
-    // event_date is a DATE (venue-local); treat end-of-day UTC as the event
-    // end, then add the grace window.
-    const eventEnd = new Date(`${c.event_date}T23:59:59Z`);
-    const target = new Date(eventEnd.getTime() + policy.post_event_grace_hours * 3_600_000);
+    // TIMEZONE HANDLING (documented limitation): listings store event_date as
+    // a bare DATE and event_time as a venue-local TIME with NO timezone. We
+    // do not invent precision. The "event day is over" moment is taken as
+    // event_date + 36h UTC (noon UTC the following day ≈ 7-8am in Miami),
+    // which conservatively covers 11:59 PM starts, UTC-offset boundaries, and
+    // nightlife sets running past 5am ET. All comparisons happen in UTC.
+    // Postponed/rescheduled events are NOT detectable from the schema; the
+    // hold cap plus the buyer's dispute window is the mitigation, and a
+    // reschedule that updates event_date re-enters this calculation on the
+    // next evaluation.
+    const eventDayEnd = new Date(new Date(`${c.event_date}T00:00:00Z`).getTime() + 36 * 3_600_000);
+    const target = new Date(eventDayEnd.getTime() + policy.post_event_grace_hours * 3_600_000);
 
     if (target.getTime() <= now) {
-      // The safe point has already passed with no dispute and no complaint —
-      // controlled release.
+      // The post-event safe point has passed with no dispute and no
+      // complaint — controlled release.
       return {
         action: 'release',
         tier: 'medium',
@@ -197,22 +240,26 @@ export function classifyPayout(
       };
     }
 
-    if (target.getTime() > holdCap.getTime()) {
-      // Event is too far out to keep the seller waiting indefinitely on a
-      // buyer who went silent — cap the hold, then require an operator.
+    if (now >= holdCap.getTime()) {
+      // Far-future event: the seller has already waited the maximum hold on
+      // a silent buyer. Evidence is present (missing evidence is HIGH) and
+      // no dispute exists, so release rather than flooding manual review —
+      // the buyer retains the dispute channel until the money moves.
       return {
-        action: 'manual_review',
-        tier: 'high',
-        reasons: ['MEDIUM_HOLD_EXPIRED_UNRESOLVED', ...mediumReasons],
+        action: 'release',
+        tier: 'medium',
+        reasons: ['MEDIUM_HOLD_CAP_ELAPSED', ...mediumReasons],
         hold_until: null,
       };
     }
 
+    // Hold to the earlier of the post-event point and the cap.
+    const holdUntil = target.getTime() <= holdCap.getTime() ? target : holdCap;
     return {
       action: 'hold',
       tier: 'medium',
       reasons: mediumReasons,
-      hold_until: target.toISOString(),
+      hold_until: holdUntil.toISOString(),
     };
   }
 

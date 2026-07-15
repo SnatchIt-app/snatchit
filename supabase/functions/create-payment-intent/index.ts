@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw, STRIPE_MOBILE_API_VERSION } from '../_shared/stripe.ts';
-import { feeBreakdown, dollarsToCents } from '../_shared/money.ts';
+import { feeBreakdown, dollarsToCents, totalMismatch } from '../_shared/money.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -315,10 +315,13 @@ serve(async (req: Request) => {
     const totalCents     = breakdown.buyerTotalCents;
 
     // ── Server authority: reject a client whose displayed total disagrees ──
-    // The client may send the all-in total it showed the buyer. If it doesn't
-    // match the server's canonical calculation, refuse to charge — the buyer
-    // would be charged a number they never saw.
-    if (expected_total_cents != null && expected_total_cents !== totalCents) {
+    // The client MAY send the all-in total it showed the buyer; if that claim
+    // disagrees with the canonical calculation we refuse to charge (the buyer
+    // would pay a number they never saw). Legacy clients that send nothing
+    // (all pre-all-in builds, incl. 1.0 build 7) skip the check entirely —
+    // the server charges its own calculation either way and never uses a
+    // client-supplied amount.
+    if (totalMismatch(expected_total_cents, totalCents)) {
       console.warn('create-payment-intent: client/server total mismatch:', {
         listing_id, mode, expected_total_cents, server_total_cents: totalCents,
       });
