@@ -51,37 +51,44 @@ Apple Pay is integrated and user-facing. It is offered inside the Stripe Payment
 checkout, using merchant identifier merchant.com.snatchit. Exact location:
 
 Sign in with the buyer demo account (credentials in the review notes) → Home tab → open an
-active listing, e.g. "Brickell Rooftop Live" → tap "Buy $22 total" → on the Checkout screen
-tap "Pay · $22 total" → the Stripe PaymentSheet opens. On devices that support Apple Pay, the
+active listing, e.g. "III Points Saturday GA" → tap "Buy $330 total" → on the Checkout screen
+tap "Pay · $330 total" → the Stripe PaymentSheet opens. On devices that support Apple Pay, the
 sheet presents Apple Pay; when Apple Pay is unavailable or no eligible Wallet card is
 configured, card entry is always available as the fallback. This checkout sheet is the app's
 only payment surface.
 
 During the previous review, our demo listings had expired, so checkout — and therefore Apple
-Pay — could not be reached. We apologize for the inconvenience. We have restored four
-long-duration demo listings under the demo seller account (active into late August 2026) and
-updated the review notes with the exact navigation steps above.
+Pay — could not be reached. We apologize for the inconvenience. We have restored long-duration
+demo listings under the demo seller account (active through late August 2026) and updated the
+review notes with the exact navigation steps above.
 
 Thank you — we are happy to provide any further information.
 ```
 
-## Remediation performed on 2026-07-21 (production DB, service role)
+## Remediation performed 2026-07-21, revised 2026-07-24 (production DB, service role)
 
-New listings inserted for demo seller `snatchitreview…` (id 09f1ec06-…), all `status=active`,
-`auction_status=active`, `ends_at=2026-08-20`, `proof_status=approved`, covers pointing at the
-seller's real uploaded images in `auction-media`:
+2026-07-24: demo inventory curated to the three strongest listings, cloned fresh under the
+demo seller (id 09f1ec06-…) from the best original gnvprod listings (original artwork reused
+from the `auction-media` public bucket; originals with payment/transfer history untouched).
+All `status=active`, `auction_status=active`, `ends_at=2026-08-23`, `proof_status=approved`:
 
-| Listing | ID | Type | Buy Now | Start bid | Qty | Event date |
-|---|---|---|---|---|---|---|
-| Brickell Rooftop Live | 8a95f533-49ff-4e54-bd96-f41126922884 | Buy Now + auction | $20 (buyer pays $22) | $15 | 1 | 2026-08-28 |
-| Wynwood Saturday Music Night | 4cb27aab-86f1-4ae2-9ec0-b6c9ecfee8cb | Buy Now + auction | $18 (buyer pays $19.80) | $12 | 2 | 2026-08-22 |
-| South Beach Sunset Sessions | 057a7c8b-310f-47d5-b7ad-ff163c08dff7 | Buy Now + auction | $15 (buyer pays $16.50) | $10 | 1 | 2026-09-04 |
-| Little Havana Salsa Social | 3b2aae8d-6777-4564-89c5-08f45863da99 | Auction only | — | $10 | 1 | 2026-08-30 |
+| Listing | ID | Type | Buy Now (buyer pays) | Start bid | Qty | Event date | Cover |
+|---|---|---|---|---|---|---|---|
+| III Points Saturday GA | 4afe3557-9c34-4e89-8cac-df69223b551c | Buy Now + auction | $300 ($330) | $250 | 1 | 2026-10-17 | 2b117757…/covers/1783194485065.jpg |
+| Space Miami — Mochakk | 7cc333be-9e98-42d5-826b-73529d2a613b | Buy Now + auction | $225 ($247.50) | $150 | 1 | 2026-08-29 | 2b117757…/covers/1783104566889.jpg |
+| Quavo E11even | 5f363729-0cda-43f1-9bb0-cf3908dabfb4 | Buy Now + auction | $250 ($275) | $180 | 1 | 2026-08-30 | 2b117757…/covers/1783104504489.jpg |
 
-Also removed a stale `user_blocks` row (demo seller had blocked demo buyer during Jun 5 beta
-testing of the block feature). Fresh INSERTs were used instead of reviving sold listings
-because `transfers.listing_id` is UNIQUE — re-selling a previously sold listing would break
-checkout. No security policy, trigger, or RLS rule was modified.
+The four generic listings created 2026-07-21 (Brickell Rooftop Live, Wynwood Saturday Music
+Night, South Beach Sunset Sessions, Little Havana Salsa Social) were expired out of the live
+feed (`ends_at` moved to the past; the auto-finalize cron ends them through its own path).
+Stale expired test listings still appear under the lazy-loaded "Ended" chip — run
+`scripts/appreview-hide-stale-listings.sql` in the Supabase SQL editor to clear that chip
+(uses the app's own `cancel_listing` RPC; nothing deleted).
+
+2026-07-21: removed a stale `user_blocks` row (demo seller had blocked demo buyer during
+Jun 5 beta testing of the block feature). Fresh INSERTs are used instead of reviving sold
+listings because `transfers.listing_id` is UNIQUE — re-selling a previously sold listing
+would break checkout. No security policy, trigger, or RLS rule was modified.
 
 ## Resubmission checklist (after founder approval)
 

@@ -64,7 +64,7 @@ miami,concert,festival,nightlife,rave,club,edm,resale,marketplace,music,vip,show
 ## App Review Notes (as saved in ASC "Notes" field)
 Sign-in fields in ASC hold the buyer demo account: `snatchitreviewbuyer@gmail.com` / `Snatchitreview` (contact phone 7862017279).
 
-Updated 2026-07-21 after the Guideline 2.1 information request (submission c23833b4): adds operator/provider identification, exact Apple Pay navigation, and removes the outdated "escrow-style, 72h auto-release" wording (risk-based release shipped 2026-07-15). Demo listing names/prices below match the four listings restored on 2026-07-21 (active through 2026-08-20).
+Updated 2026-07-24: demo inventory curated to the three strongest listings (III Points Saturday GA $300, Space Miami — Mochakk $225, Quavo E11even $250 — active through 2026-08-23). Notes below match that inventory. Original 2026-07-21 update added operator/provider identification, exact Apple Pay navigation, and removed the outdated "escrow-style, 72h auto-release" wording (risk-based release shipped 2026-07-15).
 ```
 Snatch It is a peer-to-peer marketplace where individual users list, bid on, and buy event tickets. It is owned and operated by JDT LLC. Payments are for physical-world services and are processed by Stripe per Guideline 3.1.5(a) — no digital goods, no IAP.
 
@@ -80,14 +80,14 @@ Password: Snatchitreview
 
 HOW TO REACH CHECKOUT AND APPLE PAY (use the buyer account):
 1. Sign in as the buyer.
-2. On the Home tab, open an active listing — e.g. "Brickell Rooftop Live", "Wynwood Saturday Music Night", or "South Beach Sunset Sessions".
-3. Tap the "Buy $22 total" button (amount varies by listing).
-4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $22 total".
+2. On the Home tab, open an active listing — "III Points Saturday GA", "Space Miami — Mochakk", or "Quavo E11even".
+3. Tap the "Buy $330 total" button (amount varies by listing).
+4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $330 total".
 5. The Stripe PaymentSheet opens. APPLE PAY IS INTEGRATED HERE, via Stripe PaymentSheet with merchant identifier merchant.com.snatchit. On devices that support Apple Pay the sheet offers Apple Pay; if no eligible Wallet card is configured, card entry is always available as the fallback. This checkout sheet is the app's only payment surface.
 
-"Little Havana Salsa Social" is an active auction listing for testing bidding. The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active into late August 2026 and will not expire during review.
+All three listings also accept auction bids. The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active through late August 2026 and will not expire during review.
 
-Note: payments run on live Stripe keys. You are welcome to complete a purchase on a demo listing (all priced under $25) — we monitor and refund App Review transactions.
+Note: payments run on live Stripe keys. You can open the payment sheet and fully inspect Apple Pay and card entry without completing a charge; if a purchase is completed, we monitor and refund App Review transactions.
 
 PAYMENTS AND DATA: Stripe, Inc. provides payment processing, Apple Pay processing, Stripe Connect Express seller onboarding (identity/KYC), and seller payouts. Card numbers, Apple Pay credentials, bank details, and seller identity data are collected and stored by Stripe only — never by Snatch It. After a purchase, funds are held by the platform through Stripe and released to the seller after the buyer confirms receipt of the ticket transfer, on a risk-based release schedule; unresolved or disputed orders are refunded per policy. Snatch It is not affiliated with Ticketmaster, AXS, DICE, SeatGeek, Eventbrite, or any other ticketing platform — after a sale, users complete the ticket transfer on the issuing platform.
 
