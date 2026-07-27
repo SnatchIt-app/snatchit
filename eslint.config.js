@@ -5,6 +5,8 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // web/ and packages/ carry their own lint setups (web/eslint.config.mjs);
+    // keep `expo lint` scoped to the mobile app exactly as before.
+    ignores: ['dist/*', 'web/**', 'packages/**'],
   },
 ]);

@@ -1,0 +1,47 @@
+/* AUTO-GENERATED from @snatchit/design-tokens — do not edit by hand.
+ * Source of truth: mobile src/theme/index.ts (copied to src/index.ts).
+ * Regenerate: npm run generate (inside packages/design-tokens). */
+:root {
+  --sn-color-bg: #0B0F14;
+  --sn-color-bg-card: #11161C;
+  --sn-color-bg-input: #1a2030;
+  --sn-color-bg-modal: #11161C;
+  --sn-color-bg-overlay: rgba(0,0,0,0.65);
+  --sn-color-text: #FFFFFF;
+  --sn-color-text-muted: #8a94a6;
+  --sn-color-text-placeholder: #4a5568;
+  --sn-color-text-dim: #5a6478;
+  --sn-color-primary: #E10600;
+  --sn-color-primary-muted: #B80000;
+  --sn-color-primary-soft: rgba(225,6,0,0.15);
+  --sn-color-primary-glow: rgba(225,6,0,0.25);
+  --sn-color-accent: #E10600;
+  --sn-color-accent-muted: #B80000;
+  --sn-color-border: #1C232B;
+  --sn-color-border-input: #2e3a50;
+  --sn-color-border-active: #E10600;
+  --sn-color-error: #ff4d6d;
+  --sn-color-success: #4ade80;
+  --sn-color-warning: #fbbf24;
+  --sn-color-badge: #ffd700;
+  --sn-space-xs: 4px;
+  --sn-space-sm: 8px;
+  --sn-space-md: 16px;
+  --sn-space-lg: 24px;
+  --sn-space-xl: 32px;
+  --sn-space-xxl: 48px;
+  --sn-radius-sm: 6px;
+  --sn-radius-md: 10px;
+  --sn-radius-lg: 16px;
+  --sn-radius-xl: 24px;
+  --sn-radius-full: 9999px;
+  --sn-text-xs: 11px;
+  --sn-text-sm: 13px;
+  --sn-text-md: 15px;
+  --sn-text-lg: 18px;
+  --sn-text-xl: 24px;
+  --sn-text-xxl: 32px;
+  --sn-text-xxxl: 42px;
+  --sn-shadow-card: 0px 4px 8px rgba(0, 0, 0, 0.3);
+  --sn-shadow-modal: 0px -4px 12px rgba(0, 0, 0, 0.4);
+}

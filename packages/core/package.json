@@ -1,0 +1,21 @@
+{
+  "name": "@snatchit/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Snatch It shared business logic: money/fee math, sale-price resolution, marketplace constants, ticket-platform transfer instructions. Pure TypeScript — no React Native, no DOM. Mobile src/lib remains the source of truth until the post-App-Review monorepo migration; parity is enforced by tests/.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./money": "./src/money.ts",
+    "./salePrice": "./src/salePrice.ts",
+    "./platformInstructions": "./src/platformInstructions.ts",
+    "./categories": "./src/categories.ts",
+    "./neighborhoods": "./src/neighborhoods.ts",
+    "./appConfig": "./src/appConfig.ts"
+  },
+  "dependencies": {
+    "@snatchit/types": "file:../types"
+  }
+}
