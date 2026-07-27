@@ -58,6 +58,16 @@ skills/
 # Supabase CLI scratch
 supabase/.temp/
 
+# Local data / scratch — never commit
+ziZhyOZe
+backups/
+_webaudit_tmp/
+
+# Web app local env (web/.gitignore also covers these)
+web/.env
+web/.env.*
+!web/.env.example
+
 # Fundraising / pitch / internal docs (not for git)
 SNATCHIT_300K_*
 SNATCHIT_Partner_*
