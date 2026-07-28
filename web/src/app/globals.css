@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "@snatchit/design-tokens/tokens.css";
+
+/*
+ * Tailwind 4 theme mapped onto the Snatch It brand tokens (CSS variables
+ * generated from the mobile theme — single source of truth, no redesign).
+ */
+@theme inline {
+  --color-bg: var(--sn-color-bg);
+  --color-card: var(--sn-color-bg-card);
+  --color-field: var(--sn-color-bg-input);
+  --color-overlay: var(--sn-color-bg-overlay);
+
+  --color-ink: var(--sn-color-text);
+  --color-muted: var(--sn-color-text-muted);
+  --color-dim: var(--sn-color-text-dim);
+  --color-placeholder: var(--sn-color-text-placeholder);
+
+  --color-primary: var(--sn-color-primary);
+  --color-primary-muted: var(--sn-color-primary-muted);
+  --color-primary-soft: var(--sn-color-primary-soft);
+
+  --color-line: var(--sn-color-border);
+  --color-line-strong: var(--sn-color-border-input);
+
+  --color-success: var(--sn-color-success);
+  --color-warning: var(--sn-color-warning);
+  --color-danger: var(--sn-color-error);
+  --color-badge: var(--sn-color-badge);
+
+  --radius-card: var(--sn-radius-lg);
+  --radius-field: var(--sn-radius-md);
+  --radius-chip: var(--sn-radius-full);
+
+  --shadow-card: var(--sn-shadow-card);
+  --shadow-modal: var(--sn-shadow-modal);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background: var(--sn-color-bg);
+  color: var(--sn-color-text);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--sn-color-primary);
+  color: #fff;
+}
+
+/* Keyboard focus — always visible, never on mouse click. */
+:focus-visible {
+  outline: 2px solid var(--sn-color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Native <dialog> used for the mobile filter sheet. */
+dialog::backdrop {
+  background: var(--sn-color-bg-overlay);
+}
