@@ -15,7 +15,7 @@
     "./neighborhoods": "./src/neighborhoods.ts",
     "./appConfig": "./src/appConfig.ts"
   },
-  "dependencies": {
+  "devDependencies": {
     "@snatchit/types": "file:../types"
   }
 }
