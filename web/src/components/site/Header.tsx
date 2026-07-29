@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 import { LinkButton } from "@/components/ui/Button";
@@ -9,26 +8,27 @@ const nav = [
   { href: "/#sell", label: "Sell tickets" },
 ] as const;
 
+/**
+ * Solid black bar with the site's red hairline underline. The brand renders
+ * as the Oswald wordmark, exactly as snatchitapp.com renders it (the SN
+ * monogram stays favicon/app-icon only).
+ */
 export function Header() {
   return (
-    <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-bg/85 backdrop-blur-md">
-      <Container className="flex h-[68px] items-center justify-between gap-6">
-        <div className="flex items-center gap-9">
+    <header className="sticky top-0 z-40 border-b border-primary/20 bg-black">
+      <Container className="flex h-16 items-center justify-between gap-6">
+        <div className="flex items-baseline gap-10">
           <Link href="/" className="flex min-h-11 items-center" aria-label="Snatch It — home">
-            <Image
-              src="/brand/sn-logo-white.svg"
-              alt="Snatch It"
-              width={88}
-              height={32}
-              priority
-            />
+            <span className="glow-red-subtle font-display text-[22px] font-bold uppercase leading-none tracking-[-0.02em] text-primary">
+              Snatch It
+            </span>
           </Link>
-          <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+          <nav aria-label="Primary" className="hidden items-center gap-7 md:flex">
             {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="inline-flex min-h-11 items-center rounded-[8px] px-3.5 text-[14px] font-semibold text-white/65 transition-colors duration-150 hover:bg-white/[0.06] hover:text-ink motion-reduce:transition-none"
+                className="inline-flex min-h-11 items-center text-[11px] font-medium uppercase tracking-[0.3em] text-white/60 transition-colors duration-200 hover:text-primary motion-reduce:transition-none"
               >
                 {item.label}
               </Link>
@@ -36,10 +36,10 @@ export function Header() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <Link
             href="/browse"
-            className="inline-flex min-h-11 items-center rounded-[8px] px-3 text-[14px] font-semibold text-white/65 transition-colors duration-150 hover:text-ink md:hidden"
+            className="inline-flex min-h-11 items-center text-[11px] font-medium uppercase tracking-[0.3em] text-white/60 transition-colors duration-200 hover:text-primary motion-reduce:transition-none md:hidden"
           >
             Browse
           </Link>

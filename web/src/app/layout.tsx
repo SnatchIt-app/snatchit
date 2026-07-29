@@ -1,15 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope } from "next/font/google";
+import { Inter, Oswald } from "next/font/google";
 import "./globals.css";
 import { SITE_URL } from "@/lib/env";
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { JsonLd } from "@/components/site/JsonLd";
 
-const manrope = Manrope({
+// Same pairing and weights as snatchitapp.com: Oswald for display type,
+// Inter for body/UI. Self-hosted via next/font (CSP font-src 'self').
+const oswald = Oswald({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-oswald",
+});
+const inter = Inter({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-manrope",
+  variable: "--font-inter",
 });
 
 export const metadata: Metadata = {
@@ -32,7 +40,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0B0F14",
+  themeColor: "#000000",
   width: "device-width",
   initialScale: 1,
 };
@@ -55,17 +63,19 @@ const organizationJsonLd = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={manrope.variable}>
+    <html lang="en" className={`${oswald.variable} ${inter.variable}`}>
       <body className="min-h-dvh antialiased">
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-[8px] focus:bg-primary focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-white"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[110] focus:bg-primary focus:px-4 focus:py-2.5 focus:text-sm focus:font-bold focus:uppercase focus:tracking-wider focus:text-black"
         >
           Skip to content
         </a>
         <Header />
         <main id="main">{children}</main>
         <Footer />
+        {/* Site-wide film grain, same as snatchitapp.com. */}
+        <div aria-hidden="true" className="grain" />
         <JsonLd data={organizationJsonLd} />
       </body>
     </html>

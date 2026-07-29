@@ -42,7 +42,7 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
           setParam("q", String(q ?? "").trim());
         }}
       >
-        <label htmlFor={`${idPrefix}-q`} className="mb-2 block text-[13px] font-bold text-white/85">
+        <label htmlFor={`${idPrefix}-q`} className="mb-2.5 block text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
           Search
         </label>
         <Input
@@ -131,9 +131,9 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
       {hasFilters ? (
         <Link
           href="/browse"
-          className="inline-flex min-h-11 items-center text-[13.5px] font-bold text-primary transition-colors duration-150 hover:text-[#ff7a75] motion-reduce:transition-none"
+          className="inline-flex min-h-11 items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.3em] text-primary transition-colors duration-200 hover:text-[#ff5f5f] motion-reduce:transition-none"
         >
-          Clear all filters
+          Clear all filters →
         </Link>
       ) : null}
     </div>
@@ -151,7 +151,7 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-2 block text-[13px] font-bold text-white/85">
+      <label htmlFor={id} className="mb-2.5 block text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
         {label}
       </label>
       {children}

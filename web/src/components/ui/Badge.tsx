@@ -3,16 +3,16 @@ import type { ReactNode } from "react";
 type Variant = "live" | "soon" | "sold" | "neutral" | "buyNow";
 
 /**
- * Status marks — compact pills with soft color fills. Over artwork they sit
- * on a near-black plate for legibility; uppercase is reserved for these
- * micro-labels only, with restrained tracking.
+ * Status marks in the brand voice: square black plates over artwork with
+ * tracked uppercase micro type. Red and white only — the marketing site's
+ * palette has no other hues.
  */
 const styles: Record<Variant, string> = {
-  live: "bg-bg/85 text-[#ff7a75] border border-[#e1060050]",
-  soon: "bg-bg/85 text-warning border border-[#fbbf2440]",
-  sold: "bg-bg/85 text-muted border border-white/15",
-  neutral: "bg-white/[0.06] text-muted border border-white/10",
-  buyNow: "bg-bg/85 text-success border border-[#4ade8040]",
+  live: "bg-black/85 text-primary border border-primary/40",
+  soon: "bg-black/85 text-ink border border-white/25",
+  sold: "bg-black/85 text-white/50 border border-white/15",
+  neutral: "bg-white/[0.06] text-white/60 border border-white/10",
+  buyNow: "bg-primary text-black border border-primary",
 };
 
 export function Badge({
@@ -26,14 +26,14 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1.5 text-[10.5px] font-bold uppercase leading-none tracking-[0.05em] ${styles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold uppercase leading-none tracking-[0.18em] ${styles[variant]} ${className}`}
     >
       {children}
     </span>
   );
 }
 
-/** Soft color chip for inline emphasis (e.g. "Buy Now" on cards). */
+/** Inline tracked micro-label (e.g. "Buy Now" on cards, "Verified" on sellers). */
 export function Chip({
   tone = "neutral",
   children,
@@ -43,26 +43,28 @@ export function Chip({
   children: ReactNode;
   className?: string;
 }) {
+  // "green" is kept as an accepted tone name for call-site compatibility but
+  // renders in the brand system (red) — the site's palette has no green.
   const tones = {
-    red: "bg-primary-soft text-[#ff7a75]",
-    green: "bg-[#4ade8018] text-success",
-    neutral: "bg-white/[0.07] text-muted",
+    red: "text-primary",
+    green: "text-primary",
+    neutral: "text-white/50",
   } as const;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[12px] font-bold leading-none ${tones[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase leading-none tracking-[0.22em] ${tones[tone]} ${className}`}
     >
       {children}
     </span>
   );
 }
 
-/** Small pulsing dot for LIVE state (static when reduced motion). */
+/** Small pulsing dot for LIVE state (halo pulse; static when reduced motion). */
 export function LiveDot() {
   return (
-    <span className="relative flex size-1.5" aria-hidden="true">
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#ff6b66] opacity-60 motion-reduce:hidden" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-[#ff6b66]" />
-    </span>
+    <span
+      aria-hidden="true"
+      className="pulse-red inline-flex size-1.5 rounded-full bg-primary motion-reduce:animate-none"
+    />
   );
 }

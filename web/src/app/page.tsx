@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import Link from "next/link";
-import { coverImageUrl, getActiveListings, type WebListing } from "@/lib/listings";
-import { allInFromDollars } from "@snatchit/core";
+import { getActiveListings, type WebListing } from "@/lib/listings";
 import { Container } from "@/components/ui/Container";
 import { SearchForm } from "@/components/ui/SearchInput";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -14,10 +12,41 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-const TRUST_POINTS = [
-  "All-in pricing — no surprise fees",
-  "Funds held until you confirm delivery",
-  "Automatic refund if it isn't sent in 24h",
+const STEPS = [
+  {
+    n: "01",
+    title: "Snatch it",
+    body: "Place a bid or hit Buy Now. Checkout is Stripe-secured, and the price you see is the price you pay — fees included.",
+  },
+  {
+    n: "02",
+    title: "Get the transfer",
+    body: "The seller sends your ticket through the platform it lives on — Ticketmaster, Posh, DICE, and more — with step-by-step instructions.",
+  },
+  {
+    n: "03",
+    title: "Confirm and go",
+    body: "Confirm delivery and the seller gets paid. If the ticket isn't sent within 24 hours, you're refunded automatically.",
+  },
+] as const;
+
+const TRUST_ROWS = [
+  {
+    head: "Stripe-secured payments",
+    body: "Cards and Apple Pay processed by Stripe. Snatch It never sees your card number.",
+  },
+  {
+    head: "Funds held until delivery",
+    body: "Sellers are paid only after you confirm the ticket arrived in your account.",
+  },
+  {
+    head: "24-hour transfer deadline",
+    body: "If a seller doesn't send within 24 hours, the sale cancels and you're refunded in full.",
+  },
+  {
+    head: "Disputes freeze payouts",
+    body: "Something off? Open a dispute and a human reviews it before any payout moves.",
+  },
 ] as const;
 
 export default async function HomePage() {
@@ -27,89 +56,68 @@ export default async function HomePage() {
   } catch {
     listings = [];
   }
-  const heroStack = listings.slice(0, 3);
 
   return (
     <>
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <section className="overflow-hidden border-b border-white/[0.06] bg-[#080B0F]">
-        <Container className="grid items-center gap-12 py-16 lg:grid-cols-[minmax(0,1.05fr)_440px] lg:py-24">
-          <div className="rise-in">
-            <p className="eyebrow inline-flex items-center gap-2 rounded-[6px] bg-primary-soft px-2.5 py-1.5 text-[#ff7a75]">
-              Miami · Peer-to-peer tickets
-            </p>
-            <h1 className="mt-6 max-w-[19ch] text-balance text-[clamp(2.4rem,5.5vw,4rem)] font-extrabold leading-[1.02] tracking-[-0.03em] text-ink">
-              Sold-out night? Snatch a ticket from someone who can&apos;t go.
-            </h1>
-            <p className="mt-5 max-w-[52ch] text-[16px] leading-relaxed text-white/70 sm:text-[17px]">
-              Bid or Buy Now on real tickets across Miami — clubs, festivals, arenas. Every
-              price is all-in, and your money is held until the ticket is in your hands.
-            </p>
-            <SearchForm size="lg" className="mt-8 max-w-xl" />
-            <ul className="mt-6 space-y-2">
-              {TRUST_POINTS.map((point) => (
-                <li key={point} className="flex items-center gap-2.5 text-[13.5px] font-medium text-white/70">
-                  <CheckIcon />
-                  {point}
-                </li>
-              ))}
-            </ul>
+      {/* ── Hero — full-bleed atmosphere, continuous with snatchitapp.com ── */}
+      <section className="vignette-red relative overflow-hidden border-b border-primary/15 bg-black">
+        {/* Crowd underlay at the site's opacity, emerging from black */}
+        <div aria-hidden="true" className="absolute inset-0">
+          <Image
+            src="/atmosphere/crowd.jpg"
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-bottom opacity-20"
+          />
+          <div className="absolute inset-0 bg-black/20 mix-blend-multiply" />
+        </div>
+        <div
+          aria-hidden="true"
+          className="absolute left-1/2 top-1/2 h-[400px] w-[900px] -translate-x-1/2 -translate-y-1/2 bg-primary/15 blur-[180px]"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute left-1/4 top-1/4 h-[2px] w-[300px] rotate-45 bg-primary/20 blur-[8px]"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute bottom-1/3 right-1/4 h-[2px] w-[400px] -rotate-12 bg-primary/15 blur-[10px]"
+        />
 
-            {/* Mobile inventory strip — real artwork above the fold */}
-            {heroStack.length > 0 ? (
-              <div className="mt-9 grid grid-cols-3 gap-2.5 lg:hidden">
-                {heroStack.map((l) => (
-                  <Link
-                    key={l.id}
-                    href={`/listing/${l.id}`}
-                    className="group relative aspect-[4/3] overflow-hidden rounded-[10px] border border-white/10"
-                    aria-label={`${l.event_name} at ${l.venue}`}
-                  >
-                    <Image
-                      src={coverImageUrl(l.cover_image_path)}
-                      alt=""
-                      fill
-                      sizes="30vw"
-                      className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none"
-                    />
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Fanned event-art stack — the marketplace, immediately */}
-          {heroStack.length > 0 ? (
-            <div className="rise-in relative hidden h-[440px] lg:block" aria-label="Live listings">
-              {heroStack[2] ? (
-                <HeroCard listing={heroStack[2]} className="left-0 top-10 w-[220px] -rotate-6" />
-              ) : null}
-              {heroStack[1] ? (
-                <HeroCard listing={heroStack[1]} className="left-[110px] top-2 w-[240px] rotate-2" />
-              ) : null}
-              <HeroCard
-                listing={heroStack[0]}
-                className="right-0 top-6 z-10 w-[270px] rotate-[4deg]"
-                showPrice
-                priority
-              />
-            </div>
-          ) : null}
+        <Container className="rise-in relative z-10 py-20 text-center sm:py-28">
+          <p className="eyebrow text-primary/80">Now live · Miami</p>
+          <h1 className="glow-red flicker mx-auto mt-7 max-w-[14ch] font-display text-[clamp(3.2rem,9vw,6.5rem)] font-bold uppercase leading-[0.85] tracking-[-0.03em] text-primary">
+            Sold out isn&apos;t over.
+          </h1>
+          <p className="mt-7 font-display text-[15px] font-bold uppercase tracking-[0.2em] text-ink sm:text-[21px]">
+            Miami nightlife, on demand.
+          </p>
+          <p className="mx-auto mt-6 max-w-[52ch] text-[15px] leading-relaxed text-white/70 sm:text-[16px]">
+            Bid or Buy Now on real tickets to the city&apos;s sold-out nights — clubs, festivals,
+            arenas. Every price is all-in, and your money is held until the ticket is in your
+            hands.
+          </p>
+          <SearchForm size="lg" className="mx-auto mt-9 max-w-xl" />
+          <p className="mt-8 text-[10px] uppercase tracking-[0.5em] text-white/30">
+            Every price all-in · Sellers verified · 21+
+          </p>
         </Container>
       </section>
 
-      {/* ── Live listings ────────────────────────────────────────────── */}
-      <section className="py-16">
+      {/* ── Live listings — the marketplace, immediately ── */}
+      <section className="py-16 sm:py-20">
         <Container>
           <SectionHeader
             eyebrow="The marketplace"
-            title="Live right now"
+            title="Live right now."
             action={{ href: "/browse", label: "Browse all" }}
           />
           {listings.length > 0 ? (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {listings.map((l) => (
-                <ListingCard key={l.id} listing={l} />
+              {listings.map((l, i) => (
+                <ListingCard key={l.id} listing={l} priority={i < 4} />
               ))}
             </div>
           ) : (
@@ -121,140 +129,120 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      {/* ── How it works ─────────────────────────────────────────────── */}
-      <section id="how-it-works" className="scroll-mt-24 py-16">
-        <Container>
-          <SectionHeader eyebrow="How it works" title="Three steps between you and the door" />
-          <div className="grid gap-5 md:grid-cols-3">
-            {[
-              {
-                n: "1",
-                title: "Snatch it",
-                body: "Place a bid or hit Buy Now. Checkout is Stripe-secured, and the price you see is the price you pay — fees included.",
-              },
-              {
-                n: "2",
-                title: "Get the transfer",
-                body: "The seller sends your ticket through the platform it lives on — Ticketmaster, Posh, DICE, and more — with step-by-step instructions.",
-              },
-              {
-                n: "3",
-                title: "Confirm and go",
-                body: "Confirm delivery and the seller gets paid. If the ticket isn't sent within 24 hours, you're refunded automatically.",
-              },
-            ].map((step) => (
-              <div
+      {/* ── How it works — the site's numbered editorial rows ── */}
+      <section id="how-it-works" className="relative scroll-mt-24 overflow-hidden py-20 sm:py-28">
+        <div aria-hidden="true" className="absolute inset-0">
+          <Image
+            src="/atmosphere/silhouettes.jpg"
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover opacity-[0.08]"
+          />
+          <div className="absolute inset-0 bg-black/30 mix-blend-multiply" />
+        </div>
+        <Container className="relative z-10">
+          <div className="mb-14 text-center sm:mb-16">
+            <p className="eyebrow text-primary/80">How it works</p>
+            <h2 className="mt-5 font-display text-[clamp(2rem,4.5vw,3.4rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
+              Three steps. One night.
+            </h2>
+          </div>
+          <ol className="mx-auto max-w-4xl divide-y divide-primary/20 border-y border-primary/20">
+            {STEPS.map((step) => (
+              <li
                 key={step.n}
-                className="rounded-[12px] border border-white/[0.07] bg-card p-6"
+                className="grid grid-cols-[auto_1fr] items-baseline gap-6 py-8 sm:gap-12 sm:py-11"
               >
-                <span className="flex size-9 items-center justify-center rounded-full bg-primary-soft text-[15px] font-extrabold text-[#ff7a75]">
+                <span
+                  aria-hidden="true"
+                  className="glow-red-subtle font-display text-[52px] font-bold leading-none tracking-[-0.03em] text-primary sm:text-[76px]"
+                >
                   {step.n}
                 </span>
-                <h3 className="mt-4 text-[17px] font-extrabold tracking-[-0.01em] text-ink">
-                  {step.title}
-                </h3>
-                <p className="mt-2 text-[14px] leading-relaxed text-white/65">{step.body}</p>
-              </div>
+                <div>
+                  <h3 className="font-display text-[22px] font-bold uppercase tracking-tight text-ink sm:text-[30px]">
+                    {step.title}
+                  </h3>
+                  <p className="mt-2.5 max-w-xl text-[14px] leading-relaxed text-white/70 sm:text-[15px]">
+                    {step.body}
+                  </p>
+                </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </Container>
       </section>
 
-      {/* ── Buyer protection ─────────────────────────────────────────── */}
-      <section className="py-16">
+      {/* ── Trust & safety — the site's label-grid definition rows ── */}
+      <section className="py-16 sm:py-24">
         <Container>
-          <div className="grid gap-10 rounded-[16px] border border-white/[0.07] bg-card p-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:p-11">
-            <div>
-              <p className="eyebrow mb-3 text-primary">Buyer protection</p>
-              <h2 className="text-[26px] font-extrabold leading-[1.08] tracking-[-0.02em] text-ink sm:text-[30px]">
-                Built so nobody gets burned.
-              </h2>
-              <p className="mt-4 max-w-[44ch] text-[14.5px] leading-relaxed text-white/70">
-                Ticket resale runs on trust. We replaced trust with mechanics: your payment
-                sits with Snatch It — not the seller — until the ticket is actually yours.
-              </p>
-            </div>
-            <ul className="grid gap-x-8 gap-y-7 sm:grid-cols-2">
-              {[
-                {
-                  icon: <LockIcon />,
-                  title: "Stripe-secured payments",
-                  body: "Cards and Apple Pay processed by Stripe. Snatch It never sees your card number.",
-                },
-                {
-                  icon: <ShieldIcon />,
-                  title: "Funds held until delivery",
-                  body: "Sellers are paid only after you confirm the ticket arrived in your account.",
-                },
-                {
-                  icon: <ClockIcon />,
-                  title: "24-hour transfer deadline",
-                  body: "If a seller doesn't send within 24 hours, the sale cancels and you're refunded in full.",
-                },
-                {
-                  icon: <FlagIcon />,
-                  title: "Report & dispute tools",
-                  body: "Something off? Open a dispute and a human reviews it before any payout moves.",
-                },
-              ].map((item) => (
-                <li key={item.title} className="flex gap-3.5">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06]">
-                    {item.icon}
-                  </span>
-                  <div>
-                    <h3 className="text-[15px] font-bold text-ink">{item.title}</h3>
-                    <p className="mt-1 text-[13.5px] leading-relaxed text-white/60">{item.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <div className="mb-14 text-center sm:mb-16">
+            <p className="eyebrow text-primary/80">Trust &amp; safety</p>
+            <h2 className="mx-auto mt-5 max-w-[16ch] font-display text-[clamp(2rem,4.5vw,3.4rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
+              Built so nobody gets burned.
+            </h2>
           </div>
+          <ul className="mx-auto max-w-4xl divide-y divide-primary/20 border-y border-primary/20">
+            {TRUST_ROWS.map((row) => (
+              <li
+                key={row.head}
+                className="grid gap-2 py-7 sm:grid-cols-[16rem_1fr] sm:items-baseline sm:gap-12 sm:py-8"
+              >
+                <h3 className="font-display text-[19px] font-bold uppercase tracking-tight text-primary sm:text-[22px]">
+                  {row.head}
+                </h3>
+                <p className="text-[14px] leading-relaxed text-white/70 sm:text-[15px]">
+                  {row.body}
+                </p>
+              </li>
+            ))}
+          </ul>
         </Container>
       </section>
 
-      {/* ── Sell CTA ─────────────────────────────────────────────────── */}
-      <section id="sell" className="scroll-mt-24 py-16">
+      {/* ── Sell — statement plus oversized Oswald stats ── */}
+      <section id="sell" className="scroll-mt-24 border-t border-primary/15 py-16 sm:py-24">
         <Container>
-          <div className="grid items-center gap-12 lg:grid-cols-2">
+          <div className="grid items-center gap-14 lg:grid-cols-2">
             <div>
-              <p className="eyebrow mb-3 text-primary">Sell on Snatch It</p>
-              <h2 className="text-[26px] font-extrabold leading-[1.08] tracking-[-0.02em] text-ink sm:text-[30px]">
+              <p className="eyebrow text-primary/80">Sell on Snatch It</p>
+              <h2 className="mt-5 max-w-[16ch] font-display text-[clamp(1.9rem,3.8vw,2.9rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
                 Plans changed? Your ticket still gets used.
               </h2>
-              <p className="mt-4 max-w-[48ch] text-[14.5px] leading-relaxed text-white/70">
+              <p className="mt-5 max-w-[48ch] text-[14.5px] leading-relaxed text-white/70">
                 List in minutes as an auction, Buy Now, or both. You keep 90% of the sale and
                 get paid through Stripe once the buyer confirms delivery.
               </p>
-              <ul className="mt-6 space-y-2.5">
+              <ul className="mt-6 space-y-3 text-[14px] leading-relaxed text-white/70">
                 {[
                   "Flat 10% seller fee — nothing hidden",
                   "Payouts via Stripe Connect, straight to your bank",
                   "Proof-of-ownership review keeps the marketplace clean",
                 ].map((point) => (
-                  <li key={point} className="flex items-center gap-2.5 text-[13.5px] font-medium text-white/70">
-                    <CheckIcon />
+                  <li key={point} className="flex gap-3">
+                    <span aria-hidden="true" className="font-bold text-primary">·</span>
                     {point}
                   </li>
                 ))}
               </ul>
-              <LinkButton href="https://snatchitapp.com" size="lg" className="mt-8">
+              <LinkButton href="https://snatchitapp.com" size="lg" className="mt-9">
                 Start selling in the app
               </LinkButton>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-6 text-center lg:gap-8">
               {[
-                { big: "90%", small: "of the sale price goes to you" },
-                { big: "24h", small: "transfer window keeps buyers safe" },
-                { big: "10%", small: "flat seller fee, disclosed up front" },
+                { big: "90%", small: "of the sale is yours" },
+                { big: "24h", small: "transfer window" },
+                { big: "10%", small: "flat seller fee" },
               ].map((stat) => (
-                <div
-                  key={stat.big}
-                  className="rounded-[12px] border border-white/[0.07] bg-card p-5 text-center"
-                >
-                  <p className="text-[clamp(1.8rem,3.5vw,2.5rem)] font-extrabold leading-none tracking-[-0.02em] tabular-nums text-ink">
+                <div key={stat.big}>
+                  <p className="glow-red-subtle font-display text-[clamp(2.6rem,5vw,4rem)] font-bold leading-none tracking-[-0.03em] text-primary">
                     {stat.big}
                   </p>
-                  <p className="mt-2.5 text-[12.5px] leading-snug text-muted">{stat.small}</p>
+                  <p className="mt-3 text-[10px] uppercase tracking-[0.25em] text-white/45">
+                    {stat.small}
+                  </p>
                 </div>
               ))}
             </div>
@@ -262,142 +250,38 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      {/* ── App CTA ──────────────────────────────────────────────────── */}
-      <section className="border-t border-white/[0.06] py-20">
-        <Container className="flex flex-col items-center text-center">
+      {/* ── App CTA ── */}
+      <section className="relative overflow-hidden border-t border-primary/15 py-20 sm:py-28">
+        <div aria-hidden="true" className="absolute inset-0">
+          <Image
+            src="/atmosphere/sold-out.jpg"
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover opacity-10"
+          />
+          <div className="absolute inset-0 bg-black/30 mix-blend-multiply" />
+        </div>
+        <Container className="relative z-10 flex flex-col items-center text-center">
           <Image
             src="/brand/sn-app-icon-1024.png"
             alt=""
-            width={60}
-            height={60}
+            width={64}
+            height={64}
             className="rounded-[14px] border border-white/10"
           />
-          <h2 className="mt-6 text-[26px] font-extrabold tracking-[-0.02em] text-ink sm:text-[30px]">
+          <h2 className="mt-7 font-display text-[clamp(2rem,4vw,3rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
             Snatch It for iPhone
           </h2>
-          <p className="mt-3 max-w-[46ch] text-[14.5px] leading-relaxed text-white/70">
+          <p className="mt-4 max-w-[46ch] text-[14.5px] leading-relaxed text-white/70">
             The full marketplace — live bidding, Buy Now, transfers, and seller payouts — is in
             the iOS app. Coming soon to the App Store.
           </p>
-          <LinkButton href="https://snatchitapp.com" variant="secondary" className="mt-8">
+          <LinkButton href="https://snatchitapp.com" size="lg" className="mt-9">
             Visit snatchitapp.com
           </LinkButton>
         </Container>
       </section>
     </>
-  );
-}
-
-/** Rotated artwork card for the hero stack — real inventory, clickable. */
-function HeroCard({
-  listing,
-  className = "",
-  showPrice = false,
-  priority = false,
-}: {
-  listing: WebListing;
-  className?: string;
-  showPrice?: boolean;
-  priority?: boolean;
-}) {
-  const price = listing.buy_now_enabled && listing.buy_now_price ? listing.buy_now_price : listing.current_bid;
-  return (
-    <Link
-      href={`/listing/${listing.id}`}
-      className={`group absolute block overflow-hidden rounded-[14px] border border-white/[0.12] bg-card transition-transform duration-200 ease-[var(--ease-swift)] hover:z-20 hover:scale-[1.03] motion-reduce:transition-none motion-reduce:hover:scale-100 ${className}`}
-      aria-label={`${listing.event_name} at ${listing.venue} — ${allInFromDollars(price)} total`}
-    >
-      <div className="relative aspect-[3/4]">
-        <Image
-          src={coverImageUrl(listing.cover_image_path)}
-          alt=""
-          fill
-          priority={priority}
-          sizes="270px"
-          className="object-cover"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent"
-        />
-        <div className="absolute inset-x-3 bottom-3">
-          <p className="truncate text-[13px] font-extrabold text-white">{listing.event_name}</p>
-          <p className="mt-0.5 flex items-center justify-between gap-2">
-            <span className="truncate text-[11.5px] font-medium text-white/75">{listing.venue}</span>
-            {showPrice ? (
-              <span className="shrink-0 rounded-[6px] bg-primary px-2 py-1 text-[12px] font-extrabold leading-none text-white">
-                {allInFromDollars(price)}
-              </span>
-            ) : null}
-          </p>
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4 shrink-0 text-success">
-      <path
-        d="m3 8.5 3.2 3L13 4.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-[18px] text-primary">
-      <path
-        d="M10 1.8 3.2 4.4v4.4c0 4.4 2.9 7.6 6.8 9.4 3.9-1.8 6.8-5 6.8-9.4V4.4L10 1.8Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m7 9.8 2.2 2.2L13.4 7.6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-[18px] text-primary">
-      <rect x="3.5" y="8.5" width="13" height="9" rx="2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M6.5 8.5V6.3a3.5 3.5 0 1 1 7 0v2.2" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-[18px] text-primary">
-      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M10 6v4l2.7 1.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FlagIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-[18px] text-primary">
-      <path
-        d="M4.5 18V3.2m0 0c1.8-1.1 3.6-1.1 5.5 0s3.7 1.1 5.5 0v8.2c-1.8 1.1-3.6 1.1-5.5 0s-3.7-1.1-5.5 0"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

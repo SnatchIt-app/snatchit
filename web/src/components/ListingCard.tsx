@@ -8,13 +8,13 @@ import {
   listingCardStatus,
   neighborhoodLabel,
 } from "@/lib/format";
-import { Badge, Chip, LiveDot } from "@/components/ui/Badge";
+import { Badge, LiveDot } from "@/components/ui/Badge";
 import { PriceDisplay } from "@/components/ui/PriceDisplay";
 
 /**
- * Listing card — a defined, clickable object: artwork on top, date-first
- * details below, all-in price anchored at the bottom. Fixed 4:3 image
- * (zero CLS); the whole card is one anchor for a large tap target.
+ * Listing card in the brand system: square #0a0a0a surface with a red
+ * hairline, artwork on top, journal-style meta line (red date / neighborhood),
+ * Oswald title that turns red on hover — the site's click affordance.
  */
 export function ListingCard({
   listing,
@@ -28,7 +28,7 @@ export function ListingCard({
 
   return (
     <Link href={`/listing/${listing.id}`} className="group block">
-      <article className="overflow-hidden rounded-[12px] border border-white/[0.07] bg-card transition-[border-color,transform] duration-200 ease-[var(--ease-swift)] group-hover:-translate-y-1 group-hover:border-white/[0.18] motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
+      <article className="overflow-hidden border border-primary/15 bg-card transition-colors duration-200 group-hover:border-primary/50 motion-reduce:transition-none">
         <div className="relative aspect-[4/3] overflow-hidden bg-white/[0.03]">
           <Image
             src={coverImageUrl(listing.cover_image_path)}
@@ -36,7 +36,7 @@ export function ListingCard({
             fill
             priority={priority}
             sizes="(min-width: 1280px) 280px, (min-width: 1024px) 30vw, (min-width: 640px) 45vw, 92vw"
-            className="object-cover transition-transform duration-[400ms] ease-[var(--ease-swift)] group-hover:scale-[1.05] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+            className="object-cover transition-transform duration-[400ms] ease-[var(--ease-swift)] group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
           />
           <div className="absolute left-3 top-3 flex gap-1.5">
             {status === "LIVE" ? (
@@ -56,23 +56,27 @@ export function ListingCard({
         </div>
 
         <div className="p-4">
-          <p className="text-[12.5px] font-bold text-white/55">
-            {fmtEventDate(listing.event_date)}
+          <p className="flex min-w-0 items-center gap-2 text-[10px] font-medium uppercase leading-none tracking-[0.2em]">
+            <time className="shrink-0 whitespace-nowrap text-primary/80" dateTime={listing.event_date}>
+              {fmtEventDate(listing.event_date)}
+            </time>
+            <span aria-hidden="true" className="shrink-0 text-white/20">/</span>
+            <span className="truncate text-white/45">{neighborhoodLabel(listing.neighborhood)}</span>
           </p>
-          <h3 className="mt-1 truncate text-[16.5px] font-extrabold tracking-[-0.01em] text-ink">
+          <h3 className="mt-2.5 truncate font-display text-[20px] font-bold uppercase leading-[1.05] tracking-tight text-ink transition-colors duration-200 group-hover:text-primary motion-reduce:transition-none">
             {listing.event_name}
           </h3>
-          <p className="mt-0.5 truncate text-[13px] font-medium text-muted">
-            {listing.venue} · {neighborhoodLabel(listing.neighborhood)}
-          </p>
-          <div className="mt-3.5 flex items-center justify-between gap-3">
-            <PriceDisplay baseDollars={price} size="md" />
+          <p className="mt-1 truncate text-[13px] text-white/55">{listing.venue}</p>
+          <div className="mt-3.5 flex items-baseline justify-between gap-3 border-t border-primary/10 pt-3">
+            <PriceDisplay baseDollars={price} size="md" suffix="all-in" />
             {listing.buy_now_enabled ? (
-              <Chip tone="green">Buy Now</Chip>
+              <span className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-primary">
+                Buy Now
+              </span>
             ) : (
-              <Chip tone="neutral">
+              <span className="text-[10px] font-medium uppercase leading-none tracking-[0.22em] text-white/45">
                 {listing.bid_count} bid{listing.bid_count === 1 ? "" : "s"}
-              </Chip>
+              </span>
             )}
           </div>
         </div>

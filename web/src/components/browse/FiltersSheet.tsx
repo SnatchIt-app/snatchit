@@ -44,14 +44,16 @@ export function FiltersSheet({ activeCount = 0 }: { activeCount?: number }) {
         onClick={(e) => {
           if (e.target === ref.current) ref.current?.close();
         }}
-        className="fixed inset-x-0 bottom-0 m-0 mt-auto w-full max-w-none rounded-t-[16px] border-t border-white/10 bg-card p-0 text-ink"
+        className="fixed inset-x-0 bottom-0 m-0 mt-auto w-full max-w-none border-t border-primary/30 bg-black p-0 text-ink"
         style={{ maxHeight: "85dvh" }}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
-          <h2 className="text-[16px] font-extrabold text-ink">Filters &amp; sort</h2>
+        <div className="flex items-center justify-between border-b border-primary/15 px-5 py-4">
+          <h2 className="font-display text-[18px] font-bold uppercase tracking-[-0.01em] text-ink">
+            Filters &amp; sort
+          </h2>
           <button
             onClick={() => ref.current?.close()}
-            className="flex size-11 items-center justify-center rounded-[8px] text-muted transition-colors duration-150 hover:bg-white/[0.06] hover:text-ink motion-reduce:transition-none"
+            className="flex size-11 items-center justify-center text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-ink motion-reduce:transition-none"
             aria-label="Close filters"
           >
             <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-[18px]">

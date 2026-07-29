@@ -25,7 +25,7 @@ import {
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
 import { Badge, Chip, LiveDot } from "@/components/ui/Badge";
-import { Button, LinkButton } from "@/components/ui/Button";
+import { ArrowLink, Button, LinkButton } from "@/components/ui/Button";
 import { PriceBreakdown, PriceDisplay } from "@/components/ui/PriceDisplay";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { ListingCard } from "@/components/ListingCard";
@@ -116,28 +116,28 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
 
   return (
     <Container className="py-7 lg:py-10">
-      {/* Breadcrumb */}
-      <nav aria-label="Breadcrumb" className="mb-6">
-        <ol className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-muted">
+      {/* Breadcrumb — tracked uppercase micro with the site's slash motif */}
+      <nav aria-label="Breadcrumb" className="mb-7">
+        <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60">
           <li>
             <Link
               href="/browse"
-              className="inline-flex min-h-9 items-center transition-colors duration-150 hover:text-ink motion-reduce:transition-none"
+              className="inline-flex min-h-9 items-center transition-colors duration-200 hover:text-primary motion-reduce:transition-none"
             >
-              Browse
+              ← Browse
             </Link>
           </li>
-          <li aria-hidden="true" className="text-dim">/</li>
+          <li aria-hidden="true" className="text-white/20">/</li>
           <li>
             <Link
               href={`/browse?category=${encodeURIComponent(listing.category)}`}
-              className="inline-flex min-h-9 items-center transition-colors duration-150 hover:text-ink motion-reduce:transition-none"
+              className="inline-flex min-h-9 items-center transition-colors duration-200 hover:text-primary motion-reduce:transition-none"
             >
               {categoryLabel(listing.category)}
             </Link>
           </li>
-          <li aria-hidden="true" className="text-dim">/</li>
-          <li aria-current="page" className="truncate text-white/75">
+          <li aria-hidden="true" className="text-white/20">/</li>
+          <li aria-current="page" className="truncate text-white/40">
             {listing.event_name}
           </li>
         </ol>
@@ -146,7 +146,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1.18fr)_400px] lg:gap-12">
         {/* ── Left column ── */}
         <div>
-          <figure className="relative aspect-[4/3] overflow-hidden rounded-[14px] border border-white/[0.07] bg-white/[0.03]">
+          <figure className="relative aspect-[4/3] overflow-hidden border border-white/10 bg-white/[0.03]">
             <Image
               src={coverImageUrl(listing.cover_image_path)}
               alt={`${listing.event_name} at ${listing.venue}`}
@@ -171,31 +171,25 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             </div>
           </figure>
 
-          {/* Title block */}
-          <div className="mt-8">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Chip tone="red">{categoryLabel(listing.category)}</Chip>
-              <span className="text-[14px] font-medium text-muted">
+          {/* Title block — meta eyebrow, Oswald statement, date line */}
+          <div className="mt-9">
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] font-medium uppercase leading-none tracking-[0.3em]">
+              <span className="text-primary/80">{categoryLabel(listing.category)}</span>
+              <span aria-hidden="true" className="text-white/20">/</span>
+              <span className="text-white/45">
                 {listing.venue} · {neighborhoodLabel(listing.neighborhood)}
               </span>
-            </div>
-            <h1 className="mt-3.5 max-w-[22ch] text-balance text-[clamp(1.9rem,4.2vw,2.85rem)] font-extrabold leading-[1.04] tracking-[-0.025em] text-ink">
+            </p>
+            <h1 className="mt-4 max-w-[24ch] text-balance font-display text-[clamp(2.3rem,5vw,3.6rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
               {listing.event_name}
             </h1>
-            <p className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[15px] font-semibold text-white/85">
-              <span className="inline-flex items-center gap-2">
-                <CalendarIcon />
-                {fmtEventDate(listing.event_date)}
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <ClockIcon />
-                {fmtEventTime(listing.event_time)}
-              </span>
+            <p className="mt-4 text-[15px] font-semibold text-white/85">
+              {fmtEventDate(listing.event_date)} · {fmtEventTime(listing.event_time)}
             </p>
           </div>
 
-          {/* Event facts */}
-          <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-5 sm:grid-cols-4">
+          {/* Event facts — hairline definition rows, no box */}
+          <dl className="mt-9 grid grid-cols-2 gap-x-6 gap-y-6 border-y border-primary/15 py-6 sm:grid-cols-4">
             <Fact label="Ticket type" value={listing.ticket_type} />
             <Fact label="Quantity" value={`${listing.quantity} ticket${listing.quantity === 1 ? "" : "s"}`} />
             <Fact label="Platform" value={platform} />
@@ -205,20 +199,20 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
           {/* Seller */}
           <section
             aria-label="Seller"
-            className="mt-5 flex items-center gap-4 rounded-[12px] border border-white/[0.07] bg-card p-4.5"
+            className="flex items-center gap-4 border-b border-primary/15 py-6"
           >
             <div
               aria-hidden="true"
-              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[15px] font-extrabold text-white/70"
+              className="flex size-11 shrink-0 items-center justify-center bg-white/[0.07] font-display text-[17px] font-bold text-white/70"
             >
               {(seller?.display_name ?? "S").slice(0, 1).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 truncate text-[15px] font-bold text-ink">
+              <p className="flex items-center gap-3 truncate text-[15px] font-bold text-ink">
                 {seller?.display_name ?? "Snatch It seller"}
-                {seller?.is_verified_seller ? <Chip tone="green">Verified</Chip> : null}
+                {seller?.is_verified_seller ? <Chip tone="red">Verified</Chip> : null}
               </p>
-              <p className="mt-0.5 text-[13px] font-medium text-muted">
+              <p className="mt-1 text-[13px] text-muted">
                 {seller?.created_at
                   ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
                   : "Marketplace seller"}
@@ -229,55 +223,60 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             </p>
           </section>
 
-          {/* Buyer protection */}
-          <section
-            aria-label="Buyer protection"
-            className="mt-5 rounded-[12px] border border-white/[0.07] bg-card p-6"
-          >
-            <h2 className="flex items-center gap-2.5 text-[16px] font-extrabold tracking-[-0.01em] text-ink">
-              <span className="flex size-8 items-center justify-center rounded-[8px] bg-primary-soft">
-                <ShieldIcon />
-              </span>
-              Snatch It Buyer Protection
+          {/* Buyer protection — the marketing site's guarantee grammar */}
+          <section aria-label="Buyer protection" className="border-b border-primary/15 py-8">
+            <p className="eyebrow text-primary/80">Buyer Guarantee</p>
+            <h2 className="mt-4 font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink sm:text-[28px]">
+              You&apos;re covered.
             </h2>
-            <ul className="mt-4 space-y-3 text-[14px] leading-relaxed text-white/75">
-              <li className="flex gap-2.5">
-                <CheckIcon /> Payment processed by Stripe — your card details never touch Snatch It.
+            <ul className="mt-5 space-y-3 text-[14px] leading-relaxed text-white/70">
+              <li className="flex gap-3">
+                <span aria-hidden="true" className="font-bold text-primary">·</span>
+                Payment processed by Stripe — your card details never touch Snatch It.
               </li>
-              <li className="flex gap-2.5">
-                <CheckIcon /> Your money is held by Snatch It until you confirm the ticket arrived.
+              <li className="flex gap-3">
+                <span aria-hidden="true" className="font-bold text-primary">·</span>
+                Your money is held by Snatch It until you confirm the ticket arrived.
               </li>
-              <li className="flex gap-2.5">
-                <CheckIcon /> If the seller doesn&apos;t transfer within 24 hours, you&apos;re refunded in
+              <li className="flex gap-3">
+                <span aria-hidden="true" className="font-bold text-primary">·</span>
+                If the seller doesn&apos;t transfer within 24 hours, you&apos;re refunded in
                 full — automatically.
               </li>
             </ul>
+            <ArrowLink href="https://snatchitapp.com/buyer-guarantee" className="mt-4">
+              Read the full guarantee →
+            </ArrowLink>
           </section>
         </div>
 
         {/* ── Purchase panel (desktop sticky) ── */}
         <aside className="lg:sticky lg:top-28 lg:h-fit" aria-label="Purchase">
-          <div className="rounded-[14px] border border-white/[0.09] bg-card p-6">
+          <div className="border border-primary/20 bg-card p-6">
             {isActive ? (
-              <p className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#ff7a75]">
-                  <LiveDot /> Auction ends in
+              <p className="flex items-center justify-between border-b border-primary/15 pb-4">
+                <span className="inline-flex items-center gap-2.5 text-[10.5px] font-bold uppercase tracking-[0.25em] text-primary">
+                  <LiveDot /> Ends in
                 </span>
                 <Countdown endsAt={listing.ends_at} />
               </p>
             ) : (
-              <p className="text-[13.5px] font-bold text-muted">This listing has ended</p>
+              <p className="border-b border-primary/15 pb-4 text-[10.5px] font-bold uppercase tracking-[0.25em] text-white/50">
+                This listing has ended
+              </p>
             )}
 
             <div className="mt-5">
               {listing.buy_now_enabled && listing.buy_now_price ? (
                 <>
-                  <p className="text-[13.5px] font-semibold text-muted">Buy Now price · all-in</p>
+                  <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
+                    Buy Now · all-in
+                  </p>
                   <PriceDisplay
                     baseDollars={listing.buy_now_price}
                     size="lg"
                     suffix={null}
-                    className="mt-2"
+                    className="mt-2.5"
                   />
                   <dl className="mt-5 space-y-2 text-[13.5px]">
                     <div className="flex justify-between">
@@ -300,12 +299,14 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                 </>
               ) : (
                 <>
-                  <p className="text-[13.5px] font-semibold text-muted">Current bid · all-in</p>
+                  <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
+                    Current bid · all-in
+                  </p>
                   <PriceDisplay
                     baseDollars={listing.current_bid}
                     size="lg"
                     suffix={null}
-                    className="mt-2"
+                    className="mt-2.5"
                   />
                   <p className="mt-3 text-[13.5px] text-muted">
                     {listing.bid_count} bid{listing.bid_count === 1 ? "" : "s"} · starting bid{" "}
@@ -315,7 +316,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               )}
             </div>
 
-            <div className="mt-5 border-t border-white/[0.07] pt-4">
+            <div className="mt-5 border-t border-primary/15 pt-4">
               <PriceBreakdown baseDollars={base} />
             </div>
 
@@ -333,8 +334,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               </LinkButton>
             </div>
 
-            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[12px] leading-relaxed text-dim">
-              <LockIcon />
+            <p className="mt-4 text-center text-[12px] leading-relaxed text-dim">
               Bidding and Buy Now are live today in the Snatch It app.
             </p>
           </div>
@@ -356,15 +356,15 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
         </section>
       ) : null}
 
-      {/* Mobile sticky CTA */}
+      {/* Mobile sticky CTA — solid black bar with red hairline, per the site */}
       <div className="h-24 lg:hidden" aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.09] bg-card/95 backdrop-blur-md lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-primary/30 bg-black lg:hidden">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
           <div>
-            <p className="text-[12px] font-semibold text-muted">
+            <p className="text-[9.5px] font-medium uppercase tracking-[0.25em] text-white/45">
               {listing.buy_now_enabled ? "Buy Now · all-in" : "Current bid · all-in"}
             </p>
-            <PriceDisplay baseDollars={base} size="md" suffix={null} className="mt-0.5" />
+            <PriceDisplay baseDollars={base} size="md" suffix={null} className="mt-1" />
           </div>
           <LinkButton href="https://snatchitapp.com" className="shrink-0">
             Get the app
@@ -380,69 +380,8 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[12px] font-semibold text-dim">{label}</dt>
-      <dd className="mt-1 text-[14.5px] font-bold text-ink">{value}</dd>
+      <dt className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40">{label}</dt>
+      <dd className="mt-2 text-[14.5px] font-bold text-ink">{value}</dd>
     </div>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="mt-0.5 size-4 shrink-0 text-success">
-      <path
-        d="m3 8.5 3.2 3L13 4.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-4 text-primary">
-      <path
-        d="M10 1.8 3.2 4.4v4.4c0 4.4 2.9 7.6 6.8 9.4 3.9-1.8 6.8-5 6.8-9.4V4.4L10 1.8Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m7 9.8 2.2 2.2L13.4 7.6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 18 18" fill="none" className="size-[17px] text-muted">
-      <rect x="2.2" y="3.4" width="13.6" height="12" rx="2.2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M2.2 7.2h13.6M6 1.8v3M12 1.8v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 18 18" fill="none" className="size-[17px] text-muted">
-      <circle cx="9" cy="9" r="6.8" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M9 5.5V9l2.4 1.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-dim">
-      <rect x="3" y="7" width="10" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M5.2 7V5.2a2.8 2.8 0 1 1 5.6 0V7" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
   );
 }

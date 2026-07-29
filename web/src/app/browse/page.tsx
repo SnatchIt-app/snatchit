@@ -55,11 +55,12 @@ export default async function BrowsePage({
 
   return (
     <Container className="py-10 lg:py-14">
-      <div className="mb-9">
-        <h1 className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-[-0.03em] text-ink">
-          Browse tickets
+      <div className="mb-10">
+        <p className="eyebrow text-primary/80">Browse</p>
+        <h1 className="mt-4 font-display text-[clamp(2.2rem,4.5vw,3.2rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
+          Tonight&apos;s tickets.
         </h1>
-        <p className="mt-3 text-[14.5px] font-medium text-muted">
+        <p className="mt-4 text-[14.5px] text-muted">
           {listings.length} live listing{listings.length === 1 ? "" : "s"} across Miami · every
           price includes fees
         </p>
@@ -68,7 +69,7 @@ export default async function BrowsePage({
       <div className="grid gap-10 lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-12">
         {/* Desktop filter rail */}
         <aside className="hidden lg:block" aria-label="Filters">
-          <div className="sticky top-28 rounded-[14px] border border-white/[0.07] bg-card p-5">
+          <div className="sticky top-24 border-t border-primary/15 pt-6">
             <Suspense fallback={<Skeleton className="h-96" />}>
               <FilterControls idPrefix="rail" />
             </Suspense>

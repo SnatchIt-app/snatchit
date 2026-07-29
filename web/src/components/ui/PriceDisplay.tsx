@@ -7,7 +7,7 @@ import {
 /**
  * All-in pricing display — the FIRST price a buyer sees is always the
  * fee-inclusive total (same rule as mobile; FTC junk-fee compliant).
- * Prominent but not overpowering: the event stays the star.
+ * Figures are set in Oswald, the brand's display face.
  */
 export function PriceDisplay({
   baseDollars,
@@ -23,14 +23,18 @@ export function PriceDisplay({
   const price = allInFromDollars(baseDollars);
   const priceCls =
     size === "lg"
-      ? "text-[38px] font-extrabold leading-none tracking-[-0.02em]"
+      ? "font-display text-[44px] font-bold leading-none tracking-[-0.01em]"
       : size === "md"
-        ? "text-[18px] font-extrabold leading-none tracking-[-0.01em]"
-        : "text-[15px] font-bold leading-none";
+        ? "font-display text-[22px] font-bold leading-none"
+        : "font-display text-[17px] font-bold leading-none";
   return (
-    <span className={`inline-flex items-baseline gap-1.5 text-ink ${className}`}>
-      <span className={`tabular-nums ${priceCls}`}>{price}</span>
-      {suffix ? <span className="text-[12px] font-semibold text-muted">{suffix}</span> : null}
+    <span className={`inline-flex items-baseline gap-2 text-ink ${className}`}>
+      <span className={priceCls}>{price}</span>
+      {suffix ? (
+        <span className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/45">
+          {suffix}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -38,7 +42,7 @@ export function PriceDisplay({
 /** Itemized breakdown rows (ticket price + fee = total). */
 export function PriceBreakdown({ baseDollars }: { baseDollars: number }) {
   return (
-    <dl className="divide-y divide-white/[0.06] text-[13.5px]">
+    <dl className="divide-y divide-primary/10 text-[13.5px]">
       <div className="flex items-center justify-between py-2.5">
         <dt className="text-muted">Ticket price</dt>
         <dd className="tabular-nums font-semibold text-ink">{baseFromDollars(baseDollars)}</dd>
@@ -48,8 +52,10 @@ export function PriceBreakdown({ baseDollars }: { baseDollars: number }) {
         <dd className="tabular-nums font-semibold text-ink">{buyerFeeFromDollars(baseDollars)}</dd>
       </div>
       <div className="flex items-center justify-between pt-3">
-        <dt className="font-bold text-ink">Total</dt>
-        <dd className="tabular-nums text-[16px] font-extrabold text-ink">
+        <dt className="text-[11px] font-medium uppercase tracking-[0.25em] text-white/60 self-center">
+          Total
+        </dt>
+        <dd className="font-display text-[19px] font-bold text-ink">
           {allInFromDollars(baseDollars)}
         </dd>
       </div>

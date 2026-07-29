@@ -12,7 +12,7 @@ const LISTING_ID = process.env.SMOKE_LISTING_ID ?? "4afe3557-9c34-4e89-8cac-df69
 
 const checks = [
   { path: "/", expect: [/Snatch It/i, /all-in/i], status: 200 },
-  { path: "/browse", expect: [/Browse tickets/i], status: 200 },
+  { path: "/browse", expect: [/Tonight/i, /tickets/i], status: 200 },
   { path: `/listing/${LISTING_ID}`, expect: [/Buyer Protection/i, /total/i], status: 200 },
   { path: "/listing/00000000-0000-0000-0000-000000000000", expect: [], status: 404 },
   { path: "/robots.txt", expect: [/sitemap/i], status: 200 },
