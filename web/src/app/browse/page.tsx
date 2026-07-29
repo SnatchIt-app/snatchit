@@ -93,7 +93,7 @@ export default async function BrowsePage({
           ) : (
             <EmptyState
               title="Nothing matches those filters"
-              message="Try widening the neighborhood or price range — or clear everything and browse it all."
+              message="Try a wider neighborhood or price range, or clear the filters and browse everything."
               action={
                 <LinkButton href="/browse" variant="secondary">
                   Clear all filters

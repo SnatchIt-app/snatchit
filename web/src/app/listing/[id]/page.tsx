@@ -232,7 +232,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             <ul className="mt-5 space-y-3 text-[14px] leading-relaxed text-white/70">
               <li className="flex gap-3">
                 <span aria-hidden="true" className="font-bold text-primary">·</span>
-                Payment processed by Stripe — your card details never touch Snatch It.
+                Payment is processed by Stripe. Your card details never touch Snatch It.
               </li>
               <li className="flex gap-3">
                 <span aria-hidden="true" className="font-bold text-primary">·</span>
@@ -241,7 +241,12 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               <li className="flex gap-3">
                 <span aria-hidden="true" className="font-bold text-primary">·</span>
                 If the seller doesn&apos;t transfer within 24 hours, you&apos;re refunded in
-                full — automatically.
+                full, automatically.
+              </li>
+              <li className="flex gap-3">
+                <span aria-hidden="true" className="font-bold text-primary">·</span>
+                Report a problem before confirming and the seller&apos;s payout freezes while
+                we review.
               </li>
             </ul>
             <ArrowLink href="https://snatchitapp.com/buyer-guarantee" className="mt-4">
@@ -327,7 +332,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                 disabled
                 title="Browser checkout is not available yet"
               >
-                Web checkout — coming soon
+                Web checkout coming soon
               </Button>
               <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
                 Get the iOS app to {listing.buy_now_enabled ? "buy" : "bid"}

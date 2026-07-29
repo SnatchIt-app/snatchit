@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
  */
 export function ErrorState({
   title = "Something went sideways",
-  message = "We couldn't load this right now. It's us, not you — try again in a moment.",
+  message = "We couldn't load this right now. Give it another try in a moment.",
   onRetry,
 }: {
   title?: string;

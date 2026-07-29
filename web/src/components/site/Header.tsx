@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 import { LinkButton } from "@/components/ui/Button";
@@ -9,19 +10,23 @@ const nav = [
 ] as const;
 
 /**
- * Solid black bar with the site's red hairline underline. The brand renders
- * as the Oswald wordmark, exactly as snatchitapp.com renders it (the SN
- * monogram stays favicon/app-icon only).
+ * Solid black bar with the site's red hairline underline, carrying the
+ * official SN logo asset at a confident size.
  */
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-primary/20 bg-black">
       <Container className="flex h-16 items-center justify-between gap-6">
-        <div className="flex items-baseline gap-10">
-          <Link href="/" className="flex min-h-11 items-center" aria-label="Snatch It — home">
-            <span className="glow-red-subtle font-display text-[22px] font-bold uppercase leading-none tracking-[-0.02em] text-primary">
-              Snatch It
-            </span>
+        <div className="flex items-center gap-10">
+          <Link href="/" className="flex min-h-11 items-center" aria-label="Snatch It home">
+            <Image
+              src="/brand/sn-logo-white.svg"
+              alt="Snatch It"
+              width={99}
+              height={36}
+              priority
+              className="h-8 w-auto sm:h-9"
+            />
           </Link>
           <nav aria-label="Primary" className="hidden items-center gap-7 md:flex">
             {nav.map((item) => (

@@ -59,10 +59,10 @@ export function Footer() {
         </nav>
 
         <p className="max-w-2xl text-[12px] leading-relaxed text-white/35">
-          All prices shown include fees. Snatch It is a peer-to-peer resale marketplace —
-          tickets are transferred on the original ticketing platform after purchase, and
-          sellers are paid only after delivery. Snatch It is not affiliated with
-          Ticketmaster, AXS, DICE, Posh, or any other ticket issuer.
+          All prices shown include fees. Snatch It is a peer-to-peer resale marketplace.
+          Tickets transfer on the original ticketing platform after purchase, and sellers
+          are paid only after delivery. Snatch It is not affiliated with Ticketmaster,
+          AXS, DICE, Posh, or any other ticket issuer.
         </p>
 
         <p className="pt-2 text-[10px] uppercase tracking-[0.4em] text-white/30">
