@@ -14,6 +14,8 @@ import {
   getSellerSummary,
   type WebListing,
 } from "@/lib/listings";
+import { getSavedListingIdSet, isListingSaved } from "@/lib/favorites";
+import { SaveButton } from "@/components/SaveButton";
 import {
   categoryLabel,
   fmtEventDate,
@@ -76,10 +78,12 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const listing = await getListing(id);
   if (!listing) notFound();
 
-  const [seller, related] = await Promise.all([
+  const [seller, related, saved] = await Promise.all([
     getSellerSummary(listing.seller_id).catch(() => null),
     getRelatedListings(listing).catch(() => [] as WebListing[]),
+    isListingSaved(listing.id),
   ]);
+  const relatedSavedIds = await getSavedListingIdSet(related.map((l) => l.id));
 
   const status = listingCardStatus(listing);
   const isActive = status === "LIVE" || status === "ENDING SOON";
@@ -183,9 +187,12 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             <h1 className="mt-4 max-w-[24ch] text-balance font-display text-[clamp(2.3rem,5vw,3.6rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
               {listing.event_name}
             </h1>
-            <p className="mt-4 text-[15px] font-semibold text-white/85">
-              {fmtEventDate(listing.event_date)} · {fmtEventTime(listing.event_time)}
-            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+              <p className="text-[15px] font-semibold text-white/85">
+                {fmtEventDate(listing.event_date)} · {fmtEventTime(listing.event_time)}
+              </p>
+              <SaveButton listingId={listing.id} initialSaved={saved} variant="labeled" />
+            </div>
           </div>
 
           {/* Event facts — hairline definition rows, no box */}
@@ -355,7 +362,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
           />
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {related.map((l) => (
-              <ListingCard key={l.id} listing={l} />
+              <ListingCard key={l.id} listing={l} isSaved={relatedSavedIds.has(l.id)} />
             ))}
           </div>
         </section>

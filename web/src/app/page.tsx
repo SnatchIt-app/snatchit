@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { getActiveListings, type WebListing } from "@/lib/listings";
+import { getSavedListingIdSet } from "@/lib/favorites";
 import { Container } from "@/components/ui/Container";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -36,6 +37,7 @@ export default async function HomePage() {
   } catch {
     listings = [];
   }
+  const savedIds = await getSavedListingIdSet(listings.map((l) => l.id));
 
   return (
     <>
@@ -52,7 +54,7 @@ export default async function HomePage() {
             <>
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {listings.map((l, i) => (
-                  <ListingCard key={l.id} listing={l} priority={i < 4} />
+                  <ListingCard key={l.id} listing={l} priority={i < 4} isSaved={savedIds.has(l.id)} />
                 ))}
               </div>
               <div className="mt-9 text-center">

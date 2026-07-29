@@ -38,7 +38,7 @@ export type SellerSummary = Pick<
   "id" | "display_name" | "is_verified_seller" | "created_at"
 >;
 
-const LISTING_COLUMNS =
+export const LISTING_COLUMNS =
   "id, seller_id, event_name, venue, neighborhood, category, status, auction_status, event_date, event_time, ticket_type, quantity, starting_bid, current_bid, buy_now_enabled, buy_now_price, cover_image_path, ends_at, bid_count, ticket_platform, transfer_method, created_at";
 
 export type BrowseSort = "ending" | "newest" | "price_asc" | "price_desc";

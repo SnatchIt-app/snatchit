@@ -68,3 +68,8 @@ export function LiveDot() {
     />
   );
 }
+
+/** Static red dot for "unread" states in nav (header, account menu). */
+export function UnreadDot() {
+  return <span aria-hidden="true" className="inline-flex size-[7px] shrink-0 rounded-full bg-primary" />;
+}

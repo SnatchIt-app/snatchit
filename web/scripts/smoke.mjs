@@ -17,7 +17,15 @@ const checks = [
   { path: "/listing/00000000-0000-0000-0000-000000000000", expect: [], status: 404 },
   { path: "/robots.txt", expect: [/sitemap/i], status: 200 },
   { path: "/sitemap.xml", expect: [/browse/], status: 200 },
+  { path: "/login", expect: [/Log in/i], status: 200 },
+  { path: "/signup", expect: [/Create account/i], status: 200 },
+  { path: "/forgot-password", expect: [/Reset password/i], status: 200 },
+  { path: "/auth/confirm", expect: [/Confirming|Link expired/i], status: 200 },
 ];
+
+// /account/* must never render for an anonymous request — proxy.ts has to
+// redirect to /login with a safe `next` before any account data loads.
+const redirectChecks = [{ path: "/account", expectLocationStartsWith: "/login" }];
 
 const REQUIRED_HEADERS = [
   "content-security-policy",
@@ -72,6 +80,29 @@ try {
       console.error(`✗ ${check.path}: ${problems.join("; ")}`);
     } else {
       console.log(`✓ ${check.path} (${res.status})`);
+    }
+  }
+
+  for (const check of redirectChecks) {
+    const res = await fetch(`${BASE}${check.path}`, { redirect: "manual" });
+    const location = res.headers.get("location") ?? "";
+    const problems = [];
+    if (![301, 302, 307, 308].includes(res.status)) problems.push(`status ${res.status} is not a redirect`);
+    const locPath = (() => {
+      try {
+        return new URL(location, BASE).pathname + new URL(location, BASE).search;
+      } catch {
+        return location;
+      }
+    })();
+    if (!locPath.startsWith(check.expectLocationStartsWith)) {
+      problems.push(`Location "${locPath}" does not start with "${check.expectLocationStartsWith}"`);
+    }
+    if (problems.length) {
+      failures++;
+      console.error(`✗ ${check.path}: ${problems.join("; ")}`);
+    } else {
+      console.log(`✓ ${check.path} → ${locPath} (${res.status})`);
     }
   }
 } catch (err) {

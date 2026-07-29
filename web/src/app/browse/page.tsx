@@ -5,6 +5,7 @@ import {
   type BrowseFilters,
   type BrowseSort,
 } from "@/lib/listings";
+import { getSavedListingIdSet } from "@/lib/favorites";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton } from "@/components/ui/Button";
@@ -51,6 +52,7 @@ export default async function BrowsePage({
   const sp = await searchParams;
   const filters = parseFilters(sp);
   const listings = await getActiveListings(filters, 24);
+  const savedIds = await getSavedListingIdSet(listings.map((l) => l.id));
   const activeCount = [filters.q, filters.category, filters.neighborhood, filters.type, filters.maxPrice].filter(Boolean).length;
 
   return (
@@ -87,7 +89,7 @@ export default async function BrowsePage({
           {listings.length > 0 ? (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {listings.map((l, i) => (
-                <ListingCard key={l.id} listing={l} priority={i < 3} />
+                <ListingCard key={l.id} listing={l} priority={i < 3} isSaved={savedIds.has(l.id)} />
               ))}
             </div>
           ) : (
