@@ -39,42 +39,11 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* ── Compact hero — brand statement, then straight into inventory ── */}
-      <section className="vignette-red relative overflow-hidden border-b border-primary/15 bg-black">
-        <div aria-hidden="true" className="absolute inset-0">
-          <Image
-            src="/atmosphere/crowd.jpg"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover object-bottom opacity-20"
-          />
-          <div className="absolute inset-0 bg-black/20 mix-blend-multiply" />
-        </div>
-        <div
-          aria-hidden="true"
-          className="absolute left-1/2 top-1/2 h-[300px] w-[800px] -translate-x-1/2 -translate-y-1/2 bg-primary/15 blur-[160px]"
-        />
-
-        <Container className="rise-in relative z-10 py-14 text-center sm:py-16">
-          <p className="eyebrow text-primary/80">Now live · Miami</p>
-          <h1 className="glow-red flicker mx-auto mt-5 max-w-[14ch] font-display text-[clamp(2.5rem,6vw,4.2rem)] font-bold uppercase leading-[0.85] tracking-[-0.03em] text-primary">
-            Sold out isn&apos;t over.
-          </h1>
-          <p className="mt-5 font-display text-[14px] font-bold uppercase tracking-[0.2em] text-ink sm:text-[17px]">
-            Miami nightlife, on demand.
-          </p>
-          <p className="mx-auto mt-4 max-w-[44ch] text-[15px] leading-relaxed text-white/70">
-            Bid or Buy Now on real tickets from verified sellers. Every price is all-in.
-          </p>
-        </Container>
-      </section>
-
       {/* ── The marketplace, immediately ── */}
-      <section className="py-12 sm:py-16">
+      <section className="pb-12 pt-12 sm:pb-16 sm:pt-16">
         <Container>
           <SectionHeader
+            as="h1"
             eyebrow="The marketplace"
             title="Live right now."
             action={{ href: "/browse", label: "Browse all" }}

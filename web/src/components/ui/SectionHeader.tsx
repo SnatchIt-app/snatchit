@@ -10,20 +10,22 @@ export function SectionHeader({
   eyebrow,
   title,
   action,
+  as: Heading = "h2",
   className = "",
 }: {
   eyebrow?: string;
   title: ReactNode;
   action?: { href: string; label: string };
+  as?: "h1" | "h2";
   className?: string;
 }) {
   return (
     <div className={`mb-8 flex items-end justify-between gap-6 ${className}`}>
       <div>
         {eyebrow ? <p className="eyebrow mb-3 text-primary/80">{eyebrow}</p> : null}
-        <h2 className="font-display text-[28px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink sm:text-[34px]">
+        <Heading className="font-display text-[28px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink sm:text-[34px]">
           {title}
-        </h2>
+        </Heading>
       </div>
       {action ? (
         <Link
