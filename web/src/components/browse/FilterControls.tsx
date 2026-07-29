@@ -31,7 +31,7 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
   const hasFilters = ["q", "category", "neighborhood", "type", "max"].some((k) => params.get(k));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <form
         action="/browse"
         method="get"
@@ -42,7 +42,7 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
           setParam("q", String(q ?? "").trim());
         }}
       >
-        <label htmlFor={`${idPrefix}-q`} className="u-label mb-2.5 block text-dim">
+        <label htmlFor={`${idPrefix}-q`} className="mb-2 block text-[13px] font-bold text-white/85">
           Search
         </label>
         <Input
@@ -100,7 +100,7 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
         </Select>
       </Field>
 
-      <Field label="Max price · all-in" id={`${idPrefix}-max`}>
+      <Field label="Max price (all-in)" id={`${idPrefix}-max`}>
         <Select
           id={`${idPrefix}-max`}
           value={params.get("max") ?? ""}
@@ -131,7 +131,7 @@ export function FilterControls({ idPrefix = "f" }: { idPrefix?: string }) {
       {hasFilters ? (
         <Link
           href="/browse"
-          className="u-label inline-flex min-h-11 items-center text-primary transition-colors duration-150 hover:text-[#ff7a75] motion-reduce:transition-none"
+          className="inline-flex min-h-11 items-center text-[13.5px] font-bold text-primary transition-colors duration-150 hover:text-[#ff7a75] motion-reduce:transition-none"
         >
           Clear all filters
         </Link>
@@ -150,8 +150,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rule-t pt-5">
-      <label htmlFor={id} className="u-label mb-2.5 block text-dim">
+    <div>
+      <label htmlFor={id} className="mb-2 block text-[13px] font-bold text-white/85">
         {label}
       </label>
       {children}

@@ -3,8 +3,10 @@
 
 /*
  * Snatch It web theme — brand tokens (generated from the mobile theme) mapped
- * into Tailwind 4. Visual language: layered blacks, hairline rules, editorial
- * typography. Depth comes from tone + borders, never from blur shadows.
+ * into Tailwind 4. Direction: Miami nightlife consumer marketplace — dark base
+ * with real event imagery doing the talking, defined clickable cards, warm
+ * off-white body text, selective red accents. Manrope carries the voice
+ * (loaded in layout.tsx via next/font, exposed as --font-manrope).
  */
 @theme inline {
   --color-bg: var(--sn-color-bg);
@@ -29,13 +31,8 @@
   --color-danger: var(--sn-color-error);
   --color-badge: var(--sn-color-badge);
 
-  /* Tight, engineered radii — the brand's sm/md steps, never the xl range. */
-  --radius-card: var(--sn-radius-md);
-  --radius-field: var(--sn-radius-sm);
-  --radius-chip: var(--sn-radius-full);
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Display",
-    "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -67,7 +64,6 @@ body {
   font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv05", "ss01";
 }
 
 ::selection {
@@ -79,20 +75,32 @@ body {
 :focus-visible {
   outline: 2px solid var(--sn-color-primary);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 
-/* Uppercase micro-label — the system's metadata voice. */
-.u-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+/* Selective uppercase micro-label — eyebrows and badges only, never body UI. */
+.eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* Editorial hairline rule used to open sections and data rows. */
-.rule-t {
-  border-top: 1px solid var(--sn-color-border);
+/* One-shot entrance for the hero — subtle, plays only without reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .rise-in {
+    animation: rise-in 0.5s var(--ease-swift) both;
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 /* Native <dialog> used for the mobile filter sheet. */
@@ -100,7 +108,7 @@ dialog::backdrop {
   background: rgba(0, 0, 0, 0.72);
 }
 
-/* Quiet, engineered scrollbars inside overflow regions. */
+/* Quiet scrollbars inside overflow regions. */
 * {
   scrollbar-width: thin;
   scrollbar-color: #2e3a50 transparent;

@@ -13,20 +13,25 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={`mb-10 flex items-end justify-between gap-6 ${className}`}>
+    <div className={`mb-8 flex items-end justify-between gap-6 ${className}`}>
       <div>
-        {eyebrow ? <p className="u-label mb-3 text-primary">{eyebrow}</p> : null}
-        <h2 className="text-[26px] font-bold leading-[1.05] tracking-[-0.02em] text-ink sm:text-[32px]">
+        {eyebrow ? <p className="eyebrow mb-2.5 text-primary">{eyebrow}</p> : null}
+        <h2 className="text-[26px] font-extrabold leading-[1.05] tracking-[-0.02em] text-ink sm:text-[30px]">
           {title}
         </h2>
       </div>
       {action ? (
         <Link
           href={action.href}
-          className="u-label inline-flex min-h-11 shrink-0 items-center gap-1.5 text-muted transition-colors duration-150 hover:text-ink motion-reduce:transition-none"
+          className="group inline-flex min-h-11 shrink-0 items-center gap-1.5 text-[14px] font-bold text-white/70 transition-colors duration-150 hover:text-ink motion-reduce:transition-none"
         >
           {action.label}
-          <span aria-hidden="true" className="text-[13px] leading-none">→</span>
+          <span
+            aria-hidden="true"
+            className="transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+          >
+            →
+          </span>
         </Link>
       ) : null}
     </div>

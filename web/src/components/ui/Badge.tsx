@@ -3,15 +3,16 @@ import type { ReactNode } from "react";
 type Variant = "live" | "soon" | "sold" | "neutral" | "buyNow";
 
 /**
- * Status marks: rectangular plates in the uppercase micro-voice. Opaque near-
- * black backing keeps them legible over event artwork without glow or blur.
+ * Status marks — compact pills with soft color fills. Over artwork they sit
+ * on a near-black plate for legibility; uppercase is reserved for these
+ * micro-labels only, with restrained tracking.
  */
 const styles: Record<Variant, string> = {
-  live: "bg-bg/90 text-[#ff7a75] border border-[#e1060045]",
-  soon: "bg-bg/90 text-warning border border-[#fbbf2438]",
-  sold: "bg-bg/90 text-muted border border-white/12",
-  neutral: "text-muted border border-white/12",
-  buyNow: "bg-bg/90 text-success border border-[#4ade8038]",
+  live: "bg-bg/85 text-[#ff7a75] border border-[#e1060050]",
+  soon: "bg-bg/85 text-warning border border-[#fbbf2440]",
+  sold: "bg-bg/85 text-muted border border-white/15",
+  neutral: "bg-white/[0.06] text-muted border border-white/10",
+  buyNow: "bg-bg/85 text-success border border-[#4ade8040]",
 };
 
 export function Badge({
@@ -25,7 +26,31 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-[3px] px-2 py-[5px] text-[10px] font-semibold uppercase leading-none tracking-[0.12em] ${styles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1.5 text-[10.5px] font-bold uppercase leading-none tracking-[0.05em] ${styles[variant]} ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Soft color chip for inline emphasis (e.g. "Buy Now" on cards). */
+export function Chip({
+  tone = "neutral",
+  children,
+  className = "",
+}: {
+  tone?: "red" | "green" | "neutral";
+  children: ReactNode;
+  className?: string;
+}) {
+  const tones = {
+    red: "bg-primary-soft text-[#ff7a75]",
+    green: "bg-[#4ade8018] text-success",
+    neutral: "bg-white/[0.07] text-muted",
+  } as const;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[12px] font-bold leading-none ${tones[tone]} ${className}`}
     >
       {children}
     </span>

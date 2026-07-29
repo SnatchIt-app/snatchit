@@ -5,26 +5,26 @@ type Variant = "primary" | "secondary" | "ghost";
 type Size = "md" | "lg";
 
 /**
- * Buttons speak in the brand's uppercase micro-voice. Depth comes from tone
- * and a 1px press translation — no shadows, no scale tricks.
+ * Confident consumer buttons: bold sentence-case type, 10px radius, tactile
+ * press. Disabled is a real state (muted fill), not a faded primary.
  */
 const base =
   "inline-flex items-center justify-center gap-2 select-none whitespace-nowrap " +
-  "rounded-field text-[13px] font-semibold uppercase tracking-[0.1em] " +
-  "transition-[background-color,border-color,color,transform] duration-150 " +
-  "active:translate-y-px motion-reduce:transition-none motion-reduce:active:translate-y-0";
+  "rounded-[10px] font-bold transition-[background-color,border-color,color,transform] " +
+  "duration-150 active:scale-[0.985] " +
+  "disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/35 disabled:active:scale-100 " +
+  "motion-reduce:transition-none motion-reduce:active:scale-100";
 
 const variants: Record<Variant, string> = {
   primary: "bg-primary text-white hover:bg-primary-muted",
-  secondary:
-    "border border-white/15 bg-transparent text-ink hover:border-white/40 hover:bg-white/[0.03]",
-  ghost: "text-muted hover:text-ink",
+  secondary: "bg-white/[0.07] text-ink hover:bg-white/[0.12]",
+  ghost: "text-white/70 hover:text-ink",
 };
 
 // 44px minimum touch target at every size.
 const sizes: Record<Size, string> = {
-  md: "h-11 px-6",
-  lg: "h-[52px] px-8",
+  md: "h-11 px-5 text-[14px]",
+  lg: "h-[52px] px-7 text-[15px]",
 };
 
 export function buttonClasses(variant: Variant = "primary", size: Size = "md", extra = "") {
