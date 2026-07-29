@@ -4,21 +4,27 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "reac
 type Variant = "primary" | "secondary" | "ghost";
 type Size = "md" | "lg";
 
+/**
+ * Buttons speak in the brand's uppercase micro-voice. Depth comes from tone
+ * and a 1px press translation — no shadows, no scale tricks.
+ */
 const base =
-  "inline-flex items-center justify-center gap-2 font-semibold rounded-field select-none " +
-  "transition-colors motion-reduce:transition-none whitespace-nowrap";
+  "inline-flex items-center justify-center gap-2 select-none whitespace-nowrap " +
+  "rounded-field text-[13px] font-semibold uppercase tracking-[0.1em] " +
+  "transition-[background-color,border-color,color,transform] duration-150 " +
+  "active:translate-y-px motion-reduce:transition-none motion-reduce:active:translate-y-0";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-primary text-white hover:bg-primary-muted active:bg-primary-muted",
+  primary: "bg-primary text-white hover:bg-primary-muted",
   secondary:
-    "bg-card text-ink border border-line-strong hover:border-[#3e4c66] active:bg-field",
+    "border border-white/15 bg-transparent text-ink hover:border-white/40 hover:bg-white/[0.03]",
   ghost: "text-muted hover:text-ink",
 };
 
 // 44px minimum touch target at every size.
 const sizes: Record<Size, string> = {
-  md: "h-11 px-5 text-[15px]",
-  lg: "h-12 px-6 text-base",
+  md: "h-11 px-6",
+  lg: "h-[52px] px-8",
 };
 
 export function buttonClasses(variant: Variant = "primary", size: Size = "md", extra = "") {

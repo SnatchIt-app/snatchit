@@ -2,8 +2,9 @@
 @import "@snatchit/design-tokens/tokens.css";
 
 /*
- * Tailwind 4 theme mapped onto the Snatch It brand tokens (CSS variables
- * generated from the mobile theme — single source of truth, no redesign).
+ * Snatch It web theme — brand tokens (generated from the mobile theme) mapped
+ * into Tailwind 4. Visual language: layered blacks, hairline rules, editorial
+ * typography. Depth comes from tone + borders, never from blur shadows.
  */
 @theme inline {
   --color-bg: var(--sn-color-bg);
@@ -28,15 +29,15 @@
   --color-danger: var(--sn-color-error);
   --color-badge: var(--sn-color-badge);
 
-  --radius-card: var(--sn-radius-lg);
-  --radius-field: var(--sn-radius-md);
+  /* Tight, engineered radii — the brand's sm/md steps, never the xl range. */
+  --radius-card: var(--sn-radius-md);
+  --radius-field: var(--sn-radius-sm);
   --radius-chip: var(--sn-radius-full);
 
-  --shadow-card: var(--sn-shadow-card);
-  --shadow-modal: var(--sn-shadow-modal);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Display",
+    "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :root {
@@ -66,6 +67,7 @@ body {
   font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv05", "ss01";
 }
 
 ::selection {
@@ -77,10 +79,29 @@ body {
 :focus-visible {
   outline: 2px solid var(--sn-color-primary);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 2px;
+}
+
+/* Uppercase micro-label — the system's metadata voice. */
+.u-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Editorial hairline rule used to open sections and data rows. */
+.rule-t {
+  border-top: 1px solid var(--sn-color-border);
 }
 
 /* Native <dialog> used for the mobile filter sheet. */
 dialog::backdrop {
-  background: var(--sn-color-bg-overlay);
+  background: rgba(0, 0, 0, 0.72);
+}
+
+/* Quiet, engineered scrollbars inside overflow regions. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e3a50 transparent;
 }

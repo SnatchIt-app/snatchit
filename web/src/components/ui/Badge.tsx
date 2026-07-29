@@ -2,13 +2,16 @@ import type { ReactNode } from "react";
 
 type Variant = "live" | "soon" | "sold" | "neutral" | "buyNow";
 
-// Opaque dark backdrops so badges stay legible over event artwork.
+/**
+ * Status marks: rectangular plates in the uppercase micro-voice. Opaque near-
+ * black backing keeps them legible over event artwork without glow or blur.
+ */
 const styles: Record<Variant, string> = {
-  live: "bg-bg/85 backdrop-blur-sm text-[#ff7a75] border border-[#e1060055]",
-  soon: "bg-bg/85 backdrop-blur-sm text-warning border border-[#fbbf2445]",
-  sold: "bg-bg/85 backdrop-blur-sm text-muted border border-white/15",
-  neutral: "bg-white/6 text-muted border border-white/10",
-  buyNow: "bg-bg/85 backdrop-blur-sm text-success border border-[#4ade8045]",
+  live: "bg-bg/90 text-[#ff7a75] border border-[#e1060045]",
+  soon: "bg-bg/90 text-warning border border-[#fbbf2438]",
+  sold: "bg-bg/90 text-muted border border-white/12",
+  neutral: "text-muted border border-white/12",
+  buyNow: "bg-bg/90 text-success border border-[#4ade8038]",
 };
 
 export function Badge({
@@ -22,7 +25,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-chip px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${styles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-[3px] px-2 py-[5px] text-[10px] font-semibold uppercase leading-none tracking-[0.12em] ${styles[variant]} ${className}`}
     >
       {children}
     </span>

@@ -54,19 +54,21 @@ export default async function BrowsePage({
   const activeCount = [filters.q, filters.category, filters.neighborhood, filters.type, filters.maxPrice].filter(Boolean).length;
 
   return (
-    <Container className="py-8 lg:py-10">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Browse tickets</h1>
-        <p className="mt-1.5 text-sm text-muted">
-          {listings.length} live listing{listings.length === 1 ? "" : "s"} across Miami — every
-          price includes fees.
+    <Container className="py-12 lg:py-16">
+      <div className="mb-12">
+        <h1 className="text-[clamp(2rem,4.5vw,3rem)] font-extrabold leading-none tracking-[-0.03em] text-ink">
+          Browse tickets
+        </h1>
+        <p className="u-label mt-4 text-dim">
+          {listings.length} live listing{listings.length === 1 ? "" : "s"} across Miami · every
+          price includes fees
         </p>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-10">
+      <div className="grid gap-12 lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-16">
         {/* Desktop filter rail */}
         <aside className="hidden lg:block" aria-label="Filters">
-          <div className="sticky top-24 rounded-card border border-line bg-card p-5">
+          <div className="sticky top-28">
             <Suspense fallback={<Skeleton className="h-96" />}>
               <FilterControls idPrefix="rail" />
             </Suspense>
@@ -75,14 +77,14 @@ export default async function BrowsePage({
 
         <div>
           {/* Mobile filter sheet */}
-          <div className="mb-5 lg:hidden">
+          <div className="mb-8 lg:hidden">
             <Suspense fallback={<Skeleton className="h-11" />}>
               <FiltersSheet activeCount={activeCount} />
             </Suspense>
           </div>
 
           {listings.length > 0 ? (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-x-5 gap-y-12 sm:grid-cols-2 xl:grid-cols-3">
               {listings.map((l, i) => (
                 <ListingCard key={l.id} listing={l} priority={i < 3} />
               ))}

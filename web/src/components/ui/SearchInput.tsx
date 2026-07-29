@@ -11,29 +11,29 @@ export function SearchForm({
   size?: "md" | "lg";
   className?: string;
 }) {
-  const h = size === "lg" ? "h-13" : "h-11";
+  const h = size === "lg" ? "h-14" : "h-11";
   return (
     <form action="/browse" method="get" role="search" className={`relative ${className}`}>
       <svg
         aria-hidden="true"
         viewBox="0 0 20 20"
         fill="none"
-        className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-muted"
+        className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-dim"
       >
-        <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.8" />
-        <path d="m14 14 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+        <path d="m14 14 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
       <input
         type="search"
         name="q"
         defaultValue={defaultValue}
-        placeholder="Search events, venues, artists…"
+        placeholder="Search events, venues, artists"
         aria-label="Search listings"
-        className={`${h} w-full rounded-chip border border-line-strong bg-field pl-11 pr-28 text-[15px] text-ink placeholder:text-placeholder focus:border-primary focus:outline-none`}
+        className={`${h} w-full rounded-field border border-white/12 bg-white/[0.04] pl-11 pr-32 text-[15px] text-ink placeholder:text-placeholder transition-colors duration-150 hover:border-white/20 focus:border-primary focus:outline-none motion-reduce:transition-none`}
       />
       <button
         type="submit"
-        className="absolute right-1.5 top-1/2 h-[calc(100%-12px)] min-h-9 -translate-y-1/2 rounded-chip bg-primary px-5 text-sm font-semibold text-white transition-colors hover:bg-primary-muted motion-reduce:transition-none"
+        className="absolute right-2 top-1/2 h-[calc(100%-16px)] min-h-9 -translate-y-1/2 rounded-[4px] bg-primary px-5 text-[12px] font-semibold uppercase tracking-[0.12em] text-white transition-colors duration-150 hover:bg-primary-muted motion-reduce:transition-none"
       >
         Search
       </button>

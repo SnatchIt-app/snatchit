@@ -12,8 +12,9 @@ import { Badge, LiveDot } from "@/components/ui/Badge";
 import { PriceDisplay } from "@/components/ui/PriceDisplay";
 
 /**
- * Listing card. Fixed 4:3 image aspect (zero CLS), all-in price, status badge.
- * The whole card is one anchor for a large tap target.
+ * Listing card — editorial catalog treatment: the artwork carries the card,
+ * no container box. Fixed 4:3 image (zero CLS), uppercase metadata, tabular
+ * all-in price. The whole card is one anchor for a large tap target.
  */
 export function ListingCard({
   listing,
@@ -26,21 +27,18 @@ export function ListingCard({
   const price = listing.buy_now_enabled && listing.buy_now_price ? listing.buy_now_price : listing.current_bid;
 
   return (
-    <Link
-      href={`/listing/${listing.id}`}
-      className="group block overflow-hidden rounded-card border border-line bg-card transition-colors hover:border-line-strong motion-reduce:transition-none"
-    >
+    <Link href={`/listing/${listing.id}`} className="group block">
       <article>
-        <div className="relative aspect-[4/3] overflow-hidden bg-field">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-[6px] bg-white/[0.03]">
           <Image
             src={coverImageUrl(listing.cover_image_path)}
             alt={`${listing.event_name} at ${listing.venue}`}
             fill
             priority={priority}
             sizes="(min-width: 1280px) 280px, (min-width: 1024px) 30vw, (min-width: 640px) 45vw, 92vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+            className="object-cover transition-[transform,filter] duration-300 ease-[var(--ease-swift)] group-hover:scale-[1.025] group-hover:brightness-[1.06] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
           />
-          <div className="absolute left-3 top-3 flex gap-2">
+          <div className="absolute left-2.5 top-2.5 flex gap-1.5">
             {status === "LIVE" ? (
               <Badge variant="live">
                 <LiveDot /> Live auction
@@ -57,20 +55,24 @@ export function ListingCard({
           </div>
         </div>
 
-        <div className="p-4">
-          <h3 className="truncate text-[15px] font-semibold text-ink">{listing.event_name}</h3>
-          <p className="mt-0.5 truncate text-[13px] text-muted">
+        <div className="pt-4">
+          <p className="truncate text-[10.5px] font-semibold uppercase tracking-[0.14em] text-dim">
             {listing.venue} · {neighborhoodLabel(listing.neighborhood)} ·{" "}
             {fmtEventDate(listing.event_date)}
           </p>
-          <div className="mt-3 flex items-center justify-between gap-2">
+          <h3 className="mt-1.5 truncate text-[16px] font-bold tracking-[-0.01em] text-ink transition-colors duration-150 group-hover:text-white motion-reduce:transition-none">
+            {listing.event_name}
+          </h3>
+          <div className="mt-3 flex items-baseline justify-between gap-3">
             <PriceDisplay baseDollars={price} size="md" />
             {listing.buy_now_enabled ? (
-              <Badge variant="buyNow">Buy now</Badge>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-success">
+                Buy now
+              </span>
             ) : (
-              <Badge variant="neutral">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-dim">
                 {listing.bid_count} bid{listing.bid_count === 1 ? "" : "s"}
-              </Badge>
+              </span>
             )}
           </div>
         </div>

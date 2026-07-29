@@ -30,30 +30,32 @@ export default async function HomePage() {
   return (
     <>
       {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden border-b border-line">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-64 right-[-12%] size-[560px] rounded-full bg-primary opacity-[0.06] blur-[140px]"
-        />
-        <Container className="relative grid items-center gap-12 py-16 lg:grid-cols-[minmax(0,1.1fr)_400px] lg:py-24">
+      <section className="border-b border-white/[0.06]">
+        <Container className="grid items-center gap-14 py-20 lg:grid-cols-[minmax(0,1.15fr)_390px] lg:py-28">
           <div>
-            <p className="mb-4 text-[12px] font-semibold uppercase tracking-[0.2em] text-primary">
+            <p className="u-label flex items-center gap-3 text-primary">
+              <span aria-hidden="true" className="h-px w-8 bg-primary" />
               Miami · Peer-to-peer tickets
             </p>
-            <h1 className="max-w-2xl text-4xl font-extrabold leading-[1.04] tracking-[-0.02em] text-ink sm:text-5xl lg:text-[56px]">
-              Sold-out night?
-              <br />
-              Snatch a ticket from someone who can&apos;t go.
+            <h1 className="mt-7 max-w-[19ch] text-balance text-[clamp(2.6rem,6.5vw,4.5rem)] font-extrabold leading-[0.98] tracking-[-0.03em] text-ink">
+              Sold-out night? Snatch a ticket from someone who can&apos;t go.
             </h1>
-            <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
+            <p className="mt-7 max-w-[52ch] text-[16px] leading-relaxed text-muted sm:text-[17px]">
               Bid or Buy Now on real tickets across Miami — clubs, festivals, arenas. Every
               price is all-in, and your money is held until the ticket is in your hands.
             </p>
-            <SearchForm size="lg" className="mt-8 max-w-xl" />
-            <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2.5">
-              {TRUST_POINTS.map((point) => (
-                <li key={point} className="flex items-center gap-2 text-[13px] text-muted">
-                  <CheckIcon />
+            <SearchForm size="lg" className="mt-10 max-w-xl" />
+            <ul className="mt-7 flex flex-wrap items-center gap-x-3 gap-y-2">
+              {TRUST_POINTS.map((point, i) => (
+                <li
+                  key={point}
+                  className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim"
+                >
+                  {i > 0 ? (
+                    <span aria-hidden="true" className="text-[8px] text-dim/60">
+                      ●
+                    </span>
+                  ) : null}
                   {point}
                 </li>
               ))}
@@ -63,14 +65,14 @@ export default async function HomePage() {
           {featured ? (
             <div className="hidden lg:block">
               <ListingCard listing={featured} priority />
-              <p className="mt-3 text-center text-[13px] text-dim">Live now on Snatch It</p>
+              <p className="u-label mt-5 text-center text-dim">Live now on Snatch It</p>
             </div>
           ) : null}
         </Container>
       </section>
 
       {/* ── Live listings ────────────────────────────────────────────── */}
-      <section className="py-16">
+      <section className="py-20">
         <Container>
           <SectionHeader
             eyebrow="The marketplace"
@@ -78,7 +80,7 @@ export default async function HomePage() {
             action={{ href: "/browse", label: "Browse all" }}
           />
           {listings.length > 0 ? (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-x-5 gap-y-12 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {listings.map((l) => (
                 <ListingCard key={l.id} listing={l} />
               ))}
@@ -93,10 +95,10 @@ export default async function HomePage() {
       </section>
 
       {/* ── How it works ─────────────────────────────────────────────── */}
-      <section id="how-it-works" className="scroll-mt-24 border-t border-line py-16">
+      <section id="how-it-works" className="scroll-mt-24 py-20">
         <Container>
           <SectionHeader eyebrow="How it works" title="Three steps between you and the door" />
-          <div className="grid gap-5 md:grid-cols-3">
+          <div className="grid gap-x-10 gap-y-10 md:grid-cols-3">
             {[
               {
                 n: "01",
@@ -114,10 +116,16 @@ export default async function HomePage() {
                 body: "Confirm delivery and the seller gets paid. If the ticket isn't sent within 24 hours, you're refunded automatically.",
               },
             ].map((step) => (
-              <div key={step.n} className="rounded-card border border-line bg-card p-6">
-                <p className="text-sm font-bold text-primary">{step.n}</p>
-                <h3 className="mt-2 text-lg font-bold text-ink">{step.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">{step.body}</p>
+              <div key={step.n} className="rule-t pt-6">
+                <p className="text-[13px] font-bold tabular-nums tracking-[0.08em] text-primary">
+                  {step.n}
+                </p>
+                <h3 className="mt-4 text-[19px] font-bold tracking-[-0.01em] text-ink">
+                  {step.title}
+                </h3>
+                <p className="mt-2.5 max-w-[40ch] text-[13.5px] leading-relaxed text-muted">
+                  {step.body}
+                </p>
               </div>
             ))}
           </div>
@@ -125,22 +133,20 @@ export default async function HomePage() {
       </section>
 
       {/* ── Buyer protection ─────────────────────────────────────────── */}
-      <section className="py-16">
+      <section className="py-20">
         <Container>
-          <div className="grid gap-10 rounded-card border border-line bg-card p-8 lg:grid-cols-[1fr_1.4fr] lg:p-12">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
             <div>
-              <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-primary">
-                Buyer protection
-              </p>
-              <h2 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+              <p className="u-label mb-3 text-primary">Buyer protection</p>
+              <h2 className="text-[26px] font-bold leading-[1.05] tracking-[-0.02em] text-ink sm:text-[32px]">
                 Built so nobody gets burned.
               </h2>
-              <p className="mt-4 text-[15px] leading-relaxed text-muted">
+              <p className="mt-5 max-w-[44ch] text-[14.5px] leading-relaxed text-muted">
                 Ticket resale runs on trust. We replaced trust with mechanics: your payment
                 sits with Snatch It — not the seller — until the ticket is actually yours.
               </p>
             </div>
-            <ul className="grid gap-6 sm:grid-cols-2">
+            <ul className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
               {[
                 {
                   title: "Stripe-secured payments",
@@ -159,12 +165,12 @@ export default async function HomePage() {
                   body: "Something off? Open a dispute and a human reviews it before any payout moves.",
                 },
               ].map((item) => (
-                <li key={item.title} className="flex gap-3">
-                  <ShieldIcon />
-                  <div>
-                    <h3 className="text-[15px] font-semibold text-ink">{item.title}</h3>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted">{item.body}</p>
-                  </div>
+                <li key={item.title} className="rule-t pt-5">
+                  <h3 className="flex items-center gap-2.5 text-[15px] font-bold tracking-[-0.01em] text-ink">
+                    <ShieldIcon />
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-[13px] leading-relaxed text-muted">{item.body}</p>
                 </li>
               ))}
             </ul>
@@ -173,50 +179,47 @@ export default async function HomePage() {
       </section>
 
       {/* ── Sell CTA ─────────────────────────────────────────────────── */}
-      <section id="sell" className="scroll-mt-24 border-t border-line py-16">
+      <section id="sell" className="scroll-mt-24 py-20">
         <Container>
-          <div className="grid items-center gap-10 lg:grid-cols-2">
+          <div className="grid items-center gap-14 lg:grid-cols-2">
             <div>
-              <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-primary">
-                Sell on Snatch It
-              </p>
-              <h2 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+              <p className="u-label mb-3 text-primary">Sell on Snatch It</p>
+              <h2 className="text-[26px] font-bold leading-[1.05] tracking-[-0.02em] text-ink sm:text-[32px]">
                 Plans changed? Your ticket still gets used.
               </h2>
-              <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted">
+              <p className="mt-5 max-w-[48ch] text-[14.5px] leading-relaxed text-muted">
                 List in minutes as an auction, Buy Now, or both. You keep 90% of the sale and
                 get paid through Stripe once the buyer confirms delivery.
               </p>
-              <ul className="mt-6 space-y-2.5">
+              <ul className="mt-7 space-y-3">
                 {[
                   "Flat 10% seller fee — nothing hidden",
                   "Payouts via Stripe Connect, straight to your bank",
                   "Proof-of-ownership review keeps the marketplace clean",
                 ].map((point) => (
-                  <li key={point} className="flex items-center gap-2 text-sm text-muted">
+                  <li key={point} className="flex items-center gap-3 text-[13.5px] text-muted">
                     <CheckIcon />
                     {point}
                   </li>
                 ))}
               </ul>
-              <LinkButton href="https://snatchitapp.com" size="lg" className="mt-8">
+              <LinkButton href="https://snatchitapp.com" size="lg" className="mt-10">
                 Start selling in the app
               </LinkButton>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-10">
               {[
                 { big: "90%", small: "of the sale price goes to you" },
                 { big: "24h", small: "transfer window keeps buyers safe" },
                 { big: "10%", small: "flat seller fee, disclosed up front" },
               ].map((stat) => (
-                <div
-                  key={stat.big}
-                  className="rounded-card border border-line bg-card p-5 text-center"
-                >
-                  <p className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+                <div key={stat.big} className="rule-t pt-5">
+                  <p className="text-[clamp(2rem,4vw,3rem)] font-extrabold leading-none tracking-[-0.03em] tabular-nums text-ink">
                     {stat.big}
                   </p>
-                  <p className="mt-1.5 text-[12px] leading-snug text-muted">{stat.small}</p>
+                  <p className="mt-3 text-[11px] font-semibold uppercase leading-[1.5] tracking-[0.1em] text-dim">
+                    {stat.small}
+                  </p>
                 </div>
               ))}
             </div>
@@ -225,23 +228,23 @@ export default async function HomePage() {
       </section>
 
       {/* ── App CTA ──────────────────────────────────────────────────── */}
-      <section className="border-t border-line py-16">
+      <section className="border-t border-white/[0.06] py-24">
         <Container className="flex flex-col items-center text-center">
           <Image
             src="/brand/sn-app-icon-1024.png"
             alt=""
-            width={64}
-            height={64}
-            className="rounded-2xl border border-line"
+            width={56}
+            height={56}
+            className="rounded-[12px] border border-white/10"
           />
-          <h2 className="mt-5 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+          <h2 className="mt-7 text-[26px] font-bold tracking-[-0.02em] text-ink sm:text-[32px]">
             Snatch It for iPhone
           </h2>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted">
+          <p className="mt-4 max-w-[46ch] text-[14.5px] leading-relaxed text-muted">
             The full marketplace — live bidding, Buy Now, transfers, and seller payouts — is in
             the iOS app. Coming soon to the App Store.
           </p>
-          <LinkButton href="https://snatchitapp.com" variant="secondary" className="mt-7">
+          <LinkButton href="https://snatchitapp.com" variant="secondary" className="mt-9">
             Visit snatchitapp.com
           </LinkButton>
         </Container>
@@ -252,11 +255,11 @@ export default async function HomePage() {
 
 function CheckIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4 shrink-0 text-success">
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-success">
       <path
         d="m3 8.5 3.2 3L13 4.5"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -266,17 +269,17 @@ function CheckIcon() {
 
 function ShieldIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="mt-0.5 size-5 shrink-0 text-primary">
+    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-4 shrink-0 text-primary">
       <path
         d="M10 1.8 3.2 4.4v4.4c0 4.4 2.9 7.6 6.8 9.4 3.9-1.8 6.8-5 6.8-9.4V4.4L10 1.8Z"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.5"
         strokeLinejoin="round"
       />
       <path
         d="m7 9.8 2.2 2.2L13.4 7.6"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

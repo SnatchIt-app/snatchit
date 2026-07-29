@@ -27,11 +27,11 @@ export function FiltersSheet({ activeCount = 0 }: { activeCount?: number }) {
         onClick={() => ref.current?.showModal()}
         aria-haspopup="dialog"
       >
-        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-4">
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-3.5">
           <path
             d="M3 5h14M6 10h8M8.5 15h3"
             stroke="currentColor"
-            strokeWidth="1.8"
+            strokeWidth="1.6"
             strokeLinecap="round"
           />
         </svg>
@@ -44,27 +44,27 @@ export function FiltersSheet({ activeCount = 0 }: { activeCount?: number }) {
         onClick={(e) => {
           if (e.target === ref.current) ref.current?.close();
         }}
-        className="fixed inset-x-0 bottom-0 m-0 mt-auto w-full max-w-none rounded-t-[20px] border-t border-line bg-card p-0 text-ink backdrop:bg-black/65"
+        className="fixed inset-x-0 bottom-0 m-0 mt-auto w-full max-w-none rounded-t-[10px] border-t border-white/10 bg-card p-0 text-ink"
         style={{ maxHeight: "85dvh" }}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="text-base font-bold">Filters &amp; sort</h2>
+          <h2 className="u-label text-ink">Filters &amp; sort</h2>
           <button
             onClick={() => ref.current?.close()}
-            className="flex size-11 items-center justify-center rounded-field text-muted hover:text-ink"
+            className="flex size-11 items-center justify-center text-muted transition-colors duration-150 hover:text-ink motion-reduce:transition-none"
             aria-label="Close filters"
           >
-            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-5">
+            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="size-4.5">
               <path
                 d="m5 5 10 10M15 5 5 15"
                 stroke="currentColor"
-                strokeWidth="1.8"
+                strokeWidth="1.6"
                 strokeLinecap="round"
               />
             </svg>
           </button>
         </div>
-        <div className="overflow-y-auto px-5 py-5 pb-[max(env(safe-area-inset-bottom),20px)]">
+        <div className="overflow-y-auto px-5 py-6 pb-[max(env(safe-area-inset-bottom),24px)]">
           <FilterControls idPrefix="sheet" />
         </div>
       </dialog>

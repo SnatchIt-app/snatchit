@@ -7,6 +7,7 @@ import {
 /**
  * All-in pricing display — the FIRST price a buyer sees is always the
  * fee-inclusive total (same rule as mobile; FTC junk-fee compliant).
+ * Figures are tabular and tightly tracked: the price is a visual anchor.
  */
 export function PriceDisplay({
   baseDollars,
@@ -22,33 +23,39 @@ export function PriceDisplay({
   const price = allInFromDollars(baseDollars);
   const priceCls =
     size === "lg"
-      ? "text-3xl font-bold tracking-tight"
+      ? "text-[44px] font-bold leading-none tracking-[-0.03em]"
       : size === "md"
-        ? "text-lg font-bold"
-        : "text-[15px] font-bold";
+        ? "text-[19px] font-bold leading-none tracking-[-0.01em]"
+        : "text-[15px] font-bold leading-none";
   return (
-    <span className={`inline-flex items-baseline gap-1.5 text-ink ${className}`}>
-      <span className={priceCls}>{price}</span>
-      {suffix ? <span className="text-xs font-medium text-muted">{suffix}</span> : null}
+    <span className={`inline-flex items-baseline gap-2 text-ink ${className}`}>
+      <span className={`tabular-nums ${priceCls}`}>{price}</span>
+      {suffix ? (
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-dim">
+          {suffix}
+        </span>
+      ) : null}
     </span>
   );
 }
 
-/** Itemized breakdown rows (ticket price + fee = total). */
+/** Itemized breakdown rows (ticket price + fee = total), hairline-ruled. */
 export function PriceBreakdown({ baseDollars }: { baseDollars: number }) {
   return (
-    <dl className="space-y-2 text-sm">
-      <div className="flex items-center justify-between">
+    <dl className="text-[13px]">
+      <div className="flex items-center justify-between py-2">
         <dt className="text-muted">Ticket price</dt>
-        <dd className="text-ink">{baseFromDollars(baseDollars)}</dd>
+        <dd className="tabular-nums text-ink">{baseFromDollars(baseDollars)}</dd>
       </div>
-      <div className="flex items-center justify-between">
+      <div className="rule-t flex items-center justify-between py-2">
         <dt className="text-muted">Service &amp; buyer-protection fee</dt>
-        <dd className="text-ink">{buyerFeeFromDollars(baseDollars)}</dd>
+        <dd className="tabular-nums text-ink">{buyerFeeFromDollars(baseDollars)}</dd>
       </div>
-      <div className="flex items-center justify-between border-t border-line pt-2">
+      <div className="rule-t flex items-center justify-between pt-2.5">
         <dt className="font-semibold text-ink">Total</dt>
-        <dd className="font-bold text-ink">{allInFromDollars(baseDollars)}</dd>
+        <dd className="tabular-nums text-[15px] font-bold text-ink">
+          {allInFromDollars(baseDollars)}
+        </dd>
       </div>
     </dl>
   );
