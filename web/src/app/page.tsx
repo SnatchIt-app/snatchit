@@ -121,7 +121,7 @@ export default async function HomePage() {
                 List it in minutes as an auction or Buy Now. You keep 90% of the sale, paid
                 out through Stripe.
               </p>
-              <LinkButton href="https://snatchitapp.com" size="lg" className="mt-7">
+              <LinkButton href="/sell" size="lg" className="mt-7">
                 Start selling
               </LinkButton>
             </div>
