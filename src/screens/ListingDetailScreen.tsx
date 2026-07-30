@@ -150,10 +150,9 @@ const ir = StyleSheet.create({
 });
 
 function BidRowItem({ bid }: { bid: Bid }) {
-  // Prefer display_name, fall back to full_name, then a short id tag.
+  // Prefer display_name, fall back to a short id tag.
   const short = bid.bidder_id ? bid.bidder_id.slice(0, 4).toUpperCase() : '----';
   const name  = bid.profiles?.display_name
-             ?? bid.profiles?.full_name
              ?? `Bidder ${short}`;
   const initial = name.charAt(0).toUpperCase();
   return (

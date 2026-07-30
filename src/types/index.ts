@@ -154,8 +154,8 @@ export type Bid = {
   listing_id: string;
   bidder_id:  string;
   amount:     number;
-  // Joined via select '*, profiles(full_name, display_name, avatar_url)'
-  profiles?:  Pick<Profile, 'full_name' | 'display_name' | 'avatar_url'> | null;
+  // Joined via select '*, profiles(display_name, avatar_url)'
+  profiles?:  Pick<Profile, 'display_name' | 'avatar_url'> | null;
 };
 
 // ─── Push Notifications ────────────────────────────────────────────────────────

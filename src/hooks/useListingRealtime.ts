@@ -59,8 +59,9 @@ type Options = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // FK bids.bidder_id → profiles.id lets PostgREST resolve this join.
-// profiles table now has a public SELECT policy for all authenticated users.
-const BIDS_SELECT = '*, profiles(full_name, display_name, avatar_url)' as const;
+// profiles grants only the public-safe column set (migration 043) — full_name
+// is not in it, so it can no longer be requested here.
+const BIDS_SELECT = '*, profiles(display_name, avatar_url)' as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
