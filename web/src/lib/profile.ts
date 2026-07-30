@@ -15,11 +15,7 @@ export async function getMyProfile(): Promise<MyProfile | null> {
   if (!user) return null;
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, display_name, phone_number, is_verified_buyer, is_verified_seller, created_at")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("get_my_profile").maybeSingle();
 
   if (error || !data) return null;
   return { ...(data as Omit<MyProfile, "email">), email: user.email };

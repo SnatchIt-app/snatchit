@@ -37,6 +37,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
+import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
 import {
@@ -99,11 +100,7 @@ export default function EditProfileScreen() {
     if (!user) return;
 
     (async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('display_name, phone_number, bio, avatar_path, avatar_url')
-        .eq('id', user.id)
-        .single();
+      const { data, error } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
 
       if (data) {
         setDisplayName(data.display_name ?? '');

@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { sellerNetDollars } from '@/src/lib/money';
@@ -132,12 +133,8 @@ export default function ProfileScreen() {
   async function loadData() {
     if (!user) return;
 
-    // 1. Fetch profile row (avatar_path added; falls back gracefully if column missing)
-    const { data: profileData, error: profileErr } = await supabase
-      .from('profiles')
-      .select('id, display_name, phone_number, avatar_url, avatar_path, is_verified_buyer, is_verified_seller, wallet_balance, stripe_connect_id')
-      .eq('id', user.id)
-      .single();
+    // 1. Fetch profile row via get_my_profile() — RPC returns exactly the owner's row.
+    const { data: profileData, error: profileErr } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
 
     setLoadError(profileData ? null
       : profileErr && isNetworkError(profileErr) ? 'offline'

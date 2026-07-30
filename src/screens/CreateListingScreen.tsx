@@ -43,6 +43,7 @@ import type {
   CanCreateListingReason,
   DurationHours,
   EventCategory,
+  MyProfileRPC,
   Neighborhood,
   RiskTier,
   TicketPlatform,
@@ -389,11 +390,7 @@ export default function CreateListingScreen() {
       // fall through to the edge function rather than blocking immediately.
       let payoutConnected = false;
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('stripe_connect_id, stripe_onboarding_complete')
-        .eq('id', user.id)
-        .single();
+      const { data: profile } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
 
       if (profile?.stripe_onboarding_complete) {
         // Fast path: DB already flagged onboarding complete.

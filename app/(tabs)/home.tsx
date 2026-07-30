@@ -36,18 +36,14 @@ import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBloc
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
-import type { Listing } from '@/src/types';
+import type { Listing, MyProfileRPC } from '@/src/types';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
 
 async function getUserNeighborhoods(): Promise<Set<string>> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Set();
-  const { data } = await supabase
-    .from('profiles')
-    .select('preferred_neighborhoods')
-    .eq('id', user.id)
-    .single();
+  const { data } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
   return new Set(data?.preferred_neighborhoods ?? []);
 }
 

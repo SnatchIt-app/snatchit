@@ -29,6 +29,17 @@ export type Profile = {
   stripe_customer_id:         string | null;
 };
 
+// Return shape of the get_my_profile() RPC (migration 042) — owner-only
+// fields, typed explicitly since this project's Supabase client isn't
+// parameterized with generated Database types, so .rpc() infers `{}`.
+export type MyProfileRPC = Pick<
+  Profile,
+  | 'id' | 'full_name' | 'display_name' | 'phone_number' | 'is_verified_buyer'
+  | 'is_verified_seller' | 'created_at' | 'avatar_path' | 'avatar_url' | 'bio'
+  | 'wallet_balance' | 'stripe_connect_id' | 'stripe_onboarding_complete'
+  | 'preferred_neighborhoods'
+>;
+
 // ─── Listing ──────────────────────────────────────────────────────────────────
 // Areas + named venues. Stored as lowercase text in listings.neighborhood.
 // Grouping/labels live in src/constants/neighborhoods.ts.
