@@ -17,6 +17,8 @@
     "@snatchit/core": "file:vendor/snatchit-core-0.1.0.tgz",
     "@snatchit/design-tokens": "file:vendor/snatchit-design-tokens-0.1.0.tgz",
     "@snatchit/types": "file:vendor/snatchit-types-0.1.0.tgz",
+    "@stripe/react-stripe-js": "^6.8.0",
+    "@stripe/stripe-js": "^9.12.1",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.9",
     "next": "16.2.12",

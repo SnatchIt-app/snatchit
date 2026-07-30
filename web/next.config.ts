@@ -17,10 +17,9 @@ const isDev = process.env.NODE_ENV === "development";
 
 /**
  * Content Security Policy.
- * Scope today: self + Supabase (REST/Storage/Realtime). Stripe domains are
- * deliberately ABSENT until web checkout is actually introduced (per the
- * architecture report — add js.stripe.com / api.stripe.com to script/frame/
- * connect when the Payment Element ships). Sentry ingest is pre-allowed in
+ * Scope: self + Supabase (REST/Storage/Realtime) + Stripe (Payment Element,
+ * added for web checkout — js.stripe.com in script/frame, api.stripe.com in
+ * connect, per Stripe's own CSP guidance). Sentry ingest is pre-allowed in
  * connect-src so enabling @sentry/nextjs later is a no-op here.
  * 'unsafe-inline' in script-src is required by Next.js hydration inline
  * scripts; the documented hardening path is nonce-based CSP via proxy.ts in
@@ -28,11 +27,12 @@ const isDev = process.env.NODE_ENV === "development";
  */
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://js.stripe.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https://${SUPABASE_HOST}${extraHost ? ` https://${extraHost}` : ""}`,
   "font-src 'self'",
-  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.us.sentry.io`,
+  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.us.sentry.io https://api.stripe.com`,
+  "frame-src https://js.stripe.com https://hooks.stripe.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

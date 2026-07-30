@@ -1,0 +1,87 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { finalizeBuyNowPurchaseAction } from "@/lib/checkout-actions";
+import { Container } from "@/components/ui/Container";
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
+
+type Status = "processing" | "success" | "error";
+
+/**
+ * Fallback landing page for payment methods that require an actual browser
+ * redirect (PaymentForm uses redirect: 'if_required', so most US card
+ * payments never reach this page — Stripe only sends the browser here when
+ * a redirect is unavoidable, e.g. certain 3DS challenges).
+ */
+function CompleteClient() {
+  const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const redirectStatus = searchParams.get("redirect_status");
+  const paymentIntentId = searchParams.get("payment_intent");
+  const failedUpfront = redirectStatus !== "succeeded" || !paymentIntentId;
+
+  // Computed synchronously during render (not in the effect below) — this
+  // branch needs no async work, just a state derived from the URL.
+  const [status, setStatus] = useState<Status>(failedUpfront ? "error" : "processing");
+  const [message, setMessage] = useState<string | null>(
+    failedUpfront
+      ? redirectStatus === "failed"
+        ? "Payment failed. Please go back and try again."
+        : "Payment did not complete. Please go back and try again."
+      : null,
+  );
+
+  useEffect(() => {
+    if (failedUpfront) return;
+    finalizeBuyNowPurchaseAction(params.id, paymentIntentId).then((result) => {
+      if (result.warning) setMessage(result.warning);
+      setStatus("success");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (status === "processing") {
+    return <p className="text-[13.5px] text-white/60">Confirming your payment…</p>;
+  }
+
+  if (status === "error") {
+    return (
+      <>
+        <Alert tone="error">{message}</Alert>
+        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
+          Back to listing
+        </Button>
+      </>
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-center">
+      <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
+      {message ? <Alert tone="error">{message}</Alert> : null}
+      <p className="text-[13.5px] leading-relaxed text-white/60">
+        Your ticket is confirmed. Check the Snatch It app for transfer details.
+      </p>
+      <Button variant="primary" className="w-full" onClick={() => router.push("/account")}>
+        Go to your account
+      </Button>
+    </div>
+  );
+}
+
+export default function CheckoutCompletePage() {
+  return (
+    <Container className="max-w-[480px] py-16">
+      <h1 className="font-display text-[22px] font-bold uppercase text-ink">Checkout</h1>
+      <div className="mt-6">
+        <Suspense fallback={<p className="text-[13.5px] text-white/60">Loading…</p>}>
+          <CompleteClient />
+        </Suspense>
+      </div>
+    </Container>
+  );
+}

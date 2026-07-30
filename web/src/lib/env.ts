@@ -8,6 +8,9 @@ export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? nu
 
 export const hasSupabaseEnv = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
+/** Publishable (client-safe) key only — same trust class as the Supabase anon key. */
+export const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null;
+
 /** Canonical site origin for metadata, canonicals, and sitemaps. */
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 

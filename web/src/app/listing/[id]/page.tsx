@@ -16,6 +16,7 @@ import {
 } from "@/lib/listings";
 import { getSavedListingIdSet, isListingSaved } from "@/lib/favorites";
 import { SaveButton } from "@/components/SaveButton";
+import { BuyNowButton } from "@/components/listing/BuyNowButton";
 import {
   categoryLabel,
   fmtEventDate,
@@ -332,22 +333,33 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               <PriceBreakdown baseDollars={base} />
             </div>
 
-            <div className="mt-6 space-y-2.5">
-              <Button
-                variant="secondary"
-                className="w-full"
-                disabled
-                title="Browser checkout is not available yet"
-              >
-                Web checkout coming soon
-              </Button>
-              <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
-                Get the iOS app to {listing.buy_now_enabled ? "buy" : "bid"}
-              </LinkButton>
-            </div>
+            {isActive && listing.buy_now_enabled && listing.buy_now_price ? (
+              <div className="mt-6 space-y-2.5">
+                <BuyNowButton listingId={listing.id} />
+                <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
+                  Get the iOS app to bid
+                </LinkButton>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-2.5">
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  disabled
+                  title="Bidding on the web is not available yet"
+                >
+                  Web bidding coming soon
+                </Button>
+                <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
+                  Get the iOS app to bid
+                </LinkButton>
+              </div>
+            )}
 
             <p className="mt-4 text-center text-[12px] leading-relaxed text-dim">
-              Bidding and Buy Now are live today in the Snatch It app.
+              {isActive && listing.buy_now_enabled && listing.buy_now_price
+                ? "Bidding is live today in the Snatch It app."
+                : "Bidding and Buy Now are live today in the Snatch It app."}
             </p>
           </div>
         </aside>
