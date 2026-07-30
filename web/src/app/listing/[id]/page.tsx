@@ -15,8 +15,10 @@ import {
   type WebListing,
 } from "@/lib/listings";
 import { getSavedListingIdSet, isListingSaved } from "@/lib/favorites";
+import { getAuthedUser } from "@/lib/auth/session";
 import { SaveButton } from "@/components/SaveButton";
 import { BuyNowButton } from "@/components/listing/BuyNowButton";
+import { BidPanel } from "@/components/listing/BidPanel";
 import {
   categoryLabel,
   fmtEventDate,
@@ -79,10 +81,11 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const listing = await getListing(id);
   if (!listing) notFound();
 
-  const [seller, related, saved] = await Promise.all([
+  const [seller, related, saved, currentUser] = await Promise.all([
     getSellerSummary(listing.seller_id).catch(() => null),
     getRelatedListings(listing).catch(() => [] as WebListing[]),
     isListingSaved(listing.id),
+    getAuthedUser(),
   ]);
   const relatedSavedIds = await getSavedListingIdSet(related.map((l) => l.id));
 
@@ -90,6 +93,8 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const isActive = status === "LIVE" || status === "ENDING SOON";
   const base = effectiveBase(listing);
   const platform = platformLabel(listing.ticket_platform);
+  const isHybrid = listing.buy_now_enabled && !!listing.buy_now_price;
+  const pureAuctionActive = isActive && !isHybrid;
 
   const eventJsonLd = {
     "@context": "https://schema.org",
@@ -310,7 +315,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                     </div>
                   </dl>
                 </>
-              ) : (
+              ) : !isActive ? (
                 <>
                   <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
                     Current bid · all-in
@@ -326,41 +331,36 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                     {allInFromDollars(listing.starting_bid)}
                   </p>
                 </>
-              )}
+              ) : null}
             </div>
 
-            <div className="mt-5 border-t border-primary/15 pt-4">
-              <PriceBreakdown baseDollars={base} />
-            </div>
+            {!pureAuctionActive ? (
+              <div className="mt-5 border-t border-primary/15 pt-4">
+                <PriceBreakdown baseDollars={base} />
+              </div>
+            ) : null}
 
-            {isActive && listing.buy_now_enabled && listing.buy_now_price ? (
-              <div className="mt-6 space-y-2.5">
-                <BuyNowButton listingId={listing.id} />
-                <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
-                  Get the iOS app to bid
-                </LinkButton>
+            {isActive ? (
+              <div className="mt-6 space-y-4">
+                {isHybrid ? <BuyNowButton listingId={listing.id} /> : null}
+                <BidPanel
+                  listingId={listing.id}
+                  sellerId={listing.seller_id}
+                  currentUserId={currentUser?.id ?? null}
+                  initialCurrentBid={listing.current_bid}
+                  initialBidCount={listing.bid_count}
+                  initialAuctionStatus={listing.auction_status}
+                  initialEndsAt={listing.ends_at}
+                  compact={isHybrid}
+                />
               </div>
             ) : (
               <div className="mt-6 space-y-2.5">
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  disabled
-                  title="Bidding on the web is not available yet"
-                >
-                  Web bidding coming soon
+                <Button variant="secondary" className="w-full" disabled>
+                  This listing has ended
                 </Button>
-                <LinkButton href="https://snatchitapp.com" size="lg" className="w-full">
-                  Get the iOS app to bid
-                </LinkButton>
               </div>
             )}
-
-            <p className="mt-4 text-center text-[12px] leading-relaxed text-dim">
-              {isActive && listing.buy_now_enabled && listing.buy_now_price
-                ? "Bidding is live today in the Snatch It app."
-                : "Bidding and Buy Now are live today in the Snatch It app."}
-            </p>
           </div>
         </aside>
       </div>
