@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getMyProfile } from "@/lib/profile";
 import { EmailChangeForm } from "@/components/account/EmailChangeForm";
 import { LogoutButton } from "@/components/account/LogoutButton";
+import { PayoutSetup } from "@/components/account/PayoutSetup";
+import { DeleteAccountButton } from "@/components/account/DeleteAccountButton";
 import { Alert } from "@/components/ui/Alert";
 import { ErrorState } from "@/components/ui/ErrorState";
 
@@ -53,9 +55,23 @@ export default async function AccountSettingsPage({
       </section>
 
       <section className="border-t border-primary/15 pt-7">
+        <p className="eyebrow text-primary/80">Payouts</p>
+        <div className="mt-4">
+          <PayoutSetup />
+        </div>
+      </section>
+
+      <section className="border-t border-primary/15 pt-7">
         <p className="eyebrow text-primary/80">Session</p>
         <div className="mt-4">
           <LogoutButton />
+        </div>
+      </section>
+
+      <section className="border-t border-primary/15 pt-7">
+        <p className="eyebrow text-primary/80">Danger zone</p>
+        <div className="mt-4">
+          <DeleteAccountButton />
         </div>
       </section>
     </div>
