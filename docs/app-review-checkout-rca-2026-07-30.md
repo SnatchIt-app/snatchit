@@ -61,6 +61,38 @@ Only the founder can perform steps 1 and 3 (they involve the Stripe secret key):
    payment succeeds, webhook row lands in `stripe_webhook_events`, transfer row created;
    then refund via Stripe Dashboard.
 
+## Update 2026-07-30 22:07–23:0x UTC — first key-swap attempt FAILED
+
+The first `supabase secrets set STRIPE_SECRET_KEY=…` stored an **invalid value**.
+Proven by `diag-stripe-env` (see `scripts/check-stripe-env.sh`), which reports key
+*shape* and a live `GET /v1/account` probe without exposing key material:
+
+```
+prefix sk_live_ · length 35 · no whitespace · no quotes
+Stripe: HTTP 401 "Invalid API Key provided: sk_live_***********************cCNX"
+```
+
+A genuine Stripe key is ~107 chars; the account's real live secret ends `8V32`,
+the stored one ends `cCNX` → truncated/wrong paste, not a formatting problem.
+Consequences observed: `create-payment-intent` and `create-connect-account` both
+returned HTTP 500; the client showed the disabled "Payment unavailable" state.
+No Stripe API logs appeared in **either** mode because Stripe cannot attribute a
+request bearing an unrecognised key to any account.
+
+Hypotheses tested and **disproven** in this round:
+- trailing-newline / whitespace corrupting the Authorization header
+  (`transport: "ok"` proves the request reached Stripe and was answered);
+- stale test-mode `stripe_customer_id` on the buyer profile (the self-heal path
+  in `create-payment-intent` is never reached — auth fails first);
+- seller Connect mode (PaymentIntent creation makes no Connect call at all).
+
+Verification loop for the next attempt: `./scripts/check-stripe-env.sh`
+— must show `account: acct_1T6FarGdOzCmGbHw` before retrying checkout. Once it
+authenticates, the same call also dumps live webhook endpoints (URL, status,
+enabled_events) and Connect account modes.
+
+**Delete `supabase/functions/diag-stripe-env` when the incident closes.**
+
 ## Live-mode follow-ups (post-swap reality)
 - `profiles.stripe_customer_id` values are test-mode customers — `create-payment-intent`
   already self-heals (probes the customer, recreates if missing). No action.
