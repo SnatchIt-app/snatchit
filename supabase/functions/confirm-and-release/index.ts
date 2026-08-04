@@ -449,20 +449,31 @@ serve(async (req: Request) => {
       }
     }
 
-    let stripeTransfer;
+    let stripeTransfer: { id: string };
     try {
-      // Canonical payout request (_shared/payouts.ts) — byte-identical to
-      // the cron path's request, keyed on (transfer id, destination), so
-      // any race or retry across both paths replays ONE Stripe Transfer
-      // and a re-onboarded seller gets a fresh key instead of a stale
-      // 24h idempotency replay.
-      stripeTransfer = await createSellerPayout({
+      // Canonical payout request (_shared/payouts.ts) — capability
+      // pre-flight, then a byte-identical transfer request keyed on
+      // (transfer id, destination) shared with the cron path, so any race
+      // or retry replays ONE Stripe Transfer, a re-onboarded seller gets a
+      // fresh key, and a not-yet-ready destination never burns the key.
+      const payoutRes = await createSellerPayout({
         transferId:     transfer_id,
         paymentId:      transfer.payment_id,
         sellerId:       transfer.seller_id,
         destination:    sellerProfile.stripe_connect_id,
         sellerNetCents,
       });
+      if (!payoutRes.ok) {
+        // Seller's Connect account can't receive transfers yet (onboarding
+        // incomplete, requirements past due, …). Buyer confirmation stands;
+        // the cron auto-releases the payout once the capability activates.
+        return await payoutDeferred('PAYOUT_DESTINATION_NOT_READY', {
+          destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
+          seller_net_cents:   sellerNetCents,
+          ...payoutRes.destination_state,
+        }, transfer.payment_id);
+      }
+      stripeTransfer = payoutRes.transfer;
     } catch (stripeErr) {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
       console.error('confirm-and-release: Stripe Transfer failed:', {

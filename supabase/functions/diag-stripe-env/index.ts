@@ -175,18 +175,45 @@ Deno.serve(async (req) => {
         const r = await fetch(`https://api.stripe.com/v1/accounts/${acctId}`, {
           headers: { Authorization: `Bearer ${trimmed}` },
         });
-        const d = await r.json().catch(() => ({}));
+        const d = await r.json().catch(() => ({})) as Record<string, unknown>;
+        const req = (d.requirements ?? {}) as Record<string, unknown>;
         connect_account_probe = r.ok
           ? {
-              id:                (d as { id?: string }).id,
-              charges_enabled:   (d as { charges_enabled?: boolean }).charges_enabled,
-              payouts_enabled:   (d as { payouts_enabled?: boolean }).payouts_enabled,
-              details_submitted: (d as { details_submitted?: boolean }).details_submitted,
+              id:                d.id,
+              type:              d.type,
+              charges_enabled:   d.charges_enabled,
+              payouts_enabled:   d.payouts_enabled,
+              details_submitted: d.details_submitted,
+              capabilities:      d.capabilities ?? null,
+              requirements: {
+                currently_due:   req.currently_due ?? null,
+                past_due:        req.past_due ?? null,
+                disabled_reason: req.disabled_reason ?? null,
+              },
             }
           : {
               http_status: r.status,
               error: (d as { error?: { message?: string } }).error?.message ?? `HTTP ${r.status}`,
             };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
+  // Optional: list live-mode Transfers (read-only) — duplicate-payout audit.
+  let transfers_list: unknown = null;
+  if (authed) {
+    try {
+      if ((reqBody as { list_transfers?: boolean }).list_transfers === true) {
+        const r = await fetch('https://api.stripe.com/v1/transfers?limit=10', {
+          headers: { Authorization: `Bearer ${trimmed}` },
+        });
+        const d = await r.json().catch(() => ({})) as { data?: Array<Record<string, unknown>> };
+        transfers_list = r.ok
+          ? (d.data ?? []).map((t) => ({
+              id: t.id, amount: t.amount, currency: t.currency,
+              destination: t.destination, created: t.created, reversed: t.reversed,
+            }))
+          : { error: `HTTP ${r.status}` };
       }
     } catch { /* ignore malformed body */ }
   }
@@ -211,7 +238,7 @@ Deno.serve(async (req) => {
 
   return new Response(
     JSON.stringify(
-      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, connect_account_probe, cancel_result },
+      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, connect_account_probe, transfers_list, cancel_result },
       null,
       2,
     ),

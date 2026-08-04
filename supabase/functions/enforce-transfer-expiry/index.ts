@@ -398,9 +398,20 @@ serve(async (req: Request) => {
       }
 
       const { data: payment } = await supabase
-        .from('payments').select('amount, seller_fee').eq('id', t.payment_id).single();
+        .from('payments').select('amount, seller_fee, status').eq('id', t.payment_id).single();
       if (!payment) {
         console.error('enforce-transfer-expiry: payment lookup failed:', t.transfer_id);
+        return false;
+      }
+
+      // Never pay out against money the platform no longer holds: a payment
+      // refunded (or anything short of succeeded) must not release, no
+      // matter what state the transfer row is in.
+      if (payment.status !== 'succeeded') {
+        console.warn('enforce-transfer-expiry: payout skipped — payment not succeeded:', {
+          transfer_id: t.transfer_id,
+          payment_status: payment.status,
+        });
         return false;
       }
 
@@ -430,29 +441,21 @@ serve(async (req: Request) => {
       // 10/10 fee model: seller net = base amount − seller fee (both cents).
       const sellerNetCents = (payment.amount as number) - ((payment.seller_fee as number) ?? 0);
 
-      // Canonical payout request (_shared/payouts.ts) — byte-identical to
-      // confirm-and-release's request under the same (transfer, destination)
-      // key. The old divergence (`payout_<id>` with per-caller metadata)
-      // made Stripe reject every cross-path retry with "Keys for idempotent
-      // requests can only be used with the same parameters..." (2026-08-03).
-      let stripeTransfer: { id: string };
-      try {
-        stripeTransfer = await createSellerPayout({
-          transferId:     t.transfer_id,
-          paymentId:      t.payment_id,
-          sellerId:       t.seller_id,
-          destination:    sellerProfile.stripe_connect_id,
-          sellerNetCents,
-        });
-      } catch (stripeErr) {
-        // A payout Stripe refuses (bad destination, balance, mode mismatch)
-        // is an operations problem: record ONE manual_review decision for
-        // the admin queue and stop re-attempting noisily every cron run.
-        const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
-        console.error('enforce-transfer-expiry: Stripe Transfer failed:', {
-          transfer_id: t.transfer_id,
-          error: detail,
-        });
+      // Canonical payout request (_shared/payouts.ts) — capability pre-flight,
+      // then a byte-identical transfer request under the same (transfer,
+      // destination) key as confirm-and-release. The old divergence
+      // (`payout_<id>` with per-caller metadata) made Stripe reject every
+      // cross-path retry with "Keys for idempotent requests can only be used
+      // with the same parameters..." (2026-08-03); the pre-flight keeps a
+      // not-yet-ready destination from burning the key for 24h (2026-08-04).
+      //
+      // Record ONE manual_review decision per transfer for the admin queue
+      // (first occurrence only — repeats stay in edge logs, not Sentry).
+      const recordManualReviewOnce = async (
+        reasonCode: string,
+        evidence: Record<string, unknown>,
+        sentryErr?: Error,
+      ) => {
         const { data: existingDecision } = await supabase
           .from('payout_decisions')
           .select('id')
@@ -460,30 +463,67 @@ serve(async (req: Request) => {
           .eq('decision', 'manual_review')
           .limit(1)
           .maybeSingle();
-        if (!existingDecision) {
-          const { error: decisionErr } = await supabase.from('payout_decisions').insert({
-            transfer_id: t.transfer_id,
-            payment_id:  t.payment_id,
-            seller_id:   t.seller_id,
-            buyer_id:    t.buyer_id,
-            risk_tier:   'low',
-            decision:    'manual_review',
-            reason_codes: ['PAYOUT_TRANSFER_FAILED'],
-            evidence:    { stripe_error: detail, seller_net_cents: sellerNetCents },
-            buyer_confirmed: false,
-            dispute_open: false,
-            actor: 'edge:enforce-transfer-expiry',
-          });
-          if (decisionErr) {
-            console.error('enforce-transfer-expiry: payout_decisions insert failed:', decisionErr);
-          }
-          // Surface the FIRST failure to Sentry; repeats stay in edge logs.
-          await captureException(
-            'enforce-transfer-expiry:payout-transfer-failed',
-            new Error(`Stripe Transfer failed for transfer ${t.transfer_id}: ${detail}`),
-            { transfer_id: t.transfer_id },
-          );
+        if (existingDecision) return;
+        const { error: decisionErr } = await supabase.from('payout_decisions').insert({
+          transfer_id: t.transfer_id,
+          payment_id:  t.payment_id,
+          seller_id:   t.seller_id,
+          buyer_id:    t.buyer_id,
+          risk_tier:   'low',
+          decision:    'manual_review',
+          reason_codes: [reasonCode],
+          evidence,
+          buyer_confirmed: false,
+          dispute_open: false,
+          actor: 'edge:enforce-transfer-expiry',
+        });
+        if (decisionErr) {
+          console.error('enforce-transfer-expiry: payout_decisions insert failed:', decisionErr);
         }
+        if (sentryErr) {
+          await captureException('enforce-transfer-expiry:payout-transfer-failed', sentryErr, {
+            transfer_id: t.transfer_id,
+          });
+        }
+      };
+
+      let stripeTransfer: { id: string };
+      try {
+        const payoutRes = await createSellerPayout({
+          transferId:     t.transfer_id,
+          paymentId:      t.payment_id,
+          sellerId:       t.seller_id,
+          destination:    sellerProfile.stripe_connect_id,
+          sellerNetCents,
+        });
+        if (!payoutRes.ok) {
+          // Destination can't receive transfers yet (onboarding incomplete).
+          // No Stripe POST was made, so no idempotency key was burned — the
+          // next sweep after the capability activates releases cleanly.
+          console.warn('enforce-transfer-expiry: payout deferred — destination not ready:', {
+            transfer_id: t.transfer_id,
+            state: payoutRes.destination_state,
+          });
+          await recordManualReviewOnce('PAYOUT_DESTINATION_NOT_READY', {
+            seller_net_cents: sellerNetCents,
+            ...payoutRes.destination_state,
+          });
+          return false;
+        }
+        stripeTransfer = payoutRes.transfer;
+      } catch (stripeErr) {
+        // A transfer Stripe refused AFTER a passing pre-flight (balance,
+        // platform restriction, …) — admin queue + one Sentry capture.
+        const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+        console.error('enforce-transfer-expiry: Stripe Transfer failed:', {
+          transfer_id: t.transfer_id,
+          error: detail,
+        });
+        await recordManualReviewOnce(
+          'PAYOUT_TRANSFER_FAILED',
+          { stripe_error: detail, seller_net_cents: sellerNetCents },
+          new Error(`Stripe Transfer failed for transfer ${t.transfer_id}: ${detail}`),
+        );
         return false;
       }
 
