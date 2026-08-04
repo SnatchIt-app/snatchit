@@ -164,6 +164,33 @@ Deno.serve(async (req) => {
     } catch { /* ignore malformed body */ }
   }
 
+  // Optional: probe a specific Connect account id against the CURRENT key's
+  // mode. 404/permission error here proves the id does not exist in this
+  // mode (i.e. a test-mode account probed with the live key).
+  let connect_account_probe: unknown = null;
+  if (authed) {
+    try {
+      const acctId = (reqBody as { acct_id?: string }).acct_id;
+      if (acctId && /^acct_[A-Za-z0-9]+$/.test(acctId)) {
+        const r = await fetch(`https://api.stripe.com/v1/accounts/${acctId}`, {
+          headers: { Authorization: `Bearer ${trimmed}` },
+        });
+        const d = await r.json().catch(() => ({}));
+        connect_account_probe = r.ok
+          ? {
+              id:                (d as { id?: string }).id,
+              charges_enabled:   (d as { charges_enabled?: boolean }).charges_enabled,
+              payouts_enabled:   (d as { payouts_enabled?: boolean }).payouts_enabled,
+              details_submitted: (d as { details_submitted?: boolean }).details_submitted,
+            }
+          : {
+              http_status: r.status,
+              error: (d as { error?: { message?: string } }).error?.message ?? `HTTP ${r.status}`,
+            };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
   // Optional: cancel a stuck (never-confirmed) PaymentIntent, via request body.
   let cancel_result: unknown = null;
   if (authed) {
@@ -184,7 +211,7 @@ Deno.serve(async (req) => {
 
   return new Response(
     JSON.stringify(
-      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, cancel_result },
+      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, connect_account_probe, cancel_result },
       null,
       2,
     ),

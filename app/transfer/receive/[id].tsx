@@ -13,7 +13,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
+import { ProofImageViewer } from '@/src/components/ProofImageViewer';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -79,6 +79,7 @@ export default function TransferReceiveScreen() {
   // Seller's sent-proof: signed URL into the PRIVATE proof-docs bucket. RLS
   // (migration 034) only lets this transfer's buyer/seller read the object.
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofViewerOpen, setProofViewerOpen] = useState(false);
 
   useEffect(() => {
     const path = transfer?.transfer_evidence_path;
@@ -383,10 +384,14 @@ export default function TransferReceiveScreen() {
             {proofUrl && (
               <View style={s.proofBlock}>
                 <Text style={s.proofLabel}>{"Seller's proof of transfer"}</Text>
-                <Pressable onPress={() => Linking.openURL(proofUrl)}>
+                <Pressable
+                  onPress={() => setProofViewerOpen(true)}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="View proof of transfer full screen"
+                >
                   <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
                 </Pressable>
-                <Text style={s.proofHint}>Tap to open full size. Review it before confirming.</Text>
+                <Text style={s.proofHint}>Tap to view full screen. Review it before confirming.</Text>
               </View>
             )}
 
@@ -444,6 +449,11 @@ export default function TransferReceiveScreen() {
 
         <View style={{ height: 48 }} />
       </ScrollView>
+
+      <ProofImageViewer
+        uri={proofViewerOpen ? proofUrl : null}
+        onClose={() => setProofViewerOpen(false)}
+      />
     </SafeAreaView>
   );
 }
