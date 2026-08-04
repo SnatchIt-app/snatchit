@@ -8,6 +8,15 @@ const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+// ── Stage logging ────────────────────────────────────────────────────────────
+// One structured line per pipeline stage so a production failure pinpoints
+// its stage and cause from the edge logs alone (2026-08-03 incident: a 500
+// here surfaced client-side as only "Failed to record payment"). Never log
+// secret material — no keys, tokens, client_secrets, or emails.
+function logStage(stage: string, detail: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({ tag: 'cpi-stage', stage, ...detail }));
+}
+
 // ── Marketplace fee model (10/10) ────────────────────────────────────────────
 // Canonical math lives in _shared/money.ts (single source of truth):
 // buyer pays base + 10%, seller receives base − 10%, both fees computed
@@ -196,6 +205,7 @@ serve(async (req: Request) => {
   try {
     const buyer = await getAuthenticatedUser(req);
     const buyerId = buyer.id;
+    logStage('auth', { ok: true, buyer_id: buyerId });
 
     // Rate limit: 5 requests per 60 seconds per user.
     // Use service-role client so the RPC can write to rate_limits.
@@ -247,6 +257,15 @@ serve(async (req: Request) => {
       .select('id, seller_id, current_bid, buy_now_price, buy_now_enabled, status, auction_status, winner_user_id, winning_bid_amount')
       .eq('id', listing_id)
       .single();
+
+    logStage('listing-lookup', {
+      listing_id,
+      mode,
+      found:          !!listing,
+      status:         listing?.status ?? null,
+      auction_status: listing?.auction_status ?? null,
+      error:          listingErr?.message ?? null,
+    });
 
     if (listingErr || !listing) {
       return new Response(
@@ -343,94 +362,156 @@ serve(async (req: Request) => {
       buyerId,
       buyer.email,
     );
+    logStage('stripe-customer', { customer_id: customerCtx.customerId });
 
-    // Check for existing payment (idempotency)
-    const { data: existingPayments } = await supabase
+    // Fetch EVERY prior payment row for this (listing, buyer, mode), terminal
+    // ones included. Failed attempts don't block a retry, but they MUST salt
+    // the Stripe idempotency key below: after a failed attempt this function
+    // cancels the PaymentIntent, and Stripe's 24h idempotency replay would
+    // otherwise hand back that same canceled PI on every retry — whose id
+    // then collides with the failed row under payments' UNIQUE
+    // (stripe_payment_intent_id). That exact chain 500'd every checkout
+    // retry on 2026-08-03.
+    const { data: allPayments, error: paymentsErr } = await supabase
       .from('payments')
       .select('id, stripe_payment_intent_id, status')
       .eq('listing_id', listing_id)
       .eq('buyer_id', buyerId)
-      .eq('mode', mode)
-      .in('status', ['pending', 'succeeded']);
+      .eq('mode', mode);
 
-    if (existingPayments && existingPayments.length > 0) {
-      const succeededPayment = existingPayments.find((p: { status: string }) => p.status === 'succeeded');
-      if (succeededPayment) {
-        return new Response(
-          JSON.stringify({ error: 'Payment already completed for this listing' }),
-          { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-        );
-      }
+    const existingPayments = (allPayments ?? []) as
+      { id: string; stripe_payment_intent_id: string; status: string }[];
+    logStage('payments-lookup', {
+      count:    existingPayments.length,
+      statuses: existingPayments.map((p) => p.status),
+      error:    paymentsErr?.message ?? null,
+    });
 
-      const pendingPayment = existingPayments.find((p: { status: string }) => p.status === 'pending');
-      if (pendingPayment) {
-        // Retrieve existing PaymentIntent from Stripe
-        const existingPi = await stripeFetchRaw(
-          `/payment_intents/${pendingPayment.stripe_payment_intent_id}`,
-        );
-        const existingPiData = existingPi.data as { id?: string; status?: string; client_secret?: string };
+    if (existingPayments.some((p) => p.status === 'succeeded')) {
+      return new Response(
+        JSON.stringify({ error: 'Payment already completed for this listing' }),
+        { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+      );
+    }
 
-        if (existingPi.ok) {
-          // If the PI already succeeded on Stripe's side, the payment is done —
-          // block re-entry rather than returning a spent client_secret to the
-          // PaymentSheet (which would cause an "unexpected error" on the client).
-          if (existingPiData.status === 'succeeded') {
-            return new Response(
-              JSON.stringify({ error: 'Payment already completed for this listing' }),
-              { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-            );
+    let failedAttempts = existingPayments.filter((p) => p.status === 'failed').length;
+
+    const pendingPayment = existingPayments.find((p) => p.status === 'pending');
+    if (pendingPayment) {
+      // Retrieve existing PaymentIntent from Stripe
+      const existingPi = await stripeFetchRaw(
+        `/payment_intents/${pendingPayment.stripe_payment_intent_id}`,
+      );
+      const existingPiData = existingPi.data as { id?: string; status?: string; client_secret?: string };
+
+      if (existingPi.ok) {
+        // If the PI already succeeded on Stripe's side, the payment is done —
+        // block re-entry rather than returning a spent client_secret to the
+        // PaymentSheet (which would cause an "unexpected error" on the client).
+        if (existingPiData.status === 'succeeded') {
+          return new Response(
+            JSON.stringify({ error: 'Payment already completed for this listing' }),
+            { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+          );
+        }
+
+        if (existingPiData.status === 'canceled') {
+          // The pending row points at a dead PI (canceled after an earlier
+          // failure). A canceled PI can never be confirmed — returning its
+          // client_secret would hard-fail the PaymentSheet. Retire the row
+          // and fall through to mint a fresh PI for this attempt.
+          logStage('pending-pi-canceled', { payment_row: pendingPayment.id, pi_id: existingPiData.id });
+          const { error: retireErr } = await supabase
+            .from('payments')
+            .update({ status: 'failed' })
+            .eq('id', pendingPayment.id)
+            .eq('status', 'pending');
+          if (retireErr) {
+            console.warn('Failed to retire dead pending payment (continuing):', retireErr.message);
           }
-
-          if (existingPiData.client_secret) {
-            return new Response(
-              JSON.stringify({
-                clientSecret:               existingPiData.client_secret,
-                paymentIntentId:            existingPiData.id,
-                amount:                     amountCents,
-                buyer_fee:                  buyerFeeCents,
-                seller_fee:                 sellerFeeCents,
-                total:                      totalCents,
-                // P1-03 — fresh ephemeral key on every retrieval
-                customerId:                 customerCtx.customerId,
-                customerEphemeralKeySecret: customerCtx.ephemeralKeySecret,
-              }),
-              { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-            );
-          }
+          failedAttempts += 1;
+        } else if (existingPiData.client_secret) {
+          logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status });
+          return new Response(
+            JSON.stringify({
+              clientSecret:               existingPiData.client_secret,
+              paymentIntentId:            existingPiData.id,
+              amount:                     amountCents,
+              buyer_fee:                  buyerFeeCents,
+              seller_fee:                 sellerFeeCents,
+              total:                      totalCents,
+              // P1-03 — fresh ephemeral key on every retrieval
+              customerId:                 customerCtx.customerId,
+              customerEphemeralKeySecret: customerCtx.ephemeralKeySecret,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+          );
         }
       }
     }
 
     // Create Stripe PaymentIntent
     // (customerCtx was created above, hoisted so both code paths share it)
-    let stripeData: { id: string; client_secret: string };
+    //
+    // Idempotency: identical double-taps must replay the same PI, but a retry
+    // AFTER a failed attempt must mint a fresh one — a canceled PI can never
+    // be confirmed, and its id already occupies the failed row's UNIQUE slot.
+    // Salting with the failed-attempt count gives both. First attempts keep
+    // the historical key shape unchanged.
+    const piIdempotencyKey =
+      `pi_${listing_id}_${buyerId}_${mode}_${totalCents}` +
+      (failedAttempts > 0 ? `_r${failedAttempts}` : '');
+    const piBody = {
+      'amount':                              String(totalCents),
+      'currency':                            'usd',
+      'automatic_payment_methods[enabled]':  'true',
+      'customer':                            customerCtx.customerId,
+      // 'on_session' = card details collected with user in front of phone.
+      // This attaches the card to the customer after the charge succeeds,
+      // so it appears as a saved card on the next checkout. 'off_session'
+      // would be for future merchant-initiated charges, which we don't do.
+      'setup_future_usage':                  'on_session',
+      'metadata[listing_id]':                listing_id,
+      'metadata[buyer_id]':                  buyerId,
+      'metadata[seller_id]':                 listing.seller_id,
+      'metadata[mode]':                      mode,
+    };
+
+    type PiResponse = { id: string; client_secret: string; status?: string; livemode?: boolean };
+    let stripeData: PiResponse;
     try {
-      stripeData = await stripeFetch<{ id: string; client_secret: string }>('/payment_intents', {
+      stripeData = await stripeFetch<PiResponse>('/payment_intents', {
         method: 'POST',
-        idempotencyKey: `pi_${listing_id}_${buyerId}_${mode}_${totalCents}`,
-        body: {
-          'amount':                              String(totalCents),
-          'currency':                            'usd',
-          'automatic_payment_methods[enabled]':  'true',
-          'customer':                            customerCtx.customerId,
-          // 'on_session' = card details collected with user in front of phone.
-          // This attaches the card to the customer after the charge succeeds,
-          // so it appears as a saved card on the next checkout. 'off_session'
-          // would be for future merchant-initiated charges, which we don't do.
-          'setup_future_usage':                  'on_session',
-          'metadata[listing_id]':                listing_id,
-          'metadata[buyer_id]':                  buyerId,
-          'metadata[seller_id]':                 listing.seller_id,
-          'metadata[mode]':                      mode,
-        },
+        idempotencyKey: piIdempotencyKey,
+        body: piBody,
       });
+      if (stripeData.status === 'canceled') {
+        // Idempotency replay still returned a dead PI (possible if a failed
+        // row was removed out-of-band, shifting the salt back onto a spent
+        // key). One uniquely-salted retry breaks out of the replay window.
+        logStage('pi-replay-canceled', { pi_id: stripeData.id });
+        stripeData = await stripeFetch<PiResponse>('/payment_intents', {
+          method: 'POST',
+          idempotencyKey: `${piIdempotencyKey}_u${crypto.randomUUID()}`,
+          body: piBody,
+        });
+      }
     } catch (stripeErr) {
-      console.error('Stripe error:', stripeErr instanceof Error ? stripeErr.message : stripeErr);
+      const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+      logStage('pi-create-failed', { error: detail });
+      console.error('Stripe error:', detail);
       return new Response(
         JSON.stringify({ error: 'Failed to create payment intent' }),
         { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
       );
     }
+    logStage('pi-created', {
+      pi_id:        stripeData.id,
+      pi_status:    stripeData.status ?? null,
+      livemode:     stripeData.livemode ?? null,
+      amount_cents: totalCents,
+      customer_id:  customerCtx.customerId,
+    });
 
     // Record payment in database (10/10 fee model — see migration 022).
     //   amount     = listing price in cents (what seller listed)
@@ -454,9 +535,59 @@ serve(async (req: Request) => {
       });
 
     if (insertErr) {
+      const e = insertErr as { code?: string; message?: string; details?: string; hint?: string };
+      logStage('db-insert-failed', {
+        table:   'payments',
+        op:      'insert',
+        pi_id:   stripeData.id,
+        code:    e.code ?? null,
+        message: e.message ?? null,
+        details: e.details ?? null,
+        hint:    e.hint ?? null,
+      });
       console.error('DB insert error:', insertErr);
-      // Cancel the orphaned PaymentIntent. Errors here are non-fatal —
-      // the original request already failed and the caller will retry.
+
+      // 23505 on stripe_payment_intent_id ⇒ a concurrent identical request
+      // (same idempotency key ⇒ same PI) inserted its row first. That row IS
+      // this payment — return the shared client_secret instead of failing.
+      if (e.code === '23505') {
+        const { data: winner } = await supabase
+          .from('payments')
+          .select('listing_id, buyer_id, mode, status')
+          .eq('stripe_payment_intent_id', stripeData.id)
+          .maybeSingle();
+        if (
+          winner &&
+          winner.listing_id === listing_id &&
+          winner.buyer_id === buyerId &&
+          winner.mode === mode &&
+          winner.status === 'pending'
+        ) {
+          logStage('db-insert-race-recovered', { pi_id: stripeData.id });
+          return new Response(
+            JSON.stringify({
+              clientSecret:               stripeData.client_secret,
+              paymentIntentId:            stripeData.id,
+              amount:                     amountCents,
+              buyer_fee:                  buyerFeeCents,
+              seller_fee:                 sellerFeeCents,
+              total:                      totalCents,
+              customerId:                 customerCtx.customerId,
+              customerEphemeralKeySecret: customerCtx.ephemeralKeySecret,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+          );
+        }
+      }
+
+      // Real failure: surface the true cause to Sentry (the client only ever
+      // sees the safe message), then cancel the orphaned PaymentIntent.
+      // Cancel errors are non-fatal — the request already failed and the
+      // caller will retry with a fresh salt.
+      await captureException(
+        'create-payment-intent',
+        new Error(`payments insert failed: code=${e.code ?? '?'} ${e.message ?? ''} ${e.details ?? ''}`),
+      );
       try {
         await stripeFetch(`/payment_intents/${stripeData.id}/cancel`, { method: 'POST' });
       } catch (cancelErr) {
@@ -467,6 +598,7 @@ serve(async (req: Request) => {
         { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
       );
     }
+    logStage('db-insert-ok', { pi_id: stripeData.id, status: 'pending' });
 
     return new Response(
       JSON.stringify({
