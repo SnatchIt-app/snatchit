@@ -9,6 +9,7 @@
  *   • full-screen modal, dark background, safe-area close button
  *   • pinch-to-zoom + pan via native ScrollView zoom (iOS)
  *   • double-tap toggles zoom in/out at the tapped point
+ *   • swipe down (while not zoomed) dismisses
  *   • loading spinner + error state with retry
  *   • back gesture / hardware back (onRequestClose) closes the viewer
  *   • portrait and landscape images both fit via resizeMode="contain"
@@ -115,9 +116,16 @@ export function ProofImageViewer({ uri, onClose }: Props) {
               maximumZoomScale={4}
               minimumZoomScale={1}
               bouncesZoom
+              alwaysBounceVertical
               showsHorizontalScrollIndicator={false}
               showsVerticalScrollIndicator={false}
               centerContent
+              onScrollEndDrag={(e) => {
+                // Swipe-to-dismiss: a firm pull-down while NOT zoomed closes
+                // the viewer. While zoomed, vertical drags stay pans.
+                const { contentOffset, zoomScale } = e.nativeEvent;
+                if ((zoomScale ?? 1) <= 1.05 && contentOffset.y < -80) onClose();
+              }}
             >
               <Pressable
                 onPress={(e) => handleTap(e.nativeEvent.locationX, e.nativeEvent.locationY)}

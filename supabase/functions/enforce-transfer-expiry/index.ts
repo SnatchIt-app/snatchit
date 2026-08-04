@@ -53,6 +53,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
+import { createSellerPayout } from '../_shared/payouts.ts';
 import {
   classifyPayout,
   DEFAULT_POLICY,
@@ -429,19 +430,62 @@ serve(async (req: Request) => {
       // 10/10 fee model: seller net = base amount − seller fee (both cents).
       const sellerNetCents = (payment.amount as number) - ((payment.seller_fee as number) ?? 0);
 
-      const stripeTransfer = await stripeFetch<{ id: string }>('/transfers', {
-        method: 'POST',
-        idempotencyKey: `payout_${t.transfer_id}`,
-        body: {
-          'amount': String(sellerNetCents),
-          'currency': 'usd',
-          'destination': sellerProfile.stripe_connect_id,
-          'metadata[transfer_id]': t.transfer_id,
-          'metadata[payment_id]': t.payment_id,
-          'metadata[seller_id]': t.seller_id,
-          'metadata[source]': 'enforce-transfer-expiry-auto-release',
-        },
-      });
+      // Canonical payout request (_shared/payouts.ts) — byte-identical to
+      // confirm-and-release's request under the same (transfer, destination)
+      // key. The old divergence (`payout_<id>` with per-caller metadata)
+      // made Stripe reject every cross-path retry with "Keys for idempotent
+      // requests can only be used with the same parameters..." (2026-08-03).
+      let stripeTransfer: { id: string };
+      try {
+        stripeTransfer = await createSellerPayout({
+          transferId:     t.transfer_id,
+          paymentId:      t.payment_id,
+          sellerId:       t.seller_id,
+          destination:    sellerProfile.stripe_connect_id,
+          sellerNetCents,
+        });
+      } catch (stripeErr) {
+        // A payout Stripe refuses (bad destination, balance, mode mismatch)
+        // is an operations problem: record ONE manual_review decision for
+        // the admin queue and stop re-attempting noisily every cron run.
+        const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+        console.error('enforce-transfer-expiry: Stripe Transfer failed:', {
+          transfer_id: t.transfer_id,
+          error: detail,
+        });
+        const { data: existingDecision } = await supabase
+          .from('payout_decisions')
+          .select('id')
+          .eq('transfer_id', t.transfer_id)
+          .eq('decision', 'manual_review')
+          .limit(1)
+          .maybeSingle();
+        if (!existingDecision) {
+          const { error: decisionErr } = await supabase.from('payout_decisions').insert({
+            transfer_id: t.transfer_id,
+            payment_id:  t.payment_id,
+            seller_id:   t.seller_id,
+            buyer_id:    t.buyer_id,
+            risk_tier:   'low',
+            decision:    'manual_review',
+            reason_codes: ['PAYOUT_TRANSFER_FAILED'],
+            evidence:    { stripe_error: detail, seller_net_cents: sellerNetCents },
+            buyer_confirmed: false,
+            dispute_open: false,
+            actor: 'edge:enforce-transfer-expiry',
+          });
+          if (decisionErr) {
+            console.error('enforce-transfer-expiry: payout_decisions insert failed:', decisionErr);
+          }
+          // Surface the FIRST failure to Sentry; repeats stay in edge logs.
+          await captureException(
+            'enforce-transfer-expiry:payout-transfer-failed',
+            new Error(`Stripe Transfer failed for transfer ${t.transfer_id}: ${detail}`),
+            { transfer_id: t.transfer_id },
+          );
+        }
+        return false;
+      }
 
       // Atomic write AFTER money moved; WHERE stripe_transfer_id IS NULL
       // means overlapping runs record exactly one payout.

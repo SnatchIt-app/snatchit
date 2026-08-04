@@ -27,6 +27,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
+import { createSellerPayout } from '../_shared/payouts.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -450,24 +451,17 @@ serve(async (req: Request) => {
 
     let stripeTransfer;
     try {
-      // Idempotency-Key keyed on (transfer id, destination): if the
-      // buyer-confirm path and the cron path (or two buyer taps) ever race
-      // to Stripe, Stripe returns the SAME Transfer object instead of
-      // moving money twice. The destination is part of the key so that a
-      // seller who fixes their payout account gets a FRESH attempt instead
-      // of Stripe replaying the previous failure for 24h.
-      stripeTransfer = await stripeFetch<{ id: string }>('/transfers', {
-        method: 'POST',
-        idempotencyKey: `payout_${transfer_id}_${sellerProfile.stripe_connect_id}`,
-        body: {
-          'amount':      String(sellerNetCents),
-          'currency':    'usd',
-          'destination': sellerProfile.stripe_connect_id,
-          'metadata[transfer_id]':  transfer_id,
-          'metadata[payment_id]':   transfer.payment_id,
-          'metadata[seller_id]':    transfer.seller_id,
-          'metadata[source]':       'confirm-and-release',
-        },
+      // Canonical payout request (_shared/payouts.ts) — byte-identical to
+      // the cron path's request, keyed on (transfer id, destination), so
+      // any race or retry across both paths replays ONE Stripe Transfer
+      // and a re-onboarded seller gets a fresh key instead of a stale
+      // 24h idempotency replay.
+      stripeTransfer = await createSellerPayout({
+        transferId:     transfer_id,
+        paymentId:      transfer.payment_id,
+        sellerId:       transfer.seller_id,
+        destination:    sellerProfile.stripe_connect_id,
+        sellerNetCents,
       });
     } catch (stripeErr) {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
