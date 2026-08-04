@@ -28,7 +28,8 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInLabel } from '@/src/lib/money';
+import { allInFromDollars } from '@/src/lib/money';
+import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -194,12 +195,14 @@ function ListingCard({
           {listing.venue} · {listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? ''}
         </Text>
         <View style={s.cardFooter}>
-          <View>
-            <Text style={s.cardBidLabel}>{status === 'SOLD' ? 'Sold for' : 'Current bid'}</Text>
+          <View style={s.cardPrice}>
             {/* All-in pricing: the first price a buyer sees includes the 10% service fee. */}
-            <Text style={[s.cardBidAmount, status === 'SOLD' && s.cardBidAmountSold]}>
-              {allInLabel(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid)}
-            </Text>
+            <PriceDisplay
+              size="card"
+              label={status === 'SOLD' ? 'Sold for' : 'Current bid'}
+              amount={allInFromDollars(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid)}
+              muted={status === 'SOLD'}
+            />
           </View>
           <View style={[s.bidNowBtn, isEnded && s.bidNowBtnEnded]}>
             <Text style={s.bidNowText}>{isEnded ? 'View' : 'Bid now'}</Text>
@@ -839,12 +842,12 @@ const s = StyleSheet.create({
   cardBody:     { padding: spacing.md },
   cardEvent:    { fontSize: fontSize.md, fontWeight: '700', color: colors.text, marginBottom: 2 },
   cardVenue:    { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: spacing.sm },
-  cardFooter:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 4 },
-  cardBidLabel: { fontSize: fontSize.xs, color: colors.textDim, textTransform: 'uppercase', letterSpacing: 0.8 },
-  cardBidAmount:     { fontSize: fontSize.lg, fontWeight: '800', color: colors.text },
-  cardBidAmountSold: { color: colors.textMuted },
+  cardFooter:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 4, gap: spacing.sm },
+  // flex+minWidth so the price column shrinks gracefully instead of pushing
+  // the CTA off-card; PriceDisplay guarantees the amount itself never wraps.
+  cardPrice:    { flex: 1, minWidth: 0 },
 
-  bidNowBtn:      { backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 7 },
+  bidNowBtn:      { backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 7, flexShrink: 0 },
   bidNowBtnEnded: { backgroundColor: colors.bgInput },
   bidNowText:     { color: colors.text, fontSize: fontSize.xs, fontWeight: '700' },
 
