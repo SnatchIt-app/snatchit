@@ -343,12 +343,20 @@ serve(async (req: Request) => {
     // still 'succeeded' with no stripe_refund_id gets the refund
     // re-attempted under the same deterministic idempotency key.
     try {
+      // LIVE-ERA ONLY: the platform ran on a test-mode secret key until
+      // 2026-08-03, so pre-cutover payments hold test-mode PaymentIntents
+      // that the live key can never refund ("No such payment_intent …
+      // exists in test mode"). Sweeping them threw on every cron run
+      // (Sentry REACT-NATIVE-8, 2026-08-04). No live money existed before
+      // the cutover, so nothing before it can be owed a live refund.
+      const LIVE_ERA_START = '2026-08-03T00:00:00Z';
       const { data: unrefunded } = await supabase
         .from('transfers')
         .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id)')
         .eq('status', 'expired')
         .eq('payments.status', 'succeeded')
         .is('payments.stripe_refund_id', null)
+        .gte('created_at', LIVE_ERA_START)
         .order('created_at', { ascending: true })
         .limit(20);
 
@@ -389,10 +397,19 @@ serve(async (req: Request) => {
           }
           refundedCount++;
         } catch (err) {
-          // Real money owed to a buyer — every failure goes to Sentry.
-          await captureException('enforce-transfer-expiry:phase1b-refund-selfheal', err, {
-            transfer_id: row.id,
-          });
+          // A PI the live key cannot see is data archaeology, not owed live
+          // money — log it, don't page. Everything else is a real dropped
+          // refund and goes to Sentry.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/no such payment_intent|test mode/i.test(msg)) {
+            console.warn('enforce-transfer-expiry: Phase 1b skipped non-live PI:', {
+              transfer_id: row.id, error: msg,
+            });
+          } else {
+            await captureException('enforce-transfer-expiry:phase1b-refund-selfheal', err, {
+              transfer_id: row.id,
+            });
+          }
           errorCount++;
         }
       }
