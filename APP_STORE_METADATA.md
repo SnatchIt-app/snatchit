@@ -81,13 +81,13 @@ Password: Snatchitreview
 HOW TO REACH CHECKOUT AND APPLE PAY (use the buyer account):
 1. Sign in as the buyer.
 2. On the Home tab, open an active listing — "III Points Saturday GA", "Space Miami — Mochakk", or "Quavo E11even".
-3. Tap the "Buy · $330" button (the label shows each listing's all-in total; $330 is the III Points example).
-4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $330".
+3. Tap the "Buy · $2.20" button (every demo listing has a $2 Buy Now price; the label shows the all-in total of $2.20).
+4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $2.20".
 5. The Stripe PaymentSheet opens. APPLE PAY IS INTEGRATED HERE, via Stripe PaymentSheet with merchant identifier merchant.com.snatchit, one step after the "Pay · $X" button. On devices that support Apple Pay the sheet offers Apple Pay; card entry is always available as the fallback. This checkout sheet is the app's only payment surface.
 
 Build 13 is the current binary and includes the latest production payment and UI updates; the live checkout above has been verified end to end in this exact environment.
 
-All three listings also accept auction bids. The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active through late August 2026 and will not expire during review.
+All three listings also accept auction bids (current bid $1, shown as $1.10 all-in). The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active through late August 2026 and will not expire during review.
 
 Note: payments run on live Stripe keys. You can open the payment sheet and fully inspect Apple Pay and card entry without completing a charge; if a purchase is completed, we monitor and refund App Review transactions.
 
