@@ -190,12 +190,12 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!accountId) {
-      // Create new Express account — individual seller, payouts only.
-      // business_type=individual + a consumer-friendly product description
-      // keeps Stripe's hosted onboarding in "person" mode instead of asking
-      // for business registration details. NEW accounts only — existing
-      // accounts are never mutated (this branch requires no stripe_connect_id).
+    // Create new Express account — individual seller, payouts only.
+    // business_type=individual + a consumer-friendly product description
+    // keeps Stripe's hosted onboarding in "person" mode instead of asking
+    // for business registration details. Called when the profile has no
+    // usable stripe_connect_id (never set, or archived as stale below).
+    const createFreshAccount = async (): Promise<string> => {
       const { data: authUser } = await supabase.auth.admin.getUserById(userId);
       const email = authUser?.user?.email ?? '';
 
@@ -209,26 +209,56 @@ serve(async (req: Request) => {
       };
       if (email) accountParams['email'] = email;
 
-      const account = await stripePost('accounts', accountParams);
-      accountId = account.id;
+      const created = await stripePost('accounts', accountParams);
 
       // Save to profile
       const { error: updateErr } = await supabase
         .from('profiles')
-        .update({ stripe_connect_id: accountId })
+        .update({ stripe_connect_id: created.id })
         .eq('id', userId);
-
       if (updateErr) {
         console.error('Failed to save stripe_connect_id:', updateErr);
-        return new Response(
-          JSON.stringify({ error: 'Failed to save account' }),
-          { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-        );
+        throw new Error('Failed to save account');
       }
+      return created.id as string;
+    };
+
+    if (!accountId) {
+      accountId = await createFreshAccount();
     }
 
-    // Check whether the account has completed onboarding
-    const account = await stripeGet(`accounts/${accountId}`);
+    // Check whether the account has completed onboarding.
+    //
+    // Self-heal (2026-08-03 incident): profiles created before the live-key
+    // cutover hold TEST-mode Connect ids. Retrieving one with the live key
+    // fails ("was a test account created with a testmode key" / "No such
+    // account"), which used to 500 this endpoint and made live re-onboarding
+    // impossible. Instead: archive the dead id (stripe_connect_archive) and
+    // mint a fresh live account in the same request, so the seller lands in
+    // live onboarding seamlessly.
+    let account;
+    try {
+      account = await stripeGet(`accounts/${accountId}`);
+    } catch (retrieveErr) {
+      const msg = retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
+      const isStaleAccount = /test\s?mode|testmode|no such account/i.test(msg);
+      if (!isStaleAccount) throw retrieveErr;
+
+      console.warn('[create-connect-account] archiving stale Connect id and creating live account:', {
+        user_id: userId,
+        error: msg,
+      });
+      const { error: archiveErr } = await supabase.from('stripe_connect_archive').insert({
+        profile_id:        userId,
+        stripe_connect_id: accountId,
+        reason:            `unusable with live key: ${msg}`,
+      });
+      if (archiveErr) console.error('[create-connect-account] archive insert failed:', archiveErr);
+
+      await supabase.from('profiles').update({ stripe_connect_id: null }).eq('id', userId);
+      accountId = await createFreshAccount();
+      account = await stripeGet(`accounts/${accountId}`);
+    }
     const detailsSubmitted = !!account.details_submitted;
 
     // If onboarding is complete, persist that in our DB so the client can
