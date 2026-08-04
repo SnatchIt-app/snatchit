@@ -53,7 +53,12 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
-import { createSellerPayout } from '../_shared/payouts.ts';
+import {
+  classifyPayoutStripeError,
+  createSellerPayout,
+  reasonCodeForErrorClass,
+  shouldPageSentry,
+} from '../_shared/payouts.ts';
 import {
   classifyPayout,
   DEFAULT_POLICY,
@@ -398,7 +403,7 @@ serve(async (req: Request) => {
       }
 
       const { data: payment } = await supabase
-        .from('payments').select('amount, seller_fee, status').eq('id', t.payment_id).single();
+        .from('payments').select('amount, seller_fee, status, stripe_payment_intent_id').eq('id', t.payment_id).single();
       if (!payment) {
         console.error('enforce-transfer-expiry: payment lookup failed:', t.transfer_id);
         return false;
@@ -490,39 +495,52 @@ serve(async (req: Request) => {
       let stripeTransfer: { id: string };
       try {
         const payoutRes = await createSellerPayout({
-          transferId:     t.transfer_id,
-          paymentId:      t.payment_id,
-          sellerId:       t.seller_id,
-          destination:    sellerProfile.stripe_connect_id,
+          transferId:      t.transfer_id,
+          paymentId:       t.payment_id,
+          sellerId:        t.seller_id,
+          destination:     sellerProfile.stripe_connect_id,
+          paymentIntentId: payment.stripe_payment_intent_id as string,
           sellerNetCents,
         });
         if (!payoutRes.ok) {
-          // Destination can't receive transfers yet (onboarding incomplete).
-          // No Stripe POST was made, so no idempotency key was burned — the
-          // next sweep after the capability activates releases cleanly.
-          console.warn('enforce-transfer-expiry: payout deferred — destination not ready:', {
+          // Expected deferral (destination can't receive transfers yet, or
+          // the funding charge is refunded/unavailable). No Stripe POST was
+          // made, so no idempotency key was burned — the next sweep after
+          // the blocking condition clears releases cleanly. Not Sentry.
+          const deferEvidence = payoutRes.reason === 'destination_not_ready'
+            ? { seller_net_cents: sellerNetCents, ...payoutRes.destination_state }
+            : { seller_net_cents: sellerNetCents, ...payoutRes.source_state };
+          console.warn('enforce-transfer-expiry: payout deferred:', {
             transfer_id: t.transfer_id,
-            state: payoutRes.destination_state,
+            reason: payoutRes.reason,
+            evidence: deferEvidence,
           });
-          await recordManualReviewOnce('PAYOUT_DESTINATION_NOT_READY', {
-            seller_net_cents: sellerNetCents,
-            ...payoutRes.destination_state,
-          });
+          await recordManualReviewOnce(
+            payoutRes.reason === 'destination_not_ready'
+              ? 'PAYOUT_DESTINATION_NOT_READY'
+              : 'PAYOUT_SOURCE_CHARGE_UNAVAILABLE',
+            deferEvidence,
+          );
           return false;
         }
         stripeTransfer = payoutRes.transfer;
       } catch (stripeErr) {
-        // A transfer Stripe refused AFTER a passing pre-flight (balance,
-        // platform restriction, …) — admin queue + one Sentry capture.
+        // A transfer Stripe refused AFTER passing pre-flights. Classify:
+        // operational states (funds/capability) → decision row only;
+        // unexpected/idempotency-bug classes → one Sentry capture.
         const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+        const errClass = classifyPayoutStripeError(detail);
         console.error('enforce-transfer-expiry: Stripe Transfer failed:', {
           transfer_id: t.transfer_id,
+          error_class: errClass,
           error: detail,
         });
         await recordManualReviewOnce(
-          'PAYOUT_TRANSFER_FAILED',
-          { stripe_error: detail, seller_net_cents: sellerNetCents },
-          new Error(`Stripe Transfer failed for transfer ${t.transfer_id}: ${detail}`),
+          reasonCodeForErrorClass(errClass),
+          { stripe_error: detail, error_class: errClass, seller_net_cents: sellerNetCents },
+          shouldPageSentry(errClass)
+            ? new Error(`Stripe Transfer failed [${errClass}] for transfer ${t.transfer_id}: ${detail}`)
+            : undefined,
         );
         return false;
       }

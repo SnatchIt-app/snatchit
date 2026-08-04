@@ -199,6 +199,53 @@ Deno.serve(async (req) => {
     } catch { /* ignore malformed body */ }
   }
 
+  // Optional: platform balance (read-only) — payout funding forensics.
+  let balance: unknown = null;
+  if (authed) {
+    try {
+      if ((reqBody as { balance?: boolean }).balance === true) {
+        const r = await fetch('https://api.stripe.com/v1/balance', {
+          headers: { Authorization: `Bearer ${trimmed}` },
+        });
+        const d = await r.json().catch(() => ({})) as Record<string, unknown>;
+        balance = r.ok
+          ? { available: d.available, pending: d.pending, livemode: d.livemode }
+          : { error: `HTTP ${r.status}` };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
+  // Optional: PI funding forensics (read-only) — PI → latest charge →
+  // balance transaction (status / available_on / net / fee) in one call.
+  let pi_forensics: unknown = null;
+  if (authed) {
+    try {
+      const fid = (reqBody as { pi_forensics?: string }).pi_forensics;
+      if (fid && /^pi_[A-Za-z0-9]+$/.test(fid)) {
+        const r = await fetch(
+          `https://api.stripe.com/v1/payment_intents/${fid}?expand[]=latest_charge.balance_transaction`,
+          { headers: { Authorization: `Bearer ${trimmed}` } },
+        );
+        const d = await r.json().catch(() => ({})) as Record<string, unknown>;
+        const ch = (d.latest_charge ?? {}) as Record<string, unknown>;
+        const bt = (ch.balance_transaction ?? {}) as Record<string, unknown>;
+        pi_forensics = r.ok
+          ? {
+              pi: { id: d.id, status: d.status, amount: d.amount, livemode: d.livemode, created: d.created },
+              charge: {
+                id: ch.id, paid: ch.paid, amount: ch.amount, created: ch.created,
+                application_fee_amount: ch.application_fee_amount ?? null,
+              },
+              balance_transaction: {
+                id: bt.id, status: bt.status, amount: bt.amount, net: bt.net,
+                fee: bt.fee, available_on: bt.available_on, currency: bt.currency,
+              },
+            }
+          : { error: (d as { error?: { message?: string } }).error?.message ?? `HTTP ${r.status}` };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
   // Optional: list live-mode Transfers (read-only) — duplicate-payout audit.
   let transfers_list: unknown = null;
   if (authed) {
@@ -238,7 +285,7 @@ Deno.serve(async (req) => {
 
   return new Response(
     JSON.stringify(
-      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, connect_account_probe, transfers_list, cancel_result },
+      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, connect_account_probe, balance, pi_forensics, transfers_list, cancel_result },
       null,
       2,
     ),

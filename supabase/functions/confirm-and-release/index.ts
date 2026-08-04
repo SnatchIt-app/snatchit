@@ -27,7 +27,12 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
-import { createSellerPayout } from '../_shared/payouts.ts';
+import {
+  classifyPayoutStripeError,
+  createSellerPayout,
+  reasonCodeForErrorClass,
+  shouldPageSentry,
+} from '../_shared/payouts.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -451,45 +456,60 @@ serve(async (req: Request) => {
 
     let stripeTransfer: { id: string };
     try {
-      // Canonical payout request (_shared/payouts.ts) — capability
-      // pre-flight, then a byte-identical transfer request keyed on
-      // (transfer id, destination) shared with the cron path, so any race
-      // or retry replays ONE Stripe Transfer, a re-onboarded seller gets a
-      // fresh key, and a not-yet-ready destination never burns the key.
+      // Canonical payout (_shared/payouts.ts): capability pre-flight,
+      // funding-charge verification, then a source_transaction transfer
+      // keyed on (transfer id, destination) shared with the cron path. Any
+      // race or retry replays ONE Stripe Transfer; the transfer is funded
+      // by THIS payment's charge, so a same-day payout succeeds even while
+      // the platform's available balance is still settling.
       const payoutRes = await createSellerPayout({
-        transferId:     transfer_id,
-        paymentId:      transfer.payment_id,
-        sellerId:       transfer.seller_id,
-        destination:    sellerProfile.stripe_connect_id,
+        transferId:      transfer_id,
+        paymentId:       transfer.payment_id,
+        sellerId:        transfer.seller_id,
+        destination:     sellerProfile.stripe_connect_id,
+        paymentIntentId: payment.stripe_payment_intent_id as string,
         sellerNetCents,
       });
       if (!payoutRes.ok) {
-        // Seller's Connect account can't receive transfers yet (onboarding
-        // incomplete, requirements past due, …). Buyer confirmation stands;
-        // the cron auto-releases the payout once the capability activates.
-        return await payoutDeferred('PAYOUT_DESTINATION_NOT_READY', {
+        // Expected operational deferrals — buyer confirmation stands, the
+        // cron re-attempts once the blocking condition clears. Not Sentry.
+        if (payoutRes.reason === 'destination_not_ready') {
+          return await payoutDeferred('PAYOUT_DESTINATION_NOT_READY', {
+            destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
+            seller_net_cents:   sellerNetCents,
+            ...payoutRes.destination_state,
+          }, transfer.payment_id);
+        }
+        return await payoutDeferred('PAYOUT_SOURCE_CHARGE_UNAVAILABLE', {
           destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
           seller_net_cents:   sellerNetCents,
-          ...payoutRes.destination_state,
+          ...payoutRes.source_state,
         }, transfer.payment_id);
       }
       stripeTransfer = payoutRes.transfer;
     } catch (stripeErr) {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+      const errClass = classifyPayoutStripeError(detail);
       console.error('confirm-and-release: Stripe Transfer failed:', {
         transfer_id,
         seller_connect_id: sellerProfile.stripe_connect_id,
         seller_net:        sellerNetCents,
+        error_class:       errClass,
         error:             detail,
       });
-      await captureException(
-        'confirm-and-release',
-        new Error(`Stripe Transfer failed for transfer ${transfer_id}: ${detail}`),
-      );
+      // Only unexpected classes page Sentry — operational states (funds,
+      // capability) are recorded as payout decisions, not exceptions.
+      if (shouldPageSentry(errClass)) {
+        await captureException(
+          'confirm-and-release',
+          new Error(`Stripe Transfer failed [${errClass}] for transfer ${transfer_id}: ${detail}`),
+        );
+      }
       // The buyer's confirmation stands; the payout goes to the admin
       // manual-review queue with Stripe's real error preserved as evidence.
-      return await payoutDeferred('PAYOUT_TRANSFER_FAILED', {
+      return await payoutDeferred(reasonCodeForErrorClass(errClass), {
         stripe_error:       detail,
+        error_class:        errClass,
         destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
         seller_net_cents:   sellerNetCents,
       }, transfer.payment_id);
