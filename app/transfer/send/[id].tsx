@@ -41,6 +41,7 @@ type TransferData = {
   transfer_method: TransferMethod;
   expires_at: string | null;
   auto_release_at: string | null;
+  payout_released_at: string | null;
   payout_review_status: 'held' | 'manual_review' | null;
   delivery_email: string | null;
   delivery_phone: string | null;
@@ -100,7 +101,7 @@ export default function TransferSendScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_review_status, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -407,7 +408,10 @@ export default function TransferSendScreen() {
               Transfer complete
             </Text>
             <Text style={s.sentText}>
-              The buyer has confirmed receipt. Your payout has been released.
+              {transfer.payout_released_at
+                ? 'The buyer has confirmed receipt. Your payout has been released.'
+                : 'The buyer has confirmed receipt. Your payout is being processed — ' +
+                  'make sure your payout account is set up in Settings.'}
             </Text>
           </View>
         )}
