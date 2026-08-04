@@ -133,9 +133,58 @@ Deno.serve(async (req) => {
     })) ?? ca;
   }
 
+  // Body is read exactly once and reused by both the lookup and cancel blocks.
+  const reqBody: Record<string, unknown> = authed
+    ? await req.json().catch(() => ({}))
+    : {};
+
+  // Optional: inspect a specific PaymentIntent (id only, via request body).
+  // Returns only non-sensitive fields — never the client_secret.
+  let payment_intent: unknown = null;
+  if (authed) {
+    try {
+      const piId = (reqBody as { pi_id?: string }).pi_id;
+      if (piId && /^pi_[A-Za-z0-9]+$/.test(piId)) {
+        const r = await fetch(`https://api.stripe.com/v1/payment_intents/${piId}`, {
+          headers: { Authorization: `Bearer ${trimmed}` },
+        });
+        const d = await r.json().catch(() => ({}));
+        payment_intent = r.ok
+          ? {
+              id:        d.id,
+              status:    d.status,
+              amount:    d.amount,
+              currency:  d.currency,
+              livemode:  d.livemode,
+              metadata:  d.metadata,
+              created:   d.created,
+            }
+          : { error: (d as { error?: { message?: string } }).error?.message ?? `HTTP ${r.status}` };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
+  // Optional: cancel a stuck (never-confirmed) PaymentIntent, via request body.
+  let cancel_result: unknown = null;
+  if (authed) {
+    try {
+      const cancelId = (reqBody as { cancel_pi?: string }).cancel_pi;
+      if (cancelId && /^pi_[A-Za-z0-9]+$/.test(cancelId)) {
+        const r = await fetch(`https://api.stripe.com/v1/payment_intents/${cancelId}/cancel`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${trimmed}` },
+        });
+        const d = await r.json().catch(() => ({}));
+        cancel_result = r.ok
+          ? { id: d.id, status: d.status }
+          : { error: (d as { error?: { message?: string } }).error?.message ?? `HTTP ${r.status}` };
+      }
+    } catch { /* ignore malformed body */ }
+  }
+
   return new Response(
     JSON.stringify(
-      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts },
+      { shape, raw_probe, trimmed_probe, webhook_shape, webhook_endpoints, connect_accounts, payment_intent, cancel_result },
       null,
       2,
     ),
