@@ -549,6 +549,10 @@ serve(async (req: Request) => {
         stripe_payment_intent_id: stripeData.id,
         status:     'pending',
         mode,
+        // Mode boundary (migration 045): recorded from Stripe's OWN
+        // livemode field, never inferred. Financial automation only acts
+        // on stripe_livemode = true rows.
+        stripe_livemode: stripeData.livemode ?? null,
       });
 
     if (insertErr) {

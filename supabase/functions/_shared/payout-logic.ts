@@ -95,3 +95,24 @@ export function payoutEligibility(i: PayoutEligibilityInput): PayoutEligibility 
 export function maxTransferableCents(chargeAmountCents: number, amountRefundedCents: number): number {
   return Math.max(0, chargeAmountCents - amountRefundedCents);
 }
+
+/**
+ * Stripe's signature for addressing an object with the wrong-mode key
+ * ("No such payment_intent: 'pi_…'; a similar object exists in test mode,
+ * but a live mode key was used…" — and the mirrored live/test variant).
+ * A row that produces this while marked live is a data-integrity incident:
+ * quarantine it (stripe_livemode = false), never silently continue.
+ */
+export function isCrossModeStripeError(message: string): boolean {
+  return /similar object exists in (test|live) mode/i.test(message);
+}
+
+/**
+ * The mode boundary for financial automation: only rows explicitly marked
+ * live (payments.stripe_livemode = true) may enter refund/payout/
+ * reconciliation paths. false = preserved-but-inert test-era audit data;
+ * null = unclassified and therefore NOT actionable (fail closed).
+ */
+export function rowIsLiveActionable(stripeLivemode: boolean | null | undefined): boolean {
+  return stripeLivemode === true;
+}

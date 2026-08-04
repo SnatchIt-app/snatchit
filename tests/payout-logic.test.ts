@@ -14,9 +14,11 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPayoutIdempotencyKey,
   classifyPayoutStripeError,
+  isCrossModeStripeError,
   maxTransferableCents,
   payoutEligibility,
   reasonCodeForErrorClass,
+  rowIsLiveActionable,
   shouldPageSentry,
 } from '../supabase/functions/_shared/payout-logic';
 
@@ -145,5 +147,45 @@ describe('transfer amount ceiling — never draw unrelated platform balance', ()
 
   it('over-refund edge (disputes) clamps at 0, never negative', () => {
     expect(maxTransferableCents(220, 500)).toBe(0);
+  });
+});
+
+// ── Mode boundary (migration 045 + Sentry REACT-NATIVE-8) ────────────────────
+
+describe('live/test mode boundary — automation acts on explicit live rows only', () => {
+  it('live row is actionable (live PaymentIntent proceeds normally)', () => {
+    expect(rowIsLiveActionable(true)).toBe(true);
+  });
+
+  it('test-era row is inert for refund/payout/reconciliation, preserved for audit', () => {
+    expect(rowIsLiveActionable(false)).toBe(false);
+  });
+
+  it('unclassified row fails CLOSED — never actionable', () => {
+    expect(rowIsLiveActionable(null)).toBe(false);
+    expect(rowIsLiveActionable(undefined)).toBe(false);
+  });
+
+  it("recognizes Stripe's cross-mode signature (test object addressed with live key)", () => {
+    expect(isCrossModeStripeError(
+      "No such payment_intent: 'pi_3TN1LSGdOzCmGbHw02bMiDxP'; a similar object exists in test mode, but a live mode key was used to make this request.",
+    )).toBe(true);
+  });
+
+  it('recognizes the mirrored variant (live object addressed with test key)', () => {
+    expect(isCrossModeStripeError(
+      "No such payment_intent: 'pi_x'; a similar object exists in live mode, but a test mode key was used to make this request.",
+    )).toBe(true);
+  });
+
+  it('a genuinely missing LIVE PaymentIntent is NOT classified cross-mode — it must page', () => {
+    expect(isCrossModeStripeError("No such payment_intent: 'pi_gone'")).toBe(false);
+  });
+
+  it('unrelated Stripe errors are not cross-mode', () => {
+    expect(isCrossModeStripeError('Insufficient funds in Stripe account.')).toBe(false);
+    expect(isCrossModeStripeError(
+      'Your destination account needs to have at least one of the following capabilities enabled: transfers',
+    )).toBe(false);
   });
 });

@@ -59,6 +59,7 @@ import {
   reasonCodeForErrorClass,
   shouldPageSentry,
 } from '../_shared/payouts.ts';
+import { isCrossModeStripeError, rowIsLiveActionable } from '../_shared/payout-logic.ts';
 import {
   classifyPayout,
   DEFAULT_POLICY,
@@ -200,7 +201,7 @@ serve(async (req: Request) => {
           // ── 2a. Look up the payment ────────────────────────────────────
           const { data: payment, error: payErr } = await supabase
             .from('payments')
-            .select('id, stripe_payment_intent_id, status, stripe_refund_id')
+            .select('id, stripe_payment_intent_id, status, stripe_refund_id, stripe_livemode')
             .eq('id', t.payment_id)
             .single();
 
@@ -211,6 +212,18 @@ serve(async (req: Request) => {
               error:       payErr,
             });
             errorCount++;
+            continue;
+          }
+
+          // Mode boundary (migration 045): never address a non-live PI
+          // with the live key. Freshly-expiring rows are live-era in
+          // practice, but the guard makes it structural.
+          if (!rowIsLiveActionable(payment.stripe_livemode as boolean | null)) {
+            console.warn('enforce-transfer-expiry: expiry refund skipped — payment not live-mode:', {
+              transfer_id: t.transfer_id,
+              payment_id:  t.payment_id,
+              stripe_livemode: payment.stripe_livemode,
+            });
             continue;
           }
 
@@ -343,27 +356,27 @@ serve(async (req: Request) => {
     // still 'succeeded' with no stripe_refund_id gets the refund
     // re-attempted under the same deterministic idempotency key.
     try {
-      // LIVE-ERA ONLY: the platform ran on a test-mode secret key until
-      // 2026-08-03, so pre-cutover payments hold test-mode PaymentIntents
-      // that the live key can never refund ("No such payment_intent …
-      // exists in test mode"). Sweeping them threw on every cron run
-      // (Sentry REACT-NATIVE-8, 2026-08-04). No live money existed before
-      // the cutover, so nothing before it can be owed a live refund.
-      const LIVE_ERA_START = '2026-08-03T00:00:00Z';
+      // MODE BOUNDARY: only payments explicitly marked live
+      // (stripe_livemode = true, migration 045 — set from Stripe's own
+      // livemode at creation, backfilled from key-usage history) are
+      // refundable here. Test-era rows hold test-mode PaymentIntents the
+      // live key can never see ("No such payment_intent … exists in test
+      // mode" — Sentry REACT-NATIVE-8); they stay preserved for audit but
+      // are inert. NULL (unclassified) is also excluded — fail closed.
       const { data: unrefunded } = await supabase
         .from('transfers')
-        .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id)')
+        .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id, stripe_livemode)')
         .eq('status', 'expired')
         .eq('payments.status', 'succeeded')
         .is('payments.stripe_refund_id', null)
-        .gte('created_at', LIVE_ERA_START)
+        .eq('payments.stripe_livemode', true)
         .order('created_at', { ascending: true })
         .limit(20);
 
       for (const row of (unrefunded ?? []) as Array<{
         id: string; payment_id: string; listing_id: string;
         buyer_id: string; seller_id: string;
-        payments: { id: string; status: string; stripe_payment_intent_id: string | null; stripe_refund_id: string | null };
+        payments: { id: string; status: string; stripe_payment_intent_id: string | null; stripe_refund_id: string | null; stripe_livemode: boolean | null };
       }>) {
         try {
           if (!row.payments?.stripe_payment_intent_id) continue;
@@ -397,17 +410,32 @@ serve(async (req: Request) => {
           }
           refundedCount++;
         } catch (err) {
-          // A PI the live key cannot see is data archaeology, not owed live
-          // money — log it, don't page. Everything else is a real dropped
-          // refund and goes to Sentry.
           const msg = err instanceof Error ? err.message : String(err);
-          if (/no such payment_intent|test mode/i.test(msg)) {
-            console.warn('enforce-transfer-expiry: Phase 1b skipped non-live PI:', {
-              transfer_id: row.id, error: msg,
+          if (isCrossModeStripeError(msg)) {
+            // A row marked LIVE whose PI Stripe says belongs to the other
+            // mode is a data-integrity incident: quarantine it so no
+            // automation touches it again, and page ONCE with mode tags.
+            console.error('enforce-transfer-expiry: Phase 1b cross-mode row — quarantining:', {
+              transfer_id: row.id, payment_id: row.payment_id, error: msg,
+            });
+            const { error: qErr } = await supabase
+              .from('payments')
+              .update({ stripe_livemode: false })
+              .eq('id', row.payment_id);
+            if (qErr) console.error('Phase 1b quarantine update failed:', qErr);
+            await captureException('enforce-transfer-expiry:cross-mode-quarantine', err, {
+              transfer_id: row.id,
+              payment_id: row.payment_id,
+              stripe_mode: 'test',
+              stripe_object_type: 'payment_intent',
+              legacy_test_record: true,
+              financial_operation: 'refund_selfheal',
             });
           } else {
+            // A real dropped live refund — money owed to a buyer. Page it.
             await captureException('enforce-transfer-expiry:phase1b-refund-selfheal', err, {
               transfer_id: row.id,
+              financial_operation: 'refund_selfheal',
             });
           }
           errorCount++;
