@@ -208,10 +208,12 @@ serve(async (req: Request) => {
     });
 
     if (rpcErr) {
-      // If already buyer_confirmed, that's fine — proceed to payout.
-      // The RPC error message contains "buyer_confirmed" when the transfer
-      // is already in that state.
-      const alreadyConfirmed = rpcErr.message?.includes('buyer_confirmed');
+      // If already buyer_confirmed — or the cron already flipped it to
+      // auto_released — that's fine: the buyer's goal is met, proceed to
+      // the payout idempotency check (which returns already_released when
+      // the money moved). The RPC error message names the current status.
+      const alreadyConfirmed = rpcErr.message?.includes('buyer_confirmed') ||
+        rpcErr.message?.includes('auto_released');
 
       if (!alreadyConfirmed) {
         // Real error — wrong user, wrong state, not found, etc.
@@ -444,6 +446,16 @@ serve(async (req: Request) => {
         if (finalCheck?.payout_released_at) {
           return new Response(
             JSON.stringify({ success: true, already_released: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+          );
+        }
+        if (!finalCheck) {
+          // Transient read failure — NOT evidence of a dispute. The buyer's
+          // confirmation already stands; skip the payout (never pay on a
+          // blind read) and let the cron release it on a later sweep.
+          console.warn('confirm-and-release: final recheck read failed — payout deferred:', { transfer_id });
+          return new Response(
+            JSON.stringify({ success: true, payout_status: 'pending_review' }),
             { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
           );
         }

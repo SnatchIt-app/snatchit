@@ -245,11 +245,18 @@ serve(async (req: Request) => {
             stripe_payment_intent_id: payment.stripe_payment_intent_id,
           });
 
-          const refund = await stripePost('/refunds', {
-            'payment_intent':          payment.stripe_payment_intent_id,
-            'metadata[transfer_id]':   t.transfer_id,
-            'metadata[reason]':        'transfer_expired',
-            'metadata[source]':        'enforce-transfer-expiry',
+          // Deterministic idempotency key: a crash-and-retry (or the Phase
+          // 1b self-heal sweep below) replays the SAME refund instead of
+          // relying solely on Stripe's full-refund dedup semantics.
+          const refund = await stripeFetch<{ id: string }>('/refunds', {
+            method: 'POST',
+            idempotencyKey: `refund_expiry_${t.transfer_id}`,
+            body: {
+              'payment_intent':          payment.stripe_payment_intent_id,
+              'metadata[transfer_id]':   t.transfer_id,
+              'metadata[reason]':        'transfer_expired',
+              'metadata[source]':        'enforce-transfer-expiry',
+            },
           });
 
           // ── 2e. Update payment record ──────────────────────────────────
@@ -323,6 +330,74 @@ serve(async (req: Request) => {
       }
     } else {
       console.log('enforce-transfer-expiry: Phase 1 — no expired transfers found');
+    }
+
+    // =====================================================================
+    // PHASE 1b — Self-heal dropped expiry refunds
+    // =====================================================================
+    // The expiry RPC returns each row exactly once (pending→expired), so a
+    // crash between the RPC and the refund loop — or one failed Stripe
+    // /refunds call — used to strand the buyer's money forever: the
+    // transfer was already 'expired' and nothing ever retried the refund.
+    // This sweep mirrors Phase 2b: any expired transfer whose payment is
+    // still 'succeeded' with no stripe_refund_id gets the refund
+    // re-attempted under the same deterministic idempotency key.
+    try {
+      const { data: unrefunded } = await supabase
+        .from('transfers')
+        .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id)')
+        .eq('status', 'expired')
+        .eq('payments.status', 'succeeded')
+        .is('payments.stripe_refund_id', null)
+        .order('created_at', { ascending: true })
+        .limit(20);
+
+      for (const row of (unrefunded ?? []) as Array<{
+        id: string; payment_id: string; listing_id: string;
+        buyer_id: string; seller_id: string;
+        payments: { id: string; status: string; stripe_payment_intent_id: string | null; stripe_refund_id: string | null };
+      }>) {
+        try {
+          if (!row.payments?.stripe_payment_intent_id) continue;
+          console.warn('enforce-transfer-expiry: Phase 1b — re-attempting dropped expiry refund:', {
+            transfer_id: row.id,
+            payment_id:  row.payment_id,
+          });
+          const refund = await stripeFetch<{ id: string }>('/refunds', {
+            method: 'POST',
+            idempotencyKey: `refund_expiry_${row.id}`,
+            body: {
+              'payment_intent':        row.payments.stripe_payment_intent_id,
+              'metadata[transfer_id]': row.id,
+              'metadata[reason]':      'transfer_expired',
+              'metadata[source]':      'enforce-transfer-expiry-selfheal',
+            },
+          });
+          const { error: healErr } = await supabase
+            .from('payments')
+            .update({
+              status:           'refunded',
+              refunded_at:      new Date().toISOString(),
+              stripe_refund_id: refund.id,
+            })
+            .eq('id', row.payment_id)
+            .eq('status', 'succeeded');
+          if (healErr) {
+            console.error('enforce-transfer-expiry: Phase 1b DB update failed after refund:', {
+              payment_id: row.payment_id, stripe_refund_id: refund.id, error: healErr,
+            });
+          }
+          refundedCount++;
+        } catch (err) {
+          // Real money owed to a buyer — every failure goes to Sentry.
+          await captureException('enforce-transfer-expiry:phase1b-refund-selfheal', err, {
+            transfer_id: row.id,
+          });
+          errorCount++;
+        }
+      }
+    } catch (err) {
+      console.error('enforce-transfer-expiry: Phase 1b sweep failed (non-fatal):', err);
     }
 
     // =====================================================================
@@ -656,6 +731,9 @@ serve(async (req: Request) => {
         .is('stripe_transfer_id', null)
         .is('payout_released_at', null)
         .is('disputed_at', null)
+        // Oldest first: without an ORDER BY, Postgres may return the same
+        // 20 rows every sweep and starve the rest of the backlog.
+        .order('created_at', { ascending: true })
         .limit(20)
         .then((res) => ({
           ...res,

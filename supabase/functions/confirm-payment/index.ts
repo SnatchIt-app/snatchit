@@ -233,12 +233,20 @@ serve(async (req: Request) => {
     // transfers.listing_id (migration 003) prevent duplicates. A
     // constraint violation means the webhook or ensure_transfer_exists
     // already created the row — that's fine.
+    //
+    // GATED on a succeeded payment: a transfer row is the seller's
+    // send-tickets obligation, so it must never exist for an unpaid order.
+    // The status filter (not just this call's stripeVerified) also covers
+    // the race where the webhook promoted the row first. Unverified
+    // payments are left to the webhook path, which creates the transfer
+    // row itself after promotion.
     try {
       const { data: claimedPayment } = await supabase
         .from('payments')
         .select('id, listing_id, seller_id, buyer_id')
         .eq('stripe_payment_intent_id', payment_intent_id)
         .eq('buyer_id', buyerId)
+        .eq('status', 'succeeded')
         .single();
 
       if (claimedPayment) {

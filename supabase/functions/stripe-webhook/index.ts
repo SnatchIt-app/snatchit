@@ -61,15 +61,20 @@ function timingSafeEqual(a: string, b: string): boolean {
 const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 async function verifyStripeSignature(rawBody: string, sigHeader: string): Promise<boolean> {
-  const parts = sigHeader.split(',').reduce((acc: Record<string, string>, part) => {
+  // Collect EVERY v1 entry: during a signing-secret rotation Stripe signs
+  // with both old and new secrets and sends multiple v1= values. Keeping
+  // only one (the old reduce-into-a-map bug) rejected valid deliveries for
+  // the whole rotation window. Accept if ANY v1 matches.
+  const parts: Record<string, string> = {};
+  const v1Signatures: string[] = [];
+  for (const part of sigHeader.split(',')) {
     const [key, val] = part.split('=');
-    acc[key] = val;
-    return acc;
-  }, {});
+    if (key === 'v1' && val) v1Signatures.push(val);
+    else if (key && val) parts[key] = val;
+  }
 
   const timestamp = parts['t'];
-  const signature = parts['v1'];
-  if (!timestamp || !signature) return false;
+  if (!timestamp || v1Signatures.length === 0) return false;
 
   // ── Replay protection ──────────────────────────────────────────────────
   // Stripe sends `t` as a Unix epoch in seconds. Reject anything older than
@@ -101,7 +106,7 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  return timingSafeEqual(expected, signature);
+  return v1Signatures.some((candidate) => timingSafeEqual(expected, candidate));
 }
 
 async function sendPush(userId: string, title: string, body: string, data?: Record<string, string>) {
@@ -408,15 +413,34 @@ serve(async (req: Request) => {
       await markProcessed();
 
     } else if (event.type === 'payment_intent.payment_failed') {
+      // Claim guard: Stripe does NOT guarantee event ordering, and one PI
+      // legitimately goes failed→succeeded when the buyer retries in the
+      // same PaymentSheet. A late-arriving payment_failed must never
+      // overwrite a payment that already succeeded (which would freeze its
+      // payout and release the reservation on a sold listing) or one
+      // already refunded.
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('stripe_payment_intent_id', piId)
+        .neq('status', 'succeeded')
+        .neq('status', 'refunded')
         .select('id, listing_id')
-        .single();
+        .maybeSingle();
 
-      if (lookupErr || !payment) {
-        console.error('Webhook: payment lookup/update failed', piId, lookupErr);
+      if (lookupErr) {
+        console.error('Webhook: payment failed-update errored', piId, lookupErr);
+        await markProcessed({ error: `failed-update: ${lookupErr.message}` });
+        return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
+        });
+      }
+      if (!payment) {
+        // No claimable row — unknown PI, or the payment already
+        // succeeded/refunded (out-of-order delivery). Benign no-op.
+        console.log('Webhook: payment_failed ignored (no claimable row)', { pi_id: piId });
+        await markProcessed();
         return new Response(JSON.stringify({ received: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
@@ -584,11 +608,22 @@ serve(async (req: Request) => {
 
     } else if (event.type === 'charge.refunded') {
       // ── P1-02: refund sync (e.g. manual Dashboard refund) ─────────────
-      const charge = event.data.object as { payment_intent?: string | null };
+      const charge = event.data.object as {
+        payment_intent?: string | null;
+        refunds?: { data?: Array<{ id?: string }> };
+      };
       if (charge.payment_intent) {
+        // Persist the Stripe refund id when the event payload carries it
+        // (audit trail: ties the DB row to the re_ object). Recent API
+        // versions omit charge.refunds by default, so this is best-effort.
+        const refundId = charge.refunds?.data?.[0]?.id ?? null;
         const { error: refErr } = await supabase
           .from('payments')
-          .update({ status: 'refunded', refunded_at: new Date().toISOString() })
+          .update({
+            status: 'refunded',
+            refunded_at: new Date().toISOString(),
+            ...(refundId ? { stripe_refund_id: refundId } : {}),
+          })
           .eq('stripe_payment_intent_id', charge.payment_intent)
           .neq('status', 'refunded');
         if (refErr) {

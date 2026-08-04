@@ -155,17 +155,28 @@ async function ensureStripeCustomerAndEphemeralKey(
 
   // ── (c) Create a fresh customer if needed ──────────────────────────────
   if (!customerId) {
-    const customerBody: Record<string, string> = { 'metadata[user_id]': userId };
-    if (email) customerBody.email = email;
-
+    // The create body must be byte-stable under the fixed key: email is
+    // attached in a SEPARATE update call, because an email that changed
+    // between two attempts inside the 24h idempotency window would make
+    // the same key carry different parameters — Stripe rejects that and
+    // checkout 500s until the key expires.
     const created = await stripeFetch<{ id: string }>('/customers', {
       method:         'POST',
-      body:           customerBody,
+      body:           { 'metadata[user_id]': userId },
       // Idempotent on (user_id) — even if two PI requests race, both
       // resolve to the same customer.
       idempotencyKey: `customer_${userId}`,
     });
     customerId = created.id;
+
+    if (email) {
+      try {
+        await stripeFetch(`/customers/${customerId}`, { method: 'POST', body: { email } });
+      } catch (emailErr) {
+        // Cosmetic — the customer works without an email on file.
+        console.warn('Failed to set customer email (continuing):', emailErr);
+      }
+    }
 
     const { error: updErr } = await supabase
       .from('profiles')
@@ -458,8 +469,14 @@ serve(async (req: Request) => {
     // be confirmed, and its id already occupies the failed row's UNIQUE slot.
     // Salting with the failed-attempt count gives both. First attempts keep
     // the historical key shape unchanged.
+    // The customer id is part of the key because it is part of the BODY:
+    // if the Stripe customer is ever re-created mid-window (stale-id probe
+    // or a failed profile persist), an unchanged key with a changed
+    // customer param would hit Stripe's idempotency-parameters error and
+    // brick this listing's checkout for 24h. Same class of bug — and same
+    // fix — as the payout destination salting in _shared/payouts.ts.
     const piIdempotencyKey =
-      `pi_${listing_id}_${buyerId}_${mode}_${totalCents}` +
+      `pi_${listing_id}_${buyerId}_${mode}_${totalCents}_c${customerCtx.customerId}` +
       (failedAttempts > 0 ? `_r${failedAttempts}` : '');
     const piBody = {
       'amount':                              String(totalCents),
