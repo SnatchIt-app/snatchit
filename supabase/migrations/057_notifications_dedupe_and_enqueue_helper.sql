@@ -1,0 +1,25 @@
+-- 057_notifications_dedupe_and_enqueue_helper.sql   APPLIED 2026-08-05, verified.
+--
+-- public.notifications had 0 rows and ZERO producers. Migrations 034/035 are
+-- push-only (pg_net -> Edge Function) and never touch the inbox table, so the
+-- inbox has never shown anything since launch.
+--
+-- Adds the idempotency key the table lacked (nothing could serve as an
+-- ON CONFLICT arbiter) plus enqueue_notification(): the single trusted insert
+-- path, SECURITY DEFINER owned by postgres.
+--
+-- enqueue_notification NEVER RAISES. Every producer is a trigger on the
+-- bidding / transfer / payout path, so the EXCEPTION block opens a plpgsql
+-- subtransaction and a failure rolls back only the INSERT, never the parent
+-- marketplace transaction.
+--
+-- `link` must be a WEB-RELATIVE path. The inbox passes it through
+-- safeInternalPath (web/src/lib/auth/redirect.ts), which silently falls back
+-- unless it matches ^/(?!/)[^\s\\]*$ and does not start with /auth/. Mobile
+-- routes off the push `data` payload instead -- a separate address space.
+--
+-- Client-insert stays impossible: authenticated holds SELECT + UPDATE(read_at)
+-- only, anon holds nothing, RLS has no INSERT policy, and EXECUTE on the helper
+-- is granted only to service_role. Verified post-apply.
+--
+-- Rollback: supabase/rollbacks/057_notifications_dedupe_and_enqueue_helper_rollback.sql

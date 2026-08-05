@@ -1,0 +1,47 @@
+-- 058_notification_producers.sql   APPLIED 2026-08-05, verified.
+--
+-- Inbox producers. These ADD durable inbox rows; they do NOT replace or
+-- duplicate the existing pg_net push triggers (notify_bid_placed,
+-- notify_outbid, notify_transfer_event, notify_moderation_event), which are
+-- untouched. Push and inbox are separate channels with separate address spaces.
+--
+-- Deliberately NOT added: a trigger for any event that notify-transfer already
+-- claims through transfer_notifications. Doing so would double-fire.
+--
+-- Events -> recipient -> dedupe key:
+--   bid_received              seller           bid_received:<bid_id>
+--   outbid                    prev leader      outbid:<new_bid_id>       (self-outbid skipped)
+--   auction_won               winner           auction_won:<listing_id>
+--   listing_sold              seller           listing_sold:<transfer_id>
+--   buyer_info_needed         buyer            buyer_info_needed:<transfer_id>
+--   buyer_confirmation_needed buyer            buyer_confirmation_needed:<transfer_id>
+--   transfer_viewed           seller           transfer_viewed:<transfer_id>
+--   transfer_confirmed        seller           transfer_confirmed:<transfer_id>
+--   transfer_disputed         seller AND buyer transfer_disputed:<transfer_id>:{seller|buyer}
+--   payout_released           seller           payout_released:<transfer_id>
+--   order_complete            buyer            order_complete:<transfer_id>
+--
+-- ONE seller row on sale, not two: "listing sold" and "seller action required"
+-- are the same instant, and two rows a second apart reads as a bug.
+--
+-- Payout uses `payout_released_at NULL -> NOT NULL` as its predicate, NOT
+-- status: the auto-release path never changes status, so status would miss it.
+-- Both release paths write that column exactly once under a guarded UPDATE.
+--
+-- Every trigger body is wrapped in EXCEPTION WHEN OTHERS -- a second layer
+-- beneath the non-raising helper -- so a notification can never abort bidding,
+-- payment, transfer or payout.
+--
+-- Verified live on throwaway data: 2 bids produced 2 bid_received + 1 outbid
+-- with no self-outbid; the full transfer lifecycle produced all 9 rows with
+-- correct recipients; replaying seller_sent / buyer_confirmed /
+-- payout_released / disputed produced ZERO duplicates (every dup_count = 1).
+-- All QA data removed afterwards.
+--
+-- password_changed / email_changed are NOT implemented here. Triggers on the
+-- auth schema are not durable (GoTrue owns it) and an error there would abort
+-- signup/login. The supported route is a cron sweep of auth.audit_log_entries
+-- keyed on its PK -- deferred, and it needs a watermark seeded to now() or the
+-- first run backfills historical events.
+--
+-- Rollback: supabase/rollbacks/057_notifications_dedupe_and_enqueue_helper_rollback.sql
