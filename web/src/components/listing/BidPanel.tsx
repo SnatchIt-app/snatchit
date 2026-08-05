@@ -100,11 +100,27 @@ export function BidPanel({
     });
   }
 
+  // The listing page renders no price block for an active pure auction — the
+  // figure lives here. So the owner branch must still show it, or the seller
+  // sees their own listing with no price and no bid count at all.
   if (isOwner) {
     return (
-      <p className="mt-6 border border-primary/20 bg-card p-4 text-center text-[13px] text-white/50">
-        You can&apos;t bid on your own listing.
-      </p>
+      <div className={compact ? "mt-4" : "mt-6"}>
+        {!compact ? (
+          <div className="mb-4">
+            <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
+              Current bid · all-in
+            </p>
+            <PriceDisplay baseDollars={currentBid} size="lg" suffix={null} className="mt-2.5" />
+            <p className="mt-3 text-[13.5px] text-muted">
+              {bidCount} bid{bidCount === 1 ? "" : "s"}
+            </p>
+          </div>
+        ) : null}
+        <p className="border border-primary/20 bg-card p-4 text-center text-[13px] text-white/50">
+          You can&apos;t bid on your own listing.
+        </p>
+      </div>
     );
   }
 
