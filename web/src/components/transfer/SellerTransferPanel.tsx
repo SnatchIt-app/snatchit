@@ -30,14 +30,24 @@ export function SellerTransferPanel({
     setEvidenceName(file.name);
     setUploading(true);
     startTransition(async () => {
-      const res = await uploadEvidenceAction(file);
-      setUploading(false);
-      if (res.error) {
+      try {
+        const res = await uploadEvidenceAction(file);
+        if (res.error) {
+          setEvidencePath(null);
+          setError(res.error === "AUTH_REQUIRED" ? "Please sign in again." : res.error);
+          return;
+        }
+        setEvidencePath(res.path ?? null);
+      } catch {
+        // Without this, a rejected upload (offline, oversized body, action
+        // transport error) left `uploading` true forever, permanently
+        // disabling "I've sent the tickets" — the seller would miss the 24h
+        // deadline and the buyer would be auto-refunded.
         setEvidencePath(null);
-        setError(res.error === "AUTH_REQUIRED" ? "Please sign in again." : res.error);
-        return;
+        setError("That upload didn't go through. Check your connection and try again.");
+      } finally {
+        setUploading(false);
       }
-      setEvidencePath(res.path ?? null);
     });
   }
 
@@ -45,7 +55,13 @@ export function SellerTransferPanel({
     setError(null);
     if (!evidencePath) return setError("Upload a screenshot of the transfer confirmation first.");
     startTransition(async () => {
-      const result = await markTransferSentAction(transfer.id, evidencePath);
+      let result: { ok?: true; error?: string; warning?: string };
+      try {
+        result = await markTransferSentAction(transfer.id, evidencePath);
+      } catch {
+        setError("Something went wrong marking these sent. Check your connection and try again.");
+        return;
+      }
       if (result.error === "AUTH_REQUIRED") {
         router.push(`/login?next=${encodeURIComponent(`/transfer/send/${transfer.id}`)}`);
         return;

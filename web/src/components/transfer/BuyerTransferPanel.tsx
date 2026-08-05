@@ -38,14 +38,25 @@ export function BuyerTransferPanel({
   // Records that the buyer opened the transfer — feeds the BUYER_NEVER_VIEWED
   // payout-risk signal. Fire-and-forget, exactly as mobile does on mount.
   useEffect(() => {
-    markViewedAction(transfer.id);
+    // Deliberately unawaited, but a rejection (offline, action transport
+    // error) must not surface as an unhandled rejection — this signal is
+    // best-effort and never worth interrupting the buyer for.
+    markViewedAction(transfer.id).catch(() => {});
   }, [transfer.id]);
 
   function run(fn: () => Promise<{ ok?: true; error?: string; warning?: string }>) {
     setError(null);
     setNotice(null);
     startTransition(async () => {
-      const result = await fn();
+      let result: { ok?: true; error?: string; warning?: string };
+      try {
+        result = await fn();
+      } catch {
+        // A server action that throws rejects here. Without this the buyer
+        // would click "I got my tickets" and see nothing happen at all.
+        setError("Something went wrong. Check your connection and try again.");
+        return;
+      }
       if (result.error === "AUTH_REQUIRED") {
         router.push(`/login?next=${encodeURIComponent(`/transfer/receive/${transfer.id}`)}`);
         return;

@@ -241,12 +241,29 @@ export async function markTransferSent(
  * never a buyer-facing failure. `payout_status: 'pending_review'` is SUCCESS.
  */
 export async function confirmReceipt(transferId: string): Promise<TransferResult> {
-  const res = await callEdgeFunction<{
+  type ConfirmResponse = {
     success?: boolean;
     already_released?: boolean;
     payout_status?: string;
     warning?: string;
-  }>("confirm-and-release", { transfer_id: transferId });
+  };
+
+  let res: ConfirmResponse & { error?: string };
+  try {
+    res = await callEdgeFunction<ConfirmResponse>("confirm-and-release", { transfer_id: transferId });
+  } catch (e) {
+    // callEdgeFunction THROWS on a missing session, missing env, or a network
+    // failure — it only returns { error } for non-2xx responses. A server
+    // action that throws reaches the client as an opaque rejection, so the
+    // buyer would get no feedback at all on the one action that moves money.
+    // Convert to the standard result shape, keeping the AUTH_REQUIRED
+    // convention so the panel redirects to login instead of showing an error.
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "No active session") return { error: "AUTH_REQUIRED" };
+    return {
+      error: "We couldn't reach the confirmation service. Nothing was charged or released — please try again.",
+    };
+  }
 
   if (res.error) return { error: mapTransferError(res.error) };
   if (res.payout_status === "pending_review") {
