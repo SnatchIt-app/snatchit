@@ -1,0 +1,28 @@
+-- 059_strict_auth_on_listing_checkout_rpcs.sql   APPLIED 2026-08-05, verified.
+-- (applied as 059 + 059b)
+--
+-- Removes the LAST coalesce(auth.uid(), p_user_id) identity fallbacks, from the
+-- six remaining RPCs: cancel_listing, release_reservation, mark_listing_sold,
+-- complete_auction_payment, reserve_buy_now (059) and ensure_transfer_exists
+-- (059b).
+--
+-- 055c had already revoked anon/PUBLIC EXECUTE on these, so the fallback was no
+-- longer reachable without a session. This removes the pattern itself so a
+-- future re-GRANT cannot silently reopen the hole.
+--
+-- auth.uid() is now authoritative everywhere; p_user_id is honoured ONLY when
+-- request_is_service_role() is true, where auth.uid() is structurally NULL.
+-- Signatures, bodies, guard-bypass GUCs and error strings are otherwise
+-- preserved verbatim. ensure_transfer_exists keeps its payments
+-- pending->succeeded promotion untouched -- that is payment logic and out of
+-- scope here.
+--
+-- Verified live on a throwaway listing, then cleaned up:
+--   LEGIT buyer reserve_buy_now          OK
+--   LEGIT buyer release_reservation      OK
+--   LEGIT seller cancel_listing          OK
+--   ADV  forged p_user_id -> mark_listing_sold   REJECTED (not reserved by you)
+--   ADV  forged p_user_id -> cancel_listing      REJECTED (only your own listings)
+-- Post-apply: coalesce(auth.uid() fallbacks remaining across public = 0.
+--
+-- Rollback: supabase/rollbacks/059_strict_auth_on_listing_checkout_rpcs_rollback.sql

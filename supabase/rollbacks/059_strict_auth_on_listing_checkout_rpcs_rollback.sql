@@ -1,0 +1,18 @@
+-- Rollback for 059 / 059b.
+--
+-- WARNING: restoring coalesce(auth.uid(), p_user_id) re-adds an identity
+-- fallback that trusts a caller-supplied uuid. It is only exploitable if
+-- anon/PUBLIC EXECUTE is also restored (see the 055c rollback), but it is the
+-- root of the original auth-bypass class -- prefer fixing forward.
+--
+-- To revert: restore each function's pre-059 body from git history
+-- (supabase/migrations, or `git show` on the commit preceding this one) and
+-- replace the two-line strict block
+--     v_caller_id := auth.uid();
+--     IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+-- with
+--     v_caller_id := coalesce(auth.uid(), p_user_id);
+-- in: cancel_listing, release_reservation, mark_listing_sold,
+--     complete_auction_payment, reserve_buy_now, ensure_transfer_exists.
+--
+-- No schema, grant, or data change is involved, so there is nothing else to undo.
