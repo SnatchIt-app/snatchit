@@ -1,4 +1,4 @@
--- Rollback for 044_realtime_publication_bids_listings.sql
+-- Rollback for 050_realtime_publication_bids_listings.sql
 -- Removes bids/listings from the supabase_realtime publication, restoring
 -- the (latent, pre-existing) no-realtime-on-any-table state.
 
