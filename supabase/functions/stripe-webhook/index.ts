@@ -513,13 +513,21 @@ serve(async (req: Request) => {
           //    out — at that point we can only attempt a transfer reversal
           //    when the dispute is lost (handled in dispute.closed).
           if (transferId && !transfer!.payout_released_at && transfer!.status !== 'disputed') {
-            const { error: freezeErr } = await supabase
-              .from('transfers')
-              .update({ status: 'disputed', disputed_at: new Date().toISOString() })
-              .eq('id', transferId);
+            // freeze_transfer_for_dispute (migration 056a) re-checks
+            // payout_released_at IS NULL AND status <> 'disputed' inside the
+            // statement, closing the read-then-write window the direct UPDATE
+            // had, and bypasses guard_transfer_state_columns as SECURITY DEFINER.
+            const { data: frozen, error: freezeErr } = await supabase
+              .rpc('freeze_transfer_for_dispute', { p_transfer_id: transferId });
             if (freezeErr) {
               console.error('Webhook: dispute transfer freeze failed:', {
                 transfer_id: transferId, dispute_id: dispute.id, error: freezeErr,
+              });
+            } else if (!frozen) {
+              // Not an error: the row was paid out or already frozen between
+              // our read above and this call.
+              console.log('Webhook: transfer freeze skipped — already frozen or already paid out', {
+                transfer_id: transferId, dispute_id: dispute.id,
               });
             } else {
               console.log('Webhook: transfer frozen due to dispute', { transfer_id: transferId });
@@ -652,14 +660,20 @@ serve(async (req: Request) => {
     } else if (event.type === 'transfer.reversed') {
       // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
       const tr = event.data.object as { id: string; amount_reversed?: number };
-      const { error: revErr } = await supabase
-        .from('transfers')
-        .update({ status: 'reversed' })
-        .eq('stripe_transfer_id', tr.id)
-        .neq('status', 'reversed');
+      // mark_transfer_reversed (migration 056a) carries the same
+      // WHERE stripe_transfer_id = $1 AND status <> 'reversed' and bypasses
+      // guard_transfer_state_columns as SECURITY DEFINER. `false` = zero rows
+      // (unknown tr_ id, or already reversed) — the old no-op, not an error.
+      const { data: reversed, error: revErr } = await supabase
+        .rpc('mark_transfer_reversed', { p_stripe_transfer_id: tr.id });
       if (revErr) {
         console.error('Webhook: transfer.reversed mark failed:', revErr);
         await markProcessed({ error: `transfer reverse: ${revErr.message}` });
+      } else if (!reversed) {
+        console.log('Webhook: transfer.reversed no-op (unknown transfer id or already reversed)', {
+          stripe_transfer_id: tr.id,
+        });
+        await markProcessed();
       } else {
         console.log('Webhook: transfer marked reversed', {
           stripe_transfer_id: tr.id, amount_reversed: tr.amount_reversed,

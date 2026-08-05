@@ -537,16 +537,16 @@ serve(async (req: Request) => {
     // fails, we have an "orphaned" Stripe Transfer. The stripe_transfer_id
     // is logged below for manual recovery. At private beta scale this is
     // acceptable — a future migration can add a reconciliation check.
+    // record_transfer_payout (migration 056a) is SECURITY DEFINER and sets
+    // app.bypass_transfer_guard, so it writes past guard_transfer_state_columns.
+    // Its WHERE (payout_released_at IS NULL AND stripe_transfer_id IS NULL) is
+    // the same single-writer guard, so the concurrency reasoning above is
+    // unchanged. `false` is the old 0-rows-updated case, not an error.
     const { data: updated, error: updateErr } = await supabase
-      .from('transfers')
-      .update({
-        payout_released_at: new Date().toISOString(),
-        stripe_transfer_id: stripeTransfer.id,
-      })
-      .eq('id', transfer_id)
-      .is('payout_released_at', null)
-      .select('id')
-      .maybeSingle();
+      .rpc('record_transfer_payout', {
+        p_transfer_id:        transfer_id,
+        p_stripe_transfer_id: stripeTransfer.id,
+      });
 
     if (updateErr) {
       // Log for manual recovery — the Stripe Transfer was already created

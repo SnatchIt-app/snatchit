@@ -665,19 +665,38 @@ serve(async (req: Request) => {
         return false;
       }
 
-      // Atomic write AFTER money moved; WHERE stripe_transfer_id IS NULL
-      // means overlapping runs record exactly one payout.
-      const { data: updated } = await supabase
-        .from('transfers')
-        .update({
-          payout_released_at: new Date().toISOString(),
+      // Atomic write AFTER money moved. record_transfer_payout (migration 056a)
+      // is SECURITY DEFINER and sets app.bypass_transfer_guard, so it writes the
+      // two payout columns past guard_transfer_state_columns. Its WHERE
+      // (stripe_transfer_id IS NULL AND payout_released_at IS NULL) is the same
+      // single-writer guard the direct UPDATE had, so overlapping runs still
+      // record exactly one payout. `false` means another run already recorded
+      // it — the old zero-row case, NOT an error.
+      const { data: recorded, error: recordErr } = await supabase
+        .rpc('record_transfer_payout', {
+          p_transfer_id:        t.transfer_id,
+          p_stripe_transfer_id: stripeTransfer.id,
+        });
+      if (recordErr) {
+        // Money HAS moved but the DB write failed. This must never be silent:
+        // the previous code discarded this error entirely, so a failure was
+        // indistinguishable from a race. Left unrecorded, Phase 2b re-sweeps
+        // this row every run forever — the shared Stripe idempotency key
+        // prevents a second payout, but the tr_ mapping stays lost.
+        console.error('enforce-transfer-expiry: record_transfer_payout FAILED after Stripe Transfer succeeded:', {
+          transfer_id:        t.transfer_id,
           stripe_transfer_id: stripeTransfer.id,
-        })
-        .eq('id', t.transfer_id)
-        .is('stripe_transfer_id', null)
-        .select('id')
-        .maybeSingle();
-      if (!updated) {
+          error:              recordErr,
+        });
+        await captureException(
+          'enforce-transfer-expiry:record-payout-failed',
+          new Error(
+            `record_transfer_payout failed for transfer ${t.transfer_id} ` +
+            `(stripe ${stripeTransfer.id}): ${recordErr.message}`,
+          ),
+          { transfer_id: t.transfer_id, stripe_transfer_id: stripeTransfer.id },
+        );
+      } else if (!recorded) {
         console.warn('enforce-transfer-expiry: payout raced (idempotency key prevented dupe):', t.transfer_id);
       }
 
