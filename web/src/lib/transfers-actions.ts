@@ -13,6 +13,7 @@ import {
   uploadTransferEvidence,
   type TransferResult,
 } from "@/lib/transfers";
+import { isOwnEvidencePath } from "@/lib/evidence-path";
 
 export async function setDeliveryInfoAction(
   transferId: string,
@@ -53,6 +54,15 @@ export async function markTransferSentAction(
   const t = await getTransferForSeller(user.id, transferId);
   if (!t) return { error: "This transfer no longer exists." };
   if (!evidencePath) return { error: "Upload a screenshot of the transfer confirmation first." };
+
+  // evidencePath arrives from the client, so it cannot be trusted. Without this
+  // a seller could pass any string — including another user's proof-docs path —
+  // and clear the payout risk engine's EVIDENCE_MISSING signal without ever
+  // uploading anything. Pin it to the exact shape uploadTransferEvidence
+  // produces, under this seller's own uid prefix.
+  if (!isOwnEvidencePath(user.id, evidencePath)) {
+    return { error: "That evidence file could not be verified. Please upload it again." };
+  }
   // Same gate mobile enforces: the seller cannot send until the buyer has said
   // where to send. Without it the seller transfers into a void.
   if (!t.delivery_email && !t.delivery_phone) {
