@@ -1,10 +1,10 @@
 -- =============================================================================
 -- 053_storage_scope_write_policies.sql
 --
--- STATUS: PREPARED, NOT YET APPLIED (2026-08-05).
--- The automated apply was refused by the tooling guardrail that gates policy
--- changes against production. Reviewed and verified against live state and both
--- shipped clients; awaiting an operator. Nothing here has taken effect.
+-- STATUS: APPLIED 2026-08-05, verified.
+-- Verified live: every INSERT/UPDATE policy is owner-folder scoped and every
+-- UPDATE now carries BOTH USING and WITH CHECK, so the arbitrary rename/overwrite
+-- path is closed. proof-docs list [] and direct object 400; auction-media public read 200.
 --
 -- Companion to 051 (which fixed the READ half of the same bug class).
 --

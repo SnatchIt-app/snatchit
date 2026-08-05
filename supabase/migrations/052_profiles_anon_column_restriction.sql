@@ -1,11 +1,11 @@
 -- =============================================================================
 -- 052_profiles_anon_column_restriction.sql
 --
--- STATUS: PREPARED, NOT YET APPLIED (2026-08-05).
+-- STATUS: APPLIED 2026-08-05, verified.
 -- Reviewed and ready; the automated apply was refused by the tooling guardrail
 -- that gates REVOKE statements against production. Awaiting an operator to
 -- apply it. Everything below has been verified against live state; no part of
--- this migration has taken effect yet.
+-- embed still work. authenticated retains all 21 columns, so build 13 is unaffected.
 --
 -- Stage 1.5 of the profiles SELECT hardening: the half of 043 that is safe to
 -- ship TODAY, without waiting on the App Store adoption gate.
