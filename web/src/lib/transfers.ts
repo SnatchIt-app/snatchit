@@ -133,13 +133,17 @@ export const getTransferForSeller = cache(async (userId: string, transferId: str
 /** Buyer's purchase history — mirrors mobile's bids.tsx transfers query. */
 export const getMyPurchases = cache(async (userId: string): Promise<TransferView[]> => {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("transfers")
     .select(
       `${TRANSFER_COLUMNS}, seller:profiles!seller_id(display_name), listing:listings!listing_id(event_name, venue, ticket_platform, cover_image_path)`,
     )
     .eq("buyer_id", userId)
     .order("created_at", { ascending: false });
+  // Surface query failures instead of swallowing them. Returning [] here made
+  // an RLS or outage failure render as "No purchases yet" / "No sales yet" —
+  // a seller with real money in flight would be told they had sold nothing.
+  if (error) throw new Error(`transfers query failed: ${error.message}`);
   return ((data ?? []) as unknown as Row[]).map((r) => shape(r, "buyer"));
 });
 

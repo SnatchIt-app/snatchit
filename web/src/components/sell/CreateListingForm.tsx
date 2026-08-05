@@ -377,7 +377,16 @@ function ImageUploadTile({
         ) : (
           <span className="text-[12px] text-white/40">{hint}</span>
         )}
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/heic" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic"
+          aria-label={label}
+          // sr-only, not `hidden`: `hidden` removes the input from the tab order
+          // entirely, so keyboard-only users could not reach either required
+          // upload and therefore could not list a ticket at all.
+          className="sr-only"
+          onChange={(e) => onPick(e.target.files?.[0])}
+        />
       </label>
       {state.uploading ? <p className="mt-2 text-[12px] text-white/50">Uploading…</p> : null}
       {state.error ? <p className="mt-2 text-[12px] font-medium text-primary">{state.error}</p> : null}

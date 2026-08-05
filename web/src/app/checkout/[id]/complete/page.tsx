@@ -27,6 +27,7 @@ function CompleteClient() {
   // Computed synchronously during render (not in the effect below) — this
   // branch needs no async work, just a state derived from the URL.
   const [status, setStatus] = useState<Status>(failedUpfront ? "error" : "processing");
+  const [transferId, setTransferId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
     failedUpfront
       ? redirectStatus === "failed"
@@ -37,10 +38,24 @@ function CompleteClient() {
 
   useEffect(() => {
     if (failedUpfront) return;
-    finalizeBuyNowPurchaseAction(params.id, paymentIntentId).then((result) => {
-      if (result.warning) setMessage(result.warning);
-      setStatus("success");
-    });
+    finalizeBuyNowPurchaseAction(params.id, paymentIntentId)
+      .then((result) => {
+        if (result.warning) setMessage(result.warning);
+        setTransferId(result.transferId ?? null);
+        setStatus("success");
+      })
+      .catch(() => {
+        // The card has ALREADY been charged by this point — Stripe confirmed
+        // before redirecting here. An unhandled rejection previously left the
+        // buyer on "Confirming your payment…" forever with money taken and no
+        // way forward. Fail into a state that tells them the payment landed
+        // and points at the record of it.
+        setMessage(
+          "Your payment went through, but we couldn't load the confirmation. " +
+            "Your purchase is safe — open your purchases to see it.",
+        );
+        setStatus("success");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,10 +79,14 @@ function CompleteClient() {
       <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
       {message ? <Alert tone="error">{message}</Alert> : null}
       <p className="text-[13.5px] leading-relaxed text-white/60">
-        Your ticket is confirmed. Check the Snatch It app for transfer details.
+        Your ticket is confirmed. Next, tell the seller where to send it.
       </p>
-      <Button variant="primary" className="w-full" onClick={() => router.push("/account")}>
-        Go to your account
+      <Button
+        variant="primary"
+        className="w-full"
+        onClick={() => router.push(transferId ? `/transfer/receive/${transferId}` : "/account/purchases")}
+      >
+        {transferId ? "Add delivery details" : "View your purchases"}
       </Button>
     </div>
   );

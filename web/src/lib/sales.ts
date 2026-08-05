@@ -59,13 +59,17 @@ export function payoutLabel(s: SaleView): { text: string; urgent: boolean } {
 
 export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("transfers")
     .select(
       `${SALE_COLUMNS}, buyer:profiles!buyer_id(display_name), listing:listings!listing_id(event_name, venue, cover_image_path), payment:payments!payment_id(amount, seller_fee, status, paid_at)`,
     )
     .eq("seller_id", userId)
     .order("created_at", { ascending: false });
+  // Surface query failures instead of swallowing them. Returning [] here made
+  // an RLS or outage failure render as "No purchases yet" / "No sales yet" —
+  // a seller with real money in flight would be told they had sold nothing.
+  if (error) throw new Error(`transfers query failed: ${error.message}`);
 
   type Row = Record<string, unknown> & {
     buyer?: Joined<{ display_name: string | null }>;
