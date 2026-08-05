@@ -732,9 +732,22 @@ serve(async (req: Request) => {
         account.charges_enabled   === true &&
         account.payouts_enabled   === true;
 
+      // Persist the capability flags too, not just the derived AND. They were
+      // previously written by NOTHING anywhere in the codebase, so every
+      // profile sat at the column default (false / 'not_started') no matter
+      // what Stripe reported — this handler already had both values in hand
+      // and discarded them. stripe_onboarding_complete keeps its existing
+      // semantics (the AND of all three), since listing creation gates on it.
       const { data: updatedProfiles, error: profileErr } = await supabase
         .from('profiles')
-        .update({ stripe_onboarding_complete: onboardingComplete })
+        .update({
+          stripe_onboarding_complete: onboardingComplete,
+          stripe_charges_enabled:     account.charges_enabled === true,
+          stripe_payouts_enabled:     account.payouts_enabled === true,
+          stripe_connect_status:      account.details_submitted === true
+            ? 'connected'
+            : 'onboarding_required',
+        })
         .eq('stripe_connect_id', accountId)
         .select('id');
 

@@ -260,15 +260,37 @@ serve(async (req: Request) => {
       account = await stripeGet(`accounts/${accountId}`);
     }
     const detailsSubmitted = !!account.details_submitted;
+    const chargesEnabled   = !!account.charges_enabled;
+    const payoutsEnabled   = !!account.payouts_enabled;
 
-    // If onboarding is complete, persist that in our DB so the client can
-    // display the correct state without calling this function every time.
-    if (detailsSubmitted) {
-      await supabase
-        .from('profiles')
-        .update({ stripe_onboarding_complete: true })
-        .eq('id', userId);
-    }
+    // Persist the full Connect state from Stripe so the client can display it
+    // without calling this function every time.
+    //
+    // stripe_charges_enabled / stripe_payouts_enabled / stripe_connect_status
+    // were previously written by NOTHING — not this function, not the
+    // account.updated webhook, not the clients — so every account sat at the
+    // column default (false / 'not_started') forever, regardless of its real
+    // state in Stripe. This function already fetches the whole account object
+    // and was discarding exactly the fields those columns need. Writing them
+    // here (and in the account.updated handler) makes both paths self-healing:
+    // any status check or Stripe-side change re-syncs the row from Stripe.
+    //
+    // Written unconditionally, not just when detailsSubmitted — the capability
+    // flags are meaningful before onboarding finishes, and an account that
+    // LOSES a capability must be able to go back to false.
+    // stripe_onboarding_complete keeps its existing monotonic behaviour — only
+    // ever set to true, never back to false. It gates listing creation
+    // (migrations 036/038), and flipping it false on a transient Stripe read
+    // would silently bar an onboarded seller from listing.
+    await supabase
+      .from('profiles')
+      .update({
+        ...(detailsSubmitted ? { stripe_onboarding_complete: true } : {}),
+        stripe_charges_enabled: chargesEnabled,
+        stripe_payouts_enabled: payoutsEnabled,
+        stripe_connect_status:  detailsSubmitted ? 'connected' : 'onboarding_required',
+      })
+      .eq('id', userId);
 
     // ── status_only mode: return state without generating a link ──────────
     if (status_only) {
