@@ -54,6 +54,10 @@ export function listingCardStatus(
   },
   now: Date = new Date(),
 ): CardStatus {
+  // A cancelled listing keeps status='active' (cancel_listing resets it so the
+  // reservation is released), so this must be checked FIRST — otherwise it
+  // falls through to LIVE and the card offers bidding on a withdrawn listing.
+  if (l.auction_status === "cancelled") return "ENDED";
   if (l.status === "sold" || l.auction_status === "sold") return "SOLD";
   if (l.status === "reserved") return "RESERVED";
   const remaining = new Date(l.ends_at).getTime() - now.getTime();

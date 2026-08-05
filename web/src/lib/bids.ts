@@ -25,6 +25,7 @@ export async function placeBid(
 
   const msg = error.message ?? "Could not place bid.";
   if (msg.includes("own listing")) return { error: "You cannot bid on your own listing." };
+  if (msg.includes("cancelled")) return { error: "This listing was cancelled by the seller." };
   if (msg.includes("ended")) return { error: "This auction has ended." };
   if (msg.includes("greater than")) return { error: msg };
   if (msg.includes("wait before bidding")) return { error: "Please wait a few seconds before bidding again." };

@@ -38,6 +38,7 @@ export async function reserveBuyNow(listingId: string, userId: string): Promise<
   const msg = error.message ?? "Could not reserve this listing.";
   if (msg.includes("already reserved")) return { error: "Reserved by another buyer. Try again in a few minutes." };
   if (msg.includes("sold")) return { error: "This listing has already been sold." };
+  if (msg.includes("cancelled")) return { error: "This listing was cancelled by the seller." };
   if (msg.includes("own listing")) return { error: "You cannot purchase your own listing." };
   if (msg.includes("ended")) return { error: "This listing is no longer available." };
   return { error: msg };
