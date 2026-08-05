@@ -160,9 +160,9 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-primary/10 pt-3">
-                  {l.needsTicketSend ? (
-                    <LinkButton href="https://snatchitapp.com" size="md">
-                      Send tickets in the app
+                  {l.needsTicketSend && l.pendingTransferId ? (
+                    <LinkButton href={`/transfer/send/${l.pendingTransferId}`} size="md">
+                      Send tickets
                     </LinkButton>
                   ) : null}
                   {canEdit(l.badge, l.realBidCount) ? (

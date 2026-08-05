@@ -7,6 +7,7 @@ import { UnreadDot } from "@/components/ui/Badge";
 const TABS = [
   { href: "/account", label: "Overview" },
   { href: "/account/listings", label: "Listings" },
+  { href: "/account/purchases", label: "Purchases" },
   { href: "/account/profile", label: "Profile" },
   { href: "/account/saved", label: "Saved" },
   { href: "/account/notifications", label: "Notifications" },

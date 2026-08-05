@@ -64,6 +64,8 @@ export type SellerListing = {
 export type SellerListingView = SellerListing & {
   badge: SellerBadge;
   needsTicketSend: boolean;
+  /** Transfer awaiting the seller's send, when needsTicketSend is true. */
+  pendingTransferId: string | null;
   realBidCount: number;
 };
 
@@ -84,7 +86,7 @@ export const getMyListings = cache(async (userId: string): Promise<SellerListing
       .select(SELLER_LISTING_COLUMNS)
       .eq("seller_id", userId)
       .order("created_at", { ascending: false }),
-    supabase.from("transfers").select("listing_id, status").eq("seller_id", userId),
+    supabase.from("transfers").select("id, listing_id, status").eq("seller_id", userId),
   ]);
 
   if (error) throw new Error(`seller listings query failed: ${error.message}`);
@@ -96,9 +98,11 @@ export const getMyListings = cache(async (userId: string): Promise<SellerListing
     ? await supabase.from("bids").select("listing_id").in("listing_id", ids)
     : { data: [] as { listing_id: string }[] };
 
-  const pendingTransfer = new Set(
-    (transfers ?? []).filter((t) => t.status === "pending").map((t) => t.listing_id as string),
-  );
+  // listing_id -> transfer id, for sold listings still awaiting a send.
+  const pendingTransfer = new Map<string, string>();
+  for (const t of (transfers ?? []) as { id: string; listing_id: string; status: string }[]) {
+    if (t.status === "pending") pendingTransfer.set(t.listing_id, t.id);
+  }
   // Real bid counts — listings.bid_count is seller-writable, see the note above.
   const realBids = new Map<string, number>();
   for (const b of (bidRows ?? []) as { listing_id: string }[]) {
@@ -112,6 +116,7 @@ export const getMyListings = cache(async (userId: string): Promise<SellerListing
       ...l,
       badge,
       needsTicketSend: badge === "SOLD" && pendingTransfer.has(l.id),
+      pendingTransferId: pendingTransfer.get(l.id) ?? null,
       realBidCount: realBids.get(l.id) ?? 0,
     };
   });

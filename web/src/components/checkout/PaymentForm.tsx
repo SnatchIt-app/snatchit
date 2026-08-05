@@ -65,12 +65,15 @@ export function PaymentForm({ listingId }: { listingId: string }) {
         <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
         <p className="text-[13.5px] leading-relaxed text-white/60">
           {transferId
-            ? "Your ticket is confirmed. View transfer details to receive it."
-            : "Your ticket is confirmed. Check the Snatch It app for transfer details."}
+            ? "Your ticket is confirmed. Add your delivery details so the seller can send it."
+            : "Your ticket is confirmed. Check your purchases for transfer details."}
         </p>
-        {/* No web transfer-detail page yet (mobile-only) — link to account until it ships. */}
-        <Button variant="primary" onClick={() => router.push("/account")} className="w-full">
-          Go to your account
+        <Button
+          variant="primary"
+          onClick={() => router.push(transferId ? `/transfer/receive/${transferId}` : "/account/purchases")}
+          className="w-full"
+        >
+          {transferId ? "Continue to transfer" : "Go to your purchases"}
         </Button>
       </div>
     );
