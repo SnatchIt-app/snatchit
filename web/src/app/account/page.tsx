@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getMyProfile } from "@/lib/profile";
 import { savedListingsCount } from "@/lib/favorites";
 import { unreadNotificationCount } from "@/lib/notifications";
+import { getMyPurchases } from "@/lib/transfers";
+import { getMySales } from "@/lib/sales";
 import { Chip } from "@/components/ui/Badge";
 
 export const metadata: Metadata = {
@@ -12,7 +14,12 @@ export const metadata: Metadata = {
 
 export default async function AccountOverviewPage() {
   const profile = await getMyProfile();
-  const [saved, unread] = await Promise.all([savedListingsCount(), unreadNotificationCount()]);
+  const [saved, unread, purchases, sales] = await Promise.all([
+    savedListingsCount(),
+    unreadNotificationCount(),
+    profile ? getMyPurchases(profile.id) : Promise.resolve([]),
+    profile ? getMySales(profile.id) : Promise.resolve([]),
+  ]);
 
   return (
     <div>
@@ -31,19 +38,10 @@ export default async function AccountOverviewPage() {
       <div className="mt-9 grid grid-cols-2 gap-5 sm:grid-cols-4">
         <StatCard label="Saved" value={saved} href="/account/saved" />
         <StatCard label="Unread" value={unread} href="/account/notifications" />
-        <StatCard label="Purchases" value="—" href={null} note="Web checkout is coming soon." />
-        <StatCard label="Active bids" value="—" href={null} note="Bidding on web is coming soon." />
+        <StatCard label="Purchases" value={purchases.length} href="/account/purchases" />
+        <StatCard label="Sales" value={sales.length} href="/account/sales" />
       </div>
 
-      <div className="mt-9 border-t border-primary/15 pt-7">
-        <p className="text-[13.5px] leading-relaxed text-white/50">
-          Buying, bidding, and selling on the web are on the way. Everything&apos;s live today in the{" "}
-          <Link href="https://snatchitapp.com" className="font-semibold text-primary hover:text-[#ff5f5f]">
-            Snatch It app
-          </Link>
-          .
-        </p>
-      </div>
     </div>
   );
 }
