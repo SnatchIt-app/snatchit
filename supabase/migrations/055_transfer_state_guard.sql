@@ -1,0 +1,82 @@
+-- =============================================================================
+-- 055_transfer_state_guard.sql   APPLIED 2026-08-05, verified.
+--
+-- Applied in four parts (each a separate entry in the migration history):
+--   055   transfer_state_guard                        - guard trigger, strict RPC auth, privilege lockdown
+--   055b  transfer_guard_bypass_for_remaining_writers - GUC for the remaining SECURITY DEFINER writers
+--   055c  revoke_anon_public_on_listing_rpcs          - same auth-bypass class on 5 listing/checkout RPCs
+--   055d  fix_mark_transfer_sent_overload_ambiguity   - regression fix (see below)
+--
+-- CLOSES THREE CONFIRMED-EXPLOITABLE HOLES
+--
+-- 1. Forged-status payout (money theft). transfers' two RLS UPDATE policies had
+--    with_check = NULL, so Postgres reused USING and pinned only buyer_id /
+--    seller_id -- every other column was writable by either party, and
+--    `authenticated` AND `anon` held UPDATE on all 32 columns.
+--    enforce-transfer-expiry Phase 2b (index.ts:772-788) pays out on
+--    `status IN ('auto_released','buyer_confirmed')` alone, with no check of
+--    HOW the row reached that status and NO time gate on the auto_released
+--    branch, and resolves the Stripe destination from the mutable
+--    transfers.seller_id (index.ts:518-519). A buyer could therefore PATCH
+--    {"status":"auto_released","seller_id":"<self>"} on their own transfer,
+--    take delivery of the tickets, and receive the seller's payout within two
+--    minutes. Phase 2's risk engine was bypassed entirely -- it only ever sees
+--    status='seller_sent'.
+--
+-- 2. Anon-key identity forgery. Five SECURITY DEFINER RPCs resolved the caller
+--    as coalesce(auth.uid(), p_user_id) and were EXECUTE-able by anon AND
+--    PUBLIC (the bare '=X/postgres' ACL entry -- revoking anon alone would not
+--    have closed it). With no session at all, auth.uid() is NULL and p_user_id
+--    was trusted verbatim. The required uuids are public: listings_select_all
+--    is USING (true), exposing seller_id / winner_user_id / highest_bidder_id.
+--
+-- 3. Evidence tampering. transfer_evidence_path / dispute_evidence_path were
+--    freely rewritable, which also defeated 049 (null the reference, then the
+--    storage DELETE policy permits removing the object).
+--
+-- FIX
+--   * guard_transfer_state_columns() BEFORE UPDATE trigger, modelled on the
+--     existing guard_listing_state_columns() precedent, with a transaction-local
+--     `app.bypass_transfer_guard` GUC. Rejects direct changes to status, the
+--     party/payment/listing ids, every state timestamp, all payout and Stripe
+--     columns, and the deadlines. Evidence paths are append-only.
+--   * Strict identity on the transfer RPCs: auth.uid() is authoritative;
+--     p_user_id is honoured only when request_is_service_role() is true (the
+--     confirm-and-release edge function legitimately depends on it, index.ts:205).
+--   * REVOKE EXECUTE FROM PUBLIC, anon on all six transfer RPCs and (055c) the
+--     five listing/checkout RPCs carrying the same coalesce fallback:
+--     cancel_listing, complete_auction_payment, mark_listing_sold,
+--     release_reservation, reserve_buy_now.
+--   * REVOKE ALL on public.transfers from authenticated/anon, re-GRANT SELECT
+--     only, and drop both with_check=NULL UPDATE policies. Verified first that
+--     every mobile and web `.from('transfers')` call site is a SELECT -- all
+--     mutations already go through RPCs or service-role edge functions.
+--
+-- SERVICE-ROLE EXEMPTION IS TEMPORARY. Four edge-function writes still reach
+-- the table directly through PostgREST as service_role and cannot set a
+-- transaction-local GUC (enforce-transfer-expiry:670, confirm-and-release:541,
+-- stripe-webhook:517 and :656). The guard therefore still lets current_user =
+-- 'service_role' through. Migration 056 moves those four to RPCs and removes
+-- the exemption -- it MUST NOT be applied before that edge-function deploy.
+--
+-- 055d REGRESSION FIX: 055 recreated the 3-arg mark_transfer_sent with
+-- `p_transfer_evidence_path text DEFAULT NULL`. That default made the 3-arg
+-- overload a viable candidate for a 2-key JSON body, so PostgREST returned
+-- PGRST203 for {p_transfer_id, p_user_id} -- exactly the payload shipped build
+-- 13 sends (ListingDetailScreen.tsx:798), breaking the seller mark-sent path
+-- for the build in App Review. Caught by the adversarial suite. The default was
+-- dropped; both overloads now resolve unambiguously.
+--
+-- VERIFIED AFTER APPLYING
+--   client privileges on transfers ... SELECT only
+--   anon/PUBLIC EXECUTE on transfer RPCs ... 0
+--   guard trigger armed ... yes      UPDATE policies remaining ... 0
+--   seller/payment ownership mismatches ... 0 / 0
+--   anon attacks all rejected 42501: PATCH transfers, confirm_transfer_received,
+--     buyer_dispute_transfer, ensure_transfer_exists, cancel_listing,
+--     reserve_buy_now; mark_transfer_sent resolves per-overload then denies
+--   cron jobs 7 and 9 succeeded continuously across the migration window
+--
+-- Rollback: supabase/rollbacks/055_transfer_state_guard_rollback.sql
+-- Full applied SQL is in the Supabase migration history under the four names above.
+-- =============================================================================
