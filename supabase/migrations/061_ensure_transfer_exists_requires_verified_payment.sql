@@ -1,0 +1,40 @@
+-- 061_ensure_transfer_exists_requires_verified_payment.sql  APPLIED 2026-08-05, verified.
+--
+-- CRITICAL free-purchase exploit. ensure_transfer_exists could mint a transfer
+-- from an UNPAID payment, yielding free tickets funded by the platform.
+--
+-- It selected the caller's payment with status IN ('pending','succeeded') then ran
+--   UPDATE public.payments SET status='succeeded', paid_at=coalesce(paid_at,now())
+--    WHERE id = v_payment_id AND status='pending';
+-- with NO Stripe verification, and EXECUTE held by `authenticated`. Any signed-in
+-- buyer could reserve_buy_now -> create-payment-intent (inserts a `pending`
+-- payments row) -> never confirm the card -> POST /rest/v1/rpc/ensure_transfer_exists.
+-- Payment flipped to succeeded, a transfer was created, the seller shipped a real
+-- ticket, and the payout pipeline released funds never collected. Reachable
+-- straight from the REST API with the publishable key, no web app needed.
+--
+-- SAFE TO REMOVE, verified before changing anything: `succeeded` is already
+-- written by two Stripe-verified writers and only after a real check --
+--   confirm-payment/index.ts:178 fetches /payment_intents/{id}; :183 requires
+--     stripeData.status === 'succeeded'; :219 then writes succeeded
+--   stripe-webhook/index.ts:202 writes succeeded on the signature-verified
+--     payment_intent.succeeded event
+-- Every legitimate checkout therefore already holds a verified succeeded row
+-- before this function runs. The promotion was a redundant unverified fallback,
+-- not a compatibility requirement -- so it was removed outright rather than
+-- preserved.
+--
+-- Transfer creation now REQUIRES status='succeeded', still scoped to the
+-- authenticated caller and the given listing (both pre-existing, retained).
+-- Idempotency unchanged: an existing transfer is returned, and the INSERT keeps
+-- ON CONFLICT (payment_id) DO NOTHING, so retries and replays stay safe.
+--
+-- ADVERSARIALLY VERIFIED after applying:
+--   promotion removed from function body ......... CONFIRMED GONE
+--   ATTACK pending payment -> transfer ........... REJECTED (run against a REAL
+--       pending payment with no transfer -- the exact exploit precondition)
+--   ATTACK caller with no payment for listing .... REJECTED
+--   LEGIT succeeded payment -> existing transfer .. OK (idempotent)
+--
+-- Rollback: supabase/rollbacks/061_..._rollback.sql -- reintroduces the exploit;
+-- do not run.

@@ -1,0 +1,6 @@
+-- Rollback for 061. WARNING: restores the free-purchase exploit -- any signed-in
+-- buyer can create a transfer from an unpaid payment and receive a real ticket
+-- funded by the platform. Do not run. Fix forward instead.
+-- To revert: restore the pre-061 body from git history, which re-adds the
+-- status IN ('pending','succeeded') select and the unverified
+-- UPDATE public.payments SET status='succeeded' ... WHERE status='pending'.
