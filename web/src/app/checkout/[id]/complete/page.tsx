@@ -7,7 +7,7 @@ import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 
-type Status = "processing" | "success" | "error";
+type Status = "processing" | "success" | "unverified" | "error";
 
 /**
  * Fallback landing page for payment methods that require an actual browser
@@ -40,6 +40,14 @@ function CompleteClient() {
     if (failedUpfront) return;
     finalizeBuyNowPurchaseAction(params.id, paymentIntentId)
       .then((result) => {
+        if (result.error) {
+          // Server could not verify the PaymentIntent with Stripe, so it did
+          // not mark the listing sold or mint a transfer. Show the recoverable
+          // wording rather than claiming the purchase completed.
+          setMessage(result.error);
+          setStatus("unverified");
+          return;
+        }
         if (result.warning) setMessage(result.warning);
         setTransferId(result.transferId ?? null);
         setStatus("success");
@@ -69,6 +77,20 @@ function CompleteClient() {
         <Alert tone="error">{message}</Alert>
         <Button variant="primary" className="mt-4 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
           Back to listing
+        </Button>
+      </>
+    );
+  }
+
+  // Stripe never confirmed the PaymentIntent, so nothing was marked sold and no
+  // transfer exists. The charge may still settle via the webhook, so send the
+  // buyer to their purchases rather than back to a Buy Now button.
+  if (status === "unverified") {
+    return (
+      <>
+        <Alert tone="error">{message}</Alert>
+        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push("/account/purchases")}>
+          View your purchases
         </Button>
       </>
     );

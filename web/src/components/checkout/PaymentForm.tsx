@@ -51,6 +51,14 @@ export function PaymentForm({ listingId }: { listingId: string }) {
     }
 
     const result = await finalizeBuyNowPurchaseAction(listingId, paymentIntent.id);
+    if (result.error) {
+      // The server could not verify the payment with Stripe, so it deliberately
+      // did not mark the listing sold or create a transfer. Never show
+      // "Purchase complete!" here — that would be a claim we can't back.
+      setError(result.error);
+      setSubmitting(false);
+      return;
+    }
     if (result.warning) {
       setError(result.warning);
     }
