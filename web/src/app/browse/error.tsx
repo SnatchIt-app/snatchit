@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Container } from "@/components/ui/Container";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { captureException } from "@/lib/observability";
 
 export default function BrowseError({
   error,
@@ -12,7 +13,7 @@ export default function BrowseError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[browse]", error);
+    captureException("browse", error, { digest: error.digest ?? "none" });
   }, [error]);
 
   return (

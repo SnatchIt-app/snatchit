@@ -6,6 +6,39 @@
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
 
+/**
+ * Fail-fast in production.
+ *
+ * Without this, missing Supabase env degrades silently: hasSupabaseEnv goes
+ * false and listings.ts serves FIXTURE_LISTINGS with HTTP 200, so a
+ * misconfigured deploy looks like a working marketplace showing invented
+ * inventory at invented prices. Buyers could click through to checkout on
+ * tickets that do not exist.
+ *
+ * Throwing at module load turns that into a failed build/boot instead, which
+ * is the only safe direction to fail. Dev keeps the fixture path so the UI can
+ * be worked on without a database.
+ */
+const IS_PROD = process.env.NODE_ENV === "production";
+
+if (IS_PROD) {
+  const missing = [
+    !SUPABASE_URL && "NEXT_PUBLIC_SUPABASE_URL",
+    !SUPABASE_ANON_KEY && "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(", ")}. ` +
+        "Refusing to start — serving fixture data in production would show " +
+        "buyers listings that do not exist.",
+    );
+  }
+}
+
+/**
+ * Dev-only fixture escape hatch. Always true in production, because the guard
+ * above has already thrown if the env is incomplete.
+ */
 export const hasSupabaseEnv = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 /** Publishable (client-safe) key only — same trust class as the Supabase anon key. */
