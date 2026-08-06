@@ -34,6 +34,37 @@ const parsed = (() => {
 export const hasErrorReporting = parsed !== null;
 
 /**
+ * Turn an Error.stack string into Sentry stack frames.
+ *
+ * Sending `stacktrace: { frames: [] }` and stuffing the raw stack into `extra`
+ * looks harmless but defeats the point of reporting: Sentry cannot symbolicate
+ * an empty frame list, source maps never apply, and grouping falls back to
+ * type+message — so every distinct minified message becomes its own issue and
+ * none of them has a usable stack.
+ *
+ * Sentry expects frames oldest-first, the reverse of how V8 prints them.
+ */
+function parseFrames(stack: string | undefined) {
+  if (!stack) return [];
+  const frames = [];
+  // "    at fnName (https://host/path.js:12:34)" and the anonymous
+  // "    at https://host/path.js:12:34" form.
+  const re = /^\s*at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?\s*$/;
+  for (const line of stack.split("\n")) {
+    const m = re.exec(line);
+    if (!m) continue;
+    frames.push({
+      function: m[1] ?? "?",
+      filename: m[2],
+      lineno: Number(m[3]),
+      colno: Number(m[4]),
+      in_app: !m[2].includes("/node_modules/"),
+    });
+  }
+  return frames.reverse();
+}
+
+/**
  * Report an exception. Fire-and-forget by design — callers are usually error
  * boundaries that must render regardless.
  *
@@ -71,8 +102,12 @@ export function captureException(
         logger: where,
         tags: { where, ...context },
         exception: {
-          values: [{ type: err.name, value: err.message, stacktrace: { frames: [] } }],
+          values: [
+            { type: err.name, value: err.message, stacktrace: { frames: parseFrames(err.stack) } },
+          ],
         },
+        // Kept as a raw fallback for the case where parseFrames finds nothing
+        // (a non-V8 stack format, or an error with no stack at all).
         extra: { stack: err.stack },
       });
 

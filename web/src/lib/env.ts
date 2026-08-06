@@ -41,6 +41,35 @@ if (IS_PROD) {
         "breaks auth emails and post-payment redirects.",
     );
   }
+
+  // Presence alone is not enough. NEXT_PUBLIC_SITE_URL=http://localhost:3000
+  // is truthy, passes the check above, builds green, deploys green — and then
+  // every password-reset and signup-confirmation email points at localhost
+  // while 3DS buyers are redirected there after paying. That exact value is
+  // what sits in .env.local, so promoting it to the Vercel Production scope is
+  // a copy-paste away.
+  //
+  // Only enforced on real production deploys (VERCEL_ENV=production), not on
+  // previews or local `next build`, which legitimately run against other hosts.
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") {
+    const raw = process.env.NEXT_PUBLIC_SITE_URL!;
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      parsed = null;
+    }
+    const host = parsed?.hostname ?? "";
+    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+    if (!parsed || parsed.protocol !== "https:" || isLocal) {
+      throw new Error(
+        `NEXT_PUBLIC_SITE_URL is "${raw}", which cannot be the production ` +
+          "origin. It must be an https:// URL on a real host — it is baked " +
+          "into password-reset and signup-confirmation email links and into " +
+          "the Stripe checkout return_url.",
+      );
+    }
+  }
 }
 
 /**
