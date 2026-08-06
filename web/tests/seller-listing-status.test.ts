@@ -97,16 +97,14 @@ describe("sellerBadge — precedence", () => {
     expect(sellerBadge(row({ auction_status: "ended" }), NOW)).toBe("ENDED");
   });
 
-  it("BUG: an unparseable ends_at falls open to ACTIVE (and therefore editable)", () => {
-    // NaN loses both comparisons, so a row whose end time cannot be read is
-    // shown as ACTIVE and canEdit/canDelete return true for it.
-    // Expected: ENDED (fail closed). Same defect as listingCardStatus, which
-    // returns LIVE for the same input. ends_at is NOT NULL in the DB, so this
-    // is latent rather than live.
+  it("fails closed on an unparseable ends_at", () => {
+    // NaN lost both comparisons, so a row whose end time cannot be read was
+    // shown ACTIVE and canEdit/canDelete returned true for it — while
+    // fmtEndsIn called the same value "Ended". Both now agree on ENDED.
     const bad = row({ ends_at: "garbage" });
-    expect(sellerBadge(bad, NOW)).toBe("ACTIVE");
-    expect(canEdit(sellerBadge(bad, NOW), 0)).toBe(true);
-    expect(sellerBadge(row({ ends_at: "" }), NOW)).toBe("ACTIVE");
+    expect(sellerBadge(bad, NOW)).toBe("ENDED");
+    expect(canEdit(sellerBadge(bad, NOW), 0)).toBe(false);
+    expect(sellerBadge(row({ ends_at: "" }), NOW)).toBe("ENDED");
     // A null ends_at coerces to epoch 0 and does end up ENDED.
     expect(sellerBadge(row({ ends_at: null as unknown as string }), NOW)).toBe("ENDED");
   });

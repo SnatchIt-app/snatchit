@@ -76,17 +76,16 @@ describe("fmtEventDate — adversarial", () => {
     expect(fmtEventDate("2026-12-31")).toBe("Thu, Dec 31, 2026");
   });
 
-  it("BUG: an out-of-range month renders the literal string 'undefined'", () => {
-    // MONTHS[12] is undefined and is interpolated straight into the output.
-    // Expected: fall back to passing the input through, like other malformed
-    // input. Actual: "Tue, undefined 5, 2026". Not reachable from the DB
-    // (event_date is a `date` column) but it is a latent render defect.
-    expect(fmtEventDate("2026-13-05")).toBe("Tue, undefined 5, 2026");
+  it("passes an out-of-range month through instead of printing 'undefined'", () => {
+    // MONTHS[12] is undefined and used to be interpolated straight into the
+    // output as "Tue, undefined 5, 2026".
+    expect(fmtEventDate("2026-13-05")).toBe("2026-13-05");
+    expect(fmtEventDate("2026-00-05")).toBe("2026-00-05");
   });
 
-  it("does not validate day-of-month or 2-digit years (documented gaps)", () => {
-    // Day 32 is echoed as-is; the weekday comes from the rolled-over Date.
-    expect(fmtEventDate("2026-10-32")).toBe("Sun, Oct 32, 2026");
+  it("does not validate 2-digit years (documented gap)", () => {
+    // Day 32 is now out of range and passes through.
+    expect(fmtEventDate("2026-10-32")).toBe("2026-10-32");
     // "26" is mapped to 1926 by the Date constructor, so the weekday belongs
     // to 1926 while the printed year is "26".
     expect(fmtEventDate("26-10-17")).toBe("Sun, Oct 17, 26");
@@ -116,17 +115,16 @@ describe("fmtEventTime — adversarial", () => {
     expect(fmtEventTime(LONG)).toBe(LONG);
   });
 
-  it("BUG: empty / whitespace-only input renders as midnight instead of passing through", () => {
-    // Number("") === 0, not NaN, so the NaN guard never fires.
-    // Expected: "" (pass-through). Actual: "12:00 AM" — a missing time is
-    // displayed to buyers as a real 12:00 AM start.
-    expect(fmtEventTime("")).toBe("12:00 AM");
-    expect(fmtEventTime("   ")).toBe("12:00 AM");
+  it("passes empty / whitespace-only input through instead of showing midnight", () => {
+    // Number("") === 0, not NaN, so the NaN guard never fired and a missing
+    // time was shown to buyers as a confident 12:00 AM start.
+    expect(fmtEventTime("")).toBe("");
+    expect(fmtEventTime("   ")).toBe("   ");
   });
 
-  it("does not range-check the hour", () => {
-    expect(fmtEventTime("25:00:00")).toBe("1:00 PM");
-    expect(fmtEventTime("-1:00:00")).toBe("-1:00 AM");
+  it("range-checks the hour", () => {
+    expect(fmtEventTime("25:00:00")).toBe("25:00:00");
+    expect(fmtEventTime("-1:00:00")).toBe("-1:00:00");
   });
 
   it("inherits Number() coercion quirks (hex / exponent hour strings)", () => {
@@ -227,13 +225,13 @@ describe("listingCardStatus — adversarial", () => {
     expect(listingCardStatus({ ...base, ends_at: at(DAY + 1) }, now)).toBe("LIVE");
   });
 
-  it("BUG: an unparseable ends_at falls open to LIVE", () => {
+  it("fails closed on an unparseable ends_at", () => {
     // NaN fails both comparisons, so the card advertises bidding on a listing
     // whose end time cannot be read — while fmtEndsIn on the SAME value says
     // "Ended". Expected: ENDED (fail closed). Not reachable while ends_at is
     // NOT NULL in the DB, but the two helpers disagree on identical input.
     for (const bad of ["", "garbage", UNICODE]) {
-      expect(listingCardStatus({ ...base, ends_at: bad }, now), bad).toBe("LIVE");
+      expect(listingCardStatus({ ...base, ends_at: bad }, now), bad).toBe("ENDED");
       expect(fmtEndsIn(bad, now), bad).toBe("Ended");
     }
     // A null ends_at coerces to epoch 0 and DOES end up ENDED — so the
@@ -303,7 +301,7 @@ describe("deliveryLabel — adversarial", () => {
     expect(deliveryLabel(TRAVERSAL)).not.toContain("..");
   });
 
-  it("BUG: throws a TypeError for Object.prototype keys instead of falling back", () => {
+  it("falls back for Object.prototype keys instead of throwing", () => {
     // `PLATFORM_INSTRUCTIONS["constructor"]` is the inherited Object
     // constructor — truthy — so the `!known` guard passes and the function
     // then reads `.displayName.replace(...)` on undefined.
@@ -313,9 +311,9 @@ describe("deliveryLabel — adversarial", () => {
     // Not reachable today: listings.ticket_platform has a 16-value CHECK
     // constraint (migration 033). It is a contract violation regardless.
     for (const key of PROTO_KEYS) {
-      expect(() => deliveryLabel(key), key).toThrow(TypeError);
+      expect(deliveryLabel(key), key).toBe("Official platform transfer");
     }
-    expect(() => deliveryLabel("__proto__")).toThrow(/displayName|undefined/);
+    expect(deliveryLabel("__proto__")).toBe("Official platform transfer");
   });
 });
 
@@ -335,16 +333,18 @@ describe("categoryLabel / neighborhoodLabel — adversarial", () => {
     expect(categoryLabel(LONG)).toHaveLength(LONG.length);
   });
 
-  it("BUG: Object.prototype keys return a non-string (object/function), not a label", () => {
+  it("returns a real string for Object.prototype keys", () => {
     // `CATEGORY_LABELS["__proto__"]` is Object.prototype — not nullish — so
     // `?? capitalize()` never fires and the inherited value is returned while
     // the signature promises `string`. Rendering it as a React child throws
     // "Objects are not valid as a React child".
     // Expected: "__proto__" title-cased (or the generic fallback).
-    expect(typeof categoryLabel("__proto__")).toBe("object");
-    expect(typeof categoryLabel("toString")).toBe("function");
-    expect(typeof neighborhoodLabel("constructor")).toBe("function");
-    expect(typeof neighborhoodLabel("hasOwnProperty")).toBe("function");
+    expect(typeof categoryLabel("__proto__")).toBe("string");
+    expect(typeof categoryLabel("toString")).toBe("string");
+    expect(typeof neighborhoodLabel("constructor")).toBe("string");
+    expect(typeof neighborhoodLabel("hasOwnProperty")).toBe("string");
+    // Title-cased fallback, same as any other unrecognised value.
+    expect(categoryLabel("toString")).toBe("ToString");
     // Same root cause as the deliveryLabel crash above: unguarded index into a
     // plain object with a caller-supplied string key.
   });
@@ -378,15 +378,12 @@ describe("coverImageUrl — adversarial", () => {
     }
   });
 
-  it("does not normalise traversal segments (defence-in-depth gap, not an origin escape)", () => {
+  it("neutralises traversal segments so the bucket prefix cannot be escaped", () => {
     const url = coverImageUrl(TRAVERSAL);
-    // The raw string still carries the "../../" the caller supplied...
-    expect(url).toContain("/auction-media/../../etc/passwd");
-    // ...and once a URL parser normalises it, the bucket prefix is gone.
-    // Same origin, so the blast radius is "requests another public storage
-    // path", not cross-origin. Storage paths are written server-side.
-    expect(new URL(url).pathname).not.toContain("/auction-media/");
-    expect(new URL(url).pathname).toBe("/storage/v1/object/etc/passwd");
+    // Previously the raw "../../" survived and a URL parser normalised the
+    // auction-media prefix away, pointing at another public storage path.
+    expect(url).not.toContain("..");
+    expect(new URL(url).pathname).toContain("/auction-media/");
   });
 
   it("does not percent-encode, and does not detect an already-absolute URL", () => {
@@ -402,10 +399,9 @@ describe("coverImageUrl — adversarial", () => {
     expect(coverImageUrl("")).toBe(`${STORAGE_BASE_URL}/auction-media/`);
   });
 
-  it("stringifies null/undefined instead of crashing the render", () => {
-    expect(coverImageUrl(null as unknown as string)).toBe(`${STORAGE_BASE_URL}/auction-media/null`);
-    expect(coverImageUrl(undefined as unknown as string)).toBe(
-      `${STORAGE_BASE_URL}/auction-media/undefined`,
-    );
+  it("returns the bucket root for null/undefined instead of a 'null' path", () => {
+    const root = `${STORAGE_BASE_URL}/auction-media/`;
+    expect(coverImageUrl(null as unknown as string)).toBe(root);
+    expect(coverImageUrl(undefined as unknown as string)).toBe(root);
   });
 });

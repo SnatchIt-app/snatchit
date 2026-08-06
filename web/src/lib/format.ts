@@ -15,7 +15,8 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** "2026-10-17" → "Sat, Oct 17, 2026" (no TZ math on date-only values). */
 export function fmtEventDate(isoDate: string): string {
   const [y, m, d] = isoDate.split("-").map(Number);
-  if (!y || !m || !d) return isoDate;
+  // m out of range indexed MONTHS past its end and printed "undefined".
+  if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return isoDate;
   const date = new Date(y, m - 1, d);
   return `${DAYS[date.getDay()]}, ${MONTHS[m - 1]} ${d}, ${y}`;
 }
@@ -23,8 +24,11 @@ export function fmtEventDate(isoDate: string): string {
 /** "23:00:00" → "11:00 PM" · "02:00:00" → "2:00 AM". */
 export function fmtEventTime(time: string): string {
   const [hStr, mStr] = time.split(":");
+  // Number("") and Number("   ") are 0, not NaN — so an empty time used to
+  // render as a confident "12:00 AM" start rather than falling through.
+  if (!hStr?.trim()) return time;
   const h = Number(hStr);
-  if (Number.isNaN(h)) return time;
+  if (!Number.isInteger(h) || h < 0 || h > 23) return time;
   const suffix = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}:${mStr ?? "00"} ${suffix}`;
@@ -61,25 +65,44 @@ export function listingCardStatus(
   if (l.auction_status === "cancelled") return "ENDED";
   if (l.status === "sold" || l.auction_status === "sold") return "SOLD";
   if (l.status === "reserved") return "RESERVED";
-  const remaining = new Date(l.ends_at).getTime() - now.getTime();
+  const endsAt = new Date(l.ends_at).getTime();
+  // Fail CLOSED. An unparseable ends_at produced NaN, every comparison below
+  // was false, and the function fell through to "LIVE" — a card offering
+  // bidding on a listing whose end time we cannot read. fmtEndsIn already
+  // returned "Ended" for the same input, so the two disagreed.
+  if (Number.isNaN(endsAt)) return "ENDED";
+  const remaining = endsAt - now.getTime();
   if (l.auction_status === "ended" || remaining <= 0) return "ENDED";
   if (remaining <= ENDING_SOON_MS) return "ENDING SOON";
   return "LIVE";
 }
 
+/**
+ * These three all index a plain object by a caller-supplied string, so an
+ * inherited Object.prototype key ("constructor", "toString", "__proto__") comes
+ * back truthy and defeats both `?? fallback` and `!known` guards —
+ * categoryLabel("toString") returned a *function* typed as string, which throws
+ * "Objects are not valid as a React child" when rendered. Object.hasOwn is the
+ * fix. Latent today because these values carry CHECK constraints, but the
+ * functions are exported and take `string`.
+ */
+function lookup<T extends Record<string, unknown>>(table: T, key: string): T[keyof T] | undefined {
+  return Object.hasOwn(table, key) ? (table[key] as T[keyof T]) : undefined;
+}
+
 export function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category as EventCategory] ?? capitalize(category);
+  return (lookup(CATEGORY_LABELS, category) as string | undefined) ?? capitalize(category);
 }
 
 export function neighborhoodLabel(neighborhood: string): string {
-  return NEIGHBORHOOD_LABELS[neighborhood as Neighborhood] ?? capitalize(neighborhood);
+  return (lookup(NEIGHBORHOOD_LABELS, neighborhood) as string | undefined) ?? capitalize(neighborhood);
 }
 
 export function platformLabel(platform: string): string {
   // Matches the core displayName for the unknown case ("Other Platform"), so
   // this fallback and deliveryLabel below stay consistent with the shared
   // package rather than drifting from it.
-  return PLATFORM_INSTRUCTIONS[platform as TicketPlatform]?.displayName ?? "Other Platform";
+  return lookup(PLATFORM_INSTRUCTIONS, platform)?.displayName ?? "Other Platform";
 }
 
 /**
@@ -92,7 +115,7 @@ export function platformLabel(platform: string): string {
  * The same text feeds the public JSON-LD description, so it was search-visible.
  */
 export function deliveryLabel(platform: string): string {
-  const known = PLATFORM_INSTRUCTIONS[platform as TicketPlatform];
+  const known = lookup(PLATFORM_INSTRUCTIONS, platform);
   // "other" IS a known key — its displayName is literally "Other Platform",
   // which is what produced the broken copy. It is a catch-all, not a brand,
   // so it takes the generic sentence like an unrecognised value does.
@@ -116,5 +139,9 @@ function capitalize(s: string): string {
  * the build. This is a pure string join and is safe on both sides.
  */
 export function coverImageUrl(path: string): string {
+  // Traversal segments would URL-normalize away the auction-media prefix and
+  // point at another bucket path. Paths are written server-side so this is
+  // defence in depth, not a live hole.
+  if (!path || path.includes("..")) return `${STORAGE_BASE_URL}/auction-media/`;
   return `${STORAGE_BASE_URL}/auction-media/${path}`;
 }

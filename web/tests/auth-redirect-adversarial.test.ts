@@ -147,15 +147,13 @@ describe("safeInternalPath — acceptance corpus", () => {
     expect(safeInternalPath("/auth/confirm", FB)).toBe(FB);
   });
 
-  it("GAP: non-whitespace control characters are not blocked", () => {
-    // The source comment claims embedded control characters are blocked, but
-    // the character class is [^\s\\] and \s does not cover NUL, \x01 or DEL.
-    // These stay same-origin, so it is not an open redirect; the risk is a
-    // Node ERR_INVALID_CHAR (500) if the value reaches a Location header.
-    // Expected: reject anything below \x20 plus \x7f.
-    expect(safeInternalPath("/account\u0000", FB)).toBe("/account\u0000");
-    expect(safeInternalPath("/account\u0001", FB)).toBe("/account\u0001");
-    expect(safeInternalPath("/account\u007f", FB)).toBe("/account\u007f");
+  it("blocks non-whitespace control characters", () => {
+    // The [^\s\\] class alone did not cover NUL, \x01-\x08 or DEL, so those
+    // reached a Location header and could 500 with ERR_INVALID_CHAR. Never an
+    // open redirect (still same-origin), but they belong in the fallback.
+    expect(safeInternalPath("/account\u0000", FB)).toBe(FB);
+    expect(safeInternalPath("/account\u0001", FB)).toBe(FB);
+    expect(safeInternalPath("/account\u007f", FB)).toBe(FB);
     // ...whereas the whitespace-class control characters ARE blocked.
     expect(safeInternalPath("/account\u000c", FB)).toBe(FB);
     expect(safeInternalPath("/account\u2029", FB)).toBe(FB);

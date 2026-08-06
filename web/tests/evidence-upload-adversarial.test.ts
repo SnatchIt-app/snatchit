@@ -121,17 +121,14 @@ describe("validateEvidenceFile — size checks", () => {
     expect(validateEvidenceFile("image/jpeg", -Infinity).ok).toBe(false);
   });
 
-  it("BUG: NaN size passes both the empty and the max-size check", () => {
-    // Every comparison against NaN is false, so a NaN size is accepted with a
-    // valid extension. Expected: rejected (fail closed).
-    // Not reachable through lib/transfers.ts, which passes a real File's
-    // `file.size`; it would become live the moment a caller derives the size
-    // from a form field or JSON body (Number("") === NaN).
-    const r = validateEvidenceFile("image/jpeg", NaN);
-    expect(r.ok).toBe(true);
-    expect(r.ok && r.extension).toBe("jpg");
-    // Same hole for undefined-ish input cast as a number.
-    expect(validateEvidenceFile("image/jpeg", undefined as unknown as number).ok).toBe(true);
+  it("rejects a non-finite size instead of failing open", () => {
+    // Every comparison against NaN is false, so NaN used to pass BOTH the
+    // empty-file and the 10MB check and come back ok with a valid extension.
+    // Not reachable via lib/transfers.ts, which passes a real File.size, but
+    // live the moment a caller derives size from a form field (Number("")).
+    expect(validateEvidenceFile("image/jpeg", NaN).ok).toBe(false);
+    expect(validateEvidenceFile("image/jpeg", Infinity).ok).toBe(false);
+    expect(validateEvidenceFile("image/jpeg", undefined as unknown as number).ok).toBe(false);
     // null coerces to 0 and IS caught, which is what makes NaN the odd one out.
     expect(validateEvidenceFile("image/jpeg", null as unknown as number).ok).toBe(false);
   });

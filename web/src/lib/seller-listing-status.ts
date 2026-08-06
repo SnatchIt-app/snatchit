@@ -32,9 +32,14 @@ export function sellerBadge(l: SellerStatusInput, now: number): SellerBadge {
   if (l.status === "reserved" && l.reserved_until && new Date(l.reserved_until).getTime() > now) {
     return "RESERVED";
   }
-  const clockExpired = new Date(l.ends_at).getTime() <= now;
+  const endsAt = new Date(l.ends_at).getTime();
+  // Fail closed, matching listingCardStatus: an unparseable ends_at used to
+  // fall through to "ACTIVE", which made canEdit() true on a listing whose
+  // state we cannot determine.
+  if (Number.isNaN(endsAt)) return "ENDED";
+  const clockExpired = endsAt <= now;
   if (l.auction_status === "ended" || clockExpired) return "ENDED";
-  if (new Date(l.ends_at).getTime() - now <= ENDING_SOON_MS) return "ENDING SOON";
+  if (endsAt - now <= ENDING_SOON_MS) return "ENDING SOON";
   return "ACTIVE";
 }
 

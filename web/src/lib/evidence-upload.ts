@@ -78,7 +78,10 @@ export function validateEvidenceFile(type: string, sizeBytes: number): EvidenceV
       error: "Upload a JPEG, PNG, WEBP, HEIC image or a PDF. Other file types aren't accepted.",
     };
   }
-  if (sizeBytes <= 0) {
+  // NaN fails BOTH `<= 0` and `> MAX`, so it slipped through the empty-file and
+  // 10MB checks entirely. Reachable the moment a caller derives size from a
+  // form field or JSON body rather than a real File.
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return { ok: false, error: "That file appears to be empty." };
   }
   if (sizeBytes > MAX_EVIDENCE_SIZE_MB * 1024 * 1024) {

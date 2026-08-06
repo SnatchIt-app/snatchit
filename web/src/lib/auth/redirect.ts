@@ -12,6 +12,9 @@ export function safeInternalPath(input: string | null | undefined, fallback: str
   // Must start with exactly one "/": blocks "//evil.com" (protocol-relative)
   // and "http://…"/"https://…". Blocks backslashes (some browsers treat
   // "/\evil.com" as protocol-relative too) and embedded control characters.
+  // \s does not cover NUL, \x01-\x08 or DEL, so those reached a Location
+  // header and could 500 with ERR_INVALID_CHAR. Same-origin either way.
+  if (/[\u0000-\u001f\u007f]/.test(input)) return fallback;
   if (!/^\/(?!\/)[^\s\\]*$/.test(input)) return fallback;
   if (input.startsWith("/auth/")) return fallback;
   return input;
