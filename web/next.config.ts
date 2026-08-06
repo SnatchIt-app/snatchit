@@ -31,7 +31,10 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https://${SUPABASE_HOST}${extraHost ? ` https://${extraHost}` : ""}`,
   "font-src 'self'",
-  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.us.sentry.io https://api.stripe.com`,
+  // Sentry: *.ingest.sentry.io covers EU and regionless DSNs too. Allowing
+  // only the US host would have CSP-blocked error reporting on any other
+  // region — silently, since a blocked report cannot report itself.
+  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.stripe.com`,
   "frame-src https://js.stripe.com https://hooks.stripe.com",
   "object-src 'none'",
   "base-uri 'self'",

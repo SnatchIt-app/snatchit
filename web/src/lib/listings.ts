@@ -3,7 +3,9 @@ import "server-only";
 import { cache } from "react";
 import type { Listing, Profile } from "@snatchit/types";
 import { BUYER_FEE_RATE } from "@snatchit/core";
-import { hasSupabaseEnv, STORAGE_BASE_URL } from "@/lib/env";
+import { hasSupabaseEnv } from "@/lib/env";
+// Re-exported for the many server components already importing it from here.
+export { coverImageUrl } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { FIXTURE_LISTINGS, FIXTURE_SELLER } from "@/lib/fixtures";
 
@@ -144,10 +146,6 @@ export async function getRelatedListings(listing: WebListing, limit = 4): Promis
     related.push(...fill);
   }
   return related.slice(0, limit);
-}
-
-export function coverImageUrl(path: string): string {
-  return `${STORAGE_BASE_URL}/auction-media/${path}`;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -1,4 +1,5 @@
 import { CATEGORY_LABELS, NEIGHBORHOOD_LABELS, PLATFORM_INSTRUCTIONS } from "@snatchit/core";
+import { STORAGE_BASE_URL } from "@/lib/env";
 import type { EventCategory, Neighborhood, TicketPlatform } from "@snatchit/types";
 
 /**
@@ -75,9 +76,45 @@ export function neighborhoodLabel(neighborhood: string): string {
 }
 
 export function platformLabel(platform: string): string {
-  return PLATFORM_INSTRUCTIONS[platform as TicketPlatform]?.displayName ?? "Other platform";
+  // Matches the core displayName for the unknown case ("Other Platform"), so
+  // this fallback and deliveryLabel below stay consistent with the shared
+  // package rather than drifting from it.
+  return PLATFORM_INSTRUCTIONS[platform as TicketPlatform]?.displayName ?? "Other Platform";
+}
+
+/**
+ * How the ticket reaches the buyer, as a sentence.
+ *
+ * Interpolating platformLabel() straight into `Official ${platform} transfer`
+ * produced "Official Other Platform transfer" — and create-listing defaults
+ * ticketPlatform to "other", so that was the DEFAULT string. It also produced
+ * "Official StubHub (purchased there) transfer" for the parenthesised labels.
+ * The same text feeds the public JSON-LD description, so it was search-visible.
+ */
+export function deliveryLabel(platform: string): string {
+  const known = PLATFORM_INSTRUCTIONS[platform as TicketPlatform];
+  // "other" IS a known key — its displayName is literally "Other Platform",
+  // which is what produced the broken copy. It is a catch-all, not a brand,
+  // so it takes the generic sentence like an unrecognised value does.
+  if (!known || platform === "other") return "Official platform transfer";
+  // Labels like "StubHub (purchased there)" carry a parenthetical that reads
+  // as noise mid-sentence; the bare brand is what belongs here.
+  const brand = known.displayName.replace(/\s*\(.*\)\s*$/, "");
+  return `Official ${brand} transfer`;
 }
 
 function capitalize(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Public URL for a listing cover image.
+ *
+ * Lives here, not in lib/listings.ts, because that module pulls in
+ * lib/supabase/server.ts -> next/headers, so a "use client" component
+ * importing it dragged a server-only module into the client bundle and broke
+ * the build. This is a pure string join and is safe on both sides.
+ */
+export function coverImageUrl(path: string): string {
+  return `${STORAGE_BASE_URL}/auction-media/${path}`;
 }

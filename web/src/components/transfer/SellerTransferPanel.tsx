@@ -127,10 +127,17 @@ export function SellerTransferPanel({
               <span className="text-[12.5px] text-white/55">
                 {evidencePath ? `✓ ${evidenceName}` : uploading ? "Uploading…" : "Choose a screenshot"}
               </span>
+              {/* sr-only, NOT hidden. `display:none` removes the input from the
+                  tab order, and "I've sent the tickets" stays disabled until
+                  evidencePath is set — so a keyboard-only seller could not
+                  complete the sale at all, and would be auto-refunded at the
+                  24h deadline. CreateListingForm hit the same trap and fixed
+                  it the same way. */}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic"
-                className="hidden"
+                accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+                aria-label="Upload proof of transfer"
+                className="sr-only"
                 onChange={(e) => handlePick(e.target.files?.[0])}
               />
             </label>

@@ -25,12 +25,20 @@ if (IS_PROD) {
   const missing = [
     !SUPABASE_URL && "NEXT_PUBLIC_SUPABASE_URL",
     !SUPABASE_ANON_KEY && "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    // NEXT_PUBLIC_SITE_URL is required too, and its failure is the quietest of
+    // the three: it falls back to http://localhost:3000, which is then baked
+    // into signup-confirmation and password-reset email links (auth/actions.ts)
+    // and into the Stripe checkout return_url (PaymentForm.tsx). Users are
+    // locked out of their accounts, and 3DS buyers land nowhere after paying,
+    // with nothing logged anywhere.
+    !process.env.NEXT_PUBLIC_SITE_URL && "NEXT_PUBLIC_SITE_URL",
   ].filter(Boolean);
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(", ")}. ` +
         "Refusing to start — serving fixture data in production would show " +
-        "buyers listings that do not exist.",
+        "buyers listings that do not exist, and a localhost SITE_URL silently " +
+        "breaks auth emails and post-payment redirects.",
     );
   }
 }

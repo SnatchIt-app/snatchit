@@ -26,6 +26,7 @@ import {
   listingCardStatus,
   neighborhoodLabel,
   platformLabel,
+  deliveryLabel,
 } from "@/lib/format";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
@@ -93,6 +94,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const isActive = status === "LIVE" || status === "ENDING SOON";
   const base = effectiveBase(listing);
   const platform = platformLabel(listing.ticket_platform);
+  const delivery = deliveryLabel(listing.ticket_platform);
   const isHybrid = listing.buy_now_enabled && !!listing.buy_now_price;
   const pureAuctionActive = isActive && !isHybrid;
 
@@ -109,7 +111,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
       address: { "@type": "PostalAddress", addressLocality: "Miami", addressRegion: "FL" },
     },
     image: [coverImageUrl(listing.cover_image_path)],
-    description: `Peer-to-peer resale listing on Snatch It. ${listing.ticket_type} ticket transferred via ${platform} after purchase. Price includes all fees.`,
+    description: `Peer-to-peer resale listing on Snatch It. ${listing.ticket_type} ticket delivered by ${delivery.toLowerCase()} after purchase. Price includes all fees.`,
     offers: {
       "@type": "Offer",
       price: (buyerTotalCents(dollarsToCents(base)) / 100).toFixed(2),
@@ -206,7 +208,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             <Fact label="Ticket type" value={listing.ticket_type} />
             <Fact label="Quantity" value={`${listing.quantity} ticket${listing.quantity === 1 ? "" : "s"}`} />
             <Fact label="Platform" value={platform} />
-            <Fact label="Delivery" value={`Official ${platform} transfer`} />
+            <Fact label="Delivery" value={delivery} />
           </dl>
 
           {/* Seller */}
@@ -341,7 +343,9 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             ) : null}
 
             {isActive ? (
-              <div className="mt-6 space-y-4">
+              /* scroll-mt clears the sticky header when the mobile bar's
+                 #buy anchor jumps here. */
+              <div id="buy" className="mt-6 space-y-4 scroll-mt-24">
                 {isHybrid ? <BuyNowButton listingId={listing.id} /> : null}
                 <BidPanel
                   listingId={listing.id}
@@ -390,9 +394,21 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
             </p>
             <PriceDisplay baseDollars={base} size="md" suffix={null} className="mt-1" />
           </div>
-          <LinkButton href="https://snatchitapp.com" className="shrink-0">
-            Get the app
-          </LinkButton>
+          {/* This used to be "Get the app" -> snatchitapp.com. On phones it is
+              the most prominent control on the page, at the exact purchase
+              moment, and it sent the buyer OFF-SITE while the real Buy Now /
+              bid controls sat further down. Now it jumps to them. When the
+              listing is over there is nothing to jump to, so it links onward
+              to browse instead of dead-ending. */}
+          {isActive ? (
+            <LinkButton href="#buy" className="shrink-0">
+              {listing.buy_now_enabled ? "Buy now" : "Place bid"}
+            </LinkButton>
+          ) : (
+            <LinkButton href="/browse" variant="secondary" className="shrink-0">
+              Browse tickets
+            </LinkButton>
+          )}
         </div>
       </div>
 

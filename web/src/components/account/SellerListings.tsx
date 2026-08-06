@@ -5,6 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { allInFromDollars } from "@snatchit/core";
+// From lib/format, NOT lib/listings — the latter imports lib/supabase/server
+// (next/headers) and would drag a server-only module into this client bundle.
+import { coverImageUrl } from "@/lib/format";
 import type { SellerListingView } from "@/lib/seller-listings";
 import {
   canCancel,
@@ -117,7 +120,10 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
       {notice ? <Alert tone="success">{notice}</Alert> : null}
 
       {shown.length === 0 ? (
-        <p className="py-8 text-center text-[13.5px] text-white/50">Nothing in this filter.</p>
+        <EmptyState
+          title="Nothing in this filter"
+          message="Switch tabs to see your other listings."
+        />
       ) : (
         <ul className="space-y-3">
           {shown.map((l) => {
@@ -130,7 +136,10 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
                 <div className="flex gap-4">
                   <Link href={`/listing/${l.id}`} className="relative size-20 shrink-0 overflow-hidden border border-white/10">
                     <Image
-                      src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/auction-media/${l.cover_image_path}`}
+                      // Via coverImageUrl, not raw process.env — this was the
+                      // one place bypassing STORAGE_BASE_URL, so any env gap
+                      // rendered "undefined/storage/..." broken thumbnails.
+                      src={coverImageUrl(l.cover_image_path)}
                       alt=""
                       fill
                       sizes="80px"

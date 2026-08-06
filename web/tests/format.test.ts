@@ -6,6 +6,7 @@ import {
   fmtEventTime,
   listingCardStatus,
   neighborhoodLabel,
+  deliveryLabel,
   platformLabel,
 } from "../src/lib/format";
 
@@ -73,6 +74,27 @@ describe("labels from shared @snatchit/core data", () => {
   });
   it("falls back gracefully for unknown values", () => {
     expect(neighborhoodLabel("somewhere new")).toBe("Somewhere New");
-    expect(platformLabel("unknown_platform")).toBe("Other platform");
+    // Title case, matching the shared core displayName for "other", so the
+    // two cannot drift apart.
+    expect(platformLabel("unknown_platform")).toBe("Other Platform");
+  });
+});
+
+describe("deliveryLabel", () => {
+  it("never renders the raw platform label mid-sentence", () => {
+    // The bug: `Official ${platformLabel(p)} transfer` produced "Official
+    // Other Platform transfer", and create-listing defaults to "other", so
+    // that was the DEFAULT copy on the listing page and in the JSON-LD.
+    expect(deliveryLabel("unknown_platform")).toBe("Official platform transfer");
+    expect(deliveryLabel("other")).not.toContain("Other Platform");
+  });
+
+  it("strips parentheticals from brand names", () => {
+    // "StubHub (purchased there)" -> "Official StubHub transfer"
+    for (const p of ["stubhub", "vivid_seats", "gametime", "ticketmaster", "dice"]) {
+      const label = deliveryLabel(p);
+      expect(label).toMatch(/^Official .+ transfer$/);
+      expect(label).not.toContain("(");
+    }
   });
 });

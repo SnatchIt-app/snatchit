@@ -31,12 +31,12 @@ const STEPS = [
 ] as const;
 
 export default async function HomePage() {
-  let listings: WebListing[] = [];
-  try {
-    listings = await getActiveListings({}, 8);
-  } catch {
-    listings = [];
-  }
+  // Deliberately NOT wrapped in try/catch. It used to be, which turned a
+  // database outage into the cheerful "No live listings right now" empty
+  // state — every visitor saw an empty marketplace and no one saw a problem.
+  // /browse already lets this throw. Letting it throw here too routes to
+  // app/error.tsx, which reports to Sentry and offers a retry.
+  const listings = await getActiveListings({}, 8);
   const savedIds = await getSavedListingIdSet(listings.map((l) => l.id));
 
   return (
@@ -64,7 +64,8 @@ export default async function HomePage() {
           ) : (
             <EmptyState
               title="No live listings right now"
-              message="New tickets drop all week. Check back soon or grab the app to get notified."
+              message="New tickets drop all week. Selling something? List it in under a minute."
+              action={<LinkButton href="/sell">Sell your tickets</LinkButton>}
             />
           )}
         </Container>
@@ -169,8 +170,8 @@ export default async function HomePage() {
             Snatch It for iPhone
           </h2>
           <p className="mt-4 max-w-[42ch] text-[14.5px] leading-relaxed text-white/70">
-            Live bidding, Buy Now, transfers, and seller payouts. Coming soon to the App
-            Store.
+            Live bidding, Buy Now, transfers, and seller payouts — the whole
+            marketplace, in your pocket.
           </p>
           <LinkButton href="https://snatchitapp.com" size="lg" className="mt-8">
             Visit snatchitapp.com
