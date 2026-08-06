@@ -52,7 +52,9 @@ export default function LoginScreen() {
       Alert.alert('Enter your email first');
       return;
     }
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'snatchit://',
+    });
     if (error) {
       Alert.alert('Error', error.message);
     } else {

@@ -37,18 +37,19 @@ import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBloc
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
-import type { Listing } from '@/src/types';
+import type { Listing, MyProfileRPC } from '@/src/types';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
 
 async function getUserNeighborhoods(): Promise<Set<string>> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Set();
+  // Via get_my_profile() — see app/settings/preferences.tsx. The !user guard
+  // above satisfies the RPC, which raises when auth.uid() is null.
   const { data } = await supabase
-    .from('profiles')
-    .select('preferred_neighborhoods')
-    .eq('id', user.id)
-    .single();
+    .rpc('get_my_profile')
+    .returns<MyProfileRPC[]>()
+    .maybeSingle();
   return new Set(data?.preferred_neighborhoods ?? []);
 }
 

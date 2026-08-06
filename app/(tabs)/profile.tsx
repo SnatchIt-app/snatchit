@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { sellerNetDollars } from '@/src/lib/money';
@@ -132,12 +133,16 @@ export default function ProfileScreen() {
   async function loadData() {
     if (!user) return;
 
-    // 1. Fetch profile row (avatar_path added; falls back gracefully if column missing)
+    // 1. Own profile via get_my_profile(). It is SECURITY DEFINER and returns
+    //    the caller's row only, so it is unaffected by the column grants on
+    //    profiles — phone_number, wallet_balance and stripe_connect_id are
+    //    being revoked from `authenticated`, and column privileges are
+    //    per-role rather than per-row, so a direct select would stop reading
+    //    them even on your own row.
     const { data: profileData, error: profileErr } = await supabase
-      .from('profiles')
-      .select('id, display_name, phone_number, avatar_url, avatar_path, is_verified_buyer, is_verified_seller, wallet_balance, stripe_connect_id')
-      .eq('id', user.id)
-      .single();
+      .rpc('get_my_profile')
+      .returns<MyProfileRPC[]>()
+      .maybeSingle();
 
     setLoadError(profileData ? null
       : profileErr && isNetworkError(profileErr) ? 'offline'

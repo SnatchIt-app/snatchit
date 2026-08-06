@@ -29,6 +29,39 @@ export type Profile = {
   stripe_customer_id:         string | null;
 };
 
+/**
+ * Return shape of the get_my_profile() RPC.
+ *
+ * The RPC is SECURITY DEFINER and returns the caller's own row only
+ * (WHERE p.id = auth.uid()), which is why it is unaffected by the column
+ * grants on public.profiles. Column privileges in Postgres are per-role, not
+ * per-row, so once a sensitive column is revoked from `authenticated` a direct
+ * `.from('profiles').select(...)` stops returning it even for your own row.
+ * Every self-profile read goes through this instead.
+ *
+ * Exactly the 14 columns the function returns — deliberately NOT `Profile`.
+ * Absent here and unread anywhere in the app: phone, stripe_customer_id,
+ * is_admin, stripe_charges_enabled, stripe_payouts_enabled,
+ * stripe_connect_status, trust_status_override.
+ */
+export type MyProfileRPC = Pick<
+  Profile,
+  | 'id'
+  | 'full_name'
+  | 'display_name'
+  | 'phone_number'
+  | 'is_verified_buyer'
+  | 'is_verified_seller'
+  | 'created_at'
+  | 'avatar_path'
+  | 'avatar_url'
+  | 'bio'
+  | 'wallet_balance'
+  | 'stripe_connect_id'
+  | 'stripe_onboarding_complete'
+  | 'preferred_neighborhoods'
+>;
+
 // ─── Listing ──────────────────────────────────────────────────────────────────
 // Areas + named venues. Stored as lowercase text in listings.neighborhood.
 // Grouping/labels live in src/constants/neighborhoods.ts.
@@ -143,8 +176,12 @@ export type Bid = {
   listing_id: string;
   bidder_id:  string;
   amount:     number;
-  // Joined via select '*, profiles(full_name, display_name, avatar_url)'
-  profiles?:  Pick<Profile, 'full_name' | 'display_name' | 'avatar_url'> | null;
+  // Joined via select '*, profiles(display_name, avatar_url)'.
+  // full_name is deliberately absent: bid history is visible to every bidder
+  // on a listing, so embedding another user's legal name published it to
+  // strangers. It is also being revoked from the `authenticated` role, and a
+  // revoked column in a PostgREST embed fails the whole query with 42501.
+  profiles?:  Pick<Profile, 'display_name' | 'avatar_url'> | null;
 };
 
 // ─── Push Notifications ────────────────────────────────────────────────────────

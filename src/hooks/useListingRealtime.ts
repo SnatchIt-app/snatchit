@@ -13,7 +13,7 @@
  * Profiles join
  * ─────────────
  * bids.bidder_id → profiles.id FK is in place.
- * PostgREST resolves: select('*, profiles(full_name, display_name, avatar_url)').
+ * PostgREST resolves: select('*, profiles(display_name, avatar_url)').
  * No fallback — the FK migration must be applied before using this hook.
  *
  * Realtime channel
@@ -59,8 +59,14 @@ type Options = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // FK bids.bidder_id → profiles.id lets PostgREST resolve this join.
-// profiles table now has a public SELECT policy for all authenticated users.
-const BIDS_SELECT = '*, profiles(full_name, display_name, avatar_url)' as const;
+//
+// display_name and avatar_url only. full_name was removed for two reasons:
+// bid history is visible to every bidder on a listing, so embedding a legal
+// name published it to strangers; and full_name is being revoked from the
+// `authenticated` role, at which point PostgREST fails the ENTIRE query with
+// 42501 rather than omitting the column — which would empty the bid list and
+// silently take currentBid, bidCount and the outbid banners with it.
+const BIDS_SELECT = '*, profiles(display_name, avatar_url)' as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 

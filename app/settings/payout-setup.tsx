@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 
 import { supabase } from '@/src/lib/supabase';
+import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 
@@ -60,11 +61,13 @@ export default function PayoutSetupScreen() {
 
     try {
       // Quick local check: does a stripe_connect_id even exist?
+      // Via get_my_profile() — stripe_connect_id is being revoked from
+      // `authenticated`, and a direct select would report not_connected for a
+      // seller who is in fact connected.
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('stripe_connect_id')
-        .eq('id', userId)
-        .single();
+        .rpc('get_my_profile')
+        .returns<MyProfileRPC[]>()
+        .maybeSingle();
 
       if (!profile?.stripe_connect_id) {
         setStatus('not_connected');

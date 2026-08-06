@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
+import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
@@ -36,11 +37,13 @@ export default function PreferencesScreen() {
     let ignore = false;
 
     (async () => {
+      // Via get_my_profile() — preferred_neighborhoods is being revoked from
+      // `authenticated`, so a direct select would render your saved
+      // neighborhoods empty.
       const { data } = await supabase
-        .from('profiles')
-        .select('preferred_neighborhoods')
-        .eq('id', user.id)
-        .single();
+        .rpc('get_my_profile')
+        .returns<MyProfileRPC[]>()
+        .maybeSingle();
 
       if (ignore) return;
 

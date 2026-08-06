@@ -47,8 +47,7 @@ import type {
   RiskTier,
   TicketPlatform,
   TicketType,
-  TransferMethod,
-} from '@/src/types';
+  TransferMethod, MyProfileRPC } from '@/src/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -389,11 +388,13 @@ export default function CreateListingScreen() {
       // fall through to the edge function rather than blocking immediately.
       let payoutConnected = false;
 
+      // Own profile via the SECURITY DEFINER RPC — stripe_connect_id is being
+      // revoked from `authenticated`, and column grants are per-role, not
+      // per-row, so a direct select would stop reading your own value.
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('stripe_connect_id, stripe_onboarding_complete')
-        .eq('id', user.id)
-        .single();
+        .rpc('get_my_profile')
+        .returns<MyProfileRPC[]>()
+        .maybeSingle();
 
       if (profile?.stripe_onboarding_complete) {
         // Fast path: DB already flagged onboarding complete.

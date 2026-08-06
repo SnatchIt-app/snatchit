@@ -51,6 +51,7 @@ export default function SignUpScreen() {
     const { error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: { emailRedirectTo: 'snatchit://' },
     });
 
     setLoading(false);
