@@ -13,7 +13,13 @@ export function Field({
   className = "",
 }: {
   label: string;
-  htmlFor: string;
+  /**
+   * Omit when the field wraps a radiogroup rather than a single control:
+   * there is no one element to point at, and a label with a dangling htmlFor
+   * is worse than none — it claims an association that does not exist. Those
+   * callers pass role="radiogroup" + aria-label instead.
+   */
+  htmlFor?: string;
   error?: string;
   hint?: string;
   children: ReactNode;
@@ -23,9 +29,15 @@ export function Field({
   const hintId = hint ? `${htmlFor}-hint` : undefined;
   return (
     <div className={className}>
-      <label htmlFor={htmlFor} className="mb-2.5 block text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
-        {label}
-      </label>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="mb-2.5 block text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
+          {label}
+        </label>
+      ) : (
+        <p className="mb-2.5 block text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
+          {label}
+        </p>
+      )}
       {children}
       {hint && !error ? (
         <p id={hintId} className="mt-2 text-[12.5px] text-white/45">

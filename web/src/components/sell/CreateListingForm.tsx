@@ -212,8 +212,8 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
 
       <section className="space-y-5 border-t border-primary/15 pt-8">
         <p className="eyebrow text-primary/80">Ticket info</p>
-        <Field label="Ticket type" htmlFor="ticketType">
-          <div className="flex gap-3">
+        <Field label="Ticket type">
+          <div className="flex gap-3" role="radiogroup" aria-label="Ticket type">
             {(["GA", "VIP"] as const).map((t) => (
               <RadioPill key={t} selected={ticketType === t} onClick={() => setTicketType(t)}>
                 {t}
@@ -242,8 +242,8 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
             </Select>
           </Field>
         </div>
-        <Field label="Transfer method" htmlFor="transferMethod">
-          <div className="flex gap-3">
+        <Field label="Transfer method">
+          <div className="flex gap-3" role="radiogroup" aria-label="Transfer method">
             <RadioPill selected={transferMethod === "mobile_transfer"} onClick={() => setTransferMethod("mobile_transfer")}>
               Mobile transfer
             </RadioPill>
@@ -284,8 +284,8 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
             />
           </Field>
         ) : null}
-        <Field label="Listing duration" htmlFor="duration">
-          <div className="flex flex-wrap gap-2">
+        <Field label="Listing duration">
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Listing duration">
             {DURATION_OPTIONS.map((h) => (
               <RadioPill key={h} selected={durationHours === h} onClick={() => setDurationHours(h)}>
                 {durationLabel(h)}
@@ -346,6 +346,11 @@ function RadioPill({
   return (
     <button
       type="button"
+      // These are radios rendered as buttons. Without role/aria-checked a
+      // screen reader announces "button" with no indication of which option is
+      // selected — the choice is conveyed by colour alone.
+      role="radio"
+      aria-checked={selected}
       onClick={onClick}
       className={`border px-4 py-2 text-[13px] font-semibold transition-colors ${
         selected ? "border-primary bg-primary/[0.12] text-primary" : "border-white/15 text-white/70 hover:border-white/30"
