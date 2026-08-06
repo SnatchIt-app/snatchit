@@ -80,3 +80,191 @@
 -- Rollback: supabase/rollbacks/055_transfer_state_guard_rollback.sql
 -- Full applied SQL is in the Supabase migration history under the four names above.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- SQL below recovered verbatim from supabase_migrations.schema_migrations
+-- version 20260805040743. This file previously contained documentation only.
+-- ---------------------------------------------------------------------------
+-- 055: transfers state guard + strict RPC auth + privilege lockdown.
+-- Service-role exemption is TEMPORARY, removed in 056 after the edge-function deploy.
+
+CREATE OR REPLACE FUNCTION public.request_is_service_role()
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE v_role text; v_claims text;
+BEGIN
+  v_role := nullif(current_setting('request.jwt.claim.role', true), '');
+  IF v_role IS NULL THEN
+    v_claims := nullif(current_setting('request.jwt.claims', true), '');
+    IF v_claims IS NOT NULL THEN
+      BEGIN v_role := v_claims::jsonb ->> 'role'; EXCEPTION WHEN others THEN v_role := NULL; END;
+    END IF;
+  END IF;
+  IF v_role = 'service_role' THEN RETURN true; END IF;
+  IF v_role IS NULL AND current_setting('request.jwt.claims', true) IS NULL THEN RETURN true; END IF;
+  RETURN false;
+END; $function$;
+
+REVOKE EXECUTE ON FUNCTION public.request_is_service_role() FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.request_is_service_role() TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.guard_transfer_state_columns()
+RETURNS trigger LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF current_setting('app.bypass_transfer_guard', true) = 'on' THEN RETURN NEW; END IF;
+  -- TEMPORARY (removed in 056): four edge-function writes still reach this table
+  -- directly through PostgREST as service_role and cannot set a local GUC.
+  IF current_user = 'service_role' THEN RETURN NEW; END IF;
+
+  IF NEW.status               IS DISTINCT FROM OLD.status
+  OR NEW.seller_id            IS DISTINCT FROM OLD.seller_id
+  OR NEW.buyer_id             IS DISTINCT FROM OLD.buyer_id
+  OR NEW.payment_id           IS DISTINCT FROM OLD.payment_id
+  OR NEW.listing_id           IS DISTINCT FROM OLD.listing_id
+  OR NEW.seller_sent_at       IS DISTINCT FROM OLD.seller_sent_at
+  OR NEW.buyer_confirmed_at   IS DISTINCT FROM OLD.buyer_confirmed_at
+  OR NEW.disputed_at          IS DISTINCT FROM OLD.disputed_at
+  OR NEW.payout_released_at   IS DISTINCT FROM OLD.payout_released_at
+  OR NEW.stripe_transfer_id   IS DISTINCT FROM OLD.stripe_transfer_id
+  OR NEW.payout_hold_until    IS DISTINCT FROM OLD.payout_hold_until
+  OR NEW.payout_review_status IS DISTINCT FROM OLD.payout_review_status
+  OR NEW.payout_risk_tier     IS DISTINCT FROM OLD.payout_risk_tier
+  OR NEW.payout_reason_codes  IS DISTINCT FROM OLD.payout_reason_codes
+  OR NEW.auto_release_at      IS DISTINCT FROM OLD.auto_release_at
+  OR NEW.expires_at           IS DISTINCT FROM OLD.expires_at
+  OR NEW.expired_at           IS DISTINCT FROM OLD.expired_at
+  THEN
+    RAISE EXCEPTION 'Cannot directly modify transfer state columns. Use the appropriate RPC.';
+  END IF;
+
+  IF OLD.transfer_evidence_path IS NOT NULL
+     AND NEW.transfer_evidence_path IS DISTINCT FROM OLD.transfer_evidence_path THEN
+    RAISE EXCEPTION 'transfer_evidence_path is append-only.';
+  END IF;
+  IF OLD.dispute_evidence_path IS NOT NULL
+     AND NEW.dispute_evidence_path IS DISTINCT FROM OLD.dispute_evidence_path THEN
+    RAISE EXCEPTION 'dispute_evidence_path is append-only.';
+  END IF;
+  RETURN NEW;
+END; $function$;
+
+DROP TRIGGER IF EXISTS trg_guard_transfer_state_columns ON public.transfers;
+CREATE TRIGGER trg_guard_transfer_state_columns
+  BEFORE UPDATE ON public.transfers
+  FOR EACH ROW EXECUTE FUNCTION public.guard_transfer_state_columns();
+
+CREATE OR REPLACE FUNCTION public.mark_transfer_sent(p_transfer_id uuid, p_user_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_seller_id uuid;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, seller_id INTO v_status, v_seller_id FROM public.transfers WHERE id = p_transfer_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Transfer not found.'; END IF;
+  IF v_seller_id IS DISTINCT FROM v_caller_id THEN RAISE EXCEPTION 'Only the seller can mark a transfer as sent.'; END IF;
+  IF v_status <> 'pending' THEN RAISE EXCEPTION 'Transfer cannot be marked as sent from current status: %.', v_status; END IF;
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET status='seller_sent', seller_sent_at=now(), auto_release_at=now()+interval '72 hours' WHERE id=p_transfer_id;
+END; $function$;
+
+CREATE OR REPLACE FUNCTION public.mark_transfer_sent(p_transfer_id uuid, p_user_id uuid, p_transfer_evidence_path text DEFAULT NULL::text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_seller_id uuid;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, seller_id INTO v_status, v_seller_id FROM public.transfers WHERE id = p_transfer_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Transfer not found.'; END IF;
+  IF v_seller_id IS DISTINCT FROM v_caller_id THEN RAISE EXCEPTION 'Only the seller can mark a transfer as sent.'; END IF;
+  IF v_status <> 'pending' THEN RAISE EXCEPTION 'Transfer cannot be marked as sent from current status: %.', v_status; END IF;
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET status='seller_sent', seller_sent_at=now(), auto_release_at=now()+INTERVAL '72 hours',
+    transfer_evidence_path=COALESCE(p_transfer_evidence_path, transfer_evidence_path) WHERE id=p_transfer_id;
+END; $function$;
+
+CREATE OR REPLACE FUNCTION public.confirm_transfer_received(p_transfer_id uuid, p_user_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_buyer_id uuid;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, buyer_id INTO v_status, v_buyer_id FROM public.transfers WHERE id = p_transfer_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Transfer not found.'; END IF;
+  IF v_buyer_id IS DISTINCT FROM v_caller_id THEN RAISE EXCEPTION 'Only the buyer can confirm transfer receipt.'; END IF;
+  IF v_status <> 'seller_sent' THEN RAISE EXCEPTION 'Transfer cannot be confirmed from current status: %.', v_status; END IF;
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET status='buyer_confirmed', buyer_confirmed_at=now() WHERE id=p_transfer_id;
+END; $function$;
+
+CREATE OR REPLACE FUNCTION public.buyer_dispute_transfer(p_transfer_id uuid, p_user_id uuid DEFAULT NULL::uuid, p_dispute_reason text DEFAULT NULL::text, p_dispute_evidence_path text DEFAULT NULL::text, p_dispute_notes text DEFAULT NULL::text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_buyer_id uuid;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, buyer_id INTO v_status, v_buyer_id FROM public.transfers WHERE id = p_transfer_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Transfer not found.'; END IF;
+  IF v_buyer_id IS DISTINCT FROM v_caller_id THEN RAISE EXCEPTION 'Only the buyer can dispute a transfer.'; END IF;
+  IF v_status = 'disputed' THEN RETURN; END IF;
+  IF v_status <> 'seller_sent' THEN RAISE EXCEPTION 'Cannot dispute transfer in current status: %.', v_status; END IF;
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET status='disputed', disputed_at=now(),
+    dispute_reason=COALESCE(p_dispute_reason, dispute_reason),
+    dispute_evidence_path=COALESCE(p_dispute_evidence_path, dispute_evidence_path),
+    dispute_notes=COALESCE(p_dispute_notes, dispute_notes) WHERE id=p_transfer_id;
+END; $function$;
+
+CREATE OR REPLACE FUNCTION public.set_transfer_delivery_info(p_transfer_id uuid, p_delivery_email text DEFAULT NULL::text, p_delivery_phone text DEFAULT NULL::text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_buyer_id uuid;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, buyer_id INTO v_status, v_buyer_id FROM public.transfers WHERE id = p_transfer_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Transfer not found.'; END IF;
+  IF v_buyer_id IS DISTINCT FROM v_caller_id THEN RAISE EXCEPTION 'Only the buyer can set delivery info.'; END IF;
+  IF v_status NOT IN ('pending', 'seller_sent') THEN RAISE EXCEPTION 'Cannot update delivery info in current status: %.', v_status; END IF;
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET delivery_email=COALESCE(p_delivery_email, delivery_email),
+    delivery_phone=COALESCE(p_delivery_phone, delivery_phone) WHERE id=p_transfer_id;
+END; $function$;
+
+CREATE OR REPLACE FUNCTION public.mark_transfer_viewed(p_transfer_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM set_config('app.bypass_transfer_guard', 'on', true);
+  UPDATE public.transfers SET buyer_viewed_at = COALESCE(buyer_viewed_at, now())
+   WHERE id = p_transfer_id AND buyer_id = auth.uid();
+END; $function$;
+
+REVOKE EXECUTE ON FUNCTION public.mark_transfer_sent(uuid, uuid)                       FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.mark_transfer_sent(uuid, uuid, text)                 FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.confirm_transfer_received(uuid, uuid)                FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.buyer_dispute_transfer(uuid, uuid, text, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.ensure_transfer_exists(uuid, uuid)                   FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_transfer_delivery_info(uuid, text, text)         FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.mark_transfer_sent(uuid, uuid)                       TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.mark_transfer_sent(uuid, uuid, text)                 TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.confirm_transfer_received(uuid, uuid)                TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.buyer_dispute_transfer(uuid, uuid, text, text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.ensure_transfer_exists(uuid, uuid)                   TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_transfer_delivery_info(uuid, text, text)         TO authenticated, service_role;
+
+REVOKE ALL ON TABLE public.transfers FROM authenticated, anon;
+GRANT  SELECT ON TABLE public.transfers TO authenticated, anon;
+
+DROP POLICY IF EXISTS "Buyers can update own transfers"  ON public.transfers;
+DROP POLICY IF EXISTS "Sellers can update own transfers" ON public.transfers;

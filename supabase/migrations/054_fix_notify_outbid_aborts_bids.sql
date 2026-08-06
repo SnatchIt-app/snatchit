@@ -51,3 +51,67 @@
 -- =============================================================================
 
 -- Function body as applied; see the tool-applied migration of the same name.
+
+-- ---------------------------------------------------------------------------
+-- SQL below recovered verbatim from supabase_migrations.schema_migrations
+-- version 20260805034758. This file previously contained documentation only.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.notify_outbid()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+DECLARE
+  v_previous_bidder uuid;
+  v_listing_title   text;
+  v_url             text;
+  v_key             text;
+BEGIN
+  -- Everything here is best-effort. A notification must never abort a bid.
+  BEGIN
+    -- Two-argument current_setting: returns NULL when unset instead of raising.
+    -- The one-argument form raised 'unrecognized configuration parameter', and
+    -- with no exception handler that error propagated out of this AFTER trigger
+    -- and rolled back the bid INSERT itself -- but only on the path where a
+    -- DIFFERENT user outbids the current leader, which is exactly the core
+    -- competitive-auction case.
+    v_url := current_setting('app.settings.supabase_url', true);
+    v_key := current_setting('app.settings.service_role_key', true);
+
+    IF v_url IS NULL OR v_key IS NULL THEN
+      RETURN NEW;
+    END IF;
+
+    SELECT event_name INTO v_listing_title
+      FROM listings
+     WHERE id = NEW.listing_id;
+
+    SELECT bidder_id INTO v_previous_bidder
+      FROM bids
+     WHERE listing_id = NEW.listing_id
+       AND id != NEW.id
+     ORDER BY amount DESC
+     LIMIT 1;
+
+    IF v_previous_bidder IS NOT NULL AND v_previous_bidder != NEW.bidder_id THEN
+      PERFORM net.http_post(
+        url     := v_url || '/functions/v1/send-push',
+        headers := jsonb_build_object(
+          'Authorization', 'Bearer ' || v_key,
+          'Content-Type', 'application/json'
+        ),
+        body    := jsonb_build_object(
+          'user_id', v_previous_bidder,
+          'title',   'You''ve been outbid!',
+          'body',    'Someone placed a higher bid on ' || coalesce(v_listing_title, 'a listing') || '. Bid again now!'
+        )
+      );
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'notify_outbid failed (bid preserved): %', SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$function$;
