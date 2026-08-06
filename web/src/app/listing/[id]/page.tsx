@@ -15,6 +15,7 @@ import {
   type WebListing,
 } from "@/lib/listings";
 import { getSavedListingIdSet, isListingSaved } from "@/lib/favorites";
+import { isUnpaidAuctionWinner } from "@/lib/checkout";
 import { getAuthedUser } from "@/lib/auth/session";
 import { SaveButton } from "@/components/SaveButton";
 import { BuyNowButton } from "@/components/listing/BuyNowButton";
@@ -97,6 +98,10 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const delivery = deliveryLabel(listing.ticket_platform);
   const isHybrid = listing.buy_now_enabled && !!listing.buy_now_price;
   const pureAuctionActive = isActive && !isHybrid;
+  const iWon = isUnpaidAuctionWinner(listing, currentUser?.id);
+  // The winner owes their winning bid — never the Buy Now price a hybrid
+  // listing still carries, which effectiveBase would otherwise surface.
+  const priceBase = iWon ? (listing.winning_bid_amount ?? listing.current_bid) : base;
 
   const eventJsonLd = {
     "@context": "https://schema.org",
@@ -338,7 +343,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
 
             {!pureAuctionActive ? (
               <div className="mt-5 border-t border-primary/15 pt-4">
-                <PriceBreakdown baseDollars={base} />
+                <PriceBreakdown baseDollars={priceBase} />
               </div>
             ) : null}
 
@@ -355,8 +360,21 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                   initialBidCount={listing.bid_count}
                   initialAuctionStatus={listing.auction_status}
                   initialEndsAt={listing.ends_at}
+                  buyNowPrice={listing.buy_now_enabled ? listing.buy_now_price : null}
                   compact={isHybrid}
                 />
+              </div>
+            ) : iWon ? (
+              /* The auction is over but this buyer still owes money — the one
+                 case where an ended listing is actionable. Everyone else keeps
+                 the dead button below. */
+              <div id="buy" className="mt-6 space-y-2.5 scroll-mt-24">
+                <LinkButton href={`/checkout/${listing.id}`} className="w-full">
+                  You won — complete payment
+                </LinkButton>
+                <p className="text-center text-[11px] text-white/35">
+                  Pay {allInFromDollars(priceBase)} to claim your ticket.
+                </p>
               </div>
             ) : (
               <div className="mt-6 space-y-2.5">
@@ -390,9 +408,9 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
           <div>
             <p className="text-[9.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-              {listing.buy_now_enabled ? "Buy Now · all-in" : "Current bid · all-in"}
+              {iWon ? "You pay · all-in" : listing.buy_now_enabled ? "Buy Now · all-in" : "Current bid · all-in"}
             </p>
-            <PriceDisplay baseDollars={base} size="md" suffix={null} className="mt-1" />
+            <PriceDisplay baseDollars={priceBase} size="md" suffix={null} className="mt-1" />
           </div>
           {/* This used to be "Get the app" -> snatchitapp.com. On phones it is
               the most prominent control on the page, at the exact purchase
@@ -403,6 +421,10 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
           {isActive ? (
             <LinkButton href="#buy" className="shrink-0">
               {listing.buy_now_enabled ? "Buy now" : "Place bid"}
+            </LinkButton>
+          ) : iWon ? (
+            <LinkButton href={`/checkout/${listing.id}`} className="shrink-0">
+              Complete payment
             </LinkButton>
           ) : (
             <LinkButton href="/browse" variant="secondary" className="shrink-0">

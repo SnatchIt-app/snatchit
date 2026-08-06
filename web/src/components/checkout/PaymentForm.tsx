@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { finalizeBuyNowPurchaseAction } from "@/lib/checkout-actions";
+import { finalizePurchaseAction } from "@/lib/checkout-actions";
+import type { CheckoutMode } from "@/lib/checkout";
 import { SITE_URL } from "@/lib/env";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 
-export function PaymentForm({ listingId }: { listingId: string }) {
+export function PaymentForm({ listingId, mode }: { listingId: string; mode: CheckoutMode }) {
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
@@ -29,10 +30,12 @@ export function PaymentForm({ listingId }: { listingId: string }) {
     // case (US cards rarely need a redirect); Stripe still redirects to
     // return_url for payment methods that require it (e.g. certain 3DS
     // challenges), where /checkout/[id]/complete finishes the same
-    // finalize step below.
+    // finalize step below. Stripe preserves return_url's existing query
+    // string, so ?mode carries the entitlement across the redirect — without
+    // it that page would settle an auction win with the Buy Now RPC.
     const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
       elements,
-      confirmParams: { return_url: `${SITE_URL}/checkout/${listingId}/complete` },
+      confirmParams: { return_url: `${SITE_URL}/checkout/${listingId}/complete?mode=${mode}` },
       redirect: "if_required",
     });
 
@@ -50,7 +53,7 @@ export function PaymentForm({ listingId }: { listingId: string }) {
       return;
     }
 
-    const result = await finalizeBuyNowPurchaseAction(listingId, paymentIntent.id);
+    const result = await finalizePurchaseAction(listingId, paymentIntent.id, mode);
     if (result.error) {
       // The server could not verify the payment with Stripe, so it deliberately
       // did not mark the listing sold or create a transfer. Never show
@@ -70,11 +73,21 @@ export function PaymentForm({ listingId }: { listingId: string }) {
   if (sold) {
     return (
       <div className="space-y-4 py-4 text-center">
-        <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
+        <p className="text-[15px] font-bold text-ink">
+          {error ? "Payment received" : "Purchase complete!"}
+        </p>
+        {/* The warning used to be set into `error` and then never rendered:
+            this early return shows only the success block, and the <Alert>
+            lives in the form JSX below, which is now unreachable. So a buyer
+            whose 10-minute reservation lapsed mid-card-entry was charged,
+            told "Purchase complete!", and sent to an empty purchases page. */}
+        {error ? <Alert tone="error">{error}</Alert> : null}
         <p className="text-[13.5px] leading-relaxed text-white/60">
-          {transferId
-            ? "Your ticket is confirmed. Add your delivery details so the seller can send it."
-            : "Your ticket is confirmed. Check your purchases for transfer details."}
+          {error
+            ? "Your card was charged. We're finishing the last step — your purchase will appear shortly."
+            : transferId
+              ? "Your ticket is confirmed. Add your delivery details so the seller can send it."
+              : "Your ticket is confirmed. Check your purchases for transfer details."}
         </p>
         <Button
           variant="primary"

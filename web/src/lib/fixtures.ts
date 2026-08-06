@@ -36,6 +36,8 @@ export const FIXTURE_LISTINGS: WebListing[] = [
     bid_count: 0,
     ticket_platform: "other",
     transfer_method: "mobile_transfer",
+    winner_user_id: null,
+    winning_bid_amount: null,
     created_at: "2026-07-24T00:00:00.000Z",
   },
   {
@@ -60,6 +62,8 @@ export const FIXTURE_LISTINGS: WebListing[] = [
     bid_count: 0,
     ticket_platform: "posh",
     transfer_method: "mobile_transfer",
+    winner_user_id: null,
+    winning_bid_amount: null,
     created_at: "2026-07-24T00:00:01.000Z",
   },
   {
@@ -84,6 +88,8 @@ export const FIXTURE_LISTINGS: WebListing[] = [
     bid_count: 0,
     ticket_platform: "posh",
     transfer_method: "mobile_transfer",
+    winner_user_id: null,
+    winning_bid_amount: null,
     created_at: "2026-07-24T00:00:02.000Z",
   },
 ];

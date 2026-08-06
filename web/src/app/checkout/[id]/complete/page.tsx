@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { finalizeBuyNowPurchaseAction } from "@/lib/checkout-actions";
+import { finalizePurchaseAction } from "@/lib/checkout-actions";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -23,6 +23,10 @@ function CompleteClient() {
   const redirectStatus = searchParams.get("redirect_status");
   const paymentIntentId = searchParams.get("payment_intent");
   const failedUpfront = redirectStatus !== "succeeded" || !paymentIntentId;
+  // PaymentForm puts ?mode on the return_url so the win settles with
+  // complete_auction_payment, not mark_listing_sold. Anything unrecognised
+  // (or a pre-auction link) falls back to buy_now.
+  const mode = searchParams.get("mode") === "auction" ? "auction" : "buy_now";
 
   // Computed synchronously during render (not in the effect below) — this
   // branch needs no async work, just a state derived from the URL.
@@ -38,7 +42,7 @@ function CompleteClient() {
 
   useEffect(() => {
     if (failedUpfront) return;
-    finalizeBuyNowPurchaseAction(params.id, paymentIntentId)
+    finalizePurchaseAction(params.id, paymentIntentId, mode)
       .then((result) => {
         if (result.error) {
           // Server could not verify the PaymentIntent with Stripe, so it did

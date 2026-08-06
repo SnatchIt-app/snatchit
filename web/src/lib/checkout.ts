@@ -2,8 +2,32 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callEdgeFunction } from "@/lib/edge-functions";
+import type { WebListing } from "@/lib/listings";
 
 export const RESERVATION_MINUTES = 10; // matches src/config/app.ts (mobile)
+
+/** The two ways a listing gets paid for — same vocabulary as create-payment-intent. */
+export type CheckoutMode = "buy_now" | "auction";
+
+/**
+ * The window in which an auction winner still owes money: finalize_auction
+ * parks the listing at auction_status='ended' with a winner, and payment is
+ * what flips it to 'sold' (complete_auction_payment sets both status and
+ * auction_status). So 'ended' + winner + not sold is exactly the state
+ * create-payment-intent's auction branch accepts — checking it here just
+ * stops us from sending a buyer to a checkout the server would reject.
+ */
+export function isUnpaidAuctionWinner(
+  listing: Pick<WebListing, "status" | "auction_status" | "winner_user_id">,
+  userId: string | null | undefined,
+): boolean {
+  return (
+    !!userId &&
+    listing.auction_status === "ended" &&
+    listing.status !== "sold" &&
+    listing.winner_user_id === userId
+  );
+}
 
 export type ReserveResult = { error?: string };
 
@@ -55,7 +79,7 @@ export type PaymentIntentResult = {
 /** Server-to-server call to create-payment-intent — see edge-functions.ts for why. */
 export async function createPaymentIntent(
   listingId: string,
-  mode: "buy_now" | "auction",
+  mode: CheckoutMode,
   expectedTotalCents?: number,
 ): Promise<PaymentIntentResult> {
   return callEdgeFunction<PaymentIntentResult>("create-payment-intent", {
@@ -94,10 +118,11 @@ export async function createPaymentIntent(
  * later, so the buyer is pointed at their purchases rather than told the
  * payment failed.
  */
-export async function finalizeBuyNowPurchase(
+export async function finalizePurchase(
   listingId: string,
   userId: string,
   paymentIntentId: string,
+  mode: CheckoutMode = "buy_now",
 ): Promise<{ transferId: string | null; warning?: string; error?: string }> {
   const confirm = await callEdgeFunction<{ success?: boolean; stripe_verified?: boolean }>(
     "confirm-payment",
@@ -129,7 +154,13 @@ export async function finalizeBuyNowPurchase(
     };
   }
 
-  const { error: soldErr } = await supabase.rpc("mark_listing_sold", {
+  // Same split the Stripe webhook makes on metadata.mode: a Buy Now settles a
+  // reservation, an auction settles a win, and the two RPCs guard different
+  // preconditions. A caller who names the wrong mode cannot promote anything —
+  // each RPC re-derives the caller from auth.uid() and re-checks reservation
+  // holder / winner itself, so a mismatch just fails and surfaces the warning.
+  const settleRpc = mode === "auction" ? "complete_auction_payment" : "mark_listing_sold";
+  const { error: soldErr } = await supabase.rpc(settleRpc, {
     p_listing_id: listingId,
     p_user_id: userId,
   });

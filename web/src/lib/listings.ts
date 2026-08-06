@@ -33,6 +33,13 @@ export type WebListing = Pick<
   | "bid_count"
   | "ticket_platform"
   | "transfer_method"
+  // Auction outcome: the winner's pay-now path is authorized on these two
+  // (see isUnpaidAuctionWinner in checkout.ts). winning_bid_amount is whole
+  // dollars like every other price column — the "in cents" comment on the
+  // shared Listing type is wrong; create-payment-intent runs it through
+  // dollarsToCents, and mobile's Bids tab formats it as dollars.
+  | "winner_user_id"
+  | "winning_bid_amount"
 > & { created_at: string | null };
 
 export type SellerSummary = Pick<
@@ -41,7 +48,7 @@ export type SellerSummary = Pick<
 >;
 
 export const LISTING_COLUMNS =
-  "id, seller_id, event_name, venue, neighborhood, category, status, auction_status, event_date, event_time, ticket_type, quantity, starting_bid, current_bid, buy_now_enabled, buy_now_price, cover_image_path, ends_at, bid_count, ticket_platform, transfer_method, created_at";
+  "id, seller_id, event_name, venue, neighborhood, category, status, auction_status, event_date, event_time, ticket_type, quantity, starting_bid, current_bid, buy_now_enabled, buy_now_price, cover_image_path, ends_at, bid_count, ticket_platform, transfer_method, winner_user_id, winning_bid_amount, created_at";
 
 export type BrowseSort = "ending" | "newest" | "price_asc" | "price_desc";
 

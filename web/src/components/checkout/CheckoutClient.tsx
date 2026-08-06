@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { createPaymentIntentAction } from "@/lib/checkout-actions";
+import type { CheckoutMode } from "@/lib/checkout";
 import { STRIPE_PUBLISHABLE_KEY } from "@/lib/env";
 import { PriceBreakdown } from "@/components/ui/PriceDisplay";
 import { Alert } from "@/components/ui/Alert";
@@ -13,21 +14,25 @@ const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY
 
 export function CheckoutClient({
   listingId,
+  mode,
   eventName,
   venue,
-  buyNowPriceDollars,
+  baseDollars,
 }: {
   listingId: string;
+  /** Which entitlement the page authorized — decides the intent + settle RPC. */
+  mode: CheckoutMode;
   eventName: string;
   venue: string;
-  buyNowPriceDollars: number;
+  /** Base price in whole dollars: Buy Now price, or the winning bid. */
+  baseDollars: number;
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    createPaymentIntentAction(listingId).then((res) => {
+    createPaymentIntentAction(listingId, mode).then((res) => {
       if (cancelled) return;
       if (res.error || !res.clientSecret) {
         setError(res.error ?? "Unable to set up payment. Please try again.");
@@ -38,7 +43,7 @@ export function CheckoutClient({
     return () => {
       cancelled = true;
     };
-  }, [listingId]);
+  }, [listingId, mode]);
 
   return (
     <div className="mt-7 space-y-6">
@@ -55,7 +60,7 @@ export function CheckoutClient({
           </div>
         </dl>
         <div className="mt-4 border-t border-primary/15 pt-4">
-          <PriceBreakdown baseDollars={buyNowPriceDollars} />
+          <PriceBreakdown baseDollars={baseDollars} />
         </div>
       </section>
 
@@ -70,7 +75,7 @@ export function CheckoutClient({
             </p>
           ) : (
             <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <PaymentForm listingId={listingId} />
+              <PaymentForm listingId={listingId} mode={mode} />
             </Elements>
           )}
         </div>

@@ -44,6 +44,7 @@ export function BidPanel({
   initialBidCount,
   initialAuctionStatus,
   initialEndsAt,
+  buyNowPrice = null,
   compact = false,
 }: {
   listingId: string;
@@ -53,6 +54,8 @@ export function BidPanel({
   initialBidCount: number;
   initialAuctionStatus: string;
   initialEndsAt: string;
+  /** Whole dollars. When set, bidding is capped below it — see cappedOut. */
+  buyNowPrice?: number | null;
   compact?: boolean;
 }) {
   const router = useRouter();
@@ -68,6 +71,14 @@ export function BidPanel({
 
   const ended = isAuctionEnded(auctionStatus, endsAt);
   const minimumBid = currentBid + MIN_INCREMENT;
+
+  // Nothing stopped the minimum bid overshooting Buy Now. On a $1-bid /
+  // $2-Buy-Now listing the stepper's floor is $6, so the panel rendered
+  // "Place bid · $6.60" directly under a "$2.20 Buy Now" headline and anyone
+  // using the bid control paid 3x for the same ticket. Once the next legal bid
+  // reaches Buy Now, bidding is no longer a rational action, so we stop
+  // offering it and point at the cheaper path instead.
+  const cappedOut = buyNowPrice != null && minimumBid >= buyNowPrice;
 
   const [selectedBid, setSelectedBid] = useState(minimumBid);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +141,16 @@ export function BidPanel({
         <Button variant="secondary" className="w-full" disabled>
           Bidding has ended
         </Button>
+      </div>
+    );
+  }
+
+  if (cappedOut) {
+    return (
+      <div className={compact ? "mt-4 space-y-2.5" : "mt-6 space-y-2.5"}>
+        <p className="border border-primary/20 bg-card p-4 text-center text-[13px] leading-relaxed text-white/60">
+          The next bid would cost more than Buy Now. Buy it outright instead.
+        </p>
       </div>
     );
   }

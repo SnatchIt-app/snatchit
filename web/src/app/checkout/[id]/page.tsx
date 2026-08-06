@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getListing } from "@/lib/listings";
-import { getReservationState, type ReservationState } from "@/lib/checkout";
+import { getReservationState, isUnpaidAuctionWinner, type ReservationState } from "@/lib/checkout";
 import { getAuthedUser } from "@/lib/auth/session";
 import { Container } from "@/components/ui/Container";
 import { LinkButton } from "@/components/ui/Button";
@@ -40,16 +40,26 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
   const reservation = await getReservationState(id);
   const stillReservedForMe = isStillReservedFor(reservation, user.id);
 
-  if (!listing.buy_now_enabled || !listing.buy_now_price || !stillReservedForMe) {
+  // Two ways to legitimately be here. Buy Now still requires a live
+  // reservation held by this user; an auction winner has no reservation at
+  // all — the auction itself is what entitles them to pay.
+  const canBuyNow = Boolean(listing.buy_now_enabled && listing.buy_now_price) && stillReservedForMe;
+  const canPayForWin = isUnpaidAuctionWinner(listing, user.id);
+
+  if (!canBuyNow && !canPayForWin) {
+    const soldAlready = reservation?.status === "sold" || listing.auction_status === "sold";
+    const auctionOver = listing.auction_status === "ended";
     return (
       <Container className="py-16 text-center">
         <h1 className="font-display text-[22px] font-bold uppercase text-ink">
-          {reservation?.status === "sold" ? "Already sold" : "Reservation expired"}
+          {soldAlready ? "Already sold" : auctionOver ? "Auction ended" : "Reservation expired"}
         </h1>
         <p className="mx-auto mt-3 max-w-[46ch] text-[13.5px] leading-relaxed text-white/60">
-          {reservation?.status === "sold"
+          {soldAlready
             ? "This listing has already been purchased."
-            : "Your reservation has expired. Go back and tap Buy Now again."}
+            : auctionOver
+              ? "This auction has ended and the winning bidder has been notified."
+              : "Your reservation has expired. Go back and tap Buy Now again."}
         </p>
         <LinkButton href={`/listing/${id}`} className="mt-6 inline-flex">
           Back to listing
@@ -57,6 +67,15 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
       </Container>
     );
   }
+
+  // Buy Now wins a tie: a reservation this user is actively holding is the
+  // more specific claim. Prices stay all-in downstream — CheckoutClient runs
+  // this base through the shared fee math, exactly as create-payment-intent
+  // does server-side.
+  const mode = canBuyNow ? "buy_now" : "auction";
+  const baseDollars = canBuyNow
+    ? listing.buy_now_price!
+    : (listing.winning_bid_amount ?? listing.current_bid);
 
   return (
     <Container className="max-w-[560px] py-10">
@@ -71,11 +90,17 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
       <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
         Checkout
       </h1>
+      {mode === "auction" ? (
+        <p className="mt-3 text-[13.5px] leading-relaxed text-white/60">
+          You won this auction. Complete payment to claim your ticket.
+        </p>
+      ) : null}
       <CheckoutClient
         listingId={listing.id}
+        mode={mode}
         eventName={listing.event_name}
         venue={listing.venue}
-        buyNowPriceDollars={listing.buy_now_price}
+        baseDollars={baseDollars}
       />
     </Container>
   );
