@@ -3,6 +3,11 @@ import "server-only";
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callEdgeFunction } from "@/lib/edge-functions";
+import {
+  MIME_FOR_EXTENSION,
+  evidenceStoragePath,
+  validateEvidenceFile,
+} from "@/lib/evidence-upload";
 
 /**
  * Transfer lifecycle — the post-purchase leg.
@@ -192,17 +197,31 @@ export async function markViewed(transferId: string): Promise<void> {
   await supabase.rpc("mark_transfer_viewed", { p_transfer_id: transferId });
 }
 
-/** Seller's evidence upload. Path shape is required by the proof-docs insert policy. */
+/**
+ * Seller's evidence upload. Path shape is required by the proof-docs insert
+ * policy (053), which scopes writes to `<userId>/`.
+ *
+ * Type, size and extension are validated by evidence-upload.ts. This used to
+ * accept anything: contentType came straight from file.type and the storage
+ * key took its extension from the client filename, so an HTML or SVG file
+ * uploaded as evidence would later be handed to the buyer as a signed URL and
+ * rendered — stored XSS on the storage origin. The extension now comes from
+ * the validated MIME type, so a filename cannot smuggle one through.
+ */
 export async function uploadTransferEvidence(
   userId: string,
   file: File,
 ): Promise<{ path?: string; error?: string }> {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${userId}/transfer-evidence/${Date.now()}.${ext}`;
+  const check = validateEvidenceFile(file.type, file.size);
+  if (!check.ok) return { error: check.error };
+
+  const path = evidenceStoragePath(userId, check.extension, Date.now());
   const supabase = await createSupabaseServerClient();
   const bytes = new Uint8Array(await file.arrayBuffer());
   const { error } = await supabase.storage.from("proof-docs").upload(path, bytes, {
-    contentType: file.type,
+    // Normalised from the allow-list, not echoed from the client, so the
+    // stored object can never be served as text/html.
+    contentType: MIME_FOR_EXTENSION[check.extension] ?? "application/octet-stream",
     upsert: false,
     cacheControl: "3600",
   });
