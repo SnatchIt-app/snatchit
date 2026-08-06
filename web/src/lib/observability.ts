@@ -75,14 +75,14 @@ export function captureException(
   where: string,
   error: unknown,
   context: Record<string, string> = {},
-): void {
+): Promise<void> {
   const err = error instanceof Error ? error : new Error(String(error));
 
   // Always log, so a deploy without a DSN still leaves a trace in the
   // platform logs rather than swallowing the failure entirely.
   console.error(`[${where}]`, err.message, err.stack);
 
-  if (!parsed) return;
+  if (!parsed) return Promise.resolve();
 
   try {
     const eventId = crypto.randomUUID().replace(/-/g, "");
@@ -111,7 +111,13 @@ export function captureException(
         extra: { stack: err.stack },
       });
 
-    void fetch(parsed.endpoint, {
+    // Returned rather than fire-and-forget so server callers can await it.
+    // On Vercel a serverless invocation can freeze the moment it responds, so
+    // an un-awaited POST from instrumentation.ts would simply be dropped —
+    // and keepalive does not help there, it is a browser unload mechanism.
+    // Client boundaries ignore the promise, which keeps their behaviour
+    // unchanged.
+    return fetch(parsed.endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-sentry-envelope",
@@ -122,10 +128,12 @@ export function captureException(
       // serverless invocation alive waiting on Sentry.
       cache: "no-store",
       keepalive: true,
-    }).catch(() => {
-      /* reporting must never surface an error of its own */
-    });
+    }).then(
+      () => undefined,
+      () => undefined, // reporting must never surface an error of its own
+    );
   } catch {
     /* same */
+    return Promise.resolve();
   }
 }
