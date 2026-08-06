@@ -190,12 +190,12 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!accountId) {
-      // Create new Express account — individual seller, payouts only.
-      // business_type=individual + a consumer-friendly product description
-      // keeps Stripe's hosted onboarding in "person" mode instead of asking
-      // for business registration details. NEW accounts only — existing
-      // accounts are never mutated (this branch requires no stripe_connect_id).
+    // Create new Express account — individual seller, payouts only.
+    // business_type=individual + a consumer-friendly product description
+    // keeps Stripe's hosted onboarding in "person" mode instead of asking
+    // for business registration details. Called when the profile has no
+    // usable stripe_connect_id (never set, or archived as stale below).
+    const createFreshAccount = async (): Promise<string> => {
       const { data: authUser } = await supabase.auth.admin.getUserById(userId);
       const email = authUser?.user?.email ?? '';
 
@@ -209,36 +209,88 @@ serve(async (req: Request) => {
       };
       if (email) accountParams['email'] = email;
 
-      const account = await stripePost('accounts', accountParams);
-      accountId = account.id;
+      const created = await stripePost('accounts', accountParams);
 
       // Save to profile
       const { error: updateErr } = await supabase
         .from('profiles')
-        .update({ stripe_connect_id: accountId })
+        .update({ stripe_connect_id: created.id })
         .eq('id', userId);
-
       if (updateErr) {
         console.error('Failed to save stripe_connect_id:', updateErr);
-        return new Response(
-          JSON.stringify({ error: 'Failed to save account' }),
-          { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-        );
+        throw new Error('Failed to save account');
       }
+      return created.id as string;
+    };
+
+    if (!accountId) {
+      accountId = await createFreshAccount();
     }
 
-    // Check whether the account has completed onboarding
-    const account = await stripeGet(`accounts/${accountId}`);
+    // Check whether the account has completed onboarding.
+    //
+    // Self-heal (2026-08-03 incident): profiles created before the live-key
+    // cutover hold TEST-mode Connect ids. Retrieving one with the live key
+    // fails ("was a test account created with a testmode key" / "No such
+    // account"), which used to 500 this endpoint and made live re-onboarding
+    // impossible. Instead: archive the dead id (stripe_connect_archive) and
+    // mint a fresh live account in the same request, so the seller lands in
+    // live onboarding seamlessly.
+    let account;
+    try {
+      account = await stripeGet(`accounts/${accountId}`);
+    } catch (retrieveErr) {
+      const msg = retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
+      const isStaleAccount = /test\s?mode|testmode|no such account/i.test(msg);
+      if (!isStaleAccount) throw retrieveErr;
+
+      console.warn('[create-connect-account] archiving stale Connect id and creating live account:', {
+        user_id: userId,
+        error: msg,
+      });
+      const { error: archiveErr } = await supabase.from('stripe_connect_archive').insert({
+        profile_id:        userId,
+        stripe_connect_id: accountId,
+        reason:            `unusable with live key: ${msg}`,
+      });
+      if (archiveErr) console.error('[create-connect-account] archive insert failed:', archiveErr);
+
+      await supabase.from('profiles').update({ stripe_connect_id: null }).eq('id', userId);
+      accountId = await createFreshAccount();
+      account = await stripeGet(`accounts/${accountId}`);
+    }
     const detailsSubmitted = !!account.details_submitted;
+    const chargesEnabled   = !!account.charges_enabled;
+    const payoutsEnabled   = !!account.payouts_enabled;
 
-    // If onboarding is complete, persist that in our DB so the client can
-    // display the correct state without calling this function every time.
-    if (detailsSubmitted) {
-      await supabase
-        .from('profiles')
-        .update({ stripe_onboarding_complete: true })
-        .eq('id', userId);
-    }
+    // Persist the full Connect state from Stripe so the client can display it
+    // without calling this function every time.
+    //
+    // stripe_charges_enabled / stripe_payouts_enabled / stripe_connect_status
+    // were previously written by NOTHING — not this function, not the
+    // account.updated webhook, not the clients — so every account sat at the
+    // column default (false / 'not_started') forever, regardless of its real
+    // state in Stripe. This function already fetches the whole account object
+    // and was discarding exactly the fields those columns need. Writing them
+    // here (and in the account.updated handler) makes both paths self-healing:
+    // any status check or Stripe-side change re-syncs the row from Stripe.
+    //
+    // Written unconditionally, not just when detailsSubmitted — the capability
+    // flags are meaningful before onboarding finishes, and an account that
+    // LOSES a capability must be able to go back to false.
+    // stripe_onboarding_complete keeps its existing monotonic behaviour — only
+    // ever set to true, never back to false. It gates listing creation
+    // (migrations 036/038), and flipping it false on a transient Stripe read
+    // would silently bar an onboarded seller from listing.
+    await supabase
+      .from('profiles')
+      .update({
+        ...(detailsSubmitted ? { stripe_onboarding_complete: true } : {}),
+        stripe_charges_enabled: chargesEnabled,
+        stripe_payouts_enabled: payoutsEnabled,
+        stripe_connect_status:  detailsSubmitted ? 'connected' : 'onboarding_required',
+      })
+      .eq('id', userId);
 
     // ── status_only mode: return state without generating a link ──────────
     if (status_only) {

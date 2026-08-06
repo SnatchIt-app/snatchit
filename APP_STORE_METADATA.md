@@ -64,7 +64,7 @@ miami,concert,festival,nightlife,rave,club,edm,resale,marketplace,music,vip,show
 ## App Review Notes (as saved in ASC "Notes" field)
 Sign-in fields in ASC hold the buyer demo account: `snatchitreviewbuyer@gmail.com` / `Snatchitreview` (contact phone 7862017279).
 
-Updated 2026-07-24: demo inventory curated to the three strongest listings (III Points Saturday GA $300, Space Miami — Mochakk $225, Quavo E11even $250 — active through 2026-08-23). Notes below match that inventory. Original 2026-07-21 update added operator/provider identification, exact Apple Pay navigation, and removed the outdated "escrow-style, 72h auto-release" wording (risk-based release shipped 2026-07-15).
+Updated 2026-08-04: notes aligned to Build 13's exact UI labels ("Buy · $X" / "Pay · $X"), live payment environment verified end-to-end, Build 13 called out as the current binary. 2026-07-24: demo inventory curated to the three strongest listings (III Points Saturday GA $300, Space Miami — Mochakk $225, Quavo E11even $250 — active through 2026-08-23). Original 2026-07-21 update added operator/provider identification, exact Apple Pay navigation, and removed the outdated "escrow-style, 72h auto-release" wording (risk-based release shipped 2026-07-15).
 ```
 Snatch It is a peer-to-peer marketplace where individual users list, bid on, and buy event tickets. It is owned and operated by JDT LLC. Payments are for physical-world services and are processed by Stripe per Guideline 3.1.5(a) — no digital goods, no IAP.
 
@@ -81,11 +81,13 @@ Password: Snatchitreview
 HOW TO REACH CHECKOUT AND APPLE PAY (use the buyer account):
 1. Sign in as the buyer.
 2. On the Home tab, open an active listing — "III Points Saturday GA", "Space Miami — Mochakk", or "Quavo E11even".
-3. Tap the "Buy $330 total" button (amount varies by listing).
-4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $330 total".
-5. The Stripe PaymentSheet opens. APPLE PAY IS INTEGRATED HERE, via Stripe PaymentSheet with merchant identifier merchant.com.snatchit. On devices that support Apple Pay the sheet offers Apple Pay; if no eligible Wallet card is configured, card entry is always available as the fallback. This checkout sheet is the app's only payment surface.
+3. Tap the "Buy · $2.20" button (every demo listing has a $2 Buy Now price; the label shows the all-in total of $2.20).
+4. On the Checkout screen the PAYMENT card reads "Apple Pay or card". Tap "Pay · $2.20".
+5. The Stripe PaymentSheet opens. APPLE PAY IS INTEGRATED HERE, via Stripe PaymentSheet with merchant identifier merchant.com.snatchit, one step after the "Pay · $X" button. On devices that support Apple Pay the sheet offers Apple Pay; card entry is always available as the fallback. This checkout sheet is the app's only payment surface.
 
-All three listings also accept auction bids. The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active through late August 2026 and will not expire during review.
+Build 13 is the current binary and includes the latest production payment and UI updates; the live checkout above has been verified end to end in this exact environment.
+
+All three listings also accept auction bids (current bid $1, shown as $1.10 all-in). The seller account demonstrates listing creation and the transfer workflow. Demo listings remain active through late August 2026 and will not expire during review.
 
 Note: payments run on live Stripe keys. You can open the payment sheet and fully inspect Apple Pay and card entry without completing a charge; if a purchase is completed, we monitor and refund App Review transactions.
 

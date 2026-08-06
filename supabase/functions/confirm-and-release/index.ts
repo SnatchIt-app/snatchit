@@ -27,6 +27,12 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
+import {
+  classifyPayoutStripeError,
+  createSellerPayout,
+  reasonCodeForErrorClass,
+  shouldPageSentry,
+} from '../_shared/payouts.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -202,10 +208,12 @@ serve(async (req: Request) => {
     });
 
     if (rpcErr) {
-      // If already buyer_confirmed, that's fine — proceed to payout.
-      // The RPC error message contains "buyer_confirmed" when the transfer
-      // is already in that state.
-      const alreadyConfirmed = rpcErr.message?.includes('buyer_confirmed');
+      // If already buyer_confirmed — or the cron already flipped it to
+      // auto_released — that's fine: the buyer's goal is met, proceed to
+      // the payout idempotency check (which returns already_released when
+      // the money moved). The RPC error message names the current status.
+      const alreadyConfirmed = rpcErr.message?.includes('buyer_confirmed') ||
+        rpcErr.message?.includes('auto_released');
 
       if (!alreadyConfirmed) {
         // Real error — wrong user, wrong state, not found, etc.
@@ -295,31 +303,67 @@ serve(async (req: Request) => {
       );
     }
 
-    // ── 6. Look up seller's Connect account ─────────────────────────────
-    const { data: sellerProfile, error: profileErr } = await supabase
-      .from('profiles')
-      .select('stripe_connect_id')
-      .eq('id', transfer.seller_id)
-      .single();
+    // ─────────────────────────────────────────────────────────────────────
+    // From this point on, the buyer's confirmation is ALREADY RECORDED
+    // (status = buyer_confirmed). Nothing below may surface as an error to
+    // the buyer: a payout that cannot release right now is an OPERATIONS
+    // problem (recorded as a manual_review payout decision for admin
+    // retry), never a buyer-facing failure. 2026-08-03 incident: a seller
+    // with a test-mode Connect id made this endpoint 502 AFTER confirming,
+    // so the buyer saw "Payout to seller failed" for a confirmation that
+    // had in fact succeeded.
+    // ─────────────────────────────────────────────────────────────────────
 
-    if (profileErr || !sellerProfile?.stripe_connect_id) {
-      console.error('confirm-and-release: seller has no Connect account:', {
+    // Record a payout problem for admin review (idempotently — one open
+    // manual_review decision per transfer) and tell the buyer the truth:
+    // their tickets are confirmed. `payout_status` lets newer clients
+    // render a precise state; older clients just see success.
+    const payoutDeferred = async (
+      reasonCode: string,
+      evidence: Record<string, unknown>,
+      paymentId: string,
+    ) => {
+      const { data: existingDecision } = await supabase
+        .from('payout_decisions')
+        .select('id')
+        .eq('transfer_id', transfer_id)
+        .eq('decision', 'manual_review')
+        .limit(1)
+        .maybeSingle();
+      if (!existingDecision) {
+        const { error: decisionErr } = await supabase.from('payout_decisions').insert({
+          transfer_id,
+          payment_id: paymentId,
+          seller_id:  transfer.seller_id,
+          buyer_id:   transfer.buyer_id,
+          risk_tier:  'low',
+          decision:   'manual_review',
+          reason_codes: ['BUYER_CONFIRMED', reasonCode],
+          evidence,
+          buyer_confirmed: true,
+          dispute_open: false,
+          actor: 'edge:confirm-and-release',
+        });
+        if (decisionErr) {
+          console.error('confirm-and-release: payout_decisions insert failed:', decisionErr);
+        }
+      }
+      console.warn('confirm-and-release: payout deferred to manual review:', {
         transfer_id,
-        seller_id: transfer.seller_id,
-        error:     profileErr,
+        reason: reasonCode,
       });
       return new Response(
-        JSON.stringify({ error: 'Seller payout account not set up. Please contact support.' }),
-        { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        JSON.stringify({ success: true, payout_status: 'pending_review' }),
+        { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
       );
-    }
+    };
 
-    // ── 7. Look up payment amount + seller fee ──────────────────────────
+    // ── 6. Look up payment amount + seller fee ──────────────────────────
     // 10/10 fee model: seller receives (amount − seller_fee).
     // Buyer fee + seller fee stay with the platform.
     const { data: payment, error: paymentErr } = await supabase
       .from('payments')
-      .select('amount, seller_fee, stripe_payment_intent_id')
+      .select('amount, seller_fee, status, stripe_payment_intent_id')
       .eq('id', transfer.payment_id)
       .single();
 
@@ -329,10 +373,38 @@ serve(async (req: Request) => {
         payment_id: transfer.payment_id,
         error:      paymentErr,
       });
-      return new Response(
-        JSON.stringify({ error: 'Payment record not found' }),
-        { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return await payoutDeferred('PAYMENT_LOOKUP_FAILED', {
+        payment_id: transfer.payment_id,
+        error:      paymentErr?.message ?? 'payment row not found',
+      }, transfer.payment_id);
+    }
+
+    // Never pay out against money the platform no longer holds. A refunded
+    // or failed payment can reach here only through operator action, but
+    // this guard makes the invariant structural.
+    if (payment.status !== 'succeeded') {
+      return await payoutDeferred('PAYMENT_NOT_SUCCEEDED', {
+        payment_id:     transfer.payment_id,
+        payment_status: payment.status,
+      }, transfer.payment_id);
+    }
+
+    // ── 7. Look up seller's Connect account ─────────────────────────────
+    const { data: sellerProfile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('stripe_connect_id')
+      .eq('id', transfer.seller_id)
+      .single();
+
+    if (profileErr || !sellerProfile?.stripe_connect_id) {
+      // Seller has no (live-mode) payout account yet — e.g. every pre-cutover
+      // seller after migration 044 archived their test-mode Connect ids.
+      // The seller re-onboards via payout setup; admin releases from the
+      // manual_review queue once they have.
+      return await payoutDeferred('SELLER_NOT_ONBOARDED', {
+        seller_id: transfer.seller_id,
+        error:     profileErr?.message ?? 'stripe_connect_id is null',
+      }, transfer.payment_id);
     }
 
     // ── 8. Create Stripe Transfer ───────────────────────────────────────
@@ -377,6 +449,16 @@ serve(async (req: Request) => {
             { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
           );
         }
+        if (!finalCheck) {
+          // Transient read failure — NOT evidence of a dispute. The buyer's
+          // confirmation already stands; skip the payout (never pay on a
+          // blind read) and let the cron release it on a later sweep.
+          console.warn('confirm-and-release: final recheck read failed — payout deferred:', { transfer_id });
+          return new Response(
+            JSON.stringify({ success: true, payout_status: 'pending_review' }),
+            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+          );
+        }
         return new Response(
           JSON.stringify({ error: 'This order is under review. Payout is frozen until the dispute is resolved.' }),
           { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
@@ -384,35 +466,65 @@ serve(async (req: Request) => {
       }
     }
 
-    let stripeTransfer;
+    let stripeTransfer: { id: string };
     try {
-      // Idempotency-Key keyed on the transfer id: if the buyer-confirm path
-      // and the cron path (or two buyer taps) ever race to Stripe, Stripe
-      // returns the SAME Transfer object instead of moving money twice.
-      stripeTransfer = await stripeFetch<{ id: string }>('/transfers', {
-        method: 'POST',
-        idempotencyKey: `payout_${transfer_id}`,
-        body: {
-          'amount':      String(sellerNetCents),
-          'currency':    'usd',
-          'destination': sellerProfile.stripe_connect_id,
-          'metadata[transfer_id]':  transfer_id,
-          'metadata[payment_id]':   transfer.payment_id,
-          'metadata[seller_id]':    transfer.seller_id,
-          'metadata[source]':       'confirm-and-release',
-        },
+      // Canonical payout (_shared/payouts.ts): capability pre-flight,
+      // funding-charge verification, then a source_transaction transfer
+      // keyed on (transfer id, destination) shared with the cron path. Any
+      // race or retry replays ONE Stripe Transfer; the transfer is funded
+      // by THIS payment's charge, so a same-day payout succeeds even while
+      // the platform's available balance is still settling.
+      const payoutRes = await createSellerPayout({
+        transferId:      transfer_id,
+        paymentId:       transfer.payment_id,
+        sellerId:        transfer.seller_id,
+        destination:     sellerProfile.stripe_connect_id,
+        paymentIntentId: payment.stripe_payment_intent_id as string,
+        sellerNetCents,
       });
+      if (!payoutRes.ok) {
+        // Expected operational deferrals — buyer confirmation stands, the
+        // cron re-attempts once the blocking condition clears. Not Sentry.
+        if (payoutRes.reason === 'destination_not_ready') {
+          return await payoutDeferred('PAYOUT_DESTINATION_NOT_READY', {
+            destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
+            seller_net_cents:   sellerNetCents,
+            ...payoutRes.destination_state,
+          }, transfer.payment_id);
+        }
+        return await payoutDeferred('PAYOUT_SOURCE_CHARGE_UNAVAILABLE', {
+          destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
+          seller_net_cents:   sellerNetCents,
+          ...payoutRes.source_state,
+        }, transfer.payment_id);
+      }
+      stripeTransfer = payoutRes.transfer;
     } catch (stripeErr) {
+      const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+      const errClass = classifyPayoutStripeError(detail);
       console.error('confirm-and-release: Stripe Transfer failed:', {
         transfer_id,
         seller_connect_id: sellerProfile.stripe_connect_id,
         seller_net:        sellerNetCents,
-        error:             stripeErr instanceof Error ? stripeErr.message : stripeErr,
+        error_class:       errClass,
+        error:             detail,
       });
-      return new Response(
-        JSON.stringify({ error: 'Payout to seller failed. Please try again or contact support.' }),
-        { status: 502, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      // Only unexpected classes page Sentry — operational states (funds,
+      // capability) are recorded as payout decisions, not exceptions.
+      if (shouldPageSentry(errClass)) {
+        await captureException(
+          'confirm-and-release',
+          new Error(`Stripe Transfer failed [${errClass}] for transfer ${transfer_id}: ${detail}`),
+        );
+      }
+      // The buyer's confirmation stands; the payout goes to the admin
+      // manual-review queue with Stripe's real error preserved as evidence.
+      return await payoutDeferred(reasonCodeForErrorClass(errClass), {
+        stripe_error:       detail,
+        error_class:        errClass,
+        destination_suffix: sellerProfile.stripe_connect_id.slice(-4),
+        seller_net_cents:   sellerNetCents,
+      }, transfer.payment_id);
     }
 
     // ── 9. Atomic DB update (true idempotency guard) ────────────────────
@@ -425,16 +537,16 @@ serve(async (req: Request) => {
     // fails, we have an "orphaned" Stripe Transfer. The stripe_transfer_id
     // is logged below for manual recovery. At private beta scale this is
     // acceptable — a future migration can add a reconciliation check.
+    // record_transfer_payout (migration 056a) is SECURITY DEFINER and sets
+    // app.bypass_transfer_guard, so it writes past guard_transfer_state_columns.
+    // Its WHERE (payout_released_at IS NULL AND stripe_transfer_id IS NULL) is
+    // the same single-writer guard, so the concurrency reasoning above is
+    // unchanged. `false` is the old 0-rows-updated case, not an error.
     const { data: updated, error: updateErr } = await supabase
-      .from('transfers')
-      .update({
-        payout_released_at: new Date().toISOString(),
-        stripe_transfer_id: stripeTransfer.id,
-      })
-      .eq('id', transfer_id)
-      .is('payout_released_at', null)
-      .select('id')
-      .maybeSingle();
+      .rpc('record_transfer_payout', {
+        p_transfer_id:        transfer_id,
+        p_stripe_transfer_id: stripeTransfer.id,
+      });
 
     if (updateErr) {
       // Log for manual recovery — the Stripe Transfer was already created

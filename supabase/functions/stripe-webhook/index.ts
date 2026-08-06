@@ -60,16 +60,30 @@ function timingSafeEqual(a: string, b: string): boolean {
 // header is older than this many seconds vs. our wall clock, we reject.
 const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
 
+/**
+ * How long one delivery may hold an event before another may steal the lease
+ * (migration 064). Only matters when a handler dies without reaching either
+ * complete or fail — a torn-down isolate. Comfortably above the observed
+ * worst-case handler time of ~5.6s, and low enough that a stuck event
+ * self-heals on Stripe's retry schedule rather than needing an operator.
+ */
+const LEASE_SECONDS = 300;
+
 async function verifyStripeSignature(rawBody: string, sigHeader: string): Promise<boolean> {
-  const parts = sigHeader.split(',').reduce((acc: Record<string, string>, part) => {
+  // Collect EVERY v1 entry: during a signing-secret rotation Stripe signs
+  // with both old and new secrets and sends multiple v1= values. Keeping
+  // only one (the old reduce-into-a-map bug) rejected valid deliveries for
+  // the whole rotation window. Accept if ANY v1 matches.
+  const parts: Record<string, string> = {};
+  const v1Signatures: string[] = [];
+  for (const part of sigHeader.split(',')) {
     const [key, val] = part.split('=');
-    acc[key] = val;
-    return acc;
-  }, {});
+    if (key === 'v1' && val) v1Signatures.push(val);
+    else if (key && val) parts[key] = val;
+  }
 
   const timestamp = parts['t'];
-  const signature = parts['v1'];
-  if (!timestamp || !signature) return false;
+  if (!timestamp || v1Signatures.length === 0) return false;
 
   // ── Replay protection ──────────────────────────────────────────────────
   // Stripe sends `t` as a Unix epoch in seconds. Reject anything older than
@@ -101,7 +115,7 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  return timingSafeEqual(expected, signature);
+  return v1Signatures.some((candidate) => timingSafeEqual(expected, candidate));
 }
 
 async function sendPush(userId: string, title: string, body: string, data?: Record<string, string>) {
@@ -124,6 +138,11 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: { ...getResponseHeaders(req) } });
   }
 
+  // Hoisted so the catch can release the lease for whatever event we were
+  // working on. Stays null if we threw before parsing, in which case there is
+  // no claim to release.
+  let parsedEventId: string | null = null;
+
   try {
     const rawBody = await req.text();
     const sigHeader = req.headers.get('stripe-signature');
@@ -136,54 +155,107 @@ serve(async (req: Request) => {
     }
 
     const event = JSON.parse(rawBody);
+    parsedEventId = typeof event?.id === 'string' ? event.id : null;
     const paymentIntent = event.data.object;
     const piId = paymentIntent.id;
     const metadata = paymentIntent.metadata ?? {};
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // ─── Idempotency gate (migration 025) ────────────────────────────────
-    // INSERT-with-ON-CONFLICT against stripe_webhook_events. If the
-    // event_id is already present, we short-circuit with HTTP 200 and
-    // skip every side effect. This is the SINGLE source of truth for
-    // dedup; per-event logic below no longer needs its own replay guards
-    // (the existing .neq('status','succeeded') claim semantics in
-    // payment_intent.succeeded remain as defense in depth).
+    // ─── Idempotency gate: claim/complete/fail lease (migration 064) ─────
+    //
+    // The old gate inserted a row here and treated "row exists" as "already
+    // done". It never looked at `processed`. So an event that claimed the
+    // payment row and then threw would return 500, Stripe would retry, the
+    // retry hit 23505, and we answered 200 having done nothing — leaving the
+    // buyer charged with no transfer, no mark_listing_sold, and the listing
+    // still reserved, permanently and with no retry path.
+    //
+    // Now a claim is a lease. Only 'claimed' does work:
+    //   already_processed -> 200, genuinely nothing to do
+    //   in_flight         -> 409, another delivery holds a live lease, so let
+    //                        Stripe retry rather than double-process
+    // The claim is one atomic statement, so concurrent deliveries of the same
+    // event cannot both win it.
     {
-      const { error: dedupErr } = await supabase
-        .from('stripe_webhook_events')
-        .insert({ event_id: event.id, event_type: event.type });
-      if (dedupErr) {
-        // 23505 = unique_violation = we've already processed this event
-        if (dedupErr.code === '23505') {
-          console.log('Webhook: duplicate event, skipping', {
-            event_id: event.id, event_type: event.type,
-          });
-          return new Response(
-            JSON.stringify({ received: true, duplicate: true }),
-            { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-          );
-        }
-        // Any other DB error: log and CONTINUE. Failing-closed at the
-        // dedup gate would force Stripe to retry until they give up.
-        // Better to risk a duplicate (the per-event handlers below are
-        // also idempotent at the row level) than to leak retries.
-        console.error('Webhook: dedup insert failed (continuing):', dedupErr);
+      const { data: claim, error: claimErr } = await supabase
+        .rpc('claim_stripe_webhook_event', {
+          p_event_id: event.id,
+          p_event_type: event.type,
+          p_lease_seconds: LEASE_SECONDS,
+        });
+
+      if (claimErr) {
+        // Deliberately fail CLOSED, unlike the old gate which logged and
+        // carried on without a dedup row — that let two concurrent deliveries
+        // run every side effect during a database hiccup. A 500 costs us a
+        // Stripe retry; failing open costs a double charge or double transfer.
+        console.error('Webhook: claim failed, refusing to process:', {
+          event_id: event.id, event_type: event.type, error: claimErr,
+        });
+        await captureException('stripe-webhook', claimErr);
+        return new Response(
+          JSON.stringify({ error: 'Could not claim event' }),
+          { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        );
+      }
+
+      if (claim === 'already_processed') {
+        console.log('Webhook: event already processed, skipping', {
+          event_id: event.id, event_type: event.type,
+        });
+        return new Response(
+          JSON.stringify({ received: true, duplicate: true }),
+          { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        );
+      }
+
+      if (claim === 'in_flight') {
+        console.warn('Webhook: event already in flight, asking Stripe to retry', {
+          event_id: event.id, event_type: event.type,
+        });
+        return new Response(
+          JSON.stringify({ error: 'Event already in flight' }),
+          { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        );
       }
     }
 
-    // Helper to mark this event processed at end-of-handler (or to record
-    // a partial-failure last_error for ops to investigate).
+    // Terminal success for this event. After this the event can never be
+    // reprocessed, so it must only be called once the authoritative work is
+    // genuinely done — including the benign no-op paths, which ARE complete.
     async function markProcessed(opts: { error?: string } = {}) {
-      const { error: markErr } = await supabase
-        .from('stripe_webhook_events')
-        .update({
-          processed:    !opts.error,
-          processed_at: new Date().toISOString(),
-          last_error:   opts.error ?? null,
-        })
-        .eq('event_id', event.id);
-      if (markErr) console.warn('Webhook: markProcessed failed:', markErr.message);
+      if (opts.error) {
+        // Records the error and RELEASES the lease, so the next Stripe
+        // delivery re-claims and reprocesses instead of being swallowed.
+        const { error: failErr } = await supabase
+          .rpc('fail_stripe_webhook_event', { p_event_id: event.id, p_error: opts.error });
+        if (failErr) console.warn('Webhook: fail_stripe_webhook_event failed:', failErr.message);
+        return;
+      }
+      const { error: doneErr } = await supabase
+        .rpc('complete_stripe_webhook_event', { p_event_id: event.id });
+      if (doneErr) console.warn('Webhook: complete_stripe_webhook_event failed:', doneErr.message);
+    }
+
+    /**
+     * Ends the request. `ok: false` means the authoritative work did NOT
+     * finish, so we answer non-2xx and Stripe retries — the event stays
+     * reclaimable. Previously every one of these paths returned 200.
+     */
+    async function finish(
+      ok: boolean,
+      body: Record<string, unknown>,
+      error?: string,
+    ): Promise<Response> {
+      await markProcessed(ok ? {} : { error: error ?? 'incomplete' });
+      return new Response(
+        JSON.stringify(ok ? { received: true, ...body } : { error: error ?? 'incomplete', ...body }),
+        {
+          status: ok ? 200 : 500,
+          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
+        },
+      );
     }
 
     if (event.type === 'payment_intent.succeeded') {
@@ -201,11 +273,11 @@ serve(async (req: Request) => {
         .maybeSingle();                        // FIX: was .single() — returns null instead of error when 0 rows
 
       if (lookupErr) {
+        // A real database failure on the claim UPDATE. We do not know whether
+        // the payment was marked succeeded, so this is NOT complete — answer
+        // non-2xx and let Stripe redeliver.
         console.error('Webhook: payment update error', piId, lookupErr);
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        return await finish(false, { stage: 'payment_claim' }, `payment claim: ${lookupErr.message}`);
       }
 
       if (!payment) {
@@ -223,12 +295,11 @@ serve(async (req: Request) => {
           .maybeSingle();
 
         if (!existingPayment) {
-          // Payment truly not found — nothing to do.
+          // No payments row for this PaymentIntent at all. Retrying will not
+          // conjure one, so this is terminal — complete rather than loop
+          // Stripe for three days.
           console.log('Webhook: payment not found at all, skipping', piId);
-          return new Response(JSON.stringify({ received: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-          });
+          return await finish(true, { skipped: 'payment_not_found' });
         }
 
         // Check whether a transfer row already exists for this payment.
@@ -239,15 +310,12 @@ serve(async (req: Request) => {
           .maybeSingle();
 
         if (existingTransfer) {
-          // Transfer already exists — fully idempotent exit.
+          // Transfer already exists — genuinely nothing left to do.
           console.log('Webhook: transfer already exists, nothing to do', {
             payment_id: existingPayment.id,
             transfer_id: existingTransfer.id,
           });
-          return new Response(JSON.stringify({ received: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-          });
+          return await finish(true, { skipped: 'transfer_exists' });
         }
 
         // Transfer row is missing — create it now.
@@ -272,13 +340,24 @@ serve(async (req: Request) => {
         });
 
         if (fallbackTransferErr) {
-          // Unique constraint violation = another webhook replay already created it.
-          // Any other error is worth logging for investigation.
+          // 23505 means a concurrent replay already created the row, which is
+          // success. Anything else — a NOT NULL violation from empty metadata,
+          // an FK violation — means the buyer is paid up with no transfer row.
+          // That used to be logged and then ACKed as if it had worked.
+          const benign = fallbackTransferErr.code === '23505';
           console.error('Webhook: fallback transfer insert failed:', {
             payment_id:  existingPayment.id,
             listing_id:  metadata.listing_id,
             error:       fallbackTransferErr,
+            benign,
           });
+          if (!benign) {
+            return await finish(
+              false,
+              { stage: 'fallback_transfer' },
+              `fallback transfer insert: ${fallbackTransferErr.message}`,
+            );
+          }
         } else {
           console.log('Webhook: fallback transfer row created', {
             payment_id: existingPayment.id,
@@ -288,10 +367,7 @@ serve(async (req: Request) => {
           });
         }
 
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        return await finish(true, { path: 'fallback_transfer' });
       }
 
       let rpcName: string;
@@ -310,11 +386,13 @@ serve(async (req: Request) => {
           p_user_id:    metadata.buyer_id,
         };
       } else {
+        // Payment was just claimed as succeeded but metadata.mode is neither
+        // buy_now nor auction, so the listing never gets marked sold. The
+        // buyer is charged and the order is half-finished — record it as
+        // incomplete so it shows up in get_incomplete_webhook_events rather
+        // than looking like a clean success.
         console.error('Webhook: unknown mode in metadata', metadata.mode, piId);
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        return await finish(false, { stage: 'unknown_mode' }, `unknown metadata.mode: ${metadata.mode}`);
       }
 
       console.log('Webhook: calling RPC', {
@@ -326,15 +404,20 @@ serve(async (req: Request) => {
 
       const { error: rpcErr } = await supabase.rpc(rpcName, rpcParams);
       if (rpcErr) {
+        // The payment is already claimed 'succeeded', so bailing here leaves
+        // the listing not marked sold. That used to be logged and then recorded
+        // as a clean success. Both RPCs are internally idempotent (SELECT ...
+        // FOR UPDATE then an early return when already sold), so redelivery is
+        // safe and is the right answer.
         console.error('Webhook RPC failed:', {
           listing_id: metadata.listing_id,
           payment_id: payment.id,
           rpc_name:   rpcName,
           error:      rpcErr,
         });
-      } else {
-        console.log('Webhook RPC succeeded:', { rpc_name: rpcName, listing_id: metadata.listing_id });
+        return await finish(false, { stage: rpcName }, `${rpcName}: ${rpcErr.message}`);
       }
+      console.log('Webhook RPC succeeded:', { rpc_name: rpcName, listing_id: metadata.listing_id });
 
       // Create transfer record.
       // FIX: The UNIQUE constraints on transfers.payment_id and transfers.listing_id
@@ -360,13 +443,21 @@ serve(async (req: Request) => {
       }).select('id').single();
 
       if (transferErr) {
-        // On replay: this will be a unique-constraint violation — expected and safe.
-        // On first run: any other error is worth investigating.
+        // 23505 is the expected replay case — the UNIQUE constraints on
+        // transfers.payment_id and transfers.listing_id (migration 003) mean
+        // another delivery already created the row. That is success.
+        // Anything else leaves a paid buyer with no transfer row, so it must
+        // stay retryable instead of being ACKed.
+        const benign = transferErr.code === '23505';
         console.error('Webhook: transfer insert failed:', {
           listing_id: metadata.listing_id,
           payment_id: payment.id,
           error:      transferErr,
+          benign,
         });
+        if (!benign) {
+          return await finish(false, { stage: 'transfer_insert' }, `transfer insert: ${transferErr.message}`);
+        }
       }
 
       // ──────────────────────────────────────────────────────────────────
@@ -408,15 +499,34 @@ serve(async (req: Request) => {
       await markProcessed();
 
     } else if (event.type === 'payment_intent.payment_failed') {
+      // Claim guard: Stripe does NOT guarantee event ordering, and one PI
+      // legitimately goes failed→succeeded when the buyer retries in the
+      // same PaymentSheet. A late-arriving payment_failed must never
+      // overwrite a payment that already succeeded (which would freeze its
+      // payout and release the reservation on a sold listing) or one
+      // already refunded.
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('stripe_payment_intent_id', piId)
+        .neq('status', 'succeeded')
+        .neq('status', 'refunded')
         .select('id, listing_id')
-        .single();
+        .maybeSingle();
 
-      if (lookupErr || !payment) {
-        console.error('Webhook: payment lookup/update failed', piId, lookupErr);
+      if (lookupErr) {
+        console.error('Webhook: payment failed-update errored', piId, lookupErr);
+        await markProcessed({ error: `failed-update: ${lookupErr.message}` });
+        return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
+        });
+      }
+      if (!payment) {
+        // No claimable row — unknown PI, or the payment already
+        // succeeded/refunded (out-of-order delivery). Benign no-op.
+        console.log('Webhook: payment_failed ignored (no claimable row)', { pi_id: piId });
+        await markProcessed();
         return new Response(JSON.stringify({ received: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
@@ -447,8 +557,10 @@ serve(async (req: Request) => {
     //     and confirm-and-release cannot fire while the case is pending.
     //   • Refund / payout / transfer events sync DB state for the
     //     admin SQL-pack ops queries (DAY8_P1_02_ADMIN_SQL_PACK.sql).
-    //   • Every branch awaits markProcessed() so the
-    //     public.stripe_webhook_events row reflects the actual outcome.
+    //   • Every branch reaches markProcessed()/finish() so the
+    //     public.stripe_webhook_events row reflects the actual outcome:
+    //     success sets processed_at (terminal, never reprocessed), failure
+    //     releases the lease so Stripe's retry reprocesses (migration 064).
     // ─────────────────────────────────────────────────────────────────────
 
     } else if (event.type === 'charge.dispute.created') {
@@ -489,13 +601,21 @@ serve(async (req: Request) => {
           //    out — at that point we can only attempt a transfer reversal
           //    when the dispute is lost (handled in dispute.closed).
           if (transferId && !transfer!.payout_released_at && transfer!.status !== 'disputed') {
-            const { error: freezeErr } = await supabase
-              .from('transfers')
-              .update({ status: 'disputed', disputed_at: new Date().toISOString() })
-              .eq('id', transferId);
+            // freeze_transfer_for_dispute (migration 056a) re-checks
+            // payout_released_at IS NULL AND status <> 'disputed' inside the
+            // statement, closing the read-then-write window the direct UPDATE
+            // had, and bypasses guard_transfer_state_columns as SECURITY DEFINER.
+            const { data: frozen, error: freezeErr } = await supabase
+              .rpc('freeze_transfer_for_dispute', { p_transfer_id: transferId });
             if (freezeErr) {
               console.error('Webhook: dispute transfer freeze failed:', {
                 transfer_id: transferId, dispute_id: dispute.id, error: freezeErr,
+              });
+            } else if (!frozen) {
+              // Not an error: the row was paid out or already frozen between
+              // our read above and this call.
+              console.log('Webhook: transfer freeze skipped — already frozen or already paid out', {
+                transfer_id: transferId, dispute_id: dispute.id,
               });
             } else {
               console.log('Webhook: transfer frozen due to dispute', { transfer_id: transferId });
@@ -584,11 +704,22 @@ serve(async (req: Request) => {
 
     } else if (event.type === 'charge.refunded') {
       // ── P1-02: refund sync (e.g. manual Dashboard refund) ─────────────
-      const charge = event.data.object as { payment_intent?: string | null };
+      const charge = event.data.object as {
+        payment_intent?: string | null;
+        refunds?: { data?: Array<{ id?: string }> };
+      };
       if (charge.payment_intent) {
+        // Persist the Stripe refund id when the event payload carries it
+        // (audit trail: ties the DB row to the re_ object). Recent API
+        // versions omit charge.refunds by default, so this is best-effort.
+        const refundId = charge.refunds?.data?.[0]?.id ?? null;
         const { error: refErr } = await supabase
           .from('payments')
-          .update({ status: 'refunded', refunded_at: new Date().toISOString() })
+          .update({
+            status: 'refunded',
+            refunded_at: new Date().toISOString(),
+            ...(refundId ? { stripe_refund_id: refundId } : {}),
+          })
           .eq('stripe_payment_intent_id', charge.payment_intent)
           .neq('status', 'refunded');
         if (refErr) {
@@ -617,14 +748,20 @@ serve(async (req: Request) => {
     } else if (event.type === 'transfer.reversed') {
       // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
       const tr = event.data.object as { id: string; amount_reversed?: number };
-      const { error: revErr } = await supabase
-        .from('transfers')
-        .update({ status: 'reversed' })
-        .eq('stripe_transfer_id', tr.id)
-        .neq('status', 'reversed');
+      // mark_transfer_reversed (migration 056a) carries the same
+      // WHERE stripe_transfer_id = $1 AND status <> 'reversed' and bypasses
+      // guard_transfer_state_columns as SECURITY DEFINER. `false` = zero rows
+      // (unknown tr_ id, or already reversed) — the old no-op, not an error.
+      const { data: reversed, error: revErr } = await supabase
+        .rpc('mark_transfer_reversed', { p_stripe_transfer_id: tr.id });
       if (revErr) {
         console.error('Webhook: transfer.reversed mark failed:', revErr);
         await markProcessed({ error: `transfer reverse: ${revErr.message}` });
+      } else if (!reversed) {
+        console.log('Webhook: transfer.reversed no-op (unknown transfer id or already reversed)', {
+          stripe_transfer_id: tr.id,
+        });
+        await markProcessed();
       } else {
         console.log('Webhook: transfer marked reversed', {
           stripe_transfer_id: tr.id, amount_reversed: tr.amount_reversed,
@@ -671,11 +808,9 @@ serve(async (req: Request) => {
       const accountId = account.id;
 
       if (!accountId) {
+        // Malformed but correctly signed. Retrying cannot fix it — terminal.
         console.warn('Webhook: account.updated received with no id', { event_id: event.id });
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        return await finish(true, { skipped: 'account_without_id' });
       }
 
       const onboardingComplete =
@@ -683,9 +818,22 @@ serve(async (req: Request) => {
         account.charges_enabled   === true &&
         account.payouts_enabled   === true;
 
+      // Persist the capability flags too, not just the derived AND. They were
+      // previously written by NOTHING anywhere in the codebase, so every
+      // profile sat at the column default (false / 'not_started') no matter
+      // what Stripe reported — this handler already had both values in hand
+      // and discarded them. stripe_onboarding_complete keeps its existing
+      // semantics (the AND of all three), since listing creation gates on it.
       const { data: updatedProfiles, error: profileErr } = await supabase
         .from('profiles')
-        .update({ stripe_onboarding_complete: onboardingComplete })
+        .update({
+          stripe_onboarding_complete: onboardingComplete,
+          stripe_charges_enabled:     account.charges_enabled === true,
+          stripe_payouts_enabled:     account.payouts_enabled === true,
+          stripe_connect_status:      account.details_submitted === true
+            ? 'connected'
+            : 'onboarding_required',
+        })
         .eq('stripe_connect_id', accountId)
         .select('id');
 
@@ -724,6 +872,28 @@ serve(async (req: Request) => {
     });
   } catch (err) {
     await captureException('stripe-webhook', err);
+
+    // THE fix for the original bug. A throw here used to return 500 with the
+    // dedup row still sitting there claimed, so Stripe's retry hit 23505 and
+    // was answered 200 having done nothing. Release the lease so the retry
+    // genuinely reprocesses.
+    //
+    // Best-effort and defensive: if this itself throws, or the throw happened
+    // before the claim, we still return 500. An unreleased lease is recovered
+    // by the LEASE_SECONDS timeout on a later delivery.
+    try {
+      const eventId = (parsedEventId ?? '') as string;
+      if (eventId) {
+        const supabaseFail = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        await supabaseFail.rpc('fail_stripe_webhook_event', {
+          p_event_id: eventId,
+          p_error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        });
+      }
+    } catch (releaseErr) {
+      console.error('Webhook: could not release lease after throw:', releaseErr);
+    }
+
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
