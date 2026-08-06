@@ -30,8 +30,24 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { createPaymentIntent, confirmPaymentSuccess, isExpectedCheckoutError } from '@/src/lib/payments';
+import * as Sentry from '@sentry/react-native';
+
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
+
+// User-safe message for any non-actionable setup failure. The REAL error
+// (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
+// can distinguish intent-creation vs customer/ephemeral vs sheet-init
+// failures without ever surfacing raw Stripe internals to buyers.
+const SAFE_PAYMENT_ERROR = "We couldn't start payment. Please try again.";
+
+type CheckoutStage = 'reservation-check' | 'payment-intent' | 'sheet-init';
+
+function reportCheckoutFailure(stage: CheckoutStage, detail: string) {
+  console.error(`[checkout] setup failed at ${stage}:`, detail);
+  Sentry.captureMessage(`checkout_setup_failed:${stage} \u2014 ${detail}`, 'error');
+}
+
 
 // --- Screen ----------------------------------------------------------------
 
@@ -217,18 +233,22 @@ export default function CheckoutScreen() {
         });
 
         if (error) {
-          console.error('PaymentSheet init error:', error.code, error.message);
-          setPaymentError('Unable to set up payment. Please try again.');
+          reportCheckoutFailure('sheet-init', `${error.code}: ${error.message}`);
+          setPaymentError(SAFE_PAYMENT_ERROR);
           return;
         }
 
         setPaymentReady(true);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to initialize payment.';
-        if (!isExpectedCheckoutError(msg)) {
-          console.error('Payment setup error:', msg);
+        if (isExpectedCheckoutError(msg)) {
+          // Actionable, user-authored messages (price changed, listing sold,
+          // reservation expired) pass through verbatim.
+          setPaymentError(msg);
+        } else {
+          reportCheckoutFailure('payment-intent', msg);
+          setPaymentError(SAFE_PAYMENT_ERROR);
         }
-        setPaymentError(msg);
       } finally {
         setPaymentLoading(false);
       }
@@ -578,8 +598,8 @@ export default function CheckoutScreen() {
               paymentReady && !confirming && s.payBtnActive,
               confirming && s.payBtnBusy,
             ]}
-            onPress={handleConfirmPurchase}
-            disabled={!paymentReady || confirming || paymentLoading || authLoading}
+            onPress={paymentReady ? handleConfirmPurchase : () => setupPaymentRef.current?.()}
+            disabled={(!paymentReady && !paymentError) || confirming || paymentLoading || authLoading}
             activeOpacity={0.88}
           >
             {authLoading ? (
@@ -598,7 +618,9 @@ export default function CheckoutScreen() {
                 <Text style={s.payBtnText}>Processing...</Text>
               </View>
             ) : paymentReady ? (
-              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)} total</Text>
+              <Text style={s.payBtnText} numberOfLines={1}>Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}</Text>
+            ) : paymentError ? (
+              <Text style={s.payBtnText} numberOfLines={1}>Try again</Text>
             ) : (
               <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
             )}
@@ -610,8 +632,8 @@ export default function CheckoutScreen() {
               paymentReady && !confirming && s.payBtnActive,
               confirming && s.payBtnBusy,
             ]}
-            onPress={handleAuctionPayment}
-            disabled={!paymentReady || confirming || paymentLoading || authLoading}
+            onPress={paymentReady ? handleAuctionPayment : () => setupPaymentRef.current?.()}
+            disabled={(!paymentReady && !paymentError) || confirming || paymentLoading || authLoading}
             activeOpacity={0.88}
           >
             {authLoading ? (
@@ -630,7 +652,9 @@ export default function CheckoutScreen() {
                 <Text style={s.payBtnText}>Processing...</Text>
               </View>
             ) : paymentReady ? (
-              <Text style={s.payBtnText}>{'\uD83D\uDD12'}  Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)} total</Text>
+              <Text style={s.payBtnText} numberOfLines={1}>Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}</Text>
+            ) : paymentError ? (
+              <Text style={s.payBtnText} numberOfLines={1}>Try again</Text>
             ) : (
               <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
             )}

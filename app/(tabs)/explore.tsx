@@ -20,7 +20,8 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { resolveCoverUrls } from '@/src/lib/coverImage';
-import { allInLabel } from '@/src/lib/money';
+import { allInFromDollars } from '@/src/lib/money';
+import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { Listing } from '@/src/types';
@@ -151,7 +152,7 @@ export default function ExploreScreen() {
                     {item.venue} · {item.neighborhood?.replace(/\b\w/g, c => c.toUpperCase())}
                   </Text>
                   {/* All-in pricing: first displayed price includes the 10% service fee. */}
-                  <Text style={s.cardBid}>{allInLabel(item.current_bid)}</Text>
+                  <PriceDisplay size="card" amount={allInFromDollars(item.current_bid)} />
                 </View>
               </Pressable>
             );

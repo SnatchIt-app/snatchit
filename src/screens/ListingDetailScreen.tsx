@@ -39,11 +39,13 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
@@ -217,6 +219,12 @@ const WIN_TITLES = [
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ListingDetailScreen({ id }: Props) {
+
+  // Sticky-bar layout: side-by-side (price | buttons) on wide screens,
+  // stacked (price row above button row) on phones and iPad compatibility
+  // mode. 480pt splits real iPads (≥744pt) from every iPhone/compat width.
+  const { width: windowWidth } = useWindowDimensions();
+  const stackBar = windowWidth < 480;
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
   // authLoading is true until the stored session has been resolved once.
@@ -1120,7 +1128,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const buyNowVisible = listing.buy_now_enabled && listing.buy_now_price != null
                         && !ended && !isSold && !auctionEnded && !isSeller;
   // Buy Now CTA carries the all-in total the buyer will actually pay.
-  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy ${allInFromDollars(listing.buy_now_price!)} total`;
+  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy · ${allInFromDollars(listing.buy_now_price!)}`;
   const placeBidLabel = isSold        ? 'Sold'
     : reservedByOther                 ? 'Reserved'
     : auctionEnded                    ? 'Ended'
@@ -1318,12 +1326,18 @@ export default function ListingDetailScreen({ id }: Props) {
 
         <View style={s.body}>
 
-          {/* Hero card */}
+          {/* Hero card. flexWrap lets the TIME LEFT block drop to its own row
+              on narrow widths instead of crushing the price column — the
+              amount itself can never wrap (PriceDisplay, numberOfLines=1). */}
           <View style={s.heroCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.heroLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
+            <View style={s.heroLeft}>
               {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
-              <Text style={s.heroAmount}>{allInLabel(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
+              <PriceDisplay
+                size="detail"
+                label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
+                amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
+                muted={isSold}
+              />
               <Text style={s.heroFeeNote}>
                 Includes {baseFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} ticket
                 {' + '}{buyerFeeFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} service fee
@@ -1331,7 +1345,7 @@ export default function ListingDetailScreen({ id }: Props) {
             </View>
             <View style={s.heroRight}>
               <Text style={s.heroLabel}>TIME LEFT</Text>
-              <Text style={[s.heroCountdown, ended && { color: colors.error }]}>
+              <Text style={[s.heroCountdown, ended && { color: colors.error }]} numberOfLines={1}>
                 {countdown || '—'}
               </Text>
             </View>
@@ -1405,14 +1419,23 @@ export default function ListingDetailScreen({ id }: Props) {
         </View>
       </ScrollView>
 
-      {/* ── Sticky bottom action bar ─────────────────────────────────────── */}
-      <View style={s.bar}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.barLabel}>{isSold ? 'SOLD FOR' : 'CURRENT BID'}</Text>
-          <Text style={s.barAmount}>{allInLabel(isSold ? finalSoldPrice(listing) : currentHighest)}</Text>
+      {/* ── Sticky bottom action bar ───────────────────────────────────────
+          Wide: [price] [buttons] on one row. Narrow (all iPhones + iPad
+          compatibility mode): price row on top, full-width button row below.
+          The Jul 29 App Review screenshots showed the old flex:1 price block
+          crushed into a vertical letter-stack — PriceDisplay + this stacking
+          make that geometrically impossible. */}
+      <View style={[s.bar, stackBar && s.barStacked]}>
+        <View style={stackBar ? s.barPriceStacked : s.barPrice}>
+          <PriceDisplay
+            size="sticky"
+            label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
+            amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
+            muted={isSold}
+          />
         </View>
 
-        <View style={s.barActions}>
+        <View style={[s.barActions, stackBar && s.barActionsStacked]}>
 
           {buyNowVisible && (
             <TouchableOpacity
@@ -1423,14 +1446,14 @@ export default function ListingDetailScreen({ id }: Props) {
             >
               {reserving
                 ? <ActivityIndicator color={colors.text} size="small" />
-                : <Text style={[s.buyBtnText, hardLocked && s.btnTextDisabled]}>{buyNowLabel}</Text>
+                : <Text style={[s.buyBtnText, hardLocked && s.btnTextDisabled]} numberOfLines={1}>{buyNowLabel}</Text>
               }
             </TouchableOpacity>
           )}
 
           {iAmWinner && (
             <TouchableOpacity style={s.payNowBtn} onPress={navigateToWinnerCheckout} activeOpacity={0.85}>
-              <Text style={s.payNowBtnText}>💳 Pay Now</Text>
+              <Text style={s.payNowBtnText} numberOfLines={1}>💳 Pay Now</Text>
             </TouchableOpacity>
           )}
 
@@ -1444,7 +1467,7 @@ export default function ListingDetailScreen({ id }: Props) {
               {finalizing ? (
                 <ActivityIndicator color={colors.text} size="small" />
               ) : (
-                <Text style={[s.bidBtnText, bidLocked && s.btnTextDisabled]}>{placeBidLabel}</Text>
+                <Text style={[s.bidBtnText, bidLocked && s.btnTextDisabled]} numberOfLines={1}>{placeBidLabel}</Text>
               )}
             </TouchableOpacity>
           )}
@@ -1526,16 +1549,18 @@ const s = StyleSheet.create({
   body: { padding: spacing.lg },
 
   heroCard: {
-    flexDirection:'row', alignItems:'center',
+    flexDirection:'row', alignItems:'center', flexWrap:'wrap', rowGap: spacing.sm,
     backgroundColor: colors.bgCard, borderRadius: radius.lg,
     borderWidth:1, borderColor: colors.border,
     padding: spacing.lg, marginBottom: spacing.lg, ...shadow.card,
   },
   heroLabel:     { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
                    letterSpacing:1.2, textTransform:'uppercase', marginBottom:4 },
-  heroAmount:    { fontSize: fontSize.xxl, fontWeight:'900', color: colors.text },
+  // flexBasis 60% + minWidth floor: price owns the row until the row is too
+  // narrow to hold both columns, at which point TIME LEFT wraps below.
+  heroLeft:      { flexGrow:1, flexShrink:1, flexBasis:'60%', minWidth: 170 },
   heroFeeNote:   { fontSize: fontSize.xs, color: colors.textDim, marginTop: 2 },
-  heroRight:     { alignItems:'flex-end' },
+  heroRight:     { flexGrow:1, flexShrink:0, alignItems:'flex-end' },
   heroCountdown: { fontSize: fontSize.lg, fontWeight:'800', color: colors.primary,
                    fontVariant:['tabular-nums'] },
 
@@ -1560,25 +1585,32 @@ const s = StyleSheet.create({
     backgroundColor: colors.bgCard,
     borderTopWidth:1, borderTopColor: colors.border, gap: spacing.md,
   },
-  barLabel:  { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
-               letterSpacing:1.2, textTransform:'uppercase', marginBottom:2 },
-  barAmount: { fontSize: fontSize.xl, fontWeight:'800', color: colors.text },
-  barActions:{ flexDirection:'row', gap: spacing.sm },
+  barStacked:      { flexDirection:'column', alignItems:'stretch', gap: spacing.sm },
+  // Wide: price keeps its intrinsic width and never gets crushed by buttons.
+  barPrice:        { flexShrink: 0, minWidth: 0 },
+  barPriceStacked: { minWidth: 0 },
+  barActions:        { flexDirection:'row', gap: spacing.sm, flex: 1, justifyContent:'flex-end' },
+  // Stacked: buttons share the full row width equally (flexGrow on each).
+  barActionsStacked: { flex: 0 },
 
   buyBtn:         { backgroundColor: colors.bgInput, borderWidth:1, borderColor: colors.borderInput,
                     borderRadius: radius.md, paddingVertical: spacing.sm+2, paddingHorizontal: spacing.md,
-                    alignItems:'center', justifyContent:'center', minWidth: 80 },
+                    alignItems:'center', justifyContent:'center', minWidth: 80, minHeight: 44,
+                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   buyBtnDisabled: { opacity: 0.4 },
-  buyBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'700' },
+  buyBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'700',
+                    fontVariant:['tabular-nums'] },
 
   payNowBtn:     { backgroundColor: colors.success, borderRadius: radius.md,
                    paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                   alignItems:'center', justifyContent:'center' },
+                   alignItems:'center', justifyContent:'center', minHeight: 44,
+                   flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   payNowBtnText: { color: '#fff', fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
 
   bidBtn:         { backgroundColor: colors.primary, borderRadius: radius.md,
                     paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                    alignItems:'center', justifyContent:'center' },
+                    alignItems:'center', justifyContent:'center', minHeight: 44,
+                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   bidBtnDisabled: { backgroundColor: colors.borderInput },
   bidBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
   btnTextDisabled:{ color: colors.textDim },
