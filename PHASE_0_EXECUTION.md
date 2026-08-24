@@ -78,10 +78,16 @@ Evidence labels: **VERIFIED** · **FIXED** · **STILL OPEN** · **REGRESSION** �
 
 ## Open decisions / blockers requiring the user
 
-1. **Branch strategy (0C, blocks reconciliation merge).** 8 branches diverge; `integration/consolidate-main` exists. Which is authoritative — consolidate everything into `main`, or is `integration/consolidate-main` the intended target? Needed before merging the reconciliation migrations.
-2. **Staging environment (0L, blocks 0O/0V and safe testing of grant changes).** Requires a second Supabase project (billing), Stripe test-mode keys/webhook, and EAS/Vercel staging envs — all need dashboard + billing access.
-3. **Dashboard settings (0H).** Enable HIBP leaked-password protection, MFA/TOTP, CAPTCHA — Supabase Auth dashboard.
-4. **GitHub Actions (0M).** Repo admin to add workflows + least-privilege secrets/OIDC.
+1. **RESOLVED — Git workflow.** `main` is authoritative; Phase 0 work proceeds on `phase0/*` branches via PRs. Worktree `phase0/lockdown` (at `/Users/josetascon/snatchit-phase0`) cut off `main`.
+2. **Scratch DB for migration test + reproduction proof (gates applying `066`/`067` + Gate 2).** A Supabase branch costs **$0.01344/hr (~$0.32/day)** on org `zcxpqolueooqkslolfrt`. It is the correct throwaway env (a bare local Postgres can't bootstrap these migrations — they assume Supabase `auth`/`storage`/`pg_net`/`pg_cron`/`vault`). **NEED GO-AHEAD to create it.**
+3. **Staging environment (0L, blocks 0O/0V).** Longer-lived than #2 — second Supabase project + Stripe test keys/webhook + EAS/Vercel staging. Dashboard + billing.
+4. **Dashboard settings (0H).** Enable HIBP leaked-password protection, MFA/TOTP, CAPTCHA — Supabase Auth dashboard (only you can).
+5. **GitHub Actions (0M).** Repo admin to add workflows + least-privilege secrets/OIDC.
+6. **Stranded mobile fixes.** 3 real fixes on `mobile/profile-rpc-compat` (Connect capability flags, webhook-retry claim lease, get_my_profile self-read) should be PR'd to `main` separately — they touch the money path and warrant their own review.
 
 ## Change log
-- 2026-08-24: C-1 dead code removed (`supabase/functions/diag-stripe-env/`, `scripts/check-stripe-env.sh`). Production truth inventory captured. Findings verified against live catalog.
+- 2026-08-24 (session 1):
+  - C-1 CLOSED: verified undeployed in prod; removed repo dead code (`supabase/functions/diag-stripe-env/`, `scripts/check-stripe-env.sh`) on `phase0/lockdown`.
+  - Production-truth inventory captured; audit findings re-verified against live catalog (H-1 anon / H-2 / H-3 / W1 = already FIXED in prod; H-1-residual = STILL OPEN medium).
+  - Reconciliation re-baselined: `main` already reproduces prod ~99% (audit's R2/H-4 largely resolved); 3 nits pending bootstrap-diff.
+  - Authored (NOT applied) hardening migrations `066` (search_path pin) + `067` (definer-grant lockdown) + rollbacks, with verified service_role/RLS carve-outs.
