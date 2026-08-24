@@ -1,0 +1,98 @@
+# Migrations guard — protects the append-only migration ledger.
+#
+# Runs only when a PR touches supabase/migrations/**. Two invariants:
+#   1. Immutability: a migration that already exists on the base branch must
+#      NOT be modified, deleted, or renamed. Applied migrations are history —
+#      changing one silently diverges every environment that already ran it.
+#   2. Monotonic ordering: newly-added migrations must sort AFTER the latest
+#      existing migration of the same naming scheme (no back-dating / inserting
+#      before an already-applied version), and version prefixes must be unique.
+#
+# The repo uses two schemes side by side: zero-padded sequence (NNN_, e.g.
+# 067_) and 14-digit timestamps (YYYYMMDDHHMMSS_). The check is scheme-aware so
+# a new 068_ is compared against the max sequence version, and a new timestamp
+# against the max timestamp version. Both prefix styles sort correctly with a
+# plain lexicographic compare within their own scheme.
+name: Migrations guard
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Immutability + ordering
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Check migrations
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          DIR="supabase/migrations"
+          fail=0
+
+          # --- 1. Immutability: no modify / delete / rename of base migrations ---
+          echo "== Immutability check (base $BASE_SHA -> HEAD) =="
+          changed="$(git diff --diff-filter=MDR --name-only "$BASE_SHA" HEAD -- "$DIR" || true)"
+          if [ -n "$changed" ]; then
+            echo "::error::Existing migration files were modified/deleted/renamed. Migrations are append-only — add a NEW migration instead:"
+            echo "$changed" | sed 's/^/  - /'
+            fail=1
+          else
+            echo "OK: no existing migration was changed."
+          fi
+
+          # Helpers ------------------------------------------------------------
+          # version prefix = filename up to the first underscore
+          ver() { basename "$1" | sed 's/_.*//'; }
+          # scheme: 'ts' for a 14-digit timestamp prefix, else 'seq'
+          scheme() { case "$1" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) echo ts;; *) echo seq;; esac; }
+
+          # File lists on base and HEAD (basenames only) -----------------------
+          base_files="$(git ls-tree -r --name-only "$BASE_SHA" -- "$DIR" | grep '\.sql$' | xargs -n1 basename 2>/dev/null | sort || true)"
+          head_files="$(git ls-tree -r --name-only HEAD -- "$DIR" | grep '\.sql$' | xargs -n1 basename | sort)"
+          added_files="$(comm -13 <(printf '%s\n' "$base_files") <(printf '%s\n' "$head_files"))"
+
+          # --- 2a. Uniqueness of version prefixes across all HEAD migrations ---
+          echo "== Uniqueness check =="
+          dups="$(printf '%s\n' "$head_files" | while read -r f; do [ -n "$f" ] && ver "$f"; done | sort | uniq -d || true)"
+          if [ -n "$dups" ]; then
+            echo "::error::Duplicate migration version prefix(es): $dups"
+            fail=1
+          else
+            echo "OK: all version prefixes unique."
+          fi
+
+          # --- 2b. Monotonic ordering for added migrations (scheme-aware) ------
+          echo "== Monotonic ordering check =="
+          if [ -z "$added_files" ]; then
+            echo "No newly-added migrations."
+          else
+            for f in $added_files; do
+              v="$(ver "$f")"; s="$(scheme "$v")"
+              # max existing (base) version within the same scheme
+              basemax="$(printf '%s\n' "$base_files" | while read -r b; do
+                          [ -n "$b" ] || continue
+                          bv="$(ver "$b")"; [ "$(scheme "$bv")" = "$s" ] && echo "$bv"
+                        done | sort | tail -1)"
+              if [ -n "$basemax" ] && ! [ "$v" \> "$basemax" ]; then
+                echo "::error::$f ($s scheme) is not greater than the latest existing $s migration ($basemax). Migrations must be append-only and monotonic."
+                fail=1
+              else
+                echo "OK: $f > ${basemax:-<none>} ($s)"
+              fi
+            done
+          fi
+
+          exit $fail

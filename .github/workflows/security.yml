@@ -1,0 +1,131 @@
+# Security — supply-chain + code scanning for the Snatch It monorepo.
+#
+# Runs on every PR into main and weekly (Mondays 06:00 UTC) so scheduled runs
+# catch newly-disclosed advisories against already-merged code.
+#
+# NOTE: we deliberately use `pull_request` (never `pull_request_target`). A
+# marketplace repo must not expose secrets to code from arbitrary PR branches.
+#
+# Top-level token is read-only; each job widens permissions only as needed.
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # codeql: static analysis for JS/TS across the whole monorepo (mobile + web).
+  # Requires security-events: write to upload results to the Security tab.
+  # ---------------------------------------------------------------------------
+  codeql:
+    name: CodeQL (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+      actions: read # required for CodeQL on private repos
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ce28f5bb42b7a9f2c824e633a3f6ee835bab6858 # v3.29.0
+        with:
+          languages: ${{ matrix.language }}
+          # queries: security-extended  # TODO(owner): opt in for a deeper (slower) pass.
+
+      # No build step needed for interpreted JS/TS — analyze the source directly.
+      - name: Analyze
+        uses: github/codeql-action/analyze@ce28f5bb42b7a9f2c824e633a3f6ee835bab6858 # v3.29.0
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ---------------------------------------------------------------------------
+  # dependency-review: blocks a PR that pulls in a dependency with a known
+  # high+ vulnerability or a disallowed license. PR-only (needs base..head).
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: write # post the summary comment on the PR
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4.7.1
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # ---------------------------------------------------------------------------
+  # npm-audit: advisory check against the committed lockfiles (root + web).
+  # Non-blocking for now (|| true) so it does not gate PRs on transitive noise.
+  # TODO(owner): once the backlog is triaged, drop `|| true` to make high+
+  # advisories fail the build.
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    name: npm audit (advisory, non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+
+      - name: Audit — mobile app (root)
+        run: npm audit --audit-level=high || true
+
+      - name: Audit — web
+        working-directory: web
+        run: npm audit --audit-level=high || true
+
+  # ---------------------------------------------------------------------------
+  # secret-scan: TruffleHog filesystem scan of the checkout. Chosen over
+  # gitleaks-action because TruffleHog needs no paid license for private/org
+  # repos. --only-verified keeps failures to secrets it could actively verify,
+  # minimising false positives on a repo full of ${{ secrets.* }} references.
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scan (TruffleHog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog
+        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
+        with:
+          path: ./
+          extra_args: --only-verified

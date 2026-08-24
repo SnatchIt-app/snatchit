@@ -1,0 +1,140 @@
+# CI — quality gate for the Snatch It monorepo (mobile app + Supabase + web).
+#
+# Runs on every PR into main, and on pushes to any non-main branch so feature
+# branches get fast feedback. Nothing here deploys or touches production —
+# see .github/workflows/README.md for what is intentionally deferred.
+#
+# Least-privilege: read-only token for the whole workflow. No job needs write.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+# One run per ref; new pushes cancel the in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # quality: TypeScript typecheck + ESLint + vitest unit tests for the mobile
+  # app (repo root). Scripts come straight from package.json:
+  #   typecheck -> "tsc --noEmit -p ."
+  #   lint      -> "expo lint"
+  #   test      -> "vitest run"  (money / payout suites in tests/)
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Typecheck / Lint / Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install (clean, from lockfile)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+  # ---------------------------------------------------------------------------
+  # db: prove the migration chain applies cleanly on a FRESH database.
+  #
+  # These migrations are Supabase-flavoured SQL: they reference the auth /
+  # storage schemas, auth.users, and the anon / authenticated / service_role
+  # roles. A plain `postgres:17` container does NOT provide those, so we bring
+  # up the real Supabase local stack via the CLI, which applies every file in
+  # supabase/migrations/ in version order on a brand-new DB. If any migration
+  # errors, `supabase start` exits non-zero and this job fails.
+  # ---------------------------------------------------------------------------
+  db:
+    name: Migrations apply cleanly (fresh DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
+        with:
+          version: latest # TODO(owner): pin to a specific CLI version once green.
+
+      # supabase/config.toml is not committed; create it if absent. Non-interactive
+      # in CI (no TTY). Ensure [db].major_version = 17 to match production.
+      - name: Ensure Supabase project config
+        run: |
+          if [ ! -f supabase/config.toml ]; then
+            supabase init
+          fi
+
+      # Boot the local stack. Migrations in supabase/migrations/ are applied on
+      # first start; a failure in any migration fails this step. We exclude
+      # cosmetic / non-schema services to keep the run fast — everything that
+      # creates schema (db, auth, storage, rest, realtime, pooler) stays up.
+      - name: Apply migration chain on fresh DB
+        run: |
+          supabase start \
+            -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+
+      - name: Show applied migrations
+        if: always()
+        run: supabase migration list || true
+
+      # TODO(owner): wire these once the test/RLS assets exist.
+      #  - pgTAP RLS tests: add supabase/tests/*.sql then run:
+      #      supabase test db
+      #  - Static advisors / lint on the live schema:
+      #      supabase db lint --level warning
+      #      supabase inspect db  (or the security/performance advisors)
+      # Kept as placeholders so this job becomes the single "schema health" gate.
+
+  # ---------------------------------------------------------------------------
+  # web: build the Next.js app in web/. Runs only when web/package.json exists.
+  # web/ pins Node >=22 (engines), so this job uses Node 22 even though the
+  # mobile quality job uses Node 20. Vendored @snatchit/* tarballs live in
+  # web/vendor/ and resolve from the committed lockfile.
+  # ---------------------------------------------------------------------------
+  web:
+    name: Web build (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ hashFiles('web/package.json') != '' }}
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install (clean, from lockfile)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
