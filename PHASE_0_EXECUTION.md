@@ -85,9 +85,37 @@ Evidence labels: **VERIFIED** · **FIXED** · **STILL OPEN** · **REGRESSION** �
 5. **GitHub Actions (0M).** Repo admin to add workflows + least-privilege secrets/OIDC.
 6. **Stranded mobile fixes.** 3 real fixes on `mobile/profile-rpc-compat` (Connect capability flags, webhook-retry claim lease, get_my_profile self-read) should be PR'd to `main` separately — they touch the money path and warrant their own review.
 
+## Ready-to-apply DB runbook (production apply is classifier-gated — run in Supabase SQL editor, or authorize)
+
+All three migrations are **dry-run-validated against the live catalog** (applied inside a rolled-back
+transaction; end-state verified) and **reversible**. Apply in order; each has a matching rollback in
+`supabase/rollbacks/`. After all three, re-run the Security Advisor — 0011/0028/0029 should drop sharply.
+
+1. `supabase/migrations/066_pin_search_path_definer_functions.sql` — metadata-only search_path pin (5 fns).
+2. `supabase/migrations/067_revoke_execute_internal_functions.sql` — lock down 28 internal/trigger/maint fns.
+   **Cron-safe (proven):** all 28 fns are owned by `postgres`; cron jobs run as `postgres` and keep EXECUTE
+   via ownership. Edge paths re-granted to `service_role`. `phone_verified` retained for `authenticated`
+   (RLS listing-insert dep). No client code calls any revoked fn.
+3. `supabase/migrations/068_profiles_authenticated_select_public_safe_only.sql` — close H-1-residual.
+
+## Live infra facts (for the Phase 1 baseline)
+- **Cron (0Q):** 3 active pg_cron jobs, all run as `postgres` — jobid 7 `auto_finalize_expired_auctions()` (*/2),
+  jobid 9 `net.http_post` → `enforce-transfer-expiry` edge fn (*/2, Vault key), jobid 10 `sweep_auth_password_changes()` (*/5).
+  No last-success/health tracking (0P gap). Prod URL hardcoded in jobid 9.
+- **Storage (0K):** `auction-media` (public), `avatars` (public), `proof-docs` (**private** ✓). None set a
+  bucket-level `file_size_limit` or `allowed_mime_types` — server-side upload hardening (0J) still deferred.
+
 ## Change log
 - 2026-08-24 (session 1):
-  - C-1 CLOSED: verified undeployed in prod; removed repo dead code (`supabase/functions/diag-stripe-env/`, `scripts/check-stripe-env.sh`) on `phase0/lockdown`.
-  - Production-truth inventory captured; audit findings re-verified against live catalog (H-1 anon / H-2 / H-3 / W1 = already FIXED in prod; H-1-residual = STILL OPEN medium).
-  - Reconciliation re-baselined: `main` already reproduces prod ~99% (audit's R2/H-4 largely resolved); 3 nits pending bootstrap-diff.
-  - Authored (NOT applied) hardening migrations `066` (search_path pin) + `067` (definer-grant lockdown) + rollbacks, with verified service_role/RLS carve-outs.
+  - C-1 CLOSED: verified undeployed in prod; removed repo dead code on `phase0/lockdown`.
+  - Production-truth inventory; findings re-verified vs live catalog (H-1 anon / H-2 / H-3 / W1 FIXED in prod).
+  - Reconciliation re-baselined: `main` reproduces prod ~99%; 3 nits pending bootstrap-diff.
+- 2026-08-24 (session 2):
+  - Supabase test branch: **blocked** (Free plan; branching needs Pro). Local stack blocked (no Docker).
+    Validated `066/067/068` instead via rolled-back transactional dry-runs against prod — end-state proven.
+  - `066/067/068` authored, corrected (067 needed explicit anon/authenticated revokes, not just PUBLIC),
+    dry-run-validated, cron-safety proven (postgres ownership), committed. **Apply pending** (classifier-gated).
+  - H-1-residual (068): verified safe — all self-reads use `get_my_profile()` (SECURITY DEFINER); cross-user
+    reads select public-safe cols only. Authored + validated.
+  - CI/CD (0M): 4 GitHub Actions workflows authored + committed (quality, fresh-DB bootstrap, security, migrations-guard).
+  - Mobile hardening (0G/0I): in progress (H-5 deep-link PKCE + LargeSecureStore w/ legacy migration).
