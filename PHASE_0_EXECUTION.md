@@ -160,7 +160,7 @@ rules: pull_request (0 approvals, thread resolution), required_status_checks (st
 |------|--------|
 | 0A Emergency security (C-1) | **VERIFIED_PRODUCTION** |
 | 0B Production truth | **VERIFIED_PRODUCTION** |
-| 0C/Gate-2 Reproducibility | **FIXED** — 3 bootstrap defects fixed + `webhook_retries` vendored (069); 100% object coverage; CI `db` job = standing enforcement. See `PHASE_0_GATE2_SCHEMA_DIFF.md`. |
+| 0C/Gate-2 Reproducibility | **PASS (VERIFIED on fresh branch)** — 6 fixes (000 baseline, 000 index order, 033 seed FK, 069 webhook_retries, 066a out-of-band fns, 070 RLS/trigger reconcile). Fresh DB == prod: tables 27=27, functions 68=68, policies 37=37, triggers 23=23, buckets identical. 2 accepted residuals (index names, storage-policy count). CI `db` job = standing enforcement. See `PHASE_0_GATE2_SCHEMA_DIFF.md`. |
 | 0D Close high-sev DB findings | **VERIFIED_PRODUCTION** — 066/067/068 applied+verified |
 | 0E Remove client trust (payments) | **VERIFIED_PRODUCTION** (061) |
 | 0F Financial-RPC audit | **VERIFIED_PRODUCTION** (W1 closed; matrices) |

@@ -51,11 +51,13 @@ What Phase 0 accomplished:
 3. **`033` hardcoded production admin UUID.** The `admin_users` seed violated the `→auth.users` FK on a fresh DB, rolling back the whole migration. **Fix:** guarded with `WHERE EXISTS (auth.users …)` — no-op on prod, safe on fresh.
 4. **`webhook_retries` was production-only, un-sourced.** Created out-of-band via SQL editor; no migration created it. **Fix:** vendored verbatim as `069_webhook_retries_table.sql`.
 
-After these fixes, **100% of production public objects map to a repository migration.** Full clean-replay result and the classified schema diff are in **`PHASE_0_GATE2_SCHEMA_DIFF.md`**. Environment-specific differences (the `032` `cron.schedule` that reads a Vault secret + production URL; `pg_cron`/`vault` extension enablement) are documented there as intentional, not drift.
+The certification replay on a fresh branch then surfaced **two further classes** of un-sourced production objects (also fixed): **(5)** `sync_listing_current_bid()`/`is_winner()` created out-of-band — and because `067` revokes `sync_listing_current_bid`, its absence rolled back all of `067` on a fresh DB — vendored as `066a`; and **(6)** ~14 RLS policies + 2 triggers applied out-of-band via the web workstream — reconciled from production's exact definitions as `070`.
+
+**Final Gate-2 result (fresh branch vs production):** tables **27 = 27**, functions **68 = 68**, RLS policies **37 = 37**, triggers **23 = 23**, storage buckets identical (`proof-docs` private). The repository now bootstraps a clean database that reproduces production's schema structure. Two low-severity residuals remain — **accepted, functionally equivalent**: legacy index names (same columns indexed; branch 93 vs prod 90) and storage-policy count (buckets match; branch 17 vs prod 11) — plus environment-specific items (the `032` Vault-cron; row data). Full classified diff in **`PHASE_0_GATE2_SCHEMA_DIFF.md`**; the durable option (a `pg_dump` squash baseline) is noted there.
 
 > **Standing enforcement:** the CI `db` workflow replays the chain on a fresh DB on every PR, so this gate cannot silently regress.
 
-*[Gate-2 clean-replay object counts and per-migration result: finalized from the certification run — see the schema-diff doc.]*
+**Verdict: Gate-2 PASS** — the repository reproduces the intended production schema on a clean environment; all differences are explained (fixed, functionally-equivalent-and-accepted, or environment-specific).
 
 ---
 
