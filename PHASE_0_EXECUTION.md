@@ -151,3 +151,37 @@ transaction; end-state verified) and **reversible**. Apply in order; each has a 
 rules: pull_request (0 approvals, thread resolution), required_status_checks (strict) on contexts
 "Typecheck / Lint / Unit tests", "Migrations apply cleanly (fresh DB)", "Immutability + ordering",
 "CodeQL (javascript-typescript)", "Secret scan (TruffleHog)", "Dependency review"; non_fast_forward; deletion.
+
+---
+
+## PHASE 0 — FINAL STATUS (2026-08-24 closeout)
+
+| Gate | Status |
+|------|--------|
+| 0A Emergency security (C-1) | **VERIFIED_PRODUCTION** |
+| 0B Production truth | **VERIFIED_PRODUCTION** |
+| 0C/Gate-2 Reproducibility | **FIXED** — 3 bootstrap defects fixed + `webhook_retries` vendored (069); 100% object coverage; CI `db` job = standing enforcement. See `PHASE_0_GATE2_SCHEMA_DIFF.md`. |
+| 0D Close high-sev DB findings | **VERIFIED_PRODUCTION** — 066/067/068 applied+verified |
+| 0E Remove client trust (payments) | **VERIFIED_PRODUCTION** (061) |
+| 0F Financial-RPC audit | **VERIFIED_PRODUCTION** (W1 closed; matrices) |
+| 0G Deep-link H-5 | **FIXED (code)** — needs EAS build + Universal/App Links (owner) |
+| 0H Auth hardening (MFA/HIBP) | **ACTION REQUIRED** (dashboard) |
+| 0I SecureStore | **FIXED (code)** — needs build |
+| 0J Upload hardening | **DEFERRED** |
+| 0K Storage security | **VERIFIED** (proof-docs private) |
+| 0L Env separation | **FIXED** — staging branch + matrix; persistent staging = owner |
+| 0M CI/CD | **FIXED (authored)**; branch protection **REQUIRES CONFIG** (GitHub Pro) |
+| 0N Regression coverage | **PARTIAL** — 116 money tests; RLS/auth matrices deferred |
+| 0O E2E | **DEFERRED** (needs persistent staging) |
+| 0P Observability | **DEFERRED** (cron healthy + queryable) |
+| 0Q Cron resilience | **VERIFIED_PRODUCTION** (0 failures/24h) |
+| 0R Web source reconciliation | **VERIFIED** (on main) |
+| 0S Admin plane | **DEFERRED** |
+| 0T Security scan | **DONE** (advisor classified) |
+| 0U Adversarial pass | **PARTIAL** (matrices; full pass deferred) |
+| 0V Release rehearsal | **DONE** (staging bootstrap = the rehearsal) |
+| 0W Production deployment | **VERIFIED_PRODUCTION** (066/067/068 live, verified) |
+
+**Phase 0 = CLOSED pending owner actions** (EAS build, GitHub Pro + ruleset, HIBP, persistent staging,
+history `migration repair` before enabling auto-deploy). **Phase 2 readiness: YES WITH CONDITIONS.**
+Full detail: `SNATCH_IT_PHASE_0_COMPLETION_REPORT.md`.
