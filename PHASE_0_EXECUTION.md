@@ -118,4 +118,36 @@ transaction; end-state verified) and **reversible**. Apply in order; each has a 
   - H-1-residual (068): verified safe — all self-reads use `get_my_profile()` (SECURITY DEFINER); cross-user
     reads select public-safe cols only. Authored + validated.
   - CI/CD (0M): 4 GitHub Actions workflows authored + committed (quality, fresh-DB bootstrap, security, migrations-guard).
-  - Mobile hardening (0G/0I): in progress (H-5 deep-link PKCE + LargeSecureStore w/ legacy migration).
+  - Mobile hardening (0G/0I): H-5 deep-link PKCE + LargeSecureStore w/ legacy migration — committed.
+- 2026-08-24 (session 3 — closeout, Supabase Pro now active):
+  - **Task 1 — 066/067/068 APPLIED TO PRODUCTION & VERIFIED_PRODUCTION.** Re-verified live preconditions
+    (unchanged), applied via `apply_migration`, verified post-state matrices: sensitive profile cols now
+    anon=F/auth=F/service_role=T; triggers+internal fns anon=F/auth=F; `phone_verified`/`is_admin`/cron paths
+    correct. **Zero privilege regression.** Advisor: anon-definer 16→**0**, search_path 5→**0**; remaining
+    ~20 authenticated-definer = legitimate user RPCs (ACCEPTED); 13 rls-no-policy INFO = deliberate deny-all
+    (ACCEPTED); HIBP = ACTION REQUIRED (dashboard).
+  - **Task 7 — production verification.** Cron health: all 3 jobs 0 failures/24h (720/720/288 runs), last
+    success within minutes — incl. runs AFTER 067, proving cron unbroken. Money-path invariants all intact
+    (one-success index, transfers payment_id unique, webhook claim-lease fn, record_transfer_payout,
+    transfers no-client-write, payments RLS, ensure_transfer requires succeeded payment). Perf advisor: 96
+    lints (all performance, DEFERRED — none urgent at single-market scale).
+  - **Task 3 — Gate-2.** Root cause found: base tables lived in `schema.sql` OUTSIDE the migration chain →
+    fresh Supabase branch replayed 0 migrations (MIGRATIONS_FAILED). FIX committed: `000_baseline_schema.sql`
+    (idempotent) as first migration. Full-chain bootstrap on staging branch + schema diff = see
+    `PHASE_0_GATE2_SCHEMA_DIFF.md`.
+  - **Task 2 — staging.** Supabase branch `phase0-gate2` (ref `njdrwrvjskiqvijvcizk`, data-less) created for
+    Gate-2. Env-isolation matrix + persistent-staging recommendation in `SNATCH_IT_ENGINEERING_STANDARDS.md` §4.
+  - **Task 4 — mobile.** Deps reconciled via `expo install` (SDK 54) + lockfile committed; vitest 116/116;
+    tsc adds 0 new errors (2 pre-existing on main, benign). EAS build+submit = owner action (Apple/EAS creds).
+  - **Task 5 — deploy governance.** Researched (sourced): Supabase "Deploy to production" auto-applies on
+    merge to main with NO approval gate, by version-prefix match. Repo `NNN_` files vs prod timestamp versions
+    ⇒ **auto-deploy is UNSAFE** and must stay OFF pending `migration repair`. GitHub branch-protection/rulesets
+    both require **GitHub Pro** (403 on this private repo) → REQUIRES CONFIG; ready-to-apply ruleset JSON below.
+  - **Task 6 — Pro controls.** HIBP=OFF (enable), MFA/TOTP=available (free), PITR/network-restrictions/
+    log-drains/SSL-enforcement = REQUIRES CONFIG (dashboard, cost/lockout cautions documented in completion report).
+
+## GitHub ruleset (ready to apply once GitHub Pro is enabled)
+`POST /repos/SnatchIt-app/snatchit/rulesets` — target `main`, enforcement active, admin bypass valve,
+rules: pull_request (0 approvals, thread resolution), required_status_checks (strict) on contexts
+"Typecheck / Lint / Unit tests", "Migrations apply cleanly (fresh DB)", "Immutability + ordering",
+"CodeQL (javascript-typescript)", "Secret scan (TruffleHog)", "Dependency review"; non_fast_forward; deletion.
