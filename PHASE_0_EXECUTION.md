@@ -1,0 +1,87 @@
+# Snatch It — Phase 0 Execution Tracker
+
+**Program:** Production Lockdown, Security Hardening, Repository Reconciliation & Phase 2 Foundation
+**Acting role:** Principal Engineer / Acting CTO
+**Started:** 2026-08-24
+**Baseline docs:** `SNATCH-IT-PLATFORM-AUDIT.md`, `SNATCH_IT_SECURITY_ARCHITECTURE_MASTER_AUDIT.md`, `AUDIT_C_REPOSITORY_ARCHITECTURE_AND_PHASE2_READINESS.md`
+**Production project:** Supabase `hqycwntpfoztoinemqns` (Postgres 17). **Live keys:** `pk_live` (verified prior session).
+
+Evidence labels: **VERIFIED** · **FIXED** · **STILL OPEN** · **REGRESSION** · **UNKNOWN** · **REQUIRES HUMAN / DASHBOARD ACCESS**
+
+---
+
+## ⚠️ Load-bearing reconciliation finding (reframes the whole program)
+
+**The three audits were written against `main` @ `bbbba9c` and are materially STALE vs. live production.** Production has **~72 applied migrations** (through `065_dispute_resolution`); this branch's repo has **43** migration files. The ~30 "missing" migrations — including the audit's flagged-missing `042 get_my_profile`, `056a`, `064`, and the entire `046→065` security-hardening series — **already exist as vendored SQL files** on branches `feature/web-accounts-foundation`, `feature/web-transfers`, and `integration/consolidate-main` (commit `e05cb4f` = *"make the repo reproduce production (migration reconciliation)"*).
+
+**Consequence:** Phase 0's database security work is largely **already done and deployed** — but it lives on unmerged branches, so `main` cannot reproduce production. The core remaining DB task is **branch consolidation + schema-diff proof**, NOT vulnerability remediation or DDL recovery. Most Critical/High audit findings verify as **already FIXED in production** (see below).
+
+---
+
+## Emergency security (Phase 0A)
+
+| ID | Finding | Status | Evidence |
+|----|---------|--------|----------|
+| **C-1** | `diag-stripe-env` unauthenticated, controls live Stripe | **FIXED (VERIFIED)** | Not in deployed edge-function list (`list_edge_functions` shows 11 functions, no diag). Endpoint returns 404. Repo dead code + `scripts/check-stripe-env.sh` **removed** this session (git rm). Only remaining references are historical RCA docs. |
+
+## Database security findings (Phase 0D/0E/0F) — verified against LIVE production
+
+| ID | Finding (audit) | Status | Evidence (live catalog query) |
+|----|-----------------|--------|------------------------------|
+| **H-1** | `profiles` SELECT `USING(true)` leaks wallet/phone/Stripe IDs to **anon** | **FIXED for anon (VERIFIED)** | `anon` column grant = `avatar_path, avatar_url, bio, created_at, display_name, is_verified_seller, stripe_onboarding_complete` only. No wallet/phone/Stripe IDs. (migrations 052) |
+| **H-1-residual** | Same columns readable by **any authenticated** user (cross-user) | **STILL OPEN (VERIFIED, Medium)** | `authenticated` column grant still includes `wallet_balance, stripe_connect_id, phone_number, full_name`. Any JWT can `select` these for any row via PostgREST. Fix = revoke from `authenticated`, route self-reads through `get_my_profile()`. Needs app-usage confirmation + test before revoke. |
+| **H-2** | `profiles` UPDATE lets user self-grant trust flags | **FIXED (VERIFIED)** | `authenticated` UPDATE grant = `avatar_path, bio, display_name, full_name, phone_number, preferred_neighborhoods` only. No `is_verified_seller`, `stripe_onboarding_complete`, `wallet_balance`, `is_admin`. |
+| **H-3 / W4** | `ensure_transfer_exists` promotes payment `pending→succeeded` on client word | **FIXED (VERIFIED)** | Live function body (migration 061) reads only an already-`succeeded` payment owned by `auth.uid()`+listing; RAISES if none. Promotes nothing. Strict caller identity; `p_user_id` honored only under `request_is_service_role()`. |
+| **W1** | `coalesce(auth.uid(), p_user_id)` identity fallback on state RPCs | **FIXED (VERIFIED)** | 0/9 state RPCs contain the unsafe coalesce; all gate `p_user_id` behind `request_is_service_role()`. None grant EXECUTE to `anon`/`public`. (migrations 059/059b/055c) |
+| **W2** | Historically open admin RPCs | **FIXED (VERIFIED prior)** | migration 032. |
+| **RLS coverage** | Missing RLS on exposed tables | **VERIFIED clean** | RLS enabled on all 27 public tables. 13 are deny-all (RLS on, 0 policy → service_role only): payments/dispute/webhook/risk tables — deliberate hard-deny. |
+
+## Live security-advisor backlog (Supabase linter, 72 findings, 0 ERROR / 59 WARN / 13 INFO)
+
+| Finding | Count | Status | Plan |
+|---------|-------|--------|------|
+| SECURITY DEFINER trigger/helper fns EXECUTE-able by `anon`/`authenticated` (`notify_*`, `sync_*`, `guard_*`, `handle_new_user*`, `validate_and_apply_bid`, `is_admin`, `check_rate_limit`, `finalize_auction`, `refresh_*_risk_score`, cron fns) | 16 anon / 37 auth | **STILL OPEN (hardening)** | `REVOKE EXECUTE ... FROM anon, authenticated` on internal/trigger fns. CAUTION: `is_admin()` is used in RLS policies — verify EXECUTE not required by policy eval before revoking. Needs staging test. |
+| `function_search_path_mutable` (`handle_new_user`, `guard_listing_identity_columns`, `guard_listing_state_columns`, `set_updated_at`, `disputes_set_updated_at`) | 5 | **STILL OPEN (low)** | pin `SET search_path = ''`. Safe, additive. |
+| `auth_leaked_password_protection` disabled (HIBP) | 1 | **STILL OPEN** | REQUIRES DASHBOARD ACCESS (Auth settings). Part of Phase 0H. |
+
+---
+
+## Program status by phase
+
+| Phase | Title | Status | Notes |
+|-------|-------|--------|-------|
+| 0A | Emergency prod security (C-1) | **VERIFIED_PRODUCTION** | C-1 closed in prod + repo. |
+| 0B | Establish production truth | **CONFIRMED** | Migration/function/RLS/grant inventory captured; advisor read. Full object inventory (triggers, storage policies, cron, Vault) remaining. |
+| 0C | Reconcile repo ↔ production | **INVESTIGATING** | Missing migrations located on `feature/web-accounts-foundation` / `integration/consolidate-main`. Needs: branch-strategy decision → consolidate → fresh-DB bootstrap → schema diff. **DECISION NEEDED.** |
+| 0D | Close high-sev DB findings | **CONFIRMED** | H-1/H-2/H-3/W1 already FIXED in prod. Residual: H-1-residual + advisor grant backlog + search_path. |
+| 0E | Remove client trust from financial state | **VERIFIED (FIXED)** | `ensure_transfer_exists` (061) + `confirm-payment`/webhook authority. |
+| 0F | Audit all financial RPCs | **INVESTIGATING** | W1 done; remaining: adversarial RPC matrix (replay/concurrent/wrong-user) as tests. |
+| 0G | Deep-link / auth hardening (H-5) | **NOT_STARTED** | `setSession()` from custom-scheme URL; Universal/App Links. Mobile change → new build. |
+| 0H | Authentication hardening (MFA, HIBP, policy) | **NOT_STARTED** | REQUIRES DASHBOARD ACCESS + mobile work. |
+| 0I | Session storage (SecureStore) | **NOT_STARTED** | Mobile change → new build. |
+| 0J | File/image upload hardening | **NOT_STARTED** | Edge re-encode pipeline; partly mitigated (proof-docs private). |
+| 0K | Storage security | **INVESTIGATING** | Buckets/policies partly verified; full audit pending. |
+| 0L | Environment separation (dev/staging/prod) | **BLOCKED** | REQUIRES HUMAN / DASHBOARD ACCESS + billing (new Supabase + Stripe test + EAS/Vercel envs). |
+| 0M | CI/CD (GitHub Actions) | **BLOCKED** | REQUIRES repo admin + secrets. Design can be authored now. |
+| 0N | Regression test coverage | **NOT_STARTED** | vitest money suite exists (116 tests); add auth/RLS/listing/bid/payment matrices. |
+| 0O | E2E critical flows | **BLOCKED** | Needs staging (0L). |
+| 0P | Observability / financial alerting | **NOT_STARTED** | Sentry live; add cron/webhook/payout health + last-success tracking. |
+| 0Q | Cron resilience | **INVESTIGATING** | 2 pg_cron jobs; schedules/Vault UNKNOWN (need live pg_cron read). |
+| 0R | Web source reconciliation | **INVESTIGATING** | `web/` source on `feature/web-*` branches; part of 0C consolidation. |
+| 0S | Minimal internal admin plane | **NOT_STARTED** | Replaces manual SQL ops. Scope minimal. |
+| 0T | ECC full security scan | **NOT_STARTED** | After implementation. |
+| 0U | Adversarial second pass | **NOT_STARTED** | Independent subagent. |
+| 0V | Production release rehearsal | **BLOCKED** | Needs staging (0L). |
+| 0W | Production deployment | **NOT_STARTED** | Expand/contract batches. |
+
+---
+
+## Open decisions / blockers requiring the user
+
+1. **Branch strategy (0C, blocks reconciliation merge).** 8 branches diverge; `integration/consolidate-main` exists. Which is authoritative — consolidate everything into `main`, or is `integration/consolidate-main` the intended target? Needed before merging the reconciliation migrations.
+2. **Staging environment (0L, blocks 0O/0V and safe testing of grant changes).** Requires a second Supabase project (billing), Stripe test-mode keys/webhook, and EAS/Vercel staging envs — all need dashboard + billing access.
+3. **Dashboard settings (0H).** Enable HIBP leaked-password protection, MFA/TOTP, CAPTCHA — Supabase Auth dashboard.
+4. **GitHub Actions (0M).** Repo admin to add workflows + least-privilege secrets/OIDC.
+
+## Change log
+- 2026-08-24: C-1 dead code removed (`supabase/functions/diag-stripe-env/`, `scripts/check-stripe-env.sh`). Production truth inventory captured. Findings verified against live catalog.
