@@ -102,17 +102,9 @@ create index if not exists listings_seller_id_idx    on public.listings (seller_
 create index if not exists listings_ends_at_idx      on public.listings (ends_at);
 create index if not exists listings_neighborhood_idx on public.listings (neighborhood);
 
--- ── Performance indexes ─────────────────────────────────────────────────────
-create index if not exists idx_listings_status
-  on public.listings (status);
-create index if not exists idx_listings_auction_status
-  on public.listings (auction_status);
-create index if not exists idx_listings_ends_at
-  on public.listings (ends_at)
-  where auction_status = 'active';
-create index if not exists idx_listings_reserved_until
-  on public.listings (reserved_until)
-  where status = 'reserved';
+-- ── Performance indexes on status/auction_status/reserved_until are created
+--    AFTER the listings ADD COLUMN block below — those columns do not exist at
+--    this point in a fresh bootstrap. (Gate-2 fix: index-before-column ordering.)
 
 alter table public.listings enable row level security;
 
@@ -314,6 +306,12 @@ alter table public.listings add column if not exists ended_at            timesta
 -- ── listings — bid tracking (denormalised for fast reads) ─────────────────
 alter table public.listings add column if not exists bid_count          int  not null default 0;
 alter table public.listings add column if not exists highest_bidder_id  uuid references auth.users (id);
+
+-- ── Performance indexes (relocated here so their columns exist on a fresh DB) ─
+create index if not exists idx_listings_status          on public.listings (status);
+create index if not exists idx_listings_auction_status  on public.listings (auction_status);
+create index if not exists idx_listings_ends_at         on public.listings (ends_at) where auction_status = 'active';
+create index if not exists idx_listings_reserved_until  on public.listings (reserved_until) where status = 'reserved';
 
 -- ── listings — updated_at trigger ───────────────────────────────────────────
 create or replace function public.set_updated_at()

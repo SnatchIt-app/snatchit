@@ -113,8 +113,14 @@ REVOKE ALL ON public.admin_users FROM PUBLIC, anon, authenticated;
 
 -- Seed: the official admin account "SNATCH IT APP ADMIN"
 -- (profiles.id verified in production: 2b117757-f4e3-41c1-b7df-68a4502d0fba)
+-- Gate-2 fix: guard on auth.users existence so a FRESH/staging DB (where this
+-- production user does not exist) does not hit the admin_users→auth.users FK and
+-- roll back the whole migration. This is a NO-OP on production (the row already
+-- exists) — it only makes the migration bootstrap-safe. The admin allowlist is an
+-- intentionally environment-specific object (prod has one admin; fresh envs have none).
 INSERT INTO public.admin_users (user_id, label)
-VALUES ('2b117757-f4e3-41c1-b7df-68a4502d0fba', 'SNATCH IT APP ADMIN')
+SELECT '2b117757-f4e3-41c1-b7df-68a4502d0fba', 'SNATCH IT APP ADMIN'
+WHERE EXISTS (SELECT 1 FROM auth.users WHERE id = '2b117757-f4e3-41c1-b7df-68a4502d0fba')
 ON CONFLICT (user_id) DO NOTHING;
 
 -- App-side check: lets the signed-in user ask "am I an admin?" (and nothing
