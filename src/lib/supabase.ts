@@ -7,9 +7,18 @@
  *   EXPO_PUBLIC_SUPABASE_ANON_KEY
  *
  * Storage strategy:
- *   - Native: AsyncStorage (persistent sessions across app restarts)
+ *   - Native: LargeSecureStore — AES-256 encrypted blob in AsyncStorage, with
+ *     the encryption key held in the iOS Keychain / Android Keystore. Fixes
+ *     L-1/M9 (plaintext session tokens). Migrates existing plaintext sessions
+ *     transparently on first launch (see src/lib/secureStorage.ts).
  *   - Web (browser): localStorage via a thin wrapper
  *   - Web (SSR/static export): in-memory no-op (avoids "window is not defined")
+ *
+ * Auth flow:
+ *   flowType: 'pkce' — the deep-link handler exchanges a `code`/`token_hash`
+ *   for a session locally (bound to this device's code_verifier), instead of
+ *   trusting raw access/refresh tokens from an inbound URL. Fixes H-5
+ *   (deep-link session injection / fixation). See NativeAppShell.native.tsx.
  */
 
 import { Platform } from 'react-native';
@@ -20,9 +29,12 @@ import 'react-native-url-polyfill/auto';
 
 function getStorage() {
   if (Platform.OS !== 'web') {
-    // Native: use AsyncStorage for persistent sessions.
-    // require() keeps the import out of the web bundle's static analysis.
-    return require('@react-native-async-storage/async-storage').default;
+    // Native: encrypted, Keychain/Keystore-backed session storage.
+    // require() keeps expo-secure-store / aes-js out of the web bundle's
+    // static analysis (they are native modules with no web implementation).
+    // NOTE: storageKey is intentionally left at Supabase's default so the key
+    // this adapter receives matches the LEGACY plaintext key it migrates from.
+    return require('./secureStorage').LargeSecureStore;
   }
 
   // Web: guard against SSR / static export where `window` doesn't exist.
@@ -85,6 +97,12 @@ export const supabase = createClient(_safeSupabaseUrl, _safeSupabaseAnon, {
     // Automatically refresh the JWT before it expires.
     autoRefreshToken: true,
     // Must be false for React Native – there is no browser URL to detect.
+    // On native the deep-link handler drives exchangeCodeForSession/verifyOtp.
     detectSessionInUrl: Platform.OS === 'web',
+    // PKCE: recovery/confirm/OAuth links carry a `code` (or `token_hash`) that
+    // is exchanged for a session bound to the code_verifier stored on THIS
+    // device — so an attacker-supplied link cannot inject or fixate a session.
+    // Fixes H-5. (Web supports PKCE too; detectSessionInUrl completes it.)
+    flowType: 'pkce',
   },
 });

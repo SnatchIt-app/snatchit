@@ -135,24 +135,79 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
   // Register Expo push token on every app launch (only when authenticated)
   usePushToken(userId);
 
-  // ── Deep link handler ───────────────────────────────────────────────────
+  // ── Deep link handler (H-5 hardened) ────────────────────────────────────
+  //
+  // SECURITY: every param on an inbound custom-scheme URL is UNTRUSTED. We do
+  // NOT call setSession({access_token, refresh_token}) with tokens taken from
+  // the URL — that was the H-5 session-injection / session-fixation hole: an
+  // attacker link could silently log the victim into the attacker's account
+  // (or pin a known session). Instead we use PKCE / OTP verification, which
+  // mints a session locally and is bound to secrets held only on THIS device.
+  //
+  // Accepted (verified) inputs:
+  //   • token_hash + type  → supabase.auth.verifyOtp({ type, token_hash })
+  //       Single-use hash verified server-side. Preferred for password
+  //       recovery and email confirmation because `type=recovery` also tells
+  //       us to route to the reset screen.
+  //   • code               → supabase.auth.exchangeCodeForSession(code)
+  //       PKCE. Only succeeds when the matching code_verifier is present in
+  //       this device's (encrypted) storage; an attacker's code is useless.
+  //
+  // TODO(H-5 full closure): custom-scheme links (snatchit://) can be claimed
+  // by a malicious app installed alongside ours. Fully closing H-5 also
+  // requires VERIFIED deep links so only our app can receive them:
+  //   • iOS  Universal Links — host apple-app-site-association (AASA) at
+  //          https://<domain>/.well-known/apple-app-site-association
+  //   • Android App Links    — host assetlinks.json at
+  //          https://<domain>/.well-known/assetlinks.json
+  // and switch Supabase redirect/email URLs to https links. That hosting/DNS
+  // step is OUT OF SCOPE for this mobile-only change.
   useEffect(() => {
     async function handleUrl(url: string) {
       if (!url) return;
-      const hash   = url.includes('#') ? url.split('#')[1] : url.split('?')[1] ?? '';
-      const params = new URLSearchParams(hash);
-      const type          = params.get('type');
-      const access_token  = params.get('access_token');
-      const refresh_token = params.get('refresh_token');
 
+      // Parse BOTH the query string and the fragment; treat all as untrusted.
+      const queryStr = url.includes('?') ? url.split('?')[1].split('#')[0] : '';
+      const hashStr  = url.includes('#') ? url.split('#')[1] : '';
+      const qp = new URLSearchParams(queryStr);
+      const hp = new URLSearchParams(hashStr);
+      const get = (k: string) => qp.get(k) ?? hp.get(k);
+
+      const type       = get('type');        // 'recovery' | 'signup' | 'email' | …
+      const code        = get('code');        // PKCE authorization code
+      const token_hash  = get('token_hash');  // OTP / recovery verification hash
+      const errParam    = get('error') ?? get('error_code');
+
+      if (errParam) {
+        console.warn('[auth] deep-link error:', errParam, get('error_description') ?? '');
+      }
+
+      // Route to the reset screen for recovery links. The recovery SESSION is
+      // established below (verifyOtp / exchangeCodeForSession), never by
+      // trusting tokens in the URL. Routing first just shows the UI promptly;
+      // reset-password.tsx calls updateUser({password}) once the session lands.
       if (type === 'recovery') {
         setIsRecovery(true);
         router.replace('/(auth)/reset-password');
       }
 
-      if (access_token && refresh_token) {
-        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-        if (error) console.warn('[auth] setSession error:', error.message);
+      try {
+        if (token_hash && type) {
+          const { error } = await supabase.auth.verifyOtp({
+            // EmailOtpType subset carried by Supabase email links.
+            type: type as 'recovery' | 'signup' | 'email' | 'magiclink' | 'invite' | 'email_change',
+            token_hash,
+          });
+          if (error) console.warn('[auth] verifyOtp error:', error.message);
+        } else if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) console.warn('[auth] exchangeCodeForSession error:', error.message);
+        }
+        // NOTE: the previous unconditional
+        //   supabase.auth.setSession({ access_token, refresh_token })
+        // path is REMOVED. Do NOT reintroduce a setSession-from-URL path.
+      } catch (e) {
+        console.warn('[auth] deep-link session exchange failed:', e);
       }
     }
 
