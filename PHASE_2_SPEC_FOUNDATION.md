@@ -63,9 +63,17 @@ True applied max across the phase0 chain = **070** (`070_reconcile_rls_policies_
 `issue · primary_sale · comp · door_sale · p2p_transfer · market_sale · auction_sale · admin_action · refund_void · import · promoter_commission · settlement · chargeback`. New causes added only by amendment. Every spec uses exactly this enum for ownership-log `cause` and money-ledger cause. (D1: use "SSCAS"/"closed set" language, never "the one cross-aggregate transaction". D2: ticket has NO `refunded` terminal — money reversal = `voided` with cause `refund_void`.)
 
 ## 5. SSCAS — the closed set of sanctioned synchronous cross-aggregate transactions (for RPC lock order)
-Every synchronous multi-aggregate write is ONE of these named members; no other is allowed. **Global lock order (acquire ascending, release descending):**
-`Event/Session → Inventory(batch/shard, ascending shard_id) → Order → Listing → Ticket Atom(ascending ticket_atom_id) → Payment/Payout/Reserve/Settlement`.
-Members:
+> **ENUMERATION SUPERSEDED (consolidation 2026-08-25, Agent E finding E-1).** The **canonical closed
+> enumeration is the FIFTEEN-member list in `SNATCH_IT_CANONICAL_DATA_MODEL.md` §15 C12** (members 10–15
+> added by C28's closure audit: event-cancellation cascade, dispute-resolution reversal, C25
+> auto-compensation, auction deposit-release, group-buy claim, wallet checkout — the last two non-MVP,
+> modeled only). The 9-member working list below is retained for provenance; where numbering differs,
+> **CDM C12 wins**. The global lock order is identical in both and unchanged (shard draw = ascending
+> sub-counter/`shard_no`).
+
+Every synchronous multi-aggregate write is ONE named member of the canonical set; no other is allowed. **Global lock order (acquire ascending, release descending):**
+`Event/Session → Inventory(batch, then sub-counter/shard ascending shard_no) → Order → Listing → Ticket Atom(ascending ticket_atom_id) → Payment/Payout/Reserve/Settlement`.
+Original working members (provenance; see supersession note above):
 1. **Primary issuance** (`issue_ticket_atoms`): Order → Inventory draw → Ticket mint (N atoms) → ownership-log `issue`.
 2. **Native sale / resale** (`transfer_ticket_ownership` via market): Listing → Ticket lock/transfer → ownership-log `market_sale` → Payment link (C8).
 3. **Refund-void** (`refund_primary_order` / `void_ticket_atom`): Refund → Ticket(s) void (N atoms) → Inventory return → ownership-log `refund_void`.

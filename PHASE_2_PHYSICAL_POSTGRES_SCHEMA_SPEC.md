@@ -1411,13 +1411,14 @@ Per the anti-drift contract, conflicts between source docs are surfaced, not sil
    used:** the **D3 closed set** in SPEC_FOUNDATION §4 is authoritative and used everywhere (§0.5). Surfaced
    per D3's own mandate.
 
-4. **`refunded` terminal (D2/R32/A5).** DA §3.1 diagrams still draw `active → refunded`. **Resolution used:**
-   A5/D2 govern — the ticket has **no `refunded` terminal**; money reversal = `voided` cause `refund_void`
+4. **`refunded` terminal (D2/R32/A5).** DA §3.1 diagrams *originally* drew `active → refunded`; the
+   consolidation session (2026-08-24/25) **redrew them** — the DA body now shows no `refunded` ticket terminal.
+   **Resolution used:** A5/D2 govern — money reversal = `voided` cause `refund_void`
    (§1.5, §7.6). Note `venue.order.status` *does* have `refunded`/`partially_refunded` (a money-lifecycle
    state on the order, not the ticket) — this is not a conflict, just a place the two must not be conflated.
 
-5. **"one cross-aggregate transaction" (D1/R31).** CDM §2 line ~262 calls the native sale "the one sanctioned
-   cross-aggregate transaction," contradicting the SSCAS (§0.9, SPEC_FOUNDATION §5). **Resolution used:** D1 —
+5. **"one cross-aggregate transaction" (D1/R31).** CDM §2 *originally* called the native sale "the one
+   sanctioned cross-aggregate transaction" (fixed in consolidation — it now reads "an SSCAS member (#2)"), contradicting the SSCAS (§0.9, SPEC_FOUNDATION §5). **Resolution used:** D1 —
    **"SSCAS" / "closed set"** language only.
 
 6. **Native auction bid storage (integration decision, mild).** CDM §1.4 models `Bid` as a native ledger
