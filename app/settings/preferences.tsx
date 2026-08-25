@@ -88,7 +88,7 @@ export default function PreferencesScreen() {
       ) : (
         <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
           <Text style={s.helper}>
-            Pick the areas you go out in most. We'll show those listings first.
+            Pick the areas you go out in most. We&apos;ll show those listings first.
           </Text>
 
           <View style={s.grid}>
