@@ -5,7 +5,7 @@ so an implementing engineer can author a `SECURITY DEFINER` function from it **w
 decision**. Where a decision remained open it is flagged under §16 RECONCILIATION.
 
 **Binding inputs (authority order):**
-1. `scratchpad/SPEC_FOUNDATION.md` — **BINDING**: §5 SSCAS + global lock order; §4 C26/C27/C33/C35/C36 and D3
+1. `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**: §5 SSCAS + global lock order; §4 C26/C27/C33/C35/C36 and D3
    cause-codes; §2 integrate-never-rewrite; §8 security invariants.
 2. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — the authoritative tables/columns each function reads/writes
    (exact names used throughout).

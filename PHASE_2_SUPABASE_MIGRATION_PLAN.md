@@ -6,7 +6,7 @@ This is the ordered plan an implementing engineer follows to author the Phase-2 
 makes **no architectural decision** while writing DDL; where a real choice remained it is called out.
 
 **Binding inputs (authority order):**
-1. `scratchpad/SPEC_FOUNDATION.md` — BINDING (§3 numbering baseline, §1 schemas, §6 table inventory,
+1. `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — BINDING (§3 numbering baseline, §1 schemas, §6 table inventory,
    §4 Gate-P decisions, §5 SSCAS/lock order, §8 Phase-0 security invariants, §2 integrate-never-rewrite).
 2. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — the authoritative table/column set these migrations create.
 3. `snatchit-phase0/SNATCH_IT_ENGINEERING_STANDARDS.md` §5/§6/§7/§8 + `SNATCH_IT_PHASE_0_COMPLETION_REPORT.md`

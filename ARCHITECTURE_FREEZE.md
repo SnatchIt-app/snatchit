@@ -4,7 +4,16 @@
 
 ## Authoritative architecture baseline
 
-- **Frozen baseline commit: `51cce52`** (branch `phase2/architecture`; parent chain `85ea818 → 25f55bb → 6a8df64 → 51cce52` on top of the consolidated `main` = `3482133`, which carries the full authoritative Phase-0 migration chain `000_baseline + 001–070` + website-form migrations and the Phase-0 engineering docs, Gate-2 = PASS).
+- **Frozen baseline commit: `dd960c4`** (branch `phase2/architecture`). Content was baselined at `51cce52`
+  (parent chain `85ea818 → 25f55bb → 6a8df64 → 51cce52` on top of the consolidated `main` = `3482133`, which
+  carries the full authoritative Phase-0 migration chain `000_baseline + 001–070` + website-form migrations
+  and the Phase-0 engineering docs, Gate-2 = PASS) and **closed out in-session** by the review-driven commits
+  `ffa6e22 · 164243e · 2635f9e · 57765fa · 64ba92f · fc1a0ba · cf20f1b · dd960c4` — independent-review
+  closures (Agents D/E/G) converging on already-ratified corrections; **no new architectural decision was
+  taken after `51cce52`**.
+- **Rule 1 binds every commit after `dd960c4`.** The first such commit is **Freeze Amendment A-1** (this
+  wording + ratification-record rows E-1/OBS-1 + repository-path pointer fixes — administrative closures
+  prescribed by the Agent-G adversarial review, introducing no design change).
 - A repository tag (`phase2-architecture-v1`) MAY be added by the owner; this file is the immutable reference either way.
 
 ## Documents covered by this freeze
