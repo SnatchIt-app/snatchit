@@ -513,12 +513,12 @@ flowchart TB
 
 ## 9. RECONCILIATION — contracts not fully closeable from inputs (flagged)
 
-1. **`public.payments` ↔ native order/sale linkage column.** `primary-checkout` and the webhook need
-   `public.payments` to carry a native `order_id`/`market_sale_id` (today the frozen table keys on
-   `listing_id`). SPEC_FOUNDATION §2 says native rows **link to** a `public.payments` id; the reverse pointer
-   (or `kernel.payment_native` join) must be ratified by the schema/migration spec so the webhook can resolve
-   `order_id` from a PaymentIntent's metadata + payments row. **Contract assumes `metadata.order_id` +
-   `kernel.payment_native` linkage; schema must confirm the exact column.**
+1. **`public.payments` ↔ native order/sale linkage — RESOLVED (spec-review R6; security-review obs-1).**
+   **No column is added to the frozen `public.payments` table — ever.** The webhook resolves the native
+   order/sale from the PaymentIntent's `metadata.order_id`/`metadata.sale_id`, and the forward link lives
+   exclusively in `kernel.payment_native` (`payment_id → order_id XOR sale_id`). Any reverse lookup is a
+   JOIN through `kernel.payment_native`, never a frozen-table change. (Earlier phrasing that
+   `public.payments` might "carry" a native id is superseded by this resolution.)
 2. **Sign a `listed`/`locked` atom?** `credential-sign` can technically sign an atom that's currently listed for
    resale (the door rejects it at scan via `validate_ticket_online`). Policy question: refuse to sign a listed
    atom (reduces stale-QR confusion) vs sign-but-door-rejects (simpler). **Defaulted to sign-but-door-rejects;
