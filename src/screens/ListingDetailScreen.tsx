@@ -1172,7 +1172,7 @@ export default function ListingDetailScreen({ id }: Props) {
         pointerEvents="none"
         style={[s.outbidBanner, { transform: [{ translateY: outbidAnimY }], opacity: outbidAnimOpacity }]}
       >
-        <Text style={s.outbidBannerText}>You've been outbid</Text>
+        <Text style={s.outbidBannerText}>You&apos;ve been outbid</Text>
       </Animated.View>
 
       {/* ── Win notification ────────────────────────────────────────────────

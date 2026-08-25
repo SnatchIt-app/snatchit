@@ -110,7 +110,7 @@ export default function ReportScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={s.lead}>
-            Tell us what's wrong with this {titleNoun}. Our team reviews every
+            Tell us what&apos;s wrong with this {titleNoun}. Our team reviews every
             report and may remove content or suspend accounts that violate our
             rules.
           </Text>

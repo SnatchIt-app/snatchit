@@ -28,6 +28,7 @@ import {
   setSentryUser,
   useNativeEffects,
   wrapRootComponent,
+  // eslint-disable-next-line import/no-unresolved -- platform-suffixed module (.native/.web); tsc resolves via tsconfig moduleSuffixes
 } from '@/src/providers/NativeAppShell';
 
 export const unstable_settings = {
