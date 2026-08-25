@@ -149,4 +149,12 @@ jobs:
 
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
+        # The web app fails closed without these (by design — see web/src/lib/env).
+        # CI compiles with well-formed public placeholders; the artifact is
+        # discarded, never deployed (Vercel builds with real env separately).
+        # NEXT_PUBLIC_* values are public-by-definition; no secrets here.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
         run: npm run build
