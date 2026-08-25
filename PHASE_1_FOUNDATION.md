@@ -96,7 +96,7 @@ payout; every financial transition via `SECURITY DEFINER` RPC with no client wri
 | Advisor leaked-password (HIBP) off | WARN | **OPEN** | Dashboard toggle (§9) |
 
 Live advisor at baseline: **0 ERROR**, 59 WARN, 13 INFO. The WARNs are the definer-grant/search_path
-backlog (closed by `066/067` once applied) + HIBP; the INFOs are the deliberate deny-all tables.
+backlog (closed by `066/067`, applied to production 2026-08-24) + HIBP; the INFOs are the deliberate deny-all tables.
 
 ---
 

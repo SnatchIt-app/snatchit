@@ -3,7 +3,7 @@
 **The final consistency pass over the six implementation specs.** Its sole job: verify that the physical schema, migration plan, RLS spec, RPC contracts, edge-function spec, and React Native product spec **all describe the same system** — and to fix the inconsistencies **in the specifications only** (no code, no migrations, no production change).
 
 **Specs under review (all repo-root, design-only):**
-1. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` · 2. `PHASE_2_SUPABASE_MIGRATION_PLAN.md` · 3. `PHASE_2_RLS_PERMISSION_SPEC.md` · 4. `PHASE_2_RPC_FUNCTION_CONTRACTS.md` · 5. `PHASE_2_EDGE_FUNCTION_SPEC.md` · 6. `PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md`. Binding shared vocabulary: `scratchpad/SPEC_FOUNDATION.md`.
+1. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` · 2. `PHASE_2_SUPABASE_MIGRATION_PLAN.md` · 3. `PHASE_2_RLS_PERMISSION_SPEC.md` · 4. `PHASE_2_RPC_FUNCTION_CONTRACTS.md` · 5. `PHASE_2_EDGE_FUNCTION_SPEC.md` · 6. `PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md`. Binding shared vocabulary: `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION).
 
 **Method.** Six principal verification lenses (below), plus a mechanical cross-spec trace of every shared concept (names, states, roles, RPCs, edge→RPC calls) verified against the actual spec text line-by-line. Every claim here was grep-verified against the files, not inferred.
 
@@ -145,4 +145,4 @@ cacheable-token contract), and 8 (redacted `get_ticket_history`) — each now po
 
 ## 7. Final
 
-**IMPLEMENTATION SPECIFICATION READY.** Six specs, one system. Three structural inconsistencies fixed in-place (R2/R3/R4); the rest consistent, aliased, or ratified as policy. Apply the five mechanical §5 addenda, then begin implementation at migration `071` in the Phase A→K order, native issuance and resale flag-gated OFF until their gates clear. No code, migration, or production change was made by this specification phase.
+**IMPLEMENTATION SPECIFICATION READY.** Six specs, one system. Three structural inconsistencies fixed in-place (R2/R3/R4); the rest consistent, aliased, or ratified as policy. The five mechanical §5 addenda are APPLIED and CLOSED; begin implementation at migration `071` in the Phase A→K order, native issuance and resale flag-gated OFF until their gates clear. No code, migration, or production change was made by this specification phase.

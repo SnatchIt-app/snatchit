@@ -6,7 +6,7 @@ engineer must be able to author migrations from this file **without making an ar
 where a real decision remained, it is called out explicitly under CONFLICTS SURFACED or UNDER-SPECIFIED.
 
 **Binding inputs (authority order):**
-1. `scratchpad/SPEC_FOUNDATION.md` — **BINDING**. Exact context names, table inventory (§6), resolved
+1. `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**. Exact context names, table inventory (§6), resolved
    Gate-P decisions (§4), SSCAS (§5), cause-code registry (§4 D3), role model (§4 C36), integration
    rules (§2), migration baseline (§3). Nothing it resolves is re-decided here.
 2. `SNATCH_IT_CANONICAL_DATA_MODEL.md` — §11 naming constitution (binds), §5 storage categories,

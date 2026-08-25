@@ -6,14 +6,14 @@ statements, and scoped read RPCs from **without making an authorization decision
 open it is flagged under §15 RECONCILIATION.
 
 **Binding inputs (authority order):**
-1. `scratchpad/SPEC_FOUNDATION.md` — **BINDING**: §4 C35/C36 role model, §6 table inventory + RLS class,
+1. `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**: §4 C35/C36 role model, §6 table inventory + RLS class,
    §8 Phase-0 security invariants, §7 market bridge rule.
 2. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — the authoritative table set, each table's stated RLS
    classification, write authority, and read authority. Every table below uses its exact name and honors its
    stated classification.
 3. `snatchit-phase0/PHASE_1_FOUNDATION.md` + `SNATCH_IT_ENGINEERING_STANDARDS.md` — the Phase-0 RLS/definer
    discipline (§7 RLS policy, §8 SECURITY DEFINER policy, §9 payment protection) that every table preserves.
-4. `scratchpad/RECON_TARGETS_FROM_RN.md` — the five RN reconciliation targets, consumed in §14 (esp. #5
+4. the five RN reconciliation targets (session working file; all five CONSUMED and CLOSED — see `PHASE_2_IMPLEMENTATION_SPEC_REVIEW.md` §2.2/§5) — the five RN reconciliation targets, consumed in §14 (esp. #5
    redacted ownership-history read).
 
 **Coverage:** all **43** MVP objects (kernel 12 · catalog 5 · venue 20 · market 6-incl.-bridge-view). EXT

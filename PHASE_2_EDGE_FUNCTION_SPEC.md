@@ -5,14 +5,14 @@ Every edge function below is specified so an implementing engineer can author it
 architectural decision*. Where a decision stayed open it is flagged in §12 RECONCILIATION.
 
 **Binding inputs (authority order):**
-1. `scratchpad/SPEC_FOUNDATION.md` — **BINDING**: §2 integrate-never-rewrite; §4 C33 credential key model + C35
+1. `PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**: §2 integrate-never-rewrite; §4 C33 credential key model + C35
    acting-principal; §8 security invariants (deny-by-default, RPC-only money/custody, constant-time compare,
    **stripe-webhook keeps `verify_jwt=false`**); §7 market-bridge (no native object mutates a `public.*`
    money/custody row except by linking a `public.payments` id).
 2. `PHASE_2_RPC_FUNCTION_CONTRACTS.md` — **primary input.** §13 fixes which transitions are Edge-fronted and the
    DB boundary each wraps; §0.6 the DB-RPC-vs-EDGE distinction. Edge functions **CALL** these atomic RPCs by
    their exact names; they NEVER re-implement a state transition.
-3. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.7 (`kernel.signing_key` model) + `scratchpad/RECON_TARGETS_FROM_RN.md`
+3. `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.7 (`kernel.signing_key` model) + the five RN reconciliation targets (session working file; all five CONSUMED and CLOSED — see `PHASE_2_IMPLEMENTATION_SPEC_REVIEW.md` §2.2/§5)
    #4 (cacheable signed token + version-bump invalidation).
 4. The **existing live edge layer** (`supabase/functions/`): `stripe-webhook`, `create-payment-intent`,
    `confirm-payment`, `confirm-and-release`, `create-connect-account`, `_shared/{stripe,money,payouts,payout-logic,sentry}.ts`.
