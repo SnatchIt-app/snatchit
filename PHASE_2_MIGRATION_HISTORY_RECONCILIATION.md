@@ -422,3 +422,19 @@ protection; the perf items are pre-existing, optional hygiene.
 
 *Prepared read-only by Agent F. All `migration repair` commands are PROPOSED. No production object or ledger
 row was modified. Execution requires owner authorization + Agent F/G review, with auto-deploy kept OFF.*
+
+---
+
+## Addendum A (2026-08-25) — Letter-suffixed filenames are invisible to the Supabase CLI (first-ever CI run finding)
+
+**Finding.** The repository chain contains **11 letter-suffixed migration files** — `023b`, `055b`, `055c`, `055d`, `056a`, `056b`, `056c`, `056d`, `059b`, `060b`, `066a` — whose names do **not** match the Supabase CLI's migration pattern (`^<digits>_name.sql`). The CLI (every version; verified on `latest` in CI) **silently skips them**, so a fresh `supabase start` replay fails at `067` (`function public.sync_listing_current_bid() does not exist` — that function is vendored by the skipped `066a`). This was never caught before because the CI workflow itself never started (job-level `hashFiles()` startup defect, fixed 2026-08-25); the Phase-0 Gate-2 certification replay applied each file's **content by name** via the management API, bypassing filename parsing — the certification remains valid for **content**, but the chain is **not replayable by the standard CLI tooling** as filed.
+
+**Consequence.** The CI `db` job (fresh-DB replay gate) stays **red** until the 11 files are normalized. Phase-2 local development (`supabase start`) is equally affected.
+
+**Remediation (bundle into the same owner-gated repair event as §6 — do NOT do piecemeal):**
+1. **Rename** the 11 files to pure-numeric versions that preserve order (e.g. insert as `0231`, `0551`–`0553`, `0561`–`0564`, `0591`, `0601`, `0661` — exact scheme chosen at execution; must sort between their neighbors) — a deliberate, one-time exception to the append-only rule, executed **with** the ledger repair so repo names and `schema_migrations` stay 1:1.
+2. **Extend the §6 repair plan** so the `--status applied` inserts use the **new** names (the 5 repo-only rows incl. `023b`/`066a` change name; the 36 timestamp-reverts are unaffected).
+3. **migrations-guard**: land the renames in the same PR as a documented guard exemption (the guard exists to prevent *undocumented* mutation; this is the documented reconciliation event it anticipates).
+4. **Re-run the CI `db` job** — it must go green on the renamed chain before any `071_*` file is authored.
+
+**Status:** PROPOSED — same authorization gate as the §6 repair (owner + Agent F/G review). Until executed, the CI `db` red is a **known, understood** condition, not an unknown regression.
