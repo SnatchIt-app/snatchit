@@ -118,7 +118,11 @@ jobs:
     name: Web build (Next.js)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ hashFiles('web/package.json') != '' }}
+    # NOTE: a job-level `if: hashFiles(...)` is invalid (hashFiles is a
+    # step-level function) and made GitHub reject this ENTIRE workflow at
+    # startup (0s "workflow file issue", zero jobs, every event) — the reason
+    # CI never ran during Phase 0. The job now always starts and its steps
+    # skip when web/ is absent on the ref.
     defaults:
       run:
         working-directory: web
@@ -126,7 +130,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
+      - name: Detect web app
+        id: detect
+        working-directory: .
+        run: echo "exists=$([ -f web/package.json ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node
+        if: steps.detect.outputs.exists == 'yes'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
@@ -134,7 +144,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install (clean, from lockfile)
+        if: steps.detect.outputs.exists == 'yes'
         run: npm ci
 
       - name: Build
+        if: steps.detect.outputs.exists == 'yes'
         run: npm run build
