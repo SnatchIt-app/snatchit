@@ -114,7 +114,8 @@ export function AppShell({ children }: AppShellProps) {
       merchantIdentifier="merchant.com.snatchit"
       urlScheme="snatchit"
     >
-      {children}
+      {/* StripeProvider types children as ReactElement; a fragment satisfies it for any ReactNode. */}
+      <>{children}</>
     </StripeProvider>
   );
 }
