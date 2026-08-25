@@ -15,7 +15,7 @@
 
 The six specs describe one coherent system. Seven cross-spec inconsistencies were found; **three were structural gaps and have been fixed in the schema spec by this review** (R2 `kernel.org_invite`, R3 door-freeze signal, R4 `p2p_transfer.completed`); two were already consistent (R5, R7); one is a documented-alias naming drift now pinned by a canonical registry (R1); one is a clarification that prevents a frozen-table change (R6). The remaining open items are **policy defaults**, not architectural gaps, and are given recommended values below. Every Gate-P decision (C26/C27/C33/C35/C36/C41/C42/D1–D3) is represented consistently across all specs that touch it. The frozen money core and live external marketplace are untouched by every spec.
 
-An engineering team can begin implementation package-by-package (migration `071`→`086`) **once the four propagation addenda in §5 are applied** (one-line follow-ons in the migration and RLS specs for the fixes this review made to the schema). Those are mechanical, not architectural.
+An engineering team can begin implementation package-by-package (migration `071`→`086`): **the five propagation addenda in §5 are APPLIED and CLOSED** (pre-implementation consolidation session, 2026-08-24) — the migration/RLS/RPC/edge/RN specs all reflect the schema fixes this review made.
 
 ---
 
@@ -24,13 +24,13 @@ An engineering team can begin implementation package-by-package (migration `071`
 | Lens | Verdict | One-line |
 |---|---|---|
 | Principal PostgreSQL Engineer | ✅ same system | Schema is the SoT; 44+2 tables; every RPC-only table has exactly one writer set; the C26/C27 proofs hold. Fixed: org_invite, door_open_at, p2p.completed. |
-| Principal Supabase Engineer | ✅ same system | Migration `071–086` creates exactly the schema's tables, additively, flag-gated; text+CHECK enums match; phase0-chain precondition stated. Needs the 3 propagation addenda (§5). |
+| Principal Supabase Engineer | ✅ same system | Migration `071–086` creates exactly the schema's tables, additively, flag-gated; text+CHECK enums match; phase0-chain precondition stated. Addenda A1–A5 applied (§5 CLOSED). |
 | Principal Security Engineer | ✅ same system | RLS covers all tables; money/custody = RPC-only-write; C36 disjoint roles are structural; `has_*_role` is the only role test in both RLS and RPC; redacted history read consistent. |
 | Principal Backend Engineer | ✅ same system | Every RPC maps to schema tables + an SSCAS member + lock order; no unnamed cross-aggregate txn; edge functions call RPCs, never bypass. Naming aliases pinned (R1). |
 | Principal React Native Engineer | ✅ same system | Every UI state maps to a backend state after R2/R3/R4 fixes; product-language firewall intact; external marketplace preserved. |
 | Principal Ticketing Product Engineer | ✅ same system | Two-rail honesty, resale modes, door/scan, comps, promoter all trace end-to-end; MVP scope (Miami, GA, no re-entry) held; deferrals are extension points, not holes. |
 
-Chair (Staff Engineer): consolidated verdict **READY** with the §5 addenda.
+Chair (Staff Engineer): consolidated verdict **READY**; the §5 addenda are applied and closed.
 
 ---
 
