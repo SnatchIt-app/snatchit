@@ -581,7 +581,7 @@ Every ownership change — issue, market_sale, auction_sale, p2p_transfer, admin
 
 ## PART 10 — Resale Model (two-rail)
 
-Resale is the differentiator. This part fully designs the **native pipeline**, contrasts it precisely with the **external rail**, and shows the exact **state coupling** between `listing.resale_state` and `ticket.state` that makes native resale atomic and dispute-free.
+Resale is the differentiator. This part fully designs the **native pipeline**, contrasts it precisely with the **external rail**, and shows the exact **state coupling** between `listing.resale_state` and `ticket.state` that makes native resale atomic and — for online verification (C37; offline is reconcile-based, C6/C23) — dispute-free.
 
 ### 10.1 The two rails, side by side
 

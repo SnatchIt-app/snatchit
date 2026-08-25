@@ -10,7 +10,7 @@
 ## Documents covered by this freeze
 
 **Constitutions (consolidated — the body is authoritative; no precedence algorithm needed):**
-`SNATCH_IT_DOMAIN_ARCHITECTURE.md` · `SNATCH_IT_CANONICAL_DATA_MODEL.md` · `PHASE_2_RATIFICATION_RECORD.md` (C1–C50, D1–D3, O2/O3/O4/O6 — 29 rows, zero pending)
+`SNATCH_IT_DOMAIN_ARCHITECTURE.md` · `SNATCH_IT_CANONICAL_DATA_MODEL.md` · `PHASE_2_RATIFICATION_RECORD.md` (record rows: C26–C50 + D1–D3 + O6 = 29, zero pending; C1–C25 prior-ratified in the constitutions; O2/O3/O4 tracked as open questions in DA §0.4)
 
 **Architecture validation:**
 `PHASE_2_ARCHITECTURE_REVIEW.md` · `PHASE_2_FINAL_ARCHITECTURE_AUDIT.md` · `ARCHITECTURAL_RISK_REGISTER.md` · `IMPLEMENTATION_READINESS_SCORE.md` · `CTO_DECISION_MEMO.md` · `PHASE_2_IMPLEMENTATION_ROADMAP.md`

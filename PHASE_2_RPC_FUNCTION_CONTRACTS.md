@@ -554,7 +554,10 @@ A contract is tagged one of:
   **SSCAS:** the unlock overlay (member #7 reverse). **Idempotency:** transfer terminal state + command key.
 - **Writes:** `market.p2p_transfer` (→ `cancelled`/`expired`, `reason_code`), **`kernel.unlock_ticket`**
   (`resale_state:=none`). **Result:** `{ status, final_state }`. **Retry:** safe. **Forbidden callers:** the
-  recipient (they accept/decline); non-parties.
+  recipient (they accept/decline); non-parties. **`declined` owner (explicit):** the addressed recipient
+  writes `declined` through the accept endpoint's decline branch (`accept_p2p_transfer` with
+  `p_decision='decline'` — same auth: `auth.uid() = to_identity`), which unlocks the atom exactly like
+  cancel; the sender cannot decline, the recipient cannot cancel.
 
 > **P2P expiry sweep** — see §12.2 (`market.sweep_expired_p2p_transfers`), a definer batch that calls
 > `cancel_p2p_transfer` with the `expired` transition for TTL-lapsed rows.
@@ -773,19 +776,28 @@ platform_admin])`, audited, active-key partial-unique per scope) whose KMS side 
 ## 14. SSCAS ENFORCEMENT (critical) — member → RPC map + lock-order proof
 
 ### 14.1 SSCAS member → RPC(s)
-| # | SSCAS member (SPEC_FOUNDATION §5) | RPC(s) | Aggregate classes locked, in global order |
+
+> **Numbering aligned to the canonical FIFTEEN-member enumeration in `SNATCH_IT_CANONICAL_DATA_MODEL.md`
+> §15 C12** (consolidation 2026-08-25, Agent E finding E-1). CDM C12 numbering is authoritative; the
+> earlier SPEC_FOUNDATION 9-member working list is provenance only.
+
+| C12 # | SSCAS member (canonical, CDM C12) | RPC(s) | Aggregate classes locked, in global order |
 |---|---|---|---|
 | 1 | Primary issuance | `venue.finalize_primary_order` → `kernel.issue_ticket_atoms` | Event/Session → **Inventory(batch,shard asc)** → **Order** → **Ticket Atom(new)** → **Payment**(link) |
-| 2 | Native sale / resale | `kernel.transfer_ticket_ownership` (called by market checkout / `respond_offer` accept / auction finalize) | **Listing** → **Ticket Atom(asc id)** → **Payment**(link) |
-| 3 | Refund-void | `kernel.void_ticket_atom`, `kernel.refund_primary_order`, `kernel.force_void_ticket`, `catalog.cancel_event`(batch) | **Order**(if order-scoped) → **Ticket Atom(asc id)** → **Inventory** → **Refund/Payment** |
-| 4 | Settlement → payout | `kernel.close_settlement`, `kernel.request_org_payout` | **Settlement** → **Payout** |
+| 2 | Native sale / resale (C8) | `kernel.transfer_ticket_ownership` (called by market checkout / `respond_offer` accept / auction finalize) | **Listing** → **Ticket Atom(asc id)** → **Payment**(link) |
+| 3 | Refund-void | `kernel.void_ticket_atom`, `kernel.refund_primary_order`, `kernel.force_void_ticket` | **Order**(if order-scoped) → **Inventory** → **Ticket Atom(asc id)** → **Refund/Payment** (Inventory-before-Atom per §14.2 NB) |
+| 4 | Settlement close → payout | `kernel.close_settlement`, `kernel.request_org_payout` | **Settlement** → **Payout** |
 | 5 | Attribution → commission | `kernel.close_settlement` (commission line) | (Attribution read) → **Settlement** → **Payout** |
 | 6 | Native listing create | `market.create_listing` → `kernel.lock_ticket` | **Listing** → **Ticket Atom** |
-| 7 | P2P start | `market.create_p2p_transfer` → `kernel.lock_ticket` | **Transfer(Listing slot)** → **Ticket Atom** |
-| 8 | P2P accept | `market.accept_p2p_transfer` → `kernel.transfer_ticket_ownership` | **Transfer** → **Ticket Atom** → **Payment** |
-| 9 | `paid_pending_transfer` auto-compensation (C25) | `market.sweep_paid_pending_sales` | **Listing** → **Ticket Atom** → **Payment**(complete) XOR **Ticket Atom** → **Refund**(compensate) |
-| +3b | Event-cancellation cascade (bounded batch of #3) | `catalog.cancel_event` | **Event/Session** → **Inventory** → per **Ticket Atom(asc id)** → **Refund** |
-| +2b | Auction-close deposit release (variant of #2) | auction finalize sweep → `kernel.transfer_ticket_ownership` | **Listing/Auction** → **Ticket Atom** → **Payment** |
+| 7 | Native transfer start | `market.create_p2p_transfer` → `kernel.lock_ticket` | **Transfer(Listing slot)** → **Ticket Atom** |
+| 8 | Native P2P accept | `market.accept_p2p_transfer` → `kernel.transfer_ticket_ownership` | **Transfer** → **Ticket Atom** → **Payment** |
+| 9 | Dispute open → freeze | native dispute-freeze RPC (webhook `charge.dispute.created` branch) + `kernel.hold_payout` | **Dispute** → **Ticket**(freeze overlay) → **Payout**(hold) |
+| 10 | Event-cancellation cascade | `catalog.cancel_event` (bounded batch of member #3 per atom) | **Event/Session** → **Inventory** → per **Ticket Atom(asc id)** → **Refund** |
+| 11 | Dispute-resolution reversal | `kernel.admin_resolve_dispute`-native path (`force_void_ticket` + refund/clawback executors) | **Dispute** → **Ticket Atom** → **Refund/Payment** → **Payout**(clawback/release) |
+| 12 | C25 auto-compensation | `market.sweep_paid_pending_sales` | **Listing** → **Ticket Atom** → **Payment**(complete) XOR **Ticket Atom** → **Refund**(compensate) |
+| 13 | Auction deposit-release | auction finalize sweep → `kernel.transfer_ticket_ownership` (+ deposit-auth void) | **Listing/Auction** → **Ticket Atom** → **Payment** |
+| 14 | Group-buy claim *(non-MVP; modeled only)* | future `venue.reserve_group_claim()` (A11 one legal door) | **Inventory**(hold) — single-class once inside the door |
+| 15 | Wallet checkout *(non-MVP; modeled only — wallet is later-phase)* | future wallet-debit → `create_primary_checkout` path | **Order** → **Payment/Wallet-ledger** |
 
 ### 14.2 Lock-order proof (no illegal inversion exists)
 The global order is a **total order** on aggregate classes: `Event/Session(1) < Inventory(2) < Order(3) <
@@ -795,23 +807,30 @@ ascending id (shards ascending `shard_no`; atoms ascending `ticket_atom_id`). Ea
 - #1: 2 → 3 → 5 → 6 (Event/Session read-gate at 1). Ascending. ✔
 - #2: 4 → 5 → 6. Ascending. ✔  (Settlement class 6 shares rank with Payment; a sale never also locks a payout,
   so no same-rank cycle.)
-- #3 / #3b: (3) → 5 → 2? — **NB:** refund-void returns **Inventory (class 2)** *after* touching the atom
-  (class 5). To avoid a 5→2 back-edge, the void path acquires **Inventory before the Atom** where both are
-  locked in one txn (cancel_event locks Inventory at rank 2 first, then atoms at rank 5), and the single-atom
-  `void_ticket_atom` treats the inventory return as a **counter update under its own `FOR UPDATE` taken before
-  the atom mutation completes** — i.e. the acquisition sequence is Inventory(2) → Atom(5) → Refund(6),
-  ascending. **This is the one place to watch; the contract pins Inventory-before-Atom in every void path so
-  no 5→2 inversion is possible.** ✔ *(Implementation note, not a new decision.)*
+- #3 / #10 (cancel cascade): (3) → 5 → 2? — **NB:** refund-void returns **Inventory (class 2)** *after*
+  touching the atom (class 5). To avoid a 5→2 back-edge, the void path acquires **Inventory before the Atom**
+  where both are locked in one txn (cancel_event locks Inventory at rank 2 first, then atoms at rank 5), and
+  the single-atom `void_ticket_atom` treats the inventory return as a **counter update under its own
+  `FOR UPDATE` taken before the atom mutation completes** — i.e. the acquisition sequence is Inventory(2) →
+  Atom(5) → Refund(6), ascending. **This is the one place to watch; the contract pins Inventory-before-Atom
+  in every void path so no 5→2 inversion is possible.** ✔ *(Implementation note, not a new decision.)*
 - #4/#5: 6 → 6 (Settlement then Payout, both rank 6) — ordered by a fixed sub-rank Settlement-before-Payout;
   no cycle. ✔
-- #6: 4 → 5. #7: 4(Transfer occupies the Listing slot) → 5. #8: 4 → 5 → 6. #9: 4 → 5 → 6. All ascending. ✔
+- #6: 4 → 5. #7: 4(Transfer occupies the Listing slot) → 5. #8: 4 → 5 → 6. #12: 4 → 5 → 6. All ascending. ✔
+- #9/#11 (dispute freeze / resolution reversal): Dispute is an admin-plane aggregate outside the six-rank
+  money/custody order; within the txn the money/custody acquisitions are Ticket(5) → Refund/Payment(6) →
+  Payout(6, fixed sub-rank after Payment) — ascending; the Dispute row is locked first and nothing re-enters
+  a lower rank afterward. ✔
+- #13: 4 → 5 → 6. Ascending. ✔  #14/#15: non-MVP, modeled only — #14 is single-class (Inventory hold) once
+  inside the A11 door; #15 is Order(3) → Wallet/Payment(6), ascending. ✔ (proof obligations restated at build
+  time under the execution protocol).
 - Cross-member deadlock-freedom: because **every** member acquires locks in the same global ascending order,
   two concurrent members can never hold-and-wait in a cycle (Coffman condition #4 broken by construction) —
   the standard resource-ordering proof.
 
 ### 14.3 Assertion (mandated)
 **No unnamed synchronous cross-aggregate transaction exists in this contract set.** Every RPC that writes more
-than one aggregate class is mapped above to exactly one SSCAS member (or an enumerated variant #2b/#3b). Every
+than one aggregate class is mapped above to exactly one of the fifteen canonical SSCAS members (CDM C12). Every
 other RPC is **single-aggregate** (explicitly tagged `SSCAS: n/a`): the organization RPCs (org only), venue/
 event/session/ticket_type/batch creation (one aggregate each), holds (Inventory only), door_pin/scan_device/
 settlement-open (one aggregate), the read RPCs (no writes), `lock/unlock_ticket` and `mark_ticket_scanned`
