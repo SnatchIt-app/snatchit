@@ -77,7 +77,12 @@ jobs:
       - name: Install Supabase CLI
         uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
         with:
-          version: latest # TODO(owner): pin to a specific CLI version once green.
+          # PINNED — never `latest`. The migration chain's replay order is a
+          # correctness property of this repo; it must not float with tooling.
+          # 2.115.0 is the version whose ordering behaviour was verified against
+          # the normalized (Scheme B) chain. Upgrades require a deliberate PR:
+          # bump pin -> fresh replay green -> Gate-2 parity green -> merge.
+          version: 2.115.0
 
       # supabase/config.toml is not committed; create it if absent. Non-interactive
       # in CI (no TTY). Ensure [db].major_version = 17 to match production.
@@ -99,6 +104,52 @@ jobs:
       - name: Show applied migrations
         if: always()
         run: supabase migration list || true
+
+      # Discovery proof: the CLI must apply EVERY file in supabase/migrations.
+      # A skipped file (unparseable name) is a silent wrong-schema hazard — it is
+      # exactly how the letter-suffixed chain used to "pass" while being wrong.
+      - name: Migration discovery proof (zero skipped, zero duplicates)
+        run: |
+          set -euo pipefail
+          files=$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')
+          applied=$(psql "$DB_URL" -tAc "select count(*) from supabase_migrations.schema_migrations;")
+          dupes=$(ls supabase/migrations/*.sql | xargs -n1 basename | sed 's/_.*//' | sort | uniq -d | wc -l | tr -d ' ')
+          echo "migration files on disk : $files"
+          echo "applied by the CLI      : $applied"
+          echo "duplicate versions      : $dupes"
+          if [ "$files" != "$applied" ]; then
+            echo "::error::CLI applied $applied of $files migrations — some were SKIPPED (unparseable filename)."; exit 1
+          fi
+          if [ "$dupes" != "0" ]; then echo "::error::duplicate version prefixes"; exit 1; fi
+          echo "OK: every migration discovered and applied; no duplicates."
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Gate-2 parity: the freshly replayed schema must match the certified
+      # Phase-0 baseline. Counts are printed for the PR record; drift fails.
+      - name: Gate-2 parity (fresh replay vs certified baseline)
+        run: |
+          set -euo pipefail
+          q() { psql "$DB_URL" -tAc "$1" | tr -d ' '; }
+          tables=$(q "select count(*) from pg_tables where schemaname='public';")
+          funcs=$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';")
+          policies=$(q "select count(*) from pg_policies where schemaname='public';")
+          triggers=$(q "select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal;")
+          echo "tables=$tables functions=$funcs policies=$policies triggers=$triggers"
+          echo "GATE2_COUNTS tables=$tables functions=$funcs policies=$policies triggers=$triggers" >> "$GITHUB_STEP_SUMMARY"
+          fail=0
+          [ "$tables"   -eq "$EXPECT_TABLES" ]   || { echo "::error::tables $tables != $EXPECT_TABLES (Gate-2 drift)"; fail=1; }
+          [ "$funcs"    -eq "$EXPECT_FUNCS" ]    || { echo "::error::functions $funcs != $EXPECT_FUNCS (Gate-2 drift)"; fail=1; }
+          [ "$policies" -eq "$EXPECT_POLICIES" ] || { echo "::error::policies $policies != $EXPECT_POLICIES (Gate-2 drift)"; fail=1; }
+          [ "$triggers" -eq "$EXPECT_TRIGGERS" ] || { echo "::error::triggers $triggers != $EXPECT_TRIGGERS (Gate-2 drift)"; fail=1; }
+          exit $fail
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          # Certified Phase-0 Gate-2 baseline (PHASE_0_GATE2_SCHEMA_DIFF.md).
+          EXPECT_TABLES: 27
+          EXPECT_FUNCS: 68
+          EXPECT_POLICIES: 37
+          EXPECT_TRIGGERS: 23
 
       # TODO(owner): wire these once the test/RLS assets exist.
       #  - pgTAP RLS tests: add supabase/tests/*.sql then run:
