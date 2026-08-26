@@ -95,7 +95,7 @@ would break checkout. No security policy, trigger, or RLS rule was modified.
 1. Sign in to App Store Connect (session was expired on 2026-07-21).
 2. Verify version 1.0 shows the rejection and still has build 7 attached; swap to build 1.0.0 (9)
    (EAS build 2621021b, commit 4740091 — all-in pricing client).
-3. Paste the updated review notes (App Review Notes section of APP_STORE_METADATA.md).
+3. Paste the updated review notes (App Review Notes section of docs/product/APP_STORE_METADATA.md).
 4. Verify ASC copyright field says "JDT LLC" (only entity reference not yet verified).
 5. Send the reply above in the Resolution Center thread.
 6. Resubmit version 1.0 for review.
