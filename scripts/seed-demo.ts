@@ -43,16 +43,23 @@ import { createClient } from '@supabase/supabase-js';
 
 // ─── Configuration (final, agreed with product) ─────────────────────────────
 
+// Demo-account passwords are NEVER hard-coded: they were published in a
+// formerly-public doc and are rotated out of band. Supply them at run time:
+//   DEMO_BUYER_PASSWORD=… DEMO_SELLER_PASSWORD=… npx tsx scripts/seed-demo.ts
+// The script fails closed if either is missing.
+const DEMO_BUYER_PASSWORD  = process.env.DEMO_BUYER_PASSWORD  ?? '';
+const DEMO_SELLER_PASSWORD = process.env.DEMO_SELLER_PASSWORD ?? '';
+
 const BUYER  = {
   email: 'snatchitreviewbuyer@gmail.com',
-  password: 'Snatchitreview',
+  password: DEMO_BUYER_PASSWORD,
   display_name: 'Demo Buyer (App Review)',
   phone_number: null,
 } as const;
 
 const SELLER = {
   email: 'snatchitreviewseller@gmail.com',
-  password: 'Snatchitreview',
+  password: DEMO_SELLER_PASSWORD,
   display_name: 'Demo Seller (App Review)',
   phone_number: null,
 } as const;
@@ -203,6 +210,9 @@ async function main() {
   const SUPABASE_SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
   const STRIPE_SECRET_KEY         = requireEnv('STRIPE_SECRET_KEY');
   assertTestMode(STRIPE_SECRET_KEY);
+  // Fail closed: demo passwords must be supplied at run time, never committed.
+  requireEnv('DEMO_BUYER_PASSWORD');
+  requireEnv('DEMO_SELLER_PASSWORD');
 
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -262,8 +272,8 @@ async function main() {
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log('\n──────── App Review credentials ────────');
-  console.log(`Buyer:    ${BUYER.email}  /  ${BUYER.password}`);
-  console.log(`Seller:   ${SELLER.email}  /  ${SELLER.password}`);
+  console.log(`Buyer:    ${BUYER.email}  /  <password from DEMO_BUYER_PASSWORD>`);
+  console.log(`Seller:   ${SELLER.email}  /  <password from DEMO_SELLER_PASSWORD>`);
   console.log(`Stripe Connect (seller): ${connectId}`);
   console.log('Stripe test card for buyer checkout: 4242 4242 4242 4242  any future MM/YY  any CVC');
   console.log('────────────────────────────────────────\n');
