@@ -1,9 +1,49 @@
-# Snatch It — GitHub & Vercel Deployment Standards
+# Snatch It — Agent Operating Constitution
 
-Permanent operating model for deployment, infrastructure, and CI/CD work on this
-repo (mobile app + web app + Supabase backend). Applies regardless of which
-subdirectory the work happens in. Web-specific quirks are also documented in
-`web/AGENTS.md` — read both when working in `web/`.
+Permanent operating model for engineering, deployment, infrastructure, and
+CI/CD work on this repo (mobile app + web app + Supabase backend). Applies to
+any coding agent, regardless of which subdirectory the work happens in.
+Web-specific quirks are also documented in `web/AGENTS.md` — read both when
+working in `web/`.
+
+## Authority order (binding — when sources conflict)
+
+1. **Live production reality** (for deployed-state questions).
+2. **`ARCHITECTURE_FREEZE.md` + the frozen constitutions**
+   (`docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md`,
+   `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md`).
+3. **The Phase-2 implementation specifications**
+   (`docs/architecture/PHASE_2_*.md` — schema / migration plan / RLS / RPC /
+   edge / RN, under `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md`).
+4. **`docs/architecture/SNATCH_IT_ENGINEERING_STANDARDS.md`**.
+5. Current code.
+6. Old audits and stale branches (`docs/security/`, `docs/archive/`).
+
+If implementation contradicts the frozen design: **STOP**. Never silently
+"fix" the architecture to match code — either the code is wrong (fix it) or an
+explicit amendment is required through the ratification process.
+
+## Phase-2 governance rules (binding)
+
+- **The architecture is frozen.** Changes to any document covered by
+  `ARCHITECTURE_FREEZE.md` happen only as a ratified amendment — a new
+  correction ID recorded in
+  `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` with owner
+  approval — never a silent edit.
+- **Migrations are append-only.** Never modify, delete, rename, or re-order an
+  existing file in `supabase/migrations/`. Sole exception: the separately
+  authorized one-time migration-ledger normalization event described in
+  `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`, executed only in an
+  owner-supervised window.
+- **No automatic production deployment.** Supabase deploy-on-push stays OFF
+  until the migration-history repair is executed and verified; merging never
+  implies applying.
+- **Money / custody changes** (payments, transfers, refunds, payouts, ticket
+  ownership) require owner-gated review, a rollback script written before
+  applying, and a verification query proving the post-state — no exceptions.
+- **Every package stops at its boundary.** One migration package / one coherent
+  change per PR; never opportunistically start the next package in the same
+  change.
 
 ## Role
 
