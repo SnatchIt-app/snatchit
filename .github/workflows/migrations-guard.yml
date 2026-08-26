@@ -41,6 +41,12 @@ jobs:
           set -euo pipefail
           DIR="supabase/migrations"
           fail=0
+          # Per-run state file. MUST be cleared at step start: if it survives (or is
+          # pre-seeded), its contents drop out of `added_files` and the prefix/monotonic
+          # checks silently report "No newly-added migrations" — a real bypass.
+          # Scoped to RUNNER_TEMP so it cannot collide with anything else on the host.
+          RENAME_TARGETS_FILE="${RUNNER_TEMP:-/tmp}/applied_rename_targets"
+          rm -f "$RENAME_TARGETS_FILE"
 
           # ==================================================================
           # ONE-TIME SCHEME-B NORMALIZATION EXCEPTION — REMOVE AFTER LEDGER REPAIR
@@ -113,7 +119,7 @@ jobs:
               fi
               echo "OK: allowlisted content-identical normalization $ob -> $nb"
               # Record ONLY targets whose source was genuinely removed in this diff.
-              echo "$nb" >> /tmp/applied_rename_targets
+              echo "$nb" >> "$RENAME_TARGETS_FILE"
             done <<< "$del"
           else
             echo "OK: no migration was removed or renamed."
@@ -135,7 +141,13 @@ jobs:
           # Excluding the whole allowlist would let someone ADD a file named like a target
           # (e.g. 0661_…) without removing its source, skipping both the blob-hash check
           # (no deletion) and the ordering check (excluded) — a real bypass.
-          rename_targets="$(sort -u /tmp/applied_rename_targets 2>/dev/null || true)"
+          rename_targets="$(sort -u "$RENAME_TARGETS_FILE" 2>/dev/null || true)"
+          # Prefix-freeness must ALSO cover sanctioned rename targets: a PR that applies
+          # only a SUBSET of the normalization (e.g. 066a->0661 while leaving 066) would
+          # otherwise recreate the exact prefix ambiguity this change exists to remove.
+          prefix_files="$(printf '%s\n' "$added_files" | sort -u)"
+          # Monotonic ordering, by contrast, must NOT see rename targets (0230 < 070 is
+          # legitimate for a renamed historical file).
           added_files="$(comm -23 <(printf '%s\n' "$added_files" | sort) <(printf '%s\n' "$rename_targets"))"
 
           # --- 2a. Uniqueness of version prefixes across all HEAD migrations ---
@@ -154,14 +166,14 @@ jobs:
           # parsed-version sort disagree — exactly the 055 / 0551 divergence).
           # Scoped to ADDED versions so pre-existing (pre-normalization) pairs do not
           # false-fail unrelated PRs; the normalization PR itself removes them.
-          echo "== Prefix-freeness check (newly added migrations) =="
-          if [ -z "${added_files:-}" ]; then
+          echo "== Prefix-freeness check (added migrations + normalization targets) =="
+          if [ -z "${prefix_files:-}" ]; then
             echo "No newly-added migrations to check."
           else
             all_vers="$(printf '%s\n' "$head_files" | while read -r hf; do
                           if [ -n "${hf:-}" ]; then ver "$hf"; fi
                         done | sort -u)"
-            for f in $added_files; do
+            for f in $prefix_files; do
               nv="$(ver "$f")"
               bad=""
               for ov in $all_vers; do
