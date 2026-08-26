@@ -213,25 +213,33 @@ above.** Re-run a fresh replay only if the chain changes (e.g. `043` merged, or 
 **Goal:** make production's ledger match the repo's `NNN_` scheme so `supabase db push` sees the historical
 chain as fully applied (nothing pending, nothing re-run) and Phase-2 `071+` applies cleanly on top.
 
-**Prerequisites (owner):** from the `phase0/lockdown` worktree (local files must be present for `repair` to
-resolve names): `supabase link --project-ref hqycwntpfoztoinemqns`. **First take a ledger backup** (§8.1).
+**Prerequisites (owner):** from a checkout of `main` **at or after the PR #5 normalization merge** (the
+renamed files must be present locally — `repair --status applied` resolves each version to its file via the
+glob `<version>_*.sql` and refuses to run without it): `supabase link --project-ref hqycwntpfoztoinemqns`.
+**CLI ≥ 2.115.0 (TS rewrite) is MANDATORY — the Go CLI 2.75.0 must NOT be used for this event or its
+verification** (see Addendum B: it orders local files by filename, not version, and hard-fails post-repair
+with `ErrMissingLocal`, suggesting reverts that must never be run). **First take a ledger backup** (§8.1).
+All versions below are the **post-rename numeric versions** (PR #5); the pre-rename letter versions
+(`023b`, `055b`…) are unrepairable — the CLI rejects non-integer version arguments (`strconv.Atoi`).
 
 **Recommended order: APPLY (additive) first, then REVERT (cleanup).** During the window both the timestamp
 row and the `NNN_` row for a migration may briefly coexist — harmless (different version strings, schema
 untouched). This ordering means no migration is ever momentarily un-recorded.
 
-### 6a. `--status applied` — add `NNN_` rows (41 commands)
+### 6a. `--status applied` — add numeric-scheme rows (41 commands, post-rename versions)
 
-*36 that replace a timestamp row (§4b) + 5 local-only whose objects already exist (§4d: `000 023b 066a 069 070`).*
+*36 that replace a timestamp row (§4b) + 5 local-only whose objects already exist (§4d: `000 0231 0661 069 070`).
+The renamed versions are: `023b→0231, 055b→0551, 055c→0552, 055d→0553, 056a→0561, 056b→0562, 056c→0563,
+056d→0564, 059b→0591, 060b→0601, 066a→0661` (PR #5, byte-identical renames).*
 
 ```bash
 # local-only (objects already on prod — Gate-2 verified)
 supabase migration repair --status applied 000
-supabase migration repair --status applied 023b
-supabase migration repair --status applied 066a
+supabase migration repair --status applied 0231
+supabase migration repair --status applied 0661
 supabase migration repair --status applied 069
 supabase migration repair --status applied 070
-# NNN_ equivalents of the timestamp rows (040–068 block)
+# numeric equivalents of the timestamp rows (040–068 block)
 supabase migration repair --status applied 040
 supabase migration repair --status applied 041
 supabase migration repair --status applied 042
@@ -247,19 +255,19 @@ supabase migration repair --status applied 052
 supabase migration repair --status applied 053
 supabase migration repair --status applied 054
 supabase migration repair --status applied 055
-supabase migration repair --status applied 055b
-supabase migration repair --status applied 055c
-supabase migration repair --status applied 055d
-supabase migration repair --status applied 056a
-supabase migration repair --status applied 056b
-supabase migration repair --status applied 056c
-supabase migration repair --status applied 056d
+supabase migration repair --status applied 0551
+supabase migration repair --status applied 0552
+supabase migration repair --status applied 0553
+supabase migration repair --status applied 0561
+supabase migration repair --status applied 0562
+supabase migration repair --status applied 0563
+supabase migration repair --status applied 0564
 supabase migration repair --status applied 057
 supabase migration repair --status applied 058
 supabase migration repair --status applied 059
-supabase migration repair --status applied 059b
+supabase migration repair --status applied 0591
 supabase migration repair --status applied 060
-supabase migration repair --status applied 060b
+supabase migration repair --status applied 0601
 supabase migration repair --status applied 061
 supabase migration repair --status applied 062
 supabase migration repair --status applied 063
@@ -290,20 +298,20 @@ supabase migration repair --status reverted 20260805034758   # was 054
 supabase migration repair --status reverted 20260805035221   # was 052
 supabase migration repair --status reverted 20260805035353   # was 053
 supabase migration repair --status reverted 20260805040743   # was 055
-supabase migration repair --status reverted 20260805040826   # was 055b
-supabase migration repair --status reverted 20260805040935   # was 055c
-supabase migration repair --status reverted 20260805041030   # was 055d
+supabase migration repair --status reverted 20260805040826   # was 055b -> now 0551
+supabase migration repair --status reverted 20260805040935   # was 055c -> now 0552
+supabase migration repair --status reverted 20260805041030   # was 055d -> now 0553
 supabase migration repair --status reverted 20260805044106   # was 057
 supabase migration repair --status reverted 20260805044159   # was 058
 supabase migration repair --status reverted 20260805044821   # was 059
-supabase migration repair --status reverted 20260805044913   # was 059b
-supabase migration repair --status reverted 20260805045314   # was 056a
+supabase migration repair --status reverted 20260805044913   # was 059b -> now 0591
+supabase migration repair --status reverted 20260805045314   # was 056a -> now 0561
 supabase migration repair --status reverted 20260805045437   # was 060
-supabase migration repair --status reverted 20260805045525   # was 060b
+supabase migration repair --status reverted 20260805045525   # was 060b -> now 0601
 supabase migration repair --status reverted 20260806002500   # was 061
-supabase migration repair --status reverted 20260806003406   # was 056b
-supabase migration repair --status reverted 20260806004256   # was 056c
-supabase migration repair --status reverted 20260806004545   # was 056d
+supabase migration repair --status reverted 20260806003406   # was 056b -> now 0562
+supabase migration repair --status reverted 20260806004256   # was 056c -> now 0563
+supabase migration repair --status reverted 20260806004545   # was 056d -> now 0564
 supabase migration repair --status reverted 20260806005147   # was 062
 supabase migration repair --status reverted 20260806005349   # was 063
 supabase migration repair --status reverted 20260806010150   # was 064
@@ -314,22 +322,29 @@ supabase migration repair --status reverted 20260824161202   # was 068
 ```
 
 **Command count: 41 applied + 36 reverted = 77 proposed `migration repair` commands.**
-(Some CLI versions accept multiple versions per invocation; the per-version form above is explicit and
+(The CLI accepts multiple versions per invocation; the per-version form above is explicit and
 auditable. `001–039` and the 4 website-form timestamps are deliberately untouched.)
+
+**Execution is governed by `PHASE_2_MIGRATION_REPAIR_EXECUTION_PLAN.md`** (repo root) — preconditions,
+per-command expected output, AFTER-state verification, inverse commands, and the mid-run failure protocol.
 
 ---
 
-## 7. Expected post-repair `schema_migrations` state
+## 7. Expected post-repair `schema_migrations` state (post-rename numeric versions)
 
-- **Row count: 84** — exactly one row per `phase0/lockdown` file (79 before → −36 timestamps reverted
-  +36 `NNN_` equivalents +5 local-only = 84; `001–039` and the 4 website forms unchanged).
-- **Version set (sorted):** `000, 001–039, 023b, 040, 041, 042, 044, 045, 046–049, 050, 051, 052, 053, 054,
-  055, 055b–d, 056a–d, 057, 058, 059, 059b, 060, 060b, 061–068, 066a, 069, 070` + the 4 website-form
-  timestamps. **No `043`.**
-- `supabase migration list` shows **local and remote identical → zero pending, zero to revert.**
+- **Row count: 84** — exactly one row per repo migration file (79 before → −36 timestamps reverted
+  +36 numeric equivalents +5 local-only = 84; `001–039` and the 4 website forms unchanged).
+- **Version set (sorted lexicographically, exactly as `ORDER BY version` returns it):**
+  `000, 001–022, 023, 0231, 024–039, 040, 041, 042, 044, 045, 046–049, 050–054, 055, 0551, 0552, 0553,
+  0561, 0562, 0563, 0564, 057, 058, 059, 0591, 060, 0601, 061–065, 066, 0661, 067, 068, 069, 070` + the 4
+  website-form timestamps (`20260714190445, 20260730212326, 20260730212406, 20260731224653`).
+  **No `043`. No letter-suffixed version anywhere.**
+- `supabase migration list --linked` (CLI ≥ 2.115.0) shows **local and remote identical → zero pending,
+  zero to revert.**
 - **Schema is byte-for-byte unchanged** (ledger-only edit; Gate-2 counts still 27/68/37/23/3).
 - Phase-2 `071+` (per `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §0.2) then sits cleanly at the true applied max
-  (`070`) and applies via the **gated** path only.
+  (`070`; the 4-digit inserts all sort below it — `"0231" < … < "0661" < "070"`) and applies via the
+  **gated** path only.
 
 ---
 
@@ -427,7 +442,7 @@ row was modified. Execution requires owner authorization + Agent F/G review, wit
 
 ## Addendum A (2026-08-25) — Letter-suffixed filenames are invisible to the Supabase CLI (first-ever CI run finding)
 
-**Finding.** The repository chain contains **11 letter-suffixed migration files** — `023b`, `055b`, `055c`, `055d`, `056a`, `056b`, `056c`, `056d`, `059b`, `060b`, `066a` — whose names do **not** match the Supabase CLI's migration pattern (`^<digits>_name.sql`). The CLI (every version; verified on `latest` in CI) **silently skips them**, so a fresh `supabase start` replay fails at `067` (`function public.sync_listing_current_bid() does not exist` — that function is vendored by the skipped `066a`). This was never caught before because the CI workflow itself never started (job-level `hashFiles()` startup defect, fixed 2026-08-25); the Phase-0 Gate-2 certification replay applied each file's **content by name** via the management API, bypassing filename parsing — the certification remains valid for **content**, but the chain is **not replayable by the standard CLI tooling** as filed.
+**Finding.** The repository chain contains **11 letter-suffixed migration files** — `023b`, `055b`, `055c`, `055d`, `056a`, `056b`, `056c`, `056d`, `059b`, `060b`, `066a` — whose names do **not** match the Supabase CLI's migration pattern (`^<digits>_name.sql`). The CLI (every version; verified on `latest` in CI) **skips them non-fatally, printing a per-file stderr notice** (`Skipping migration <file>... (file name must match pattern "<timestamp>_name.sql")` — easy to miss in scroll-back, and the run proceeds without error), so a fresh `supabase start` replay fails at `067` (`function public.sync_listing_current_bid() does not exist` — that function is vendored by the skipped `066a`). This was never caught before because the CI workflow itself never started (job-level `hashFiles()` startup defect, fixed 2026-08-25); the Phase-0 Gate-2 certification replay applied each file's **content by name** via the management API, bypassing filename parsing — the certification remains valid for **content**, but the chain is **not replayable by the standard CLI tooling** as filed.
 
 **Consequence.** The CI `db` job (fresh-DB replay gate) stays **red** until the 11 files are normalized. Phase-2 local development (`supabase start`) is equally affected.
 
@@ -437,4 +452,66 @@ row was modified. Execution requires owner authorization + Agent F/G review, wit
 3. **migrations-guard**: land the renames in the same PR as a documented guard exemption (the guard exists to prevent *undocumented* mutation; this is the documented reconciliation event it anticipates).
 4. **Re-run the CI `db` job** — it must go green on the renamed chain before any `071_*` file is authored.
 
-**Status:** PROPOSED — same authorization gate as the §6 repair (owner + Agent F/G review). Until executed, the CI `db` red is a **known, understood** condition, not an unknown regression.
+**Status:** Steps 1–3 EXECUTED in PR #5 (branch `repo/migration-ledger-normalization` — see Addendum B for
+the exact rename map, the guard allowlist mechanics, and the CLI-ordering findings). Step 4 (CI `db` green)
+is PR #5's merge condition. The §6 ledger repair itself remains **PROPOSED** behind the same authorization
+gate (owner + Agent F/G review), now runbook'd in `PHASE_2_MIGRATION_REPAIR_EXECUTION_PLAN.md`.
+
+---
+
+## Addendum B (2026-08-25) — Normalization executed in PR #5; CLI ordering findings
+
+**1. Rename map (executed, byte-identical `git mv` — all 11 proven `R100` by
+`git diff --find-renames=100% --name-status`):**
+
+```
+023b_set_updated_at_helper.sql                        -> 0231_set_updated_at_helper.sql
+055b_transfer_guard_bypass_for_remaining_writers.sql  -> 0551_transfer_guard_bypass_for_remaining_writers.sql
+055c_revoke_anon_public_on_listing_rpcs.sql           -> 0552_revoke_anon_public_on_listing_rpcs.sql
+055d_fix_mark_transfer_sent_overload_ambiguity.sql    -> 0553_fix_mark_transfer_sent_overload_ambiguity.sql
+056a_transfer_writer_rpcs.sql                         -> 0561_transfer_writer_rpcs.sql
+056b_remove_transfer_guard_service_role_exemption.sql -> 0562_remove_transfer_guard_service_role_exemption.sql
+056c_scope_transfer_guard_bypass_to_function.sql      -> 0563_scope_transfer_guard_bypass_to_function.sql
+056d_record_transfer_payout_refuses_disputed.sql      -> 0564_record_transfer_payout_refuses_disputed.sql
+059b_strict_auth_ensure_transfer_exists.sql           -> 0591_strict_auth_ensure_transfer_exists.sql
+060b_fix_sweep_query_destination.sql                  -> 0601_fix_sweep_query_destination.sql
+066a_vendor_out_of_band_functions.sql                 -> 0661_vendor_out_of_band_functions.sql
+```
+
+Where §2/§4 of this document print letter versions (`023b`, `055b`…), they describe the **pre-rename**
+filenames; the map above is 1:1 and the version-comparator position is unchanged
+(`"023" < "0231" < "024"`, …, `"066" < "0661" < "067"`, all `< "070"` and `< "2026…"`).
+
+**2. `migrations-guard` one-time exemption (same PR):** the guard now carries an explicit allowlist of
+exactly these 11 old→new pairs, honored **only** when the diff line is `R100` (the guard diffs with
+`--find-renames=100%`, so an edited rename decomposes to D+A and the D still fails); the monotonic check
+skips **only** the 11 new basenames. Everything else — modification, deletion, any other rename, any
+back-dated addition — still fails. **PR #5b deletes the allowlist**, restoring the guard verbatim.
+(A latent guard defect was also fixed in passing: under `set -euo pipefail`, the `basemax` subshell's
+trailing `[ … ] && echo` false-exit silently aborted the script for **every newly added `NNN_` file** —
+it would have false-failed `071_` too. The scheme filter is now an `if` statement.)
+
+**3. CLI ordering findings (source-verified on both generations) — the reason CI pins `2.115.0`, not
+`2.75.0`:**
+
+- **Go CLI v2.75.0** (`pkg/migration/list.go` `ListLocalMigrations`): enumerates local migrations in raw
+  `fs.ReadDir` **filename** order and never re-sorts by version. For the five parent/child groups the two
+  orders **diverge**: as filenames, `0231_… < 023_…` (byte `'1'` 0x31 < `'_'` 0x5F), likewise
+  `0551/0552/0553 < 055_`, `0591 < 059_`, `0601 < 060_`, `0661 < 066_`; as **versions** the children sort
+  **after** the parents. Consequences under 2.75.0:
+  - A fresh replay applies `0553` **before** `055` and `0601` **before** `060` — it completes without
+    error but ends with the stale parent bodies winning (the 3-arg `mark_transfer_sent` regains its
+    `DEFAULT NULL::text` → the PGRST203 overload-ambiguity regression `055d` fixed;
+    `sweep_auth_password_changes` reverts to its pre-`060b` body). **Green replay, wrong schema.**
+  - Post-repair, `db push`/`migration up` walk remote (version order) against local (filename order) and
+    hard-fail with `ErrMissingLocal` on `023, 055, 059, 060, 066` — and the CLI then **suggests
+    `migration repair --status reverted 023 055 059 060 066`, which must NEVER be run** (it would mark
+    five applied migrations unapplied; a subsequent push would re-run their DDL on production).
+- **TS-rewrite CLI (`latest`, pinned 2.115.0)**: re-sorts local paths **by version**
+  (`legacySortMigrationPathsByVersion` / `legacyCompareMigrationVersions` — documented lexical order)
+  before both applying and reconciling, so replay order ≡ version order ≡ remote order. The normalized
+  chain is fully coherent on this CLI generation; it is also the CLI that actually executed the first CI
+  `db` run (as `latest`).
+
+**Operational rule:** the repair event and all its verification steps use **CLI ≥ 2.115.0 only**; upgrade
+the dev machine off 2.75.0 before running `supabase start` / `db push` against this chain.
