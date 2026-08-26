@@ -163,7 +163,7 @@ serve(async (req: Request) => {
           { type: 'admin_dispute', transferId: String(transfer_id) });
       }
       await sendEmail(ADMIN_EMAIL, `[Snatch It] Dispute opened (${reason})`,
-        `A transfer dispute was opened.\n\nTransfer: ${transfer_id}\nReason: ${reason}\n\nSee DAY5_ADMIN_DISPUTE_SOP.md.`);
+        `A transfer dispute was opened.\n\nTransfer: ${transfer_id}\nReason: ${reason}`);
 
       for (const [id, label] of [[buyer_id, 'buyer'], [seller_id, 'seller']] as const) {
         if (!id) continue;

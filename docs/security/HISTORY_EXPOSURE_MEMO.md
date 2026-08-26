@@ -21,7 +21,7 @@ While this repository was **public** (window ≈ the repo-public period ending
 3. **Apple-review demo account credentials** (email + cleartext password +
    contact phone) in `docs/product/APP_STORE_METADATA.md`. Redacted from the tracked doc by
    the hygiene PR; the values remain in git history, and also appear in
-   `scripts/seed-demo.ts` (code — untouched by this structure-only PR).
+   `scripts/seed-demo.ts` — **deleted 2026-08-26** together with the demo accounts (owner-authorized purge).
 
 ## Current posture
 
