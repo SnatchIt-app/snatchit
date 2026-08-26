@@ -13,11 +13,21 @@
    `statements`/`name` content (~107 KB across 54 statements). `migration repair --status applied`
    restores a *version row*, not that content, so the backup is the only way back to byte-identical
    rows. Capture it as a file before command #1:
+   Take a **machine-restorable table snapshot**, not a text dump. `statements` is a `text[]` of
+   dollar-quoted SQL that is lossy to re-parse from aligned `psql` output, and `created_by` is
+   populated on 36 of the 37 rows being deleted — a 3-column `select` cannot deliver the
+   byte-identical restoration this precondition promises.
    ```sql
-   -- run and SAVE the output before any repair command
-   select version, name, statements
-   from supabase_migrations.schema_migrations
-   order by version;
+   -- authoritative, restorable backup — run BEFORE any repair command
+   create table supabase_migrations.schema_migrations_pre_schemeB as
+     select * from supabase_migrations.schema_migrations;
+
+   -- verify it captured everything (expect 79, and all six columns present)
+   select count(*) from supabase_migrations.schema_migrations_pre_schemeB;   -- expect 79
+   ```
+   Keep a secondary off-database copy as well:
+   ```sql
+   select * from supabase_migrations.schema_migrations order by version;  -- save full output
    ```
 
 ## BEFORE — production ledger snapshot (read-only, captured this session)
