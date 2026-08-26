@@ -42,15 +42,61 @@ jobs:
           DIR="supabase/migrations"
           fail=0
 
+          # =====================================================================
+          # !! ONE-TIME EXEMPTION — MIGRATION-LEDGER NORMALIZATION (2026-08, PR #5)
+          # =====================================================================
+          # The 11 rename pairs below are the single documented normalization
+          # event per PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md Addendum A:
+          # letter-suffixed migration filenames (023b_, 055b_, ...) do not match
+          # the Supabase CLI's ^<digits>_name.sql parser and are skipped on
+          # replay, so they were renamed to pure-numeric versions that keep the
+          # identical replay position (023b -> 0231, 055b -> 0551, ...).
+          #
+          #   * Honored ONLY for R100 (byte-identical) renames: the diff below
+          #     runs with --find-renames=100%, so an edited rename surfaces as
+          #     D+A and the D still fails. Content immutability is mechanical.
+          #   * Any modify, delete, or rename NOT in this exact list still fails.
+          #   * The monotonic check further down skips ONLY the 11 new basenames
+          #     — they are relocations of already-applied content, not new
+          #     migrations; every genuinely new file is still checked.
+          #
+          # PR #5b DELETES this entire allowlist (and the two skip hooks that
+          # consume it) immediately after PR #5 merges, restoring the guard
+          # verbatim. Do NOT add entries. Do NOT reuse this mechanism.
+          # =====================================================================
+          ALLOWED_RENAMES="supabase/migrations/023b_set_updated_at_helper.sql -> supabase/migrations/0231_set_updated_at_helper.sql
+          supabase/migrations/055b_transfer_guard_bypass_for_remaining_writers.sql -> supabase/migrations/0551_transfer_guard_bypass_for_remaining_writers.sql
+          supabase/migrations/055c_revoke_anon_public_on_listing_rpcs.sql -> supabase/migrations/0552_revoke_anon_public_on_listing_rpcs.sql
+          supabase/migrations/055d_fix_mark_transfer_sent_overload_ambiguity.sql -> supabase/migrations/0553_fix_mark_transfer_sent_overload_ambiguity.sql
+          supabase/migrations/056a_transfer_writer_rpcs.sql -> supabase/migrations/0561_transfer_writer_rpcs.sql
+          supabase/migrations/056b_remove_transfer_guard_service_role_exemption.sql -> supabase/migrations/0562_remove_transfer_guard_service_role_exemption.sql
+          supabase/migrations/056c_scope_transfer_guard_bypass_to_function.sql -> supabase/migrations/0563_scope_transfer_guard_bypass_to_function.sql
+          supabase/migrations/056d_record_transfer_payout_refuses_disputed.sql -> supabase/migrations/0564_record_transfer_payout_refuses_disputed.sql
+          supabase/migrations/059b_strict_auth_ensure_transfer_exists.sql -> supabase/migrations/0591_strict_auth_ensure_transfer_exists.sql
+          supabase/migrations/060b_fix_sweep_query_destination.sql -> supabase/migrations/0601_fix_sweep_query_destination.sql
+          supabase/migrations/066a_vendor_out_of_band_functions.sql -> supabase/migrations/0661_vendor_out_of_band_functions.sql"
+          # Strip the YAML block indentation the literal above carries at runtime.
+          ALLOWED_RENAMES="$(printf '%s\n' "$ALLOWED_RENAMES" | sed 's/^[[:space:]]*//')"
+          NORMALIZED_NEW="$(printf '%s\n' "$ALLOWED_RENAMES" | sed 's/^.* -> supabase\/migrations\///')"
+
           # --- 1. Immutability: no modify / delete / rename of base migrations ---
           echo "== Immutability check (base $BASE_SHA -> HEAD) =="
-          changed="$(git diff --diff-filter=MDR --name-only "$BASE_SHA" HEAD -- "$DIR" || true)"
-          if [ -n "$changed" ]; then
-            echo "::error::Existing migration files were modified/deleted/renamed. Migrations are append-only — add a NEW migration instead:"
-            echo "$changed" | sed 's/^/  - /'
-            fail=1
-          else
+          # --find-renames=100% pairs ONLY byte-identical renames as R100.
+          mdr="$(git diff --find-renames=100% --diff-filter=MDR --name-status "$BASE_SHA" HEAD -- "$DIR" || true)"
+          if [ -z "$mdr" ]; then
             echo "OK: no existing migration was changed."
+          else
+            while IFS="$(printf '\t')" read -r status old new; do
+              [ -n "$status" ] || continue
+              if [ "$status" = "R100" ] && printf '%s\n' "$ALLOWED_RENAMES" | grep -qxF "$old -> $new"; then
+                echo "ALLOWED (one-time ledger normalization, R100 byte-identical): $old -> $new"
+                continue
+              fi
+              echo "::error::Existing migration file changed ($status): $old${new:+ -> $new}. Migrations are append-only — add a NEW migration instead."
+              fail=1
+            done <<EOF
+          $mdr
+          EOF
           fi
 
           # Helpers ------------------------------------------------------------
@@ -80,11 +126,29 @@ jobs:
             echo "No newly-added migrations."
           else
             for f in $added_files; do
+              # ONE-TIME EXEMPTION (see allowlist block above, PR #5b removes):
+              # the 11 normalization renames appear as "added" under their new
+              # basenames but are relocations of already-applied content, not
+              # new migrations — their 4-digit versions intentionally sort
+              # BETWEEN existing versions (e.g. "023" < "0231" < "024"), which
+              # the append-only rule would otherwise reject.
+              if printf '%s\n' "$NORMALIZED_NEW" | grep -qxF "$f"; then
+                echo "SKIP (one-time normalization relocation, not a new migration): $f"
+                continue
+              fi
               v="$(ver "$f")"; s="$(scheme "$v")"
-              # max existing (base) version within the same scheme
+              # max existing (base) version within the same scheme.
+              # NOTE: the scheme filter must be an `if` statement, not `[ ] &&`:
+              # with `set -euo pipefail`, a trailing false `[ ] &&` on the last
+              # base file (e.g. a ts file while checking a seq addition) made
+              # the while-subshell exit 1, pipefail propagated it into the
+              # assignment, and set -e killed the whole script — silently
+              # false-failing EVERY new seq migration (latent since day one,
+              # exposed by the 2026-08 normalization dry-runs).
               basemax="$(printf '%s\n' "$base_files" | while read -r b; do
                           [ -n "$b" ] || continue
-                          bv="$(ver "$b")"; [ "$(scheme "$bv")" = "$s" ] && echo "$bv"
+                          bv="$(ver "$b")"
+                          if [ "$(scheme "$bv")" = "$s" ]; then echo "$bv"; fi
                         done | sort | tail -1)"
               if [ -n "$basemax" ] && ! [ "$v" \> "$basemax" ]; then
                 echo "::error::$f ($s scheme) is not greater than the latest existing $s migration ($basemax). Migrations must be append-only and monotonic."
