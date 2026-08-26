@@ -62,6 +62,12 @@ supabase/.temp/
 ziZhyOZe
 backups/
 _webaudit_tmp/
+_claude_audit_full.tar.gz
+premiere-png/
+mergetest/
+
+# Local Claude Code settings (personal; .claude/launch.json stays tracked — shared dev-server config)
+.claude/settings.local.json
 
 # Web app local env (web/.gitignore also covers these)
 web/.env
@@ -69,6 +75,9 @@ web/.env.*
 !web/.env.example
 
 # Fundraising / pitch / internal docs (not for git)
+snatch-it-pitch-deck*
+pitchdeck pictures/
+Snatch_It_Investment_Assumptions_Book.docx
 SNATCHIT_300K_*
 SNATCHIT_Partner_*
 SNATCHIT_WarRoom_*
