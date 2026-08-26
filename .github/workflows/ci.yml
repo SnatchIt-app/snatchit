@@ -77,7 +77,25 @@ jobs:
       - name: Install Supabase CLI
         uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
         with:
-          version: latest # TODO(owner): pin to a specific CLI version once green.
+          # Pinned deliberately (was `latest`). Upgrades happen only via their
+          # own PR that shows this job green on a fresh replay — never
+          # implicitly.
+          #
+          # 2.115.0 is the TS-rewrite CLI, which sorts local migrations BY
+          # VERSION before applying/reconciling. Do NOT "downgrade" this pin to
+          # the Go CLI 2.75.0 (the version installed on the dev machine): the
+          # Go CLI enumerates supabase/migrations/ in raw FILENAME order
+          # (fs.ReadDir, no version re-sort), and the normalized 4-digit
+          # versions (0231_, 0551_, ..., 0661_) sort BEFORE their 3-digit
+          # parents as filenames ('1' 0x31 < '_' 0x5F) while sorting AFTER
+          # them as versions. Under 2.75.0 a fresh replay silently applies
+          # 0553 before 055 and 0601 before 060 — ending with the stale parent
+          # function bodies (re-introducing the PGRST203 mark_transfer_sent
+          # overload regression that 055d fixed, and the sweep-destination bug
+          # that 060b fixed) — and post-repair `db push`/`migration up`
+          # hard-fail with ErrMissingLocal. Verified against both CLIs'
+          # sources; see PHASE_2_MIGRATION_REPAIR_EXECUTION_PLAN.md §2.
+          version: 2.115.0
 
       # supabase/config.toml is not committed; create it if absent. Non-interactive
       # in CI (no TTY). Ensure [db].major_version = 17 to match production.
