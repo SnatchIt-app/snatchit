@@ -40,3 +40,17 @@
 6. The frozen money core and live external-rail marketplace (`public.*`) remain protected per `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` §1.
 
 Implementation begins at migration `071` per `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`, on a `phase2/implementation` branch cut from the consolidated baseline, following the execution protocol package-by-package.
+
+## Amendment A-2 (administrative, 2026-08-25)
+
+PR #3 (`phase2/architecture` → `main`) was **rebase-merged**. Recorded consequences — no design change:
+
+- The original freeze SHAs named above (`51cce52` baseline chain, closeout `dd960c4`) live on the branch
+  lineage anchored by tag **`phase2-architecture-v1`**; that tag remains the anchor for those SHAs.
+- `main` carries byte-identical rebased equivalents of the frozen content: `cf7d6b9` (E-1 consistency
+  closure), `e24989c` (Amendment A-1), `f66bf1d` (pre-implementation closeout).
+- The frozen documents were relocated to `docs/architecture/` (governance set under `_governance/`,
+  superseded reviews under `_superseded/`) by the repository-hygiene PR, which also rewrote this
+  document's path references accordingly. Nothing else changed.
+
+Recorded as row **A-2** in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`.

@@ -1,3 +1,7 @@
+-- SUPERSEDED — NEVER APPLIED. Archived by the repository-hygiene PR (2026-08-25).
+-- Its intent (profiles column-level SELECT restriction) was delivered by applied migrations 052, 062 and 068.
+-- Kept for the historical record only; do NOT move back into any migration path.
+
 -- =============================================================================
 -- 043_profiles_select_column_restriction.sql
 -- DRAFT — NOT APPLIED. Stage 2 of 2.

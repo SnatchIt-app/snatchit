@@ -1,57 +1,39 @@
 # Branch topology
 
-Consolidated 2026-08-06. Tag `consolidated/pre-cleanup-2026-08-06` marks the
-commit where a single branch first held the mobile app, the web app, all
-migrations, the deployed edge functions and the shared packages together.
+Updated 2026-08-25 (repository-stabilization program). Previous consolidation
+record: tag `consolidated/pre-cleanup-2026-08-06`.
 
-## Long-lived
+## Authoritative
 
-### `main` — the source of truth
+### `main` — the single source of truth
 Everything: `app/` + `src/` (Expo mobile), `web/` (Next.js), `packages/`
 (shared, vendored into web as tarballs), `supabase/` (migrations, rollbacks,
-edge functions).
+edge functions), and `docs/` (constitutions, specs, governance, ops, security,
+product — see the docs map in `CLAUDE.md`).
+
+PR #3 (`phase2/architecture` → `main`) was **rebase-merged** 2026-08-25: `main`
+carries byte-identical rebased equivalents of the frozen Phase-2 baseline
+(`cf7d6b9` → `e24989c` → `f66bf1d`), while tag **`phase2-architecture-v1`**
+anchors the original freeze SHAs (`51cce52`/`dd960c4` chain) — see
+`ARCHITECTURE_FREEZE.md` Amendment A-2.
 
 Kept as one repo on purpose. Migrations and edge functions are consumed by
-**both** clients, so splitting web into its own repo would fracture them, and
-two permanent branches is exactly the arrangement that produced the drift this
-consolidation cleaned up: `main` had the newest edge functions but not the
-migrations defining the RPCs they call, while the web branch had the migrations
-but pre-July functions. Neither was self-consistent.
+**both** clients; splitting web into its own repo would fracture them.
 
-### `feature/web-accounts-foundation` — Vercel production branch
-Currently identical to `main`. Vercel's Production Branch setting still points
-here, so **pushing to it deploys snatchti.com immediately**.
+## Stale — pending deletion per the stabilization roadmap §7 (owner action)
 
-The name is a leftover from when it was a feature branch. The intended end
-state is to repoint Vercel's Production Branch to `main` (a dashboard change)
-and retire this. Until then keep the two in lockstep — never let this branch
-lead or lag `main`.
-
-## Retained, superseded — safe to delete once you accept the loss of their SHAs
-
-Both are content-complete in `main`; only their commit objects are unique, so
-they are kept rather than deleted.
-
-### `fix/edge-transfer-rpcs` (2 unique commits)
-Was the deployed source for `stripe-webhook` and `create-connect-account`
-during the security work. Its content is byte-identical to `main`'s
-`supabase/functions/` — verified line-for-line (902 / 370 / 632 / 926).
-
-### `mobile/profile-rpc-compat` (3 unique commits)
-Duplicate work. The web line had already made the same migration-043 compat
-changes (`a860505`, `d28a0f8`); the only difference is line-wrapping of the
-same `.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle()` chain and
-import ordering.
-
-## Deleted 2026-08-06 — all tips proven reachable from `main` first
-
-`feature/web-transfers` (7a7e967) · `feature/web-seller-management` (be51219) ·
-`feature/web-brand-alignment` (8c96916) · `feature/web-platform-foundation`
-(9c01fd9) · `feat/risk-payouts-allin-pricing` (6219fa4)
+| Branch | State | Note |
+|---|---|---|
+| `phase2/architecture` | merged via PR #3 | delete after tagging; `phase2-architecture-v1` preserves the SHAs |
+| `phase0/lockdown` | == pre-merge `main` (PR #2 fast-forward) | delete |
+| `feature/web-accounts-foundation` | ancestor of `main` (PR #1) | **repoint Vercel's Production Branch to `main` first** — the dashboard still deploys snatchti.com from this branch; never let it lead or lag `main` until repointed |
+| `fix/edge-transfer-rpcs` | content-superseded (edge-file diff vs `main` empty) | delete; optional archive tag |
+| `mobile/profile-rpc-compat` | content-superseded (residual = comments/wrapping only) | delete; its local unpushed `94b3be7` is superseded — do not push |
 
 ## Releases
 
-- **Web** — push to the Vercel production branch. See `web/DEPLOYMENT.md`.
+- **Web** — push to the Vercel production branch (see table above until
+  repointed to `main`). See `web/DEPLOYMENT.md`.
 - **Mobile** — cut from a tag, built via EAS (`eas.json` uses
   `appVersionSource: remote`, so the real build number lives on EAS, not
   `app.json`). Tag pattern `mobile/v<version>-build<n>-<purpose>`.
@@ -61,6 +43,9 @@ import ordering.
 ## Rules
 
 - Never force-push `main` or the production branch.
-- Migrations are append-only. `supabase/migrations-pending/` and
-  `supabase/one-off/` sit outside every replay path on purpose — read their
-  READMEs before moving anything into `supabase/migrations/`.
+- Migrations are append-only (`AGENTS.md` §"Phase-2 governance rules"; the
+  sole authorized exception is the one-time normalization event in
+  `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`).
+- `supabase/migrations-pending/` and `supabase/one-off/` sit outside every
+  replay path on purpose — read their READMEs before moving anything into
+  `supabase/migrations/`.
