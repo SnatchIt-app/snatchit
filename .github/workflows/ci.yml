@@ -212,6 +212,41 @@ jobs:
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      # SEC-2 default-ACL gate. Closes the vacuous-pass hole in the step above.
+      # That diff compares the replay against expected_grants.txt, which is
+      # sound for tables on both sides and VACUOUS for a table on neither: a NEW
+      # table gets no grants on the fresh replay and no fixture line, so
+      # zero-vs-zero passes green — while on production pg_default_acl silently
+      # grants anon/authenticated full DML to it. That is how webhook_retries
+      # drifted (SEC-1, reconciled by migration 074).
+      #
+      # Covers FUNCTIONS too, and that half is the more exposed one (F2): the
+      # same pg_default_acl grants anon=X on every new function in public, which
+      # PostgREST serves at POST /rest/v1/rpc/<name> to anyone holding the
+      # publishable anon key. A new table at least still has RLS in front of it.
+      # Unlike the table half, the function half is NOT vacuous on the fresh
+      # replay: proacl IS NULL means defaults apply, and the function default is
+      # PUBLIC EXECUTE, so a missing REVOKE is detectable here on CI.
+      #
+      # Fails CLOSED for any public table or function with no recorded decision.
+      # Purely additive: it asserts nothing the other steps already assert, and
+      # it changes no ratchet. It runs BEFORE the pgTAP step so the catalog it
+      # reads is the migration chain's output, with no pgTAP objects installed.
+      # The script is an assertion, never a migration — it grants and revokes
+      # nothing. `-v ON_ERROR_STOP=1` plus `set -e` makes any RAISE EXCEPTION
+      # fail the job; `psql -f` alone would exit 0 on a failed statement.
+      - name: Public table + function grant decisions recorded (fails closed)
+        run: |
+          set -euo pipefail
+          test -f supabase/ci/assert_public_table_grant_decisions.sql || {
+            echo "::error::supabase/ci/assert_public_table_grant_decisions.sql is missing — the SEC-2 default-ACL gate would silently pass."
+            exit 1
+          }
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/ci/assert_public_table_grant_decisions.sql
+          echo "OK: every public table and function carries a recorded, asserted grant decision (SEC-2 / F2)."
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # pgTAP database security gate. Runs against the SAME freshly-replayed
       # stack booted above, so it costs no second boot and is guaranteed to be
       # testing the schema this PR actually produces.
