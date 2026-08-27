@@ -158,22 +158,35 @@ jobs:
       # surface than production -- and "anon cannot read X" would pass because the
       # grant is missing, not because RLS works. That is a vacuous pass, so this
       # step measures the gap before the suite runs.
-      - name: Privilege parity vs production (diagnostic)
+      # Apply the production privilege surface to the fresh database, then PROVE
+      # it matches. See supabase/ci/parity_grants.sql for the full rationale
+      # (finding REPLAY-1): production's table grants come from Supabase's
+      # environment bootstrap, not from the migration chain, so a fresh replay
+      # has almost no grants. Without this, most of the security suite would pass
+      # because the GRANT is missing rather than because RLS works.
+      - name: Privilege parity with production (CI-only bootstrap)
         run: |
-          set -uo pipefail
-          echo "--- table grants in the FRESH database ---"
+          set -euo pipefail
+          echo "--- BEFORE (fresh replay, grants from the migration chain alone) ---"
           psql "$DB_URL" -tA -c "
-            select grantee, count(distinct table_name) as tables,
-                   string_agg(distinct privilege_type, ',' order by privilege_type) as privs
+            select grantee||' '||count(distinct table_name)||' tables'
             from information_schema.role_table_grants
             where table_schema='public' and grantee in ('anon','authenticated','service_role')
-            group by grantee order by grantee;"
-          echo "--- public base tables (fresh) ---"
-          psql "$DB_URL" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';"
-          echo "--- default privileges present? ---"
-          psql "$DB_URL" -tAc "select defaclrole::regrole, defaclobjtype, defaclacl from pg_default_acl;"
-          echo ""
-          echo "PRODUCTION (2026-08-27, read-only): 27 base tables; anon=19, authenticated=20, service_role=27"
+              and privilege_type='SELECT' group by grantee order by grantee;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/parity_grants.sql
+          echo "--- AFTER (production parity applied) ---"
+          for pair in "anon 19" "authenticated 20" "service_role 27"; do
+            role="${pair% *}"; want="${pair#* }"
+            got=$(psql "$DB_URL" -tAc "select count(distinct table_name) from information_schema.role_table_grants where table_schema='public' and grantee='$role' and privilege_type='SELECT';")
+            echo "  $role: $got (production: $want)"
+            [ "$got" = "$want" ] || { echo "::error::privilege parity failed for $role: $got != $want"; exit 1; }
+          done
+          # profiles must remain COLUMN-granted, never table-granted.
+          tbl=$(psql "$DB_URL" -tAc "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
+          col=$(psql "$DB_URL" -tAc "select count(*) from information_schema.column_privileges where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
+          echo "  profiles: table-level SELECT grants=$tbl (must be 0), column-level=$col (must be > 0)"
+          [ "$tbl" = "0" ] || { echo "::error::profiles gained a table-level grant — column restrictions are bypassed"; exit 1; }
+          [ "$col" -gt 0 ] || { echo "::error::profiles lost its column-level grants"; exit 1; }
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
