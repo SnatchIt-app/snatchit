@@ -151,6 +151,32 @@ jobs:
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 23
 
+      # Privilege-parity diagnostic. Production's table grants come from Supabase's
+      # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
+      # explicitly), so the chain cannot reproduce them from source. If the fresh
+      # stack does not have them, the security suite tests a DIFFERENT privilege
+      # surface than production -- and "anon cannot read X" would pass because the
+      # grant is missing, not because RLS works. That is a vacuous pass, so this
+      # step measures the gap before the suite runs.
+      - name: Privilege parity vs production (diagnostic)
+        run: |
+          set -uo pipefail
+          echo "--- table grants in the FRESH database ---"
+          psql "$DB_URL" -tA -c "
+            select grantee, count(distinct table_name) as tables,
+                   string_agg(distinct privilege_type, ',' order by privilege_type) as privs
+            from information_schema.role_table_grants
+            where table_schema='public' and grantee in ('anon','authenticated','service_role')
+            group by grantee order by grantee;"
+          echo "--- public base tables (fresh) ---"
+          psql "$DB_URL" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';"
+          echo "--- default privileges present? ---"
+          psql "$DB_URL" -tAc "select defaclrole::regrole, defaclobjtype, defaclacl from pg_default_acl;"
+          echo ""
+          echo "PRODUCTION (2026-08-27, read-only): 27 base tables; anon=19, authenticated=20, service_role=27"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # pgTAP database security gate. Runs against the SAME freshly-replayed
       # stack booted above, so it costs no second boot and is guaranteed to be
       # testing the schema this PR actually produces.
@@ -182,10 +208,28 @@ jobs:
           set -uo pipefail
           f="$RUNNER_TEMP/tap.txt"
           [ -f "$f" ] || { echo "::error::no TAP output captured — the suite did not run."; exit 1; }
-          ok_n=$(grep -cE '^ok [0-9]+' "$f" || true)
-          notok=$(grep -cE '^not ok [0-9]+' "$f" || true)
-          skip=$(grep -cE '^ok [0-9]+ # (SKIP|skip)' "$f" || true)
-          todo=$(grep -cE '# TODO' "$f" || true)
+          # pg_prove prints a per-file summary and a "Files=N, Tests=N" footer,
+          # NOT raw TAP ok/not ok lines. Parsing for '^ok' yields 0/0/0/0 and
+          # would report a clean sheet for a suite that never ran -- exactly the
+          # vacuous-green this gate exists to prevent. Parse what pg_prove emits.
+          files_n=$(grep -oE 'Files=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
+          tests_n=$(grep -oE 'Tests=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
+          result=$(grep -oE '^Result: (PASS|FAIL|NOTESTS)' "$f" | tail -1 | awk '{print $2}' || true)
+          failed_files=$(grep -cE '\(Wstat: ' "$f" || true)
+          badplan=$(grep -cE 'Parse errors: Bad plan' "$f" || true)
+          notok=$(grep -cE '^\s*not ok [0-9]+' "$f" || true)
+          echo "files=$files_n tests_ran=$tests_n result=$result failing_files=$failed_files bad_plans=$badplan"
+          ok_n="${tests_n:-0}"; skip=0; todo=$(grep -cE '# TODO' "$f" || true)
+          if [ "${result:-}" != "PASS" ] || [ "${badplan:-0}" -gt 0 ]; then
+            echo "::error::pgTAP did not pass cleanly (result=${result:-none}, bad plans=${badplan:-0}, failing files=${failed_files:-0})."
+            grep -aE 'Parse errors|Failed [0-9]+/|not ok |ERROR:|Result:' "$f" | head -40
+            exit 1
+          fi
+          planned_total=$(grep -ho 'plan([0-9]*)' supabase/tests/*.sql | grep -o '[0-9]*' | paste -sd+ - | bc)
+          if [ "${tests_n:-0}" != "$planned_total" ]; then
+            echo "::error::ran ${tests_n:-0} assertions but $planned_total were planned — some file aborted early."
+            exit 1
+          fi
           {
             echo "### pgTAP database security gate"
             echo ""
