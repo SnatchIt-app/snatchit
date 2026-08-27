@@ -11,7 +11,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(32);
+SELECT plan(36);
 SELECT tap.seed_core();
 
 -- ── Cross-user writes are invisible no-ops ──────────────────────────────────
@@ -174,6 +174,58 @@ SELECT tap.logout();
 SELECT lives_ok(
   $$ UPDATE public.listings SET proof_status = 'rejected' WHERE id = tap.listing_a() $$,
   'claims-less admin session may perform Snatch It review');
+
+-- Negative 7-8: the INSERT side. The guard was originally BEFORE UPDATE only,
+-- so a seller could simply CREATE a listing already stamped 'approved' and never
+-- be reviewed at all. authenticated holds table-wide INSERT on public.listings,
+-- pg_attribute.attacl is NULL for every column, the INSERT policy's WITH CHECK
+-- constrains only seller_id/onboarding/phone, and the CHECK constraint permits
+-- 'approved' — so nothing else stops it. Closing UPDATE alone leaves the
+-- headline claim ("a seller cannot self-approve") false.
+SELECT tap.logout();
+SELECT tap.login(tap.seller());
+SELECT throws_ok(
+  $$ INSERT INTO public.listings
+       (seller_id, event_name, venue, neighborhood, event_date, event_time,
+        ticket_type, quantity, transfer_method, starting_bid, duration_hours,
+        ends_at, current_bid, cover_image_path, proof_status)
+     VALUES (tap.seller(), 'Self approved', 'X', 'wynwood', current_date + 1, '20:00',
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'approved') $$,
+  'proof_status can only be changed by Snatch It review',
+  'seller cannot CREATE a listing pre-stamped approved (INSERT path)');
+SELECT throws_ok(
+  $$ INSERT INTO public.listings
+       (seller_id, event_name, venue, neighborhood, event_date, event_time,
+        ticket_type, quantity, transfer_method, starting_bid, duration_hours,
+        ends_at, current_bid, cover_image_path, proof_status)
+     VALUES (tap.seller(), 'Self rejected', 'X', 'wynwood', current_date + 1, '20:00',
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'rejected') $$,
+  'proof_status can only be changed by Snatch It review',
+  'seller cannot CREATE a listing pre-stamped rejected (INSERT path)');
+
+-- Positive 4: a normal listing creation, which does not assert a review state,
+-- must remain unaffected. This is the assertion that makes the two above a
+-- boundary rather than a blanket ban on creating listings.
+SELECT lives_ok(
+  $$ INSERT INTO public.listings
+       (seller_id, event_name, venue, neighborhood, event_date, event_time,
+        ticket_type, quantity, transfer_method, starting_bid, duration_hours,
+        ends_at, current_bid, cover_image_path)
+     VALUES (tap.seller(), 'Normal create', 'X', 'wynwood', current_date + 1, '20:00',
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg') $$,
+  'seller can still create an ordinary listing (defaults to pending_review)');
+
+-- Positive 5: the review path may still seed a status on INSERT.
+SELECT tap.logout();
+SELECT lives_ok(
+  $$ INSERT INTO public.listings
+       (seller_id, event_name, venue, neighborhood, event_date, event_time,
+        ticket_type, quantity, transfer_method, starting_bid, duration_hours,
+        ends_at, current_bid, cover_image_path, proof_status)
+     VALUES (tap.seller(), 'Admin seeded', 'X', 'wynwood', current_date + 1, '20:00',
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'approved') $$,
+  'claims-less admin session may seed proof_status on INSERT');
+SELECT tap.login(tap.seller());
 
 -- Positive 3: an ordinary metadata edit that does not touch proof_status is
 -- unaffected by the guard.
