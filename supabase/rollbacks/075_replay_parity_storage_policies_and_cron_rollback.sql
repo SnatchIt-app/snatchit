@@ -31,9 +31,21 @@
 -- Recreating them would not restore a prior good state. It would REINTRODUCE A
 -- WEAKER AUTHORIZATION SURFACE than production has:
 --
---   * All six are TO PUBLIC (no TO clause -> PUBLIC). Production grants these
---     paths to `authenticated` only. Recreating them hands `anon` INSERT and
---     DELETE into the auction-media and avatars buckets.
+--   * All six are TO PUBLIC (no TO clause -> PUBLIC), where production grants
+--     these paths to `authenticated` only. Stated precisely: this is a
+--     catalog-level role widening, NOT a usable anon write path — each orphan
+--     INSERT/DELETE predicate requires
+--     auth.uid()::text = (storage.foldername(name))[1], and auth.uid() is NULL
+--     in an anon session, so the predicate yields NULL and never permits. The
+--     two orphan SELECT policies are inert as well, since production's
+--     "public read public buckets" is already TO public over the same two
+--     buckets. Undesirable and worth not reintroducing; not, by itself, an
+--     exploitable hole.
+--
+--   * "avatars: owner delete" IS a real capability grant, and this is the one
+--     that matters. Production has NO delete policy on the avatars bucket at
+--     all — only insert and update. Recreating it gives authenticated users a
+--     DELETE reach that production does not grant in any form.
 --
 --   * "storage: owner delete" and "avatars: owner delete" have no
 --     "unreferenced" predicate. RLS policies OR together within a command, so
@@ -109,9 +121,12 @@ BEGIN
   RAISE NOTICE '075 ROLLBACK: nothing was changed. This script is a no-op.';
   RAISE NOTICE 'Current state: % of the six baseline storage orphan policies present; % sweep cron job(s).', v_orphans, v_job;
   RAISE NOTICE '';
-  RAISE NOTICE 'SEC-4 is NOT reversible. Recreating those six policies would grant';
-  RAISE NOTICE 'anon INSERT/DELETE on auction-media and avatars and would defeat the';
-  RAISE NOTICE 'unreferenced-delete guard from migration 048. Refused by design.';
+  RAISE NOTICE 'SEC-4 is NOT reversible. Recreating those six policies would give';
+  RAISE NOTICE 'authenticated users a DELETE on the avatars bucket that production';
+  RAISE NOTICE 'does not grant at all, and would defeat the unreferenced-delete';
+  RAISE NOTICE 'guard from migration 048. (The TO PUBLIC widening is catalog-level';
+  RAISE NOTICE 'only: the predicates need auth.uid(), so anon gains no write path.)';
+  RAISE NOTICE 'Refused by design.';
   RAISE NOTICE '';
   RAISE NOTICE 'D-5 is reversible but destructive: cron.job records no provenance,';
   RAISE NOTICE 'so this script cannot tell a replay-created job from production''s';
