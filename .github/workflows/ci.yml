@@ -738,7 +738,19 @@ jobs:
           # name-immediately-followed-by-paren rule, grep included. If this ever
           # fires on prose, the prose belongs in a -- comment (comments and
           # string bodies are stripped before counting, so they cost nothing).
-          if [ "$todo_words" -gt "$MASK_MAX_TODO_CALLS" ]; then
+          #
+          # BOTH comparisons are required, and the second is the load-bearing
+          # one. Against the CONSTANT alone this guard only catches a detached
+          # call that is ADDED; CONVERTING an existing single-line call into a
+          # detached one holds the word count flat while dropping the call out
+          # of the masked-assertion sum entirely — so
+          #     SELECT todo('F-2 ...', 1);   ->   SELECT todo\n('F-2 ...', 20);
+          # scored todo_calls=1 masked=1 todo_words=2 and went green while
+          # actually masking 21 assertions. Same for "todo"( , todo/*c*/( and
+          # todo<CR>( . Against todo_calls, every `todo` in the tree must have a
+          # call site the parser recognised and therefore counted, so guard 5's
+          # sum is over ALL of them and the conversion has nowhere to land.
+          if [ "$todo_words" -gt "$MASK_MAX_TODO_CALLS" ] || [ "$todo_words" -gt "$todo_calls" ]; then
             echo "::error::${todo_words} \`todo\` identifiers outside comments/strings but only ${todo_calls} recognised todo() call site(s), ratchet is $MASK_MAX_TODO_CALLS. Something writes the name without a directly-attached '(' — a newline, a /* */, or a quoted identifier between the two. Write masking calls as a single unbroken todo('why', <n>)."
             grep -niE '\btodo\b' supabase/tests/*.sql || true
             exit 1

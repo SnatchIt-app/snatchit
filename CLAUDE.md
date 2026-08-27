@@ -27,7 +27,7 @@
   **not** adopted.
   The old caveat that letter-suffixed migrations are invisible to the CLI is
   **retired**: the Scheme-B normalization completed 2026-08-26, repo and ledger
-  are 1:1 at 85/85 with zero letter-suffixed versions, and
+  are 1:1 at 89/89 with zero letter-suffixed versions, and
   `migrations-guard.yml` now rejects that filename class outright. History:
   `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`.
 
