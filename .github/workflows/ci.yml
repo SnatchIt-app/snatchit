@@ -151,13 +151,58 @@ jobs:
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 23
 
-      # TODO(owner): wire these once the test/RLS assets exist.
-      #  - pgTAP RLS tests: add supabase/tests/*.sql then run:
-      #      supabase test db
-      #  - Static advisors / lint on the live schema:
-      #      supabase db lint --level warning
-      #      supabase inspect db  (or the security/performance advisors)
-      # Kept as placeholders so this job becomes the single "schema health" gate.
+      # pgTAP database security gate. Runs against the SAME freshly-replayed
+      # stack booted above, so it costs no second boot and is guaranteed to be
+      # testing the schema this PR actually produces.
+      #
+      # This step deliberately lives inside the existing `db` job rather than a
+      # new one: `Migrations apply cleanly (fresh DB)` is already a REQUIRED
+      # status check, so a pgTAP failure blocks merge immediately. Adding a
+      # separate job would mean a second required context that reports nothing
+      # until it has run once — the "disappearing required check" deadlock this
+      # repo already fixed for the migrations guard. Do NOT rename this job.
+      - name: pgTAP database security suite
+        run: |
+          set -euo pipefail
+          if ! ls supabase/tests/*.sql >/dev/null 2>&1; then
+            echo "::error::supabase/tests/*.sql missing — the security gate would silently pass."
+            exit 1
+          fi
+          files=$(ls supabase/tests/*.sql | wc -l | tr -d ' ')
+          planned=$(grep -ho 'plan([0-9]*)' supabase/tests/*.sql | grep -o '[0-9]*' | paste -sd+ - | bc)
+          echo "test files: $files    planned assertions: $planned"
+          supabase test db --local 2>&1 | tee "$RUNNER_TEMP/tap.txt"
+
+      # Parse the TAP stream for the record. `set -o pipefail` above already
+      # fails the job on a non-zero pg_prove exit; this makes the numbers
+      # explicit in the PR so "green" can never mean "the files merely exist".
+      - name: pgTAP result summary
+        if: always()
+        run: |
+          set -uo pipefail
+          f="$RUNNER_TEMP/tap.txt"
+          [ -f "$f" ] || { echo "::error::no TAP output captured — the suite did not run."; exit 1; }
+          ok_n=$(grep -cE '^ok [0-9]+' "$f" || true)
+          notok=$(grep -cE '^not ok [0-9]+' "$f" || true)
+          skip=$(grep -cE '^ok [0-9]+ # (SKIP|skip)' "$f" || true)
+          todo=$(grep -cE '# TODO' "$f" || true)
+          {
+            echo "### pgTAP database security gate"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| test files | $(ls supabase/tests/*.sql | wc -l | tr -d ' ') |"
+            echo "| assertions passed | $ok_n |"
+            echo "| assertions FAILED | $notok |"
+            echo "| skipped | $skip |"
+            echo "| todo | $todo |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "pgTAP: passed=$ok_n failed=$notok skipped=$skip todo=$todo"
+          if [ "$notok" -gt 0 ]; then
+            echo "::error::$notok pgTAP assertion(s) failed — database security gate is RED."
+            grep -E '^not ok [0-9]+' "$f" | head -40
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # web: build the Next.js app in web/. Runs only when web/package.json exists.
