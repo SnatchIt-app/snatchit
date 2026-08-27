@@ -80,6 +80,10 @@ jobs:
     name: Migrations apply cleanly (fresh DB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # SINGLE SOURCE OF TRUTH for the CLI pin. Both the installer input and the
+    # drift assertion below read this one value — never repeat the literal.
+    env:
+      SUPABASE_CLI_VERSION: 2.115.0
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -92,7 +96,33 @@ jobs:
           # 2.115.0 is the version whose ordering behaviour was verified against
           # the normalized (Scheme B) chain. Upgrades require a deliberate PR:
           # bump pin -> fresh replay green -> Gate-2 parity green -> merge.
-          version: 2.115.0
+          # The value lives in the job-level env above.
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      # Toolchain assertion — runs BEFORE anything migration-sensitive.
+      # `supabase/setup-cli` resolving to something other than the pin (input
+      # typo, action behaviour change, a cached/preinstalled binary earlier on
+      # PATH) would silently replay the chain on an unverified tool. Fail loudly
+      # instead. `--version` prints the bare version on stdout ("2.115.0"); an
+      # upgrade-available notice goes to stderr, so stderr is discarded. The
+      # comparison itself is exact — no prefix/substring matching.
+      - name: Assert pinned Supabase CLI (toolchain drift gate)
+        run: |
+          set -euo pipefail
+          echo "supabase binary : $(command -v supabase)"
+          # `|| true` so a non-zero/absent CLI falls through to the explicit
+          # empty-output error below rather than dying silently under pipefail.
+          actual="$( { supabase --version 2>/dev/null || true; } | head -n1 | tr -d '[:space:]' | sed 's/^[vV]//')"
+          echo "supabase CLI    : expected=${SUPABASE_CLI_VERSION} actual=${actual}"
+          if [ -z "$actual" ]; then
+            echo "::error::Could not determine the Supabase CLI version (\`supabase --version\` produced no output on stdout)."
+            exit 1
+          fi
+          if [ "$actual" != "$SUPABASE_CLI_VERSION" ]; then
+            echo "::error::Supabase CLI version drift: expected ${SUPABASE_CLI_VERSION}, got ${actual}. The migration chain's replay order is only verified against the pin — fix the pin or re-verify the chain, do not float the tool."
+            exit 1
+          fi
+          echo "OK: Supabase CLI matches the pin (${SUPABASE_CLI_VERSION})."
 
       # supabase/config.toml is not committed; create it if absent. Non-interactive
       # in CI (no TTY). Ensure [db].major_version = 17 to match production.

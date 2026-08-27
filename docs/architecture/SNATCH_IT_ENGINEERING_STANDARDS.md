@@ -25,7 +25,7 @@
 ## 3. CI requirements (`.github/workflows/`)
 Every PR to `main` runs and must pass:
 - **quality** — `npm ci`, `tsc --noEmit`, `expo lint`, `vitest run`.
-- **db** — fresh-DB migration bootstrap via the Supabase CLI (proves the chain replays cleanly — see §5).
+- **db** — fresh-DB migration bootstrap via the Supabase CLI (proves the chain replays cleanly — see §5). The CLI is pinned to an exact version (§5, "Toolchain pin"), not `latest`.
 - **security** — CodeQL, dependency-review, secret scan (TruffleHog). `npm audit` advisory.
 - **migrations-guard** — append-only immutability + monotonic ordering on `supabase/migrations/**`.
 Third-party actions are SHA-pinned; tokens are least-privilege; no `pull_request_target`; no deploy-from-branch.
@@ -50,6 +50,7 @@ Third-party actions are SHA-pinned; tokens are least-privilege; no `pull_request
 - **Version discipline:** ~~the repo mixes `NNN_` and timestamp prefixes. Production's `schema_migrations` currently records **timestamp** versions for `040–068` while repo files use `NNN_`~~ — **resolved 2026-08-26** by the Scheme-B normalization; repo and ledger are now 1:1 (85/85). The auto-apply prohibition in §6 does **not** lapse with it: it is now unconditional for the separate reason in AUTODEPLOY-1. See §6.
 - Every migration ships with a **rollback** in `supabase/rollbacks/` and a header stating purpose, forward behavior, compatibility, expected locks/runtime, rollback, and a verification query.
 - **Staging-first:** validate every DB change on a staging branch (or a rolled-back transactional dry-run against prod for pure metadata/grant changes) BEFORE production. Capture before/after catalog state.
+- **Toolchain pin — Supabase CLI `2.115.0` for all migration-sensitive work.** Replay order is a correctness property of this chain, so it must not depend on whichever CLI happens to be installed. `2.115.0` is the version the normalized (Scheme B) chain was verified against and the client the 2026-08-26 production ledger repair was executed with. It is pinned in exactly one place — the job-level `env.SUPABASE_CLI_VERSION` in the `db` job of `.github/workflows/ci.yml` — and asserted there before any migration step, so a drifted CLI fails the build rather than silently replaying on an unverified tool. **Use the same version locally**; never `supabase upgrade` or install `latest`. `2.116.0` exists upstream and is deliberately not adopted. Bumping the pin is its own PR: change the env value → fresh replay green → Gate-2 parity green → merge.
 
 ## 6. Production deployment & promotion
 - **GitHub Actions CI is non-production. The Supabase GitHub integration is a separate deployment path and must remain configured so production migrations are owner-gated.** These are two independent paths; only the first is visible in this repository. Canonical: `docs/operations/DEPLOYMENT_PATHS.md`.
