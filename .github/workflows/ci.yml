@@ -319,6 +319,52 @@ jobs:
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
 
+          # ── Masking ratchet (REPLAY-1, Agent C) ──────────────────────────
+          # pgTAP todo() failures do NOT fail pg_prove: Result stays PASS and
+          # tests_ran still equals planned. Every guard above is therefore blind
+          # to a failing security assertion that someone wrapped in todo() — the
+          # step already COMPUTES todo_fail and prints it, but nothing gated on
+          # it. Confirmed on a live green run (33090393102, tree identical to
+          # main at the time) which reported todo_failing=2 and still succeeded.
+          #
+          # This suite legitimately carries 2, both in 060_payments_money.sql:
+          # F-2 (#11, unique index on transfers.stripe_transfer_id) and F-3
+          # (#12, payments amount/status guard trigger). See
+          # supabase/tests/README.md "Pinned findings".
+          # LOWER this when a pinned finding is fixed; NEVER raise it to make a
+          # red build pass. Adding a genuinely new pinned gap is a reviewed
+          # decision, not a ratchet bump of convenience.
+          EXPECT_TODO=2
+          if [ "${todo_fail:-0}" -gt "$EXPECT_TODO" ]; then
+            echo "::error::${todo_fail} failing-but-TODO assertions, ratchet is $EXPECT_TODO — a failing assertion was masked with todo()."
+            grep -aE '# Failed \(TODO\) test' "$f" | head -20 || true
+            exit 1
+          fi
+          # Static ratchet too: a todo() assertion that PASSES emits no runtime
+          # marker, so the runtime count above alone cannot see a todo() being
+          # ADDED around an assertion that currently happens to pass.
+          # `|| true` matters: when the last todo() is finally fixed this grep
+          # matches nothing, and pipefail + `bash -e` would abort the step on
+          # the very commit that improves the suite.
+          todo_src=$(grep -hoE '\btodo\(' supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ' || true)
+          todo_src=${todo_src:-0}
+          if [ "$todo_src" -gt "$EXPECT_TODO" ]; then
+            echo "::error::$todo_src todo() calls in the suite, ratchet is $EXPECT_TODO — a new expected-fail marker was added without lowering coverage debt."
+            grep -nE '\btodo\(' supabase/tests/*.sql || true
+            exit 1
+          fi
+          # skip() is invisible to EVERY guard here: skipped assertions still
+          # count toward Tests= (so the ran-vs-planned check passes) and can
+          # never fail. The suite must not skip. Note this is a deliberately
+          # blunt textual check — it would also fire on the string "skip(" in a
+          # comment or identifier. There are currently zero occurrences, and a
+          # false positive is a cheap, obvious fix; a missed skip() is silent.
+          if grep -nE '\bskip\(' supabase/tests/*.sql; then
+            echo "::error::skip() found in the suite — skipped assertions still count as run and can never fail."
+            exit 1
+          fi
+          echo "masking ratchet OK: todo_failing=${todo_fail:-0} <= $EXPECT_TODO, todo() calls=$todo_src, skip() calls=0"
+
   # ---------------------------------------------------------------------------
   # web: build the Next.js app in web/. Runs only when web/package.json exists.
   # web/ pins Node >=22 (engines), so this job uses Node 22 even though the
