@@ -156,10 +156,17 @@ jobs:
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           # Certified Phase-0 Gate-2 baseline (PHASE_0_GATE2_SCHEMA_DIFF.md).
+          # 2026-08-27, migration 072 (H-1): functions 68 -> 69 and triggers
+          # 23 -> 24. 072 is purely additive — it creates exactly one function
+          # (guard_listing_insert_columns) and one trigger
+          # (trg_guard_listing_insert on public.listings) and alters nothing that
+          # already existed. Until 072 is applied to production, the fresh replay
+          # is intentionally ONE function and ONE trigger ahead of the production
+          # catalog; that gap closes on apply. Tables and policies are unchanged.
           EXPECT_TABLES: 27
-          EXPECT_FUNCS: 68
+          EXPECT_FUNCS: 69
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 23
+          EXPECT_TRIGGERS: 24
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -283,8 +290,10 @@ jobs:
           # of the files currently on disk), so they stay consistent as coverage
           # shrinks. These are ratchets — raise them when coverage grows, never
           # lower them to make a red build pass.
-          MIN_FILES=12
-          MIN_ASSERTIONS=214
+          # Ratchets raised 2026-08-27 with supabase/tests/045_listing_insert_authority.sql
+          # (H-1): 12 -> 13 files, 214 -> 234 assertions.
+          MIN_FILES=13
+          MIN_ASSERTIONS=234
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"

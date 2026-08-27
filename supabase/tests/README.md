@@ -2,7 +2,7 @@
 
 > **STATUS 2026-08-27 — THIS SUITE NOW EXECUTES IN CI.**
 > It ran for the first time on 2026-08-27 (it had never been executed before).
-> Current: **12 files, 214 assertions, `Result: PASS`, 0 bad plans**, via
+> Current: **13 files, 234 assertions, `Result: PASS`, 0 bad plans**, via
 > `supabase test db --local` in the `db` job of `ci.yml`, against the same
 > freshly-replayed stack that job already boots.
 >
@@ -21,7 +21,7 @@ RLS coverage, the profiles column-grant read boundary, anon/authenticated
 write bans, transfer state custody (RPC-only writes), payment/payout money
 invariants, admin isolation, and the webhook claim lease.
 
-**214 assertions** across 12 files. 2 are deliberate expected-fail `todo()`
+**234 assertions** across 13 files. 2 are deliberate expected-fail `todo()`
 markers pinning known open gaps (they flip green when the fix ships — see
 "Pinned findings" below).
 
@@ -70,6 +70,7 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | `020_profiles_columns.sql` | 20 | 052/068 exact 8-column SELECT sets, 041 exact 6-column UPDATE set, private-field denials, `get_my_profile()` |
 | `030_anon_boundaries.sql` | 28 | anon can browse and nothing else; all writes + financial RPC EXECUTE closed (055c/059/063/067) |
 | `040_authenticated_boundaries.sql` | 22 | cross-user no-ops, self-escalation denials, listing gate (036/038), listing state guard (046), bid immutability, strict identity (059) |
+| `045_listing_insert_authority.sql` | 20 | H-1: INSERT-side column custody on `public.listings` — forged `winner_user_id`/`winning_bid_amount`/`current_bid`/`bid_count`/auction state/settlement timestamps/backdated `created_at` are rejected at creation (072); `app.bypass_listing_guard` does not open the INSERT path; ordinary + Buy Now seller creation, the service path and the operator path all still work |
 | `050_transfers_custody.sql` | 18 | direct state writes blocked for authenticated AND service_role AND owner (056b); RPC path works; 056c one-statement bypass window; evidence append-only; state machine |
 | `060_payments_money.sql` | 12 | client write ban, one-succeeded-payment-per-listing (003), one-transfer-per-payment/listing (003), F-2/F-3 TODOs |
 | `070_payouts.sql` | 19 | `record_transfer_payout` idempotency + NULL guards + dispute refusal (056d); 065 resolution gate + append-only audit; reversal |
