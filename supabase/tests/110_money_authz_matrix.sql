@@ -179,6 +179,37 @@ SELECT throws_ok(
 -- something raised; 18 is what proves the raise was about IDENTITY, by showing
 -- the identical call on the identical row succeeds for the true reservation
 -- holder. Keep them together — deleting 18 makes 17 unfalsifiable again.
+-- ===== TEMPORARY FALSIFICATION PROBE — NOT FOR MERGE =====================
+-- Injects the exact identity-forgery regression F1 describes: p_user_id
+-- winning over auth.uid(). Transaction-local (CREATE OR REPLACE inside this
+-- file's BEGIN...ROLLBACK), CI database only, never production.
+-- EXPECTATION: assertion 17 must go RED. If it stays green the assertion is
+-- still degenerate and the fix did not work.
+CREATE OR REPLACE FUNCTION public.mark_listing_sold(p_listing_id uuid, p_user_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $probe$
+DECLARE v_caller_id uuid; v_status text; v_reserved_by uuid; v_reserved_until timestamptz;
+BEGIN
+  v_caller_id := coalesce(p_user_id, auth.uid());   -- THE HOLE
+  IF v_caller_id IS NULL THEN RAISE EXCEPTION 'Unable to identify caller. Ensure the request is authenticated.'; END IF;
+  SELECT status, reserved_by, reserved_until INTO v_status, v_reserved_by, v_reserved_until
+    FROM public.listings WHERE id = p_listing_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Listing not found.'; END IF;
+  IF v_status = 'sold' THEN RETURN; END IF;
+  IF v_status <> 'reserved' OR v_reserved_by IS DISTINCT FROM v_caller_id THEN
+    RAISE EXCEPTION 'This listing is not reserved by you.';
+  END IF;
+  IF v_reserved_until <= now() THEN
+    PERFORM set_config('app.bypass_listing_guard', 'on', true);
+    UPDATE public.listings SET status='active', reserved_by=null, reserved_until=null WHERE id = p_listing_id;
+    RAISE EXCEPTION 'Your reservation has expired. Please try again.';
+  END IF;
+  PERFORM set_config('app.bypass_listing_guard', 'on', true);
+  UPDATE public.listings SET status='sold', auction_status='sold', sold_at=now(),
+     reserved_by=null, reserved_until=null WHERE id = p_listing_id;
+END; $probe$;
+-- ===== END PROBE =========================================================
+
 SELECT throws_ok(
   $$ SELECT public.mark_listing_sold('aaaaaaaa-0000-0000-0000-000000000005'::uuid, tap.seller()) $$,
   'P0001', 'This listing is not reserved by you.',
