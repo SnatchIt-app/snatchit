@@ -16,7 +16,6 @@ anon|stripe_connect_archive|DELETE,INSERT,SELECT,UPDATE
 anon|transfers|SELECT
 anon|user_blocks|DELETE,INSERT,SELECT,UPDATE
 anon|venue_partnership_inquiries|DELETE,INSERT,SELECT,UPDATE
-anon|webhook_retries|DELETE,INSERT,SELECT,UPDATE
 authenticated|ambassador_applications|DELETE,INSERT,SELECT,UPDATE
 authenticated|bids|DELETE,INSERT,SELECT,UPDATE
 authenticated|disputes|DELETE,INSERT,SELECT,UPDATE
@@ -36,7 +35,6 @@ authenticated|stripe_connect_archive|DELETE,INSERT,SELECT,UPDATE
 authenticated|transfers|SELECT
 authenticated|user_blocks|DELETE,INSERT,SELECT,UPDATE
 authenticated|venue_partnership_inquiries|DELETE,INSERT,SELECT,UPDATE
-authenticated|webhook_retries|DELETE,INSERT,SELECT,UPDATE
 service_role|admin_users|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
 service_role|ambassador_applications|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
 service_role|auth_audit_sweep_state|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE

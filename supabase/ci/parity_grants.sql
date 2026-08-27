@@ -16,8 +16,8 @@
 -- Without this, "anon cannot read X" passes because the GRANT is absent rather
 -- than because RLS works — vacuous green across most of the suite.
 --
--- FIDELITY: transcribed verbatim from production's information_schema.role_table_grants
--- on 2026-08-27. It is PER-TABLE and PER-PRIVILEGE, not a blanket grant. An
+-- FIDELITY: transcribed from production's information_schema.role_table_grants
+-- on 2026-08-27, WITH ONE DELIBERATE DEPARTURE (see DRIFT-1 below). It is PER-TABLE and PER-PRIVILEGE, not a blanket grant. An
 -- earlier revision granted SELECT+INSERT+UPDATE+DELETE uniformly to every
 -- allow-listed table and thereby OVER-granted: it broke three assertions that
 -- correctly expect public.transfers to be SELECT-only for both client roles
@@ -27,6 +27,21 @@
 -- GRANT ONLY, NEVER REVOKE. public.profiles gets no table-level client grant:
 -- migrations 041/052/062/068 install COLUMN-level grants there and a table-level
 -- REVOKE would silently destroy them. Absence from a list IS the deny.
+--
+-- DRIFT-1 — the one place this fixture does NOT copy production. Production
+-- grants anon and authenticated DELETE/INSERT/SELECT/UPDATE on
+-- public.webhook_retries, but migration 069 line 22 explicitly does
+--     revoke all on public.webhook_retries from public, anon, authenticated;
+-- and no migration ever grants it back. Production has drifted from source.
+-- This fixture follows SOURCE, because that is what the suite exists to verify:
+-- it compensates only for the environment-provided defaults source cannot
+-- express, and where source IS explicit, source wins. Copying the drift instead
+-- made 090's "authenticated cannot read webhook retries" fail — the suite
+-- correctly reporting that the database it was handed disagreed with the code.
+-- Exposure in production is nil today (RLS on, zero policies, zero rows), so it
+-- is a defence-in-depth regression rather than a live leak, but it should be
+-- reconciled by running 069's revoke against production. That is a production
+-- privilege change and therefore owner-gated; it is NOT bundled into 071.
 --
 -- REPLAY-1 REMAINS OPEN: source still cannot rebuild production's authorization
 -- surface. A rebuild from this repo today yields a database in which the app
@@ -84,7 +99,6 @@ GRANT DELETE, INSERT, SELECT, UPDATE ON public.stripe_connect_archive TO anon;
 GRANT SELECT ON public.transfers TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.user_blocks TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.venue_partnership_inquiries TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.webhook_retries TO anon;
 
 -- authenticated — 20 of 27 tables. Withheld: admin_users,
 -- auth_audit_sweep_state, dispute_resolutions, profiles, rate_limits,
@@ -108,4 +122,3 @@ GRANT DELETE, INSERT, SELECT, UPDATE ON public.stripe_connect_archive TO authent
 GRANT SELECT ON public.transfers TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.user_blocks TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.venue_partnership_inquiries TO authenticated;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.webhook_retries TO authenticated;
