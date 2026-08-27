@@ -174,18 +174,23 @@ jobs:
             where table_schema='public' and grantee in ('anon','authenticated','service_role')
               and privilege_type='SELECT' group by grantee order by grantee;"
           psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/parity_grants.sql
-          echo "--- AFTER (production parity applied) ---"
-          for pair in "anon 19" "authenticated 20" "service_role 27"; do
-            role="${pair% *}"; want="${pair#* }"
-            got=$(psql "$DB_URL" -tAc "select count(distinct table_name) from information_schema.role_table_grants where table_schema='public' and grantee='$role' and privilege_type='SELECT';")
-            echo "  $role: $got (production: $want)"
-            [ "$got" = "$want" ] || { echo "::error::privilege parity failed for $role: $got != $want"; exit 1; }
-          done
+          echo "--- AFTER: full matrix must equal production, byte for byte ---"
+          psql "$DB_URL" -tA -F'|' -c "
+            select grantee, table_name, string_agg(privilege_type, ',' order by privilege_type)
+            from information_schema.role_table_grants
+            where table_schema='public' and grantee in ('anon','authenticated','service_role')
+            group by grantee, table_name order by grantee, table_name;" \
+            | sed 's/[[:space:]]*$//' | sort > "$RUNNER_TEMP/actual_grants.txt"
+          if ! diff -u supabase/ci/expected_grants.txt "$RUNNER_TEMP/actual_grants.txt"; then
+            echo "::error::privilege surface does not match production. A count-only check would have missed this — an earlier revision over-granted public.transfers (production is SELECT-only there per migration 055) and silently broke three assertions."
+            exit 1
+          fi
+          echo "OK: $(wc -l < supabase/ci/expected_grants.txt | tr -d ' ') grant rows match production exactly."
           # profiles must remain COLUMN-granted, never table-granted.
-          tbl=$(psql "$DB_URL" -tAc "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
+          tbl=$(psql "$DB_URL" -tAc "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name='profiles' and grantee in ('anon','authenticated');")
           col=$(psql "$DB_URL" -tAc "select count(*) from information_schema.column_privileges where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
-          echo "  profiles: table-level SELECT grants=$tbl (must be 0), column-level=$col (must be > 0)"
-          [ "$tbl" = "0" ] || { echo "::error::profiles gained a table-level grant — column restrictions are bypassed"; exit 1; }
+          echo "  profiles: client table-level grants=$tbl (must be 0), column-level SELECT=$col (must be > 0)"
+          [ "$tbl" = "0" ] || { echo "::error::profiles gained a table-level client grant — column restrictions bypassed"; exit 1; }
           [ "$col" -gt 0 ] || { echo "::error::profiles lost its column-level grants"; exit 1; }
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
