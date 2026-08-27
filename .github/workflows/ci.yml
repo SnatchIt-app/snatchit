@@ -313,6 +313,12 @@ jobs:
           # of the files currently on disk), so they stay consistent as coverage
           # shrinks. These are ratchets — raise them when coverage grows, never
           # lower them to make a red build pass.
+          # DELIBERATELY NOT RAISED this round (2026-08-27). Agents A and B are
+          # concurrently adding test files; B's branch is already at 13 files /
+          # 231 assertions. Both comparisons are `>=`, so 12/214 still passes on
+          # every in-flight branch. Raising the floor now would make it a moving
+          # target that breaks whichever sibling PR lands second. Ratchet both
+          # numbers up in ONE follow-up once A's and B's branches have landed.
           MIN_FILES=12
           MIN_ASSERTIONS=214
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
@@ -334,6 +340,10 @@ jobs:
           # LOWER this when a pinned finding is fixed; NEVER raise it to make a
           # red build pass. Adding a genuinely new pinned gap is a reviewed
           # decision, not a ratchet bump of convenience.
+          # Still correct across the in-flight sibling branches: B's new
+          # 110_money_authz_matrix.sql adds 17 assertions and NO todo() (F-2/F-3
+          # are recorded as not-implemented rather than re-marked), so the count
+          # stays at 2. Re-check this against the merged suite.
           EXPECT_TODO=2
           if [ "${todo_fail:-0}" -gt "$EXPECT_TODO" ]; then
             echo "::error::${todo_fail} failing-but-TODO assertions, ratchet is $EXPECT_TODO — a failing assertion was masked with todo()."
