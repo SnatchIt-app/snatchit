@@ -57,10 +57,23 @@ On every push to `main`, Supabase's infrastructure connects as `postgres` and ru
 > **GitHub Actions CI is non-production. The Supabase GitHub integration is a separate deployment
 > path and must remain configured so that production migrations are owner-gated.**
 
-Until an owner has visually confirmed in the Supabase dashboard that merging to `main` does **not**
-apply migrations to production:
+**Current status (2026-08-27): automatic deployment is OFF.** The owner disabled it; the branch
+record's `git_branch` went from `"main"` to `""` and the integration's response to a push to `main`
+changed from `success` to `skipped`. See `AUTODEPLOY_1_CLOSURE_REPORT.md` §6–§7.
 
-**NO MIGRATION-BEARING PULL REQUEST MAY MERGE TO `main`.**
+That status is a fact about one moment, not a standing guarantee. A reconnect restores the risk
+silently — the branch record still exists and still points at the production project; only the git
+link was cleared. So the rule below is permanent and per-PR, not a one-time gate:
+
+**NO MIGRATION-BEARING PULL REQUEST MAY MERGE TO `main` without a fresh owner confirmation that
+production auto-deploy is OFF**, recorded in the PR description as:
+
+```
+AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD
+```
+
+`migrations-guard.yml` — a required check — enforces this. It proves someone confirmed, not that the
+setting is off; CI cannot read the dashboard.
 
 A PR is migration-bearing if it adds, modifies, or deletes anything under `supabase/migrations/`.
 Docs, CI, tests, and application code are not migration-bearing.
@@ -116,6 +129,9 @@ check, and one unreviewed production migration.
 | 2026-08-27 00:35 | `75d701e` | **failure** — "Remote migration versions not found in local migrations directory" | none; refused during the Scheme-B ledger mismatch |
 | 2026-08-27 03:36 | `aa0626d` | success | none; ledger already 84/84, nothing pending |
 | 2026-08-27 15:11 | `7ff83f8` | success | **applied migration 071** — 8 statements in 298 ms |
+| 2026-08-27 15:49 | — | — | **owner disabled automatic deployment**; `git_branch` cleared to `""` |
+| 2026-08-27 ~16:0x | `ff36444` | **skipped** | none — ledger still 85 |
+| 2026-08-27 ~16:1x | `e332a21` | **skipped** | none — ledger still 85 |
 
 The integration had been firing on every `main` push since ~2026-08-24. It went unnoticed because
 until 071 there was never anything pending for it to apply. The one red check was read as a preview

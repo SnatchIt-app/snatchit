@@ -1,10 +1,8 @@
 # AUTODEPLOY-1 — Incident Closure Report
 
-**Verdict: AUTODEPLOY-1 OPEN.**
-
-Everything that can be done from the repository is done. Closure requires one owner action that
-has no API or CLI surface — a visual confirmation in the Supabase dashboard. Until that happens,
-**no migration-bearing PR may merge to `main`.**
+**Verdict: AUTODEPLOY-1 CLOSED** (2026-08-27). The owner disabled automatic deployment; the change is
+independently confirmed at the API level and by changed behaviour on two merges to `main`. See §6
+and §7 for what that does and does not prove.
 
 | | |
 |---|---|
@@ -14,7 +12,7 @@ has no API or CLI surface — a visual confirmation in the Supabase dashboard. U
 | Production ledger now | **85** |
 | Schema changed during this investigation | **None** |
 | Migrations authored | **None** — no `072`, no test migration |
-| PRs merged | **None** |
+| PRs merged | **#16 then #15**, both docs/CI only, both after the fix |
 
 ---
 
@@ -186,14 +184,27 @@ the current workflow depends on it. Its complete observed contribution to date i
 one red check that was misread, and one unreviewed production migration. If branching is wanted
 later, reconnect it deliberately with a non-production branch binding.
 
-Then tell me what you saw, and I will record it below and re-run §7.
+### DONE — owner confirmation, 2026-08-27
 
-```
-Setting found (verbatim label):        ____________________________________
-Previous state:                        ____________________________________
-New state:                             ____________________________________
-Confirmed by / date:                   ____________________________________
-```
+**Owner turned automatic deployment off.** Reported in session at ~15:49 UTC.
+
+That statement is corroborated by an API-level state change I did **not** have to take on trust.
+The Supabase branch record moved as follows:
+
+| field | before (15:05) | after (15:49) |
+|---|---|---|
+| `git_branch` | `"main"` | **`""`** |
+| `updated_at` | `2026-08-24T15:47:27Z` | **`2026-08-27T15:49:25Z`** |
+| `is_default` | `true` | `true` (unchanged) |
+| `project_ref` / `parent_project_ref` | equal | equal (unchanged) |
+
+**The git binding is severed.** The field that made merges to `main` reach production is now empty.
+The branch record itself still exists and still points at the production project — it is the *link
+to git* that was removed, which is the link that mattered.
+
+Not captured: the verbatim dashboard label and its previous state. Worth recording for the audit
+trail if you still have it, but the API evidence above is the stronger artefact and the closure does
+not depend on the label.
 
 ### Also worth your attention while you are in there
 
@@ -202,45 +213,66 @@ and pooled Postgres URL** in plaintext. I ran it during this investigation, so t
 in this session's transcript. They were not sent anywhere, and this is your own session — but if
 this transcript is ever shared, rotate the service-role key and JWT secret first.
 
-## 7. Verification of the fix — deferred, and honestly scoped
+## 7. Verification of the fix — executed
 
-To be run **after** §6, not before.
+Two merges to `main` after the fix, neither migration-bearing, no test migration created.
 
-**What a docs-only merge can prove:** that a merge to `main` completes with the production ledger
-unchanged at **85**, and that the Supabase check either does not run or runs without applying
-anything. PR #15 is exactly this signal and is already staged for it (§8).
+| | `#16` → `ff36444` | `#15` → `e332a21` |
+|---|---|---|
+| Supabase check on the `main` commit | **`skipped`** | **`skipped`** |
+| Production ledger after | **85** | **85** |
+| Ledger md5 after | `4783033000cc5cb11e03271330cbd049` | same |
+| Backup rows | 79 | 79 |
+| `guard_proof_status` still `prosecdef=false` | ✓ | ✓ |
+| Trigger still `BEFORE INSERT OR UPDATE` | ✓ | ✓ |
+| Tables / functions / policies | 27 / 68 / 37 | unchanged |
 
-**What it cannot prove:** that a *migration-bearing* merge would no longer deploy. A docs-only PR
-has nothing pending for `db push` to apply, so a clean result is consistent both with "auto-deploy is
-now off" and with "auto-deploy is still on but had nothing to do" — which is precisely the state
-that hid this defect for three days. **A docs-only merge is corroborating evidence, not proof.**
+**The behavioural comparison is the useful part, and it is like-for-like.** Merge `aa0626d`
+(2026-08-27 03:36) was also docs/CI-only with **nothing pending**, and the integration returned
+**`success`** — it processed the push and found nothing to do. The same shape of merge now returns
+**`skipped`**: the integration no longer processes pushes to `main` at all. That is a change in the
+control, not merely a change in outcome.
 
-I will not create a throwaway migration to probe production. The only proof that would satisfy the
-question is the owner's direct view of the setting, which is why §6 is the closure gate and this
-section is not.
+### What this proves, and what it does not
 
-Ledger check, before and after any merge: `select count(*) from supabase_migrations.schema_migrations`
-→ must read **85** both times.
+**Proven:**
+- The git↔branch binding is gone at the API level (§6) — `git_branch` is empty.
+- The integration's response to a push to `main` changed from processing (`success`) to not
+  processing (`skipped`), on comparable merges.
+- Two merges to `main` completed with production bit-identical: ledger 85, same md5, backup 79,
+  Gate-2 counts unchanged, `071` intact.
+
+**Not proven:** that a *migration-bearing* merge would not deploy. Both merges had nothing pending,
+so on their own they are consistent with "off" and with "on but idle" — precisely the ambiguity that
+hid this defect for three days. This is why the §6 evidence carries the closure and §7 corroborates
+it, not the reverse. I did not and will not create a throwaway migration to probe production.
+
+**The first genuine test will be the H-1 migration**, and it is now gated: the required
+`migrations-guard` check will refuse it without `AUTODEPLOY-VERIFIED-OFF`, and the apply will be an
+explicit owner-authorized step per §5. Verify the ledger goes 85 → 86 **only** at that explicit
+apply, and not at the merge.
 
 ## 8. PR status
 
 | PR | Contents | Migration/schema changes | State |
 |---|---|---|---|
-| [#15](https://github.com/SnatchIt-app/snatchit/pull/15) | `071_PRODUCTION_VERIFICATION_REPORT.md` | **None** — one added `.md` file, verified by `git diff --name-only` against `main` | **Open, not merged.** Cleared to merge once §6 is confirmed. |
-| **#16 (this change)** | Docs corrections, canonical `DEPLOYMENT_PATHS.md`, workflow comment fixes, the enforced precondition | **None** — no file under `supabase/migrations/` touched | **Open, not merged.** |
+| [#16](https://github.com/SnatchIt-app/snatchit/pull/16) | Docs corrections, canonical `DEPLOYMENT_PATHS.md`, workflow comment fixes, the enforced precondition | **None** — no file under `supabase/migrations/` touched | **Merged** → `main` `ff36444` |
+| [#15](https://github.com/SnatchIt-app/snatchit/pull/15) | `071_PRODUCTION_VERIFICATION_REPORT.md` | **None** — one added `.md` file, verified by `git diff --name-only` against `main` | **Merged** → `main` `e332a21` |
 
-Neither is migration-bearing, so neither trips the new precondition check, and neither can cause a
-migration to be applied. Both are nonetheless held until §6, per the absolute rule.
+Neither was migration-bearing, so neither tripped the new precondition check and neither could cause
+a migration to be applied. Both were held until §6 was confirmed, per the absolute rule, then merged
+in that order — #16 first, because it carries the rule and the enforcement.
 
-Merge order once closure is confirmed: **#16 first** (it carries the rule and the enforcement), then
-**#15**. Confirm the ledger reads 85 after each.
+Ledger read **85** before, between, and after. `main` is now `e332a21`.
 
 ## 9. Remaining risk
 
 | | Risk |
 |---|---|
-| **Open** | The control itself is unverified and possibly still live. **This is AUTODEPLOY-1.** Any migration-bearing merge before §6 repeats the incident. |
-| **Latent** | The same integration can deploy **Edge Functions**. It did not this time, but the money-critical functions (`stripe-webhook`, `confirm-and-release`, `create-payment-intent`) are in scope for whatever the setting governs. Confirm that too while in the dashboard. |
+| **Closed** | ~~The control itself is unverified and possibly still live.~~ Disabled by the owner and confirmed at the API level (§6); behaviour on `main` changed from `success` to `skipped` (§7). |
+| **Residual** | The fix has not been exercised against a *migration-bearing* merge, and deliberately will not be probed. The H-1 migration is the first real test; it is gated by the required check and an explicit apply step. Watch that the ledger moves 85 → 86 only at the apply, never at the merge. |
+| **Residual** | The branch record still exists and still points at the production project (`parent_project_ref == project_ref`); only `git_branch` was cleared. If the integration is ever reconnected, this binding is what to re-check — a reconnect could silently restore the old behaviour. |
+| **Latent** | The same integration can deploy **Edge Functions**. It did not during the incident, but the money-critical functions (`stripe-webhook`, `confirm-and-release`, `create-payment-intent`) were in scope of whatever the setting governed. With the git binding cleared this path is closed too, by the same mechanism — worth re-checking on any reconnect. |
 | **Partial** | The new CI gate proves acknowledgement, not configuration. It cannot be strengthened without an API for the setting. |
 | **Unchanged** | **H-1 (HIGH)** — `guard_listing_state_columns` / `guard_listing_identity_columns` are UPDATE-only and do not protect INSERT. Deliberately **not** bundled here. Still blocks Phase 2 GO. Not authored in this session. |
 | **Unchanged** | MONEY-1 (Medium), REPLAY-1 (Medium), DRIFT-1 (Low) — see `071_PRODUCTION_VERIFICATION_REPORT.md` §9. |
@@ -250,10 +282,23 @@ Merge order once closure is confirmed: **#16 first** (it carries the rule and th
 
 ## Verdict
 
-**AUTODEPLOY-1 OPEN** — pending the owner confirmation in §6.
+**AUTODEPLOY-1 CLOSED.**
 
-Root cause identified with database-level evidence, blast radius bounded, documentation corrected,
-precondition documented and mechanically enforced. Production ledger **85** before and after this
-work; **no schema changed**; **no migration authored**; **nothing merged**.
+Root cause identified with database-level evidence (Supabase Branching bound git `main` to the
+production project; the CLI's `db push` bootstrap ran as `postgres` from AWS 39 s after the merge).
+Blast radius bounded to one migration — the reviewed artifact — with Edge Functions excluded on
+evidence. Automatic deployment disabled by the owner and confirmed independently: `git_branch`
+cleared from `"main"` to `""`, and the integration's response to a push to `main` changed from
+`success` to `skipped` on a like-for-like merge. Documentation corrected in nine files with a new
+canonical reference. The precondition is both documented and mechanically enforced in a required
+check.
 
-Per instruction, work stops here. H-1 is not authored and Phase 2 is not started.
+Production ledger **85** throughout — before the investigation, between the two merges, and after.
+**No schema changed. No migration authored.** The rule stands: on this repository a merge must never
+again be the apply.
+
+The one thing that would make this airtight — a migration-bearing merge that does *not* deploy — is
+deliberately left untested rather than probed against production. It will be answered for real by
+H-1.
+
+Per instruction, work stops here. **H-1 is not authored and Phase 2 is not started.**
