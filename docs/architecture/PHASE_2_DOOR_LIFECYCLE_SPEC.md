@@ -1,0 +1,1417 @@
+# Phase 2 — Door Lifecycle Specification (Owner Ruling O-5)
+
+**Status:** BUILD-READY DELTA SPEC. **Design-only — no SQL files, no migrations, no implementation code.**
+SQL snippets appear inline only to pin the *shape* of a constraint or trigger; they are illustrative, not
+deliverables. This document is a **delta** on the frozen Phase-2 specification set; it does not edit the
+constitution documents (`SNATCH_IT_DOMAIN_ARCHITECTURE.md`, `SNATCH_IT_CANONICAL_DATA_MODEL.md`).
+Integration into the six implementation specs happens in a later pass.
+
+**Authority:** Owner ruling **O-5** (door lifecycle, RATIFIED) and **O-4** (door authority, RATIFIED).
+
+**Binding inputs (authority order):**
+1. `docs/architecture/PHASE_2_SPEC_FOUNDATION.md` — SSCAS + global lock order, C36 role model, D3 causes.
+2. `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — §0.6–§0.9, §1.5, §1.12, §2.3, §3.10–§3.12.
+3. `docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md` — §0 conventions, §7, §8, §9, §12.4, §14.
+4. `docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md` — §1.1, §4, §8.3, §9.10–§9.12, §11, §14.3.
+5. `docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md` — §5.4, §5.5, §5.6.
+6. `docs/architecture/PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md` §4.4/§4.5/§7/§10.2 ·
+   `docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §12 (Δ1, §22.7).
+7. `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` — C6, C23, C37, C41, C43.
+
+> **Migration-numbering note.** The frozen specs (RPC §16.2, RLS §15.2, edge §9.6, review §5 A2/A3) cite
+> migration `073` for `door_open_at`; the migration plan's PHASE-C package is `075_catalog_reference_data_
+> and_flags`. The drift is pre-existing and cosmetic. This document names the **catalog migration package**
+> and pins no number, to avoid deepening it. (Unrelated: *production* migration `075` is the cron-job repair
+> referenced in §0.)
+
+**Change-class tags.** Every element below carries exactly one:
+`NO SCHEMA CHANGE` · `ADDITIVE SCHEMA CHANGE` · `SPEC CORRECTION` · `NEW RPC` · `NEW EDGE FUNCTION` ·
+`NEW RN SURFACE` · `NEW DASHBOARD SURFACE`.
+
+**O-5 requirement traceability.**
+
+| Req | Requirement (abbrev.) | Where discharged |
+|:--:|---|---|
+| 1 | only authorized server-side RPCs establish the boundary | §4 · §7.1 · §7.4 · §10A.7 |
+| 2 | principals: `org_owner`, `org_admin`, `venue_manager` | §4 |
+| 3 | `scanner` cannot set or alter it | §4 · §4.2 · §10A.1 · pgTAP 21–22 |
+| 4 | opening atomically establishes the boundary | §6 (one txn) · §6.1 (isolation) |
+| 5 | boundary cannot move backwards or be cleared | §2 · §10.2 · pgTAP 8–13 |
+| 6 | override: explicit · elevated · audited · reason-coded · history preserved | §8 · §12.1 · pgTAP 46–51 |
+| 7 | behaviour when NULL near event time; fail closed | §3 · §3.1 · §14 · pgTAP 14–18 |
+| 8 | relationship of all eight concepts | §9.3 |
+| 9 | close must not erase the boundary | §1 · §7.2 · pgTAP 10 |
+| 10 | the missing open/close RPCs; clients never UPDATE directly | §7.1 · §7.2 · §7.4 · §10A.4 |
+| 11 | RLS + trigger protections | §10.2 · §10A |
+| 12 | audit events | §12.1 |
+| 13 | pgTAP coverage (described, not authored) | §15 — 58 assertions |
+| 14 | the Wallet stale-pass guarantee is **true** | §5 theorem + corollary · §9.2 · §9.4 |
+
+
+---
+
+## 0. The gap, stated precisely
+
+`catalog.event_session.door_open_at` is **read** in four places and **written by nothing**:
+
+| Reader | Where | What it does |
+|---|---|---|
+| `kernel.is_transfer_frozen(p_ticket_atom_id)` | schema §2.3, catalog migration package | `door_open_at IS NOT NULL AND now() >= door_open_at` |
+| custody RPC rechecks | RPC §12.4, RLS §14.3 | reject with `frozen` under the atom lock |
+| RN client | RN §4.4.1/§4.5/§12(5) | disables Transfer / Sell |
+| venue dashboard | VD §12.4, §6 session cards | renders "Door open — transfers closed" |
+
+Review **R3** records the signal FIXED and addenda **A2/A3 CLOSED**. What was actually fixed is only the
+*canonical form* — this column rather than a `kernel.tickets.transfer_frozen` boolean. **No RPC in the
+contract set writes it.** The venue dashboard spec independently found the same hole (VD §12.4 "Gap", Δ1) and
+left the authority question open (VD §22.7).
+
+A nullable timestamp with no writer means `is_transfer_frozen()` returns **false forever**, the C6/C23/C43
+offline-door transfer freeze **never engages**, and the Apple-Wallet / stale-pass safety property the design
+claims is **false**. This is the precise failure shape of the production cron job that production migration `075` repaired:
+present, correct, and called by nothing.
+
+**This document closes it.** Along the way it surfaces five further defects in the frozen set that the same
+mechanism exposes (§13). Four of them are load-bearing and one of them (§13.1) would deny admission to every
+paying fan on the night doors open.
+
+---
+
+## 1. State model (the whole lifecycle in ten lines)
+
+```
+                       ┌─────────────────────────── implicit backstop (no operator action) ──────────┐
+                       │                                                                             ▼
+session created ──► [ NO EPISODE ]  door_open_at = NULL          now() >= COALESCE(doors_at, starts_at)
+   (scheduled)          transfers: OPEN                                     ⇒ transfers FROZEN
+                        offline door: UNAVAILABLE                             (boundary is implicit,
+                        online door: gated only by session.status='live'       door_open_at still NULL)
+                             │
+        venue.open_door_manifest (org_owner | org_admin | venue_manager)
+                             ▼
+                      [ EPISODE OPEN ]  ── door_open_at := this episode's opened_at (FIRST open only, forever)
+                        transfers: FROZEN (explicit)     offline door: ARMED (signed manifest, versions pinned)
+                             │                                    online door: unchanged (live kernel read, C37)
+        venue.close_door_manifest ──►  [ EPISODE CLOSED ]  offline door: DISARMED · transfers: STILL FROZEN
+                             ▲                       │            door_open_at: UNCHANGED (history preserved)
+                             └──── re-open (new episode, new manifest_version, door_open_at NOT moved) ◄──┘
+                                                     │
+        kernel.grant_door_freeze_override (platform_admin only, TTL-bounded, reason-coded, audited,
+        requires NO open episode) ──────────────────► transfers TEMPORARILY permitted; door_open_at UNCHANGED
+```
+
+**Read as three orthogonal facts, not one flag:**
+
+| Fact | Signal | Monotone? | Cleared by close? |
+|---|---|---|---|
+| *Has this session's custody been frozen?* | `effective_freeze_at(session) <= now()` | **yes, terminal** | no |
+| *Is an offline manifest live right now?* | `EXISTS(venue.door_manifest WHERE status='open')` | no (episodic) | yes |
+| *May this door admit?* | `catalog.event_session.status = 'live'` + atom state | no | no (close ends the *offline* path only) |
+
+The single most important consequence: **the freeze is monotone and terminal for the session; the manifest is
+episodic.** Conflating them is what makes a "single mutable column that must never move backwards" a smell.
+
+---
+
+## 2. Where the invariant actually lives (monotonicity — think-hard Q3)
+
+**Ruling: neither an append-only-by-trigger `door_open_at`, nor a separate `freeze_engaged_at`.**
+
+`catalog.event_session.door_open_at` becomes a **cached monotone head of an append-only episode ledger** —
+structurally the same pattern the system already ratified for `kernel.tickets.current_owner_id` and
+`credential_version` as heads of `kernel.ticket_ownership_log` (schema §1.5, C27/C28). The source of truth is
+the ledger; the column is a projection maintained by a single writer, and monotonicity is a *derivation*, not
+a rule someone has to remember.
+
+```
+door_open_at  ≡  (SELECT MIN(opened_at) FROM venue.door_manifest WHERE session_id = <s>)
+```
+
+Because episodes are stamped with the transaction's own `now()` and the ledger is INSERT-only, `MIN(opened_at)`
+can only ever be the **first** open. No second open moves it; no close clears it; no UPDATE path exists.
+"Cannot move backwards" stops being a rule and becomes arithmetic.
+
+**Why not a separate `freeze_engaged_at` column:** it would create a *second* freeze signal, which is exactly
+the duplication addenda A2/A3 closed. One signal, one source (RPC §12.4) survives intact — every existing
+reader keeps reading `door_open_at` and the helper keeps its signature.
+
+**Why the column is retained at all rather than making the helper read the ledger directly:** the helper is on
+the custody hot path (every listing, transfer, accept, void). A single-row read on `catalog.event_session`,
+already fetched for the session gate (§5), is one b-tree probe. An aggregate over the ledger is not. The head
+is a performance projection with a trigger-enforced equality to its source — the C27 pattern verbatim.
+
+---
+
+## 3. The effective freeze boundary (req 7 — fail-closed at NULL)
+
+`SPEC CORRECTION` to `kernel.is_transfer_frozen`, plus one new helper.
+
+```
+catalog.effective_freeze_at(p_session_id)  →  timestamptz NOT NULL          -- NEW RPC (STABLE helper)
+  := LEAST(
+       door_open_at,                                              -- explicit: first manifest open (nullable)
+       COALESCE(doors_at, starts_at) + config('door.implicit_freeze_offset_interval')
+     )                                                            -- implicit backstop: NEVER null
+```
+
+`starts_at` is `NOT NULL` (schema §2.3), so `effective_freeze_at` is **total** — there is no input for which it
+returns NULL, and therefore no input for which the freeze silently never engages. That is the fail-closed
+property req 7 demands, expressed as a type, not a promise.
+
+```
+kernel.is_transfer_frozen(p_ticket_atom_id) →
+     now() >= catalog.effective_freeze_at(session_of(atom))
+ AND NOT EXISTS (active, unexpired kernel.door_freeze_override covering this atom)     -- §8
+```
+
+`NO SCHEMA CHANGE` to the helper's signature or its call sites. `SPEC CORRECTION` to its body: the current
+predicate `door_open_at IS NOT NULL AND now() >= door_open_at` is replaced. Every existing caller — RPC §12.4,
+RLS §14.3, edge §9.6, RN §12(5), and the catalog migration package — is unaffected.
+
+**Config key** (`ADDITIVE SCHEMA CHANGE` — a seed row, not a column): `catalog.platform_config` key
+`door.implicit_freeze_offset_interval`, value interval, **default `'0 minutes'`** (freeze exactly at
+`doors_at`). Positive values delay the implicit freeze; negative values pull it earlier. AO-per-version like
+every other config (schema §2.4).
+
+**Why `doors_at`, not `starts_at`, is the primary backstop:** `doors_at` is when humans physically arrive and
+when a scanner is realistically armed. `starts_at` (the headline time) is often an hour later. Freezing at
+`starts_at` would leave an hour of live-door / open-transfer overlap — the exact window C6 exists to close.
+
+**Failure direction, deliberately asymmetric.** A wrong `doors_at` that is too early freezes transfers early:
+an operational annoyance, recoverable by the §8 override. A wrong `doors_at` that is too late is bounded by
+`starts_at` — `LEAST` also takes the explicit boundary, so an operator who opens the manifest at any time gets
+the earlier of the two. There is no input that produces "never frozen."
+
+### 3.1 What a NULL `door_open_at` at event time means, concretely
+
+| Actor | Sees | Rationale |
+|---|---|---|
+| **Fan** | Transfer / Sell disabled from `doors_at`. Copy unchanged: *"Transfers are closed while the event is underway."* (RN §4.5 — no manifest vocabulary, product-language rule) | The fan cannot tell explicit from implicit, and must not need to. |
+| **Online scanner** | **Admits normally.** Manifest state is irrelevant to it. | C37: the online door does a live authoritative per-scan kernel read at the decision point. It never consulted a manifest for liveness and must not start. |
+| **Offline scanner** | **Cannot admit.** There is no manifest to verify against, because the manifest artifact is *produced by* the open RPC. Scanner state: *"Doors aren't open yet — this device needs a connection to admit."* (`NEW RN SURFACE`, §11.2) | No manifest ⇒ no offline authority. This is the pre-existing C6/C37 contract, not a new failure. |
+| **Venue dashboard** | Session card shows **"Transfers closed — door manifest not opened"** with an inline Open control. | The operator must be able to tell the two apart; the fan must not. |
+
+**Does an unopened manifest block admission? No — and this is a ruling, not an omission.** Admission is gated
+by `catalog.event_session.status = 'live'` and the atom's own state (RPC §9.4 preconditions), never by manifest
+state. Gating admission on the manifest would fail closed *against paying fans at the door* — a worse
+real-world outcome than the stale-transfer risk it would mitigate, and one the online live-read (C37) already
+covers. **The manifest gates offline scanning only.** That line is the load-bearing distinction of this spec.
+
+---
+
+## 4. Authority matrix (reqs 1–3; O-4/O-5 binding)
+
+`SPEC CORRECTION` to VD Δ1, which proposed `has_venue_role([venue_manager, venue_door])`. **O-4/O-5 remove
+`venue_door`.** VD §22.7 explicitly left this open and inferred the door principal was correct; the owner ruled
+otherwise, and the ruling is right: a `door_pin` is a loginless, shared, deliberately weak device identity
+(domain §1.8) and opening the manifest freezes custody for an entire session.
+
+| Principal | Predicate | open | close | re-open | override | scan under open manifest |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| `org_owner` | `has_org_role(org_of_venue,[org_owner])` | ● | ● | ● | ✗ | — |
+| `org_admin` | `has_org_role(org_of_venue,[org_admin])` | ● | ● | ● | ✗ | — |
+| `venue_manager` | `has_venue_role(venue,[venue_manager])` | ● | ● | ● | ✗ | ● |
+| `venue_door` (**scanner**) | `has_venue_role(venue,[venue_door])` **or valid `door_pin`** | ✗ | ✗ | ✗ | ✗ | ● |
+| `box_office` | *no physical enum label* — see §4.1 | ✗ | ✗ | ✗ | ✗ | — |
+| `venue_finance` · `org_finance` · `venue_promoter` · `org_member` | — | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `platform_admin` | `is_platform([platform_admin])` | ● | ● | ● | **●** | — |
+| `platform_risk` · `platform_support` | — | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `service_role` | definer only | ● (sweeps) | ● (sweeps) | — | ✗ | — |
+
+● = authorized · ✗ = denied (deny-by-default; `insufficient_privilege` 42501)
+
+Org→venue inheritance follows RLS §2.4: expressed **inside the RPC predicate**
+(`has_venue_role(venue,[venue_manager]) OR has_org_role(org_of_venue,[org_owner,org_admin])`), never by
+widening venue RLS to org roles.
+
+### 4.1 `box_office` does not inherit manifest administration (O-4, explicit)
+
+There is no `box_office` label in the C36 venue enum — it is exactly
+`venue_manager | venue_finance | venue_door | venue_promoter` (schema §0.6/§3.9). VD §22.2 already flags that a
+box-office seller must today be granted `venue_manager` (over-provisioned) or work from a door PIN
+(under-provisioned). **This spec does not create a role to fix that.** The consequence is stated so it is not
+mistaken for an accident: a person granted `venue_manager` *for box-office selling* thereby also gains the
+ability to open the door manifest. Narrowing that requires the `venue.staff_role.event_id` /
+per-capability scoping delta (VD Δ8) or a fifth enum label — **owner decision, §16 OQ-3.**
+
+### 4.2 What the scanner may do (O-4)
+
+`venue_door` / a valid `door_pin`: fetch and sync an **already-open** manifest, scan, admit, and queue offline
+scans for reconciliation. It may **not** open, close, or re-open a manifest, and it holds no write path to
+`catalog.event_session` at all (RLS §8.3 already gives `venue_door` `SEL` only — `NO SCHEMA CHANGE`,
+`NO RLS CHANGE` for that row). The scanner UI must therefore render a *waiting* state, not a disabled button,
+when no episode is open (§11.2).
+
+---
+
+## 5. The session gate — how open and transfer are serialized (think-hard Q1 & Q2)
+
+This is the mechanism the entire specification rests on.
+
+### 5.1 The lock
+
+`SPEC CORRECTION` to RPC §0.4 / §14.2, additive to the lock-order proof.
+
+Every RPC that can move custody, or that reads the freeze boundary to decide, acquires a **shared lock on the
+session row first**:
+
+```sql
+-- illustrative shape only
+SELECT session_id, door_open_at, doors_at, starts_at, status
+  FROM catalog.event_session
+ WHERE session_id = <resolved from the atom>
+   FOR SHARE;                      -- Event/Session, global lock rank 1
+```
+
+`venue.open_door_manifest` and `venue.close_door_manifest` acquire the **exclusive** lock on the same row:
+
+```sql
+SELECT ... FROM catalog.event_session WHERE session_id = p_session_id FOR UPDATE;   -- rank 1
+```
+
+**Lock-order legality (proof obligation discharged).** The global order is
+`Event/Session(1) < Inventory(2) < Order(3) < Listing(4) < Ticket Atom(5) < Payment/Payout/Reserve/Settlement(6)`
+(schema §0.9, RPC §14.2). Rank 1 is the **lowest** rank in the total order, so prefixing *any* acquisition
+sequence with it is unconditionally ascending. Every affected member re-proves trivially:
+
+| Member | Before | After | Ascending? |
+|---|---|---|---|
+| #2 native sale (`transfer_ticket_ownership`) | 4 → 5 → 6 | **1** → 4 → 5 → 6 | ✔ |
+| #6 listing create (`create_listing` → `lock_ticket`) | 4 → 5 | **1** → 4 → 5 | ✔ |
+| #7 p2p start (`create_p2p_transfer` → `lock_ticket`) | 4 → 5 | **1** → 4 → 5 | ✔ |
+| #8 p2p accept (`accept_p2p_transfer`) | 4 → 5 → 6 | **1** → 4 → 5 → 6 | ✔ |
+| #3 refund-void (`void_ticket_atom`, routine path) | 2 → 5 → 6 | **1** → 2 → 5 → 6 | ✔ |
+| #12 C25 sweep (`sweep_paid_pending_sales`) | 4 → 5 → 6 / 5 → 6 | **1** → … | ✔ |
+| **open / close door manifest** (new) | — | **1** (+ bounded batch of #7-reverse: 1 → 4 → 5) | ✔ |
+
+No back-edge is introduced anywhere. Cross-member deadlock-freedom (RPC §14.2, Coffman #4 broken by resource
+ordering) is preserved by construction.
+
+**Contention.** `FOR SHARE` is shared: arbitrarily many concurrent transfers hold it simultaneously and do not
+block each other. Only `FOR UPDATE` — taken once per manifest episode, i.e. roughly twice per session per
+night — conflicts. Cost per custody RPC is one extra single-row b-tree lock on a row it already needed to read
+to resolve the freeze. RPC §14.1 already models an "Event/Session read-gate at 1" for member #1; this promotes
+that read-gate to a real lock and extends it to the custody members.
+
+### 5.2 Two managers press "Open doors" simultaneously (Q1)
+
+**Lock:** `catalog.event_session` PK row, `FOR UPDATE`, rank 1.
+**SSCAS position:** `SSCAS: n/a (single-aggregate — Event/Session)`. Open and close write
+`venue.door_manifest` + `venue.door_manifest_entry` (children of the Session aggregate, keyed by `session_id`,
+only ever reachable under the session lock), `catalog.event_session.door_open_at` (the Session aggregate's own
+head), and `kernel.admin_audit` (audit plane, outside the six money/custody ranks — every privileged RPC does
+this and is still tagged `SSCAS: n/a`, per RPC §14.3). The p2p/listing drain (§7.3) is a **bounded batch of the
+existing member #7-reverse / #6-reverse (the unlock overlay)** — the same construction RPC §14.1 row 10 uses to
+classify `catalog.cancel_event` as a bounded batch of member #3. **The set stays closed at fifteen; no
+sixteenth member and no amendment are required.**
+
+**Resolution of the race:** the first transaction to acquire `FOR UPDATE` wins. The second blocks, then on
+acquisition re-reads the session and finds an episode with `status='open'` already present, and returns
+`{ status: 'noop_replay', manifest_id: <the existing one>, … }`. It does **not** insert a second episode, does
+**not** issue a new `manifest_version`, and does **not** touch `door_open_at`. Both operators see "Door open."
+Two-layer idempotency per RPC §0.2: the state guard above, *plus* `UNIQUE(session_id, command_idempotency_key)`
+on `venue.door_manifest` for literal double-taps of the same command.
+
+### 5.3 A p2p transfer commits at the instant the manifest opens (Q2)
+
+**Which wins:** whichever transaction acquires the session row first. This is a *total order* imposed by the
+database, not a wall-clock coincidence, and it is the same total order every observer sees.
+
+- Accept-then-open: the accept holds `FOR SHARE`; the open blocks on `FOR UPDATE` until the accept commits.
+  When the open proceeds, its snapshot (§6) reads the **new owner's** bumped `credential_version`. The transfer
+  won; the manifest is correct about it.
+- Open-then-accept: the open holds `FOR UPDATE`; the accept blocks. When it proceeds it re-reads
+  `effective_freeze_at` under its own `FOR SHARE`, finds `now() >= boundary`, and rejects with `frozen`. The
+  open won; no version changed after the snapshot.
+
+There is no third outcome, and no window between them.
+
+**Is the answer the same for the online scanner and for a scanner holding a 90-second-old snapshot? Yes — but
+for two different reasons, and both must hold:**
+
+- **Online scanner:** trivially yes. It performs a live authoritative per-scan kernel read at the decision
+  point (C37, RPC §9.3 + §9.4). It observes the committed outcome whichever it was. The manifest is not in its
+  decision path at all.
+- **Offline scanner, 90-second-old snapshot:** yes, **only because of two properties this spec adds.**
+  1. **The snapshot and the boundary are one transaction** (§6). There is no interval in which the manifest
+     has been read but the freeze is not yet in force — which is precisely the interval in which a transfer
+     would strand a credential.
+  2. **The manifest carries `credential_version` per atom**, and the offline door rejects on mismatch (§9).
+     Without this the offline door *cannot detect a stale credential at all* — see §13.3, where the frozen edge
+     spec's offline verify steps are enumerated and contain no version check.
+
+  Given both, the snapshot cannot have gone stale, because nothing that could stale it can commit while the
+  episode is open. 90 seconds old and 0 seconds old are the same snapshot.
+
+**Door Safety Theorem.** *For every atom in an open manifest episode, `kernel.tickets.credential_version` at
+scan time equals the value recorded in that episode's snapshot.*
+**Proof.** The snapshot is taken under `FOR UPDATE` on the session row, in the same transaction that writes the
+boundary. Every RPC that can bump `credential_version` for an atom of that session — `transfer_ticket_ownership`
+(the sole custody engine, §9.4 of the domain architecture), `void_ticket_atom`, and their callers — first
+acquires `FOR SHARE` on that same session row (§5.1) and rejects when `now() >= effective_freeze_at` (§3).
+A transaction holding `FOR SHARE` before the open began commits before the open's `FOR UPDATE` is granted, and
+is therefore *in* the snapshot (READ COMMITTED gives the post-lock statement a fresh snapshot — §6.1). A
+transaction requesting `FOR SHARE` after the open commits observes the boundary and is rejected. No third case
+exists. ∎
+
+**Corollary (req 14).** An offline door that verifies signature ∧ key-window ∧ session ∧ `exp` ∧
+`credential_version == manifest[atom].credential_version` admits exactly the current owner's credential and
+rejects every stale one. The Apple-Wallet / cached-pass safety guarantee is **true**, not claimed.
+
+**What the theorem does not cover (stated honestly, per C6/C37):** the `platform_admin` break-glass override
+(§8) and the platform force-void path (§7.6) are deliberate exceptions; both are audited, reason-coded, and —
+for the override — structurally forbidden while an episode is open. The residual is the C6 reconcile window,
+shrunk, not closed.
+
+---
+
+## 6. Atomic open (req 4) — the exact transaction
+
+`venue.open_door_manifest` performs, in **one** transaction, in this order:
+
+1. `SELECT … FROM catalog.event_session WHERE session_id = p_session_id FOR UPDATE` — rank 1.
+2. Predicate check (§4) against live tables (C36/I-5). Deny → `insufficient_privilege`, zero writes.
+3. Precondition check (§7.1). Deny → `precondition_failed`, zero writes.
+4. Idempotency: an episode with `status='open'` exists → return it as `noop_replay`. Stop.
+5. **Drain** open p2p transfers and open listings for this session (§7.3) — bounded batch of members
+   #7-reverse / #6-reverse, locks Transfer(4) → Ticket Atom(5) ascending by `ticket_atom_id`.
+6. INSERT `venue.door_manifest` — `opened_at := now()`, `manifest_version := next per-session`, `status='open'`,
+   `opened_by := auth.uid()`, `reason_code`, `not_after := now() + config('door.manifest_ttl_interval')`.
+7. **Snapshot** — INSERT `venue.door_manifest_entry` for every admissible atom of the session, recording
+   `(ticket_atom_id, credential_version, signing_key_id, ticket_state, serial_no)` **as read after step 1's
+   lock**.
+8. Compute and store `manifest_digest` over the ordered entry set.
+9. `catalog.engage_door_freeze(p_session_id, opened_at)` — definer-only primitive that owns the
+   `catalog.event_session.door_open_at` write; a no-op when already set (§10.2).
+10. INSERT `kernel.admin_audit` (`session.door_manifest_open`).
+11. INSERT outbox envelopes `DoorManifestOpened` (+ `TransferFreezeEngaged` on first open only) (§12).
+
+Commit. Steps 5–11 either all commit or none do.
+
+### 6.1 Isolation requirement (load-bearing implementation note)
+
+`open_door_manifest` **must run at READ COMMITTED** (the PostgreSQL default) and the snapshot SELECT of step 7
+**must be issued after** the lock acquisition of step 1. Under READ COMMITTED each statement takes a fresh
+snapshot, so step 7 observes every transfer that committed while the open was blocked on `FOR UPDATE`. Under
+REPEATABLE READ the transaction snapshot is fixed at first statement and step 7 would read *pre-lock* state —
+silently producing a manifest that is already stale at birth, which defeats the theorem. State this in the
+function header; it is not inferable from the contract.
+
+### 6.2 No client-supplied timestamp, ever
+
+`open_door_manifest` accepts **no** boundary parameter. `opened_at := now()` is server-derived (C35). A future
+boundary would reintroduce exactly the hazard this design removes: the manifest snapshot taken now, the freeze
+in force later, and a transfer legally committing in between. A CHECK enforces it at rest:
+
+```sql
+-- illustrative
+CHECK (opened_at <= now())                                   -- venue.door_manifest
+```
+
+Scheduled opens are a **scheduler calling this RPC at the scheduled time** (`ADDITIVE SCHEMA CHANGE` — nothing;
+`NEW DASHBOARD SURFACE` — optional, §11.1), never a stored future timestamp.
+
+---
+
+## 7. RPC contracts
+
+Naming follows the venue-dashboard delta (VD Δ1) so the two specs do not fork: **`venue.open_door_manifest` /
+`venue.close_door_manifest`**. The ruling's conceptual names `open_event_door_manifest` /
+`close_event_door_manifest` are recorded as documented aliases under the review §2.1 canonical-name registry
+convention.
+
+### 7.1 `venue.open_door_manifest(p_session_id, p_reason_code, p_command_key)` — `NEW RPC` — **DB-RPC**
+
+- **Purpose:** open (or re-open) the session's offline door manifest and, on the first open ever, atomically
+  engage the session's terminal transfer-freeze boundary.
+- **Role:** `has_venue_role(venue_of_session,[venue_manager])` OR
+  `has_org_role(org_of_venue,[org_owner,org_admin])` OR `is_platform([platform_admin])`. Live-table recheck
+  (I-5). **`venue_door` / `door_pin` denied** (O-4).
+- **Params:** `p_session_id` uuid (untrusted, re-resolved), `p_reason_code` text from the closed set
+  `{doors_open, reopen_device_failure, reopen_operator, drill}` (untrusted, validated), `p_command_key` text.
+- **Server-derived (C35):** `auth.uid()`, `opened_at := now()`, `manifest_version`, `not_after`,
+  `manifest_digest`, the entry snapshot. **No client timestamp is accepted** (§6.2).
+- **Preconditions:**
+  - session exists and `status ∈ {scheduled, live}` (never `completed` / `cancelled`);
+  - the parent event `status ∈ {on_sale, live}` (never `draft` / `announced` / `cancelled`);
+  - `now() >= COALESCE(doors_at, starts_at) - config('door.manifest_early_open_window')`
+    (default `'12 hours'` — early opening is permitted and encouraged for pre-sync at soundcheck, §14.5, but
+    not arbitrarily early);
+  - no `kernel.door_freeze_override` is active for this session (§8) — an override and an open manifest are
+    mutually exclusive by construction.
+- **Locks & order:** `catalog.event_session` **FOR UPDATE** (rank 1) → [drain: `market.p2p_transfer` /
+  `market.listing_native` FOR UPDATE (rank 4) → `kernel.tickets` FOR UPDATE ascending `ticket_atom_id`
+  (rank 5)] → inserts. Ascending; no inversion (§5.1).
+- **SSCAS:** `n/a (single-aggregate — Event/Session)`; the drain is a **bounded batch of members #7-reverse and
+  #6-reverse** (§5.2).
+- **Idempotency:** state guard (an `open` episode returns `noop_replay` with the existing `manifest_id`) +
+  `UNIQUE(session_id, command_idempotency_key)` on `venue.door_manifest`.
+- **Writes:** `venue.door_manifest` (INSERT), `venue.door_manifest_entry` (INSERT N),
+  `catalog.event_session.door_open_at` (via `catalog.engage_door_freeze`, first open only),
+  `market.p2p_transfer` / `market.listing_native` (drained → `cancelled` + `reason_code='door_freeze'`),
+  `kernel.tickets.resale_state` (→ `none`, via `kernel.unlock_ticket` — the sanctioned overlay primitive),
+  `kernel.admin_audit`.
+- **Result:** `{ status, manifest_id, manifest_version, entry_count, opened_at, door_open_at,
+  freeze_newly_engaged(bool), drained_transfers, drained_listings }`.
+- **Errors:** `insufficient_privilege(42501)` · `not_found` · `precondition_failed`
+  (`session_terminal` | `event_not_live` | `too_early` | `override_active`) · `idempotency_replay`
+  (returns the original).
+- **Retry:** safe and re-entrant.
+- **Forbidden callers:** `venue_door`, any `door_pin` principal, finance roles, promoters, fans,
+  `platform_support`, `platform_risk`.
+
+### 7.2 `venue.close_door_manifest(p_session_id, p_reason_code, p_command_key)` — `NEW RPC` — **DB-RPC**
+
+- **Purpose:** end the current offline manifest episode. **Does not unfreeze; does not touch `door_open_at`**
+  (req 9).
+- **Role:** as §7.1.
+- **Params:** `p_session_id`, `p_reason_code` ∈ `{doors_closed, session_ended, operator_close, device_recall}`,
+  `p_command_key`.
+- **Preconditions:** an episode with `status='open'` exists for the session. None → `noop_replay` (terminal-
+  state idempotency), never an error.
+- **Locks & order:** `catalog.event_session` **FOR UPDATE** (rank 1) → `venue.door_manifest` row.
+- **SSCAS:** `n/a (single-aggregate — Event/Session)`.
+- **Writes:** `venue.door_manifest` (`status → 'closed'`, `closed_at := now()`, `closed_by`, `close_reason`),
+  `kernel.admin_audit` (`session.door_manifest_close`). **Explicitly writes nothing to
+  `catalog.event_session`.**
+- **Result:** `{ status, manifest_id, closed_at, admitted_count, offline_pending_count }`.
+- **Errors:** `insufficient_privilege(42501)` · `not_found`.
+- **Note:** `offline_pending_count > 0` is surfaced, not blocking — close must never be prevented by devices
+  that have not reconciled, or a lost device would pin a session open forever. Reconciliation of a closed
+  episode remains legal (§9.3).
+
+### 7.3 Drain semantics (part of §7.1; `SPEC CORRECTION`)
+
+Without this step, the ratified set **locks paying fans out of the show.**
+
+`kernel.mark_ticket_scanned` requires `resale_state = 'none'` — *"a `listed`/`locked` atom cannot be scanned —
+'delist first'"* (RPC §7.5, verbatim). Once the freeze engages, `accept_p2p_transfer` is rejected as `frozen`
+(§13.2), so a pending transfer's atom stays `locked` until its C43 TTL expires — which may be hours. A fan
+whose ticket is mid-transfer or listed therefore arrives at the door and is refused, with no action available
+to them and none to the door.
+
+**Ruling:** on open, before the snapshot, the RPC drains the session's in-flight market overlays:
+
+| Overlay | Action | Mechanism | Excluded |
+|---|---|---|---|
+| `market.p2p_transfer` `status='initiated'` | → `cancelled`, `reason_code='door_freeze'`; atom unlocked, returned to the sender | `market.cancel_p2p_transfer` (definer, sender-side path) — **cancel-back-to-self, which C43 explicitly exempts from the C6 freeze** because owner and `credential_version` do not change | none |
+| `market.listing_native` `status='active'` | → `cancelled`, `reason_code='door_freeze'`; atom unlocked | `market.cancel_listing` (definer, platform-cancel branch) | any listing with a `market.market_sale` in `sale_state='paid_pending_transfer'` — **money is already taken; the C25 sweep owns that row** (§13.4) |
+
+The drain moves no custody, appends no ownership-log row, and bumps no `credential_version` — it only clears
+the `resale_state` overlay. The theorem is unaffected (nothing it protects changes), and the snapshot taken
+immediately after records `resale_state='none'` for the drained atoms.
+
+**Residual:** an atom whose sale is `paid_pending_transfer` at door-open stays `locked` and is refused at the
+door with reason `listed_locked` (VD §12.5). §13.4 rules that such sales resolve as `compensated` (buyer
+refunded), which is the correct outcome — the buyer was never going to get a working credential through an
+offline door.
+
+**Product consequence to sign off (§16 OQ-2):** a seller's active listing is cancelled when doors open. The
+alternative — leave it listed and refuse the holder at the door — is strictly worse. Notification is a
+`ListingCancelled` push with reason copy *"Your listing closed because doors opened."*
+
+### 7.4 `catalog.engage_door_freeze(p_session_id, p_opened_at)` — `NEW RPC` — **DB-RPC, definer-only**
+
+- **Purpose:** the **sole writer** of `catalog.event_session.door_open_at`. Sets it iff currently NULL;
+  otherwise a no-op returning the existing value.
+- **Actor:** `service_role`/definer only. `REVOKE EXECUTE FROM anon, authenticated, public`; **GRANT to
+  `service_role` only.** Never client-callable, never in an RLS EXEC row.
+- **Why it exists:** `venue.*` writing `catalog.*` directly would be a cross-schema write outside the
+  single-writer discipline (schema §0.1). This mirrors `venue.record_scan → kernel.mark_ticket_scanned`
+  exactly: the owning schema exposes a definer primitive; the calling schema calls it in the same transaction.
+- **Preconditions:** caller holds `FOR UPDATE` on the session row (asserted, not assumed — the primitive
+  re-takes it, which is a no-op re-entrant acquisition in the same transaction).
+- **Writes:** `catalog.event_session.door_open_at` only. Never NULLs it. Never changes a non-NULL value.
+- **Result:** `{ door_open_at, newly_engaged(bool) }`.
+
+### 7.5 `venue.get_door_manifest(p_session_id, p_since_version)` — `NEW RPC` — **DB-RPC (read)**
+
+- **Purpose:** the scanner's manifest fetch/sync read. Returns the open episode's header + entries.
+- **Actor:** `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound
+  to the session (RLS §1.1 row 9).
+- **Preconditions:** an episode with `status='open'` and `not_after > now()` exists. Otherwise returns
+  `{ status:'no_open_manifest' }` — **not an error**, so the scanner can render the waiting state (§11.2).
+- **Returns:** `{ manifest_id, manifest_version, session_id, opened_at, not_after, manifest_digest,
+  entries[{ ticket_atom_id, serial_no, credential_version, signing_key_id, ticket_state }] }`.
+  **No owner identity, no PII, no ticket-type price** — this is the door's only bulk read and the hard rule
+  "door staff never receive a bulk attendee list" (domain §7.2, VD §5 note 11) binds: the manifest carries
+  opaque atom ids and versions, never names.
+- **Writes:** none. (The device's `last_sync_at`/`manifest_version` update stays on the existing manifest-sync
+  RPC, RLS §9.11 note 33.)
+- **SSCAS:** n/a (read).
+
+### 7.6 Freeze recheck set — `SPEC CORRECTION` to RPC §12.4
+
+RPC §12.4 names four rechecking functions. That set is **wrong in one direction and incomplete in two others.**
+
+| RPC | §12.4 today | This spec | Why |
+|---|:---:|:---:|---|
+| `market.create_listing` | rechecks | rechecks | correct |
+| `market.create_p2p_transfer` | rechecks | rechecks | correct |
+| `kernel.lock_ticket` | rechecks | rechecks | correct |
+| **`kernel.mark_ticket_scanned`** | **rechecks → rejects `frozen`** | **MUST NOT recheck** | **§13.1 — as written, no fan can be admitted after doors open** |
+| **`kernel.transfer_ticket_ownership`** | absent | **rechecks (the enforcement point)** | sole custody engine; enforcing here makes bypass structurally impossible |
+| **`market.accept_p2p_transfer`** | absent | **rechecks** | §13.2 — otherwise the freeze gates transfer *start* but not *completion* |
+| **`kernel.void_ticket_atom`** (routine refund path only) | absent | **rechecks** | C23 extends the freeze to refund-voids |
+| `market.cancel_p2p_transfer` (cancel-to-self) | — | **exempt** | C43, ratified: owner and version unchanged, nothing can strand |
+| `market.cancel_listing` | — | **exempt** | delisting strands nothing |
+| `catalog.cancel_event` | — | **exempt** | the session is being cancelled; no admission will occur |
+| `kernel.force_void_ticket` / `kernel.admin_refund` | — | **exempt, audited** | platform break-glass; residual is the C6 reconcile window |
+| `market.sweep_paid_pending_sales` — **compensate** branch | — | **exempt** | §13.4 — otherwise money gets stuck |
+| `market.sweep_paid_pending_sales` — **complete** branch | — | **frozen** | it is a custody move |
+
+**Defense in depth, deliberately:** the *enforcement* point is `kernel.transfer_ticket_ownership` (and
+`kernel.lock_ticket`) — the choke-points nothing bypasses. The caller-level rechecks
+(`create_listing`, `create_p2p_transfer`, `accept_p2p_transfer`) exist for **error quality**, so the fan sees
+"Transfers are closed" rather than a generic engine failure. Both layers must hold, matching the edge spec's
+"both layers must hold" idempotency discipline (§7 of that spec).
+
+---
+
+## 8. Administrative override (req 6) — `NEW RPC` + `ADDITIVE SCHEMA CHANGE`
+
+The boundary cannot move and cannot be cleared. The only admissible exceptional act is therefore to **suspend
+the freeze's effect for a bounded interval without altering the boundary.**
+
+### 8.1 `kernel.door_freeze_override` — `ADDITIVE SCHEMA CHANGE` (new table, append-only)
+
+- **Purpose:** an audited, TTL-bounded, reason-coded suspension of the transfer freeze. `AO` (append-only);
+  revocation is a forward state transition, never a delete.
+- **Schema:** `kernel` (this is a custody-authority object, not a venue-operations object).
+- **PK:** `override_id` uuid.
+- **Columns:** `override_id` uuid PK; `session_id` uuid not null FK→`catalog.event_session` on delete restrict;
+  `ticket_atom_id` uuid **nullable** FK→`kernel.tickets` on delete restrict (NULL = whole session; non-NULL =
+  single atom — the narrower grant, preferred); `granted_by` uuid not null FK→`auth.users`; `reason_code` text
+  not null; `granted_at` timestamptz not null default now(); `expires_at` timestamptz not null;
+  `revoked_at` timestamptz nullable; `revoked_by` uuid nullable FK→`auth.users`;
+  `command_idempotency_key` text not null; `created_at`.
+- **Unique:** `UNIQUE(granted_by, command_idempotency_key)`.
+- **Check:** `expires_at > granted_at`;
+  `expires_at <= granted_at + config('door.max_override_interval')` (default `'2 hours'` — **never unbounded**,
+  the C25/C43 bounded-lifetime discipline);
+  `reason_code` ∈ `{operator_error_reopen, ticket_stranded_at_door, fraud_investigation,
+  platform_incident_recovery}`.
+- **Immutability:** `AO` for the grant; `revoked_at`/`revoked_by` are the single permitted forward transition,
+  guarded by a trigger that rejects every other UPDATE and every DELETE.
+- **Index:** PK; partial index on `(session_id) WHERE revoked_at IS NULL AND expires_at > now()` — the hot-path
+  read inside `is_transfer_frozen`.
+- **RLS:** `audit-only` (deny-all to clients; read only via an `is_platform` RPC).
+- **Write authority:** `kernel.grant_door_freeze_override` / `kernel.revoke_door_freeze_override`.
+- **SoT/PROJ:** SoT.
+
+### 8.2 `kernel.grant_door_freeze_override(p_session_id, p_ticket_atom_id, p_reason_code, p_expires_at, p_command_key)` — `NEW RPC` — **DB-RPC**
+
+- **Role:** `is_platform([platform_admin])` **only.** Not `org_owner`, not `venue_manager`, not
+  `platform_risk`, not `platform_support`. An override defeats a safety property; it requires authority
+  strictly above the authority that engaged the freeze (req 6 "elevated authority").
+- **Preconditions (hard):**
+  1. **No episode with `status='open'` exists for the session.** If a manifest is live, the admin must close it
+     first. This is what preserves the Door Safety Theorem: **no custody move can ever commit while an offline
+     manifest is armed**, override or not.
+  2. `p_expires_at` within `config('door.max_override_interval')`.
+  3. `p_reason_code` in the closed set.
+- **Locks:** `catalog.event_session` **FOR UPDATE** (rank 1) — serializes against a concurrent
+  `open_door_manifest`, so an override and an open can never interleave.
+- **SSCAS:** `n/a (single-aggregate)`.
+- **Writes:** `kernel.door_freeze_override` (INSERT), `kernel.admin_audit`
+  (`session.door_freeze_override_grant`, with `before/after` and the reason).
+- **Result:** `{ status, override_id, expires_at }`.
+- **Errors:** `insufficient_privilege(42501)` · `precondition_failed` (`manifest_open` | `ttl_too_long` |
+  `bad_reason_code`).
+- **Explicitly does NOT write `catalog.event_session`.** `door_open_at` is untouched, so the historical
+  boundary survives verbatim — req 6, req 9.
+
+### 8.3 `kernel.revoke_door_freeze_override(p_override_id, p_command_key)` — `NEW RPC` — **DB-RPC**
+
+- **Role:** `is_platform([platform_admin, platform_risk])` — risk may *revoke* (tighten) but not *grant*
+  (loosen), preserving the domain's freezer-≠-releaser separation of duties (domain §7.2, §12).
+- **Writes:** `kernel.door_freeze_override` (`revoked_at`, `revoked_by`), `kernel.admin_audit`.
+- **Idempotency:** terminal-state.
+
+### 8.4 Expiry
+
+Overrides expire by `expires_at` with no sweep required — `is_transfer_frozen` reads
+`expires_at > now()`. A sweep is nevertheless specified for **notification and audit closure only**
+(`kernel.sweep_expired_door_overrides()`, `NEW RPC`, definer batch, emits `DoorFreezeOverrideExpired`). It must
+never be load-bearing for correctness: correctness that depends on a cron running is the failure class this
+whole document exists to prevent.
+
+---
+
+## 9. Offline manifests, Wallet passes, and scanning (req 8, req 14)
+
+### 9.1 Two manifests, currently conflated — `SPEC CORRECTION`
+
+The frozen spec set uses "manifest" for two different artifacts and never distinguishes them:
+
+| | **M1 — key manifest** | **M2 — door (ticket) manifest** |
+|---|---|---|
+| Defined in | edge §5.4 | *nowhere* (referenced by schema §3.11 `scan_device.manifest_version`, §3.12 `scan.manifest_version`, VD §12.3, RN §10.2 "manifest ready + **count**") |
+| Contents | `{key_id, scope, public_key, not_before, not_after, status}` | per-session admissible atoms + their pinned `credential_version` |
+| Scope | per event / per venue | **per session, per episode** |
+| Opened by | nothing (a projection, always available) | `venue.open_door_manifest` — **this is what `door_open_at` refers to** |
+| Purpose | verify a token's *signature* | verify a token's *currency* |
+
+`venue.door_manifest` / `venue.door_manifest_entry` (§10.1) give M2 a physical home. Until now it had a
+`manifest_version` column on two tables and no table to version.
+
+### 9.2 Offline verify — `SPEC CORRECTION` to edge §5.4
+
+Edge §5.4 enumerates the offline door's checks: (1) `key_id` in the cached key manifest and in window;
+(2) signature verifies against that public key; (3) `session_id` matches and `exp` within the ±2-bucket skew;
+(4) first-in-wins locally. **There is no `credential_version` check.** An offline door as specified therefore
+*cannot detect a stale credential at all* — which is why the transfer freeze had to exist, and why the freeze
+never engaging is a safety failure rather than a nuisance.
+
+Add step (3b):
+
+> **(3b)** the token's `credential_version` equals `M2[atom].credential_version`; and `M2[atom].ticket_state`
+> is `active`. Mismatch ⇒ reject with reason `version_stale` (existing vocabulary, RPC §9.3 / VD §12.5);
+> absent from M2 ⇒ reject with `wrong_session`.
+
+With §5's theorem this is not merely a defence-in-depth check — it is *exact*: the manifest version is provably
+current for the whole episode, so `version_stale` offline means the same thing it means online.
+
+### 9.3 The full relationship (req 8)
+
+| Concept | Role | Written by | Relationship |
+|---|---|---|---|
+| `doors_at` | **informational** — the marketing/ops time doors are announced for; also the **implicit freeze backstop input** | `catalog.create_event_session` / `update` (existing) | never the freeze boundary itself; only an input to `LEAST` |
+| `door_open_at` | **the canonical freeze boundary**; cached monotone head of the episode ledger | `catalog.engage_door_freeze` **only** (§7.4) | `= MIN(door_manifest.opened_at)`; set once, never moved, never cleared |
+| manifest generation / opening | produces the offline artifact **and** engages the freeze, atomically | `venue.open_door_manifest` | one transaction; §6 |
+| transfer freeze | `is_transfer_frozen(atom)` | derived; no storage | `now() >= effective_freeze_at ∧ no active override` |
+| refund-void freeze (C23) | routine refund path frozen; cancel/platform paths exempt | see §7.6 table | prevents a post-snapshot void stranding at an offline door |
+| scanning | **never gated by the manifest or the freeze**; gated by `session.status='live'` + atom state | `venue.record_scan` → `kernel.mark_ticket_scanned` | §3.1, §13.1 |
+| offline manifests | armed only while an episode is `open` and `not_after > now()` | `venue.get_door_manifest` (read) | manifest ⟺ episode; no episode ⇒ no offline authority |
+| Wallet pass invalidation | `credential_version` bump kills the cached token | `transfer_ticket_ownership` / `void_ticket_atom` (existing) | the freeze guarantees **no bump can occur while an episode is open**, so the cached pass is provably current |
+
+### 9.4 Wallet-pass stale-read, end to end
+
+Today's cached-token contract (edge §5.5) is: token = `{atom_id, session_id, credential_version, key_id,
+issued_at, exp}`, cacheable, TTL-bounded, invalidated by a version bump. The hazard it names is that an
+**offline** door "admits on signature+window" and the mismatch is only caught at reconcile. §9.2 closes that
+online-offline asymmetry, and §5's theorem is what makes closing it possible: a manifest that could go stale
+would only move the problem.
+
+Concretely, the four Wallet-pass scenarios:
+
+| Scenario | Before this spec | After |
+|---|---|---|
+| A transfers to B **before** doors open; A shows a cached pass at an offline door | admitted (signature valid, version unchecked); caught at reconcile → fraud queue, B already admitted or denied | **rejected** — M2 has B's version; A's token has the old one |
+| A tries to transfer to B **after** doors open | permitted — the freeze never engaged | **rejected `frozen`** |
+| A's ticket refunded after doors open; A shows the cached pass offline | admitted; venue eats an admission | **rejected** — routine refund-void is frozen (C23, §7.6); a platform break-glass void is the audited residual |
+| A's pass cached, no transfer, offline door | admitted (correct) | admitted (correct) — the common case is unchanged |
+
+The Apple Wallet / PassKit surface itself is **not built in Phase 2** — no PassKit code exists in the repo and
+the RN spec's "wallet" is the in-app Tickets tab (§4.4) plus the cached `credential-sign` token. If a real
+`.pkpass` is added later, it is a *display layer over the same token* and inherits this guarantee unchanged,
+provided it never carries a longer TTL than the token. `NEW RN SURFACE` — not in scope; recorded so the
+guarantee is not silently broken by a later PassKit addition (§16 OQ-5).
+
+---
+
+## 10. Schema delta (additive only)
+
+### 10.1 `venue.door_manifest` — `ADDITIVE SCHEMA CHANGE` (new table, AO-with-one-forward-transition)
+
+- **Purpose:** the append-only ledger of door-manifest **episodes** per session. The source of truth behind
+  `catalog.event_session.door_open_at`.
+- **PK:** `manifest_id` uuid.
+- **Columns:** `manifest_id` uuid PK; `session_id` uuid not null FK→`catalog.event_session(session_id)` on
+  delete restrict; `venue_id` uuid not null FK→`catalog.venue(venue_id)` on delete restrict (denormalized for
+  the authz hot path, kept consistent by the RPC — the same pattern as `catalog.event.org_id`);
+  `manifest_version` integer not null (per-session monotonic, starts at 1);
+  `status` enum(`open` · `closed`) not null default `open`;
+  `opened_at` timestamptz not null default now(); `opened_by` uuid not null FK→`auth.users(id)`;
+  `open_reason_code` text not null;
+  `not_after` timestamptz not null (offline validity horizon);
+  `closed_at` timestamptz nullable; `closed_by` uuid nullable FK→`auth.users(id)`; `close_reason` text nullable;
+  `entry_count` integer not null; `manifest_digest` text not null;
+  `command_idempotency_key` text not null; `created_at`.
+- **Unique:** `UNIQUE(session_id, manifest_version)`;
+  `UNIQUE(session_id, command_idempotency_key)`;
+  **partial `UNIQUE(session_id) WHERE status = 'open'`** — *at most one open episode per session, enforced by
+  the database, not by the RPC.* This is the structural half of §5.2's idempotency.
+- **Check:** `opened_at <= now()` (§6.2); `not_after > opened_at`;
+  `closed_at IS NULL OR closed_at >= opened_at`;
+  `(status='closed') = (closed_at IS NOT NULL)`; `entry_count >= 0`; enum coherence.
+- **Immutability:** `AO` on insert; the **only** permitted UPDATE is the single forward transition
+  `open → closed` writing `closed_at`/`closed_by`/`close_reason`. A guard trigger rejects every other UPDATE
+  and every DELETE (schema §0.8 AO pattern).
+- **Index:** PK; the partial unique doubles as the open-episode lookup; index on `(session_id, opened_at)`;
+  index on `(venue_id, status)` (the dashboard's "which doors are open right now" tile).
+- **Archival:** permanent (it is the evidence behind every freeze-boundary dispute); time-partitionable by
+  session like `venue.scan`.
+- **RLS:** venue-scoped read (`venue_manager`, `venue_door` own session, org owner/admin, platform);
+  writes RPC-only.
+- **Write authority:** `venue.open_door_manifest`, `venue.close_door_manifest`.
+- **SoT/PROJ:** **SoT.** `catalog.event_session.door_open_at` is its projection head.
+
+### 10.2 `catalog.event_session.door_open_at` — `NO SCHEMA CHANGE` + `ADDITIVE SCHEMA CHANGE` (constraints only)
+
+The column keeps its name, type (`timestamptz`), and nullability (nullable — it is legitimately NULL for every
+session whose doors have never opened). What is added is **enforcement**:
+
+```sql
+-- illustrative shapes only — no migration is authored here
+
+-- (a) the column is a projection of the ledger, not an independent fact
+CREATE OR REPLACE FUNCTION catalog.tg_door_open_at_is_ledger_head() RETURNS trigger AS $$
+BEGIN
+  IF NEW.door_open_at IS DISTINCT FROM OLD.door_open_at THEN
+    -- never clear
+    IF NEW.door_open_at IS NULL THEN
+      RAISE EXCEPTION 'door_open_at may not be cleared (session %)', OLD.session_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    -- never move once set
+    IF OLD.door_open_at IS NOT NULL THEN
+      RAISE EXCEPTION 'door_open_at is immutable once engaged (session %)', OLD.session_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    -- may only ever equal the first episode's opened_at
+    IF NEW.door_open_at IS DISTINCT FROM (
+         SELECT min(opened_at) FROM venue.door_manifest WHERE session_id = NEW.session_id)
+    THEN
+      RAISE EXCEPTION 'door_open_at must equal MIN(door_manifest.opened_at) (session %)', NEW.session_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+-- (b) never in the future
+ALTER TABLE catalog.event_session
+  ADD CONSTRAINT event_session_door_open_at_not_future CHECK (door_open_at IS NULL OR door_open_at <= now());
+--     NB: now() in a CHECK is not IMMUTABLE; if the implementer rejects it, the equivalent guard moves
+--     into trigger (a) — an implementation choice, not an architectural one.
+```
+
+**Why the trigger and not just "the RPC is careful":** because "the RPC is careful" is exactly what was true of
+`door_open_at` until this document — the specs said it was canonical, and nothing wrote it. The trigger is the
+mechanism that makes a *future* RPC bug loud instead of silent. It is defense-in-depth against the failure mode
+this whole ruling exists to prevent.
+
+**Note on `starts_at` edits.** RLS §8.3 note 19 already flags that changing `starts_at` on an on-sale session is
+a confirmed, money-adjacent operation *because it affects door-freeze*. Under §3 it now also moves the
+**implicit** boundary. `SPEC CORRECTION`: `catalog.create_event_session`'s update path must reject a
+`starts_at`/`doors_at` edit once `door_open_at IS NOT NULL` — the boundary is engaged and its inputs are
+frozen with it.
+
+### 10.3 `venue.door_manifest_entry` — `ADDITIVE SCHEMA CHANGE` (new table, AO)
+
+- **Purpose:** the per-atom snapshot that makes the offline door able to detect a stale credential (§9.2), the
+  evidence for reconciliation, and the future home of the C43 per-open-manifest-ticket narrowing.
+- **PK:** composite `(manifest_id, ticket_atom_id)`.
+- **Columns:** `manifest_id` uuid FK→`venue.door_manifest` on delete restrict; `ticket_atom_id` uuid
+  FK→`kernel.tickets` on delete restrict; `serial_no` integer not null; `credential_version` integer not null;
+  `signing_key_id` uuid not null FK→`kernel.signing_key` on delete restrict;
+  `ticket_state` text not null (the atom's `state` at snapshot); `created_at`.
+- **Check:** `credential_version >= 0`; `ticket_state ∈ {issued, active}` (a snapshot never contains a terminal
+  atom).
+- **Immutability:** `AO`. Guard trigger rejects UPDATE and DELETE. A re-open produces a **new** `manifest_id`
+  and a fresh entry set; entries are never edited.
+- **Index:** PK; index on `ticket_atom_id` (the Gate-M narrowing lookup and the reconciliation join).
+- **Volume:** one row per admissible atom per episode. Miami-scale: a 500-capacity room re-opened twice = 1,500
+  rows per night. Negligible.
+- **RLS:** venue-scoped read (door principal for its own session). **No owner identity, no PII** (§7.5).
+- **Write authority:** `venue.open_door_manifest` only.
+- **SoT/PROJ:** SoT (an immutable snapshot; not rebuildable after the fact, deliberately — that is the point).
+
+> **Lighter alternative, considered and rejected:** store only `manifest_digest` on the episode and generate
+> entries on the fly at fetch. Rejected because (a) the digest could not then be reproduced after a later
+> transfer, destroying the reconciliation evidence, and (b) the C43 narrowing would have no membership to read.
+> Recorded so the decision is not re-litigated.
+
+### 10.4 `kernel.door_freeze_override` — `ADDITIVE SCHEMA CHANGE`
+
+Specified in §8.1.
+
+### 10.5 `venue.scan.manifest_id`, `venue.scan_device.manifest_id` — `ADDITIVE SCHEMA CHANGE` (recommended)
+
+Both tables carry a `manifest_version` integer nullable (schema §3.11, §3.12) that today references nothing.
+Add `manifest_id` uuid nullable FK→`venue.door_manifest(manifest_id)` on delete restrict, keeping
+`manifest_version` for device-reported/diagnostic use. This turns "which manifest window admitted" (schema
+§3.12, C23 reconciliation) from a number into a join, and lets `reconcile_offline_scans` verify that a device's
+claimed manifest actually existed and covered the atom.
+
+### 10.6 Config seeds — `ADDITIVE SCHEMA CHANGE` (rows only, AO-per-version)
+
+| `catalog.platform_config` key | Type | Default | Meaning |
+|---|---|---|---|
+| `door.implicit_freeze_offset_interval` | interval | `'0 minutes'` | offset applied to `COALESCE(doors_at, starts_at)` for the implicit boundary |
+| `door.manifest_ttl_interval` | interval | `'12 hours'` | episode `not_after` horizon |
+| `door.manifest_early_open_window` | interval | `'12 hours'` | how far before doors an episode may be opened |
+| `door.max_override_interval` | interval | `'2 hours'` | hard ceiling on an override's TTL |
+
+### 10.7 What is **not** added
+
+- No `freeze_engaged_at` column (§2).
+- No `kernel.tickets.transfer_frozen` column — A2/A3 remain closed.
+- No change to `kernel.tickets`, `kernel.ticket_ownership_log`, `market.*`, or any `public.*` object.
+- No new SSCAS member (§5.2).
+- No new role label (§4.1).
+
+---
+
+## 10A. RLS delta
+
+Everything below inherits RLS §1.3's two global postures: **GP-1** (no client principal holds direct
+INSERT/UPDATE/DELETE on any Phase-2 table — every write is `R`, RPC-only) and **GP-2** (DELETE is `D` for every
+role on every table). Cell vocabulary is RLS §1.2: `A` allow · `D` deny · `R` RPC-only · `V` scoped-read-only.
+
+### 10A.1 `venue.door_manifest` — venue-scoped (NEW MATRIX)
+
+Class: **venue-scoped** (schema §0.7). Write RPCs: `venue.open_door_manifest`, `venue.close_door_manifest`.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan / owner | **D** | D | D | D | — |
+| org_member | D | D | D | D | — |
+| org_owner / org_admin | A (own-org venues) | R | R | D | `open_door_manifest` · `close_door_manifest` |
+| org_finance | A (own-org, status only)ᴬ | D | D | D | — |
+| venue_manager | A (own-venue) | R | R | D | `open_door_manifest` · `close_door_manifest` |
+| **venue_door** | **A (own session only)ᴮ** | **D** | **D** | D | **—** (O-4) |
+| venue_finance / venue_promoter | D | D | D | D | — |
+| platform_support | V | D | D | D | — |
+| platform_risk | A (all) | D | D | D | — |
+| platform_admin | A (all) | R | R | D | override |
+| service_role | A (machine) | R (def) | R (def) | D | definer |
+
+ᴬ finance sees only `status`/`opened_at`/`closed_at` (settlement timing context), never `manifest_digest`.
+ᴮ the door principal reads only the episode for the session its `venue_door` grant or `door_pin` covers
+(RLS §1.1 row 9, VD §5 note 3) — and only via `venue.get_door_manifest`, not by table scan.
+
+**A fan cannot read this table at all.** The freeze reaches the client exclusively as the
+`kernel.is_transfer_frozen` boolean (RLS §14.3, unchanged). Exposing episode timings to fans would leak venue
+operations and invite gaming the boundary.
+
+### 10A.2 `venue.door_manifest_entry` — venue-scoped, AO (NEW MATRIX)
+
+Class: **venue-scoped**, append-only. Write RPC: `venue.open_door_manifest` only.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan / owner | D | D | D | D | — |
+| org_owner / org_admin / venue_manager | A (own-venue) | R | D | D | — |
+| **venue_door** | **V** (own session, via `venue.get_door_manifest` only) | D | D | D | — |
+| all other venue/org roles | D | D | D | D | — |
+| platform_risk / platform_admin | A | R (def) | D | D | — |
+| service_role | A (machine) | R (def) | D | D | definer |
+
+**Column discipline (I-4).** The table carries **no identity column by construction** — no
+`current_owner_id`, no buyer reference, no name. The door's bulk read is `(ticket_atom_id, serial_no,
+credential_version, signing_key_id, ticket_state)` and nothing else. This is what keeps the hard rule *"door
+staff never receive a bulk attendee list"* (domain §7.2, VD §5 note 11) true even though the door now legitimately
+holds a bulk read. Manual single-record lookup stays on `venue.validate_ticket_online` (RPC §9.3, VD §12.6).
+
+### 10A.3 `kernel.door_freeze_override` — audit-only (NEW MATRIX)
+
+Class: **audit-only** (RLS §4): RLS **on, zero policies**, `REVOKE ALL FROM anon, authenticated`.
+Read only through an `is_platform` RPC. Write RPCs: `kernel.grant_door_freeze_override`,
+`kernel.revoke_door_freeze_override`.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| every role except platform + service_role | **D** | D | D | D | — |
+| platform_support | V | D | D | D | — |
+| platform_risk | V | D | R | D | `revoke_door_freeze_override` **only** (may tighten, never loosen — SoD) |
+| platform_admin | V | R | R | D | `grant_…` · `revoke_…` |
+| service_role | A (machine) | R (def) | R (def) | D | definer |
+
+The freezer-≠-releaser separation (domain §7.2, §12) is realised here as **grant is `platform_admin`-only;
+revoke is `platform_admin` or `platform_risk`.** The role that can loosen a safety property is strictly
+narrower than the role that can restore it.
+
+### 10A.4 `catalog.event_session` — **matrix unchanged, write authority narrowed** (`SPEC CORRECTION`)
+
+RLS §8.3 keeps its cells exactly as written. Two clarifications are added to it:
+
+- Note 19 (*"`starts_at` change on an on-sale session is a confirmed op — money-adjacent, affects door-freeze"*)
+  is **strengthened**: once `door_open_at IS NOT NULL`, a `starts_at`/`doors_at` edit is **rejected**
+  (§10.2), because those columns are inputs to the engaged boundary.
+- New note 19b: **`door_open_at` is not writable by any RPC in the §11 EXEC table.** Its sole writer is
+  `catalog.engage_door_freeze` (§7.4), which is definer-only and appears in **no** EXEC row. A trigger enforces
+  this independently of grants (§10.2). `venue_manager` and `org_owner/admin` retain `R` on the row's other
+  columns via `create_event_session`; that grant now cannot reach `door_open_at`.
+
+### 10A.5 `venue.scan` · `venue.scan_device` — `manifest_id` column (`ADDITIVE`)
+
+No matrix change. The new `manifest_id` column inherits each table's existing cells: `venue.scan` is
+venue-scoped AO (RLS §9.12); `venue.scan_device` is venue-scoped with the door updating only its own device's
+sync columns (RLS §9.11 note 33) — `manifest_id` joins `last_sync_at`/`manifest_version` in that narrow
+device-writable set.
+
+### 10A.6 `catalog.platform_config` — four new keys (`ADDITIVE`, rows only)
+
+No matrix change. The four `door.*` keys (§10.6) are public-read like every other config value and writable
+only by `catalog.set_platform_config` (`is_platform([platform_admin])`, dual-control, AO-per-version,
+RLS §8.4). They are **operational thresholds, not secrets** — a fan learning that the implicit freeze offset is
+zero learns nothing they could not infer from the event page.
+
+### 10A.7 EXECUTE-authority additions to RLS §11
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role(org_of_venue,[org_owner,org_admin])` OR `is_platform([platform_admin])`. **`venue_door` and `door_pin` principals explicitly excluded (O-4).** |
+| `venue.get_door_manifest` | `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound to the session |
+| `catalog.engage_door_freeze` | **`service_role`/definer only** — `REVOKE EXECUTE FROM anon, authenticated, public`; never granted to `authenticated`; never a UI path |
+| `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` | `authenticated` (STABLE reads; `is_transfer_frozen` is already the RN eligibility boolean, RLS §14.3) |
+| `kernel.grant_door_freeze_override` | `is_platform([platform_admin])` **only** |
+| `kernel.revoke_door_freeze_override` | `is_platform([platform_admin, platform_risk])` |
+| `kernel.sweep_expired_door_overrides` · `catalog.sweep_implicit_door_freezes` | `service_role`/definer only (cron/heartbeat) |
+
+### 10A.8 Deny-by-default conformance
+
+Every new object is `REVOKE ALL FROM anon, authenticated, public` first, then GRANT only the exact SELECT
+columns / EXECUTE the tables above authorise (I-7). Absence of a policy is denial (I-1). No new object uses
+`USING (true)` (I-2). No new object exposes an identity or money column to a broad role (I-4). Every predicate
+is a live-table read via `has_org_role` / `has_venue_role` / `is_platform`, never a JWT claim (I-5, C36) — and
+no new bare-string role comparison is introduced anywhere.
+
+---
+
+## 11. Surfaces
+
+### 11.1 Venue dashboard — `NEW DASHBOARD SURFACE`
+
+Closes VD §12.4's "Gap" and VD Δ1; the surface's copy is already written there and is adopted verbatim.
+
+- **Manifest control (§12.4).** Read-only status becomes an **Open door manifest** / **Close door manifest**
+  control, gated to the §4 roles. Blast-radius confirm before the control enables (VD §2 principle 7):
+  > *"Opening the door manifest stops ticket holders sending or reselling tickets for this session. Do it when
+  > doors open."*
+  Extended with the drain consequence (§7.3):
+  > *"N pending transfers and M active listings will be cancelled and returned to their owners."*
+  — with the real counts, computed by a dry-run read before the confirm enables.
+- **Freeze status card (new).** Shows `effective_freeze_at`, and **which input produced it**:
+  *"Transfers close at 10:00 PM (door manifest opened)"* vs *"Transfers close at 10:00 PM (scheduled doors —
+  manifest not opened)"*. Operators must be able to distinguish; fans must not.
+- **Session cards (§6, §7.6).** After open: **"Door open — transfers closed."** After close: **"Doors closed —
+  transfers remain closed."** — the second half is new and is required, or an operator will read "closed" as
+  "back to normal."
+- **Episode history.** The `venue.door_manifest` rows for the session: opened/closed times, who, reason, entry
+  count, admitted count. This is the audit surface for "when exactly did transfers stop."
+- **Override.** **Not on this surface.** Overrides are `platform_admin`-only and live in the internal admin
+  plane (RN §8 / admin).
+- **Scheduled open (optional).** A scheduler calling the RPC at `doors_at`. Marked optional because the
+  implicit boundary (§3) already makes the freeze fail-closed without it; a scheduled open only adds the
+  *offline capability*, not the safety.
+
+### 11.2 Scanner (RN §7) — `NEW RN SURFACE`
+
+- **New state: `awaiting_manifest`.** When `venue.get_door_manifest` returns `no_open_manifest`:
+  > *"Doors aren't open yet. A manager needs to open the door manifest before this device can work offline."*
+  Online scanning **continues to work** in this state (C37) — the banner must say so:
+  > *"You can still scan while you have a connection."*
+  This is the difference between fail-closed against fraud and fail-closed against paying customers, and the
+  copy must carry it.
+- **Manifest state row** in the existing §10.2 device-status matrix: `no manifest` · `syncing` ·
+  `fresh (v N, synced Xm ago)` · `stale (past not_after — offline admits disabled)` · `episode closed`.
+- **No Open control anywhere in the scanner** (O-4). Not disabled — **absent**, per VD §5's rule that surfaces
+  a role cannot use are absent rather than disabled, so a door operator never learns the control exists.
+- **New reject reason surfacing:** `version_stale` offline (§9.2) reuses the existing operator copy
+  *"This pass is out of date. Ask them to open the Snatch It app."* — no new vocabulary.
+
+### 11.3 Consumer RN — `NO CHANGE`
+
+RN §4.4.1 / §4.5 / §12(5) already disable Transfer and Sell on the freeze boolean with the copy *"Transfers are
+closed while the event is underway."* That copy is correct for both the explicit and the implicit boundary and
+must not be changed to mention doors, manifests, or times — the product-language rule (RN §0) binds. The client
+keeps reading `kernel.is_transfer_frozen` as an owner-scoped boolean; only its body changes (§3).
+
+One addition (`NEW RN SURFACE`, small): a drained transfer or listing (§7.3) produces a notification
+> *"Your transfer was cancelled because doors opened — the ticket is back in your account."*
+> *"Your listing closed because doors opened."*
+
+---
+
+## 12. Audit events and event-envelope messages
+
+### 12.1 `kernel.admin_audit` rows (req 12) — `NO SCHEMA CHANGE`
+
+Every row is INSERTed **in the same transaction** as the action (RPC §0.3).
+
+| `action` | `subject_kind` / `subject_id` | `reason_code` | `before` → `after` |
+|---|---|---|---|
+| `session.door_manifest_open` | `event_session` / `session_id` | `doors_open` \| `reopen_device_failure` \| `reopen_operator` \| `drill` | `{door_open_at, open_episodes}` → `{door_open_at, manifest_id, manifest_version, entry_count, digest, freeze_newly_engaged}` |
+| `session.door_manifest_close` | `event_session` / `session_id` | `doors_closed` \| `session_ended` \| `operator_close` \| `device_recall` | `{manifest_id, status:'open'}` → `{status:'closed', closed_at, admitted_count, offline_pending_count}` |
+| `session.door_freeze_engaged` | `event_session` / `session_id` | `explicit_open` \| `implicit_doors_time` | `{door_open_at: null}` → `{effective_freeze_at, source}` |
+| `session.door_manifest_drain` | `event_session` / `session_id` | `door_freeze` | `{pending_transfers, active_listings}` → `{cancelled_transfers[], cancelled_listings[]}` |
+| `session.door_freeze_override_grant` | `event_session` **or** `ticket_atom` | closed set, §8.1 | `null` → `{override_id, scope, expires_at, granted_by}` |
+| `session.door_freeze_override_revoke` | as above | `revoked_by_admin` \| `revoked_by_risk` | `{active}` → `{revoked_at, revoked_by}` |
+
+`session.door_freeze_engaged` for the **implicit** case has no transaction of its own; it is emitted by the
+notification sweep (§12.3), at-most-once by its idempotency key. It is an observability record, never a
+correctness dependency.
+
+### 12.2 Event-envelope messages — `ADDITIVE` (new domain events)
+
+Envelope guarantees per CDM C12: per-aggregate monotonic `sequence`, `causation_id`, `correlation_id`,
+at-least-once delivery, every consumer idempotent by a persisted dedup key or expressing its effect as an
+upsert/set-operation (never a naked increment).
+
+| # | Event | Origin | Payload | Consumers | Sync/Async | Idempotency key |
+|---|---|---|---|---|---|---|
+| 37 | **DoorManifestOpened** | venue | `manifest_id, session_id, event_id, venue_id, manifest_version, opened_at, entry_count, manifest_digest, not_after, freeze_newly_engaged` | notify (fan "transfers closed"), analytics, risk, scanner push-to-sync | **Sync** — written to the outbox inside the open txn | `manifest_id` |
+| 38 | **DoorManifestClosed** | venue | `manifest_id, session_id, closed_at, close_reason, admitted_count, offline_pending_count` | notify, analytics, reconciliation monitor | **Sync** | `manifest_id + 'closed'` |
+| 39 | **TransferFreezeEngaged** | catalog | `session_id, event_id, effective_freeze_at, source ∈ {explicit_open, implicit_doors_time}` | notify (pre-freeze warning + freeze notice), market (invalidate cached eligibility), analytics | **Sync** for `explicit_open`; **Async (sweep)** for `implicit_doors_time` | `session_id + 'freeze'` — at most once per session, ever |
+| 40 | **DoorManifestDrained** | market | `session_id, manifest_id, cancelled_transfer_ids[], cancelled_listing_ids[]` | notify (per affected party), analytics | **Sync** (same txn as the drain) | `manifest_id + 'drain'` |
+| 41 | **DoorFreezeOverrideGranted** | kernel | `override_id, session_id, ticket_atom_id?, expires_at, reason_code, granted_by` | risk, notify (platform ops), analytics | **Sync** | `override_id` |
+| 42 | **DoorFreezeOverrideEnded** | kernel | `override_id, ended_at, ended_by ∈ {revoke, expiry}` | risk, analytics | Async | `override_id + 'ended'` |
+
+Numbering continues the domain-architecture §6.1 catalog (which ends at 36). None of these are money or
+custody events; none ride the transactional spine (§6.2 of that document) except as outbox rows written inside
+their own transaction.
+
+### 12.3 The notification sweep — `NEW RPC`
+
+`catalog.sweep_implicit_door_freezes()` — definer batch, `service_role` only. Finds sessions where
+`now() >= effective_freeze_at` and no `TransferFreezeEngaged` has been emitted, emits it once, writes the
+`session.door_freeze_engaged` audit row, and stops. **It is not load-bearing:** `is_transfer_frozen` computes
+the implicit boundary arithmetically and is correct whether or not this sweep ever runs. That property is
+stated here explicitly because the failure this document exists to close was a correct thing that nothing
+called; nothing in this design may reproduce it.
+
+---
+
+## 13. Defects found in the frozen set (`SPEC CORRECTION` — all five)
+
+These are not new design; they are contradictions the door lifecycle exposes. Each is stated with its verbatim
+source so a reviewer can check it without re-deriving.
+
+### 13.1 `mark_ticket_scanned` rejecting on `frozen` denies admission to every fan — **CRITICAL**
+
+RPC §12.4, verbatim: *"`market.create_listing`, `market.create_p2p_transfer`, `kernel.lock_ticket`, and
+`kernel.mark_ticket_scanned` **re-check `kernel.is_transfer_frozen` under the atom lock** … and reject with
+`frozen`."* (RLS §14.3 repeats it.)
+
+As written: opening the manifest sets `door_open_at`; `is_transfer_frozen` then returns true for every atom of
+the session; `mark_ticket_scanned` therefore rejects **every scan** for the rest of the night. Nobody gets in.
+
+The intent was presumably that a mid-transfer atom must not be scanned — but that is already enforced by
+`mark_ticket_scanned`'s own precondition `resale_state = 'none'` (RPC §7.5), and by the same document's
+statement that *"scan is not a custody change."* The freeze is a **custody-move** guard; scanning is not a
+custody move.
+
+**Correction:** remove `kernel.mark_ticket_scanned` from the recheck set (§7.6). It must never consult
+`is_transfer_frozen`.
+
+### 13.2 The freeze gates transfer *start* but not *completion*
+
+`market.create_p2p_transfer` rechecks (RPC §12.4); `market.accept_p2p_transfer` and
+`kernel.transfer_ticket_ownership` do **not** appear in the recheck set. A transfer initiated at 21:00 and
+accepted at 23:30 — with doors open at 22:00 — moves custody and bumps `credential_version` after the manifest
+snapshot: precisely the stranding C6 exists to prevent. C43's TTL auto-unlock mitigates but does not close it
+(the TTL may be many hours).
+
+**Correction:** add both to the recheck set, with `transfer_ticket_ownership` as the enforcement point (§7.6).
+
+### 13.3 The offline door cannot detect a stale credential
+
+Edge §5.4's four offline-verify steps contain no `credential_version` check, and the only manifest the edge
+spec defines (§5.4) is a **public-key** manifest. The offline door therefore verifies that a token was validly
+signed, not that it is current.
+
+**Correction:** §9.1 (name and home the ticket manifest) + §9.2 (add verify step 3b). Without this, requirement
+14's guarantee cannot be true no matter how the freeze is implemented.
+
+### 13.4 A frozen `paid_pending_transfer` sale would strand money
+
+`market.sweep_paid_pending_sales` (RPC §12.3) resolves a stuck sale by *either* completing the transfer *or*
+auto-compensating (refund-void). If the freeze applied to both branches, a sale caught by doors-open could do
+neither: complete is a custody move (frozen) and compensate is a refund-void (frozen under C23). The money sits
+in `paid_pending_transfer` forever — the exact unbounded-dwell failure C25 exists to forbid.
+
+**Correction (§7.6):** the **complete** branch is frozen; the **compensate** branch is exempt. A sale caught by
+doors-open therefore resolves as `compensated` — the buyer is refunded, which is the correct outcome, because a
+buyer who cannot receive a credential before an offline door opens was never going to be admitted.
+
+### 13.5 In-flight overlays lock fans out of the show
+
+Covered in full at §7.3. `mark_ticket_scanned` requires `resale_state='none'`; a frozen session leaves
+`locked`/`listed` atoms unresolvable until TTL; the holder is refused at the door with no remedy.
+**Correction:** the drain (§7.3).
+
+---
+
+## 14. Failure modes and fail-closed behaviour
+
+| # | Failure | Behaviour | Direction |
+|---|---|---|---|
+| 1 | Nobody ever opens the manifest | Freeze engages at `COALESCE(doors_at, starts_at)` (§3). Online scanning works; offline scanning unavailable. | **fail-closed on custody, fail-open on admission** — deliberate |
+| 2 | `doors_at` NULL | Backstop falls to `starts_at` (`NOT NULL`). Boundary is total. | fail-closed |
+| 3 | `doors_at` set wrong (too early) | Transfers freeze early. Recoverable via §8 override. | fail-closed, recoverable |
+| 4 | `doors_at` set wrong (too late) | Bounded by `LEAST` with any explicit open; if neither, by `starts_at`. | fail-closed |
+| 5 | Two managers open simultaneously | Second returns `noop_replay`; one episode, one boundary (§5.2). | deterministic |
+| 6 | Manager opens, then re-opens after a scanner crash | New episode, new `manifest_version`, fresh snapshot; `door_open_at` unchanged; audited with `reopen_device_failure`. | monotone |
+| 7 | Device never syncs | Device has no manifest ⇒ online-only. Dashboard shows it as *not synced*, not *offline-ready*. | fail-closed |
+| 8 | Device offline past `not_after` | Device refuses offline admits, falls back to *"needs a connection"*. Bounded by `door.manifest_ttl_interval`. | fail-closed |
+| 9 | Device clock skewed | Existing ±2-time-bucket tolerance (edge §5.4) applies to `exp`; `not_after` carries the same allowance. | bounded |
+| 10 | Venue network dies at doors time | Manifest cannot be opened ⇒ no offline capability. **Mitigation: open early** (§14.5). Freeze still engages implicitly at `doors_at`, so custody is safe regardless. | fail-closed on custody |
+| 11 | Session cancelled after open | `record_scan` requires `status='live'` ⇒ admission stops. Freeze remains (boundary preserved). | fail-closed |
+| 12 | `door_open_at` somehow written directly | Trigger (§10.2) raises. GP-1 already denies client DML; the trigger catches a *future RPC bug*. | fail-loud |
+| 13 | Attempt to set `door_open_at` in the future | CHECK / trigger rejects; the RPC accepts no timestamp (§6.2). | fail-loud |
+| 14 | Close called with unreconciled offline scans | Close succeeds; count is surfaced. Blocking close on a lost device would pin a session open forever. | fail-open, observable |
+| 15 | Override requested while an episode is open | `precondition_failed('manifest_open')` — close first (§8.2). | fail-closed |
+| 16 | Override expires mid-transfer | The transfer's own `FOR SHARE` recheck under lock re-evaluates; an in-flight txn that already passed the check commits (it holds the atom lock and cannot strand — the boundary is about *new* moves). | bounded |
+| 17 | The notification sweep never runs | `is_transfer_frozen` is arithmetic and unaffected; only the pre-freeze warning push is lost. | **not load-bearing, by construction** |
+| 18 | Manifest fetched, then the episode is closed | Device's `not_after` still holds, but the dashboard shows the episode closed and the device stale. `reconcile_offline_scans` accepts the batch (it references the closed `manifest_id`). | reconcilable |
+
+### 14.5 The one operationally painful case, named
+
+Failure #10 — the venue's network is down at exactly doors time — is the only case where fail-closed costs the
+operator real capability: no manifest can be opened, so no offline scanning is available on the night it is
+most needed. **The mitigation is procedural and must be in the runbook and the dashboard copy: open the
+manifest and sync every device at soundcheck, hours before doors.** Opening early is safe (it only freezes
+transfers early, and the implicit boundary was going to freeze them at `doors_at` anyway) and is explicitly
+permitted by `door.manifest_early_open_window`. The dashboard's Open control should say so:
+> *"Open early. Devices sync while you have signal; transfers close now instead of at doors."*
+
+---
+
+## 15. pgTAP assertion list (req 13 — assertions described, no SQL authored)
+
+Grouped by the property each group defends. All are DB-level; none require the app.
+
+**A. Structure and grants (7)**
+1. `venue.door_manifest`, `venue.door_manifest_entry`, `kernel.door_freeze_override` exist with RLS **enabled**.
+2. `anon` and `authenticated` hold **no** INSERT/UPDATE/DELETE on any of the three (GP-1).
+3. The partial `UNIQUE(session_id) WHERE status='open'` exists on `venue.door_manifest`.
+4. `catalog.engage_door_freeze` has **no** EXECUTE grant to `anon` or `authenticated` (definer-only, §7.4).
+5. Every new function is owned by `postgres`, is `SECURITY DEFINER`, and has a pinned `search_path`
+   (Standards §8).
+6. `venue.door_manifest_entry` exposes no owner/identity column (the door's bulk read carries no PII, §7.5).
+7. `kernel.door_freeze_override` has RLS on with **zero** policies (audit-only class).
+
+**B. Monotonicity of the boundary (6)**
+8. First `open_door_manifest` sets `door_open_at = opened_at`; `freeze_newly_engaged = true`.
+9. Second `open_door_manifest` after a close creates a new episode with `manifest_version = 2` and leaves
+   `door_open_at` **byte-identical**; `freeze_newly_engaged = false`.
+10. `close_door_manifest` leaves `door_open_at` **byte-identical** (req 9).
+11. A direct `UPDATE catalog.event_session SET door_open_at = NULL` raises (trigger §10.2).
+12. A direct `UPDATE … SET door_open_at = door_open_at - interval '1 hour'` raises.
+13. A direct `UPDATE … SET door_open_at = now() + interval '1 hour'` on a session with no episode raises
+    (ledger-head mismatch **and** not-future).
+
+**C. Fail-closed at NULL (5)**
+14. Session with `door_open_at IS NULL`, `doors_at = now() - 1 minute` ⇒ `is_transfer_frozen(atom) = true`.
+15. Same session with `doors_at IS NULL` and `starts_at = now() - 1 minute` ⇒ `true`.
+16. Same session with `doors_at = now() + 1 hour` ⇒ `false`.
+17. `catalog.effective_freeze_at` returns **NOT NULL** for every row in `catalog.event_session`
+    (a set-level assertion, run over a seeded fixture of every status × nullability combination).
+18. Changing `door.implicit_freeze_offset_interval` to `'+30 minutes'` moves case 14 to `false` and case
+    `now() - 31 minutes` to `true` (config is read, not hard-coded).
+
+**D. Authority (7)**
+19. `venue_manager` of the venue may open; result `ok`.
+20. `org_owner` and `org_admin` of the operating org may open (inheritance expressed in the RPC, RLS §2.4).
+21. **`venue_door` may not open** → `insufficient_privilege(42501)`, and `door_open_at` is unchanged (O-4).
+22. A valid `door_pin` principal may not open → `42501`.
+23. `venue_finance`, `org_finance`, `venue_promoter`, `platform_support`, `platform_risk` may not open → `42501`.
+24. A `venue_manager` of a **different** venue may not open → `42501` (cross-tenant).
+25. `venue_door` **may** call `venue.get_door_manifest` for its own session and **may not** for another
+    session of the same venue.
+
+**E. Idempotency and concurrency (6)**
+26. Two `open_door_manifest` calls with the same `p_command_key` ⇒ one episode; second returns
+    `noop_replay` with the same `manifest_id`.
+27. Two calls with **different** command keys while an episode is open ⇒ one episode; second returns
+    `noop_replay` (state guard, not just the key).
+28. Two concurrent sessions (`pg_background`/two connections) racing `open_door_manifest` ⇒ exactly one row in
+    `venue.door_manifest`; the partial unique is the backstop even if the state guard is bypassed.
+29. `close_door_manifest` on a session with no open episode ⇒ `noop_replay`, not an error.
+30. A transfer holding `FOR SHARE` on the session blocks a concurrent `open_door_manifest` until it commits
+    (a lock-wait assertion, `pg_locks` inspected from a third connection).
+31. After the open commits, a transfer that was waiting on `FOR SHARE` returns `frozen`.
+
+**F. The Door Safety Theorem (5)**
+32. Open a manifest; assert every `venue.door_manifest_entry.credential_version` equals the live
+    `kernel.tickets.credential_version` for that atom.
+33. Attempt `transfer_ticket_ownership` for an atom of the session ⇒ `frozen`; the entry's version still
+    matches live.
+34. Attempt `accept_p2p_transfer` for an atom of the session ⇒ `frozen` (§13.2 regression test).
+35. Attempt the routine `refund_primary_order` → `void_ticket_atom` path ⇒ `frozen` (C23).
+36. `catalog.cancel_event` on the same session **succeeds** despite the freeze (exempt), and voids the atoms.
+
+**G. Admission is never blocked by the freeze (4) — the §13.1 regression suite**
+37. With an episode open and `is_transfer_frozen = true`, `venue.record_scan` on an `active`,
+    `resale_state='none'` atom ⇒ `result='admitted'`, atom `state='scanned'`.
+38. The same on a **second** scan ⇒ `result='duplicate'`, atom stays `scanned` (C41 first-in-wins holds under
+    freeze).
+39. `kernel.mark_ticket_scanned` does **not** reference `kernel.is_transfer_frozen` — asserted by
+    `pg_get_functiondef` not matching `is_transfer_frozen` (a structural test, so a future edit re-breaking
+    §13.1 fails CI).
+40. With the session `status='completed'`, `record_scan` ⇒ `precondition_failed` (admission is gated by
+    session status, not by manifest state).
+
+**H. Drain (5) — §7.3 / §13.5**
+41. An `initiated` p2p for the session becomes `cancelled` + `reason_code='door_freeze'` on open; the atom's
+    `resale_state = 'none'`; the **sender** is still `current_owner_id`.
+42. The drain appends **no** `kernel.ticket_ownership_log` row and does **not** bump `credential_version`.
+43. An `active` listing is cancelled; its atom unlocks.
+44. A listing whose sale is `paid_pending_transfer` is **not** cancelled (money protected, §13.4).
+45. The drained atom then scans successfully (the end-to-end lockout regression).
+
+**I. Override (6)**
+46. `platform_admin` may grant; `org_owner`, `venue_manager`, `platform_risk`, `platform_support` may not
+    (`42501`).
+47. A grant while an episode is `open` ⇒ `precondition_failed('manifest_open')`.
+48. A grant with `expires_at > granted_at + door.max_override_interval` ⇒ `check_violation`.
+49. With an active override, `is_transfer_frozen` returns `false` for the covered scope and `true` for an atom
+    of the same session outside an atom-scoped override.
+50. `door_open_at` is **byte-identical** before and after grant, revoke, and expiry (req 6's history
+    preservation).
+51. Past `expires_at`, `is_transfer_frozen` returns `true` again with **no sweep having run**.
+
+**J. Append-only guards (4)**
+52. `UPDATE venue.door_manifest SET opened_at = …` raises.
+53. `UPDATE venue.door_manifest SET status='open'` on a closed row raises (no reverse transition).
+54. `DELETE FROM venue.door_manifest` / `venue.door_manifest_entry` / `kernel.door_freeze_override` raises
+    (GP-2).
+55. `UPDATE venue.door_manifest_entry SET credential_version = …` raises.
+
+**K. Audit (3)**
+56. Every one of open / close / drain / override-grant / override-revoke writes exactly one
+    `kernel.admin_audit` row in the same transaction, with a non-null `reason_code` and a server-derived
+    `actor_identity` equal to the test's `auth.uid()`.
+57. A rolled-back open writes **no** audit row (same-transaction property).
+58. `kernel.admin_audit` remains unreadable by `authenticated` (audit-only class).
+
+**Total: 58 assertions.** Groups **G** and **B** are the regression suites for the two defects that would
+otherwise recur silently (§13.1 and req 5). Group **F** is the machine-checkable form of the Door Safety
+Theorem.
+
+---
+
+## 16. Open questions (owner decisions)
+
+**OQ-1 — Does opening the manifest early bother anyone commercially?**
+§14.5 recommends opening at soundcheck. That freezes transfers hours before doors, which is safe but removes a
+window in which a fan might legitimately still want to send a ticket to a friend who is running late. The
+alternative is to decouple: open the *manifest* early (offline capability) but engage the *freeze* at
+`doors_at`. **This spec deliberately does NOT decouple them**, because the decoupled form reintroduces exactly
+the snapshot-then-freeze window §5.3 closes — a transfer committing between manifest generation and freeze
+would strand a credential at an already-armed offline door. If the commercial cost of the early freeze is
+judged too high, the only safe alternative is to **re-snapshot the manifest at the freeze moment**, which means
+devices must re-sync at doors, which reintroduces failure #10. Recommend: keep them coupled; accept the early
+freeze. **Owner call.**
+
+**OQ-2 — Draining active listings at door-open (§7.3).**
+Cancelling a seller's live listing when doors open is a product act, not just a technical one. The alternative
+(leave it listed, refuse the holder at the door with `listed_locked`) is worse but is *visible* to the seller,
+whereas cancellation is a surprise. Recommend: drain, with the notification in §11.3. **Product sign-off.**
+
+**OQ-3 — `box_office` and the four-role enum (§4.1).**
+O-4 says `box_office` does not inherit manifest administration. There is no `box_office` label; a box-office
+seller today must hold `venue_manager`, which under this spec **also grants manifest open/close**. Closing that
+requires either a fifth enum label or VD Δ8's per-event/expiring grants. Neither is in scope here. **Owner
+call — and until it is made, "box_office does not inherit" is true of the label and false in practice.**
+
+**OQ-4 — C43's per-open-manifest-ticket narrowing is Gate-M and the current helper does not implement it.**
+Schema §2.3, RPC §12.4, RLS §14.3 and the catalog migration package all say the freeze is *"narrowed per-open-manifest-ticket
+per C43"*, but the specified predicate (`door_open_at IS NOT NULL AND now() >= door_open_at`) is **session-
+wide**, and C43 is `RATIFIED-MODELED-ONLY(GATE-M)` — not MVP. This spec keeps the session-wide predicate for
+MVP and makes the narrowing a pure additive conjunct once `venue.door_manifest_entry` is populated:
+```
+AND EXISTS (SELECT 1 FROM venue.door_manifest_entry e JOIN venue.door_manifest m USING (manifest_id)
+             WHERE e.ticket_atom_id = p_ticket_atom_id AND m.status = 'open')
+```
+No signature change, no caller change. **Flagged because the four documents currently describe a narrowing
+nothing implements** — the same class of claim-without-mechanism this ruling was issued to eliminate. Owner
+should confirm the MVP predicate is session-wide.
+
+**OQ-5 — PassKit (§9.4).**
+No `.pkpass` exists in Phase 2. If one is added, its TTL must not exceed the credential token's, or the
+guarantee in §5's corollary breaks for that surface. Recording it so a later PassKit ticket does not silently
+invalidate a proven property.
+
+**OQ-6 — Is `record_scan` required to take the session `FOR SHARE`?**
+Not needed for the theorem (scans do not move custody). It is *recommended* so a scan's recorded
+`manifest_id` is provably the live episode rather than a racing one. Cost: scans briefly block during
+open/close (milliseconds, twice a night). Recommend yes. **Implementer/owner preference.**
+
+**OQ-7 — Manifest signing.**
+§7.5 returns the manifest from a DB read RPC. Edge §5.4 signs the *key* manifest with a KMS manifest key. For
+parity the ticket manifest should also be signed — a `NEW EDGE FUNCTION` `door-manifest` that authorizes the
+door principal, calls `venue.get_door_manifest`, KMS-signs `{manifest_id, manifest_version, session_id,
+not_after, manifest_digest}`, and returns the artifact. The signature is deterministic over the digest, so
+re-signing is free and needs no stored signature and no unsigned window. **Recommend building it**; the
+TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NEW EDGE FUNCTION` (optional).
+
+---
+
+## 17. Change-class index
+
+| Element | Class |
+|---|---|
+| `venue.open_door_manifest` | `NEW RPC` |
+| `venue.close_door_manifest` | `NEW RPC` |
+| `catalog.engage_door_freeze` (definer-only) | `NEW RPC` |
+| `venue.get_door_manifest` | `NEW RPC` |
+| `catalog.effective_freeze_at` | `NEW RPC` |
+| `kernel.grant_door_freeze_override` / `revoke_door_freeze_override` | `NEW RPC` |
+| `kernel.sweep_expired_door_overrides` | `NEW RPC` |
+| `catalog.sweep_implicit_door_freezes` | `NEW RPC` |
+| `door-manifest` (signed manifest distribution) | `NEW EDGE FUNCTION` (optional, OQ-7) |
+| `venue.door_manifest` | `ADDITIVE SCHEMA CHANGE` |
+| `venue.door_manifest_entry` | `ADDITIVE SCHEMA CHANGE` |
+| `kernel.door_freeze_override` | `ADDITIVE SCHEMA CHANGE` |
+| `venue.scan.manifest_id` · `venue.scan_device.manifest_id` | `ADDITIVE SCHEMA CHANGE` (recommended) |
+| four `catalog.platform_config` seed keys | `ADDITIVE SCHEMA CHANGE` (rows) |
+| `catalog.event_session.door_open_at` triggers + CHECK | `ADDITIVE SCHEMA CHANGE` (constraints only) |
+| `catalog.event_session.door_open_at` column itself | `NO SCHEMA CHANGE` |
+| `kernel.is_transfer_frozen` signature + all call sites | `NO SCHEMA CHANGE` |
+| `kernel.is_transfer_frozen` body (effective boundary + override) | `SPEC CORRECTION` |
+| Remove `mark_ticket_scanned` from the recheck set | `SPEC CORRECTION` (§13.1) |
+| Add `transfer_ticket_ownership` · `accept_p2p_transfer` · routine `void_ticket_atom` to the recheck set | `SPEC CORRECTION` (§13.2) |
+| Offline verify step 3b (`credential_version`) | `SPEC CORRECTION` (§13.3) |
+| C25 sweep: complete frozen, compensate exempt | `SPEC CORRECTION` (§13.4) |
+| Drain of in-flight p2p / listings at open | `SPEC CORRECTION` (§13.5 / §7.3) |
+| Session `FOR SHARE` gate in custody RPCs | `SPEC CORRECTION` (§5.1) |
+| `venue_door` removed from VD Δ1's proposed role set | `SPEC CORRECTION` (§4) |
+| `starts_at`/`doors_at` edits rejected once engaged | `SPEC CORRECTION` (§10.2) |
+| M1/M2 manifest disambiguation | `SPEC CORRECTION` (§9.1) |
+| Domain events 37–42 | `ADDITIVE` (envelope) |
+| six `kernel.admin_audit` action names | `NO SCHEMA CHANGE` |
+| RLS matrices for the three new tables (§10A.1–§10A.3) | `ADDITIVE` (new matrices) |
+| RLS §8.3 notes 19 / 19b — `door_open_at` unreachable from any EXEC row | `SPEC CORRECTION` (§10A.4) |
+| RLS §11 EXECUTE-authority rows for the seven new RPCs | `ADDITIVE` (§10A.7) |
+| Dashboard manifest control · freeze-status card · episode history · session-card copy | `NEW DASHBOARD SURFACE` |
+| Scanner `awaiting_manifest` state · manifest status row | `NEW RN SURFACE` |
+| Drain notifications | `NEW RN SURFACE` |
+| Consumer Transfer/Sell gating + copy | `NO CHANGE` |
+| `kernel.tickets`, `kernel.ticket_ownership_log`, `market.*`, `public.*` | `NO SCHEMA CHANGE` |
+| SSCAS membership | `NO CHANGE` — set stays closed at fifteen (§5.2) |
+
+---
+
+## 18. Ratified-invariant conformance
+
+| Invariant | Interaction | Verdict |
+|---|---|---|
+| **Ticket atom** | untouched — no column added, no state added | ✔ preserved |
+| **Append-only ownership log** | the freeze gates *writes*; the drain appends nothing | ✔ preserved |
+| **Single transfer engine** | **strengthened** — the freeze is enforced in `transfer_ticket_ownership`, so no path bypasses it | ✔ reinforced |
+| **Credential-as-delivery** | **strengthened** — the manifest pins `credential_version`, making the offline door able to honour the credential's currency | ✔ reinforced |
+| **Two-rail honesty** | the freeze binds native custody only; `public.transfers` / `public.listings` are untouched — an external-rail transfer is not a custody move of an atom | ✔ preserved |
+| **Modular monolith** | `venue.*` never writes `catalog.*` directly; `catalog.engage_door_freeze` is the owning schema's definer primitive, mirroring `record_scan → mark_ticket_scanned` | ✔ preserved |
+| **Frozen Stripe core** | no `public.payments` column, no fee-application change, no new charge path | ✔ preserved |
+| **SSCAS membership + global lock ordering** | open/close are single-aggregate (Event/Session); the drain is a bounded batch of existing members #6-/#7-reverse; the session gate is rank 1, the lowest, so every prefixed sequence stays ascending (§5.1 proof table) | ✔ preserved, **no sixteenth member** |
+| **Event envelope** | six new events, all carrying `sequence`/`causation_id`/`correlation_id`, all with dedup keys | ✔ preserved |
+| **Server-authoritative money/custody** | no client timestamp, no client actor, no client-writable path to `door_open_at` | ✔ preserved |
+| **C6** (offline door = reconcile window + transfer freeze) | this document is C6's missing writer | ✔ implemented |
+| **C23** (ordered offline reconciliation; freeze covers refund-voids) | routine refund-void frozen (§7.6); `manifest_id` on scan/device makes reconciliation joinable (§10.5) | ✔ implemented |
+| **C37** (live authoritative per-scan read online; offline honestly shrunk) | the manifest gates **offline only**; the online path is untouched; §5's corollary shrinks the offline window to the audited break-glass residual and says so | ✔ preserved, claim still honest |
+| **C41** (no re-entry; `scanned` terminal; `direction` hedge) | close does not resurrect a terminal atom; the drain does not touch `state`; first-in-wins asserted under freeze (pgTAP 38) | ✔ preserved |
+| **C43** (p2p hard TTL; cancel-to-self exempt; per-open-manifest narrowing) | the drain uses **only** the ratified cancel-to-self exemption; the TTL sweep is unchanged; the narrowing is a Gate-M additive conjunct with a physical home ready (OQ-4) | ✔ preserved |
+
+**No ratified invariant is violated by this design, and none had to be bent.** The three places where the
+frozen specs were internally inconsistent (§13.1, §13.2, §13.4) are corrected *toward* the invariants, not away
+from them.
+
+---
+
+*End of `docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md`. Design-only; no SQL files, no migrations, no
+implementation code. Delta on the Phase-2 implementation specs; closes venue-dashboard Δ1 and §22.7, and gives
+`catalog.event_session.door_open_at` the writer it never had.*
