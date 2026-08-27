@@ -99,4 +99,6 @@ classes*, not byte-identical to production — stating otherwise would be an ove
 | 11 New `202607312246531_` (extends a timestamp) | FAIL | **FAIL** |
 | 12 New `0231_` file with no matching deletion | FAIL | **FAIL** |
 
-Case 2 initially **passed incorrectly**: git paired the edited rename as `R98`, dodging the `--diff-filter=MD` check while `--find-renames=100%` also declined to call it a rename. The guard now compares **blob hashes** with rename detection disabled, so content identity is proven rather than inferred.
+Case 2 initially **passed incorrectly**: git paired the edited rename as `R98`, dodging the `--diff-filter=MD` check while `--find-renames=100%` also declined to call it a rename. The guard was changed to disable rename detection, so a rename is reported as delete + add and cannot be paired away.
+
+> **Superseded 2026-08-26.** This paragraph previously ended "The guard now compares **blob hashes** … so content identity is proven rather than inferred." That is **no longer true** and should not be relied on. The blob-hash comparison existed only inside the one-time Scheme-B rename allowlist — it proved an allowlisted rename was content-identical — and was removed with that allowlist when the exception was retired. The guard now forbids deletion and rename outright (no allowlist, so nothing needs to be proven content-identical) and detects alteration with `--diff-filter=MT`, where `T` catches an existing `.sql` file being replaced by a symlink or gitlink. See `.github/workflows/README.md`.
