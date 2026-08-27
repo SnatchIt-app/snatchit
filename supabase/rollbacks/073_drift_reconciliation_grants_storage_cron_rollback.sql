@@ -108,10 +108,21 @@ COMMIT;
 -- =============================================================================
 -- §5. PUBLIC EXECUTE cleanup
 --
--- REVERSIBLE. This restores PUBLIC + anon EXECUTE on the six functions.
+-- REVERSIBLE. This restores PUBLIC + anon EXECUTE on the five functions 073 §5
+-- actually revokes.
 --
--- Group A (the four trigger functions) is the safest thing in this file to
--- revert and also the most pointless: those functions cannot be invoked
+-- FIVE, not six. There is a sixth function in the same class —
+-- set_ambassador_application_updated_at() — and 073 deliberately does NOT
+-- revoke it, because the timestamp-scheme migration that creates it sorts AFTER
+-- 073 and the function does not exist yet at that point in a rebuild (see 073
+-- §5). An earlier revision of this file granted it back anyway, which was a
+-- rollback for something that never happened: harmless in effect (the function
+-- already carries =X/postgres everywhere, so the GRANT was a no-op) but a
+-- rollback file that describes work the forward migration did not do is not
+-- one anybody should trust with the parts that matter. Removed.
+--
+-- Group A (the three trigger functions 073 reaches) is the safest thing in this
+-- file to revert and also the most pointless: those functions cannot be invoked
 -- directly at all (RETURNS trigger), and trigger firing never consults EXECUTE,
 -- so neither 073 §5 nor this revert can change any behaviour. Reverting them
 -- buys nothing.
@@ -134,7 +145,9 @@ BEGIN;
 GRANT EXECUTE ON FUNCTION public.dispute_resolutions_append_only()       TO PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.guard_transfer_state_columns()          TO PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()           TO PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.set_ambassador_application_updated_at() TO PUBLIC, anon, authenticated;
+
+-- NOTE: set_ambassador_application_updated_at() is deliberately absent — 073
+-- never revokes it. Do not add it back.
 
 GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid)                  TO PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_winner(uuid, uuid)                   TO PUBLIC, anon;

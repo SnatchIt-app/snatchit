@@ -248,9 +248,18 @@ jobs:
       # sides and VACUOUS for a table on neither: a NEW table gets no grants on
       # the fresh replay and no fixture line, so zero-vs-zero passes green --
       # while on production pg_default_acl silently grants anon/authenticated
-      # full DML to it. That is how webhook_retries drifted (SEC-1). This fails
-      # CLOSED for any public table with no recorded decision.
-      - name: Public-table grant decisions recorded (fails closed)
+      # full DML to it. That is how webhook_retries drifted (SEC-1).
+      #
+      # Covers FUNCTIONS too, and that half is the more exposed one (F2): the
+      # same pg_default_acl grants anon=X on every new function in public, which
+      # PostgREST serves at POST /rest/v1/rpc/<name> to anyone holding the
+      # publishable anon key. A new table at least still has RLS in front of it.
+      # Unlike the table half, the function half is NOT vacuous on the fresh
+      # replay: proacl IS NULL means defaults apply, and the function default is
+      # PUBLIC EXECUTE, so a missing REVOKE is detectable here on CI.
+      #
+      # Fails CLOSED for any public table or function with no recorded decision.
+      - name: Public table + function grant decisions recorded (fails closed)
         run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/ci/assert_public_table_grant_decisions.sql
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
