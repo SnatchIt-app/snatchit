@@ -46,8 +46,8 @@
 -- all) is NULL/NULL before 073. In PRODUCTION all three were NULL/NULL — 000's
 -- INSERTs carry ON CONFLICT (id) DO NOTHING and both public buckets predate the
 -- migration, so its declared limits never applied there. That environment split
--- is precisely what 073 repairs, and assertions 1, 2, 7, 8, 11, 16 and 17 fail
--- without it.
+-- is precisely what 073 repairs. Without it, assertions 1, 2, 7, 8, 9, 10, 11,
+-- 16, 17 and 18 fail on a fresh replay (measured, run 33111390601).
 -- ============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
@@ -122,31 +122,53 @@ SELECT is(
 -- 9. A wildcard entry ('image/*', '*/*') would re-open the MIME hole while
 --    still reading as "restricted". text/html and image/svg+xml execute script
 --    on the storage origin; the rest are arbitrary-payload carriers.
+--
+--    A NULL allow-list is the WORST case, not a neutral one — it admits every
+--    type on this list at once. The earlier shape of this assertion
+--    (`FROM storage.buckets, unnest(allowed_mime_types)`) could not say so:
+--    unnest(NULL) yields zero rows, the bucket dropped out of the cross join,
+--    and the assertion PASSED against the exact pre-073 state it exists to
+--    catch. LEFT JOIN LATERAL keeps the row so the NULL case is reported.
+--    Scoped to the owned buckets for the same reason as 1-2.
 SELECT is_empty(
-  $$ SELECT b.id || ' admits ' || m
-       FROM storage.buckets b, unnest(b.allowed_mime_types) AS m
-      WHERE m LIKE '%*%'
-         OR m IN ('text/html','application/xhtml+xml','image/svg+xml',
-                  'text/xml','application/xml','application/octet-stream',
-                  'text/javascript','application/javascript',
-                  'application/x-msdownload') $$,
-  'no bucket admits a wildcard, scriptable or arbitrary-payload MIME type');
+  $$ SELECT b.id || ' admits ' || coalesce(m, 'EVERY TYPE (allowed_mime_types IS NULL)')
+       FROM storage.buckets b
+       LEFT JOIN LATERAL unnest(b.allowed_mime_types) AS m ON true
+      WHERE b.id IN ('auction-media','avatars','proof-docs')
+        AND (b.allowed_mime_types IS NULL
+             OR m LIKE '%*%'
+             OR m IN ('text/html','application/xhtml+xml','image/svg+xml',
+                      'text/xml','application/xml','application/octet-stream',
+                      'text/javascript','application/javascript',
+                      'application/x-msdownload')) $$,
+  'no owned bucket admits a wildcard, scriptable or arbitrary-payload MIME type (an unset allow-list admits all of them)');
 
--- 10. Nothing may quietly exceed the largest limit this repo intends.
+-- 10. Nothing may quietly exceed the largest limit this repo intends. NULL is
+--     included deliberately: an unset limit allows objects larger than 10 MiB
+--     by definition, so omitting it made this assertion pass against the very
+--     state 073 fixes. Scoped to the owned buckets, matching 1-2.
 SELECT is_empty(
-  $$ SELECT id || ' -> ' || file_size_limit FROM storage.buckets
-      WHERE file_size_limit > 10485760 $$,
-  'no bucket allows an object larger than 10 MiB');
+  $$ SELECT id || ' -> ' || coalesce(file_size_limit::text, 'NULL (unbounded)')
+       FROM storage.buckets
+      WHERE id IN ('auction-media','avatars','proof-docs')
+        AND (file_size_limit IS NULL OR file_size_limit > 10485760) $$,
+  'no owned bucket allows an object larger than 10 MiB (an unset limit allows any size)');
 
 -- 11. application/pdf is document hosting. It is legitimate for seller transfer
 --     evidence, which lives in the ONE private bucket read through short-lived
 --     signed URLs (033/034/051) — and nowhere else. In a `public = true` bucket
 --     it would be world-readable file hosting.
+--     Scoped to the owned buckets: this hard-asserts an exact bucket-name
+--     string, so without the filter an unrelated `invoices` bucket admitting
+--     PDF would turn the SEC-3 gate red on every PR for something 073 neither
+--     owns nor changed.
 SELECT is(
   (SELECT coalesce(string_agg(id, ',' ORDER BY id), '<none>')
-     FROM storage.buckets WHERE 'application/pdf' = ANY(allowed_mime_types)),
+     FROM storage.buckets
+    WHERE id IN ('auction-media','avatars','proof-docs')
+      AND 'application/pdf' = ANY(allowed_mime_types)),
   'proof-docs',
-  'application/pdf is admitted only by the private proof-docs bucket');
+  'of the owned buckets, application/pdf is admitted only by the private proof-docs bucket');
 
 -- ── D. Why the configuration is durable, not advisory ──────────────────────
 -- `anon` and `authenticated` both hold table-wide UPDATE on storage.buckets
@@ -194,7 +216,7 @@ SELECT ok(
   (SELECT coalesce(4143632 <= b.file_size_limit
                    AND 'application/pdf' = ANY(b.allowed_mime_types), false)
      FROM storage.buckets b WHERE b.id = 'proof-docs'),
-  'a legitimate proof-doc PDF (application/pdf at the largest proof size in production) is still admissible');
+  'proof-docs admits an application/pdf of 4 143 632 B — the size of its largest stored object (which is an image/png; production holds no PDF yet, so this is a realistic size, not an observed file)');
 
 -- 17. The reconciliation, as data: every (bucket, MIME, ceiling) a SHIPPED
 --     writer can emit must be admissible. Writers, exhaustively:
@@ -239,6 +261,13 @@ SELECT is_empty(
 --     could send today and must not be able to send after 073 — script-capable
 --     types on the two world-readable buckets, documents in a public bucket,
 --     and one-byte-over-the-limit payloads.
+--
+--     The NULL branches are what make this control discriminate at all. Its
+--     first form tested only `bytes <= file_size_limit AND mimetype = ANY(...)`,
+--     which is NULL for an unrestricted bucket — so every abuse row filtered
+--     out and is_empty PASSED against production's actual pre-073 state, while
+--     every listed abuse was in fact possible. An unset limit or allow-list is
+--     not "no match", it is "admits everything", and is reported as such.
 SELECT is_empty(
   $$ WITH abuse(bucket_id, mimetype, bytes, why) AS (VALUES
        ('auction-media','text/html',                 1024::bigint,'stored XSS on the storage origin'),
@@ -257,10 +286,14 @@ SELECT is_empty(
        ('avatars','image/jpeg',                 104857600::bigint,'100 MB avatar — storage-cost abuse')
      )
      SELECT a.bucket_id || ' still admits ' || a.mimetype || ' @' || a.bytes || 'B (' || a.why || ')'
+            || CASE WHEN b.file_size_limit IS NULL OR b.allowed_mime_types IS NULL
+                    THEN ' — bucket is UNRESTRICTED' ELSE '' END
        FROM abuse a JOIN storage.buckets b ON b.id = a.bucket_id
-      WHERE a.bytes <= b.file_size_limit
-        AND a.mimetype = ANY(b.allowed_mime_types) $$,
-  'no bucket admits a scriptable type, a document in a public bucket, or an over-limit payload');
+      WHERE b.file_size_limit IS NULL
+         OR b.allowed_mime_types IS NULL
+         OR (a.bytes <= b.file_size_limit
+             AND a.mimetype = ANY(b.allowed_mime_types)) $$,
+  'no owned bucket admits a scriptable type, a document in a public bucket, or an over-limit payload');
 
 SELECT * FROM finish();
 ROLLBACK;
