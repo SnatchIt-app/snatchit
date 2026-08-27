@@ -18,9 +18,18 @@
 - Web: `cd web && npm run typecheck` · `npm run lint` · `npm run test` ·
   `npm run build`
 - Fresh DB replay: `supabase start` + `supabase db reset` with **Supabase CLI
-  2.75.0** (the pinned version the chain is proven against; the letter-suffixed
-  migrations are invisible to the CLI until the normalization event lands —
-  see `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`).
+  2.115.0** — the pinned version, and the only one the chain's replay order is
+  proven against. CI installs exactly this (`.github/workflows/ci.yml`, job
+  `db`, `env.SUPABASE_CLI_VERSION`) and fails on any drift; use the same
+  locally or your replay proves nothing about CI. Do not run `supabase upgrade`
+  or install `latest` — a bump is a deliberate PR (change the pin → fresh
+  replay green → Gate-2 parity green → merge). 2.116.0 exists upstream and is
+  **not** adopted.
+  The old caveat that letter-suffixed migrations are invisible to the CLI is
+  **retired**: the Scheme-B normalization completed 2026-08-26, repo and ledger
+  are 1:1 at 85/85 with zero letter-suffixed versions, and
+  `migrations-guard.yml` now rejects that filename class outright. History:
+  `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`.
 
 ## Definition of done
 A task is "fixed" / "complete" / "green" / "verified" ONLY with evidence: a CI

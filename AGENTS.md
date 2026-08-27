@@ -128,6 +128,17 @@ Functions, Middleware, build/runtime Logs.
   `parent_project_ref` equals the project ref and it resolves to the production
   host. It is git `main` bound to production. See
   `docs/operations/DEPLOYMENT_PATHS.md`.
+- **Supabase CLI is pinned to `2.115.0` for all migration-sensitive work** —
+  fresh-DB replay, `supabase db reset`, `db push`, ledger inspection. Replay
+  order is a correctness property of this chain, so it must not vary with
+  whichever CLI happens to be installed; a replay run on a different version is
+  not evidence. The pin lives in exactly one place — job-level
+  `env.SUPABASE_CLI_VERSION` in the `db` job of `.github/workflows/ci.yml` —
+  and is asserted there before any migration step, so drift fails the build.
+  Use the same version locally; never `supabase upgrade` or install `latest`.
+  `2.116.0` exists upstream and is deliberately not adopted; bumping the pin is
+  its own PR. Details: `docs/architecture/SNATCH_IT_ENGINEERING_STANDARDS.md`
+  §5 and `.github/workflows/README.md`.
 - Migrations are additive-only by default. No destructive schema change
   (drop/rename/alter an existing column, table, policy, or trigger) without
   explicit approval, a rollback script written *before* applying, and a
