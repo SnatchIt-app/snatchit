@@ -472,6 +472,14 @@ END $$;
 --
 -- proacl IS NULL is called out separately anyway, so the failure message names
 -- the actual cause ("never revoked") instead of the symptom.
+--
+-- This block is still a negative assertion ("nothing is wrong"), which is the
+-- kind that goes quiet when it breaks. B0 covers the manifest lookup, but not
+-- the privilege reading itself: if has_function_privilege were somehow always
+-- returning false here, every check below would pass and report a clean sheet.
+-- B4 is the positive control for exactly that — it asserts that one specific
+-- function IS anon-executable, over the same has_function_privilege path. The
+-- two only agree if the privilege reading actually works.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -541,6 +549,11 @@ END $$;
 --     is an allowance nobody is watching any more.
 -- Exit condition: revoke it in a timestamp-scheme migration sorting after
 -- 20260731224653, then move this row to no-client-execute.
+--
+-- Doubling as the POSITIVE CONTROL for B3 (see the note there): asserting that
+-- this function IS anon-executable exercises the same has_function_privilege
+-- path B3 relies on to prove nothing else is. A broken privilege read fails
+-- here rather than passing everywhere.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
