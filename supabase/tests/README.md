@@ -72,7 +72,7 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | File | Tests | Covers |
 |---|---|---|
 | `000_helpers.sql` | 6 | Persona helpers + fixture builder (commits `tap` schema) |
-| `005_service_path.sql` | 12 | The trusted service path itself: `tap.login_service()` / `tap.logout()` shapes, so every later file's "service can" assertion rests on a checked premise |
+| `005_service_path.sql` | 12 | **Where the `request_is_service_role()` fail-open is pinned as executable.** Exercises the helper across all four persona claim shapes, protecting the `p_user_id` identity-resolution premise that nine named RPCs depend on — the same premise `110` stress-tests adversarially. Every later file's "the service path can do X" assertion rests on this being checked rather than assumed |
 | `010_rls_smoke.sql` | 20 | RLS on every public table; deny-all tables have zero policies; policy surface pinned (070) |
 | `020_profiles_columns.sql` | 20 | 052/068 exact 8-column SELECT sets, 041 exact 6-column UPDATE set, private-field denials, `get_my_profile()` |
 | `030_anon_boundaries.sql` | 28 | anon can browse and nothing else; all writes + financial RPC EXECUTE closed (055c/059/063/067) |
@@ -83,9 +83,9 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | `070_payouts.sql` | 19 | `record_transfer_payout` idempotency + NULL guards + dispute refusal (056d); 065 resolution gate + append-only audit; reversal |
 | `080_admin.sql` | 16 | no admin self-grant/enumeration, `is_admin()` client-EXECUTE stripped (067) but semantics intact, risk tables closed, TRUNCATE stripped (063) |
 | `090_webhooks.sql` | 21 | 064 claim/complete/fail lease (first-claim-wins, in_flight, already_processed, abandoned-lease recovery, fail releases immediately); 061 verified-payment gate on `ensure_transfer_exists` |
-| `100_storage.sql` | 6 | Storage bucket posture and `storage.objects` policy surface |
+| `100_storage.sql` | 6 | `proof-docs` privacy specifically — the bucket holding ownership-proof documents must stay private, and its read paths are enumerated so a new one cannot appear unnoticed; plus the `storage.objects` policy surface |
 | `110_money_authz_matrix.sql` | 18 | MONEY-1: the impersonation matrix for `request_is_service_role()` (0550) — legacy singular GUC precedence, disagreeing/malformed/empty claims, SQL role irrelevance, anon grant posture, and forged `p_user_id` refused across the money RPCs (with a matched positive control on a file-local reserved fixture, F1) |
-| `120_drift_reconciliation.sql` | 15 | DRIFT-1: the state `073` reconciles — `webhook_retries` grants revoked, storage bucket size/MIME constraints, the six orphan `storage.objects` policies absent, the cron schedule vendored, and the group-A EXECUTE posture (incl. the pin that all four group-A functions RETURN trigger) |
+| `120_drift_reconciliation.sql` | 15 | DRIFT-1: the state `073` reconciles — `webhook_retries` grants revoked, storage bucket size/MIME constraints, the six orphan `storage.objects` policies absent, the cron schedule vendored. **Group A** EXECUTE posture (incl. the pin that all four group-A functions RETURN trigger, which is what makes the remaining `set_ambassador_application_updated_at` gap harmless). **Group B** — `is_blocked_by_me` / `is_winner` hold no anon and no PUBLIC EXECUTE **and `authenticated` is deliberately RETAINED**: that retained grant is what a listings-feed RLS predicate depends on, so an ACL tidy that strips it turns this file red on purpose |
 
 **Table integrity:** these 15 rows must match `ls supabase/tests/*.sql` exactly, and each `Tests` value
 must equal that file's `plan(N)`. An earlier revision of this table listed 12 of 15 files and gave
