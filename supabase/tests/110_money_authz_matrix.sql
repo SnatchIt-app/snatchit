@@ -19,7 +19,7 @@
 --   (a) auth.uid() is non-NULL for every PostgREST-authenticated caller, so the
 --       `IF v_caller_id IS NULL AND request_is_service_role()` branch — the one
 --       that substitutes p_user_id for the caller's identity — is never even
---       evaluated for a signed-in client. Assertions 13-17.
+--       evaluated for a signed-in client. Assertions 13-18.
 --   (b) `request.jwt.claims` is never NULL inside a PostgREST request, because
 --       PostgREST issues set_config('request.jwt.claims', $3, true)
 --       unconditionally on every request, and set_config(name, NULL, true)
@@ -40,7 +40,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(17);
+SELECT plan(18);
 
 -- ── 1-2: fresh session — neither GUC has ever been assigned ─────────────────
 SELECT ok(current_setting('request.jwt.claims', true) IS NULL,
@@ -57,6 +57,38 @@ SELECT is(current_setting('money1.probe', true), '',
   '(so PostgREST''s unconditional claims setter makes the 0550 fail-open branch unreachable over HTTP)');
 
 SELECT tap.seed_core();
+
+-- ── File-local fixture: a listing that is ACTUALLY RESERVED ────────────────
+-- Deliberately NOT added to tap.seed_core(): 000_helpers.sql is shared by all
+-- 15 test files and other assertions depend on the existing listings keeping
+-- their current shape. This row lives and dies inside this file's transaction.
+--
+-- It exists because assertions 17/18 must DISCRIMINATE. mark_listing_sold()
+-- raises the same 'This listing is not reserved by you.' for two different
+-- reasons:
+--     IF v_status <> 'reserved' OR v_reserved_by IS DISTINCT FROM v_caller_id
+-- Against tap.listing_a() (status defaults to 'active') the FIRST disjunct is
+-- true and short-circuits, so the message appears no matter whose identity
+-- v_caller_id holds — an assertion using it would stay green even if the
+-- forged p_user_id were honoured. Found in adversarial review (F1).
+--
+-- This row sets status='reserved' and reserved_by=tap.seller(), so the first
+-- disjunct is FALSE and the outcome turns purely on identity:
+--   * forgery REFUSED  -> v_caller_id = attacker -> reserved_by is DISTINCT -> raises
+--   * forgery HONOURED -> v_caller_id = seller   -> neither disjunct -> the call
+--                         SUCCEEDS and the listing is sold, so throws_ok fails.
+-- reserved_until is in the future so the 'reservation has expired' branch (a
+-- third, identity-independent way to raise) cannot mask the result either.
+INSERT INTO public.listings
+  (id, seller_id, event_name, venue, neighborhood, event_date, event_time,
+   ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
+   buy_now_price, duration_hours, starts_at, ends_at, current_bid,
+   cover_image_path, auction_status, status, reserved_by, reserved_until)
+VALUES
+  ('aaaaaaaa-0000-0000-0000-000000000005', tap.seller(), 'Fixture Event E (reserved)',
+   'Club E', 'wynwood', current_date + 30, '19:00', 'GA', 2, 'mobile_transfer',
+   100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/e.jpg',
+   'active', 'reserved', tap.seller(), now() + interval '1 hour');
 
 -- ── 4-6: the LEGACY SINGULAR GUC decides, and a claim alone grants ──────────
 -- 071 point 4, first and second properties, made executable.
@@ -133,7 +165,7 @@ SELECT throws_ok(
   'P0001', 'Only the seller can mark a transfer as sent.',
   'forged singular GUC + forged p_user_id: mark_transfer_sent STILL refuses — auth.uid() short-circuits the service path');
 
--- ── 15-17: forged p_user_id refused across the other money RPCs ────────────
+-- ── 15-18: forged p_user_id refused across the other money RPCs ────────────
 SELECT throws_ok(
   $$ SELECT public.confirm_transfer_received(tap.transfer_b(), tap.buyer()) $$,
   'P0001', 'Only the buyer can confirm transfer receipt.',
@@ -142,10 +174,26 @@ SELECT throws_ok(
   $$ SELECT public.cancel_listing(tap.listing_a(), tap.seller()) $$,
   'P0001', 'You can only cancel your own listings.',
   'forged p_user_id: cancel_listing refuses');
+-- 17 (negative) and 18 (positive control) are a MATCHED PAIR against the same
+-- reserved fixture, in the same fooled-helper session. 17 alone only shows that
+-- something raised; 18 is what proves the raise was about IDENTITY, by showing
+-- the identical call on the identical row succeeds for the true reservation
+-- holder. Keep them together — deleting 18 makes 17 unfalsifiable again.
 SELECT throws_ok(
-  $$ SELECT public.mark_listing_sold(tap.listing_a(), tap.seller()) $$,
+  $$ SELECT public.mark_listing_sold('aaaaaaaa-0000-0000-0000-000000000005'::uuid, tap.seller()) $$,
   'P0001', 'This listing is not reserved by you.',
-  'forged p_user_id: mark_listing_sold refuses');
+  'forged p_user_id naming the true reservation holder: mark_listing_sold refuses the impostor');
+
+-- Positive control. Same row, same forged singular GUC, same transaction —
+-- only the caller's real identity differs, and p_user_id now names someone
+-- else entirely (which must be ignored in favour of auth.uid()).
+SELECT set_config('role', 'none', true);
+SELECT tap.set_claims(tap.seller(), 'authenticated');
+SELECT set_config('role', 'authenticated', true);
+SELECT lives_ok(
+  $$ SELECT public.mark_listing_sold('aaaaaaaa-0000-0000-0000-000000000005'::uuid, tap.other_user()) $$,
+  'CONTROL: the true reservation holder succeeds on that same row — so #17 raised on IDENTITY, '
+  'not on listing state (this is what makes #17 discriminating rather than merely passing)');
 
 SELECT * FROM finish();
 ROLLBACK;
