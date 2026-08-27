@@ -205,6 +205,20 @@ jobs:
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      # --- BEGIN 073 / SEC-2 step (self-contained; see PR "fix(security): 073") ---
+      # Closes the vacuous-pass hole in the step above. That diff compares the
+      # replay against expected_grants.txt, which is sound for tables on both
+      # sides and VACUOUS for a table on neither: a NEW table gets no grants on
+      # the fresh replay and no fixture line, so zero-vs-zero passes green --
+      # while on production pg_default_acl silently grants anon/authenticated
+      # full DML to it. That is how webhook_retries drifted (SEC-1). This fails
+      # CLOSED for any public table with no recorded decision.
+      - name: Public-table grant decisions recorded (fails closed)
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/ci/assert_public_table_grant_decisions.sql
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      # --- END 073 / SEC-2 step ---
+
       # pgTAP database security gate. Runs against the SAME freshly-replayed
       # stack booted above, so it costs no second boot and is guaranteed to be
       # testing the schema this PR actually produces.
