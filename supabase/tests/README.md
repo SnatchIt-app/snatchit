@@ -1,11 +1,27 @@
 # DB security gate — executable pgTAP suite
 
+> **STATUS 2026-08-27 — THIS SUITE NOW EXECUTES IN CI.**
+> It ran for the first time on 2026-08-27 (it had never been executed before).
+> Current: **12 files, 214 assertions, `Result: PASS`, 0 bad plans**, via
+> `supabase test db --local` in the `db` job of `ci.yml`, against the same
+> freshly-replayed stack that job already boots.
+>
+> Two things it depends on, both easy to break:
+> 1. `supabase/ci/parity_grants.sql` is applied first. A fresh Supabase stack has
+>    **no default table privileges at all** (`pg_default_acl` holds sequence
+>    entries only), so without it `anon`/`authenticated` have almost no grants and
+>    "anon cannot read X" passes because the GRANT is missing rather than because
+>    RLS works — vacuous green across most of the suite. See finding REPLAY-1.
+> 2. Assertions RUN must equal assertions PLANNED. A file that errors before its
+>    first assertion otherwise reports a clean sheet.
+
+
 Executable regression net for the custody boundary of the Snatch It database:
 RLS coverage, the profiles column-grant read boundary, anon/authenticated
 write bans, transfer state custody (RPC-only writes), payment/payout money
 invariants, admin isolation, and the webhook claim lease.
 
-**182 assertions** across 10 files. 3 are deliberate expected-fail `todo()`
+**214 assertions** across 12 files. 2 are deliberate expected-fail `todo()`
 markers pinning known open gaps (they flip green when the fix ships — see
 "Pinned findings" below).
 

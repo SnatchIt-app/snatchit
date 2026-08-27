@@ -174,7 +174,7 @@ jobs:
             where table_schema='public' and grantee in ('anon','authenticated','service_role')
               and privilege_type='SELECT' group by grantee order by grantee;"
           psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/parity_grants.sql
-          echo "--- AFTER: full matrix must equal production, byte for byte ---"
+          echo "--- AFTER: full matrix must equal supabase/ci/expected_grants.txt ---"
           psql "$DB_URL" -tA -F'|' -c "
             select grantee, table_name, string_agg(privilege_type, ',' order by privilege_type)
             from information_schema.role_table_grants
@@ -185,7 +185,7 @@ jobs:
             echo "::error::privilege surface does not match production. A count-only check would have missed this — an earlier revision over-granted public.transfers (production is SELECT-only there per migration 055) and silently broke three assertions."
             exit 1
           fi
-          echo "OK: $(wc -l < supabase/ci/expected_grants.txt | tr -d ' ') grant rows match production exactly."
+          echo "OK: $(wc -l < supabase/ci/expected_grants.txt | tr -d ' ') grant rows match the expected fixture (production minus the DRIFT-1 departure)."
           # profiles must remain COLUMN-granted, never table-granted.
           tbl=$(psql "$DB_URL" -tAc "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name='profiles' and grantee in ('anon','authenticated');")
           col=$(psql "$DB_URL" -tAc "select count(*) from information_schema.column_privileges where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
@@ -230,16 +230,36 @@ jobs:
           # NOT raw TAP ok/not ok lines. Parsing for '^ok' yields 0/0/0/0 and
           # would report a clean sheet for a suite that never ran -- exactly the
           # vacuous-green this gate exists to prevent. Parse what pg_prove emits.
+          # Report ONLY what pg_prove actually emits. An earlier version of this
+          # step printed passed/failed/skipped/todo counts it could not measure:
+          # it grepped for raw TAP '^not ok' and '# TODO' lines, which pg_prove
+          # never prints, so failed/skipped/todo were permanently 0 and "passed"
+          # was assigned the number of tests RUN. It printed passed=214 failed=0
+          # for a run that had 212 passing and 2 failing-but-TODO. Worse, wrapping
+          # any future failing security assertion in todo() would have kept the
+          # gate green AND counted it as passed. The real gate is result=PASS plus
+          # assertions-run == assertions-planned; claim nothing beyond that.
           files_n=$(grep -oE 'Files=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
           tests_n=$(grep -oE 'Tests=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
           result=$(grep -oE '^Result: (PASS|FAIL|NOTESTS)' "$f" | tail -1 | awk '{print $2}' || true)
-          failed_files=$(grep -cE '\(Wstat: ' "$f" || true)
+          failing_files=$(grep -cE '\(Wstat: ' "$f" || true)
           badplan=$(grep -cE 'Parse errors: Bad plan' "$f" || true)
-          notok=$(grep -cE '^\s*not ok [0-9]+' "$f" || true)
-          echo "files=$files_n tests_ran=$tests_n result=$result failing_files=$failed_files bad_plans=$badplan"
-          ok_n="${tests_n:-0}"; skip=0; todo=$(grep -cE '# TODO' "$f" || true)
+          todo_fail=$(grep -cE '# Failed \(TODO\) test' "$f" || true)
+          echo "files=$files_n tests_ran=$tests_n result=$result failing_files=$failing_files bad_plans=$badplan todo_failing=$todo_fail"
+          {
+            echo "### pgTAP database security gate"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| test files | ${files_n:-?} |"
+            echo "| assertions executed | ${tests_n:-?} |"
+            echo "| files with failures | ${failing_files:-?} |"
+            echo "| bad plans | ${badplan:-?} |"
+            echo "| failing-but-TODO (not gating) | ${todo_fail:-?} |"
+            echo "| pg_prove result | ${result:-none} |"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "${result:-}" != "PASS" ] || [ "${badplan:-0}" -gt 0 ]; then
-            echo "::error::pgTAP did not pass cleanly (result=${result:-none}, bad plans=${badplan:-0}, failing files=${failed_files:-0})."
+            echo "::error::pgTAP did not pass cleanly (result=${result:-none}, bad plans=${badplan:-0}, failing files=${failing_files:-0})."
             grep -aE 'Parse errors|Failed [0-9]+/|not ok |ERROR:|Result:' "$f" | head -40
             exit 1
           fi
@@ -248,6 +268,16 @@ jobs:
             echo "::error::ran ${tests_n:-0} assertions but $planned_total were planned — some file aborted early."
             exit 1
           fi
+          # Coverage floor. Without it, DELETING test files keeps the gate green:
+          # both guards above compare the suite against ITSELF (tests run vs plans
+          # of the files currently on disk), so they stay consistent as coverage
+          # shrinks. These are ratchets — raise them when coverage grows, never
+          # lower them to make a red build pass.
+          MIN_FILES=12
+          MIN_ASSERTIONS=214
+          [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
+          [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
+          echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
           {
             echo "### pgTAP database security gate"
             echo ""

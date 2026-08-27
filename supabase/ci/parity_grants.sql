@@ -78,9 +78,10 @@ GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.us
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.venue_partnership_inquiries TO service_role;
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.webhook_retries TO service_role;
 
--- anon — 19 of 27 tables. Withheld: admin_users, auth_audit_sweep_state,
+-- anon — 18 of 27 tables. Withheld: admin_users, auth_audit_sweep_state,
 -- dispute_resolutions, notifications, profiles, rate_limits,
--- stripe_webhook_events, transfer_notifications.
+-- stripe_webhook_events, transfer_notifications, and webhook_retries (DRIFT-1:
+-- production grants it, migration 069 revokes it, source wins here).
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.ambassador_applications TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.bids TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.disputes TO anon;
@@ -100,9 +101,9 @@ GRANT SELECT ON public.transfers TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.user_blocks TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.venue_partnership_inquiries TO anon;
 
--- authenticated — 20 of 27 tables. Withheld: admin_users,
+-- authenticated — 19 of 27 tables. Withheld: admin_users,
 -- auth_audit_sweep_state, dispute_resolutions, profiles, rate_limits,
--- stripe_webhook_events, transfer_notifications.
+-- stripe_webhook_events, transfer_notifications, and webhook_retries (DRIFT-1).
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.ambassador_applications TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.bids TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.disputes TO authenticated;
