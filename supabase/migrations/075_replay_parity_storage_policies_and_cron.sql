@@ -277,7 +277,9 @@
 -- and EXPECT_POLICIES stays 37. That is a gap in the check, not in this
 -- migration; see the PR description.
 --
--- Tests:    supabase/tests/130_replay_parity.sql (12 assertions)
+-- Tests:    supabase/tests/132_replay_parity.sql (11 assertions)
+--           (renamed from 130_ during rebase onto main: 073 and 074 landed
+--           first and took the 130_/131_ ordinals.)
 -- Rollback: supabase/rollbacks/075_replay_parity_storage_policies_and_cron_rollback.sql
 --           (SEC-4 is deliberately NOT reversible — see that file)
 --
