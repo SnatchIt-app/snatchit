@@ -72,17 +72,25 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | File | Tests | Covers |
 |---|---|---|
 | `000_helpers.sql` | 6 | Persona helpers + fixture builder (commits `tap` schema) |
+| `005_service_path.sql` | 12 | The trusted service path itself: `tap.login_service()` / `tap.logout()` shapes, so every later file's "service can" assertion rests on a checked premise |
 | `010_rls_smoke.sql` | 20 | RLS on every public table; deny-all tables have zero policies; policy surface pinned (070) |
 | `020_profiles_columns.sql` | 20 | 052/068 exact 8-column SELECT sets, 041 exact 6-column UPDATE set, private-field denials, `get_my_profile()` |
 | `030_anon_boundaries.sql` | 28 | anon can browse and nothing else; all writes + financial RPC EXECUTE closed (055c/059/063/067) |
-| `040_authenticated_boundaries.sql` | 22 | cross-user no-ops, self-escalation denials, listing gate (036/038), listing state guard (046), bid immutability, strict identity (059) |
+| `040_authenticated_boundaries.sql` | 36 | cross-user no-ops, self-escalation denials, listing gate (036/038), listing state guard (046), bid immutability, strict identity (059), and DB-1: `proof_status` cannot be changed on UPDATE or seeded on INSERT (071) |
 | `045_listing_insert_authority.sql` | 20 | H-1: INSERT-side column custody on `public.listings` — forged `winner_user_id`/`winning_bid_amount`/`current_bid`/`bid_count`/auction state/settlement timestamps/backdated `created_at` are rejected at creation (072); `app.bypass_listing_guard` does not open the INSERT path; ordinary + Buy Now seller creation, the service path and the operator path all still work |
 | `050_transfers_custody.sql` | 18 | direct state writes blocked for authenticated AND service_role AND owner (056b); RPC path works; 056c one-statement bypass window; evidence append-only; state machine |
 | `060_payments_money.sql` | 12 | client write ban, one-succeeded-payment-per-listing (003), one-transfer-per-payment/listing (003), F-2/F-3 TODOs |
 | `070_payouts.sql` | 19 | `record_transfer_payout` idempotency + NULL guards + dispute refusal (056d); 065 resolution gate + append-only audit; reversal |
 | `080_admin.sql` | 16 | no admin self-grant/enumeration, `is_admin()` client-EXECUTE stripped (067) but semantics intact, risk tables closed, TRUNCATE stripped (063) |
 | `090_webhooks.sql` | 21 | 064 claim/complete/fail lease (first-claim-wins, in_flight, already_processed, abandoned-lease recovery, fail releases immediately); 061 verified-payment gate on `ensure_transfer_exists` |
+| `100_storage.sql` | 6 | Storage bucket posture and `storage.objects` policy surface |
 | `110_money_authz_matrix.sql` | 18 | MONEY-1: the impersonation matrix for `request_is_service_role()` (0550) — legacy singular GUC precedence, disagreeing/malformed/empty claims, SQL role irrelevance, anon grant posture, and forged `p_user_id` refused across the money RPCs (with a matched positive control on a file-local reserved fixture, F1) |
+| `120_drift_reconciliation.sql` | 15 | DRIFT-1: the state `073` reconciles — `webhook_retries` grants revoked, storage bucket size/MIME constraints, the six orphan `storage.objects` policies absent, the cron schedule vendored, and the group-A EXECUTE posture (incl. the pin that all four group-A functions RETURN trigger) |
+
+**Table integrity:** these 15 rows must match `ls supabase/tests/*.sql` exactly, and each `Tests` value
+must equal that file's `plan(N)`. An earlier revision of this table listed 12 of 15 files and gave
+`040` as 22 when its plan was 36 — a stale map of the security surface is how coverage gaps hide.
+The `Tests` column sums to **267**, which is the `MIN_ASSERTIONS` floor in `ci.yml`.
 
 ## Harness rules (read before adding tests)
 
