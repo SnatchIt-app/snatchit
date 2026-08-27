@@ -1,24 +1,49 @@
 # Migrations guard — protects the append-only migration ledger.
 #
-# Runs only when a PR touches supabase/migrations/**. Two invariants:
-#   1. Immutability: a migration that already exists on the base branch must
-#      NOT be modified, deleted, or renamed. Applied migrations are history —
-#      changing one silently diverges every environment that already ran it.
-#   2. Monotonic ordering: newly-added migrations must sort AFTER the latest
-#      existing migration of the same naming scheme (no back-dating / inserting
-#      before an already-applied version), and version prefixes must be unique.
+# Runs on EVERY pull request. It used to be gated by `paths:`, which meant a PR
+# that touched no migration produced NO check at all rather than a passing one —
+# so the job could never be made a required status check without deadlocking
+# every unrelated PR. Change detection now happens INSIDE the job: if nothing
+# under supabase/migrations/** changed, the job exits 0 early. The check is
+# therefore always present and always conclusive.
 #
-# The repo uses two schemes side by side: zero-padded sequence (NNN_, e.g.
-# 067_) and 14-digit timestamps (YYYYMMDDHHMMSS_). The check is scheme-aware so
-# a new 068_ is compared against the max sequence version, and a new timestamp
-# against the max timestamp version. Both prefix styles sort correctly with a
-# plain lexicographic compare within their own scheme.
+# Invariants enforced against the PR base:
+#   0. The base must be resolvable and must be an ancestor of HEAD. Every other
+#      check is relative to it, so an unresolvable base must never pass vacuously.
+#      On the normal path the base is HEAD^1 -- the merge checkout's base parent --
+#      because github.event.pull_request.base.sha is pinned at PR creation and goes
+#      stale as main advances. When HEAD is NOT a two-parent merge the job falls
+#      back to the event base (pull_request.base.sha, or merge_group.base_sha),
+#      which carries that staleness risk; the fallback exists so the job stays
+#      conclusive rather than silently skipping.
+#   1. Immutability — an existing migration may not be modified, deleted,
+#      renamed, or have its object TYPE changed (e.g. a .sql file replaced by a
+#      symlink pointing at SQL outside this directory). Applied migrations are
+#      history; changing one silently diverges every environment that ran it.
+#   2. Well-formed names — a NEW migration must be exactly `NNN_name.sql` (three
+#      digits) or `YYYYMMDDHHMMSS_name.sql` (fourteen digits). This forbids
+#      re-introducing the letter-suffixed versions (`071a_`) that the Supabase
+#      CLI cannot parse, non-padded versions (`71_`) that would poison the
+#      ordering comparison, and any name whose characters would misbehave in
+#      shell word-splitting or git path quoting.
+#   3. Unique and prefix-free versions — no version may equal or be a prefix of
+#      another (`070` vs `0700`). A prefix relationship makes replay order depend
+#      on tool internals: CLI 2.75.0 (Go) sorted by raw filename, 2.115.0 (TS)
+#      re-sorts by parsed version, and those two orders disagree.
+#   4. Monotonic ordering — a new migration must sort after the latest existing
+#      migration of the same scheme.
+#
+# HISTORY: a one-time allowlist here permitted the 16 Scheme-B normalization
+# renames (055b -> 0551, …) as content-identical renames. The production ledger
+# repair completed on 2026-08-26 and that exception has been REMOVED. Historical
+# renames are forbidden again with no standing exception. Do not re-add an
+# allowlist; a future normalization needs its own reviewed, time-boxed change.
 name: Migrations guard
 
 on:
   pull_request:
-    paths:
-      - "supabase/migrations/**"
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
 
 permissions:
   contents: read
@@ -37,122 +62,170 @@ jobs:
       - name: Check migrations
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # merge_group events carry no pull_request object; without this the base
+          # would be empty and the job would fail closed on every queued PR.
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          # Used only to detect a parent-swapped merge checkout (see below).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          export LC_ALL=C
           DIR="supabase/migrations"
           fail=0
-          # Per-run state file. MUST be cleared at step start: if it survives (or is
-          # pre-seeded), its contents drop out of `added_files` and the prefix/monotonic
-          # checks silently report "No newly-added migrations" — a real bypass.
-          # Scoped to RUNNER_TEMP so it cannot collide with anything else on the host.
-          RENAME_TARGETS_FILE="${RUNNER_TEMP:-/tmp}/applied_rename_targets"
-          rm -f "$RENAME_TARGETS_FILE"
 
-          # ==================================================================
-          # ONE-TIME SCHEME-B NORMALIZATION EXCEPTION — REMOVE AFTER LEDGER REPAIR
-          # ------------------------------------------------------------------
-          # Historical migration versions carried letter suffixes (055b, 066a, …).
-          # A letter version cannot be parsed by the Supabase CLI, and the numeric
-          # fix alone (055 -> 0551) leaves `055` as a PREFIX of `0551`, whose
-          # ordering then depends on CLI implementation details. Scheme B renames
-          # the letter files AND their numeric parents so that no version is a
-          # prefix of another and filename order == version order under any tool.
+          # --- 0. Resolve the base commit ------------------------------------
+          # `github.event.pull_request.base.sha` is pinned when the PR is created
+          # and goes STALE as the base branch advances. actions/checkout checks out
+          # refs/pull/N/merge, whose FIRST PARENT is the CURRENT base tip — that is
+          # the correct base. Diffing against the pinned value instead reports every
+          # migration merged upstream since as though THIS PR deleted it (verified
+          # against live PRs whose base.sha predates the normalization: 48 phantom
+          # paths, 17 errors, on a PR containing no SQL at all).
+          # merge-base does NOT fix this: base.sha is an ancestor of the merge
+          # commit, so merge-base(base.sha, HEAD) == base.sha.
+          # merge_group payloads carry no pull_request object, so BASE_SHA is empty
+          # there; without MG_BASE the job would fail closed on every queued PR.
+          EVENT_BASE="${BASE_SHA:-}"
+          [ -n "$EVENT_BASE" ] || EVENT_BASE="${MG_BASE:-}"
+
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3 ]; then
+            BASE="$(git rev-parse HEAD^1)"
+            echo "HEAD is a two-parent merge; using its FIRST parent as base: $BASE"
+          else
+            # Octopus merges (3+ parents) land here too: no single base parent.
+            BASE="$EVENT_BASE"
+            echo "HEAD is not a two-parent merge; falling back to the event base: ${BASE:-<empty>}"
+          fi
+          if [ -z "$BASE" ]; then
+            echo "::error::Could not determine a base commit — refusing to pass without verifying anything."
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "::error::Base '${BASE}' is not a commit in this checkout (is fetch-depth: 0 set?)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$BASE" HEAD; then
+            echo "::error::Base '${BASE}' is not an ancestor of HEAD — the diff would be meaningless."
+            exit 1
+          fi
+          # Guard against a PARENT-SWAPPED merge: if HEAD is merge(feature, base)
+          # instead of merge(base, feature), HEAD^1 is the PR's own tip and the diff
+          # compares the branch against itself — a deleted migration then reports
+          # "nothing to guard".
           #
-          # This allowlist permits EXACTLY these 16 renames, and ONLY as pure
-          # content-identical (R100) renames. Everything else stays forbidden.
-          # PR "restore strict append-only guard" deletes this block verbatim.
-          # ==================================================================
-          ALLOWED_RENAMES="
-          023_user_reports_and_blocks.sql|0230_user_reports_and_blocks.sql
-          023b_set_updated_at_helper.sql|0231_set_updated_at_helper.sql
-          055_transfer_state_guard.sql|0550_transfer_state_guard.sql
-          055b_transfer_guard_bypass_for_remaining_writers.sql|0551_transfer_guard_bypass_for_remaining_writers.sql
-          055c_revoke_anon_public_on_listing_rpcs.sql|0552_revoke_anon_public_on_listing_rpcs.sql
-          055d_fix_mark_transfer_sent_overload_ambiguity.sql|0553_fix_mark_transfer_sent_overload_ambiguity.sql
-          056a_transfer_writer_rpcs.sql|0561_transfer_writer_rpcs.sql
-          056b_remove_transfer_guard_service_role_exemption.sql|0562_remove_transfer_guard_service_role_exemption.sql
-          056c_scope_transfer_guard_bypass_to_function.sql|0563_scope_transfer_guard_bypass_to_function.sql
-          056d_record_transfer_payout_refuses_disputed.sql|0564_record_transfer_payout_refuses_disputed.sql
-          059_strict_auth_on_listing_checkout_rpcs.sql|0590_strict_auth_on_listing_checkout_rpcs.sql
-          059b_strict_auth_ensure_transfer_exists.sql|0591_strict_auth_ensure_transfer_exists.sql
-          060_auth_password_change_notifications.sql|0600_auth_password_change_notifications.sql
-          060b_fix_sweep_query_destination.sql|0601_fix_sweep_query_destination.sql
-          066_pin_search_path_definer_functions.sql|0660_pin_search_path_definer_functions.sql
-          066a_vendor_out_of_band_functions.sql|0661_vendor_out_of_band_functions.sql
-          "
+          # Note the obvious test does NOT work: asserting the event base is an
+          # ancestor of the derived base passes in BOTH cases, because a feature
+          # branch is itself branched from the base. Verified by reproduction.
+          # The discriminator is the PR HEAD: on a correct merge ref the base parent
+          # cannot contain it, whereas a swapped first parent IS it.
+          if [ -n "${HEAD_SHA:-}" ] && git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            if git merge-base --is-ancestor "$HEAD_SHA" "$BASE"; then
+              echo "::error::Derived base '$BASE' contains the PR head '$HEAD_SHA' — the merge parents appear swapped. Refusing to diff this branch against itself."
+              exit 1
+            fi
+          fi
+          echo "Base commit resolved: $BASE"
 
-          # --- 1. Immutability, verified by BLOB HASH (not git rename heuristics) ---
-          # Rename detection is a heuristic: a rename that also edits content can be
-          # reported as R98 and slip past a --diff-filter=MD check while ALSO not
-          # being an exact rename. So we disable rename detection entirely and
-          # compare blob hashes: identical hash == provably identical SQL.
-          echo "== Immutability check (base $BASE_SHA -> HEAD) =="
+          # --- 0b. Change detection (replaces the workflow-level `paths:` filter) ---
+          changed="$(git diff --no-renames --name-only "$BASE" HEAD -- "$DIR")"
+          if [ -z "$changed" ]; then
+            echo "No changes under $DIR — nothing to guard."
+            echo "This job still reports success so it can be a required check on every PR."
+            exit 0
+          fi
+          echo "== Migration files touched by this PR =="
+          printf '%s\n' "$changed" | sed 's/^/  - /'
 
-          mod="$(git diff --no-renames --diff-filter=M --name-only "$BASE_SHA" HEAD -- "$DIR" || true)"
+          # --- 1. Immutability ------------------------------------------------
+          # Rename detection is disabled so a rename is reported as delete + add and
+          # is caught by the deletion check below. Filters M and T together cover
+          # every way an existing path can be altered: content, file mode, and object
+          # type. T matters: replacing a .sql file with a SYMLINK is invisible to a
+          # plain M filter, and would let arbitrary SQL be sourced from outside this
+          # directory while the guard reported "no existing migration was modified".
+          echo "== Immutability check (base $BASE -> HEAD) =="
+
+          mod="$(git diff --no-renames --diff-filter=MT --name-only "$BASE" HEAD -- "$DIR")"
           if [ -n "$mod" ]; then
-            echo "::error::Existing migration files were modified. Migrations are append-only:"
-            echo "$mod" | sed 's/^/  - /'
+            echo "::error::Existing migration files were modified (content, mode, or object type). Migrations are append-only:"
+            printf '%s\n' "$mod" | sed 's/^/  - /'
             fail=1
           else
-            echo "OK: no existing migration content was modified."
+            echo "OK: no existing migration was modified."
           fi
 
-          del="$(git diff --no-renames --diff-filter=D --name-only "$BASE_SHA" HEAD -- "$DIR" || true)"
+          del="$(git diff --no-renames --diff-filter=D --name-only "$BASE" HEAD -- "$DIR")"
           if [ -n "$del" ]; then
-            while read -r f; do
-              [ -n "$f" ] || continue
-              ob="$(basename "$f")"
-              nb="$(printf '%s\n' "$ALLOWED_RENAMES" | tr -d ' ' | awk -F'|' -v o="$ob" 'NF==2 && $1==o {print $2}')"
-              if [ -z "$nb" ]; then
-                echo "::error::Existing migration deleted (or renamed outside the allowlist): $ob"
-                fail=1; continue
-              fi
-              if ! git cat-file -e "HEAD:$DIR/$nb" 2>/dev/null; then
-                echo "::error::$ob was removed but its normalized target $nb is missing."
-                fail=1; continue
-              fi
-              oldhash="$(git rev-parse "$BASE_SHA:$DIR/$ob")"
-              newhash="$(git rev-parse "HEAD:$DIR/$nb")"
-              if [ "$oldhash" != "$newhash" ]; then
-                echo "::error::$ob -> $nb changed SQL content during the rename (blob $oldhash != $newhash). Historical SQL must never change."
-                fail=1; continue
-              fi
-              echo "OK: allowlisted content-identical normalization $ob -> $nb"
-              # Record ONLY targets whose source was genuinely removed in this diff.
-              echo "$nb" >> "$RENAME_TARGETS_FILE"
-            done <<< "$del"
+            echo "::error::Existing migration files were deleted or renamed. Migrations are append-only."
+            printf '%s\n' "$del" | sed 's/^/  - /'
+            fail=1
           else
             echo "OK: no migration was removed or renamed."
           fi
 
+          # --- 2. Name format for NEWLY ADDED files ---------------------------
+          # Applied to every added path under $DIR, not just *.sql, so a stray file
+          # cannot sit in the migrations directory and become permanently
+          # unmodifiable. Also the cheapest defence against filenames that break
+          # shell word-splitting or get C-quoted by git.
+          echo "== Name format check (added files) =="
+          added_paths="$(git diff --no-renames --diff-filter=A --name-only "$BASE" HEAD -- "$DIR")"
+          if [ -z "$added_paths" ]; then
+            echo "No newly-added files."
+          else
+            while IFS= read -r p; do
+              [ -n "$p" ] || continue
+              b="${p##*/}"
+              # A migration must be a REGULAR FILE. An added SYMLINK passes every
+              # other check (name, prefix, ordering) and reviews as a one-line "add
+              # migration" diff — but its SQL lives outside this directory, so a
+              # later PR editing only that target changes an APPLIED migration while
+              # change detection reports "nothing to guard". Mode 120000 is a
+              # symlink, 160000 a gitlink/submodule.
+              amode="$(git ls-tree HEAD -- "$p" | awk '{print $1}')"
+              case "$amode" in
+                100644|100755) ;;
+                *)
+                  echo "::error::$p is not a regular file (mode ${amode:-unknown}). Migrations must be real files — a symlink or gitlink would let an applied migration's SQL be changed from outside supabase/migrations."
+                  fail=1
+                  ;;
+              esac
+              if printf '%s' "$b" | grep -Eq '^([0-9]{3}|[0-9]{14})_[A-Za-z0-9_]+\.sql$'; then
+                echo "OK: $b is a well-formed migration name."
+              else
+                echo "::error::$p is not a valid migration filename."
+                echo "::error::Expected NNN_name.sql (exactly 3 digits) or YYYYMMDDHHMMSS_name.sql (exactly 14), name in [A-Za-z0-9_]."
+                echo "::error::Letter-suffixed (071a_) and non-padded (71_) versions are rejected: the Supabase CLI cannot parse the first, and the second breaks ordering comparisons permanently."
+                fail=1
+              fi
+            done <<< "$added_paths"
+          fi
+
           # Helpers ------------------------------------------------------------
-          # version prefix = filename up to the first underscore
-          ver() { basename "$1" | sed 's/_.*//'; }
+          # MUST emit a trailing newline: callers pipe this into `sort | uniq -d`
+          # and into `sort -u`. Without the newline every version concatenates onto
+          # ONE line, `uniq -d` finds nothing, and the uniqueness and prefix checks
+          # silently pass on any input.
+          ver() { local b="${1##*/}"; printf '%s\n' "${b%%_*}"; }
           # scheme: 'ts' for a 14-digit timestamp prefix, else 'seq'
           scheme() { case "$1" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) echo ts;; *) echo seq;; esac; }
 
-          # File lists on base and HEAD (basenames only) -----------------------
-          base_files="$(git ls-tree -r --name-only "$BASE_SHA" -- "$DIR" | grep '\.sql$' | xargs -n1 basename 2>/dev/null | sort || true)"
-          head_files="$(git ls-tree -r --name-only HEAD -- "$DIR" | grep '\.sql$' | xargs -n1 basename | sort)"
+          # File lists (basenames). -z keeps git from C-quoting non-ASCII paths,
+          # which would otherwise drop them from `grep '\.sql$'` and make them
+          # invisible to every check below.
+          list_sql() { git ls-tree -r -z --name-only "$1" -- "$DIR" | tr '\0' '\n' | grep '\.sql$' | sed 's#.*/##' | sort; }
+          base_files="$(list_sql "$BASE" || true)"
+          head_files="$(list_sql HEAD)"
           added_files="$(comm -13 <(printf '%s\n' "$base_files") <(printf '%s\n' "$head_files"))"
-          # Normalized rename TARGETS are not new migrations — exclude them from the
-          # monotonic check (0230 is legitimately < 070; it is a renamed historical file).
-          # SECURITY: only exclude targets whose SOURCE was actually deleted in this diff.
-          # Excluding the whole allowlist would let someone ADD a file named like a target
-          # (e.g. 0661_…) without removing its source, skipping both the blob-hash check
-          # (no deletion) and the ordering check (excluded) — a real bypass.
-          rename_targets="$(sort -u "$RENAME_TARGETS_FILE" 2>/dev/null || true)"
-          # Prefix-freeness must ALSO cover sanctioned rename targets: a PR that applies
-          # only a SUBSET of the normalization (e.g. 066a->0661 while leaving 066) would
-          # otherwise recreate the exact prefix ambiguity this change exists to remove.
-          prefix_files="$(printf '%s\n' "$added_files" | sort -u)"
-          # Monotonic ordering, by contrast, must NOT see rename targets (0230 < 070 is
-          # legitimate for a renamed historical file).
-          added_files="$(comm -23 <(printf '%s\n' "$added_files" | sort) <(printf '%s\n' "$rename_targets"))"
 
-          # --- 2a. Uniqueness of version prefixes across all HEAD migrations ---
+          # --- 3a. Uniqueness of version prefixes across all HEAD migrations ---
           echo "== Uniqueness check =="
-          dups="$(printf '%s\n' "$head_files" | while read -r f; do [ -n "$f" ] && ver "$f"; done | sort | uniq -d || true)"
+          # `if … then … fi`, not `[ … ] && …`: the latter makes the subshell exit
+          # non-zero when the final iteration's test is false, which under
+          # `set -euo pipefail` aborts the step.
+          dups="$(printf '%s\n' "$head_files" | while read -r f; do
+                    if [ -n "$f" ]; then ver "$f"; fi
+                  done | sort | uniq -d || true)"
           if [ -n "$dups" ]; then
             echo "::error::Duplicate migration version prefix(es): $dups"
             fail=1
@@ -160,20 +233,17 @@ jobs:
             echo "OK: all version prefixes unique."
           fi
 
-          # --- 2a-bis. PREFIX-FREENESS for NEWLY ADDED migrations -----------------
-          # The invariant Scheme B exists to create: no version may be a prefix of
-          # another, or replay order becomes tool-dependent (a filename sort and a
-          # parsed-version sort disagree — exactly the 055 / 0551 divergence).
-          # Scoped to ADDED versions so pre-existing (pre-normalization) pairs do not
-          # false-fail unrelated PRs; the normalization PR itself removes them.
-          echo "== Prefix-freeness check (added migrations + normalization targets) =="
-          if [ -z "${prefix_files:-}" ]; then
+          # --- 3b. PREFIX-FREENESS for NEWLY ADDED migrations -----------------
+          echo "== Prefix-freeness check (added migrations) =="
+          if [ -z "${added_files:-}" ]; then
             echo "No newly-added migrations to check."
           else
             all_vers="$(printf '%s\n' "$head_files" | while read -r hf; do
                           if [ -n "${hf:-}" ]; then ver "$hf"; fi
                         done | sort -u)"
-            for f in $prefix_files; do
+            # Safe to word-split: the name-format gate above rejects anything
+            # outside [0-9A-Za-z_.], so no element can contain a space or a glob.
+            for f in $added_files; do
               nv="$(ver "$f")"
               bad=""
               for ov in $all_vers; do
@@ -192,17 +262,13 @@ jobs:
             done
           fi
 
-          # --- 2b. Monotonic ordering for added migrations (scheme-aware) ------
+          # --- 4. Monotonic ordering for added migrations (scheme-aware) ------
           echo "== Monotonic ordering check =="
           if [ -z "$added_files" ]; then
             echo "No newly-added migrations."
           else
             for f in $added_files; do
               v="$(ver "$f")"; s="$(scheme "$v")"
-              # max existing (base) version within the same scheme
-              # NOTE: this used to be `[ test ] && echo` — under `set -euo pipefail` a
-              # false test on the LAST iteration made the subshell exit non-zero and
-              # aborted the whole step, false-failing every newly added NNN_ migration.
               basemax="$(printf '%s\n' "$base_files" | while read -r b; do
                           [ -n "$b" ] || continue
                           bv="$(ver "$b")"

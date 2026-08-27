@@ -34,25 +34,77 @@ Uses `pull_request` (never `pull_request_target`) — untrusted PR code is never
 run with access to repository secrets.
 
 ### `migrations-guard.yml` — append-only ledger
-Triggers: PRs that touch `supabase/migrations/**`.
+Triggers: **every** pull request.
 
-Enforces two invariants against the PR base:
-1. **Immutability** — no existing migration may be modified, deleted, or
-   renamed (a changed line in an applied migration fails the check).
-2. **Monotonic + unique ordering** — new migrations must sort after the latest
-   existing migration *of the same naming scheme*, and version prefixes must be
-   unique. The repo mixes two schemes (zero-padded `NNN_` and 14-digit
-   timestamp `YYYYMMDDHHMMSS_`); the check is scheme-aware so a new `068_`
-   compares against the max `NNN_` and a new timestamp against the max
-   timestamp.
+It used to trigger only on `paths: supabase/migrations/**`. That made the check
+*absent* rather than *passing* on unrelated PRs, so it could never be a required
+status check without deadlocking every PR that touches no migration. Change
+detection now happens inside the job: if nothing under `supabase/migrations/**`
+changed it logs `nothing to guard` and exits 0. The check is therefore always
+present and always conclusive — safe to mark required.
+
+Enforces, against the PR base:
+1. **Base resolvable and correct** — when HEAD is a two-parent merge (the normal
+   `pull_request` checkout of `refs/pull/N/merge`) the base is `HEAD^1`, the
+   merge's base parent. It is deliberately *not*
+   `github.event.pull_request.base.sha`, which is pinned at PR creation and goes
+   stale as `main` advances; diffing against the stale value reports every
+   migration merged upstream since as though this PR deleted it. When HEAD is
+   **not** a two-parent merge the job falls back to the event base
+   (`pull_request.base.sha`, or `merge_group.base_sha` for queued PRs) — that
+   path still carries the staleness risk, and exists so the job stays conclusive
+   rather than silently skipping. An unresolvable base, a base that is not an
+   ancestor of HEAD, or a derived base that *contains the PR head* (merge parents
+   swapped — the diff would compare the branch against itself) all fail the job.
+2. **Immutability** — no existing migration may be modified, deleted, renamed,
+   or have its object **type** changed. Rename detection is disabled, so a
+   rename is reported as delete + add and caught by the deletion check. The
+   modification check uses `--diff-filter=MT`: the `T` matters, because
+   replacing a `.sql` file with a **symlink** is invisible to a plain `M` filter
+   and would let SQL be sourced from outside the guarded directory while the
+   guard reported "no existing migration was modified". A **newly added**
+   migration must also be a regular file: an added symlink reviews as a one-line
+   "add migration" diff, but its SQL lives outside the directory, so a later PR
+   editing only the target would change an *applied* migration while change
+   detection reported "nothing to guard".
+3. **Well-formed names** — a new migration must match exactly `NNN_name.sql`
+   (three digits) or `YYYYMMDDHHMMSS_name.sql` (fourteen), with the name in
+   `[A-Za-z0-9_]`. This rejects letter-suffixed versions (`071a_`, which the
+   Supabase CLI cannot parse), non-padded ones (`71_`, which would become the
+   lexicographic maximum and permanently block `072`–`098`), four-digit
+   additions like `0999_` (same wedge), stray non-`.sql` files, and any name
+   that git would C-quote or that would misbehave under shell word-splitting.
+4. **Unique + prefix-free versions** — no two migrations may share a version,
+   and no version may be a *prefix of* another (`070` vs `0700`). Prefix
+   relationships make replay order depend on tool internals — CLI 2.75.0 (Go)
+   sorted by raw filename, 2.115.0 (TS) re-sorts by parsed version, and the two
+   disagree. Removing them is the entire point of the Scheme-B normalization.
+5. **Monotonic ordering** — new migrations must sort after the latest existing
+   migration *of the same naming scheme*. The repo mixes two schemes
+   (zero-padded `NNN_` and 14-digit timestamp `YYYYMMDDHHMMSS_`); the check is
+   scheme-aware so a new `071_` compares against the max `NNN_` (`070`) and a
+   new timestamp against the max timestamp.
+
+**Historical note.** Between the Scheme-B normalization PR and the production
+ledger repair (completed 2026-08-26), this workflow carried a one-time
+`ALLOWED_RENAMES` allowlist permitting exactly 16 content-identical renames.
+**That exception has been removed.** Historical renames are forbidden again with
+no standing exception; a future normalization requires its own reviewed,
+time-boxed change rather than a reinstated allowlist.
 
 ## Repo-owner setup required
 
 **Branch protection (`main`):** require these status checks before merge —
 `Typecheck / Lint / Unit tests`, `Migrations apply cleanly (fresh DB)`,
 `Web build (Next.js)`, `CodeQL (javascript-typescript)`, `Dependency review`,
-and (once wired) `Immutability + ordering` from the migrations guard. Require
-branches up to date, and require PR review.
+and `Immutability + ordering` from the migrations guard. Require branches up to
+date, and require PR review.
+
+`Immutability + ordering` is now safe to require: since it runs on every PR and
+exits 0 when no migration changed, it always reports a conclusive status. (Under
+the old `paths:` filter it would simply not report on unrelated PRs, which
+branch protection treats as *pending* — every such PR would have blocked
+forever.)
 
 **CodeQL:** enable Code Scanning for the repo (Settings → Code security →
 Code scanning). No default-setup config is needed since this workflow provides
