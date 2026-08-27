@@ -2,21 +2,24 @@
 -- 130_privilege_cleanup.sql — migration 074.
 --
 -- Part 1 (SEC-1): public.webhook_retries must carry NO client DML.
--- Part 2: the five functions migration 067 missed must carry no PUBLIC EXECUTE,
---         the three trigger functions among them must carry no anon /
---         authenticated EXECUTE either, and the two read-only helpers must KEEP
---         the anon / authenticated EXECUTE that 0230 granted and 063
---         deliberately retained.
+-- Part 2: the four functions 074 cleans must carry no PUBLIC EXECUTE, the three
+--         trigger functions among them must carry no anon / authenticated
+--         EXECUTE either, is_blocked_by_me must KEEP the anon / authenticated
+--         EXECUTE that 0230 granted and 063 deliberately retained, and
+--         is_winner — deliberately excluded from 074 — must be left exactly as
+--         it was.
 --
 -- WHAT EACH HALF OF THIS FILE ACTUALLY PROVES — stated up front, because the
 -- two halves are NOT equally strong and pretending otherwise is how a suite
 -- goes vacuously green:
 --
 --   PART 2 IS DISCRIMINATING. Nothing in the migration chain before 074 removes
---   the Postgres default `=X/postgres` from these five functions, so on a fresh
---   replay WITHOUT 074 the B-section assertions fail. Verified by running this
---   file in CI against a chain that did not yet contain 074 (the RED run
---   recorded in the PR): B1-B5, B7 and B8 failed, everything else passed.
+--   the Postgres default `=X/postgres` from these functions, so on a fresh
+--   replay WITHOUT 074 the B-section assertions fail. Verified by running THIS
+--   file against a chain that did not contain 074 (the RED run recorded in the
+--   PR): B1-B4 and B6-B8 failed — 7 of 24 — and every A, C and D assertion
+--   passed, which is also the evidence that the revokes break no retained grant
+--   and disarm no trigger.
 --
 --   PART 1 IS NOT DISCRIMINATING IN CI, AND CANNOT BE. Migration 069 line 22
 --   already contains the identical revoke, and on a fresh replay 069 EXECUTES.
@@ -47,6 +50,9 @@
 --     an unguarded revoke would abort a fresh replay). It still carries PUBLIC
 --     EXECUTE by design until its own migration lands; asserting otherwise here
 --     would fail the suite for a defect this migration does not claim to fix.
+--     No tripwire is written for it because this file cannot distinguish "not
+--     yet fixed" from "fixed by its own later migration" — unlike is_winner
+--     (C3), where the exclusion is a standing hazard rather than a queue item.
 -- ============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
@@ -148,27 +154,20 @@ SELECT ok(NOT EXISTS (
        AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
   'is_blocked_by_me(uuid): PUBLIC EXECUTE removed (074) — anon/authenticated checked separately below');
 
-SELECT ok(NOT EXISTS (
-    SELECT 1 FROM pg_proc p,
-      aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-     WHERE p.oid = 'public.is_winner(uuid,uuid)'::regprocedure
-       AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
-  'is_winner(uuid,uuid): PUBLIC EXECUTE removed (074) — anon/authenticated checked separately below');
-
--- B6-B7: the same claim through a role instead of the catalog. `authenticator`
+-- B5-B6: the same claim through a role instead of the catalog. `authenticator`
 -- is the PostgREST connection role: NOINHERIT, and holding no explicit grant on
 -- these functions, so the ONLY EXECUTE it can have is the ambient PUBLIC one.
--- B6 is the control that keeps B7 from being vacuous — it proves the probe
+-- B5 is the control that keeps B6/B8 from being vacuous — it proves the probe
 -- returns TRUE when a PUBLIC EXECUTE really is present.
 SELECT ok(has_function_privilege('authenticator', 'pg_catalog.upper(text)', 'EXECUTE'),
-  'probe control: authenticator CAN execute a genuinely PUBLIC function — a false B7 means something');
+  'probe control: authenticator CAN execute a genuinely PUBLIC function — a false B6/B8 means something');
 
 SELECT ok(NOT (has_function_privilege('authenticator', 'public.dispute_resolutions_append_only()', 'EXECUTE')
              OR has_function_privilege('authenticator', 'public.guard_transfer_state_columns()',    'EXECUTE')
              OR has_function_privilege('authenticator', 'public.reset_transfer_guard_bypass()',     'EXECUTE')),
   'authenticator has lost its ambient PUBLIC EXECUTE on all three trigger functions');
 
--- B8: the explicit anon / authenticated grants are gone too. Revoking only
+-- B7: the explicit anon / authenticated grants are gone too. Revoking only
 -- PUBLIC would have left these standing — that is the exact trap 067 recorded
 -- ("a bare REVOKE FROM PUBLIC left notify_bid_placed and phone_verified still
 -- anon-executable").
@@ -180,32 +179,51 @@ SELECT ok(NOT (has_function_privilege('anon',          'public.dispute_resolutio
              OR has_function_privilege('authenticated','public.reset_transfer_guard_bypass()',     'EXECUTE')),
   'neither client role can execute any of the three trigger functions (067 Group A treatment)');
 
+-- B8: is_blocked_by_me lost PUBLIC but kept its explicit client grants, so the
+-- PUBLIC-only role must now be shut out while anon/authenticated are not (C1).
+SELECT ok(NOT has_function_privilege('authenticator', 'public.is_blocked_by_me(uuid)', 'EXECUTE'),
+  'authenticator can no longer reach is_blocked_by_me through PUBLIC (0230''s named grants are untouched)');
+
 -- ════════════════════════════════════════════════════════════════════════════
--- C. What 074 must NOT have taken away
+-- C. What 074 must NOT have taken away, and what it deliberately did not touch
 -- ════════════════════════════════════════════════════════════════════════════
--- 0230 granted both helpers to authenticated + anon, and 063 lines 44-46 record
--- keeping them as a deliberate decision ("read-only helpers anon legitimately
--- needs while browsing signed-out"). 074 removes PUBLIC and nothing else here.
--- If a later change wires is_blocked_by_me into the listings feed policy as 0230
--- intended, authenticated MUST still hold EXECUTE — these two assertions are
--- what stops a future cleanup from quietly breaking that.
+-- 0230 granted is_blocked_by_me to authenticated + anon, and 063 lines 44-46
+-- record keeping it as a deliberate decision ("read-only helpers anon
+-- legitimately needs while browsing signed-out"). 074 removes PUBLIC and nothing
+-- else here. If a later change wires is_blocked_by_me into the listings feed
+-- policy as 0230 intended, authenticated MUST still hold EXECUTE — C1 is what
+-- stops a future cleanup from quietly breaking that.
 
 SELECT ok(has_function_privilege('anon',          'public.is_blocked_by_me(uuid)', 'EXECUTE')
       AND has_function_privilege('authenticated', 'public.is_blocked_by_me(uuid)', 'EXECUTE'),
   'is_blocked_by_me: anon + authenticated KEEP EXECUTE (0230 grant / 063 retention survive 074)');
 
-SELECT ok(has_function_privilege('anon',          'public.is_winner(uuid,uuid)', 'EXECUTE')
-      AND has_function_privilege('authenticated', 'public.is_winner(uuid,uuid)', 'EXECUTE'),
-  'is_winner: anon + authenticated KEEP EXECUTE (063 retention survives 074)');
-
-SELECT tap.login_anon();
-SELECT is(public.is_winner(tap.listing_a(), tap.buyer()), false,
-  'positive: a signed-out browser can still EVALUATE is_winner() after the PUBLIC revoke');
-SELECT tap.logout();
-
 SELECT tap.login(tap.buyer());
 SELECT is(public.is_blocked_by_me(tap.seller()), false,
   'positive: a signed-in client can still EVALUATE is_blocked_by_me() after the PUBLIC revoke');
+SELECT tap.logout();
+
+-- C3-C4: THE is_winner EXCLUSION, held in place on purpose.
+-- is_winner still carries PUBLIC EXECUTE and 074 does not remove it. On
+-- production anon also holds an explicit grant (from pg_default_acl); in SOURCE
+-- it does not, so on a fresh replay PUBLIC is the ONLY thing granting anon.
+-- Revoking it therefore passes on production and breaks every rebuild — CI run
+-- 33110110181 aborted this very file with "permission denied for function
+-- is_winner" when the revoke was in. C3 is a tripwire, not an endorsement: it
+-- fails the moment someone revokes PUBLIC without first making source
+-- reproduce the anon grant (or removing anon deliberately). If you are that
+-- person, read "DELIBERATELY EXCLUDED (1 of 2)" in migration 074 and update
+-- these two assertions as part of the same change.
+SELECT ok(EXISTS (
+    SELECT 1 FROM pg_proc p,
+      aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = 'public.is_winner(uuid,uuid)'::regprocedure
+       AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+  'is_winner(uuid,uuid) STILL has PUBLIC EXECUTE — 074 excludes it deliberately (see its header)');
+
+SELECT tap.login_anon();
+SELECT is(public.is_winner(tap.listing_a(), tap.buyer()), false,
+  'positive: a signed-out browser can still EVALUATE is_winner() — the exclusion preserved the client path');
 SELECT tap.logout();
 
 -- ════════════════════════════════════════════════════════════════════════════

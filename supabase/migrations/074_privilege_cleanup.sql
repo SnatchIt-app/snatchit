@@ -16,11 +16,16 @@
 -- money-adjacent table (it records failed Stripe webhook handler RPCs for
 -- retry, keyed to payments.id and listings.id).
 --
--- WHY THE ACL LOOKS LIKE THAT. `arwdm` is not a deliberate grant. It is exactly
--- Supabase's ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
--- authenticated MINUS the TRUNCATE/REFERENCES/TRIGGER that migration 063 Part 1
--- removed from the schema default. webhook_retries was created out-of-band in
--- the SQL editor (069's header records this) and inherited that default.
+-- WHY THE ACL LOOKS LIKE THAT. `arwdm` is not a deliberate grant. Production's
+-- pg_default_acl carries, verbatim:
+--   defaclobjtype='r', nspname='public', owner='postgres',
+--   defaclacl={postgres=arwdDxtm/postgres,anon=arwdm/postgres,
+--              authenticated=arwdm/postgres,service_role=arwdDxtm/postgres}
+-- — character for character the webhook_retries ACL. That is Supabase's
+-- ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES minus the
+-- TRUNCATE/REFERENCES/TRIGGER that migration 063 Part 1 removed from the schema
+-- default. webhook_retries was created out-of-band in the SQL editor (069's
+-- header records this) and simply inherited it.
 --
 -- WHY 069 DID NOT FIX IT. Migration 069 line 22 already says
 --     revoke all on public.webhook_retries from public, anon, authenticated;
@@ -57,15 +62,19 @@
 -- ANALYZE / REINDEX / CLUSTER / REFRESH on the table; no client needs it.
 --
 -- =============================================================================
--- PART 2 — EXECUTE cleanup: five functions 067 did not enumerate
+-- PART 2 — EXECUTE cleanup: six functions 067 did not enumerate, four fixed here
 -- =============================================================================
 -- 067 revoked EXECUTE from anon + authenticated + PUBLIC across 28 functions but
--- worked from a hand-written list. Five public functions were never on it and
+-- worked from a hand-written list. Six public functions were never on it and
 -- still carry the Postgres default `=X/postgres` (PUBLIC EXECUTE) plus the
 -- Supabase default-privileges grants to anon/authenticated/service_role.
--- Production proacl for all five, read 2026-08-27:
+-- Production proacl for all six, read 2026-08-27:
 --   {=X/postgres,postgres=X/postgres,anon=X/postgres,
 --    authenticated=X/postgres,service_role=X/postgres}
+-- FOUR are cleaned here. Two are deliberately excluded, each for a different
+-- reason, both documented in full below: is_winner(uuid,uuid) and
+-- set_ambassador_application_updated_at(). Neither exclusion is an oversight and
+-- neither should be quietly folded in later without reading why.
 --
 -- GROUP A — trigger functions (3). RETURNS trigger, prosecdef = false, each
 -- attached to an enabled trigger (pg_trigger.tgenabled = 'O'):
@@ -88,28 +97,29 @@
 -- definitions, CHECK constraints, column defaults, index expressions): zero
 -- references outside their own definitions and their own CREATE TRIGGER.
 --
--- GROUP B — read-only client helpers (2). is_blocked_by_me(uuid) and
--- is_winner(uuid,uuid), both STABLE, SECURITY INVOKER, boolean-returning.
+-- GROUP B — read-only client helper (1). is_blocked_by_me(uuid): STABLE,
+-- SECURITY INVOKER, boolean-returning.
 -- Treatment: REVOKE FROM PUBLIC ONLY. anon and authenticated KEEP EXECUTE.
---   * 0230 created is_blocked_by_me and explicitly did
+--   * 0230 created it and explicitly did
 --       GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) TO authenticated, anon;
 --     as a SECURITY INVOKER predicate for feed filtering.
---   * 063 lines 44-46 name both functions in a documented, deliberate
---     retention: "Read-only helpers anon legitimately needs while browsing
---     signed-out (... is_winner, is_blocked_by_me ...) are left alone."
+--   * 063 lines 44-46 name it in a documented, deliberate retention:
+--     "Read-only helpers anon legitimately needs while browsing signed-out
+--     (... is_winner, is_blocked_by_me ...) are left alone."
 -- Reversing a documented design decision is a behavioural change and belongs in
 -- its own migration with product sign-off, not in a hygiene cleanup. So this
 -- file removes only the ambient PUBLIC grant and leaves the named client roles
--- exactly as 0230 and 063 set them.
+-- exactly as 0230 and 063 set them. The explicit GRANT lives in 0230, so a fresh
+-- replay reproduces it and this revoke is safe in every environment.
 --
 -- BE PRECISE ABOUT WHAT PART 2 GROUP B BUYS. Because anon retains EXECUTE, the
--- anon-reachable PostgREST RPC surface (/rest/v1/rpc/is_winner,
--- /rest/v1/rpc/is_blocked_by_me) is UNCHANGED by this migration. What changes is
--- that every OTHER role — authenticator, supabase_auth_admin,
--- supabase_storage_admin, pgbouncer, dashboard_user, and any role added later —
--- loses the ambient EXECUTE it held purely by being a member of PUBLIC. That is
--- least-privilege hygiene and 067's stated model ("Under Postgres defaults every
--- function is EXECUTE-able by PUBLIC"), not the closing of a live hole.
+-- anon-reachable PostgREST RPC surface (/rest/v1/rpc/is_blocked_by_me) is
+-- UNCHANGED by this migration. What changes is that every OTHER role —
+-- authenticator, supabase_auth_admin, supabase_storage_admin, pgbouncer,
+-- dashboard_user, and any role added later — loses the ambient EXECUTE it held
+-- purely by being a member of PUBLIC. That is least-privilege hygiene and 067's
+-- stated model ("Under Postgres defaults every function is EXECUTE-able by
+-- PUBLIC"), not the closing of a live hole.
 --
 -- FOLLOW-UP RECORDED, NOT TAKEN (out of scope, needs a product decision):
 -- neither helper has ANY caller today. Searched for direct calls across app/,
@@ -131,7 +141,54 @@
 -- or drop both, is a separate change.
 --
 -- =============================================================================
--- DELIBERATELY EXCLUDED — set_ambassador_application_updated_at()
+-- DELIBERATELY EXCLUDED (1 of 2) — is_winner(uuid, uuid)
+-- =============================================================================
+-- This one was IN this migration and was taken back out after CI proved the
+-- revoke unsafe. Recorded in full because the reason generalises.
+--
+-- WHAT HAPPENED. A `REVOKE EXECUTE ... FROM PUBLIC` on is_winner was pushed and
+-- the fresh-replay suite aborted with
+--     ERROR: permission denied for function is_winner
+-- on an assertion that a signed-out client can still evaluate it (CI run
+-- 33110110181). On production that revoke is harmless; on a rebuilt database it
+-- removes anon's access outright.
+--
+-- WHY THE TWO ENVIRONMENTS DISAGREE. pg_default_acl on production carries
+--     defaclobjtype='f', nspname='public', owner='postgres',
+--     defaclacl={postgres=X/postgres,anon=X/postgres,
+--                authenticated=X/postgres,service_role=X/postgres}
+-- so every function `postgres` creates in `public` on production silently
+-- acquires EXPLICIT anon/authenticated EXECUTE. A fresh CI stack has no such
+-- default-ACL entry (supabase/ci/parity_grants.sql already records the same gap
+-- for TABLES under REPLAY-1: "pg_default_acl has SEQUENCE entries only"). And
+-- is_winner was itself created out-of-band in the SQL editor — 0661 vendored the
+-- body but not the grants, because on production there were no grant statements
+-- to vendor.
+--   production proacl: {=X/postgres,postgres=X,anon=X,authenticated=X,service_role=X}
+--   fresh replay      : anon reaches it ONLY through the PUBLIC entry.
+-- So for is_winner, PUBLIC is not a redundant ambient grant sitting on top of an
+-- explicit one — in SOURCE it is the only thing granting anon at all. Revoking
+-- it would keep production working and break every rebuild, i.e. manufacture new
+-- source/production drift inside a migration written to remove drift. Exactly
+-- the failure mode this file refuses for the ambassador function below.
+--
+-- WHY NOT JUST ADD THE GRANT. `GRANT EXECUTE ... TO anon, authenticated` before
+-- the revoke would make both environments agree and would still be a net
+-- reduction. It is deliberately NOT done here: is_winner has no caller anywhere
+-- (see the FOLLOW-UP note above — the app reads listings.winner_user_id
+-- directly), so the likely correct end state is that anon and authenticated lose
+-- EXECUTE too, or the function is dropped. Writing an explicit GRANT now would
+-- cement into source precisely the grant the follow-up wants to remove, and it
+-- would put a GRANT in a REVOKE-only migration.
+--
+-- FOLLOW-UP: decide is_winner's fate as one change — either (a) revoke
+-- anon/authenticated/PUBLIC entirely and drop the function, or (b) keep it,
+-- GRANT anon/authenticated explicitly in source so a replay reproduces
+-- production, then revoke PUBLIC. Do not do (b)'s revoke without (b)'s grant.
+-- REPLAY-1 is the wider version of this and remains open.
+--
+-- =============================================================================
+-- DELIBERATELY EXCLUDED (2 of 2) — set_ambassador_application_updated_at()
 -- =============================================================================
 -- It carries the same `=X/postgres` and belongs in this cleanup on the merits.
 -- It is excluded because it CANNOT be revoked from a `074`-prefixed file:
@@ -160,7 +217,9 @@
 --   * webhook_retries: only writer is the stripe-webhook Edge Function under
 --     service_role, untouched. RLS already denied the client roles.
 --   * Group A: EXECUTE is not consulted when a trigger fires.
---   * Group B: anon and authenticated keep EXECUTE.
+--   * Group B: anon and authenticated keep EXECUTE, from 0230's explicit GRANT,
+--     which a fresh replay reproduces. Verified by fresh-replay CI, which is the
+--     only environment where that distinction is observable.
 -- IDEMPOTENT: REVOKE on an absent privilege is a no-op, so this file may be
 --   replayed any number of times. It is a no-op on a database where 069 and a
 --   complete 067 already took effect.
@@ -189,12 +248,18 @@
 --     join pg_namespace n on n.oid=p.pronamespace
 --    where n.nspname='public' and p.proname in
 --      ('dispute_resolutions_append_only','guard_transfer_state_columns',
---       'reset_transfer_guard_bypass','is_blocked_by_me','is_winner');
---     -- no '=X/postgres' entry on any row; is_blocked_by_me and is_winner keep
---     -- anon=X and authenticated=X; the three trigger functions keep neither.
---   select has_function_privilege('anon','public.is_winner(uuid,uuid)','EXECUTE'); -- true
+--       'reset_transfer_guard_bypass','is_blocked_by_me');
+--     -- no '=X/postgres' entry on any row; is_blocked_by_me keeps anon=X and
+--     -- authenticated=X; the three trigger functions keep neither.
+--   select has_function_privilege('anon','public.is_blocked_by_me(uuid)','EXECUTE'); -- true
 --   select has_function_privilege('authenticator',
---            'public.guard_transfer_state_columns()','EXECUTE');                   -- false
+--            'public.guard_transfer_state_columns()','EXECUTE');                     -- false
+--   -- and the two deliberate exclusions must be UNCHANGED by this migration:
+--   select p.proname, p.proacl::text from pg_proc p
+--     join pg_namespace n on n.oid=p.pronamespace
+--    where n.nspname='public'
+--      and p.proname in ('is_winner','set_ambassador_application_updated_at');
+--     -- both still carry '=X/postgres'. That is expected, not a failed apply.
 -- =============================================================================
 
 BEGIN;
@@ -210,10 +275,14 @@ REVOKE EXECUTE ON FUNCTION public.dispute_resolutions_append_only() FROM anon, a
 REVOKE EXECUTE ON FUNCTION public.guard_transfer_state_columns()    FROM anon, authenticated, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()     FROM anon, authenticated, PUBLIC;
 
--- ── Part 2 Group B — read-only helpers (PUBLIC only; anon/authenticated stay) ─
+-- ── Part 2 Group B — read-only helper (PUBLIC only; anon/authenticated stay) ──
 -- Do NOT add anon or authenticated here without reversing 063's documented
 -- retention and 0230's explicit grant; see the header.
-REVOKE EXECUTE ON FUNCTION public.is_blocked_by_me(uuid)      FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.is_winner(uuid, uuid)       FROM PUBLIC;
+-- Do NOT add public.is_winner(uuid, uuid) here. It looks identical and is not:
+-- 0230 grants is_blocked_by_me to anon/authenticated IN SOURCE, while
+-- is_winner's anon grant exists on production only through pg_default_acl, so
+-- revoking PUBLIC there breaks every fresh replay. CI proved this (run
+-- 33110110181). See "DELIBERATELY EXCLUDED (1 of 2)" above.
+REVOKE EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) FROM PUBLIC;
 
 COMMIT;

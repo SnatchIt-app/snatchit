@@ -39,11 +39,15 @@
 --     function regardless of grants. Re-granting changes nothing observable; it
 --     only re-opens the Supabase linter 0028/0029 findings and restores the
 --     ambient PUBLIC grant.
---   * is_blocked_by_me / is_winner: 074 removed ONLY the PUBLIC grant; anon and
---     authenticated kept EXECUTE throughout and are deliberately not mentioned
---     below. Re-granting PUBLIC restores ambient EXECUTE for roles such as
---     authenticator, supabase_auth_admin and dashboard_user. Mild, but it is a
---     widening, not a fix.
+--   * is_blocked_by_me: 074 removed ONLY the PUBLIC grant; anon and
+--     authenticated kept EXECUTE throughout (0230's explicit grant) and are
+--     deliberately not mentioned below. Re-granting PUBLIC restores ambient
+--     EXECUTE for roles such as authenticator, supabase_auth_admin and
+--     dashboard_user. Mild, but it is a widening, not a fix.
+--   * is_winner is absent from this file because it is absent from 074. It was
+--     removed from the migration after CI proved that revoking its PUBLIC grant
+--     breaks anon on a fresh replay (its anon EXECUTE comes from production's
+--     pg_default_acl, which source cannot reproduce). There is nothing to undo.
 --
 -- Neither part touches service_role or postgres. 074 never revoked from them.
 -- Both parts are idempotent.
@@ -73,4 +77,3 @@ GRANT EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()     TO anon, auth
 -- intentionally absent — they never lost EXECUTE, and naming them here would
 -- quietly assert that 074 had removed something it did not.
 GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) TO PUBLIC;
-GRANT EXECUTE ON FUNCTION public.is_winner(uuid, uuid)  TO PUBLIC;
