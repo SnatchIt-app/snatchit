@@ -180,6 +180,7 @@ SELECT throws_ok(
 -- the identical call on the identical row succeeds for the true reservation
 -- holder. Keep them together — deleting 18 makes 17 unfalsifiable again.
 -- ===== TEMPORARY FALSIFICATION PROBE — NOT FOR MERGE =====================
+SELECT set_config('role', 'none', true);   -- DDL needs the owner role back
 -- Injects the exact identity-forgery regression F1 describes: p_user_id
 -- winning over auth.uid(). Transaction-local (CREATE OR REPLACE inside this
 -- file's BEGIN...ROLLBACK), CI database only, never production.
@@ -208,6 +209,7 @@ BEGIN
   UPDATE public.listings SET status='sold', auction_status='sold', sold_at=now(),
      reserved_by=null, reserved_until=null WHERE id = p_listing_id;
 END; $probe$;
+SELECT set_config('role', 'authenticated', true);   -- back to the attacker persona
 -- ===== END PROBE =========================================================
 
 SELECT throws_ok(
