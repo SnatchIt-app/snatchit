@@ -151,13 +151,133 @@ jobs:
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 23
 
-      # TODO(owner): wire these once the test/RLS assets exist.
-      #  - pgTAP RLS tests: add supabase/tests/*.sql then run:
-      #      supabase test db
-      #  - Static advisors / lint on the live schema:
-      #      supabase db lint --level warning
-      #      supabase inspect db  (or the security/performance advisors)
-      # Kept as placeholders so this job becomes the single "schema health" gate.
+      # Privilege-parity diagnostic. Production's table grants come from Supabase's
+      # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
+      # explicitly), so the chain cannot reproduce them from source. If the fresh
+      # stack does not have them, the security suite tests a DIFFERENT privilege
+      # surface than production -- and "anon cannot read X" would pass because the
+      # grant is missing, not because RLS works. That is a vacuous pass, so this
+      # step measures the gap before the suite runs.
+      # Apply the production privilege surface to the fresh database, then PROVE
+      # it matches. See supabase/ci/parity_grants.sql for the full rationale
+      # (finding REPLAY-1): production's table grants come from Supabase's
+      # environment bootstrap, not from the migration chain, so a fresh replay
+      # has almost no grants. Without this, most of the security suite would pass
+      # because the GRANT is missing rather than because RLS works.
+      - name: Privilege parity with production (CI-only bootstrap)
+        run: |
+          set -euo pipefail
+          echo "--- BEFORE (fresh replay, grants from the migration chain alone) ---"
+          psql "$DB_URL" -tA -c "
+            select grantee||' '||count(distinct table_name)||' tables'
+            from information_schema.role_table_grants
+            where table_schema='public' and grantee in ('anon','authenticated','service_role')
+              and privilege_type='SELECT' group by grantee order by grantee;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/parity_grants.sql
+          echo "--- AFTER: full matrix must equal supabase/ci/expected_grants.txt ---"
+          psql "$DB_URL" -tA -F'|' -c "
+            select grantee, table_name, string_agg(privilege_type, ',' order by privilege_type)
+            from information_schema.role_table_grants
+            where table_schema='public' and grantee in ('anon','authenticated','service_role')
+            group by grantee, table_name order by grantee, table_name;" \
+            | sed 's/[[:space:]]*$//' | sort > "$RUNNER_TEMP/actual_grants.txt"
+          if ! diff -u supabase/ci/expected_grants.txt "$RUNNER_TEMP/actual_grants.txt"; then
+            echo "::error::privilege surface does not match production. A count-only check would have missed this — an earlier revision over-granted public.transfers (production is SELECT-only there per migration 055) and silently broke three assertions."
+            exit 1
+          fi
+          echo "OK: $(wc -l < supabase/ci/expected_grants.txt | tr -d ' ') grant rows match the expected fixture (production minus the DRIFT-1 departure)."
+          # profiles must remain COLUMN-granted, never table-granted.
+          tbl=$(psql "$DB_URL" -tAc "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name='profiles' and grantee in ('anon','authenticated');")
+          col=$(psql "$DB_URL" -tAc "select count(*) from information_schema.column_privileges where table_schema='public' and table_name='profiles' and grantee='authenticated' and privilege_type='SELECT';")
+          echo "  profiles: client table-level grants=$tbl (must be 0), column-level SELECT=$col (must be > 0)"
+          [ "$tbl" = "0" ] || { echo "::error::profiles gained a table-level client grant — column restrictions bypassed"; exit 1; }
+          [ "$col" -gt 0 ] || { echo "::error::profiles lost its column-level grants"; exit 1; }
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # pgTAP database security gate. Runs against the SAME freshly-replayed
+      # stack booted above, so it costs no second boot and is guaranteed to be
+      # testing the schema this PR actually produces.
+      #
+      # This step deliberately lives inside the existing `db` job rather than a
+      # new one: `Migrations apply cleanly (fresh DB)` is already a REQUIRED
+      # status check, so a pgTAP failure blocks merge immediately. Adding a
+      # separate job would mean a second required context that reports nothing
+      # until it has run once — the "disappearing required check" deadlock this
+      # repo already fixed for the migrations guard. Do NOT rename this job.
+      - name: pgTAP database security suite
+        run: |
+          set -euo pipefail
+          if ! ls supabase/tests/*.sql >/dev/null 2>&1; then
+            echo "::error::supabase/tests/*.sql missing — the security gate would silently pass."
+            exit 1
+          fi
+          files=$(ls supabase/tests/*.sql | wc -l | tr -d ' ')
+          planned=$(grep -ho 'plan([0-9]*)' supabase/tests/*.sql | grep -o '[0-9]*' | paste -sd+ - | bc)
+          echo "test files: $files    planned assertions: $planned"
+          supabase test db --local 2>&1 | tee "$RUNNER_TEMP/tap.txt"
+
+      # Parse the TAP stream for the record. `set -o pipefail` above already
+      # fails the job on a non-zero pg_prove exit; this makes the numbers
+      # explicit in the PR so "green" can never mean "the files merely exist".
+      - name: pgTAP result summary
+        if: always()
+        run: |
+          set -uo pipefail
+          f="$RUNNER_TEMP/tap.txt"
+          [ -f "$f" ] || { echo "::error::no TAP output captured — the suite did not run."; exit 1; }
+          # pg_prove prints a per-file summary and a "Files=N, Tests=N" footer,
+          # NOT raw TAP ok/not ok lines. Parsing for '^ok' yields 0/0/0/0 and
+          # would report a clean sheet for a suite that never ran -- exactly the
+          # vacuous-green this gate exists to prevent. Parse what pg_prove emits.
+          # Report ONLY what pg_prove actually emits. An earlier version of this
+          # step printed passed/failed/skipped/todo counts it could not measure:
+          # it grepped for raw TAP '^not ok' and '# TODO' lines, which pg_prove
+          # never prints, so failed/skipped/todo were permanently 0 and "passed"
+          # was assigned the number of tests RUN. It printed passed=214 failed=0
+          # for a run that had 212 passing and 2 failing-but-TODO. Worse, wrapping
+          # any future failing security assertion in todo() would have kept the
+          # gate green AND counted it as passed. The real gate is result=PASS plus
+          # assertions-run == assertions-planned; claim nothing beyond that.
+          files_n=$(grep -oE 'Files=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
+          tests_n=$(grep -oE 'Tests=[0-9]+' "$f" | tail -1 | cut -d= -f2 || true)
+          result=$(grep -oE '^Result: (PASS|FAIL|NOTESTS)' "$f" | tail -1 | awk '{print $2}' || true)
+          failing_files=$(grep -cE '\(Wstat: ' "$f" || true)
+          badplan=$(grep -cE 'Parse errors: Bad plan' "$f" || true)
+          todo_fail=$(grep -cE '# Failed \(TODO\) test' "$f" || true)
+          echo "files=$files_n tests_ran=$tests_n result=$result failing_files=$failing_files bad_plans=$badplan todo_failing=$todo_fail"
+          {
+            echo "### pgTAP database security gate"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| test files | ${files_n:-?} |"
+            echo "| assertions executed | ${tests_n:-?} |"
+            echo "| files with failures | ${failing_files:-?} |"
+            echo "| bad plans | ${badplan:-?} |"
+            echo "| failing-but-TODO (not gating) | ${todo_fail:-?} |"
+            echo "| pg_prove result | ${result:-none} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${result:-}" != "PASS" ] || [ "${badplan:-0}" -gt 0 ]; then
+            echo "::error::pgTAP did not pass cleanly (result=${result:-none}, bad plans=${badplan:-0}, failing files=${failing_files:-0})."
+            grep -aE 'Parse errors|Failed [0-9]+/|not ok |ERROR:|Result:' "$f" | head -40
+            exit 1
+          fi
+          planned_total=$(grep -ho 'plan([0-9]*)' supabase/tests/*.sql | grep -o '[0-9]*' | paste -sd+ - | bc)
+          if [ "${tests_n:-0}" != "$planned_total" ]; then
+            echo "::error::ran ${tests_n:-0} assertions but $planned_total were planned — some file aborted early."
+            exit 1
+          fi
+          # Coverage floor. Without it, DELETING test files keeps the gate green:
+          # both guards above compare the suite against ITSELF (tests run vs plans
+          # of the files currently on disk), so they stay consistent as coverage
+          # shrinks. These are ratchets — raise them when coverage grows, never
+          # lower them to make a red build pass.
+          MIN_FILES=12
+          MIN_ASSERTIONS=214
+          [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
+          [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
+          echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
 
   # ---------------------------------------------------------------------------
   # web: build the Next.js app in web/. Runs only when web/package.json exists.
