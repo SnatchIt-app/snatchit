@@ -8,20 +8,42 @@
 --   SEC-4  000_baseline_schema.sql creates six storage.objects policies
 --          (blocks 5 and 12) that no later migration drops. Production does not
 --          have them — its 11 policies all come from 033/034/048/049/051/053 —
---          so a rebuild got 17 policies, six of them TO PUBLIC, two of them
---          unguarded DELETE policies that OR together with (and therefore
---          defeat) the "unreferenced" guards 048 and 049 added. A rebuild was
---          strictly WEAKER than the database it was supposed to reproduce.
+--          so a rebuild got 17 policies. Two harms, stated at their true size:
+--            * REACHABLE: "avatars: owner delete" grants authenticated users a
+--              DELETE on the avatars bucket that production does not grant at
+--              all, and "storage: owner delete" is an unguarded DELETE that ORs
+--              with — and so defeats — the "unreferenced" guard 048 added over
+--              listings.cover_image_path. Only 048's. Both orphan DELETE
+--              policies are bucket-scoped (auction-media and avatars) and
+--              neither mentions proof-docs, so 049's guard is untouched.
+--            * CATALOG-LEVEL ONLY: the six carry no TO clause and so default to
+--              TO PUBLIC. That widens the role set but creates no anon-reachable
+--              write path — the predicates require
+--              auth.uid()::text = (storage.foldername(name))[1] and auth.uid()
+--              is NULL for anon, so they never permit. The orphan SELECTs are
+--              likewise inert beside production's "public read public buckets".
+--          A rebuild was still WEAKER than the database it must reproduce.
 --
 --   D-5    'sweep-auth-password-changes' runs in production (jobid 10) but is
 --          scheduled by no migration; 0600 only mentions it in a comment. A
 --          rebuild silently lost password-change security notifications
 --          entirely — function present, nothing ever calling it.
 --
--- RED->GREEN, observable in CI: before 075 assertions 1-3 fail on a fresh
--- replay (six orphans present, 17 policies) and assertions 8-10 fail (no job).
+-- RED->GREEN, observable in CI. MEASURED, not predicted: on the pre-075 commit
+-- fc817ac (run 33109558089) pg_prove reported "Tests: 12 Failed: 9" with
+-- "Failed tests: 1-9" — assertions 1 through 9, i.e. every SEC-4 assertion
+-- (1-7) plus both cron-existence assertions (8-9). Notable exceptions:
+--   * Assertion 10 PASSES VACUOUSLY on an un-migrated replay and is NOT a
+--     control. It asserts "no drifted or inactive duplicate of the sweep job";
+--     with no such job in cron.job at all, its is_empty subquery is trivially
+--     empty and it reports ok while the feature is entirely missing. Assertion
+--     8 is what actually proves existence, so there is no coverage hole — but
+--     do not read a green 10 in isolation as evidence of anything.
+--   * Assertions 11 and 12 also pass pre-075: the function and its watermark
+--     row are created by 0600/0601, which never had a defect. They guard
+--     against the schedule being restored while its callee is missing.
 -- After 075 the replay reports the same 11 policies and the same one cron job
--- as production.
+-- as production, and all 12 pass (run 33110018797, Files=14 Tests=246 PASS).
 --
 -- CATALOG-LEVEL ONLY, for the same reason 100_storage.sql is: asserting
 -- behaviour here would mean INSERTing into storage.objects, whose column set
@@ -83,9 +105,13 @@ SELECT set_eq(
   'SEC-4: only "public read public buckets" is reachable by public/anon');
 
 -- 5. No WRITE path on storage.objects is reachable by public/anon. This is the
---    concrete widening the orphans introduced: "storage: owner upload" and
---    "avatars: owner upload" gave anon an INSERT policy, and the two orphan
---    DELETE policies gave anon a DELETE policy.
+--    catalog-level widening the orphans introduced: the four orphan write
+--    policies carry no TO clause, so on a replay public/anon appeared in the
+--    roles column of an INSERT and a DELETE policy. That is a role-set fact,
+--    not a capability — the predicates need auth.uid(), which is NULL for anon,
+--    so nothing was ever permitted through them. This assertion pins the roles
+--    column anyway: it is the cheap invariant that catches a FUTURE write
+--    policy whose predicate is NOT auth.uid()-gated.
 SELECT is_empty(
   $$ SELECT policyname FROM pg_policies
       WHERE schemaname = 'storage' AND tablename = 'objects'

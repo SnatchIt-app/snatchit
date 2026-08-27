@@ -64,10 +64,24 @@
 -- A from-source rebuild has a STRICTLY WEAKER storage authorization surface
 -- than production, in two specific ways:
 --
---   1. ROLE WIDENING. All 11 production policies except "public read public
---      buckets" are TO authenticated. The six orphans are TO PUBLIC, so on a
---      replay `anon` gains INSERT and DELETE paths into auction-media and
---      avatars that production does not grant to anon at all.
+--   1. ROLE WIDENING — CATALOG-LEVEL ONLY, NOT A REACHABLE ANON WRITE PATH.
+--      All 11 production policies except "public read public buckets" are TO
+--      authenticated. The six orphans carry no TO clause and therefore default
+--      to TO PUBLIC, which does widen the role set on a replay.
+--
+--      Be precise about what that is worth, because overstating it makes the
+--      rest of this document harder to trust: it does NOT hand `anon` a usable
+--      write path. Every orphan INSERT/DELETE predicate requires
+--          auth.uid()::text = (storage.foldername(name))[1]
+--      and in a genuine anon session auth.uid() is NULL, so the comparison
+--      evaluates to NULL and the policy never permits the row. An anon caller
+--      gains nothing executable. The two orphan SELECT policies are likewise
+--      inert in practice: production's "public read public buckets" is already
+--      TO public over exactly these two buckets, so they add no read reach.
+--
+--      So item 1 is a parity defect and a catalog-level widening, and it is
+--      worth removing on those grounds alone — but the REACHABLE harm is
+--      item 2, and item 2 is the reason this migration is classed as security.
 --
 --   2. MISSING "UNREFERENCED" GUARD ON DELETE. 048 and 049 deliberately
 --      narrowed deletion so a file still referenced by a live row cannot be
@@ -82,6 +96,19 @@
 --      completely defeats — the guard 048 added. A seller could delete the
 --      cover image out from under a live listing on a rebuilt stack and not on
 --      production.
+--
+--      Scope this precisely too: only 048's guard is defeated. Both orphan
+--      DELETE policies are bucket-scoped — "storage: owner delete" to
+--      auction-media (lines 267-271) and "avatars: owner delete" to avatars
+--      (lines 865-869). Neither mentions proof-docs, so 049's guard over
+--      listings.proof_of_ownership_path and transfers.transfer_evidence_path is
+--      NOT reachable from either and stands intact on a replay.
+--
+--      Separately, "avatars: owner delete" is not merely an unguarded duplicate:
+--      production has NO delete policy on the avatars bucket at all (its avatars
+--      policies are insert and update only). On a replay it therefore confers a
+--      DELETE capability on authenticated users that production does not grant
+--      in any form. That one is reachable, and it is new.
 --
 -- So this is not "extra rows in a catalog". A rebuild from source produces a
 -- database that is less safe than the one it is supposed to reproduce, which is
@@ -109,10 +136,18 @@
 -- runner connects as postgres. A bare `DROP POLICY IF EXISTS … ON
 -- storage.objects` therefore names a relation this role does not own, and
 -- whether IF EXISTS short-circuits ahead of the ownership check is a detail of
--- the backend's drop path that this migration deliberately does not bet on — a
--- sibling migration was aborted by exactly this. Reading pg_policies first and
--- never emitting the DDL at all removes the question: on production the DROP is
--- not skipped, it is never parsed.
+-- the backend's drop path that this migration deliberately does not bet on.
+-- Reading pg_policies first and never emitting the DDL at all removes the
+-- question: on production cardinality(v_present) is 0, the FOREACH loop is
+-- never entered, and the DROP text is therefore never even constructed by
+-- format() — the statement is not skipped, it never exists.
+--
+-- UNVERIFIED: an earlier draft of this header asserted that a sibling migration
+-- had been aborted by a bare `DROP POLICY IF EXISTS` on this non-owned
+-- relation. What was actually observed is narrower and is recorded honestly
+-- below: THIS migration's own droppability pre-check aborted CI run
+-- 33109752216. Whether a bare IF EXISTS drop would also fail here was never
+-- tested, and this migration does not depend on the answer.
 --
 -- The block does NOT additionally pre-check droppability. An earlier revision
 -- did, and that pre-check turned out to be actively harmful: see the comment on
@@ -193,6 +228,24 @@
 --
 -- On a fresh replay no such job exists, the predicate is TRUE, and the job is
 -- created with exactly production's schedule and command.
+--
+-- PRECONDITION: THE GUARD REQUIRES A BYPASSRLS ROLE TO SEE THE JOB
+-- cron.job has RLS enabled, with pg_cron's own policy restricting visible rows
+-- to `username = current_user`. The four-way guard above is therefore correct
+-- ONLY because the role running this migration can actually see jobid 10:
+-- production postgres has rolbypassrls = true (verified 2026-08-27), and jobid
+-- 10 is owned by postgres in any case.
+--
+-- Under a non-BYPASSRLS role that could not see the row, the guard would
+-- evaluate FALSE, the unschedule loop would likewise match nothing, and
+-- cron.schedule() would create a SECOND job rather than converge. The blast
+-- radius of that is bounded — sweep_auth_password_changes() takes
+-- pg_try_advisory_xact_lock() so concurrent runs return immediately, and
+-- enqueue_notification() dedupes on 'auth_pwd:<audit_id>', so a duplicate job
+-- would not double-notify anyone — but it would be a silent parity defect of
+-- exactly the kind this migration exists to remove. The Supabase migration
+-- runner connects as postgres, so this is a documented precondition rather than
+-- a live risk. Do not run this migration as a role without BYPASSRLS.
 --
 -- WHY unschedule-then-schedule RATHER THAN cron.alter_job
 -- The unschedule path is reached only when a job with this NAME exists but
