@@ -139,9 +139,19 @@ like Dependabot or `pinact`; keep the trailing `# vX.Y.Z` comment in sync.
 
 ## Intentionally deferred
 
-- **Production & staging deploys.** Not included. Prod deploys must never run
-  from arbitrary branches — add them later on protected GitHub Environments
-  with required reviewers, triggered by tags/releases, not by CI here.
+- **Production & staging deploys.** Not included **in these workflows**. Prod
+  deploys must never run from arbitrary branches — add them later on protected
+  GitHub Environments with required reviewers, triggered by tags/releases, not
+  by CI here.
+
+  > **This section describes GitHub Actions only, and says nothing about the
+  > repository as a whole.** A second, independent deployment path exists: the
+  > **Supabase GitHub integration**, configured in the Supabase dashboard and
+  > invisible here, **applies pending database migrations to production on every
+  > merge to `main`**. It surfaces as a check named `Supabase Preview` (app
+  > `Supabase`) — the "Preview" label is misleading; it targets production.
+  > Migration `071` reached production this way on 2026-08-27 (AUTODEPLOY-1).
+  > Canonical: `docs/operations/DEPLOYMENT_PATHS.md`.
 - **pgTAP RLS tests.** Placeholder in the `db` job; wire `supabase test db`
   once `supabase/tests/*.sql` exist. Critical for an RLS-enforced money app.
 - **Schema advisors / `supabase db lint`.** Placeholder in the `db` job.

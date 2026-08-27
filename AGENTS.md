@@ -97,8 +97,24 @@ Functions, Middleware, build/runtime Logs.
 
 ## Deployment rules
 
+- **There are two deployment paths, and only one is visible in this repo.**
+  GitHub Actions CI (`.github/workflows/`) is non-production. The **Supabase
+  GitHub integration** is a separate path configured only in the Supabase
+  dashboard, and it **applies pending migrations to the production database on
+  every merge to `main`** — no approval gate, no staging step. Migration `071`
+  reached production this way on 2026-08-27 (AUTODEPLOY-1) while every
+  repository document asserted that merges do not deploy.
+- It must remain configured so that production migrations are owner-gated.
+  **Until an owner visually confirms that in the Supabase dashboard, no
+  migration-bearing PR may merge to `main`.** A PR is migration-bearing if it
+  touches anything under `supabase/migrations/`. Do not infer the setting from
+  check names (the check is labelled "Supabase **Preview**" but targets
+  production), preview behaviour, or timestamps.
+- Canonical reference, evidence, and the required apply sequence:
+  `docs/operations/DEPLOYMENT_PATHS.md`.
 - Prefer Git-based deployments (push → provider builds) over CLI/API deploys;
-  only use CLI/API deploys when explicitly requested.
+  only use CLI/API deploys when explicitly requested. **This preference does
+  not extend to database migrations** — those are owner-gated and explicit.
 - Keep Preview and Production strictly separated. Never deploy to Production
   without explicit approval for that specific action.
 - Never merge a branch just to make a deployment work — that inverts the
@@ -107,7 +123,11 @@ Functions, Middleware, build/runtime Logs.
 ## Supabase
 
 - Treat the connected Supabase project as production at all times unless
-  told otherwise — there is no staging/dev branch for this project.
+  told otherwise — there is no staging/dev branch for this project. The single
+  entry returned by `supabase branches list` is **not** a preview branch: its
+  `parent_project_ref` equals the project ref and it resolves to the production
+  host. It is git `main` bound to production. See
+  `docs/operations/DEPLOYMENT_PATHS.md`.
 - Migrations are additive-only by default. No destructive schema change
   (drop/rename/alter an existing column, table, policy, or trigger) without
   explicit approval, a rollback script written *before* applying, and a

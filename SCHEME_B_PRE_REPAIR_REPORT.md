@@ -2,7 +2,10 @@
 
 > **STATUS: PRODUCTION LEDGER UNTOUCHED.** No `supabase migration repair` command has been executed.
 > No `supabase_migrations.schema_migrations` row has been inserted, deleted, or updated.
-> Supabase auto-deploy remains OFF. Migration `071` has not been authored.
+> ~~Supabase auto-deploy remains OFF.~~ **Corrected 2026-08-27 (AUTODEPLOY-1): this was asserted
+> from documentation, never verified, and was false — the Supabase GitHub integration was active.
+> The ledger claims in this report are unaffected and remain verified.** Migration `071` has not
+> been authored *(as of this report; authored and applied 2026-08-27)*.
 
 ## 1–2. Repository and branch
 | | |

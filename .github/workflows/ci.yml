@@ -1,8 +1,18 @@
 # CI — quality gate for the Snatch It monorepo (mobile app + Supabase + web).
 #
 # Runs on every PR into main, and on pushes to any non-main branch so feature
-# branches get fast feedback. Nothing here deploys or touches production —
-# see .github/workflows/README.md for what is intentionally deferred.
+# branches get fast feedback. Nothing in THIS WORKFLOW deploys or touches
+# production — see .github/workflows/README.md for what is intentionally
+# deferred.
+#
+# That is a statement about GitHub Actions, NOT about the repository. A second
+# deployment path exists outside CI: the Supabase GitHub integration applies
+# pending supabase/migrations/** to the PRODUCTION database on every merge to
+# main (check name "Supabase Preview", app "Supabase" — the label is
+# misleading, it targets production). It put migration 071 into production on
+# 2026-08-27 with no approval gate. Until an owner confirms that control is
+# off, no migration-bearing PR may merge to main.
+# Canonical: docs/operations/DEPLOYMENT_PATHS.md
 #
 # Least-privilege: read-only token for the whole workflow. No job needs write.
 name: CI

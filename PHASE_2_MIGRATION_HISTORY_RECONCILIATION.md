@@ -16,6 +16,14 @@
 > With the histories mismatched (repo `NNN_` vs production timestamps for `040–068`), a merge to `main`
 > would run `supabase db push` with **no approval gate** and **re-apply 040–068 to production**.
 >
+> **UPDATE 2026-08-27 (AUTODEPLOY-1): this warning was correct, and it was already too late.** The
+> integration was active the whole time — nobody had verified it. It fired on every `main` push from
+> ~2026-08-24 and was harmless only by luck: while the histories were mismatched it **failed closed**
+> ("Remote migration versions not found in local migrations directory", check on `75d701e`), and once
+> they were reconciled there was nothing pending until `071` — which it then applied to production
+> unprompted. The prohibition is now **unconditional** and does not lapse with the reconciliation.
+> Canonical: `docs/operations/DEPLOYMENT_PATHS.md`.
+>
 > **DO NOT run any `supabase migration repair` command below without (a) explicit owner authorization and
 > (b) Agent F / Agent G review.** Every command here is **PROPOSED, not executed.** `migration repair` writes
 > to production's `supabase_migrations.schema_migrations` ledger — it is a production write and is outside
