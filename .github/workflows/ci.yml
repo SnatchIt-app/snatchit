@@ -338,7 +338,7 @@ jobs:
           # where all four in-flight branches land together. Baseline was 12 files /
           # 214 assertions; this integration adds three files:
           #   045_listing_insert_authority.sql  (H-1,     +20)
-          #   110_money_authz_matrix.sql        (MONEY-1, +17)
+          #   110_money_authz_matrix.sql        (MONEY-1, +18)
           #   120_drift_reconciliation.sql      (DRIFT-1, +15)
           # Each author deliberately left the floor alone while their sibling
           # branches were in flight (raising it mid-flight would break whichever
@@ -367,7 +367,7 @@ jobs:
           # red build pass. Adding a genuinely new pinned gap is a reviewed
           # decision, not a ratchet bump of convenience.
           # Still correct across the in-flight sibling branches: B's new
-          # 110_money_authz_matrix.sql adds 17 assertions and NO todo() (F-2/F-3
+          # 110_money_authz_matrix.sql adds 18 assertions and NO todo() (F-2/F-3
           # are recorded as not-implemented rather than re-marked), so the count
           # stays at 2. Re-check this against the merged suite.
           EXPECT_TODO=2
