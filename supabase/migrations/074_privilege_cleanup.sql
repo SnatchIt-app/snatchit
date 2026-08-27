@@ -50,13 +50,47 @@
 -- "running 069's revoke against production" as the fix and defers it as
 -- owner-gated. This migration is that vehicle.
 --
+-- THIS DOES NOT CLOSE THE EXPOSURE CLASS, AND IS NOT MEANT TO. 074 removes the
+-- symptom on one table and leaves the generator in place: the
+-- pg_default_acl (postgres, public, 'r') row quoted above SURVIVES this
+-- migration — the file contains no ALTER DEFAULT PRIVILEGES — so the next table
+-- `postgres` creates in `public` will re-acquire anon=arwdm / authenticated=arwdm
+-- exactly as webhook_retries did. Six sibling tables carry that same grant on
+-- production TODAY with RLS on and ZERO policies (verified 2026-08-27):
+-- disputes, payout_decisions, payout_policy, seller_flags, seller_risk_scores,
+-- stripe_connect_archive.
+-- Those six are deliberately NOT touched here, and that is not an oversight:
+-- supabase/ci/parity_grants.sql lines 104-121 grant them on purpose because
+-- production and SOURCE AGREE about them. webhook_retries is the only table
+-- where the two DISAGREE, which makes it the only one 074 can fix while
+-- remaining a reconciliation rather than becoming a new control. Revoking the
+-- other six, or altering the default privileges, is a separate owner decision
+-- with its own blast radius. Read this section as "one divergence reconciled",
+-- never as "clients can no longer be granted DML by default".
+--
 -- CALL SITES SEARCHED for webhook_retries: app/, components/, hooks/, src/,
 -- web/src/, packages/, supabase/functions/, supabase/migrations/,
 -- supabase/tests/, supabase/ci/. Every hit is either the 069 definition, the
 -- CI parity fixture/expected-grants row (service_role only), the 069 rollback,
--- or two existing pgTAP assertions that clients CANNOT read it. The only
--- writer is the stripe-webhook Edge Function under service_role, whose grants
--- this file does not touch.
+-- or two existing pgTAP assertions that clients CANNOT read it.
+--
+-- WHO WRITES THIS TABLE — what is actually established, which is less than 069's
+-- header asserts. 069 says the table "is written by the stripe-webhook Edge
+-- Function (service_role)". This migration does NOT re-assert that, because on
+-- the evidence available it is not true of the code in this repo:
+--   * `git grep webhook_retries` returns ZERO hits in supabase/functions/. The
+--     only hits anywhere are supabase/migrations/, supabase/rollbacks/,
+--     supabase/ci/, supabase/tests/ and docs.
+--   * Production pg_stat_user_tables for public.webhook_retries, read
+--     2026-08-27: n_tup_ins = 0, n_tup_upd = 0, n_tup_del = 0, n_live_tup = 0.
+--     Nothing has ever written a row.
+--   * A catalog-wide pg_proc.prosrc sweep finds no function referencing it.
+-- So the established facts are: NO code path in this repo writes the table, and
+-- nothing in production ever has. UNVERIFIED: whether the DEPLOYED
+-- stripe-webhook function — which may lead this repo — writes it. That
+-- uncertainty is why service_role's grants are left fully intact below. Under
+-- either reading the revoke is safe: the roles losing privilege are anon and
+-- authenticated, and neither is a candidate writer under any account.
 --
 -- MAINTAIN (m) is included in ALL and is removed here too. It permits VACUUM /
 -- ANALYZE / REINDEX / CLUSTER / REFRESH on the table; no client needs it.
@@ -123,14 +157,24 @@
 --
 -- FOLLOW-UP RECORDED, NOT TAKEN (out of scope, needs a product decision):
 -- neither helper has ANY caller today. Searched for direct calls across app/,
--- components/, hooks/, src/, web/src/, packages/ and supabase/functions/ — the
--- complete enumerated set of supabase.rpc() names in this repo is
--- buyer_dispute_transfer, can_create_listing, cancel_listing,
--- complete_auction_payment, ensure_transfer_exists, finalize_auction,
--- get_my_profile, get_profile_trust_stats, mark_listing_sold,
--- mark_transfer_sent, mark_transfer_viewed, reserve_buy_now,
--- set_transfer_delivery_info (client) plus the payout/webhook service RPCs
--- (edge), and neither helper appears. The shipped app implements blocking by
+-- components/, hooks/, src/, web/src/, packages/ and supabase/functions/. Stated
+-- precisely, because "we grepped the rpc names" is a weaker claim than it looks:
+--   1. STRING-LITERAL call sites. Every supabase.rpc('<name>', ...) on this
+--      branch was enumerated and NEITHER HELPER APPEARS. This is not a list of
+--      "the RPCs this app has" — it is the set of literal arguments, and the
+--      only property claimed of it is that is_blocked_by_me and is_winner are
+--      absent from it.
+--   2. DYNAMIC dispatch. Two call sites pass a VARIABLE, so no grep for a
+--      function name can ever reach them, and they are named here because that
+--      is exactly what a later reader needs told:
+--        supabase/functions/stripe-webhook/index.ts:405  supabase.rpc(rpcName, rpcParams)
+--        web/src/lib/checkout.ts:163                     supabase.rpc(settleRpc, {...})
+--      Both were resolved by reading them, not assumed. Each is a CLOSED
+--      two-branch selection on metadata.mode over exactly
+--      { 'mark_listing_sold', 'complete_auction_payment' } — the edge site's
+--      third branch is an explicit error return, and the web site is a ternary.
+--      Neither can reach any function this migration touches.
+-- The shipped app implements blocking by
 -- reading public.user_blocks directly under RLS
 -- (src/hooks/useBlockedUserIds.ts, app/settings/blocked-users.tsx,
 -- app/profile/[id].tsx) and win state by reading listings.winner_user_id
@@ -214,8 +258,10 @@
 -- COMPATIBILITY / LOCKS / RUNTIME / ROLLBACK / VERIFICATION
 -- =============================================================================
 -- COMPATIBILITY: no behavioural change to any client, edge or cron path.
---   * webhook_retries: only writer is the stripe-webhook Edge Function under
---     service_role, untouched. RLS already denied the client roles.
+--   * webhook_retries: service_role's grants are untouched, so any service-path
+--     writer (deployed or future) is unaffected; RLS already denied the client
+--     roles. No repo code path writes the table and production has never
+--     recorded a write — see "WHO WRITES THIS TABLE" above.
 --   * Group A: EXECUTE is not consulted when a trigger fires.
 --   * Group B: anon and authenticated keep EXECUTE, from 0230's explicit GRANT,
 --     which a fresh replay reproduces. Verified by fresh-replay CI, which is the

@@ -9,12 +9,19 @@
 -- `authenticated` on public.webhook_retries hands unauthenticated and ordinary
 -- signed-in users direct DML on a money-adjacent audit table — the record of
 -- which Stripe webhook handler RPCs failed, keyed to payments.id and
--- listings.id. It does not restore a capability any client ever used: the only
--- writer is the stripe-webhook Edge Function under service_role, which this
--- rollback does not touch, and no client or edge code in this repo references
--- the table at all. It restores an accident — the Supabase default-privileges
--- grant that migration 069 line 22 was written to remove and (per the ACL) never
--- did.
+-- listings.id. It does not restore a capability any client ever used: no code
+-- path in this repo references the table at all (`git grep webhook_retries`
+-- returns zero hits outside supabase/migrations|rollbacks|ci|tests and docs —
+-- including zero in supabase/functions/), and production
+-- pg_stat_user_tables reports n_tup_ins = n_tup_upd = n_tup_del = 0, so nothing
+-- has ever written a row. Any service-path writer keeps working regardless:
+-- service_role's grants are not touched by 074 and are not touched here.
+-- UNVERIFIED: whether the DEPLOYED stripe-webhook function, which may lead this
+-- repo, writes the table; 069's header asserts it does, and this file does not
+-- repeat that claim because the repo does not support it. It changes nothing
+-- either way — the roles at issue are anon and authenticated.
+-- What Part 1 restores is an accident: the Supabase default-privileges grant
+-- that migration 069 line 22 was written to remove and (per the ACL) never did.
 --
 -- It also re-opens the DRIFT-1 divergence recorded in
 -- supabase/ci/parity_grants.sql: source (069) revokes, production would once
