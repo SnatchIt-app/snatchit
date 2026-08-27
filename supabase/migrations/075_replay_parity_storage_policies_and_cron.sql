@@ -114,9 +114,11 @@
 -- never emitting the DDL at all removes the question: on production the DROP is
 -- not skipped, it is never parsed.
 --
--- The block additionally refuses to proceed — loudly — if the six ARE present
--- but the current role could not drop them, rather than aborting on a cryptic
--- "must be owner of relation objects".
+-- The block does NOT additionally pre-check droppability. An earlier revision
+-- did, and that pre-check turned out to be actively harmful: see the comment on
+-- the FOREACH loop below. Ownership is proven by construction instead — the
+-- role that reaches the loop is the role that created these six policies
+-- earlier in the same replay.
 --
 -- LOCKS / RUNTIME
 -- On production: none. No DDL is executed; the block performs two catalog
@@ -258,7 +260,6 @@ DECLARE
     'avatars: owner delete'
   ];
   v_present  text[];
-  v_may_drop boolean;
   v_name     text;
 BEGIN
   -- Read the catalog BEFORE emitting any DDL. On production this returns an
@@ -276,22 +277,18 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Present. Confirm this role can actually drop them before trying, so a
-  -- privilege problem surfaces as an explicit, actionable message.
-  SELECT r.rolsuper OR pg_has_role(current_user, c.relowner, 'USAGE')
-    INTO v_may_drop
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    JOIN pg_roles     r ON r.rolname = current_user
-   WHERE n.nspname = 'storage' AND c.relname = 'objects';
-
-  IF NOT coalesce(v_may_drop, false) THEN
-    RAISE EXCEPTION '075/SEC-4: % orphan baseline policies exist on storage.objects but role % cannot drop them (table is owned by another role and this role is neither owner, member, nor superuser).',
-      cardinality(v_present), current_user
-      USING DETAIL = 'Present: ' || array_to_string(v_present, ', '),
-            HINT   = 'Re-run as the storage.objects owner (supabase_storage_admin) or as a superuser.';
-  END IF;
-
+  -- Present -> this is a replay, and the drop must happen. No privilege
+  -- pre-check is performed here, deliberately: an earlier revision of this
+  -- migration tested `rolsuper OR pg_has_role(current_user, relowner, 'USAGE')`
+  -- and that test returned FALSE in the CI replay stack, aborting the migration
+  -- (run 33109752216) — even though the very same role had just successfully
+  -- CREATEd these six policies on this same table two hundred statements
+  -- earlier in 000_baseline_schema.sql. CREATE POLICY and DROP POLICY require
+  -- the identical ownership right, so a role that created them can drop them;
+  -- the pre-check was measuring the wrong thing and produced a false negative
+  -- in the one environment where the drop is needed. If a privilege problem
+  -- ever does arise, PostgreSQL's own "must be owner of relation objects" is a
+  -- clearer diagnostic than anything this block could synthesise.
   FOREACH v_name IN ARRAY v_present LOOP
     EXECUTE format('DROP POLICY %I ON storage.objects', v_name);
     RAISE NOTICE '075/SEC-4: dropped orphan policy "%" on storage.objects', v_name;
