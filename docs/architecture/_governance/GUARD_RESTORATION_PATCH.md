@@ -98,7 +98,7 @@ Re-run the guard test matrix. Expected afterwards:
 | Any historical rename (incl. the former Scheme-B pairs) | **FAIL** |
 | Historical deletion | **FAIL** |
 | Historical content modification | **FAIL** |
-| Normal new migration `071_` | **PASS** |
+| Normal new migration `076_` (the next free number) | **PASS** |
 | Back-dated new migration | **FAIL** |
 | Duplicate version prefix | **FAIL** |
 

@@ -533,7 +533,7 @@ flowchart TB
    human authority, §8). **Confirm whether disbursement auto-fires on `close_settlement` or requires an
    explicit `request_org_payout` human step (mirrors RPC §16.4 authority-scope open item).**
 6. **CLOSED (addenda A2/A3).** Door-freeze canonical = `catalog.event_session.door_open_at` (schema §2.3,
-   migration 073) read ONLY via `kernel.is_transfer_frozen(atom_id)`. The edge layer never decides freeze
+   migration 078 — package C, catalog) read ONLY via `kernel.is_transfer_frozen(atom_id)`. The edge layer never decides freeze
    independently — it (and the client, and every RPC recheck) targets that one helper; no stored
    `transfer_frozen` column exists (RPC §12.4/§16.2 updated).
 

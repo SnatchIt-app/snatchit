@@ -71,7 +71,7 @@ Enforces, against the PR base:
    (three digits) or `YYYYMMDDHHMMSS_name.sql` (fourteen), with the name in
    `[A-Za-z0-9_]`. This rejects letter-suffixed versions (`071a_`, which the
    Supabase CLI cannot parse), non-padded ones (`71_`, which would become the
-   lexicographic maximum and permanently block `072`–`098`), four-digit
+   lexicographic maximum and permanently block every later `NNN_`), four-digit
    additions like `0999_` (same wedge), stray non-`.sql` files, and any name
    that git would C-quote or that would misbehave under shell word-splitting.
 4. **Unique + prefix-free versions** — no two migrations may share a version,
@@ -82,7 +82,7 @@ Enforces, against the PR base:
 5. **Monotonic ordering** — new migrations must sort after the latest existing
    migration *of the same naming scheme*. The repo mixes two schemes
    (zero-padded `NNN_` and 14-digit timestamp `YYYYMMDDHHMMSS_`); the check is
-   scheme-aware so a new `071_` compares against the max `NNN_` (`070`) and a
+   scheme-aware so a new `076_` compares against the max `NNN_` (`075`) and a
    new timestamp against the max timestamp.
 
 **Historical note.** Between the Scheme-B normalization PR and the production

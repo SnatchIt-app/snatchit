@@ -212,14 +212,14 @@ Version string is authoritative. "Prod label" is what the ledger row is *named* 
 **What a *true* fresh-DB re-replay would require — OWNER/INFRA action, NOT done here:** creating a Supabase
 **Pro branch** (paid; cost-confirmation prompt) or applying migrations to a throwaway DB. Both are writes /
 gated actions outside Agent F's mandate. **Rely on the existing certified evidence + the static analysis
-above.** Re-run a fresh replay only if the chain changes (e.g. `043` merged, or `071+` added).
+above.** Re-run a fresh replay only if the chain changes (e.g. `043` merged, or `076+` added).
 
 ---
 
 ## 6. PROPOSED `supabase migration repair` command list (NOT executed)
 
 **Goal:** make production's ledger match the repo's `NNN_` scheme so `supabase db push` sees the historical
-chain as fully applied (nothing pending, nothing re-run) and Phase-2 `071+` applies cleanly on top.
+chain as fully applied (nothing pending, nothing re-run) and Phase-2 `076+` applies cleanly on top.
 
 **Prerequisites (owner):** from the `phase0/lockdown` worktree (local files must be present for `repair` to
 resolve names): `supabase link --project-ref hqycwntpfoztoinemqns`. **First take a ledger backup** (§8.1).
@@ -336,8 +336,9 @@ auditable. `001–039` and the 4 website-form timestamps are deliberately untouc
   timestamps. **No `043`.**
 - `supabase migration list` shows **local and remote identical → zero pending, zero to revert.**
 - **Schema is byte-for-byte unchanged** (ledger-only edit; Gate-2 counts still 27/68/37/23/3).
-- Phase-2 `071+` (per `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §0.2) then sits cleanly at the true applied max
-  (`070`) and applies via the **gated** path only.
+- Phase-2 `076+` (per `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §0.2) then sits cleanly above the true applied max
+  — `070` at the time this section was written, **`075` since the security migrations `071`–`075` were applied
+  on 2026-08-27** — and applies via the **gated** path only.
 
 ---
 
@@ -355,7 +356,7 @@ auditable. `001–039` and the 4 website-form timestamps are deliberately untouc
    nothing to apply. **If it lists 040–068 as pending, STOP** — a version was mistyped; do not `db push`.
 5. **Re-run Gate-2 CI `db` job** on `phase0/lockdown` (throwaway DB) → still green (chain unchanged).
 6. **Advisors re-check (read-only):** `get_advisors` security/performance unchanged vs §10 (no new lints).
-7. Only after 1–6 pass, proceed to author/apply `071+` via the gated `workflow_dispatch` path — **never**
+7. Only after 1–6 pass, proceed to author/apply `076+` via the gated `workflow_dispatch` path — **never**
    by enabling auto-deploy.
 
 ---
@@ -421,10 +422,10 @@ protection; the perf items are pre-existing, optional hygiene.
 |---|---|---|---|
 | 1 | **Run the 77 `migration repair` commands (§6)** to align production ledger to the `NNN_` scheme. | Owner + Agent F/G review; production ledger **write** (outside Agent F mandate) | **Blocks** any safe `db push` / Phase-2 apply |
 | 2 | **Keep Supabase "Deploy to production" OFF**; adopt gated `workflow_dispatch` + GitHub Environment reviewer for `db push`. | Governance / GitHub+Supabase settings | **Blocks** enabling auto-deploy |
-| 3 | **Untracked `043_profiles_select_column_restriction.sql`** in `mobile/profile-rpc-compat` is a **back-dated version**: `043 < 044…070` (already applied) → `migrations-guard` will **reject** it and `db push` would treat it as **pending/out-of-order**. Must be **renumbered ≥ 071** (or dropped/folded) and reconciled against the phase0 chain before merge. | Repo hygiene (mobile branch owner) | **Blocks** merging that branch cleanly; **not** a phase0-chain blocker |
+| 3 | **Untracked `043_profiles_select_column_restriction.sql`** in `mobile/profile-rpc-compat` is a **back-dated version**: `043 < 044…070` (already applied) → `migrations-guard` will **reject** it and `db push` would treat it as **pending/out-of-order**. Must be **renumbered above the applied max `075`, without colliding with the `076`–`091` Phase-2 reservation** (see `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`) — or dropped/folded — and reconciled against the phase0 chain before merge. | Repo hygiene (mobile branch owner) | **Blocks** merging that branch cleanly; **not** a phase0-chain blocker |
 | 4 | **A true fresh-DB Gate-2 re-replay** (if ever required) needs a **Supabase Pro branch (paid, cost-confirm)** or a throwaway DB. Not performed (read-only mandate). Existing certification stands while the chain is unchanged. | Infra (paid) | Not blocking now |
 | 5 | **Enable Auth leaked-password protection** (HaveIBeenPwned). | Owner console (Auth config) | Not blocking; security hygiene |
-| 6 | Optional perf hygiene (drop 6 legacy-name/duplicate indexes; wrap `auth.*()` in RLS; prune overlapping permissive policies). | Future migration (`071+`) | Not blocking |
+| 6 | Optional perf hygiene (drop 6 legacy-name/duplicate indexes; wrap `auth.*()` in RLS; prune overlapping permissive policies). | Future migration (`076+`) | Not blocking |
 
 ---
 
@@ -443,6 +444,6 @@ row was modified. Execution requires owner authorization + Agent F/G review, wit
 1. **Rename** the 11 files to pure-numeric versions that preserve order (e.g. insert as `0231`, `0551`–`0553`, `0561`–`0564`, `0591`, `0601`, `0661` — exact scheme chosen at execution; must sort between their neighbors) — a deliberate, one-time exception to the append-only rule, executed **with** the ledger repair so repo names and `schema_migrations` stay 1:1.
 2. **Extend the §6 repair plan** so the `--status applied` inserts use the **new** names (the 5 repo-only rows incl. `023b`/`066a` change name; the 36 timestamp-reverts are unaffected).
 3. **migrations-guard**: land the renames in the same PR as a documented guard exemption (the guard exists to prevent *undocumented* mutation; this is the documented reconciliation event it anticipates).
-4. **Re-run the CI `db` job** — it must go green on the renamed chain before any `071_*` file is authored.
+4. **Re-run the CI `db` job** — it must go green on the renamed chain before any `076_*` file is authored.
 
 **Status:** PROPOSED — same authorization gate as the §6 repair (owner + Agent F/G review). Until executed, the CI `db` red is a **known, understood** condition, not an unknown regression.

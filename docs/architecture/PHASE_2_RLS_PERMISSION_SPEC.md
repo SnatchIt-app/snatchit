@@ -315,7 +315,7 @@ Write RPCs: `grant_org_role`, `revoke_org_role` (require `has_org_role(org_id,[o
 "≥1 org_owner" invariant is enforced in the RPC. **No self-grant** (I-11): the caller cannot grant themselves a
 role tier they do not already have authority over.
 
-### 7.3b `kernel.org_invite` — org-scoped + addressed-invitee (ADDENDUM A1 — schema §1.3b, migration 072)
+### 7.3b `kernel.org_invite` — org-scoped + addressed-invitee (ADDENDUM A1 — schema §1.3b, migration 077)
 Write RPCs: `invite_org_member` (require `has_org_role(org_id,[org_owner,org_admin])`; `org_admin` cannot
 invite at `org_owner`; **no self-invite to a higher tier**, I-11), `accept_org_invite` (only the addressed
 invitee), invite-revoke (inviter-tier or platform). Mirrors `org_member`'s posture; the invite is the
@@ -1148,7 +1148,7 @@ dwell); RLS's job is only that the read is owner-scoped and cause-code-free.
 
 ### 14.3 Door-freeze signal (#3) — **ADDENDUM A2/A3 CLOSED**
 Transfer/Sell must disable once the offline door manifest opens (C6/C43, per-open-manifest-ticket scope).
-**Canonical form (RECONCILED — schema §2.3, migration 073):** the stored signal is
+**Canonical form (RECONCILED — schema §2.3, migration 078 — package C, catalog):** the stored signal is
 `catalog.event_session.door_open_at`; the ONLY authorization read is the derived helper
 `kernel.is_transfer_frozen(ticket_atom_id)` — there is **no stored `kernel.tickets.transfer_frozen` column**.
 RLS consequence: `market.create_listing`, `market.create_p2p_transfer`, `kernel.lock_ticket`, and
@@ -1209,7 +1209,7 @@ made a least-privilege choice the schema spec left generic:
    whether `platform_risk` may read `kernel.admin_audit` fully). Flagged: this is a real authorization choice
    the schema spec delegated.
 2. **CLOSED (addenda A2/A3).** Door-freeze canonical form = `catalog.event_session.door_open_at` (schema §2.3,
-   migration 073) + the `kernel.is_transfer_frozen(atom_id)` helper as the ONLY authorization read (§14.3
+   migration 078 — package C, catalog) + the `kernel.is_transfer_frozen(atom_id)` helper as the ONLY authorization read (§14.3
    updated). No stored `transfer_frozen` column; client read and create-RPC recheck target the same helper.
 3. **`org_finance` vs `venue_finance` for settlement close.** Both appear plausible as the `close_settlement`
    authority; §11 lists both. Confirm whether settlement close is an org-level or venue-level finance action

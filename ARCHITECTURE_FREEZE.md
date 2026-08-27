@@ -39,7 +39,7 @@
 5. Supabase automatic production deployment remains **OFF** until the migration-history repair in `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md` is executed and verified with owner authorization.
 6. The frozen money core and live external-rail marketplace (`public.*`) remain protected per `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` §1.
 
-Implementation begins at migration `071` per `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`, on a `phase2/implementation` branch cut from the consolidated baseline, following the execution protocol package-by-package.
+Implementation begins at migration `076` per `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md` (Phase-2 packages are `076`–`091`; `071`–`075` are applied production security migrations, not Phase-2 packages — canonical map in `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`), on a `phase2/implementation` branch cut from the consolidated baseline, following the execution protocol package-by-package.
 
 ## Amendment A-2 (administrative, 2026-08-25)
 

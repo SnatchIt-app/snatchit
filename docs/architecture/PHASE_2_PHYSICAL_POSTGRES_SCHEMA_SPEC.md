@@ -126,8 +126,11 @@ Event/Session → Inventory(batch, then shard ascending shard_no) → Order → 
 Index and PK design below is chosen so each of these `FOR UPDATE` acquisitions hits a single b-tree row.
 
 ### 0.10 Migration baseline (SPEC_FOUNDATION §3)
-Phase 2 migrations begin at **`071_`** and continue the zero-padded version-prefix scheme (071, 072, …),
-NOT Supabase timestamp prefixes. Precondition (stated, not a Phase-2 migration): the phase0 chain
+Phase 2 migrations begin at **`076_`** and continue the zero-padded version-prefix scheme (076, 077, …),
+NOT Supabase timestamp prefixes. Numbers `071`–`075` are **applied production security migrations**
+(DB-1, H-1, SEC-3, SEC-1, SEC-4+D-5; applied 2026-08-27), **not** Phase-2 packages — Phase-2 packages are
+`076`–`091` (canonical map: `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`).
+Precondition (stated, not a Phase-2 migration): the phase0 chain
 (`000_baseline` + 046–070) is merged to the integration branch first. This tree
 (`mobile/profile-rpc-compat`) physically contains only up to ~045; the authoritative chain is on
 `phase0/lockdown`.
@@ -237,7 +240,7 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
   writes RPC-only via `kernel.invite_org_member` / `kernel.accept_org_invite` / a revoke RPC.
 - **Write authority:** those RPCs only (never a client write; never a self-invite to a higher tier, C9/I-11).
 - **Read authority:** org owners/admins + the addressed invitee + platform.
-- **SoT/PROJ:** SoT (the pending-invite fact). **Migration:** Phase B (package `072`, with org/role tables).
+- **SoT/PROJ:** SoT (the pending-invite fact). **Migration:** Phase B (package `077`, with org/role tables).
 
 ### 1.4 `kernel.platform_role`
 - **Purpose:** platform-scope roles (C36), extending the existing `public.admin_users`.
@@ -1437,7 +1440,7 @@ Per the anti-drift contract, conflicts between source docs are surfaced, not sil
 
 ## 11. EXTENSION POINTS (Gate M / Gate L — modeled, NOT built in MVP)
 
-These are documented so they slot in additively; **do not create them in the MVP migrations** (071+ builds
+These are documented so they slot in additively; **do not create them in the MVP migrations** (076–091 build
 only kernel/catalog/venue/market MVP tables above).
 
 ### Gate M (before native resale + instant payout)

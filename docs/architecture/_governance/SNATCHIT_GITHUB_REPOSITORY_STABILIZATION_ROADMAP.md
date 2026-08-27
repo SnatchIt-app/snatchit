@@ -17,7 +17,7 @@ The repository is architecturally ready for Phase 2 (frozen constitutions, ratif
 
 **The good news, verified hard:** a full-history secret scan of all 2,770 blobs found **zero real secrets** — no Stripe secret key, no webhook secret, no service_role JWT anywhere in any branch's history. The only committed credential is the Supabase **anon** key (public by design). No production data dump is tracked on any public branch. The frozen money core is untouched. And the migration-normalization problem has a **provably correct fix** (§4).
 
-**Recommended order:** decide repo visibility (recommendation: take it **private now**, §8) → flip GitHub/Supabase safety settings → merge PR #3 (with corrected description) → hygiene/docs PR → the one-time migration-ledger normalization event → DB test gate → **GO gate** → begin 071.
+**Recommended order:** decide repo visibility (recommendation: take it **private now**, §8) → flip GitHub/Supabase safety settings → merge PR #3 (with corrected description) → hygiene/docs PR → the one-time migration-ledger normalization event → DB test gate → **GO gate** → begin 076.
 
 ---
 
@@ -59,7 +59,7 @@ The repository is architecturally ready for Phase 2 (frozen constitutions, ratif
 | P1-6 | Zero executable DB tests — RLS/grant/guard/RPC boundary fully untested; the 116 vitest tests are pure-TS money-logic mirrors |
 | P1-7 | `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md` §6a is **unexecutable as written**: `supabase migration repair` hard-rejects non-integer versions, so its 11 letter-version commands fail; §7's expected end-state still lists letter versions — must be regenerated post-rename |
 | P1-8 | PR #3's description is false ("Docs-only … no code"): it carries 22 docs **+ 1 workflow + 9 code files** (all verified behavior-neutral, but the description must say so) |
-| P1-9 | `transfers.stripe_transfer_id` has **no unique index** (verified in migrations AND live prod catalog) — the same Stripe transfer id can be recorded on two rows; a money-hygiene gap to close with an additive migration in the 071+ series |
+| P1-9 | `transfers.stripe_transfer_id` has **no unique index** (verified in migrations AND live prod catalog) — the same Stripe transfer id can be recorded on two rows; a money-hygiene gap to close with an additive migration in the 076+ series |
 
 ### P2 — engineering hygiene
 npm audit posture: root = 2 critical + 15 high, all transitive in the Expo/metro toolchain (full clear needs `expo@57` major; several clear via `npm audit fix`); **web = 6 high, `next` is a direct prod dep — fix is the non-major patch `next@16.3.3`** · `security.yml` npm-audit is `|| true` (cannot block) · Supabase CLI `version: latest` in the db job (unpinned) · CodeQL `MissingPushHook` (no push-to-main analysis; Security-tab baseline only via weekly cron, first 2026-08-31) · duplicate/overlapping permissive policies left by 070 (3 SELECT on profiles incl. `USING(true)` legacy, 3 UPDATE on listings, 5 SELECT on transfers) — advisor noise/drift hazard · `payments` has no column-guard trigger (amount/status freely mutable by any service-role path) · repo bloat: 49MB pitch-deck PDF + 62MB screenshots tracked; `.gitignore` intent bypassed by force-adds (`backups/pre_039_schema_snapshot.md`, `docs/brand/snatch-it-deck-upgrade.md`, `.pdf` missed by md-only pattern) · production identifiers (project ref, Stripe acct id, admin UUID, listing/transfer UUIDs) scattered across tracked docs · stale `042` header says "DRAFT — NOT APPLIED" inside the applied chain · `supabase/migrations-pending/043_*.sql` tracked + a second untracked 043 draft in the mobile worktree.
@@ -171,19 +171,19 @@ Preconditions: deploy toggle confirmed OFF · PR #3 merged (so main's CI works) 
 | **#5** | Migration ledger normalization (one-time event) | 11 renames + guard allowlist + CLI pin (`2.75.0`) + regenerated repair runbook + reconciliation-doc update | anything else | owner-supervised window; §4 sequence; **owner sign-off required** |
 | **#5b** | Guard restoration | delete the allowlist | anything else | immediately after #5 verified |
 | **#6** | DB correctness & security gate | Stage A (db lint + drift snapshots) + Stage B pgTAP suite (9 files: RLS smoke, profiles column grants 052/068, anon/authenticated write denials, transfers guard 055/056b/056c, payout idempotency + dispute refusal 056d, one-succeeded-payment uniqueness, admin self-insert denial, webhook lease 064) + CI job | `supabase/migrations/**` (tests live in `supabase/tests/`) | pgTAP green on fresh replay |
-| **#7** | `071_create_kernel_schema` | first Phase-2 package per the execution protocol | everything outside the package | **GO gate passed (§16)** |
-| **#8+** | `072…` | one package per PR (pair only true units, e.g. 083+084 bridge) | — | protocol per package |
+| **#7** | `076_create_phase2_schemas_and_grants` | first Phase-2 package per the execution protocol | everything outside the package | **GO gate passed (§16)** |
+| **#8+** | `077…` | one package per PR (pair only true units, e.g. 088+089 bridge) | — | protocol per package |
 
 Every money/custody-touching PR from #5 onward carries: rollback strategy, verification query, failure behavior, owner approval point (Production Safety rule, §23 of the brief — honored in the templates above).
 
 ## 16. Phase 2 GO / NO-GO Gate
 
-GO to author-and-apply 071 only when ALL are true:
+GO to author-and-apply 076 only when ALL are true:
 1. PR #3 merged (freeze + working CI on main) · 2. Ruleset live with Stage-1 checks required · 3. §4 normalization executed: prod ledger ↔ repo 1:1, `db push --dry-run` zero pending · 4. CI `db` job GREEN on main · 5. Supabase CLI pinned (CI + docs) · 6. Supabase deploy toggle confirmed OFF (screenshot) · 7. Security settings enabled per the visibility decision + one clean CodeQL run (if public) · 8. No unresolved P1 exposure (Class-C removed or repo private; demo creds rotated) · 9. DB test gate (PR #6) green · 10. `phase2/implementation` cut from post-merge main · 11. Owner explicit GO.
 
 ## 17. Phase 2 Implementation Roadmap (post-stabilization)
 
-Unchanged from the ratified plan: packages `071→086` per `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`, executed under `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` (read→plan→invariant analysis→tests-first→smallest package→specialist review→verification→adversarial review→staging→gated production→document→stop). Native feature flags seeded OFF; Gate P before first credential; Gate M before resale; Gate L before international. Add to the 071-series backlog: the `transfers.stripe_transfer_id` unique index (P1-9) and the 070 duplicate-policy cleanup (P2) as additive hygiene migrations.
+Unchanged from the ratified plan: packages `076→091` per `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`, executed under `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` (read→plan→invariant analysis→tests-first→smallest package→specialist review→verification→adversarial review→staging→gated production→document→stop). Native feature flags seeded OFF; Gate P before first credential; Gate M before resale; Gate L before international. Add to the 076-series backlog: the `transfers.stripe_transfer_id` unique index (P1-9) and the 070 duplicate-policy cleanup (P2) as additive hygiene migrations.
 
 ## 18. GitHub Copilot Recommendation
 
@@ -217,7 +217,7 @@ STEP 6  — CLAUDE: PR #5 ledger normalization authored ; OWNER: supervised wind
 STEP 7  — Stage-2 required check: db job required on main
 STEP 8  — CLAUDE: PR #6 DB test gate (pgTAP Stage A+B) → merge → Stage-3 checks phased in
 STEP 9  — GO/NO-GO gate review (§16) ; OWNER: explicit GO
-STEP 10 — cut phase2/implementation ; begin PR #7 = migration 071 under the execution protocol
+STEP 10 — cut phase2/implementation ; begin PR #7 = migration 076 under the execution protocol
 ```
 
 ---

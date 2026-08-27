@@ -15,7 +15,7 @@
 
 The six specs describe one coherent system. Seven cross-spec inconsistencies were found; **three were structural gaps and have been fixed in the schema spec by this review** (R2 `kernel.org_invite`, R3 door-freeze signal, R4 `p2p_transfer.completed`); two were already consistent (R5, R7); one is a documented-alias naming drift now pinned by a canonical registry (R1); one is a clarification that prevents a frozen-table change (R6). The remaining open items are **policy defaults**, not architectural gaps, and are given recommended values below. Every Gate-P decision (C26/C27/C33/C35/C36/C41/C42/D1–D3) is represented consistently across all specs that touch it. The frozen money core and live external marketplace are untouched by every spec.
 
-An engineering team can begin implementation package-by-package (migration `071`→`086`): **the five propagation addenda in §5 are APPLIED and CLOSED** (pre-implementation consolidation session, 2026-08-24) — the migration/RLS/RPC/edge/RN specs all reflect the schema fixes this review made.
+An engineering team can begin implementation package-by-package (migration `076`→`091`): **the five propagation addenda in §5 are APPLIED and CLOSED** (pre-implementation consolidation session, 2026-08-24) — the migration/RLS/RPC/edge/RN specs all reflect the schema fixes this review made.
 
 ---
 
@@ -24,7 +24,7 @@ An engineering team can begin implementation package-by-package (migration `071`
 | Lens | Verdict | One-line |
 |---|---|---|
 | Principal PostgreSQL Engineer | ✅ same system | Schema is the SoT; 44+2 tables; every RPC-only table has exactly one writer set; the C26/C27 proofs hold. Fixed: org_invite, door_open_at, p2p.completed. |
-| Principal Supabase Engineer | ✅ same system | Migration `071–086` creates exactly the schema's tables, additively, flag-gated; text+CHECK enums match; phase0-chain precondition stated. Addenda A1–A5 applied (§5 CLOSED). |
+| Principal Supabase Engineer | ✅ same system | Migration `076–091` creates exactly the schema's tables, additively, flag-gated; text+CHECK enums match; phase0-chain precondition stated. Addenda A1–A5 applied (§5 CLOSED). |
 | Principal Security Engineer | ✅ same system | RLS covers all tables; money/custody = RPC-only-write; C36 disjoint roles are structural; `has_*_role` is the only role test in both RLS and RPC; redacted history read consistent. |
 | Principal Backend Engineer | ✅ same system | Every RPC maps to schema tables + an SSCAS member + lock order; no unnamed cross-aggregate txn; edge functions call RPCs, never bypass. Naming aliases pinned (R1). |
 | Principal React Native Engineer | ✅ same system | Every UI state maps to a backend state after R2/R3/R4 fixes; product-language firewall intact; external marketplace preserved. |
@@ -73,8 +73,8 @@ Chair (Staff Engineer): consolidated verdict **READY**; the §5 addenda are appl
 - Every edge function names the DB-RPC it calls: `primary-checkout`→`create_primary_checkout`; extended webhook→`finalize_primary_order`; `credential-sign`→KMS (+reads `signing_key`); `refund-execute`→`refund_primary_order`/`void_ticket_atom`; `payout-execute`→`close_settlement`/`request_org_payout`. ✅ No edge writes custody/money except via its RPC or by linking `public.payments`. ✅
 
 ### 2.5 Migration ↔ schema (additive, no old-client break, no marketplace regression)
-- Migration `071–086` creates exactly the schema's schemas/tables; every package additive-only=YES, marketplace-change=NO. ✅
-- **Addenda needed (§5):** the three schema fixes this review made (`org_invite`, `door_open_at`, `p2p.completed`) must be reflected in packages `072` (org_invite), `073`/session (door_open_at + `is_transfer_frozen` helper), `083` (p2p enum). Mechanical.
+- Migration `076–091` creates exactly the schema's schemas/tables; every package additive-only=YES, marketplace-change=NO. ✅
+- **Addenda needed (§5):** the three schema fixes this review made (`org_invite`, `door_open_at`, `p2p.completed`) must be reflected in packages `077` (org_invite), `078`/session (door_open_at + `is_transfer_frozen` helper), `088` (p2p enum). Mechanical.
 
 ---
 
@@ -83,7 +83,7 @@ Chair (Staff Engineer): consolidated verdict **READY**; the §5 addenda are appl
 | ID | Inconsistency | Severity | Resolution | Where fixed |
 |----|--------------|----------|-----------|-------------|
 | **R1** | Inventory/order RPC names differ across specs (`reserve_inventory`/`reserve_primary_inventory`, `create_order`/`create_primary_checkout`, `release_hold`/`release_inventory_hold`) | Low (documented alias) | Canonical function-name registry (§2.1); aliases allowed if documented | This doc §2.1 (binding) |
-| **R2** | `kernel.org_invite` used by RPC §2.2/§2.3 but defined in no schema/migration/RLS | **Med (structural gap)** | **Added `kernel.org_invite` table** (invite_id, org_id, invitee_ref/identity, role, status, invited_by, expires_at, command_key) + RLS org-scoped + migration `072` | ✅ schema §1.3b (applied); addendum A1/A2 |
+| **R2** | `kernel.org_invite` used by RPC §2.2/§2.3 but defined in no schema/migration/RLS | **Med (structural gap)** | **Added `kernel.org_invite` table** (invite_id, org_id, invitee_ref/identity, role, status, invited_by, expires_at, command_key) + RLS org-scoped + migration `077` | ✅ schema §1.3b (applied); addendum A1/A2 |
 | **R3** | Door-freeze signal referenced by RLS/RPC/edge/RN but no column in schema; `transfer_frozen` vs `door_open_at` unresolved | **Med (feature-blocking)** | **Canonical = `catalog.event_session.door_open_at` + derived `kernel.is_transfer_frozen(atom_id)` helper**; RPC's assumed `transfer_frozen` column replaced by the helper | ✅ schema §2.3 (applied); addendum A2/A3 |
 | **R4** | `p2p_transfer` states inconsistent — schema lacked `completed`; CDM `requested` vs physical `initiated`; `failed` unhomed | **Med (state mismatch)** | **Added `completed` + `reason_code`**; canonical `initiated→accepted→completed\|declined\|cancelled\|expired`; `requested`≡`initiated`; `failed`→`cancelled`+reason | ✅ schema §4.5 (applied); addendum A5 |
 | **R5** | `market_sale` status naming | — (already consistent) | `terminal_state` + `sale_state` + `paid_pending_since` identical across schema/RPC/RN | none needed |
@@ -112,10 +112,10 @@ door_open_at · is_transfer_frozen · transfer_frozen · reserve_primary_invento
 release_inventory_hold · requested/initiated/completed/failed · reason_code) returns zero stale live
 assumptions and zero SCHEMA-GAP residual.
 
-- **A1 — CLOSED.** `kernel.org_invite` canonical in schema §1.3b; created by migration `072`; RLS matrix §7.3b
+- **A1 — CLOSED.** `kernel.org_invite` canonical in schema §1.3b; created by migration `077`; RLS matrix §7.3b
   added (org-scoped + addressed-invitee, writes RPC-only, no self-escalation); RPC §2.2/§2.3 reference the
   table directly (stale schema-gap language removed; §16.1 marked CLOSED).
-- **A2/A3 — CLOSED.** Canonical door-freeze = `catalog.event_session.door_open_at` (migration `073`) read ONLY
+- **A2/A3 — CLOSED.** Canonical door-freeze = `catalog.event_session.door_open_at` (migration `078`) read ONLY
   via `kernel.is_transfer_frozen(atom_id)`; no stored `transfer_frozen` column anywhere; RLS §14.3/§15.2, RPC
   §12.4/§16.2, Edge §9.6, and RN §12(5) all updated to the one helper; edge never decides freeze independently;
   RN consumes a plain eligibility boolean.
@@ -124,7 +124,7 @@ assumptions and zero SCHEMA-GAP residual.
   propagated into schema write-authority notes, migration flag table, and RLS §15.0; short names remain
   documented physical aliases per the §2.1 registry.
 - **A5 — CLOSED.** `market.p2p_transfer` canonical physical states `initiated → accepted → completed | declined |
-  cancelled | expired` + `reason_code` in schema §4.5, migration `083`, RPC §8, and RN (§4.5, state table,
+  cancelled | expired` + `reason_code` in schema §4.5, migration `088`, RPC §8, and RN (§4.5, state table,
   §12(3)); `requested` ≡ `initiated` (conceptual alias only); `failed` is NOT a state (= `cancelled` + reason).
 
 Additionally closed in the same pass: RN §12 items 2 (pollable `get_market_sale_status`), 6 (`credential-sign`
@@ -145,4 +145,4 @@ cacheable-token contract), and 8 (redacted `get_ticket_history`) — each now po
 
 ## 7. Final
 
-**IMPLEMENTATION SPECIFICATION READY.** Six specs, one system. Three structural inconsistencies fixed in-place (R2/R3/R4); the rest consistent, aliased, or ratified as policy. The five mechanical §5 addenda are APPLIED and CLOSED; begin implementation at migration `071` in the Phase A→K order, native issuance and resale flag-gated OFF until their gates clear. No code, migration, or production change was made by this specification phase.
+**IMPLEMENTATION SPECIFICATION READY.** Six specs, one system. Three structural inconsistencies fixed in-place (R2/R3/R4); the rest consistent, aliased, or ratified as policy. The five mechanical §5 addenda are APPLIED and CLOSED; begin implementation at migration `076` in the Phase A→K order, native issuance and resale flag-gated OFF until their gates clear. No code, migration, or production change was made by this specification phase.

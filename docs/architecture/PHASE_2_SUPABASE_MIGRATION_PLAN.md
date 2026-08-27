@@ -1,52 +1,44 @@
 # Phase 2 — Supabase / Postgres Migration Plan
 
-> ## Numbering ratification — 2026-08-27
+> ## Numbering ratification (consolidated, FINAL) — 2026-08-27
 >
-> **Migration numbering shifted by +1 because 071 was consumed by a
-> pre-implementation production security hotfix. No architectural package
-> changed.**
+> **The 16 MVP packages are numbered `076`–`091`. Phase 2 implementation begins
+> at `076_create_phase2_schemas_and_grants`.**
 >
-> `071_fix_guard_proof_status` closes DB-1 (HIGH): `guard_proof_status()` keyed
-> on the legacy singular `request.jwt.claim.role` GUC, which PostgREST never
-> sets, so it evaluated NULL and fell through — any authenticated seller could
-> self-approve their own ownership proof, and clear the `PROOF_REJECTED` payout
-> hold, both by UPDATE and by INSERT.
+> **`071`–`075` are APPLIED PRODUCTION SECURITY MIGRATIONS, not Phase-2
+> packages.** They consumed the numbers this plan originally reserved:
 >
-> The 16 MVP packages formerly numbered `071`–`086` are now `072`–`087`. This is
-> a numbering change ONLY: package contents, dependencies, ordering
-> relationships, architecture, implementation contracts and rollout gates are
-> untouched. Phase 2 implementation now begins at `072_create_phase2_schemas_and_grants`.
-
-> ## Numbering ratification (second shift) — 2026-08-27
+> | Applied migration | Closes | Applied |
+> |---|---|---|
+> | `071_fix_guard_proof_status` | DB-1 (HIGH) — `guard_proof_status()` keyed on the legacy singular `request.jwt.claim.role` GUC, which PostgREST never sets, so it evaluated NULL and fell through: any authenticated seller could self-approve their own ownership proof and clear the `PROOF_REJECTED` payout hold, by UPDATE **and** by INSERT. | 2026-08-27 |
+> | `072_fix_listing_insert_guards` | H-1 (HIGH) — `public.listings` carried column custody on UPDATE only, so a seller could CREATE a listing already carrying `winner_user_id`, `winning_bid_amount`, `auction_status='ended'`, `bid_count`, `current_bid` and settlement timestamps, and `create-payment-intent` prices a real Stripe checkout from exactly those fields. | 2026-08-27 |
+> | `073_storage_bucket_upload_constraints` | SEC-3 — storage bucket MIME/size constraints. | 2026-08-27 |
+> | `074_privilege_cleanup` | SEC-1 + residual EXECUTE cleanup. | 2026-08-27 |
+> | `075_replay_parity_storage_policies_and_cron` | SEC-4 + D-5 — replay parity for storage policies and cron. | 2026-08-27 |
 >
-> **Migration numbering shifted by a further +1 because `072` was consumed by a
-> second pre-implementation security hotfix. No architectural package changed.**
+> **Numbering history of the Phase-2 packages** (contents, dependencies,
+> ordering relationships, architecture, implementation contracts and rollout
+> gates were never touched by any of these shifts; no package was merged, split,
+> added or removed):
 >
-> `072_fix_listing_insert_guards` closes H-1 (HIGH): `public.listings` carried
-> column custody on UPDATE only. `guard_listing_state_columns()` and
-> `guard_listing_identity_columns()` are BEFORE UPDATE triggers, `authenticated`
-> holds table-wide INSERT, no column of the table has a column-level ACL, and the
-> INSERT policy constrains only *who* may create a listing. A seller could
-> therefore CREATE a listing already carrying `winner_user_id` (an arbitrary
-> victim), `winning_bid_amount`, `auction_status='ended'`, `bid_count`,
-> `current_bid` and the settlement timestamps — and `create-payment-intent`
-> prices a real Stripe checkout from exactly those fields.
+> | Shift | Cause | Package range |
+> |---|---|---|
+> | original ratified plan | — | `071`–`086` |
+> | +1 (2026-08-27) | `071` consumed by DB-1 | `072`–`087` |
+> | +1 (2026-08-27) | `072` consumed by H-1 | `073`–`088` |
+> | **+3 → FINAL (2026-08-27, owner-ratified)** | `073`/`074`/`075` consumed by SEC-3 / SEC-1 / SEC-4+D-5 | **`076`–`091`** |
 >
-> The 16 MVP packages numbered `072`–`087` by the first shift are now
-> `073`–`088`. **Numbering ONLY.** Package contents, dependencies, ordering
-> relationships, architecture, implementation contracts and rollout gates are
-> untouched, and no package was merged, split, added or removed. Phase 2
-> implementation now begins at `073_create_phase2_schemas_and_grants`.
+> Net effect versus the original ratified plan: **+5**. This consolidation pass
+> also **repaired** the internal inconsistencies the two earlier mechanical
+> shifts explicitly left behind (§3 row 1 reading `071 | A`, §3 row 2's
+> dependency column, §1 mapping two packages onto one version, the §5 section
+> title, and the off-by-one rollback filenames). Every package number in this
+> document was re-derived from **package identity**, not from arithmetic on the
+> previous token.
 >
-> Applied as a strict mechanical `+1` to every in-range version token in this
-> document (prose, §1 package map, the §2 mermaid node ids **and** labels, the §3
-> rollout table including its dependency column, the §5 package headings, and the
-> rollback filenames). Pre-existing internal inconsistencies left over from the
-> first shift were **preserved, not repaired** — this pass is numbering-only:
-> §3 row 1 still reads `071 | A`, §3 row 2's dependency column still reads `071`,
-> §1 still maps two packages onto one version, and the §5 section title still
-> opens at `071`. Those are stale from the 2026-08-27 first shift and need their
-> own reviewed correction; do not read this note as having fixed them.
+> **Anti-collision reference:** `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`
+> is the canonical machine-readable new↔old package map. Consult it before
+> quoting any Phase-2 migration number.
 
 
 **Status:** BUILD-READY MIGRATION SPECIFICATION. **Design-only — NO SQL, NO migration files, no code.**
@@ -77,7 +69,8 @@ present as the applied baseline**. Specifically:
 - **This working tree (`mobile/profile-rpc-compat`) physically contains only migrations up to `045`** — it is
   missing `000_baseline` and `046–070`. **You cannot author or replay Phase-2 migrations against this tree as-is.**
   Merge/rebase the phase0 chain into the integration branch first, verify the fresh-bootstrap replays `000→070`
-  cleanly (the Gate-2 test), and only then add `073_`.
+  cleanly (the Gate-2 test), and only then add `076_` (the applied security migrations `071`–`075` sit between
+  them and must replay too).
 - Merging the phase0 baseline is a **prerequisite, not a Phase-2 migration** — it is not numbered in this plan.
 - **History reconciliation is also a precondition:** production `schema_migrations` records **timestamp**
   versions for `040–068` while repo files use `NNN_`. Run `supabase migration repair --status applied` to
@@ -87,19 +80,24 @@ present as the applied baseline**. Specifically:
   via auto-deploy.
 
 ### 0.2 Numbering — continue the zero-padded version-prefix scheme (NOT timestamps)
-- True applied max across the phase0 chain = **070**. **Phase-2 migrations begin at `073_` and continue the
-  zero-padded `NNN_` version-prefix scheme** (consistent with 066–070), NOT Supabase `YYYYMMDDHHMMSS`
+- True applied max across the phase0 chain = **070**. Five **production security migrations** were then
+  applied on top of it on 2026-08-27 — `071` (DB-1), `072` (H-1), `073` (SEC-3 storage bucket upload
+  constraints), `074` (SEC-1 privilege cleanup), `075` (SEC-4 + D-5 replay parity / storage policies / cron)
+  — so the **true applied max is now `075`**. **Phase-2 migrations begin at `076_` and continue the
+  zero-padded `NNN_` version-prefix scheme** (consistent with 066–075), NOT Supabase `YYYYMMDDHHMMSS`
   timestamp prefixes.
 - **The version-prefix-vs-timestamp trap (surface explicitly):**
   1. Supabase CLI / `migrations-guard` order migrations **lexicographically by the version string**.
-     `"073"` … `"099"` … `"100"` all sort **before** the existing timestamped files (`"20260714190445"` …)
+     `"076"` … `"099"` … `"100"` all sort **before** the existing timestamped files (`"20260714190445"` …)
      because `'0'` < `'1'` < `'2'`. That is harmless here — the four timestamped files are unrelated
      `public` website-form tables with **zero dependency** on any Phase-2 object — but the author must not
-     assume the timestamped files run before `073+`. They run after. No Phase-2 object may depend on them.
+     assume the timestamped files run before `076+`. They run after. No Phase-2 object may depend on them.
   2. Do **not** switch Phase-2 to timestamp prefixes "to be safe." Mixing schemes is exactly what made
      Supabase auto-deploy unsafe (Standards §5/§6). Stay on `NNN_`, three-digit, zero-padded, strictly
-     monotonic after `070` (the `migrations-guard` job enforces monotonic + append-only ordering).
-  3. Never edit/rename/renumber an applied `071+` migration (071 is now the DB-1 security hotfix) — fix forward with a new number (Standards §5).
+     monotonic after `075` (the `migrations-guard` job enforces monotonic + append-only ordering).
+  3. Never edit/rename/renumber an applied migration. `071`–`075` are applied production security
+     migrations (DB-1, H-1, SEC-3, SEC-1, SEC-4+D-5) and are **immovable** — fix forward with a new number
+     (Standards §5). Phase-2 package numbers start above them, at `076`.
 
 ### 0.3 DECISION 1 — enum wire-form: **text + CHECK constraint** (native Postgres `ENUM` rejected)
 The schema spec (§12) left the enum wire-form to this plan. **Decision: every enum-like column is
@@ -141,9 +139,9 @@ disposition as CONFLICTS #7 neighborhood duplication.)
   (relax the `venue.scan` partial unique) — both named future changes, neither in MVP.
 
 ### 0.5 Global properties asserted by EVERY package (stated once; referenced per-package)
-- **Additive-only: YES** for all MVP packages (073–088). No `public.*` semantic change; no destructive edit.
+- **Additive-only: YES** for all MVP packages (076–091). No `public.*` semantic change; no destructive edit.
 - **Marketplace behavior change: NO** for all packages — the external-rail marketplace and frozen money core
-  keep running untouched throughout (roadmap operating rule #1). The market bridge (085) is a read-only
+  keep running untouched throughout (roadmap operating rule #1). The market bridge (089) is a read-only
   UNION view; it adds native rows to *discovery* only when the native-resale flag is ON (default OFF).
 - **CI fresh-bootstrap (Gate-2) reproducibility:** every migration is **defensively idempotent**
   (`create schema/table/index if not exists`, `create or replace function`, `add column if not exists`,
@@ -180,28 +178,28 @@ disposition as CONFLICTS #7 neighborhood duplication.)
 
 ---
 
-## 1. Phase → package map (073–088)
+## 1. Phase → package map (076–091)
 
 | Phase (mandated) | Package(s) | Creates |
 |---|---|---|
-| **A** schema skeleton | `073` | 4 schemas + GRANT boundary + shared helper functions/triggers |
-| **B** organizations + permissions | `073` | `kernel.identity_ext`, `organization`, `org_member`, `platform_role`, `admin_audit` + org/platform role predicates |
-| **C** catalog | `074` | `catalog.venue`, `event`, `event_session`, `platform_config` (+ feature-flag seeds), `resale_policy` |
-| **D** ticket kernel | `075` | `kernel.tickets` (atom), `kernel.ticket_ownership_log` (custody ledger, C26) |
-| **E** inventory | `076`, `077` | `076`: `venue.staff_role` + venue/event role predicates · `077`: `ticket_type`, `inventory_batch`, `inventory_batch_shard`, `inventory_movement`, `inventory_hold` |
-| **F** orders | `078` | `venue.order`, `venue.order_item` |
-| **G** credential infrastructure | `079`, `080` | `079`: `kernel.signing_key` (key-ref, NO secret) · `080`: **adopt** — `kernel.tickets` late-binding FKs → `ticket_type` + `signing_key` |
-| *(F/I bridge)* kernel money-native | `081` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` |
-| **H** scan infrastructure | `082` | `venue.door_pin`, `scan_device`, `scan` (C41 hedge), `comp_allocation`, `guest_list`, `guest_entry` |
-| **I** settlement | `083` | `venue.settlement`, `venue.settlement_line` |
-| **J** native marketplace bridge | `084`, `085` | `084`: `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` · `085`: `market.listing_unified` VIEW + **adopt** `payment_native.sale_id` FK |
-| *(2D)* promoter engine | `086` | `venue.promoter`, `promoter_link`, `attribution` (roadmap Phase 2D; modeled now, activated in the promoter phase) |
-| **K** money-ledger extensions | `087` (stub only) + **documented-only** | `087`: `kernel.reserve` **stub** (empty shape, no writers). Full Gate-M double-entry ledger (`ledger_entry`/`clawback`/`receivable`), `market.bid`, and Gate-L `social`/`analytics`/`notify`/`adapter`/multi-currency are **documented extension points, NOT scheduled** (see §5). |
+| **A** schema skeleton | `076` | 4 schemas + GRANT boundary + shared helper functions/triggers |
+| **B** organizations + permissions | `077` | `kernel.identity_ext`, `organization`, `org_member`, `platform_role`, `admin_audit` + org/platform role predicates |
+| **C** catalog | `078` | `catalog.venue`, `event`, `event_session`, `platform_config` (+ feature-flag seeds), `resale_policy` |
+| **D** ticket kernel | `079` | `kernel.tickets` (atom), `kernel.ticket_ownership_log` (custody ledger, C26) |
+| **E** inventory | `080`, `081` | `080`: `venue.staff_role` + venue/event role predicates · `081`: `ticket_type`, `inventory_batch`, `inventory_batch_shard`, `inventory_movement`, `inventory_hold` |
+| **F** orders | `082` | `venue.order`, `venue.order_item` |
+| **G** credential infrastructure | `083`, `084` | `083`: `kernel.signing_key` (key-ref, NO secret) · `084`: **adopt** — `kernel.tickets` late-binding FKs → `ticket_type` + `signing_key` |
+| *(F/I bridge)* kernel money-native | `085` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` |
+| **H** scan infrastructure | `086` | `venue.door_pin`, `scan_device`, `scan` (C41 hedge), `comp_allocation`, `guest_list`, `guest_entry` |
+| **I** settlement | `087` | `venue.settlement`, `venue.settlement_line` |
+| **J** native marketplace bridge | `088`, `089` | `088`: `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` · `089`: `market.listing_unified` VIEW + **adopt** `payment_native.sale_id` FK |
+| *(2D)* promoter engine | `090` | `venue.promoter`, `promoter_link`, `attribution` (roadmap Phase 2D; modeled now, activated in the promoter phase) |
+| **K** money-ledger extensions | `091` (stub only) + **documented-only** | `091`: `kernel.reserve` **stub** (empty shape, no writers). Full Gate-M double-entry ledger (`ledger_entry`/`clawback`/`receivable`), `market.bid`, and Gate-L `social`/`analytics`/`notify`/`adapter`/multi-currency are **documented extension points, NOT scheduled** (see §5). |
 
-**Flag-gated OFF in production (§4):** `074` seeds `feature.native_issuance_enabled=false` and
+**Flag-gated OFF in production (§4):** `078` seeds `feature.native_issuance_enabled=false` and
 `feature.native_resale_enabled=false` (and `feature.native_scanning_enabled=false`). The **issuance path**
-(075/078/081 issue) stays inert until the **15.A gate** clears (end of Phase 2A); the **native resale path**
-(084/085) and **native scanning** (082) stay inert until their gates clear (2B door gate; Gate-M reserve +
+(079/082/085 issue) stays inert until the **15.A gate** clears (end of Phase 2A); the **native resale path**
+(088/089) and **native scanning** (086) stay inert until their gates clear (2B door gate; Gate-M reserve +
 2C for resale). Tables exist and replay in CI; **no production traffic flows through them until the flag
 flips**, and the flip is a separate, audited `catalog.set_platform_config` operation — not a migration.
 
@@ -211,52 +209,52 @@ flips**, and the flip is a separate, audited `catalog.set_platform_config` opera
 
 ```mermaid
 graph TD
-    P0["PRECONDITION: phase0 chain 000 + 046–070 merged & reconciled (migration repair)"]:::pre
+    P0["PRECONDITION: phase0 chain 000 + 046–070 merged & reconciled (migration repair) + applied security migrations 071–075"]:::pre
 
-    A073["073 A · schemas + GRANTs + helpers"]
-    B074["074 B · kernel identity/orgs/roles + admin_audit"]
-    C075["075 C · catalog + feature-flag seeds"]
-    D076["076 D · kernel.tickets + ownership_log"]
-    E077["077 E · venue.staff_role + venue/event role predicates"]
-    E078["078 E · venue inventory (batch/shard/movement/hold + ticket_type)"]
-    F079["079 F · venue.order + order_item"]
-    G080["080 G · kernel.signing_key (key-ref)"]
-    G081["081 G · ADOPT: kernel.tickets FKs → ticket_type + signing_key"]
-    M082["082 · kernel money-native (payment_native/refund/payout)"]
-    H083["083 H · venue door + scan (+ comp/guest)"]
-    I084["084 I · venue settlement + settlement_line"]
-    J085["085 J · market native rail (listing/auction/offer/market_sale/p2p)"]
-    J086["086 J · market.listing_unified VIEW + ADOPT payment_native.sale_id FK"]
-    D087["087 2D · promoter engine"]
-    K088["088 K · kernel.reserve STUB (EXT boundary)"]
+    A076["076 A · schemas + GRANTs + helpers"]
+    B077["077 B · kernel identity/orgs/roles + admin_audit"]
+    C078["078 C · catalog + feature-flag seeds"]
+    D079["079 D · kernel.tickets + ownership_log"]
+    E080["080 E · venue.staff_role + venue/event role predicates"]
+    E081["081 E · venue inventory (batch/shard/movement/hold + ticket_type)"]
+    F082["082 F · venue.order + order_item"]
+    G083["083 G · kernel.signing_key (key-ref)"]
+    G084["084 G · ADOPT: kernel.tickets FKs → ticket_type + signing_key"]
+    M085["085 · kernel money-native (payment_native/refund/payout)"]
+    H086["086 H · venue door + scan (+ comp/guest)"]
+    I087["087 I · venue settlement + settlement_line"]
+    J088["088 J · market native rail (listing/auction/offer/market_sale/p2p)"]
+    J089["089 J · market.listing_unified VIEW + ADOPT payment_native.sale_id FK"]
+    D090["090 2D · promoter engine"]
+    K091["091 K · kernel.reserve STUB (EXT boundary)"]
 
-    P0 --> A073 --> B074 --> C075
-    B074 --> D076
-    C075 --> D076
-    C075 --> E077
-    B074 --> E077
-    C075 --> E078
-    E077 --> E078
-    E078 --> F079
-    C075 --> G080
-    D076 --> G081
-    E078 --> G081
-    G080 --> G081
-    F079 --> M082
-    B074 --> M082
-    D076 --> H083
-    E078 --> H083
-    E077 --> H083
-    B074 --> I084
-    E078 --> I084
-    M082 --> I084
-    D076 --> J085
-    C075 --> J085
-    E078 --> J085
-    M082 --> J086
-    J085 --> J086
-    F079 --> D087
-    B074 --> K088
+    P0 --> A076 --> B077 --> C078
+    B077 --> D079
+    C078 --> D079
+    C078 --> E080
+    B077 --> E080
+    C078 --> E081
+    E080 --> E081
+    E081 --> F082
+    C078 --> G083
+    D079 --> G084
+    E081 --> G084
+    G083 --> G084
+    F082 --> M085
+    B077 --> M085
+    D079 --> H086
+    E081 --> H086
+    E080 --> H086
+    B077 --> I087
+    E081 --> I087
+    M085 --> I087
+    D079 --> J088
+    C078 --> J088
+    E081 --> J088
+    M085 --> J089
+    J088 --> J089
+    F082 --> D090
+    B077 --> K091
     classDef pre fill:#fee,stroke:#c00,stroke-width:2px;
 ```
 
@@ -272,22 +270,22 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 
 | Seq | Pkg | Phase | Depends on | Additive | Mkt change | Lock risk | Backfill | Runtime | Flag on-ramp |
 |----|-----|-------|-----------|:---:|:---:|---|---|---|---|
-| 1 | 071 | A | precond | Y | N | none (schema/grant) | none | s | — |
-| 2 | 073 | B | 071 | Y | N | new-table only | lazy `identity_ext` | s | — |
-| 3 | 074 | C | 073 | Y | N | new-table only | seeds config+flags | s | seeds all flags **OFF** |
-| 4 | 075 | D | 073,074 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 5 | 076 | E | 073,074 | Y | N | new-table only | none | s | — |
-| 6 | 077 | E | 074,076 | Y | N | new-table only | none | s | — |
-| 7 | 078 | F | 077 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 8 | 079 | G | 074 | Y | N | new-table only | none | s | — |
-| 9 | 080 | G(adopt) | 075,077,079 | Y | N | ADD CONSTRAINT NOT VALID+VALIDATE (empty) | none | s | — |
-| 10 | 081 | F/I | 073,078 | Y | N | new-table only | none | s | — |
-| 11 | 082 | H | 075,076,077 | Y | N | new-table only | none | s | scanning gated (2B door gate) |
-| 12 | 083 | I | 073,077,081 | Y | N | new-table only | none | s | — |
-| 13 | 084 | J | 074,075,077 | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
-| 14 | 085 | J | 081,084 | Y | N | VIEW create + ADD CONSTRAINT (empty) | none | s | resale gated; VIEW inert until flag |
-| 15 | 086 | 2D | 078 | Y | N | new-table only | none | s | promoter phase |
-| 16 | 087 | K | 073 | Y | N | new-table only | none | s | **stub — no writers wired** |
+| 1 | 076 | A | precond | Y | N | none (schema/grant) | none | s | — |
+| 2 | 077 | B | 076 | Y | N | new-table only | lazy `identity_ext` | s | — |
+| 3 | 078 | C | 077 | Y | N | new-table only | seeds config+flags | s | seeds all flags **OFF** |
+| 4 | 079 | D | 077,078 | Y | N | new-table only | none | s | issuance gated by 15.A |
+| 5 | 080 | E | 077,078 | Y | N | new-table only | none | s | — |
+| 6 | 081 | E | 078,080 | Y | N | new-table only | none | s | — |
+| 7 | 082 | F | 081 | Y | N | new-table only | none | s | issuance gated by 15.A |
+| 8 | 083 | G | 078 | Y | N | new-table only | none | s | — |
+| 9 | 084 | G(adopt) | 079,081,083 | Y | N | ADD CONSTRAINT NOT VALID+VALIDATE (empty) | none | s | — |
+| 10 | 085 | F/I | 077,082 | Y | N | new-table only | none | s | — |
+| 11 | 086 | H | 079,080,081 | Y | N | new-table only | none | s | scanning gated (2B door gate) |
+| 12 | 087 | I | 077,081,085 | Y | N | new-table only | none | s | — |
+| 13 | 088 | J | 078,079,081 | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
+| 14 | 089 | J | 085,088 | Y | N | VIEW create + ADD CONSTRAINT (empty) | none | s | resale gated; VIEW inert until flag |
+| 15 | 090 | 2D | 082 | Y | N | new-table only | none | s | promoter phase |
+| 16 | 091 | K | 077 | Y | N | new-table only | none | s | **stub — no writers wired** |
 
 **Per-package "does marketplace behavior change?" = NO for all 16.** **Additive-only = YES for all 16.**
 
@@ -295,14 +293,14 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 
 ## 4. Feature-flag gating — exactly where production stays OFF
 
-Flags are **VALUES in `catalog.platform_config`** (A8: config is values, not code), seeded by `074`, read by
+Flags are **VALUES in `catalog.platform_config`** (A8: config is values, not code), seeded by `078`, read by
 the engine RPCs (deliverable #4). The **tables ship inert**; the **RPCs refuse** while the flag is OFF.
 
-| Flag key (seeded false by 074) | Guards | Stays OFF until | Flip mechanism |
+| Flag key (seeded false by 078) | Guards | Stays OFF until | Flip mechanism |
 |---|---|---|---|
-| `feature.native_issuance_enabled` | `kernel.issue_ticket_atoms` (075/078/081 issue path); `venue.reserve_primary_inventory` (canonical name, A4 — alias `reserve_inventory`) real draws; `venue.create_inventory_hold` staff holds | **15.A gate** cleared (C1,C2,C3,C4,C5,C6-model,C9,C10) — end of Phase 2A | audited `catalog.set_platform_config` (dual-control seam, C11) — a runtime op, **never a migration** |
-| `feature.native_scanning_enabled` | `venue.record_scan` (082) | Phase 2B door gate (C6 offline model adversarially tested) | same |
-| `feature.native_resale_enabled` | `market.create_listing`/`transfer_ticket_ownership` via market (084/085); `market.listing_unified` native rows surfaced in discovery | **Gate-M** (reserve/double-entry ledger, §5) **+** Phase 2C conditions (O1/O3/O5) | same |
+| `feature.native_issuance_enabled` | `kernel.issue_ticket_atoms` (079/082/085 issue path); `venue.reserve_primary_inventory` (canonical name, A4 — alias `reserve_inventory`) real draws; `venue.create_inventory_hold` staff holds | **15.A gate** cleared (C1,C2,C3,C4,C5,C6-model,C9,C10) — end of Phase 2A | audited `catalog.set_platform_config` (dual-control seam, C11) — a runtime op, **never a migration** |
+| `feature.native_scanning_enabled` | `venue.record_scan` (086) | Phase 2B door gate (C6 offline model adversarially tested) | same |
+| `feature.native_resale_enabled` | `market.create_listing`/`transfer_ticket_ownership` via market (088/089); `market.listing_unified` native rows surfaced in discovery | **Gate-M** (reserve/double-entry ledger, §5) **+** Phase 2C conditions (O1/O3/O5) | same |
 
 **Why flags, not "don't apply the migration":** applying the table additively (flag OFF) keeps the chain
 monotonic and Gate-2-reproducible and lets staging exercise the full path with the flag ON, while production
@@ -311,7 +309,7 @@ stays safe. Deferring the *migration* instead would fork the chain. The migratio
 
 ---
 
-## 5. Migration packages (071–087) — full specification
+## 5. Migration packages (076–091) — full specification
 
 Each block gives: **name · purpose · objects · dependencies · backwards-compat · lock risk · backfill ·
 runtime · rollout · rollback/recovery · staging verify · production verify · additive? · marketplace change?**
@@ -321,7 +319,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE A — schema skeleton
 
-#### `073_create_phase2_schemas_and_grants`
+#### `076_create_phase2_schemas_and_grants`
 - **Purpose:** stand up the four MVP schemas and the modular-monolith GRANT boundary + shared helper
   objects, additively beside `public` (roadmap Phase 2.0). No product tables yet.
 - **Objects created:**
@@ -342,9 +340,9 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 - **Data backfill:** none.
 - **Expected runtime:** < 1s.
 - **Rollout:** first Phase-2 apply on staging; then gated production apply. No flag.
-- **Rollback (`rollbacks/073_*`):** `DROP SCHEMA ... CASCADE` on the three private schemas + drop helpers.
+- **Rollback (`rollbacks/076_*`):** `DROP SCHEMA ... CASCADE` on the three private schemas + drop helpers.
   Clean (empty). Safe pre-go-live only.
-- **Staging verification:** fresh-bootstrap replay `000→071` green; `\dn` shows 4 schemas; `has_schema_privilege('anon','kernel','USAGE')` = false; `catalog` USAGE = true.
+- **Staging verification:** fresh-bootstrap replay `000→076` green; `\dn` shows 4 schemas; `has_schema_privilege('anon','kernel','USAGE')` = false; `catalog` USAGE = true.
 - **Production verification:** post-apply catalog check: schemas exist; anon/authenticated have no table-level
   default privileges in kernel/venue/market; helper functions owned by `postgres` with pinned `search_path`.
 - **Additive-only:** YES. **Marketplace change:** NO. **Gate-2:** replays clean; creates all its own objects (per §0.5).
@@ -353,7 +351,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE B — organizations + permissions
 
-#### `074_kernel_identity_orgs_and_roles`
+#### `077_kernel_identity_orgs_and_roles`
 - **Purpose:** the tenant + identity-extension + scope-qualified role substrate (C36) and the privileged
   audit backbone, so every later table can express org/platform authz and write audit rows in-txn.
 - **Objects created** (schema spec §1.1–1.4, §1.12):
@@ -371,20 +369,20 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     RLS org-scoped (org_owner/org_admin) + addressed-invitee reads own; writes RPC-only
     (`invite_org_member`/`accept_org_invite`/revoke). Additive, no backfill.
   - **Role predicate helpers (SECURITY DEFINER, 066/067 discipline):** `kernel.has_org_role(org_id, role[])`,
-    `kernel.is_platform(role[])`. (`has_venue_role`/`has_event_role` deferred to `076` — they need
+    `kernel.is_platform(role[])`. (`has_venue_role`/`has_event_role` deferred to `080` — they need
     `venue.staff_role` + catalog.) All read the **live** membership table (never a JWT claim, C9), and
     **never permit a self-grant** (H-2 discipline).
   - RLS: `identity_ext` owner-scoped read; `organization`/`org_member` org-scoped; `platform_role`/`admin_audit`
     audit-only (`is_platform`). Money/authz writes RPC-only. Disjoint CHECK sets make cross-scope role
     confusion structurally impossible (C36).
-- **Dependencies:** `071` (schemas/helpers). References `auth.users`, `public.admin_users` (read).
+- **Dependencies:** `076` (schemas/helpers). References `auth.users`, `public.admin_users` (read).
 - **Backwards compatibility:** additive; `public.admin_users` unchanged (extended, not altered).
 - **Lock risk:** new-table only.
 - **Backfill:** none bulk. `identity_ext` rows are created **lazily on first write** per identity — no backfill
   of existing users.
 - **Runtime:** seconds.
 - **Rollout:** staging → gated prod. No flag (authz substrate is inert until orgs are created).
-- **Rollback (`073_*`):** drop tables (reverse order: admin_audit, org_invite, platform_role, org_member,
+- **Rollback (`077_*`):** drop tables (reverse order: admin_audit, org_invite, platform_role, org_member,
   organization, identity_ext) + helpers. Clean while empty.
 - **Staging verification:** replay green; adversarial RLS — anon/non-member cannot read an org row; a member
   can read own org; `has_org_role`/`is_platform` return correct booleans; a self-grant attempt via the (future)
@@ -397,7 +395,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE C — catalog
 
-#### `075_catalog_reference_data_and_flags`
+#### `078_catalog_reference_data_and_flags`
 - **Purpose:** kernel-owned, world-readable reference data (venues/events/sessions) + versioned config
   (fees/windows/policies) + the **feature-flag seeds** that gate native issuance/scanning/resale OFF.
 - **Objects created** (schema spec §2.1–2.5):
@@ -414,10 +412,10 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - **`kernel.is_transfer_frozen(p_ticket_atom_id)` helper (ADDENDUM A3):** `STABLE` SECURITY DEFINER,
     `search_path` pinned — true iff the atom's session has `door_open_at IS NOT NULL AND now() >= door_open_at`
     (per-open-manifest-ticket scope, C43). The ONLY freeze read for RPC rechecks, the RN eligibility boolean,
-    and the edge layer (which never decides freeze independently). *(Ships here in `074` with the column it
-    reads; the atom-side recheck wiring lands with the kernel engines in `075`+ — the helper tolerates a
-    not-yet-existing atom id by returning false until `075` exists, or equivalently `074` ships the column and
-    `075` ships the helper; implementer picks one, both additive.)* No stored `transfer_frozen` column exists.
+    and the edge layer (which never decides freeze independently). *(Ships here in `078` with the column it
+    reads; the atom-side recheck wiring lands with the kernel engines in `079`+ — the helper tolerates a
+    not-yet-existing atom id by returning false until `079` exists, or equivalently `078` ships the column and
+    `079` ships the helper; implementer picks one, both additive.)* No stored `transfer_frozen` column exists.
   - `catalog.platform_config` (composite PK `(key, version)` — see UNDER-SPECIFIED note; AO-per-version;
     public-read).
   - `catalog.resale_policy` (`policy_id` PK; `mode` CHECK in
@@ -427,13 +425,13 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     fee/window baseline VALUES. Seeds are idempotent (`insert ... on conflict do nothing`) so replay is safe.
   - RLS: all `catalog` tables public-read (approved/announced rows) with draft/pending org-scoped + platform;
     writes RPC-only (`catalog.*` definer functions).
-- **Dependencies:** `073` (org FK).
+- **Dependencies:** `077` (org FK).
 - **Backwards compatibility:** additive; frozen `public.listings` neighborhood set is read/copied, not altered.
 - **Lock risk:** new-table only.
 - **Backfill:** seed flag + config rows only (idempotent).
 - **Runtime:** seconds.
 - **Rollout:** staging → gated prod. **Seeds all native flags OFF** (this is the production-OFF anchor, §4).
-- **Rollback (`074_*`):** drop resale_policy, platform_config, event_session, event, venue. Clean while empty.
+- **Rollback (`078_*`):** drop resale_policy, platform_config, event_session, event, venue. Clean while empty.
 - **Staging verification:** replay green; anon can `SELECT` an approved venue/event but NOT a draft;
   `platform_config` returns the three flags = false; `resale_policy` default mode = `off`; write as anon fails.
 - **Production verification:** tables/CHECKs/RLS; the three feature flags present and **false**; public-read
@@ -444,7 +442,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE D — ticket kernel
 
-#### `076_kernel_ticket_atom_and_ownership_log`
+#### `079_kernel_ticket_atom_and_ownership_log`
 - **Purpose:** the custody core — the ticket atom (SoT) and its append-only ownership ledger with the **fixed
   C26 idempotency**. The single hardest-to-change objects; built correct from the start (roadmap H1).
 - **Objects created** (schema spec §1.5, §1.6):
@@ -454,7 +452,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `credential_version` default 0; `home_region` default `'us-east'`; **nullable** `seat_ref`, `unit_row_id`,
     `external_seat_ref` (C42/C17)). **Columns `ticket_type_id` and `signing_key_id` are present now, but their
     FK constraints are NOT added here** (targets `venue.ticket_type`/`kernel.signing_key` don't exist yet) —
-    added by `080` (adopt). `unit_row_id` FK is EXT (target never built in MVP) — column stays a bare uuid.
+    added by `084` (adopt). `unit_row_id` FK is EXT (target never built in MVP) — column stays a bare uuid.
     Unique `(event_session_id, serial_no)`; `external_seat_ref` unique-per-session-when-not-null.
   - `kernel.ticket_ownership_log` (PK `(ticket_atom_id, sequence)`; all columns per schema spec §1.6 incl.
     `cause` CHECK in the **D3 closed set**, `cause_ref`, `actor_identity`, `command_idempotency_key`,
@@ -468,13 +466,13 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     is the DDL substrate they write to. (If the team prefers to co-locate the engine functions with this
     migration, they are added as `create or replace function` in the same file; either way the flag in §4 keeps
     them inert.)
-- **Dependencies:** `073` (org), `074` (event_session). **Forward FKs to `075`'s own siblings deferred to `080`.**
+- **Dependencies:** `077` (org), `078` (event_session). **Forward FKs to this package's own siblings deferred to `084`.**
 - **Backwards compatibility:** additive.
 - **Lock risk:** new-table only (large index set, but all on an empty table → instant).
 - **Backfill:** none.
 - **Runtime:** seconds.
 - **Rollout:** staging → gated prod. Issuance path stays behind `feature.native_issuance_enabled=false` (§4).
-- **Rollback (`075_*`):** drop ownership_log then tickets. Clean while empty. **Post-go-live: forward-fix only**
+- **Rollback (`079_*`):** drop ownership_log then tickets. Clean while empty. **Post-go-live: forward-fix only**
   (custody ledger is permanent — never dropped once it holds real atoms).
 - **Staging verification:** replay green; **C26 proof rig** (the schema spec §1.6.1 a/b/c/d exercised against
   the real constraints): (a) second insert of `(market_sale, sale_id, atom)` rejected; (b) N `(issue, order_id, atom_k)`
@@ -488,7 +486,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE E — inventory
 
-#### `077_venue_staff_roles_and_predicates`
+#### `080_venue_staff_roles_and_predicates`
 - **Purpose:** venue-scope roles (C36) + the remaining role predicates, so venue inventory/scan/settlement RLS
   can express `has_venue_role`/`has_event_role`.
 - **Objects created** (schema spec §3.9):
@@ -499,16 +497,16 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `kernel.has_event_role(event_id, role[])` (event→venue resolution via catalog). Live-table recheck (C9);
     never self-grant (H-2).
   - RLS: venue-scoped read; grant/revoke RPC-only.
-- **Dependencies:** `073` (predicates live in `kernel`), `074` (catalog.venue/event).
+- **Dependencies:** `077` (predicates live in `kernel`), `078` (catalog.venue/event).
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. No flag.
-- **Rollback (`076_*`):** drop predicates + `venue.staff_role`. Clean while empty.
+- **Rollback (`080_*`):** drop predicates + `venue.staff_role`. Clean while empty.
 - **Staging verification:** replay green; `has_venue_role`/`has_event_role` correct; disjoint CHECK rejects an
   `org_*`/`platform_*` label; non-staff cannot read the row.
 - **Production verification:** table/CHECK/RLS; predicates owned by `postgres`, `search_path` pinned.
 - **Additive-only:** YES. **Marketplace change:** NO. **Gate-2:** per §0.5.
 
-#### `078_venue_inventory`
+#### `081_venue_inventory`
 - **Purpose:** the priced product + the **authoritative capacity counter** (C27) with its sharding and audit
   ledger + holds — the oversell-safe substrate (C4/C5).
 - **Objects created** (schema spec §3.1–3.5):
@@ -529,11 +527,11 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - Indexes per spec §3.2/§3.5 (availability `(event_session_id,ticket_type_id)`; hold-expiry partial;
     per-user `(identity_id,status)`). RLS: `remaining` public-read projection; counter writes
     money-custody-RPC-only; holds owner+venue scoped.
-- **Dependencies:** `074` (event_session), `076` (has_venue_role for RLS). `ticket_type` unblocks `075`'s
-  deferred FK (adopted in `080`).
+- **Dependencies:** `078` (event_session), `080` (has_venue_role for RLS). `ticket_type` unblocks `079`'s
+  deferred FK (adopted in `084`).
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. Real inventory draws gated by `feature.native_issuance_enabled` (§4).
-- **Rollback (`077_*`):** drop hold, movement, shard, batch, ticket_type (reverse order; shard cascades with
+- **Rollback (`081_*`):** drop hold, movement, shard, batch, ticket_type (reverse order; shard cascades with
   batch). Clean while empty.
 - **Staging verification:** replay green; **oversell proof rig** (schema spec §3.3.1): concurrent decrements
   cannot drive `remaining<0` (CHECK + `FOR UPDATE` in the reserve RPC harness); sharded draw + last-unit
@@ -547,7 +545,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE F — orders
 
-#### `079_venue_orders`
+#### `082_venue_orders`
 - **Purpose:** the primary-purchase container that, when paid, issues atoms atomically (SSCAS #1).
 - **Objects created** (schema spec §3.7–3.8):
   - `venue.order` (`order_id` PK; `buyer_id`,`event_session_id`,`org_id` FKs; `status` CHECK in
@@ -557,10 +555,10 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - `venue.order_item` (`id` PK; `order_id`,`ticket_type_id` FKs; `quantity`,`unit_price_minor` snapshot;
     `UNIQUE(order_id, ticket_type_id)`; **IMM-after-issuance** guard trigger keyed on parent order = `paid`).
   - RLS: owner-scoped (buyer) + org/venue-scoped (issuer) + platform; money writes RPC-only.
-- **Dependencies:** `077` (ticket_type), `074`, `073`. References `auth.users`.
+- **Dependencies:** `081` (ticket_type), `078`, `077`. References `auth.users`.
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. Issuance-on-paid gated by `feature.native_issuance_enabled` (§4).
-- **Rollback (`078_*`):** drop order_item then order. Clean while empty.
+- **Rollback (`082_*`):** drop order_item then order. Clean while empty.
 - **Staging verification:** replay green; C16 replay (same buyer+key) rejected; `order_item` UPDATE after the
   order flips to `paid` raises (IMM guard); non-buyer cannot read the order.
 - **Production verification:** tables/CHECKs/uniques/RLS; IMM trigger present.
@@ -570,7 +568,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE G — credential infrastructure
 
-#### `080_kernel_signing_key`
+#### `083_kernel_signing_key`
 - **Purpose:** the DB-side **reference** to the asymmetric signing key — public key + KMS handle only,
   **NO private key material in any row** (C33/C1).
 - **Objects created** (schema spec §1.7):
@@ -584,10 +582,10 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `kms_handle_ref` + writes money-custody-RPC-only / `is_platform`.
   - **Signed tokens are NOT produced by Postgres** — the `credential-sign` Edge Function calls KMS
     (deliverable #5). This package only stores the reference metadata.
-- **Dependencies:** `074` (catalog event/venue). Unblocks `075`'s deferred `signing_key_id` FK (adopted `080`).
+- **Dependencies:** `078` (catalog event/venue). Unblocks `079`'s deferred `signing_key_id` FK (adopted `084`).
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. No flag (inert until a key is provisioned + issuance turns on).
-- **Rollback (`079_*`):** drop `kernel.signing_key`. Clean while empty. Post-go-live: forward-fix only
+- **Rollback (`083_*`):** drop `kernel.signing_key`. Clean while empty. Post-go-live: forward-fix only
   (revoked keys retained so old credentials remain verifiable).
 - **Staging verification:** replay green; the active-per-scope partial unique rejects a second active
   per-event key; a rotation txn (old→rotating, new→active) succeeds; anon can read `public_key` but NOT
@@ -596,9 +594,9 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   confirm no column holds private-key material.
 - **Additive-only:** YES. **Marketplace change:** NO. **Gate-2:** per §0.5.
 
-#### `081_kernel_tickets_late_binding_fks` — **the ADOPT step for Phase D↔E↔G**
-- **Purpose:** now that `venue.ticket_type` (077) and `kernel.signing_key` (079) exist, add the FK constraints
-  that `kernel.tickets` (075) could not carry at birth — closing the forward-reference without reordering the
+#### `084_kernel_tickets_late_binding_fks` — **the ADOPT step for Phase D↔E↔G**
+- **Purpose:** now that `venue.ticket_type` (081) and `kernel.signing_key` (083) exist, add the FK constraints
+  that `kernel.tickets` (079) could not carry at birth — closing the forward-reference without reordering the
   mandated phases (§0.4 adopt).
 - **Objects created:**
   - `ALTER TABLE kernel.tickets ADD CONSTRAINT fk_tickets_ticket_type FOREIGN KEY (ticket_type_id)
@@ -608,14 +606,14 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - Same `NOT VALID`+`VALIDATE` pattern for `fk_tickets_signing_key (signing_key_id) → kernel.signing_key(key_id)`.
   - **`unit_row_id` FK is intentionally NOT added** (target `venue.inventory_unit` is EXT / not built — C42).
     A header note records that enabling seating later adds this FK as another adopt step.
-- **Dependencies:** `075`, `077`, `079`.
+- **Dependencies:** `079`, `081`, `083`.
 - **Backwards compat:** additive constraint; no column/data change.
 - **Lock risk:** `ADD CONSTRAINT ... NOT VALID` takes a brief `ShareRowExclusive` on `kernel.tickets`
   (empty → instant); `VALIDATE CONSTRAINT` takes only a `ShareUpdateExclusive` (non-blocking to reads/writes).
   No lock on `venue.ticket_type`/`kernel.signing_key` beyond a `RowShare` for the FK. Negligible on empty tables.
 - **Backfill:** none. **Runtime:** < 1s.
-- **Rollout:** staging → gated prod, immediately after `079`.
-- **Rollback (`080_*`):** `ALTER TABLE kernel.tickets DROP CONSTRAINT` for both FKs. Fully reversible.
+- **Rollout:** staging → gated prod, immediately after `083`.
+- **Rollback (`084_*`):** `ALTER TABLE kernel.tickets DROP CONSTRAINT` for both FKs. Fully reversible.
 - **Staging verification:** replay green; both FKs present and `validated`; inserting a ticket with a bogus
   `ticket_type_id`/`signing_key_id` is rejected.
 - **Production verification:** `pg_constraint` shows both FKs `convalidated=true`; `unit_row_id` has no FK.
@@ -625,13 +623,13 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### (F/I bridge) kernel money-native
 
-#### `082_kernel_money_native`
+#### `085_kernel_money_native`
 - **Purpose:** the additive money-native kernel tables that **link to** the frozen `public.payments`
   (never re-charge, C8/SPEC_FOUNDATION §2) and extend the service_role-only payout discipline.
 - **Objects created** (schema spec §1.8–1.10):
   - `kernel.payment_native` (`id` PK; `payment_id` **FK→public.payments** unique [one native link per charge];
     `order_id` **FK→venue.order** [set now]; **`sale_id` column present, FK→market.market_sale DEFERRED to
-    085** — target doesn't exist yet; CHECK **XOR(order_id, sale_id)**; `amount_minor>0`; `currency`).
+    089** — target doesn't exist yet; CHECK **XOR(order_id, sale_id)**; `amount_minor>0`; `currency`).
   - `kernel.refund` (`refund_id` PK; `payment_id` FK→public.payments; `reason_code` CHECK in
     `buyer_request/event_cancelled/oversell_correction/dispute/admin_action/auto_compensation`; `status` CHECK
     in `pending/submitted/succeeded/failed`; `idempotency_key` unique).
@@ -642,12 +640,12 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `pending/submitted/paid/failed/reversed`; `idempotency_key` **unique** [mirrors frozen payout
     idempotency]; `source_transaction_ref`).
   - All three: money-custody-RPC-only (deny-all RLS + `REVOKE ALL`); payee/buyer reads own via scoped RPC.
-- **Dependencies:** `078` (order), `073` (org). References `public.payments` (FK — read/reference only, no
+- **Dependencies:** `082` (order), `077` (org). References `public.payments` (FK — read/reference only, no
   lock on the hot table beyond the FK's `RowShare` at write time, which is inert now).
 - **Backwards compat:** additive; `public.payments` unchanged. **Lock:** new-table only. **Backfill:** none.
 - **Runtime:** seconds.
-- **Rollout:** staging → gated prod. `sale_id` FK adopted in `085`.
-- **Rollback (`081_*`):** drop payout, refund, payment_native. Clean while empty. Post-go-live: forward-fix
+- **Rollout:** staging → gated prod. `sale_id` FK adopted in `089`.
+- **Rollback (`085_*`):** drop payout, refund, payment_native. Clean while empty. Post-go-live: forward-fix
   (these are money ledgers).
 - **Staging verification:** replay green; `payment_native` XOR CHECK rejects both-null and both-set;
   `payment_id` unique rejects a duplicate link; `payout`/`refund` idempotency_key uniques reject replays;
@@ -660,7 +658,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE H — scan infrastructure
 
-#### `083_venue_door_and_scan`
+#### `086_venue_door_and_scan`
 - **Purpose:** offline-first door substrate (C6 model) + the append-only admission ledger with the C41
   re-entry hedge, + comp/guest admissions.
 - **Objects created** (schema spec §3.10–3.12, §3.15–3.16):
@@ -678,11 +676,11 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - `venue.guest_list` + `venue.guest_entry` (`guest_entry.status` CHECK in `pending/arrived/no_show`;
     `guest_list_id` FK **ON DELETE CASCADE**).
   - RLS: venue-scoped (door/manager); writes RPC-only (`venue.record_scan` + door_pin path).
-- **Dependencies:** `075` (kernel.tickets), `076` (has_venue_role), `077` (comp draws a batch), `074`.
+- **Dependencies:** `079` (kernel.tickets), `080` (has_venue_role), `081` (comp draws a batch), `078`.
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. Scanning gated by `feature.native_scanning_enabled=false` until the 2B
   door gate (§4).
-- **Rollback (`082_*`):** drop guest_entry, guest_list, comp_allocation, scan, scan_device, door_pin. Clean
+- **Rollback (`086_*`):** drop guest_entry, guest_list, comp_allocation, scan, scan_device, door_pin. Clean
   while empty; scan ledger is forward-fix once it holds real admissions.
 - **Staging verification:** replay green; **the C41 partial unique**: a second admitted `in` for the same
   atom/session is rejected by the unique → recorded as `duplicate` by the RPC (first-in-wins); `direction`/
@@ -695,7 +693,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE I — settlement
 
-#### `084_venue_settlement`
+#### `087_venue_settlement`
 - **Purpose:** per-event/period money rollup → `kernel.payout` (SSCAS #4); **never touches ticket history**.
 - **Objects created** (schema spec §3.13–3.14):
   - `venue.settlement` (`settlement_id` PK; `org_id`/`venue_id`/`event_id` FKs; `status` CHECK in
@@ -703,11 +701,11 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - `venue.settlement_line` (AO; `id` PK; `settlement_id` FK; `cause` CHECK in D3; `cause_ref`; `amount_minor`
     signed; **`is_rounding_bearer`** boolean [C31 — the line that absorbs rounding residual; full double-entry
     balancing is Gate-M]; `UNIQUE(settlement_id, cause, cause_ref)`; `raise_append_only` + `REVOKE UPDATE,DELETE`).
-  - RLS: org-scoped (org finance) + platform; writes RPC-only. Close-engine writes payout via `081`.
-- **Dependencies:** `073` (org), `077` (venue), `081` (payout target). References catalog.
+  - RLS: org-scoped (org finance) + platform; writes RPC-only. Close-engine writes payout via `085`.
+- **Dependencies:** `077` (org), `081` (venue), `085` (payout target). References catalog.
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. No separate flag (activates with issuance/settlement operations).
-- **Rollback (`083_*`):** drop settlement_line then settlement. Clean while empty; forward-fix once used.
+- **Rollback (`087_*`):** drop settlement_line then settlement. Clean while empty; forward-fix once used.
 - **Staging verification:** replay green; `settlement_line` unique per `(settlement, cause, cause_ref)`;
   AO guard; non-org-finance cannot read; a close writes a `kernel.payout` row (harness).
 - **Production verification:** tables/CHECKs/unique/RLS; `is_rounding_bearer` present.
@@ -717,7 +715,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE J — native marketplace bridge
 
-#### `085_market_native_rail`
+#### `088_market_native_rail`
 - **Purpose:** the native resale rail — listings that **lock a ticket atom**, auction/offer price discovery,
   and the consummation fact with the **C26 compensate-XOR-complete terminal state machine**, plus native P2P.
 - **Objects created** (schema spec §4.1–4.5):
@@ -751,13 +749,13 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
   - RLS: public-read for active listings/auctions (discovery), owner-scoped for offers/sales/transfers/seller
     views; money-custody-RPC-only writes. **No `market` object mutates a `public.*` money/custody row** — it
     only references `public.payments` by id (SPEC_FOUNDATION §7).
-- **Dependencies:** `075` (kernel.tickets), `074` (resale_policy), `077` (venue context). References
+- **Dependencies:** `079` (kernel.tickets), `078` (resale_policy), `081` (venue context). References
   `public.payments`, `public.listings`/`public.bids` (read/reuse).
 - **Backwards compat:** additive; frozen external rail untouched. **Lock:** new-table only. **Backfill:** none.
 - **Runtime:** seconds.
 - **Rollout:** staging → gated prod. **Native resale gated by `feature.native_resale_enabled=false`** until
   Gate-M (reserve/ledger) + Phase 2C (§4).
-- **Rollback (`084_*`):** drop p2p_transfer, market_sale, offer, auction, listing_native. Clean while empty;
+- **Rollback (`088_*`):** drop p2p_transfer, market_sale, offer, auction, listing_native. Clean while empty;
   `market_sale` is forward-fix once it holds real sales.
 - **Staging verification:** replay green; the two partial uniques (one active listing / one open p2p per atom)
   enforce single-lock; C16 uniques reject replays; the `market_sale` terminal state machine (harness): a sale
@@ -769,7 +767,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 - **Additive-only:** YES. **Marketplace change:** NO (external rail unchanged; native rows hidden while flag OFF).
 - **Gate-2:** per §0.5.
 
-#### `086_market_bridge_view_and_late_fk` — the ADOPT step for Phase J
+#### `089_market_bridge_view_and_late_fk` — the ADOPT step for Phase J
 - **Purpose:** the read bridge that unifies external + native discovery **without rewriting `public.listings`**
   (SPEC_FOUNDATION §7), and the late-binding FK from `kernel.payment_native` to `market.market_sale`.
 - **Objects created** (schema spec §4.6):
@@ -780,13 +778,13 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     **routes by rail** (native → `kernel.transfer_ticket_ownership`; external → existing path).
   - `ALTER TABLE kernel.payment_native ADD CONSTRAINT fk_payment_native_sale FOREIGN KEY (sale_id)
     REFERENCES market.market_sale(sale_id) ON DELETE RESTRICT` — `NOT VALID` then `VALIDATE` (empty → instant).
-    This closes the `081` deferred FK now that `market.market_sale` exists.
-- **Dependencies:** `084` (market_sale + listing_native), `081` (payment_native).
+    This closes the `085` deferred FK now that `market.market_sale` exists.
+- **Dependencies:** `088` (market_sale + listing_native), `085` (payment_native).
 - **Backwards compat:** additive; the VIEW only `SELECT`s from `public.listings` (**no lock, no mutation** on
   the hot external-rail table). **Lock:** `CREATE VIEW` (metadata) + `ADD CONSTRAINT` on empty payment_native.
 - **Backfill:** none. **Runtime:** < 1s.
 - **Rollout:** staging → gated prod. VIEW is inert for native rows until the resale flag flips.
-- **Rollback (`085_*`):** `DROP VIEW market.listing_unified`; `DROP CONSTRAINT fk_payment_native_sale`.
+- **Rollback (`089_*`):** `DROP VIEW market.listing_unified`; `DROP CONSTRAINT fk_payment_native_sale`.
   Fully reversible (the external rail is untouched, so dropping the view removes only the native union).
 - **Staging verification:** replay green; the view returns external rows unchanged (parity vs querying
   `public.listings` directly) and native rows **only when the flag is ON**; the payment_native→market_sale FK
@@ -801,7 +799,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### (Phase 2D) promoter engine
 
-#### `087_venue_promoter_engine`
+#### `090_venue_promoter_engine`
 - **Purpose:** the commissioned-selling substrate (roadmap Phase 2D). Modeled now for chain completeness;
   commissions flow through `kernel.payout` cause `promoter_commission` (SSCAS #5). Activated in the promoter
   phase, after the 2B milestone.
@@ -813,10 +811,10 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `UNIQUE(order_id)` [one attribution per order]; `raise_append_only`).
   - RLS: promoter reads **own** links/attributions/commission only (CDM §8 — not the back office);
     org-scoped for the org; writes RPC-only.
-- **Dependencies:** `078` (order), `073`, `074`.
+- **Dependencies:** `082` (order), `077`, `078`.
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod (Phase 2D; may be applied with the MVP chain and simply left unused).
-- **Rollback (`086_*`):** drop attribution, promoter_link, promoter. Clean while empty; attribution
+- **Rollback (`090_*`):** drop attribution, promoter_link, promoter. Clean while empty; attribution
   forward-fix once used.
 - **Staging verification:** replay green; `slug` global unique; `attribution` `UNIQUE(order_id)`; AO guard;
   a promoter cannot read another promoter's attributions.
@@ -827,17 +825,17 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE K — money-ledger extensions (mostly documented-only)
 
-#### `088_kernel_reserve_stub` — the ONLY Gate-K object built in MVP (as a stub)
+#### `091_kernel_reserve_stub` — the ONLY Gate-K object built in MVP (as a stub)
 - **Purpose:** create `kernel.reserve` as an **empty-shaped stub** so the extension point exists in the chain
   and RLS/grants are correct from day one, **with no writers, no reserve math, no clawback, no double-entry
   ledger** (schema spec §1.11; C29/C30/C31 = Gate-M).
 - **Objects created:**
   - `kernel.reserve` (`reserve_id` PK; `org_id` FK; `balance_minor` default 0; `currency` default `'USD'`;
     timestamps). Money-custody-RPC-only (deny-all RLS + `REVOKE ALL`). **No RPC writes it in MVP.**
-- **Dependencies:** `073` (org).
+- **Dependencies:** `077` (org).
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. **No writers wired** — remains empty until Gate-M.
-- **Rollback (`087_*`):** drop `kernel.reserve`. Clean (always empty in MVP).
+- **Rollback (`091_*`):** drop `kernel.reserve`. Clean (always empty in MVP).
 - **Staging verification:** replay green; table is deny-all (anon/authenticated cannot read/write); no RPC
   references it.
 - **Production verification:** table present + deny-all + `REVOKE ALL`; empty.
@@ -870,8 +868,9 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
   out-of-band that a later `REVOKE` depended on; RLS policies applied via a side workstream) must not recur:
   **if the engine RPCs / edge-provisioned objects are needed by a later migration's `REVOKE`/`GRANT`, they
   must be created by an earlier migration in the chain, not out-of-band.**
-- **`migrations-guard` (append-only + monotonic):** never edit/rename an applied `071+`; new work = new higher
-  number. Keep three-digit zero-padded prefixes; they stay lexicographically ahead of the timestamped
+- **`migrations-guard` (append-only + monotonic):** never edit/rename an applied migration — that includes the
+  applied security migrations `071`–`075`; new work = new higher number (Phase 2 starts at `076`). Keep
+  three-digit zero-padded prefixes; they stay lexicographically ahead of the timestamped
   website-form files (harmless, §0.2).
 - **Staging-first (Standards §5/§6):** validate each package on the persistent staging branch/project
   (Stripe **TEST** mode only — never the live key; `payments.stripe_livemode` boundary assertion holds) with
@@ -884,7 +883,7 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
 - **Flag flips are runtime ops, not migrations:** turning `feature.native_*` ON is an audited
   `catalog.set_platform_config` call after the corresponding gate clears — **never** bundled into a migration.
 - **No package reopens the money core or changes marketplace behavior** — the two roadmap invariants hold for
-  every one of 071–087.
+  every one of 076–091.
 
 ---
 
@@ -892,7 +891,7 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
 
 - **`catalog.platform_config` PK shape** — this plan uses composite `(key, version)` (schema spec §12's
   primary option). A surrogate `config_id` uuid + `UNIQUE(key, version)` is an equivalent choice; either
-  satisfies versioned config. Author's discretion, documented in the `074` header.
+  satisfies versioned config. Author's discretion, documented in the `078` header.
 - **Engine RPC co-location** — this plan schedules the **table/constraint/RLS/grant DDL** and names where each
   SSCAS engine function is written (deliverable #4). Whether the engine function bodies live in the same
   `0NN_` file as their tables or in dedicated function-migrations is an author choice; either way they are
@@ -902,8 +901,9 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
   anyway as the standing discipline so the same migration text is safe if a table is ever pre-populated.
 - **Precondition ownership** — this plan assumes a human/owner performs the phase0 merge, the `migration
   repair` reconciliation, and provisions persistent staging (Completion Report §12 owner actions) **before**
-  `071` is applied. If the integration branch does not yet contain `000 + 046–070`, **stop** — `071` cannot
-  be authored or replayed against this tree (`mobile/profile-rpc-compat`) as-is.
+  `076` is applied. If the integration branch does not yet contain `000 + 046–070` (plus the applied security
+  migrations `071`–`075`), **stop** — `076` cannot be authored or replayed against this tree
+  (`mobile/profile-rpc-compat`) as-is.
 
 ---
 

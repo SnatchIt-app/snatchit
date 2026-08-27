@@ -171,7 +171,7 @@ A contract is tagged one of:
 - **Preconditions:** `p_role ∈ org enum`; caller tier ≥ granted tier. **Locks:** the org row (`FOR UPDATE` to
   serialize roster changes). **SSCAS:** n/a (org aggregate only). **Idempotency:** `p_command_key`.
 - **Writes:** `kernel.org_invite` (INSERT `pending` — **canonical table, schema §1.3b**; created in migration
-  package `072`; the former pending-marker fallback is superseded — addendum A1 CLOSED);
+  package `077`; the former pending-marker fallback is superseded — addendum A1 CLOSED);
   `kernel.admin_audit` (`org.invite`). **Reads:** `kernel.org_member` (authority).
 - **Result:** `{ status, invite_id }`. **Failure:** `insufficient_privilege`, `precondition_failed` (bad
   tier). **Forbidden callers:** org_member/finance; anyone outside the org.
@@ -863,9 +863,9 @@ never writes `market`, the market never writes custody, so there is exactly one 
 ## 16. RECONCILIATION — contracts not fully closeable from inputs (flagged)
 
 1. **CLOSED (addendum A1).** `kernel.org_invite` is now canonical in the physical schema (§1.3b) and created by
-   migration package `072`; §2.2/§2.3 reference it directly. The pending-marker fallback is superseded.
+   migration package `077`; §2.2/§2.3 reference it directly. The pending-marker fallback is superseded.
 2. **CLOSED (addenda A2/A3).** Door-freeze canonical form is `catalog.event_session.door_open_at` + the
-   `kernel.is_transfer_frozen(atom_id)` helper (schema §2.3, migration `073`); §12.4 updated. No stored
+   `kernel.is_transfer_frozen(atom_id)` helper (schema §2.3, migration `078`); §12.4 updated. No stored
    `transfer_frozen` column exists; client read and create-RPC recheck target the same helper.
 3. **`platform_support` refund ceiling (§11.4).** RLS §7.10 grants support a *capped* `refund_primary_order`;
    the schema names only `admin_refund` for platform. The exact support cap / escalate-to-risk boundary is
