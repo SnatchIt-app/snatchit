@@ -6,7 +6,9 @@
 -- GUC request.jwt.claim.role, which modern PostgREST never sets, so the guard
 -- evaluates NULL and falls through: any authenticated seller can set
 -- listings.proof_status on their own listing — self-approving their ownership
--- proof and clearing the PROOF_REJECTED payout hold.
+-- proof and clearing the PROOF_REJECTED payout hold — AND, because the trigger
+-- is narrowed back to BEFORE UPDATE, can again CREATE a listing pre-stamped
+-- 'approved' with no review at all.
 --
 -- Only run this if 071 itself is causing a production regression, and treat it
 -- as an incident: the window it opens is the original vulnerability.
@@ -36,8 +38,15 @@ $function$;
 
 COMMENT ON FUNCTION public.guard_proof_status() IS NULL;
 
--- No trigger statement is needed: 071 used CREATE OR REPLACE, so
--- trg_guard_proof_status on public.listings was never dropped and still points
--- at the same function OID. Owner and ACL are likewise preserved by REPLACE.
+-- 071 also widened the trigger from BEFORE UPDATE to BEFORE INSERT OR UPDATE,
+-- so the rollback must narrow it back. Restoring the 033 definition without this
+-- would leave an INSERT-firing trigger calling the old UPDATE-only body, where
+-- OLD is NULL on INSERT — a state that never existed and was never tested.
+DROP TRIGGER IF EXISTS trg_guard_proof_status ON public.listings;
+CREATE TRIGGER trg_guard_proof_status
+  BEFORE UPDATE ON public.listings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_proof_status();
+
+-- Owner and ACL are preserved by CREATE OR REPLACE and need no restatement.
 
 COMMIT;

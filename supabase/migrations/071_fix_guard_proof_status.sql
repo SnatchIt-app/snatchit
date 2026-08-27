@@ -9,10 +9,14 @@
 --     IF current_setting('request.jwt.claim.role', true) NOT IN ('service_role')
 --        AND session_user NOT IN ('postgres') THEN RAISE EXCEPTION ...
 --
--- `request.jwt.claim.role` is the LEGACY SINGULAR PostgREST GUC. Modern
--- PostgREST sets `request.jwt.claims` (plural JSON) — confirmed from production
--- pg_stat_statements, where the per-request setter (296,317 calls) writes only
--- the plural form. The singular GUC therefore reads NULL on every REST request,
+-- `request.jwt.claim.role` is the LEGACY SINGULAR PostgREST GUC. PostgREST sets
+-- `request.jwt.claims` (plural JSON) — confirmed from production
+-- pg_stat_statements, where the PostgREST per-request setter (~296k calls) writes
+-- only the plural form. (Precisely: the singular GUC IS still written in this
+-- database, ~6k calls, by the Storage API and realtime.apply_rls(). Neither can
+-- write public.listings, so the conclusion holds — but "PostgREST never sets it"
+-- is the accurate claim, not "nothing sets it".)
+-- The singular GUC therefore reads NULL on every REST request,
 -- so:
 --     NULL NOT IN ('service_role')  ->  NULL
 --     NULL AND TRUE                 ->  NULL
@@ -27,8 +31,13 @@
 --     (_shared/payout-policy.ts: 'rejected' -> PROOF_REJECTED -> HIGH ->
 --     manual_review). A seller rejected for bad ownership proof could set their
 --     own row back to 'approved' and clear that payout hold.
---   * Reproduced on a fresh CI database before this fix: 5 assertions in
---     supabase/tests/040_authenticated_boundaries.sql failed. They pass after it.
+--   * A SECOND path, found by independent review after the first version of this
+--     migration: the trigger was BEFORE UPDATE ONLY, so a seller could simply
+--     CREATE a listing already stamped 'approved'. Closing UPDATE alone would
+--     have left the headline claim false. This migration guards INSERT too.
+--   * Reproduced on a fresh CI database before this fix: 5 UPDATE-path assertions
+--     failed, then 2 more on the INSERT path once they were written. All pass
+--     after it. supabase/tests/040_authenticated_boundaries.sql.
 --
 -- WHY THIS SHAPE
 -- 1. FAIL-CLOSED. The old guard computed a DENY condition and fell through when
@@ -64,9 +73,18 @@
 --    the sibling guards on this table.
 --
 -- SCOPE: this function only. No table, RLS, money, transfer, or payout change.
--- No legitimate writer exists in code — no function in public or cron writes
--- proof_status; review is performed manually as `postgres` via the SQL editor,
--- which lands on ALLOW path 2.
+-- No legitimate writer exists in code: exactly two functions in this database
+-- mention proof_status — this guard, and get_auto_release_candidates(), which
+-- only SELECTs it. No Edge Function, RPC or pg_cron job writes it. Review is
+-- performed manually as `postgres` via the SQL editor, which lands on ALLOW
+-- path 2 (verified live: current_user=postgres, request.jwt.claims IS NULL).
+--
+-- KNOWN FORWARD-COMPAT GAP, recorded deliberately: a future admin-review RPC
+-- written as SECURITY DEFINER owned by postgres and called through PostgREST
+-- would be DENIED — inside it current_user='postgres' (so ALLOW 1 fails) while
+-- the caller's claims are still set (so ALLOW 2 fails). Write that RPC as
+-- SECURITY INVOKER owned by a service role, or use the codebase's existing
+-- transaction-local app.bypass_* idiom (0550/0563). Do not relax ALLOW 2.
 -- =============================================================================
 
 BEGIN;
@@ -83,9 +101,18 @@ DECLARE
   v_claim_role text;
   v_allow      boolean := false;
 BEGIN
-  -- Untouched proof_status: nothing to guard. NULL-safe in both directions, and
-  -- keeps every ordinary listing edit and all 12 definer RPCs unaffected.
-  IF NEW.proof_status IS NOT DISTINCT FROM OLD.proof_status THEN
+  -- UPDATE that leaves proof_status alone: nothing to guard. NULL-safe both
+  -- ways, and keeps every ordinary listing edit and every definer RPC that
+  -- UPDATEs listings unaffected.
+  IF TG_OP = 'UPDATE' AND NEW.proof_status IS NOT DISTINCT FROM OLD.proof_status THEN
+    RETURN NEW;
+  END IF;
+
+  -- INSERT that does not assert a review state. The column DEFAULT is applied
+  -- BEFORE a BEFORE-INSERT trigger fires, so an ordinary client INSERT arrives
+  -- here already carrying 'pending_review' and is allowed. Anything else on
+  -- INSERT is a client claiming a review outcome and must pass an ALLOW path.
+  IF TG_OP = 'INSERT' AND NEW.proof_status IS NOT DISTINCT FROM 'pending_review' THEN
     RETURN NEW;
   END IF;
 
@@ -128,6 +155,18 @@ COMMENT ON FUNCTION public.guard_proof_status() IS
   '(migration/cron/SQL editor). Replaces the migration-033 version, which keyed '
   'on the legacy singular request.jwt.claim.role GUC that modern PostgREST never '
   'sets, making it a no-op for every authenticated client (DB-1).';
+
+-- The trigger was BEFORE UPDATE ONLY, which left the whole INSERT path open: a
+-- seller could simply CREATE a listing already stamped 'approved' and never be
+-- reviewed. authenticated holds table-wide INSERT, pg_attribute.attacl is NULL
+-- for every column, the INSERT policy's WITH CHECK constrains only seller_id /
+-- stripe_onboarding_complete / phone_verified(), and listings_proof_status_check
+-- permits 'approved' — so nothing else stopped it. Found by independent review;
+-- the original UPDATE-only assertions passed while the hole stood open.
+DROP TRIGGER IF EXISTS trg_guard_proof_status ON public.listings;
+CREATE TRIGGER trg_guard_proof_status
+  BEFORE INSERT OR UPDATE ON public.listings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_proof_status();
 
 -- Idempotent restatement of the 067 posture. EXECUTE is irrelevant when a
 -- trigger fires; this only keeps the function self-contained if it is ever
