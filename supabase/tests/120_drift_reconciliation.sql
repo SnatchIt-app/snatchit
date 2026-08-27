@@ -27,7 +27,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(14);
+SELECT plan(15);
 
 -- ---------------------------------------------------------------------------
 -- §1. SEC-1 — public.webhook_retries carries no client DML.
@@ -153,8 +153,7 @@ SELECT is_empty(
       WHERE p.pronamespace = 'public'::regnamespace
         AND p.proname IN ('dispute_resolutions_append_only',
                           'guard_transfer_state_columns',
-                          'reset_transfer_guard_bypass',
-                          'set_ambassador_application_updated_at')
+                          'reset_transfer_guard_bypass')
         AND (has_function_privilege('anon', p.oid, 'EXECUTE')
           OR has_function_privilege('authenticated', p.oid, 'EXECUTE')) $$,
   'trigger functions: no anon/authenticated EXECUTE (073 §5 group A)');
@@ -164,12 +163,34 @@ SELECT is_empty(
       WHERE p.pronamespace = 'public'::regnamespace
         AND p.proname IN ('dispute_resolutions_append_only',
                           'guard_transfer_state_columns',
-                          'reset_transfer_guard_bypass',
-                          'set_ambassador_application_updated_at')
+                          'reset_transfer_guard_bypass')
         AND (p.proacl IS NULL
           OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a
                       WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')) $$,
   'trigger functions: no PUBLIC EXECUTE, and proacl is not defaulted');
+
+-- set_ambassador_application_updated_at() is the fourth function in this group
+-- and still carries PUBLIC EXECUTE on a fresh replay. 073 deliberately does not
+-- revoke it: it is created by a TIMESTAMP-scheme migration
+-- (20260730212326_ambassador_applications_website_form.sql) that the CLI orders
+-- AFTER 073, so a revoke there would apply on production and silently skip on
+-- every rebuild — new drift, in a migration written to remove drift.
+--
+-- What makes leaving it safe is a property, not a grant: all four RETURN
+-- trigger, so PostgreSQL refuses a direct call whoever holds EXECUTE. That is
+-- the entire basis of 067's group-A reasoning and it has never been asserted
+-- anywhere. Pin it here. If one of these is ever redefined to return something
+-- callable, the grant stops being harmless and this fails.
+SELECT is(
+  (SELECT count(*) FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.proname IN ('dispute_resolutions_append_only',
+                        'guard_transfer_state_columns',
+                        'reset_transfer_guard_bypass',
+                        'set_ambassador_application_updated_at')
+      AND p.prorettype = 'trigger'::regtype),
+  4::bigint,
+  'all four group-A functions RETURN trigger — not directly invokable');
 
 SELECT is_empty(
   $$ SELECT p.proname FROM pg_proc p

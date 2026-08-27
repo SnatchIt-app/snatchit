@@ -17,7 +17,8 @@
 --   CHANGES PRODUCTION
 --     §1 SEC-1  revoke anon/authenticated DML on public.webhook_retries
 --     §2 SEC-3  set file_size_limit + allowed_mime_types on all three buckets
---     §5 EXEC   strip PUBLIC/anon EXECUTE from six public functions
+--     §5 EXEC   strip PUBLIC/anon EXECUTE from five public functions (a sixth
+--               is deliberately excluded on ordering grounds — see §5)
 --
 --   NO-OP ON PRODUCTION (fixes the fresh-replay rebuild only)
 --     §3 SEC-4  drop six orphan storage.objects policies that exist only on a
@@ -263,7 +264,7 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- §5. PUBLIC EXECUTE cleanup — six functions 067 missed  [CHANGES PRODUCTION]
 -- ---------------------------------------------------------------------------
--- Not drift: source and production agree. These six public functions still
+-- Not drift: source and production agree. Six public functions still
 -- carry `=X/postgres` (EXECUTE to PUBLIC) plus explicit anon/authenticated
 -- grants, all inherited from the pg_default_acl in §6. Migration 067 swept this
 -- class of function and did not reach them. All six are prosecdef = false.
@@ -276,7 +277,30 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.dispute_resolutions_append_only()      FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.guard_transfer_state_columns()         FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()          FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.set_ambassador_application_updated_at() FROM PUBLIC, anon, authenticated;
+
+-- public.set_ambassador_application_updated_at() is the FOURTH trigger function
+-- in this group and is DELIBERATELY NOT REVOKED HERE. It is not an oversight and
+-- must not be "fixed" by adding a line above.
+--
+-- It is created by 20260730212326_ambassador_applications_website_form.sql — a
+-- TIMESTAMP-scheme migration. The CLI orders by parsed version, so 73 sorts
+-- BEFORE 20260730212326 and that file runs AFTER this one. The function
+-- therefore does not exist yet at this point in a fresh replay: an unguarded
+-- REVOKE here fails the whole chain (observed: run 33094488880, statement 10,
+-- "function public.set_ambassador_application_updated_at() does not exist"),
+-- and a guarded one is worse — it would succeed on PRODUCTION, where the
+-- function already exists, and silently skip on every rebuild, manufacturing
+-- precisely the source/production divergence this migration exists to remove.
+--
+-- Leaving it is safe: like the three above it RETURNS trigger, so PostgreSQL
+-- refuses a direct call regardless of grants. 120_drift_reconciliation.sql pins
+-- that property for all four, which is the premise the whole group-A argument
+-- rests on.
+--
+-- FOLLOW-UP (not blocking): the revoke belongs in the next TIMESTAMP-scheme
+-- migration, which will sort after the ambassador files. Better still, fix it at
+-- source per the SEC-2 standing rule — 20260730212326 creates a function and
+-- never revokes, which is the rule's exact target.
 
 -- Group B — read-only helpers. These two are the ones that needed evidence
 -- before touching, because a reader CAN be invoked by a client over PostgREST
