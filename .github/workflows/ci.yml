@@ -391,6 +391,10 @@ jobs:
           # LOWER this when a pinned finding is fixed; NEVER raise it to make a
           # red build pass. Adding a genuinely new pinned gap is a reviewed
           # decision, not a ratchet bump of convenience.
+          # Still correct across the in-flight sibling branches: B's new
+          # 110_money_authz_matrix.sql adds 17 assertions and NO todo() (F-2/F-3
+          # are recorded as not-implemented rather than re-marked), so the count
+          # stays at 2. Re-check this against the merged suite.
           EXPECT_TODO=2
           if [ "${todo_fail:-0}" -gt "$EXPECT_TODO" ]; then
             echo "::error::${todo_fail} failing-but-TODO assertions, ratchet is $EXPECT_TODO — a failing assertion was masked with todo()."
