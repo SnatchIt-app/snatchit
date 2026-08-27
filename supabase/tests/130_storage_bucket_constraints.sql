@@ -22,9 +22,10 @@
 -- does NOT assert that an upload is rejected, and no assertion here should ever
 -- be described as proving one. Behavioural proof needs an HTTP upload against a
 -- live Storage API, which the pgTAP gate cannot make. The configuration is
--- nonetheless the real control, because the client roles cannot reach
--- storage.objects except through that API (PostgREST exposes public and
--- graphql_public, not storage).
+-- nonetheless the real control, on the INFERENCE — not verified here — that
+-- client roles reach storage.objects only through that API: Supabase's
+-- PostgREST default exposes `public, graphql_public` and not `storage`, and no
+-- SQL surface reports the running db-schemas setting.
 --
 -- The "admissible" predicate used by the positive and negative controls below
 -- is therefore catalog arithmetic — `bytes <= file_size_limit AND mimetype =

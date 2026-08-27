@@ -67,9 +67,17 @@
 -- into storage.objects therefore bypasses both columns entirely — before this
 -- migration AND after it.
 --
--- That is not a hole in practice, because the client roles cannot reach
--- storage.objects except through the Storage API: PostgREST exposes public and
--- graphql_public, not storage. But it does mean supabase/tests/
+-- INFERENCE, not verified here: that is not a hole in practice, because the
+-- client roles reach storage.objects only through the Storage API — Supabase's
+-- PostgREST default exposes `public, graphql_public` and not `storage`, and no
+-- SQL surface reports the running db-schemas setting, so this was NOT confirmed
+-- against this project. If `storage` were ever added to that list, `anon` and
+-- `authenticated` hold table-wide INSERT on storage.objects (relacl arwdDxtm)
+-- and only the 033/053 folder-scoped policies would stand between a client and
+-- a row with any mimetype and any metadata.size it chose. Worth confirming in
+-- the dashboard; it is not something this migration can assert.
+--
+-- Either way it means supabase/tests/
 -- 130_storage_bucket_constraints.sql proves the CONFIGURATION is set and
 -- coherent, NOT that an upload is rejected. The file says so in its own header.
 -- Behavioural proof would require an HTTP upload against a live Storage API,
