@@ -67,6 +67,11 @@ jobs:
           MG_BASE: ${{ github.event.merge_group.base_sha }}
           # Used only to detect a parent-swapped merge checkout (see below).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # AUTODEPLOY-1 acknowledgement (step 0c). Passed through the env rather
+          # than interpolated into the script body: a PR description is
+          # attacker-controlled text and `${{ }}` inside run: is a shell-injection
+          # sink. As an env var it is inert data.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           export LC_ALL=C
@@ -135,6 +140,35 @@ jobs:
           fi
           echo "== Migration files touched by this PR =="
           printf '%s\n' "$changed" | sed 's/^/  - /'
+
+          # --- 0c. AUTODEPLOY-1 deploy-path precondition ----------------------
+          # On this repository, merging to main IS the production apply: the
+          # Supabase GitHub integration runs `db push` against the production
+          # database on every push to main, outside CI and with no approval
+          # gate. That is how migration 071 reached production on 2026-08-27
+          # while every repo document asserted merges do not deploy.
+          #
+          # CI cannot read the Supabase dashboard setting — no Management API or
+          # CLI surface exposes it. So this gate does the only honest thing it
+          # can: it refuses to let a migration-bearing PR go green until a human
+          # has recorded that they checked. It proves an acknowledgement was
+          # made, NOT that auto-deploy is actually off. Do not read a green
+          # check as evidence about the dashboard.
+          #
+          # To pass: put a line in the PR DESCRIPTION (not a comment) reading
+          #   AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD
+          # The workflow triggers on `edited`, so the check re-runs when the
+          # description is updated. See docs/operations/DEPLOYMENT_PATHS.md.
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+            if printf '%s' "${PR_BODY:-}" | grep -qE '^[[:space:]]*AUTODEPLOY-VERIFIED-OFF:[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]*$'; then
+              echo "AUTODEPLOY-1 precondition acknowledged in the PR description:"
+              printf '%s' "${PR_BODY:-}" | grep -E '^[[:space:]]*AUTODEPLOY-VERIFIED-OFF:' | sed 's/^/  /'
+              echo "NOTE: this records a human acknowledgement. It is not proof the setting is off."
+            else
+              echo "::error::This PR changes supabase/migrations/** and merging to main applies migrations to PRODUCTION (AUTODEPLOY-1). Confirm in the Supabase dashboard that production auto-deploy is OFF, then add a line to the PR description: 'AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD'. See docs/operations/DEPLOYMENT_PATHS.md."
+              exit 1
+            fi
+          fi
 
           # --- 1. Immutability ------------------------------------------------
           # Rename detection is disabled so a rename is reported as delete + add and

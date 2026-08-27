@@ -165,7 +165,14 @@ pgTAP is not yet wired into CI. Deliberate: the gate stopped on §9 rather than 
 
 ## 15. Backup status — **INTACT**
 
-`supabase_migrations.schema_migrations_pre_schemeB`: **79 rows**, md5 `4cbff940d09f26f04c142fe449674046`, unchanged. Not dropped. Supabase auto-deploy remains **OFF**.
+`supabase_migrations.schema_migrations_pre_schemeB`: **79 rows**, md5 `4cbff940d09f26f04c142fe449674046`, unchanged. Not dropped. ~~Supabase auto-deploy remains **OFF**.~~
+
+> **CORRECTION (2026-08-27, AUTODEPLOY-1).** The auto-deploy claim was **false**. I asserted it
+> from documentation rather than from evidence — I never checked the setting, and there is no
+> programmatic surface that would have shown it. The Supabase GitHub integration was active and
+> applied migration `071` to production on the merge of PR #14, unprompted. The backup figure above
+> is unaffected and still verified (79 rows, re-confirmed after 071). See
+> `AUTODEPLOY_1_CLOSURE_REPORT.md` and `docs/operations/DEPLOYMENT_PATHS.md`.
 
 ## 16. Unresolved findings
 
@@ -230,7 +237,7 @@ Three options:
 | production ledger 84↔84 | ✅ |
 | `db push --dry-run` up to date | ✅ |
 | backup intact | ✅ 79 rows |
-| Supabase auto-deploy OFF | ✅ |
-| 071 absent | ✅ |
+| Supabase auto-deploy OFF | ❌ **claim was false — see §15 correction (AUTODEPLOY-1)** |
+| 071 absent | ✅ (superseded: 071 applied 2026-08-27) |
 
 **PHASE 2 IMPLEMENTATION: NO-GO**

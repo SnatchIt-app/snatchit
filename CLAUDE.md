@@ -27,6 +27,19 @@ A task is "fixed" / "complete" / "green" / "verified" ONLY with evidence: a CI
 run link or pasted command output from this session. Claude may never assert
 success without one. "Should work" is a plan, not a result.
 
+## Deployment paths (read before any merge — AUTODEPLOY-1)
+**GitHub Actions CI is non-production. The Supabase GitHub integration is a
+separate deployment path and must remain configured so production migrations
+are owner-gated.** Both of these are true at once: CI never touches production,
+**and merging to `main` applies pending `supabase/migrations/**` to the
+production database** via the Supabase integration, outside CI, with no
+approval gate. That is how `071` reached production on 2026-08-27.
+
+Until an owner has visually confirmed in the Supabase dashboard that this is
+off, **no migration-bearing PR may merge to `main`**. Never infer the setting
+from check names, preview behaviour, or timestamps. Canonical detail and the
+required apply sequence: `docs/operations/DEPLOYMENT_PATHS.md`.
+
 ## Stop-and-ask triggers (owner approval required before acting)
 Payments · transfers · refunds · payouts · ticket ownership · migration
 history (`supabase/migrations/` beyond appending) · production data ·
