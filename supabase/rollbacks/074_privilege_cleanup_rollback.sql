@@ -1,0 +1,86 @@
+-- Rollback for migration 074 (privilege cleanup: SEC-1 + the EXECUTE grants 067 missed).
+-- =============================================================================
+-- READ THIS BEFORE RUNNING IT. This script is NOT safe-by-default. It is split
+-- into two parts because they are not equally defensible, and PART 1 IS
+-- COMMENTED OUT ON PURPOSE.
+--
+-- PART 1 (webhook_retries) IS A SECURITY REGRESSION, NOT A NEUTRAL UNDO.
+-- Re-granting INSERT/SELECT/UPDATE/DELETE/MAINTAIN to `anon` and
+-- `authenticated` on public.webhook_retries hands unauthenticated and ordinary
+-- signed-in users direct DML on a money-adjacent audit table — the record of
+-- which Stripe webhook handler RPCs failed, keyed to payments.id and
+-- listings.id. It does not restore a capability any client ever used: no code
+-- path in this repo references the table at all (`git grep webhook_retries`
+-- returns zero hits outside supabase/migrations|rollbacks|ci|tests and docs —
+-- including zero in supabase/functions/), and production
+-- pg_stat_user_tables reports n_tup_ins = n_tup_upd = n_tup_del = 0, so nothing
+-- has ever written a row. Any service-path writer keeps working regardless:
+-- service_role's grants are not touched by 074 and are not touched here.
+-- UNVERIFIED: whether the DEPLOYED stripe-webhook function, which may lead this
+-- repo, writes the table; 069's header asserts it does, and this file does not
+-- repeat that claim because the repo does not support it. It changes nothing
+-- either way — the roles at issue are anon and authenticated.
+-- What Part 1 restores is an accident: the Supabase default-privileges grant
+-- that migration 069 line 22 was written to remove and (per the ACL) never did.
+--
+-- It also re-opens the DRIFT-1 divergence recorded in
+-- supabase/ci/parity_grants.sql: source (069) revokes, production would once
+-- again grant. Running it puts the database back out of step with its own
+-- migration chain.
+--
+-- Today's blast radius is limited by two things that are NOT part of this
+-- script and must be re-checked before anyone leans on them: RLS is enabled on
+-- the table with zero policies, and the table has zero rows. If a policy is ever
+-- added, or rows accumulate, this grant becomes a live read/write hole rather
+-- than a defence-in-depth one.
+--
+-- There is no legitimate operational reason to run Part 1. It exists so the
+-- rollback is HONEST about what a full undo of 074 would mean, not because
+-- undoing it is advisable. If 074 must be reverted, revert Part 2 and leave
+-- Part 1 revoked. Uncomment Part 1 only on an explicit, recorded owner
+-- decision, and re-revoke immediately afterwards.
+--
+-- PART 2 (function EXECUTE) is behaviourally inert in both directions.
+--   * The three trigger functions: EXECUTE is not consulted when a trigger
+--     fires and PostgreSQL refuses a direct call to a trigger-returning
+--     function regardless of grants. Re-granting changes nothing observable; it
+--     only re-opens the Supabase linter 0028/0029 findings and restores the
+--     ambient PUBLIC grant.
+--   * is_blocked_by_me: 074 removed ONLY the PUBLIC grant; anon and
+--     authenticated kept EXECUTE throughout (0230's explicit grant) and are
+--     deliberately not mentioned below. Re-granting PUBLIC restores ambient
+--     EXECUTE for roles such as authenticator, supabase_auth_admin and
+--     dashboard_user. Mild, but it is a widening, not a fix.
+--   * is_winner is absent from this file because it is absent from 074. It was
+--     removed from the migration after CI proved that revoking its PUBLIC grant
+--     breaks anon on a fresh replay (its anon EXECUTE comes from production's
+--     pg_default_acl, which source cannot reproduce). There is nothing to undo.
+--
+-- Neither part touches service_role or postgres. 074 never revoked from them.
+-- Both parts are idempotent.
+-- =============================================================================
+
+-- ── PART 1 — webhook_retries. COMMENTED OUT DELIBERATELY. See above. ─────────
+-- Uncomment ONLY on a recorded owner decision. This re-grants client DML on a
+-- money-adjacent table. `arwdm` is what production held before 074: ALL minus
+-- the TRUNCATE/REFERENCES/TRIGGER that migration 063 removed schema-wide, so
+-- these two statements reproduce the pre-074 ACL exactly rather than over-
+-- granting with a blanket ALL.
+--
+-- GRANT SELECT, INSERT, UPDATE, DELETE, MAINTAIN ON TABLE public.webhook_retries TO anon;
+-- GRANT SELECT, INSERT, UPDATE, DELETE, MAINTAIN ON TABLE public.webhook_retries TO authenticated;
+--
+-- (PUBLIC held nothing on this table before 074 — the pre-074 relacl has no `=`
+-- entry — so there is deliberately no GRANT ... TO PUBLIC here. Adding one
+-- would not be a rollback; it would be a new grant.)
+
+-- ── PART 2 — function EXECUTE. Safe to run. ─────────────────────────────────
+-- Group A: restores the pre-074 posture of the three trigger functions.
+GRANT EXECUTE ON FUNCTION public.dispute_resolutions_append_only() TO anon, authenticated, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.guard_transfer_state_columns()    TO anon, authenticated, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()     TO anon, authenticated, PUBLIC;
+
+-- Group B: PUBLIC only, matching what 074 revoked. anon and authenticated are
+-- intentionally absent — they never lost EXECUTE, and naming them here would
+-- quietly assert that 074 had removed something it did not.
+GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) TO PUBLIC;
