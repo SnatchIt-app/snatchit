@@ -1,0 +1,219 @@
+-- 074_privilege_cleanup.sql
+-- =============================================================================
+-- PRIVILEGE REDUCTION ONLY (SEC-1 + the EXECUTE grants 067 missed). Pre-Phase-2.
+--
+-- Two unrelated-in-cause, identical-in-shape defects. Nothing here creates,
+-- alters or drops a table, function, trigger, policy or column. Every statement
+-- is a REVOKE. There is not one GRANT in this file.
+--
+-- =============================================================================
+-- PART 1 — SEC-1: public.webhook_retries still carries client DML
+-- =============================================================================
+-- Production catalog, read 2026-08-27 (pg_class.relacl):
+--   {postgres=arwdDxtm/postgres,anon=arwdm/postgres,
+--    authenticated=arwdm/postgres,service_role=arwdDxtm/postgres}
+-- i.e. anon and authenticated hold INSERT/SELECT/UPDATE/DELETE/MAINTAIN on a
+-- money-adjacent table (it records failed Stripe webhook handler RPCs for
+-- retry, keyed to payments.id and listings.id).
+--
+-- WHY THE ACL LOOKS LIKE THAT. `arwdm` is not a deliberate grant. It is exactly
+-- Supabase's ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
+-- authenticated MINUS the TRUNCATE/REFERENCES/TRIGGER that migration 063 Part 1
+-- removed from the schema default. webhook_retries was created out-of-band in
+-- the SQL editor (069's header records this) and inherited that default.
+--
+-- WHY 069 DID NOT FIX IT. Migration 069 line 22 already says
+--     revoke all on public.webhook_retries from public, anon, authenticated;
+-- and supabase_migrations.schema_migrations shows version '069' present with
+-- that exact text as statements[3]. Yet the live ACL still carries the grants,
+-- in pristine default-privileges insertion order (postgres, anon, authenticated,
+-- service_role) with no re-grant anywhere in the chain. INFERENCE: the 069 row
+-- was written by the 2026-08-26 Scheme B ledger repair (`supabase migration
+-- repair`), which records a version as applied WITHOUT executing its statements.
+-- The file is correct; it simply never ran against this database.
+--
+-- This migration therefore re-issues 069's revoke as its own ledger entry so it
+-- actually executes. On any database where 069 DID execute (CI, a fresh replay,
+-- any future rebuild) Part 1 is a verbatim no-op. That is the honest description
+-- of its value: it is a production-reconciliation statement, not a new control.
+--
+-- CURRENT EXPOSURE (measured, not assumed): RLS is ENABLED with ZERO policies
+-- (pg_class.relrowsecurity = true, pg_policy count = 0) and the table holds
+-- ZERO rows. A client role that reached it would be denied by RLS anyway. So
+-- this is a defence-in-depth regression, not a live leak — precisely as
+-- supabase/ci/parity_grants.sql already records under DRIFT-1, which names
+-- "running 069's revoke against production" as the fix and defers it as
+-- owner-gated. This migration is that vehicle.
+--
+-- CALL SITES SEARCHED for webhook_retries: app/, components/, hooks/, src/,
+-- web/src/, packages/, supabase/functions/, supabase/migrations/,
+-- supabase/tests/, supabase/ci/. Every hit is either the 069 definition, the
+-- CI parity fixture/expected-grants row (service_role only), the 069 rollback,
+-- or two existing pgTAP assertions that clients CANNOT read it. The only
+-- writer is the stripe-webhook Edge Function under service_role, whose grants
+-- this file does not touch.
+--
+-- MAINTAIN (m) is included in ALL and is removed here too. It permits VACUUM /
+-- ANALYZE / REINDEX / CLUSTER / REFRESH on the table; no client needs it.
+--
+-- =============================================================================
+-- PART 2 — EXECUTE cleanup: five functions 067 did not enumerate
+-- =============================================================================
+-- 067 revoked EXECUTE from anon + authenticated + PUBLIC across 28 functions but
+-- worked from a hand-written list. Five public functions were never on it and
+-- still carry the Postgres default `=X/postgres` (PUBLIC EXECUTE) plus the
+-- Supabase default-privileges grants to anon/authenticated/service_role.
+-- Production proacl for all five, read 2026-08-27:
+--   {=X/postgres,postgres=X/postgres,anon=X/postgres,
+--    authenticated=X/postgres,service_role=X/postgres}
+--
+-- GROUP A — trigger functions (3). RETURNS trigger, prosecdef = false, each
+-- attached to an enabled trigger (pg_trigger.tgenabled = 'O'):
+--   dispute_resolutions_append_only()  -> trg_dispute_resolutions_append_only
+--                                         BEFORE UPDATE OR DELETE ON dispute_resolutions
+--   guard_transfer_state_columns()     -> trg_guard_transfer_state_columns
+--                                         BEFORE UPDATE ON transfers
+--   reset_transfer_guard_bypass()      -> trg_reset_transfer_guard_bypass
+--                                         AFTER INSERT OR UPDATE ON transfers, PER STATEMENT
+-- Treatment: REVOKE from anon, authenticated, PUBLIC. No re-grant.
+-- Regression risk: NONE. PostgreSQL checks EXECUTE on a trigger function at
+-- CREATE TRIGGER time, never when the trigger fires, and it refuses a direct
+-- call to a trigger-returning function regardless of grants. This is the same
+-- Group-A treatment 067 applied to seventeen sibling trigger functions
+-- (including both other listings guards) which have been live since 2026-08-24.
+-- Intended caller: the trigger machinery only. No client, edge or cron path
+-- calls any of the three by name — searched app/, components/, hooks/, src/,
+-- web/src/, packages/, supabase/functions/, supabase/migrations/, and the
+-- production catalog (pg_policies qual/with_check, pg_proc.prosrc, view
+-- definitions, CHECK constraints, column defaults, index expressions): zero
+-- references outside their own definitions and their own CREATE TRIGGER.
+--
+-- GROUP B — read-only client helpers (2). is_blocked_by_me(uuid) and
+-- is_winner(uuid,uuid), both STABLE, SECURITY INVOKER, boolean-returning.
+-- Treatment: REVOKE FROM PUBLIC ONLY. anon and authenticated KEEP EXECUTE.
+--   * 0230 created is_blocked_by_me and explicitly did
+--       GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) TO authenticated, anon;
+--     as a SECURITY INVOKER predicate for feed filtering.
+--   * 063 lines 44-46 name both functions in a documented, deliberate
+--     retention: "Read-only helpers anon legitimately needs while browsing
+--     signed-out (... is_winner, is_blocked_by_me ...) are left alone."
+-- Reversing a documented design decision is a behavioural change and belongs in
+-- its own migration with product sign-off, not in a hygiene cleanup. So this
+-- file removes only the ambient PUBLIC grant and leaves the named client roles
+-- exactly as 0230 and 063 set them.
+--
+-- BE PRECISE ABOUT WHAT PART 2 GROUP B BUYS. Because anon retains EXECUTE, the
+-- anon-reachable PostgREST RPC surface (/rest/v1/rpc/is_winner,
+-- /rest/v1/rpc/is_blocked_by_me) is UNCHANGED by this migration. What changes is
+-- that every OTHER role — authenticator, supabase_auth_admin,
+-- supabase_storage_admin, pgbouncer, dashboard_user, and any role added later —
+-- loses the ambient EXECUTE it held purely by being a member of PUBLIC. That is
+-- least-privilege hygiene and 067's stated model ("Under Postgres defaults every
+-- function is EXECUTE-able by PUBLIC"), not the closing of a live hole.
+--
+-- FOLLOW-UP RECORDED, NOT TAKEN (out of scope, needs a product decision):
+-- neither helper has ANY caller today. Searched for direct calls across app/,
+-- components/, hooks/, src/, web/src/, packages/ and supabase/functions/ — the
+-- complete enumerated set of supabase.rpc() names in this repo is
+-- buyer_dispute_transfer, can_create_listing, cancel_listing,
+-- complete_auction_payment, ensure_transfer_exists, finalize_auction,
+-- get_my_profile, get_profile_trust_stats, mark_listing_sold,
+-- mark_transfer_sent, mark_transfer_viewed, reserve_buy_now,
+-- set_transfer_delivery_info (client) plus the payout/webhook service RPCs
+-- (edge), and neither helper appears. The shipped app implements blocking by
+-- reading public.user_blocks directly under RLS
+-- (src/hooks/useBlockedUserIds.ts, app/settings/blocked-users.tsx,
+-- app/profile/[id].tsx) and win state by reading listings.winner_user_id
+-- directly (app/(tabs)/bids.tsx, src/screens/ListingDetailScreen.tsx). The
+-- production catalog also shows is_blocked_by_me referenced by NO RLS policy,
+-- despite 0230 designing it as one. Whether to revoke anon/authenticated as
+-- well, wire is_blocked_by_me into the listings feed policy as 0230 intended,
+-- or drop both, is a separate change.
+--
+-- =============================================================================
+-- DELIBERATELY EXCLUDED — set_ambassador_application_updated_at()
+-- =============================================================================
+-- It carries the same `=X/postgres` and belongs in this cleanup on the merits.
+-- It is excluded because it CANNOT be revoked from a `074`-prefixed file:
+--   * It is created by 20260730212326_ambassador_applications_website_form.sql.
+--   * Migration versions in this stack are compared as TEXT — the invariant
+--     SCHEME_B_MIGRATION_ORDER_PROOF.md states explicitly and the production
+--     ledger confirms (069, 070, then the four timestamp files). '074' < '2026…'
+--     because '0' (0x30) < '2' (0x32), so this file replays BEFORE the function
+--     exists.
+--   * An unguarded REVOKE there aborts the whole chain on a fresh replay
+--     (previously observed: run 33094488880, statement 10).
+--   * An existence-GUARDED revoke is worse than useless: it would succeed on
+--     production and silently skip on every rebuild, manufacturing brand-new
+--     source/production drift inside a migration whose entire purpose is to
+--     remove drift.
+-- FOLLOW-UP: it needs its own TIMESTAMP-scheme migration with a version strictly
+-- greater than 20260731224653 (the current maximum), doing
+--   revoke execute on function public.set_ambassador_application_updated_at()
+--     from anon, authenticated, public;
+-- That is a one-line file and is deliberately not bundled here.
+--
+-- =============================================================================
+-- COMPATIBILITY / LOCKS / RUNTIME / ROLLBACK / VERIFICATION
+-- =============================================================================
+-- COMPATIBILITY: no behavioural change to any client, edge or cron path.
+--   * webhook_retries: only writer is the stripe-webhook Edge Function under
+--     service_role, untouched. RLS already denied the client roles.
+--   * Group A: EXECUTE is not consulted when a trigger fires.
+--   * Group B: anon and authenticated keep EXECUTE.
+-- IDEMPOTENT: REVOKE on an absent privilege is a no-op, so this file may be
+--   replayed any number of times. It is a no-op on a database where 069 and a
+--   complete 067 already took effect.
+-- LOCKS: ACCESS EXCLUSIVE on public.webhook_retries for the duration of the
+--   REVOKE (a catalog-row update on a zero-row table), plus catalog-row locks on
+--   five pg_proc rows. No table rewrite, no data touched, no index built.
+-- RUNTIME: milliseconds.
+-- NOT VALIDATED AGAINST PRODUCTION: unlike 067, this file was NOT dry-run inside
+--   a rolled-back transaction against the live database. The task authorising it
+--   permitted read-only production access only, and a rolled-back transaction is
+--   still a write attempt. Every claim above comes from SELECTs against the
+--   production catalog. Proving is done by fresh replay in CI.
+-- ROLLBACK: supabase/rollbacks/074_privilege_cleanup_rollback.sql — read its
+--   header before running it; restoring Part 1 is a deliberate security
+--   regression.
+-- TESTS: supabase/tests/130_privilege_cleanup.sql (24 assertions).
+--
+-- VERIFICATION (run after apply; expected values on the right):
+--   select relacl::text from pg_class c join pg_namespace n on n.oid=c.relnamespace
+--    where n.nspname='public' and c.relname='webhook_retries';
+--     -- {postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+--   select has_table_privilege('anon','public.webhook_retries','SELECT');          -- false
+--   select has_table_privilege('authenticated','public.webhook_retries','INSERT'); -- false
+--   select has_table_privilege('service_role','public.webhook_retries','INSERT');  -- true
+--   select p.proname, p.proacl::text from pg_proc p
+--     join pg_namespace n on n.oid=p.pronamespace
+--    where n.nspname='public' and p.proname in
+--      ('dispute_resolutions_append_only','guard_transfer_state_columns',
+--       'reset_transfer_guard_bypass','is_blocked_by_me','is_winner');
+--     -- no '=X/postgres' entry on any row; is_blocked_by_me and is_winner keep
+--     -- anon=X and authenticated=X; the three trigger functions keep neither.
+--   select has_function_privilege('anon','public.is_winner(uuid,uuid)','EXECUTE'); -- true
+--   select has_function_privilege('authenticator',
+--            'public.guard_transfer_state_columns()','EXECUTE');                   -- false
+-- =============================================================================
+
+BEGIN;
+
+-- ── Part 1 — SEC-1 ──────────────────────────────────────────────────────────
+-- Verbatim re-issue of 069 line 22, which the ledger records but the ACL shows
+-- never executed. service_role and postgres are untouched: service_role is the
+-- Edge Function writer, postgres is the owner.
+REVOKE ALL ON TABLE public.webhook_retries FROM PUBLIC, anon, authenticated;
+
+-- ── Part 2 Group A — trigger functions (no re-grant) ────────────────────────
+REVOKE EXECUTE ON FUNCTION public.dispute_resolutions_append_only() FROM anon, authenticated, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guard_transfer_state_columns()    FROM anon, authenticated, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.reset_transfer_guard_bypass()     FROM anon, authenticated, PUBLIC;
+
+-- ── Part 2 Group B — read-only helpers (PUBLIC only; anon/authenticated stay) ─
+-- Do NOT add anon or authenticated here without reversing 063's documented
+-- retention and 0230's explicit grant; see the header.
+REVOKE EXECUTE ON FUNCTION public.is_blocked_by_me(uuid)      FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_winner(uuid, uuid)       FROM PUBLIC;
+
+COMMIT;
