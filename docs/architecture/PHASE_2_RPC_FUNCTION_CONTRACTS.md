@@ -233,10 +233,41 @@ A contract is tagged one of:
   > capability. Every capability requires a named role. **`T-RPC-ROLE-03`:** `is_org_affiliate` does not
   > appear as the sole predicate in any policy or RPC authority check.
 
-### 1.1c `kernel.is_promoter_for_event(p_event_id)` — **NEW RPC** (Phase 2D)
+### 1.1c `kernel.is_promoter_for_event(p_event_id)` — **NEW RPC** (Phase 2D) — **CORRECTED (`AUTHZ-M10`)**
 - **DB-RPC** (predicate helper), `STABLE`, `EXEC: authenticated`.
-- **Purpose:** true iff a live `venue.promoter_link` exists for `(p_event_id, auth.uid())`. **Replaces the
-  deleted `has_venue_role(…,[venue_promoter])` test everywhere.**
+- **Purpose:** true iff the caller is a **live promoter of that event by either route** — link **or code**:
+  ```text
+  EXISTS ( SELECT 1 FROM venue.promoter p
+            WHERE p.identity_id = auth.uid()        -- the ONLY column comparable to an auth uid
+              AND p.status = 'active'
+              AND ( EXISTS (SELECT 1 FROM venue.promoter_link l
+                             WHERE l.promoter_id = p.promoter_id
+                               AND l.event_id = p_event_id AND l.status = 'active')
+                 OR EXISTS (SELECT 1 FROM venue.promoter_code c
+                            JOIN venue.promoter_code_scope s USING (code_id)
+                             WHERE c.promoter_id = p.promoter_id
+                               AND c.status = 'active' AND s.event_id = p_event_id) ) )
+  ```
+  **Replaces the deleted `has_venue_role(…,[venue_promoter])` test everywhere.**
+- **Two defects closed, and both are broken for the population the feature creates.**
+  **(a) There is no column to bind `auth.uid()` to on `promoter_link`.** The old definition — *"a live
+  `venue.promoter_link` exists for `(p_event_id, auth.uid())`"* — is unwritable: identity lives on
+  `venue.promoter` (`identity_id uuid FK→auth.users`, schema §3.17); `promoter_link` carries `promoter_id`, a
+  **`venue.promoter` primary key**. Any implementation that writes `promoter_id = auth.uid()` compares two
+  unrelated uuid spaces and is **false for every row that will ever exist** — the predicate **fails closed**,
+  and every promoter-gated surface is empty for everyone. The resolution is always **identity → promoter →
+  links/codes**, never a direct comparison. **`T-RPC-AUTHZ-10`:** no function body contains
+  `promoter_id = auth.uid()`.
+  **(b) Resolving over links only makes a code-only promoter not a promoter.** The engine issues **codes** as
+  well as links; a code-sourced attribution has `link_id IS NULL` **by design** (RLS §9.17); and a promoter
+  given codes and no link is the ordinary shape for door and print distribution. Under a link-only predicate
+  that promoter is **not a promoter to any gated surface** — the same defect §9.17 already fixed once on the
+  attribution read path, still live on the event path. The code route is part of the predicate, not an
+  enhancement to it. **`T-RPC-AUTHZ-11`:** a promoter with an active code scoped to the event and **no link at
+  all** satisfies `is_promoter_for_event`.
+- **Requires `venue.attribution.promoter_id` and `venue.promoter.status`** — filed as RLS §17 X-13; schema
+  §3.17 lists neither today, so both the old predicate and the corrected one are currently unwritable, and
+  only one of them is unwritable *and* silently false.
 - A promoter holds **no row in any of the three authz tables**, so every administrative predicate returns
   false for them and deny-by-default (I-1) denies the capability without a policy having to say so. The only
   path from promoter to administrator is an explicit invitation or grant by an already-authorized principal —
@@ -324,10 +355,46 @@ A contract is tagged one of:
   `(org_id, auth.uid(), org_owner)`), `kernel.admin_audit` (`org.create`).
 - **Result:** `{ status, org_id }`. **Failure:** `idempotency_replay`. **Forbidden callers:** anon.
 
+> ### `AUTHZ-C1B` — THE MONEY-PLANE COUNTERPARTY IS MINTABLE BY THE ROLE THAT NEEDS ONE
+>
+> **Read this before §2.2–§2.5, because it is a property of the four of them together and of none of them
+> individually.** Every money separation-of-duties primitive in the corpus compares two `auth.uid()` values:
+> **SoD-1** rejects `auth.uid() = organization.payout_destination_set_by` (§17.7); **SoD-2** requires
+> `approved_by <> requested_by` (§17.2). **Both are satisfied by any two distinct uids — and the RPCs below
+> mint uids.**
+>
+> `invite_org_member` and `change_org_role` guard exactly **tier** (an `org_admin` may not act at `org_owner`
+> tier) and **self** (I-11). **`org_owner` is the top tier, so neither guard binds it.** One `org_owner`
+> invites a second account they control at `org_finance` — permitted, it is below them and is not self —
+> accepts it (`accept_org_invite` authorizes on *being the addressed invitee*, and the invitee is them), and
+> **now holds both halves of both primitives.** The out-of-band notice §17.7 relies on goes to *"every
+> `org_owner` and `org_finance`"* — **i.e. to both of the attacker's own accounts.**
+>
+> **The corpus reasons about second-account evasion exactly once — for promoters** (§1.1c's `T-RPC-ROLE-04`:
+> no grant RPC accepts a promoter artifact, so a promoter cannot walk into an administrator role) — **and
+> never for the money plane**, where the same evasion is worth money rather than attribution.
+>
+> **The fix is NOT here.** Blocking the invite would be wrong: an org genuinely needs to add finance staff,
+> and a headcount rule (*"≥2 money principals"*) is satisfied by the same attack, because it counts accounts
+> and accounts are what the attacker mints. **The fix is `kernel.money_role_grant_matured(org_id)`, applied at
+> the money primitives** (§17.2, §17.7, `request_org_payout`, §17.1's org arm): a money-role grant younger
+> than `authn.money_role_maturity_hours` **cannot approve and cannot request**, though it keeps every
+> operational capability it has. **Maturity prices the attack in the one currency an attacker cannot mint:
+> elapsed time** — during which destination probation, the out-of-band notice and the approval queue are all
+> live and visible to any *pre-existing* second principal.
+>
+> **What the three RPCs below owe it:** `kernel.org_member.granted_at` (RLS §17 X-11), written by
+> `accept_org_invite` and **reset by `change_org_role` whenever the new role is a money role** — a promotion
+> into `org_finance` starts a fresh clock; a lateral move to a non-money role does not. Without the column the
+> predicate is unwritable and SoD-1/SoD-2 remain satisfiable by a counterparty the attacker minted.
+
 ### 2.2 `kernel.invite_org_member(p_org_id, p_invitee_ref, p_role, p_command_key)` — **DB-RPC**
 - **Purpose:** invite an identity/handle to an org at a scoped role. **Role:** `has_org_role(p_org_id,
   [org_owner, org_admin])`; an `org_admin` **cannot** invite at `org_owner` (tier guard); **no self-invite to
   a higher tier** (I-11).
+- **`AUTHZ-C1B`:** inviting at a **money role** (`org_owner`, `org_finance`) is permitted and unchanged — the
+  grant simply starts immature. **The audit row records the money-role class**, so an invite → accept →
+  immediate-approval attempt is a legible pattern in `kernel.admin_audit` rather than three unrelated rows.
 - **Params:** `p_org_id`,`p_invitee_ref` (email/handle/uid, untrusted),`p_role` (org enum only),`p_command_key`.
   **Server-derived:** `auth.uid()` = `invited_by`; `now()`.
 - **Preconditions:** `p_role ∈ org enum`; caller tier ≥ granted tier. **Locks:** the org row (`FOR UPDATE` to
@@ -344,9 +411,14 @@ A contract is tagged one of:
 - **Params:** `p_invite_id`,`p_command_key` (untrusted). **Server-derived:** `auth.uid()`.
 - **Preconditions:** invite exists, pending, not expired, addressed to `auth.uid()`. **Locks:** the invite +
   org roster row (`FOR UPDATE`). **SSCAS:** n/a. **Idempotency:** `p_command_key` + invite terminal state.
-- **Writes:** `kernel.org_member` (INSERT/activate role), `kernel.org_invite` (→ accepted), `kernel.admin_audit`
-  (`org.invite.accept`). **Result:** `{ status, org_id, role }`. **Failure:** `not_found`, `precondition_failed`
-  (expired / wrong invitee). **Forbidden callers:** anyone but the addressed invitee.
+- **Writes:** `kernel.org_member` (INSERT/activate role, **`granted_at := now()`** — `AUTHZ-C1B`),
+  `kernel.org_invite` (→ accepted), `kernel.admin_audit` (`org.invite.accept`). **Result:**
+  `{ status, org_id, role }`. **Failure:** `not_found`, `precondition_failed` (expired / wrong invitee).
+  **Forbidden callers:** anyone but the addressed invitee.
+- **`granted_at` is the maturity clock and is set HERE, not at invite.** The invite is a proposal the invitee
+  may sit on for days; the grant exists from acceptance. Setting the clock at invite time would let an
+  attacker pre-age a counterparty by inviting early and accepting at the moment of the attack — which is the
+  same attack with a scheduler.
 
 ### 2.4 `kernel.change_org_role(p_org_id, p_identity_id, p_new_role, p_command_key)` — **DB-RPC**
 - **Purpose:** change a member's org role (wraps schema `grant_org_role`/`revoke_org_role` UPDATE path).
@@ -355,9 +427,15 @@ A contract is tagged one of:
 - **Params:** `p_org_id`,`p_identity_id`,`p_new_role`(org enum),`p_command_key` — untrusted. **Server-derived:**
   `auth.uid()`. **Preconditions:** target is a member; **the "≥1 `org_owner`" invariant** — cannot demote the
   last owner. **Locks:** org roster (`FOR UPDATE`), re-count owners under lock. **SSCAS:** n/a.
-- **Writes:** `kernel.org_member` (UPDATE role), `kernel.admin_audit` (`org.role.change`). **Result:**
+- **Writes:** `kernel.org_member` (UPDATE role; **`granted_at := now()` whenever `p_new_role` is a money role
+  and the previous role was not** — `AUTHZ-C1B`), `kernel.admin_audit` (`org.role.change`). **Result:**
   `{ status }`. **Failure:** `precondition_failed` (last-owner / tier), `insufficient_privilege`. **Forbidden
   callers:** org_member/finance; self-promotion.
+- **Why the clock resets on promotion into money and not on every change.** The maturity window protects the
+  **money** capability, so it must start when that capability is acquired — otherwise an `org_owner` invites a
+  second account as `org_member` (a benign role, no money authority, nobody looks), waits out the window, and
+  promotes it to `org_finance` the instant it is needed, arriving with a fully matured grant. A lateral move
+  between non-money roles, or a demotion, does not reset it: nothing is being acquired.
 
 ### 2.5 `kernel.remove_org_member(p_org_id, p_identity_id, p_command_key)` — **DB-RPC**
 - **Purpose:** revoke membership (role-remove via RPC, never a client DELETE — GP-2). **Role:** as §2.4;
@@ -1351,9 +1429,20 @@ filled here and flagged in §19 as authored rather than transcribed.
   `auto_compensation` are platform/system causes and are **rejected from this entry point** for org and buyer
   callers (`policy_violation`).
 - **Server-derived.** `p_actor := auth.uid()`; `org_id := venue.order.org_id` (**a real column — the client
-  never supplies the org**); the covered-atom set; `expected_amount`; the tier; and **every threshold's
-  `(key, version)` from `catalog.platform_config`, pinned onto the request row** so a mid-flight config change
-  cannot silently re-tier a parked request and an auditor can reconstruct why a refund took the tier it did.
+  never supplies the org**); the covered-atom set; `expected_amount`; the tier; **`required_approver_class`**;
+  and **every threshold's `(key, version)` from `catalog.platform_config`, pinned onto the request row** so a
+  mid-flight config change cannot silently re-tier a parked request and an auditor can reconstruct why a
+  refund took the tier it did.
+- **`required_approver_class` is written here, and it is the ONLY thing that carries the tier forward
+  (`AUTHZ-C1A`).** The `status` values below (`pending_approval`, `pending_platform_review`) are **this
+  function's return strings**. They are not stored anywhere: `kernel.approval_request.state` is
+  `pending · approved · denied · cancelled · expired · stale`, and until now the table had **no tier column at
+  all**. So the tier the table below decides was computed, returned to the caller, and **discarded** — and
+  §17.2's authority branch, which claims to branch on it, had nothing to read. This function therefore
+  **persists the tier as `required_approver_class ∈ {org, platform, platform_admin}`**, set server-side from
+  the same evaluation that produced the row of the table, and **pinned exactly as `config_versions` is**:
+  a later config change may no more re-class a parked request than it may re-tier one. **It is never a
+  parameter and never derived from `payload`.** *(Schema: RLS §17 X-10.)*
 - **Covered-atom derivation (fully server-side).** The atoms of an order are `kernel.ticket_ownership_log`
   rows with `sequence = 1` whose `cause_ref` is one of that order's `venue.order_item.id` values — two indexed
   joins, no schema change. **Atoms carry no price**, so per-atom value is `venue.order_item.unit_price_minor`
@@ -1371,14 +1460,21 @@ filled here and flagged in §19 as authored rather than transcribed.
   unchanged and still voids the ticket at the door.
 - **Tier decision (server-side, from config).**
 
-  | Condition | Outcome | Effect |
-  |---|---|---|
-  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | direct |
-  | org caller, ≤ `refund.org_auto_execute_max_minor`, no consumed atom | `executed` | direct |
-  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | park + hold |
-  | any consumed (scanned) atom, `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | park + hold |
-  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | park + hold |
-  | any consumed atom, `refund.scanned_atom_policy = 'refuse'` | `rejected` | none |
+  | Condition | Outcome (returned) | `required_approver_class` (**stored**) | Effect |
+  |---|---|---|---|
+  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
+  | org caller, ≤ `refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
+  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
+  | any consumed (scanned) atom, `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | **`platform`** | park + hold |
+  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
+  | any consumed atom, `refund.scanned_atom_policy = 'refuse'` | `rejected` | *(none)* | none |
+
+  **The consumed-atom row takes precedence over the amount rows.** A scanned atom routes to `platform` **even
+  when the amount is below `refund.org_dual_control_max_minor`** — the trigger for platform review is the
+  *consumed custody*, not the size. That ordering is the whole point of `MD-6` (*"staff scans a friend in,
+  then refunds"*), and it is stated explicitly because a table read top-to-bottom by an implementer produces
+  the opposite result: the org-amount row would match first and the collusion shape would be handed to the
+  org arm. **`T-RPC-MONEY-01` covers one case per row and one case for this precedence.**
 
 - **Locks & acquisition order.** **Event/Session** (`FOR SHARE`, rank 1 — the freeze read, parked branch) →
   **Order** (`FOR UPDATE`, rank 3) → **Ticket Atom(s)** ascending `ticket_atom_id` (rank 5) → **Approval**
@@ -1392,8 +1488,16 @@ filled here and flagged in §19 as authored rather than transcribed.
   ratification, not a redesign.
 - **Writes.** *Executed branch* — delegates to `kernel.refund_primary_order` in the same txn (definer→definer);
   **that function alone writes `kernel.refund`. This function writes no money row.** *Parked branch* —
-  `kernel.approval_request` (INSERT `pending`), `kernel.tickets.resale_state := 'refund_hold'` on each covered
-  **voidable** atom, `kernel.admin_audit` (`refund.request`).
+  `kernel.approval_request` (INSERT `pending`, **with `required_approver_class`, `subject_kind='order'` and
+  `subject_id := p_order_id` — the `action ↔ subject_kind` pairing of RLS §16.1 `AUTHZ-M2` is written here, not
+  assumed**), `kernel.tickets.resale_state := 'refund_hold'` on each covered **voidable** atom,
+  `kernel.admin_audit` (`refund.request`).
+- **Grant maturity on the org arm (`AUTHZ-C1B`).** An `org_owner`/`org_finance` caller must satisfy
+  `kernel.money_role_grant_matured(order.org_id)`. **This binds the REQUESTER, not only the approver**, and
+  that is deliberate: SoD-2 is a pair, and a control applied to one half of a pair is applied to neither. A
+  freshly-minted second account can no more open the request than close it. `sod_violation` on failure —
+  **not** `insufficient_privilege`, because the role is genuinely held and telling the operator "permission
+  denied" would send them to re-check a grant that is correct.
 - **Why the hold is on the atom row.** It is the row the scan path already locks, so the guard costs nothing
   on the door hot path and adds no cross-schema read to `record_scan` (R8 scan isolation preserved). The
   existing `lock_ticket` precondition `resale_state='none'` then does all the work: an atom at `refund_hold`
@@ -1404,9 +1508,12 @@ filled here and flagged in §19 as authored rather than transcribed.
   non-colliding key — so successive partials compose correctly.
 - **Result.** `{ status ∈ {executed, pending_approval, pending_platform_review, rejected, noop_replay},
   refund_id?, request_id?, amount_minor, atoms_voided[], atoms_not_voided[{atom_id, reason}], tier,
-  approval_required_role? }`.
-- **Errors.** `insufficient_privilege(42501)` · `precondition_failed` · `custody_moved` · `conflict_locked` ·
-  `frozen` · `not_found` · `over_refund` · `policy_violation` · `step_up_required`.
+  required_approver_class? }` — **`approval_required_role` is renamed to `required_approver_class` so the
+  returned value and the stored column are the same word.** Two names for the same fact is how the tier went
+  missing in the first place.
+- **Errors.** `insufficient_privilege(42501)` · `sod_violation` · `precondition_failed` · `custody_moved` ·
+  `conflict_locked` · `frozen` · `not_found` · `over_refund` · `policy_violation` · `step_up_required` ·
+  **`step_up_unavailable`** (§17.7's `AUTHZ-M4`).
 - **Forbidden.** Any client writing `kernel.refund` directly; `org_admin`; every venue role; a buyer refunding
   another buyer's order; any caller supplying an `org_id` or an actor.
 - **The cost this incurs, stated rather than buried.** A `refund_hold` **stops the ticket working at the door
@@ -1428,21 +1535,78 @@ filled here and flagged in §19 as authored rather than transcribed.
   writer. On deny, release the holds and terminate the request. **Dual control cannot be done in one
   transaction** — two humans, two sessions, two points in time force a durable pending object — which is why
   §17.1 has two branches rather than one.
-- **Role.** For `pending_approval`: `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND
-  `auth.uid() <> request.requested_by`** — SoD-2, enforced **structurally**, backed by the table constraint
-  `CHECK (approved_by IS NULL OR approved_by <> requested_by)`. For `pending_platform_review`:
-  `is_platform(['platform_support','platform_risk','platform_admin'])`, subject to the support cap. **Bound by
+- **Role — `AUTHZ-C1A`: the branch is keyed on `(action, required_approver_class)` and on NOTHING ELSE.**
+
+  > **The defect this replaces, stated plainly because it is the highest-severity finding in this document.**
+  > The old text branched on `pending_approval` vs `pending_platform_review`. **Those two strings are §17.1's
+  > return statuses. They are not stored.** `kernel.approval_request.state` is
+  > `pending · approved · denied · cancelled · expired · stale`; the table had **no tier column**; and this
+  > function's own re-evaluation list named the order, the atoms and the amount — **not the tier**. An
+  > implementer with the schema in front of them has three discriminators to branch on (`action`, `state`,
+  > `org_id`) and **all three route every parked refund to the org arm.** The result is not a mis-routed
+  > queue item: **an org executes a refund the tier table sent to platform review** — above the dual-control
+  > ceiling, or on a **consumed (scanned) atom**, which is the collusion shape `MD-6` exists to surface. The
+  > control read as present in four documents and was absent in the only place it ran.
+
+  | `action` | `required_approver_class` | May approve |
+  |---|---|---|
+  | `refund.issue` | `org` | `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND** `auth.uid() <> request.requested_by` **AND** `kernel.money_role_grant_matured(request.org_id)` |
+  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated per `AUTHZ-M3` below** |
+  | `payout.request` | `org` | as `refund.issue`/`org`, **plus the §17.7 destination-setter exclusion applied to the APPROVER** — otherwise the destination-setter simply approves instead of requesting |
+  | `payout.request` | `platform` | `is_platform(['platform_risk','platform_admin'])`. **`platform_support` is denied** — it holds no payout authority anywhere else, and the generic approval object must not become the place it acquires one |
+  | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — see the note below |
+
+  Common to every arm: SoD-2 (`auth.uid() <> requested_by`), enforced **structurally** and backed by the table
+  constraint pair of `AUTHZ-M1` — `CHECK (approved_by IS NULL OR approved_by <> requested_by)` **and** the
+  companion `CHECK (state <> 'approved' OR approved_by IS NOT NULL)` **without which the first is vacuously
+  satisfiable by any writer that forgets the column.** Plus step-up per `AUTHZ-M4`. **Bound by
   EDGE-CALLER-JWT.**
-- **`action`-dispatched.** The same function serves the payout-above-threshold branch (`action =
-  'payout.request'`) and the money-config branch (`action = 'config.set_money_key'`), under the same SoD rule.
-  For payout, the §17.7 destination-setter exclusion applies **to the approver as well** — otherwise the
-  destination-setter could simply approve instead of request.
+
+  **`state = 'pending' AND NOT expired` is an ACTIONABILITY precondition, never an authority input.** Those
+  are two questions and they get two columns. **No authority predicate in this function reads `payload`** —
+  `T-RPC-AUTHZ-01`, structural, over `pg_get_functiondef`.
+
+  > **`AUTHZ-C1A2` — `config.set_money_key` takes a second distinct `platform_admin`, and never
+  > `platform_support` or `platform_risk`.** The money spec §7.3 says *"a second distinct `platform_admin`"*.
+  > This contract and RLS §11.3 both previously stated the whole non-org arm as
+  > `is_platform(['platform_support','platform_risk','platform_admin'])` — one predicate spanning three
+  > different approval flows. Under it, **`platform_support` approves the raise of its own ceiling**: the role
+  > capped precisely because it is not trusted with unbounded money is the role that lifts the cap, and the
+  > cap it lifts is the one bounding it on the arm directly above. Raising `refund.org_auto_execute_max_minor`
+  > is, in the money spec's own words, a larger act than any single refund it would then authorize — it is the
+  > authority behind every later refund, so it takes the highest authority in the system, twice.
+  > **`T-RPC-AUTHZ-03`.**
+
+- **`action`-dispatched.** The same function serves all three flows. **`action` alone is not the dispatch key
+  — `(action, required_approver_class)` is.** A single `action` spans two approver classes (a refund parked at
+  `org` and a refund parked at `platform` are the same action with different authority), which is precisely
+  why branching on `action` was never sufficient and why the missing column was invisible.
 - **Preconditions.** Request `state = 'pending'` and not expired. **Every §17.1 precondition is RE-EVALUATED
   under lock at approval time — the stored payload is *evidence*, never authority.** Specifically: the order
   is still refundable; the atoms are still owned by the buyer; the payment sum guard still passes; the amount
   is **recomputed** from `venue.order_item` and must still equal the pinned `expected_amount`. Drift ⇒
   `precondition_failed`, and the request moves to **`stale`** with holds released, rather than executing on
   stale facts.
+- **The tier is re-derived and must still equal the pinned class.** The re-evaluation list above named the
+  amount, the atoms and the order — **and not the tier**, which is the other half of why `AUTHZ-C1A` went
+  unnoticed: nothing re-checked a value nothing stored. The recomputed tier (from the **pinned**
+  `config_versions`, not from live config) must equal the stored `required_approver_class`; a mismatch is
+  **`stale`**, never a re-route. In particular **an atom that became `scanned` while the request was parked
+  re-tiers it to `platform`** — and because a re-tier is `stale` rather than a silent escalation, the org
+  approver is told to re-request rather than finding their approval quietly ineffective. `T-RPC-AUTHZ-02`.
+- **`AUTHZ-M3` — the support cap binds HERE, under lock, and an unset key is ZERO.**
+  `refund.platform_support_max_minor` was applied at **request** (§17.1's tier table) and appeared at approval
+  only as the prose *"subject to the support cap."* **Prose is not a predicate, and approval is the act that
+  moves the money** — on the `platform` arm it is reachable by `platform_support` directly, with no org
+  approver in the loop. The cap is therefore re-evaluated against the **recomputed** amount, against the
+  version **pinned in `config_versions`** (so the cap a request was tiered under is the cap it is approved
+  under), exactly as every other precondition in this list is. Over the cap ⇒ `insufficient_privilege` naming
+  the cap, and the request stays `pending` for `platform_risk`/`platform_admin` — **it is not denied**, since
+  the refund may be perfectly legitimate and only the approver is wrong.
+  **An unset or NULL key evaluates to ZERO, not unbounded** — `COALESCE(config, 0)` — so a missed seed row
+  means *support may approve nothing*, which is loud, rather than *support may approve anything*, which is a
+  missing-row-shaped privilege escalation on the one platform role the model deliberately caps. `MD-3` still
+  owes the number; it no longer owes the behaviour when there is no number. `T-RPC-AUTHZ-04`.
 - **Locks & acquisition order.** **Order** (rank 3) → **Ticket Atom(s)** ascending (rank 5) → **Approval**
   (`FOR UPDATE`, rank 5.5) → **Refund/Payment** (rank 6). Ascending.
 - **SSCAS.** Member **#3** (approve branch); single-aggregate (deny branch).
@@ -1453,15 +1617,29 @@ filled here and flagged in §19 as authored rather than transcribed.
 - **Idempotency.** `p_command_key` + the request's terminal state.
 - **Result.** `{ status, request_id, refund_id?, atoms_voided[], atoms_not_voided[] }`.
 - **Errors.** **`self_approval`** — its own named failure, distinct from a bare `42501`, so the UI can say
-  *"a different person must approve this"* rather than "permission denied" · `insufficient_privilege` ·
-  `precondition_failed` · `not_found` · `conflict_locked` · `step_up_required`.
+  *"a different person must approve this"* rather than "permission denied" · **`sod_violation`** (grant
+  immature, or the payout destination-setter) · `insufficient_privilege` · `precondition_failed` ·
+  `not_found` · `conflict_locked` · `step_up_required` · **`step_up_unavailable`**.
 - **The generic-payload footgun, named and mitigated.** A generic `payload jsonb` invites the approval to
   become a client-supplied authority vector (*"approve this, amount = X"*). The payload is **server-computed
   at request time and re-derived and re-compared here**; the stored copy exists for the approver's UI, and the
-  executing code trusts **nothing** in it. A mismatch is `stale`, **never an override**.
+  executing code trusts **nothing** in it. A mismatch is `stale`, **never an override**. **The mitigation was
+  a rule with nothing checking it; `T-RPC-AUTHZ-01` now checks it** — and the reason that matters is
+  `AUTHZ-C1A`: with the tier absent from the row, `payload` was the *only* place a diligent implementer could
+  have found it, so the missing column was actively pushing the authority branch into the one structure this
+  paragraph forbids it to read.
 - **Tests.** `T-RPC-MONEY-06` (self-approval raises `self_approval`) · `T-RPC-MONEY-07` (a payload mutated
   between request and approval ⇒ `stale`, holds released, no refund) · `T-RPC-MONEY-08` (the approver of a
-  payout may not be `payout_destination_set_by`).
+  payout may not be `payout_destination_set_by`) · **`T-RPC-AUTHZ-01`** (**no authority branch in any of the
+  three approval-dispatched functions reads `payload`** — structural) · **`T-RPC-AUTHZ-02`** (a request parked
+  at `org` whose atom is scanned while parked ⇒ `stale` on approval, holds released, **no refund**, and the
+  org approver is **never** able to complete it) · **`T-RPC-AUTHZ-03`** (`platform_support` and `platform_risk`
+  are both refused `action='config.set_money_key'`; the **requesting** `platform_admin` is refused; a second
+  distinct `platform_admin` succeeds) · **`T-RPC-AUTHZ-04`** (with `refund.platform_support_max_minor`
+  **deleted**, `platform_support` approves nothing at any amount; `platform_risk` on the same row succeeds) ·
+  **`T-RPC-AUTHZ-05`** (`AUTHZ-C1B`: an `org_owner` who mints a second `org_finance` **through the real
+  `invite_org_member` / `accept_org_invite` path** cannot approve their own request while the grant is
+  immature — the fixture must perform the mint, because **the mint is the attack**).
 
 ### 17.3 `kernel.cancel_refund_request(p_request_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
 
@@ -1534,11 +1712,17 @@ filled here and flagged in §19 as authored rather than transcribed.
 
 Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted nowhere** until now.
 
-- **Role.** `has_org_role(p_org_id, ['org_owner'])` **only**, with **step-up**. `org_finance` is **excluded
-  entirely** — under O-3 it holds payout-request authority, and one identity may not hold both halves of the
-  named fraud primitive (*redirect the bank account, then release funds to it*). **Bound by
-  EDGE-CALLER-JWT** — and this is the RPC where the rule bites hardest, because the step-up predicate reads
-  `auth.jwt()`, which on a service-role client carries no `aal` and no `amr` at all.
+- **Role.** `has_org_role(p_org_id, ['org_owner'])` **only**, with **step-up**, **and
+  `kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`). `org_finance` is **excluded entirely** — under
+  O-3 it holds payout-request authority, and one identity may not hold both halves of the named fraud
+  primitive (*redirect the bank account, then release funds to it*). **Bound by EDGE-CALLER-JWT** — and this
+  is the RPC where the rule bites hardest, because the step-up predicate reads `auth.jwt()`, which on a
+  service-role client carries no `aal` and no `amr` at all.
+- **Why maturity binds the SETTER and not only the requester.** SoD-1's whole content is *"the identity that
+  set the destination may not request the payout to it."* An `org_owner` who mints a second `org_finance`
+  account satisfies that by **setting as A and requesting as B** — so a maturity check applied only to the
+  requester is defeated by moving the fresh account to the other side of the pair. **Both halves of both
+  primitives carry it, or neither does.**
 - **What is actually being changed, which bounds the blast radius.** The platform **holds no bank details**;
   `kernel.organization.stripe_connect_account_ref` is an opaque Stripe Connect account id, and bank details
   are collected by Stripe's own KYC'd onboarding. So "change the payout destination" means *re-point the org
@@ -1575,16 +1759,42 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   implemented**; if `amr` is absent, freshness degrades to token age (`iat` + a shortened access-token TTL),
   which measures *token* age rather than *authentication* age and **must be labelled as such rather than
   described as "recent authentication."**
+- **`AUTHZ-M4` — an ABSENT freshness claim RAISES; it does not evaluate.** The predicate compares
+  `auth.jwt()->>'aal'` and the newest `amr` timestamp against config. **If the claim is absent, the comparison
+  is against NULL** — and NULL is not true, so a predicate written as `stale_check` denies while one written
+  as `NOT (fresh_check)` admits. **The system's actual security posture would be decided by an operator
+  precedence, on a question the bullet above says has not been checked against a real token.** One of those
+  two spellings is a lockout and the other is a silent bypass of the control on the highest-value money write
+  in the system, and nothing in the corpus says which gets written.
+
+  > **The rule: an absent `aal` or `amr` claim raises `step_up_unavailable` — a distinct error — and never
+  > evaluates to a pass or a fail.** The failure is then **loud in both directions**: the money action does
+  > not proceed, *and* the operator sees a cause that names the real problem instead of a permission denial
+  > that sends them hunting through role grants that are correct. It also converts `MD-7`'s open question into
+  > a first-run failure: if this project's tokens do not carry `amr`, **the very first money action says so**,
+  > and the documented degradation to `iat` is then adopted as a **deliberate, labelled config choice** rather
+  > than inferred from behaviour months later.
+  >
+  > Applies at every step-up site: this function, `request_org_payout`, `approve_refund_request`,
+  > `allocate_comp`, `issue_comp`, and every `R✱` cell of ROLE_MODEL §5.3.
+  > **`T-RPC-AUTHZ-06`:** a token carrying **no** `amr` claim raises `step_up_unavailable`, asserted
+  > **distinctly** from `step_up_required` (a stale claim) and from `42501` (a role failure), at all five
+  > sites — three distinguishable outcomes, because a test that only asserts "it failed" would have passed on
+  > either broken spelling.
 - **Locks & order.** **Organization** row `FOR UPDATE` (admin plane, outside the six money/custody ranks) →
   nothing else. **SSCAS:** n/a (single aggregate).
 - **Writes.** `kernel.organization` (`stripe_connect_account_ref`, `payout_destination_set_by := auth.uid()`,
   `payout_destination_locked_until := now() + config('payout.destination_cooldown_hours')`),
   `kernel.admin_audit` (`org.payout_destination.change`, `subject_kind='organization'`, before/after = Stripe
   account ids, `reason_code` **mandatory**).
-- **Errors.** `insufficient_privilege` · `step_up_required` · `precondition_failed` · `not_found`.
+- **Errors.** `insufficient_privilege` · `sod_violation` (grant immature) · `step_up_required` ·
+  **`step_up_unavailable`** · `precondition_failed` · `not_found`.
 - **Tests.** `T-RPC-MONEY-12` (`org_finance` is refused) · `T-RPC-MONEY-13` (the setter is refused a
   subsequent `request_org_payout` **after** the cool-down elapses — the permanence of SoD-1) ·
-  `T-RPC-MONEY-14` (a stale-`amr` token raises `step_up_required` and writes nothing).
+  `T-RPC-MONEY-14` (a stale-`amr` token raises `step_up_required` and writes nothing) · **`T-RPC-AUTHZ-07`**
+  (`AUTHZ-C1B`: a second `org_owner` minted through the real invite/accept path is refused **both**
+  `set_org_payout_destination` and `request_org_payout` while immature) · **`T-RPC-AUTHZ-06`** (an absent
+  `amr` claim raises `step_up_unavailable`, distinctly from both of the above).
 
 ### 17.8 `kernel.list_approval_requests(p_org_id, p_filters, p_cursor)` — **DB-RPC (read)** · `NEW RPC`
 
@@ -1860,7 +2070,32 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
 >
 > The edge function must also **never log the submitted code string** at info level — only the outcome class.
 
-### 17.18 `venue.bind_order_attribution` · `venue.review_attribution_flag` · `venue.decide_flagged_attribution` — `NEW RPC` ×3
+### 17.18 `venue.bind_order_attribution` · `venue.review_attribution_flag` — `NEW RPC` ×2 (**was ×3**)
+
+> **`AUTHZ-H10` — `venue.decide_flagged_attribution` IS DELETED. Two RPCs wrote one ledger under
+> contradictory authority, and every product surface was wired to the permissive one.**
+>
+> `venue.review_attribution_flag` admitted **both promoter-manager labels**; `venue.decide_flagged_attribution`
+> denied them, in a sentence this document itself wrote: *"a promoter manager adjudicating a flag against a
+> promoter they recruited and are measured on is the fox at the henhouse."* Same ledger
+> (`venue.attribution_review`), same decision (release / deny), **opposite authority.**
+>
+> **The restrictive one was decoration, and the ledger's own design is why.** `venue.attribution_review` is
+> **append-only with effective decision = `max(seq)`** — chosen so a wrong decision is corrected by appending
+> rather than editing. The conflicted party therefore never needs to overwrite anything: **they append
+> `release` at `seq+1` through the permissive function, and it is the effective decision.** A deny-list on one
+> writer is worth nothing while a second writer without it can append to the same ledger.
+>
+> **And the permissive one is the one that exists everywhere else.** Venue dashboard §10.7 / §21.4 Δ4 /
+> screen E / E4, promoter-codes spec §7.7, and **migration plan `090`'s Functions row** all name
+> `review_attribution_flag`. `decide_flagged_attribution` is named by RLS §11.5 and ROLE_MODEL §11 R-16 and by
+> **no product surface and no package** — so it would have been the function nobody built, whose deny-list
+> nobody enforced, cited as the reason the control existed.
+>
+> **Ruling: `review_attribution_flag` survives — name, contract, ledger semantics, package `090` — and takes
+> `decide_flagged_attribution`'s restrictive allow-list**, which is the half that was load-bearing. `G5`'s
+> cell is satisfied by the survivor; dashboard Δ4 and Δ7 are the same control and always were. Recorded in the
+> naming register (§20.13) and filed to RLS/ROLE_MODEL/dashboard owners as **R-13**.
 
 - **`venue.bind_order_attribution(p_order_id, p_code_display, p_link_slug, p_command_key)`** — attach or
   replace the *candidate* on a pending order (the "I forgot to enter the code" path). **Role:** the order's
@@ -1873,19 +2108,21 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   unresolvable code sets the candidate to NULL and returns `{ status:'ok', bound:false,
   reason:'not_applicable' }`.
 - **`venue.review_attribution_flag(p_attribution_id, p_decision, p_reason_code, p_note, p_command_key)`** —
-  adjudicate a self-deal flag. **Role:** `has_venue_role(['venue_manager','venue_promoter_manager'])` OR
-  `has_org_role(['org_owner','org_admin'])` · `is_platform(['platform_risk'])`. **`platform_admin` holds no
-  EXECUTE here.** **Pre:** attribution exists, in scope, `self_deal_flag = true`, and **no
+  adjudicate a self-deal flag; **the sole writer of `venue.attribution_review`.** **Role (`AUTHZ-H10`):**
+  `has_venue_role(venue,['venue_manager'])` OR `has_org_role_over_venue(venue,['org_owner','org_admin'])` ·
+  `is_platform(['platform_risk'])`. **BOTH promoter-manager labels are DENIED** — `venue_promoter_manager` and
+  `org_promoter_manager`; ROLE_MODEL §5.3 **G5** marks both `·`, and a promoter manager adjudicating a flag
+  against a promoter they recruited and are measured on is the fox at the henhouse (same separation-of-duties
+  principle as propose-vs-approve). **`platform_admin` holds no EXECUTE here.** **Pre:** attribution exists,
+  in scope, `self_deal_flag = true`, and **no
   `promoter_commission` settlement line exists for it** ⇒ else `attribution_settled`. **Locks:** none
   cross-aggregate. **SSCAS:** n/a. **Writes:** one `venue.attribution_review` row at `seq = max(seq)+1` +
   audit. **The attribution row is not touched.** **The effective decision is `max(seq)`** — a wrong denial is
   corrected by appending, never by an edit — and **supersession closes at settlement**: once the commission
   line exists, the money and the decision freeze together.
-- **`venue.decide_flagged_attribution(...)`** (dashboard Δ7) — release/deny a flagged self-deal.
-  **Role:** `has_venue_role(venue,['venue_manager'])` OR `has_org_role_over_venue(venue,['org_owner',
-  'org_admin'])` · `is_platform(['platform_risk'])`. **Both promoter-manager labels are DENIED** — a promoter
-  manager adjudicating a flag against a promoter they recruited and are measured on is the fox at the
-  henhouse. Same separation-of-duties principle as propose-vs-approve.
+- ~~**`venue.decide_flagged_attribution(...)`**~~ — **DELETED (`AUTHZ-H10`).** Dashboard Δ7 and Δ4 are the
+  same control; both are satisfied by `review_attribution_flag` above, which now carries this function's
+  allow-list. **Nothing in the corpus is left without a writer**: `090`'s Functions row never named it.
 - **The hold semantics these interact with.** An unreviewed flag makes the commission **`payable = 0`, and
   that is a HOLD, not a forfeiture.** Because at most one commission line may ever exist per attribution, a
   hold must **write no line at all** rather than a zero line — a zero line would consume the one slot and
@@ -1893,7 +2130,11 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
 - **Tests.** `T-RPC-PROMO-05` (a flagged attribution produces no settlement line while unreviewed; `release`
   ⇒ the next close pays it; `deny` ⇒ no line ever, and the attribution stays visible) · `T-RPC-PROMO-06`
   (review after the commission line exists ⇒ `attribution_settled`) · `T-RPC-PROMO-07` (`seq` 2 overrides
-  `seq` 1 and **both rows survive**).
+  `seq` 1 and **both rows survive**) · **`T-RPC-AUTHZ-08`** (`AUTHZ-H10`: `venue_promoter_manager` and
+  `org_promoter_manager` are refused, **asserted after a `venue_manager` has already written `seq=1`** — the
+  attack is *appending over an existing decision*, so a test on an empty ledger would miss it — and **no row
+  is written at any `seq`**) · **`T-RPC-AUTHZ-09`** (exactly **one** function in `pg_proc` writes
+  `venue.attribution_review`).
 
 ### 17.19 `venue.get_my_promoter_summary` · `venue.list_my_attributions` · `venue.list_promoter_attributions` — `NEW RPC` ×3 (reads)
 
@@ -1901,6 +2142,21 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   from `has_venue_role`** — which returns false for every promoter after the label's removal. **The promoter
   id set is derived from `auth.uid()` and is NOT accepted as input**, so the filter cannot be widened by
   passing a parameter.
+- **`AUTHZ-M9` — these RPCs are now the ONLY promoter read path, because the direct grant that defeated them
+  is gone.** RLS §9.17 previously gave the promoter **`A`** on `venue.attribution` — *"direct read via an RLS
+  policy + column GRANT"*, i.e. **every column off the table** — while §16.7 and the projection below both
+  state the redaction is *"enforced by the read RPC's projection, **not by hoping the client omits
+  columns**."* **A direct grant defeats exactly that.** A promoter with `A` selects `displaced_promoter_id`
+  (a rival's identity), the reviewer's private `note`, and **`touch_corroborated`** — the hijack-detection
+  signal whose whole point is that the promoter must not see which of their hijacks were detected. Corrected
+  to **`V`**: no direct SELECT on `venue.attribution` or `venue.attribution_review`; these two functions are
+  the surface. `T-RPC-PROMO-11` is unchanged in intent and finally enforceable.
+- **The own-row filter, stated once and used verbatim** (`AUTHZ-M10`): `promoter_id IN (SELECT promoter_id
+  FROM venue.promoter WHERE identity_id = auth.uid() AND status='active')` — **never `promoter_id =
+  auth.uid()`**, which compares a `venue.promoter` PK to an `auth.users` id and returns nothing, forever.
+  §9.17's *"second correction"* wrote the broken form while correcting a different break in the same
+  predicate; both failures present identically as an empty promoter dashboard, which is why this one survived
+  the correction that was supposed to fix it.
 - **`get_my_promoter_summary(p_org_id, p_event_id, p_window)`** — per-event and total: tickets attributed,
   gross attributed, commission accrued, commission **held** (flagged, unreviewed), commission **paid**, code
   count, link count. Reads `venue.attribution` filtered to the caller's own promoter rows and `kernel.payout`
@@ -2320,6 +2576,36 @@ Every id below is named at its contract in §20. **66 ids across 16 groups**, br
 | **Dashboard** | `T-RPC-DASH-01` (for every tile × role, the summary equals the owning read's value **or the key is absent** — never null, never a computed second answer) | §20.10 |
 | **Seams** | `T-RPC-SEAM-01` (`settlement_royalty_lines` returns rows after `088` — the stub was **replaced**, not merely present) · `-02` (`settlement_commission_lines` returns a row after `090`) · `-03` (`on_atom_voided` flips a seeded sale to `compensated`, a `completed` sale raises, **and the call sits before the rank-5 atom lock**) | §20.11 |
 
+#### 18.2 `T-RPC-AUTHZ-*` — the authority-defect remediation register
+
+**A separate id namespace on purpose.** These fourteen assertions defend properties that were **stated in
+prose and enforced nowhere**, across five sections of this document and three of the RLS spec. Filing them
+under `MONEY`/`PROMO`/`COMP`/`STAFF` would scatter them into groups whose other members test *behaviour*;
+these test *whether the control exists at all*, and a reviewer should be able to run the set and get an answer
+to that one question. **14 ids, taking the document's total to 150.**
+
+| Id | Assertion | Defect |
+|---|---|---|
+| `T-RPC-AUTHZ-01` | **No authority branch in any of the three approval-dispatched functions reads `payload`** — structural, over `pg_get_functiondef` | `AUTHZ-C1A` |
+| `T-RPC-AUTHZ-02` | A request parked at `required_approver_class='org'` whose atom becomes `scanned` while parked ⇒ **`stale`** on approval, holds released, **no refund**, and the org approver can never complete it | `AUTHZ-C1A` |
+| `T-RPC-AUTHZ-03` | On `action='config.set_money_key'`: `platform_support` refused, `platform_risk` refused, **the requesting `platform_admin` refused**, a second distinct `platform_admin` succeeds | `AUTHZ-C1A2` |
+| `T-RPC-AUTHZ-04` | With `refund.platform_support_max_minor` **deleted**, `platform_support` approves nothing at any amount; `platform_risk` on the same row succeeds | `AUTHZ-M3` |
+| `T-RPC-AUTHZ-05` | An `org_owner` who mints a second `org_finance` **through the real `invite_org_member` / `accept_org_invite` path** cannot approve their own refund request while the grant is immature. **The fixture must perform the mint — the mint is the attack** | `AUTHZ-C1B` |
+| `T-RPC-AUTHZ-06` | A token carrying **no `amr` claim** raises **`step_up_unavailable`**, asserted **distinctly** from `step_up_required` and from `42501`, at all five step-up sites — three distinguishable outcomes, because a test asserting only "it failed" passes on either broken spelling | `AUTHZ-M4` |
+| `T-RPC-AUTHZ-07` | A second `org_owner` minted through the real invite/accept path is refused **both** `set_org_payout_destination` and `request_org_payout` while immature — SoD-1 covered on **both** sides | `AUTHZ-C1B` |
+| `T-RPC-AUTHZ-08` | Both promoter-manager labels are refused `review_attribution_flag` and write **no** `venue.attribution_review` row at any `seq` — asserted **after** a `venue_manager` has written `seq=1`, because appending over an existing decision is the attack | `AUTHZ-H10` |
+| `T-RPC-AUTHZ-09` | Exactly **one** function in `pg_proc` writes `venue.attribution_review` | `AUTHZ-H10` |
+| `T-RPC-AUTHZ-10` | No function body contains `promoter_id = auth.uid()` — structural, because the defect reads as correct | `AUTHZ-M10` |
+| `T-RPC-AUTHZ-11` | A promoter with an active code scoped to the event and **no link at all** satisfies `is_promoter_for_event` and sees their own attributions | `AUTHZ-M10` |
+| `T-RPC-AUTHZ-12` | With `comp.per_staff_step_up_max_units` **deleted from `catalog.platform_config`** — the state a missed seed produces, not set to `0` — `allocate_comp` and `issue_comp` at `quantity = 1` both raise on a stale-`amr` token and move no counter | `AUTHZ-M8` |
+| `T-RPC-AUTHZ-13` | The comp count is **per actor**: actor A at the threshold does not step-up actor B's first comp at the same venue and session | `AUTHZ-M8` |
+| `T-RPC-AUTHZ-14` | A `venue_manager` granting `venue_manager` raises `tier_guard`; **the same caller granting each of the other five succeeds** (so the test proves a narrowing, not a lockout); an `org_admin` of the venue's org grants `venue_manager` successfully | `AUTHZ-M7` |
+
+> **Four of these fourteen assert a FAIL-TO-SAFE default** (`-04`, `-06`, `-12`, and RLS's
+> `T-RLS-MONEY-07`), and every one of them is written to **delete the config row rather than set it to zero**.
+> That distinction is the entire test: a missing seed row and a seeded `0` produce identical behaviour only if
+> the `COALESCE` is actually there, and a fixture that sets `0` passes whether or not it is.
+
 ---
 
 ## 19. What is AUTHORED here rather than transcribed — read this before implementing
@@ -2511,6 +2797,12 @@ catastrophic.**
 
 **This document cannot fix these — RLS §11 is not our file.** They are filed for the RLS integrator, with the
 grant class this document already fixes, so each row can be written without re-deriving it.
+
+> **CLOSED (`AUTHZ-R2`).** RLS §11 now carries all fourteen, in a new **§11.1a**, with the `DEF` rows listed
+> first and the grant class exactly as stated below. **`market.cancel_p2p_transfer` is recorded as
+> dual-class** — caller-authorized for the sender, `DEF` for the `expired` transition it owns — which is the
+> one row that could not be written as a single grant and is the reason the table below carries a "grant class
+> this document fixes" column at all. The reverse difference Δ2 is empty.
 
 | # | Contracted at | Function | Grant class this document fixes | Consequence of the missing row |
 |---|---|---|---|---|
@@ -3020,18 +3312,35 @@ money-consequential, and *"same role, live-recheck"* is not a signature.
 **The primary authority-conferring write in the venue plane, uncontracted.** Every `has_venue_role` predicate
 in the corpus reads the table this function writes.
 
-- **Authority.** `has_venue_role(p_venue_id, ['venue_manager'])` OR **org→venue inheritance** via
-  `kernel.has_org_role_over_venue(p_venue_id, ['org_owner','org_admin'])` — RLS §11.1 verbatim
-  (*"OR org_owner/admin inheritance; no self-grant"*). **The inheritance is expressed through the §1.1a
-  helper and never as a re-inlined `catalog.venue.org_id` join** (`T-RPC-ROLE-02`).
+- **Authority — `AUTHZ-M7`, and it is NARROWER than the row this contract was written against.**
+  `has_venue_role(p_venue_id, ['venue_manager'])` **for the five non-manager labels only**; granting
+  **`venue_manager` itself** requires `kernel.has_org_role_over_venue(p_venue_id, ['org_owner','org_admin'])`
+  or `is_platform(['platform_admin'])`. **The inheritance is expressed through the §1.1a helper and never as a
+  re-inlined `catalog.venue.org_id` join** (`T-RPC-ROLE-02`).
 - **`p_role` ∈ the six canonical venue labels** — `venue_manager · venue_finance · venue_box_office ·
   venue_marketing · venue_promoter_manager · venue_scanner` — re-validated in-body against the `080` CHECK.
   **`venue_door` and `venue_promoter` are not members and raise** (ROLE_MODEL R-8; the label sets are
   disjoint by scope, so an `org_*` or `platform_*` label raises too).
-- **No self-grant (I-11), and the tier guard.** `p_identity_id = auth.uid()` raises
-  `precondition_failed('self_grant')`. A `venue_manager` may grant **any** of the six including
-  `venue_manager`; there is no higher venue label to guard against, and the org tier above them reaches the
-  same venue through inheritance.
+- **No self-grant (I-11), and the tier guard — `AUTHZ-M7`, which did not exist.** `p_identity_id = auth.uid()`
+  raises `precondition_failed('self_grant')`. **A `venue_manager` may NOT grant `venue_manager`**; that raises
+  `precondition_failed('tier_guard')` and directs the caller to the org plane.
+
+  > **The previous reasoning was true of the label lattice and false of the capability set, and a tier guard
+  > is about the capability set.** *"There is no higher venue label to guard against"* is correct as a
+  > statement about names — and `venue_manager` is nonetheless **one of only three principals that may
+  > `open_door_manifest`** (RLS §11.4, ruling O-4), i.e. **engage a session's terminal transfer-freeze
+  > boundary and take custody offline for the night.** A `venue_manager` minting another `venue_manager` is
+  > therefore minting a custody-boundary principal, from inside the venue, with no org-plane involvement and
+  > no step-up — and O-4's whole content is that *"the scanner may not create the security boundary it works
+  > inside."* One compromised venue-manager credential otherwise self-perpetuates: revoke it and the account
+  > it granted is still there, still able to grant.
+  >
+  > **The cost is one org-plane round trip and nothing else.** `org_owner`/`org_admin` already reach every
+  > venue through `has_org_role_over_venue` (§1.1a), so no new authority is created and no venue becomes
+  > unmanageable — it is the *same* principals the corpus already relies on for the recovery case §20.4.2
+  > describes (*"a venue with zero managers is recoverable — the org tier above it reaches the venue"*). This
+  > closes the symmetry: the org tier is who **restores** a venue manager, so it is who **creates** one.
+  > Owner decision **MD-15** records that this narrows a previously affirmative grant.
 - **The promoter exclusion is structural, and this contract must not break it.** **`grant_staff_role` accepts
   no `promoter_id`, `promoter_link_id`, `attribution_id` or referral id of any kind** — §1.1c's
   `T-RPC-ROLE-04` asserts exactly this over the grant RPCs, and adding a promoter artifact to this signature
@@ -3046,8 +3355,8 @@ in the corpus reads the table this function writes.
 - **Writes.** `venue.staff_role` (INSERT), `kernel.admin_audit` (`venue.staff_role.grant`,
   `subject_kind='identity'`, before/after = the label set).
 - **Result.** `{ status, venue_id, identity_id, role }`.
-- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(self_grant | bad_role |
-  venue_archived)` · `idempotency_replay`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(self_grant | tier_guard |
+  bad_role | venue_archived)` · `idempotency_replay`.
 - **Forbidden callers.** `venue_box_office`, `venue_scanner`, **the door session** (it holds no `auth.uid()`
   and is denied on every capability outside its four, §1.1d), `venue_finance`, `venue_marketing`, both
   promoter-manager labels, `org_finance`, `org_member`, promoters, fans, `anon`, and **`platform_support` /
@@ -3055,7 +3364,9 @@ in the corpus reads the table this function writes.
 - **Test.** `T-RPC-STAFF-01` (self-grant raises; `venue_door`/`venue_promoter`/`org_owner` as `p_role` raise;
   a `venue_box_office` caller raises; an `org_admin` of the venue's org succeeds **through the §1.1a
   helper**, asserted by the function's definition referencing `has_org_role_over_venue` and not
-  `catalog.venue`).
+  `catalog.venue`) · **`T-RPC-AUTHZ-14`** (`AUTHZ-M7`: a `venue_manager` granting `venue_manager` raises
+  `tier_guard`; **the same caller granting each of the other five succeeds** — so the test proves a narrowing,
+  not a lockout; an `org_admin` of the venue's org grants `venue_manager` successfully).
 
 #### 20.4.2 `venue.revoke_staff_role(p_venue_id, p_identity_id, p_role, p_command_key)` — **DB-RPC** (`G-13`)
 
@@ -3166,13 +3477,36 @@ with no name.** It is named here.
   `kernel.has_org_role_over_venue(venue, ['org_owner','org_admin'])` — RLS §11.1 verbatim.
   **`venue_box_office` is DENIED**, and the reason is the whole point of the split: *"allocating comp
   **capacity** is an inventory decision"*, and O-2 grants box office issuance, not inventory.
-- **C39-gated.** Above the per-staff threshold read from `catalog.platform_config`, the call requires
-  **step-up** (`auth.jwt()->>'aal'` vs `authn.money_action_required_aal`, and `amr` freshness vs
-  `authn.money_action_max_age_seconds`) **and a live re-check of the grant** — the same predicate §17.7
-  specifies, enforced **in the function body, never in RLS**, because on the money plane every mutation is
-  `EXECUTE` on a definer function and a table policy never runs (GP-3a). **Caller-authorized ⇒ bound by
-  EDGE-CALLER-JWT**, and this is a case where it bites: the step-up predicate reads `auth.jwt()`, which on a
-  service-role client carries no `aal` and no `amr` at all.
+- **C39-gated — and `AUTHZ-M8` gives the gate a threshold for the first time.** Above
+  **`comp.per_staff_step_up_max_units`** the call requires **step-up** (`auth.jwt()->>'aal'` vs
+  `authn.money_action_required_aal`, and `amr` freshness vs `authn.money_action_max_age_seconds`, **raising
+  `step_up_unavailable` on an absent claim per `AUTHZ-M4`**) **and a live re-check of the grant** — the same
+  predicate §17.7 specifies, enforced **in the function body, never in RLS**, because on the money plane every
+  mutation is `EXECUTE` on a definer function and a table policy never runs (GP-3a). **Caller-authorized ⇒
+  bound by EDGE-CALLER-JWT**, and this is a case where it bites: the step-up predicate reads `auth.jwt()`,
+  which on a service-role client carries no `aal` and no `amr` at all.
+
+  > **`AUTHZ-M8` — C39 has been cited in five documents as *"above the per-staff threshold"* and the threshold
+  > has never had a key, a contract or a test.** A gate whose threshold does not exist is not a gate: an
+  > implementer reads `config('…')` into NULL, compares `quantity > NULL`, gets NULL — **not true** — and
+  > **no comp at any quantity requires step-up.** That is unmetered comp issuance by `venue_box_office`, the
+  > most liberally granted of the new labels, on the capability the domain architecture names *"the
+  > insider-fraud primitive"* (§7.5: *"un-stepped-up bulk comping"*). The traceability matrix already records
+  > it as asserted by neither surface (`G-8b(i)`).
+  >
+  > - **Key: `comp.per_staff_step_up_max_units`** (integer, units of admission), with
+  >   **`comp.per_staff_step_up_window_hours`** for the window. `catalog.platform_config`, seeded in `078`
+  >   alongside the money thresholds.
+  > - **The count is per ACTOR, per VENUE, per SESSION, within the window** — summing this actor's
+  >   `comp.allocate` and `comp.issue` units. Per-staff is what C39 says, and it is what makes the control an
+  >   insider-fraud control rather than a venue budget: a venue-wide cap is exhausted by legitimate volume and
+  >   then either raised or ignored.
+  > - **An unset or NULL key evaluates to ZERO, not unbounded** — `COALESCE(config, 0)` — so a missed seed row
+  >   means *every comp requires step-up*, which is loud and recoverable, rather than *no comp ever does*,
+  >   which is the defect and is silent. **Same rule as `AUTHZ-M3`'s support cap, stated at both sites
+  >   deliberately: a fail-to-zero convention living in one place is a convention, not a control.**
+  > - **`comp.*` therefore joins the dual-control config namespace** (RLS §11.3): raising the ceiling needs a
+  >   second `platform_admin`; lowering it may execute directly.
 - **Preconditions.** Session exists and is not terminal; `p_batch_id` is a batch of that session with
   `release_kind='comp'` — **a comp may not be allocated against a `public_sale` batch**, which is what keeps
   comps visible as comps in the ledger rather than laundered through paid inventory; `p_quantity > 0`;
@@ -3195,7 +3529,12 @@ with no name.** It is named here.
   `anon`.
 - **Tests.** `T-RPC-COMP-01` (`venue_box_office` is refused on allocate and permitted on issue — the split,
   asserted in both directions) · `T-RPC-COMP-02` (an allocation above the C39 threshold on a stale-`amr`
-  token raises `step_up_required` and writes **nothing**, including no counter movement).
+  token raises `step_up_required` and writes **nothing**, including no counter movement) ·
+  **`T-RPC-AUTHZ-12`** (`AUTHZ-M8`: with `comp.per_staff_step_up_max_units` **deleted from
+  `catalog.platform_config`** — the state a missed seed produces, not set to 0 — `allocate_comp` and
+  `issue_comp` at `quantity = 1` both raise on a stale-`amr` token and move no counter) ·
+  **`T-RPC-AUTHZ-13`** (the count is **per actor**: actor A at the threshold does not step-up actor B's first
+  comp at the same venue and session).
 
 #### 20.5.2 `venue.issue_comp(p_comp_allocation_id, p_grantee, p_quantity, p_command_key)` — **DB-RPC (calls SSCAS member #1's mint leg)** (`G-4`)
 
@@ -3536,10 +3875,11 @@ ledger head.** It is contracted as:
 - **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(boundary_engaged |
   move_exceeds_grace | reason_required)`.
 
-**Filed for the RLS integrator (§20.14):** RLS §11.4's `venue.set_door_open_at` row should be **replaced** by
-`catalog.set_session_door_schedule` with the same allow-list. **This document cannot make that edit.** Until
-it is made, the two documents disagree, and **§11.4 is the authority table — so an implementer following it
-will build the function this section rules out.**
+**Filed for the RLS integrator (§20.14) — and now DISCHARGED (`AUTHZ-R1`).** RLS §11.4's
+`venue.set_door_open_at` row has been **replaced** by `catalog.set_session_door_schedule` with the same
+allow-list, carrying the schedule-vs-ledger-head reasoning at the row itself. The two documents now agree, and
+`catalog.engage_door_freeze` is the sole writer of `door_open_at` in the authority table as well as in the
+trigger.
 
 #### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`)
 
@@ -4356,7 +4696,8 @@ six and to the three names §20 assigns.
 | *"manifest-sync"* (unnamed) | **`venue.sync_scan_device_manifest`** (§20.4.4) | **NAMED HERE** |
 | *"bid RPC"* (unnamed) | **`market.place_bid`** (§20.8.4) | **NAMED HERE** |
 | the nightly holder-mix reconciliation (unnamed) | `venue.reconcile_holder_mix` (§17.20) | Named in §17.20; recorded here for completeness |
-| `venue.set_door_open_at` | **— does not exist —** | **RULED OUT** (§20.6.5); the capability is re-homed as `catalog.set_session_door_schedule` |
+| `venue.set_door_open_at` | **— does not exist —** | **RULED OUT** (§20.6.5); the capability is re-homed as `catalog.set_session_door_schedule`. **RLS §11.4's row is now replaced — `AUTHZ-R1` DISCHARGED** |
+| `venue.decide_flagged_attribution` | `venue.review_attribution_flag` (§17.18) | **DELETED, not aliased** (`AUTHZ-H10`, §17.18). Two functions writing one append-only ledger under opposite authority is not a naming divergence — it is two authorities, and `max(seq)` made the permissive one decisive. The survivor carries the restrictive allow-list |
 
 > **`T-RPC-SET-02`:** exactly one physical function exists per row of this table. An alias that becomes a
 > second `CREATE FUNCTION` is the failure `G-20` predicts, and it is invisible until two call sites disagree.
@@ -4366,13 +4707,26 @@ six and to the three names §20 assigns.
 **This document owns `PHASE_2_RPC_FUNCTION_CONTRACTS.md` and edited nothing else.** Each item below is a
 change another spec's owner must make; each names the file, the section and the reason.
 
+> **`AUTHZ-R1`–`R4` are DISCHARGED.** The RLS spec is under the same remediation pass as this document, and
+> §11 now carries: the replaced O4-3 row (`R-1`, §11.4), the fourteen reverse-difference rows (`R-2`, new
+> §11.1a), rulings on all fifteen `PROPOSED AUTHORITY` sites (`R-3`, new §11.1c), and the four guest-list rows
+> (`R-4`, new §11.1b). **`R-3`'s one rejection:** `venue.get_dashboard_summary` is **deferred, not accepted** —
+> its existence is still owner ruling `R-10`, and §11 declines to be the document that decides it by writing
+> a grant. The rows below are what remains outstanding.
+
 | # | File | Change | Why it cannot wait |
 |---|---|---|---|
-| **R-1** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Replace** the `venue.set_door_open_at` (O4-3) row with `catalog.set_session_door_schedule`, same allow-list | §11.4 **is** the authority table. Until it changes, an implementer following it builds the function §20.6.5 rules out, and O-5's sole-writer property becomes false in practice |
-| **R-2** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add the fourteen missing EXEC rows of §20.0c**, with the grant class §20.0c states for each | Six are `EXEC: DEF` custody/sweep primitives (`finalize_primary_order`, `lock_/unlock_ticket`, `mark_ticket_scanned`, both `market.sweep_*`). A migration author with no row guesses, and the guess that fails open hands the mint to `authenticated` |
-| **R-3** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add rows for the functions §20 contracts under `PROPOSED AUTHORITY`** — §20.1.1, §20.1.5, §20.2.3, §20.2.4, §20.3.2, §20.3.3, §20.6.3, §20.6.4, §20.9.1–§20.9.5, §20.10, §20.11.1–§20.11.3 — **or reject the proposal** | A proposal recorded only in a contract document is not authority. §20 says so at each site; the row is what makes it real |
-| **R-4** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add §11 rows for the guest-list RPCs** (§20.5.3–§20.5.6). Their authority is real and lives in **§9.16's matrix**, which §11 does not roll up | §11 claims to be the consolidated authority table; four functions whose authority exists only in a per-table matrix falsify that claim |
-| **R-5** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §3.17 / plan `090` | **Add `venue.promoter_link.status`** (additive, on an unbuilt table), **or** the dashboard's `U-4` status control must be removed | §20.9.4 is contracted against a column that does not exist. The link is IMM and FK-restricted, so there is no other expression of the control |
+| ~~R-1~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **DONE** — the `venue.set_door_open_at` (O4-3) row is replaced by `catalog.set_session_door_schedule`, same allow-list, with the schedule-vs-ledger-head reasoning recorded at the row | — |
+| ~~R-2~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1a carries all fourteen, `DEF` rows first | — |
+| ~~R-3~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1c rules on all fifteen; fourteen accepted (three narrowed), `get_dashboard_summary` deferred to `R-10` | — |
+| ~~R-4~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1b, §9.16's authority rolled up unchanged | — |
+| **R-13** | `PHASE_2_ROLE_MODEL_SPEC.md` §11 R-16 + §12 row 17 · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §21.4 | **Drop `venue.decide_flagged_attribution`** (`AUTHZ-H10`, §17.18). Δ7 and Δ4 are the same control; `venue.review_attribution_flag` is the sole writer of `venue.attribution_review` and now carries the restrictive allow-list | Two functions writing one append-only ledger under opposite authority meant the deny-list stopped nothing: effective decision is `max(seq)`, so the conflicted party appends `release` at `seq+1`. **Plan `090` never named the deleted function**, so nothing is left without a writer |
+| **R-14** | `PHASE_2_ROLE_MODEL_SPEC.md` §5 (supersession clause) | **Add §11 to the list of sections §5.3 supersedes.** It currently names *"RLS §7.x/§9.x role rows and DA §7.6"* and **omits §11 — the one table that calls itself the authority model for every money and custody write** | This omission is the mechanism of `AUTHZ-H5`: ROLE_MODEL edit R-14 rewrote `venue_door → venue_scanner` lexically across §11, preserving capabilities §5 was simultaneously removing, and no clause said §5 governed. RLS §11.0 now states the rule from its own side and `T-RLS-EXEC-01` asserts it; **the role model should state it too, because a rule that only the downstream document knows is the rule that was just violated** |
+| **R-15** | `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | `G-8b(i)` is **closed on the specification side**: the C39 threshold now has keys (`comp.per_staff_step_up_max_units`, `comp.per_staff_step_up_window_hours`), a contract (§20.5.1) and tests (`T-RPC-AUTHZ-12/15`). It stays open on the **plan** side until `086`'s Tests row names them (`R-7`) | `G-8b(i)` records comps as *"asserted by neither surface"*; half of that is now false and the matrix should not keep asserting it |
+| **R-5** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §3.17 / plan `090` | **Add `venue.promoter_link.status`** (additive, on an unbuilt table), **or** the dashboard's `U-4` status control must be removed. **`AUTHZ-M10` adds two more to the same section:** **`venue.promoter.status`** (the `AND p.status='active'` conjunct in every corrected promoter predicate) and the **`venue.attribution.promoter_id`** (+ `org_id`, `event_id`) denormalization that RLS §9.17 has relied on since the attribution-write correction — **§3.17 lists only `link_id` today** | §20.9.4 is contracted against a column that does not exist. The link is IMM and FK-restricted, so there is no other expression of the control. And without `promoter.status` / `attribution.promoter_id`, **both the old promoter predicate and the corrected one are unwritable** — the difference being that the old one is unwritable *and*, if written as stated, silently false for every row |
+| **R-16** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13 / plan `077` | **`kernel.approval_request` gains `required_approver_class`** (`NOT NULL`, `CHECK IN ('org','platform','platform_admin')`), the **`CHECK (state <> 'approved' OR approved_by IS NOT NULL)`** companion, the **`subject_kind` CHECK** and the **`action ↔ subject_kind` pairing CHECK**, plus index `(action, required_approver_class, state)`. Full text: RLS §17 **X-10** | **`AUTHZ-C1A`:** without the column the authority branch has nothing to read and every parked refund reaches the org arm. **`AUTHZ-M1`:** without the companion CHECK, *"SoD as a table constraint, not a convention"* is satisfied by any writer that leaves `approved_by` NULL |
+| **R-17** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` (`kernel.org_member`) / plan `077` | **`granted_at timestamptz NOT NULL DEFAULT now()`**, written by `accept_org_invite` and reset by `change_org_role` on promotion **into** a money role. RLS §17 **X-11** | **`AUTHZ-C1B`:** without it `kernel.money_role_grant_matured` cannot be written, and SoD-1/SoD-2 stay satisfiable by a counterparty the attacker minted through the ordinary invite flow |
+| **R-18** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `078` (config seeds) | Three keys: **`authn.money_role_maturity_hours`**, **`comp.per_staff_step_up_max_units`**, **`comp.per_staff_step_up_window_hours`**; and **`comp.*` joins the money dual-control namespace**. All four of these plus `refund.platform_support_max_minor` must be documented **fail-to-safe** — an absent key means *no grant is mature* / *every comp needs step-up* / *support approves nothing*. RLS §17 **X-12** | A threshold that gates an authority and does not exist is not a gate. The `comp.*` pair is C39, cited in five documents with **no key anywhere**; `authn.money_role_maturity_hours` is new with `AUTHZ-C1B` |
 | **R-6** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `081` | **Add `venue.sweep_expired_inventory_holds` to the Functions row and its assertion to the Tests row** | `G-24`. The index is built for a sweep the package does not create; without it held capacity never returns and every abandoned checkout removes inventory from sale permanently |
 | **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_event_security_config`, `set_session_door_schedule`; `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available` | A contracted function with no package is a function nobody builds. §8 is where an implementer looks |
 | **R-8** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §20A.1 → §20A.2 | **Move the `venue.allocate_comp` / `venue.issue_comp` rows** out of *"mapped — write controls with a named RPC"* | `G-4`. §20A.1 asserts a contract that did not exist; the name existed and the contract did not. §20.5 now supplies it, so the rows may move to *"mapped"* only once §20 is merged — **and the earlier listing must not be cited as evidence that they were mapped** |
