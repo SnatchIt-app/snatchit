@@ -1773,6 +1773,13 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `kernel.door_freeze_override` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.scan.manifest_id` · `venue.scan_device.manifest_id` | `ADDITIVE SCHEMA CHANGE` (recommended) |
 | four `catalog.platform_config` seed keys | `ADDITIVE SCHEMA CHANGE` (rows) |
+| three `door.session_*` config seed keys (§10.6) | `ADDITIVE SCHEMA CHANGE` (rows) — H-3 |
+| `venue.door_manifest_delta` CHECK `(op='add') ⇒ signing_key_id IS NOT NULL` (§10.3a) | `ADDITIVE` (constraint) — H-2/3c |
+| Offline predicate stated once as `OFFLINE-VERIFY-v1` in edge §5.4.3; §9.2 is a verbatim mirror | `SPEC CORRECTION` (§9.2 — **H-2**) |
+| `refund_hold` reject arm + operator copy (§9.2, §11.2) | `SPEC CORRECTION` (Finding-7 residual) |
+| `exp` clamp on the **computed** value; §10.6's constants invariant demoted to necessary-not-sufficient | `SPEC CORRECTION` (§10.6 → Wallet §5.2a) |
+| `kernel.revoke_signing_key` force-closes open episodes (OQ-5 grant condition 2 — mechanism existed, caller did not) | `SPEC CORRECTION` (§16 OQ-5 → edge §5.6) |
+| **`venue.door_session`** (H-3 — the bearer artifact the door actually holds) | **`ADDITIVE SCHEMA CHANGE` — reported to the schema/plan owners, specified in edge §3.9a** |
 | `catalog.event_session.door_open_at` triggers + CHECK | `ADDITIVE SCHEMA CHANGE` (constraints only) |
 | `catalog.event_session.door_open_at` column itself | `NO SCHEMA CHANGE` |
 | `kernel.is_transfer_frozen` signature + all call sites | `NO SCHEMA CHANGE` |

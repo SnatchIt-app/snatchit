@@ -143,13 +143,16 @@ Each is a build-time or CI check, not a code-review convention:
 | `wallet-pass-push` | §3.12 | B-i | outbox drain / scheduler; wraps `record_wallet_push_result`, a definer-only writer. Its `is_platform` *manual* re-drive route is **Class A** (§3.12) |
 | `notify-dispatch` | §3.14 | B-i | scheduler/outbox drain; no human caller exists |
 | `notify-receipts` | §3.15 | B-i | provider (Expo/APNs) receipt poll; no human caller exists |
-| `door-session` | §3.9 | B-iii | a `venue.door_pin` — a **loginless device credential with no `auth.uid()`** (role model §7.2). `kernel.assert_door_session(device, session)` is the authority; RM-5 forbids a door session from ever being an RLS predicate |
+| `door-session` | §3.9a | B-iii | **two credentials in sequence.** A `venue.door_pin` — a loginless device credential with no `auth.uid()` (role model §7.2) — **provisions**; the **door session token** (§3.9a: `session_ref` + 256-bit secret, stored as a hash, presented on every subsequent call) **authorizes**. `kernel.assert_door_session(device, session, session_ref, token)` is the authority and is called on **every relay call**; the device id comes from its **return value**, never the request. RM-5 forbids a door session from ever being an RLS predicate |
 
 **Consequence for the door plane (role model §7.2/§7.3, RM-5):** a door session carries no `auth.uid()`, so
 **no** door-session route may invoke a caller-identity RPC. Everything the door does reaches the DB through
 definer RPCs whose authority is `kernel.assert_door_session`. This is not an EA-2 exemption — it is EA-3
-(B-iii): the door PIN *is* the credential, and it is deliberately weaker than a JWT, which is why O-4 denies the
-door principal the manifest-open authority (§3.9).
+(B-iii): the door PIN provisions and the **door session token** is the credential, deliberately weaker than a
+JWT, which is why O-4 denies the door principal the manifest-open authority (§3.9). **`assert_door_session` is
+the only gate on this plane — RLS is bypassed entirely behind it — which is why §3.9a specifies what the device
+actually holds and what every relay call must re-check. A predicate that verifies provisioning rather than
+possession is not a gate (H-3).**
 
 ### 0.5 What this does NOT change
 
@@ -1374,6 +1377,25 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
 12. **`kernel.set_org_connect_ref` is not in the RPC contracts.** §3.3 wraps it; it appears in neither
     `PHASE_2_RPC_FUNCTION_CONTRACTS.md` nor RLS §11's EXEC table. **RPC-spec owner to contract it** (role:
     `has_org_role([org_owner, org_finance])`), or §3.3 has no write path.
+13. **`venue.door_session` does not exist — H-3's blocking dependency.** §3.9a's token design needs a table
+    (`token_hash`, `session_ref`, device/session binding, `pin_id` for the revoke cascade), the
+    `assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` signature returning the **bound**
+    device and session, `p_actor_device_id` on `record_scan`/`reconcile_offline_scans`,
+    `mint_door_session`/`revoke_door_session`, the `revoke_door_pin` cascade, and an audit-only RLS matrix.
+    Full table in §3.9a. **Schema / migration-plan / RPC / RLS owners.** **Until these land, the door plane
+    authenticates provisioning, not possession** — the gate is specified and unimplementable.
+14. **`venue.validate_ticket_online` must return `signing_key_id`** (RPC §9.3 result shape) and its `reason`
+    enum must gain **`refund_hold`** (door §9.2's new arm). Without the first, offline check 3c has no online
+    counterpart and the "blast radius = the atoms pinned to that key" claim is unachieved; without the second,
+    the **online** door refuses a `refund_hold` atom with no reason to render. **RPC-spec owner.**
+15. **`kernel.revoke_signing_key` must force-close open door-manifest episodes** in its own transaction
+    (§5.6, door §16 OQ-5 grant condition 2). Its RPC §13 contract needs the write set, the lock order
+    (`catalog.event_session` FOR UPDATE, rank 1, before the key row) and the audit row. **RPC-spec owner.
+    Until it lands, a granted ruling rests on a condition nothing satisfies.**
+16. **Dual-control namespaces.** RLS §11's `catalog.set_platform_config` row makes dual control mandatory for
+    `refund.*` / `payout.*` / `authn.*` only. **`wallet.*`, `credential.*` and `door.session_*` must be added**
+    (Wallet §11.5b) — they gate a feature-enable and the lifetime of bearer credentials. Direction asymmetry
+    applies: two approvers to loosen, one to tighten. **RLS-spec owner.**
 
 ---
 

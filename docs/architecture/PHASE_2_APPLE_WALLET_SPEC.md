@@ -1517,6 +1517,16 @@ change and can be added green today.
 | Two token profiles + `aud` claim (edge §5.5, §3.2) | `SPEC CORRECTION` | — |
 | Screenshot/TTL claim in edge §5.5 | `SPEC CORRECTION` | — |
 | CI private-key/certificate scan gate | `SPEC CORRECTION` | — |
+| Offline predicate stated once as `OFFLINE-VERIFY-v1` (edge §5.4.3); §2.3 and §11.9 become verbatim mirrors + CI byte-identity gate | `SPEC CORRECTION` (**H-2**) | — |
+| Step 3c promoted to **required**, with an online counterpart (`validate_ticket_online` returns `signing_key_id`) and a `signing_key_id` re-pin guard (§8.3) | `SPEC CORRECTION` | — |
+| `get_wallet_pass_build_context` liveness preconditions — `status='issued'` ∧ holder = live current owner; rebuild at `credential_version_at_build` (§11.6a) | `SPEC CORRECTION` (**H-4**) | — |
+| `list_updated_wallet_passes` gains `p_auth_token`; registration-scoped, liveness-filtered (§11.6b) | `SPEC CORRECTION` (signature) | **084** |
+| Kill switch gates serve/rebuild/register/push, not minting alone (§11.5a) | `SPEC CORRECTION` | — |
+| `wallet.*` / `credential.*` added to the dual-control-mandatory namespaces (§11.5b) | `SPEC CORRECTION` — **RLS-spec owner** | — |
+| Wallet `exp` clamped on the **computed** value (§5.2a) | `SPEC CORRECTION` | — |
+| `kernel.revoke_signing_key` force-closes open door episodes (OQ-5 grant condition 2) | `SPEC CORRECTION` — **RPC-spec owner** | — |
+| `verify_jwt=false` count: five surfaces, enumerated only in edge §7 | `SPEC CORRECTION` | — |
+| pgTAP W-F 30a/30b, W-I 42/43 | `ADDITIVE` (assertions) | — |
 | RLS matrices for the four new tables | `ADDITIVE` (new matrices) | — |
 | RLS §11 EXECUTE rows for the new RPCs | `ADDITIVE` | — |
 | "Add to Apple Wallet" control · re-add · transfer-in add · failure copy | `NEW RN SURFACE` | — |
@@ -1673,7 +1683,12 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 
 ## 14. Changes required in the door-lifecycle spec
 
-**I have changed nothing in `PHASE_2_DOOR_LIFECYCLE_SPEC.md`.** These are requests.
+**These were requests** at the time this section was written, and DL-1…DL-6 were dispositioned by the door
+spec's §19. **Since then the security remediation has edited the door spec directly** (H-2's mirror and
+single-source pointer in door §9.2, the `refund_hold` reject arm, the `door.session_*` config seeds, the
+`door_manifest_delta` CHECK, the OQ-5 grant-condition correction, and the demotion of §10.6's constants
+invariant). Those are recorded in door §17's change-class index, not here. **The table below is preserved as
+the original request record.**
 
 | ID | Change | Why | Severity |
 |:-:|---|---|:-:|
@@ -1693,7 +1708,7 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | **OQ-W1** | **Holder name on the pass?** §9.1 rules **no name**, on lock-screen physical-safety grounds for a nightlife product. Venues sometimes ask for name-on-ticket. | **No name.** If a venue needs ID matching, put it behind the scanner's authenticated single-record lookup, never on a lock screen. **Owner/product call.** |
 | **OQ-W2** | **Who owns the Apple Developer account, and who can renew the Pass Type ID certificate?** This is an organizational single point of failure with an annual calendar trigger (§13 items 1, 3, 5). | Name a primary and a **backup** with portal access and KMS import authority; put the renewal in a shared calendar independent of the alerting. **Owner call — organizational, not technical.** |
 | **OQ-W3** | **Sequencing.** Wallet's entire guarantee rests on offline-verify step 3b and the M2 tables, neither of which exists (defect W-3, §0.2). | **Hard gate: Wallet may not ship before the door-lifecycle spec's M2 tables and step 3b are implemented and drilled.** Shipping first deploys W-3 at scale onto devices we do not control. **Owner acknowledgement required.** |
-| **OQ-W4** | **The two token profiles (§5.2) conflict with door-lifecycle OQ-5 as written (DL-4).** | Amend OQ-5 per DL-4 and accept the session-bounded wallet profile, with the three mitigations in §5.3 mandatory. **Owner call — this is the one place this document asks to relax a recorded constraint, and it must not be treated as settled by this document alone.** |
+| **OQ-W4** | **The two token profiles (§5.2) conflict with door-lifecycle OQ-5 as written (DL-4).** **RULED by door §16 OQ-5 — GRANTED, owner sign-off still owed.** | Accept the session-bounded wallet profile with the three §5.3 mitigations **and both of the ruling's own conditions, neither of which was implemented when granted**: (1) the offline-window bound — now a **clamp on the computed `exp`** (§5.2a), because the ratified constants invariant bound only the `ends_at IS NULL` branch; (2) **key revocation force-closes open door episodes** (edge §5.6) — the mechanism existed, the caller did not. **The owner is signing off on a relaxation whose safety rests on these two; §13 items 10a/10b gate the enable on them.** |
 | **OQ-W5** | **Offer a Wallet pass while `resale_state ∈ {listed, locked}`?** §9.2 hides the control. Edge §3.2 flags the *same* question for `credential-sign` on a listed atom and leaves it open (its §12.2). | Answer both together. Recommend **hide/refuse while listed or locked** — it reduces screenshot-resale confusion at zero product cost, since the holder can add after delisting. **Product call.** |
 | **OQ-W6** | **`wallet-pass-webservice` runs `verify_jwt=false`** — **one of five such surfaces (edge §7), not the second of two** as this row previously said. | Accept with the §6.1 compensating controls **and §11.6a's liveness preconditions (H-4)**, subject to an explicit security sign-off (§13 item 12). **The sign-off should cover the `verify_jwt=false` set as a whole, not this function alone** — `door-session` (edge §3.9a) is the higher-risk member, since it relays admission. **Security call.** |
 | **OQ-W7** | **DL-1 — post-open issuance.** Should the manifest supplement be built, or is "door sales after manifest open are online-only" acceptable for MVP? | Build the supplement; it is small, provably safe, and the alternative silently refuses paying fans. **Owner call.** |
