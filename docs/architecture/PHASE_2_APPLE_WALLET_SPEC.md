@@ -1400,7 +1400,7 @@ Phase-2 table) and **GP-2** (DELETE is `D` for every role on every table). Vocab
 |---|---|---|---|---|---|
 | anon | D | D | D | D | — |
 | **fan / current owner** | **V** — own atoms only, columns `{wallet_pass_id, ticket_atom_id, status, built_at, last_updated_at}`, **via RPC only** | R | D | D | `mint_wallet_pass` |
-| every org role · every venue role (incl. `venue_door`, `venue_manager`) | **D** | D | D | D | — |
+| every org role · every venue role (all six: `venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` · `venue_promoter_manager` · `venue_scanner`) · every door-session principal | **D** | D | D | D | — |
 | platform_support | V | D | R | D | `revoke_wallet_pass` |
 | platform_risk | V | D | D | D | — |
 | platform_admin | A | R | R | D | `revoke_wallet_pass` |

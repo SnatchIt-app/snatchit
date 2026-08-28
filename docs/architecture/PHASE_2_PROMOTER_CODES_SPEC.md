@@ -76,20 +76,30 @@ renumber owner.
 
 ### 0.4 Role vocabulary — concepts, not enum labels
 
-`VERIFIED:` RLS §1.1/§2.1 fixes the venue-plane enum at exactly four labels
-(`venue_manager · venue_finance · venue_door · venue_promoter`), disjoint from the org and platform planes
-(C36). `VERIFIED:` the owner-ratified O-2 list is eight roles
-(`org_owner · org_admin · org_finance · venue_manager · box_office · marketing · promoter_manager · scanner`),
-and a separate agent is finalising plane membership per C36.
+> **`SPEC CORRECTION R4-4` (2026-08-28; rows `C123` / `D32`) — THIS PARAGRAPH ASSERTED THE ABOLISHED
+> FOUR-LABEL VENUE ENUM UNDER A `VERIFIED:` BADGE.** It read: *"RLS §1.1/§2.1 fixes the venue-plane enum at
+> exactly four labels (`venue_manager · venue_finance · venue_door · venue_promoter`)"* and *"a separate
+> agent is finalising plane membership per C36."* **Ruling `O-2` closed both**: `venue_door` was **renamed**
+> `venue_scanner` and `venue_promoter` was **removed entirely** (a promoter is a `promoter_link` row-ownership
+> relationship, never a staff-role label). The plane membership is not being finalised — it is ratified. The
+> role model's claim that the rename was *"applied corpus-wide"* was **false**; this file was one of the
+> sites it missed. `VERIFIED:` re-read against RLS §2.1 and role-model §3/§9.1 at head.
+
+`VERIFIED:` the venue-plane enum is **six** labels, disjoint from the org and platform planes (C36), and
+they are: **`venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` ·
+`venue_promoter_manager` · `venue_scanner`** — six, enumerated, per ratified **`O-2`** (role-model §3;
+RLS §2.1). **`venue_door` and `venue_promoter` are not labels and must appear in no picker, grant or
+predicate.** `VERIFIED:` the org plane is likewise six — `org_owner` · `org_admin` · `org_finance` ·
+`org_member` · `org_marketing` · `org_promoter_manager`.
 
 This file therefore names **role concepts**, and gives the current physical label in brackets so an
 implementer is never blocked:
 
 | Concept used here | Current physical label (RLS §2.1) | O-2 label |
 |---|---|---|
-| **promoter-program manager** — recruits promoters, issues codes, sets terms, adjudicates flags | `venue_manager` | `promoter_manager` |
+| **promoter-program manager** — recruits promoters, issues codes, sets terms, adjudicates flags | `venue_promoter_manager` / `org_promoter_manager` (was `venue_manager`) | `promoter_manager` |
 | **venue finance** — reads commission money, closes settlement | `venue_finance` / `org_finance` | `org_finance` |
-| **promoter** — an *attribution identity*, not staff | `venue_promoter` | *(none — see §14.2)* |
+| **promoter** — an *attribution identity*, not staff | **none — no staff-role label exists.** Authority is `venue.promoter.identity_id = auth.uid()` on a live row (§8.5). `venue_promoter` was **removed** by `O-2` | *(none — see §14.2)* |
 | **org administration** | `org_owner` / `org_admin` | `org_owner` / `org_admin` |
 
 **O-2's structural rule, restated because it drives §8:** *promoters and ambassadors are NOT automatically
@@ -840,7 +850,7 @@ All are **`NEW RPC` · package `090`** unless stated.
 
 ### 7.1 `venue.create_promoter_code(p_promoter_id, p_code_display, p_event_ids uuid[], p_valid_from, p_valid_until, p_kind, p_command_key)`
 
-- **Role:** promoter-program manager `has_venue_role([venue_manager])` OR `has_org_role([org_owner, org_admin])`, scoped to the promoter's org. **`venue_promoter` is explicitly forbidden** — a promoter cannot mint their own codes (§8.2).
+- **Role:** promoter-program manager `has_venue_role([venue_manager])` OR `has_org_role([org_owner, org_admin])`, scoped to the promoter's org. **a promoter can never satisfy this predicate** — a promoter cannot mint their own codes (§8.2). Under `O-2` there is no `venue_promoter` staff label to forbid: a promoter holds **no `venue.staff_role` row at all**, so `has_venue_role` is false for them by construction, and the check that matters is that `venue.promoter.identity_id = auth.uid()` is **not** an admissible route into this RPC.
 - **Pre:** promoter exists, `status='active'`, in caller's org; `normalize(p_code_display)` passes the length/alphabet CHECKs; every `p_event_id` belongs to the promoter's org; `p_valid_until > p_valid_from`; for `p_kind='generated'`, the display form meets the §9.3 entropy floor.
 - **Post:** one `venue.promoter_code` + N `promoter_code_scope` rows + `kernel.admin_audit('promoter_code.issue')`.
 - **Locks:** none cross-aggregate. **SSCAS:** n/a (single aggregate).
@@ -987,7 +997,7 @@ apply unchanged; every write below is `R` (RPC-only).
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager *(= promoter-program manager)* | A(own-venue's org) | R | R | D | create/bulk/status/scope/window |
 | venue_finance | A(own-org) | D | D | D | — |
-| venue_door | D | D | D | D | — |
+| venue_scanner / venue_box_office / venue_marketing / door session | D | D | D | D | — |
 | **promoter** | **A(own codes only)** | **D** | **D** | D | — |
 | platform_support / platform_risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | override (audited) |
@@ -1033,7 +1043,7 @@ Two corrections the new columns force:
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue's org) | R | D | D | `review_attribution_flag` |
 | venue_finance | A(own-org) | D | D | D | — |
-| venue_door | D | D | D | D | — |
+| venue_scanner / venue_box_office / venue_marketing / door session | D | D | D | D | — |
 | **promoter** | **V**(own attribution's `decision` + `reason_code` **only**, via §8.5) | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A | R | D | D | `review_attribution_flag` |
@@ -1083,8 +1093,9 @@ here.
 - Projection is dash §10.6's exact column list, plus `displaced_promoter_id` resolved to a display name.
 - **No buyer PII in any projection.** `VERIFIED:` dash §10.6 — *"the promoter dimension never becomes a back
   door into the attendee list."* This RPC returns an order **reference**, not an attendee.
-- Export only through the audited export path (dash §9.6); `venue_door`, `org_member`, and `promoter` are
-  denied outright, per dash §9.6's allow-list.
+- Export only through the audited export path (dash §9.6); `venue_scanner`, `venue_box_office`,
+  `venue_promoter_manager`, `org_promoter_manager`, `org_member`, and `promoter` are denied outright, per
+  dash §9.6's allow-list as amended by CRM `K-2`.
 
 ---
 
@@ -1423,7 +1434,7 @@ assertions; these are that list for `090`.
 52. `venue.get_my_promoter_summary` returns zero rows for a caller with no promoter row, and cannot be widened by passing another org's id.
 53. The promoter's payout read returns only `cause='promoter_commission'` rows whose `cause_ref` is one of their own attributions — never an org settlement payout (footnote 15, asserted).
 54. No read RPC on this feature returns buyer name, buyer email, buyer id, or `instrument_fingerprint` — asserted by column-list comparison, not by inspection.
-55. `venue_door` and `org_member` are denied on every object in this feature.
+55. `venue_scanner`, `venue_box_office`, `venue_marketing` and `org_member` are denied on every object in this feature. (`venue_door` is not a label — `O-2`.)
 56. A promoter cannot EXECUTE `create_promoter_code`, `set_promoter_code_status`, or `review_attribution_flag`.
 57. `venue.resolve_order_attribution` has no EXECUTE grant to `anon` or `authenticated`.
 58. `displaced_promoter_id` and `touch_corroborated` are absent from the promoter's own projection (§8.5).
@@ -1489,10 +1500,23 @@ only so stale quotations can be decoded**. The promoter engine is `090`. Registr
 A/B version collision, the heading/body disagreement, the off-by-one rollback filenames and the `071`
 dependency error. **This file's own §0.3 was a casualty of the same confusion** and is corrected — see `X-01`.
 
-### 14.2 O-2 says a promoter is not an administrator; the physical model makes them venue staff
+### 14.2 O-2 says a promoter is not an administrator; the physical model made them venue staff → **RESOLVED (`O-2`; role-model `D-5` / §9.1)**
 
-`VERIFIED:` RLS §1.1 row 11 and §2.1 express "promoter" as `venue.staff_role.role = 'venue_promoter'`, tested
-by `has_venue_role(venue_id, [venue_promoter])` — i.e. **a promoter is a row in the venue's staff table.**
+> **RESOLVED 2026-08-28 (`R4-4`; rows `C123` / `D32`). Both problems below are closed, and closed the way
+> this section argued they should be.** `venue_promoter` is **removed from the venue enum entirely**
+> (role-model **§9.1**, edit `D-5`; ratified **`O-2`**) — *"a promoter's authority derives wholly from
+> `venue.promoter_link` row ownership."* There is now **no staff-role label for a promoter in any plane**, so
+> problem 1 (wrong table) and problem 2 (O-2's list has no promoter label) are not tensions to design around:
+> they are the ratified model. **The onward owner named below — *"the C36 plane-membership agent (already
+> assigned)"* — has reported; the assignment is discharged, not pending.** Dashboard §22.2 carries the same
+> resolution. **The design this file already chose is unchanged and is now simply correct**: §8.5 derives
+> promoter authority from a live `venue.promoter` row and never from `has_venue_role`.
+>
+> **📋 THE ORIGINAL FINDING, PRESERVED — HISTORICAL, NOT NORMATIVE:**
+
+`VERIFIED (as of the finding; NO LONGER TRUE):` RLS §1.1 row 11 and §2.1 expressed "promoter" as
+`venue.staff_role.role = 'venue_promoter'`, tested by `has_venue_role(venue_id, [venue_promoter])` — i.e.
+**a promoter was a row in the venue's staff table.**
 `VERIFIED:` O-2 states promoters are *"attribution/distribution identities unless explicitly invited into an
 org with an administrative role"*, and DA §8.2 says a promoter is *"**Not an account** … a relationship +
 links"*, housed in `venue.promoters`/`promoter_links`.
@@ -1507,9 +1531,9 @@ Two problems, both structural:
    current four-label venue enum.
 
 **How this file designs around it:** every promoter-facing read path here (§8.5) derives authority from
-**`venue.promoter.identity_id = auth.uid()` on a live row**, never from `has_venue_role([venue_promoter])`.
-That is correct under either resolution and does not depend on the enum. → **Owner: the C36 plane-membership
-agent** (already assigned). Also raised as dash §22.2's open ruling.
+**`venue.promoter.identity_id = auth.uid()` on a live row**, never from a staff-role test. That was correct
+under either resolution and does not depend on the enum. → **Owner: the C36 plane-membership agent** —
+**✅ DISCHARGED, ratified `O-2`.** Dash §22.2's ruling likewise **RESOLVED**.
 
 ### 14.3 `venue.promoter` cannot express the terms DA §1.7 ratifies
 
