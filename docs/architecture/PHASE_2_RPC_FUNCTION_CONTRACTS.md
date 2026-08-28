@@ -2508,7 +2508,15 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   `instrument_fingerprint`, asserted by **column-list comparison**, not by inspection) · `T-RPC-PROMO-11`
   (`displaced_promoter_id` and `touch_corroborated` are absent from the promoter's own projection).
 
-### 17.20 Demographics — `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` · `venue.refresh_holder_mix` · `venue.get_holder_mix` · the reconciliation job — `NEW RPC` ×6
+### 17.20 Demographics — `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` · `venue.refresh_holder_mix` · `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · `venue.get_holder_mix` · `venue.reconcile_holder_mix` — `NEW RPC` ×8 — **CORRECTED (`AUTHZ-DEM1`)**
+
+> **`AUTHZ-DEM1` — three transcription defects, all of them corrections the demographics spec made to
+> ITSELF after this section was written.** They are applied here because this document is what an
+> implementer builds from, and on all three points it currently contradicts the binding source (§10.4).
+> (1) **`set_my_demographics` / `clear_my_demographics` wrote an audit row** — deleted by that spec's
+> **J-11**. (2) **`get_holder_mix`'s suppressed shape returned the denominators** — a per-person *"did you
+> answer"* oracle, closed by **R6**. (3) **The §5.5 kill switch had no writer** — supplied by the
+> `unpublish_*` pair below, which is why the count moves from six to eight.
 
 - **`kernel.get_my_demographics()`** — **DB-RPC** read, `EXEC: authenticated`. **Params: none, and
   parameterless is load-bearing** — a signature with no identity argument makes *"read someone else's row"*
@@ -2519,24 +2527,61 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
 - **`kernel.set_my_demographics(p_gender_identity, p_notice_version)`** — write. Both params **untrusted** and
   re-validated in-body against the CHECK value set and the known notice-version list. **No identity parameter
   exists.** Upserts one row keyed by `auth.uid()`; sets `first_answered_at` on insert only; always bumps
-  `updated_at`; writes an audit row recording `(identity_id, action, occurred_at)` — **never the value**.
+  `updated_at`.
+  **It writes NO audit row of any kind (`AUTHZ-DEM1`(1); demographics J-11).** This section previously
+  specified `(identity_id, action, occurred_at)` — *"never the value"* — and that is **not sufficient**,
+  because the source spec's own §8.3 names a timestamped history of a person's gender answers as *"the
+  single worst artefact this feature could produce — it would record a **transition**"*, and
+  `(identity, set → changed → cleared, when)` **is** that transition record with the value elided. There is
+  also no table it could go in: the demographics schema delta names no audit object, so the only fitting home
+  was `kernel.admin_audit` — **permanent and platform-readable** — which would have nullified the §8.5
+  tombstone's purge window, the sole mitigation on offer. **The aggregate READ audit on
+  `venue.get_holder_mix` is unchanged and remains binding**: that one records a staff member reading a room,
+  not a fan answering a question about themselves.
   Idempotent. Locks: none. SSCAS: n/a. **There is no `kernel.admin_set_demographics` and no staff write path
   of any kind** (`T-RPC-DEMO-01`: the set of functions writing `kernel.identity_demographic` is **exactly**
   `{set_my_demographics, clear_my_demographics}`).
 - **`kernel.clear_my_demographics()`** — withdrawal. Params: none. **Hard-DELETEs the caller's own row — the
-  single named GP-2 exception (§0.5), inside the definer**; upserts a value-free
-  `kernel.identity_demographic_erasure` tombstone with `purge_after`; writes the value-free audit row.
+  single named GP-2 exception (§0.5), inside the definer.** The value-free
+  `kernel.identity_demographic_erasure` tombstone (with `purge_after`) is written by a **`BEFORE DELETE FOR
+  EACH ROW` trigger on `kernel.identity_demographic`, not by this function** (demographics J-12), so **every**
+  removal path produces one — withdrawal, the `auth.users` cascade, a definer delete, a future C38 merge. The
+  cascade was the one path that wrote no tombstone, which made **the strictest erasure case the one case a
+  post-restore purge could not re-apply.** **Writes no audit row** (`AUTHZ-DEM1`(1)): the tombstone is the
+  only trace, it is value-free, definer-only, and self-purging — precisely the properties an
+  `kernel.admin_audit` row would have destroyed.
   Idempotent (`noop_replay` when no row is present, **not** an error). Locks: none. SSCAS: n/a.
-- **`venue.refresh_holder_mix(p_event_session_id)`** — **`EXEC: DEF`**, `pg_cron`. Reads the custody head
-  (`kernel.tickets`, non-voided, for the session) ⋈ `kernel.identity_demographic`. **Does not read**
-  `venue.scan`, `venue.order`, `venue.attribution`, `venue.ticket_type`, or any price. Applies the suppression
-  rules — a minimum responded-count, a per-bucket floor enforced as a `CHECK` **on the table**, a mandatory
-  merge of sub-floor buckets into `other`, all-or-nothing suppression, and a publication churn gate — then
-  persists **at most one** snapshot. **A discarded recomputation writes nothing.** Locks: none stated by the
-  source spec; `INFERENCE:` it needs none — it reads `kernel.tickets` without locking and writes only its own
-  derived aggregate, so it takes **no rank-5 lock and introduces no ordering obligation.** SSCAS: n/a — it is
-  **not** a member of the closed set and touches no money, custody or inventory row. Returns
-  `{ status ∈ {published, suppressed, discarded_churn_gate} }`.
+- **`venue.refresh_holder_mix(p_event_session_id)`** — **`EXEC: DEF`**, `pg_cron`. Reads the **declared read
+  set** the churn rule actually needs (demographics §5.4): `kernel.tickets`, `kernel.ticket_ownership_log`,
+  `venue.order`/`venue.order_item` (**zero/non-zero price test only**), `kernel.identity_demographic`,
+  `venue.holder_mix_snapshot`, `catalog.event_session`/`event`/`venue`, `catalog.platform_config`. **Does not
+  read** `venue.scan`, `venue.attribution`, `venue.ticket_type`, `public.profiles`, or any buyer identity.
+  **Algorithm, in order (H-6 remediation — the previous text named three of these seven):** resolve the
+  **R7-eligible** holder set — **comped and zero-price custody EXCLUDED**, because the privacy floors were
+  otherwise proved against a population the operator controls, *and comps cost nothing while the
+  `venue_manager` mints both the session and the comps* → compute `holders_total`, `holders_responded`,
+  **`holders_excluded_ineligible`**, raw bucket counts → **R1** event minimum → **R3** merge (the fully
+  determined procedure) → **R5** two-bucket / all-or-nothing → **R8** contributor-multiset churn gate, with
+  its distinct-identity limb → **R9** cross-session near-duplicate gate over every published snapshot
+  reachable by the same venue or org → persist. R2 is additionally a `CHECK` **on the table**; R4 by a writer
+  assertion **and** by `get_holder_mix`'s read-side re-derivation; R6 by `get_holder_mix`'s return shape.
+  **Writes** at most one snapshot (+ its buckets); **a discarded recomputation writes nothing**; publishing
+  un-publishes the prior one. **Writes no contributor multiset and no identity reference of any kind** — the
+  contributor set exists only inside the transaction. Locks: none — it reads `kernel.tickets` without locking
+  and writes only its own derived aggregate, so it takes **no rank-5 lock and introduces no ordering
+  obligation.** SSCAS: n/a — **not** a member of the closed set; touches no money, custody or inventory row.
+  Returns `{ status ∈ {published, suppressed, discarded_churn_gate, **discarded_near_duplicate**} }` — **to
+  `service_role` and the job log only; no client ever sees this value.**
+- **`venue.unpublish_holder_mix(p_event_session_id)` · `venue.unpublish_all_holder_mix()`** — **ADDED here**
+  (demographics §5.5 — the kill switch had no writer). Set `published_at = NULL` on the targeted snapshot(s);
+  **delete nothing**; write **one `kernel.admin_audit` row per invocation**, naming the actor and the count
+  affected. **`EXEC`: `service_role` / `platform_admin` step-up only; `REVOKE EXECUTE FROM anon,
+  authenticated`.** Locks: the targeted snapshot rows `FOR UPDATE`. SSCAS: n/a. Idempotent — a snapshot
+  already unpublished is not re-counted.
+  `INFERENCE:` these **do** write audit where the fan-side writes deliberately do not, and the asymmetry is
+  the point — an operator retracting a published aggregate is a privileged mutation with an actor; a fan
+  answering a question about themselves is not. **Unpublish rather than delete**, because deleting destroys
+  the evidence of what was shown, which is the one thing an incident review needs.
 - **`venue.get_holder_mix(p_event_session_id, p_dimension)`** — read. **Exactly two parameters, and that IS
   the contract.** No `as_of`, no ticket type, no promoter, no source, no date range, no scan status, no
   limit/offset, no ordering, no free-form filter. **Adding a third parameter is a design change requiring
@@ -2545,16 +2590,39 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   `has_venue_role(venue,['venue_manager','venue_marketing','venue_promoter_manager'])` OR
   `has_org_role_over_event(event,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`; **denied**
   to `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`,
-  `platform_support`, `platform_risk`, `fan`, `anon`. Returns **either** `{ suppressed: true, reason,
-  holders_total, holders_responded }` with **no bucket rows**, **or** `{ suppressed: false, as_of,
-  holders_total, holders_responded, buckets[] }` where the buckets **always sum to `holders_responded`** so
-  the residual is not computable. **Which projection you get is decided by the writer's suppression rules, not
-  by the reader.** Writes one audit row **per call**; rate-limited per principal, fail-closed. Locks: none.
-- **The nightly reconciliation job** — **`EXEC: DEF`**. Asserts the bucket-sum and per-bucket-floor invariants
-  across every published snapshot and alarms on violation, mirroring the C27 counter-vs-ledger discipline.
-  **`INFERENCE:` the source spec classifies this as a `NEW RPC` but never names it**, and its own assertion
-  list says "all five RPCs" while listing six. Named here **`venue.reconcile_holder_mix()`** so it can be
+  `platform_support`, `platform_risk`, `fan`, `anon`.
+  - **The suppressed branch is a CONSTANT — `{ suppressed: true }`, and nothing else (`AUTHZ-DEM1`(2),
+    R6).** No `reason`, no `holders_total`, no `holders_responded`, no `as_of`, no bucket rows. **This is the
+    single most important line in the contract.** The previous shape returned the **denominators** on a
+    suppressed snapshot, which lets a `venue_manager` **mint a throwaway session, comp one ticket to a
+    target, and read `holders_responded ∈ {0,1}` as that person's "did you answer" bit** — the exact
+    per-person proxy X-4 bans, reachable by the role that holds the card, at the cost of one comp. **The
+    suppressed branch must have no other fields to fill.**
+  - The published branch is `{ suppressed: false, as_of, holders_total, holders_responded, buckets:
+    [{bucket, holder_count}, …] }`, where the buckets **always sum to `holders_responded`** so the residual
+    is not computable. **Which branch you get is decided by the writer's suppression rules, never by the
+    reader.**
+  - **Read-side re-derivation, fail-closed — the second enforcement layer.** Before emitting the published
+    shape the function re-checks, **on the row it just read**: `holders_responded >= 25` (R1);
+    `min(holder_count) >= 5` (R2); `Σ holder_count = holders_responded` (R4); `count(buckets) >= 2` (R5);
+    `holders_responded <= holders_total`. **Any failure returns `{ suppressed: true }` and raises a
+    reconciliation alarm** — it never returns a partial or a corrected card. This layer is what makes a
+    writer bug, a hand-written `INSERT`, or a restored-from-backup row **fail closed at the read**.
+  - **Kill switch, read LIVE on every call.** `catalog.platform_config['demographics.holder_mix_enabled']`
+    false ⇒ `{ suppressed: true }` for every session regardless of stored state; a snapshot with
+    `published_at IS NULL` likewise. (The key is `restricted` under RLS §8.4 `AUTHZ-CFG1`; the function reads
+    it inside the definer, so no client policy applies.)
+  Writes one audit row **per call**; rate-limited per principal, fail-closed. Locks: none.
+- **`venue.reconcile_holder_mix()`** — the nightly reconciliation job, **`EXEC: DEF`**. Asserts R4
+  (`Σ buckets = holders_responded`) and R2 (`min(holder_count) >= 5`) across every published snapshot and
+  alarms on violation, mirroring the C27 counter-vs-ledger discipline.
+  **`INFERENCE:` the source spec classifies this as a `NEW RPC` but never names it.** Named here so it can be
   granted, tested and cited; flagged in §19 as authored, not transcribed.
+- **`D-14`, recorded because it bounds what the floor actually means.** **Five roles hold both the roster
+  read (`venue.list_attendees`) and the mix card** — `venue_manager`, `venue_marketing`, `org_owner`,
+  `org_admin`, `org_marketing`. For them the floor of 5 is *"a bound over five people the reader can
+  **name**"*. The floor remains the right control; the claim that it anonymises **against those five** is
+  weaker than against a stranger, and is stated rather than assumed (CRM K-19(6)).
 - **A consent rule that binds this document, not just the product.** **Widening who may see the aggregate — a
   new role, a new surface — requires a new `notice_version` and an in-app notice to everyone who has already
   answered.** Adding a role to `get_holder_mix`'s authority predicate is therefore an RLS/RPC change **with a
@@ -2569,20 +2637,66 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   set of functions writing `kernel.org_contact_consent` is exactly
   `{grant_org_contact_consent, withdraw_org_contact_consent}`, and **neither has a `uuid` parameter that could
   denote an identity.**
+- **Every one of the three writes ALSO appends one row to an append-only event log, in the SAME transaction
+  (`AUTHZ-CRM1`; CRM K-19(1)).** `kernel.identity_contact_pref_event` for the master switch,
+  `kernel.org_contact_consent_event` for the per-org consent.
+
+  > **Why the current-state rows are not sufficient, and why this is a correctness fix rather than
+  > bookkeeping.** The export's consent gate has four conjuncts, **two of them mutable** (the master switch
+  > and the per-org consent). §6.3 promises a build is **byte-identical on replay** and that per-export
+  > membership is therefore not stored. But a paged build evaluates its conjuncts once per page, so with no
+  > history it necessarily evaluates them **at inconsistent instants** — a fan who withdraws mid-build is in
+  > page 1 and out of page 9. That falsifies the determinism claim, assertion 22, and the whole reason
+  > membership is not persisted. The fix is `gate_as_of`, stamped at **claim** and re-stamped on re-claim
+  > (one instant per build), **which is only answerable if both mutable conjuncts are as-of evaluable** —
+  > hence the two logs. `INFERENCE:` the log is also what makes a **re-grant after a withdrawal**
+  > representable at all: the current-state row holds one `granted_at` and one `withdrawn_at`, so
+  > grant → withdraw → grant overwrites its own history — and that cycle belongs to the person who changed
+  > their mind, who is exactly the person the record exists to protect in the dispute they are most likely
+  > to have.
+  >
+  > **Both logs are AO, `REVOKE UPDATE, DELETE`, definer/`service_role` only, with an EMPTY client grant set
+  > and zero policies** (RLS §6, §16.6). A column grant on `kernel.org_contact_consent_event` to
+  > `authenticated` would publish a **timestamped history of who allowed which venue to email them and when
+  > they changed their mind** — strictly worse than the current-state table it derives from, which is why it
+  > inherits the same posture rather than a relaxed one on the grounds that it is *"just a log"*.
+  >
+  > **A no-op appends no event.** Re-granting an existing consent, re-withdrawing a withdrawn one, or setting
+  > a preference to the value it already holds is a no-op update and writes **no** log row — otherwise the
+  > log records a client's retry pattern rather than a person's decisions.
 - `set_my_contact_prefs(p_venue_email_contact)` — the master kill switch; value re-validated in-body against
-  the CHECK set; idempotent; audited (`crm_contact.pref_changed`); rate-limited per identity.
+  the CHECK set; **appends one `kernel.identity_contact_pref_event` row**; idempotent; audited
+  (`crm_contact.pref_changed`); rate-limited per identity.
 - `grant_org_contact_consent(p_org_id, p_notice_version, p_source_order_id)` — `p_org_id` untrusted and
-  re-validated as a live org; `p_notice_version` validated against the known list; sets `state='granted'`;
-  re-granting is a **no-op update**; audited; rate-limited.
-- `withdraw_org_contact_consent(p_org_id)` — sets `state='withdrawn'` and stamps `withdrawn_at`; idempotent
-  (`noop_replay` if already withdrawn). **Withdrawal is a state change, never a row deletion**; it takes
-  effect **immediately on every on-screen read and at the next export build** — a build whose `as_of`
+  re-validated as a live org; `p_notice_version` validated against the known list; sets `state='granted'`
+  **and appends one `kernel.org_contact_consent_event(…, 'granted', …)` row in the same transaction**;
+  re-granting is a **no-op update** appending no event; audited; rate-limited.
+- `withdraw_org_contact_consent(p_org_id)` — sets `state='withdrawn'`, stamps `withdrawn_at`, **and appends
+  one `…_event(…, 'withdrawn', …)` row in the same transaction**; idempotent (`noop_replay` if already
+  withdrawn, appending no event). **Withdrawal is a state change, never a row deletion**; it takes
+  effect **immediately on every on-screen read and at the next export build** — a build whose `gate_as_of`
   precedes the withdrawal is unaffected, **and that is the documented semantic, not an accident**.
+- **`D-3` / K-6, carried here because it is an obligation on a function outside this document:** a
+  contact-preference or contact-consent row **must never be repointed to migration 020's anonymized
+  sentinel.** The row cascades away with the account or it stays with the person; pointing a live consent at
+  the sentinel would make a deleted account appear to consent.
 - **Locks:** none for any of the five. **SSCAS:** n/a. **Result shapes** for the three write RPCs are
   `{ status }` / `{ status:'noop_replay' }` — **authored here; the source spec states idempotency but no
   result shape** (§19).
 
-### 17.22 CRM export — `venue.request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` · `sweep_expired_exports` · `venue.list_attendees` · `venue.lookup_attendee` — `NEW RPC` ×9
+### 17.22 CRM export — `venue.request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `claim_artifacts_for_purge` · `confirm_artifact_purged` · `reconcile_export_orphans` · `list_export_jobs` · `sweep_expired_exports` · `venue.list_attendees` · `venue.lookup_attendee` — `NEW RPC` ×12 — **CORRECTED (`AUTHZ-CRM2`)**
+
+> **The CRM surface is now EIGHTEEN contracts: the five own-row contact RPCs of §17.21 plus the twelve here,
+> plus `venue.assert_may_request` — the shared request/download predicate named below, which is a contract
+> because two functions must evaluate the SAME one or they drift.** The three purge contracts and the
+> template-scoped download are new; the count and the reasons are CRM K-9/K-15/K-16.
+>
+> **`AUTHZ-CRM2` — three signature-level defects, applied from the CRM pass's own remediation.**
+> 1. **`finalize_export` was TOLD the numbers that are the only evidence its gate ran.** Parameters removed.
+> 2. **`authorize_export_download` re-checked the ROLE SET and never the TEMPLATE** — so `org_marketing`
+>    could download a colleague's **operations** export: order refs, order totals, unit prices, refund state.
+> 3. **Nothing in the design could delete a Storage object.** Revoke, retention and the sweep all claimed to
+>    delete and had **no agent**. Three definer contracts supply one.
 
 - **`venue.request_export(p_scope_kind, p_scope_id, p_template_id, p_filters, p_command_key)`** — **DB-RPC**,
   the authorization and admission point. **Builds no data.** Authorizes per the two template allow-lists
@@ -2592,63 +2706,245 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   Validates the filter set against a **closed conjunctive grammar** (anything outside it raises; no OR, no
   NOT, no nesting, no demographic filter name). Enforces the size caps **at request**, so a too-large job
   fails immediately rather than after a five-minute build. Rate-limits **fail-closed**. **Freezes `as_of :=
-  now()`.** Writes the job row `queued` **and** the `crm_export.request` audit row **with
-  `constraint_set_version`** in the same transaction. Idempotent on `(auth.uid(), p_command_key)`. **Locks:**
-  none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
+  now()`.** **Resolves and freezes `org_id` — the job's org — from the scope object, in the same transaction
+  that authorized against it (XO-1a).** Writes the job row `queued` **and** the `crm_export.request` audit row
+  **with `constraint_set_version`** in the same transaction. Idempotent on `(auth.uid(), p_command_key)`.
+  **Locks:** none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
+  - **The authorization is `venue.assert_may_request(actor, scope_kind, scope_id, template_id)` — one
+    function, shared verbatim with `authorize_export_download`** (`AUTHZ-CRM2`(2)). Two functions evaluating
+    two copies of one allow-list is how the download check lost the template.
+  - `INFERENCE:` **freezing `org_id` here rather than resolving it at build time is not tidiness.**
+    Authorization resolved the scope's org at request; a build-time re-resolution could read a **different**
+    org for the same venue, because **`catalog.venue.org_id` is mutable while `catalog.event.org_id` is
+    stamped at create**. A job must be built against the org it was **authorized** against, or the
+    authorization proved something about a tenancy that no longer holds — which is the venue-grain leak at a
+    re-operated venue (H-11).
 - **`venue.build_export_rows(p_job_id, p_cursor, p_limit)`** — **`EXEC: DEF`**; `REVOKE EXECUTE FROM anon,
   authenticated`, **no human path**. **Re-derives authority from the job row's recorded actor and scope, not
   from the caller.** One bounded page, at the job's frozen `as_of`, in a **deterministic, demographic-free
   order** so two builds of the same job are byte-identical. **This function is the entire SQL surface that
   touches customer data**, and it **contains no dynamic SQL** (`T-RPC-CRM-02`: no `EXECUTE`, no `format(`, no
   `quote_ident(`). **Locks:** none. **Never logs a row.**
-- **`venue.finalize_export(...)`** — **`EXEC: DEF`**; `running → ready`, records `row_count`, `byte_count`,
-  `sha256`, `object_path`, and the emitted/suppressed contact-cell counts; writes `crm_export.generate`.
-  Idempotent. Every `generate` row carries a non-null `constraint_set_version`, and
-  `cells_emitted + cells_suppressed` must equal the holder row count on every `ready` job.
+  - **It ACCUMULATES the four gate counters on the job row, page by page, inside the definer** — incremented
+    by the code that evaluates each cell, not by code that is told the verdict (`AUTHZ-CRM2`(1)). This is
+    where `finalize_export`'s numbers come from.
+  - **The consent gate is evaluated at `gate_as_of`, ONE instant for the whole build** — stamped at claim,
+    re-stamped on re-claim — read from the two append-only event logs of §17.21. A paged build that
+    re-evaluates the two mutable conjuncts per page evaluates them at **inconsistent instants**, which
+    falsifies the byte-identical-replay property that is the entire reason per-export membership is not
+    stored.
+  - **`emit_name := emit_email` — ONE predicate driving BOTH cells** (CRM K-18). `display_name` was
+    previously emitted **on every row of every export at every org, ungated by consent**, from the one global
+    `public.profiles.display_name` string — so two orgs union their files on it directly and corroborate with
+    admission time, ticket types and acquisition route. **The per-org HMAC `customer_ref` removes the
+    platform-supplied *stable* join key and nothing else** — that is the corrected claim, and the deleted one
+    (*"the non-consenting majority … is unjoinable"*) must not be cited from an older copy.
+    `display_name` **stays ungated on screen**, in the single-record lookup and in the door projection, where
+    a surface cannot be unioned with another org's. `name_cells_emitted`/`name_cells_suppressed` join the
+    counter pair; the legend covers both columns.
+  - **XO-1a is this function's FIRST predicate, on every branch.** Every grain — `session`, `event`, `venue`,
+    `org` — ANDs **`kernel.tickets.org_id = job.org_id`**, read from the job row and **never re-derived**.
+    The `customer_ref` HMAC key is `org_customer_key(job.org_id)` and the consent gate's `EXISTS` binds
+    `org_id = job.org_id`. `INFERENCE:` **these three must move together.** If a future refactor takes any
+    one of them from the **atom** instead of the **job**, the venue-grain export at a re-operated venue leaks
+    the prior operator's list — and, for the HMAC, **two orgs get the same pseudonym for the same person,
+    joining their files directly**, which is the opposite of what the pseudonym exists to do.
+- **`venue.finalize_export(p_job_id, p_row_count, p_byte_count, p_sha256, p_object_path)`** — **`EXEC: DEF`**;
+  `running → ready`; writes `crm_export.generate`. Idempotent. Every `generate` row carries a non-null
+  `constraint_set_version`.
+
+  > **The gate counters are GONE from this signature, and that is the point (`AUTHZ-CRM2`(1); CRM K-19(3)).**
+  > They were `p_cells_emitted, p_cells_suppressed` — **worker-supplied parameters** — for numbers the source
+  > spec calls *"the only evidence the consent gate ran on this export."* **Evidence the caller hands you is
+  > not evidence about the caller.** A worker that skipped, mis-evaluated or short-circuited the gate would
+  > report whatever counts it liked, and every downstream check — the audit row, the auditor's query,
+  > assertion 13 — would agree with it. Instead:
+  > - **`venue.build_export_rows` accumulates the four counters on the job row, page by page, INSIDE the
+  >   definer**, in the same statement that decides each cell. The counter is incremented by the code that
+  >   **evaluates** the gate, never by code that is **told** what the gate decided.
+  > - **`finalize_export` reads them from the job row and copies them into the audit payload. It cannot be
+  >   told them.** The contract and the audit payload therefore agree by construction rather than by
+  >   convention — there is no second source for the number.
+  > - **It cross-checks `p_row_count` against the DB-side accumulated row count and raises `count_mismatch`
+  >   on disagreement**, leaving the job reclaimable. `cells_emitted + cells_suppressed = row_count` is then
+  >   an invariant over two independently-derived numbers rather than an identity the worker can satisfy by
+  >   arithmetic.
+  > - **The worker still supplies `byte_count`, `sha256` and `object_path`** — those are facts about the
+  >   *artifact*, which only the worker can observe, and they are **not** evidence that a **database**
+  >   predicate ran. `artifact_sha256` stays useful: it proves which bytes were produced and is checkable
+  >   against the object if a dispute needs it.
+  > - **The blank-column canary, because "zero rows" and "nobody consented" are indistinguishable in the
+  >   output.** A `ready` job with `contact_cells_emitted = 0` **and** `contact_cells_suppressed = row_count`
+  >   raises a `platform_risk` signal. `INFERENCE:` `cells_emitted + cells_suppressed = row_count` **balances
+  >   perfectly at `cells_emitted = 0`**, so the invariant alone detects nothing; only a positive assertion
+  >   separates a gate that never emitted from a gate that never ran.
 - **`venue.authorize_export_download(p_job_id)`** — **re-checks the caller's authority LIVE against the grant
-  tables at this instant**, so an export prepared before a revocation **fails after it**. Raises on any state
-  but `ready`. Writes the `crm_export.download` audit row **in-txn, before the URL is returned**, and returns
-  `{ object_path, ttl_seconds: 300 }` for the edge to sign. **Known over-report, stated rather than hidden:**
-  if the network then fails, the audit says a download happened when no bytes arrived. **The audit records
-  that a URL was issued, not that bytes reached a laptop** — and that is the honest reading of every row in
-  it. **Locks:** none.
+  tables at this instant**, so an export prepared before a revocation **fails after it** (EX-4). Raises on any
+  state but `ready`. Rate-limited. Writes the `crm_export.download` audit row **in-txn, before the URL is
+  returned**, and returns `{ object_path, ttl_seconds: 300 }` for the edge to sign. **Locks:** none.
+
+  > **The re-check is over `(scope, template_id)` — NOT over the role set — and that one predicate is the
+  > whole finding (`AUTHZ-CRM2`(2); CRM K-15 / H-12).**
+  >
+  > ```text
+  > -- WRONG (what this contract specified — it did not mention template_id at all):
+  > --   caller still holds one of {org_owner, org_admin, org_marketing,
+  > --                              venue_manager, venue_marketing} over job.scope
+  > -- RIGHT:
+  >    venue.assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id)
+  >    -- the SAME predicate a fresh request for that (scope, template) would face:
+  >    --   audience_v1   → org_owner, org_admin, org_marketing (org grain),
+  >    --                   venue_manager, venue_marketing (venue grain)
+  >    --   operations_v1 → org_owner, org_admin, venue_manager  ONLY
+  > ```
+  >
+  > **The concrete break.** `org_marketing` holds X10 (read export history), so it can see a colleague's
+  > `job_id`; it holds a marketing-class role over the scope, so a **role-set** re-check passes; and it
+  > downloads an **`operations_v1`** file — order refs, order totals, **unit prices**, refund state. The
+  > stated invariant *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees
+  > both."* is then defeated by **any org that ever ran one operations export, without a single grant being
+  > wrong.**
+  >
+  > **Two supporting rules so the fix cannot be undone from the side.** (a) The `◐` on X8/X9 in the CRM
+  > matrix is **defined, not decorative**: it means *"jobs whose `template_id` that role may request"* — for
+  > both marketing labels, `audience_v1` only — and the same reading applies to **revoke**. (b)
+  > **`venue.assert_may_request` is one function, called by both `request_export` and this one**, and
+  > assertion 24b is stated as an **equality between the request and download predicates** so the two cannot
+  > drift.
 - **`venue.revoke_export(p_job_id, p_reason_code)`** — the requester, plus `venue_manager` / org owner-admin
   over the job's scope, plus **`platform_admin`** — the one export-lifecycle write a platform role holds,
-  because **revoking is not extraction**. `ready → revoked`; signals the edge to delete the artifact; audited;
-  idempotent.
-- **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — scope-checked. **Job metadata only —
-  never a row, never an object path, never a signed URL.**
-- **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. Deletes artifacts past
-  `expires_at` (`ready → expired`), then `expired → purged` past `purge_after`; one audit row per transition.
-- **`venue.list_attendees(p_session_id, p_filters, p_cursor)`** — the holder-grain roster read (dashboard Δ3).
-  Four authority branches (venue/org **operations**, venue/org **marketing**, venue/org **finance** for the
-  money-only projection, and platform), **column-scoped by role — and denied classes are ABSENT from the
-  result shape, not null.** Filters validated against the same closed grammar. Rate-limited. **Audited on
-  every page.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both
+  because **revoking is not extraction** — and, per `AUTHZ-CRM2`(2), **template-scoped for both marketing
+  labels**. `ready → revoked` **in the same transaction, so no further download is authorized from that
+  instant**; sets `artifact_state = 'delete_pending'`; audited; idempotent.
+  **It does not delete the object.** The previous contract said it *"signals the edge to delete"*, which
+  named no mechanism — **there was no delete route to signal.** The honest bound on revoke is
+  **`min(300 s, time-to-purge)`**, not zero.
+- **`venue.claim_artifacts_for_purge(p_limit int)`** — **`EXEC: DEF`**; `REVOKE EXECUTE FROM anon,
+  authenticated`. Takes the 064 claim lease over a bounded page of jobs in `artifact_state='delete_pending'`
+  and returns `(job_id, object_path)` for the purge route. **Returns nothing else — no scope, no counts, no
+  actor.** Idempotent under the lease. Locks: the claimed job rows `FOR UPDATE SKIP LOCKED`.
+- **`venue.confirm_artifact_purged(p_job_id, p_outcome)`** — **`EXEC: DEF`**. `p_outcome ∈ {deleted,
+  not_found}` — **both are success**; a 404 from Storage means the object is gone, which is the goal. Sets
+  `artifact_state='deleted'`, advances `ready → expired → purged` where retention allows, writes
+  `crm_export.purge`. Idempotent.
+- **`venue.reconcile_export_orphans(p_org_id, p_object_paths text[])`** — **`EXEC: DEF`**, daily. Given the
+  paths the purge route listed under one `{org_id}/` prefix, returns those with no live job row or whose job
+  claims the artifact is already gone (the route deletes those), and marks `artifact_state='deleted'` for job
+  rows whose object is absent — **alarming when such a job is still `ready`**, because a `ready` job with no
+  bytes fails at download.
+  > **Why a definer function cannot do the deleting, stated so nobody re-proposes it.** A `SECURITY DEFINER`
+  > Postgres function **cannot call the Storage API**, and its only in-DB option — `DELETE FROM
+  > storage.objects` — **drops the metadata row and orphans the bytes**, which is worse than doing nothing:
+  > the object survives while every accounting says it is gone. The bytes are deleted by `POST /purge` on the
+  > `crm-export` edge function, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034. **The
+  > reconciliation runs in BOTH directions** — without it the 24-hour retention bound is a statement about
+  > **rows**, and rows are not what leaks.
+- **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — scope-checked per X10. **Job metadata
+  only — never a row, never an object path, never a signed URL** — **including `template_id` and a
+  `downloadable` boolean computed with `authorize_export_download`'s own predicate**, so the panel never
+  renders a download control the RPC will refuse. **The list itself stays role-scoped rather than
+  template-scoped**: seeing *that* an operations export happened is export-history transparency and is
+  deliberate; downloading it is not.
+- **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. **MARKS** artifacts past
+  `expires_at` as `artifact_state='delete_pending'` and moves `ready → expired`; `expired → purged` once
+  `artifact_state='deleted'` and `purge_after` has passed; one audit row per transition. **It deletes no
+  bytes** — the purge route does. The previous contract said *"deletes artifacts"*, which a Postgres function
+  cannot do.
+- **`venue.list_attendees(p_session_id, p_filters, p_cursor, p_reason_code)`** — the holder-grain roster read
+  (dashboard Δ3). Four authority branches (venue/org **operations**, venue/org **marketing**, venue/org
+  **finance** for the money-only projection, and platform), **column-scoped by role — and denied classes are
+  ABSENT from the result shape, not null.** Filters validated against the same closed grammar. Rate-limited.
+  **Audited on every page.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both
   promoter-manager labels, `org_member`, `fan`, `anon`. **Locks:** none.
+  - **`p_reason_code` is REQUIRED and non-empty when the authority that resolved is the PLATFORM branch, and
+    ignored on the venue/org branches** (`AUTHZ-M12`, CRM K-19(4)). A **closed enum** — `support_ticket` ·
+    `risk_investigation` · `incident` · `data_subject_request` — plus an optional ticket reference. **Free
+    text is not accepted.** Recorded in the audit row with the session id. *A platform read of a venue's
+    attendees is an investigation, and an investigation has a reason; the venue/org arms are routine
+    operations and do not.*
+  - **The platform branch is separately limited and capped**, because it was the only branch with no scope
+    object: `attendee_list_page_platform` at **40/hour and 200/24 h per actor**, plus a **20-distinct-session
+    cap per 24 h**. Its audit action is **`crm_lookup.platform_roster`, distinct from the venue action**, so
+    a platform read never disappears into a venue's page-view volume. `platform_support` is limited to the
+    operations projection and holds **no** contact columns. **This is a throttle and a record, not the
+    dual-controlled platform extraction path `MD-8` declines to build.**
+  - **XO-1a applies here too.** The org resolved during authorization is the operand of
+    `kernel.tickets.org_id = :org_id`, of the `customer_ref` HMAC key, and of the consent gate — **resolved
+    once, in the same statement that authorized, and used for all three.** A roster read at a re-operated
+    venue therefore shows the current operator's own sessions and none of the prior operator's, exactly as
+    the export does; **the two surfaces must agree or the export becomes the narrow one and the screen
+    becomes the leak.**
 - **`venue.lookup_attendee(p_session_id, p_query_kind, p_query_value)`** — **one record**, service context.
   `p_query_kind ∈ {email_exact, order_ref, name_prefix}`. `venue_manager`, `venue_box_office`, org
-  owner/admin, `platform_support`; **denied to both marketing labels.** Rate-limited hard on `email_exact`.
-  **Audited with the query KIND only, never the value** — *logging a probed address would build the harvest
-  list inside our own audit.* Email is **not** an export filter, **not** a bulk match key, and **not** a
-  suppression key: there is no "upload a list and tell me who's coming" surface, in any form.
+  owner/admin, `platform_support`; **denied to both marketing labels.**
+  - **Rate-limited per actor AND per org, for EVERY `query_kind`** (CRM K-17 / H-14) — not *"hard on
+    `email_exact`"*, which is what this contract said and which **left `name_prefix` limited by nothing at
+    all**. Limits are looked up by `(action = 'attendee_lookup_by_' || p_query_kind, actor)` and
+    `(…, org)`, so **a `query_kind` with no configured limit RAISES rather than passes** — the fail-closed
+    posture 021 established for the limiter, applied to the limiter's own configuration.
+  - **`name_prefix` additionally:** `length(trim(p_query_value)) >= 3`, else `prefix_too_short`, **raised
+    before the lookup and WITHOUT consuming the rate budget** (the call reached no data; charging for it
+    makes the limiter a denial-of-service against the box office). **More than one match raises
+    `ambiguous_query`, returning no rows and NO COUNT** — not a count, not a truncated list, not the first
+    result, not *"3 matches — refine your search"*. **A count is the harvest:** `"sm"` → 14 and `"smi"` → 9
+    reconstruct the roster's name distribution without ever returning a record.
+    `INFERENCE:` `venue_box_office` holds the lookup, so before this limit an operator could iterate
+    `a…z`, `aa…zz` against one session and **reassemble, one record at a time and at no rate cost, the
+    printed list the design explicitly refuses to give it.**
+  - **Audited with the query KIND and OUTCOME, never the value** — `crm_lookup.attendee` records
+    `(actor, session, query_kind, outcome ∈ {hit, no_match, ambiguous, rate_limited, prefix_too_short})`.
+    *Logging a probed address would build the harvest list inside our own audit.* **`ambiguous` and
+    `rate_limited` are the load-bearing outcomes** — a run of them is the signature of an alphabet sweep and
+    the **only** evidence of one, since the probed strings are deliberately never stored.
+  - Email is **not** an export filter, **not** a bulk match key, and **not** a suppression key: there is no
+    "upload a list and tell me who's coming" surface, in any form.
 - **The two structural rules that keep the whole surface honest.** (1) **Platform roles read the roster and do
   NOT use the venue CRM export** — see RLS §11.6 for the full resolution; **platform bulk extraction is not
   built in Phase 2.** (2) **Finance sees money and no contact; marketing sees contact and no money; neither
   sees both.** Only `venue_manager`, `org_owner` and `org_admin` hold the union, which is why the operations
   template's allow-list is the narrowest in the document.
-- **Layer-0 note (owner decision, RLS MD-2).** The least-privilege shape gives `build_export_rows` a **narrow
-  owner role** (`crm_export_builder`) granted `SELECT` on exactly the roster relations and the two contact
-  tables, with **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. It
-  then needs explicit permissive policies naming that role (RLS §16.10). **`BYPASSRLS` is not an acceptable
-  shortcut — it would restore access to everything and delete the entire benefit.**
+- **Layer-0 note (owner decision, RLS MD-2) — and the grant set as previously sketched RETURNS ZERO ROWS.**
+  The least-privilege shape gives `build_export_rows` a **narrow owner role** (`crm_export_builder`) with
+  **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. That role is
+  **not** the table owner and holds no `BYPASSRLS`, so **it is subject to RLS on every relation it reads**,
+  and the two relations that decide whether a contact cell may be emitted at all carry **zero policies by
+  design**. Three things must therefore ship together, and the full ruling is RLS §16.10 `AUTHZ-M11`:
+  (a) `SELECT` on the ten enumerated roster/contact relations **plus `kernel.org_contact_consent_event` and
+  `kernel.identity_contact_pref_event`** (the `gate_as_of` reads); (b) a **column-scoped**
+  `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — free under a `postgres` owner, a grant that
+  must exist under a narrow one, and column-scoped so the builder cannot read `encrypted_password`,
+  `raw_user_meta_data` or the recovery tokens; (c) one permissive `<schema>_<table>_sel_svc_export` policy per
+  relation.
+  **Without (c) the builder reads zero rows — silently, because RLS filters rather than raising — and every
+  export ships a blank contact column that reads as *"nobody consented."*** The blank-column canary above is
+  what tells the two apart. **`BYPASSRLS` is not an acceptable shortcut — it would restore access to
+  everything and delete the entire benefit.** **If `MD-2` resolves the other way and the builder stays
+  `postgres`-owned, none of (a)–(c) is built** — the two shapes are mutually exclusive, and **shipping the
+  role without the policies is the one combination that is silently wrong.**
 - **Tests.** `T-RPC-CRM-03` (a `venue_marketing` at V1 of Org 1 is denied at V2 of the same org;
   `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue) · `T-RPC-CRM-04` (a job exceeding the
   row cap ends `failed` and **writes no artifact — it never truncates**) · `T-RPC-CRM-05` (two builds of the
   same job produce byte-identical output and the same hash) · `T-RPC-CRM-06` (**reader enumeration**: no
   export function's definition matches a demographic relation, **with a non-vacuity guard proving the
-  assertion can see all nine export functions**) · `T-RPC-CRM-07` (no audit row's payload contains an `@` in
-  a value position, an `org_customer_key`, or a `customer_ref`).
+  assertion can see all twelve export functions**) · `T-RPC-CRM-07` (no audit row's payload contains an `@`
+  in a value position, an `org_customer_key`, or a `customer_ref`) ·
+  **`T-RPC-CRM-08`** (`AUTHZ-CRM2`(1): `finalize_export` **has no `p_cells_emitted`/`p_cells_suppressed`
+  parameter** — asserted structurally over `pg_proc.proargnames`, because a parameter that is *ignored* is
+  a parameter a future refactor re-honours; and a worker `p_row_count` disagreeing with the accumulated count
+  raises `count_mismatch` and leaves the job reclaimable) ·
+  **`T-RPC-CRM-09`** (`AUTHZ-CRM2`(2): an `org_marketing` holding a valid `job_id` for an **`operations_v1`**
+  export over a scope it does hold a marketing role on is **refused at download** — the fixture must use a
+  role that *passes* the role-set check, or the test passes against the broken predicate) ·
+  **`T-RPC-CRM-10`** (the request predicate and the download predicate are the **same function**, asserted as
+  an equality rather than by two independent role lists) ·
+  **`T-RPC-CRM-11`** (`AUTHZ-CRM2`(3): a revoked job reaches `artifact_state='deleted'`, and the daily
+  reconciliation flags **both** directions — a bucket object with no job row, and a `ready` job with no
+  object) ·
+  **`T-RPC-CRM-12`** (`p_reason_code` absent on the **platform** branch of `list_attendees` is refused; the
+  reason lands in the audit row with the session id; the platform limiter trips **before** the venue limiter
+  would have; **the venue branch is unaffected by an absent reason code**) ·
+  **`T-RPC-CRM-13`** (a `name_prefix` lookup of 2 characters raises `prefix_too_short` **and consumes no rate
+  budget**; a 3-character prefix matching two holders raises `ambiguous_query` **carrying no count**).
 
 ### 17.23 Apple Wallet — `kernel.mint_wallet_pass` + twelve — `NEW RPC` ×13
 
@@ -2862,17 +3158,19 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Door — freeze set** | `T-RPC-DOOR-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `T-RPC-DOOR-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `T-RPC-DOOR-07` (compensate succeeds, complete refused) · `T-RPC-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
 | **Door — lifecycle** | `T-RPC-DOOR-09` (drained atom scans) · `T-RPC-DOOR-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (re-open leaves `door_open_at` byte-identical) · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) · `T-RPC-DOOR-13` (override expires with no sweep having run) · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RPC-DOOR-15` / `T-RPC-DOOR-16` (delta log) | §17.10–§17.13 |
 | **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
+| **Approval integrity** | `T-RPC-AUTHZ-08` (the set of functions inserting `kernel.approval_request` is **exactly** three — the enumeration the accepted no-FK residual rests on) · `T-RPC-AUTHZ-09` (a vanished `subject_id` resolves to **`stale`** on approval, holds released, no money row) | **§17.0a** `APPR-SUBJ-1/2` |
 | **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) | §1.1–§1.1d |
 | **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
 | **Promoter** | `T-RPC-PROMO-01..11` | §17.15–§17.19 |
-| **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `-02` (`get_holder_mix` arity is 2) | §17.20 |
-| **CRM** | `T-RPC-CRM-01..07` | §17.21–§17.22 |
+| **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `T-RPC-DEMO-02` (`get_holder_mix` arity is 2) · **`T-RPC-DEMO-03`** (`AUTHZ-DEM1`(1): `set_my_demographics` and `clear_my_demographics` write **zero** rows to `kernel.admin_audit` — asserted over the audit table, not over the function text) · **`T-RPC-DEMO-04`** (`AUTHZ-DEM1`(2): the suppressed branch returns `{suppressed:true}` and **no other key** — asserted over the result's key set, because a NULL denominator is still a denominator) · **`T-RPC-DEMO-05`** (the read-side re-derivation fails closed on a hand-written sub-floor row) | §17.20 |
+| **CRM** | `T-RPC-CRM-01..13` | §17.21–§17.22 |
 | **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
 | **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
 | **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `T-RPC-GLOBAL-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `T-RPC-GLOBAL-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `T-RPC-GLOBAL-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
 
-**Ids, not rows (`G-22`).** The twelve group rows above enumerate **70 distinct ids**
-(4+4+8+14+5+4+11+2+7+3+4+4). A CI plan provisioned from the row count under-provisions by 58. Every suffix
+**Ids, not rows (`G-22`).** The thirteen group rows above enumerate **83 distinct ids**
+(4+4+8+14+2+5+4+11+5+13+3+4+4) — the demographics group grew from 2 to 5 (`AUTHZ-DEM1`), CRM from 7 to 13
+(`AUTHZ-CRM2`), and the approval-integrity group is new (`APPR-SUBJ-1/2`). A CI plan provisioned from the row count under-provisions by 58. Every suffix
 above is written as a full id (`G-23`), so a harness grepping for `T-RPC-` finds all of them.
 
 #### 18.1 §20 additions — the set-closure register

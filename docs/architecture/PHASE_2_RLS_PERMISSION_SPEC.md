@@ -582,6 +582,8 @@ GRANT and served (if at all) via a scoped RPC. Implements Phase-0 column-scoped 
 | `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` | **none** | entire table → `venue.get_holder_mix()` (role- and scope-checked) |
 | `kernel.identity_contact_pref` | **none** | entire table → `kernel.get_my_contact_prefs()` (own row) |
 | `kernel.org_contact_consent` | **none** | entire table → `kernel.list_my_org_contact_consents()` (own rows); the export build-time gate is definer-internal |
+| `kernel.org_contact_consent_event` *(NEW — `AUTHZ-CRM1`)* | **none** | definer / `service_role` only. **AO, `REVOKE UPDATE, DELETE`.** Read only by the export's consent gate evaluating at `gate_as_of`; written only by `grant_/withdraw_org_contact_consent`. `INFERENCE:` a column grant here to `authenticated` would publish a **timestamped history of who allowed which venue to email them and when they changed their mind** — strictly worse than the current-state table it derives from, which is why it inherits the same posture rather than a relaxed one on the grounds that it is *"just a log"* |
+| `kernel.identity_contact_pref_event` *(NEW — `AUTHZ-CRM1`)* | **none** | definer / `service_role` only. **AO, `REVOKE UPDATE, DELETE`.** Read only by the consent gate; written only by `set_my_contact_prefs` |
 | `kernel.org_customer_key` | **none** | definer / `service_role` only; **no human role, including `platform_admin`** |
 | `venue.export_job` | **none** | entire table → `venue.list_export_jobs()` (role- and scope-checked) |
 | `venue.promoter_code` · `promoter_code_scope` | **none** | org/venue back office reads own-org rows; **promoter reads own codes only** (§9.17) |
@@ -2116,10 +2118,38 @@ an operator-precedence accident.
 | `venue.request_export` — **operations** template (adds money columns) | `has_org_role([org_owner, org_admin])` · `has_venue_role([venue_manager])` **only** — the narrowest allow-list in this document. Finance sees money and no contact; marketing sees contact and no money; **only these three hold the union** |
 | **`venue.build_export_rows`** | **`DEF`** — `REVOKE EXECUTE FROM anon, authenticated`, **no human path**. Re-derives authority from **the job row's recorded actor and scope**, not from the caller. Contains **no dynamic SQL** |
 | **`venue.finalize_export`** | **`DEF`** |
-| `venue.authorize_export_download` | the X8 set (`org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`), **re-checked live against the grant tables at this instant** — an export prepared before a revocation fails after it. 300-second signed URL |
-| `venue.revoke_export` | the requester · `has_venue_role([venue_manager])` / `has_org_role([org_owner, org_admin])` over the job's scope · `is_platform([platform_admin])` (**the one export-lifecycle write a platform role holds — revoking is not extraction**) |
-| `venue.list_export_jobs` | `has_org_role([org_owner, org_admin, org_marketing])` · `has_venue_role([venue_manager, venue_marketing])` · `is_platform([platform_support, platform_risk, platform_admin])`. **Job metadata only — never a row, never an object path, never a signed URL** |
-| **`venue.sweep_expired_exports`** | **`DEF`** — `pg_cron` hourly |
+| `venue.authorize_export_download` | **`venue.assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id)` — the SAME predicate a fresh request for that `(scope, template)` would face**, re-checked live against the grant tables at this instant (an export prepared before a revocation fails after it). **NOT the role set** — see `AUTHZ-M13`. 300-second signed URL |
+| `venue.revoke_export` | the requester · `has_venue_role([venue_manager])` / `has_org_role([org_owner, org_admin])` over the job's scope · `is_platform([platform_admin])` (**the one export-lifecycle write a platform role holds — revoking is not extraction**) · **both marketing labels template-scoped, per `AUTHZ-M13`** |
+| **`venue.claim_artifacts_for_purge` · `venue.confirm_artifact_purged` · `venue.reconcile_export_orphans`** *(NEW — `AUTHZ-M14`)* | **`DEF`** — `REVOKE EXECUTE FROM anon, authenticated`, **no human path**. The agent behind revoke, retention and the sweep, all three of which previously claimed to delete an artifact and **had none**: a `SECURITY DEFINER` Postgres function cannot call the Storage API, and its only in-DB option (`DELETE FROM storage.objects`) drops the metadata row and **orphans the bytes** — worse than doing nothing, because the object survives while every accounting says it is gone. `claim` takes the 064 lease and returns `(job_id, object_path)` and **nothing else**; `confirm` treats `not_found` as success; `reconcile` runs **daily and in both directions** — *without it the 24-hour retention bound is a statement about rows, and rows are not what leaks* |
+| `venue.list_export_jobs` | `has_org_role([org_owner, org_admin, org_marketing])` · `has_venue_role([venue_manager, venue_marketing])` · `is_platform([platform_support, platform_risk, platform_admin])`. **Job metadata only — never a row, never an object path, never a signed URL** — **plus `template_id` and a `downloadable` boolean computed with `authorize_export_download`'s own predicate**, so the panel never renders a control the RPC will refuse. **The list stays role-scoped, not template-scoped**: seeing *that* an operations export happened is export-history transparency (X10) and is deliberate; downloading it is not |
+| **`venue.sweep_expired_exports`** | **`DEF`** — `pg_cron` hourly. **It MARKS `delete_pending` and moves `ready → expired`; it deletes no bytes** (`AUTHZ-M14`) |
+
+> **`AUTHZ-M13` — THE DOWNLOAD RE-CHECK READ THE ROLE SET AND NEVER THE TEMPLATE, AND THE TWO ALLOW-LISTS
+> ARE NOT THE SAME SET.** *(CRM K-15 / H-12.)*
+>
+> **The defect.** The download re-check was specified as *"the caller still holds one of {`org_owner`,
+> `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`} over `job.scope`"* — the **audience**
+> allow-list — and **`template_id` was not mentioned at all.** But the **operations** allow-list two rows
+> above is the narrowest in this document (`org_owner` · `org_admin` · `venue_manager` only), because that
+> template adds order refs, order totals, **unit prices** and refund state.
+>
+> **The concrete break.** `org_marketing` holds **X10** (read export history), so it can see a colleague's
+> `job_id`. It holds a marketing-class role over the scope, so the **role-set** re-check passes. It downloads
+> an **`operations_v1`** file. §11.6's own stated invariant — *"Finance sees money and no contact. Marketing
+> sees contact and no money. Neither sees both."* — **is then defeated by any org that ever ran one
+> operations export, with no grant being wrong and nothing in any audit looking unusual.**
+>
+> **The fix, and the two rules that stop it being undone from the side.**
+> 1. **One predicate, `venue.assert_may_request(actor, scope_kind, scope_id, template_id)`**, called by
+>    **both** `venue.request_export` and `venue.authorize_export_download`. Not two copies of one allow-list —
+>    two copies is how the template went missing. `T-RLS-CRM-05` asserts the two call sites resolve to the
+>    **same** function, an equality rather than two role lists that must be kept in step by hand.
+> 2. **The `◐` on X8/X9 is DEFINED, not decorative:** it means *"jobs whose `template_id` that role may
+>    request"* — for both marketing labels, **`audience_v1` only** — and the same reading applies to
+>    **revoke** (X9), which is why the `revoke_export` row above carries it too.
+> **`T-RLS-CRM-06`:** an `org_marketing` **that passes the role-set check** on the scope is refused the
+> download of an `operations_v1` job. The fixture must use a role that passes the old check, or the test
+> passes against the broken predicate and proves nothing.
 
 > **PLATFORM ROLES READ THE ROSTER; THEY DO NOT USE THE VENUE CRM EXPORT.** This closes a live conflict:
 > the role-model matrix (F12) marks `platform_risk`/`platform_admin` `A` on bulk attendee list/export, while
@@ -2169,8 +2199,9 @@ an operator-precedence accident.
 |---|---|
 | `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` | `authenticated`, **own row only**. All three are **parameterless or carry no identity parameter of any type** — "read someone else's row" must be *inexpressible*, not merely denied. There is **no staff write path and no `admin_set_demographics`** |
 | `venue.get_holder_mix` | `has_venue_role(venue,[venue_manager, venue_marketing, venue_promoter_manager])` OR `has_org_role_over_event(event,[org_owner, org_admin])` OR `is_platform([platform_admin])`. Denied: `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon`. **Exactly two parameters — adding a third is a design change requiring privacy re-review, not a routine enhancement** (it is the differencing-attack contract) |
-| **`venue.refresh_holder_mix`** · the nightly rollup-reconciliation job | **`DEF`** — `pg_cron`; `REVOKE EXECUTE FROM anon, authenticated` |
-| `kernel.get_my_contact_prefs` · `set_my_contact_prefs` · `list_my_org_contact_consents` · `grant_org_contact_consent` · `withdraw_org_contact_consent` | `authenticated`, **own rows only**. **No `p_identity_id` parameter exists anywhere** — a venue can never record a contact consent on a fan's behalf |
+| **`venue.refresh_holder_mix`** · **`venue.reconcile_holder_mix`** (the nightly rollup reconciliation) | **`DEF`** — `pg_cron`; `REVOKE EXECUTE FROM anon, authenticated` |
+| **`venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix`** *(NEW — the §5.5 kill switch's writers, which had none)* | **`service_role` / `is_platform([platform_admin]) with step-up` only**; `REVOKE EXECUTE FROM anon, authenticated`. Set `published_at = NULL`; **delete nothing**; **one `kernel.admin_audit` row per invocation** naming the actor and the count affected. **No venue or org role holds this** — a venue retracting its own published aggregate mid-incident is not the control; a platform kill switch is. `INFERENCE:` they write audit where the fan-side demographics RPCs deliberately write none, and **the asymmetry is the point** — an operator retracting a published aggregate is a privileged mutation with an actor; a fan answering a question about themselves is not |
+| `kernel.get_my_contact_prefs` · `set_my_contact_prefs` · `list_my_org_contact_consents` · `grant_org_contact_consent` · `withdraw_org_contact_consent` | `authenticated`, **own rows only**. **No `p_identity_id` parameter exists anywhere** — a venue can never record a contact consent on a fan's behalf. **Each of the three writes appends one row to an append-only event log in the same transaction** (`AUTHZ-CRM1`, §16.6): without it the export's consent gate is not as-of evaluable and the build is not replayable. **A no-op appends no event** |
 | `kernel.mint_wallet_pass` | `authenticated`; authorizes `kernel.tickets.current_owner_id = auth.uid()` **in-body, live-read** (C35/I-5). Gated on `config('wallet.apple.enabled')`, and **the kill switch is not role-bypassable** — `platform_admin` also gets `wallet_disabled` |
 | `kernel.revoke_wallet_pass` | `is_platform([platform_admin, platform_support])` |
 | `kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert` | `is_platform([platform_admin])` **only**, dual-controlled, audited |
@@ -2746,20 +2777,32 @@ repointed to the anonymized sentinel.**
 > rather than asserted — and the assertion must carry a **non-vacuity guard** (it must be able to see all
 > nine export functions), or an empty match set would pass trivially.
 
-### 16.6 `kernel.identity_contact_pref` · `kernel.org_contact_consent` · `kernel.org_customer_key` · `venue.export_job`
+### 16.6 `kernel.identity_contact_pref` · **`kernel.identity_contact_pref_event`** · `kernel.org_contact_consent` · **`kernel.org_contact_consent_event`** · `kernel.org_customer_key` · `venue.export_job` — **SIX tables (`AUTHZ-CRM1`)**
 
-Same posture: **empty grant set**, RLS on, no policy admitting a client role.
+Same posture on all six: **empty grant set** (not a reduced set), RLS on, **no policy admitting a client
+role**. The two event logs join the same `REVOKE ALL … FROM PUBLIC, anon, authenticated` block as the four
+originals — they are **not** relaxed on the grounds that a log is less sensitive than the state it derives
+from; here it is **more** sensitive, because it is a history rather than a snapshot.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
-| owner (own rows, the two contact tables) | V (via the four own-row RPCs) | R | R | D | `get/set_my_contact_prefs` · `list/grant/withdraw_org_contact_consent` |
+| owner (own rows, the two contact **state** tables) | V (via the four own-row RPCs) | R | R | D | `get/set_my_contact_prefs` · `list/grant/withdraw_org_contact_consent` |
+| **every principal on the two `_event` logs, including the owner** | **D** | **D** | **D** | **D** | — (definer only. **The subject cannot read their own history** — there is no RPC that returns it, and adding one would be a new privacy decision, not a convenience) |
 | every principal on `kernel.org_customer_key` | **D** | D | D | D | — (definer only; **no human role, including `platform_admin`**) |
-| org_owner / org_admin / org_marketing (export_job) | V (own-org, via `list_export_jobs`) | R | R | D | `request_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` |
-| venue_manager / venue_marketing (export_job) | V (own-venue) | R | R | D | as above at venue grain |
+| org_owner / org_admin / org_marketing (export_job) | V (own-org, via `list_export_jobs`) | R | R | D | `request_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` — **the last three template-scoped for `org_marketing`** (`AUTHZ-M13`) |
+| venue_manager / venue_marketing (export_job) | V (own-venue) | R | R | D | as above at venue grain; **`venue_marketing` template-scoped** |
 | org_finance / venue_finance / venue_box_office / venue_scanner / door session / promoter / promoter-manager labels / org_member | D | D | D | D | — |
 | platform_support / platform_risk | V (history only) | D | D | D | `list_export_jobs` |
 | platform_admin | V (history) | D | R | D | `list_export_jobs` · `revoke_export` (**revoking is not extraction**) |
-| service_role | A(machine) | R(def) | R(def) | D | definer (`build_export_rows`, `finalize_export`, `sweep_expired_exports`) |
+| service_role | A(machine) | R(def) | R(def) | **D** | definer (`build_export_rows`, `finalize_export`, `claim_artifacts_for_purge`, `confirm_artifact_purged`, `reconcile_export_orphans`, `sweep_expired_exports`) |
+
+**`DEL` is `D` for `service_role` too, on all six.** The purge deletes **bytes in Storage**, never a job row —
+the job row is the record that an export existed, and it is what the orphan reconciliation reads in the
+other direction.
+
+**AO on the two event logs, enforced by grant and not by convention:** `REVOKE UPDATE, DELETE` from every
+role including `service_role`. A consent history that can be rewritten is not a history, and it is the only
+thing that makes the export's `gate_as_of` answerable.
 
 **Withdrawal is a state change, never a row deletion** (`state ∈ granted|withdrawn` with `granted_at` /
 `withdrawn_at`); the row cascades away only with the account. **There is no staff-side consent write path** —
@@ -2917,10 +2960,21 @@ empties the export. Both statements are in this document, four lines apart.
 would restore access to everything and delete the entire benefit).**
 
 1. **The relation set is closed and named here**, not left as *"exactly those relations"*: `kernel.identity_ext`,
-   `kernel.identity_contact_pref`, `kernel.org_contact_consent`, `kernel.org_customer_key`, `kernel.tickets`,
-   `venue.order`, `venue.order_item`, `venue.export_job`, `catalog.event`, `catalog.event_session`. **No
-   demographic relation appears, and none may be added** — that is the property `T-RPC-CRM-06`'s reader
-   enumeration asserts.
+   `kernel.identity_contact_pref`, **`kernel.identity_contact_pref_event`**, `kernel.org_contact_consent`,
+   **`kernel.org_contact_consent_event`**, `kernel.org_customer_key`, `kernel.tickets`,
+   `venue.order`, `venue.order_item`, `venue.export_job`, `catalog.event`, `catalog.event_session` — **twelve,
+   not ten.** The two event logs are added because the `gate_as_of` fix (`AUTHZ-CRM1`) makes them the source
+   the consent gate actually evaluates; **omitting them reproduces the zero-rows failure this ruling exists to
+   close, in the two relations the gate depends on most.** **No demographic relation appears, and none may be
+   added** — that is the property `T-RPC-CRM-06`'s reader enumeration asserts.
+
+   **Plus one GRANT that is not a policy and was missing entirely:
+   `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — column-scoped.** The export reads the
+   email *"inside the definer"*; with `postgres` as owner that is free, and **with a narrow owner it is a
+   grant that has to exist** — and `auth.users` appeared in no enumerated list. Column-scoped so the builder
+   cannot reach `encrypted_password`, `raw_user_meta_data` or the recovery tokens. Without it the builder
+   raises rather than returning blanks, which is the better failure — but it is a failure, and it is not the
+   one the policies fix.
 2. **Each of those relations carries exactly one additional policy, `<schema>_<table>_sel_svc_export`, whose
    `USING` clause is `current_user = 'crm_export_builder'` and nothing else** — no `auth.uid()`, no role
    helper, no `true`. It is a role gate, not a row filter; the row filter is the job's frozen scope inside
@@ -2998,6 +3052,15 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-MONEY-04` | `venue_finance` reads only `cause='settlement'` payouts for its own venue and zero rows of every other cause | §7.9 note 15ᵈ |
 | `T-RLS-CRM-01` | No platform role can call `venue.request_export` | §11.6 |
 | `T-RLS-CRM-02` | A `venue_marketing` at V1 of Org 1 is denied at V2 of the same org; `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue | §11.6 grain |
+| `T-RLS-CRM-05` | `venue.request_export` and `venue.authorize_export_download` resolve to the **same** `assert_may_request` function — asserted as an **equality between the two call sites**, not as two role lists kept in step by hand | **§11.6 `AUTHZ-M13`** |
+| `T-RLS-CRM-06` | An `org_marketing` **that passes the role-set check** on the scope is refused the download of an `operations_v1` job. **The fixture must use a role that passes the OLD check**, or the test passes against the broken predicate | **§11.6 `AUTHZ-M13`** |
+| `T-RLS-CRM-07` | The two contact `_event` logs hold **zero** `UPDATE`/`DELETE` grants for every role including `service_role`, and zero column grants for `anon`/`authenticated` | **§16.6 `AUTHZ-CRM1`** |
+| `T-RLS-CRM-08` | A revoked export job reaches `artifact_state='deleted'`; the daily reconciliation flags **both** a bucket object with no job row **and** a `ready` job with no object | **§11.6 `AUTHZ-M14`** |
+| `T-RLS-CFG-01` | `anon` and a plain `authenticated` fan read **zero** `catalog.platform_config` rows for every key in the six restricted namespaces — asserted **per namespace**, because a single-key test passes while five namespaces leak | **§8.4 `AUTHZ-CFG1`** |
+| `T-RLS-CFG-02` | A key seeded with **no** `visibility` value is unreadable by `anon` — this asserts the **default**, not the seed | **§8.4 `AUTHZ-CFG1`** |
+| `T-RLS-DOOR-04` | A call carrying a valid `device_id` and `event_session_id` but **no session token** raises — written as a **negative**, because it is the exact call that succeeded before the fix | **§16.4a `AUTHZ-H3`** |
+| `T-RLS-DOOR-05` | `token_hash` is absent from every projection any role can reach, **including `platform_admin`** — asserted **structurally over the column grants**, not by a sample read, which passes on an empty table | **§16.4a `AUTHZ-H3`** |
+| `T-RLS-DOOR-06` | Revoking a door **PIN** leaves **no `status='active'` `venue.door_session` row** for that PIN (RV-1), and retiring a **device** leaves none for that device (RV-2) — **both halves in one test**, because the liveness clauses already fail the call and would pass a one-sided assertion | **§11.4 RV-1/RV-2** |
 
 > **`AUTHZ-M5` — `T-RLS-ROLE-02` was not mechanically checkable, and it is the corpus's ONLY defence against a
 > hand-rolled role comparison inside an RPC body.**
