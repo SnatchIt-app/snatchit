@@ -1406,8 +1406,7 @@ For Agent F to check the RPC surface covers the dashboard. **R** = read RPC · *
 | C (§8.7) | Release hold | `venue.release_inventory_hold` |
 | D (§9.6) | Request / revoke export; download | `venue.request_export` · `venue.revoke_export` · `venue.authorize_export_download` (+ edge `crm-export`) |
 | E (§10.5) | Issue / bulk-issue / switch code; set scope, window | `venue.create_promoter_code` · `create_promoter_codes_bulk` · `set_promoter_code_status` · `set_promoter_code_scope` · `set_promoter_code_window` |
-| E (§10.7) | Release / Deny a self-deal flag | `venue.review_attribution_flag` → `venue.attribution_review` |
-| F (§11.3) | Allocate comp · issue comp | `venue.allocate_comp` · `venue.issue_comp` |
+| E (§10.7) | Release / Deny a self-deal flag | `venue.review_attribution_flag` → `venue.attribution_review` — **the sole writer of that ledger; `venue.decide_flagged_attribution` is DELETED, not aliased (`AUTHZ-H10`)** |
 | G (§12.2) | Issue / revoke door PIN | `venue.create_door_pin` · `venue.revoke_door_pin` |
 | G (§12.4) | **Open / close door manifest** | `venue.open_door_manifest` · `venue.close_door_manifest` — **Δ1 closed** |
 | G (§12.7) | Reconcile offline scans | `venue.reconcile_offline_scans` |
@@ -1427,10 +1426,23 @@ These have an authorization row and no contract. **They are backed, but under-sp
 
 | Surface | Control | Where it is authorized | What is missing |
 |---|---|---|---|
+| **F (§11.3)** | **Allocate comp · issue comp** | **RLS §11.1 `venue.allocate_comp` / `venue.issue_comp`** — a *fully argued split authority model* (R-15/E6/E7: who may allocate vs who may issue, the C39 step-up seam, the audit obligation) | **no RPC contract when §20A.1 claimed one.** Moved here by RPC §20.14 **`R-8`** (`G-4`) |
 | G (§12.3) | Register scan device | RLS §11 `venue.register_scan_device` | no RPC contract (params, errors, idempotency) |
 | G (§12.3) | Device manifest sync | RLS §11 "manifest-sync" | **unnamed** — the row says "`register_scan_device` / manifest-sync" without giving the second function a name |
 | J (§15.2) | Grant / revoke venue staff role | RLS §11 `venue.grant_staff_role` / `revoke_staff_role` | no RPC contract; **and the role picker must now offer six labels** |
 | K (§16.3) | (destination) | RLS §11 `kernel.set_org_payout_destination` | contracted by the money spec, not by the RPC spec |
+
+> **`SPEC CORRECTION` — the comp rows moved, and why the move is recorded rather than silently made
+> (RPC §20.14 `R-8`, gap `G-4`).** §20A.1 listed `venue.allocate_comp` and `venue.issue_comp` as *"mapped —
+> write controls with a named RPC"*. **They had a name and no contract.** RLS §11.1 authorized them and argued
+> the split in detail; no document gave either one a signature, an error set, or an idempotency key. A name
+> carried in an authorization row is not a contract, and §20A exists precisely to refuse that substitution —
+> so listing them under §20A.1 made this section assert the thing it was written to detect.
+>
+> **The rows may return to §20A.1 only when RPC §20.5.1 / §20.5.2 are merged**, and **the earlier §20A.1
+> listing must never be cited as evidence that they were ever mapped.** Until then these two controls are
+> governed by §20A.2's rule: backed, under-specified, and an implementer holds authority without a signature.
+> Ownership of that merge sits with the RPC integrator, not with this document.
 
 ### 20A.3 **UNBACKED — controls I could not map to any named backend capability**
 
@@ -1581,4 +1593,4 @@ The notifications spec says only that its objects land at `076`+. Nine tables, 2
 
 *End of Phase 2 Venue Dashboard Product Spec. Desktop-first operational software; every surface names its backend object for the engineer and its permission for the reviewer; the role × surface matrix (§5) is derived from RLS §9.x and the role-model spec §5 and does not extend either; cross-organization access is impossible by construction (§4.4); every capability the dashboard needs and does not have is in §21 and §20A.3, never asserted as existing.*
 
-**The rule this file is held to, and the section that discharges it:** *"Ensure every dashboard action maps to an actual RLS/RPC/backend capability. No fake UI controls with no backend contract."* — **§20A.** Twenty-four write controls map to a named RPC; four map to an RLS EXEC row without a contract; **ten map to nothing and are listed as U-1…U-10.** The ten are not hidden in prose: they are a table, with the missing signature named in each row. **Until an owner closes one, that control is read-only or it does not render.**
+**The rule this file is held to, and the section that discharges it:** *"Ensure every dashboard action maps to an actual RLS/RPC/backend capability. No fake UI controls with no backend contract."* — **§20A.** **Twenty-three** write controls map to a named RPC; **five** map to an RLS EXEC row without a contract; **ten map to nothing and are listed as U-1…U-10.** *(Was twenty-four and four: the two comp controls moved §20A.1 → §20A.2 under RPC `R-8` / `G-4` — they had a name and no contract.)* The ten are not hidden in prose: they are a table, with the missing signature named in each row. **Until an owner closes one, that control is read-only or it does not render.**

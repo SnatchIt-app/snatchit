@@ -181,8 +181,17 @@ rather than re-describe them.
 | `send-push`, `notify-transfer`, `notify-report`, `delete-account`, `auto-finalize-auctions`, `enforce-transfer-expiry` | mixed | untouched | native rail reuses `send-push`; native auction MVP reuses `auto-finalize-auctions` (RPC §16.5) |
 
 **Note on `config.toml`:** this tree carries no `supabase/config.toml`; `verify_jwt` is set per-function at
-deploy time. Every new function's required `verify_jwt` value is stated in its spec. **Only Stripe/KMS-webhook
-endpoints run `verify_jwt=false`; every user-facing edge runs `verify_jwt=true` and re-derives the actor.**
+deploy time. Every new function's required `verify_jwt` value is stated in its spec. **Every user-facing edge
+runs `verify_jwt=true` and re-derives the actor (C35).** The `verify_jwt=false` surfaces are enumerated in
+**§7, and only in §7** — this note states no count.
+
+> **`SPEC CORRECTION` (`EDGE-1`).** This note previously read *"Only Stripe/KMS-webhook endpoints run
+> `verify_jwt=false`"*. That was false against §7's own enumeration the moment it was written: of the five
+> members, only `stripe-webhook` is a Stripe/KMS webhook. `wallet-pass-webservice` (Apple), `door-session`
+> (a loginless door), `crm-export /build` (cron) and `promoter-code-preview` (an anonymous buyer) are none of
+> those things. The sentence was the same defect §7 records in a different grammar — a **count-by-category**
+> asserted far from the enumeration, which is exactly how *"second and last"* survived in four documents.
+> **No section outside §7 may characterize the set, by count or by category.**
 
 ---
 
