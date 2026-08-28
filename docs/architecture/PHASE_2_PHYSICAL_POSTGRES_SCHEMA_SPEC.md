@@ -311,14 +311,19 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     applied to `venue.staff_role` (§3.9, which says so in its own text) and **not here**. See §1.3.1.
     **`text` + `CHECK`, never a native enum** (§0.6.1 / ROLE_MODEL OD-6).
   - `granted_by` uuid — FK→auth.users(id) (audit of who granted; on delete restrict).
-  - **`role_granted_at` timestamptz — not null, default `now()`. ADDED — defect C-1c (§1.13.4).** The
-    timestamp of **the current role**, set on INSERT and **re-set by the grant/revoke RPC on every role
-    change**. It is the input to the `authn.money_role_grant_maturity_interval` floor.
+  - **`granted_at` timestamptz — not null, default `now()`. ADDED — defect C-1c (§1.13.4); name and
+    write rule RECONCILED to RLS §17 X-11 / RPC §20.14 R-17.** The timestamp of **the current role**,
+    written by **`kernel.accept_org_invite`** (not at invite — otherwise the attack is the same attack
+    with a scheduler) and **reset by `kernel.change_org_role` whenever the new role is a money role**.
+    A promotion into `org_finance` starts a fresh maturity clock; a lateral move to a non-money role
+    does not. It is the input to the `authn.money_role_maturity_hours` floor.
     **`created_at` cannot serve.** Because `role` is single-valued and a role change is an UPDATE
     (below), `created_at` records when the person joined the org — so a two-year member promoted to
     `org_finance` this morning passes any `created_at` test trivially, and the maturity control that
     exists to bound the mint-a-counterparty attack would be **vacuous against the one path that does
     not require minting an account at all.** `updated_at` cannot serve either: it moves for any column.
+    **And the reset-on-promotion rule is what closes the second evasion:** without it an attacker parks
+    a benign `org_member` for the window and promotes it the moment it is needed.
   - `created_at`, `updated_at`.
 - **Unique:** PK `(org_id, identity_id)` — one role row per person per org (role is single-valued; changing
   role is an UPDATE, audited).
@@ -776,8 +781,12 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   - `request_id` uuid — PK.
   - `action` text — not null; CHECK ∈ (`refund.issue` · `payout.request` · `config.set_money_key`).
     **A closed label set, not an FK** — the three actions name flows, not rows.
-  - **`required_approver_class` text — not null; CHECK ∈ (`org_dual_control` · `platform_review`).
-    ADDED — defect C-1, §1.13.2.** The **stored** discriminator that decides which authority arm may
+  - **`required_approver_class` text — not null; CHECK ∈ (`org` · `platform` · `platform_admin`).
+    ADDED — defect C-1, §1.13.2. Label set RECONCILED to RLS §17 X-10 / RPC §20.14 R-16**, which own the
+    branch that reads it — three arms, not two: `platform` admits `platform_support`/`platform_risk`/
+    `platform_admin`, while **`platform_admin` admits only a second distinct `platform_admin`** (MONEY
+    §7.3's money-key rule). **A two-label set would have let `platform_support` approve a raise of its own
+    ceiling** — the arm this column exists to separate. The **stored** discriminator that decides which authority arm may
     approve this row. Set **server-side at request time** by the requesting function, from the tier it
     computed, and **pinned exactly like `config_versions`** — never recomputed at approval time, never
     supplied by a caller, never derived from `state`.
@@ -828,9 +837,13 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   ),
 
   -- (5) ADDED — the stored approver class must agree with the scope the action implies.
-  --     config.set_money_key is platform-scope by construction (org_id IS NULL),
-  --     so it can never be adjudicated by an org arm.
-  CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_review')
+  --     config.set_money_key is platform-scope by construction (org_id IS NULL), and
+  --     MONEY 7.3 requires a SECOND DISTINCT platform_admin -- not merely 'platform',
+  --     which would admit platform_support raising the cap that bounds platform_support.
+  CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'),
+
+  -- (6) ADDED -- an org-arm request must have an org to scope the approver to.
+  CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)
   ```
   Plus, unchanged: `action` label set; `state` label set; **`required_approver_class` label set**;
   **`subject_kind` label set**; `expires_at > created_at`; `org_id IS NOT NULL` when
@@ -850,7 +863,8 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   one-way, under `FOR UPDATE`. **No DELETE.**
 - **Index:** PK; the C16 unique; index on `(org_id, state)` (the org approval queue,
   `kernel.list_approval_requests`); partial index on `expires_at WHERE state='pending'` (the expiry
-  sweep hot-path); index on `(subject_kind, subject_id)`; **ADDED — partial index on
+  sweep hot-path); index on `(subject_kind, subject_id)`; **ADDED — `(action, required_approver_class, state)`
+  (RLS §17 X-10: *"it is now the approval queue's actual predicate"*) and a partial index on
   `(required_approver_class, created_at) WHERE state='pending'`**, because the platform-review queue
   carries `org_id IS NULL` and is therefore **invisible to the `(org_id, state)` index**: without this
   index the queue that holds every above-ceiling refund and every money-key config change is a seq
@@ -947,16 +961,21 @@ row.** The concrete consequence: a refund parked *because it exceeded the org's 
 execute it. **The escalation tier collapses into the tier it escalates from** — silently, with a green
 SoD constraint, because the approver genuinely is a different person from the requester.
 
-**Fix.** `required_approver_class text NOT NULL CHECK (required_approver_class IN ('org_dual_control',
-'platform_review'))`, written by the requesting function from the tier it computed:
+**Fix.** `required_approver_class text NOT NULL CHECK (required_approver_class IN ('org','platform',
+'platform_admin'))`, written by the requesting function from the tier it computed:
 
 | Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) | `required_approver_class` |
 |---|---|---|
-| `kernel.request_order_refund` | org caller, ≤ `refund.org_dual_control_max_minor` | `org_dual_control` |
-| `kernel.request_order_refund` | org caller, > `refund.org_dual_control_max_minor` | `platform_review` |
-| `kernel.request_order_refund` | any consumed (scanned) atom + `refund.scanned_atom_policy='platform_review'` | `platform_review` |
-| `kernel.request_org_payout` | > `payout.dual_control_min_minor` | `org_dual_control` |
-| `catalog.set_platform_config` (money namespace) | always — a **second distinct `platform_admin`** | `platform_review` |
+| `kernel.request_order_refund` | **any consumed (scanned) atom** + `refund.scanned_atom_policy='platform_review'` | **`platform`** |
+| `kernel.request_order_refund` | org caller, > `refund.org_dual_control_max_minor` | `platform` |
+| `kernel.request_order_refund` | org caller, ≤ `refund.org_dual_control_max_minor` | `org` |
+| `kernel.request_org_payout` | > `payout.dual_control_min_minor` | `org` |
+| `catalog.set_platform_config` (money/`comp` namespace) | always — a **second distinct `platform_admin`** | **`platform_admin`** |
+
+**Row order is load-bearing and is stated in this direction deliberately (RPC §17.1).** The consumed-atom
+row **takes precedence over the amount rows**. Read top-to-bottom in the other order, an implementer
+matches the org-amount row first for a small refund on a scanned ticket — and hands **exactly the
+insider-collusion shape** the scanned-atom policy exists to escalate straight back to the org arm.
 
 **Pinned, exactly like `config_versions`, and for the identical reason.** The tier was decided against a
 threshold set that is itself versioned and mutable. Recomputing the arm at approval time would let a
@@ -969,7 +988,7 @@ be a column and not a predicate.
 
 **Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits exactly two labels)
 · `T-SCHEMA-APPR-03` (structural: no function body branches approval authority on `action` or `org_id`
-alone — the branch must read `required_approver_class`) · `T-SCHEMA-APPR-04` (a `platform_review` row is
+alone — the branch must read `required_approver_class`) · `T-SCHEMA-APPR-04` (a `platform`/`platform_admin` row is
 **not** approvable by any `org_owner`/`org_finance` of its own `org_id`, asserted positively rather than
 inferred from the absence of a grant).
 
@@ -1033,9 +1052,27 @@ identities the same person owns. Nothing in the model observes that one of them 
 
 **Fix — a maturity floor on the *grant*, not on the account.** A new platform config key:
 
-| Key | Type | Meaning |
+| Key | Type | Meaning | Absent ⇒ |
+|---|---|---|---|
+| **`authn.money_role_maturity_hours`** | int (hours) | A **money-role grant** younger than this may neither **request** nor **approve** a money action. Seeded in `078` with the other `authn.*` keys. | **no grant is mature** |
+
+**Key name and units RECONCILED to RLS §17 X-12 / RPC §20.14 R-18.** X-12 files two further keys against
+`078` in the same breath, and they are seeded here for the same reason — **C39's per-staff comp step-up
+threshold is cited in five documents and has no key anywhere**, so the comparison is against NULL and no
+comp at any quantity requires step-up:
+
+| Key | Type | Absent ⇒ |
 |---|---|---|
-| **`authn.money_role_grant_maturity_interval`** | interval | A **money-role grant** younger than this may neither **request** nor **approve** a money action. Seeded in `078` with the other `authn.*` keys. |
+| **`comp.per_staff_step_up_max_units`** | int | **every comp requires step-up** |
+| **`comp.per_staff_step_up_window_hours`** | int | **every comp requires step-up** |
+
+> **FAIL-TO-SAFE (binding, X-12).** These three **and `refund.platform_support_max_minor`** must be
+> documented and implemented so that an **absent or unparseable key means the restrictive reading** — *no
+> grant is mature* / *every comp needs step-up* / *support may approve nothing*. **Never the permissive
+> one.** A threshold that gates an authority and does not exist is not a gate, and the failure is silent:
+> a comparison against NULL is neither true nor false, so the guard simply does not fire. **`comp.*`
+> additionally joins the money dual-control namespace** of MONEY §7.3 — it gates a custody authority, so
+> raising it takes a second `platform_admin` like every other threshold that does.
 
 **Money roles**, for this key, are exactly: `org_owner`, `org_finance` (org plane) and `platform_admin`,
 `platform_support`, `platform_risk` (platform plane). `venue.staff_role` labels are out of scope — no
@@ -1045,7 +1082,7 @@ venue label holds money authority.
 is *single-valued and changed by UPDATE* (§1.3), so `created_at` records when the person joined the org,
 not when they acquired money authority — an `org_member` of two years standing promoted to
 `org_finance` this morning would pass a `created_at` test trivially. **§1.3 therefore gains
-`role_granted_at`** (see §1.3), set on INSERT and **re-set on every role change**, and the predicate
+`granted_at`** (see §1.3), set on INSERT and **re-set on every role change**, and the predicate
 reads that. `kernel.platform_role` needs no new column: its PK includes `role`, so a grant is a row and
 `created_at` already **is** the grant time.
 
@@ -1068,7 +1105,7 @@ the money-namespace arm of `set_platform_config`. **This spec owns the column an
 owner owns the predicate**, and it is filed in §13.7 as request **S-3**. `error: precondition_failed
 ('money_role_too_new')` is proposed so the surface can say something true to the operator.
 
-**Test.** `T-SCHEMA-APPR-07` (`role_granted_at` is `NOT NULL` and advances on a role UPDATE, asserted by
+**Test.** `T-SCHEMA-APPR-07` (`granted_at` is `NOT NULL` and advances on a role UPDATE, asserted by
 changing a role and re-reading — the column that silently keeps its INSERT value is the failure mode
 that makes the whole control vacuous, and it is invisible without this assertion).
 
@@ -1289,7 +1326,7 @@ reasons (§13.5-D). The two facts compose into one that nobody wrote down:
 Concretely, the following are published by construction: `refund.org_auto_execute_max_minor` (below it,
 a refund executes with **no** second human), `refund.org_dual_control_max_minor` (above it, the request
 escalates outside the org), `payout.request_auto_max_minor` / `payout.dual_control_min_minor`,
-`authn.*` step-up freshness, `authn.money_role_grant_maturity_interval` (§1.13.4), the CRM enumeration
+`authn.*` step-up freshness, `authn.money_role_maturity_hours` (§1.13.4), the CRM enumeration
 thresholds and export row caps, and `door.*` offline windows.
 
 **Why this is a real finding and not a restatement of "config isn't secret".** The money spec **already
@@ -1314,7 +1351,7 @@ the attack the detection controls are aimed at.**
 | Class | Keys | Read authority |
 |---|---|---|
 | **`public`** | `feature.*` (the three native flags + `wallet.apple.enabled` + `notify.announcements_enabled`), the **fee** values (A8's original purpose), `credential.*`/`wallet.*` client spans a client must honour to render a pass | `anon` + `authenticated` — unchanged |
-| **`restricted`** | **`refund.*` · `payout.*` · `authn.*`** (every money threshold and every step-up/maturity parameter) · **`crm.*`** enumeration thresholds, row caps and retention · **`door.*`** manifest TTL, early-open window and implicit-freeze offset | `is_platform([platform_admin, platform_risk])` + the definer RPCs that evaluate them |
+| **`restricted`** | **`refund.*` · `payout.*` · `authn.*`** (every money threshold and every step-up/maturity parameter) · **`comp.*`** (the C39 per-staff step-up pair — it gates a custody authority, so it belongs in the money dual-control namespace and out of the public one) · **`crm.*`** enumeration thresholds, row caps and retention · **`door.*`** manifest TTL, early-open window and implicit-freeze offset | `is_platform([platform_admin, platform_risk])` + the definer RPCs that evaluate them |
 
 **Why a column and not a `catalog.platform_config_secure` table.** Three reasons, and the first is
 decisive:
@@ -1341,7 +1378,7 @@ premise is intact. **The default is `restricted`**, so a key added later without
 into the safe class rather than out of it.
 
 **Tests.** `T-SCHEMA-CFG-01` (an `anon` `SELECT *` over `catalog.platform_config` returns **zero** rows
-whose key matches `refund.%`, `payout.%`, `authn.%`, `crm.%` or `door.%` — asserted positively, and with
+whose key matches `refund.%`, `payout.%`, `authn.%`, `comp.%`, `crm.%` or `door.%` — asserted positively, and with
 a non-vacuity guard that the same read *does* return the feature flags, because a policy that returns
 nothing at all would pass a naive version of this test) · `T-SCHEMA-CFG-02` (`visibility` is constant
 across all versions of a key) · `T-SCHEMA-CFG-03` (`set_platform_config` cannot change `visibility`).
@@ -2138,10 +2175,24 @@ never share the `promoter_commission` cause. Production also carries an unrelate
   **`status_changed_at` timestamptz nullable; `status_changed_by` uuid nullable FK→auth.users;**
   `created_at`, **`updated_at`**. **`slug` globally unique** (tracked link). **`slug` and `promoter_id`
   remain IMM once created; `status` is the ONLY mutable column** — see §3.17.2.
-- **`venue.attribution`:** PK `id` uuid; `link_id` uuid FK→venue.promoter_link on delete restrict; `order_id`
-  uuid FK→venue.order on delete restrict; `credited_amount_minor` integer; `currency` default `'USD'`;
-  `occurred_at` timestamptz; `created_at`. **AO** (attribution immutable once recorded, CDM §1.3);
-  `UNIQUE(order_id)` (one attribution per order).
+- **`venue.attribution`:** PK `id` uuid; `link_id` uuid FK→venue.promoter_link on delete restrict
+  (**becomes nullable in `090` — a code-only attribution has no link**); `order_id` uuid FK→venue.order on
+  delete restrict; **`promoter_id` uuid not null FK→`venue.promoter`, `org_id` uuid not null,
+  `event_id` uuid not null — the three DENORMALIZED scope columns, listed explicitly here for the first
+  time (RLS §17 X-13)**; `credited_amount_minor` integer; `currency` default `'USD'`; `occurred_at`
+  timestamptz; `created_at`. **Plus the remaining `090` columns of PROMOTER §1.5** (the frozen terms
+  snapshot — `commission_kind`, `commission_bps_applied`, `commission_flat_minor_applied`, `basis_minor`,
+  `terms_version`, `self_deal_flag`, `order_paid_at`, …). **AO** (attribution immutable once recorded,
+  CDM §1.3); `UNIQUE(order_id)` (one attribution per order).
+
+  > **Why `promoter_id` must be a stored column and not a join (X-13).** RLS §9.17's corrected promoter
+  > predicate reads `attribution.promoter_id` directly. Reaching it through `link_id → promoter_link →
+  > promoter` is **unwritable once `link_id` is nullable in `090`** — a code-only attribution has no link
+  > to traverse — so the predicate would be silently false for exactly the promoters the code engine
+  > exists to serve. `org_id`/`event_id` are denormalized for the same reason: an org-scoped RLS predicate
+  > must not depend on a three-table join through a nullable edge. **`venue.promoter.status` already
+  > exists** (`active` · `inactive`, above), so the `AND p.status = 'active'` conjunct the corrected
+  > predicates take is writable as-is — X-13's second half needs no change.
 - **Index:** promoter_link unique on `slug`, **partial index on `(promoter_id) WHERE status='active'`**
   (the dashboard's live-links read); attribution index on `link_id`.
 - **RLS:** promoter reads own links/attributions/commission only (CDM §8 — not the back office); org-scoped
@@ -2698,7 +2749,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 |---|---|---|---|
 | `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
 | `077` | **`kernel.approval_request.required_approver_class`** + the four added CHECKs | **this remediation (C-1a/C-1b)** | — → `077` (§1.13.2/§1.13.3) |
-| `077` | **`kernel.org_member.role_granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
+| `077` | **`kernel.org_member.granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
 | `077` | **`kernel.org_member.role` / `kernel.org_invite.role` → the canonical SIX org labels, `text`+`CHECK`; `kernel.platform_role.role` → `text`+`CHECK`** | ROLE_MODEL §3.1/§3.5 — **applied to `venue.staff_role` only; missed here (defect M-5)** | — → `077` (§1.3.1) |
 | `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
 | `077` | `kernel.identity_ext.locale` (Δ-N2) | NOTIFICATIONS §5.4 | — → `077` |
@@ -2709,7 +2760,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `078` | `catalog.event_session.session_version` (Δ-N1) | NOTIFICATIONS §2.2-E | — → `078` |
 | `078` | `catalog.effective_freeze_at()` | DOOR §3 | — → `078` |
 | `078` | **`catalog.platform_config.visibility`** + the split read policy | **this remediation (config exposure)** | — → `078` (§2.4.1) |
-| `078` | **All `catalog.platform_config` seed rows** — the 3 native flags, `door.*` ×4 (DOOR §10.6), wallet/credential ×6 (WALLET §11.5), money `refund.*`/`payout.*`/`authn.*` **×15** (MONEY §7.2 ×14 + **`authn.money_role_grant_maturity_interval`**, §1.13.4), `notify.*` ×5, CRM limits/caps/retention/`constraint_set_version` | DOOR/WALLET/MONEY/NOTIF/CRM + **this remediation** | ▲ CRM said `087` |
+| `078` | **All `catalog.platform_config` seed rows** — the 3 native flags, `door.*` ×4 (DOOR §10.6), wallet/credential ×6 (WALLET §11.5), money `refund.*`/`payout.*`/`authn.*` **×15** (MONEY §7.2 ×14 + **`authn.money_role_maturity_hours`**, §1.13.4) + **`comp.*` ×2** (`per_staff_step_up_max_units`, `per_staff_step_up_window_hours` — C39, cited in five documents with no key anywhere; RLS §17 X-12), `notify.*` ×5, CRM limits/caps/retention/`constraint_set_version` | DOOR/WALLET/MONEY/NOTIF/CRM + **this remediation** | ▲ CRM said `087` |
 | `079` | `kernel.tickets.resale_state += refund_hold` | MONEY §12-2 | — → `079` |
 | `079` | **`kernel.door_freeze_override`** | DOOR §8.1 | ▲ (§13.5-B) |
 | `079` | `kernel.is_transfer_frozen` (corrected body) | DOOR §3 | ▲ plan said `078`-or-`079` — **resolved to `079`** |
@@ -3008,7 +3059,7 @@ recorded here, not applied, because §2.1's edge table was ratified with the fir
 of added edges is part of that record. **Recommended: add `086 → 087` at re-ratification.**
 
 **The schema-security remediation adds no edge.** Every object it introduces or corrects
-(`approval_request.required_approver_class`, `org_member.role_granted_at`, `platform_config.visibility`,
+(`approval_request.required_approver_class`, `org_member.granted_at`, `platform_config.visibility`,
 `venue.door_session`, `promoter_link.status`, the org-label correction) sits in a package whose existing
 dependency set already contains every table it references. Checked explicitly for `venue.door_session`,
 the only new **table**: its FKs reach `catalog.event_session` (`078`), `catalog.venue` (`078`),
@@ -3027,7 +3078,7 @@ reason it cannot wait.
 |---|---|---|---|
 | **S-1** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2, §17.7, §20.1 | **The approval functions must branch on `kernel.approval_request.required_approver_class`** (§1.13.2), and `request_order_refund` / `request_org_payout` / the money arm of `set_platform_config` must **write** it at request time alongside `config_versions`. The contracts currently return `pending_approval` / `pending_platform_review` as *result statuses* and store neither | Until they do, the column exists and nothing populates it, and `approve_refund_request` still has only `state`/`action`/`org_id` to branch on — which is the C-1a defect unchanged. **A NOT NULL column with no writer also makes `077`…`085` un-replayable the first time a request is filed** |
 | **S-2** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1–§17.4 | **APPR-SUBJ-1 / APPR-SUBJ-2** (§1.13.3): the requesting function resolves `subject_id` under lock in the same txn and raises `not_found`; the approving function re-resolves and moves a vanished subject to **`stale`** | The soft subject has no FK **by necessity** (`order` is `082`, `settlement` is `087`, the table is `077`). The integrity is relocated into the RPC layer or it does not exist |
-| **S-3** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2/§17.7, §20.7 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.3 | **The money-role grant-maturity precondition** (§1.13.4): `request_order_refund`, `approve_refund_request`, `request_org_payout`, `set_org_payout_destination` and the money arm of `set_platform_config` reject a caller whose money-role grant is younger than `authn.money_role_grant_maturity_interval`, with `precondition_failed('money_role_too_new')`. Reads `kernel.org_member.role_granted_at` (org plane) / `kernel.platform_role.created_at` (platform plane). **Never applied to deny or cancel** | Both money SoD primitives compare `auth.uid()` against a stored identity, and an `org_owner` holds the grant authority to **mint the counterparty**. The column and the key ship here; the predicate is the control |
+| **S-3** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2/§17.7, §20.7 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.3 | **The money-role grant-maturity precondition** (§1.13.4): `request_order_refund`, `approve_refund_request`, `request_org_payout`, `set_org_payout_destination` and the money arm of `set_platform_config` reject a caller whose money-role grant is younger than `authn.money_role_maturity_hours`, with `precondition_failed('money_role_too_new')`. The predicate is RLS §17's **`kernel.money_role_grant_matured`**; it reads `kernel.org_member.granted_at` (org plane) / `kernel.platform_role.created_at` (platform plane). **It binds the destination-SETTER as well as the requester — applied to one half of a pair it is applied to neither.** **Never applied to deny or cancel** | Both money SoD primitives compare `auth.uid()` against a stored identity, and an `org_owner` holds the grant authority to **mint the counterparty**. The column and the key ship here; the predicate is the control |
 | **S-4** | `PHASE_2_RLS_PERMISSION_SPEC.md` §8.4 | **`catalog.platform_config` is no longer blanket public-read** (§2.4.1). §8.4's *"values are not secret; every non-admin principal including `anon` holds SELECT"* must become the two-class policy: `anon`/`authenticated` see `visibility='public'` only; `restricted` is `is_platform([platform_admin, platform_risk])` + the definer RPCs | §8.4 is the policy statement an implementer writes the `USING` clause from. Until it changes, `078` publishes every dual-control ceiling, step-up window and export cap to `anon` |
 | **S-5** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 · `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a | **`kernel.assert_door_session` gains a token parameter** — `assert_door_session(p_device_id, p_session_id, p_session_token)` — and its body verifies against `venue.door_session` (§3.10a), not against the mere existence of an active PIN. **This is a signature change to the door's entire authorization surface** | §3.10a supplies the object; the predicate that reads it is not this spec's to write. **Detail and reasoning: §3.10a.** Until it lands, the door path proves *provisioning*, not *possession* |
 | **S-6** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4/§9.5, §20.4.4 | **`record_scan` and `reconcile_offline_scans` must take the actor device as a parameter distinct from the session token**, server-derived and never client-attested, and must assert that it equals `door_session.device_id`. Today `record_scan` reads `device_id` out of the **untrusted** `p_scan_meta`, and `reconcile_offline_scans` takes `p_device_id` as a bare parameter | On the `service_role` door path **RLS is bypassed entirely** (RPC §1.1d's own warning). The device id is therefore an unauthenticated string that selects which device's scans are written. Binding it to the session is what makes the ledger's device attribution mean anything |

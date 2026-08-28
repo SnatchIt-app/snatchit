@@ -49,17 +49,21 @@ in the corpus.
 > preserved.** The changes are **additive to existing packages**:
 >
 > - **`077` — `kernel.approval_request` gains `required_approver_class`**
->   (`text NOT NULL`, CHECK ∈ `org_dual_control`/`platform_review`) and three
+>   (`text NOT NULL`, CHECK ∈ `org`/`platform`/`platform_admin`) and four
 >   further CHECKs. The dual-control **tier was never stored**: `pending_approval`
 >   and `pending_platform_review` are result statuses of the request function, and
 >   the `state` CHECK is `pending · approved · denied · cancelled · expired ·
 >   stale`. An implementer branching on the only stored discriminators reaches the
 >   **org arm for every pending row**. The SoD CHECK was additionally **vacuously
 >   satisfiable**. Schema §1.13.2/§1.13.3.
-> - **`077` — `kernel.org_member` gains `role_granted_at`**, and `078` seeds
->   **`authn.money_role_grant_maturity_interval`**: both money SoD primitives
->   compare `auth.uid()`, and an `org_owner` holds the grant authority to mint the
->   counterparty. Schema §1.13.4.
+> - **`077` — `kernel.org_member` gains `granted_at`**, and `078` seeds
+>   **`authn.money_role_maturity_hours`** plus the two **`comp.*`** step-up keys:
+>   both money SoD primitives compare `auth.uid()`, and an `org_owner` holds the
+>   grant authority to mint the counterparty. Schema §1.13.4. **Column name, key
+>   names, the three approver-class labels and the `venue.attribution` scope
+>   columns are RECONCILED to the concurrent RLS/RPC remediation** (RLS §17
+>   X-10…X-13, RPC §20.14 R-16…R-18), so the corpus states one design rather than
+>   two compatible ones.
 > - **`077` — `kernel.org_member.role` and `kernel.org_invite.role` carry the
 >   canonical SIX org labels**, `text` + `CHECK`. They still enumerated four, so
 >   **`org_marketing` and `org_promoter_manager` were unstorable** and every
@@ -116,7 +120,7 @@ of the corpus was written on. Two intermediate `+1` shifts (`072`–`087` and
 | New | Old | Pkg | Phase | Purpose | Scope (one line) |
 |---|---|---|---|---|---|
 | `076` | `071` | A | A — schema skeleton | `076_create_phase2_schemas_and_grants` | 4 schemas (`kernel`/`catalog`/`venue`/`market`) + GRANT boundary + shared helper functions/triggers |
-| `077` | `072` | B | B — organizations + permissions | `077_kernel_identity_orgs_and_roles` | `kernel.identity_ext`, `organization`, `org_member` (**six** org labels, **+`role_granted_at`**), `org_invite` (**six** org labels), `platform_role`, `admin_audit` + org/platform role predicates · **Δ `approval_request` (**+`required_approver_class`**), `identity_demographic(_erasure)`, `identity_contact_pref`, `org_customer_key`, `organization.payout_destination_set_by`, `identity_ext.locale`** |
+| `077` | `072` | B | B — organizations + permissions | `077_kernel_identity_orgs_and_roles` | `kernel.identity_ext`, `organization`, `org_member` (**six** org labels, **+`granted_at`**), `org_invite` (**six** org labels), `platform_role`, `admin_audit` + org/platform role predicates · **Δ `approval_request` (**+`required_approver_class`**), `identity_demographic(_erasure)`, `identity_contact_pref`, `org_customer_key`, `organization.payout_destination_set_by`, `identity_ext.locale`** |
 | `078` | `073` | C | C — catalog | `078_catalog_reference_data_and_flags` | `catalog.venue`, `event`, `event_session` (incl. `door_open_at`), `platform_config` (**+`visibility`** — split read, not blanket public) + **all** feature-flag and config seeds, `resale_policy` · **Δ `event` marketing columns, `event_session.session_version`, `effective_freeze_at()`** |
 | `079` | `074` | D | D — ticket kernel | `079_kernel_ticket_atom_and_ownership_log` | `kernel.tickets` (custody atom) + `kernel.ticket_ownership_log` (append-only custody ledger, C26 idempotency) · **Δ `door_freeze_override`, `is_transfer_frozen`, `lock_/unlock_ticket`, `mark_ticket_scanned`** |
 | `080` | `075` | E1 | E — inventory | `080_venue_staff_roles_and_predicates` | `venue.staff_role` (**six canonical labels**) + `has_venue_role`/`has_event_role` · **Δ `has_org_role_over_venue`/`_over_event`** |
@@ -263,7 +267,7 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
   ],
   "packages": [
     { "new": "076", "old": "071", "package": "A", "phase": "A", "name": "076_create_phase2_schemas_and_grants", "purpose": "schema skeleton", "scope": "4 schemas + GRANT boundary + shared helper functions/triggers", "depends_on": [], "rollback_posture": "REVERSIBLE" },
-    { "new": "077", "old": "072", "package": "B", "phase": "B", "name": "077_kernel_identity_orgs_and_roles", "purpose": "organizations + permissions + dual-control substrate", "scope": "identity_ext (+locale), organization (+payout_destination_set_by), org_member (six org labels, +role_granted_at), org_invite (six org labels), platform_role, admin_audit, approval_request (+required_approver_class), identity_demographic(_erasure), identity_contact_pref, org_customer_key + role predicates", "depends_on": ["076"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.approval_request", "kernel.approval_request.required_approver_class", "kernel.org_member.role_granted_at", "kernel.identity_demographic", "kernel.identity_demographic_erasure", "kernel.identity_contact_pref", "kernel.org_customer_key", "kernel.organization.payout_destination_set_by", "kernel.identity_ext.locale"] },
+    { "new": "077", "old": "072", "package": "B", "phase": "B", "name": "077_kernel_identity_orgs_and_roles", "purpose": "organizations + permissions + dual-control substrate", "scope": "identity_ext (+locale), organization (+payout_destination_set_by), org_member (six org labels, +granted_at), org_invite (six org labels), platform_role, admin_audit, approval_request (+required_approver_class), identity_demographic(_erasure), identity_contact_pref, org_customer_key + role predicates", "depends_on": ["076"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.approval_request", "kernel.approval_request.required_approver_class", "kernel.org_member.granted_at", "kernel.identity_demographic", "kernel.identity_demographic_erasure", "kernel.identity_contact_pref", "kernel.org_customer_key", "kernel.organization.payout_destination_set_by", "kernel.identity_ext.locale"] },
     { "new": "078", "old": "073", "package": "C", "phase": "C", "name": "078_catalog_reference_data_and_flags", "purpose": "catalog + all config/flag seeds", "scope": "catalog.venue/event/event_session/platform_config (+visibility, split read)/resale_policy + every feature-flag and config seed in the chain", "depends_on": ["077"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["catalog.platform_config.visibility", "catalog.event.description", "catalog.event.hero_image_ref", "catalog.event.category", "catalog.event.genre_tags", "catalog.event_session.session_version", "catalog.effective_freeze_at"] },
     { "new": "079", "old": "074", "package": "D", "phase": "D", "name": "079_kernel_ticket_atom_and_ownership_log", "purpose": "ticket kernel", "scope": "kernel.tickets + kernel.ticket_ownership_log (C26 idempotency) + the complete transfer-freeze input set", "depends_on": ["077", "078"], "rollback_posture": "FORWARD_FIX_ONLY", "delta_added": ["kernel.door_freeze_override", "kernel.is_transfer_frozen", "kernel.tickets.resale_state:refund_hold"] },
     { "new": "080", "old": "075", "package": "E1", "phase": "E", "name": "080_venue_staff_roles_and_predicates", "purpose": "inventory (roles)", "scope": "venue.staff_role (six canonical labels, text+CHECK) + has_venue_role/has_event_role/has_org_role_over_venue/has_org_role_over_event", "depends_on": ["077", "078"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
