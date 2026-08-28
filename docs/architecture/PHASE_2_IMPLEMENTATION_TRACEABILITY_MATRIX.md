@@ -393,3 +393,282 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Package** | **`091_kernel_reserve_stub`** — REVERSIBLE |
 
 ---
+
+## 5. THE SIX NEW FEATURES — capabilities `B1`–`B6`
+
+---
+
+### B1 · Apple Wallet
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | "Add to Apple Wallet" on a ticket, a pass that updates itself when custody moves, and a recovery path when it will not scan. |
+| **Architecture invariant** | **C33** (the pass is signed by a key whose private half never leaves KMS) · **C35** (`mint_wallet_pass` authorizes the atom's current owner via `auth.uid()` in-body, live-read — the wallet spec was self-contradictory here and edge §0.4 resolved it to Class A) · **C27** (`credential_version`: a custody transfer supersedes the pass) · **GP-2** · **RN §5.1** (the Wallet pass displays **no validity assertion** while the in-app Entry Pass keeps its live one — the asymmetry is deliberate; and **no visual admission, ever**) · **RN §5.2** (no holder name on the pass) |
+| **Table(s)** | `kernel.pass_type_cert` · `kernel.wallet_pass` · `kernel.wallet_pass_device` · `kernel.wallet_pass_push_log` · the `.pkpass` storage bucket |
+| **RPC(s)** | `kernel.mint_wallet_pass` + twelve (§17.23), incl. `revoke_wallet_pass`, `supersede_wallet_passes_for_atom` (`DEF`), `touch_wallet_pass`, `get_wallet_pass_build_context`, `register/unregister_wallet_pass_device`, `list_updated_wallet_passes`, `record_wallet_push_result`, `sweep_wallet_pass_lifecycle`, and the three `*_pass_type_cert` lifecycle RPCs |
+| **RLS / EXEC** | **Zero policies on all four tables.** `wallet_pass` is read by the owner **through an RPC only**, projected to `{wallet_pass_id, ticket_atom_id, status, built_at, last_updated_at}`. **No venue role and no org role reads any wallet table at all** — a pass registry is not venue-operations data; the door's bulk read is the manifest and nothing else. **No client, venue role or org role ever reads a push token.** |
+| **Edge function** | **`wallet-pass-issue`** (Class **A**) · **`wallet-pass-webservice`** (Class **B-i/B-iii**, `verify_jwt=false` — **the second and last such surface in the system**; Apple devices present `Authorization: ApplePass <token>`, compared **constant-time** against `auth_token_hash`, authorizing **one serial only**) · **`wallet-pass-push`** (Class **B-i** outbox drain · Class **A** for the `is_platform` manual re-drive) · **`pass-cert-provision`** (Class **A**, dual control) |
+| **RN / dashboard surface** | RN §5 in full (§5.3 the surfaces, §5.4 failure and recovery, §5.5 the secrets that may never be in the app, §5.6 scanner impact: none). Dashboard: **`—`** *why:* a pass is a fan artifact; no operator control exists, and RLS denies every venue and org role a read. |
+| **Event** | **COND-A, and this is the blocking case.** `supersede_wallet_passes_for_atom` is called **from the outbox consumer, not inside the custody transaction**, *specifically so a Wallet outage can never roll back or block a transfer*. The two alternatives — moving it into the custody transaction, or leaving a superseded pass live — are **both prohibited by ratified invariants**. Without COND-A the push path does not merely degrade; **it has no admissible design.** Separately, edge §9 **FR-9**: `wallet-pass-push` drains "the market outbox" and "the catalog outbox", an ordering dependency the Wallet spec never flags. |
+| **Test id** | `T-RPC-WALLET-01..03` · `T-RLS-COL-03` (`authenticated` holds no SELECT on `auth_token_enc` / `auth_token_hash` / `serial_no_opaque`; no `venue_*` or `org_*` role holds SELECT on any wallet table) |
+| **Package** | **`083`** (tables + bucket) · **`084`** (the edge functions' `Pkg` column in edge §8) |
+
+---
+
+### B2 · Notifications
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A fan is told when something happens to their ticket and can turn categories off; a venue can send an update to an audience. |
+| **Architecture invariant** | **C7** (`notify` is one of the seven bounded contexts — **RATIFIED, Gate P, MVP**) · **C52 / decision O8** (all four implementation specs place it at Gate L / do-not-build; **the contradiction is the row**) · **C12** (event envelope: per-aggregate monotonic `sequence`, `causation_id`, `correlation_id`, at-least-once + idempotent consumers) · **GP-2** (a "cleared" notification is a `dismissed_at` column, never a row removal) · **SoD** (drafting and releasing an announcement are distinct acts; above the blast-radius threshold, release needs a **second distinct** approve-authorized principal, so one compromised credential cannot blast a stadium) |
+| **Table(s)** | `notify.notification` · `preference` · `notification_type` · `template` · `delivery` · `outbox` · `schedule` · `identity_channel_state` · `announcement` — **nine tables, and `notify.outbox` is the same object COND-A is about** |
+| **RPC(s)** | 23 `notify.*` RPCs (§17.24). `claim_deliveries` and `record_delivery_result` (§17.25) are **wholly AUTHORED, not transcribed** — their source names them and supplies **no contract body at all**; the claim predicate, lease semantics, batch bound, outcome mapping, return shapes and idempotency rule are derived. `INFERENCE:` flagged in RPC §19 item 1 |
+| **RLS / EXEC** | `notify_notification_sel_owner` · `notify_notification_upd_owner` — **the only UPDATE policy in the entire Phase-2 register**, column-restricted to `read_at` · `notify_preference_sel_owner`/`_ins_owner`/`_upd_owner` · `notify_announcement_sel_venue`. **The mandatory-type guard is DDL, never RLS** — a composite FK plus `CHECK (delivery_class <> 'mandatory')`, because *a policy could be misconfigured and a CHECK cannot*. Zero policies on `notification_type`, `template`, `delivery`, `outbox`, `schedule`, `identity_channel_state` |
+| **Edge function** | **`notify-dispatch`** (Class **B-i**, `INTERNAL_CRON_SECRET` **or** service-role, constant-time; no human caller) · **`notify-receipts`** (Class **B-i**, provider receipt poll + dead-token revocation) |
+| **RN / dashboard surface** | RN §6 (notification centre, the eight requirements, deep links, §6.3 door-drain notifications, §6.4 what a fan is never asked). Dashboard §16.5 preferences · **§16.5a the announcement composer**. **RN §12 item 12 records that notification permission priming is specified by nobody** — `INFERENCE:` one is needed, since a cold OS prompt with no context is the classic way to lose the permission permanently; it is not invented in the RN spec either |
+| **Event** | **COND-A + COND-B, and COND-D binds them.** `NOTIFICATIONS §4` **is** the outbox pipeline: `notify.emit_event` → `notify.outbox` → `drain_outbox` → `delivery`. `notify`-in with outbox-out is **not coherent**. |
+| **Test id** | `T-RPC-NOTIFY-01..04` — **conditional on MD-10.** `-02` is notable: a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`. `-04`: `emit_event`/`enqueue` never raise — an injected constraint violation leaves the caller's transaction committed |
+| **Package** | **`GAP` G-2.** Edge §8 assigns `076+`ᵃ, and its own footnote admits the spec "states only *these land at `076`+* and assigns no package". If Gate P: `092` — **not** `091` (a droppable stub, rule §6.7) and not earlier, because `notify.drain_outbox` reads `venue.promoter_link` and SEAM-1 floors it at `090`. **Count becomes 17 and the registry's "no gaps, no duplicates" assertion is falsified**, which is precisely why the ruling belongs to the owner |
+
+---
+
+### B3 · CRM export
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A venue exports its own attendees to work them as a customer list, without that becoming a general extraction primitive. |
+| **Architecture invariant** | **GP-3a** + the **one Layer-0 exception** (if the builder runs as `crm_export_builder` rather than `postgres`, that role is *subject to* the roster tables' RLS and needs explicit `<schema>_<table>_sel_svc_export` policies — **`BYPASSRLS` on that role is NOT an acceptable shortcut**; it would restore access to everything and delete the entire benefit. Owner decision **MD-2**) · **EX-4** (authority re-checked **live at download**: an export prepared before a revocation fails after it) · **C34** (Gate-L: provable erasure, PII-sink inventory) · **MD-8** (**platform roles read the roster; they do not use the venue CRM export** — a platform bulk extraction has a different justification, a different retention, and needs dual control; running it through the venue's surface would file a platform action in a venue's history) |
+| **Table(s)** | `venue.export_job` · the `crm-exports` storage bucket (`public=false`, 32 MB, `allowed_mime_types={text/csv}`, path `{org_id}/{job_id}.csv` carrying **no venue name, no event title, no date, no filter, no segment**) · `kernel.org_customer_key` · `kernel.org_contact_consent` · `kernel.identity_contact_pref` |
+| **RPC(s)** | `request_export` · `build_export_rows` (`DEF`) · `finalize_export` (`DEF`) · `authorize_export_download` · `revoke_export` · `list_export_jobs` · `sweep_expired_exports` (`DEF`) · `list_attendees` · `lookup_attendee` — nine (§17.22). `INFERENCE:` result shapes for five of them are authored in RPC §19 item 3; the CRM spec describes behaviour and idempotency and **no return shape** |
+| **RLS / EXEC** | **Zero policies** on `export_job`, `org_customer_key`, `org_contact_consent`, `identity_contact_pref`, and **zero `storage.objects` policies for `anon` or `authenticated`** — *not a reduced set, none*. Authority is RLS §11.6 in full, including the two-template split: the **operations** template (money columns) is the narrowest allow-list in the document — `org_owner`, `org_admin`, `venue_manager` **only**; finance sees money and no contact, marketing sees contact and no money, **only these three hold the union** |
+| **Edge function** | **`crm-export`** `/download` (Class **A**, live re-check at download, 300 s signed URL) and `/build` (**Class B-i/B-iii**, `verify_jwt=false`, `service_role` only, **authority re-derived from the job row's actor and scope, not from the caller**, claim lease + `UNIQUE(requested_by, command_key)`) |
+| **RN / dashboard surface** | RN §4.8 contact opt-in at checkout + the venues list in Settings · Dashboard **D** §9.1 attendees list (**holder-keyed**, CRM K-1) · §9.2 search/filters · §9.4 detail drawer · §9.6 export · **K** §16.6 CRM/export controls |
+| **Event** | **`—`** *why:* CRM export is explicitly listed in registry §7 as **unaffected by COND-A** — it carries its own scheduler (`pg_cron` + `pg_net` + a claim lease). It publishes no business fact in DA §6.1 and consumes none. This is a genuine `—`, not a hidden gap. |
+| **Test id** | `T-RPC-CRM-01..07` · `T-RLS-CRM-01` (**no platform role can call `venue.request_export`** — the MD-8 boundary) · `T-RLS-CRM-02` (a `venue_marketing` at V1 of Org 1 is denied at V2 of the same org; `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue — the grain assertion) · `T-RLS-COL-01/02` |
+| **Package** | **`087_venue_settlement_and_export`** (renamed for what it now carries) |
+
+---
+
+### B4 · Demographics and holder mix
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A fan may optionally say something about themselves; a venue may see who is in the room in aggregate — and neither may become the other. |
+| **Architecture invariant** | **C34** (Gate-L provable erasure; the erasure ledger is here at Gate P) · **RN §4.9 / the third un-challengeable rule**: **no demographic question at signup, at first launch, at onboarding, or anywhere in a purchase flow** · **GP-2 named exception (MD-9)** — `DELETE` on `kernel.identity_demographic` is permitted **inside the definer `clear_my_demographics` only**, because keeping a withdrawn gender answer as a tombstoned row would defeat the withdrawal; **the single GP-2 exception in the model, and a second must not be granted by analogy** · **the differencing-attack contract**: `get_holder_mix` has **exactly two parameters — adding a third is a design change requiring privacy re-review, not a routine enhancement** |
+| **Table(s)** | `kernel.identity_demographic` · `kernel.identity_demographic_erasure` · `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` |
+| **RPC(s)** | `get_my_demographics` · `set_my_demographics` · `clear_my_demographics` (all three **parameterless or carrying no identity parameter of any type** — reading someone else's row must be *inexpressible*, not merely denied; **there is no staff write path and no `admin_set_demographics`**) · `venue.refresh_holder_mix` (`DEF`) · `venue.get_holder_mix` · `venue.reconcile_holder_mix()` — **`INFERENCE:` the last name is authored in RPC §19 item 4**; its source classifies it as a `NEW RPC` and never names it, and that source's own assertion list says *"all five RPCs"* while listing six |
+| **RLS / EXEC** | **The grant set is EMPTY, not reduced**, and RLS is on with **no policy admitting `anon` or `authenticated`**. Denied on holder mix: `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon` |
+| **Edge function** | **`—`** *why:* no external provider, no secret, no non-JWT credential; edge §2's placement table admits none of these. |
+| **RN / dashboard surface** | RN §4.9 "About you (optional)" · Dashboard **D** §9.5 the holder-mix breakdown card |
+| **Event** | **`—`** *why:* registry §7 lists demographics as **unaffected by COND-A**; the rollup runs on its own `pg_cron` job. No DA §6.1 event names it as producer or consumer. Genuine `—`. |
+| **Test id** | `T-RPC-DEMO-01` (**exactly two writer functions**) · `T-RPC-DEMO-02` (`get_holder_mix` arity is 2 — the differencing contract made mechanical). Plus the **reader-enumeration rule**: the set of functions/views/matviews referencing `kernel.identity_demographic` must be **exactly** `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix}` — *and the assertion must carry a non-vacuity guard (it must be able to see all nine export functions), or an empty match set passes trivially.* |
+| **Package** | **`077`** (the three `kernel.*` tables) · **`086`** (`holder_mix_snapshot`/`_bucket`) |
+
+---
+
+### B5 · Promoter codes
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A promoter hands out a code; the buyer types it at checkout; the right promoter gets credited. |
+| **Architecture invariant** | **D7** (the attribution row is written when the order is **paid**, never at creation) · **D8** (flat-per-ticket **or** %, `tier`, `party_kind` — the constitution's terms, not the schema's narrower `commission_bps`) · **O-2** (a promoter is never a staff-role label) · **the immutability rule**: **a promoter is explicitly forbidden from minting their own codes** — a self-minted code is a self-minted *distribution surface* over the org's global namespace, and codes are immutable, so a grab of `CLUBSPACE` or a rival's brand is permanent · **SoD** (`decide_flagged_attribution` denies **both** promoter-manager labels — a promoter manager adjudicating a flag against a promoter they recruited and are measured on is the fox at the henhouse) |
+| **Table(s)** | `venue.promoter_code` · `venue.promoter_code_scope` · `venue.attribution_review` (**AO — `UPD` is `D` for every role including `platform_admin`; a wrong decision is corrected by appending `seq+1` and the effective decision is `max(seq)`**) · `venue.order.attribution_candidate_code_id` |
+| **RPC(s)** | `create_promoter_code` · `create_promoter_codes_bulk` · `set_promoter_code_status` · `set_promoter_code_scope` · `set_promoter_code_window` · `preview_promoter_code` · `bind_order_attribution` · `review_attribution_flag` · `decide_flagged_attribution` |
+| **RLS / EXEC** | `venue_promoter_code_sel_org`/`_sel_venue`/`_sel_promoter` and the `_scope` / `attribution_review` equivalents. **A code is a link's sibling and must not acquire a wider grant by being newer** — the matrix mirrors §9.17 exactly. The promoter reads `decision` + `reason_code` on their **own** attribution and **never** the reviewer's `note` (the venue's internal deliberation) or `displaced_promoter_id` (another promoter's identity) — **enforced by the read RPC's projection, not by hoping the client omits columns** |
+| **Edge function** | **`promoter-code-preview`** — and the rate-limit adaptation recorded in RLS §11.8 as an adaptation of a frozen function's contract, **not a change to it** (10/min authenticated, 5/min anonymous per derived principal, **fail-closed**: 503 on limiter error, 429 over-limit) |
+| **RN / dashboard surface** | RN §4.7 (the field is **advisory only, never a checkout gate**; `eligible` / `not_applicable`) · Dashboard **E** §10.5 codes · §10.6 attribution view (*must be sufficient to defend a dispute without engineering*) · §10.7 self-deal flag queue |
+| **Event** | **COND-A** — DA §6.1 #31 `AttributionRecorded` (**Sync**, survives) and #32 `PromoterCommissionAccrued` (Async, does not). |
+| **Test id** | `T-RPC-PROMO-01..11` · `T-RLS-ATTR-02` (a code-sourced attribution with `link_id IS NULL` **is** visible to its own promoter) |
+| **Package** | **`090_venue_promoter_engine`** |
+
+---
+
+### B6 · Door manifest and offline verify
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A door with no network still admits the right people and rejects a pass that was transferred away five minutes ago. |
+| **Architecture invariant** | **O-4** (the scanner may sync an already-open manifest, scan and admit, and may **never** create, move or clear the boundary; **admission is never gated on manifest state**) · **O-5** (`door_open_at` is the cached monotone head of an append-only episode ledger; the effective boundary is **total and fail-closed** — `LEAST(door_open_at, COALESCE(doors_at, starts_at) + configured offset)` — so a NULL `door_open_at` can no longer mean "never frozen") · **C37** (offline is honestly *shrunk*, not closed) · **C33** (public-key-only door distribution) · **W-3 closure** (edge §5.4's offline verify performed **no `credential_version` comparison** and defined only a public-key manifest, so an offline door could not detect a stale pass at all — closed by §5.4.3 step 3b against **M2**) |
+| **Table(s)** | `venue.door_manifest` · `venue.door_manifest_entry` (pinning per-atom `credential_version`, `signing_key_id`, `ticket_state`, `resale_state`) · `venue.door_manifest_delta` · `catalog.event_session.door_open_at` · `kernel.door_freeze_override` |
+| **RPC(s)** | `open_door_manifest` · `close_door_manifest` · `append_door_manifest_delta` (`DEF`) · `engage_door_freeze` (`DEF`, **sole writer**) · `grant/revoke_door_freeze_override` · `sweep_expired_door_overrides` — **`GAP` G-15** (`get_door_manifest`, the read that delivers M2 to every scanner, is uncontracted), **G-14** (`set_door_open_at` / `set_event_security_config` have EXEC rows, no contracts, **and the first contradicts O-5's sole-writer property**), **G-16/G-17** (`U-5`/Δ11 dry-run, `U-6`/Δ12 device count), **G-21** (`sweep_implicit_door_freezes`) |
+| **RLS / EXEC** | `venue_door_manifest_sel_venue` (+`_sel_platform`) · `venue_door_manifest_entry_sel_venue` · `venue_door_manifest_delta_sel_venue`. `kernel.door_freeze_override` is **audit-only: RLS on, ZERO policies**. `catalog.engage_door_freeze` **appears in no other EXEC row**, and *a trigger enforces this independently of grants* |
+| **Edge function** | **`door-manifest`** (dual route) · **`door-session`** (Class **B-iii**, and **X-5**: it must derive `p_actor_device_id` server-side and never accept an attested human actor) |
+| **RN / dashboard surface** | RN §7.1 step 3 (offline verify against **M2**) · §7.3 `awaiting_manifest` · Dashboard **G** §12.4 manifest status and the transfer freeze · §12.5 live scan board · §12.8 offline |
+| **Event** | **COND-A, blocking.** Registry §7 names *"the door-manifest open transaction as specified"* among the four things that break under COND-A = NO: its steps are all-or-nothing and **the last one writes the envelopes**. Scanner push-to-sync is on the same list. |
+| **Test id** | `T-RPC-DOOR-09..16` · `T-RLS-DOOR-09` (a drained atom then scans — the end-to-end lockout regression) · `-10` (six named principals refused ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (a re-open leaves `door_open_at` **byte-identical**) · `-13` (an override expires **with no sweep having run** — the assertion that proves the arithmetic, not the cron, is load-bearing) · `-14` (direct writes to `door_open_at` raise) · `T-RLS-COL-04` |
+| **Package** | **`086_venue_door_and_scan`** (with the O-5 trigger created here and attached to the `078` table, FR-6) |
+
+---
+
+## 6. THE FIVE OWNER RULINGS — capabilities `C1`–`C5`
+
+These are not separate build items; they are **properties** the rows above must exhibit. They get their own
+blocks because a ruling that is designed-to but never asserted is indistinguishable from a ruling that was
+ignored.
+
+---
+
+### C1 · O-1 — refund authority is a request door
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | An operator can start a refund for their own org's order; a person other than the requester approves it above a threshold; nobody executes the money writer directly. |
+| **Architecture invariant** | **O-1** · **R7** (no new object writes a money row) · **C36** (`kernel.org_member.role` is single-valued, so no `org_owner` row can ever satisfy `has_org_role([org_finance])` — which is why DA §7.2's *"Inherits: Org Admin, Org Finance"* is **deleted as a money mechanism** and the authority moves to the `org_owner` label explicitly) |
+| **Table(s)** | `kernel.approval_request` (`077`) · `kernel.refund` (`085`) · `venue.order` · `kernel.tickets.resale_state = refund_hold` |
+| **RPC(s)** | `request_order_refund` · `approve_refund_request` · `cancel_refund_request` · `sweep_expired_refund_requests` (`DEF` — **"not optional: without it a parked request is an unbounded denial-of-admission on a paying customer's ticket"**) · `list_org_refunds` · `refund_primary_order` (narrowed to `DEF` + platform) |
+| **RLS / EXEC** | RLS §11.3. **`org_admin` and every venue role are forbidden callers.** `approve_refund_request` requires `auth.uid() <> request.requested_by` **and self-approval is its own named failure**, so the UI can say *"a different person must approve this"* rather than returning a bare 403 |
+| **Edge function** | **`refund-execute`** (Class **A** — second-approver SoD named explicitly by money §8.3(c)) |
+| **RN / dashboard surface** | RN §4.10 refund states on a ticket · Dashboard **H** §13.3/§13.3a (**"authority is tiered, not blanket — and the operator must learn the tier from the product"**) · §13.7 the approval queue |
+| **Event** | **COND-A** — #27 `RefundIssued` (**Sync** with ticket void if full; the async notification consumers do not survive) |
+| **Test id** | `T-RPC-MONEY-01..14` · `T-RLS-MONEY-01` · `T-RLS-MONEY-02` |
+| **Package** | **`077`** (`approval_request`) · **`085`** (the nine money-authority RPCs). **Note the placement argument:** `approval_request` is in `077` and not `085` because its *earliest* consumer is not a money flow — it is `catalog.set_platform_config`'s money-key dual control, which must be authored in `078`; putting the table in `085` would make `078` forward-reference `085` |
+
+---
+
+### C2 · O-2 — the canonical role model
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | Eight role concepts an operator can name, backed by fifteen stored labels no code can confuse across planes. |
+| **Architecture invariant** | **O-2** + **C36** + **RM-1** (every role label MUST begin with its plane token) · **RM-2** (no bare role-string comparison, no display name, in any policy or RPC body) · **D5** (the four pre-C36 bare-label lists are purged from the constitution itself) · **D6** (DA §7.6 keeps **one** money matrix; ROLE_MODEL §5 governs non-money capability detail and §7.6's money rows govern over it) |
+| **Table(s)** | `kernel.org_member.role` (6 labels) · `venue.staff_role.role` (6) · `kernel.platform_role.role` (3) — all **`text` + `CHECK`, not native enums**, so the fifteen-label commitment stays correctable while the tables are empty (OD-6 / RLS X-3) |
+| **RPC(s)** | The nine predicate helpers — **the ONLY sanctioned way to test a role**: `has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` · `has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` · `is_promoter_for_event` · `assert_door_session` |
+| **RLS / EXEC** | `kernel_org_member_sel_*` · `venue_staff_role_sel_*` · `kernel_platform_role_sel_*`, all three under **I-12** |
+| **Edge function** | **`—`** *why:* edge §0.5 — EA-1 does not move authority into the edge; it makes the edge stop *destroying* the authority the RPC was written to check. No edge function tests a role. |
+| **RN / dashboard surface** | Dashboard §5 role × surface matrix · §5.1 (**the four new labels are an amendment, not an extension**) · §15.2 (the venue role picker **must now offer six labels**) |
+| **Event** | **`—`** *why:* a role model is a predicate substrate, not a business fact. DA §6.1 names no role event. Genuine `—`. |
+| **Test id** | `T-RLS-ROLE-01` (the three columns admit **exactly** the fifteen labels and **reject every `org_*` label on the venue enum and vice-versa**) · `T-RLS-ROLE-02` (**RM-2**, asserted over policy *and* function bodies) · `T-RLS-ROLE-03`/`T-RPC-ROLE-05` (`assert_door_session` in no `pg_policy` — **RM-5**) · `T-RPC-ROLE-01..04` · `T-RLS-FORCE-01..04` |
+| **Package** | **`077`** (org + platform) · **`080`** (venue) |
+
+---
+
+### C3 · O-3 — payout visibility and requests
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | An owner can see what they are owed and ask for it. Changing where the money goes is a different, stronger act. |
+| **Architecture invariant** | **O-3**, ratified **with** its compensating controls and not as an unqualified grant. **The ruling collapses SoD-1 by construction** — before it, `org_owner`-only destination change satisfied separation of duties *automatically*, because owners could not disburse; O-3 puts both halves of the named fraud primitive ("redirect the bank account, then release funds to it") in one identity. The compensations: a **permanent** requester-vs-setter identity split (**explicitly not a cool-down, which an attacker simply waits out**), **destination probation** (the first payout after a change is created `held`, released only by platform risk/admin), and **out-of-band notification to every `org_owner`/`org_finance` including the actor**. The existing cool-down is **retained but demoted to a detection window, the weakest control in the set** |
+| **Table(s)** | `kernel.payout` · `kernel.organization.payout_destination_set_by` · `kernel.approval_request` · `venue.settlement` |
+| **RPC(s)** | `list_org_payouts` · `request_org_payout` · `set_org_payout_destination` (**`org_owner` ONLY; `org_finance` excluded entirely**) · `hold_payout` / `release_payout` (**`is_platform` only, SoD-3, no org role ever** — DA §7.6 previously marked Org Finance ✔ on *Release held funds*, which is the control inverted; corrected to blank) |
+| **RLS / EXEC** | `kernel.payout` carries **zero policies**; authority is RLS §11.3. `venue_finance` is narrowed to **settlement-caused** payouts for its own venue, because `kernel.payout` has no `venue_id` and an unqualified "own-venue payouts" **was never expressible** |
+| **Edge function** | **`payout-execute`** (Class **A** — SoD refusal and step-up `aal`/`amr` named explicitly by money §8.3(c)) |
+| **RN / dashboard surface** | Dashboard **I** §14.5 payouts · **K** §16.3 payout account · §16.9 re-authenticate for a money action · §15.4 finance permissions written out |
+| **Event** | **COND-A** — #25 `PayoutReleased` (Async **by design**) · #26 `PayoutFailed`. **The out-of-band notification O-3 requires as a compensating control is itself COND-A + COND-B dependent** — `INFERENCE:` if both rulings land negative, one of the three named mitigations for the SoD-1 collapse has no carrier. |
+| **Test id** | `T-RLS-MONEY-03` — **`request_org_payout` by the destination-setter raises `sod_violation` *after* the cool-down has elapsed.** That "after" is the whole assertion: it is what distinguishes the ratified permanent split from the demoted cool-down · `T-RLS-MONEY-04` · `T-RLS-MONEY-01` |
+| **Package** | **`077`** (`payout_destination_set_by`) · **`085`** (`kernel.payout` + the RPCs) |
+
+---
+
+### C4 · O-4 — door-manifest authority
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | The person who opens the door is not the person scanning at it. |
+| **Architecture invariant** | **O-4** — authority is expressed **inside the RPC predicate (org→venue inheritance, never by widening venue RLS)**. The consequence is stated rather than left implicit: *a person granted `venue_manager` for box-office selling thereby also gains manifest-open authority until per-capability scoping ships.* **Admission is never gated on manifest state** — the manifest gates offline scanning only |
+| **Table(s)** | `venue.door_manifest` · `catalog.event_session` · `venue.staff_role` · `venue.door_pin` |
+| **RPC(s)** | `open_door_manifest` · `close_door_manifest` — **`GAP` G-14** (`set_door_open_at` O4-3 and `set_event_security_config` O4-4 are named in the O-4 authority row and contracted nowhere), **G-15** (`get_door_manifest`) |
+| **RLS / EXEC** | RLS §11.4. **`venue_scanner`, the door session, `venue_box_office`, every finance / marketing / promoter role, `platform_support` and `platform_risk` are explicitly excluded.** Disabling a transfer freeze is `platform_admin` under step-up |
+| **Edge function** | **`door-manifest`** (the staff-JWT route is Class **A**; the PIN route is Class **B-iii** — and *the door PIN is deliberately weaker than a JWT, which is why O-4 denies the door principal the manifest-open authority*) |
+| **RN / dashboard surface** | Dashboard **G** §12.4 (Δ1's door-manifest role list **drops the door principal** — RLS X-6) · RN §7 scanner |
+| **Event** | **COND-A** — the open transaction's last step writes the envelopes |
+| **Test id** | `T-RLS-DOOR-10` — six named principals may not `open_door_manifest` ⇒ `42501` **and `door_open_at` is unchanged**. The second half is the real assertion: a refusal that still moved the boundary would be worse than an allow · `T-RPC-DOOR-10` · `T-RLS-DOOR-04` (admission gated by **session status, not manifest state**) |
+| **Package** | **`086`** |
+
+---
+
+### C5 · O-5 — the `door_open_at` lifecycle
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | Transfers close when the doors open, and stay closed. |
+| **Architecture invariant** | **O-5** — the column was **written by nothing** in the frozen contract set, *which makes the C6/C23/C43 transfer freeze and the stale-pass safety property the design claims false.* Ratified form: the cached monotone head of an append-only door-episode ledger (`MIN(opened_at)`), **the same head-of-ledger pattern already ratified for `current_owner_id` and `credential_version` under C27**. Never cleared by close, never moved backwards — **monotonicity becomes arithmetic, not a rule someone must remember**. The effective boundary is **total and fail-closed**. Override is explicit, elevated, TTL-bounded, reason-coded, audited, **and never moves the boundary** |
+| **Table(s)** | `catalog.event_session.door_open_at` · `venue.door_manifest` (the episode ledger) · `kernel.door_freeze_override` |
+| **RPC(s)** | `catalog.engage_door_freeze` (`DEF`, **the sole writer**) · `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` · `grant/revoke_door_freeze_override` · `sweep_expired_door_overrides` — **`GAP` G-14: `venue.set_door_open_at` has an EXEC row and directly contradicts the sole-writer property.** |
+| **RLS / EXEC** | RLS §11.4. `engage_door_freeze` **appears in no other EXEC row** and *a trigger enforces this independently of grants* (`catalog.tg_door_open_at_is_ledger_head`, created in `086` and attached to the `078` table per FR-6) |
+| **Edge function** | **`—`** *why:* edge §9 recon #6 (CLOSED): *the edge layer never decides freeze independently* — it, the client, and every RPC recheck all target `kernel.is_transfer_frozen`. No stored `transfer_frozen` column exists. |
+| **RN / dashboard surface** | RN §4.4.1/§4.5 (Transfer/Sell gating; copy *"Transfers are closed while the event is underway"*) · Dashboard **G** §12.4 |
+| **Event** | **COND-A** — the freeze engagement rides on the manifest-open transaction |
+| **Test id** | `T-RLS-DOOR-08` / `T-RPC-DOOR-08` (**NOT NULL over every status × nullability combination** — the totality property that makes fail-closed real) · `T-RPC-DOOR-11` (a re-open leaves `door_open_at` **byte-identical**) · `T-RPC-DOOR-13` (an override expires **with no sweep having run**) · `T-RPC-DOOR-14` (direct writes raise) |
+| **Package** | **`078`** (the column) · **`079`** (`is_transfer_frozen` + `door_freeze_override`, resolved from FR-7) · **`086`** (the ledger, the writer and the trigger) |
+
+---
+
+## 7. CROSS-CUTTING — capabilities `D1`–`D4`
+
+---
+
+### D1 · Guest list and comps
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | "Maya's list" at the door, and comped tickets that are accountable to the staff member who issued them. |
+| **Architecture invariant** | **C39** (comp/guest-list issuance above a per-staff threshold requires step-up + a **C9 live-table grant re-check**) — `RATIFIED-MODELED-ONLY(GATE-L)` · **O-2** (the allocate/issue split: allocating comp *capacity* is an inventory decision and `venue_box_office` is **denied**; issuing **one** comp against an already-allocated batch is an issuance operation, which is exactly what O-2 grants box office *and nothing more*) · **the insider-fraud control**: per-staff comp totals stay visible to `venue_manager` and above — *hiding them defeats the control* |
+| **Table(s)** | `venue.comp_allocation` · `venue.guest_list` · `venue.guest_entry` |
+| **RPC(s)** | **`GAP` G-4** (`allocate_comp`, `issue_comp` — EXEC rows with a fully argued split authority model and **no contracts**) · **`GAP` G-10** (`U-1`: create list · add guest · remove entry — *"guest-list CRUD RPCs"* and nothing else) · **`GAP` G-9** (`U-2`: mark a guest arrived — **a door hits this a thousand times a night and RLS §9.16 note 39 already grants exactly that narrow update**) |
+| **RLS / EXEC** | `venue_comp_allocation_sel_venue` · `venue_guest_list_sel_venue` · `venue_guest_entry_sel_venue`. Authority: RLS §11.1 (allocate vs issue) and §9.16 note 39 (the door's narrow guest-entry update) |
+| **Edge function** | **`—`** *why:* the door reaches these through `door-session`; no separate function is needed and edge §2 proposes none. |
+| **RN / dashboard surface** | Dashboard **F** §11 in full (§11.1 the distinction that must be on screen, §11.2 lists, §11.3 comp allocation, §11.4 comp accountability, §11.5 door state) |
+| **Event** | **`—`** *why:* DA §6.1's 36-event catalog names no comp or guest-list event, and C11 trimmed the catalog deliberately. A guest arriving is a `ScanAdmitted` (#22) when it is a ticket; a guest-list check-in is not a custody fact. Genuine `—`. |
+| **Test id** | **`GAP` G-8** — no test group covers comps or guest lists, including the C39 threshold and the box-office allocate/issue asymmetry, which is a *named insider-fraud control* |
+| **Package** | **`086`** |
+
+**This is the worst single row in the matrix**: three `GAP`s in `RPC`, one in `TEST`, against a surface the
+dashboard specifies in five subsections and an authority model RLS argues in detail. It is the clearest
+instance of the corpus's outside-in shape.
+
+---
+
+### D2 · Operational activity feed
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | A venue can see its own operational history without asking an engineer. |
+| **Architecture invariant** | **OBS-1**-adjacent audit discipline · **RPC §0.3** (every privileged mutation writes an audit row) · the read's own constraint: it must **exclude the security plane** — key rotation, platform overrides, risk actions, auth events, RLS denials — and return **plain verbs with no `before`/`after` payloads** |
+| **Table(s)** | `kernel.admin_audit` (AO) |
+| **RPC(s)** | `venue.read_operational_audit(p_scope_kind, p_scope_id, p_filters, p_cursor)` (§17.26, dashboard Δ2) |
+| **RLS / EXEC** | `kernel.admin_audit` carries **zero policies**; RLS §7.12 makes it `is_platform`-readable only, which is *precisely why* the definer read exists — **a venue principal otherwise has no path to its own operational history** |
+| **Edge function** | **`—`** *why:* a scoped read with no provider and no secret. |
+| **RN / dashboard surface** | Dashboard **L** §17 in full, including §17.2 *"what this is explicitly NOT"* |
+| **Event** | **`—`** *why:* DA §6.1 #36 `AdminActionPerformed` exists, but its own payload note says **"audit is the source"** — the audit table is the system of record and the event is a derived analytics copy. Reading it emits nothing. Genuine `—`. |
+| **Test id** | **`GAP` G-8** — no test asserts the security-plane exclusion, and that exclusion is the entire security property of the read. |
+| **Package** | **`077`** (`kernel.admin_audit`) |
+
+---
+
+### D3 · Stripe Connect onboarding
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | An org connects a Stripe account so it can be paid. **Nothing in the money plane works until this completes.** |
+| **Architecture invariant** | **R7** · **OBS-1** (the frozen `public.payments` boundary) · **O-3** (the destination the payout targets) |
+| **Table(s)** | `kernel.organization` (the connect reference + capability flags) |
+| **RPC(s)** | **`GAP` G-3 — `kernel.set_org_connect_ref` is contracted nowhere.** Edge §9 recon #12 states it plainly: *"§3.3 wraps it; it appears in neither `PHASE_2_RPC_FUNCTION_CONTRACTS.md` nor RLS §11's EXEC table. RPC-spec owner to contract it (role: `has_org_role([org_owner, org_finance])`), or §3.3 has no write path."* |
+| **RLS / EXEC** | **`GAP` G-3** — no EXEC row exists either. `kernel_organization_sel_org` covers the *read* of the connect reference (column-scoped per RLS §7.2); nothing covers the write |
+| **Edge function** | **`connect-onboarding`** (Class **A**, `has_org_role([org_owner,org_finance])`, idempotency `connect_org_${org_id}`) — **specified in full, wrapping a function that does not exist** |
+| **RN / dashboard surface** | Dashboard **K** §16.3 payout account |
+| **Event** | **COND-A**, and **additionally has no producer**: DA §6.1 #2 `ConnectOnboardingCompleted` (consumers `venue`, `market`, `analytics`; idempotency key `connect_account_id + capabilities_hash`). The fact it publishes is written by the missing RPC. |
+| **Test id** | **`GAP` G-8** |
+| **Package** | **`077`** for the table; the RPC has no package because it has no contract |
+
+**Severity note:** this is the only capability in the matrix where the **edge function is fully specified and
+classified** and the DB write it wraps **does not exist in any spec**. Every other `GAP` leaves a surface
+under-specified; this one leaves a payment-infrastructure precondition unimplementable.
+
+---
+
+### D4 · The event outbox — the carrier itself
+
+| Cell | Value |
+|---|---|
+| **Product requirement** | None directly. It is the transport on which four other capabilities depend. |
+| **Architecture invariant** | **C51 / decision O7** · **C12** (the event envelope: per-aggregate monotonic `sequence`, `causation_id`, `correlation_id`, at-least-once + idempotent consumers) · **C48** (projection-rebuild retention floors — outbox compaction respects canonical-input retention) · **C49** (poison-quarantine, partitioned/multi-drainer, specified region hand-off — both Gate L) · **DA Principle 20** (*"transactional only where an invariant demands it"*; the same-tx set is the closed, enumerated SSCAS) · **the anti-over-engineering guarantee**: *"the only new infrastructure Phase 2 introduces is one outbox table and a drainer on the cron that already runs"* |
+| **Table(s)** | **`GAP`** — `notify.outbox` under COND-B Gate P, `kernel.event_outbox` otherwise. The sole occurrence of the word "outbox" in the physical schema spec sits **inside the Gate-L list** ("projection checkpoints … + outbox retention/compaction") |
+| **RPC(s)** | **`GAP`** — a drainer on the existing 2-minute `pg_cron` heartbeat. `notify.emit_event` / `enqueue` / `drain_outbox` exist as contracts, and are themselves unscheduled under COND-B |
+| **RLS / EXEC** | **`—`** *why:* zero policies, `REVOKE ALL` — it is a machine table with no human reader, exactly like `notify.delivery` and `notify.schedule`. This cell would be `—` even after the ruling. |
+| **Edge function** | **`—`** *why:* a `pg_cron` + in-process drainer by design; DA §6.3 is explicit that no broker, queue service or saga framework ships until real load justifies it, and *"the drainer's target swaps to a real bus later — the event catalog and idempotency keys do not change."* |
+| **RN / dashboard surface** | **`—`** *why:* infrastructure. |
+| **Event** | **`GAP`** — **all 36 events in DA §6.1 name this as their carrier.** ~10 are `Sync` and survive without it (they are same-transaction calls, not messages); the rest do not. |
+| **Test id** | **`GAP`** — no test id anywhere in the corpus references an outbox, an envelope column, `sequence`, `causation_id` or `correlation_id` |
+| **Package** | **`GAP`** — `076` if ratified (zero FK dependencies, so no producer package gains an edge) |
+
+---
