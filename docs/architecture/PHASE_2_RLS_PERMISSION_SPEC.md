@@ -57,7 +57,7 @@ inside an RLS policy or RPC — never a bare string comparison.
 | 12 | `VMK` | `venue_marketing` | `authenticated` | `has_venue_role(venue_id,[venue_marketing])` | venue |
 | 13 | `VPM` | `venue_promoter_manager` | `authenticated` | `has_venue_role(venue_id,[venue_promoter_manager])` | venue |
 | 14 | `VSC` | `venue_scanner` (authenticated staff scanner) | `authenticated` | `has_venue_role(venue_id,[venue_scanner])` | venue |
-| 15 | `DOO` | **door session** (device + PIN) | **none** — `service_role` edge path; `auth.uid()` IS **NULL** | `kernel.assert_door_session(device_id, session_id)` **inside the RPC**; **NEVER an RLS predicate** (RM-5) | device + event_session |
+| 15 | `DOO` | **door session** (device + PIN-minted **bearer token**) | **none** — `service_role` edge path; `auth.uid()` IS **NULL** | `kernel.assert_door_session(device_id, session_id, door_session_id, token)` **inside the RPC** (`AUTHZ-H3` — it now verifies **possession**, not just provisioning); **NEVER an RLS predicate** (RM-5) | device + event_session |
 | 16 | `PRO` | `promoter` (**a relationship, not a role**) | `authenticated` | `kernel.is_promoter_for_event(event_id)`, or own-row via **`venue.promoter.identity_id = auth.uid()`** — **that is the only column in the promoter engine comparable to an `auth.uid()`** (`AUTHZ-M10`); `promoter_link`, `promoter_code` and `attribution` carry `promoter_id`, a `venue.promoter` **PK**, and a `promoter_id = auth.uid()` comparison is false for every row forever. Holds **NO row** in `venue.staff_role` | event / row |
 | 17 | `PSU` | `platform_support` | `authenticated` | `is_platform([platform_support])` | platform |
 | 18 | `PRI` | `platform_risk` | `authenticated` | `is_platform([platform_risk])` | platform |
@@ -73,8 +73,10 @@ inside an RLS policy or RPC — never a bare string comparison.
 
 > **`DOO` (door session) is not an RLS principal (R-1, RM-5).** The scanner device never reaches PostgREST.
 > It calls the `door-session` edge function, which holds `service_role` and invokes the definer RPC with a
-> server-derived `p_actor_device_id`. Inside the RPC, `kernel.assert_door_session(device_id, session_id)`
-> re-checks the binding against `venue.scan_device` + `venue.door_pin` live and raises on failure. Because the
+> server-derived `p_actor_device_id` **taken from the assert's own return value**. Inside the RPC,
+> `kernel.assert_door_session(device_id, session_id, door_session_id, token)` re-checks the binding against
+> `venue.door_session` (the possession fact), `venue.scan_device` and `venue.door_pin` — all live — and raises
+> on failure. Because the
 > Postgres principal on that path is `service_role`, **RLS is bypassed entirely for the door**, and
 > `assert_door_session` is the *single* gate — a deliberate concentration of the door's whole authorization
 > surface into one auditable, security-critical function. It appears in a `DOO` matrix cell only to say *what
@@ -251,9 +253,12 @@ Conceptual behavior (defined as SECURITY DEFINER helpers in the RPC spec, `searc
   for `(org_id, auth.uid())`, regardless of role. **Scoping only, never authorizing** (RM-6): it may decide
   *which* orgs appear in a context switcher or *which* rows a roster read returns; it may **never** be the
   sole gate on a capability.
-- **`kernel.assert_door_session(device_id, session_id)`** *(**NEW**)* → reads `venue.scan_device` +
-  `venue.door_pin`; raises unless a valid, unexpired, unrevoked door session binds that device to that
-  session. **NEVER appears in a `USING` clause** (RM-5) — it is asserted inside a definer RPC reachable only
+- **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** *(**NEW**; signature
+  corrected by `AUTHZ-H3`)* → reads `venue.door_session` **by PK** and compares `token_hash` **constant-time**
+  (with a **dummy compare on an unresolved id**, so absent-id and wrong-token cost the same), then
+  `venue.scan_device` + `venue.door_pin` live; raises unless a valid, unexpired, unrevoked door session **whose
+  token the caller holds** binds that device to that session. **Returns the bound `(device_id,
+  event_session_id)`, not a boolean** — the caller may not supply the device identity it writes. **NEVER appears in a `USING` clause** (RM-5) — it is asserted inside a definer RPC reachable only
   from the `service_role` edge path. Security-critical: `postgres`-owned, pinned `search_path`, `EXECUTE`
   revoked from `anon`/`authenticated`, covered by the package's adversarial verification.
 - **`kernel.is_promoter_for_event(event_id)`** *(**NEW**, Phase 2D — **CORRECTED**, `AUTHZ-M10`)* → true iff
@@ -323,7 +328,10 @@ USING (
 USING ( kernel.is_platform(ARRAY['platform_risk','platform_admin']) )
 
 -- DOOR SESSION — NOT an RLS predicate. Never appears in a USING clause.
---   PERFORM kernel.assert_door_session(p_device_id, p_session_id);   -- raises on failure
+--   SELECT * INTO v_bound
+--     FROM kernel.assert_door_session(p_device_id, p_session_id,
+--                                     p_door_session_id, p_session_token);  -- raises on failure
+--   -- v_bound.device_id is the ONLY device id the caller may write (AUTHZ-H3b)
 ```
 
 ### 2.2b Standing rules carried into this document (ROLE_MODEL §6.6)
@@ -463,8 +471,8 @@ schema.
 
 **Consequence for the door.** The door path is the deliberate exception that proves the rule: it has no
 `auth.uid()` *by design*, and therefore may not authorize on caller identity at all. Its authority comes from
-`kernel.assert_door_session(device_id, session_id)` re-validating a **server-validated device assertion**
-against live tables — not from an edge attestation of a human. A door RPC that accepted an edge-supplied
+`kernel.assert_door_session(device_id, session_id, door_session_id, token)` re-validating a
+**server-validated device assertion and a bearer token the device actually holds** against live tables — not from an edge attestation of a human. A door RPC that accepted an edge-supplied
 `p_actor_identity` would be the same C35 violation wearing a different hat.
 
 ### 3.2 I-12 in detail — why a one-line hardening change fails the whole authz model closed
@@ -563,7 +571,8 @@ GRANT and served (if at all) via a scoped RPC. Implements Phase-0 column-scoped 
 | `kernel.refund` | buyer: own refund summary | full ledger → `o_fin`/platform scoped RPC |
 | `venue.ticket_type` | `public` visibility: name/price (world) | `hidden`/`door_only` rows → venue-scoped only |
 | `venue.inventory_batch` | `remaining` (computed) projection (world) | `capacity`/`held`/`sold` raw counters → venue staff + platform |
-| `venue.door_pin` | `label`, `status`, `expires_at` (venue mgr) | `pin_hash` → **never client-readable**; constant-time compare inside RPC |
+| `venue.door_pin` | `label`, `status`, `expires_at` (venue mgr) | `pin_hash` → **never client-readable**; constant-time compare inside RPC (slow KDF — a human types it) |
+| `venue.door_session` *(NEW — `AUTHZ-H3`)* | **none** | `token_hash` → **never client-readable, on any path, for any role, including `platform_admin`** — *there is no legitimate reader of a verifier*. Constant-time compare inside `kernel.assert_door_session` over a **plain digest** (≥256-bit server-generated value; a slow KDF here would sit on the scan hot path — **the distinction from `pin_hash` is load-bearing in both directions**). The non-secret projection `(door_session_id, device_id, event_session_id, issued_at, expires_at, status, last_seen_at)` → `venue_manager` via `venue.get_live_device_count` (§16.4a) |
 | `venue.order` | buyer: own order; org: order summary | payment linkage / other-buyer PII → scoped |
 | `market.market_sale` | buyer/seller: own sale (plain verbs) | fee split, `payment_id`, counterpart PII, cause internals → scoped RPC / platform |
 | `market.listing_native` | active listing discovery cols (world) | seller PII / `command_idempotency_key` → seller + platform |
@@ -1674,7 +1683,7 @@ policy behind it — see §1.3.
 | `venue.revoke_staff_role` | `has_venue_role([venue_manager])` OR `has_org_role_over_venue([org_owner, org_admin])` OR `is_platform([platform_admin])`, **including `venue_manager` as the revoked label** — the guard is asymmetric on purpose (§20.4.2: dropping authority is not escalation, and there is no last-`venue_manager` floor). **Self-revoke permitted** |
 | `venue.issue_door_pin`/`revoke_door_pin` | `has_venue_role([venue_manager])` OR org_owner/admin |
 | `venue.register_scan_device` / manifest-sync | `has_venue_role([venue_manager])`; sync also `venue_scanner` (own device) |
-| `venue.record_scan` | **two entry paths, both landing in the same definer function:** (a) `has_venue_role(venue,[venue_scanner, venue_manager])` — an authenticated, individually attributable staff principal; (b) the `service_role` edge path with `kernel.assert_door_session(device_id, session_id)` asserted in-body. **Never a `door_pin` tested by `has_venue_role`** (R-8) |
+| `venue.record_scan` | **two entry paths, both landing in the same definer function:** (a) `has_venue_role(venue,[venue_scanner, venue_manager])` — an authenticated, individually attributable staff principal; (b) the `service_role` edge path with `kernel.assert_door_session(device_id, session_id, door_session_id, token)` asserted in-body, **and `p_actor_device_id` taken from its return value, never from the request** (`AUTHZ-H3b`). **Never a `door_pin` tested by `has_venue_role`** (R-8) |
 | `venue.open_settlement`/`close_settlement` | `has_venue_role([venue_finance])` OR `has_org_role([org_finance])` · platform |
 | **`venue.allocate_comp`** *(capacity — SPLIT per R-15/E6)* | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner,org_admin])`. **C39-gated on `comp.per_staff_step_up_max_units` — see `AUTHZ-M8` below.** **`venue_box_office` is DENIED** — allocating comp *capacity* is an inventory decision |
 | **`venue.issue_comp`** *(issuance — SPLIT per R-15/E7)* | `has_venue_role(venue,[venue_manager, venue_box_office])` OR `has_org_role_over_venue(venue,[org_owner,org_admin])`. **C39-gated on `comp.per_staff_step_up_max_units`.** Issuing **one** comp against an already-allocated batch is an issuance operation, which is exactly what O-2 grants box office (*"ticket issuance / permitted inventory-sale operations only"*) and nothing more. Per-staff comp totals stay visible to `venue_manager` and above — this is the insider-fraud control surface and hiding it defeats it |
@@ -1733,7 +1742,7 @@ These fourteen were identified by the set-closure pass (RPC contracts §20.0c) a
 | `venue.create_inventory_batch` | caller-authorized — `has_venue_role([venue_manager])` OR `has_org_role_over_venue([org_owner, org_admin])`. **This function creates the C27 capacity counter** and had no row |
 | `venue.create_inventory_hold` *(staff/comp/promoter hold)* | caller-authorized — `has_venue_role([venue_manager])` OR `has_org_role_over_venue([org_owner, org_admin])`. **Distinct from the buyer hold above:** §11.1's `reserve_inventory` row grants *"any authenticated (own hold)"*, which is the **buyer's** authority. **Never a fan, never `venue_box_office`, never `venue_scanner`** |
 | `market.cancel_p2p_transfer` | **dual-class.** Caller-authorized — the sender (`auth.uid() = from_identity`) — **and `DEF`** for the `expired` transition it owns, invoked by the TTL sweep. The two arms are one function with two entry conditions; the `expired` arm must be unreachable from `authenticated` |
-| `venue.validate_ticket_online` | caller-authorized — `has_venue_role([venue_scanner, venue_manager])` — **OR** the `service_role` door path with `kernel.assert_door_session(device_id, session_id)` asserted in-body. The same dual-path shape §11.1 spells out for `record_scan`, and the C37 live-verify read |
+| `venue.validate_ticket_online` | caller-authorized — `has_venue_role([venue_scanner, venue_manager])` — **OR** the `service_role` door path with `kernel.assert_door_session(device_id, session_id, door_session_id, token)` asserted in-body. The same dual-path shape §11.1 spells out for `record_scan`, and the C37 live-verify read. **Returns `signing_key_id`** so the key-id binding check runs on the **online** path too, not only offline (RPC §9.3) |
 | `kernel.force_void_ticket` | caller-authorized — `is_platform([platform_admin, platform_risk])` **only**. A platform **break-glass** void, exempt from the door freeze (§14.3.3), with no authority row until now. `platform_support` is denied |
 
 ### 11.1b Guest-list EXEC rows — authority that lived only in §9.16's matrix (`AUTHZ-R4`)
@@ -1777,7 +1786,7 @@ Each is ruled here; the ruling is the row.
 | `kernel.has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` | `authenticated` |
 | `kernel.is_promoter_for_event` | `authenticated` |
 | **`kernel.money_role_grant_matured(p_org_id)`** *(NEW — `AUTHZ-C1B`)* | `authenticated` (pure predicate; `STABLE`, live read of `kernel.org_member`). **See §11.3a — it is what makes SoD-1 and SoD-2 mean what they claim** |
-| **`kernel.assert_door_session(device_id, session_id)`** | **`DEF`** — `service_role` only. Security-critical: it is the *entire* authorization surface of the door path. Covered by the package's adversarial verification |
+| **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** *(signature corrected — `AUTHZ-H3`)* | **`DEF`** — `service_role` only. Security-critical: it is the *entire* authorization surface of the door path, and it now verifies **possession** (a `venue.door_session` bearer token, constant-time, dummy-compared on an unresolved id) rather than only **provisioning**. **Returns the bound `(device_id, event_session_id)`**, which is the only device identity `record_scan`/`reconcile_offline_scans` may write. Covered by the package's adversarial verification. **RM-5 still holds: it appears in no `pg_policy`** |
 
 ### 11.3 Money authority (money spec §2.3 — replaces the corresponding §11.1 rows)
 
@@ -1963,6 +1972,10 @@ an operator-precedence accident.
 | `kernel.grant_door_freeze_override` | `is_platform([platform_admin])` **only** — an override defeats a safety property, so it requires authority strictly above the authority that engaged the freeze. Refused while any episode is `open` |
 | `kernel.revoke_door_freeze_override` | `is_platform([platform_admin, platform_risk])` — risk may **tighten**, never **loosen** |
 | `kernel.sweep_expired_door_overrides` · `catalog.sweep_implicit_door_freezes` | **`DEF`** — cron. **Neither is load-bearing for correctness**; the helper computes the boundary arithmetically whether or not either ever runs |
+| **`venue.mint_door_session`** *(NEW — `AUTHZ-H3`)* | **`DEF`** — **`service_role` only**, `REVOKE EXECUTE FROM anon, authenticated`. The mint route of the `door-session` edge function (`verify_jwt: false`), where `auth.uid()` is NULL by design. **It is the only writer that creates a `venue.door_session` row**, and it re-validates PIN ↔ device ↔ session server-side; the edge asserts nothing and derives no authority from the request body. **A door session may not call it** — a credential that can mint its successor never expires |
+| **`venue.revoke_door_session`** *(NEW — `AUTHZ-H3`)* | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` OR `is_platform([platform_admin])` — **the O-4 allow-list, unchanged**; also callable by `service_role` from the edge. **The door session is DENIED**, with every other O-4 exclusion intact: a credential that can revoke its siblings can close the door it is standing at. The lost-or-stolen-tablet control — it closes one door **without** disturbing the PIN every other device is using |
+| **`venue.sweep_expired_door_sessions`** *(NEW — `AUTHZ-H3`)* | **`DEF`** — cron. **Not load-bearing:** expiry is arithmetic inside `assert_door_session`, so a session is dead the moment it expires whether or not the sweep runs. It exists to keep `status` truthful for the operator console — the same posture as `sweep_expired_door_overrides` above, and the opposite of `venue.sweep_expired_inventory_holds` |
+| **`venue.set_scan_device_status`** *(NEW — schema §3.11.1 / §13.7 `S-11`; **REPLACES the authored `venue.retire_scan_device`**)* | the **O-4 allow-list** as `revoke_door_session` above. **Denied to every door session** — O-4: the scanner may not change the boundary it scans against, *and a device that can retire itself can also un-retire itself*. **Obligation RV-2:** retiring a device revokes its `active` `venue.door_session` rows **in the same transaction**. This is the kill switch for a lost or stolen scanner — **the only control that stops a device already holding a live session without revoking the PIN every other device at the door is using** |
 
 > **`AUTHZ-R1` — `venue.set_door_open_at` DOES NOT EXIST, and this row was the reason it would have been
 > built.** The old row granted three **human** role classes EXECUTE on a function that ruling **O-5** makes
@@ -2612,6 +2625,33 @@ fan must not.
 | platform_admin | V | R | R | D | `grant_…` · `revoke_…` |
 | service_role | A(machine) | R(def) | R(def) | D | definer |
 
+### 16.4a `venue.door_session` — **audit-only (RLS on, ZERO policies)** — **NEW (`AUTHZ-H3`)**
+
+The possession fact the door predicate was already assuming (schema §3.10a; edge §3.9a request #5). **RLS
+enabled, zero policies, `REVOKE ALL ON venue.door_session FROM PUBLIC, anon, authenticated` — the grant set is
+EMPTY, not reduced** (§6 tier 2/3). It joins the §16.10 zero-policy register.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| every principal on the **secret** columns (`token_hash`) | **D** | D | D | D | — |
+| venue_manager (+ `org_owner`/`org_admin` via `has_org_role_over_venue`) | **V** — the **non-secret projection only**, via `venue.get_live_device_count` | D | D | D | `revoke_door_session` |
+| platform_admin | **V** (non-secret projection) | D | D | D | `revoke_door_session` |
+| **door session (`DOO`)** | **D** | D | D | D | — (**it is authorized *by* this table and holds no capability *over* it**) |
+| every other principal — `anon` · `fan`/owner · `org_member` · `org_finance`/`org_marketing`/`org_promoter_manager` · `venue_finance`/`venue_box_office`/`venue_marketing`/`venue_promoter_manager`/`venue_scanner` · `promoter` · `platform_support` · `platform_risk` | **D** | D | D | D | — |
+| service_role | A(machine) | R(def) | R(def) | **D** | definer (`mint_door_session` · `revoke_door_session` · `revoke_door_pin` RV-1 · `set_scan_device_status` RV-2 · `sweep_expired_door_sessions` · `assert_door_session`) |
+
+- **`token_hash` is never client-readable, on any path, for any role — including `platform_admin`. There is
+  no legitimate reader of a verifier.** Asserted **structurally, over the column list** (`T-RLS-DOOR-05`),
+  not by a sample read, because a sample read passes on an empty table.
+- **The non-secret projection is exactly** `(door_session_id, device_id, event_session_id, issued_at,
+  expires_at, status, last_seen_at)`. It is what lets `venue.get_live_device_count` answer from a **fact**
+  rather than from `scan_device.last_sync_at`, which reports a poll and not a presence.
+- **MUT one-way** (`active → revoked|expired`), plus the throttled `last_seen_at`. **No DELETE for any
+  principal, including `service_role`** — an expired door session is evidence about who was at the door.
+- **RM-5 is unaffected and is re-asserted here: `kernel.assert_door_session` appears in NO `pg_policy`
+  expression** (`T-RPC-ROLE-05`). This table has zero policies, so there is nowhere for it to appear; the
+  assertion covers the whole catalog, not just this row.
+
 ### 16.5 `kernel.identity_demographic` · `_erasure` · `venue.holder_mix_snapshot` · `_bucket`
 
 **The grant set is EMPTY, not reduced** (§6 tier 2), and RLS is enabled with **no policy admitting `anon` or
@@ -2783,9 +2823,11 @@ SELECT` only; deny-all tables carry **zero** policies.
 `kernel.payment_native` · `kernel.payout` · `kernel.refund` · `kernel.reserve` · `kernel.admin_audit` ·
 `kernel.approval_request` · `kernel.door_freeze_override` · `kernel.identity_demographic` ·
 `kernel.identity_demographic_erasure` · `kernel.identity_contact_pref` · `kernel.org_contact_consent` ·
-`kernel.org_customer_key` · `kernel.wallet_pass` · `kernel.wallet_pass_device` · `kernel.pass_type_cert` ·
+`kernel.org_contact_consent_event` · `kernel.identity_contact_pref_event` · `kernel.org_customer_key` ·
+`kernel.wallet_pass` · `kernel.wallet_pass_device` · `kernel.pass_type_cert` ·
 `kernel.wallet_pass_push_log` · `venue.inventory_batch_shard` · `venue.inventory_movement` ·
-`venue.inventory_unit` · `venue.export_job` · `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` ·
+`venue.inventory_unit` · **`venue.door_session`** (`AUTHZ-H3`) · `venue.export_job` ·
+`venue.holder_mix_snapshot` · `venue.holder_mix_bucket` ·
 **`venue.attribution_review`** (`AUTHZ-M9`) · `market.market_sale` · `notify.notification_type` ·
 `notify.template` · `notify.delivery` · `notify.outbox` · `notify.schedule` ·
 `notify.identity_channel_state` · the `crm-exports` storage bucket.
