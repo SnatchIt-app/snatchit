@@ -196,7 +196,7 @@ ordered by package number.
 | 2 | `077` | `076` |
 | 3 | `078` | `077` |
 | 4 | `079` | `077`, `078` |
-| 5 | `080` | `077`, `078` |
+| 5 | `080` | `077`, `078`, **‡`079`** |
 | 6 | `081` | `078`, `080` |
 | 7 | `082` | `081` |
 | 8 | `083` | `078`, **+`079`** |
@@ -220,18 +220,30 @@ Why each added edge exists:
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
 | `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `kernel.settlement_commission_lines` |
+| **‡`079 → 080`** | **`AUTHZ-PKG1`.** `080` creates `kernel_tickets_sel_venue`, a read policy on `kernel.tickets` (`079`). The four venue-plane read policies named in RLS §16.10 can only be written with `kernel.has_venue_role` / `kernel.has_event_role`, which ship in `080`, and **`RM-3` forbids re-inlining the join** — so they are created in `080` rather than in `078`/`079` (ruling and full `USING` clauses: RLS **§16.10a**). **Declaration-only:** `079 < 080` already, so no rollout order changes; what changes is that the edge is declared rather than true by luck. **The alternative — moving the helpers earlier — is structurally unavailable**: `has_venue_role` reads `venue.staff_role`, created in `080`, and `SEAM-1` binds it there |
 | **†`086 → 087`** | `venue.list_attendees` / `venue.build_export_rows` read `venue.scan` for the check-in columns (previously undeclared — named in the migration plan's §8/`087` prose, absent from every declared set). **Declaration-only:** no package added, renamed or reordered; no object moved; no rollback changed. Third instance of the SEAM-1 shape, after `079 → 085` and `085 → 088`, and resolved identically. |
 
 ### 2.2 The seam rule that keeps the DAG honest
 
 Dependency edges between *tables* are visible in the FK graph. Dependency edges created by a **function
 reading a table in a later package** are not, and a systematic sweep found **nine** of them (schema §13.2).
-Two rules, ratified with this amendment, prevent recurrence:
+**A second class was found by an external reviewer on 2026-08-28 and adds four more — `FR-10`…`FR-13`,
+thirteen in total: an RLS POLICY whose `USING` clause CALLS a function created in a later package.** The
+§13.2 sweep was **function-scoped by definition** (*"a **function** authored in package N"*) and therefore
+**structurally could not see a policy→function edge**, no matter how carefully it was run. Its scope, method
+and artifact set are widened in schema §13.2. Three rules now prevent recurrence:
 
 > **SEAM-1** — a function is authored in the package equal to `max()` of the packages creating every table
 > it reads or writes.
 > **SEAM-2** — where an earlier artifact must resolve the name, the earlier package ships a **hook stub**
 > returning the neutral result and the later package `CREATE OR REPLACE`s **only that hook**.
+> **SEAM-3 (NEW, `AUTHZ-PKG1`)** — an **RLS policy** is created in the package equal to `max()` of the
+> packages creating every table it reads **and every function its predicate calls** — *not* the package of
+> the table it protects. Where those differ the policy is **deferred** to the later package and the deferral
+> is stated in **both** packages' plan §5 entries. It is never re-implemented inline to avoid the wait;
+> `RM-3` forbids that separately, and `SEAM-3` is what makes it unnecessary. **A deferred policy fails closed
+> (`I-1`) for the packages it is deferred across** — which is safe, and is why deferral is preferred to any
+> reordering of the ratified band.
 
 **Acceptance property:** *no function reads or writes a table created in a later package* — mechanically
 checkable from `pg_depend`/`pg_proc` after each package's replay.
@@ -312,7 +324,7 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
     { "new": "077", "old": "072", "package": "B", "phase": "B", "name": "077_kernel_identity_orgs_and_roles", "purpose": "organizations + permissions + dual-control substrate", "scope": "identity_ext (+locale), organization (+payout_destination_set_by), org_member (six org labels, +granted_at), org_invite (six org labels), platform_role, admin_audit, approval_request (+required_approver_class), identity_demographic(_erasure), identity_contact_pref, org_customer_key + role predicates", "depends_on": ["076"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.approval_request", "kernel.approval_request.required_approver_class", "kernel.org_member.granted_at", "kernel.identity_demographic", "kernel.identity_demographic_erasure", "kernel.identity_contact_pref", "kernel.org_customer_key", "kernel.organization.payout_destination_set_by", "kernel.identity_ext.locale"] },
     { "new": "078", "old": "073", "package": "C", "phase": "C", "name": "078_catalog_reference_data_and_flags", "purpose": "catalog + all config/flag seeds", "scope": "catalog.venue/event/event_session/platform_config (+visibility, split read)/resale_policy + every feature-flag and config seed in the chain", "depends_on": ["077"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["catalog.platform_config.visibility", "catalog.event.description", "catalog.event.hero_image_ref", "catalog.event.category", "catalog.event.genre_tags", "catalog.event_session.session_version", "catalog.effective_freeze_at"] },
     { "new": "079", "old": "074", "package": "D", "phase": "D", "name": "079_kernel_ticket_atom_and_ownership_log", "purpose": "ticket kernel", "scope": "kernel.tickets + kernel.ticket_ownership_log (C26 idempotency) + the complete transfer-freeze input set", "depends_on": ["077", "078"], "rollback_posture": "FORWARD_FIX_ONLY", "delta_added": ["kernel.door_freeze_override", "kernel.is_transfer_frozen", "kernel.tickets.resale_state:refund_hold"] },
-    { "new": "080", "old": "075", "package": "E1", "phase": "E", "name": "080_venue_staff_roles_and_predicates", "purpose": "inventory (roles)", "scope": "venue.staff_role (six canonical labels, text+CHECK) + has_venue_role/has_event_role/has_org_role_over_venue/has_org_role_over_event", "depends_on": ["077", "078"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
+    { "new": "080", "old": "075", "package": "E1", "phase": "E", "name": "080_venue_staff_roles_and_predicates", "purpose": "inventory (roles)", "scope": "venue.staff_role (six canonical labels, text+CHECK) + has_venue_role/has_event_role/has_org_role_over_venue/has_org_role_over_event + the four venue-plane READ POLICIES deferred from 078/079 (catalog_venue_sel_venue, catalog_event_sel_venue, catalog_event_session_sel_venue, kernel_tickets_sel_venue) -- AUTHZ-PKG1", "depends_on": ["077", "078", "079"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
     { "new": "081", "old": "076", "package": "E2", "phase": "E", "name": "081_venue_inventory", "purpose": "inventory (capacity)", "scope": "ticket_type, inventory_batch, inventory_batch_shard, inventory_movement, inventory_hold + catalog.publish_event", "depends_on": ["078", "080"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
     { "new": "082", "old": "077", "package": "F", "phase": "F", "name": "082_venue_orders", "purpose": "orders", "scope": "venue.order + venue.order_item + kernel.org_contact_consent", "depends_on": ["081"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.org_contact_consent"] },
     { "new": "083", "old": "078", "package": "G1", "phase": "G", "name": "083_kernel_credential_infrastructure", "purpose": "credential infrastructure", "scope": "kernel.signing_key + pass_type_cert + wallet_pass + wallet_pass_device + wallet_pass_push_log + .pkpass bucket (public key / KMS handle refs only, no key material)", "depends_on": ["078", "079"], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "083_kernel_signing_key", "delta_added": ["kernel.pass_type_cert", "kernel.wallet_pass", "kernel.wallet_pass_device", "kernel.wallet_pass_push_log"] },

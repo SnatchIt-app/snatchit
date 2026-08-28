@@ -3021,6 +3021,136 @@ would restore access to everything and delete the entire benefit).**
 This remains a deviation from the RPC spec's *"definer owned by `postgres`"* global and is **owner decision
 MD-2**, §15.7.
 
+### 16.10a The four venue-plane read policies, WRITTEN OUT — and the package they are created in (`AUTHZ-PKG1`)
+
+> **ADDED 2026-08-28 (reviewer condition 1).** §16.10 above **names** these four policies and no document in
+> the corpus **states their `USING` clause**. Every predicate they can legally carry calls
+> `kernel.has_venue_role` / `kernel.has_event_role`, which ship in package **`080`** — while the tables they
+> sit on are created in **`078`** and **`079`**, neither of which declared an `080` dependency. **`RM-3`
+> forbids re-inlining the join**, so no other implementation exists. The replay chain would therefore either
+> fail at package 3 with **`42883` (function does not exist)**, or — the quieter and worse outcome — the
+> policies would be silently skipped, **and absence of a policy is denial (`I-1`), so the entire venue
+> operator plane would read zero rows** on the four tables it works from. A staff member seeing an empty venue
+> list does not read as *"a migration was mis-ordered"*; it reads as *"my account is broken."*
+
+#### The ruling: the POLICIES move to `080`. The helpers do not move.
+
+**`has_venue_role` cannot be placed earlier, and this is structural, not preference.** It reads
+`venue.staff_role`, which is created in `080`. **`SEAM-1`** binds a function to `max()` of the packages
+creating every table it reads — that is `080`, exactly where it is. Moving it earlier would require moving
+`venue.staff_role` earlier, which renumbers or re-scopes the canonical band (**forbidden** — sixteen packages,
+`076`–`091`, each number once) and would gut the package whose ratified name is
+`080_venue_staff_roles_and_predicates`. **`has_event_role` is bound identically** — it resolves
+`catalog.event` → `venue.staff_role`.
+
+**Only two of the nine helpers could move**, and moving them buys nothing: `has_org_role_over_venue` and
+`has_org_role_over_event` read `catalog.venue`/`catalog.event` → `kernel.org_member`, so `SEAM-1` would admit
+them in `078`. **But the four policies below need `has_venue_role` or `has_event_role` regardless**, so
+relocating the two org-inheritance helpers would split the predicate-helper set across two packages, leave two
+places to look for "the helpers", and **not close the forward reference.**
+
+**Therefore the policies are created in `080`, after their helpers.** `078` and `079` create their tables,
+`ENABLE ROW LEVEL SECURITY`, and create only the policies whose predicates resolve inside their own dependency
+closure — `_sel_anon`, `_sel_owner`, `_sel_org` (via `kernel.has_org_role`, `077`) and `_sel_platform` (via
+`kernel.is_platform`, `077`). **The forward reference is not declared and tolerated; it ceases to exist.**
+
+**Consequence for the window between `079` and `080`.** Venue-plane staff cannot read these four tables until
+`080` applies. That is **fail-closed and bounded**: it is the same end-state the silent-omission failure would
+have produced, except that it is intentional, it lasts exactly one package, and it **closes** rather than
+persisting undetected. `080` is the immediately following package; nothing between `079` and `080` reads these
+tables as venue staff. **Rollback also fails closed**: reverting `080` drops the policies and the venue plane
+goes dark again — it never leaves a table readable by a principal whose predicate has been removed.
+
+**Checked for every other consumer, since a placement change is only safe if nothing else moved.** `081`
+already declares `080` (*"`080` (`has_venue_role` for RLS)"* — the precedent this ruling follows) and `086`
+already declares `079`, `080`. Neither changes. `082`–`091` are unaffected: no package other than `080` now
+creates a policy on an `078`/`079` table. **One new edge is required and one only** — `079 → 080`, because
+`080` now creates a policy on `kernel.tickets`. **Ordering already satisfies it (`079 < 080`), so this is a
+DECLARATION-ONLY edge**, the same class as `†086 → 087`: nothing about the rollout order changes; what changes
+is that the dependency is *declared* rather than *true by luck*.
+
+#### The four `USING` clauses
+
+**Deny-by-default first.** Each of the four tables is `REVOKE ALL FROM anon, authenticated, public`, then
+`ENABLE ROW LEVEL SECURITY`, then the exact `GRANT SELECT (columns)` its matrix authorises (`I-7`). Each
+clause below is one `FOR SELECT TO authenticated` policy, additive with its siblings (Postgres `OR`s
+permissive policies), and every one is a **live-table** read through the sanctioned helpers — never a JWT
+claim (`I-5`, `C36`), never a bare role string (`RM-2`), never a re-inlined inheritance join (`RM-3`).
+
+```text
+-- catalog_venue_sel_venue    ON catalog.venue        CREATED IN 080
+-- §8.1: venue_manager A(own venue incl. draft); every other venue label A(own venue).
+USING (
+  kernel.has_venue_role(
+    venue_id,
+    ARRAY['venue_manager','venue_finance','venue_box_office',
+          'venue_marketing','venue_promoter_manager','venue_scanner'] )
+)
+
+-- catalog_event_sel_venue    ON catalog.event        CREATED IN 080
+-- §8.2 grants TWO tiers and the difference is load-bearing: only venue_manager
+-- sees a DRAFT event; every other venue label sees announced+ only.
+USING (
+      kernel.has_venue_role(venue_id, ARRAY['venue_manager'])
+   OR (     status >= 'announced'
+        AND kernel.has_venue_role(
+              venue_id,
+              ARRAY['venue_finance','venue_box_office','venue_marketing',
+                    'venue_promoter_manager','venue_scanner'] ) )
+)
+
+-- catalog_event_session_sel_venue   ON catalog.event_session   CREATED IN 080
+-- The table carries event_id, so the EVENT-grain helper applies directly.
+-- NOTE the deliberately absent venue_scanner arm -- see OPEN-1 below.
+USING (
+  kernel.has_event_role(
+    event_id,
+    ARRAY['venue_manager','venue_finance','venue_box_office',
+          'venue_marketing','venue_promoter_manager'] )
+)
+
+-- kernel_tickets_sel_venue   ON kernel.tickets       CREATED IN 080
+-- Carries BOTH arms of the §7.5 grant -- see GP-3 NOTE below.
+-- kernel.tickets has org_id (direct) but NO venue_id: its grain is the
+-- SESSION, and no session-grain helper exists -- see OPEN-2 below.
+USING (
+      kernel.has_org_role(org_id, ARRAY['org_owner','org_admin','org_finance'])
+   OR kernel.has_event_role(
+        ( SELECT s.event_id FROM catalog.event_session s
+           WHERE s.session_id = kernel.tickets.event_session_id ),
+        ARRAY['venue_manager','venue_finance','venue_scanner'] )
+)
+```
+
+**`I-4` column discipline is carried by the `GRANT`, not by the `USING`.** Footnote 8 of §7.5 scopes the
+issuing-venue read so that `current_owner_id` is **not** among the granted columns; a row-level clause cannot
+express that and must not be read as having done so.
+
+#### Three things this subsection deliberately does NOT decide
+
+> **`OPEN-1` — the `venue_scanner` "tonight" narrowing on `catalog.event_session` has no specification
+> anywhere.** §8.3 grants `venue_scanner` `A(own-venue, **tonight**)`. **No document in the corpus defines
+> "tonight"** — not a window, not a column, not a config key. The clause above therefore **omits the
+> `venue_scanner` arm entirely**, which is the fail-closed reading: a scanner reads its manifest through
+> `venue.get_door_manifest` (door §7.5), not by scanning `catalog.event_session`. **Writing a window here
+> would be inventing an authority boundary**, so it is filed rather than guessed. → **RLS owner.**
+>
+> **`OPEN-2` — `kernel.tickets` is at SESSION grain and the nine sanctioned helpers are not.** The helper set
+> offers org, venue and event grain. `kernel.tickets` carries `event_session_id` and **no `venue_id`**, so the
+> only forms available are the correlated sub-select written above or a **new** `has_session_role(session_id,
+> role[])` helper. **This subsection does not add a tenth helper** — the set of nine is ratified and adding to
+> it is an amendment, not an integration. The sub-select is a *grain resolution*, not an authority join, so it
+> does not breach `RM-3` — but it is the shape `RM-3` exists to discourage, it runs per row, and a
+> `has_session_role` helper would be `STABLE` and point-probing like its siblings. → **RLS owner / ROLE_MODEL
+> owner.**
+>
+> **`GP-3 NOTE` — `kernel_tickets_sel_venue` carries the org arm too, and its name does not say so.** §7.5
+> grants `org_owner`/`org_admin`/`org_finance` an issuer-org read, §16.10's own gloss for this row reads
+> *"issuing venue/org ops"*, and **`kernel.tickets` has no `_sel_org` policy in the register.** Under `GP-3`
+> the org arm should be its own `kernel_tickets_sel_org`. **It is NOT split here**, because `T-RLS-POL-01`
+> asserts the exact policy list per table and splitting one silently would fail CI in a way that reads as a
+> regression. Recorded so the next reader does not "fix" the name and break the assertion. → **RLS owner.**
+
 ### 16.11 Test register — the assertions this document requires
 
 Named so they can be written, run and cited. Grouped by the property each defends.
@@ -3043,6 +3173,8 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-EDGE-02` | Every RPC marked `DEF` in §11 has **no** EXECUTE grant to `anon` or `authenticated` | §11 grant classes |
 | `T-RLS-POL-01` | `policies_are(schema, table, ARRAY[...])` for every object in §16.10 — an added, renamed or dropped policy fails CI | **GP-3** |
 | `T-RLS-POL-02` | The zero-policy list of §16.10 has RLS **enabled** and **zero** policies; no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2 |
+| `T-RLS-POL-03` | **`AUTHZ-PKG1` — the four deferred venue-plane policies exist AND WORK after `080` applies.** Existence by name (`policies_are()` on `catalog.venue`, `catalog.event`, `catalog.event_session`, `kernel.tickets`) **plus a positive read**: a `venue_manager` granted on venue V reads V's own row on all four objects, and a `venue_manager` of a different venue reads **zero** rows on all four. **Existence alone is not the assertion** — a policy present with a wrong predicate passes it, and the failure mode being guarded is an operator plane that reads zero rows and presents as broken accounts rather than as a bad migration | **§16.10a**, `SEAM-3`, `I-1` |
+| `T-RLS-POL-04` | **`SEAM-3` mechanical — no policy is created in a package earlier than the package creating any function its predicate calls.** Build the map `policy → { helpers called }` from §16.10a and §16.10, map each helper to its package via schema §0.6, and assert `package(policy) >= max(package(helper))` for every policy in the register. **Non-vacuity: the check must resolve at least one helper for at least one policy per venue-plane table, or an empty map passes trivially** — which is exactly how the function-scoped §13.2 sweep returned clean over `FR-10`…`FR-13` | **§16.10a**, `SEAM-3`, schema §13.2 |
 | `T-RLS-POL-03` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner` | GP-1, GP-3 rule 2 |
 | `T-RLS-COL-01` | `anon` holds **zero** rows in `information_schema.role_column_grants` for every empty-grant-set table of §6 | §6 tier 2 |
 | `T-RLS-COL-02` | `authenticated` holds **zero** rows in `role_column_grants` for the same set — *the assertion that would have caught the pre-068 `public.profiles` exposure* | §6 tier 2 |
