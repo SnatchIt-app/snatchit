@@ -21,7 +21,56 @@
 **Constitutions (consolidated — the body is authoritative; no precedence algorithm needed):**
 `docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md` · `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` · `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`
 
-Record contents, current as of 2026-08-27: **44 rows** — C26–C52 + D1–D8 + E-1 + OBS-1 + A-2 + O6 + the five owner rulings O-1 … O-5. C1–C25 are prior-ratified inside the constitutions themselves. **Three open decisions block a gate: O6** (cross-region native-resale form, carried from 2026-08-24), **O7** (the event outbox — promised by DA §6.2/§6.3 and CDM C12, scheduled by no implementation spec; row C51) and **O8** (the `notify` schema — Gate-P/MVP under C7, do-not-build in all four implementation specs; row C52). The record's earlier "zero pending" line no longer holds and has been withdrawn.
+> **`SPEC CORRECTION R4-6` (2026-08-28; ratification rows `C125` / `D33`) — THIS DOCUMENT STATED A FALSE
+> INVENTORY OF THE REGISTER THAT GATES EVERYTHING, AND RULE 3 RANKS THIS DOCUMENT *ABOVE* THE REGISTER'S
+> READERS.**
+>
+> It read: *"Record contents, current as of 2026-08-27: **44 rows** … **Three open decisions block a gate:
+> O6, O7, O8**."* The record at head carries **114 rows** and **eleven** open decisions. Because Rule 3
+> places this freeze above the implementation specs, **the stale count won under the corpus's own stated
+> precedence** — a reader reconciling the two was instructed to prefer the wrong one. **Recounted
+> mechanically over the record's row tables, not carried forward, and every count below is stated with its
+> enumeration** (this corpus has been bitten repeatedly by a count updated while its enumeration was not).
+
+**Record contents — recounted mechanically at `f97f6cd`, 2026-08-28. Every count is followed by its
+enumeration; no count in this document may stand alone.**
+
+**114 rows**, and they are: **C26–C98** (73 — the correction series, contiguous, none missing) · **D1–D21**
+(21 — the documentation-fix series) · **O-1 … O-5** (5 — the hyphenated owner rulings) · **O6, O12, O13, O14,
+O15, O16** (6 — the open decisions that carry their own row; `O7`–`O11` are carried by rows `C51`, `C52`,
+`C56`, `C72`, `C75` and have none) · **RET-1 … RET-6** (6 — retractions) · **E-1, OBS-1, A-2** (3). Sum:
+73 + 21 + 5 + 6 + 6 + 3 = **114**. C1–C25 are prior-ratified inside the constitutions themselves and are not
+counted here.
+
+**99 of the 114 are terminal. 15 rows are `OPEN-GATED`**, and they are: **C50 · O6 · C51 · C52 · C56 · C72 ·
+C75 · C77 · O12 · C85 · O13 · C90 · O14 · C95→O15 · C92→O16** — fifteen. *(The record's status table gives
+the same fifteen; 114 − 15 = 99.)*
+
+**Eleven distinct open decisions block a gate, and they are `O6` … `O16`** — a row count and a decision count
+are **not** the same number, because five decisions are carried by a correction row rather than a row of
+their own:
+
+| Decision | Carried by | Gate | What it blocks |
+|---|---|---|---|
+| **O6** | `C50` + its own row | **M/region** | cross-region native-resale form (saga/escrow vs intra-region-only); carried from 2026-08-24 |
+| **O7** | `C51` | **P** if (a), — if (b) | the event outbox — promised by DA §6.2/§6.3 and CDM C12, scheduled by no implementation spec |
+| **O8** | `C52` | **P** per C7 / **L** per the implementation specs — *the contradiction is the row* | the `notify` schema |
+| **O9** | `C56` | **P** (Wallet enable) | the `OQ-5`/`OQ-W4` Wallet relaxation — conditions specified, **owner sign-off still owed** |
+| **O10** | `C72` | **P** | the second structural amendment to the package DAG, pending re-ratification |
+| **O11** | `C75` | **P** | **precedence between delta specifications — there is none**; blocks the next delta-vs-delta conflict |
+| **O12** | `C77` + its own row | **P** | platform-plane grant maturity — the platform money-key arm ships with no maturity floor until ruled |
+| **O13** | `C85` + its own row | **P** | `org_admin` on the money plane |
+| **O14** | `C90` + its own row | **P** | the payout tier operand — blocks the payout tier's implementation |
+| **O15** | `C95` + its own row | **P** | account deletion for an identity holding live custody |
+| **O16** | `C92` + its own row | **P** | what `kernel.payout.status='paid'` asserts |
+
+**Ten of the eleven name Gate P** (all but `O6`), two of those ten conditionally (`O7`, `O8`). The record's
+earlier "zero pending" line does not hold, is withdrawn, and is not restated.
+
+**This document has no mechanism that fails when these numbers go stale**, which is why they were three
+passes and seventy rows behind. Until one exists, **the record's own status table is the authority and this
+paragraph is a convenience copy**: on any disagreement, recount from
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` and correct this file. Filed as `C125`.
 
 > **Two `O` namespaces, and they are not the same series — read the hyphen.** `O1`…`O8` **unhyphenated** are the architecture **open questions** tracked in DA §0.4 and the risk register (`O3` = resale-policy snapshot drift, `O4` = per-event identity-verification strength, `O6`/`O7`/`O8` as above). `O-1`…`O-5` **hyphenated** are the **owner rulings** ratified 2026-08-27 (`O-3` = payout visibility/requests, `O-4` = door-manifest authority). `O3` ≠ `O-3` and `O4` ≠ `O-4`. Neither series is renumbered; the disambiguation is the fix (record row **D4**).
 
@@ -41,6 +90,20 @@ Record contents, current as of 2026-08-27: **44 rows** — C26–C52 + D1–D8 +
 
 *Surface and registry:*
 `docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` · `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md` (the canonical migration-package map)
+
+**Registers and integration layer — added to the covered set 2026-08-28 (`R4-7`; ratification rows `C126` / `D33`):**
+
+> **These four documents existed and were NOT listed, which is precisely what left them outside Rule 1.** The
+> omission was found by diffing the covered set against `docs/architecture/**/*.md`: **36 files in the tree,
+> 32 named here, four missing.** They are named below with their tier, because a covered-document list that
+> is silently incomplete is worse than one that is short — it reads as exhaustive.
+
+`docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` — **a register other documents cite**, therefore squarely inside Rule 1 and not merely eligible for it: RLS §2.2 cites its `C2 · O-2` row as one of the six statements of the helper set, RPC §20.14 rows `R-15`/`R-20` are addressed to it, and it carries **two ratified rows of its own (`C83`, `C84`)**. Same tier as the implementation specs. **It also has a live staleness hazard its own header states** — body baselined at `64d2aac`, reconciled forward to `cbf8926` for RLS §16.10 only — and `C84` records that it has **no mechanism that fails when its baseline goes stale**. Covering it does not fix that; it makes changing it require an amendment.
+`docs/architecture/PHASE_2_SCOPE_AMENDMENT_2026_08.md` — the **INTEGRATION LAYER** for the six owner-approved Phase-2 additions (Wallet · demographics · promoter codes · CRM export · notifications · venue dashboard). It is the document that authorizes the five feature deltas already covered above, so covering the deltas and not their authorization was the gap. Same tier as the implementation specs.
+`docs/architecture/_governance/PHASE_2_PREIMPLEMENTATION_CLOSEOUT.md` — **engineering governance**, and load-bearing: it carries the `071`–`075` → `076`–`091` renumbering note that Rule 4 and the migration statement below both depend on.
+`docs/architecture/_governance/GUARD_RESTORATION_PATCH.md` — **engineering governance**, `STATUS: APPLIED 2026-08-26`. Covered as the record of a **CI-guard change** (`migrations-guard.yml`, the Scheme-B exception retired). **Rule 1 covers the record; it does not freeze the workflow file**, and nothing in this freeze may be read as licence to weaken that guard.
+
+**None of the four is excluded.** The covered set is now **36 of 36** files under `docs/architecture/`, and that equality is the check to re-run whenever a document is added.
 
 **These deltas do not themselves edit the constitutions.** Each records the constitutional edits it requires; those edits reach DA/CDM only through a ratified row in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, per Rule 1. Where two deltas prescribed conflicting edits to the same constitution section, the conflict is resolved and the rejected instruction named in the record (see row **D6**, DA §7.6).
 
@@ -105,11 +168,18 @@ Three statements in this document had become **false** and are corrected above. 
 are untouched, the baseline commit is untouched, no new freeze is declared, and **no new freeze record is
 written here** — that is a separate, later act gated on a readiness verdict.
 
-1. **The record-row inventory was stale** — "C26–C50 + D1–D3 + O6 = 29, zero pending". The record now carries
-   **44 rows** and **three open decisions (O6, O7, O8)**; "zero pending" is withdrawn rather than restated.
+1. **The record-row inventory was stale** — "C26–C50 + D1–D3 + O6 = 29, zero pending". It was corrected to
+   **44 rows / three open decisions (O6, O7, O8)** on 2026-08-27, and **that correction is itself now
+   superseded**: see the recount above (**114 rows · 15 `OPEN-GATED` · eleven decisions `O6`–`O16`**, each
+   with its enumeration). "Zero pending" is withdrawn and not restated. **This is the third time this
+   paragraph has gone stale, which is the argument for the recount-from-the-record rule stated above.**
 2. **The covered-document list predated the delta specs.** Eight design-only delta specifications (three
    owner-ruling, five feature) plus the venue dashboard product spec and the package registry now exist and are
-   listed. Adding them to the covered set is what puts them under Rule 1.
+   listed. Adding them to the covered set is what puts them under Rule 1. **Amended 2026-08-28 (`R4-7`,
+   row `C126`): that pass still omitted four files** — the traceability matrix, the scope amendment, the
+   pre-implementation closeout and the guard-restoration patch — **and the traceability matrix is a register
+   other documents cite, so it was outside Rule 1 while being treated as authority.** All four are now
+   listed; coverage is 36 of 36.
 3. **The `O` namespace was ambiguous.** This document previously said "O2/O3/O4 tracked as open questions in DA
    §0.4" beside owner rulings numbered `O-2`/`O-3`/`O-4`. Both readings are legitimate and neither series is
    renumbered; the sentence is replaced by an explicit note (record row **D4**).
