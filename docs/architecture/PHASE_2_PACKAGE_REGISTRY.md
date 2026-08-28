@@ -83,6 +83,46 @@ in the corpus.
 > and its argument is `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13.2–§1.13.4,
 > §2.4.1, §3.10a, §3.17.2 and §13.7.
 
+> ## ⚠ THIRD AMENDMENT PENDING RE-RATIFICATION — final reconciliation pass
+>
+> Two changes, both to package **`087`**. **No package is added, renumbered or
+> removed; no object moves between packages; no rollback posture, rollback order
+> or rollout order changes; the DAG stays acyclic and topologically ordered by
+> package number; the count stays 16 (`076`–`091`).**
+>
+> - **`087` gains a second deployed edge function — `crm-export-worker`.** The CRM
+>   spec specified the export edge as *"three routes, one function"* with **two
+>   different `verify_jwt` values**. `verify_jwt` is a per-**function** Supabase
+>   setting fixed at deploy time, so that was not implementable, and the resolution
+>   an implementer reaches for is the permissive one — deploy at
+>   `verify_jwt: false` and check the JWT inside `/download` — which leaves the
+>   venue's entire attendee contact list one forgotten `getUser()` away from an
+>   unauthenticated endpoint. Resolved (edge §3.7 `EDGE-2`) as **`crm-export`**
+>   (actor, `POST /download` only) and **`crm-export-worker`** (`POST /build` +
+>   `POST /purge`), **both `verify_jwt: true`**, the worker authenticated by
+>   `CRM_EXPORT_WORKER_SECRET` in the dedicated header `X-Crm-Export-Worker` —
+>   **never** by comparison against `SUPABASE_SERVICE_ROLE_KEY` (`EDGE-3`).
+>   **Registry consequence:** `087`'s two `pg_cron` schedules (`/build` at 1 min,
+>   `/purge` at 15 min) **retarget to the worker's URL and must send that header**.
+>   These are deploy artifacts, not SQL — recorded here because this package's
+>   scheduled ticks point at them and a schedule left pointing at the old target is
+>   a 404 every cycle on the only agent in the design that deletes a customer CSV.
+>
+> - **One dependency edge added: `086 → 087` (`†`, §2.1).** `venue.list_attendees`
+>   and `venue.build_export_rows` read `venue.scan`. The migration plan's §8/`087`
+>   prose already said so; **every declared set omitted it** — §3 seq 12, §2.1
+>   above, and the JSON `depends_on`. **Declaration-only.** Ordering was never
+>   wrong (`086 < 087`), so nothing about the rollout changes; what changes is that
+>   the machine-readable graph now agrees with the human one. This is the **third**
+>   instance of the shape rule §6.6 / SEAM-1 exists to catch, after `079 → 085` and
+>   `085 → 088` — both function-body reads, both resolved by declaring the edge —
+>   and it is resolved the same way for the same reason. Leaving it undeclared
+>   would make §2.2's acceptance property checkable only against prose.
+>
+> **Owner ratification required**, per rule §6.5. Neither change is an owner
+> *decision*: the first adopts a resolution already made in the edge spec, the
+> second completes a declaration the corpus already contained in prose.
+
 Consult this file **before quoting, authoring, or reviewing any Phase-2 migration
 number.** If another document disagrees with this table, this table wins and the
 other document is stale — fix it, do not follow it.
@@ -130,7 +170,7 @@ of the corpus was written on. Two intermediate `+1` shifts (`072`–`087` and
 | `084` | `079` | G2 | G — credential infrastructure (ADOPT) | `084_kernel_tickets_late_binding_fks` | late-binding FKs `kernel.tickets` → `venue.ticket_type` + `kernel.signing_key` (`NOT VALID` + `VALIDATE`) — **and nothing else; the only unconditionally reversible package** |
 | `085` | `080` | M | F/I bridge — kernel money-native | `085_kernel_money_native` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` (link to frozen `public.payments`, never re-charge) · **Δ `void_ticket_atom` + `market.on_atom_voided` stub; the nine money-authority RPCs** |
 | `086` | `081` | H | H — scan infrastructure | `086_venue_door_and_scan` | `venue.door_pin`, **`door_session`**, `scan_device`, `scan` (C41 re-entry hedge), `comp_allocation`, `guest_list`, `guest_entry` · **Δ `door_manifest(_entry/_delta)`, `holder_mix_snapshot`, `holder_mix_bucket`, `scan.actor_identity_id`, `assert_door_session` (token-bearing)** |
-| `087` | `082` | I | I — settlement | `087_venue_settlement_and_export` | `venue.settlement`, `venue.settlement_line` (per-event money rollup → `kernel.payout`) · **Δ `export_job` + `crm-exports` bucket; `close_settlement` + its two hook stubs** |
+| `087` | `082` | I | I — settlement | `087_venue_settlement_and_export` | `venue.settlement`, `venue.settlement_line` (per-event money rollup → `kernel.payout`) · **Δ `export_job` + `crm-exports` bucket; `close_settlement` + its two hook stubs; the three purge-agent definers; edge `crm-export` + `crm-export-worker` and their two `pg_cron` schedules** |
 | `088` | `083` | J1 | J — native marketplace bridge | `088_market_native_rail` | `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` · **Δ `transfer_ticket_ownership`, `catalog.cancel_event`, replaces two hooks** |
 | `089` | `084` | J2 | J — native marketplace bridge (ADOPT) | `089_market_bridge_view_and_late_fk` | `market.listing_unified` VIEW (external ∪ native, flag-gated) + adopt `payment_native.sale_id` FK |
 | `090` | `085` | 2D | Phase 2D — promoter engine | `090_venue_promoter_engine` | `venue.promoter`, `promoter_link` (**+`status`**), `attribution` (modeled now, activated in the promoter phase) · **Δ commercial-terms columns, `promoter_code(_scope)`, `attribution_review`, the cross-settlement commission unique, `payment_native.instrument_fingerprint`** |
@@ -146,8 +186,9 @@ functions · RLS · triggers · indexes · grants · flags · dependencies · ro
 
 ### 2.1 Apply order and dependencies
 
-**+** marks an edge added by the delta-spec integration. Every dependency precedes its dependent, so the
-graph is a DAG and is topologically ordered by package number.
+**+** marks an edge added by the delta-spec integration; **†** marks the one edge added by the final
+reconciliation pass. Every dependency precedes its dependent, so the graph is a DAG and is topologically
+ordered by package number.
 
 | Seq | Pkg | Depends on |
 |---|---|---|
@@ -162,7 +203,7 @@ graph is a DAG and is topologically ordered by package number.
 | 9 | `084` | `079`, `081`, `083` |
 | 10 | `085` | `077`, **+`079`**, `082` |
 | 11 | `086` | `079`, `080`, `081`, **+`083`** |
-| 12 | `087` | `077`, `081`, `085` |
+| 12 | `087` | `077`, `081`, `085`, **†`086`** |
 | 13 | `088` | `078`, `079`, `081`, **+`085`** |
 | 14 | `089` | `085`, `088` |
 | 15 | `090` | `082`, **+`078`**, **+`085`**, **+`087`** |
@@ -179,6 +220,7 @@ Why each added edge exists:
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
 | `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `kernel.settlement_commission_lines` |
+| **†`086 → 087`** | `venue.list_attendees` / `venue.build_export_rows` read `venue.scan` for the check-in columns (previously undeclared — named in the migration plan's §8/`087` prose, absent from every declared set). **Declaration-only:** no package added, renamed or reordered; no object moved; no rollback changed. Third instance of the SEAM-1 shape, after `079 → 085` and `085 → 088`, and resolved identically. |
 
 ### 2.2 The seam rule that keeps the DAG honest
 
@@ -204,7 +246,7 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
   "ratified": "2026-08-27",
   "amended": "2026-08-27",
   "amendment_status": "PENDING_RE_RATIFICATION",
-  "amendment_summary": "Delta-spec integration. Structural: kernel.approval_request placed in 077 (it had no package and no home). Scope: 083 and 087 renamed; seven dependency edges added; per-package object sets extended. Count unchanged at 16 unless COND-B (notify) is ruled Gate P.",
+  "amendment_summary": "Delta-spec integration. Structural: kernel.approval_request placed in 077 (it had no package and no home). Scope: 083 and 087 renamed; seven dependency edges added (an eighth, 086 -> 087, added later by the final reconciliation pass as a declaration-only correction); per-package object sets extended. Count unchanged at 16 unless COND-B (notify) is ruled Gate P.",
   "canonical_source": "docs/architecture/PHASE_2_PACKAGE_REGISTRY.md",
   "placement_record": "docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md#13",
   "package_specification": "docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md#8",
@@ -277,7 +319,7 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
     { "new": "084", "old": "079", "package": "G2", "phase": "G", "name": "084_kernel_tickets_late_binding_fks", "purpose": "credential infrastructure (ADOPT)", "scope": "late-binding FKs kernel.tickets -> ticket_type + signing_key, and nothing else", "depends_on": ["079", "081", "083"], "rollback_posture": "REVERSIBLE", "invariant": "Creates zero relations and zero routines. This purity is what makes its rollback unconditionally reversible; nothing may be added to it." },
     { "new": "085", "old": "080", "package": "M", "phase": "F/I bridge", "name": "085_kernel_money_native", "purpose": "kernel money-native + money authority", "scope": "kernel.payment_native, kernel.refund, kernel.payout, void_ticket_atom + on_atom_voided stub, the nine money-authority RPCs", "depends_on": ["077", "079", "082"], "rollback_posture": "FORWARD_FIX_ONLY" },
     { "new": "086", "old": "081", "package": "H", "phase": "H", "name": "086_venue_door_and_scan", "purpose": "scan infrastructure + door manifest + holder mix", "scope": "door_pin, door_session, scan_device, scan (+actor_identity_id, +manifest_id), comp_allocation, guest_list, guest_entry, door_manifest(_entry/_delta), holder_mix_snapshot, holder_mix_bucket", "depends_on": ["079", "080", "081", "083"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["venue.door_session", "venue.door_manifest", "venue.door_manifest_entry", "venue.door_manifest_delta", "venue.holder_mix_snapshot", "venue.holder_mix_bucket", "venue.scan.actor_identity_id", "venue.scan.manifest_id", "venue.scan_device.manifest_id"] },
-    { "new": "087", "old": "082", "package": "I", "phase": "I", "name": "087_venue_settlement_and_export", "purpose": "settlement + CRM export", "scope": "venue.settlement + venue.settlement_line + venue.export_job + crm-exports bucket + close_settlement and its two hook stubs", "depends_on": ["077", "081", "085"], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "087_venue_settlement", "delta_added": ["venue.export_job", "storage.buckets:crm-exports", "crm_export_builder role"] },
+    { "new": "087", "old": "082", "package": "I", "phase": "I", "name": "087_venue_settlement_and_export", "purpose": "settlement + CRM export", "scope": "venue.settlement + venue.settlement_line + venue.export_job + crm-exports bucket + close_settlement and its two hook stubs + the three purge-agent definers", "depends_on": ["077", "081", "085", "086"], "depends_on_added_by_reconciliation": ["086"], "edge_functions": [ { "name": "crm-export", "routes": ["POST /download"], "class": "A", "verify_jwt": true, "worker_secret_in_env": false }, { "name": "crm-export-worker", "routes": ["POST /build", "POST /purge"], "class": "B", "verify_jwt": true, "worker_secret_in_env": true, "worker_header": "X-Crm-Export-Worker", "secret_name": "CRM_EXPORT_WORKER_SECRET", "never_compared_against": "SUPABASE_SERVICE_ROLE_KEY" } ], "cron_schedules": [ { "target": "crm-export-worker", "route": "POST /build", "cadence": "1 minute", "header": "X-Crm-Export-Worker" }, { "target": "crm-export-worker", "route": "POST /purge", "cadence": "15 minutes", "header": "X-Crm-Export-Worker", "note": "daily orphan reconciliation rides this route" } ], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "087_venue_settlement", "delta_added": ["venue.export_job", "storage.buckets:crm-exports", "crm_export_builder role"] },
     { "new": "088", "old": "083", "package": "J1", "phase": "J", "name": "088_market_native_rail", "purpose": "native marketplace rail + custody engine", "scope": "listing_native, auction, offer, market_sale, p2p_transfer, transfer_ticket_ownership, catalog.cancel_event", "depends_on": ["078", "079", "081", "085"], "rollback_posture": "CLEAN_WHILE_EMPTY", "restores_hooks": ["kernel.settlement_royalty_lines", "market.on_atom_voided"] },
     { "new": "089", "old": "084", "package": "J2", "phase": "J", "name": "089_market_bridge_view_and_late_fk", "purpose": "native marketplace bridge (ADOPT)", "scope": "market.listing_unified VIEW + adopt payment_native.sale_id FK", "depends_on": ["085", "088"], "rollback_posture": "REVERSIBLE" },
     { "new": "090", "old": "085", "package": "2D", "phase": "2D", "name": "090_venue_promoter_engine", "purpose": "promoter engine", "scope": "venue.promoter (+tier/party_kind/commission_kind/commission_flat_minor), promoter_link (+status), attribution (+15 cols), promoter_code, promoter_code_scope, attribution_review, the cross-settlement commission unique, payment_native.instrument_fingerprint", "depends_on": ["078", "082", "085", "087"], "rollback_posture": "CLEAN_WHILE_EMPTY", "restores_hooks": ["kernel.settlement_commission_lines"], "delta_added": ["venue.promoter_link.status", "venue.promoter_code", "venue.promoter_code_scope", "venue.attribution_review", "venue.settlement_line:uq_promoter_commission_cause_ref", "kernel.payment_native.instrument_fingerprint", "venue.order.attribution_candidate_code_id", "venue.order.attribution_candidate_link_id"] },

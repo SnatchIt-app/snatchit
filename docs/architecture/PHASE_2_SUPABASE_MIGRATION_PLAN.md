@@ -283,6 +283,7 @@ graph TD
     B077 --> I087
     E081 --> I087
     M085 --> I087
+    H086 --> I087
     D079 --> J088
     C078 --> J088
     E081 --> J088
@@ -297,8 +298,9 @@ graph TD
     classDef pre fill:#fee,stroke:#c00,stroke-width:2px;
 ```
 
-**Seven edges added by the delta-spec integration** (schema §13.6). Each precedes its dependent, so the
-graph is still a DAG and still topologically ordered by package number — the property §3 relies on:
+**Seven edges added by the delta-spec integration** (schema §13.6), **plus one added by the final
+reconciliation pass** (marked `†`). Each precedes its dependent, so the graph is still a DAG and still
+topologically ordered by package number — the property §3 relies on:
 
 | Edge | Because |
 |---|---|
@@ -309,6 +311,7 @@ graph is still a DAG and still topologically ordered by package number — the p
 | `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `settlement_commission_lines` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
+| **`086 → 087` `†`** | `venue.list_attendees` and `venue.build_export_rows` read **`venue.scan`** for the check-in columns. **Declaration-only correction: no reordering, no new object, no rollback change.** §8/`087`'s prose already named `086`; the *declared* sets (§3 seq 12, registry §2.1 and its JSON `depends_on`) did not, so the machine-readable dependency graph and the human one disagreed. This is the **third** instance of the shape SEAM-1 exists to catch — after `079 → 085` and `085 → 088`, both function-body reads, both resolved by declaring the edge. Resolved the same way, for the same reason: SEAM-1 places a function at `max()` of the packages creating every table it reads, so a package whose declared set omits one of those tables is under-declared even when the numbers happen to sort correctly. `086 < 087` already, so the edge is satisfied on the day it is written down. |
 
 Edges into `public.*` (FK to `public.payments`, `auth.users`; VIEW over `public.listings`) are implicit and
 one-directional — the frozen core references nothing upward (SPEC_FOUNDATION §2, schema spec §0.1).
@@ -333,7 +336,7 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 | 9 | 084 | G(adopt) | 079,081,083 | Y | N | ADD CONSTRAINT NOT VALID+VALIDATE (empty) | none | s | — |
 | 10 | 085 | F/I | 077,**079**,082 | Y | N | new-table only | none | s | — |
 | 11 | 086 | H | 079,080,081,**083** | Y | N | new-table only | none | s | scanning gated (2B door gate) |
-| 12 | 087 | I | 077,081,085 | Y | N | new-table only + 1 storage bucket | none | s | — |
+| 12 | 087 | I | 077,081,085,**086** | Y | N | new-table only + 1 storage bucket | none | s | — |
 | 13 | 088 | J | 078,079,081,**085** | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
 | 14 | 089 | J | 085,088 | Y | N | VIEW create + ADD CONSTRAINT (empty) | none | s | resale gated; VIEW inert until flag |
 | 15 | 090 | 2D | 082,**078**,**085**,**087** | Y | N | new-table + ADD COLUMN on 3 empty tables | none | s | promoter phase |
@@ -1215,13 +1218,15 @@ ratified, SEAM-1 floors it at `090`** (it aggregates money, door and attribution
 |---|---|
 | **Purpose** | The per-event/period money rollup → `kernel.payout` (SSCAS #4, never touching ticket history), and the venue's attendee-read + CRM-export surface. |
 | **Tables** | `venue.settlement` · `venue.settlement_line` (AO) · **`venue.export_job`** · the private **`crm-exports`** storage bucket. |
-| **Functions** | `venue.open_settlement`; **`kernel.close_settlement` (authored once, here)** plus its two SEAM-2 hook stubs **`kernel.settlement_royalty_lines`** (replaced in `088`) and **`kernel.settlement_commission_lines`** (replaced in `090`); `kernel.request_org_payout` (with the probation hold, the SoD-1 destination-setter exclusion, the step-up predicate and the above-threshold approval branch); **`venue.list_attendees`, `lookup_attendee`, `request_export`, `build_export_rows`, `finalize_export`, `authorize_export_download`, `revoke_export`, `list_export_jobs`, `sweep_expired_exports`**. |
+| **Functions** | `venue.open_settlement`; **`kernel.close_settlement` (authored once, here)** plus its two SEAM-2 hook stubs **`kernel.settlement_royalty_lines`** (replaced in `088`) and **`kernel.settlement_commission_lines`** (replaced in `090`); `kernel.request_org_payout` (with the probation hold, the SoD-1 destination-setter exclusion, the step-up predicate and the above-threshold approval branch); **`venue.list_attendees`, `lookup_attendee`, `request_export`, `build_export_rows`, `finalize_export`, `authorize_export_download`, `revoke_export`, `list_export_jobs`, `sweep_expired_exports`**, plus the three purge-agent definers **`venue.claim_artifacts_for_purge`, `venue.confirm_artifact_purged`, `venue.reconcile_export_orphans`** (`service_role` only — CRM §11.1 element 19a / §11.4; **they were contracted there and absent here, and a contracted function absent from §8 is a function nobody builds**). |
 | **RLS** | Settlement org-scoped (org finance) + platform; writes RPC-only. **`export_job` deny-all with an empty grant set**; **zero storage policies of any verb** for `anon`/`authenticated` on `crm-exports`. `build_export_rows` runs as the narrow **`crm_export_builder`** role — granted SELECT on exactly the enumerated roster relations and the three consent/key tables, holding **zero grant on any demographic object**, and never `BYPASSRLS`. |
 | **Triggers** | `raise_append_only` on `settlement_line`; `set_updated_at`. |
 | **Indexes** | `settlement`: `(org_id, status)`, `(event_id)`. `settlement_line`: `UNIQUE(settlement_id, cause, cause_ref)`, `(settlement_id)`, `(cause_ref)`. *(The cross-settlement commission unique is added by `090` — §8/`090`.)* `export_job`: `UNIQUE(requested_by, command_key)`, `(state, requested_at)` (the cron drain), `(org_id, requested_at)` (the history panel). |
+| **Edge functions** | **TWO deployed functions, both `verify_jwt: true`** — CRM §11.5, edge §3.7 (`EDGE-2`). **`crm-export`** (actor): one route, `POST /download`; Class A; re-derives the caller via `auth.getUser` and re-authorizes live through `venue.authorize_export_download`. **`crm-export-worker`** (worker): `POST /build` + `POST /purge`; Class B; no human caller exists and none may. The worker's second factor is **`CRM_EXPORT_WORKER_SECRET` in the dedicated header `X-Crm-Export-Worker`**, constant-time compared, **never** compared against `SUPABASE_SERVICE_ROLE_KEY` (edge `EDGE-3`: the runtime env value and the key `pg_cron` sends are different strings, so that comparison is always false). **Two structural absences, not conventions:** the actor deployment does not carry the worker secret, and the worker bundle contains no download handler and no `createSignedUrl`. *(Deploy artifacts, not SQL — listed here because this package's cron schedules target them.)* |
+| **Scheduled ticks** | **Two `pg_cron` + `pg_net` schedules, both targeting `crm-export-worker` and both sending `X-Crm-Export-Worker`** — the same `cron.schedule(... net.http_post(...))` pattern `VERIFIED:` migrations `014`/`032`/`034` already use, **not** the 2-minute in-database heartbeat: `POST /build` **every minute** (drain of `state='queued'`, the `(state, requested_at)` index above is its hot path) and `POST /purge` **every 15 minutes** (claims `artifact_state='delete_pending'` under the lease, deletes the bytes, and once per day runs the orphan reconciliation pass). **A schedule left pointing at `crm-export`, or sent without the header, is a 404/403 every cycle — and the purge schedule is the only agent in the design that deletes a customer-contact CSV.** `venue.sweep_expired_exports` is a state-transition-only tick and moves no bytes. |
 | **Grants** | `REVOKE ALL` on both new tables; the bucket is created **with its constraints in the same statement and a raising `DO $$ … $$` self-verification block — no `ON CONFLICT DO NOTHING`**: `public=false`, `file_size_limit=33554432`, `allowed_mime_types={text/csv}` exactly. |
 | **Feature flags** | Reads the CRM limits/caps/retention and `crm_export.constraint_set_version` seeded in `078`. |
-| **Dependencies** | `077` (org), `081` (venue context), `085` (payout target). References catalog, `086` (`venue.scan` for check-in columns). |
+| **Dependencies** | `077` (org), `081` (venue context), `085` (payout target), **`086`** (`venue.scan` — `venue.list_attendees` and `venue.build_export_rows` read it for the check-in columns). References catalog. **`086` was named in this row's prose but omitted from every declared set** (§3 seq 12, registry §2.1/JSON) — the third instance of the shape SEAM-1 exists to catch. Ordering was never wrong (`086 < 087`); the *declaration* was incomplete. Promoted to a declared edge — §2. |
 | **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix once the ledger holds real lines. Drop `export_job` and the bucket, then `settlement_line`, then `settlement`, then the three settlement functions. |
 | **Tests** | Replay green. `settlement_line` unique per `(settlement, cause, cause_ref)`; AO guard; a non-`org_finance` principal cannot read; a close writes a `kernel.payout` row. **Both hook stubs exist and return zero rows** (so a close at `087` is arithmetically complete without them). `export_job.scope_kind` CHECK has **no `'all'` member**. `emitted + suppressed = holder row count` on every `ready` job — that pair is the only evidence a later auditor has that the consent gate actually ran. The export builder's SQL contains **zero references to any of the four demographic objects** — CI-checked, not grep-of-a-file-that-may-not-exist. Every `export_job` state transition has a `kernel.admin_audit` row in the **same** transaction. The bucket's three property assertions pass. |
 
