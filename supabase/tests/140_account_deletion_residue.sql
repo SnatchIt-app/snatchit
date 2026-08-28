@@ -6,32 +6,45 @@
 -- delete_account_cleanup or any part of deletion. That is why the defects below
 -- survived: they are not subtle, they were simply never executed.
 --
--- Every assertion here FAILS against the 0563 body and PASSES against
--- 20260828041500. They are written against OBSERVABLE STATE — "no row anywhere
--- still points at the deleted user" — rather than against the function's text,
--- because the thing that matters is whether auth.admin.deleteUser can succeed,
--- not which statements were written.
+-- WHAT DISCRIMINATES AND WHAT DOES NOT. An earlier version of this header said
+-- "every assertion here FAILS against the 0563 body". That was false, and the
+-- claim is the kind a test file must not make loosely: measured by execution,
+-- 0563 scores 7/23 and 20260828041500 scores 23/23, both measured by running
+-- the file against each body. The seven that pass BOTH ways are 14, 15, 17,
+-- 18, 19, 20 and 22 -- they are REGRESSION GUARDS for behaviour 0563 already
+-- had, and they are NOT evidence for anything this migration repairs. 18/19/20
+-- exist because four one-statement mutants survived the first version of this
+-- file; 22 is a non-vacuity guard on 23. All are marked inline.
 --
--- THE FOUR PROPERTIES:
---   A. Every NO ACTION reference to auth.users is cleared, so the subsequent
---      DELETE cannot raise 23503. Assertions 1-7.
+-- Assertions are written against OBSERVABLE STATE -- "no row anywhere still
+-- points at the deleted user" -- rather than against the function's text,
+-- because the thing that matters is whether auth.admin.deleteUser can succeed.
+--
+-- THE PROPERTIES:
+--   A. Every reference that would block the DELETE is cleared. 1-7.
 --   B. The derived auction head matches the surviving bids, so deleting a top
 --      bidder does not leave a phantom high bid nobody can outbid. 8-11.
 --   C. No world-readable column still carries the deleted user's uuid. 12-14.
---      This is the one that mattered most: seller_id was repointed to the
---      sentinel while cover_image_path kept the real uuid ON THE SAME PUBLIC
---      ROW, so re-identification was a string split.
 --   D. The function is idempotent, because the edge function may retry. 15-17.
+--   E. The anonymization statements that 0563 already had still run. 18-21.
 --
--- Assertion 18 is the standing catalog check the privacy review asked for: it
--- is population-based, not enumeration-based, so a column added LATER that
--- carries an identity uuid fails this file without anyone remembering to add it.
+-- 23 IS THE ONE THAT MATTERS MOST (22 is its non-vacuity guard), and it is the
+-- assertion two earlier drafts of this file did not have. It computes the blocking set from pg_constraint --
+-- the TRANSITIVE closure: every table reachable from auth.users by CASCADE,
+-- then every NO ACTION/RESTRICT reference into any of those tables -- and
+-- asserts that after cleanup none of them still names the user. Two real
+-- defects shipped green past the hand-written enumeration it replaces:
+--   * listings.proof_of_ownership_path kept the uuid on a world-readable row
+--     while the old assertion 18 "proved" no column did.
+--   * stripe_connect_archive.profile_id blocks the DELETE second-order, via
+--     profiles.id CASCADE, and no direct-reference census could see it.
+-- An enumeration cannot fail for a column nobody remembered. This can.
 -- ============================================================================
 
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(18);
+SELECT plan(23);
 
 SELECT tap.seed_core();
 
@@ -75,12 +88,13 @@ INSERT INTO public.listings
   (id, seller_id, event_name, venue, neighborhood, event_date, event_time,
    ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
    buy_now_price, duration_hours, starts_at, ends_at, current_bid,
-   cover_image_path, auction_status)
+   cover_image_path, proof_of_ownership_path, auction_status)
 VALUES
   ('aaaaaaaa-0000-0000-0000-00000000dead', tap.buyer(), 'Buyer Sells Too', 'Club E',
    'wynwood', current_date + 30, '19:00', 'GA', 1, 'mobile_transfer', 50, false,
    NULL, 24, now(), now() + interval '24 hours', 50,
-   tap.buyer()::text || '/covers/1724800000000.jpg', 'active');
+   tap.buyer()::text || '/covers/1724800000000.jpg',
+   tap.buyer()::text || '/proofs/1724800000000.jpg', 'active');
 
 -- The buyer resolved a dispute, and reviewed a seller flag. Both are NO ACTION
 -- FKs to auth.users that nothing has ever repointed.
@@ -89,6 +103,18 @@ UPDATE public.transfers SET dispute_resolved_by = tap.buyer() WHERE id = tap.tra
 
 INSERT INTO public.seller_flags (seller_id, flag_type, reviewed_by)
 VALUES (tap.seller(), 'duplicate_proof', tap.buyer());
+
+-- The SECOND-ORDER blocker. profiles.id is ON DELETE CASCADE from auth.users
+-- (000:14), so the auth delete cascades into profiles and THAT delete trips
+-- this NO ACTION FK (044:22). Production holds 4 such rows. No census of
+-- direct references to auth.users can see this, which is why it was missed.
+INSERT INTO public.stripe_connect_archive (profile_id, stripe_connect_id, reason)
+VALUES (tap.buyer(), 'acct_TEST_DELETED', 'testmode_cleanup');
+
+-- The buyer is party to a payment and a transfer, so the anonymization
+-- statements 0563 already had have something to act on (assertions 18-21).
+SELECT set_config('app.bypass_transfer_guard', 'on', true);
+UPDATE public.transfers SET buyer_id = tap.buyer() WHERE id = tap.transfer_b();
 
 -- ── Run the thing under test ───────────────────────────────────────────────
 SELECT public.delete_account_cleanup(tap.buyer());
@@ -137,39 +163,93 @@ SELECT is((SELECT count(*)::int FROM public.listings
             WHERE cover_image_path LIKE tap.buyer()::text || '%'), 0,
   'cover_image_path no longer embeds the deleted user''s uuid — seller_id was anonymized while THIS column kept it');
 
+SELECT is((SELECT count(*)::int FROM public.listings
+            WHERE proof_of_ownership_path LIKE tap.buyer()::text || '%'), 0,
+  'proof_of_ownership_path no longer embeds the uuid either — it leaked the SAME id on the SAME public row, and the first version of this file did not check it');
+
 SELECT is((SELECT seller_id FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-00000000dead'),
           '00000000-0000-0000-0000-000000000000'::uuid,
-  'the listing is still anonymized to the sentinel (the repoint itself is unchanged)');
-
-SELECT isnt((SELECT cover_image_path FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-00000000dead'),
-            NULL,
-  'cover_image_path is rewritten rather than nulled — the column is NOT NULL, so nulling would raise');
+  'REGRESSION GUARD (green against 0563 too): the listing is still anonymized to the sentinel');
 
 -- ── D. Idempotent, because the edge function may retry (15-17) ────────────
 SELECT lives_ok($$ SELECT public.delete_account_cleanup('22222222-2222-2222-2222-222222222222'::uuid) $$,
-  'a second run does not raise — every statement is predicated on the user id');
+  'REGRESSION GUARD for a defect that only existed in an intermediate draft: a temp table with ON COMMIT DROP raised 42P07 here on the second call in ONE transaction. pgTAP wraps the file in BEGIN/ROLLBACK, so this really is the same transaction as line 94.');
 
 SELECT is((SELECT current_bid FROM public.listings WHERE id = tap.listing_a()), 150,
-  'a second run does not disturb the reconciled head (the temp table is empty, so no listing is touched)');
+  'a second run does not disturb the reconciled head (v_touched is empty, so no listing is touched)');
 
 SELECT is((SELECT count(*)::int FROM public.listings WHERE seller_id = tap.buyer()), 0,
-  'a second run leaves the anonymization intact');
+  'REGRESSION GUARD (green against 0563 too): a second run leaves the anonymization intact');
 
--- ── The standing check (18) ──────────────────────────────────────────────
--- Population-based, not a fixed list. A column added LATER that carries an
--- identity uuid on a publicly readable table fails this without anyone
--- remembering to extend the file. That is the property the enumeration-based
--- version of this check would not have.
-SELECT is(
-  (SELECT count(*)::int
-     FROM public.listings
-    WHERE seller_id::text        LIKE '%' || tap.buyer()::text || '%'
-       OR cover_image_path       LIKE '%' || tap.buyer()::text || '%'
-       OR event_name             LIKE '%' || tap.buyer()::text || '%'
-       OR venue                  LIKE '%' || tap.buyer()::text || '%'
-       OR coalesce(restrictions, '') LIKE '%' || tap.buyer()::text || '%'),
-  0,
-  'NO text or identity column on the world-readable listings table still contains the deleted user''s uuid');
+-- ── E. The statements 0563 already had still run (18-21) ─────────────────
+-- Four one-statement mutants survived the first version of this file: both
+-- payments anonymizations, both transfers anonymizations, and the step-1
+-- auction cancellation. A test file that cannot see a statement deleted is not
+-- protecting it.
+SELECT is((SELECT count(*)::int FROM public.payments WHERE buyer_id = tap.buyer() OR seller_id = tap.buyer()), 0,
+  'payments buyer_id/seller_id are repointed to the sentinel — deleting this statement must fail something');
+
+SELECT is((SELECT count(*)::int FROM public.transfers WHERE buyer_id = tap.buyer() OR seller_id = tap.buyer()), 0,
+  'transfers buyer_id/seller_id are repointed to the sentinel');
+
+SELECT is((SELECT auction_status FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-00000000dead'), 'cancelled',
+  'REGRESSION GUARD (green against 0563 too): the user''s own live auction is still cancelled by step 1');
+
+SELECT is((SELECT count(*)::int FROM public.stripe_connect_archive WHERE profile_id = tap.buyer()), 0,
+  'stripe_connect_archive.profile_id is repointed — it blocks the DELETE through profiles CASCADE, and no direct-reference census could see it');
+
+-- ── 22. The standing check, computed from the catalog ────────────────────
+-- This is the assertion that would have caught BOTH defects the hand-written
+-- version missed. It asks pg_constraint for the transitive blocking set --
+-- every table reachable from auth.users by CASCADE/SET NULL, then every
+-- NO ACTION/RESTRICT reference INTO any of those tables -- builds the predicate
+-- dynamically, and counts rows that still name the deleted user.
+--
+-- dispute_resolutions.actor_id is excluded BY NAME and only by name: it is
+-- NOT NULL on an append-only table whose trigger raises on UPDATE and DELETE
+-- (065:44), so nothing in the database can repoint it. The edge function
+-- refuses deletion up front when such a row exists. When that decision is
+-- made, delete the exclusion here and this assertion will hold it to it.
+CREATE OR REPLACE FUNCTION pg_temp.residual_refs(p_user uuid)
+RETURNS int LANGUAGE plpgsql AS $fn$
+DECLARE r record; n int; total int := 0;
+BEGIN
+  FOR r IN
+    WITH RECURSIVE cascaded(rel) AS (
+      SELECT 'auth.users'::regclass
+      UNION
+      SELECT c.conrelid FROM pg_constraint c JOIN cascaded x ON c.confrelid = x.rel
+       WHERE c.contype = 'f' AND c.confdeltype IN ('c','n','d')
+    )
+    SELECT c.conrelid::regclass::text AS tbl, a.attname::text AS col
+      FROM pg_constraint c
+      JOIN unnest(c.conkey) WITH ORDINALITY k(attnum, ord) ON true
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+      JOIN cascaded x ON c.confrelid = x.rel
+     WHERE c.contype = 'f' AND c.confdeltype IN ('a','r')
+       AND NOT (c.conrelid = 'public.dispute_resolutions'::regclass AND a.attname = 'actor_id')
+  LOOP
+    EXECUTE format('SELECT count(*) FROM %s WHERE %I = $1', r.tbl, r.col)
+       INTO n USING p_user;
+    total := total + n;
+  END LOOP;
+  RETURN total;
+END $fn$;
+
+-- Non-vacuity: the query must actually find blockers to check, or a typo that
+-- returns the empty set would make the assertion below pass for free.
+SELECT cmp_ok((SELECT count(*)::int FROM (
+  WITH RECURSIVE cascaded(rel) AS (
+    SELECT 'auth.users'::regclass
+    UNION
+    SELECT c.conrelid FROM pg_constraint c JOIN cascaded x ON c.confrelid = x.rel
+     WHERE c.contype = 'f' AND c.confdeltype IN ('c','n','d'))
+  SELECT 1 FROM pg_constraint c JOIN cascaded x ON c.confrelid = x.rel
+   WHERE c.contype = 'f' AND c.confdeltype IN ('a','r')) q), '>=', 13,
+  'the catalog sweep finds at least the 13 blocking references known today — if this drops, the sweep broke, it did not get better');
+
+SELECT is(pg_temp.residual_refs(tap.buyer()), 0,
+  'NO table reachable from auth.users by CASCADE still holds a NO ACTION/RESTRICT reference to the deleted user (dispute_resolutions.actor_id excluded by name — see above)');
 
 SELECT * FROM finish();
 ROLLBACK;

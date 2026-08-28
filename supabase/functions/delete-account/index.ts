@@ -5,13 +5,19 @@
  *
  * Strategy (App Store compliant, marketplace safe):
  *   1. Block if user has active transfers (pending seller_sent / buyer needs to confirm)
+ *   1b. Refuse if dispute_resolutions.actor_id references them — nothing can
+ *       repoint that column, so proceeding would half-delete the account
+ *   1c. Capture transfer-evidence paths BEFORE the RPC nulls the listing-side
+ *       proof column, so migration 049's dispute-evidence protection survives
+ *       a service_role walk that bypasses RLS
  *   2. Cancel any active listings (set auction_status = 'cancelled')
  *   3. Anonymize user references in payments/transfers using sentinel UUID (legal/financial records kept),
  *      clear every NO ACTION reference to auth.users, delete the user's bids and
  *      reconcile the derived auction head — all inside delete_account_cleanup
  *   4. (bids: now handled in step 3's transaction)
- *   5. Delete storage files RECURSIVELY from avatars, auction-media AND proof-docs,
- *      verifying afterwards that nothing survived
+ *   5. Delete storage files RECURSIVELY (and paged) from avatars, auction-media
+ *      AND proof-docs, EXCEPT evidence still referenced by a retained transfer,
+ *      verifying afterwards that nothing else survived
  *   6. Delete auth user (CASCADE handles profiles, push_tokens, notification_preferences)
  *
  * WHAT THIS FUNCTION DOES NOT DO, AND MUST NOT BE DESCRIBED AS DOING:
@@ -19,8 +25,9 @@
  *   public.listings are retained and repointed to a shared sentinel — which is
  *   PSEUDONYMIZATION, not anonymization: the counterparty, the Stripe payment
  *   intent and the listing's own authored text all remain re-identifying.
- *   Client copy must not claim "permanently deleted" or "all associated data"
- *   (see PHASE_2_CRM_EXPORT_SPEC.md §9.3 for the register that is accurate).
+ *   Transfer evidence the user uploaded is deliberately RETAINED while its
+ *   transfer row lives. Client copy must not claim "permanently deleted" or
+ *   "all associated data".
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -171,6 +178,66 @@ serve(async (req) => {
       }, 409, getResponseHeaders(req));
     }
 
+    // ── 1b. Refuse when a blocker we cannot clear exists ─────────────────
+    // dispute_resolutions.actor_id is NOT NULL on an append-only table (065:44)
+    // whose trigger raises on UPDATE and DELETE, so nothing can repoint it. If
+    // we proceeded, delete_account_cleanup would COMMIT — bids gone, listings
+    // repointed to the sentinel, storage wiped — and auth.admin.deleteUser
+    // would then raise 23503 and leave exactly the half-deleted account this
+    // whole change exists to eliminate. Refusing first is the honest failure:
+    // nothing is destroyed and the account still works.
+    const { data: resolverRows, error: resolverErr } = await supabase
+      .from('dispute_resolutions')
+      .select('id')
+      .eq('actor_id', userId)
+      .limit(1);
+
+    if (resolverErr) {
+      await captureException('delete-account', resolverErr, { userId, step: 'blocker-precheck' });
+      return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+    }
+    if (resolverRows && resolverRows.length > 0) {
+      return json({
+        error: 'This account has resolved disputes on the platform and cannot be deleted automatically. Please contact support.',
+      }, 409, getResponseHeaders(req));
+    }
+
+    // ── 1c. Capture evidence still referenced by RETAINED rows ───────────
+    // Must run BEFORE the cleanup RPC, which nulls
+    // listings.proof_of_ownership_path. Migration 049 exists to make transfer
+    // evidence undeletable by its owner for the life of the transfer row —
+    // "so dispute evidence remains immutable" (049:22-26). This function runs
+    // as service_role and bypasses RLS, so 049's policy does not protect it;
+    // the exclusion has to be re-stated here or account deletion becomes a way
+    // to destroy the evidence for a dispute you are losing.
+    //
+    // Only the TRANSFER columns are protected. A proof referenced solely by
+    // listings.proof_of_ownership_path is the seller's own screenshot — real
+    // names, order numbers, barcodes, seat numbers, email addresses — and is
+    // exactly what deletion is supposed to remove; its listing row is being
+    // anonymized in the same operation.
+    const protectedPaths = new Set<string>();
+    for (const [table, column] of [
+      ['transfers', 'transfer_evidence_path'],
+      ['transfers', 'dispute_evidence_path'],
+    ] as const) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(column)
+        .like(column, `${userId}/%`);
+      if (error) {
+        await captureException('delete-account', error, { userId, table, column, step: 'evidence-scan' });
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
+      for (const row of data ?? []) {
+        const v = (row as Record<string, unknown>)[column];
+        if (typeof v === 'string' && v.length > 0) protectedPaths.add(v);
+      }
+    }
+    if (protectedPaths.size > 0) {
+      console.log(`[delete-account] retaining ${protectedPaths.size} referenced evidence object(s)`);
+    }
+
     // ── 2 & 3. Cancel listings + anonymize financial records ────────────
     // Uses the delete_account_cleanup RPC (migration 020) which runs as
     // SECURITY DEFINER to bypass:
@@ -218,21 +285,31 @@ serve(async (req) => {
     // app/transfer/send/[id].tsx:89-92) — the most sensitive of the three.
     const BUCKETS = ['avatars', 'auction-media', 'proof-docs'] as const;
 
-    /** Recursively collect every object path under a prefix. */
+    /**
+     * Recursively collect every object path under a prefix.
+     * list() returns at most `limit` entries per call, so it MUST be paged:
+     * without the offset loop a folder holding more than a page truncates
+     * silently, and the caller "succeeds" having seen part of the folder.
+     */
+    const PAGE = 1000;
     async function collectPaths(bucket: string, prefix: string): Promise<string[]> {
       const out: string[] = [];
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .list(prefix, { limit: 1000 });
-      if (error) throw new Error(`list ${bucket}/${prefix}: ${error.message}`);
-      for (const entry of data ?? []) {
-        const child = `${prefix}/${entry.name}`;
-        // A storage "folder" is a synthetic entry with no id and no metadata.
-        if (entry.id === null || entry.metadata === null) {
-          out.push(...(await collectPaths(bucket, child)));
-        } else {
-          out.push(child);
+      for (let offset = 0; ; offset += PAGE) {
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .list(prefix, { limit: PAGE, offset });
+        if (error) throw new Error(`list ${bucket}/${prefix}: ${error.message}`);
+        const page = data ?? [];
+        for (const entry of page) {
+          const child = `${prefix}/${entry.name}`;
+          // A storage "folder" is a synthetic entry with no id and no metadata.
+          if (entry.id === null || entry.metadata === null) {
+            out.push(...(await collectPaths(bucket, child)));
+          } else {
+            out.push(child);
+          }
         }
+        if (page.length < PAGE) break;
       }
       return out;
     }
@@ -240,40 +317,62 @@ serve(async (req) => {
     let storageFullyCleared = true;
     for (const bucket of BUCKETS) {
       try {
-        const paths = await collectPaths(bucket, userId);
-        if (paths.length === 0) continue;
+        const found = await collectPaths(bucket, userId);
+        const paths = found.filter((p) => !protectedPaths.has(p));
+        const kept  = found.length - paths.length;
+        if (paths.length === 0) {
+          if (kept > 0) console.log(`[delete-account] ${bucket}: kept ${kept} referenced object(s)`);
+          continue;
+        }
 
         // remove() accepts at most 1000 keys per call.
-        for (let i = 0; i < paths.length; i += 1000) {
+        for (let i = 0; i < paths.length; i += PAGE) {
           const { error: rmErr } = await supabase.storage
             .from(bucket)
-            .remove(paths.slice(i, i + 1000));
+            .remove(paths.slice(i, i + PAGE));
           if (rmErr) throw new Error(`remove ${bucket}: ${rmErr.message}`);
         }
 
         // Verify rather than assume. The previous implementation "succeeded" on
-        // every call while deleting nothing, for years.
-        const leftover = await collectPaths(bucket, userId);
+        // every call while deleting nothing, for years. Objects we deliberately
+        // retained are not failures, so they are excluded from the check too.
+        const leftover = (await collectPaths(bucket, userId))
+          .filter((p) => !protectedPaths.has(p));
         if (leftover.length > 0) {
           storageFullyCleared = false;
           console.error(
             `[delete-account] ${bucket}: ${leftover.length} object(s) survived removal`,
           );
         } else {
-          console.log(`[delete-account] ${bucket}: removed ${paths.length} object(s)`);
+          console.log(
+            `[delete-account] ${bucket}: removed ${paths.length} object(s)` +
+            (kept > 0 ? `, kept ${kept} referenced` : ''),
+          );
         }
       } catch (e) {
         storageFullyCleared = false;
         console.error(`[delete-account] storage cleanup failed for ${bucket}:`, e);
-        captureException(e, { userId, bucket, step: 'storage-cleanup' });
+        // captureException(fn, err, extra) — passing the Error first makes the
+        // event message "[object Object]" with no stack and loses userId.
+        await captureException('delete-account', e, { userId, bucket, step: 'storage-cleanup' });
       }
     }
 
     if (!storageFullyCleared) {
       // Do not delete the auth row while the user's uploaded files are still
       // there — that is the state that leaves ticket-proof photos with no owner
-      // and no way to find them. The auth row is still present at this point,
-      // so the whole operation is safely retryable.
+      // and no way to find them.
+      //
+      // Retryable, but NOT free: delete_account_cleanup has already COMMITTED,
+      // so this user's bids are gone, their listings belong to the sentinel and
+      // their cover paths read 'deleted/cover-removed', while they can still
+      // sign in. Retrying is safe (the RPC is idempotent) but the damage is not
+      // undone by a retry, so an operator needs to see this.
+      await captureException(
+        'delete-account',
+        new Error('storage not fully cleared; auth row retained'),
+        { userId, step: 'storage-incomplete', note: 'cleanup RPC already committed' },
+      );
       return json({
         error: 'Could not remove all of your uploaded files. Your account has not been deleted. Please try again, or contact support.',
       }, 500, getResponseHeaders(req));
@@ -291,11 +390,15 @@ serve(async (req) => {
       // the operator must find out, because the user's history is already
       // anonymized and their account is still live.
       console.error('[delete-account] auth delete error:', deleteErr.message);
-      captureException(new Error(`auth.admin.deleteUser failed: ${deleteErr.message}`), {
-        userId,
-        step: 'auth-delete',
-        note: 'cleanup RPC already committed — account is in a half-deleted state',
-      });
+      await captureException(
+        'delete-account',
+        new Error(`auth.admin.deleteUser failed: ${deleteErr.message}`),
+        {
+          userId,
+          step: 'auth-delete',
+          note: 'cleanup RPC already committed — account is in a half-deleted state',
+        },
+      );
       return json({ error: 'Failed to delete account. Please contact support.' }, 500, getResponseHeaders(req));
     }
 

@@ -11,7 +11,7 @@ export function DeleteAccountButton() {
   // Kept in step with app/settings/index.tsx. See the note there: the previous
   // copy claimed erasure the platform does not perform, and broke the corpus
   // rule against "permanently deleted" / "all associated data" before provable
-  // erasure exists. Register follows PHASE_2_CRM_EXPORT_SPEC.md §9.3.
+  // erasure exists.
   async function handleClick() {
     const firstConfirm = window.confirm(
       "Delete account\n\n" +

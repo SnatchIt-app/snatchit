@@ -2,7 +2,7 @@
 
 > **STATUS 2026-08-27 — THIS SUITE NOW EXECUTES IN CI.**
 > It ran for the first time on 2026-08-27 (it had never been executed before).
-> Current: **17 files, 305 assertions**, via
+> Current: **18 files, 328 assertions**, via
 > `supabase test db --local` in the `db` job of `ci.yml`, against the same
 > freshly-replayed stack that job already boots.
 >
@@ -21,7 +21,7 @@ RLS coverage, the profiles column-grant read boundary, anon/authenticated
 write bans, transfer state custody (RPC-only writes), payment/payout money
 invariants, admin isolation, and the webhook claim lease.
 
-**305 assertions** across 17 files. 2 are deliberate expected-fail `todo()`
+**328 assertions** across 18 files. 2 are deliberate expected-fail `todo()`
 markers pinning known open gaps (they flip green when the fix ships — see
 "Pinned findings" below).
 
@@ -76,7 +76,12 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | `070_payouts.sql` | 19 | `record_transfer_payout` idempotency + NULL guards + dispute refusal (056d); 065 resolution gate + append-only audit; reversal |
 | `080_admin.sql` | 16 | no admin self-grant/enumeration, `is_admin()` client-EXECUTE stripped (067) but semantics intact, risk tables closed, TRUNCATE stripped (063) |
 | `090_webhooks.sql` | 21 | 064 claim/complete/fail lease (first-claim-wins, in_flight, already_processed, abandoned-lease recovery, fail releases immediately); 061 verified-payment gate on `ensure_transfer_exists` |
+| `140_account_deletion_residue.sql` | 23 | Account deletion: every reference that blocks the `auth.users` DELETE is cleared (computed from `pg_constraint`, transitively, so a column nobody remembered still fails the suite), the derived auction head matches surviving bids, no world-readable column keeps the deleted user's uuid, and the function is idempotent |
 | `110_money_authz_matrix.sql` | 18 | MONEY-1: the impersonation matrix for `request_is_service_role()` (0550) — legacy singular GUC precedence, disagreeing/malformed/empty claims, SQL-role irrelevance, anon grant posture, and forged `p_user_id` refused across the money RPCs (17/18 are a matched negative/positive pair against a reserved fixture, so 17 discriminates on identity) |
+
+> The table above is not exhaustive — `005`, `100`, `130`, `131` and `132` predate it
+> and were never added. The authoritative list is `ls supabase/tests/*.sql`; the CI
+> floors in `ci.yml` are computed from the tree, not from this table.
 
 ## Harness rules (read before adding tests)
 

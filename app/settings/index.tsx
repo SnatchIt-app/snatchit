@@ -182,8 +182,7 @@ export default function SettingsScreen() {
   // It also broke a binding rule in the architecture corpus: no surface may
   // tell a user their data is "erased", "permanently deleted", "gone forever"
   // or "removed everywhere" until provable erasure (C34) exists, which it does
-  // not. See PHASE_2_CRM_EXPORT_SPEC.md §9.3 for the register this follows —
-  // plain language, no regime names, and no claim we have not earned.
+  // not. Plain language, no regime names, and no claim we have not earned.
   const DELETE_TITLE = 'Delete account';
   const DELETE_BODY =
     'We\'ll remove your sign-in, your profile and your photos, and cancel any active listings. ' +
