@@ -8,6 +8,16 @@ decision**. Where a decision remained open it is flagged under §16 RECONCILIATI
 consolidated test register, and §19 lists what is AUTHORED here rather than transcribed — read §19 before
 implementing anything in §17.20–§17.25, where the source specs were incomplete.**
 
+> **§20 is the SET CLOSURE, and it is the first thing to read if you are about to write SQL.**
+> `PHASE_2_RLS_PERMISSION_SPEC.md` §11 is the complete statement of Phase-2 write authority, and §1–§19 of
+> this document were a **proper subset** of it: **49 functions were granted EXECUTE, or scheduled as objects
+> in migration plan §8, with no contract anywhere in the corpus** — including the whole native-marketplace
+> write surface, the C33 key lifecycle, `catalog.set_platform_config` (every money threshold in the system),
+> the Connect-onboarding writer (the precondition for every payout), and the inventory-hold expiry sweep
+> (without which held capacity never returns to the counter). §20 contracts every one of them, reports the
+> **reverse** difference — **14 contracts here that no EXEC row grants**, six of them `EXEC: DEF` custody or
+> sweep primitives — and files what other specs must change in §20.14. **Nothing in §0–§19 is rewritten.**
+
 **Binding inputs (authority order):**
 1. `docs/architecture/PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**: §5 SSCAS + global lock order; §4 C26/C27/C33/C35/C36 and D3
    cause-codes; §2 integrate-never-rewrite; §8 security invariants.
@@ -2235,9 +2245,9 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 
 | Group | Ids | What they defend |
 |---|---|---|
-| **Door — admission** | `T-RPC-DOOR-01` (structural: `mark_ticket_scanned` does not reference `is_transfer_frozen`) · `-02` (admit succeeds with the freeze engaged) · `-03` (second scan ⇒ `duplicate`, atom stays `scanned`) · `-04` (`status='completed'` ⇒ `precondition_failed` — admission is gated by session status, not manifest state) | **§7.5 — the CRITICAL defect. `-01` is what stops it recurring** |
-| **Door — freeze set** | `-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `-07` (compensate succeeds, complete refused) · `-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
-| **Door — lifecycle** | `-09` (drained atom scans) · `-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `-11` (re-open leaves `door_open_at` byte-identical) · `-12` (a `paid_pending_transfer` listing is not drained) · `-13` (override expires with no sweep having run) · `-14` (direct writes to `door_open_at` raise) · `-15`/`-16` (delta log) | §17.10–§17.13 |
+| **Door — admission** | `T-RPC-DOOR-01` (structural: `mark_ticket_scanned` does not reference `is_transfer_frozen`) · `T-RPC-DOOR-02` (admit succeeds with the freeze engaged) · `T-RPC-DOOR-03` (second scan ⇒ `duplicate`, atom stays `scanned`) · `T-RPC-DOOR-04` (`status='completed'` ⇒ `precondition_failed` — admission is gated by session status, not manifest state) | **§7.5 — the CRITICAL defect. `T-RPC-DOOR-01` is what stops it recurring** |
+| **Door — freeze set** | `T-RPC-DOOR-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `T-RPC-DOOR-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `T-RPC-DOOR-07` (compensate succeeds, complete refused) · `T-RPC-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
+| **Door — lifecycle** | `T-RPC-DOOR-09` (drained atom scans) · `T-RPC-DOOR-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (re-open leaves `door_open_at` byte-identical) · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) · `T-RPC-DOOR-13` (override expires with no sweep having run) · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RPC-DOOR-15` / `T-RPC-DOOR-16` (delta log) | §17.10–§17.13 |
 | **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
 | **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) | §1.1–§1.1d |
 | **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
@@ -2245,8 +2255,37 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `-02` (`get_holder_mix` arity is 2) | §17.20 |
 | **CRM** | `T-RPC-CRM-01..07` | §17.21–§17.22 |
 | **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
-| **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `-03` (a claimed delivery inside its lease is not re-claimable) · `-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
-| **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
+| **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
+| **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `T-RPC-GLOBAL-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `T-RPC-GLOBAL-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `T-RPC-GLOBAL-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
+
+**Ids, not rows (`G-22`).** The twelve group rows above enumerate **70 distinct ids**
+(4+4+8+14+5+4+11+2+7+3+4+4). A CI plan provisioned from the row count under-provisions by 58. Every suffix
+above is written as a full id (`G-23`), so a harness grepping for `T-RPC-` finds all of them.
+
+#### 18.1 §20 additions — the set-closure register
+
+Every id below is named at its contract in §20. **66 ids across 16 groups**, bringing the document's total to
+**136**.
+
+| Group | Ids | What they defend |
+|---|---|---|
+| **Set closure** | `T-RPC-SET-01` (**the reconciliation itself**: `pg_proc` minus trigger functions equals RLS §11 ∪ this document, in both directions, with a non-vacuity guard) · `T-RPC-SET-02` (exactly one physical function per row of §20.13's naming register) | §20.0, §20.13 |
+| **Connect onboarding** | `T-RPC-CONNECT-01` (bind stamps `payout_destination_set_by`) · `-02` (**the bypass regression** — an `org_finance` re-point raises `destination_already_set`) · `-03` (same id/same org ⇒ `noop_replay`; different org ⇒ `conflict_locked`) · `-04` (service-role invocation raises) | §20.1.1 |
+| **Organization & identity** | `T-RPC-ORG-01` (self-approval raises; `closed` is terminal; suspension cascades to nothing) · `-02` (self-branch signature has no uuid parameter; `kyc_ref` audit carries no value) · `-03` (**structural** — `update_organization` references no money or status column) | §20.1.2, §20.1.3, §20.1.5 |
+| **Role model (platform)** | `T-RPC-ROLE-06` (one approver inserts no `platform_role` row) · `-07` (self-approval ⇒ `sod_violation`) · `-08` (last-`platform_admin` revoke raises, counting `public.admin_users`) · `-09` (an `org_*`/`venue_*` label as `p_role` raises) | §20.1.4 |
+| **Config** | `T-RPC-CFG-01` (raise parks, lower executes) · `-02` (a `jsonb` value on a money key parks in either apparent direction) · `-03` (unknown key raises) · `-04` (**zero UPDATE and zero DELETE paths on `platform_config`**, as `postgres` and as `service_role`) · `-05` (a live listing's governing resale policy survives a later tightening) | §20.2.1, §20.2.2 |
+| **Catalog update** | `T-RPC-CAT-01` (`venue_id`/`org_id`/`status` in a patch raise; a title change on `on_sale` without a reason raises; a `cancelled` event refuses every patch) · `-02` (`door_open_at` in a patch raises; a later `doors_at` past the grace raises; any move after the boundary engages raises) | §20.2.3, §20.2.4 |
+| **Inventory** | `T-RPC-INV-01` (a price change leaves an existing order's snapshot, refund ceiling and settlement line byte-identical) · `-02` (a shrink below `held+sold` raises **for every role including `platform_admin`**) · `-03` (sharded grow preserves `Σ shard = batch` and the movement ledger) · `-04` (**the `G-24` regression** — with the sweep disabled `remaining` is provably wrong; with it enabled the hold's capacity returns) · `-05` (a hold converting in-window is skipped, not released) · `-06` (a re-run releases nothing further) | §20.3 |
+| **Staff & devices** | `T-RPC-STAFF-01` (self-grant, superseded labels and cross-scope labels all raise; org inheritance goes **through the §1.1a helper**) · `-02` (a revoked scanner's next `record_scan` raises **on the same JWT**) · `-03` (a registered device with no live PIN is refused by `assert_door_session` and therefore by every door RPC) · `-04` (cross-venue sync raises; an out-of-order poll cannot lower stored sync state) | §20.4 |
+| **Comps** | `T-RPC-COMP-01` (**the R-15/E6/E7 split** — `venue_box_office` refused on allocate, permitted on issue) · `-02` (above the C39 threshold a stale-`amr` token raises and moves no counter) · `-03` (a comp atom scans, transfers and refunds identically to a purchased atom; a replayed issue mints no second atom) | §20.5.1, §20.5.2 |
+| **Guest list** | `T-RPC-GUEST-01` (a checked-in entry cannot be removed or edited; the removal audit carries the removed row; **no client role holds table DELETE**) · `-02` (**structural** — `check_in_guest_entry` writes no `guest_entry` column outside `status`/`checked_in_at`) | §20.5.3–§20.5.6 |
+| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises) | §20.6 |
+| **Money — set closure** | `T-RPC-MONEY-15` (**an `admin_refund` void on an open episode appends one `revoke` delta per atom** — the §12.4c exemption obligation) · `-16` (a resold atom's primary payment refunds money only, returning `custody_moved`) · `-17` (`platform_support` and `org_owner` both refused) · `-18` (`pay_promoter_commission`'s write set pinned; no external call) · `-19` (**a flagged unreviewed attribution yields NO settlement line**, and `release` + close pays it) · `-20` (the same attribution cannot be lined into a second settlement) | §20.7.1, §20.7.2 |
+| **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) | §20.7.3–§20.7.5 |
+| **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) | §20.8 |
+| **Promoter — records** | `T-RPC-PROMO-12` (**structural** — `create_promoter` writes none of the three authz tables) · `-13` (a terms change leaves every existing attribution's `terms_version` and the commission it pays byte-identical) · `-14` (slug check refused to a fan and to a foreign org; result payload is `{available}` and nothing else) | §20.9 |
+| **Dashboard** | `T-RPC-DASH-01` (for every tile × role, the summary equals the owning read's value **or the key is absent** — never null, never a computed second answer) | §20.10 |
+| **Seams** | `T-RPC-SEAM-01` (`settlement_royalty_lines` returns rows after `088` — the stub was **replaced**, not merely present) · `-02` (`settlement_commission_lines` returns a row after `090`) · `-03` (`on_atom_voided` flips a seeded sale to `compensated`, a `completed` sale raises, **and the call sits before the rank-5 atom lock**) | §20.11 |
 
 ---
 
@@ -2276,6 +2315,47 @@ design decision rather than absorbed as a citation.
 7. **Test ids.** Every `T-RPC-*` id is authored. The money and role specs name **no test at all** for their 23
    RPCs; the door, promoter, CRM, demographics and Wallet specs each carry their own assertion lists, which
    §18 references by property rather than renumbering.
+
+**§20 additions to this list.** §20 closes a set difference, so most of its material is **transcribed
+authority** — the RLS §11 EXEC row is quoted at each contract. The following are **not**, and are marked at
+their site as well as here.
+
+8. **Authority PROPOSED where RLS §11 is silent** — §20.1.1 `set_org_connect_ref` (adopting edge §9 recon
+   #12's proposal rather than inventing a third), §20.1.5 `update_organization`, §20.2.3/§20.2.4 the catalog
+   update pair, §20.3.2 `set_batch_capacity`, §20.3.3 the hold sweep, §20.6.3/§20.6.4 the two door reads,
+   §20.9.1–§20.9.5 the promoter records and links, §20.10 `get_dashboard_summary`, §20.11.1–§20.11.3 the
+   three seams. **A proposal in a contract document is not authority**; §20.14 R-3 files each for the RLS
+   owner. Where the proposal mirrors an existing row it says which one.
+9. **Two narrowings of granted rows** — §20.8.4 and §20.8.5 exclude the listing's own **seller** from
+   bidding and offering. RLS §11.1 grants *"any `authenticated`"*, which read literally permits shill
+   bidding on one's own listing. **Narrowing a ratified grant is a decision, not a clarification**, and it is
+   flagged for the owner rather than absorbed.
+10. **`venue.set_event_security_config` is wholly authored** (§20.6.6). RLS §11.4 grants EXECUTE and
+    ROLE_MODEL §11 row 15 classifies it `NEW RPC`; **no document states what it configures.** The key set,
+    the tighten-only direction and the Wallet-span invariant re-check are authored so it is not invented at
+    build time. Owner confirmation requested (§20.14 R-11).
+11. **`kernel.revoke_signing_key`'s `p_ack_live_credentials`** (§20.7.5) mirrors §17.11's
+    `p_ack_live_devices`. The corpus specifies the acknowledgement pattern for the door override and not for
+    key revocation, where the consequence is strictly larger.
+12. **Dual control on the signing-key trio** (§20.7.3–§20.7.5). RLS §11.7 mandates it for the *Wallet*
+    `pass_type_cert` trio and §11.1 does not state it for the *signing-key* trio. Contracted with it, because
+    the asymmetry reads as an omission: the pass certificate signs a wallet artifact, the signing key signs
+    the admission credential itself.
+13. **`venue.retire_scan_device`** (§20.4.3) and the **`market.offer` expiry sweep** (§20.8.5) are named
+    here. Each corresponds to a status label the schema defines and **no function writes** — the same shape
+    as `G-24`, found twice more during the reconciliation.
+14. **`market.respond_offer`'s `counter` branch** (§20.8.6). RLS §11.1 grants *"respond"* without
+    enumerating the verbs; a negotiation surface with no counter is a decline button.
+15. **`market.create_auction`'s `ends_after_freeze` warning field** (§20.8.3). The corpus states the freeze
+    and never connects it to auction scheduling.
+16. **The MVP position on the bid ledger** (§20.8.4 `OPEN DECISION`) is a **proposal, not a ruling** —
+    §16.5, schema §4.2 and schema §4.9 leave it open in three different words. §20.14 R-9 files it.
+17. **The upsert_identity_ext split into a self function and an admin function** (§20.1.3). One function
+    whose parameter semantics depend on the caller's role is the pattern ROLE_MODEL R-8 removed from
+    `has_venue_role`; two functions make the answer structural.
+18. **The second named GP-2 exception** (§20.5.5 `venue.remove_guest_entry`). Granted on the same reasoning
+    as the first (§0.5's `clear_my_demographics`): the object references no ledger, draws no capacity and
+    moves no custody. **It is not a precedent for anything that does.**
 
 **RPCs still lacking a named RLS policy after this pass: all of them — and that is correct, not a gap.**
 Every contract in this document is a `SECURITY DEFINER` function, so a table policy on the objects it writes
