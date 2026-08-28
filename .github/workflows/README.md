@@ -11,9 +11,57 @@ Triggers: PRs into `main`, and pushes to any non-`main` branch.
 
 | Job | What it does |
 | --- | --- |
-| `quality` | `npm ci` → `npm run typecheck` (`tsc --noEmit -p .`) → `npm run lint` (`expo lint`) → `npm run test` (`vitest run`). Node 20, npm cache keyed on root `package-lock.json`. |
+| `quality` | **OFFLINE-VERIFY-v1 spec byte-identity gate** (docs-only, see below) → `npm ci` → `npm run typecheck` (`tsc --noEmit -p .`) → `npm run lint` (`expo lint`) → `npm run test` (`vitest run`). Node 20, npm cache keyed on root `package-lock.json`. |
 | `db` | Installs the Supabase CLI and brings up the local stack, which applies **every** file in `supabase/migrations/` in version order on a fresh database. Any failing migration fails the job. Placeholders (commented) for pgTAP RLS tests and schema advisors/lint. |
 | `web` | Builds the Next.js app in `web/` (`npm ci` → `npm run build`). Node **22** to satisfy `web/package.json` `engines` (`>=22 <25`). Runs only if `web/package.json` exists. |
+
+#### The `OFFLINE-VERIFY-v1` gate (first step of `quality`)
+
+`docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md` §5.4.3 states the **offline
+door admission predicate** once, tagged `OFFLINE-VERIFY-v1`, and permits
+sanctioned mirrors elsewhere under `docs/architecture/**` on condition that they
+are reproduced byte-for-byte. Clause 3 of that rule promises "a docs job … fails
+the build unless every one is byte-identical". **This step is that job.** Until
+it existed the property held by inspection rather than by construction.
+
+Why the predicate is worth a gate: ratification record **C53**. Four documents
+each held an editable copy of the offline door check; one was corrected and the
+others were not, and the copy that stayed wrong was the one a scanner SDK
+implements. It carried **two** conjuncts at 3b where **five** are required, which
+made the OFFLINE door strictly *more permissive* than the ONLINE one — it
+admitted `paid_pending_transfer` and `refund_hold` atoms the online door refuses.
+
+**It asserts more than byte-identity, because byte-identity alone fails open in
+three separate ways.** The step scans every markdown file under
+`docs/architecture/`, extracts each fenced block whose first body line carries the
+tag, and enforces seven guards:
+
+| # | Guard | What it catches |
+| --- | --- | --- |
+| 1 | **No unterminated code fence** under the scan root | One unclosed fence makes every block after it invisible to the scan. |
+| 2 | **No tag at column 1 outside a fence** | An unfenced copy is an ungated copy — exactly the fourth editable copy C53 was raised about. |
+| 3 | **Block-count floor** (`OFFLINE_VERIFY_MIN_BLOCKS`, currently **4**) | *Non-vacuity.* A scan over zero blocks passes silently, forever. This repo has already shipped that failure shape: a bare `UPDATE` reported success against zero rows and every audit that read the migration source concluded the limits were in place. They were not. A floor, not a comparison against whatever happens to be there. The 4 is counted, not assumed — edge §5.4.3 (normative) + door §9.2 + Wallet §2.3 + Wallet §11.9; the Wallet spec carries **two**, which is why "three mirrors" and "three documents" are different numbers. |
+| 4 | **The normative home still contributes a block** (`OFFLINE_VERIFY_NORMATIVE_FILE` = the edge spec) | Delete §5.4.3's own block and the surviving mirrors would happily agree with each other — and with nothing authoritative. |
+| 5 | **Byte-identity** — exactly **one** distinct body SHA-256 across all blocks (and guard 4 guarantees the normative one is among them, so that single hash *is* §5.4.3's) | The property §5.4.3 clause 3 actually promises. On failure the step prints each divergent body's `diff -u` against the normative block. A mirror that differs is a defect in that mirror, never a change to the predicate. |
+| 6 | **Minimum body size** (`OFFLINE_VERIFY_MIN_BODY_BYTES`, currently **1900**; the canonical body is 2017 bytes / 34 lines) | *Anti-emptying.* Four blocks truncated or emptied **together** are byte-identical and still four in number. Deliberately well under the real length so it catches a wholesale gutting rather than acting as a second copy of the length. |
+| 7 | **Clause anchors** — a fixed list of load-bearing substrings must all be present in the canonical body | *Anti-coordinated-weakening, and the guard that would have caught C53 itself.* Byte-identity says the four copies agree; it says nothing about **what** they agree on. Four copies that all drop conjunct 3b.v are byte-identical, four in number, and full length — and the offline door is once again more permissive than the online one. The anchors assert the predicate's **strength**, not merely its uniformity: the five 3b conjuncts individually (`i` atom ∈ M2 … `v` `resale_state == 'none'`), the applied-set rule, the 3c key binding, and the `MUST NOT admit` clause. The anchor list is itself length-checked, so a truncated heredoc cannot make guard 7 vacuous. |
+
+**Why it lives in `quality` and not in a new workflow.** The check name
+`Typecheck / Lint / Unit tests` is already a required status check in branch
+protection (see below). A gate added as a step inside it blocks merge **today**,
+with no branch-protection change and no rename. A new workflow file would have
+produced a brand-new check that nobody requires — advisory, ignorable, and
+exactly the "control described as structural that is actually prose" shape the
+C53 correction was raised against. It also runs **before `npm ci`**, so a broken
+lockfile cannot take the gate offline.
+
+**Ratchets — one-way.** Raise `OFFLINE_VERIFY_MIN_BLOCKS` when a sanctioned
+mirror is added. **Never lower it to make a red build pass.** Removing a mirror
+is a reviewed decision that lowers it deliberately, in the same commit that
+removes the mirror and amends §5.4.3's list of sanctioned mirrors. Editing the
+anchor list is a reviewed change to the ratified predicate, made in §5.4.3 first.
+The step also writes a metrics table (blocks found, distinct bodies, body bytes,
+canonical SHA-256) to the job summary.
 
 Why the `db` job uses the Supabase CLI and not a plain `postgres:17` container:
 the migrations are Supabase-flavoured — they reference the `auth`/`storage`
@@ -99,6 +147,11 @@ time-boxed change rather than a reinstated allowlist.
 `Web build (Next.js)`, `CodeQL (javascript-typescript)`, `Dependency review`,
 and `Immutability + ordering` from the migrations guard. Require branches up to
 date, and require PR review.
+
+**These check names are load-bearing — do not rename a job without updating
+branch protection in the same change.** `Typecheck / Lint / Unit tests` in
+particular now also carries the `OFFLINE-VERIFY-v1` gate; renaming that job
+would silently drop both it and the unit tests from the required set.
 
 `Immutability + ordering` is now safe to require: since it runs on every PR and
 exits 0 when no migration changed, it always reports a conclusive status. (Under
