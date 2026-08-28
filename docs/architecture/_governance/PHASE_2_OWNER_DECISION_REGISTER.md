@@ -90,6 +90,30 @@ SETTLE- SF- SHA SHA- STAFF- SUBJ- T T- TM U- V V- W W- WALLET- X X- XO-
 
 ---
 
+## How the corpus was searched, and why one pattern was not enough
+
+The corpus does not mark open owner decisions consistently — that inconsistency **is** the problem this file
+exists to solve, so the search could not assume any single marker. Every file listed above was read in full,
+and the following independent sweeps were run across `docs/architecture/**` and `ARCHITECTURE_FREEZE.md`:
+
+1. **The register tables**, each under its own local id scheme — money §11, CRM §14, demographics §16,
+   schema §13.7, RPC §20.14, RLS §17, role model §13, door §16, Wallet §15, registry §7 and §7.1,
+   dashboard's `Δ`/`U` lists, and the ratification record's `OPEN-GATED` rows.
+2. **Status-word markers:** `OPEN-GATED`, `OPEN — owner`, `OPEN — recorded, not applied`.
+3. **Prose markers:** `OWNER DECISION`, `OWNER-DECISION`, `owner ruling`, `the owner's`, `owed to the owner`,
+   `owner must`, `awaiting owner`, `requires owner`, `owner ratification`, `owner sign-off`,
+   `not decided here`, `recorded, not made`, `recorded rather than taken`, `left with its owner`.
+4. **Negative-space markers** — the phrases the corpus uses when it declines to decide:
+   `NO RECOMMENDATION IS OFFERED`, `Not made here`, `NO SIDE IS TAKEN`, `the choice is the owner's`,
+   `a decision I declined to make alone`, `open question`, `must be chosen`, `not chosen`.
+5. **The "what this pass deliberately did NOT do" paragraphs**, which every remediation pass in the record
+   writes and which are where several decisions are named and nowhere else indexed.
+
+Sweep 4 is the one that matters: the decisions with the most careful reasoning behind them are precisely the
+ones whose authors refused to write a recommendation, and those rows contain none of the words in sweep 3.
+
+---
+
 ## What this file deliberately did NOT do
 
 - It **decided nothing.** No option is chosen, no default is endorsed, no recommendation is authored. Where a
