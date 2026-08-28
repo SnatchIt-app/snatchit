@@ -2900,6 +2900,574 @@ money-consequential, and *"same role, live-recheck"* is not a signature.
   releasing a converted hold would return capacity that was actually sold) · `T-RPC-INV-06` (a re-run over
   the same window releases nothing further and the counter is unchanged).
 
+### 20.4 VENUE STAFF AND DEVICES — the `080` / `086` gap
+
+#### 20.4.1 `venue.grant_staff_role(p_venue_id, p_identity_id, p_role, p_command_key)` — **DB-RPC** (`G-13`)
+
+**The primary authority-conferring write in the venue plane, uncontracted.** Every `has_venue_role` predicate
+in the corpus reads the table this function writes.
+
+- **Authority.** `has_venue_role(p_venue_id, ['venue_manager'])` OR **org→venue inheritance** via
+  `kernel.has_org_role_over_venue(p_venue_id, ['org_owner','org_admin'])` — RLS §11.1 verbatim
+  (*"OR org_owner/admin inheritance; no self-grant"*). **The inheritance is expressed through the §1.1a
+  helper and never as a re-inlined `catalog.venue.org_id` join** (`T-RPC-ROLE-02`).
+- **`p_role` ∈ the six canonical venue labels** — `venue_manager · venue_finance · venue_box_office ·
+  venue_marketing · venue_promoter_manager · venue_scanner` — re-validated in-body against the `080` CHECK.
+  **`venue_door` and `venue_promoter` are not members and raise** (ROLE_MODEL R-8; the label sets are
+  disjoint by scope, so an `org_*` or `platform_*` label raises too).
+- **No self-grant (I-11), and the tier guard.** `p_identity_id = auth.uid()` raises
+  `precondition_failed('self_grant')`. A `venue_manager` may grant **any** of the six including
+  `venue_manager`; there is no higher venue label to guard against, and the org tier above them reaches the
+  same venue through inheritance.
+- **The promoter exclusion is structural, and this contract must not break it.** **`grant_staff_role` accepts
+  no `promoter_id`, `promoter_link_id`, `attribution_id` or referral id of any kind** — §1.1c's
+  `T-RPC-ROLE-04` asserts exactly this over the grant RPCs, and adding a promoter artifact to this signature
+  would create the promoter → administrator write path that predicate exists to deny.
+- **Preconditions.** Venue exists and is not `archived`; `p_identity_id` resolves to a live `auth.users` row.
+  **The target need not already be affiliated with the org** — `kernel.is_org_affiliate` is a *scoping* input
+  and never an authorizing one (RM-6), so requiring affiliation here would import an authorization meaning it
+  does not have.
+- **Locks & acquisition order.** The `venue.staff_role` rows for `(p_venue_id, p_identity_id)` `FOR UPDATE` —
+  **admin plane**, outside the six ranks. Nothing else. **SSCAS.** `n/a (single-aggregate)`.
+- **Idempotency.** `p_command_key`; PK `(venue_id, identity_id, role)` makes a re-grant a `noop_replay`.
+- **Writes.** `venue.staff_role` (INSERT), `kernel.admin_audit` (`venue.staff_role.grant`,
+  `subject_kind='identity'`, before/after = the label set).
+- **Result.** `{ status, venue_id, identity_id, role }`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(self_grant | bad_role |
+  venue_archived)` · `idempotency_replay`.
+- **Forbidden callers.** `venue_box_office`, `venue_scanner`, **the door session** (it holds no `auth.uid()`
+  and is denied on every capability outside its four, §1.1d), `venue_finance`, `venue_marketing`, both
+  promoter-manager labels, `org_finance`, `org_member`, promoters, fans, `anon`, and **`platform_support` /
+  `platform_risk`** — neither holds a venue-roster write in RLS §11.
+- **Test.** `T-RPC-STAFF-01` (self-grant raises; `venue_door`/`venue_promoter`/`org_owner` as `p_role` raise;
+  a `venue_box_office` caller raises; an `org_admin` of the venue's org succeeds **through the §1.1a
+  helper**, asserted by the function's definition referencing `has_org_role_over_venue` and not
+  `catalog.venue`).
+
+#### 20.4.2 `venue.revoke_staff_role(p_venue_id, p_identity_id, p_role, p_command_key)` — **DB-RPC** (`G-13`)
+
+- **Authority.** As §20.4.1 — RLS §11.1 pairs them in one row.
+- **Self-revoke is PERMITTED, and the asymmetry with §20.4.1 is deliberate.** Dropping one's own authority is
+  not a privilege escalation, and refusing it would leave a departing manager unable to stand down. **There is
+  no "last `venue_manager`" floor**, unlike §2.4's last-`org_owner` invariant: a venue with zero managers is
+  recoverable — the org tier above it reaches the venue through `has_org_role_over_venue` and can grant a new
+  one. **An org with zero owners is not recoverable, which is why that floor exists and this one does not.**
+  Stated because the symmetry is tempting and would be wrong.
+- **Revocation takes effect immediately, everywhere, with no TTL.** `has_venue_role` is a **live table read**
+  (§1.1, I-5), so a revoked principal's next call fails inside the function — no JWT survives it. This is the
+  property that makes a door PIN revocable *now* (§1.1d) and it holds identically here.
+- **Locks / SSCAS / idempotency / writes.** As §20.4.1; the row is removed and `kernel.admin_audit`
+  (`venue.staff_role.revoke`) carries the removed grant (the §2.5 / §20.1.4 treatment of GP-2 on a
+  PK-only role table). A re-revoke is `noop_replay`.
+- **Result.** `{ status }`. **Errors.** `insufficient_privilege` · `not_found` · `idempotency_replay`.
+- **Test.** `T-RPC-STAFF-02` (a revoked `venue_scanner`'s next `record_scan` raises **within the same
+  session and the same JWT** — the live-read property, asserted behaviourally).
+
+#### 20.4.3 `venue.register_scan_device(p_venue_id, p_label, p_command_key)` — **DB-RPC** (`G-13`)
+
+- **Authority.** `has_venue_role(p_venue_id, ['venue_manager'])` — RLS §11.1 (*"`register_scan_device` /
+  manifest-sync | `has_venue_role([venue_manager])`; sync also `venue_scanner` (own device)"*), plus org→venue
+  inheritance by the same §1.1a helper the paired row's manager branch uses.
+- **Params.** `p_venue_id`, `p_label` (untrusted, display only), `p_command_key`. **Server-derived:**
+  `device_id`, `status := 'active'`, `manifest_version := NULL`, `last_sync_at := NULL`, `device_boot_id :=
+  NULL`.
+- **A registered device is not yet an authorized device, and conflating the two is the failure to avoid.**
+  Registration creates a hardware identity in `venue.scan_device`. **It confers no authority at all**: the
+  door path's entire authorization surface is `kernel.assert_door_session(device_id, session_id)` (§1.1d),
+  which additionally requires an active, unexpired `venue.door_pin` **bound to that session**. A device with
+  no live PIN can do nothing. **`T-RPC-STAFF-03` asserts it:** a freshly registered device with no PIN is
+  refused by `assert_door_session`, and therefore by `record_scan`, `get_door_manifest` and
+  `reconcile_offline_scans`.
+- **Retirement, and why it is a separate verb this contract also defines.**
+  `venue.retire_scan_device(p_device_id, p_reason_code, p_command_key)` — same authority — flips
+  `status → 'retired'`. **It is idempotent and it revokes nothing by itself**: a retired device whose PIN is
+  still live is still admitted by `assert_door_session`, because that predicate reads
+  `venue.scan_device.status='active'` **and** the PIN. Retiring a lost tablet therefore means **retire the
+  device and revoke its PIN** (§9.2), and the operator surface must say so. *(`INFERENCE` — the corpus names
+  registration and never retirement, while `venue.scan_device.status` carries a `retired` label that nothing
+  writes. A status no function can set is a column that lies.)*
+- **Locks.** The `venue.scan_device` row on retire; none on register (INSERT). **Admin plane. SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`; terminal-state guard on retire.
+- **Writes.** `venue.scan_device`; `kernel.admin_audit` (`scan_device.register` / `.retire`).
+- **Result.** `{ status, device_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(venue_archived)` · `idempotency_replay`.
+- **Forbidden callers.** `venue_scanner` (it may **sync** its own device, never register one), the door
+  session, `venue_box_office`, every finance/marketing/promoter label, fans, `anon`.
+
+#### 20.4.4 `venue.sync_scan_device_manifest(p_device_id, p_session_id, p_known_manifest_version)` — **DB-RPC** · `NEW RPC` (`G-13`) — **the function RLS §11.1 grants and never names**
+
+RLS §11.1's row reads *"`venue.register_scan_device` / **manifest-sync**"*, and schema §3.11's write authority
+reads *"`venue.register_scan_device`, **manifest-sync RPC**"*. **Two documents grant EXECUTE on a function
+with no name.** It is named here.
+
+- **Naming, stated plainly.** **`venue.sync_scan_device_manifest` is a name this document assigns.** No
+  source names it. Chosen to match the file's verb-first convention and to say what it does to which object
+  (`venue.scan_device`'s `manifest_version` / `last_sync_at`), so it is not confused with
+  **`venue.get_door_manifest`** (§20.6.1), which *returns the manifest* and writes nothing.
+- **Signature.** `venue.sync_scan_device_manifest(p_device_id uuid, p_session_id uuid,
+  p_known_manifest_version int, p_device_boot_id uuid)`.
+- **Authority — the dual path, verbatim from RLS §11.1.** (a) an authenticated `venue_manager` for the venue,
+  or a `venue_scanner` **for its own device only** (the device's `venue_id` must be one the caller holds
+  `venue_scanner` on, and the sync may not name another device); **or** (b) the `service_role` **edge** path
+  with `kernel.assert_door_session(p_device_id, p_session_id)` asserted in-body. **Never a `door_pin` tested
+  by `has_venue_role`** (R-8). On branch (b) `auth.uid()` is NULL **by design**, exactly as for
+  `record_scan`.
+- **What it does, and what it deliberately does not.** It **records sync state and returns the delta cursor**:
+  the current `manifest_version`, the `manifest_digest`, `not_after`, and `max_delta_seq`. **It does not
+  return manifest entries** — that is `get_door_manifest`'s job, and splitting them is what lets a scanner
+  poll cheaply on a bad connection without re-downloading a 5,000-row snapshot. A caller whose
+  `p_known_manifest_version` already equals the current one gets `{ up_to_date: true }` and nothing else.
+- **Preconditions.** Device `status='active'` and belongs to the session's venue; an episode with
+  `status='open'` exists for `p_session_id` — **if none is open the call returns `{ open: false }` and is
+  not an error**, the same non-raising posture §17.13 requires (a scanner polling before doors is normal).
+- **Locks & acquisition order.** `venue.scan_device` row `FOR UPDATE` (admin plane) → a **read** of
+  `venue.door_manifest` under no lock. Nothing in the six ranks. **SSCAS.** `n/a`.
+- **Idempotency.** Naturally idempotent — it is a state stamp, not a state transition. **`last_sync_at`
+  advances monotonically** and `manifest_version` never moves backwards on a device row; a stale, out-of-order
+  poll from a reconnecting device therefore **cannot roll a device's sync state backwards** and be read as
+  fresher than it is. `p_device_boot_id` is recorded for C23 offline ordering and never used as authority.
+- **Writes.** `venue.scan_device` (`manifest_version`, `last_sync_at`, `device_boot_id`).
+  **No audit row** — a scanner polling every 30 seconds is not a privileged mutation, and §0.3's audit rule
+  would fill `kernel.admin_audit` with a heartbeat.
+- **Result.** `{ open bool, up_to_date bool, manifest_id, manifest_version, manifest_digest, not_after,
+  max_delta_seq, deltas_available int }`.
+- **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(device_retired |
+  device_wrong_venue)`.
+- **Forbidden callers.** A `venue_scanner` naming a device it does not hold; any client on the door path
+  (the door never talks to PostgREST — it reaches the database only through the `door-session` edge
+  function, §1.1d).
+- **Test.** `T-RPC-STAFF-04` (a scanner syncing another venue's device raises; an out-of-order poll carrying
+  a **lower** `p_known_manifest_version` does not lower the stored one).
+
+### 20.5 COMPS AND GUEST LISTS — the `086` gap (`G-4`, `G-9`, `G-10`)
+
+> **RLS §11.1 carries a fully argued split authority model for `allocate_comp` / `issue_comp` — R-15/E6/E7,
+> C39 step-up gating, `venue_box_office` denied on one and permitted on the other — and this document
+> contracted neither.** Dashboard §20A.1 lists them under *"mapped — write controls with a named RPC"*,
+> which is **wrong**: the name exists, the contract does not. **That listing is not evidence and must not be
+> taken as any** (a request to the dashboard owner is filed in §20.14).
+
+#### 20.5.1 `venue.allocate_comp(p_session_id, p_batch_id, p_quantity, p_reason_code, p_command_key)` — **DB-RPC** (`G-4`)
+
+- **Authority — the capacity half of the split.** `has_venue_role(venue, ['venue_manager'])` OR
+  `kernel.has_org_role_over_venue(venue, ['org_owner','org_admin'])` — RLS §11.1 verbatim.
+  **`venue_box_office` is DENIED**, and the reason is the whole point of the split: *"allocating comp
+  **capacity** is an inventory decision"*, and O-2 grants box office issuance, not inventory.
+- **C39-gated.** Above the per-staff threshold read from `catalog.platform_config`, the call requires
+  **step-up** (`auth.jwt()->>'aal'` vs `authn.money_action_required_aal`, and `amr` freshness vs
+  `authn.money_action_max_age_seconds`) **and a live re-check of the grant** — the same predicate §17.7
+  specifies, enforced **in the function body, never in RLS**, because on the money plane every mutation is
+  `EXECUTE` on a definer function and a table policy never runs (GP-3a). **Caller-authorized ⇒ bound by
+  EDGE-CALLER-JWT**, and this is a case where it bites: the step-up predicate reads `auth.jwt()`, which on a
+  service-role client carries no `aal` and no `amr` at all.
+- **Preconditions.** Session exists and is not terminal; `p_batch_id` is a batch of that session with
+  `release_kind='comp'` — **a comp may not be allocated against a `public_sale` batch**, which is what keeps
+  comps visible as comps in the ledger rather than laundered through paid inventory; `p_quantity > 0`;
+  `p_reason_code` mandatory. **Comp draws real capacity (A4): it never bypasses the counter.**
+- **Locks & acquisition order.** **Inventory batch `FOR UPDATE` (rank 2)** — or the sharded draw ascending
+  `shard_no` with `SKIP LOCKED` + the single-shard last-unit fallback (C27) — then the
+  `venue.comp_allocation` INSERT. **SSCAS.** `n/a (single-aggregate — Inventory)`: `venue.comp_allocation` is
+  an Inventory-class child written under the batch lock this function already holds, the same classification
+  §17.13 uses for a manifest delta written under the caller's session lock. **No sixteenth member.**
+- **Idempotency.** `p_command_key`.
+- **Writes.** `venue.inventory_batch(_shard)` (`held += q`, CHECK `held + sold <= capacity` →
+  `oversell_rejected` on breach), `venue.inventory_movement` (`hold`, cause-keyed),
+  `venue.comp_allocation` (INSERT `status='allocated'`), `kernel.admin_audit` (`comp.allocate`, with
+  `quantity` and `reason_code`).
+- **Result.** `{ status, comp_allocation_id, quantity, remaining }`.
+- **Errors.** `insufficient_privilege(42501)` · `step_up_required` · `oversell_rejected` · `not_found` ·
+  `precondition_failed(batch_not_comp_kind | session_terminal | reason_required)` · `idempotency_replay`.
+- **Forbidden callers.** **`venue_box_office`** (the named denial), `venue_scanner`, the door session,
+  `venue_finance`, `org_finance`, both marketing labels, both promoter-manager labels, promoters, fans,
+  `anon`.
+- **Tests.** `T-RPC-COMP-01` (`venue_box_office` is refused on allocate and permitted on issue — the split,
+  asserted in both directions) · `T-RPC-COMP-02` (an allocation above the C39 threshold on a stale-`amr`
+  token raises `step_up_required` and writes **nothing**, including no counter movement).
+
+#### 20.5.2 `venue.issue_comp(p_comp_allocation_id, p_grantee, p_quantity, p_command_key)` — **DB-RPC (calls SSCAS member #1's mint leg)** (`G-4`)
+
+- **Authority — the issuance half.** `has_venue_role(venue, ['venue_manager','venue_box_office'])` OR
+  `kernel.has_org_role_over_venue(venue, ['org_owner','org_admin'])` — RLS §11.1 verbatim. **C39-gated**, as
+  §20.5.1. Issuing **one** comp against an **already-allocated** batch is an issuance operation, *"which is
+  exactly what O-2 grants box office and nothing more."*
+- **Params.** `p_comp_allocation_id`; `p_grantee` = `{ identity_id | name }` (schema §3.15 allows either —
+  a comp for a guest with no account is `granted_to_name`); `p_quantity` (≤ the allocation's unissued
+  remainder). All untrusted.
+- **Preconditions.** Allocation exists, `status='allocated'`, and the requested quantity does not exceed what
+  it has left. **The batch is not re-drawn**: capacity was consumed at allocate time, so issuance converts
+  `held → sold` and **can never oversell**, which is why the box office may hold this half and not the other.
+- **Locks & acquisition order (member #1's mint leg).** **Inventory batch(_shard) `FOR UPDATE` (rank 2)**
+  (`held -= q; sold += q`) → **new Ticket Atoms (rank 5)** via `kernel.issue_ticket_atoms` with
+  `cause='comp'` (§7.1 names `comp` in its cause set) → the `venue.comp_allocation` status update.
+  **Strictly ascending — no inversion.**
+- **SSCAS.** **Member #1 (Primary issuance), mint leg** — `venue.issue_comp` joins
+  `venue.finalize_primary_order` as a **caller** of member #1, exactly as §7.1 already anticipates by naming
+  `issue_comp` among `issue_ticket_atoms`'s callers. **§14.1 gains a caller, not a member. No sixteenth.**
+- **Idempotency.** `p_command_key` **and** the ownership-log `UNIQUE(cause, cause_ref, ticket_atom_id)` with
+  `cause_ref := comp_allocation_id` — so a replayed issue mints nothing further and returns the original
+  atom set (C26 multiplicity: N atoms under one `cause_ref`).
+- **A comp atom is a ticket atom in every respect that matters, and this contract says so once.** It is
+  minted with `credential_version = 0`, an `active` signing key, `resale_state='none'`; it scans, transfers
+  and refunds through the same engines. **It is not a second class of admission.** Where an open door-manifest
+  episode exists, `kernel.issue_ticket_atoms` appends an `add` delta (§17.13) so an offline scanner admits it
+  — the box-office-after-doors case §6.3 already covers, and comps are its most common instance.
+- **Writes.** `venue.inventory_batch(_shard)`, `venue.inventory_movement` (`issue`),
+  `kernel.tickets` + `kernel.ticket_ownership_log` (N rows, `cause='comp'`) **via `kernel.issue_ticket_atoms`
+  only** — never directly (§0.7), `venue.comp_allocation` (→ `issued` when fully drawn),
+  `venue.door_manifest_delta` (`add`, where an episode is open), `kernel.admin_audit` (`comp.issue`).
+- **Result.** `{ status, atom_ids[], comp_status }`.
+- **Errors.** `insufficient_privilege` · `step_up_required` · `not_found` ·
+  `precondition_failed(allocation_exhausted | allocation_revoked)` · `idempotency_replay`.
+- **Forbidden callers.** `venue_scanner`, the door session, `venue_finance`, `org_finance`, both marketing
+  labels, both promoter-manager labels, promoters, fans, `anon`.
+- **Per-staff comp totals stay visible to `venue_manager` and above** (RLS §11.1) — *"this is the
+  insider-fraud control surface and hiding it defeats it."* The read is `venue.read_operational_audit`
+  (§17.26) filtered on `comp.allocate`/`comp.issue`, which is why those two audit actions carry `quantity` in
+  the payload and are **not** members of the security plane that read excludes.
+- **Test.** `T-RPC-COMP-03` (a comp atom scans, transfers and refunds identically to a purchased atom;
+  replaying `issue_comp` with the same command key mints no second atom).
+
+#### 20.5.3 `venue.create_guest_list(p_session_id, p_name, p_command_key)` — **DB-RPC** (`U-1`, `G-10`)
+
+- **Authority.** **RLS §9.16's matrix, not §11** — `org_owner`/`org_admin` (own org) and `venue_manager`
+  (own venue) hold `EXEC: guest-list RPCs`. **§11 carries no row for any of the four functions in §20.5.3–
+  §20.5.6**; the authority is real and lives in §9.16, and the missing §11 rows are filed in §20.14 as a
+  reverse-direction defect.
+- **Preconditions.** Session exists, not terminal; `p_name` non-empty and unique per session.
+- **Locks.** None cross-aggregate (INSERT). **Admin plane** — a guest list draws **no capacity**: schema
+  §3.16 is explicit that conversion to admission happens *"only via the named hold function"*, so a guest
+  list is a roster, not inventory, and cannot oversell a room by existing. **SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`. **Writes.** `venue.guest_list`; `kernel.admin_audit`
+  (`guest_list.create`).
+- **Result.** `{ status, guest_list_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(session_terminal | name_taken)`.
+- **Forbidden callers.** `venue_scanner` (it checks guests **in**, §20.5.6, and creates nothing),
+  `venue_box_office`, `org_finance`, `venue_finance`, both promoter labels, fans, `anon`.
+
+#### 20.5.4 `venue.upsert_guest_entry(p_guest_list_id, p_entry_id, p_guest_name, p_party_size, p_command_key)` — **DB-RPC** (`U-1`, `G-10`)
+
+- **Authority.** As §20.5.3 (RLS §9.16: `INS`/`UPD` = `R`, RPC-only).
+- **One function for add and edit, deliberately.** `p_entry_id` NULL ⇒ insert; non-NULL ⇒ update that entry's
+  `guest_name`/`party_size`. A door list is edited constantly up to and past doors, and two functions would
+  duplicate the same authority and the same guards.
+- **`status` and `checked_in_at` are NOT writable here** — they belong to §20.5.6, whose authority set is
+  strictly wider (it includes `venue_scanner`) and whose write is strictly narrower. **A management RPC that
+  could also set `arrived` would hand the manager path a door capability and, worse, would let a check-in be
+  silently undone by an edit.** `invalid_input` on either key.
+- **Preconditions.** List exists; `p_party_size >= 1`; entry (when named) belongs to that list. **An entry may
+  be edited after doors open** — names are corrected at the door constantly — **but not once
+  `status <> 'pending'`**, which makes an arrival record immutable in the same way an issued order item is
+  (`precondition_failed('entry_checked_in')`).
+- **Locks.** The `venue.guest_list` row `FOR UPDATE` (admin plane) to serialise concurrent edits, then the
+  entry. **SSCAS.** `n/a`. **Idempotency.** `p_command_key`.
+- **Writes.** `venue.guest_entry`; `kernel.admin_audit` (`guest_entry.upsert`).
+- **Result.** `{ status, entry_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `invalid_input(unwritable_key)` · `precondition_failed(entry_checked_in | bad_party_size)`.
+
+#### 20.5.5 `venue.remove_guest_entry(p_entry_id, p_reason_code, p_command_key)` — **DB-RPC** (`U-1`, `G-10`)
+
+- **Authority.** As §20.5.3. RLS §9.16 marks `DEL` **`D` for every client role** with note 38: *"`guest_entry`
+  rows are removed only via the parent guest-list RPC cascade, never client DELETE (GP-2)."*
+- **This is the RPC that note 38 points at, and it is a real DELETE inside the definer** — the schema's
+  `guest_entry.guest_list_id … on delete cascade` is the mechanism, and §0.5's no-DELETE rule (GP-2) is
+  satisfied the same way it is for `kernel.clear_my_demographics`: **the client holds zero DELETE**, and the
+  audit row carries the removed entry. **This is a second named GP-2 exception and it is granted narrowly, on
+  the same reasoning as the first:** a guest list references no ledger, draws no capacity, and moves no
+  custody, so a tombstoned "removed guest" row would be a permanent record of somebody who was struck from a
+  door list — which is exactly what removing them was meant to prevent. **It is not a precedent for any
+  object that references money, custody or inventory.**
+- **Preconditions.** Entry `status='pending'` — **a checked-in guest cannot be removed**
+  (`precondition_failed('entry_checked_in')`): the arrival is evidence, and deleting it would erase an
+  admission record. `p_reason_code` mandatory.
+- **Locks.** The parent `venue.guest_list` row `FOR UPDATE`, then the entry. **SSCAS.** `n/a`.
+  **Idempotency.** `p_command_key`; an already-absent entry is `noop_replay`, never `not_found`.
+- **Writes.** DELETE one `venue.guest_entry`; `kernel.admin_audit` (`guest_entry.remove`, **`before` carries
+  the full removed row**, `reason_code`).
+- **Result.** `{ status }`. **Errors.** `insufficient_privilege` · `precondition_failed(entry_checked_in |
+  reason_required)`.
+- **Test.** `T-RPC-GUEST-01` (a checked-in entry cannot be removed or edited; the removal audit row carries
+  the removed guest's name; **no client role holds table DELETE on `venue.guest_entry`**, asserted as
+  `anon`, `authenticated` and every named role).
+
+#### 20.5.6 `venue.check_in_guest_entry(p_entry_id, p_session_id, p_outcome, p_command_key)` — **DB-RPC** (`U-2`, `G-9`)
+
+> **A door hits this a thousand times a night, and RLS grants exactly this narrow update — to a function that
+> did not exist.** RLS §9.16 note 39: *"door updates only `status`/`checked_in_at` on entries for its
+> session."* Dashboard `U-2`: *"the single most-used control at a door and it has no contract."*
+
+- **Signature.** `venue.check_in_guest_entry(p_entry_id uuid, p_session_id uuid, p_outcome text,
+  p_command_key text)`, `p_outcome ∈ {arrived, no_show}`.
+- **Authority — the dual path, matching `record_scan`'s exactly.** (a) an authenticated `venue_scanner` or
+  `venue_manager` for the session's venue; **or** (b) the `service_role` **edge** path with
+  `kernel.assert_door_session(device_id, p_session_id)` asserted in-body. §1.1d names *"guest-entry check-in
+  (`status` + `checked_in_at` only) for its session"* as **one of the four capabilities a door session
+  authorizes** — so branch (b) is not an extension of the door credential, it is the function the existing
+  grant was written for. `org_owner`/`org_admin` and `venue_manager` also hold it through §9.16.
+- **The write is exactly two columns, and that narrowness is the grant.** `status` and `checked_in_at`.
+  **Nothing else** — not `guest_name`, not `party_size`, not `guest_list_id`. **`T-RPC-GUEST-02`
+  (structural):** the function's definition writes no `venue.guest_entry` column outside that pair, so a door
+  credential can never be widened into a roster-editing capability by a later edit.
+- **Preconditions.** Entry exists and its `guest_list.event_session_id = p_session_id` — **an entry from
+  another session is refused even for an authorized principal**, which is what confines a door session to its
+  own room; **session `status='live'`**, the same gate `record_scan` uses (§9.4) and, per `T-RPC-DOOR-04`,
+  the only thing that stops admission.
+- **Locks.** The `venue.guest_entry` row `FOR UPDATE` (admin plane; a guest entry is not a ticket atom and
+  takes no rank-5 lock). **SSCAS.** `n/a (single-aggregate)`.
+- **Idempotency — first-arrival-wins, mirroring C41.** `status='pending' → p_outcome` sets `checked_in_at :=
+  now()` (server-derived; **no client timestamp is ever accepted**). A second `arrived` on an
+  already-`arrived` entry returns `{ status:'noop_replay', already: true, checked_in_at }` — **the original
+  timestamp, never overwritten** — and is **not an error**, because a door tapping twice is normal and an
+  error toast at a door is a queue. `arrived → no_show` raises `precondition_failed('already_arrived')`: an
+  arrival cannot be un-done by the door, only by a manager, and **Phase 2 builds no such reversal** (a
+  mis-tapped arrival is a support note, not a state machine).
+- **Writes.** `venue.guest_entry` (`status`, `checked_in_at`). **No `kernel.admin_audit` row** — a
+  thousand-per-night door tap is not a privileged mutation and §0.3 does not reach it; the guest entry's own
+  `checked_in_at` **is** the record, and `venue.read_operational_audit` (§17.26) would be unreadable if every
+  arrival landed in it.
+- **A guest check-in is NOT an admission and writes no custody.** It appends **no** `venue.scan` row, moves
+  **no** `kernel.tickets` state, and returns **no** capacity. Where a guest-list entry is converted into a
+  real admission, that happens through the **named hold function** (schema §3.16, A4/A11) → `issue_comp`
+  (§20.5.2) → `kernel.issue_ticket_atoms`, and the atom is scanned normally. **Two ledgers, and they must not
+  be conflated:** `venue.scan` is the admission ledger for ticket atoms; `venue.guest_entry.status` is a
+  roster mark.
+- **Result.** `{ status, entry_id, entry_status, checked_in_at, already bool }`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(wrong_session |
+  session_not_live | already_arrived)`.
+- **Forbidden callers.** `venue_box_office` (it issues comps, §20.5.2; it does not work the guest list — RLS
+  §9.16 gives it no row), every finance/marketing/promoter label, `org_member`, fans, `anon`, and **any door
+  session naming an entry outside its own session**.
+
+### 20.6 DOOR READS, SWEEPS, AND THE `set_door_open_at` CONTRADICTION
+
+#### 20.6.1 `venue.get_door_manifest(p_session_id, p_since_delta_seq)` — **DB-RPC (read)** · `NEW RPC` (`G-15`)
+
+**The read that delivers the offline admissible set to every scanner**, wrapped by both the `door-manifest`
+and `door-session` edge functions, with an EXEC row and no statement of its parameters, its result shape or
+its digest.
+
+- **Authority — the dual path, RLS §11.4 verbatim.** `has_venue_role(venue, ['venue_scanner',
+  'venue_manager'])` **OR** the `service_role` edge path with `kernel.assert_door_session` **bound to that
+  session**. Org owner/admin reach it through `has_org_role_over_venue`. **`venue_box_office`,
+  `venue_finance`, `venue_marketing`, both promoter-manager labels, `org_finance`, `org_marketing`,
+  promoters, fans and `anon` are denied** — the manifest is the list of everyone admissible tonight, which is
+  an attendee-adjacent projection, and the roster read with its column scoping is `venue.list_attendees`
+  (§17.22), not this.
+- **Reads.** `venue.door_manifest` (the `open` episode for the session), `venue.door_manifest_entry` (the
+  base snapshot), `venue.door_manifest_delta` (`seq > p_since_delta_seq`).
+  **Writes: none. Locks: none.** It takes **no** `FOR SHARE` on the session row: it is a read of an
+  append-only ledger whose head is already stamped, and taking rank 1 here would put a
+  thousand-poll-per-night read in contention with the twice-a-night `FOR UPDATE` of
+  `open_door_manifest`/`close_door_manifest`. **SSCAS.** `n/a`.
+- **Result shape.** `{ open bool, manifest_id, manifest_version, manifest_digest, opened_at, not_after,
+  max_delta_seq, entries[], deltas[] }`, where an entry is `{ ticket_atom_id, credential_version,
+  signing_key_id, resale_state, ticket_type_id }` and a delta is `{ seq, ticket_atom_id, op ∈ {add, revoke},
+  credential_version }`. **`p_since_delta_seq` NULL ⇒ full snapshot + all deltas; non-NULL ⇒ deltas only**,
+  which is the cheap poll a reconnecting scanner makes.
+- **The manifest carries NO identity column, by construction.** Schema `086`: `door_manifest_entry` and
+  `door_manifest_delta` *"carry no identity column by construction"* — **no holder id, no name, no email, no
+  order reference.** A scanner needs to know *which credential is admissible*, never *who holds it*, and a
+  lost tablet is therefore not an attendee-list breach. **`T-RPC-DOOR-17` (structural):** the result's column
+  list contains no identity-bearing column, asserted by column-list comparison rather than inspection.
+- **`manifest_digest` is what makes an offline snapshot verifiable**, and this contract fixes its meaning:
+  a hash over the **ordered entry set plus `manifest_version` plus `not_after`**, computed **inside the open
+  transaction** (§17.10) and stored on the episode. `get_door_manifest` **returns the stored digest and never
+  recomputes one** — a recomputed digest would silently agree with whatever the read happened to see, which
+  defeats the purpose. A device compares the digest it downloaded against the digest it re-fetches to know
+  whether its cached snapshot is still the one the server issued.
+- **`not_after` is the offline authority bound, and it is not extendable retroactively.** §17.11 states the
+  residual plainly: *"setting `not_after := now()` server-side does not shorten the `not_after` the device
+  already downloaded. The bound is that downloaded TTL and nothing more. Do not describe this residual as
+  closed by the re-sync requirement — it is not."* This read is where the value reaches the device, so the
+  residual is restated here rather than left to be rediscovered.
+- **No open episode ⇒ `{ open: false }` with an empty entry set, not an error** — a scanner polling before
+  doors is the normal case.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` (unknown session).
+- **Test.** `T-RPC-DOOR-17` (above) · `T-RPC-DOOR-18` (a `venue_box_office` and a door session bound to a
+  **different** session are both refused; a delta-only poll returns no entries and the same digest).
+
+#### 20.6.2 `catalog.sweep_implicit_door_freezes(p_limit)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`G-21`)
+
+- **Authority.** **`EXEC: DEF`**, cron — RLS §11.4 verbatim, paired there with
+  `kernel.sweep_expired_door_overrides` (§17.11) under one note: *"**Neither is load-bearing for
+  correctness**; the helper computes the boundary arithmetically whether or not either ever runs."*
+- **What it does.** For sessions whose `catalog.effective_freeze_at` has passed by the implicit backstop
+  (`COALESCE(doors_at, starts_at) + config('door.implicit_freeze_offset_interval')`) while `door_open_at` is
+  still NULL — i.e. **nobody ever opened a manifest** — it emits the operator notification and closes the
+  audit trail (`door.implicit_freeze_engaged`). **It does not write `catalog.event_session`.**
+- **It must NOT call `catalog.engage_door_freeze`, and this is the single thing an implementer will get
+  wrong.** Setting `door_open_at` from a sweep would make it **non-equal to `MIN(venue.door_manifest.
+  opened_at)`** over an empty episode set, which the `catalog.tg_door_open_at_is_ledger_head` trigger (`086`)
+  raises on — and it would convert the *cached monotone head of an append-only ledger* into a value a cron
+  invented. §12.4a's whole point is that *"cannot move backwards stops being a rule someone has to remember
+  and becomes arithmetic."* **`T-RPC-DOOR-19` (structural):** this function's definition references neither
+  `engage_door_freeze` nor `door_open_at`.
+- **Locks.** None — it reads `catalog.event_session` and `venue.door_manifest` and writes only audit and
+  notification rows. **SSCAS.** `n/a`. **Idempotency.** A per-session marker (the audit action + session id)
+  makes a re-run emit nothing further.
+- **Result.** `{ swept }`. **Errors.** None expected.
+- **Not load-bearing, and the corpus's own reason.** `kernel.is_transfer_frozen` evaluates
+  `now() >= catalog.effective_freeze_at(session)` **arithmetically, on every call** (§12.4a), and
+  `effective_freeze_at` is **total** — there is no input for which it returns NULL. So the freeze engages
+  whether or not this sweep ever runs; the sweep only tells a human it happened. **`T-RPC-DOOR-20`:** past
+  the implicit backstop, `is_transfer_frozen` returns true **with no sweep having run** — the same assertion
+  shape as `T-RPC-DOOR-13`.
+- **Forbidden callers.** Every client, every human role.
+
+#### 20.6.3 `venue.preview_door_open_impact(p_session_id)` — **DB-RPC (read)** · `NEW RPC` (`U-5` / Δ11, `G-16`)
+
+> **The most consequential door control in the product asks for a confirmation the operator cannot
+> evaluate.** Dashboard §12.4 requires the confirm dialog to show what the drain will cancel **before** the
+> confirm enables; `venue.open_door_manifest` returns `drained_transfers` / `drained_listings` **after** it
+> commits. Principle 7 is unsatisfiable without this read.
+
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed: **byte-identical to
+  `venue.open_door_manifest`** (§17.10 / RLS §11.4) — `has_venue_role(venue, ['venue_manager'])` OR
+  `has_org_role_over_venue(venue, ['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`, with
+  `venue_scanner`, any door session, `venue_box_office`, every finance/marketing/promoter role,
+  `platform_support` and `platform_risk` denied (O-4). **A dry run of an action must not be visible to
+  anyone who could not perform the action** — the counts are a live picture of who is mid-transfer in that
+  room tonight, and a wider grant would make the preview an intelligence surface the open is not.
+- **Returns exactly what the confirm must show, and nothing that would let it be used as a list.**
+  `{ pending_transfers int, active_listings int, excluded_paid_pending int, atoms_to_unlock int,
+   freeze_would_newly_engage bool, effective_freeze_at, override_active bool, live_device_count int }`.
+  **Counts only — no atom ids, no seller ids, no buyer ids, no listing ids.** The same reasoning
+  §17.24 applies to `notify.preview_announcement_audience` (*"returns a COUNT only, never an enumeration"*):
+  a preview that enumerates is an enumeration primitive wearing a preview's name.
+- **`excluded_paid_pending` is separated deliberately**, because it is the one number that explains a
+  discrepancy the operator will otherwise see: a listing whose sale is `paid_pending_transfer` is **not**
+  drained (§12.4c, `T-RPC-DOOR-12`) — the C25 sweep owns that row — so the count the preview shows and the
+  count the open reports must be reconcilable, and this field is how.
+- **Advisory, and it says so.** The numbers are read without locks and **may change between the preview and
+  the open** — a transfer accepted in the intervening seconds is drained and was never previewed. **The
+  client must never persist the preview as the answer**, the same caveat §17.16 attaches to
+  `preview_promoter_code`. The open's own returned counts are authoritative.
+- **Writes: none. Locks: none** (a `FOR SHARE` here would put a dialog render in contention with the open).
+  **SSCAS.** `n/a`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(session_terminal)`.
+- **Test.** `T-RPC-DOOR-21` (the preview's `pending_transfers + active_listings` equals the open's
+  `drained_transfers + drained_listings` when nothing changes in between; a `paid_pending_transfer` listing
+  appears in `excluded_paid_pending` and in neither drained count; every principal O-4 denies is refused).
+
+#### 20.6.4 `venue.get_live_device_count(p_session_id)` — **DB-RPC (read)** · `NEW RPC` (`U-6` / Δ12, `G-17`)
+
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed: as §20.6.3, **plus
+  `is_platform(['platform_admin'])` unconditionally** — it is the number a `platform_admin` is required to
+  acknowledge before a break-glass override, so denying them the read would make
+  `kernel.grant_door_freeze_override`'s `p_ack_live_devices` precondition unsatisfiable.
+- **Definition, and it must match the override's predicate exactly or the acknowledgement is theatre.**
+  The count of `venue.scan_device` rows with `status='active'` that are **still inside the `not_after` of the
+  manifest they last downloaded** — §17.11's *"the current count of devices still inside their downloaded
+  `not_after`"*. **Not** "devices that pinged recently", **not** "devices registered to the venue".
+  `T-RPC-DOOR-22` asserts the two predicates are the same expression, because a preview that counts one
+  population while the guard counts another is worse than no preview: the admin types a number that means
+  nothing and the speed bump is removed.
+- **Returns.** `{ live_devices int, as_of, stalest_not_after }`. `stalest_not_after` is included because it
+  is the answer to the operator's actual next question — *"how long until this is zero?"* — and it costs the
+  same query.
+- **Writes: none. Locks: none. SSCAS: n/a.**
+- **Errors.** `insufficient_privilege` · `not_found`.
+
+#### 20.6.5 **`venue.set_door_open_at` — RESOLUTION: it does not exist** (`G-14`)
+
+RLS §11.4 grants EXECUTE on **`venue.set_door_open_at` (O4-3)** to `venue_manager` / org owner-admin /
+`platform_admin`. Ruling **O-5** makes **`catalog.engage_door_freeze` the sole writer** of
+`catalog.event_session.door_open_at` (§17.12: *"Never client-callable and it appears in NO RLS EXEC row.
+A trigger enforces the single-writer property independently of grants"*). **Both cannot be true.** The
+traceability matrix states the fork exactly: *"Either the EXEC row is stale or O-5's sole-writer property is
+false."*
+
+**Ruling: the EXEC row is stale. `venue.set_door_open_at` is not built, in either grant class.** Three
+independent reasons, any one of which is sufficient:
+
+1. **As a caller-authorized function it is unimplementable.** `catalog.tg_door_open_at_is_ledger_head`
+   (created in `086`, attached to `catalog.event_session`) raises unless `door_open_at =
+   MIN(venue.door_manifest.opened_at)` — and it may never be cleared and never moved once set (plan `086`
+   Tests: *"three separate raises"*). A function granted to a human could therefore only ever succeed by
+   **first inserting a manifest episode** — which is `venue.open_door_manifest` (§17.10), already contracted,
+   already carrying the drain, the snapshot and the atomicity that make the boundary safe. The remaining
+   behaviour is a function that always raises.
+2. **As a definer-only function it is redundant and it destroys the property it would implement.**
+   `catalog.engage_door_freeze` **is** the definer-only writer. A second one gives a *sole-writer* property
+   two writers, which is a contradiction in terms — and the sole-writer property is what §12.4a leans on to
+   make *"cannot move backwards"* **arithmetic rather than a rule someone has to remember.** Two writers puts
+   it back to being a rule.
+3. **The RLS row's grant class refutes the reading that would save it.** §11.4 grants it to three **human**
+   role classes, not `DEF`. Whatever O4-3 intended, it did not intend a definer primitive.
+
+**The capability O4-3 was reaching for is real, and it is re-homed rather than dropped.** What an operator
+legitimately needs is not *"set the boundary"* — the boundary is taken by opening the door — but *"correct
+the published door time for a session whose doors moved."* That is `doors_at`, a **schedule** column, and it
+is a different column from `door_open_at`, the **boundary head**. **The EXEC row conflated a schedule with a
+ledger head.** It is contracted as:
+
+**`catalog.set_session_door_schedule(p_session_id, p_doors_at, p_reason_code, p_command_key)` — DB-RPC**
+
+- **Authority.** The O4-3 row's own allow-list, inherited unchanged: `has_venue_role(venue,
+  ['venue_manager'])` OR `has_org_role_over_venue(venue, ['org_owner','org_admin'])` OR
+  `is_platform(['platform_admin'])`, with every O-4 exclusion intact.
+- **Writes `catalog.event_session.doors_at`. It never references `door_open_at`** — `T-RPC-DOOR-23`
+  (structural), the same shape as `T-RPC-DOOR-01`, so a future engineer who *"seemed safer"* their way back
+  to writing the head fails CI rather than failing at the door.
+- **Guards, which are §20.2.4's and are custody properties, not validation.** `doors_at` is an input to
+  `catalog.effective_freeze_at`, so: freely movable while no atom exists for the session; movable **earlier
+  freely and later only within `config('door.schedule_move_grace_interval')`** once atoms exist, audited with
+  a mandatory reason code — moving it later pushes the implicit backstop later, which re-opens the
+  live-door/open-transfer overlap C6 exists to close; and **frozen entirely once `door_open_at IS NOT NULL`**
+  (`precondition_failed('boundary_engaged')`) — once the boundary is taken, the schedule that produced it is
+  evidence.
+- **Locks.** `catalog.event_session` `FOR UPDATE` (rank 1). **SSCAS.** `n/a`. **Idempotency.**
+  `p_command_key`. **Writes.** `catalog.event_session.doors_at`; `kernel.admin_audit`
+  (`session.door_schedule.change`, before/after, `reason_code`).
+- **Result.** `{ status, session_id, doors_at, effective_freeze_at }` — **the recomputed boundary is
+  returned**, so the operator sees the consequence in the same round trip.
+- **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(boundary_engaged |
+  move_exceeds_grace | reason_required)`.
+
+**Filed for the RLS integrator (§20.14):** RLS §11.4's `venue.set_door_open_at` row should be **replaced** by
+`catalog.set_session_door_schedule` with the same allow-list. **This document cannot make that edit.** Until
+it is made, the two documents disagree, and **§11.4 is the authority table — so an implementer following it
+will build the function this section rules out.**
+
+#### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`)
+
+- **Provenance, stated first because it is thin.** RLS §11.4 grants EXECUTE on this function under the O-4
+  allow-list, and ROLE_MODEL §11 row 15 classifies it `NEW RPC — same boundary`. **No document in the corpus
+  states what it configures.** The contract below is **`INFERENCE` — AUTHORED, not transcribed**, and is
+  flagged in §19 accordingly. It is written so an implementer has a signature and a safety direction rather
+  than a blank; **the owner should confirm the key set before it is built.**
+- **Authority.** The O-4 allow-list verbatim: `has_venue_role(venue, ['venue_manager'])` OR
+  `has_org_role_over_venue(venue, ['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`;
+  `venue_scanner`, any door session, `venue_box_office`, every finance/marketing/promoter role,
+  `platform_support` and `platform_risk` denied.
+- **What it configures: a closed set of per-event overrides of `door.*` platform config keys** —
+  `door.manifest_ttl_interval`, `door.manifest_early_open_window`, `door.implicit_freeze_offset_interval`.
+  A key outside that set raises `invalid_input`; **this function creates no key**, exactly as
+  `catalog.set_platform_config` (§20.2.1) creates none.
+- **The safety direction is one-way, and it is the whole design.** **An event override may only be more
+  restrictive than the platform value, never less** — a shorter manifest TTL, a narrower early-open window, a
+  shorter implicit-freeze offset. A loosening raises `precondition_failed('loosens_platform_floor')` and
+  directs the caller to `catalog.set_platform_config`, where a `platform_admin` and a second approver decide.
+  This is the same asymmetry RLS §11.4 states for the override roles (*"risk may **tighten**, never
+  **loosen**"*) and §11.3 states for money thresholds, applied to the door plane so a venue cannot widen its
+  own offline window.
+- **The cross-config invariant survives the override and is re-asserted per event.** Plan `078` asserts
+  `credential.wallet_default_span + credential.wallet_exp_skew <= door.manifest_ttl_interval` over the seeded
+  values — *"a Wallet token may never outlive the offline window any manifest could authorise."* **A
+  per-event TTL override can break that invariant**, so this function re-evaluates it against the effective
+  event values and raises `precondition_failed('wallet_span_exceeds_manifest_ttl')` rather than storing a
+  configuration in which a Wallet pass outlives every manifest the event can issue.
+- **Locks.** The event's config row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`. **Idempotency.**
+  `p_command_key`; versioned per event, append-only, exactly like `catalog.platform_config` — **and for the
+  same reason:** a manifest already issued under an old TTL must stay interpretable.
+- **Writes.** The per-event door-config rows; `kernel.admin_audit` (`event.security_config.change`,
+  before/after, mandatory `reason_code`).
+- **Result.** `{ status, event_id, version, effective }` — `effective` is the **merged** platform+event view,
+  so the operator sees what will actually apply rather than only what they typed.
+- **Errors.** `insufficient_privilege` · `not_found` · `invalid_input(unknown_key)` ·
+  `precondition_failed(loosens_platform_floor | wallet_span_exceeds_manifest_ttl | reason_required)`.
+- **Test.** `T-RPC-DOOR-24` (a loosening override raises for every authorized role including
+  `platform_admin`; an override that would let a Wallet pass outlive the manifest TTL raises).
+
 ---
 
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
