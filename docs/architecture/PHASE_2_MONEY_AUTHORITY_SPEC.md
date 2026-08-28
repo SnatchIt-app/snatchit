@@ -827,6 +827,25 @@ role is genuinely held, and a permission error would send an operator to re-chec
 Storage (`kernel.org_member.granted_at`, written by `accept_org_invite` and re-set by `change_org_role` on
 promotion **into** a money role) is schema §1.3/§1.13.4, package `077`; the config key is package `078`.
 
+> **TWO CONFLICTS SURFACED, NEITHER DECIDED HERE** — per `PHASE_2_SPEC_FOUNDATION.md` §0 (*"surface the
+> conflict; do not silently pick a side"*). Both were found while reconciling this section and are **outside
+> the scope of ratification rows `C57`/`C58`**; both belong to the schema owner and are reported, not resolved.
+>
+> 1. **The failure code is stated two ways.** RPC §17.1 / §17.7 / §10.3 and RLS §11.3a give the immature-grant
+>    failure as **`sod_violation`**, explicitly *"**not** `insufficient_privilege`"*. Schema §1.13.4 instead
+>    proposes **`precondition_failed ('money_role_too_new')`** *"so the surface can say something true to the
+>    operator."* **This document uses `sod_violation`** — solely because RPC §17.x carries the ratified
+>    `AUTHZ-C1B` tag and this file must be internally consistent with the branch it now states — and **that is
+>    not a ruling against the schema spec's proposal**, which has the better operator-facing message and could
+>    perfectly well win as a distinct sub-code. **The two must be made one before implementation:** a control
+>    whose denial arrives under two different codes is a control whose alerting cannot be written.
+> 2. **Schema §1.13.4 lists `set_platform_config`'s money arm as a maturity site.** That looks wrong on its
+>    face: `kernel.money_role_grant_matured(org_id)` takes an **org** and tests **org** money roles
+>    (`org_owner` · `org_finance`), while the money-namespace config arm is `platform_admin` (§7.3) and its
+>    approval row carries **`org_id IS NULL`** by CHECK — so there is no org to pass it. Either the helper
+>    needs a platform-plane counterpart (a **new** control, not a ratified one) or that site is listed in
+>    error. **Not resolved here.**
+
 ---
 
 ## 7. Threshold and configuration model
@@ -1391,6 +1410,11 @@ already existed in a ratified row; the only thing that changed is that this docu
 - **It made no owner decision.** The open numbers this reconciliation depends on stay open with their existing
   owners: `authn.money_role_maturity_hours` (RLS `MD-14`), `refund.platform_support_max_minor` (§11 `D-3`),
   and §11 `D-1` (whether the approval object is a sixteenth SSCAS member).
+- **It resolved neither of the two conflicts it surfaced in §6.7a** — the immature-grant failure code stated
+  as `sod_violation` (RPC/RLS) vs `precondition_failed('money_role_too_new')` (schema §1.13.4), and schema
+  §1.13.4's listing of `set_platform_config`'s **platform-plane** money arm as a site for an **org-plane**
+  maturity predicate. Both are outside `C57`/`C58`, both belong to the schema owner, and both are **reported
+  where a reader will hit them** rather than decided.
 
 ### 13.3 The live-vs-retired determination, recorded so it is not re-litigated
 
