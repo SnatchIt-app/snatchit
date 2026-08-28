@@ -1960,6 +1960,66 @@ owns that row (§12.3). The drain **moves no custody, appends no ownership-log r
 The RN client reads the same helper (owner-scoped boolean) to disable Transfer/Sell; **the edge layer never
 independently decides freeze.**
 
+### 12.5 `kernel.sweep_expired_ticket_atoms(p_limit int)` — **DB-RPC (definer batch)** · `EXEC: DEF` · `NEW RPC` (schema §1.5.1, `MN-4`; filed as §13.7 `S-22`)
+
+> **`kernel.tickets.state='expired'` is in the CHECK, its transition is specified in §7.6, and no function in
+> any of the sixteen packages wrote it.** This sweep exists in the schema spec, the migration plan and the
+> package registry (`079`) **and in zero RPC contracts and zero RLS EXEC rows.** *"Contract it and give it an
+> EXEC row"* is `S-22` verbatim; this is that contract.
+
+- **Purpose.** Advance `active → expired` for atoms whose `catalog.event_session` ended more than
+  `config('ticket.expiry_grace')` ago. **Actor:** `service_role`/`pg_cron` only — **no human path**; the
+  actor of record is the **`SN-SYSTEM` sentinel** (schema §1.16), which is a scheduler identity and never a
+  human. `REVOKE EXECUTE FROM anon, authenticated`.
+- **HOW LOAD-BEARING IT IS, STATED FIRST, BECAUSE THAT IS WHAT DECIDES THE REST OF THE CONTRACT.** One
+  expects the security consequence to be *a ticket to a past show can still be listed or transferred*. **It
+  cannot.** `kernel.is_transfer_frozen` freezes **every atom of a session** once
+  `now() >= catalog.effective_freeze_at(session)` (`079`), and that boundary is at **doors** — strictly
+  before the session ends. **The load-bearing guard is already arithmetic and already stronger than the
+  label.** `expired` is **presentational**: it is what makes *My Tickets* render a past ticket as spent
+  rather than live, and what keeps a venue's atom counts honest after the night. **Same posture as
+  `venue.sweep_expired_door_sessions` (§9.8) and `kernel.sweep_expired_door_overrides` (§17.11); the opposite
+  of `venue.sweep_expired_inventory_holds` (§20.3.3) and `kernel.sweep_expired_refund_requests` (§17.4),
+  which return a stored counter and release a custody hold.**
+- **THE STANDING RULE THIS INHERITS — §4.3.1's, second instance, and it is binding on every OTHER contract,
+  not on this one.** **No path may trust `state <> 'expired'` because the tick was supposed to have run.**
+  A transfer, listing or admission precondition that reads `state <> 'expired'` as an expiry check is
+  **wrong**, however green it looks: it is a test of whether a cron ran. Every such precondition must test
+  the **arithmetic** (`is_transfer_frozen` / `effective_freeze_at`). **Nothing does today and nothing may
+  start** — which is exactly why this sweep can ride an existing heartbeat instead of getting its own
+  control.
+- **Preconditions.** `state = 'active'` **AND** the atom's session ended by more than the grace window.
+  **`scanned`, `voided` and `expired` atoms are left alone — they are terminal (§7.6)** and re-writing a
+  terminal state is how a sweep becomes a second writer of somebody else's column.
+- **Locks & order.** Bounded batch of `p_limit`, `FOR UPDATE SKIP LOCKED` on `kernel.tickets` — **rank 5**,
+  the only rank taken. **SSCAS:** `n/a` — **a bounded batch of one**, the construction `catalog.cancel_event`
+  and `venue.open_door_manifest` already use. **No member added; C28's closed fifteen stands.**
+- **Writes.** `kernel.tickets.state → 'expired'`, **and nothing else. It appends NO
+  `kernel.ticket_ownership_log` row and bumps NO `credential_version`** — an expiry is a **lifecycle fact,
+  not a custody move**, and the atom's owner does not change. **`kernel.tg_custody_head_is_ledger_tail`
+  (schema §1.6.2) therefore does not fire on it, which is precisely why `state` was kept outside that
+  trigger's clause set.** A sweep routed through the transfer engine would be the wrong construction **and**
+  would trip the trigger at COMMIT. **No audit row** — an expiry is arithmetic reaching a label, not a
+  privileged mutation (same posture as §9.8). **No DELETE, ever.**
+- **Result.** `{ swept_count }`. **Idempotency / retry.** Re-entrant by construction: a second run in the
+  same window is a no-op, and `SKIP LOCKED` makes concurrent runs safe. **It must not raise on an empty
+  batch.**
+- **Scheduling.** The **2-minute `pg_cron` heartbeat that already runs** — the one `081`'s
+  `venue.sweep_expired_inventory_holds` uses. **No new cron entry**, and it is therefore **not blocked on the
+  `COND-A` outbox ruling.** **SEAM-1: it reads `catalog.event_session` (`078`) and writes `kernel.tickets`
+  (`079`) → `max(078, 079) = 079`.** `078 → 079` is already declared; **no edge, no package change.**
+- **Forbidden.** Every client and every human role. **No caller may treat a non-`expired` state as evidence
+  the session is live.**
+- **Tests.** `T-SCHEMA-EXPIRY-01` (schema §1.5.1 — an `active` atom of an ended session becomes `expired`,
+  **and no ownership-log row is appended and `credential_version` is unchanged**; both halves, because the
+  first passes even if the sweep went through the transfer engine) · **`T-RPC-SWEEP-01`** (structural: **no
+  transfer, listing or admission precondition in the corpus reads `state <> 'expired'` as an expiry test** —
+  asserted over the function set, because a single behavioural test cannot see a guard that is merely
+  redundant today and load-bearing after someone deletes the arithmetic one).
+- **Reported, not applied here (§20.14 `R-30`).** `PHASE_2_RLS_PERMISSION_SPEC.md` §11 needs an **EXEC row**
+  for this function — `DEF`, `pg_cron`/`service_role` only, `REVOKE EXECUTE FROM anon, authenticated`. It has
+  none, which is half of what `S-22` asked for.
+
 ---
 
 ## 13. EDGE-FRONTED functions (flagged for deliverable #5 — NOT designed here)
