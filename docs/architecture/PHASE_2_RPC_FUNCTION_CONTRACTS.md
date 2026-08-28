@@ -8,6 +8,21 @@ decision**. Where a decision remained open it is flagged under §16 RECONCILIATI
 consolidated test register, and §19 lists what is AUTHORED here rather than transcribed — read §19 before
 implementing anything in §17.20–§17.25, where the source specs were incomplete.**
 
+> **Reconciliation pass (`AUTHZ-H3` · `AUTHZ-H3a/b` · `APPR-SUBJ-1/2` · `AUTHZ-DEM1` · `AUTHZ-CRM1/2`) — the
+> five signature changes an implementer must not miss**, because each breaks a call site that currently
+> compiles in prose:
+> 1. **`kernel.assert_door_session`** gains `(p_door_session_id, p_session_token)` and **returns the bound
+>    `(device_id, event_session_id)` instead of a boolean** (§1.1d).
+> 2. **`venue.record_scan` / `venue.reconcile_offline_scans`** take a distinct **`p_actor_device_id`**,
+>    supplied from that return value; `p_scan_meta.device_id` is **rejected**, not ignored (§9.4/§9.5).
+> 3. **`venue.finalize_export` LOSES `p_cells_emitted` / `p_cells_suppressed`** — they are accumulated inside
+>    the definer and cannot be supplied (§17.22).
+> 4. **`venue.list_attendees` gains `p_reason_code`**, required on the platform arm (§17.22).
+> 5. **`venue.retire_scan_device` is superseded by `venue.set_scan_device_status`** (§20.4.3, §20.13).
+>
+> **One contract is `⛔ BLOCKED`:** `venue.set_event_security_config` (§20.6.6) writes to a table that exists
+> in no package. **`086` must not schedule it** until owner ruling `R-21`.
+
 > **§20 is the SET CLOSURE, and it is the first thing to read if you are about to write SQL.**
 > `PHASE_2_RLS_PERMISSION_SPEC.md` §11 is the complete statement of Phase-2 write authority, and §1–§19 of
 > this document were a **proper subset** of it: **49 functions were granted EXECUTE, or scheduled as objects
@@ -5469,6 +5484,17 @@ its drain): `venue.sweep_expired_inventory_holds` (§20.3.3) — Inventory(2) pe
 
 **Everything else in §20 is `SSCAS: n/a (single-aggregate)`.** **The set stays closed at fifteen. No contract
 in this section required a sixteenth member, and none was added.**
+
+**The reconciliation pass's additions do not change that, and each is checked rather than assumed.**
+`venue.mint_door_session` · `revoke_door_session` · `sweep_expired_door_sessions` (§9.6–§9.8) and
+`venue.set_scan_device_status` (§20.4.3) touch **`venue.door_session` and `venue.scan_device` only** — schema
+§3.10a places both on the **admin plane, outside the six ranks**, and `venue.door_session` *"joins no custody
+sequence"*. `venue.revoke_door_pin`'s RV-1 cascade adds a second admin-plane row to a transaction that was
+already admin-plane. The **one** addition that reaches a rank is `kernel.revoke_signing_key`'s door-episode
+force-close (§20.7.5), which takes **`catalog.event_session` at rank 1 before the key row** — a single rank,
+taken first, ascending across sessions, with no second rank below it: **not a cross-aggregate money or
+custody sequence, therefore not a member.** The three CRM purge contracts and the demographics `unpublish_*`
+pair write derived or lifecycle state and touch no money, custody or inventory row at all.
 
 **One ordering fact §20 introduces**, recorded here because it is the only one: **`market.on_atom_voided`
 takes rank 4 inside member #3, and must therefore be invoked BEFORE the rank-5 atom lock, not after**

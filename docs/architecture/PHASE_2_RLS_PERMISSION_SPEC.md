@@ -23,6 +23,21 @@ DISPUTED, not settled** — C7 is `RATIFIED · Gate P · MVP` and names it, whil
 defer it to Gate L. §16.9 records its authority model **conditionally**; see **MD-10**, §15.7. §16 adds the
 matrices for the objects the eight Phase-2 delta specs introduce.
 
+> **Reconciliation pass — the three authority changes an implementer must not miss**, because each changes a
+> `USING` clause or a grant set that currently reads as settled:
+> 1. **`catalog.platform_config` is no longer blanket public-read** (§8.4, `AUTHZ-CFG1`). It is a **two-class**
+>    table on a new `visibility` column, **defaulting to `restricted`**; `refund.*`, `payout.*`, `authn.*`,
+>    `comp.*`, `crm.*` and `door.*` are restricted. As written before, `078` published every dual-control
+>    ceiling, step-up window, grant-maturity value and export cap **to `anon`**.
+> 2. **`venue.door_session` is a new audit-only matrix** — RLS on, **zero policies**,
+>    `REVOKE ALL FROM anon, authenticated`, `token_hash` readable by **no role including `platform_admin`**
+>    (§16.4a, `AUTHZ-H3`). `kernel.assert_door_session` still appears in **no** `pg_policy` (RM-5 intact).
+> 3. **The CRM deny-all set is SIX tables, not four** — `kernel.org_contact_consent_event` and
+>    `kernel.identity_contact_pref_event` join it (§6, §16.6, `AUTHZ-CRM1`). **Demographics stays at four.**
+>    And the `crm_export_builder` relation set is **twelve, not ten** (§16.10, `AUTHZ-M11`), plus a
+>    column-scoped `auth.users` grant — **without the per-relation policy the builder reads zero rows
+>    silently and every export ships a blank contact column that reads as "nobody consented."**
+
 ---
 
 ## 1. How to read this document
@@ -2027,7 +2042,7 @@ an operator-precedence accident.
 |---|---|
 | `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` OR `is_platform([platform_admin])`. **`venue_scanner`, the door session, `venue_box_office`, every finance / marketing / promoter role, `platform_support` and `platform_risk` are explicitly excluded (O-4).** Opening the manifest freezes custody for the whole session — a scanner may not create the security boundary it works inside |
 | **`catalog.set_session_door_schedule`** (O4-3, **REPLACES `venue.set_door_open_at`** — `AUTHZ-R1`) · `venue.set_event_security_config` (O4-4) | as above (the O4-3 allow-list inherited unchanged, every O-4 exclusion intact) |
-| `venue.get_door_manifest` | `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with `assert_door_session` bound to that session |
+| `venue.get_door_manifest` | `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with `assert_door_session` **asserted with a token** and bound to that session (`AUTHZ-H3`) |
 | **`catalog.engage_door_freeze`** | **`DEF`** — the **sole writer** of `catalog.event_session.door_open_at`. Never granted to `authenticated`, never a UI path, and **appears in no other EXEC row**. A trigger enforces this independently of grants |
 | **`venue.append_door_manifest_delta`** | **`DEF`** — appends `add`/`revoke` deltas to the open episode |
 | `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` | `authenticated` (`STABLE` reads; `is_transfer_frozen` is already the RN eligibility boolean, §14.3) |
