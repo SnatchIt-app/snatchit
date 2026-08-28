@@ -3110,13 +3110,46 @@ the reject vocabulary is theirs.
 
 ### 13.2 Forward references — the complete sweep, and the seam discipline
 
-A **forward reference** here means: *a function authored in package N reads or writes a table created in a
-package later than N.* The chain would either fail to apply or create a function against a dangling
-reference. One instance was known (`087 → 090`); it was found by accident. **This is the systematic sweep.**
+> **SCOPE EXTENDED 2026-08-28 — `AUTHZ-PKG1` (reviewer condition 1). This sweep had a blind spot it could
+> not see past, and it was structural, not an oversight.** The definition and the method below were both
+> **function-scoped**: *"a **function** authored in package N"*, *"every **function** contracted in …"*. **An
+> RLS policy is not a function.** A `USING` clause that *calls* a function created in a later package is the
+> same defect with the same failure — `42883` on replay — and this sweep **could not detect that class at
+> all**, no matter how carefully it was run. It missed **four** real instances (`FR-10`…`FR-13` below), and
+> it would have missed them again on a re-run. **A sweep that structurally cannot see a class of edge reports
+> a clean result on a corpus that contains it**, which is worse than not sweeping: the clean result is what
+> the next reviewer trusts. The definition, the method and the artifact set are widened below; the original
+> function-scoped rows are unchanged and none is renumbered.
 
-**Method.** Every function contracted in `PHASE_2_RPC_FUNCTION_CONTRACTS.md` and in the eight delta specs
-was reduced to `max(package of every table it reads or writes)` and compared against the package the plan
-or the spec places it in.
+A **forward reference** here means: *an artifact authored in package N reads or writes a table created in a
+package later than N, **or calls a function created in a package later than N***. The chain would either fail
+to apply or create the artifact against a dangling reference. One instance was known (`087 → 090`); it was
+found by accident. **This is the systematic sweep.**
+
+**Artifacts in scope — all four kinds, because each can carry a forward reference and only the first was
+swept.** **(1) Functions** (RPCs, helpers, engines). **(2) RLS policies** — a `USING` / `WITH CHECK` clause
+calls predicate helpers and reads tables; `AUTHZ-PKG1` is the instance this widening was raised on.
+**(3) Triggers and their trigger functions** — `FR-6` was caught only because its *function* was swept; the
+*attachment* is a separate edge. **(4) Generated columns, `CHECK` constraints and defaults** that call a
+function — `venue.promoter_code`'s generated column depends on `venue.normalize_promoter_code`, which is why
+the promoter spec places both in the same package.
+
+**Method.** Every artifact of the four kinds above, contracted in `PHASE_2_RPC_FUNCTION_CONTRACTS.md`, in
+`PHASE_2_RLS_PERMISSION_SPEC.md` §16.10 (**the policy register — this is the newly-swept source**) and in the
+eight delta specs, was reduced to
+**`max( package of every table it reads or writes, package of every function it calls )`**
+and compared against the package the plan or the spec places it in. **The second term is the new one**, and it
+is what makes a policy→function edge visible: `catalog_venue_sel_venue` reads only `catalog.venue` (`078`), so
+under the old table-only reduction it scored `078` and looked correct — **it is the `has_venue_role` call, not
+a table, that puts it in `080`.**
+
+> **`SEAM-3` (new, binding — the policy counterpart of `SEAM-1`).** **An RLS policy is created in the package
+> equal to `max()` of the packages creating every table it reads AND every function its predicate calls.** Not
+> the package of the table it protects. Where the two differ the policy is **deferred** to the later package,
+> never re-implemented inline to avoid the wait — re-inlining an inheritance join is separately forbidden by
+> `RM-3`, and it is the failure mode this rule exists to make unnecessary. **A deferred policy fails closed
+> (`I-1`) for exactly the packages it is deferred across, and the deferral must be stated in BOTH packages'
+> plan §5 entries** — in the earlier one so nobody writes it, in the later one so nobody forgets it.
 
 | # | Function | Placed | Reads/writes created later | Status |
 |---|---|---|---|---|
@@ -3132,6 +3165,17 @@ or the spec places it in.
 | **FR-9** | `wallet-pass-push` (edge) | `084`→`083` | drains *"the market outbox"* (`088`) and *"the catalog outbox"* | **Not a DDL forward reference** — an edge function is deployed, not migrated — but it **is** a real ordering dependency the Wallet spec does not flag, and it is subsumed by the outbox conditional (§13.3). |
 | **DAG-1** | `market.sweep_paid_pending_sales` (`088`) writes `kernel.refund` (`085`) | — | — | Ordering is fine (`085 < 088`) but **`088`'s declared dependency set omits `085`**. Missing edge, added §13.6. |
 | **DAG-2** | `kernel.refund_primary_order` (`085`) drives `kernel.void_ticket_atom` → `kernel.tickets` (`079`) | — | — | Ordering fine; **`085`'s declared dependency set omits `079`**. Missing edge, added §13.6. |
+| **FR-10** | **POLICY** `catalog_venue_sel_venue` (RLS §16.10) | `078` (with its table) | **calls `kernel.has_venue_role` (`080`)** | **Deferred to `080`** per `SEAM-3`. `USING` clause written out in RLS **§16.10a**. Invisible to the old table-only method: the policy reads only `catalog.venue` (`078`) and scored clean. |
+| **FR-11** | **POLICY** `catalog_event_sel_venue` (RLS §16.10) | `078` | **calls `kernel.has_venue_role` (`080`)** | **Deferred to `080`.** Two-tier predicate — only `venue_manager` sees a `draft` event (RLS §8.2); §16.10a. |
+| **FR-12** | **POLICY** `catalog_event_session_sel_venue` (RLS §16.10) | `078` | **calls `kernel.has_event_role` (`080`)** | **Deferred to `080`.** The `venue_scanner` "tonight" arm is **omitted and filed** — no document defines "tonight" (§16.10a `OPEN-1`). |
+| **FR-13** | **POLICY** `kernel_tickets_sel_venue` (RLS §16.10) | `079` (with its table) | **calls `kernel.has_event_role` (`080`)**; resolves the session grain through `catalog.event_session` (`078`) | **Deferred to `080`** — **the reason for the new declared edge `‡079 → 080`.** `kernel.tickets` has `org_id` but **no `venue_id`**; no session-grain helper exists (§16.10a `OPEN-2`). |
+
+**Why `FR-10`…`FR-13` are one finding and not four.** All four sit on the same seam — the venue-plane read
+predicates ship in `080` and the tables they protect ship in `078`/`079` — and all four were invisible to the
+same blind spot. **The corpus's own guard could not see them**: RLS §13.2's sweep is function-scoped, and the
+`OFFLINE-VERIFY-v1`-style CI gates check byte-identity and label sets, not artifact→artifact package edges.
+**They were found by an external reviewer reading the policy names and asking where the helper lived.** The
+`SEAM-3` rule and the widened method above exist so the *next* one is found by the sweep instead.
 
 #### The seam discipline (binding — replaces the plan §7 "author's choice")
 

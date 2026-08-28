@@ -1,7 +1,11 @@
 # Phase 2 — Implementation Traceability Matrix
 
 **Status:** completeness instrument. Design-only. **Creates no SQL, no migration, no code, and edits no other file.**
-**Baseline:** `phase2/consolidation` @ `64d2aac` — after all four integration passes (schema+plan, RLS+RPC, edge+RN+dashboard, constitutions+rulings).
+**Baseline:** `phase2/consolidation` @ `64d2aac` for the body — after all four integration passes (schema+plan,
+RLS+RPC, edge+RN+dashboard, constitutions+rulings) — **reconciled forward to `cbf8926` for RLS §16.10 only, by
+the 2026-08-28 reviewer-conditions pass (§14).** The rest of this document has **not** been re-verified against
+`cbf8926`. **Read §14 before trusting any cell:** the four remediation passes that landed after `64d2aac`
+changed RLS, and this instrument has no mechanism that fails when its baseline goes stale.
 **Authority:** none. This document *decides* nothing. It records where the corpus does and does not close, and names the spec that owes each fix.
 
 ---
@@ -839,7 +843,7 @@ Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 | `catalog_venue_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
 | `catalog_event_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
 | `catalog_event_session_sel_anon` · `_sel_org` · `_sel_venue` | **A3**, **C5** |
-| `catalog_platform_config_sel_public` | **A3**, **A8** (COND-C's whole premise: it is world-readable) |
+| `catalog_platform_config_sel_public` · **`catalog_platform_config_sel_restricted`** (`AUTHZ-CFG1` / **C71**) | **A3**, **A8**. **TWO classes, not one — and COND-C's premise is corrected, not preserved.** `_sel_public` is `USING (visibility = 'public')`; `_sel_restricted` requires `is_platform([platform_admin, platform_risk])`. The table is **not** world-readable: money, `authn.*`, `comp.*`, `crm.*` and `door.*` keys are `restricted`. The blanket public-read this row previously asserted is the exact defect **C71** was raised against — it published every dual-control ceiling, step-up window and export cap to `anon`. Any `COND-C` reasoning resting on world-readability must be re-derived |
 | `catalog_resale_policy_sel_public` | **A3**, **A11** |
 | `kernel_identity_ext_sel_owner` | **A2** |
 | `kernel_organization_sel_org` · `_sel_platform` | **A2**, **D3** |
@@ -857,7 +861,9 @@ Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 | `venue_comp_allocation_sel_venue` · `venue_guest_list_sel_venue` · `venue_guest_entry_sel_venue` | **D1** |
 | `venue_scan_device_sel_venue` · `venue_scan_sel_venue` · `venue_scan_sel_platform` | **A9** |
 | `venue_door_manifest_sel_venue` · `_entry_sel_venue` · `_delta_sel_venue` · `venue_door_manifest_sel_platform` | **B6**, **C4** |
-| `venue_promoter_sel_org`/`_venue`/`_promoter` and the `promoter_link` · `promoter_code` · `promoter_code_scope` · `attribution` · `attribution_review` equivalents | **A12**, **B5** |
+| `venue_promoter_sel_org`/`_venue`/`_promoter` and the `promoter_link` · `promoter_code` · `promoter_code_scope` equivalents | **A12**, **B5** |
+| `venue_attribution_sel_org` · `venue_attribution_sel_venue` · `venue_attribution_sel_platform` — **`venue_attribution_sel_promoter` is DROPPED** (`AUTHZ-M9`; a promoter reads own attributions **only** through `venue.list_my_attributions` / `get_my_promoter_summary`, never by table SELECT) | **A12**, **B5** |
+| `venue.attribution_review` — **NO POLICIES**; it is in the zero-policy set (`AUTHZ-M9`), because it carries the reviewer's private `note`. Every reader goes through an RPC | **A12**, **B5** |
 | `market_listing_native_sel_public` · `_sel_owner` | **A11** |
 | `market_auction_sel_public` · `market_offer_sel_owner` | **A11** |
 | `market_p2p_transfer_sel_owner` | **A11** |
@@ -867,13 +873,27 @@ Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 | `notify_announcement_sel_venue` | **B2** |
 | `<schema>_<table>_sel_svc_export` (the Layer-0 exception, **MD-2**) | **B3** |
 
-**The 31 zero-policy objects** of §16.10 are claimed by **A4** (`ticket_ownership_log`), **A8**
+> **CORRECTED 2026-08-28 (`TM-X3`). The denominator was wrong, which made the completeness claim vacuous.**
+> This paragraph said *"The 31 zero-policy objects … **All 31 are claimed**"*. RLS §16.10 lists **35** (34
+> named relations + the `crm-exports` storage bucket). **A completeness assertion over the wrong denominator
+> is not a weak assertion — it is a false one**, and it reported `PASS` while four objects went unclaimed.
+> The count was **correct at this document's `64d2aac` baseline**; the four objects were added to the
+> zero-policy set afterwards, by the remediation passes. See §14.
+
+**The 35 zero-policy objects** of §16.10 are claimed by **A4** (`ticket_ownership_log`), **A8**
 (`payment_native`, `payout`, `refund`), **A13** (`reserve`), **A2**/**D2** (`admin_audit`,
 `approval_request`), **B6** (`door_freeze_override`), **B4** (`identity_demographic(_erasure)`,
 `holder_mix_snapshot`, `_bucket`), **B3** (`identity_contact_pref`, `org_contact_consent`,
-`org_customer_key`, `export_job`, the `crm-exports` bucket), **B1** (the four wallet tables), **A5**
-(`inventory_batch_shard`, `inventory_movement`, `inventory_unit`), **A11** (`market_sale`), **B2** (the six
-machine `notify.*` tables). **All 31 are claimed.**
+**`org_contact_consent_event`**, **`identity_contact_pref_event`**, `org_customer_key`, `export_job`, the
+`crm-exports` bucket), **B1** (the four wallet tables), **A5** (`inventory_batch_shard`,
+`inventory_movement`, `inventory_unit`), **A11** (`market_sale`), **B2** (the six machine `notify.*`
+tables), **C4**/**B6** (**`venue.door_session`** — `AUTHZ-H3`), and **A12**/**B5**
+(**`venue.attribution_review`** — `AUTHZ-M9`). **All 35 are claimed.**
+
+**The four added since `64d2aac`**, listed separately so the delta is auditable rather than absorbed:
+`kernel.org_contact_consent_event` · `kernel.identity_contact_pref_event` · **`venue.door_session`**
+(`AUTHZ-H3` — the door session is a possession fact and no principal table-reads it) ·
+**`venue.attribution_review`** (`AUTHZ-M9` — it carries the reviewer's private `note`).
 
 ---
 
@@ -987,7 +1007,70 @@ the twenty-five gaps in §1's twenty-six and is the highest-value hour available
 
 ---
 
+## 14. Correction index — reviewer-conditions pass (2026-08-28)
+
+An adversarial review taken at `cbf8926` filed **§10's `AUTHZ-M9` policy assertion** as its **condition 3**.
+It is confirmed. Verification found **two more defects in the same register, from the same single root cause.**
+
+| ID | Defect | Fix |
+|---|---|---|
+| **`TM-X1`** | §10 asserted the `_sel_org`/`_sel_venue`/`_sel_promoter` triple for **`venue.attribution`** and **`venue.attribution_review`**. RLS §16.10 **drops `venue_attribution_sel_promoter`** and moves `attribution_review` to the **zero-policy** set, because it carries the reviewer's private `note` (`AUTHZ-M9`) | Row split; the drop and the zero-policy move stated explicitly, with the RPC-only read path named |
+| **`TM-X2`** | §10 listed **only** `catalog_platform_config_sel_public` and glossed it *"it is world-readable"*. RLS §8.4 is a **two-class** model on `visibility` (`AUTHZ-CFG1` / ratification **C71**); `_sel_restricted` was missing. **This is the unsafe direction** — the row told an implementer a table holding every dual-control ceiling, step-up window and export cap is world-readable, which is precisely the defect C71 was raised against | Both policies listed; the two-class predicate stated; `COND-C`'s premise flagged for re-derivation |
+| **`TM-X3`** | *"The **31** zero-policy objects … **All 31 are claimed**"*. RLS §16.10 lists **35**. **A completeness assertion over the wrong denominator is false, not weak** — it reported `PASS` while four objects went unclaimed: `kernel.org_contact_consent_event`, `kernel.identity_contact_pref_event`, **`venue.door_session`** (`AUTHZ-H3`), **`venue.attribution_review`** (`AUTHZ-M9`) | Count corrected to 35; all four claimed; the delta listed separately so it stays auditable |
+
+### 14.1 The root cause is one fact, and it is not carelessness
+
+**Every one of the three claims above was TRUE at this document's stated baseline, `64d2aac`.** Verified
+against that commit rather than assumed:
+
+| Claim | At `64d2aac` | At `cbf8926` |
+|---|---|---|
+| `attribution` / `attribution_review` carry the `_sel_org`/`_sel_venue`/`_sel_promoter` triple | **stated verbatim** by RLS §16.10 | dropped / zero-policy (`AUTHZ-M9`) |
+| `catalog.platform_config` is world-readable, one policy | **true** — `sel_restricted` did not exist | two-class (`AUTHZ-CFG1`, **C71**) |
+| the zero-policy set has **31** members | **exactly 31** (30 named + the bucket) | **35** |
+
+The matrix did not misread its sources. **The four remediation passes changed RLS underneath it**, and
+nothing carried the change forward. `AUTHZ-M9` did not exist in the RLS spec at `64d2aac` at all.
+
+### 14.2 Why this is the more serious finding, and it is about *this* document's design
+
+Under RLS ruling **GP-3** the RLS spec is the authority and this matrix is derived, so on the merits the fix
+is trivial: copy the authority. **The danger is the direction of consumption.** This document's own §0 states
+its purpose as *"to prevent implementation from silently omitting a backend or security component"*, and §11's
+package register is what an implementer works down package by package. **An implementer reads the register,
+not the authority it was derived from.** `TM-X2` in particular would have been read as permission.
+
+**This document's §0.1 cell vocabulary is binding, and it is where the mechanism is missing.** It defines a
+named artifact as *"**VERIFIED** — the named object exists in the cited spec **at this baseline**."* The
+qualifier is load-bearing and invisible: `venue_attribution_sel_promoter` satisfied it at `64d2aac` and names
+a policy that **exists in no spec today**. **There is no marker in the vocabulary for "verified against a
+baseline that has since moved", and no assertion anywhere that fails when the baseline goes stale.** A
+completeness instrument pinned to a stale baseline does not degrade into a merely incomplete one — it degrades
+into one that reports `PASS` with authority, which is worse than having no instrument, because the empty cells
+are the entire value and a stale full cell hides one.
+
+**`TM-X4` — filed, not built.** The general fix is mechanical and belongs with the CI-gate owner: assert that
+every policy name appearing in this document exists in RLS §16.10, that the zero-policy **count** here equals
+the count there, and that this document's stated baseline is an ancestor of `HEAD` with the intervening commits
+touching no register it mirrors. It is the same shape as the `OFFLINE-VERIFY-v1` byte-identity gate — a
+property currently held by review that is buildable as a scan — and the same shape as `DL-X4` (door §20.2).
+**Three independent findings in this pass now converge on one missing class of gate: a derived register with
+no assertion binding it to its authority.**
+
+### 14.3 Scope of this reconciliation — stated so it is not over-read
+
+**Only RLS §16.10 was reconciled forward to `cbf8926`.** §8 (events), §9 (test ids), §11 (packages), §12 and
+§13 were **not** re-verified and remain at `64d2aac`. §9.1's *"35 ids in 33 register rows"* and §11's package
+rows are unaudited against current RLS §16.11 and the ratified package registry. **Do not read this section as
+"the matrix is now current."** It is current in one register and explicitly stale elsewhere.
+
+---
+
 *End of `docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md`. Completeness instrument, design-only.
 Creates no SQL, no migration and no code; edits no other file. Fixes nothing and decides nothing — every
 `GAP` names the spec that owns it. Companion to the package registry (numbering), the migration plan §8
-(per-package specification), RLS §16.10/§16.11 (policy and test registers) and RPC §18 (test register).*
+(per-package specification), RLS §16.10/§16.11 (policy and test registers) and RPC §18 (test register).
+**Baseline `64d2aac`, with RLS §16.10 alone reconciled forward to `cbf8926` (§14). Under RLS ruling GP-3 the
+RLS spec is the authority and this document is derived: where they disagree, this document is the defect.**
+Read §14.1 before trusting any cell — every defect it corrects was **true when written** and was overtaken by
+a later pass, and nothing here fails when the baseline goes stale (`TM-X4`).*

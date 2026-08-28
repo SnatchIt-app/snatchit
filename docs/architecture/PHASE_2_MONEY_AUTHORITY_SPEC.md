@@ -303,6 +303,16 @@ authority* than as *no authority*, so a narrow read grant is arguable — but de
 posture (Standards §7, RLS GP-1) and **widening later is a one-line matrix change, while narrowing later is a
 migration plus an operator-facing removal.** Deny.
 
+> **BLOCKING OWNER DECISION `D-8` — added 2026-08-28 (reviewer condition 2). NOT RESOLVED HERE, BY DESIGN.**
+> **This section and §10.1 of this same document contradict each other**, and the contradiction was found by an
+> external reviewer rather than by either author. §3.4 above denies `org_admin` **all** money authority,
+> naming `D` on `kernel.refund` SEL. **§10.1 row 35 — "H. Refunds — order list" — carries `org_admin` at `●`
+> and labels the row *"unchanged"*.** Venue dashboard §5 row 35 shows the same `●`, and VD §5.2 does not
+> supersede row 35, so the dashboard is faithfully inheriting this document. **The defect is here, not
+> downstream.** Both positions are stated in full at `D-8` (§11), which is where the decision is registered.
+> Neither is adopted here. **The `D-4` entry below covers row 37 (settlement) only and does NOT cover row 35;
+> until `D-8` is closed, this document says two different things about the refund ledger.**
+
 **One residual tension I am NOT resolving unilaterally.** RLS §9.13 already grants `org_admin` `A(own-org)`
 SELECT on `venue.settlement`, and dashboard §5 row 37 renders that as `●`. A settlement header shows gross,
 fees, refunds, net. That is finance data, and it is arguably inconsistent with denying the payout ledger. I am
@@ -722,7 +732,7 @@ discovered: a buyer may self-serve part of an arbitrarily large order, up to
 `refund.buyer_self_service_max_minor` in total on that payment** — bounded absolutely, and every atom voided
 is their own. `refund.buyer_self_service_window_hours` is untouched and still bounds recency. **If the owner
 additionally wants high-value orders excluded from self-service entirely, that is a second, independent
-conjunct with its own key — recorded as owner decision `D-8` (§11) and not decided here.**
+conjunct with its own key — recorded as owner decision `D-9` (§11) and not decided here.**
 
 **What this does NOT decide.** The **numbers** remain open owner decision **`D-3`**, and none is chosen here.
 But `D-3` must be re-read before it is answered: **these keys now denominate a cumulative ceiling per payment,
@@ -1008,8 +1018,8 @@ here exactly.
 | `refund.platform_support_max_minor` | int | the support ceiling RLS §15.4 / RPC §16.3 left open — **the key is specified here; the number is still an owner decision (§11 D-3)**. **Cumulative**, re-evaluated at approval under lock (§6.2, `AUTHZ-M3` + `MB-1`) |
 | `payout.destination_cooldown_hours` | int | feeds `kernel.organization.payout_destination_locked_until` |
 | `payout.destination_probation_days` | int | first-payout-held window after a destination change (§8.4) |
-| `payout.request_auto_max_minor` | int | at/below ⇒ payout request proceeds directly (domain §7.6 *"≤ threshold"*). **Operand OPEN — `MB-1b` / `D-9`** |
-| `payout.dual_control_min_minor` | int | above ⇒ dual control (domain §7.6 *"> threshold"*). **Operand OPEN — `MB-1b` / `D-9`** |
+| `payout.request_auto_max_minor` | int | at/below ⇒ payout request proceeds directly (domain §7.6 *"≤ threshold"*). **Operand OPEN — `MB-1b` / `D-10`** |
+| `payout.dual_control_min_minor` | int | above ⇒ dual control (domain §7.6 *"> threshold"*). **Operand OPEN — `MB-1b` / `D-10`** |
 | `authn.money_action_max_age_seconds` | int | step-up freshness window (§8.3) |
 | `authn.money_action_required_aal` | enum `aal1` \| `aal2` | **the lever that makes the honest MVP answer shippable** (§8.3) |
 
@@ -1343,7 +1353,7 @@ required_approver_class? }`.
 > **The property a correct fix must have, stated so the fix is checkable rather than plausible: the tier
 > operand must be invariant under decomposition of any caller-chosen subject.**
 >
-> **Two admissible forms, and the choice is the owner's — open decision `D-9` (§11).**
+> **Two admissible forms, and the choice is the owner's — open decision `D-10` (§11).**
 > **(a) Undisbursed org exposure.** `Σ kernel.payout.amount_minor` for the org in a non-terminal state
 > (`pending` · `held` · `submitted`) `+` this payout. No new object, no new key, no time window; not
 > caller-mintable, because splitting a settlement does not change the sum of its parts; decays naturally as
@@ -1385,9 +1395,9 @@ refund tiers above must never be described to an operator as "instant."
 | # | Surface | o_own | o_adm | o_fin | v_fin | Change |
 |---|---|:--:|:--:|:--:|:--:|---|
 | 5 | A. Home — Payout status | **○** | — | ● | — | note 5 (§22.3) **resolved**; `○` is now confirmed, not provisional |
-| 35 | H. Refunds — order list | ● | ● | ● | ○ | unchanged |
+| 35 | H. Refunds — order list | ● | **●** ⚠ | ● | ○ | **CONTESTED — `D-8`, BLOCKING.** This `●` and §3.4's *"`org_admin` holds NO money authority of any kind — not read"* cannot both hold. Previously labelled *"unchanged"*, which read as settled. **It is not settled and must not be built from either cell until `D-8` is closed** |
 | 36 | H. Refund — initiate | **●** | — | ● | — | **was `—`** with flagged-conflict note 20; O-1 grants it. Note 20 **resolved** |
-| 37 | I. Settlement — read | ● | ● | ● | ● | unchanged (see D-4) |
+| 37 | I. Settlement — read | ● | ● | ● | ● | unchanged (see `D-4` — **which covers this row only, not row 35**) |
 | 39 | I. Settlement — close | — | — | ● | ● | unchanged |
 | 40 | I. Payouts — status & history | **○** | — | ● | **◐** | `○` confirmed; `v_fin` becomes `◐` (settlement-cause rows for own venue only) |
 | 41 | I. Payout — request | ● | — | ● | — | unchanged; now consistent with the read |
@@ -1456,14 +1466,55 @@ implementation of the item named.
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | **D-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — argued in §7.4; it is lock-ordered either way, so an amendment is a one-line ratification | §6.1 parked branch |
-| **D-2** | Per-org refund/payout thresholds at launch? | **No.** `platform_config` is world-readable, so per-org limits need a new non-public table (§7.4) and nothing in O-1/O-3 asks for it | §7.4 |
+| **D-2** | Per-org refund/payout thresholds at launch? | **No** — **but the stated basis has since become false and the recommendation must be re-derived before it is acted on.** This row argues from *"`platform_config` is world-readable"*. **It is not**: RLS §8.4 is a two-class model on `visibility` (`AUTHZ-CFG1` / ratification **C71**), and money keys are `restricted`. A non-public home for per-org limits may therefore already exist. **Recorded, not re-decided** (reviewer-conditions pass, 2026-08-28) | §7.4 |
 | **D-3** | The actual **numbers**: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours`. The support cap was already open (RLS §15.4 / RPC §16.3); this spec gives it a home but not a value. **AMENDED (`MB-1`): the refund keys now denominate a CUMULATIVE ceiling per payment (§6.1a), not a per-call one. The unit is unchanged; what the number is compared against is not.** A per-call £50 and a cumulative £50 are different products, and the numbers must be chosen against the cumulative reading | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config`. **No number is chosen by the `MB-1` pass** | tier behavior |
-| **D-8** | **Should the buyer arm ALSO gate on order value?** §6.1a settles the operand — `refund.buyer_self_service_max_minor` bounds the **cumulative refunded amount**, not the order's eligibility — which means a buyer may self-serve part of an arbitrarily large order, up to the cap in total. An owner may additionally want high-value orders excluded from self-service entirely | **Not needed.** The cumulative cap already bounds exposure absolutely, every atom voided is the buyer's own, and the window key bounds recency. An eligibility conjunct is a **second, independent** rule with its own key, and adding it silently inside the existing key is what produced the ambiguity `MB-1` had to settle | §6.1a buyer row only |
-| **D-9** | **The payout tier's operand** (`MB-1b`, §9.2). Payout thresholds are compared against one payout's amount, and the settlement period that generates a payout is a caller-supplied parameter — so the tier is split by opening N narrow settlements. Two admissible forms: **(a)** undisbursed org exposure (`pending`/`held`/`submitted` + this payout) — invariant under decomposition, no new key, does **not** close the slow drip; **(b)** a rolling per-org window (`payout.tier_window_hours`) — closes it, costs a key and a width decision | **Not made here.** It is *who may disburse how much without a second approver*, and unlike the refund case there is no subject already in the corpus to derive it from. **What is not open** is whether payouts are currently splittable: they are | §9.2 payout tier |
 | **D-4** | `org_admin` reads `venue.settlement` (RLS §9.13, dashboard row 37) while being denied the payout/refund ledgers. Keep, or deny settlement too? | Keep — settlement is operational reconciliation, payout is money-out. But the inconsistency is real and I am naming it rather than smoothing it (§3.4) | nothing; consistency only |
+| **D-8** | **`org_admin` on the money plane — BLOCKING.** §3.4 of this document denies `org_admin` **all** money authority (`D` on `kernel.payout` and `kernel.refund` SEL/EXEC) and labels its own position **`INFERENCE`**: O-1 and O-3 name `org_owner` and `org_finance` and are **silent on `org_admin`**. **§10.1 row 35 of this same document grants `org_admin` `●` on the refunds order list.** Dashboard §5 row 35 shows the same `●` and VD §5.2 does not supersede it, so the dashboard is inheriting this document rather than diverging from it. **NO RECOMMENDATION IS OFFERED — see §11.1** | **NONE — deliberately.** Every other row in this table carries a recommendation; this one must not, because the two positions are held by the same document and the tie-break is an authority question, not a design question | **Row 35, the refund read path, and the `D-4` settlement question it reopens.** Blocks any build of surface H |
 | **D-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 (§8.2). Escalate to platform, or relax? | **Escalate** via the existing `release_payout`. Relaxing reintroduces the exact named fraud primitive | §8.2 |
 | **D-6** | `refund.scanned_atom_policy` default: `refuse` or `platform_review`? | `platform_review` — refunding an attendee is legitimate, but it is also the insider-collusion shape, so it should be seen, not silently allowed or silently blocked | §5.4 Race 3 |
 | **D-7** | Ship step-up at `aal1` freshness now and flip to `aal2` on staff MFA enrollment, or block money actions until MFA ships? | Ship at `aal1` with the enum in config (§8.3). Blocking would ship a dashboard nobody can use | §8.3 |
+| **D-9** | **Should the buyer arm ALSO gate on order value?** (`MB-1`.) §6.1a settles the operand — `refund.buyer_self_service_max_minor` bounds the **cumulative refunded amount**, not the order's eligibility — which means a buyer may self-serve part of an arbitrarily large order, up to the cap in total on that payment. An owner may additionally want high-value orders excluded from self-service entirely | **Not needed.** The cumulative cap bounds exposure absolutely, every atom voided is the buyer's own, and `refund.buyer_self_service_window_hours` bounds recency. An eligibility conjunct is a **second, independent** rule with its own key — and adding it silently inside the existing key is precisely what produced the ambiguity `MB-1` had to settle | §6.1a buyer row only |
+| **D-10** | **The payout tier's operand** (`MB-1b`, §9.2). Payout thresholds are compared against one payout's amount, and the settlement period that generates a payout is a **caller-supplied parameter** — so the tier is split by opening N narrow settlements. Two admissible forms: **(a)** undisbursed org exposure (`pending`/`held`/`submitted` + this payout) — invariant under decomposition, no new key, does **not** close the slow drip; **(b)** a rolling per-org window (`payout.tier_window_hours`) — closes it, costs a key and a width decision | **Not made here.** It is *who may disburse how much without a second approver*, and unlike the refund case there is **no subject already in the corpus** to derive the answer from. **What is not open** is whether payouts are currently splittable: they are. Ratification `C90` / open decision `O14` | §9.2 payout tier |
+
+### 11.1 `D-8` stated in full — both positions, the default on silence, and why that default is the unsafe one
+
+**This subsection exists because `D-8` is the one decision in this document that a reader could resolve by
+accident.** The other seven are visibly open. `D-8` is a `●` in a table labelled *"unchanged"* — it looks
+settled, and an implementer would build it without ever knowing a decision was owed.
+
+**Position A — deny (`§3.4` of this document).** `org_admin` holds **no** money authority of any kind: `D` on
+`kernel.payout` SEL/EXEC, `D` on `kernel.refund` SEL/EXEC, `D` on `set_org_payout_destination`, `D` on
+`close_settlement`, ineligible as second approver. Two corroborations: Domain §7.2's Org Admin *Cannot* column
+verbatim — *"Cannot view or initiate payouts/bank changes (that's Finance/Owner)"* — and O-2's *"general
+administration but **not unrestricted financial authority**."* **§3.4 labels its own position `INFERENCE`.**
+
+**Position B — grant (`§10.1` row 35 of this document, and dashboard §5 row 35).** `org_admin` reads the
+refunds order list at `●`. The corroboration is that `org_admin` is the role that runs the org day to day, and
+an order list is an operational object before it is a financial one — the same argument `D-4` accepts for
+settlement. **VD §5.2 does not supersede row 35**, so the dashboard is faithfully inheriting this document.
+
+**The rulings are silent.** O-1 (refund authority) and O-3 (payout visibility/requests) name `org_owner` and
+`org_finance` and say nothing about `org_admin`. Neither position is a ruling; both are readings.
+
+**What silence defaults to, mechanically — and it defaults to GRANT.** An implementer resolves silence by
+building what RLS says, because RLS is the authority model. RLS currently says:
+- **§9.7 `venue.order`** — `org_owner/admin` → `A(own-org orders)` SELECT. This is what backs row 35.
+- **§9.13 `venue.settlement`** — `org_admin` → `A(own-org)` SELECT. A settlement header shows gross, fees,
+  refunds, net.
+
+**Both grant.** So the outcome of leaving `D-8` open is not "nothing gets built" — it is **Position B, built
+silently, with a `D` sitting unread in §3.4.**
+
+**Why that is the unsafe direction, stated plainly.** `org_admin` is, by §3.4's own reasoning, *"the role most
+likely to be handed out liberally"* — it manages venues, events, staff and promoters. The order ledger plus
+the settlement header is a substantial part of the financial picture of the business. And the asymmetry §3.4
+already identified governs the cost of being wrong in each direction: **widening later is a one-line matrix
+change; narrowing later is a migration plus an operator-facing removal of a capability people have been using.**
+Deny-by-default is the standing posture (Standards §7, RLS `GP-1`). **The default on silence runs against the
+standing posture, which is precisely why silence is not an acceptable resolution here.**
+
+**This document does not choose.** Recording which way the default falls is not a recommendation for it — it
+is the reason the decision is marked **BLOCKING** rather than deferred. `D-8` is the owner's.
 
 **Verification owed before implementation (not a decision — a fact I could not check).** `UNVERIFIED:` that
 this project's Supabase access tokens carry `amr` with per-factor timestamps. No production access was used.
@@ -1624,10 +1675,10 @@ remedy is reconciliation plus a ledger row that makes the omission visible (`D15
 
 ## 14. Correction index — the `MB-1` cumulative-authority pass (2026-08-28)
 
-**Authority:** ratification rows **`C80`** (the cumulative refund tier operand) and **`C82` / open decision
-`O13`** (the payout tier operand, recorded open), with the documentation and integrator-request items in
-**`D19`**, all filed in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. **The
-sibling correction `MB-6` touches `PHASE_2_RPC_FUNCTION_CONTRACTS.md` only** (ratification `C81`) and changes
+**Authority:** ratification rows **`C88`** (the cumulative refund tier operand) and **`C90` / open decision
+`O14`** (the payout tier operand, recorded open), with the documentation and integrator-request items in
+**`D20`**, all filed in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. **The
+sibling correction `MB-6` touches `PHASE_2_RPC_FUNCTION_CONTRACTS.md` only** (ratification `C89`) and changes
 nothing in this document.
 
 **What it found, in one sentence.** Every threshold in the refund tier table was compared against **the single
@@ -1639,16 +1690,16 @@ call and nothing bounded the sequence.**
 
 | § | Before | After | Ratified by |
 |---|---|---|---|
-| **§5.4 Race 4** | *"successive partials compose correctly"* — stated as a property, with no distinction between key composition and authority composition | the sentence is kept and **bounded**: true of `refund_id`/ownership-log keys, **false of the tier**, and the tier is now decided on the cumulative operand | `C80` |
-| **§6.1** precond. 6 | `Σ(refunds for the payment) + p_amount_minor ≤ payment.total` | same guard, now naming `refund_exposure_minor(payment)` — **one aggregate computed once after the payment lock and used twice** | `C80` |
-| **§6.1** tier table | every row keyed on `p_amount_minor`; the buyer row's operand **unstated** | every row keyed on `cumulative`; **the buyer row's operand settled and stated** (cumulative refunded amount, not order eligibility) | `C80` |
-| **§6.1** Result | `{… amount_minor, … tier, required_approver_class? }` | adds **`cumulative_minor`**, so a surface can explain a tier the operator's own amount does not account for | `C80` |
-| **§6.1a** | *did not exist* | **NEW** — the definition, the five-point derivation of the payment as the aggregate subject, the after-the-lock rule, the `amount_minor` column obligation, the buyer-arm resolution, and the four named tests | `C80` |
-| **§6.2** | support-cap row and re-derivation bullet keyed on the recomputed **single** amount | both keyed on `cumulative`, **with this request excluded from the parked term** — the error that would otherwise fail safe and pass every value-based test | `C80` |
-| **§7.2** | keys described as ceilings, operand unstated | banner + per-row annotation: `*_max_minor` are **cumulative** ceilings; the payout pair is annotated **operand OPEN** | `C80`, `C82` |
-| **§9.2** | above-threshold payout parks; operand unstated | **`MB-1b`** block: the shape, why it is worse than `MB-1` (caller-chosen subject decomposition), the invariance property a fix must have, two admissible forms, **and no choice made** | `C82` / `O13` |
-| **§11** | `D-1`…`D-7` | `D-3` annotated (**the numbers now denominate a cumulative ceiling — a per-call £50 and a cumulative £50 are different products**); **`D-8`** (optional buyer order-value conjunct) and **`D-9`** (the payout operand) added | `D19` |
-| **§12** | `ADDITIVE SCHEMA CHANGE` items 1–4 | item **3b** — `kernel.approval_request.amount_minor`, with the reason it cannot be a `payload` read; two `SPEC CORRECTION` items added (the downstream sites that restate a refund threshold; the rate-limit note) | `C80` |
+| **§5.4 Race 4** | *"successive partials compose correctly"* — stated as a property, with no distinction between key composition and authority composition | the sentence is kept and **bounded**: true of `refund_id`/ownership-log keys, **false of the tier**, and the tier is now decided on the cumulative operand | `C88` |
+| **§6.1** precond. 6 | `Σ(refunds for the payment) + p_amount_minor ≤ payment.total` | same guard, now naming `refund_exposure_minor(payment)` — **one aggregate computed once after the payment lock and used twice** | `C88` |
+| **§6.1** tier table | every row keyed on `p_amount_minor`; the buyer row's operand **unstated** | every row keyed on `cumulative`; **the buyer row's operand settled and stated** (cumulative refunded amount, not order eligibility) | `C88` |
+| **§6.1** Result | `{… amount_minor, … tier, required_approver_class? }` | adds **`cumulative_minor`**, so a surface can explain a tier the operator's own amount does not account for | `C88` |
+| **§6.1a** | *did not exist* | **NEW** — the definition, the five-point derivation of the payment as the aggregate subject, the after-the-lock rule, the `amount_minor` column obligation, the buyer-arm resolution, and the four named tests | `C88` |
+| **§6.2** | support-cap row and re-derivation bullet keyed on the recomputed **single** amount | both keyed on `cumulative`, **with this request excluded from the parked term** — the error that would otherwise fail safe and pass every value-based test | `C88` |
+| **§7.2** | keys described as ceilings, operand unstated | banner + per-row annotation: `*_max_minor` are **cumulative** ceilings; the payout pair is annotated **operand OPEN** | `C88`, `C90` |
+| **§9.2** | above-threshold payout parks; operand unstated | **`MB-1b`** block: the shape, why it is worse than `MB-1` (caller-chosen subject decomposition), the invariance property a fix must have, two admissible forms, **and no choice made** | `C90` / `O14` |
+| **§11** | `D-1`…`D-8` | `D-3` annotated (**the numbers now denominate a cumulative ceiling — a per-call £50 and a cumulative £50 are different products**); **`D-9`** (optional buyer order-value conjunct) and **`D-10`** (the payout operand) added | `D20` |
+| **§12** | `ADDITIVE SCHEMA CHANGE` items 1–4 | item **3b** — `kernel.approval_request.amount_minor`, with the reason it cannot be a `payload` read; two `SPEC CORRECTION` items added (the downstream sites that restate a refund threshold; the rate-limit note) | `C88` |
 
 ### 14.2 What this pass deliberately did NOT do
 
@@ -1656,7 +1707,7 @@ call and nothing bounded the sequence.**
   something different. **`refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`,
   `refund.buyer_self_service_max_minor` and `refund.platform_support_max_minor` have no value in this
   document and acquire none here.**
-- **It closed no open decision.** `O6`…`O12` stand; **`O13` is added, not closed**, and `D-1` (the SSCAS
+- **It closed no open decision.** `O6`…`O13` stand; **`O14` is added, not closed**, and `D-1` (the SSCAS
   classification of the approval object) is specifically **not** reopened — the cumulative test reuses the
   `public.payments` `FOR UPDATE` that precondition 6 already takes, so it adds no lock, no rank and no member.
 - **It touched no money core.** No change to `kernel.refund`, to `refund_primary_order`, to the Stripe
