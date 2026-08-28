@@ -103,6 +103,13 @@ Original working members (provenance; see supersession note above):
 | `kernel.refund` | `refund_id` | MUT | money reason; drives refund_void |
 | `kernel.reserve` | `reserve_id` | EXT | Gate M — stub only in MVP |
 | `kernel.admin_audit` | `id` | AO | privileged action log (extends existing admin logging) |
+| `kernel.identity_demographic` | `identity_id` | MUT | **J-4.** Voluntary self-described attributes; profile enrichment only, never signup. Value never leaves Postgres — no edge function, no log, no notification payload. Pkg `077` |
+| `kernel.identity_demographic_erasure` | `id` | AO | **J-4 / J-12.** Value-free erasure tombstone `(identity_id, erased_at)`. `identity_id` is deliberately **FK-free** — a CASCADE FK would delete the tombstone in the very statement that creates the need for it. Written by a `BEFORE DELETE` row trigger, so *every* removal path produces one. Pkg `077` |
+| `kernel.identity_contact_pref` | `identity_id` | MUT | **K-8.** The fan's master contact switch. Definer-only; no client role reads it. Pkg `077` |
+| `kernel.identity_contact_pref_event` | `id` | AO | **K-8 / K-19.** `(identity_id, venue_email_contact, occurred_at)`. Exists so the consent gate is **as-of evaluable**: without history a paged export necessarily evaluates its conjuncts at inconsistent instants. Definer/`service_role` only, `REVOKE UPDATE, DELETE`. Pkg `077` |
+| `kernel.org_contact_consent` | `(identity_id, org_id)` | MUT | **K-8.** Per-org, per-order contact consent — the gate for **both** the email and the name cell in an export. Pkg `082` |
+| `kernel.org_contact_consent_event` | `id` | AO | **K-8 / K-19.** `(identity_id, org_id, event ∈ granted\|withdrawn, occurred_at, notice_version, source_order_id)`. Same as-of reason as above. Definer/`service_role` only, `REVOKE UPDATE, DELETE`. Pkg `082` |
+| `kernel.org_customer_key` | `org_id` | MUT | **K-8.** The per-org HMAC key behind `customer_ref`. Definer/`service_role` only — **no human role, including `platform_admin`**. Pkg `077` |
 
 ### catalog
 | table | PK | kind | notes |
@@ -133,6 +140,10 @@ Original working members (provenance; see supersession note above):
 | `venue.comp_allocation` | `id` | MUT | A4 |
 | `venue.guest_list` / `venue.guest_entry` | `id` | MUT | A4 |
 | `venue.promoter` / `venue.promoter_link` / `venue.attribution` | `id` | MUT | Phase 2D; commissions via kernel.payout |
+| `venue.door_session` | `door_session_id` | SoT | **H-3 — the bearer artifact the door actually holds.** The PIN *provisions*; this row is what every subsequent relay call presents. `token_hash` is never client-readable **on any path, for any role, including `platform_admin`** — there is no legitimate reader of a verifier. Deny-all RLS, no DELETE, revoke-only forward transition; `revoke_door_pin` cascades to it. Pkg `086`. **Two specifications of this table diverge — see the note below** |
+| `venue.holder_mix_snapshot` | `snapshot_id` | PROJ | **J-4.** Per-session published aggregate. Suppressed snapshots emit no denominators (R6). Pkg `087` |
+| `venue.holder_mix_bucket` | `(snapshot_id, bucket)` | PROJ | **J-4.** Per-bucket counts with the floor of 5 as a `CHECK` — **a sub-floor bucket cannot physically be stored**, not merely hidden. Pkg `087` |
+| `venue.export_job` | `job_id` | MUT | **K-8.** CRM export lifecycle `queued→running→ready→failed` + `revoked`/`expired`/`purged`, with `artifact_state` tracked **separately** from the job state because the two genuinely diverge (a job is `revoked` the instant the RPC commits; its object survives until the purge route runs). Pkg `087` |
 
 ### market (native rail; bridges to existing public.*)
 | table | PK | kind | notes |
@@ -142,6 +153,22 @@ Original working members (provenance; see supersession note above):
 | `market.offer` | `offer_id` | MUT | buyer-initiated |
 | `market.market_sale` | `sale_id` | SoT | consummated resale; terminal state machine pending→completed|compensated (C26) |
 | `market.p2p_transfer` | `transfer_id` | MUT | native P2P; distinct from public.transfers (external) |
+
+> **`SPEC CORRECTION` — eleven tables added to this inventory (`SF-1`).** Four passes recorded additions here and **none was applied**, so this section — the file every implementation spec is told to treat as the canonical name list — was missing objects that four other specs had already contracted, scheduled into packages, and written pgTAP against.
+>
+> | Source | Correction ID | Tables |
+> |---|---|---|
+> | `PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` §10.2 | **J-4** | `kernel.identity_demographic` · `kernel.identity_demographic_erasure` · `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` |
+> | `PHASE_2_CRM_EXPORT_SPEC.md` §11.2 | **K-8** (as amended by **K-19**) | `kernel.identity_contact_pref` · **`kernel.identity_contact_pref_event`** · `kernel.org_contact_consent` · **`kernel.org_contact_consent_event`** · `kernel.org_customer_key` · `venue.export_job` |
+> | `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §17 / schema §3.10a / edge §3.9a | **H-3** | `venue.door_session` |
+>
+> **The standing count of "eight" is stale and is corrected here to eleven.** `PHASE_2_SCOPE_AMENDMENT_2026_08.md` **X-14** and its request **R-6** both say *eight* — four demographics plus four CRM. That was accurate when written and is not now: **K-19 added the two consent event logs**, taking the CRM set from four to six (**K-8** says *six*, and the CRM spec's own RLS delta lists six deny-all rows). Adding `venue.door_session` gives **eleven**. Anyone reconciling against X-14's number will still find two missing and conclude this section is right.
+>
+> **Why the two event logs are not bookkeeping.** `kernel.identity_contact_pref` and `kernel.org_contact_consent` are **mutable**. A CRM export is built in **pages**, so without an append-only history the consent gate necessarily evaluates its conjuncts at *different instants across pages* — which falsifies the byte-identical determinism the export's replay property depends on. The event logs are what make the gate as-of evaluable at one stamped `gate_as_of`. They carry **no contact value** — an org id, a state, a timestamp.
+>
+> **REPORTED, NOT RESOLVED — `venue.door_session` has two divergent specifications, and this inventory deliberately states neither.** `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a and `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §3.10a (with migration plan `086`) disagree on four points: **(1)** the `assert_door_session` fourth argument (`p_session_ref` vs `p_door_session_id`); **(2)** the non-secret selector — a separate `UNIQUE` text `session_ref` column vs the PK itself, with the schema spec carrying **no `session_ref` column at all**; **(3)** the revocation model (`revoked_at IS NULL` + partial index vs a `status` column + partial `UNIQUE(device_id, event_session_id) WHERE status='active'`); **(4)** `UNIQUE(token_hash)`, present in the plan and absent from the edge spec's list. **These are not stylistic** — (1) is a signature the door's entire authorization surface is called through, and (2) decides what a client sends. **Owners: schema + RPC + edge, together.** This row names the table so it stops being invisible; it does not pick a side.
+>
+> **Also owed, and not this file's to give:** `PHASE_2_RLS_PERMISSION_SPEC.md` §6 needs the matching **deny-all rows** — ten from J-3/K-7, plus `venue.door_session`. A table in this inventory with no §6 row is a table an implementer creates with default grants.
 
 ## 7. Market bridge rule
 Native listings appear in the same discovery/checkout as external ones WITHOUT rewriting `public.listings`. Bridge = a read view (`market.listing_unified`) unioning `public.listings` (external) and `market.listing_native` (native) with a discriminator; checkout routes by rail. Native checkout calls `kernel.transfer_ticket_ownership` (C8); external checkout stays on the existing path. No native object mutates a `public.*` money/custody row except by linking to a `public.payments` id.
