@@ -3341,7 +3341,9 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   **Locks:** none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
   - **The authorization is `venue.assert_may_request(actor, scope_kind, scope_id, template_id)` — one
     function, shared verbatim with `authorize_export_download`** (`AUTHZ-CRM2`(2)). Two functions evaluating
-    two copies of one allow-list is how the download check lost the template.
+    two copies of one allow-list is how the download check lost the template. **Contracted at §20.7.8
+    (`R1-4`/`C108`) — it had a package number and nothing else until then. Called in RAISING mode here (the
+    default); `p_raise := false` is used by `list_export_jobs` alone.**
   - `INFERENCE:` **freezing `org_id` here rather than resolving it at build time is not tidiness.**
     Authorization resolved the scope's org at request; a build-time re-resolution could read a **different**
     org for the same venue, because **`catalog.venue.org_id` is mutable while `catalog.event.org_id` is
@@ -3474,6 +3476,10 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   renders a download control the RPC will refuse. **The list itself stays role-scoped rather than
   template-scoped**: seeing *that* an operations export happened is export-history transparency and is
   deliberate; downloading it is not.
+  - **`downloadable := venue.assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id,
+    p_raise := false)`** — §20.7.8. **This is the ONLY caller in the corpus that suppresses the raise**, and
+    `T-RPC-CRM-06` asserts that structurally. It is safe here and only here because this function returns
+    **job metadata and nothing else**: a `false` renders a disabled control, it never gates a byte.
 - **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. **MARKS** artifacts past
   `expires_at` as `artifact_state='delete_pending'` and moves `ready → expired`; `expired → purged` once
   `artifact_state='deleted'` and `purge_after` has passed; one audit row per transition. **It deletes no
@@ -5760,6 +5766,104 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   raises; an **equal** one returns `noop_replay` and writes no second audit row — both halves, because the
   redelivery path is the common one and a raise there loops Stripe) · `T-RPC-MONEY-28` (`refund_exposure_minor`
   **excludes** a `failed` refund and **includes** a `submitted` one, asserted on the aggregate of §17.1a).
+
+#### 20.7.8 `venue.assert_may_request(p_actor, p_scope_kind, p_scope_id, p_template_id, p_raise boolean DEFAULT true) RETURNS boolean` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`AUTHZ-CRM2`; `C66` / `K-15`)
+
+> **IT GOT A PACKAGE NUMBER AND NOTHING ELSE.** `087` names it in all four registry surfaces and in migration
+> plan §8; RLS §7.5 and §11.6 *call* it; CRM §9.2, §12 and `K-15` rest the *"marketing cannot download the
+> money export"* fix on it; RPC §17.22 names it twice. **It had no contract, no return type, no parameter
+> types, no security context, no grant and no RLS EXEC row** — and schema §13.1's own row still reads
+> *"contracted and scheduled nowhere."* **Two independent implementations of one authorization predicate is
+> how a download outlives the authority that granted it**, which is the `H-12` break this function exists to
+> close.
+
+- **Purpose.** **The single shared export-authorization predicate.** *May this actor request — and therefore
+  download — an export of this template at this scope, **right now**, evaluated live against the grant
+  tables?* One function, three callers, **one implementation**: `venue.request_export`,
+  `venue.authorize_export_download` and `venue.list_export_jobs` (§17.22).
+- **THE RETURN SHAPE, SETTLED (`R1-4`; ratification `C108`). The corpus asked for two incompatible things
+  and this is the resolution.** The name implies **raising**; `venue.list_export_jobs` needs a
+  **`downloadable` boolean** *"computed with `authorize_export_download`'s own predicate"* (CRM §9.5, RLS
+  §11.6, RLS `X-19`). Three candidate shapes were considered and two are rejected on the record:
+
+  | Shape | Rejected because |
+  |---|---|
+  | Two functions — `assert_may_request` (raises) + `may_request` (boolean) | **Two objects is two implementations**, which is the exact defect this function exists to prevent, and `T-RLS-CRM-05` asserts an **equality between call sites** that two names cannot satisfy. It would also add an object to `087` for no authority gain |
+  | One 4-parameter boolean, with the raise moved into each caller | The predicate is then the boolean and **the refusal is the caller's**, so a caller that forgets to check it silently authorizes. **A control that depends on callers remembering IS a convention** — the construction `AUTHZ-M1` refuses |
+
+  > **ADOPTED: one function, `RETURNS boolean`, with `p_raise boolean DEFAULT true`.** In the default
+  > (raising) mode it raises `insufficient_privilege(42501)` on denial and returns `true` on success — so
+  > **the safe behaviour is what a caller gets by writing nothing**. `p_raise := false` is an explicit,
+  > greppable opt-out used by **exactly one caller**, `list_export_jobs`, which returns **job metadata only,
+  > no row and no object path**, and projects the boolean as `downloadable`. **One predicate, one body, one
+  > allow-list; the two authorizing call sites and the lister cannot drift, because there is nothing to keep
+  > in step.**
+  >
+  > **`T-RPC-CRM-06` is structural and is the guard on the opt-out:** `request_export` and
+  > `authorize_export_download` call this function **in raising mode**, asserted over their bodies, and
+  > `list_export_jobs` is the **only** caller passing `p_raise := false`. A future caller that suppresses the
+  > raise is a review reject, not a runtime surprise.
+- **Authority.** **`EXEC: DEF`** — it reads `kernel.org_member`, `venue.staff_role` and the scope objects,
+  which the caller does not hold. `REVOKE EXECUTE FROM anon`; `EXECUTE` to `authenticated` (it is called
+  inside definers that run as the caller's `auth.uid()` and by `list_export_jobs` on the caller's own
+  client). **It grants nothing and writes nothing** — a leaked `true` for a scope the caller cannot name
+  discloses nothing, because every caller re-resolves the scope itself.
+- **`p_actor` is a parameter and that needs the argument, because `EA-6`/C35 forbid actor parameters.** This
+  is **not** an edge-supplied actor: every caller passes **`auth.uid()`**, evaluated inside a definer in the
+  same transaction, and `authorize_export_download` passes it alongside `job.scope_kind`/`job.scope_id`/
+  `job.template_id` read from the **job row**. It is a parameter rather than an internal `auth.uid()` read
+  **so the predicate is a pure function of its inputs and therefore assertable as an equality between call
+  sites** (`T-RLS-CRM-05`). **`T-RPC-CRM-07`: no caller passes anything but `auth.uid()` for `p_actor`,
+  asserted structurally** — the one assertion that keeps the parameter from becoming the C35 pattern.
+- **Params.** `p_actor uuid`; `p_scope_kind text ∈ {session, event, venue, org}` — **`all` is not a member
+  and raises `invalid_input`**, per §17.22; `p_scope_id uuid`; `p_template_id text ∈ {audience_v1,
+  operations_v1}`; `p_raise boolean DEFAULT true`.
+- **The predicate, stated once, because this is the corpus's only statement of it.**
+
+  ```text
+  audience_v1    -> org grain:   org_owner, org_admin, org_marketing
+                    venue grain: venue_manager, venue_marketing
+  operations_v1  -> org grain:   org_owner, org_admin
+                    venue grain: venue_manager
+                    (the narrowest allow-list in either spec -- it adds MONEY columns)
+  ```
+  **Both grains are resolved through the org that owns the scope object, re-resolved here rather than
+  trusted** — `catalog.venue.org_id` is mutable while `catalog.event.org_id` is stamped at create, which is
+  the `H-11` re-operated-venue leak. **Platform roles are DENIED on every arm** (`platform_support`,
+  `platform_risk`, `platform_admin`): platform reads the roster (§17.22 `list_attendees`) and does not use
+  the venue CRM export; bulk platform extraction is not built in Phase 2 (`MD-8`). Also denied:
+  `venue_box_office`, `venue_scanner`, both promoter-manager labels, `venue_finance`, `org_finance`,
+  `org_member`, promoters, a door session, `fan`, `anon`.
+- **THE BREAK IT CLOSES, so the template argument is not dropped in a refactor.** `org_marketing` holds
+  `X10` (read export history), so it can see a colleague's `job_id`; it holds a marketing-class role over the
+  scope, so a **role-set** re-check passes; and it downloads an **`operations_v1`** file — order refs, order
+  totals, **unit prices**, refund state. §3.1's *"Finance sees money and no contact. Marketing sees contact
+  and no money. Neither sees both."* is then defeated by **any org that ever ran one operations export, with
+  no grant being wrong.** **The template is the conjunct that was missing, and it is why the list stays
+  role-scoped while the download is template-scoped.**
+- **Locks:** none. **SSCAS:** `n/a`. **Writes:** **nothing.** It is `STABLE`, not `IMMUTABLE` — it reads live
+  grant tables, and *"live"* is the entire point (an export prepared before a revocation fails after it,
+  `EX-4`). **It writes no audit row**: the *decision* is audited by its callers (`crm_export.request` /
+  `crm_export.download`), and a predicate that logged on every list row would drown them.
+- **Errors.** `insufficient_privilege(42501)` in raising mode · `invalid_input` (unknown `scope_kind`,
+  unknown `template_id`, `scope_kind='all'`) · `not_found` (scope object absent) — **`not_found` is raised in
+  both modes**, because a nonexistent scope is a caller bug, not a denial, and returning `false` for it would
+  let a lister render "not downloadable" for a job whose scope was deleted.
+- **Package.** `087`, unchanged and already declared: it reads `venue.export_job` (`087`),
+  `kernel.org_member` (`077`) and `venue.staff_role` (`080`) → **SEAM-1 `max(077, 080, 087) = 087`**, and
+  `087` declares `077`, `081`, `085`, `086`. **No package added, renamed or renumbered; no dependency edge
+  added.**
+- **Tests.** `T-RLS-CRM-05` (cited, not renumbered — `request_export` and `authorize_export_download` resolve
+  to the **same** function, asserted as an equality between the two call sites) · **`T-RPC-CRM-06`** (the
+  raising-mode structural assertion above) · **`T-RPC-CRM-07`** (`p_actor` is always `auth.uid()`) ·
+  **`T-RPC-CRM-08`** (`org_marketing` is refused an `operations_v1` download **and** sees
+  `downloadable = false` for that job in `list_export_jobs` — **both halves in one test**, because the panel
+  and the RPC disagreeing is `X-19`'s failure and a test of either alone passes on it).
+- **Reported, not applied here (§20.14 `R-29`).** `PHASE_2_RLS_PERMISSION_SPEC.md` §11.6 needs an **EXEC
+  row** for this function (`EXECUTE` to `authenticated`, `REVOKE` from `anon`, `EXEC: DEF`) — it has none;
+  the migration plan §8 `087` row and the package registry both name it with a **four**-parameter signature
+  and must carry the defaulted fifth; `PHASE_2_CRM_EXPORT_SPEC.md` §9.5 should cite the return shape rather
+  than restating it.
 
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
