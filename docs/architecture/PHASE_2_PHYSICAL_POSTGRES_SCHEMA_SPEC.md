@@ -286,6 +286,14 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
   - `identity_id` uuid — FK→auth.users(id) on delete restrict.
   - `role` enum(`org_owner` · `org_admin` · `org_finance` · `org_member`) — not null (C36 org-scope enum).
   - `granted_by` uuid — FK→auth.users(id) (audit of who granted; on delete restrict).
+  - **`role_granted_at` timestamptz — not null, default `now()`. ADDED — defect C-1c (§1.13.4).** The
+    timestamp of **the current role**, set on INSERT and **re-set by the grant/revoke RPC on every role
+    change**. It is the input to the `authn.money_role_grant_maturity_interval` floor.
+    **`created_at` cannot serve.** Because `role` is single-valued and a role change is an UPDATE
+    (below), `created_at` records when the person joined the org — so a two-year member promoted to
+    `org_finance` this morning passes any `created_at` test trivially, and the maturity control that
+    exists to bound the mint-a-counterparty attack would be **vacuous against the one path that does
+    not require minting an account at all.** `updated_at` cannot serve either: it moves for any column.
   - `created_at`, `updated_at`.
 - **Unique:** PK `(org_id, identity_id)` — one role row per person per org (role is single-valued; changing
   role is an UPDATE, audited).
@@ -695,10 +703,18 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   - `request_id` uuid — PK.
   - `action` text — not null; CHECK ∈ (`refund.issue` · `payout.request` · `config.set_money_key`).
     **A closed label set, not an FK** — the three actions name flows, not rows.
-  - `subject_kind` text — not null; `subject_id` uuid — not null. The affected object
-    (order_id / settlement_id / config key-hash). **Deliberately soft (no FK)** — the same
-    audit-subject pattern `kernel.admin_audit` (§1.12) already uses, permitted by CDM §10.7. This is
-    what lets one table serve three domains **without** an FK to a table in a later package.
+  - **`required_approver_class` text — not null; CHECK ∈ (`org_dual_control` · `platform_review`).
+    ADDED — defect C-1, §1.13.2.** The **stored** discriminator that decides which authority arm may
+    approve this row. Set **server-side at request time** by the requesting function, from the tier it
+    computed, and **pinned exactly like `config_versions`** — never recomputed at approval time, never
+    supplied by a caller, never derived from `state`.
+  - `subject_kind` text — not null; CHECK ∈ (`order` · `settlement` · `config_key`) — **ADDED
+    (defect C-1, §1.13.3): the column previously carried no CHECK at all.** `subject_id` uuid — not
+    null. The affected object (order_id / settlement_id / config key-hash). **Deliberately soft (no
+    FK)** — the same audit-subject pattern `kernel.admin_audit` (§1.12) already uses, permitted by CDM
+    §10.7. This is what lets one table serve three domains **without** an FK to a table in a later
+    package. **Soft is not unconstrained:** the `action ↔ subject_kind` pairing CHECK below and the
+    RPC-side existence assertion of §1.13.3 replace what an FK would have given.
   - `org_id` uuid — **nullable**, FK→`kernel.organization(org_id)` on delete restrict. NULL for
     platform-scope actions (`config.set_money_key`). **The only hard FK on this table besides the two
     identity columns.**
@@ -715,12 +731,44 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   - `command_idempotency_key` text — not null (C16).
   - `created_at`, `updated_at`.
 - **Unique:** `UNIQUE(requested_by, command_idempotency_key)` (C16 replay guard).
-- **Check — SoD as a table constraint, not a convention (MONEY §12 ADDITIVE-1):**
+- **Check — SoD as a table constraint, not a convention (MONEY §12 ADDITIVE-1) — CORRECTED, defect C-1:**
   ```sql
-  CHECK (approved_by IS NULL OR approved_by <> requested_by)
+  -- (1) the SoD rule itself, as before
+  CHECK (approved_by IS NULL OR approved_by <> requested_by),
+
+  -- (2) ADDED — the companion without which (1) is VACUOUSLY SATISFIABLE.
+  --     An approved row with approved_by IS NULL passes (1) trivially.
+  CHECK (state <> 'approved' OR approved_by IS NOT NULL),
+
+  -- (3) ADDED — the same hole on the other terminal adjudications: a denial with
+  --     no adjudicator is an unattributable refusal, which is the audit failure
+  --     the whole object exists to prevent.
+  CHECK (state <> 'denied' OR approved_by IS NOT NULL),
+
+  -- (4) ADDED — action <-> subject_kind pairing. One table serving three domains
+  --     with a soft subject must at minimum constrain WHICH KIND of subject each
+  --     action may name; otherwise a config approval can be filed against an order id.
+  CHECK (
+    (action = 'refund.issue'         AND subject_kind = 'order')
+    OR (action = 'payout.request'    AND subject_kind = 'settlement')
+    OR (action = 'config.set_money_key' AND subject_kind = 'config_key')
+  ),
+
+  -- (5) ADDED — the stored approver class must agree with the scope the action implies.
+  --     config.set_money_key is platform-scope by construction (org_id IS NULL),
+  --     so it can never be adjudicated by an org arm.
+  CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_review')
   ```
-  Plus: `action` label set; `state` label set; `expires_at > created_at`; `org_id IS NOT NULL` when
+  Plus, unchanged: `action` label set; `state` label set; **`required_approver_class` label set**;
+  **`subject_kind` label set**; `expires_at > created_at`; `org_id IS NOT NULL` when
   `action IN ('refund.issue','payout.request')` and `org_id IS NULL` when `action='config.set_money_key'`.
+
+  > **Why (2) and (3) are not pedantry.** As written at `aa78a47` the *only* SoD constraint on the table
+  > was satisfied by **every row that has not been approved by anyone** — including a row an
+  > implementation moved to `approved` while leaving `approved_by` NULL. The constraint that is the
+  > entire structural expression of MONEY §12 ADDITIVE-1 could therefore be **green on a database in
+  > which no approval was ever attributed to a second human.** `T-SCHEMA-APPR-02` asserts the pair
+  > together: an `UPDATE … SET state='approved'` that does not also set `approved_by` **raises**.
 - **The named footgun and its mandatory mitigation (MONEY §6.6):** a generic `payload jsonb` invites the
   approval to become a client-supplied authority vector. The payload is **server-computed at request time
   and re-derived and re-compared at approval time**; the executing code trusts nothing in it. A mismatch
@@ -729,7 +777,11 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   one-way, under `FOR UPDATE`. **No DELETE.**
 - **Index:** PK; the C16 unique; index on `(org_id, state)` (the org approval queue,
   `kernel.list_approval_requests`); partial index on `expires_at WHERE state='pending'` (the expiry
-  sweep hot-path); index on `(subject_kind, subject_id)`.
+  sweep hot-path); index on `(subject_kind, subject_id)`; **ADDED — partial index on
+  `(required_approver_class, created_at) WHERE state='pending'`**, because the platform-review queue
+  carries `org_id IS NULL` and is therefore **invisible to the `(org_id, state)` index**: without this
+  index the queue that holds every above-ceiling refund and every money-key config change is a seq
+  scan, and the queue nobody can list is the queue nobody works.
 - **Archival:** permanent (audit class — a dual-control record is evidence).
 - **RLS:** money-custody-RPC-only (deny-all + `REVOKE ALL`); org-scoped read **via**
   `kernel.list_approval_requests` only.
@@ -796,6 +848,156 @@ one reason: the table has **three** consumers, and the earliest is not a money t
 `kernel.platform_role` and `kernel.admin_audit` in the same package. That is a smaller cost than a
 forward reference, and it is the same cost the registry already accepts for `091` (`kernel.reserve`
 stub, no writers at all).
+
+#### 1.13.2 DEFECT C-1a — the approval tier was **never stored**, so every pending row reaches the org arm
+
+**The defect, stated as an implementer meets it.** `kernel.request_order_refund` (MONEY §5.2) returns
+`pending_approval` **or** `pending_platform_review`, and `kernel.approve_refund_request` branches its
+authority on that distinction: `has_org_role(org_id, ['org_owner','org_finance'])` for the first,
+`is_platform(['platform_support','platform_risk','platform_admin'])` for the second (MONEY §6.2/§6.4).
+
+**Those two values are result statuses of the request function. They are not states, and at `aa78a47`
+they were not columns.** The `state` CHECK is `pending · approved · denied · cancelled · expired ·
+stale` — a parked request of either tier is simply `pending`.
+
+So the only stored discriminators an implementer could branch on were:
+
+| Stored discriminator | What it actually separates | Why it is not the tier |
+|---|---|---|
+| `state` | adjudication progress | both tiers are `pending` |
+| `action` | which of three flows | a `refund.issue` may be **either** tier (MONEY §5.2's table has three rows and two of them park) |
+| `org_id` | scope | non-null for **both** refund tiers — the platform-review refund still belongs to an org |
+
+**An implementer branching on the only stored discriminators reaches the org arm for every pending
+row.** The concrete consequence: a refund parked *because it exceeded the org's own ceiling*, or
+*because it touched a scanned atom*, is approvable by the same `org_finance` who was too junior to
+execute it. **The escalation tier collapses into the tier it escalates from** — silently, with a green
+SoD constraint, because the approver genuinely is a different person from the requester.
+
+**Fix.** `required_approver_class text NOT NULL CHECK (required_approver_class IN ('org_dual_control',
+'platform_review'))`, written by the requesting function from the tier it computed:
+
+| Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) | `required_approver_class` |
+|---|---|---|
+| `kernel.request_order_refund` | org caller, ≤ `refund.org_dual_control_max_minor` | `org_dual_control` |
+| `kernel.request_order_refund` | org caller, > `refund.org_dual_control_max_minor` | `platform_review` |
+| `kernel.request_order_refund` | any consumed (scanned) atom + `refund.scanned_atom_policy='platform_review'` | `platform_review` |
+| `kernel.request_org_payout` | > `payout.dual_control_min_minor` | `org_dual_control` |
+| `catalog.set_platform_config` (money namespace) | always — a **second distinct `platform_admin`** | `platform_review` |
+
+**Pinned, exactly like `config_versions`, and for the identical reason.** The tier was decided against a
+threshold set that is itself versioned and mutable. Recomputing the arm at approval time would let a
+config change **re-tier a parked request**, which is the precise failure MONEY §7.2's version pinning
+exists to prevent — and re-tiering *downward* would move a request from the platform queue to the org
+queue that could not have raised it. `required_approver_class` is therefore written **once, at request
+time, alongside `config_versions`**, and the approval function **reads** it. It is never recomputed,
+never client-supplied, and it is not derivable from `state`, `action` or `org_id` — which is why it must
+be a column and not a predicate.
+
+**Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits exactly two labels)
+· `T-SCHEMA-APPR-03` (structural: no function body branches approval authority on `action` or `org_id`
+alone — the branch must read `required_approver_class`) · `T-SCHEMA-APPR-04` (a `platform_review` row is
+**not** approvable by any `org_owner`/`org_finance` of its own `org_id`, asserted positively rather than
+inferred from the absence of a grant).
+
+#### 1.13.3 DEFECT C-1b — `subject_kind` had no CHECK, no pairing, and `subject_id` no integrity
+
+Three separate holes, one shape: **the polymorphic subject was entirely unconstrained.**
+
+1. **`subject_kind` carried no CHECK.** `kernel.admin_audit` (§1.12) can afford an open subject
+   vocabulary — it is a *record of what happened*, read by humans. `approval_request` is a **control**:
+   its subject is what the approving function re-derives its payload against. An open vocabulary means
+   the re-derivation switch has a `default:` arm, and a `default:` arm on a dual-control object is
+   either a raise nobody wrote or an approval nobody checked. **Fixed by CHECK (4) above:** exactly
+   three labels — `order`, `settlement`, `config_key`.
+2. **No `action ↔ subject_kind` pairing.** Without it a `config.set_money_key` request can name an
+   `order` subject, and the config-approval arm — which resolves its subject as a config key-hash —
+   re-derives against a row of the wrong kind. **Fixed by CHECK (4) above**, which is a single
+   three-arm disjunction rather than two independent CHECKs, so no combination is admissible by
+   accident.
+3. **`subject_id` had no referential integrity at all — and cannot have an FK.** The soft-subject
+   pattern is *load-bearing here*: `order` lives in `082`, `settlement` in `087`, and the table is in
+   `077`. An FK in either direction would create the forward reference §13.2 exists to eliminate. **The
+   integrity is therefore relocated, not dropped:**
+
+   > **APPR-SUBJ-1 (binding).** Every function that **creates** a `kernel.approval_request` row must
+   > resolve its subject **in the same transaction, under the subject row's own lock**, and must fail
+   > `not_found` if it does not resolve. The subject is resolved by the requesting function — which is
+   > authored in `082`+ (`request_order_refund`, `085`), `087` (`request_org_payout`) or `078`
+   > (`set_platform_config`) — **never by `077`**, so the resolution is always in a package where the
+   > subject table exists. A `subject_id` that never resolved is a row that could only have been
+   > written by a direct table INSERT, which the deny-all RLS and `REVOKE ALL` make impossible.
+   >
+   > **APPR-SUBJ-2 (binding).** Every function that **approves** one re-resolves the subject under lock
+   > before acting, and a subject that has since disappeared moves the request to **`stale`** — the
+   > same disposition §1.13's payload rule already mandates for drift, reusing the state rather than
+   > adding one. **`stale` is not a failure mode to be handled at approval time; it is the designed
+   > answer to a subject that moved.**
+
+   **This is weaker than an FK and the spec says so plainly.** An FK would additionally prevent the
+   subject being *deleted* afterwards. Every candidate subject table is `on delete restrict` or
+   append-only in its own right, so the residual exposure is a subject deleted by a superuser outside
+   the RPC surface. **Filed as a known, accepted, bounded gap — not as an equivalent.**
+
+**Test.** `T-SCHEMA-APPR-05` (every `action`/`subject_kind` pair outside the three legal combinations
+raises) · `T-RPC-APPR-06` (an approval whose subject no longer resolves lands in `stale`, and **no money
+row is written**) — the second belongs to the RPC owner and is filed in §13.7.
+
+#### 1.13.4 DEFECT C-1c — both SoD primitives are defeated by minting the counterparty
+
+**The primitive.** Both money separation-of-duties controls compare `auth.uid()` against a stored
+identity:
+
+- **SoD-1** (MONEY §8.2) — the identity in `kernel.organization.payout_destination_set_by` may not be
+  the identity calling `kernel.request_org_payout`.
+- **SoD-2** (MONEY §6.2) — `approved_by <> requested_by`, the CHECK above.
+
+**Both are satisfied by any two distinct `auth.uid()`s, and an `org_owner` can create the second one.**
+`kernel.grant_org_role` / `kernel.invite_org_member` are granted to `[org_owner, org_admin]`. An
+`org_owner` therefore holds the authority to **mint a second account and grant it `org_finance`**, then
+hold both halves of both primitives. The controls are not bypassed — they are **satisfied**, by two
+identities the same person owns. Nothing in the model observes that one of them is four minutes old.
+
+**Fix — a maturity floor on the *grant*, not on the account.** A new platform config key:
+
+| Key | Type | Meaning |
+|---|---|---|
+| **`authn.money_role_grant_maturity_interval`** | interval | A **money-role grant** younger than this may neither **request** nor **approve** a money action. Seeded in `078` with the other `authn.*` keys. |
+
+**Money roles**, for this key, are exactly: `org_owner`, `org_finance` (org plane) and `platform_admin`,
+`platform_support`, `platform_risk` (platform plane). `venue.staff_role` labels are out of scope — no
+venue label holds money authority.
+
+**The floor is on the grant, and that requires a column that did not exist.** `kernel.org_member.role`
+is *single-valued and changed by UPDATE* (§1.3), so `created_at` records when the person joined the org,
+not when they acquired money authority — an `org_member` of two years standing promoted to
+`org_finance` this morning would pass a `created_at` test trivially. **§1.3 therefore gains
+`role_granted_at`** (see §1.3), set on INSERT and **re-set on every role change**, and the predicate
+reads that. `kernel.platform_role` needs no new column: its PK includes `role`, so a grant is a row and
+`created_at` already **is** the grant time.
+
+**What it buys and what it does not, stated honestly.**
+- It converts the attack from *instant* to *pre-meditated by at least the interval*, and it makes the
+  premeditation **visible in `kernel.admin_audit` before the money moves** rather than after. That is
+  the whole claim.
+- **It does not make collusion impossible**, and no schema constraint can: an owner who provisions a
+  second money identity a week early defeats it. The control that addresses *that* is platform review
+  above the org ceiling (§1.13.2), which is why the two must ship together — the maturity floor buys
+  the detection window, and `required_approver_class` is what routes the large cases outside the org
+  entirely.
+- **Direction asymmetry.** The floor applies to *requesting and approving*, never to **denying** or
+  **cancelling**. A fresh grant must always be able to stop a payment. A control that is hard to
+  tighten in an incident is a liability (MONEY §7.3's own reasoning, applied here).
+
+**Where the predicate lives — filed, not assumed.** The maturity test is an RPC-side precondition on
+`request_order_refund`, `approve_refund_request`, `request_org_payout`, `set_org_payout_destination` and
+the money-namespace arm of `set_platform_config`. **This spec owns the column and the key; the RPC
+owner owns the predicate**, and it is filed in §13.7 as request **S-3**. `error: precondition_failed
+('money_role_too_new')` is proposed so the surface can say something true to the operator.
+
+**Test.** `T-SCHEMA-APPR-07` (`role_granted_at` is `NOT NULL` and advances on a role UPDATE, asserted by
+changing a role and re-reading — the column that silently keeps its INSERT value is the failure mode
+that makes the whole control vacuous, and it is invisible without this assertion).
 
 ### 1.14 `kernel.org_money_policy` — **CONDITIONAL (owner decision D-2). NOT IN THE MVP CHAIN.**
 
@@ -932,15 +1134,101 @@ outward-kernel dependency, A7/C7).
 - **PK:** `key` text (a stable config key). (Alternatively `config_id` uuid with `UNIQUE(key, version)`; see
   UNDER-SPECIFIED.)
 - **Columns:** `key` text PK-part; `version` integer not null (versioned, snapshot-referenced, C11/CDM §10.11);
-  `value` jsonb-concept not null; `effective_from` timestamptz not null default now(); `created_at`.
+  `value` jsonb-concept not null; **`visibility` text not null default `'restricted'`; CHECK ∈ (`public` ·
+  `restricted`) — ADDED, §2.4.1**; `effective_from` timestamptz not null default now(); `created_at`.
 - **PK/Unique:** `(key, version)` composite (immutable versions; new value = new version row).
-- **Check:** none beyond types.
+- **Check:** `visibility` label set. **`visibility` is a property of the key, not of the version:**
+  `CHECK`-able per row, but additionally asserted by `T-SCHEMA-CFG-02` to be **constant across every
+  version of a key** — a key that is `public` at v1 and `restricted` at v2 has already leaked, and a key
+  that goes the other way silently un-publishes something a client is reading.
 - **Immutability:** **AO per version** — a config change inserts a new `(key, version+1)` row; old versions
   are retained so objects governed by an old version remain interpretable (C11/O3).
-- **Index:** PK `(key, version)`; index on `key` for latest-version lookup.
-- **RLS:** public-read (fee values are not secret); writes RPC-only + `is_platform`, audited.
-- **Write authority:** `catalog.set_platform_config` (platform, dual-control seam for fee changes, C9/C11).
+- **Index:** PK `(key, version)`; index on `key` for latest-version lookup; **partial index on
+  `key WHERE visibility='public'`** (the anon discovery read never touches a restricted row).
+- **RLS — CORRECTED (§2.4.1). Split, not blanket public-read.** `anon`/`authenticated` may read **only**
+  rows with `visibility='public'`. Rows with `visibility='restricted'` are readable by
+  `is_platform([platform_admin, platform_risk])` and by the definer RPCs that evaluate them — nobody
+  else, including every org role. Writes RPC-only + `is_platform`, audited.
+- **Write authority:** `catalog.set_platform_config` (platform, dual-control seam for fee changes, C9/C11;
+  money-namespace keys are **mandatory** dual control — MONEY §7.3). **`visibility` is set at key
+  creation and `set_platform_config` may not change it** — a function that can flip a key to `public` is
+  a function that can publish the ceilings, which is the exposure this section closes.
 - **SoT/PROJ:** SoT (Config category, CDM §5).
+
+#### 2.4.1 RULING — the platform-wide security parameters must not be world-readable
+
+**This is an owner-facing ruling, and it is stated as a recommendation with its reasoning, because it
+narrows a property (`public-read`) that RLS §8.4 already asserts.** It is filed for ratification, not
+applied unilaterally; the RLS integrator owns the policy text (§13.7, request **S-4**).
+
+**The exposure.** `catalog.platform_config` is **world-readable to `anon`** (RLS §8.4: *"values are not
+secret; every non-admin principal including `anon` holds SELECT"*). The consolidation then moved
+**every** delta-spec seed into `078` — a decision this spec made, and made correctly for *packaging*
+reasons (§13.5-D). The two facts compose into one that nobody wrote down:
+
+> **After `078`, the exact numeric values of every dual-control ceiling, every step-up freshness window,
+> every enumeration threshold and every export cap in the platform are readable by an unauthenticated
+> client.**
+
+Concretely, the following are published by construction: `refund.org_auto_execute_max_minor` (below it,
+a refund executes with **no** second human), `refund.org_dual_control_max_minor` (above it, the request
+escalates outside the org), `payout.request_auto_max_minor` / `payout.dual_control_min_minor`,
+`authn.*` step-up freshness, `authn.money_role_grant_maturity_interval` (§1.13.4), the CRM enumeration
+thresholds and export row caps, and `door.*` offline windows.
+
+**Why this is a real finding and not a restatement of "config isn't secret".** The money spec **already
+reasoned about exactly this** — and refused a feature on these grounds. MONEY §7.4 rejects per-org
+thresholds because *"`catalog.platform_config` is world-readable … a per-org refund ceiling is not public
+information."* That reasoning was applied to **per-org** values and **stopped there**. Nobody applied it
+to the **platform-wide security parameters**, which are in the same table, under the same policy, and
+which describe the boundaries of every automated money decision the platform makes. The argument that
+defeated per-org limits defeats publishing the platform limits by the same step; it was simply never
+taken.
+
+**What an adversary does with it.** Not "learns the fee" — fees genuinely are public, and should be.
+The published values are an **attack calibration table**: the exact amount below which a refund needs no
+second human; the exact amount below which a payout needs no approval; the exact interval a minted
+counterparty (§1.13.4) must age before it is usable; the exact window a scanner may stay offline. Each
+is a number an attacker would otherwise have to discover by probing — and probing is precisely what
+`kernel.record_money_denial` and the rate limits exist to detect. **Publishing them removes the phase of
+the attack the detection controls are aimed at.**
+
+**Ruling — a namespace split, expressed as a `visibility` column rather than a second table.**
+
+| Class | Keys | Read authority |
+|---|---|---|
+| **`public`** | `feature.*` (the three native flags + `wallet.apple.enabled` + `notify.announcements_enabled`), the **fee** values (A8's original purpose), `credential.*`/`wallet.*` client spans a client must honour to render a pass | `anon` + `authenticated` — unchanged |
+| **`restricted`** | **`refund.*` · `payout.*` · `authn.*`** (every money threshold and every step-up/maturity parameter) · **`crm.*`** enumeration thresholds, row caps and retention · **`door.*`** manifest TTL, early-open window and implicit-freeze offset | `is_platform([platform_admin, platform_risk])` + the definer RPCs that evaluate them |
+
+**Why a column and not a `catalog.platform_config_secure` table.** Three reasons, and the first is
+decisive:
+1. **`catalog.set_platform_config`'s money-namespace dual control (MONEY §7.3) is written against one
+   table.** A second table means a second write path, a second version counter and a **second
+   implementation of the dual-control branch** — the identical "one control, two copies, one drifts"
+   argument §1.13.1 used to keep `approval_request` as one table rather than three. It applies here with
+   more force, because this control is the one that governs the other control.
+2. `config_versions` on `kernel.approval_request` pins `(key, version)` pairs. A split table means the
+   pinning tuple must carry which table each key came from, or the audit trail becomes ambiguous.
+3. The version history of a key that is reclassified must stay in one place, or the reclassification
+   itself is the thing that loses the history.
+
+**`door.*` is classified `restricted`, and that is the one genuinely arguable line.** A door parameter
+is not money. It is classified restricted because `door.manifest_ttl_interval` and
+`door.implicit_freeze_offset_interval` state **how long a door may operate on stale data** — which is
+the width of the window in which an offline duplicate admission is possible. A client never needs it;
+the scanner receives its effective window inside the manifest it is issued. **If the owner disagrees,
+this is the row to move, and moving it changes nothing else.**
+
+**What this does NOT change.** The three feature flags stay public — the `078` "production-OFF anchor"
+test (*"All flags present and `false`"*) still runs as an anon read. Fee values stay public; A8's
+premise is intact. **The default is `restricted`**, so a key added later without thought fails closed
+into the safe class rather than out of it.
+
+**Tests.** `T-SCHEMA-CFG-01` (an `anon` `SELECT *` over `catalog.platform_config` returns **zero** rows
+whose key matches `refund.%`, `payout.%`, `authn.%`, `crm.%` or `door.%` — asserted positively, and with
+a non-vacuity guard that the same read *does* return the feature flags, because a policy that returns
+nothing at all would pass a naive version of this test) · `T-SCHEMA-CFG-02` (`visibility` is constant
+across all versions of a key) · `T-SCHEMA-CFG-03` (`set_platform_config` cannot change `visibility`).
 
 ### 2.5 `catalog.resale_policy`
 - **Purpose:** per-venue/per-event resale governance with **modes** (A10), snapshot-referenced by listings.
@@ -1924,6 +2212,8 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | Pkg | Object | Source | |
 |---|---|---|---|
 | `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
+| `077` | **`kernel.approval_request.required_approver_class`** + the four added CHECKs | **this remediation (C-1a/C-1b)** | — → `077` (§1.13.2/§1.13.3) |
+| `077` | **`kernel.org_member.role_granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
 | `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
 | `077` | `kernel.identity_ext.locale` (Δ-N2) | NOTIFICATIONS §5.4 | — → `077` |
 | `077` | `kernel.identity_demographic`, `kernel.identity_demographic_erasure` | DEMOGRAPHICS §10.1/§10.2 | ✓ |
@@ -1932,7 +2222,8 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `078` | `catalog.event` marketing columns (`description`, `hero_image_ref`, `category`, `genre_tags`) | ROLE_MODEL S-5 | — → `078`, **types assigned here** (§2.2) |
 | `078` | `catalog.event_session.session_version` (Δ-N1) | NOTIFICATIONS §2.2-E | — → `078` |
 | `078` | `catalog.effective_freeze_at()` | DOOR §3 | — → `078` |
-| `078` | **All `catalog.platform_config` seed rows** — the 3 native flags, `door.*` ×4 (DOOR §10.6), wallet/credential ×6 (WALLET §11.5), money `refund.*`/`payout.*`/`authn.*` ×14 (MONEY §7.2), `notify.*` ×5, CRM limits/caps/retention/`constraint_set_version` | DOOR/WALLET/MONEY/NOTIF/CRM | ▲ CRM said `087` |
+| `078` | **`catalog.platform_config.visibility`** + the split read policy | **this remediation (config exposure)** | — → `078` (§2.4.1) |
+| `078` | **All `catalog.platform_config` seed rows** — the 3 native flags, `door.*` ×4 (DOOR §10.6), wallet/credential ×6 (WALLET §11.5), money `refund.*`/`payout.*`/`authn.*` **×15** (MONEY §7.2 ×14 + **`authn.money_role_grant_maturity_interval`**, §1.13.4), `notify.*` ×5, CRM limits/caps/retention/`constraint_set_version` | DOOR/WALLET/MONEY/NOTIF/CRM + **this remediation** | ▲ CRM said `087` |
 | `079` | `kernel.tickets.resale_state += refund_hold` | MONEY §12-2 | — → `079` |
 | `079` | **`kernel.door_freeze_override`** | DOOR §8.1 | ▲ (§13.5-B) |
 | `079` | `kernel.is_transfer_frozen` (corrected body) | DOOR §3 | ▲ plan said `078`-or-`079` — **resolved to `079`** |
@@ -2217,6 +2508,35 @@ Added edges (each preceding its dependent — the DAG stays acyclic and topologi
 
 No edge is removed. No package changes number. The count stays **16** unless CONDITIONAL B is ruled
 Gate P, in which case it becomes 17.
+
+**The schema-security remediation adds no edge.** Every object it introduces or corrects
+(`approval_request.required_approver_class`, `org_member.role_granted_at`, `platform_config.visibility`,
+`venue.door_session`, `promoter_link.status`, the org-label correction) sits in a package whose existing
+dependency set already contains every table it references. Checked explicitly for `venue.door_session`,
+the only new **table**: its FKs reach `catalog.event_session` (`078`), `catalog.venue` (`078`),
+`venue.scan_device` (`086`, same package) and `venue.door_pin` (`086`, same package) — and `086` already
+declares `078`. **DAG unchanged, 16 packages unchanged, topological order by number unchanged.**
+
+---
+
+## 13.7 REQUESTS TO OTHER INTEGRATORS — what this remediation cannot fix in its own three files
+
+This pass owns `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md`, `PHASE_2_SUPABASE_MIGRATION_PLAN.md` and
+`PHASE_2_PACKAGE_REGISTRY.md`, and edited nothing else. Each item names the file, the section and the
+reason it cannot wait.
+
+| # | File | Change | Why it cannot wait |
+|---|---|---|---|
+| **S-1** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2, §17.7, §20.1 | **The approval functions must branch on `kernel.approval_request.required_approver_class`** (§1.13.2), and `request_order_refund` / `request_org_payout` / the money arm of `set_platform_config` must **write** it at request time alongside `config_versions`. The contracts currently return `pending_approval` / `pending_platform_review` as *result statuses* and store neither | Until they do, the column exists and nothing populates it, and `approve_refund_request` still has only `state`/`action`/`org_id` to branch on — which is the C-1a defect unchanged. **A NOT NULL column with no writer also makes `077`…`085` un-replayable the first time a request is filed** |
+| **S-2** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1–§17.4 | **APPR-SUBJ-1 / APPR-SUBJ-2** (§1.13.3): the requesting function resolves `subject_id` under lock in the same txn and raises `not_found`; the approving function re-resolves and moves a vanished subject to **`stale`** | The soft subject has no FK **by necessity** (`order` is `082`, `settlement` is `087`, the table is `077`). The integrity is relocated into the RPC layer or it does not exist |
+| **S-3** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2/§17.7, §20.7 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.3 | **The money-role grant-maturity precondition** (§1.13.4): `request_order_refund`, `approve_refund_request`, `request_org_payout`, `set_org_payout_destination` and the money arm of `set_platform_config` reject a caller whose money-role grant is younger than `authn.money_role_grant_maturity_interval`, with `precondition_failed('money_role_too_new')`. Reads `kernel.org_member.role_granted_at` (org plane) / `kernel.platform_role.created_at` (platform plane). **Never applied to deny or cancel** | Both money SoD primitives compare `auth.uid()` against a stored identity, and an `org_owner` holds the grant authority to **mint the counterparty**. The column and the key ship here; the predicate is the control |
+| **S-4** | `PHASE_2_RLS_PERMISSION_SPEC.md` §8.4 | **`catalog.platform_config` is no longer blanket public-read** (§2.4.1). §8.4's *"values are not secret; every non-admin principal including `anon` holds SELECT"* must become the two-class policy: `anon`/`authenticated` see `visibility='public'` only; `restricted` is `is_platform([platform_admin, platform_risk])` + the definer RPCs | §8.4 is the policy statement an implementer writes the `USING` clause from. Until it changes, `078` publishes every dual-control ceiling, step-up window and export cap to `anon` |
+| **S-5** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 · `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a | **`kernel.assert_door_session` gains a token parameter** — `assert_door_session(p_device_id, p_session_id, p_session_token)` — and its body verifies against `venue.door_session` (§3.10a), not against the mere existence of an active PIN. **This is a signature change to the door's entire authorization surface** | §3.10a supplies the object; the predicate that reads it is not this spec's to write. **Detail and reasoning: §3.10a.** Until it lands, the door path proves *provisioning*, not *possession* |
+| **S-6** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4/§9.5, §20.4.4 | **`record_scan` and `reconcile_offline_scans` must take the actor device as a parameter distinct from the session token**, server-derived and never client-attested, and must assert that it equals `door_session.device_id`. Today `record_scan` reads `device_id` out of the **untrusted** `p_scan_meta`, and `reconcile_offline_scans` takes `p_device_id` as a bare parameter | On the `service_role` door path **RLS is bypassed entirely** (RPC §1.1d's own warning). The device id is therefore an unauthenticated string that selects which device's scans are written. Binding it to the session is what makes the ledger's device attribution mean anything |
+| **S-7** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Replace the `venue.set_door_open_at` (O4-3) EXEC row with `catalog.set_session_door_schedule`, same allow-list** — restating RPC §20.14 **R-1**, because this plan has now removed `set_door_open_at` from every `086` row and §11.4 is the last place it survives | §11.4 **is** the authority table. An implementer following it builds the function ruled out, and O-5's sole-writer property becomes false in practice |
+| **S-8** | `PHASE_2_ROLE_MODEL_SPEC.md` §3.1 (or an owner note) | **Confirm that `org_marketing` and `org_promoter_manager` were intended to be storable at the org grain.** This pass restores them to `kernel.org_member` / `kernel.org_invite` on the strength of §0.6's own canonical table; the role model is the document that ratified the six | The correction is mechanical **if** the six-label set is right. If the intent was venue-grain-only marketing/promoter roles, the fix is the opposite one — remove them from §0.6 — and this pass would have entrenched the wrong reading |
+| **S-9** | **Owner ruling** | **§2.4.1's `door.*` classification.** Money, `authn.*` and `crm.*` are `restricted` on arguments this spec considers settled. `door.*` is the arguable row: it states how long a door may operate on stale data | It is the one line in the ruling that could reasonably go the other way, and it is isolated — moving it changes nothing else |
+| **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---
 
