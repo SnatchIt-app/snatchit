@@ -1,5 +1,20 @@
 # `G-25` — the four unresolved events, and the final `ODR-2` carrier requirement
 
+> ## STATUS: RULED — 2026-08-28 · ratification row `OR-3`
+>
+> This brief is now **historical**. The owner ruled: `#2` **REMOVE** · `#5` **REMOVE** · `#11` **REMOVE** ·
+> `#31` **KEEP** · `#32` **KEEP**. `#31` and `#32` were ruled together.
+>
+> Two of this brief's supporting arguments were falsified by an independent verification pass and did not
+> survive into the ruling's reasoning, though neither changed an outcome: (1) the `#2` claim that the Connect
+> capability flags are written synchronously to `kernel.organization` — **those columns do not exist on that
+> table at all**, which strengthens REMOVE and exposes an unfiled EDGE↔SCHEMA divergence to file beside `G-3`;
+> (2) the `#32` Rider's claim that a Gate-L notify ruling would collapse `#32` to REMOVE "with no further
+> work" — a build date does not un-ratify a spec row, and `ODR-3` was in any case ruled Gate P REDUCED.
+>
+> Its `#5` case is also weaker than the true one: `#5` is not merely unconsumed, it is **redundant** with the
+> retained `#4 EventPublished`, whose producer already gates on-sale.
+
 **Status:** OWNER BRIEF. **Presents; does not rule.** `ODR-2`, `ODR-3` and all four events stay OPEN.
 **Branch:** `docs/g25-four-events` off `phase2/consolidation` @ `c0d442f`.
 **Reads from:** `_governance/G25_CANONICAL_EVENT_CATALOG.md` (the per-event authority), which this document

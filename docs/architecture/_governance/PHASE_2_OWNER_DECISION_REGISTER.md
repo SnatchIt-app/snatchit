@@ -41,12 +41,12 @@ until it is answered.
 > grep -cE '^#{2,3} ODR-[0-9]+ —' docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
 >                                       # must be 128
 >
-> # 5. the status split still equals its own enumeration (120 + 1 + 3 + 1 + 3 = 128)
+> # 5. the status split still equals its own enumeration (117 + 3 + 3 + 1 + 3 + 1 = 128)
 > REG=docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
 > for T in 'OPEN — OWNER' 'CLOSED — OWNER RULING' 'MECHANICAL / ENGINEERING' \
->          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION'; do
+>          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION' 'SPLIT'; do
 >   printf '%4d  %s\n' "$(grep -cF "**Status.** $T" "$REG")" "$T"
-> done                                  # must print 120, 1, 3, 1, 3
+> done                                  # must print 117, 3, 3, 1, 3, 1
 > ```
 >
 > **Check 2 is the one that matters.** Every previous staleness in this corpus was a count that moved while
@@ -85,15 +85,22 @@ dispositioned rows in this file. Nothing found in the sweep is left undispositio
 
 | Status | Count | Ids |
 |---|:-:|---|
-| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **120** | every entry not named in the four rows below |
-| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **1** | `ODR-23` |
+| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **117** | every entry not named in the five rows below |
+| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **3** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) |
 | **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **3** | `ODR-15` · `ODR-126` · `ODR-127` |
 | **SUPERSEDED** — overtaken by a later ratified row or ruling | **1** | `ODR-52` |
 | **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **3** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) · `ODR-128` (by `ODR-7`) |
+| **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` BLOCKED BY `ODR-16` · `4c` ENGINEERING · `4d` MECHANICAL) |
 | | **128** | |
 
-**120 = 128 − 1 − 3 − 1 − 3.** The eight non-open entries are enumerated above in full; there is no sixth
-status and no unlisted entry.
+**117 = 128 − 3 − 3 − 1 − 3 − 1.** The eleven non-open entries are enumerated above in full.
+
+> **THERE ARE SIX STATUS VALUES, NOT FIVE — corrected 2026-08-28.** The previous text asserted *"there is no
+> sixth status"* while `OR-2` had already given `ODR-4` a sixth (`SPLIT`), and the header claimed `120` open
+> while the file held `119`. Both were carried, not counted. Two edits make the recipe reproduce again:
+> `ODR-4`'s marker was `**Status. SPLIT`, which the recipe's `grep -F "**Status.** …"` could never match, and
+> the two new `CLOSED` lines were bolded past the marker, which broke it the same way. **If a status line
+> does not begin exactly `**Status.** `, check 5 silently under-counts it.** That is the whole failure mode.
 
 ### Split by what each one blocks
 
@@ -103,7 +110,7 @@ not follow; one had been banded above its own `Blocks` line. Both are recorded a
 
 | Band | Count | Ids |
 |---|:-:|---|
-| **Band 1 — blocks the start of implementation** | **7 entries, 6 still open** | `ODR-1` · `ODR-2` · `ODR-3` · **`ODR-4` (SPLIT: `4a` RULED, `4b` BLOCKED BY `ODR-16`, `4c` ENGINEERING, `4d` MECHANICAL, placement PENDING PROOF)** · `ODR-5` · `ODR-7` · ~~`ODR-23`~~ **CLOSED — OWNER RULING B** |
+| **Band 1 — blocks the start of implementation** | **7 entries, 4 still open** | `ODR-1` · ~~`ODR-2`~~ **CLOSED — OWNER RULING `[A]` BUILD** · ~~`ODR-3`~~ **CLOSED — OWNER RULING `[C]` GATE P REDUCED** · **`ODR-4` (SPLIT: `4a` RULED, `4b` BLOCKED BY `ODR-16`, `4c` ENGINEERING, `4d` MECHANICAL, placement PENDING PROOF)** · `ODR-5` · `ODR-7` · ~~`ODR-23`~~ **CLOSED — OWNER RULING B** |
 | **Band 2 — blocks a named migration package** | **30** | `ODR-8` … `ODR-22` · `ODR-24` … `ODR-34` · **`ODR-125`** · **`ODR-126`** · **`ODR-127`** · **`ODR-128`** *(four new)* |
 | **Band 3 — blocks a named surface, contract, control or feature flag** | **58** | `ODR-35` … `ODR-92` |
 | **Band 4 — blocks nothing in the current scope** | **33** | **`ODR-6`** *(re-banded down from Band 1)* · `ODR-93` … `ODR-123` · **`ODR-124`** *(new)* |
@@ -118,8 +125,8 @@ four new. Band 4's 33: `ODR-93`–`ODR-123` is thirty-one, plus `ODR-6` and `ODR
 **Band 1 — blocks the start of implementation** — 7 entries
 
 - **ODR-1** — Re-ratify the amended package registry *(now **seven** amendments and **45** edges — see the entry)*
-- **ODR-2** — Is the event outbox in Phase 2?
-- **ODR-3** — What gate is the `notify` schema at?
+- **ODR-2** — Is the event outbox in Phase 2? · **CLOSED — OWNER RULING, corpus `[A]` BUILD** (`OR-4`)
+- **ODR-3** — What gate is the `notify` schema at? · **CLOSED — OWNER RULING, corpus `[C]` GATE P REDUCED** (`OR-5`)
 - **ODR-4** — Acknowledge the two global-posture exceptions, and bind whoever next edits migration `020`
 - **ODR-5** — Execute the migration-history repair, and authorize it
 - **ODR-7** — Precedence between delta specifications
@@ -135,7 +142,7 @@ four new. Band 4's 33: `ODR-93`–`ODR-123` is thirty-one, plus `ODR-6` and `ODR
 - **ODR-13** — `door.*` config visibility: `restricted` or `public`? · `078` seed row
 - **ODR-14** — Confirm k = 25 and cell floor = 5, and where the constants live · `077` CHECK
 - **ODR-15** — `notify.push_token` as a new table, or additive columns on `public.push_tokens`? · **MECHANICAL**
-- **ODR-16** — How account deletion behaves for an identity holding custody · `079`
+- **ODR-16** — How account deletion behaves for an identity holding custody · **`077`** *(corrected from `079` 2026-08-28 — see the entry)* · **BAND 1**
 - **ODR-17** — `kernel.door_freeze_override`: move the table to `079`, or take a `SEAM-2` hook? · `079`/`086`
 - **ODR-18** — Does disbursement auto-fire on `close_settlement`, or require an explicit human request? · `085`
 - **ODR-19** — What `kernel.payout.status='paid'` asserts · `085`/`087`
@@ -277,7 +284,10 @@ permission permanently) · `ODR-91` (no remedy exists, and support will ask for 
 unvalidated free-text string enters a custody/money compensation path, and the signature freezes at `085`) ·
 `ODR-128` (six contradictions, and an implementer picks a side per file).
 
-**That is 26** — the count is written after the list, from the list, for the reason in the box above.
+**That is 24** — the count is written after the list, from the list, for the reason in the box above.
+**Recomputed 2026-08-28:** `ODR-2` and `ODR-3` were struck from this list when the owner ruled them, so the
+figure moved 26 → 24 in the same edit that removed the two entries. A count that survives the removal of its
+own members is the defect this register exists to prevent.
 It was **25 of 123** at `32249f2`; `ODR-23` and `ODR-52` left the set (ruled and superseded respectively)
 and `ODR-124`, `ODR-125` and `ODR-128` entered it. **25 − 2 + 3 = 26.** For these twenty-six, *not deciding*
 is not deferral: the unsafe branch is already the one that ships.
@@ -562,9 +572,38 @@ Answer `ODR-3` in the same sitting or ratify conditionally.
 
 ---
 
-## ODR-2 — Is the event outbox in Phase 2?
+## ODR-2 — Is the event outbox in Phase 2? · **CLOSED — OWNER RULING**
 
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING, corpus option `[A]` BUILD — ruled 2026-08-28. Ratification row **`OR-4`**.
+
+> **The corpus option letters are authoritative for this decision and MUST be used when citing it.**
+> `[A]` = BUILD. `[B]` = WITHDRAW. An intermediate owner brief circulated a different A/B/C lettering in
+> which `A` meant NO OUTBOX; that lettering is superseded and must not be used to record or cite this
+> ruling. There is no `[C]`: a broker / generalized event bus is prohibited by ratified text
+> (`SNATCH_IT_DOMAIN_ARCHITECTURE.md` §6.2–§6.3, *"Do not build a broker, do not build sagas"*), so it was
+> never an admissible form of this decision.
+
+**The ruling.** Build the minimal transactional outbox as part of Phase 2: one transactional outbox table;
+writes occur in the SAME transaction as the authoritative state change; post-commit processing through ONE
+drainer; idempotent consumers; retryable delivery; advisory-lock / single-drainer semantics as already
+specified; existing cron infrastructure where appropriate.
+
+**Explicitly NOT built:** Kafka · RabbitMQ · SQS · Pub/Sub · NATS · EventBridge · Redis Streams · any
+external message broker · distributed saga infrastructure · a generalized event bus. These are not Phase-2
+options and contradict the ratified modular-monolith architecture.
+
+**Counting methodology, ruled with the decision.** STRICT: *an event requires an outbox carrier ONLY when a
+named Phase-2 post-commit consumer/handler exists, or a ratified contract requires the post-commit effect.*
+A vague context reference is not a handler. **The count is always derived from the enumeration**, never
+carried forward. The enumeration lives in `_governance/ODR2_BUILD_CONSEQUENCE_MAP.md`.
+
+**What this ruling does NOT do.** It does not author `076`. It does not decide `ODR-3` (see `COND-D` below —
+the coupling constrains ORDER, not answer). It does not perform the cross-document remediation, which is
+mapped in `ODR2_BUILD_CONSEQUENCE_MAP.md` and not yet applied.
+
+<details><summary>Original open-decision text, retained for audit</summary>
+
+**Status (superseded).** OPEN — OWNER.
 
 **The question.** Build the event outbox table and drainer in Phase 2 as the constitution promises **(a)**, or
 amend the constitution to withdraw the promise and re-scope Wallet push, door events and notifications **(b)**?
@@ -610,11 +649,40 @@ anti-over-engineering budget."* The scope amendment records the disagreement rat
 The schema spec's own words: *"**This is a conditional package element and this integration does NOT decide
 it.** It is specified here so that a YES ruling is an apply, not a design exercise."*
 
+</details>
+
 ---
 
-## ODR-3 — What gate is the `notify` schema at?
+## ODR-3 — What gate is the `notify` schema at? · **CLOSED — OWNER RULING**
 
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING, corpus option `[C]` GATE P REDUCED — ruled 2026-08-28. Ratification
+row **`OR-5`**.
+
+> **Corpus option letters are authoritative.** `[A]` = Gate P, full platform. `[B]` = Gate L. `[C]` = Gate P
+> REDUCED. The intermediate brief's A/B/C lettering is superseded and must not be used to cite this ruling.
+> Note that `[C]` did not exist in any corpus document before the ODR-2/ODR-3 brief constructed it; the owner
+> has now ruled it, so it is canon.
+
+**The ruling.** Build the minimum notification infrastructure required for venue-native ticketing **before the
+first native ticket is issued**. It MUST support the mandatory native-ticket notification paths that would
+otherwise ship silent: native purchase confirmation · ticket issuance confirmation · refund/reversal ·
+payout / money-control mandatory notices · event cancellation · material event changes · transfer-related
+mandatory notices where Phase 2 requires them · door / credential operational notices where required ·
+promoter commission notification required by the retained `#32` · the push/in-app delivery infrastructure
+those paths need.
+
+**Explicitly NOT built in this reduced gate:** venue announcement composer · announcement abuse-control
+surface · generalized notification campaign system · generalized template/locale platform beyond what
+mandatory transactional notices actually require · `notify.schedule` · announcement scheduling cron · **SMS**
+· speculative marketing notification infrastructure.
+
+**Three pre-authoring blockers must be closed or scheduled first** — `N1` transactional email, `N2` Universal
+Links / one-tap escalation collision, `N3` money-emitter ↔ notification-catalog mapping. Their state is in
+`_governance/ODR3_GATE_P_REDUCED_SCOPE.md`. **The package may not be authored while any is NOT READY.**
+
+<details><summary>Original open-decision text, retained for audit</summary>
+
+**Status (superseded).** OPEN — OWNER.
 
 **The question.** Is `notify` a **Gate-P MVP context**, as ratified row `C7` says, or **Gate L /
 do-not-build**, as all four implementation specs say?
@@ -660,7 +728,7 @@ here** — it is a stop-and-ask. §16.9's matrices are conditional."*
 
 ## ODR-4 — SPLIT by owner ruling 2026-08-28 · **the original single decision is REJECTED AS MISFRAMED**
 
-**Status. SPLIT — the family is NOT closed.** The owner reviewed the four-specialist analysis
+**Status.** SPLIT — the family is NOT closed. The owner reviewed the four-specialist analysis
 (`_governance/ODR4_OWNER_DECISION_ANALYSIS.md`) and rejected the original framing on 2026-08-28. The single
 entry is replaced by four sub-decisions plus one scheduling action, each with its own status. **Do not mark
 the `ODR-4` family CLOSED until every row below is terminal.**
@@ -1067,7 +1135,15 @@ mechanism by which a mandatory money notice becomes silently undeliverable.
 `public.push_tokens`.** A second token table creates a split-brain during migration and C7's eviction is
 satisfied either way. Flagged because C7 literally says 'into their own schema'."*
 
-### ODR-16 — How account deletion behaves for an identity holding custody · `079`
+### ODR-16 — How account deletion behaves for an identity holding custody · **`077`** · **BAND 1**
+
+> **DEADLINE CORRECTED `079` → `077`, and RE-BANDED 2 → 1, on 2026-08-28.** `kernel.identity_ext.identity_id`
+> is `PK, FK→auth.users ON DELETE RESTRICT`, and `identity_ext` is the 1:1 per-identity row — so **every
+> identity with one becomes undeletable the day `077` applies**, two packages before the one this decision was
+> filed against. Under this register's own re-banding rule (*"an entry's band is a property of where its
+> artifact lives, not of what its filing sites claim"*), that makes it **Band 1**: it now gates the same
+> package as `ODR-4`, and `ODR-4b` is additionally BLOCKED BY it. The `079` in the sentence below is left
+> as-written because it is a quotation; read `077`.
 **Status.** OPEN — OWNER.
 **Choice.** **(a) tombstone** — retain the `auth.users` row marked erased, revoke credentials, crypto-shred
 PII, keep an opaque dereferenceable uuid; **(b) refuse while custody is live** — deletion is refused, with a
@@ -1079,7 +1155,7 @@ why **inside the deletion flow, before the confirm step**. *(c)* *"a privacy act
 the person paid for."* **Inadmissible under all three:** reusing the `019` anonymization sentinel as the new
 `current_owner_id` — it would render on the dispute surface as *"Deleted User"* (record `C96`).
 **Silence.** **UNSAFE, and total:** every identity column is `ON DELETE RESTRICT` to `auth.users`, so
-*"**account deletion as a whole stops working for anyone who has ever held a ticket, the day `079` lands.**"*
+*"**account deletion as a whole stops working for anyone who has ever held a ticket, the day `079` lands.**"* — **read `077`; the quoted sentence is two packages optimistic.**
 **Blocks.** Package `079` — not its authoring, its product behaviour, from the day it applies.
 **Filed at.** Record row **`O15`** / `C95` · SCHEMA §5.1 `CUSTODY-DEL-1` + §13.7 `S-19` · CRM §9.2 · DEMOG
 §8.2 · DOOR §7.6.

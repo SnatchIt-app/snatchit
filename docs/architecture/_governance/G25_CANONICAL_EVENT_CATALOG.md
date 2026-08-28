@@ -1,5 +1,25 @@
 # `G-25` — The Canonical Event Catalog (the reconstruction of `C11`'s trim)
 
+> ## OWNER RULINGS RECORDED — 2026-08-28 · ratification row `OR-3`
+>
+> The four events this document left as `OWNER INPUT` have been ruled, and `#31` was ruled with `#32`:
+>
+> | # | event | OWNER RULING |
+> |---|---|---|
+> | `#2` | `ConnectOnboardingCompleted` | **REMOVE** |
+> | `#5` | `TicketTypeOpened` | **REMOVE** |
+> | `#11` | `TicketReserved` | **REMOVE** |
+> | `#31` | `AttributionRecorded` | **KEEP / CARRIER-RELEVANT** |
+> | `#32` | `PromoterCommissionAccrued` | **KEEP / CARRIER-RELEVANT** |
+>
+> `#31` and `#32` are ruled **together**: they occupy the identical carrier position and `#31` is weaker on
+> every axis (class `OFF`, channel `I` only), so ruling `#32` alone was not a position this corpus supported.
+>
+> **Do not reopen these five unless implementation evidence proves the contract impossible.**
+>
+> The rows below are NOT yet rewritten to match — this pass records the rulings only. The carrier consequence
+> is enumerated in `ODR2_BUILD_CONSEQUENCE_MAP.md`.
+
 **Status:** RECONSTRUCTION FROM RATIFIED AUTHORITY. **Not an owner decision, not a design exercise.**
 **Branch:** `docs/g25-event-catalog` off `phase2/consolidation` @ `269e473`.
 **Closes:** `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` `G-25` (`S2`) / §8.3 · owner-decision register `DF-23`.
