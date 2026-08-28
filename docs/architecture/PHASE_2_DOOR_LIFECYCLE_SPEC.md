@@ -817,6 +817,54 @@ Add step (3b), evaluated against the device's applied set `M2 = base_snapshot �
 > **(3b)** the atom is present in `M2`; `M2[atom]` is not `revoke`d; the token's `credential_version` equals
 > `M2[atom].credential_version`; `M2[atom].ticket_state = 'active'`; and `M2[atom].resale_state = 'none'`.
 
+**Where this predicate now lives — `SPEC CORRECTION` (H-2).** These five conjuncts were correct here and
+**two** of them were missing from edge §5.4.3, the section labelled BINDING and the text a scanner SDK
+implements: the integration adopted the older Wallet §11.9 wording *after* this section had corrected it. For
+the interval that stood, **the offline door was strictly more permissive than the online one** — exactly the
+asymmetry the paragraph below says must not exist. The predicate is therefore now stated **once**, in
+**edge §5.4.3**, tagged `OFFLINE-VERIFY-v1` and CI-gated for byte-identity across its mirrors. This section
+keeps the derivation above and the reject map below (both door-owned and normative), and reproduces the
+predicate as a sanctioned mirror:
+
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
+
 With §5.3's theorem this is not merely a defence-in-depth check — it is *exact* for the custody dimension: the
 manifest owner and version are provably current for the whole episode, so `version_stale` offline means the
 same thing it means online. §5.4 states precisely where it is not exact (revocation).
@@ -1018,7 +1066,10 @@ The append-only change log applied on top of the base snapshot (§7.7). Serves W
   default now(); `created_at`.
 - **Unique:** PK; **`UNIQUE(manifest_id, ticket_atom_id, op)`** — a replayed mint or void appends nothing
   (§7.7 idempotency).
-- **Check:** `(op='add') = (credential_version IS NOT NULL)`; `credential_version >= 0`.
+- **Check:** `(op='add') = (credential_version IS NOT NULL)`; `credential_version >= 0`;
+  **`(op='add') ⇒ signing_key_id IS NOT NULL`** (`ADDITIVE`, tightened) — offline check 3c is now **required**
+  (edge §5.4.3), so a supplemented atom with no pinned key would be structurally unadmittable offline. A
+  nullable `signing_key_id` on an `add` delta is a lockout waiting to happen, not a permissive default.
   **`op='add'` requires `credential_version = 0`** — a supplemented atom is by construction newly minted and
   never transferred; anything else would mean a custody move committed after the freeze, which §5.3's theorem
   forbids. This CHECK is the theorem made structural.

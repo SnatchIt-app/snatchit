@@ -176,22 +176,71 @@ certificate as an admission control is wrong.
 
 ### 2.3 Exactly what the scanner verifies, and against what
 
+> **`SPEC CORRECTION` — H-2.** This section previously carried **two** conjuncts at 3b. The door-lifecycle spec
+> §9.2 requires **five**; the missing `resale_state` conjunct let the offline door admit a
+> `paid_pending_transfer` or `refund_hold` atom that the online door refuses. This document's older wording was
+> the copy that edge §5.4.3 adopted, which is how the regression travelled. **The predicate is now stated once,
+> in edge §5.4.3, and reproduced here verbatim as a sanctioned mirror.**
+
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
+
+**The table below is a NON-NORMATIVE presentation of that block.** Where they disagree, the block governs and
+this table is the defect (edge §5.4.3 single-source rule, clause 4).
+
 | # | Check | Input | Reference value | Online | Offline |
 |:-:|---|---|---|:-:|:-:|
 | 1 | `token.key_id` present, `status ≠ revoked`, `now() ∈ [not_before, not_after]` | token | **M1** key manifest (edge §5.4) | ✔ | ✔ |
 | 2 | `Verify(pub_key[token.key_id], claims, sig)` | token | M1 public key | ✔ | ✔ |
 | 3 | `token.session_id == scanning_session_id` | token | device's session binding | ✔ | ✔ |
 | 3a | `now() <= token.exp` ± 2 time-buckets | token | device clock | ✔ | ✔ |
-| **3b** | **`token.credential_version == M2[atom].credential_version`** ∧ **`M2[atom].ticket_state = 'active'`** | token | **M2** door manifest entry | n/a | **✔ — this is the W-3 fix** |
-| **3c** | `token.key_id == M2[atom].signing_key_id` *(recommended, §8.3)* | token | M2 entry | n/a | ✔ |
-| 4 | live authoritative read: `venue.validate_ticket_online(atom, session)` → require `admittable` ∧ returned `credential_version == token.credential_version` | token | **`kernel.tickets`, live (C37)** | **✔** | n/a |
+| **3b** | **all five conjuncts:** atom ∈ M2 ∧ no applied `revoke` delta ∧ `token.credential_version == M2[atom].credential_version` ∧ `M2[atom].ticket_state = 'active'` ∧ **`M2[atom].resale_state = 'none'`** | token | **M2** applied set (entry ⊕ deltas) | n/a | **✔ — this is the W-3 fix** |
+| **3c** | `token.key_id == M2[atom].signing_key_id` — **REQUIRED** (§8.3; promoted from *recommended*, with the online counterpart in row 4) | token | M2 entry | n/a | **✔** |
+| 4 | live authoritative read: `venue.validate_ticket_online(atom, session)` → require `admittable` ∧ returned `credential_version == token.credential_version` ∧ returned `signing_key_id == token.key_id` | token | **`kernel.tickets`, live (C37)** | **✔** | n/a |
 | 5 | first-in-wins | — | local admitted set (offline) / `venue.record_scan` partial unique (online) | ✔ | ✔ |
 | 6 | authoritative admit | — | `venue.record_scan` → `kernel.mark_ticket_scanned` | ✔ | deferred to `venue.reconcile_offline_scans` |
 | — | **the `.pkpass` file, its PKCS#7 signature, `serialNumber`, `authenticationToken`, `passTypeIdentifier`** | — | — | **never** | **never** |
 
-Checks 1–3a are already the frozen edge §5.4 contract. **3b is the door-lifecycle spec's step 3b and is the
-half of the guarantee that does not exist today.** 3c is this document's recommended addition (§8.3). Check 4
-is C37 verbatim and is untouched.
+Checks 1–3a are already the frozen edge §5.4 contract. **3b is the door-lifecycle spec's step 3b — all five
+conjuncts — and is the half of the guarantee that does not exist today.** 3c originated here as a
+recommendation (§8.3) and is now **required**, with an online counterpart in row 4. Check 4 is C37 plus the
+`signing_key_id` comparison that gives 3c its online half.
 
 ### 2.4 Which half of the stale-pass guarantee comes from where
 
@@ -762,9 +811,26 @@ file matching `*.p12`, `*.p8`, `*.cer`, `*.pkpass`, `*.mobileprovision`, or any 
 `-----BEGIN … PRIVATE KEY-----`. **Today the repo is clean on all of these — VERIFIED (§0.1) — so this gate
 can be added green and can only ever go red on a regression.**
 
-### 8.3 Recommended offline strengthening — step 3c
+### 8.3 Offline strengthening — step 3c — **REQUIRED** (`SPEC CORRECTION`)
 
-Add to the offline verify (§2.3): `token.key_id == M2[atom].signing_key_id`. **Recommended, not required.**
+Add to the offline verify (§2.3): `token.key_id == M2[atom].signing_key_id`.
+
+> **`SPEC CORRECTION`.** This was *"recommended, not required"* and had **no online counterpart** — so the
+> claimed blast radius of a key compromise ("one event") was **not achieved**: any key in a door's M1 manifest,
+> in-window and un-revoked, forged admission for any atom of any session that door could scan, and the one
+> check that would have caught it was optional offline and absent online. A control that is optional on one
+> path and missing on the other bounds nothing. **3c is now required, on both paths:**
+>
+> - **Offline:** `token.key_id == M2[atom].signing_key_id` — mandatory conjunct 3c of `OFFLINE-VERIFY-v1`.
+> - **Online:** `venue.validate_ticket_online` MUST return `signing_key_id` and the door MUST compare it to
+>   `token.key_id`, refusing on mismatch. **This is a result-shape change to RPC §9.3 — reported to the RPC
+>   contract owner, not made here.**
+> - **Delta-supplemented atoms** must carry a pinned key: door §10.3a's CHECK is tightened to
+>   `(op='add') ⇒ signing_key_id IS NOT NULL`.
+>
+> With both paths carrying it, a compromised key from another scope is refused at every door for every atom it
+> was not pinned to, and "blast radius = the atoms actually pinned to that key" becomes a fact rather than a
+> claim.
 
 **Why it is sound:** `kernel.tickets.signing_key_id` changes only at issuance and at transfer (edge §5.2: a
 mid-event rotation deliberately does **not** re-pin already-issued credentials, so they keep verifying against
@@ -773,6 +839,11 @@ equals the live pin equals what the current owner's token carries.
 **Assumption, named, in the same sentence as the guarantee:** step 3c is safe **only while
 `kernel.tickets.signing_key_id` is re-pinned exclusively at issuance and transfer.** An implementer who adds a
 bulk re-pin (e.g. a rotation sweep that re-pins live atoms) breaks 3c and must remove it in the same change.
+
+**Now that 3c is mandatory, that assumption gets a guard rather than a sentence** (`SPEC CORRECTION` to §12):
+a pgTAP structural assertion that **no function other than the issuance and transfer RPCs writes
+`kernel.tickets.signing_key_id`** — asserted over `pg_get_functiondef`, the same technique §12 W-F 31 already
+uses. A bulk re-pin then fails CI at the moment it is written, instead of failing at a door.
 
 **What it buys:** an independent staleness signal that does not depend on the version counter, and a defence
 against a compromised key from a *different* scope being used to mint tokens for this session's atoms — check
@@ -947,10 +1018,14 @@ Consequences:
 
 Stated so they are not assumed (they are the door-client half of §4's assumptions A3 and A4):
 
-1. **The door must compare the token's claimed `credential_version` to the reference value it obtains** —
-   online from `venue.validate_ticket_online`'s returned `credential_version`, offline from
-   `M2[atom].credential_version`. Obtaining a reference value and not comparing it is the whole of defect W-3
-   reproduced at the client.
+1. **The door must evaluate every conjunct of `OFFLINE-VERIFY-v1` — all five of 3b, plus 3c** — against the
+   **applied** set `M2 = base_snapshot ⊕ deltas[1 .. last_synced_seq]`, never the base snapshot alone. Online,
+   it must compare both the returned `credential_version` **and** the returned `signing_key_id` to the token's.
+   Obtaining a reference value and not comparing it is the whole of defect W-3 reproduced at the client;
+   **comparing three of five is H-2 reproduced at the client**, and it fails in the direction that admits.
+   The scanner build MUST carry **one failing-case regression test per conjunct** — the case table in edge
+   §5.4.3 is the required minimum set, and it includes the `resale_state ∈ {locked, refund_hold}` cases that
+   the two-conjunct wording admitted.
 2. **Offline, no M2 ⇒ no admit.** Never "verify signature and let them in."
 3. **`version_stale` must render as an unmistakable deny banner** reusing the existing operator copy
    *"This pass is out of date. Ask them to open the Snatch It app."* (door spec §11.2) — **no new vocabulary**.
@@ -1164,19 +1239,52 @@ owner-mismatch spikes, and deny-by-default failure mapping (400/403/409/429/503)
 
 ### 11.9 The defect W-3 fix — `SPEC CORRECTION` to `PHASE_2_EDGE_FUNCTION_SPEC.md` §5.4
 
+> **`SPEC CORRECTION` — H-2.** The two-conjunct wording that stood here **is the text edge §5.4.3 adopted**,
+> after door §9.2 had already corrected the predicate to five. This section is therefore the origin of the
+> regression and is corrected first. **The predicate is now stated once — in edge §5.4.3 — and this section is
+> a sanctioned verbatim mirror, not an independent statement.** Do not edit the block below; edit edge §5.4.3
+> and re-mirror.
+
 Replace §5.4's offline-verify enumeration with:
 
-> **Offline door verify (no server round-trip):** the door verifies a presented token by
-> (1) checking the token's `key_id` is in the cached **key manifest (M1)** and within
-> `[not_before, not_after]` and `status ≠ revoked`; (2) verifying the signature with that **public key**;
-> (3) checking `session_id` matches and `exp` is within the offline skew window (±2 time-buckets, RPC §9.3);
-> **(3b) checking that the token's `credential_version` equals `M2[atom].credential_version` and that
-> `M2[atom].ticket_state = 'active'`, where M2 is the session's open door manifest
-> (`venue.door_manifest_entry`, door-lifecycle spec §10.3) — mismatch ⇒ reject `version_stale`; the atom
-> absent from M2 ⇒ reject (not admissible for this session);** *(3c, recommended)* checking
-> `token.key_id == M2[atom].signing_key_id`; (4) enforcing first-in-wins locally from its offline scan log.
-> **With no M2, the door has no offline authority and must not admit** (door-lifecycle §3.1).
-> **No private key, no network, no DB.**
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
 
 And add to §5.4's manifest paragraph: *"§5.4's manifest is **M1**, the public-key manifest. It is a distinct
 artifact from **M2**, the per-session door/ticket manifest (door-lifecycle §9.1). Both are required for offline
@@ -1188,6 +1296,12 @@ the `credential_version` check (online C37, offline step 3b), not by the TTL; th
 of a verifier that cannot check currency."*
 
 **All three are `SPEC CORRECTION`. None requires a schema change. All three are prerequisites for Wallet.**
+
+**Fourth correction — the single-source rule (H-2).** Edge §5.4.3 now carries the predicate as
+`OFFLINE-VERIFY-v1`, the one normative statement; §2.3 and this section are **verbatim mirrors** under a CI
+byte-identity gate. This is `SPEC CORRECTION` to the CI gate set and is the fix for the *mechanism* — four
+documents each holding an independently editable copy — rather than for the instance. It requires no schema
+change and can be added green today.
 
 ### 11.10 Change-class index
 
@@ -1310,13 +1424,24 @@ Grouped by the property each defends. All DB-level; none require the app.
 40. A rolled-back mint writes **no** audit row and **no** `wallet_pass` row.
 41. `kernel.admin_audit` remains unreadable by `authenticated`.
 
-**Total: 41 assertions.** Groups **W-B** and **W-G** are the regression suites for the non-negotiable;
+**Subtotal: 41 assertions** (plus two added below, W-I). Groups **W-B** and **W-G** are the regression suites for the non-negotiable;
 **W-A**/**W-C** defend the secret-custody rule; **W-F** defends the `verify_jwt=false` surface.
 
 **Client-side structural gate (not pgTAP — named here because §4 depends on it).** The scanner build must carry
-a unit/integration test asserting that the offline verifier compares `token.credential_version` against
-`M2[atom].credential_version` and refuses to admit when M2 is absent. This is the W-3 fix's regression test at
-the only layer where it can be tested, and it is item 11 of §13.
+a unit/integration test **per conjunct of `OFFLINE-VERIFY-v1`** — the case table in edge §5.4.3 is the required
+minimum: 3b.i–v (including both `resale_state` cases, `locked` and `refund_hold`), 3c, applied-set evaluation,
+and refuse-when-M2-absent. This is the W-3 **and H-2** regression test at the only layer where either can be
+tested, and it is item 11 of §13. A test that covers only `credential_version` passes while the door is two
+conjuncts more permissive than the online one — that is precisely how H-2 survived review.
+
+**W-I. Two additions to the pgTAP set (`SPEC CORRECTION`), both structural (2):**
+
+42. **No function other than the issuance and transfer RPCs writes `kernel.tickets.signing_key_id`** — asserted
+    over `pg_get_functiondef`. This is the guard for §8.3's named assumption, now that 3c is mandatory.
+43. `venue.door_manifest_delta` rejects an `op='add'` row with a NULL `signing_key_id` (door §10.3a CHECK) —
+    an atom supplemented into M2 with no pinned key is unadmittable offline under 3c.
+
+**Total: 43 assertions.**
 
 ---
 
@@ -1336,7 +1461,7 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | 8 | **Private object-storage bucket** for built `.pkpass` bytes; no public read; signed URLs only, short TTL | platform_admin | once | pass files enumerable |
 | 9 | **CI gate**: no `*.p12`/`*.p8`/`*.cer`/`*.pkpass`/`*.mobileprovision`/`PRIVATE KEY` in tracked files (§8.2) — **can be added green today (§0.1)** | eng | every build | key material in git |
 | 10 | **Door-lifecycle prerequisites shipped**: M2 tables (`venue.door_manifest`, `venue.door_manifest_entry`) + offline-verify step 3b | eng | **before enabling** | §4's proof is false; W-3 deployed at scale |
-| 11 | **Scanner build implements the version comparison** (§10.2 items 1–2), covered by a client-side regression test, and verified by an end-to-end stale-pass drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored |
+| 11 | **Scanner build implements every conjunct of `OFFLINE-VERIFY-v1`** (§10.2 items 1–2) — all five of 3b, 3c, applied-set evaluation, no-M2-no-admit — covered by **one failing-case regression test per conjunct** (edge §5.4.3's case table), and verified by an end-to-end stale-pass drill **and** a `paid_pending_transfer` drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored, or fetched and only partly compared (H-2) |
 | 12 | **`wallet-pass-webservice` security review sign-off** for its `verify_jwt=false` posture (§6.1) | platform_admin | before enabling | the second unauthenticated endpoint ships unreviewed |
 | 13 | **Rate limits configured and fail-closed** on all four edge functions | eng | before enabling | abuse surface |
 | 14 | **Runbook published**: certificate rotation, certificate compromise, signer compromise, APNs key rotation, per-pass revoke, post-break-glass M2 re-sync (§10.3) | platform ops | before enabling | incident improvisation |
