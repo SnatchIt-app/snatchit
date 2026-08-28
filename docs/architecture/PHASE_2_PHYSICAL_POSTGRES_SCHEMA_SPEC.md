@@ -860,8 +860,9 @@ sentinel (§1.16) to its write set.
   which is a small slice of a large table and is invisible to the two `(payee, status)` indexes.
 - **RLS:** money-custody-RPC-only; payee reads own via scoped RPC.
 - **Write authority:** `kernel.close_settlement` (INSERT `pending`) / native-sale payout path /
-  `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, or
-  INSERT-with-`probation_hold`) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
+  `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, **or —
+  probation arm — `hold_state := 'probation_hold'` + `hold_reason_code` + `held_at` on the EXISTING `pending`
+  row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
   never touch `status`)** / **`kernel.mark_payout_transfer_state` (`status` terminal advance +
   `stripe_transfer_ref`; §1.9.2)**.
 - **Read authority:** payee + org finance + platform.
@@ -923,9 +924,25 @@ and only `is_platform(['platform_risk','platform_admin'])` may release it (O-3, 
 money-spec owner as §13.7 **S-14**, to the RPC owner as **S-15**, to the dashboard owner as **S-21**.
 Ratification **C91**.
 
+**`SPEC CORRECTION` (`R1-3`; ratification `C105`) — *"INSERT-with-`probation_hold`"* was itself unbuildable,
+and it is corrected in the write-authority row above.** `kernel.request_org_payout` **does not INSERT a
+payout** — `kernel.close_settlement` does, at `pending` — and RPC §10.3 had **no INSERT arm and no probation
+arm of any kind**, so `probation_hold` had no writer and Control 4 of §17.7's destination-change set had **no
+storable outcome at all**. Worse, the phrasing named **one** column while the pairing CHECK makes
+`hold_reason_code` and `held_at` mandatory and `held_by` necessarily NULL: **an INSERT naming only
+`hold_state` is rejected by the constraint, so the row as described was un-INSERTable even in principle.**
+The probation arm therefore **declines to advance** the existing `pending` row and writes **all four hold
+columns together**, leaving `status` untouched — RPC §10.3's probation arm, which now states it as a column
+list rather than as *"set the hold"*. **The label is the same, the release path is the same, and the ratified
+behaviour is unchanged.**
+
 **Tests.**
 - `T-SCHEMA-PAYOUT-01`: `hold_state` is `NOT NULL DEFAULT 'none'` and admits exactly the three labels; a
   fourth raises `23514`.
+- **`T-SCHEMA-PAYOUT-08` (`R1-3`): `probation_hold` is REACHABLE** — after a destination change inside the
+  probation window, `request_org_payout` leaves a row with `status='pending'`, `hold_state='probation_hold'`,
+  non-NULL `hold_reason_code`/`held_at` and **NULL `held_by`**. Asserted as a positive existence over all
+  four columns, because the pre-fix defect was a label that no sequence of contracted calls could produce.
 - `T-SCHEMA-PAYOUT-02`: hold a payout in `status='submitted'`, release it, re-read — `status` is
   **still `submitted`**. Asserted as an equality against the pre-hold value, not against a literal, because
   the defect this closes is a release that has to guess.
@@ -1012,20 +1029,111 @@ change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C92*
     is always `refund_void`).
   - `amount_minor` integer — not null; `currency` text not null default `'USD'`.
   - `status` enum(`pending` · `submitted` · `succeeded` · `failed`) — not null default `pending`.
-  - `stripe_refund_ref` text — nullable.
+    **Forward-only across `pending → submitted → succeeded|failed`. Three of the four labels had no writer
+    at `f97f6cd` — see §1.10.1.**
+  - `stripe_refund_ref` text — nullable (the Stripe refund id, `re_…`). **Written by
+    `kernel.mark_refund_state` (§1.10.1) — it had ZERO writers and ZERO readers at `f97f6cd`, one
+    occurrence corpus-wide, this DDL line.**
   - `idempotency_key` text — not null.
   - `created_at`, `updated_at`.
 - **FKs:** `payment_id` on delete restrict.
-- **Unique:** `idempotency_key` unique.
+- **Unique:** `idempotency_key` unique; **`stripe_refund_ref` unique where non-null (ADDED — `MB-2b`-class
+  defect on `kernel.refund`, §1.10.1)** — two `kernel.refund` rows claiming one Stripe refund is a
+  reconciliation that has already gone wrong, and the partial unique makes it unstorable rather than
+  detectable.
 - **Check:** `amount_minor > 0`; invariant **sum(refunds for a payment) ≤ payment.total** enforced in the
-  refund RPC under `FOR UPDATE` on the payment (CDM §1.1), not a table constraint.
+  refund RPC under `FOR UPDATE` on the payment (CDM §1.1), not a table constraint. **ADDED (§1.10.1):
+  `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** — a refund that has left the database for
+  Stripe must carry the id it left under, in every non-initial state including `failed`. **`failed` is
+  included deliberately: a refund that failed AT Stripe has a `re_…`, and one that never reached Stripe
+  never leaves `pending`** (§1.10.1's `create`-error rule).
 - **Immutability:** state-machine MUT; a refund that voids tickets appends `refund_void` to the ownership log
-  via the transfer engine in the same txn (SSCAS member #3).
-- **Index:** PK; unique idempotency_key; index on `payment_id`.
+  via the transfer engine in the same txn (SSCAS member #3). **`status` is forward-only and `stripe_refund_ref`
+  is write-once** — it is the join key to an external ledger; a second value for one refund row silently
+  re-points the reconciliation.
+- **Index:** PK; unique idempotency_key; index on `payment_id`; **the partial unique on `stripe_refund_ref`
+  doubles as the webhook's lookup path** — `charge.refunded` arrives carrying `re_…` and nothing else that
+  identifies our row.
 - **RLS:** money-custody-RPC-only; buyer reads own via scoped RPC.
-- **Write authority:** `kernel.refund_primary_order` / `kernel.admin_refund` / the C25 auto-compensation sweep.
+- **Write authority:** `kernel.refund_primary_order` (INSERT `pending`) / `kernel.admin_refund` (INSERT
+  `pending`) / the C25 auto-compensation sweep (INSERT `pending`) / **`kernel.mark_refund_state`
+  (`status` advance + `stripe_refund_ref`; §1.10.1)**.
 - **Read authority:** buyer + org finance + platform.
 - **SoT/PROJ:** SoT.
+
+#### 1.10.1 DEFECT `R1-1` — three of four `status` labels had no writer, and `stripe_refund_ref` had neither a writer nor a reader
+
+**The defect (CONFIRMED against this spec, RPC §11.4/§20.7.1 and edge §3.5/§4 at `f97f6cd`).** The complete
+writer set of `kernel.refund` was `refund_primary_order`, `admin_refund` and the C25 sweep — **all three
+INSERT, all three at the `pending` DEFAULT.** No function in any document advanced the row. So:
+
+1. **`submitted`, `succeeded` and `failed` were unreachable.** A refund read `pending` forever, however it
+   actually ended at Stripe.
+2. **`MB-1`'s cumulative operand is permanently `pending`-only.** `refund_exposure_minor(payment)` sums
+   `kernel.refund.amount_minor` where `status ∈ {pending, submitted, succeeded}` — a three-label predicate
+   over a one-label column. **It is not wrong today and it is unfalsifiable tomorrow:** the moment a writer
+   is added by someone who did not read §17.1a, refunds start leaving the set and the tier silently loosens.
+   A `failed` refund **must** leave the exposure and a `succeeded` one **must not**, and neither transition
+   existed.
+3. **`stripe_refund_ref` had ZERO writers and ZERO readers** — a corpus-wide grep returns **one** hit, this
+   table's own DDL line. **A refund cannot be reconciled to Stripe at all**: not by a human in a dispute, not
+   by the `charge.refunded` branch, not by a support query. **This is exactly the `stripe_transfer_ref`
+   defect one table over** (§1.9.2), which was found and fixed on `kernel.payout` while the identical column
+   on `kernel.refund` was left.
+
+**Why it survived.** Edge §3.5 says the executor *"records `stripe_refund_id` via a callback param"* and
+edge §4's `charge.refunded` row says *"extend to also reconcile `kernel.refund` state"* — **two placeholders
+naming no function**, which is the `MB-2b` shape verbatim and the construction §8's preamble blames for nine
+of twelve surviving gaps. Two prose promises read like a writer and are not one.
+
+**Disposition — name the writer; do not remove the values** (§3.11.1's rule).
+
+**`kernel.mark_refund_state(p_refund_id, p_new_status, p_stripe_refund_ref, p_failure_code, p_command_key)`**
+— `service_role` only, **no human path**, forward-only, `FOR UPDATE` on the refund row, writes
+`kernel.admin_audit` (`refund.state_sync`, before/after) in the same transaction. **It moves no money and
+touches no `public.*` table:** the Stripe call is the executor's, and this records what the executor or the
+webhook observed. **SEAM-1: it writes `kernel.refund` (`085`) and `kernel.admin_audit` (`077`) →
+`max(077, 085) = 085`.** The edge `077 → 085` is already declared; **no edge is added, and no package is
+added, renamed or renumbered.** Contract: RPC §20.7.7.
+
+**Which label each event actually supports — and unlike the payout case, EVERY one is attributable.** This
+is the asymmetry worth stating, because the payout table's fix had to *decline* two of its four events:
+
+| Transition | Written by | Why it is attributable |
+|---|---|---|
+| → `submitted` | the **`refund-execute` edge**, synchronously, from the object `stripe.refunds.create` returns | the create call **returns** the `re_…`; this is the moment our row first has a join key, and it is written in the same step |
+| → `succeeded` | `stripe-webhook`, `charge.refunded` (and `refund.updated` where the account receives it) | the event payload **carries the `re_…`** the executor already stored, so the join is exact — a refund is not aggregated the way a bank payout is |
+| → `failed` | **both**: a synchronous `stripe.refunds.create` error (no `re_…` ⇒ **the row stays `pending`**, see below), and an asynchronous `refund.failed`/`charge.refund.updated → failed` carrying the `re_…` | Stripe can fail a refund after accepting it; that event is attributable |
+
+**The one case the CHECK forces an implementer to think about, stated rather than left to be discovered.**
+If `stripe.refunds.create` **itself** errors, there is no `re_…` and nothing left our database for Stripe —
+the correct state is **`pending`, unchanged**, and the executor retries under the deterministic
+`refund_${refund_id}` key. `failed` is reserved for a refund Stripe **accepted and then could not settle**.
+Collapsing the two would put a refund that was never attempted and a refund that was attempted and rejected
+into one label, and only one of them may be retried automatically. The `CHECK (status = 'pending' OR
+stripe_refund_ref IS NOT NULL)` makes the wrong version unstorable instead of merely wrong.
+
+**Not a change to the frozen Stripe money core.** Money movement, the deterministic idempotency key and the
+`sum(refunds) ≤ payment.total` guard are untouched; this names which function writes which column on a
+Phase-2 table. Ratification **C101** (the `status` writers) and **C102** (`stripe_refund_ref`).
+
+**Reported, not applied here (§13.7a `S-24`, `S-25`).** The migration plan's `085` row must add
+`kernel.mark_refund_state`, the partial unique and the CHECK; the package registry's `085` entry must name
+the function. Both surfaces are owned elsewhere and the placement is settled here.
+
+**Tests.**
+- `T-SCHEMA-REFUND-01`: every `status` label is reachable — a completeness sweep over the label set
+  asserting that for each of `pending`/`submitted`/`succeeded`/`failed` there is a **named function in the
+  chain whose contract writes it**. **This is the test that fails against the pre-fix corpus**, and it is
+  written as a sweep rather than as four transition tests because the defect was an absence.
+- `T-SCHEMA-REFUND-02`: `status` is forward-only — `succeeded → submitted` raises, and `failed → succeeded`
+  raises.
+- `T-SCHEMA-REFUND-03`: the pairing CHECK — an `UPDATE … SET status='submitted'` that does not also set
+  `stripe_refund_ref` **raises**; and a second, different `stripe_refund_ref` on a row that already has one
+  raises (write-once).
+- `T-SCHEMA-REFUND-04`: **the operand test.** `refund_exposure_minor(payment)` **excludes** a `failed`
+  refund and **includes** a `submitted` one — asserted on the aggregate, not on the row, because the label
+  set exists to feed that aggregate and a writer that ignores §17.1a's predicate is invisible from the row.
 
 ### 1.11 `kernel.reserve` — **EXT (Gate M stub only)**
 - **Purpose:** funding source for instant payout / cancellation refunds / C25 auto-refund (R4/C29). In MVP
@@ -1181,6 +1289,16 @@ Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C93**. 
     platform-scope actions (`config.set_money_key`). **The only hard FK on this table besides the two
     identity columns.**
   - `payload` jsonb-concept — not null. **Server-computed evidence at request time, never authority.**
+  - **`amount_minor` integer — nullable, and nullable for EXACTLY ONE action. ADDED — defect `R-27` /
+    `MB-1`, §1.13.5.** The **parked** term of `refund_exposure_minor(payment)` (RPC §17.1a ≡ MONEY §6.1a):
+    the money this pending request would move if approved. It is a **first-class column and not a `payload`
+    key because it is an AUTHORITY input**, and no authority predicate on this table may read `payload`
+    (`T-RPC-AUTHZ-01` asserts that structurally). Set **server-side at request time** from the amount the
+    requesting function computed, and **pinned exactly as `required_approver_class` and `config_versions`
+    are** — never a parameter, never recomputed at approval time, never derived from `payload`. NULL only
+    for `action = 'config.set_money_key'`, which moves no money. **Without it the cumulative tier operand
+    silently degrades to settled refunds only, and a parked request stops counting against the ceiling —
+    which reopens the split through the approval queue instead of the execute path.**
   - `config_versions` jsonb-concept — not null. The `(key, version)` pair of **every** threshold the
     request was evaluated against (MONEY §7.2 version pinning), so a mid-flight config change cannot
     silently re-tier a parked request and an auditor can reconstruct the tier decision.
@@ -1223,7 +1341,17 @@ Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C93**. 
   CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'),
 
   -- (6) ADDED -- an org-arm request must have an org to scope the approver to.
-  CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)
+  CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL),
+
+  -- (7) ADDED -- defect R-27 / MB-1. The parked term of the cumulative tier operand
+  --     must EXIST on every row that parks money. A nullable amount on a refund or
+  --     payout request is a request that silently contributes ZERO to the ceiling,
+  --     which is the pre-fix behaviour with a column added.
+  CHECK (action = 'config.set_money_key' OR amount_minor IS NOT NULL),
+
+  -- (8) ADDED -- defect R-27 / MB-1. A zero or negative parked amount would lower
+  --     the cumulative operand, i.e. BUY tier headroom by filing a request.
+  CHECK (amount_minor IS NULL OR amount_minor > 0)
   ```
   Plus, unchanged: `action` label set; `state` label set; **`required_approver_class` label set**;
   **`subject_kind` label set**; `expires_at > created_at`; `org_id IS NOT NULL` when
@@ -1344,13 +1472,28 @@ SoD constraint, because the approver genuinely is a different person from the re
 **Fix.** `required_approver_class text NOT NULL CHECK (required_approver_class IN ('org','platform',
 'platform_admin'))`, written by the requesting function from the tier it computed:
 
-| Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) | `required_approver_class` |
+> **THE OPERAND IS `cumulative`, AND IT IS NAMED HERE (ADDED — defect `R-27` / `MB-1`; ratification `C100`).**
+> Every amount row below previously compared **an unnamed quantity** to its threshold. This table is the
+> corpus's **only** statement of which function *writes* `required_approver_class`, and the sentence beneath
+> it says the class is **never recomputed** — so whatever this table compares is decided once, at request
+> time, and is then unappealable for the life of the request. **A table that pins a decision forever and does
+> not say what the decision is taken on gets implemented as whatever the reader assumed**, and the reader's
+> default assumption is the parameter in front of them (`p_amount_minor`), which is precisely the defect
+> `MB-1` closed one document over. The operand is **`cumulative` := `refund_exposure_minor(payment)` +
+> `p_amount_minor`** (RPC §17.1a ≡ MONEY §6.1a) — **identical wording to RPC §17.1's tier table by
+> construction**, since there is no precedence rule between delta specifications (`C75`/`O11`) and two copies
+> of one predicate must be made to agree at the moment they are changed. **No refund threshold anywhere in
+> this corpus is compared against a single call's amount.** The payout rows carry the same shape and their
+> operand is **open** — `MB-1b` / money `D-10` / `O14` — and this table states that rather than implying a
+> settled one.
+
+| Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) — **operand `cumulative`, §1.13.5** | `required_approver_class` |
 |---|---|---|
-| `kernel.request_order_refund` | **any consumed (scanned) atom** + `refund.scanned_atom_policy='platform_review'` | **`platform`** |
-| `kernel.request_order_refund` | org caller, > `refund.org_dual_control_max_minor` | `platform` |
-| `kernel.request_order_refund` | org caller, ≤ `refund.org_dual_control_max_minor` | `org` |
-| `kernel.request_org_payout` | > `payout.dual_control_min_minor` | `org` |
-| `catalog.set_platform_config` (money/`comp` namespace) | always — a **second distinct `platform_admin`** | **`platform_admin`** |
+| `kernel.request_order_refund` | **any consumed (scanned) atom** + `refund.scanned_atom_policy='platform_review'` — **no amount operand; this row takes precedence over both amount rows** | **`platform`** |
+| `kernel.request_order_refund` | org caller, **`cumulative`** > `refund.org_dual_control_max_minor` | `platform` |
+| `kernel.request_order_refund` | org caller, **`cumulative`** ≤ `refund.org_dual_control_max_minor` | `org` |
+| `kernel.request_org_payout` | **the payout's `amount_minor`** > `payout.dual_control_min_minor` — **NOT `cumulative`: the payout aggregate is OPEN** (`MB-1b`, money `D-10`, ratification `C90`/`O14`), because a settlement's period is caller-chosen and no aggregate scoped to one settlement is invariant under decomposition. **Stated as open rather than silently reusing the refund operand** | `org` |
+| `catalog.set_platform_config` (money/`comp` namespace) | always — a **second distinct `platform_admin`**; no amount operand, and `amount_minor` is NULL on this arm (CHECK (7)) | **`platform_admin`** |
 
 **Row order is load-bearing and is stated in this direction deliberately (RPC §17.1).** The consumed-atom
 row **takes precedence over the amount rows**. Read top-to-bottom in the other order, an implementer
@@ -1366,7 +1509,19 @@ time, alongside `config_versions`**, and the approval function **reads** it. It 
 never client-supplied, and it is not derivable from `state`, `action` or `org_id` — which is why it must
 be a column and not a predicate.
 
-**Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits exactly two labels)
+**And "never recomputed" is exactly why the operand had to be named (`C100`).** A class that is recomputed can
+be corrected by a later reader; a class that is **pinned** cannot. The operand this table compares — settled
+here as `cumulative`, §1.13.5 — is therefore the single input to a decision no later code may revisit, and it
+was unstated. **`amount_minor` (§1.13.5) is what makes the pinning honest in the other direction too:** the
+row must store the amount its own class was decided on, or the next request's `cumulative` cannot include it
+and the pinned class of request N is computed from an exposure figure that omits requests 1…N−1.
+
+**Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits **exactly the three labels
+`org` · `platform` · `platform_admin`** — a fourth raises `23514`. **`SPEC CORRECTION` (`C100`): this test
+read *"exactly two labels"*, describing the label set as it stood **before** the `platform_admin` arm was
+added four paragraphs above it. A test written against a superseded label set is a test that fails on the
+correct schema, and the repair an implementer reaches for is to delete the third label — which is the
+`platform_support`-approves-its-own-ceiling hole the third label exists to close.**)
 · `T-SCHEMA-APPR-03` (structural: no function body branches approval authority on `action` or `org_id`
 alone — the branch must read `required_approver_class`) · `T-SCHEMA-APPR-04` (a `platform`/`platform_admin` row is
 **not** approvable by any `org_owner`/`org_finance` of its own `org_id`, asserted positively rather than
@@ -1508,6 +1663,65 @@ owner owns the predicate**, and it is filed in §13.7 as request **S-3**. `error
 **Test.** `T-SCHEMA-APPR-07` (`granted_at` is `NOT NULL` and advances on a role UPDATE, asserted by
 changing a role and re-reading — the column that silently keeps its INSERT value is the failure mode
 that makes the whole control vacuous, and it is invisible without this assertion).
+
+#### 1.13.5 DEFECT `R-27` / `MB-1` — the parked term of the cumulative tier operand had no column, so it read as zero
+
+**The defect (CONFIRMED against this section's own column list at `f97f6cd`).** RPC §17.1a and MONEY §6.1a
+define the refund tier operand as
+
+> `refund_exposure_minor(payment)` := Σ `kernel.refund.amount_minor` for that payment whose
+> `status ∈ {pending, submitted, succeeded}` **+ Σ `kernel.approval_request.amount_minor` of every request
+> against that payment whose `state = 'pending'`**
+
+— and **`kernel.approval_request.amount_minor` appeared nowhere in this section's column list and nowhere in
+migration plan `077`.** The request was filed by `MB-1` in three places (MONEY §12 `ADDITIVE 3b`, MONEY §6.6's
+column table, RPC §20.14 `R-27`) and applied in none of them. **A filing is not a column.**
+
+**What was actually unbuildable.** The parked term is unreadable, so an implementer writes the aggregate with
+the term that exists — settled refunds only. The corpus states the consequence itself: *a parked request stops
+counting against the ceiling — reopening the split through the approval queue instead of the execute path.*
+The attack is worse than the one `MB-1` closed, not equal to it: the first sub-ceiling call **parks**, and
+while it sits `pending` it contributes nothing, so the attacker's own dual-control request buys the headroom
+for the next one. **This is `C57` one column over: a tier decided from a value the row does not store is a
+control that does not run.**
+
+**Why it is a column and not a `payload` key, stated because `payload` already exists and is the cheap
+answer.** `payload` is **evidence**, re-derived and re-compared at approval time and trusted for nothing; the
+cumulative operand is an **authority input**. §1.13's own footgun rule and `T-RPC-AUTHZ-01` (structural: no
+authority predicate reads `payload`) forbid the cheap answer, and a repair that violates the rule the table
+was built around is not a repair.
+
+**Why NULL is admitted for exactly one action, and constrained rather than conventional.** `config.set_money_key`
+moves no money — its subject is a config key, not a payment — so there is no amount to park, and CHECK (5)
+already pins that action to `platform_admin` and `org_id IS NULL`. CHECK (7) makes the nullability
+**action-scoped** rather than general, so a refund or payout request cannot be filed with a NULL amount and
+contribute zero; CHECK (8) forbids a non-positive amount, which would *lower* the operand — filing a request
+to buy tier headroom.
+
+**Additive to a table already scheduled in `077`: no new table, no new RPC, no new package, no dependency
+edge, and `C72`'s pending second amendment is untouched.** No new index is required either: the exposure read
+resolves parked requests to a payment through `venue.order` → `kernel.payment_native`, riding the existing
+`(subject_kind, subject_id)` access path plus `state='pending'`. **The frozen Stripe money core is not
+touched** — this specifies which column an authority predicate reads, not how money moves.
+
+**Writers.** The three functions that already write `required_approver_class` write this in the same
+statement, from the same evaluation: `kernel.request_order_refund` (RPC §17.1), `kernel.request_org_payout`
+(§10.3), and the money arm of `catalog.set_platform_config` (§20.2.1 — NULL there, per CHECK (7)).
+Ratification **C99**.
+
+**Reported, not applied here (§13.7 `S-23`).** `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8's `077` row must add
+`kernel.approval_request.amount_minor` + CHECKs (7) and (8) to its Objects/Constraints text and
+`T-SCHEMA-APPR-08`/`-09` to its Tests row; the placement is settled here and the plan owns the row.
+
+**Tests.**
+- `T-SCHEMA-APPR-08`: a `refund.issue` or `payout.request` row with `amount_minor IS NULL` **raises**
+  `23514`, and a row with `amount_minor <= 0` raises — both halves, because the first is the silent-zero
+  defect and the second is the negative-headroom one.
+- `T-SCHEMA-APPR-09`: **structural** — `amount_minor` is written by the same statement that writes
+  `required_approver_class`, and **no parameter of any requesting function can supply it**, asserted over the
+  signatures. Written structurally because a later "convenience" parameter is exactly how a pinned column
+  becomes a caller-supplied one.
+- `T-RPC-MONEY-21` (RPC §17.1) is the behavioural half and is unchanged: it now has a column to read.
 
 ### 1.14 `kernel.org_money_policy` — **CONDITIONAL (owner decision D-2). NOT IN THE MVP CHAIN.**
 
@@ -2704,15 +2918,88 @@ no control, because a manager will believe the device is dead.
   timestamptz; `status` enum(`open` · `closed` · `paid`) not null default `open`; `gross_minor` integer;
   `fees_minor` integer; `refunds_minor` integer; `net_minor` integer; `currency` text not null default
   `'USD'`; `created_at`, `updated_at`.
+  **The four money columns are `NULL` while `status='open'` and are written exactly once, by
+  `kernel.close_settlement`, in the transaction that moves the header to `closed` — §3.13.1. They had ZERO
+  writers at `f97f6cd`.**
 - **FKs:** on delete restrict.
-- **Check:** `status` enum.
-- **Immutability:** header MUT; lines immutable (§3.14). Close → payout is SSCAS member #4.
+- **Check:** `status` enum. **ADDED (§3.13.1) — the waterfall identity, as a table constraint rather than a
+  convention:**
+  ```sql
+  CHECK (
+    status = 'open'
+    OR (gross_minor IS NOT NULL AND fees_minor IS NOT NULL
+        AND refunds_minor IS NOT NULL AND net_minor IS NOT NULL
+        AND net_minor = gross_minor - fees_minor - refunds_minor)
+  )
+  ```
+  **A closed settlement with a NULL header, or with a `net_minor` that does not equal its own waterfall, is
+  unstorable.** The header is the number the dashboard shows a venue and the number `request_org_payout`
+  disburses against; *"net is derived from the lines"* is only true if something derives it.
+- **Immutability:** header MUT; lines immutable (§3.14). Close → payout is SSCAS member #4. **The four money
+  columns are write-once at close** — a re-close is refused by `status <> 'open'`, so no path re-derives them
+  after a payout has been generated from them.
 - **Index:** PK; index on `(org_id, status)`; index on `event_id`.
 - **RLS:** org-scoped (org finance) + platform; writes RPC-only.
-- **Write authority:** `venue.open_settlement` (INSERT `open`), `kernel.close_settlement` (→ `closed`),
+- **Write authority:** `venue.open_settlement` (INSERT `open`, money columns NULL), **`kernel.close_settlement`
+  (→ `closed`, **and `gross_minor` / `fees_minor` / `refunds_minor` / `net_minor`, rolled up from
+  `venue.settlement_line` under the header's own `FOR UPDATE`** — §3.13.1)**,
   **`venue.on_payout_settled` (→ `paid`; the SEAM-2 hook, stub in `085`, real body in `087` — §1.9.2,
   defect `MB-2b`). `paid` had no writer at `734c814`.**
 - **SoT/PROJ:** SoT (header); net is a derived waterfall from lines.
+
+#### 3.13.1 DEFECT `R1-2` — the settlement header's four money columns had no writer, and the close RPC *returns* one of them
+
+**The defect (CONFIRMED against this spec and RPC §10.2 at `f97f6cd`).** `gross_minor`, `fees_minor`,
+`refunds_minor` and `net_minor` each appear **exactly twice in the entire corpus, and both occurrences are
+DDL** — this section's column list and migration plan §5's column list. **No function writes any of them.**
+Meanwhile:
+
+- `kernel.close_settlement` (RPC §10.2) **returns `net_minor`** in its result — *"`{ status, payout_ids[],
+  net_minor }`"* — while its **Writes** line names only `venue.settlement_line`, `venue.settlement (→
+  `closed`)`, `kernel.payout` and `kernel.admin_audit`. **A function that returns a column it does not write
+  is a function that computed the number and threw it away.**
+- Dashboard §14 reads the **header**, not a re-aggregation of the lines. So the surface a venue is paid
+  against renders four NULLs.
+- `venue.on_payout_settled` moves the same header to `paid` (§1.9.2). **A settlement can therefore reach
+  `paid` with a NULL `net_minor`.**
+
+**This is the `MB-2b` class again — a value the schema defines and no code can reach — but with a twist worth
+naming: the number is not merely unwritten, it is *computed and discarded*.** The close transaction already
+has it; it has to, or it could not have generated the payout. Nothing said to store it.
+
+**Disposition.** `kernel.close_settlement` writes all four in the same transaction that writes the lines and
+the payout, from the lines it just wrote — **one derivation, inside the lock, never re-derived**:
+
+- `gross_minor` — Σ the positive revenue lines of `venue.settlement_line` for this settlement.
+- `fees_minor` — Σ the platform-fee and royalty lines.
+- `refunds_minor` — Σ the refund lines.
+- `net_minor` — `gross_minor − fees_minor − refunds_minor`, **including the rounding residual assigned to
+  the named `settlement_line.is_rounding_bearer` (C31)**, so the header equals the sum of the lines exactly
+  and not to within a cent.
+
+**Why the header and not a view.** The lines are immutable but the *set* is not closed to future readers —
+`settlement_royalty_lines` (`088`) and `settlement_commission_lines` (`090`) are `CREATE OR REPLACE` seams,
+so a view over the lines would return **different numbers before and after `090` replays** for a settlement
+closed at `087`. **A payout must be explicable by the arithmetic that produced it, not by the arithmetic the
+database can do today.** Storing the header is what makes the close reproducible; the CHECK is what stops the
+stored value drifting from its own lines.
+
+**No new object, no new package, no dependency edge, and no change to money movement** — the payout amount is
+still `kernel.payout.amount_minor`, generated by the same close, and the frozen Stripe core is untouched.
+Additive DDL on a table already scheduled in `087`. Ratification **C103**.
+
+**Reported, not applied here (§13.7a `S-26`).** Migration plan §8's `087` row must add the CHECK and
+`T-SCHEMA-SETTLE-03`/`-04`; the dashboard spec (§14) should state that the four header figures are straight
+column reads and are NULL until close, so the panel renders "not yet closed" rather than zeroes — **zero and
+unknown are the same pixel and only one of them is a bug.**
+
+**Tests.**
+- `T-SCHEMA-SETTLE-03`: a `closed` row with any of the four NULL **raises** `23514`, and one whose
+  `net_minor` disagrees with its own waterfall raises. Both halves — the first is the zero-writer defect, the
+  second is the drift it invites.
+- `T-SCHEMA-SETTLE-04`: after `kernel.close_settlement`, the stored header **equals the sum of the settlement
+  lines**, rounding bearer included — asserted against the lines rather than against a literal, because a
+  test against a literal passes on a function that stores a constant.
 
 ### 3.14 `venue.settlement_line` (AO)
 - **Purpose:** immutable money lines, each referencing a canonical cause (order/sale/refund/attribution).
@@ -3618,6 +3905,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 |---|---|---|---|
 | `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
 | `077` | **`kernel.approval_request.required_approver_class`** + the four added CHECKs | **this remediation (C-1a/C-1b)** | — → `077` (§1.13.2/§1.13.3) |
+| `077` | **`kernel.approval_request.amount_minor`** + CHECKs (7) and (8) — the parked term of the cumulative tier operand, filed as `R-27` / MONEY `ADDITIVE 3b` and applied nowhere | RPC §20.14 **`R-27`** (`MB-1`) | — → `077` (§1.13.5) |
 | `077` | **`kernel.org_member.granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
 | `077` | **`kernel.org_member.role` / `kernel.org_invite.role` → the canonical SIX org labels, `text`+`CHECK`; `kernel.platform_role.role` → `text`+`CHECK`** | ROLE_MODEL §3.1/§3.5 — **applied to `venue.staff_role` only; missed here (defect M-5)** | — → `077` (§1.3.1) |
 | `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
@@ -3645,6 +3933,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `084` | *(unchanged — two `ADD CONSTRAINT NOT VALID` + `VALIDATE`, nothing else)* | plan §5 | — |
 | `085` | `kernel.void_ticket_atom` + the `market.on_atom_voided` hook **stub** | RPC §7.3 | — (§13.2 FR-4) |
 | `085` | The nine money-authority RPCs (`request_order_refund`, `approve_refund_request`, `cancel_`/`sweep_expired_refund_requests`, `list_org_payouts`/`_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`) | MONEY §12 | — → `085` |
+| `085` | **`kernel.mark_refund_state`** + the `stripe_refund_ref` partial unique and the `status`/`stripe_refund_ref` pairing CHECK — three of four `status` labels and the Stripe join key had no writer | **this remediation (`R1-1`)** | — → `085` (§1.10.1) |
 | `086` | `venue.door_manifest`, `door_manifest_entry`, `door_manifest_delta` | DOOR §10.1/§10.3/§10.3a | ✓ (task proposal) |
 | `086` | **`venue.door_session`** + the token-bearing `kernel.assert_door_session` signature | **this remediation (H-3)** | — → `086` (§3.10a) |
 | `086` | **`venue.set_scan_device_status`** (`retired` had no writer) | **this remediation** | — → `086` (§3.11.1) |
@@ -3655,7 +3944,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `086` | **`venue.holder_mix_snapshot`, `venue.holder_mix_bucket`, `refresh_holder_mix`, `get_holder_mix`** | DEMOGRAPHICS §10.1 | ▲ spec said `087` (§13.5-A) |
 | `087` | `venue.export_job`, the `crm-exports` bucket, the eight export RPCs, `crm_export_builder` role | CRM §11.1-9…19/23 | ✓ |
 | `087` | **`venue.export_job.artifact_state` / `purge_lease_until` / `purge_attempts`, the `(artifact_state, expires_at)` purge-claim index, and the three purge definers `venue.claim_artifacts_for_purge` / `confirm_artifact_purged` / `reconcile_export_orphans`** — **the physical substrate of the only agent in the design that deletes bytes (`K-3`)** | CRM §11.1-**19a** / §11.4 · RPC §20.14 **`R-7`** | ✓ → `087` (§3.18) |
-| `087` | **`venue.assert_may_request`** — the shared request/download predicate (RPC §17.22, §20; named by `R-7`), contracted and scheduled nowhere | RPC §20.14 **`R-7`** (`AUTHZ-CRM2`) | — → `087` |
+| `087` | **`venue.assert_may_request(p_actor, p_scope_kind, p_scope_id, p_template_id, p_raise boolean DEFAULT true) RETURNS boolean`** — the shared request/download predicate (RPC §17.22). **It got a package number and nothing else: no contract, no return type, no parameter types, no security context, no grant, no RLS EXEC row. Contracted at RPC §20.7.8 and the return shape settled there (`R1-4`/`C108`) — raising by default, `p_raise := false` for `list_export_jobs`'s `downloadable` boolean, ONE body. This row previously read "contracted and scheduled nowhere"; the plan schedules it, and it is now contracted** | RPC §20.14 **`R-7`** (`AUTHZ-CRM2`) · RPC §20.7.8 | — → `087` |
 | `087` | `kernel.close_settlement` + the two hook **stubs** (`settlement_royalty_lines`, `settlement_commission_lines`) | RPC §10.2 | — (§13.2 FR-5) |
 | `087` | `kernel.request_org_payout` (three new preconditions + approval branch) | MONEY §6.7 | — → `087` |
 | `088` | `kernel.transfer_ticket_ownership`, `catalog.cancel_event` | RPC §7.2/§4.4 | — (§13.2 FR-3, FR-2b) |
@@ -4059,6 +4348,41 @@ reason it cannot wait.
 | **S-20** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.1, §7.3, §12.2, §12.3 · `PHASE_2_CRM_EXPORT_SPEC.md` §5/§11 · `PHASE_2_NOTIFICATIONS_SPEC.md` · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §8 · `PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md` | **Name the two sentinels of §1.16 where each is used, and exclude both from every identity projection** — CRM export rows, holder-mix buckets, notification fan-out, attendee lists, demographics, and any *"tickets owned by X"* read. **Two specific corrections:** §7.3's void must write `current_owner_id := SN-VOID` (see `S-18`), and §7.1's *"`actor_identity := auth.uid()` (or system sentinel for **import**/sweep)"* must drop `import` — **a bulk import is initiated by a human operator through the edge, which under EDGE-CALLER-JWT holds that operator's JWT**, so attributing it to `SN-SYSTEM` discards the one fact an import audit exists for. `SN-SYSTEM` is for **scheduler**-initiated writes only | Two `NOT NULL FK→auth.users` columns were satisfied by identities no package created; naming them without saying which surfaces must skip them just moves the defect. **The void sentinel becomes the recorded `current_owner_id` of every voided ticket** — an export or a fan-out that does not exclude it emails a sentinel and counts it as an attendee |
 | **S-22** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §12 (sweeps) · `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Contract `kernel.sweep_expired_ticket_atoms(p_limit)` and give it an EXEC row** — `DEF`, `pg_cron` only, no human path, actor `SN-SYSTEM` (§1.16), re-entrant, appends **no** ownership-log row. And state, in the transfer/list preconditions, that **no path may trust `state <> 'expired'` because the tick was supposed to have run** (§4.3.1's rule, second instance) | `kernel.tickets.state='expired'` is in the enum, its transition is specified in §7.6, and **no function in any package writes it** — the fifth instance of this class. It is presentational rather than load-bearing (`is_transfer_frozen` already freezes every atom of a session at doors, strictly before the session ends), which is *why* it can be folded onto the existing heartbeat instead of getting its own control — but a value the schema defines and no code can reach is still a value an implementer will invent a writer for |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
+
+### 13.7a THE `R1` PASS — what it APPLIED from the table above, and what it now files (2026-08-28)
+
+**This pass owns `PHASE_2_RPC_FUNCTION_CONTRACTS.md`, this file and `PHASE_2_EDGE_FUNCTION_SPEC.md`** (plus
+append-only additions to the ratification record), and edited nothing else. **§13.7's table is a different
+pass's request list and its preamble is left as written.**
+
+**The finding this pass acted on, stated once: the repair landed in the document that hosted the defect, and
+not in the artifact an implementer builds from.** `S-15`…`S-22` and RPC `R-24`/`R-27` were **filed** and never
+**applied** — so each was, at `f97f6cd`, a column that could not be written or a contract that instructed the
+pre-fix behaviour. **A filing is not a column.**
+
+**DISCHARGE LEDGER.**
+
+| Filing | State at `f97f6cd` | Discharged by |
+|---|---|---|
+| **`R-27`** | `kernel.approval_request.amount_minor` in no column list and no package | **APPLIED** — §1.13 columns + CHECKs (7)/(8) + §1.13.5; `C99` |
+| **`S-15`** | `hold_payout`/`release_payout` wrote a `status` value that never existed; `probation_hold` had no writer and its row was un-INSERTable | **APPLIED** — RPC §11.2/§11.3/§17.7 control 2/§10.3 probation arm; §1.9's write-authority row corrected here; `C105` |
+| **`S-16`** | `kernel.mark_payout_transfer_state` + `venue.on_payout_settled` in schema/plan/registry and in **zero** contracts; edge §4 a placeholder | **APPLIED** — RPC §20.7.6, §20.11.5; edge §4 event mapping + §3.4 executor; `C104`. **EXEC rows remain: RPC §20.14 `R-31`** |
+| **`S-17`** | `record_money_denial` specified two mutually exclusive ways in six places | **APPLIED (this pass's two halves)** — RPC §17.9, edge §0.2 EA-2/EA-3(B-ii)/§3.4/§3.5; `C106`. **RLS §3.1 + §11 and MONEY §8.4 remain: `R-28`** |
+| **`S-18`** | `void_ticket_atom` omitted `current_owner_id`; with §1.6.2's trigger **every void aborts at COMMIT** | **APPLIED** — RPC §7.3; `C107` |
+| **`S-22`** | `sweep_expired_ticket_atoms` in schema/plan/registry and in zero contracts and zero EXEC rows | **APPLIED (contract half)** — RPC §12.5; `C109`. **EXEC row remains: `R-30`** |
+| **`S-14`** · **`S-21`** · **`S-19`** · **`S-20`** · **`R-24`** · **`R-25`** · **`R-26`** | filed against MONEY, the dashboard, CRM/demographics/door, RLS | **NOT this pass's files.** Restated as RPC §20.14 `R-32`/`R-33` where still open; the rest stand |
+
+**NEW FILINGS from this pass** — the migration plan and the package registry are owned elsewhere and **no
+package, number or dependency edge is changed by any of them**; each object is placed by SEAM-1 inside an
+already-declared edge.
+
+| # | File | Change | Why it cannot wait |
+|---|---|---|---|
+| **`S-23`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `077` | **Add `kernel.approval_request.amount_minor` and CHECKs (7)/(8)** (§1.13.5) to the Objects/Constraints text, and `T-SCHEMA-APPR-08`/`-09` to Tests | §8 is where a migration author reads what the package contains. **The column is the parked term of the refund tier operand**; while it is absent the tier degrades to settled refunds only and a parked request stops counting against the ceiling |
+| **`S-24`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `085` | **Add `kernel.mark_refund_state`, the partial unique on `kernel.refund.stripe_refund_ref`, and `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** (§1.10.1); Tests gain `T-SCHEMA-REFUND-01`…`-04`. **SEAM-1 `max(077, 085) = 085`; `077 → 085` already declared** | Three of four `status` labels and the Stripe join key had no writer. **A refund could not be reconciled to Stripe at all** — the same defect fixed one table over on `kernel.payout` and left here |
+| **`S-25`** | `PHASE_2_PACKAGE_REGISTRY.md` `085` (prose + JSON) | Name **`kernel.mark_refund_state`** in `085`'s object set, alongside the `MB-2b` entries it already carries | **A function in no registry entry is a function the four-surface parity check cannot see.** The registry's parity is owned elsewhere, which is why this is filed rather than edited |
+| **`S-26`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `087` | **Add the `venue.settlement` waterfall CHECK** (§3.13.1) and `T-SCHEMA-SETTLE-03`/`-04`; and carry `venue.assert_may_request`'s **five**-parameter signature (RPC §20.7.8) | The four header money columns had **zero writers** — two occurrences corpus-wide, both DDL — while `close_settlement` *returns* `net_minor` and the dashboard reads the header. A settlement could reach `paid` with a NULL net |
+| **`S-27`** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14 | The settlement panel's four figures are **straight header reads and are NULL until close** — render *"not yet closed"*, never zeroes. (§14.5's three payout pills are `S-21`, still open) | **Zero and unknown are the same pixel and only one of them is a bug**, and until this pass the four columns had no writer at all |
 
 ---
 

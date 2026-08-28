@@ -1085,15 +1085,44 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   C25 auto-compensation. **Actor:** `service_role`/definer (refund flows / sweep); or platform via
   `force_void_ticket` (§11.1).
 - **Params:** `p_atom_id`,`p_refund_id`(→`kernel.refund`),`p_command_key` — untrusted. **Server-derived:**
-  `cause:='refund_void'`, `cause_ref:=refund_id`, `to_identity:=` void-sentinel/issuer.
+  `cause:='refund_void'`, `cause_ref:=refund_id`, **`to_identity := SN-VOID`** — the seeded platform void
+  sentinel (schema §1.16), **never the issuer and never the anonymization sentinel**, which is a different
+  uuid with a different meaning owned by a `public`-schema deletion path (`T-SCHEMA-SENTINEL-06`).
 - **Preconditions:** atom not already terminal (**re-void across two refunds is blocked by the atom's current
   state under the `FOR UPDATE` lock**, not by log uniqueness). **Locks & order (SSCAS #3):** **Ticket Atom**
   (`FOR UPDATE`) → **Inventory batch** (`sold -= 1`, return) → **Refund/Payment**. **SSCAS:** #3.
   **Idempotency:** `UNIQUE(refund_void, refund_id, atom)` → N-atom void under one refund allowed, replay no-op.
-- **Writes:** `kernel.ticket_ownership_log` (`refund_void`, `credential_version_after` bumped),
-  `kernel.tickets` (→ `voided`, credential bump so any live QR dies), `venue.inventory_batch` (`sold -= 1`),
-  `venue.inventory_movement` (`void_return`), `market.market_sale.terminal_state := 'compensated'` when driven
-  by C25. **Result:** `{ status, atom_id }`. **Forbidden callers:** any client directly.
+- **Writes:** `kernel.ticket_ownership_log` (`refund_void`, `to_identity := SN-VOID`,
+  `credential_version_after` bumped),
+  **`kernel.tickets` (`state → 'voided'`, **`current_owner_id := SN-VOID`** — the platform void sentinel of
+  schema §1.16 — and the credential bump so any live QR dies)**, `venue.inventory_batch` (`sold -= 1`),
+  `venue.inventory_movement` (`void_return`), **`market.on_atom_voided`** (the `market`-owned definer
+  primitive of §20.11.3 — **never a direct `UPDATE market.market_sale`**, per §0.7) when driven by C25.
+  **Result:** `{ status, atom_id }`. **Forbidden callers:** any client directly.
+  - **`SPEC CORRECTION` (`S-18`; schema §1.6.2/§1.16; ratification `C107`) — THE HEAD WRITE OMITTED
+    `current_owner_id`, AND WITH THE NEW DEFERRED CUSTODY TRIGGER THAT MAKES EVERY VOID ABORT AT COMMIT.**
+    The log row already sets `to_identity := ` the void sentinel; the `kernel.tickets` write named only
+    *"→ `voided`, credential bump"*. `kernel.tg_custody_head_is_ledger_tail` (schema §1.6.2, package `079`)
+    is a `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` asserting that the head's `to_identity` and
+    `credential_version_after` equal the greatest-sequence log row's. **This contract bumps
+    `credential_version`, which is one of the clauses the trigger fires on** — so at COMMIT the log tail says
+    `SN-VOID`, the cached head says the buyer, and **the transaction aborts.**
+  - **What that takes down, because this is the void leg of SSCAS #3 and four callers sit on it:**
+    `kernel.refund_primary_order` (§11.4), `kernel.force_void_ticket` (§11.1), `catalog.cancel_event` (§4.4)
+    and the **C25 auto-compensation sweep** (§12.3). **Every refund that voids a ticket fails.**
+  - **`T-SCHEMA-CUSTODY-06` asserts the void COMMITS — a test the contract as written cannot pass.** Which is
+    the useful property of the trigger and the reason the repair is one line: **without** the trigger the
+    same omission is *silent and permanent* — after every refund-void the log says sentinel and the head says
+    the buyer, **on the one surface that exists to settle custody disputes**. The trigger converts a wrong
+    answer into a failed build. **A build that does not run is still a build that does not run.**
+  - **`SN-VOID` becomes the recorded `current_owner_id` of every voided ticket**, which is why `S-20`
+    requires it excluded from every identity projection — CRM export rows, holder-mix buckets, notification
+    fan-out, attendee lists, demographics, and any *"tickets owned by X"* read. **An export that does not
+    exclude it emails a sentinel and counts it as an attendee.**
+  - **`state` is deliberately outside the trigger's clause set** (schema §1.6.2), which is what lets
+    `kernel.sweep_expired_ticket_atoms` (§12.5) move `active → expired` without appending a log row. **That
+    exemption covers `state` and nothing else** — an implementer who reads it as "the trigger is lenient"
+    reintroduces exactly this defect.
 
 ### 7.4 `kernel.lock_ticket(p_atom_id, p_reason, p_command_key)` / `kernel.unlock_ticket(p_atom_id, p_command_key)` — **DB-RPC (definer primitives; SSCAS #6/#7 overlays)**
 - **Purpose:** set `kernel.tickets.resale_state` `none→listed` (list) / `none→locked` (p2p) and back. **These
@@ -1515,12 +1544,34 @@ that door is using. Filed by edge §3.9a request #4.
   `venue.attribution`. **SSCAS:** #4 (+#5). **Idempotency:** `kernel.payout.idempotency_key` deterministic on
   `(cause, cause_ref, payee)` (Phase-0 discipline) → replay recovers the same payout.
 - **Reads:** `venue.settlement(_line)`,`venue.attribution`,`market.market_sale`(royalty). **Writes:**
-  `venue.settlement_line` (AO, incl. rounding bearer), `venue.settlement` (→ `closed`), `kernel.payout`
-  (INSERT `pending`, cause `settlement` + `promoter_commission`), `kernel.admin_audit` (`settlement.close`).
+  `venue.settlement_line` (AO, incl. rounding bearer), **`venue.settlement` (→ `closed`, **AND the four money
+  columns `gross_minor` / `fees_minor` / `refunds_minor` / `net_minor`** — schema §3.13.1, defect `R1-2`)**,
+  `kernel.payout` (INSERT `pending`, cause `settlement` + `promoter_commission`), `kernel.admin_audit`
+  (`settlement.close`).
+  - **`SPEC CORRECTION` (`R1-2`; ratification `C103`) — this contract RETURNED `net_minor` and wrote none of
+    the four.** The Writes line named only *"`venue.settlement` (→ `closed`)"*, and the four columns appeared
+    **exactly twice corpus-wide, both DDL**. So the number the dashboard shows a venue, and the header
+    `venue.on_payout_settled` later moves to `paid`, were **NULL forever** — while this function had the
+    figure in hand, since it could not have generated the payout without it. **A function that returns a
+    column it does not write is a function that computed the number and threw it away.**
+  - **One derivation, inside the header's own `FOR UPDATE`, from the lines this transaction just wrote:**
+    `gross_minor` = Σ the positive revenue lines · `fees_minor` = Σ the platform-fee and royalty lines ·
+    `refunds_minor` = Σ the refund lines · `net_minor` = `gross − fees − refunds`, **including the rounding
+    residual assigned to `settlement_line.is_rounding_bearer` (C31)**, so the header equals the sum of the
+    lines exactly and not to within a cent. Schema §3.13.1's CHECK makes the identity a table constraint;
+    the four are **write-once**, because a re-close is already refused by the `open` precondition.
+  - **Not a view over the lines, and the reason is the seams.** `settlement_royalty_lines` (`088`) and
+    `settlement_commission_lines` (`090`) are `CREATE OR REPLACE` — a view would return **different numbers
+    before and after `090` replays** for a settlement closed at `087`. A payout must be explicable by the
+    arithmetic that produced it.
 - **Emitted facts:** payout cause `settlement`/`promoter_commission`. **Result:** `{ status, payout_ids[],
-  net_minor }`. **EDGE note:** the actual Stripe Connect transfer is executed by the payout edge fn / existing
-  `record_transfer_payout`-style pipeline (§13) — this RPC only records the payout intent. **Forbidden
-  callers:** non-finance; anything touching ticket history from settlement.
+  net_minor }` — **and `net_minor` is now a read-back of the column this function wrote, not a value that
+  exists only in the response.** **EDGE note:** the actual Stripe Connect transfer is executed by the payout
+  edge fn / existing `record_transfer_payout`-style pipeline (§13) — this RPC only records the payout intent.
+  **Forbidden callers:** non-finance; anything touching ticket history from settlement.
+- **Tests.** `T-SCHEMA-SETTLE-03` / `-04` (schema §3.13.1) are this contract's assertions: a `closed` row
+  with any of the four NULL raises, and the stored header equals the sum of its own lines — asserted against
+  the lines, never against a literal, because a literal passes on a function that stores a constant.
 
 ### 10.3 `kernel.request_org_payout(p_org_id, p_settlement_id, p_command_key)` — **EDGE-FRONTED (DB-RPC records intent)**
 - **Purpose:** org finance requests disbursement of a closed settlement's payout to the org's Stripe Connect
@@ -1570,12 +1621,61 @@ that door is using. Filed by edge §3.9a request #4.
   on the payout arm** (§17.2), because it holds no payout authority anywhere else and must not acquire one
   through the generic approval object. `subject_kind='settlement'`, `subject_id := p_settlement_id`, resolved
   under the settlement's lock per **`APPR-SUBJ-1`** (§17.0a).
-- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback — direct arm),
-  `kernel.approval_request` (INSERT `pending` with `required_approver_class` — parked arm),
-  `kernel.admin_audit` (`payout.request`). **Result:** `{ status ∈ {submitted, pending_approval,
-  pending_platform_review, noop_replay}, payout_id, request_id?, required_approver_class? }`. **Failure:**
-  `precondition_failed` (destination locked / not closed) · `sod_violation` · `step_up_required` ·
-  **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves money itself.
+- **DESTINATION PROBATION — THE THIRD ARM, AND THE ONE THAT HAD NO WRITER (`S-15`; schema §1.9.1; ratification
+  `C105`).** §17.7 control 2 requires that **the first payout to a destination changed within
+  `payout.destination_probation_days` does not disburse until `platform_risk` releases it.** Schema §1.9's
+  write-authority row attributed that to this function as *"INSERT-with-`probation_hold`"* — and **this
+  contract had no INSERT arm and no probation arm at all**, so the label had no writer, `probation_hold` was
+  unreachable, and Control 4 of the destination-change set had **no storable outcome**. Corrected here:
+
+  > **This function does not INSERT a payout — `kernel.close_settlement` does (§10.2, at `pending`).** The
+  > probation arm therefore **declines to advance** the existing `pending` row and marks it, rather than
+  > creating anything:
+  >
+  > ```text
+  > IF destination changed within config('payout.destination_probation_days')
+  >    AND no payout to this destination has yet reached 'paid'   -- "the FIRST payout"
+  > THEN  status      stays 'pending'          -- NOT advanced to 'submitted'
+  >       hold_state       := 'probation_hold'
+  >       hold_reason_code := 'destination_probation'
+  >       held_at          := now()
+  >       held_by          := NULL              -- no human initiated it; the pairing CHECK requires NULL
+  > ```
+  >
+  > **All four columns or none — the pairing CHECK makes a partial write unstorable** (`hold_state='none'`
+  > **iff** `hold_reason_code IS NULL AND held_at IS NULL`; `held_by IS NULL` whenever
+  > `hold_state <> 'held'`). That is why the arm is spelled out as a column list rather than as *"set the
+  > hold"*: the contract as filed named one column of four, and a row that names one is rejected by the
+  > constraint.
+  > **`held_by` is NULL and that is a queryable fact, not an omission** — it is what separates a probation
+  > hold from a risk hold on the dashboard's three pills without inferring from the absence of an audit row.
+  > **Released by `kernel.release_payout` (§11.3) and by nothing else**, under
+  > `is_platform(['platform_risk','platform_admin'])` (O-3); release restores nothing, because `status` was
+  > never overwritten — it is still the `pending` this arm declined to advance.
+  > **`status='held'` NEVER EXISTED** (schema §1.9.1): it is not in the enum, not in plan §5's CHECK, and
+  > adding it would be lossy, since `release_payout` would then have to guess between "not yet sent to
+  > Stripe" and "already sent" — the difference between paying once and paying twice.
+  > **The ratified behaviour is unchanged:** money does not leave, and only `platform_risk`/`platform_admin`
+  > release it.
+
+- **Writes:** `kernel.payout` — **direct arm** (→ `submitted`; `stripe_transfer_ref` is written later by
+  `kernel.mark_payout_transfer_state`, §20.7.6, **not by a callback param on this function**), **probation
+  arm** (`hold_state := 'probation_hold'` + `hold_reason_code` + `held_at`, `held_by := NULL`, **`status`
+  untouched**), `kernel.approval_request` (INSERT `pending` with `required_approver_class` **and
+  `amount_minor`**, schema §1.13.5 — parked arm), `kernel.admin_audit` (`payout.request`, and
+  `payout.probation_hold` on the probation arm). **Result:** `{ status ∈ {submitted, probation_held,
+  pending_approval, pending_platform_review, noop_replay}, payout_id, request_id?,
+  required_approver_class? }` — **`probation_held` is returned distinctly**, because a surface that reports
+  `submitted` for a payout that did not submit is the failure §14.5's three-pill rule exists to prevent.
+  **Failure:** `precondition_failed` (destination locked / not closed) · `sod_violation` ·
+  `step_up_required` · **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves
+  money itself.
+- **Tests (probation arm).** **`T-RPC-MONEY-31`** — a destination changed inside the probation window leaves
+  `status='pending'`, sets exactly the three hold columns with `held_by IS NULL`, and returns
+  `probation_held`; **asserted on `status` as an equality against `pending`, not on the absence of a
+  transfer**, because the defect this closes is a contract that had nowhere to record the outcome.
+  **`T-RPC-MONEY-32`** — `release_payout` on that row restores `hold_state='none'` and leaves `status`
+  **still `pending`**, and a second `request_org_payout` then advances it normally.
 
 > **`MB-1b` — THE PAYOUT TIER HAS THE SAME SPLITTING SHAPE AS `MB-1`, AND ITS AGGREGATE SUBJECT IS MINTED BY
 > THE CALLER. OPEN — this pass does not close it, and it is not a defect in this contract's text but in the
@@ -1624,15 +1724,40 @@ that door is using. Filed by edge §3.9a request #4.
 - **Purpose:** freeze a pending payout (risk/dispute) — extends the frozen `apply_payout_hold` discipline onto
   `kernel.payout`. **Role:** `is_platform([platform_risk, platform_admin])`. **Preconditions:** payout
   `pending`/`submitted`. **Locks:** payout row `FOR UPDATE`. **SSCAS:** single-aggregate (Payout).
-- **Writes:** `kernel.payout` (→ `held`-equivalent status), `kernel.admin_audit` (`payout.hold`). **Result:**
-  `{ status }`. **Idempotency:** terminal/held state + command key. **Forbidden callers:** non-platform-risk.
+- **Writes:** **`kernel.payout` — `hold_state := 'held'`, `hold_reason_code := p_reason_code`,
+  `held_by := auth.uid()` (server-derived, C35), `held_at := now()`. `status` is NOT written** (schema §1.9.1,
+  `S-15`; ratification `C105`). `kernel.admin_audit` (`payout.hold`). **Result:** `{ status, hold_state }`.
+  **Idempotency:** already-held + command key. **Forbidden callers:** non-platform-risk.
+  - **`SPEC CORRECTION` — this line read *"→ `held`-equivalent status"*, which is a contract writing a value
+    that does not exist.** `kernel.payout.status` is `pending · submitted · paid · failed · reversed`;
+    `held` is not a member, is not in plan §5's CHECK, and **a corpus-wide grep for `held` returns only
+    `venue.inventory_batch.held`, an integer capacity counter** — the wrong-column trap in its purest form.
+    The hold lives on the **orthogonal** `hold_state` column, which reproduces the shape of the frozen
+    Phase-0 discipline this function is contracted to extend (`public.transfers.payout_review_status` +
+    `payout_hold_until`, migration `039`). **Extending a discipline means reproducing its shape, not
+    renaming its outcome.**
+  - **All four columns move together or the pairing CHECK rejects the row** (`hold_state='none'` **iff**
+    `hold_reason_code IS NULL AND held_at IS NULL`).
 
 ### 11.3 `kernel.release_payout(p_payout_id, p_command_key)` — **EDGE-FRONTED (DB-RPC advances state)**
 - **Purpose:** release a held payout → resume disbursement (extends `admin_release_held_payout`). **Role:**
   `is_platform([platform_risk, platform_admin])`; dual-control seam. **DB-RPC** advances `kernel.payout` state
   and writes audit; the **edge fn re-submits the Stripe transfer**. **Locks:** payout `FOR UPDATE`. **SSCAS:**
-  Payout single-aggregate. **Writes:** `kernel.payout` (→ `pending`/`submitted`), `kernel.admin_audit`
-  (`payout.release`). **Result:** `{ status }`. **Forbidden callers:** non-platform-risk.
+  Payout single-aggregate. **Writes:** **`kernel.payout` — `hold_state := 'none'`, `hold_reason_code := NULL`,
+  `held_by := NULL`, `held_at := NULL`. `status` is NOT written and is not read to decide anything** (schema
+  §1.9.1, `S-15`; ratification `C105`). `kernel.admin_audit` (`payout.release`). **Result:**
+  `{ status, hold_state }`. **Forbidden callers:** non-platform-risk.
+  - **`SPEC CORRECTION` — this line read *"→ `pending`/`submitted`"*, and as written it was UNIMPLEMENTABLE
+    under any single-column repair.** It had to restore **which** of the two the row was, after a `held`
+    status had overwritten exactly that fact — and the two are *"not yet submitted to Stripe"* and *"already
+    submitted to Stripe"*, **the difference between sending money once and sending it twice.** With
+    `hold_state` orthogonal there is nothing to restore: `status` was never touched, so the row resumes the
+    lifecycle position it already held. **`T-SCHEMA-PAYOUT-02` asserts this as an equality against the
+    pre-hold value rather than against a literal**, because the defect this closes is a release that has to
+    guess.
+  - **It releases `probation_hold` as well as `held`** — one release path for both labels, under
+    `is_platform(['platform_risk','platform_admin'])` (O-3). A probation hold released by anyone else, or by
+    the passage of time, would make §17.7 control 2 a delay rather than a review.
 
 ### 11.4 `kernel.refund_primary_order(p_order_id, p_amount_minor, p_reason_code, p_command_key)` — **EDGE-FRONTED (DB-RPC + Stripe refund)**
 - **Purpose:** refund a primary order (full/partial) and **void the covered atoms** (SSCAS #3). The **Stripe
@@ -1834,6 +1959,66 @@ owns that row (§12.3). The drain **moves no custody, appends no ownership-log r
 
 The RN client reads the same helper (owner-scoped boolean) to disable Transfer/Sell; **the edge layer never
 independently decides freeze.**
+
+### 12.5 `kernel.sweep_expired_ticket_atoms(p_limit int)` — **DB-RPC (definer batch)** · `EXEC: DEF` · `NEW RPC` (schema §1.5.1, `MN-4`; filed as §13.7 `S-22`)
+
+> **`kernel.tickets.state='expired'` is in the CHECK, its transition is specified in §7.6, and no function in
+> any of the sixteen packages wrote it.** This sweep exists in the schema spec, the migration plan and the
+> package registry (`079`) **and in zero RPC contracts and zero RLS EXEC rows.** *"Contract it and give it an
+> EXEC row"* is `S-22` verbatim; this is that contract. Ratification **C109**.
+
+- **Purpose.** Advance `active → expired` for atoms whose `catalog.event_session` ended more than
+  `config('ticket.expiry_grace')` ago. **Actor:** `service_role`/`pg_cron` only — **no human path**; the
+  actor of record is the **`SN-SYSTEM` sentinel** (schema §1.16), which is a scheduler identity and never a
+  human. `REVOKE EXECUTE FROM anon, authenticated`.
+- **HOW LOAD-BEARING IT IS, STATED FIRST, BECAUSE THAT IS WHAT DECIDES THE REST OF THE CONTRACT.** One
+  expects the security consequence to be *a ticket to a past show can still be listed or transferred*. **It
+  cannot.** `kernel.is_transfer_frozen` freezes **every atom of a session** once
+  `now() >= catalog.effective_freeze_at(session)` (`079`), and that boundary is at **doors** — strictly
+  before the session ends. **The load-bearing guard is already arithmetic and already stronger than the
+  label.** `expired` is **presentational**: it is what makes *My Tickets* render a past ticket as spent
+  rather than live, and what keeps a venue's atom counts honest after the night. **Same posture as
+  `venue.sweep_expired_door_sessions` (§9.8) and `kernel.sweep_expired_door_overrides` (§17.11); the opposite
+  of `venue.sweep_expired_inventory_holds` (§20.3.3) and `kernel.sweep_expired_refund_requests` (§17.4),
+  which return a stored counter and release a custody hold.**
+- **THE STANDING RULE THIS INHERITS — §4.3.1's, second instance, and it is binding on every OTHER contract,
+  not on this one.** **No path may trust `state <> 'expired'` because the tick was supposed to have run.**
+  A transfer, listing or admission precondition that reads `state <> 'expired'` as an expiry check is
+  **wrong**, however green it looks: it is a test of whether a cron ran. Every such precondition must test
+  the **arithmetic** (`is_transfer_frozen` / `effective_freeze_at`). **Nothing does today and nothing may
+  start** — which is exactly why this sweep can ride an existing heartbeat instead of getting its own
+  control.
+- **Preconditions.** `state = 'active'` **AND** the atom's session ended by more than the grace window.
+  **`scanned`, `voided` and `expired` atoms are left alone — they are terminal (§7.6)** and re-writing a
+  terminal state is how a sweep becomes a second writer of somebody else's column.
+- **Locks & order.** Bounded batch of `p_limit`, `FOR UPDATE SKIP LOCKED` on `kernel.tickets` — **rank 5**,
+  the only rank taken. **SSCAS:** `n/a` — **a bounded batch of one**, the construction `catalog.cancel_event`
+  and `venue.open_door_manifest` already use. **No member added; C28's closed fifteen stands.**
+- **Writes.** `kernel.tickets.state → 'expired'`, **and nothing else. It appends NO
+  `kernel.ticket_ownership_log` row and bumps NO `credential_version`** — an expiry is a **lifecycle fact,
+  not a custody move**, and the atom's owner does not change. **`kernel.tg_custody_head_is_ledger_tail`
+  (schema §1.6.2) therefore does not fire on it, which is precisely why `state` was kept outside that
+  trigger's clause set.** A sweep routed through the transfer engine would be the wrong construction **and**
+  would trip the trigger at COMMIT. **No audit row** — an expiry is arithmetic reaching a label, not a
+  privileged mutation (same posture as §9.8). **No DELETE, ever.**
+- **Result.** `{ swept_count }`. **Idempotency / retry.** Re-entrant by construction: a second run in the
+  same window is a no-op, and `SKIP LOCKED` makes concurrent runs safe. **It must not raise on an empty
+  batch.**
+- **Scheduling.** The **2-minute `pg_cron` heartbeat that already runs** — the one `081`'s
+  `venue.sweep_expired_inventory_holds` uses. **No new cron entry**, and it is therefore **not blocked on the
+  `COND-A` outbox ruling.** **SEAM-1: it reads `catalog.event_session` (`078`) and writes `kernel.tickets`
+  (`079`) → `max(078, 079) = 079`.** `078 → 079` is already declared; **no edge, no package change.**
+- **Forbidden.** Every client and every human role. **No caller may treat a non-`expired` state as evidence
+  the session is live.**
+- **Tests.** `T-SCHEMA-EXPIRY-01` (schema §1.5.1 — an `active` atom of an ended session becomes `expired`,
+  **and no ownership-log row is appended and `credential_version` is unchanged**; both halves, because the
+  first passes even if the sweep went through the transfer engine) · **`T-RPC-SWEEP-01`** (structural: **no
+  transfer, listing or admission precondition in the corpus reads `state <> 'expired'` as an expiry test** —
+  asserted over the function set, because a single behavioural test cannot see a guard that is merely
+  redundant today and load-bearing after someone deletes the arithmetic one).
+- **Reported, not applied here (§20.14 `R-30`).** `PHASE_2_RLS_PERMISSION_SPEC.md` §11 needs an **EXEC row**
+  for this function — `DEF`, `pg_cron`/`service_role` only, `REVOKE EXECUTE FROM anon, authenticated`. It has
+  none, which is half of what `S-22` asked for.
 
 ---
 
@@ -2514,7 +2699,7 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   | # | Control | Stops | Cost |
   |---|---|---|---|
   | 1 | **SoD-1 identity split** — records `payout_destination_set_by`, and `request_org_payout` **rejects when `auth.uid() = payout_destination_set_by`, permanently for that destination**, not merely during the cool-down | the named fraud primitive, **structurally** | a single-principal org must escalate |
-  | 2 | **Destination probation** — the **first** payout to a destination changed within `payout.destination_probation_days` is created `held`, releasable only by `is_platform(['platform_risk','platform_admin'])` via the existing `release_payout`. Reuses machinery that already exists; needs no new column | money leaving to a fresh destination unreviewed | a support touch on the first payout |
+  | 2 | **Destination probation** — the **first** payout to a destination changed within `payout.destination_probation_days` is **created `pending` by `close_settlement` and NOT advanced to `submitted` by `request_org_payout`, carrying `hold_state='probation_hold'` + `hold_reason_code` + `held_at`, `held_by` NULL** (§10.3's probation arm), releasable only by `is_platform(['platform_risk','platform_admin'])` via the existing `release_payout`. **`SPEC CORRECTION` (`S-15`/`S-14`; ratification `C105`): this cell read *"is created `held` … needs no new column"*. `kernel.payout.status='held'` NEVER EXISTED** — it is absent from the enum and from plan §5's CHECK — **and *"needs no new column"* was false under every candidate repair**, since even adding a CHECK label is DDL. It is **four additive columns on `kernel.payout`** (`hold_state`, `hold_reason_code`, `held_by`, `held_at`; schema §1.9/§1.9.1), no new table, no new RPC, no new package, no edge. **The ratified behaviour is unchanged: money does not leave, and only `platform_risk`/`platform_admin` release it (O-3)** | money leaving to a fresh destination unreviewed | a support touch on the first payout |
   | 3 | **Out-of-band notification** — on change, notify **every** `org_owner` and `org_finance` **including the actor**, by push *and* email, immediately, with a one-tap *"I did not authorize this"* that calls `hold_payout` on every pending payout for the org | a silent takeover | none |
   | 4 | **Step-up freshness** — `auth.jwt()->>'aal'` vs `authn.money_action_required_aal`, and the newest `amr` timestamp vs `authn.money_action_max_age_seconds` | session-riding, stolen refresh tokens | a re-auth flow + retry |
   | 5 | **Denial audit** — `kernel.record_money_denial` (§17.9) | *nothing on its own* — it is **how you find out** | one extra edge call on failure |
@@ -2592,13 +2777,62 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   back and takes the audit row with it. **Postgres has no autonomous transactions.**
 - **Why it matters:** repeated failed attempts to change a payout destination or fire a payout are the
   **single highest-value fraud signal in the system, and today they leave no trace at all.**
-- **Actor.** `service_role` only; `REVOKE EXECUTE FROM anon, authenticated, public`. **No human path.**
-  Called by the edge (`refund-execute`, `payout-execute`) **in a separate transaction** after catching
-  `insufficient_privilege` / `sod_violation` / `step_up_required` from a money RPC.
-- **Locks:** none. **SSCAS:** n/a. **Writes:** `kernel.admin_audit` (`<action>.denied`). **Idempotency:**
-  none required — a denial is an event, and duplicates are informative rather than harmful.
+- **Actor — `SPEC CORRECTION` (`S-17`; schema §1.12.1; ratification `C106`). THE PREVIOUS TEXT MADE THIS
+  FUNCTION FAIL ON ITS FIRST CALL, IN PRODUCTION, ON THE FRAUD PATH.** It read *"`service_role` only;
+  `REVOKE EXECUTE FROM anon, authenticated, public`. **No human path.**"* — and this function's **entire
+  purpose is to name the human who was just refused.** On a `service_role` connection `auth.uid()` is NULL,
+  `kernel.admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and the FK forbids an invented sentinel:
+  **the INSERT cannot satisfy its own constraint.** The corrected rule, which is the schema's design:
+
+  > **`SECURITY DEFINER`, `EXECUTE` to `authenticated` ONLY — never `anon`, never `service_role` — and it is
+  > BOUND BY EDGE-CALLER-JWT** (§0.1a) like every other money RPC. **`actor_identity := auth.uid()`,
+  > server-derived. It RAISES when `auth.uid()` IS NULL**, so a service-role invocation fails loudly instead
+  > of writing a wrong row — the same fail-closed shape `T-RLS-EDGE-01` asserts for every human-predicate
+  > RPC. **The signature keeps its four parameters and NO actor parameter is added**, so this is not the
+  > `p_user_id`-trust pattern (C35/`S-6`) in a new place.
+
+  **Definer because `kernel.admin_audit` is audit-only/deny-all.** Not granted to `anon` because a denial
+  before authentication has no principal to record and belongs to rate-limiting, not to audit.
+  **Who knows the principal at the moment of denial?** Not the database — that transaction was rolled back.
+  Not the scheduler. **The edge, and it holds the principal as a verified JWT** — the *same* client it built
+  for the call that was just denied. The denial log is that call's second transaction on that same client.
+  **This EXTENDS EDGE-CALLER-JWT's scope by one function; it weakens nothing.**
+- **The pollution vector, named because granting a write to `authenticated` deserves the argument.** A
+  malicious authenticated caller can now insert denial rows. It **cannot forge `auth.uid()`**, so every row
+  it writes is **about itself**: it cannot frame another principal and it cannot suppress a row (the edge
+  writes those). It can only make its own denial count look worse and grow the table. Bounded by three
+  things that all already exist: `p_action` is validated against a **closed allow-list of money `*.denied`
+  names**; `(subject_kind, subject_id)` is validated against the same pairing rule `APPR-SUBJ-1` imposes
+  (§17.0a); and the call is **rate-limited per actor** through the production
+  `public.check_rate_limit(p_user_id, p_action, p_max, p_window_seconds)` (migration `005`, applied).
+- **Rejected repairs** (schema §1.12.1 carries the full table): a `p_actor_identity_id` parameter is the
+  C35-forbidden pattern with nothing to validate it against; the `SN-SYSTEM` sentinel **destroys the only
+  fact the row exists to carry** (*"how many denials"* is not *"by whom"*); making `actor_identity` nullable
+  weakens a `NOT NULL` on the audit backbone for one writer, and the nullable rows would be the ones that
+  matter most.
+- **Why it is NOT in the definer-only exclusion list.** RLS §3.1 lists it among RPCs with *"no human actor
+  by construction"*. **The genuine members of that list are the cron sweeps** — `sweep_expired_refund_requests`,
+  `market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales`,
+  `kernel.sweep_expired_door_overrides`, `catalog.sweep_implicit_door_freezes`,
+  `kernel.sweep_expired_ticket_atoms` (§12.5) — and they are served by the `SN-SYSTEM` sentinel of schema
+  §1.16. **A denial has a human actor. It is the only reason to write the row.**
+- **Locks:** none. **SSCAS:** n/a. **Writes:** `kernel.admin_audit` (`<action>.denied`, `actor_identity :=
+  auth.uid()`). **Idempotency:** none required — a denial is an event, and duplicates are informative rather
+  than harmful.
 - **Contains no payload from the failed call** beyond the four parameters, so a denial can never become a
   side channel for the data the denied call was refused.
+- **Tests.** `T-SCHEMA-AUDIT-01` (invoked on a **`service_role`** connection it **RAISES** and writes no row
+  — asserted on the service-role path deliberately, because that is how it was contracted and it is the call
+  that cannot satisfy `actor_identity NOT NULL`) · `T-SCHEMA-AUDIT-02` (on the caller's own JWT it writes
+  exactly one row whose `actor_identity` **equals `auth.uid()`**, and **no parameter can change that value**
+  — asserted structurally over the signature, because a later "convenience" parameter is exactly how this
+  returns) · `T-SCHEMA-AUDIT-03` (`p_action` outside the closed allow-list raises; `anon` holds no
+  `EXECUTE`).
+- **Reported, not applied here (§20.14 `R-28`).** `PHASE_2_RLS_PERMISSION_SPEC.md` must remove this function
+  from §3.1's definer-only exclusion list and change its §11 EXEC row from `DEF` to *`authenticated`,
+  EDGE-CALLER-JWT-bound*; `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 6 must drop *"no human path"*.
+  **Five documents said `service_role`-only in six places and the schema says the opposite; it cannot both
+  raise on a service-role connection and be callable only on one.**
 
 ### 17.10 `venue.open_door_manifest(p_session_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
 
@@ -3167,7 +3401,9 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   **Locks:** none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
   - **The authorization is `venue.assert_may_request(actor, scope_kind, scope_id, template_id)` — one
     function, shared verbatim with `authorize_export_download`** (`AUTHZ-CRM2`(2)). Two functions evaluating
-    two copies of one allow-list is how the download check lost the template.
+    two copies of one allow-list is how the download check lost the template. **Contracted at §20.7.8
+    (`R1-4`/`C108`) — it had a package number and nothing else until then. Called in RAISING mode here (the
+    default); `p_raise := false` is used by `list_export_jobs` alone.**
   - `INFERENCE:` **freezing `org_id` here rather than resolving it at build time is not tidiness.**
     Authorization resolved the scope's org at request; a build-time re-resolution could read a **different**
     org for the same venue, because **`catalog.venue.org_id` is mutable while `catalog.event.org_id` is
@@ -3300,6 +3536,10 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   renders a download control the RPC will refuse. **The list itself stays role-scoped rather than
   template-scoped**: seeing *that* an operations export happened is export-history transparency and is
   deliberate; downloading it is not.
+  - **`downloadable := venue.assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id,
+    p_raise := false)`** — §20.7.8. **This is the ONLY caller in the corpus that suppresses the raise**, and
+    `T-RPC-CRM-06` asserts that structurally. It is safe here and only here because this function returns
+    **job metadata and nothing else**: a `false` renders a disabled control, it never gates a byte.
 - **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. **MARKS** artifacts past
   `expires_at` as `artifact_state='delete_pending'` and moves `ready → expired`; `expired → purged` once
   `artifact_state='deleted'` and `purge_after` has passed; one audit row per transition. **It deletes no
@@ -3957,6 +4197,31 @@ grant class this document already fixes, so each row can be written without re-d
   scan_device, signing_key, promoter, platform_config, guest_list) outside the six ranks — the same
   classification §17.23 uses for the Wallet objects, and for the same reason: an object outside the order
   creates no ordering obligation, so no member's proof changes.
+
+### 20.0e ADDENDUM — objects that entered sets A/B AFTER §20.0b was computed (`R1`, 2026-08-28)
+
+**§20.0b's *"49 functions"* is NOT amended, and that is deliberate.** It is the output of the differencing
+run described in §20.0a against the corpus as it stood at that pass; **editing the number would make the
+method unreproducible** while leaving the run undocumented. **Six objects have since been scheduled into
+packages by later passes and were uncontracted here** — the same Δ1 shape, arriving after the difference was
+taken. They are listed rather than folded in, so a re-run of §20.0a's method reproduces `49` and this
+addendum accounts for the remainder.
+
+| Object | Entered via | In | Closed at |
+|---|---|---|---|
+| `kernel.mark_payout_transfer_state` | `MB-2b` (schema §1.9.2, plan `085`, registry `085`) | **B** — no EXEC row (`R-31`) | **§20.7.6** |
+| `venue.on_payout_settled` | `MB-2b` (stub `085`, body `087`) | **B** — no EXEC row (`R-31`) | **§20.11.5** |
+| `kernel.sweep_expired_ticket_atoms` | `MN-4` (schema §1.5.1, plan/registry `079`) | **B** — no EXEC row (`R-30`) | **§12.5** |
+| `venue.assert_may_request` | `K-3` / `R-7` (plan `087`, registry `087`) | **A ∪ B** — *called* by RLS §7.5/§11.6, **granted by no EXEC row** (`R-29`) | **§20.7.8** |
+| **`kernel.mark_refund_state`** | **this pass** (`R1-1`, schema §1.10.1) — the writer `kernel.refund` never had | neither yet (`R-31`) | **§20.7.7** |
+| `kernel.record_money_denial` | already contracted (§17.9); **its EXEC row is wrong, not missing** | **A** | §17.9 (`R-28`) |
+
+**Both properties of §20.0d survive, checked rather than assumed.** **SSCAS stays closed at fifteen:**
+§20.7.6, §20.7.7 and §20.7.8 are `n/a (single-aggregate)` or write nothing; §12.5 is a **bounded batch of
+one**; §20.11.5 participates in no member. **No new lock class:** §20.7.6/§20.7.7 take the money plane
+(rank 6), §12.5 takes Ticket Atom (rank 5), §20.7.8 takes nothing, and §20.11.5 takes the settlement header,
+an admin-plane row outside the six ranks. **§20.11.5 introduces the pass's one new ordering obligation and it
+is stated in its own contract**, not here.
 
 ### 20.1 ORGANIZATION AND PLATFORM AUTHORITY — the `077` / `085` gap
 
@@ -5441,6 +5706,250 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   transaction as the key row, and a scanner polling a closed episode is told the episode ended — asserted on
   the episode rows, **not** on the absence of admissions, which would pass on a manifest that merely lapsed).
 
+#### 20.7.6 `kernel.mark_payout_transfer_state(p_payout_id, p_new_status, p_stripe_transfer_ref, p_failure_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (schema §1.9.2, defect `MB-2b`; filed as §13.7 `S-16`)
+
+> **This function exists in the schema spec, the migration plan and the package registry, and in ZERO
+> contracts, ZERO RLS EXEC rows and one edge-spec placeholder that names no function** (*"`mark`-style state
+> sync RPCs"*, §4). It is the writer of three of `kernel.payout`'s five `status` labels and of
+> `stripe_transfer_ref`. **A function scheduled into a package with no contract is a function an engineer
+> invents**, and the one they will invent is a webhook handler that clears holds.
+
+- **Purpose.** Record what Stripe reported about a transfer that has already been decided and written.
+  **It moves no money and calls nothing external.**
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`,
+  **no human path**. Class B (`EA-3` B-ii) from the edge. **No human path may be added:** a principal who can
+  set a payout to `paid` can retire an org's undisbursed exposure without money moving.
+- **Params.** `p_payout_id`; `p_new_status ∈ {paid, failed, reversed}` — **`pending` and `submitted` are not
+  accepted arguments**: `pending` is the INSERT default and `submitted` belongs to
+  `kernel.request_org_payout` (§10.3), which takes the destination cool-down, SoD-1, the maturity floor and
+  the step-up. Accepting `submitted` here would be a second door onto the state the money controls guard.
+  `p_stripe_transfer_ref` (`tr_…`); `p_failure_code` (nullable, `failed` only); `p_command_key`.
+- **Preconditions.**
+  1. **Forward-only** — `submitted → paid|failed|reversed`; `paid → reversed` is the one terminal-to-terminal
+     edge and it is legal (Stripe can reverse a settled transfer). Any other pair raises
+     `precondition_failed('payout_state_backwards')`.
+  2. **It REFUSES to advance a row whose `hold_state <> 'none'`** (`precondition_failed('payout_held')`),
+     leaving **both** `status` and `hold_state` untouched. **A held payout that Stripe reports as paid is a
+     reconciliation incident, not a state transition** — silently clearing the hold would defeat Control 4 of
+     §17.7 **by webhook**, which is the one attacker path that needs no role at all.
+  3. **`p_stripe_transfer_ref` is mandatory and write-once** — equal on replay, else `conflict_locked`. It is
+     the join key to an external ledger.
+  4. **`p_failure_code` is required for `failed` and rejected otherwise** (`invalid_input`).
+- **Locks & order.** `kernel.payout` row `FOR UPDATE` — money plane, **rank 6**. Nothing else. **SSCAS:**
+  `n/a` (single aggregate); **no member added, C28's closed fifteen stands, no new lock class.**
+- **Writes.** `kernel.payout` (`status`, `stripe_transfer_ref`, `failure_code` where applicable),
+  `kernel.admin_audit` (`payout.state_sync`, before/after) in the same txn. **On `→ paid` it additionally
+  calls `venue.on_payout_settled(p_payout_id)`** — the SEAM-2 hook (§20.11.5), which is the only writer of
+  `venue.settlement.status='paid'`. **Nothing else.**
+- **Result.** `{ status ∈ {updated, noop_replay}, payout_id, new_status }`. **Idempotency.** `p_command_key`
+  plus the forward-only and equal-ref rules; a redelivered event on a row already in the target state returns
+  `noop_replay` and **does not raise** — a webhook that raises is a webhook Stripe retries forever.
+- **Errors.** `not_found` · `precondition_failed('payout_state_backwards' | 'payout_held')` ·
+  `conflict_locked` · `invalid_input`.
+
+- **THE EVENT MAPPING, CORRECTED — the four Stripe events are NOT four sources for one row** (schema §1.9.2;
+  edge §4's row is corrected in the same pass):
+
+  | Stripe event | What it actually is | What it may drive here |
+  |---|---|---|
+  | `transfer.created` | platform → connected-account transfer, id `tr_…` | confirms `submitted` and **writes `stripe_transfer_ref`** — **the only event that supplies the join key** |
+  | `transfer.reversed` | that same transfer, reversed | `→ reversed` |
+  | `payout.paid` / `payout.failed` | the **connected account's own bank payout**, id `po_…` | **nothing on a single `kernel.payout` row.** One bank payout **aggregates many transfers**, so it is not attributable to one row; treating it as one is a mis-join that marks arbitrary payouts paid |
+
+- **CONSEQUENCE, STATED BECAUSE IT DECIDES WHO WRITES `failed`.** A transfer that cannot be created fails as a
+  **synchronous Stripe API error, not as an event.** There is no `transfer.failed`. So **the `payout-execute`
+  edge function — not `stripe-webhook` — is the natural writer of `failed`**, in the same request that caught
+  the error, with the classifier `payout-logic.ts` already carries. The pre-fix corpus routed `failed` to a
+  webhook that will never fire, which is why *"a failed transfer reads `submitted` forever"* and dashboard
+  §14.5's pinned *Failed payout* banner could never fire.
+- **WHAT `paid` ASSERTS IS AN OWNER DECISION AND IS NOT TAKEN HERE — `O16`, recorded, left open.** Either
+  (a) *"the transfer succeeded and was not reversed"*, written **synchronously by the executor** on the
+  `transfers.create` return; or (b) *"the funds reached the payee's bank"*, which requires a
+  `balance_transaction` fan-out from `payout.paid` to recover which transfers that bank payout covered.
+  **Both are served by this one RPC — only the caller and the trigger change** — so the decision costs no
+  contract change either way. They differ in **what the venue is being told**, and one of them is a promise
+  about a bank we do not observe. **This contract does not choose.** Until `O16` is answered, an implementer
+  builds form (a), which is the form with no unbuilt dependency, and the choice is visible in one place.
+- **Callers.** `payout-execute` (edge §3.4) — `failed` synchronously, and `paid` under form (a);
+  `stripe-webhook` (edge §4) — `reversed` from `transfer.reversed`, and the `stripe_transfer_ref` confirmation
+  from `transfer.created`.
+- **Forbidden.** Every human role including `platform_admin` and `platform_risk`; any caller supplying
+  `pending` or `submitted`; any handler keyed on `payout.paid`/`payout.failed` writing a `kernel.payout` row.
+- **Tests.** `T-SCHEMA-PAYOUT-05` (the label-completeness sweep — schema §1.9.2; this contract is what makes
+  it pass) · `T-SCHEMA-PAYOUT-06` (a `hold_state='held'` payout **raises** and leaves **both** columns
+  unchanged — both halves, because the first passes if the function merely returned early after clearing the
+  hold) · `T-SCHEMA-PAYOUT-07` (forward-only) · **`T-RPC-MONEY-29`** (structural: **no handler keyed on
+  `payout.paid` or `payout.failed` calls this function with a payout id derived from a `po_…`** — asserted
+  over the webhook's branch table, because the mis-join is invisible from any single-row test) ·
+  **`T-RPC-MONEY-30`** (a replayed `transfer.reversed` returns `noop_replay` and writes no second audit row).
+
+#### 20.7.7 `kernel.mark_refund_state(p_refund_id, p_new_status, p_stripe_refund_ref, p_failure_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (schema §1.10.1, defect `R1-1`)
+
+> **`kernel.refund` had three unreachable `status` labels and a Stripe join key with zero writers and zero
+> readers.** Its complete writer set was `refund_primary_order`, `admin_refund` and the C25 sweep — **all
+> three INSERT at the `pending` DEFAULT.** `submitted`, `succeeded` and `failed` were written by nothing, and
+> `stripe_refund_ref` occurred **once** in the whole corpus: the schema's own DDL line. Edge §3.5's
+> *"records `stripe_refund_id` via a callback param"* and edge §4's *"extend to also reconcile
+> `kernel.refund` state"* are **two placeholders naming no function** — the `MB-2b` shape verbatim, on the
+> refund table this time. **`MB-1`'s cumulative operand sums `status ∈ {pending, submitted, succeeded}` over
+> a column that could only hold `pending`.**
+
+- **Purpose.** Record what Stripe reported about a refund that has already been decided and written. **It
+  moves no money, calls nothing external, and touches no `public.*` table.** The Stripe call belongs to
+  `refund-execute` (edge §3.5); this is the one function that writes the outcome back.
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`.
+  **No human path**, and none may be added: a human who can set a refund to `succeeded` can retire an
+  exposure that never settled and buy tier headroom under §17.1a. Class B (`EA-3` B-ii) from the edge.
+- **Params.** `p_refund_id`; `p_new_status ∈ {submitted, succeeded, failed}` — **`pending` is not an
+  accepted argument**, since it is the INSERT default and accepting it would make the state machine
+  reversible through a parameter; `p_stripe_refund_ref` (`re_…`); `p_failure_code` (nullable, `failed`
+  only); `p_command_key`.
+- **Preconditions.**
+  1. **Forward-only.** `pending → submitted → succeeded|failed`. Any other pair raises
+     `precondition_failed('refund_state_backwards')`. `succeeded` and `failed` are terminal.
+  2. **`p_stripe_refund_ref` is mandatory on every accepted transition** and **write-once**: if the row
+     already carries one it must be **equal**, else `conflict_locked`. It is the join key to an external
+     ledger; a second value silently re-points the reconciliation.
+  3. **`p_failure_code` is required for `failed` and rejected otherwise** (`invalid_input`) — a failure with
+     no cause is the audit row that made the whole reconciliation worthless.
+- **THE CASE AN IMPLEMENTER WILL GET WRONG, AND THE RULE THAT SETTLES IT.** A `stripe.refunds.create` that
+  **itself** errors produces **no `re_…`**, so nothing left the database for Stripe and **the row stays
+  `pending`** — the executor retries under the deterministic `refund_${refund_id}` key. **`failed` means
+  Stripe ACCEPTED the refund and then could not settle it.** Collapsing the two puts a never-attempted
+  refund and a rejected one into one label, and **only one of them may be retried automatically**. Schema
+  §1.10.1's `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)` makes the wrong version
+  unstorable rather than merely wrong.
+- **Locks & order.** `kernel.refund` row `FOR UPDATE` — money plane, **rank 6**. Nothing else. **SSCAS:**
+  `n/a` (single aggregate); **no member is added and C28's closed fifteen stands.**
+- **Writes.** `kernel.refund` (`status`, `stripe_refund_ref`, `failure_code` where applicable),
+  `kernel.admin_audit` (`refund.state_sync`, before/after) **in the same transaction**. **Nothing else** —
+  in particular it does **not** re-void, un-void or touch a ticket atom: custody was settled by
+  `refund_primary_order` at request time and a Stripe-side failure does not un-refund a ticket. **That is a
+  reconciliation incident for a human, not a state transition** — the same posture §20.7.6 takes for a held
+  payout Stripe reports as paid.
+- **Result.** `{ status ∈ {updated, noop_replay}, refund_id, new_status }`.
+- **Idempotency.** `p_command_key` per `(actor, key)`; **plus** natural idempotency from the forward-only
+  guard and the equal-ref rule — a redelivered `charge.refunded` for a row already `succeeded` returns
+  `noop_replay`, it does not raise. **A webhook that raises is a webhook Stripe retries forever.**
+- **Errors.** `not_found` · `precondition_failed('refund_state_backwards')` · `conflict_locked` (a
+  different `stripe_refund_ref`) · `invalid_input`.
+- **Callers, and which label each may write** — the mapping is part of the contract because the pre-fix
+  corpus routed four Stripe events at one placeholder:
+
+  | Caller | Trigger | Label | Why it is attributable |
+  |---|---|---|---|
+  | `refund-execute` (edge §3.5) | the object `stripe.refunds.create` **returns** | `submitted` | the create call returns the `re_…`; this is the first moment our row has a join key |
+  | `stripe-webhook` (edge §4) | `charge.refunded` / `refund.updated` | `succeeded` | **the event payload carries the `re_…` the executor stored** — a refund is not aggregated the way a bank payout is, so unlike `payout.paid` (§20.7.6) the join is exact |
+  | `stripe-webhook` (edge §4) | `refund.failed` / `charge.refund.updated → failed` | `failed` | same join key |
+
+- **Forbidden.** Every human role including `platform_admin`; any caller supplying `pending`; any client
+  writing `kernel.refund` directly.
+- **Tests.** `T-RPC-MONEY-25` (**the completeness sweep** — for each of `pending`/`submitted`/`succeeded`/
+  `failed` a named function in the chain writes it; this is schema `T-SCHEMA-REFUND-01`'s RPC half and it
+  fails against the pre-fix corpus) · `T-RPC-MONEY-26` (forward-only both ways: `succeeded → submitted`
+  raises and `failed → succeeded` raises) · `T-RPC-MONEY-27` (a second, different `stripe_refund_ref`
+  raises; an **equal** one returns `noop_replay` and writes no second audit row — both halves, because the
+  redelivery path is the common one and a raise there loops Stripe) · `T-RPC-MONEY-28` (`refund_exposure_minor`
+  **excludes** a `failed` refund and **includes** a `submitted` one, asserted on the aggregate of §17.1a).
+
+#### 20.7.8 `venue.assert_may_request(p_actor, p_scope_kind, p_scope_id, p_template_id, p_raise boolean DEFAULT true) RETURNS boolean` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`AUTHZ-CRM2`; `C66` / `K-15`)
+
+> **IT GOT A PACKAGE NUMBER AND NOTHING ELSE.** `087` names it in all four registry surfaces and in migration
+> plan §8; RLS §7.5 and §11.6 *call* it; CRM §9.2, §12 and `K-15` rest the *"marketing cannot download the
+> money export"* fix on it; RPC §17.22 names it twice. **It had no contract, no return type, no parameter
+> types, no security context, no grant and no RLS EXEC row** — and schema §13.1's own row still reads
+> *"contracted and scheduled nowhere."* **Two independent implementations of one authorization predicate is
+> how a download outlives the authority that granted it**, which is the `H-12` break this function exists to
+> close.
+
+- **Purpose.** **The single shared export-authorization predicate.** *May this actor request — and therefore
+  download — an export of this template at this scope, **right now**, evaluated live against the grant
+  tables?* One function, three callers, **one implementation**: `venue.request_export`,
+  `venue.authorize_export_download` and `venue.list_export_jobs` (§17.22).
+- **THE RETURN SHAPE, SETTLED (`R1-4`; ratification `C108`). The corpus asked for two incompatible things
+  and this is the resolution.** The name implies **raising**; `venue.list_export_jobs` needs a
+  **`downloadable` boolean** *"computed with `authorize_export_download`'s own predicate"* (CRM §9.5, RLS
+  §11.6, RLS `X-19`). Three candidate shapes were considered and two are rejected on the record:
+
+  | Shape | Rejected because |
+  |---|---|
+  | Two functions — `assert_may_request` (raises) + `may_request` (boolean) | **Two objects is two implementations**, which is the exact defect this function exists to prevent, and `T-RLS-CRM-05` asserts an **equality between call sites** that two names cannot satisfy. It would also add an object to `087` for no authority gain |
+  | One 4-parameter boolean, with the raise moved into each caller | The predicate is then the boolean and **the refusal is the caller's**, so a caller that forgets to check it silently authorizes. **A control that depends on callers remembering IS a convention** — the construction `AUTHZ-M1` refuses |
+
+  > **ADOPTED: one function, `RETURNS boolean`, with `p_raise boolean DEFAULT true`.** In the default
+  > (raising) mode it raises `insufficient_privilege(42501)` on denial and returns `true` on success — so
+  > **the safe behaviour is what a caller gets by writing nothing**. `p_raise := false` is an explicit,
+  > greppable opt-out used by **exactly one caller**, `list_export_jobs`, which returns **job metadata only,
+  > no row and no object path**, and projects the boolean as `downloadable`. **One predicate, one body, one
+  > allow-list; the two authorizing call sites and the lister cannot drift, because there is nothing to keep
+  > in step.**
+  >
+  > **`T-RPC-CRM-06` is structural and is the guard on the opt-out:** `request_export` and
+  > `authorize_export_download` call this function **in raising mode**, asserted over their bodies, and
+  > `list_export_jobs` is the **only** caller passing `p_raise := false`. A future caller that suppresses the
+  > raise is a review reject, not a runtime surprise.
+- **Authority.** **`EXEC: DEF`** — it reads `kernel.org_member`, `venue.staff_role` and the scope objects,
+  which the caller does not hold. `REVOKE EXECUTE FROM anon`; `EXECUTE` to `authenticated` (it is called
+  inside definers that run as the caller's `auth.uid()` and by `list_export_jobs` on the caller's own
+  client). **It grants nothing and writes nothing** — a leaked `true` for a scope the caller cannot name
+  discloses nothing, because every caller re-resolves the scope itself.
+- **`p_actor` is a parameter and that needs the argument, because `EA-6`/C35 forbid actor parameters.** This
+  is **not** an edge-supplied actor: every caller passes **`auth.uid()`**, evaluated inside a definer in the
+  same transaction, and `authorize_export_download` passes it alongside `job.scope_kind`/`job.scope_id`/
+  `job.template_id` read from the **job row**. It is a parameter rather than an internal `auth.uid()` read
+  **so the predicate is a pure function of its inputs and therefore assertable as an equality between call
+  sites** (`T-RLS-CRM-05`). **`T-RPC-CRM-07`: no caller passes anything but `auth.uid()` for `p_actor`,
+  asserted structurally** — the one assertion that keeps the parameter from becoming the C35 pattern.
+- **Params.** `p_actor uuid`; `p_scope_kind text ∈ {session, event, venue, org}` — **`all` is not a member
+  and raises `invalid_input`**, per §17.22; `p_scope_id uuid`; `p_template_id text ∈ {audience_v1,
+  operations_v1}`; `p_raise boolean DEFAULT true`.
+- **The predicate, stated once, because this is the corpus's only statement of it.**
+
+  ```text
+  audience_v1    -> org grain:   org_owner, org_admin, org_marketing
+                    venue grain: venue_manager, venue_marketing
+  operations_v1  -> org grain:   org_owner, org_admin
+                    venue grain: venue_manager
+                    (the narrowest allow-list in either spec -- it adds MONEY columns)
+  ```
+  **Both grains are resolved through the org that owns the scope object, re-resolved here rather than
+  trusted** — `catalog.venue.org_id` is mutable while `catalog.event.org_id` is stamped at create, which is
+  the `H-11` re-operated-venue leak. **Platform roles are DENIED on every arm** (`platform_support`,
+  `platform_risk`, `platform_admin`): platform reads the roster (§17.22 `list_attendees`) and does not use
+  the venue CRM export; bulk platform extraction is not built in Phase 2 (`MD-8`). Also denied:
+  `venue_box_office`, `venue_scanner`, both promoter-manager labels, `venue_finance`, `org_finance`,
+  `org_member`, promoters, a door session, `fan`, `anon`.
+- **THE BREAK IT CLOSES, so the template argument is not dropped in a refactor.** `org_marketing` holds
+  `X10` (read export history), so it can see a colleague's `job_id`; it holds a marketing-class role over the
+  scope, so a **role-set** re-check passes; and it downloads an **`operations_v1`** file — order refs, order
+  totals, **unit prices**, refund state. §3.1's *"Finance sees money and no contact. Marketing sees contact
+  and no money. Neither sees both."* is then defeated by **any org that ever ran one operations export, with
+  no grant being wrong.** **The template is the conjunct that was missing, and it is why the list stays
+  role-scoped while the download is template-scoped.**
+- **Locks:** none. **SSCAS:** `n/a`. **Writes:** **nothing.** It is `STABLE`, not `IMMUTABLE` — it reads live
+  grant tables, and *"live"* is the entire point (an export prepared before a revocation fails after it,
+  `EX-4`). **It writes no audit row**: the *decision* is audited by its callers (`crm_export.request` /
+  `crm_export.download`), and a predicate that logged on every list row would drown them.
+- **Errors.** `insufficient_privilege(42501)` in raising mode · `invalid_input` (unknown `scope_kind`,
+  unknown `template_id`, `scope_kind='all'`) · `not_found` (scope object absent) — **`not_found` is raised in
+  both modes**, because a nonexistent scope is a caller bug, not a denial, and returning `false` for it would
+  let a lister render "not downloadable" for a job whose scope was deleted.
+- **Package.** `087`, unchanged and already declared: it reads `venue.export_job` (`087`),
+  `kernel.org_member` (`077`) and `venue.staff_role` (`080`) → **SEAM-1 `max(077, 080, 087) = 087`**, and
+  `087` declares `077`, `081`, `085`, `086`. **No package added, renamed or renumbered; no dependency edge
+  added.**
+- **Tests.** `T-RLS-CRM-05` (cited, not renumbered — `request_export` and `authorize_export_download` resolve
+  to the **same** function, asserted as an equality between the two call sites) · **`T-RPC-CRM-06`** (the
+  raising-mode structural assertion above) · **`T-RPC-CRM-07`** (`p_actor` is always `auth.uid()`) ·
+  **`T-RPC-CRM-08`** (`org_marketing` is refused an `operations_v1` download **and** sees
+  `downloadable = false` for that job in `list_export_jobs` — **both halves in one test**, because the panel
+  and the RPC disagreeing is `X-19`'s failure and a test of either alone passes on it).
+- **Reported, not applied here (§20.14 `R-29`).** `PHASE_2_RLS_PERMISSION_SPEC.md` §11.6 needs an **EXEC
+  row** for this function (`EXECUTE` to `authenticated`, `REVOKE` from `anon`, `EXEC: DEF`) — it has none;
+  the migration plan §8 `087` row and the package registry both name it with a **four**-parameter signature
+  and must carry the defaulted fifth; `PHASE_2_CRM_EXPORT_SPEC.md` §9.5 should cite the return shape rather
+  than restating it.
+
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
 > **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**
@@ -5865,7 +6374,7 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 
 ### 20.11 SEAM AND HOOK FUNCTIONS — plan objects with no contract
 
-These four are **named as objects in migration plan §8** and contracted nowhere. Three of them are
+These **five** are **named as objects in migration plan §8** and contracted nowhere. **Four** of them are
 **`CREATE OR REPLACE` seams**: a stub lands in one package and a later package replaces its body. An
 implementer who does not know a function is a seam will either write the full body too early (and reference a
 table that does not exist yet — the SEAM-1 failure the plan's §13 exists to prevent) or forget the
@@ -5956,6 +6465,65 @@ replacement (and ship a stub that silently returns nothing).
   collide with another null. **`IMMUTABLE` matters:** without it Postgres refuses the expression index.
 - **It reads no table and takes no lock.** Any future version that consulted a table would cease to be
   `IMMUTABLE` and the index would be invalid — **which is a second, independent reason the body is frozen.**
+
+#### 20.11.5 `venue.on_payout_settled(p_payout_id)` — **DB-RPC** · `EXEC: DEF` · SEAM-2 (schema §1.9.2, defect `MB-2b`; filed as §13.7 `S-16`)
+
+> **The fifth seam, and the one §20.11's own preamble did not know about** — it was created by the
+> unwritable-control pass after this section was written, and it landed in the schema spec, the migration
+> plan and the package registry **with no contract, exactly like the four above.** *"These four"* is now
+> five; the count is corrected rather than left to read as a closed set.
+
+- **Purpose.** Advance `venue.settlement` `closed → paid` when **every** `cause='settlement'` payout of that
+  settlement has reached `status='paid'`. **It is the only writer of `venue.settlement.status='paid'`**
+  (schema §3.13), which had no writer at `734c814` — `kernel.close_settlement` writes only `→ closed`.
+- **Signature.** `(p_payout_id uuid) RETURNS void`. It takes the **payout**, not the settlement, because its
+  caller is the payout state writer and the settlement is recovered from `kernel.payout.cause_ref`. A
+  settlement parameter would let a caller assert a settlement is paid while naming a payout of another one.
+- **Authority.** **`EXEC: DEF`**, `service_role` only; `REVOKE EXECUTE FROM anon, authenticated, public`.
+  Called **only** by `kernel.mark_payout_transfer_state` (§20.7.6) inside the same transaction as the
+  `→ paid` write. **No human path.**
+- **Why it is a hook and not a function body inside the payout writer — SEAM-1 forces it.** It reads
+  `kernel.payout` (`085`) and writes `venue.settlement` (`087`) → **`max(085, 087) = 087`**, while its caller
+  lives in `085`. So `085` ships a **no-op stub** and `087` `CREATE OR REPLACE`s the real body — the
+  identical construction as `market.on_atom_voided` (stub `085`, replaced `088`, §20.11.3). **`085 → 087` is
+  already declared; no edge is added.** **A rollback of `087` must restore the `085` stub body**, per the
+  rollback rule §20.11.1 states for the royalty seam.
+- **It is ALSO the §0.7 boundary answer, and that is not incidental.** `kernel.*` may not write `venue.*`
+  tables. The kernel payout writer therefore calls a **`venue`-owned definer primitive** in the same
+  transaction — the same shape as `venue.record_scan → kernel.mark_ticket_scanned` and
+  `kernel.void_ticket_atom → market.on_atom_voided`. **An implementer who writes `UPDATE venue.settlement`
+  inside `mark_payout_transfer_state` breaks the modular-monolith boundary and the `085`-before-`087`
+  package order at once.**
+- **Preconditions & idempotency.** The settlement is located through `kernel.payout.cause_ref`; **if the
+  payout's `cause <> 'settlement'` the call is a silent no-op, not an error** — a `market_sale` or
+  `promoter_commission` payout has no settlement header to advance, and a payout must never fail because the
+  settlement layer has nothing to say (the same rule §20.11.3 states for a voided atom that was never
+  resold). A settlement already `paid` is a no-op. **`closed → paid` only:** an `open` settlement raises
+  `precondition_failed`, because a payout for a settlement that never closed is a defect upstream and
+  swallowing it hides it.
+- **The completeness predicate is a NEGATIVE and must be written as one.** *Every* `cause='settlement'`
+  payout of that settlement is `paid` ⇔ **no** such payout exists in a non-`paid` state. Written as a
+  positive count it passes on a settlement whose second payout row has not been created yet. The read takes
+  the settlement's payouts **under the settlement header's own `FOR UPDATE`**, so two concurrent
+  `→ paid` transitions cannot both observe "one left" and neither advance, nor both advance.
+- **Locks & order.** `venue.settlement` header `FOR UPDATE` — **admin/settlement plane, taken AFTER the
+  caller's rank-6 payout row lock**, which is the one ordering fact this seam introduces and it must be
+  honoured. **This is a settlement→payout inversion of §10.2's acquisition order and it is safe only because
+  this path never takes a second payout lock:** it reads the sibling payouts in the same snapshot, it does
+  not lock them. `T-RPC-SEAM-04` asserts the read is a read.
+- **SSCAS.** `n/a` — it participates in no member and adds none; `venue.settlement`'s status column is a
+  header field, not an aggregate write.
+- **Writes.** `venue.settlement` (→ `paid`), `kernel.admin_audit` (`settlement.paid`). **It never writes
+  `kernel.payout`** — the row that triggered it is already locked and written by its caller, and a hook that
+  writes back into its caller's aggregate is how a re-entrant loop gets built.
+- **Errors.** `precondition_failed` (settlement `open`). It must otherwise **not raise** — a raise here rolls
+  back the payout state sync, so a settlement-layer disagreement would silently un-record a Stripe fact.
+- **Tests.** `T-SCHEMA-SETTLE-01` (schema §1.9.2 — `paid` is reachable and is reached **only** when every
+  settlement-caused payout is `paid`, asserted with two payouts, one still `submitted`) ·
+  `T-SCHEMA-SETTLE-02` (the `085` stub is a no-op: it exists, returns, and changes no row — the SEAM-2
+  property, asserted **at `085`** rather than after `087` replays) · **`T-RPC-SEAM-04`** (structural: the
+  hook takes the settlement header lock and **no** payout row lock, and a `cause='promoter_commission'`
+  payout is a silent no-op rather than an error).
 
 ### 20.12 §14.1 ADDENDUM — new RPCs mapped to EXISTING SSCAS members
 
@@ -6070,6 +6638,12 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-24** | `PHASE_2_RLS_PERMISSION_SPEC.md` **§7.5** (and its **§5** quick-reference row) | **THE DOCUMENT THAT CALLS ITSELF *"the complete statement of Phase-2 write authority"* NAMES FOUR WRITERS OF `kernel.tickets`; THIS DOCUMENT CONTRACTS TEN.** §7.5 reads *"Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom`, `record_scan` (state→scanned)"* and §5's table reads *"same three + scan RPC"*. **Six are missing, and one of the four listed is the wrong function.** Missing: **`kernel.mark_ticket_scanned`** (§7.5 here — the admission writer, i.e. 100% of admissions), **`kernel.lock_ticket` / `kernel.unlock_ticket`** (§7.4 — the `resale_state` overlay pair), and the **four money RPCs that write `resale_state` themselves** — `kernel.request_order_refund` (§17.1, `→ 'refund_hold'`), `kernel.approve_refund_request` (§17.2), `kernel.cancel_refund_request` (§17.3), `kernel.sweep_expired_refund_requests` (§17.4). Wrong function: the fourth entry is **`record_scan`**, a `venue.*` wrapper — so **the authority statement's own list asserts a §0.7 violation as the design** (`venue` writing `kernel.tickets`), which is precisely the `G-20` *"two names for one function"* collision the traceability matrix already flags, here in the one table where the difference decides whether the `prosrc` freeze assertion covers the writer. **A writer absent from the authority list is a writer nothing reviews and no assertion counts** — the `C60` shape (§11 drifting from the role model with nothing able to see it), one table down. **Requested:** complete the list, replace `record_scan` with `mark_ticket_scanned`, and give it a structural assertion in the shape of `T-RLS-EXEC-01` — *every function that writes `kernel.tickets` appears in the authority statement*, derived from `pg_proc` rather than hand-maintained | Filed by `MB-6`. §0.7a now enumerates the sanctioned **delegation** set from the RPC side, which is the callee half; the RLS spec owns the **authority** half, and while the two disagree the corpus states two different write sets for its most security-critical table |
 | **R-25** | **Owner ruling** (this document §7.4 · §17.1–§17.4 · `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.1–§6.3) | **FOUR MONEY RPCs WRITE `kernel.tickets.resale_state` WITHOUT GOING THROUGH THE `lock_ticket`/`unlock_ticket` OVERLAY PAIR, WHICH EXISTS SO THAT COLUMN HAS ONE WRITER PAIR.** They are `kernel.*` functions, so §0.7's `market`/`venue` prohibition does not reach them and **this pass changed nothing** — but §7.4 is the choke-point where the overlay's preconditions and the freeze re-check live (§12.4c: *"correct — a choke-point"*), and four functions setting the column beside it means the choke-point is one of five. **Two admissible forms and the choice is the owner's:** (a) **extend `lock_ticket`/`unlock_ticket` to carry `refund_hold`** (`p_reason` gains the label; §7.4's contract says `none→listed` / `none→locked` *"and back"* and would need the third pair) so `resale_state` has exactly two writers and the freeze re-check is unbypassable by construction; or (b) **keep the direct writes and say so explicitly** in §7.4 and in the RLS authority statement, with `T-RPC-MONEY-*` pinning that the money RPCs perform **no** freeze re-check on the release paths — a hold release must never be refused because doors opened, which is why (a) is not obviously right. **This document does not choose:** (a) changes a custody-engine contract, (b) ratifies a second writer set | Filed by `MB-6`. Not a defect in either direction today — §17.1 precondition 7 does check the freeze on the parked branch, and the release paths are correct to skip it. What is wrong is that **nothing states which of the two the design is**, so an implementer picks one per function |
 | **R-27** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13 / plan `077` | **`kernel.approval_request` gains `amount_minor integer`** — NULL only for `action = 'config.set_money_key'`, with `CHECK (action = 'config.set_money_key' OR amount_minor IS NOT NULL)` and `CHECK (amount_minor IS NULL OR amount_minor > 0)`. Server-set at request time by the requesting function, **pinned exactly as `required_approver_class` and `config_versions` are** — never a parameter, never derived from `payload`. **Additive to a table already scheduled in `077`; no new table, no new package, no DAG edge, and `C72`'s pending second amendment is untouched** | **`MB-1`:** the cumulative tier operand (§17.1a) needs the **parked** exposure as an *authority* input, and no authority predicate may read `payload` (`T-RPC-AUTHZ-01`, structural). Without the column the parked term is unreadable, so the tier falls back to settled refunds only and **a parked request stops counting against the ceiling — reopening the split through the approval queue instead of the execute path.** This is `C57` one column over: **a tier decided from a value the row does not store is a control that does not run** |
+| **R-28** | `PHASE_2_RLS_PERMISSION_SPEC.md` §3.1 + §11 · `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 6 | **`kernel.record_money_denial` must LEAVE §3.1's definer-only exclusion list, and its §11 EXEC row must change from `DEF` to `EXECUTE` to `authenticated` only, EDGE-CALLER-JWT-bound.** §17.9 and edge §0.2/§3.4/§3.5 are fixed in this pass; MONEY §8.4 Control 6 must drop *"no human path"* | **`S-17`. The function is specified two mutually exclusive ways in six places across five documents**, and only one of them can be built: schema §1.12.1 has it RAISE when `auth.uid()` IS NULL, which a `service_role`-only function does on **every** call. **It cannot both raise on a service-role connection and be callable only on one.** §3.1's *"no human actor by construction"* is said of the one money RPC whose entire purpose is to name the human actor |
+| **R-29** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.6 · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `087` · `PHASE_2_PACKAGE_REGISTRY.md` `087` (`k3_named` + JSON) · `PHASE_2_CRM_EXPORT_SPEC.md` §9.5 | **`venue.assert_may_request` needs an EXEC row** — it has **none**, while §11.6 and §7.5 *call* it — and the plan and registry name a **four**-parameter signature that must become five: `(p_actor, p_scope_kind, p_scope_id, p_template_id, p_raise boolean DEFAULT true) RETURNS boolean` (§20.7.8, `R1-4`/`C108`). CRM §9.5 should **cite** the return shape rather than restate it | **It got a package number and nothing else.** A function three documents call, with no grant class stated, is a function whose migration author guesses between `authenticated` and `service_role` — and the guess decides whether `list_export_jobs` can compute `downloadable` at all. **The defaulted parameter is the whole return-shape resolution; a four-parameter signature in the plan silently re-opens the two-implementations defect `K-15` closed** |
+| **R-30** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **`kernel.sweep_expired_ticket_atoms` needs an EXEC row** — `DEF`, `pg_cron`/`service_role` only, `REVOKE EXECUTE FROM anon, authenticated`. Contracted at §12.5 by this pass | **`S-22` asked for a contract AND an EXEC row and got neither.** The contract is now here; the grant is the half this document cannot write. A sweep with no stated grant class is the one function shape an implementer most reliably grants to `authenticated` |
+| **R-31** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `085` · `PHASE_2_PACKAGE_REGISTRY.md` `085` | **Three money state-sync functions need EXEC rows and two need plan/registry object entries.** EXEC rows (all `DEF`, `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`, **no human path**): `kernel.mark_payout_transfer_state` (§20.7.6), `venue.on_payout_settled` (§20.11.5), **`kernel.mark_refund_state`** (§20.7.7). Plan/registry `085` must additionally gain **`kernel.mark_refund_state`**, the **partial unique on `kernel.refund.stripe_refund_ref`** and the **`CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** (schema §1.10.1) | The first two are the `S-16` pair — in the schema, the plan and the registry, and in **zero** contracts and **zero** EXEC rows. The third is the same defect one table over, found by this pass: `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT, so three of four `status` labels were unreachable and `stripe_refund_ref` had **zero writers and zero readers corpus-wide**. **SEAM-1 places all three where they already are (`max(077, 085) = 085`; the hook body at `087`); no package and no edge changes** |
+| **R-32** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14.5 · §14 (settlement panel) | **(a)** `S-21`, restated because it is still open: the three payout pills are three straight column reads — *held* = `hold_state='held'`, *on probation* = `hold_state='probation_hold'`, *failed* = `status='failed'`; **`status` never carries a hold** and `status='held'` never existed. **(b)** The settlement panel's four figures are straight header reads and are **NULL until close** (schema §3.13.1) — render *"not yet closed"*, never zeroes | (a) §14.5 states *"They must never render as one pill"* as a working requirement; naming the column is what stops the implementer deriving the probation pill from the **absence** of a `payout.hold` audit row, the construction `AUTHZ-M1` refuses. (b) **Zero and unknown are the same pixel and only one of them is a bug** — and until this pass the four columns had no writer at all |
+| **R-33** | `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 4 · §12 | **Restating `S-14`, which is still open:** Control 4's *"created at status `held` rather than `submitted`"* must become *"created `pending` by `close_settlement` and **not advanced** to `submitted`, carrying `hold_state='probation_hold'`"*, and §12's `NO SCHEMA CHANGE` must become **`SCHEMA CHANGE` — four additive columns on `kernel.payout`**. RPC §17.7 control 2 and §10.3's probation arm are fixed in this pass | **`kernel.payout.status='held'` does not exist and is not being created.** While §8.4 still says it, the two documents disagree about the physical representation of the one control that stops money reaching a freshly-changed destination — and §12's classification is what a migration author reads to decide the package needs no DDL |
 | **R-26** | **Whoever owns the corpus-wide id scheme** (the hazard this record already documents for `R-`, `K-`, `O`/`O-` and `S-`/`D-`) | **`R-22` IS USED TWICE IN THIS TABLE, FOR TWO UNRELATED ITEMS.** One `R-22` is `MP-1`'s offline clock-skew time-bucket confirmation; the other is the platform-plane grant-maturity owner ruling (`C77`/`O12`), which schema §13.7 `S-3` and RLS §11.3a both cite **by that id**. Two rows with one id is the `O3`/`O-3` mistake inside a single table, and the second one is load-bearing in three documents. **Requested:** renumber one of them — **not** the `C77`/`O12` row, which is cited externally — and state the rule that `R-` ids are allocated by reading the table's current maximum, the same discipline the ratification record states for its own rows | Found by `MB-1`/`MB-6` while allocating this pass's ids. **Not fixed here**, because renumbering a row two sibling documents cite is exactly the change that must not be made unilaterally by a pass that owns neither |
 
 ---
@@ -6107,6 +6681,53 @@ changed no workflow file. It renumbered **no** package (`076`–`091`), **no** m
 ratification row and no test id. It touched **no `OFFLINE-VERIFY-v1` fenced block** — none appears in either
 file it edited, and the four copies were extracted and hashed after the last edit to confirm they remain
 byte-identical, one distinct body, `sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.
+
+---
+
+## 22. Correction index — the `R1` unapplied-filings pass (2026-08-28)
+
+**Authority:** ratification rows **`C99`–`C109`** and **`D22`**, filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass.
+
+**The shape, stated once because it is the finding and not an anecdote: the repair landed in the document
+that hosted the defect, and not in the artifact an implementer builds from.** Requests were *filed* —
+`S-15`…`S-22` in schema §13.7, `R-24` and `R-27` in §20.14 — and never *applied*. **A filing is not a column
+and it is not a contract.** Every row below is one unapplied filing, and each was a column that could not be
+written or a contract that instructed the pre-fix behaviour.
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§7.3** | Writes: `kernel.tickets` *"→ `voided`, credential bump"* — **`current_owner_id` omitted** while the log row sets `to_identity := ` the sentinel | `current_owner_id := SN-VOID` in the write set; `market_sale` routed through `market.on_atom_voided` (§0.7). **The credential bump fires `tg_custody_head_is_ledger_tail`, so as written EVERY void aborted at COMMIT** — taking down `refund_primary_order`, `force_void_ticket`, `catalog.cancel_event` and C25 | `C107` (`S-18`) |
+| **§10.2** | Writes: `venue.settlement (→ closed)`; **returns `net_minor`** | writes the four money columns from the lines it just wrote, under the header's own lock, rounding bearer included; `net_minor` is a read-back. **They had ZERO writers: two occurrences corpus-wide, both DDL** | `C103` |
+| **§10.3** | no INSERT arm, **no probation arm** | an explicit probation arm that **declines to advance** and writes all four hold columns (`held_by` NULL, `status` untouched), returning `probation_held`. **`probation_hold` had no writer and the row as described was un-INSERTable** | `C105` (`S-15`) |
+| **§11.2 / §11.3** | *"→ `held`-equivalent status"* / *"→ `pending`/`submitted`"* | `hold_state` writes with `status` untouched. **`status='held'` never existed**; §11.3 as written had to *guess* which of two lifecycle values a hold had overwritten — **the difference between paying once and twice** | `C105` (`S-15`) |
+| **§12.5** | *did not exist* | **NEW** — `kernel.sweep_expired_ticket_atoms`, the writer `kernel.tickets.state='expired'` never had, plus §4.3.1's standing rule as an obligation on **other** contracts | `C109` (`S-22`) |
+| **§17.7** control 2 | *"created `held` … needs no new column"* | created `pending` and not advanced, carrying `hold_state='probation_hold'`; **four additive columns**, since *"needs no new column"* was false under every candidate repair | `C105` (`S-14`/`S-15`) |
+| **§17.9** | `service_role` only, **no human path** | `authenticated` only, EDGE-CALLER-JWT-bound, actor server-derived, **raises on NULL**; signature unchanged. **As written it could not execute ONCE**, on the fraud path | `C106` (`S-17`) |
+| **§17.22** | `assert_may_request` named twice, contracted nowhere | cites §20.7.8; `list_export_jobs` names the `p_raise := false` call as the corpus's only one | `C108` |
+| **§20.0e** | *did not exist* | **NEW** — the six objects that entered sets A/B after §20.0b was computed. **`49` is not amended**, so §20.0a's method stays reproducible | `D22` |
+| **§20.7.6** | *did not exist* | **NEW** — `kernel.mark_payout_transfer_state`. **In the schema, the plan and the registry, and in ZERO contracts and ZERO EXEC rows.** Corrects the event mapping: only `transfer.created` supplies the join key; `payout.paid`/`payout.failed` are the connected account's own bank payout and are **not attributable to one row**; `failed` is a **synchronous API error**, so the executor writes it. **`O16` recorded, not decided** | `C104` (`S-16`) |
+| **§20.7.7** | *did not exist* | **NEW** — `kernel.mark_refund_state`. `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT: three of four labels unreachable, **`stripe_refund_ref` with zero writers and zero readers**, and `MB-1`'s cumulative operand permanently `pending`-only | `C101`, `C102` |
+| **§20.7.8** | *did not exist* | **NEW** — `venue.assert_may_request`, which **got a package number and nothing else**. Return shape settled: one function, `RETURNS boolean`, `p_raise DEFAULT true`; two rejected shapes recorded | `C108` |
+| **§20.11** | *"These four"* | **five** — `venue.on_payout_settled` (§20.11.5), the SEAM-2 hook that is the only writer of `venue.settlement.status='paid'`, and the §0.7 boundary answer | `C104` (`S-16`) |
+| **§20.14** | `R-1`…`R-27` | **`R-28`** (record_money_denial: RLS + MONEY) · **`R-29`** (assert_may_request: EXEC row + the five-parameter signature) · **`R-30`** (sweep EXEC row) · **`R-31`** (three state-sync EXEC rows + the `085` objects) · **`R-32`** (dashboard pills + settlement header) · **`R-33`** (MONEY §8.4 *"created `held`"*) | `D22` |
+
+**What this pass deliberately did NOT do.** It **decided no open decision**: `O16` (what `payout.status='paid'`
+asserts) is **recorded in two documents and left open**, and `O6`…`O15`, `D-3`, `D-9`, `D-10` and `MB-1b`'s
+payout operand are untouched — §1.13.2's payout tier row now says *open* rather than implying settled. It
+changed **no role set and no authority cell**: every predicate keeps the principals `O-1`/`O-3`/`C57`/`C58`
+gave it, and the one grant that moves — `record_money_denial` — moves to the **schema's already-ratified**
+design. It **weakened no ratified invariant**: `C106` *extends* EDGE-CALLER-JWT by one function, `C99`/`C103`
+*add* constraints, and `C105` corrects a classification while preserving the behaviour `O-3` ratified. It
+touched **nothing** in the frozen Stripe money core, **no `public.*` table**, and **no money movement** — every
+change names *which function writes which column*. It **weakened no CI gate, ratchet or floor** and changed no
+workflow file. It renumbered **no** package (`076`–`091`), **no** migration (`071`–`075`), no ratification row
+and **no existing test id** — every test id is appended. It added **no dependency edge**: all five new objects
+are placed by SEAM-1 inside already-declared edges (`077 → 085`, `085 → 087`, `078 → 079`), and the four
+declared surfaces are the registry owner's to re-verify. It touched **no `OFFLINE-VERIFY-v1` fenced block** —
+one appears in `PHASE_2_EDGE_FUNCTION_SPEC.md` §5.4.3 and it was not edited; the four copies were extracted
+and hashed after **every** commit: **4 blocks, 1 distinct body, 2017 bytes, 34 lines,
+`sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.**
 
 ---
 
