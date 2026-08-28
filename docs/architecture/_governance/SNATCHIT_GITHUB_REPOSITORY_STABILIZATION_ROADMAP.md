@@ -171,7 +171,7 @@ Preconditions: deploy toggle confirmed OFF · PR #3 merged (so main's CI works) 
 | **#5** | Migration ledger normalization (one-time event) | 11 renames + guard allowlist + CLI pin (~~`2.75.0`~~ → executed as **`2.115.0`**) + regenerated repair runbook + reconciliation-doc update | anything else | owner-supervised window; §4 sequence; **owner sign-off required** |
 | **#5b** | Guard restoration | delete the allowlist | anything else | immediately after #5 verified |
 | **#6** | DB correctness & security gate | Stage A (db lint + drift snapshots) + Stage B pgTAP suite (9 files: RLS smoke, profiles column grants 052/068, anon/authenticated write denials, transfers guard 055/056b/056c, payout idempotency + dispute refusal 056d, one-succeeded-payment uniqueness, admin self-insert denial, webhook lease 064) + CI job | `supabase/migrations/**` (tests live in `supabase/tests/`) | pgTAP green on fresh replay |
-| **#7** | `071_create_kernel_schema` | first Phase-2 package per the execution protocol | everything outside the package | **GO gate passed (§16)** |
+| **#7** | `076_create_phase2_schemas_and_grants` | first Phase-2 package per the execution protocol | everything outside the package | **GO gate passed (§16)** |
 | **#8+** | `072…` | one package per PR (pair only true units, e.g. 083+084 bridge) | — | protocol per package |
 
 Every money/custody-touching PR from #5 onward carries: rollback strategy, verification query, failure behavior, owner approval point (Production Safety rule, §23 of the brief — honored in the templates above).
