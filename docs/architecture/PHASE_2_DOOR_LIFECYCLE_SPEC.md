@@ -224,19 +224,38 @@ covers. **The manifest gates offline scanning only.** That line is the load-bear
 
 ## 4. Authority matrix (reqs 1–3; O-4/O-5 binding)
 
-`SPEC CORRECTION` to VD Δ1, which proposed `has_venue_role([venue_manager, venue_door])`. **O-4/O-5 remove
-`venue_door`.** VD §22.7 explicitly left this open and inferred the door principal was correct; the owner ruled
-otherwise, and the ruling is right: a `door_pin` is a loginless, shared, deliberately weak device identity
-(domain §1.8) and opening the manifest freezes custody for an entire session.
+> **CORRECTED 2026-08-28 (reviewer condition 4 · `DL-X1`).** This section, §4.1, §4.2, §7.1, §7.2, §7.5,
+> §10.1, §10A.1, §10A.2, **§10A.7**, §15 and §16 OQ-3 all carried the **abolished** label `venue_door` and, in
+> two places, the **abolished door-PIN authorization arm**. Both were closed by ratified authority that this
+> file is downstream of, and neither correction reached it:
+> - **`venue_door` is renamed `venue_scanner`** (O-2 / ROLE_MODEL §4.5 / schema §0.6 / RLS §2.1). The rename is
+>   substantive, not cosmetic: a label named `venue_door` asserts authority over *the door*; the principal's
+>   real authority is over *scanning against an already-open manifest*. The abolished label is exactly what
+>   §4's own argument is about, so carrying it here read as deliberate.
+> - **The `door_pin` arm is closed by `AUTHZ-H3`.** A `door_pin` is a **provisioning** fact on a table with no
+>   device column — it says a PIN was issued for a venue, never that *this device* holds it. Authorizing the
+>   manifest read on the PIN alone is possession inferred from provisioning. The ratified predicate is
+>   token-bound: `kernel.assert_door_session` **asserted with a token** and bound to that session.
+>
+> **The authority was already right — RLS §11.4 and the edge spec both carry the corrected token-bound form.
+> This file is what a door implementer reads.** `T-RLS-EXEC-02` catches the abolished-label class on merge,
+> but **it is scoped to predicates in RLS §11 and structurally cannot see this file**, which is why the
+> residue survived here and nowhere else. See §20.
+
+`SPEC CORRECTION` to VD Δ1, which proposed `has_venue_role([venue_manager, venue_scanner])` (Δ1 was written
+against the pre-O-2 label `venue_door`). **O-4/O-5 remove the scanner from the manifest-administration set.**
+VD §22.7 explicitly left this open and inferred the door principal was correct; the owner ruled otherwise, and
+the ruling is right: a `door_pin` is a loginless, shared, deliberately weak device identity (domain §1.8) and
+opening the manifest freezes custody for an entire session.
 
 | Principal | Predicate | open | close | re-open | override | scan under open manifest |
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | `org_owner` | `has_org_role(org_of_venue,[org_owner])` | ● | ● | ● | ✗ | — |
 | `org_admin` | `has_org_role(org_of_venue,[org_admin])` | ● | ● | ● | ✗ | — |
 | `venue_manager` | `has_venue_role(venue,[venue_manager])` | ● | ● | ● | ✗ | ● |
-| `venue_door` (**scanner**) | `has_venue_role(venue,[venue_door])` **or valid `door_pin`** | ✗ | ✗ | ✗ | ✗ | ● |
+| `venue_scanner` (**scanner**) | `has_venue_role(venue,[venue_scanner])` **or the `service_role` edge path with `kernel.assert_door_session` asserted with a token and bound to that session** (`AUTHZ-H3`; **never a bare `door_pin`**) | ✗ | ✗ | ✗ | ✗ | ● |
 | `box_office` | *no physical enum label* — see §4.1 | ✗ | ✗ | ✗ | ✗ | — |
-| `venue_finance` · `org_finance` · `venue_promoter` · `org_member` | — | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `venue_finance` · `venue_box_office` · `venue_marketing` · `venue_promoter_manager` · `org_finance` · `org_marketing` · `org_promoter_manager` · `org_member` | — | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `platform_admin` | `is_platform([platform_admin])` | ● | ● | ● | **●** | — |
 | `platform_risk` · `platform_support` | — | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `service_role` | definer only | ● (sweeps) | ● (sweeps) | — | ✗ | — |
@@ -249,19 +268,34 @@ widening venue RLS to org roles.
 
 ### 4.1 `box_office` does not inherit manifest administration (O-4, explicit)
 
-There is no `box_office` label in the C36 venue enum — it is exactly
-`venue_manager | venue_finance | venue_door | venue_promoter` (schema §0.6/§3.9). VD §22.2 already flags that a
-box-office seller must today be granted `venue_manager` (over-provisioned) or work from a door PIN
-(under-provisioned). **This spec does not create a role to fix that.** The consequence is stated so it is not
-mistaken for an accident: a person granted `venue_manager` *for box-office selling* thereby also gains the
-ability to open the door manifest. Narrowing that requires the `venue.staff_role.event_id` /
-per-capability scoping delta (VD Δ8) or a fifth enum label — **owner decision, §16 OQ-3.**
+> **CORRECTED 2026-08-28 (`DL-X2`) — this paragraph's premise expired.** It argued from a **four-label**
+> venue enum in which no box-office label existed. The canonical venue set is **six** labels
+> (schema §0.6 / ROLE_MODEL §3.1–§3.3 / RLS §2.1), and **`venue_box_office` is one of them.** The
+> conclusion below is unchanged and remains correct — RLS §11.4 explicitly excludes `venue_box_office` from
+> `open_door_manifest` / `close_door_manifest` — but the *reason* was wrong and the *remedy* ("a fifth enum
+> label") was obsolete: the label exists, and it is already denied. What survives is the narrower
+> over-provisioning problem, restated below.
+
+The canonical C36 venue enum is exactly
+`venue_manager | venue_finance | venue_box_office | venue_marketing | venue_promoter_manager | venue_scanner`
+(schema §0.6/§3.9 — **six** labels; the four-label set that named `venue_door` and `venue_promoter` is
+superseded). **`venue_box_office` exists and is explicitly excluded from manifest administration by RLS
+§11.4** — so "box_office does not inherit manifest administration" is now true *structurally*, not merely by
+the absence of a label to grant.
+
+**The residual problem is narrower, and it is a grant-hygiene problem rather than a missing-label problem.**
+VD §22.2 flags that a box-office seller may still be granted `venue_manager` in practice — because
+`venue_box_office` does not yet carry the selling capabilities such a person needs — and a person granted
+`venue_manager` *for box-office selling* thereby also gains the ability to open the door manifest. **This spec
+does not create a role to fix that.** Narrowing it requires the `venue.staff_role.event_id` / per-capability
+scoping delta (VD Δ8), **not** a new enum label — **owner decision, §16 OQ-3, restated.**
 
 ### 4.2 What the scanner may do (O-4)
 
-`venue_door` / a valid `door_pin`: fetch and sync an **already-open** manifest, scan, admit, and queue offline
-scans for reconciliation. It may **not** open, close, or re-open a manifest, and it holds no write path to
-`catalog.event_session` at all (RLS §8.3 already gives `venue_door` `SEL` only — `NO SCHEMA CHANGE`,
+`venue_scanner`, **or the `service_role` edge path under a token-bound door session** (`kernel.assert_door_session`,
+`AUTHZ-H3` — **never a bare `door_pin`**): fetch and sync an **already-open** manifest, scan, admit, and queue
+offline scans for reconciliation. It may **not** open, close, or re-open a manifest, and it holds no write path
+to `catalog.event_session` at all (RLS §8.3 already gives `venue_scanner` `SEL` only — `NO SCHEMA CHANGE`,
 `NO RLS CHANGE` for that row). The scanner UI must therefore render a *waiting* state, not a disabled button,
 when no episode is open (§11.2).
 
@@ -491,7 +525,7 @@ convention.
   engage the session's terminal transfer-freeze boundary.
 - **Role:** `has_venue_role(venue_of_session,[venue_manager])` OR
   `has_org_role(org_of_venue,[org_owner,org_admin])` OR `is_platform([platform_admin])`. Live-table recheck
-  (I-5). **`venue_door` / `door_pin` denied** (O-4).
+  (I-5). **`venue_scanner` and the door session denied** (O-4; the abolished `venue_door` label and the bare `door_pin` arm are both closed — `DL-X1`).
 - **Params:** `p_session_id` uuid (untrusted, re-resolved), `p_reason_code` text from the closed set
   `{doors_open, reopen_device_failure, reopen_operator, drill}` (untrusted, validated), `p_command_key` text.
 - **Server-derived (C35):** `auth.uid()`, `opened_at := now()`, `manifest_version`, `not_after`,
@@ -522,8 +556,8 @@ convention.
   (`session_terminal` | `event_not_live` | `too_early` | `override_active`) · `idempotency_replay`
   (returns the original).
 - **Retry:** safe and re-entrant.
-- **Forbidden callers:** `venue_door`, any `door_pin` principal, finance roles, promoters, fans,
-  `platform_support`, `platform_risk`.
+- **Forbidden callers:** `venue_scanner`, any door-session principal (token-bound or not), `venue_box_office`,
+  finance roles, marketing roles, promoter-manager roles, fans, `platform_support`, `platform_risk`.
 
 ### 7.2 `venue.close_door_manifest(p_session_id, p_reason_code, p_command_key)` — `NEW RPC` — **DB-RPC**
 
@@ -615,8 +649,11 @@ alternative — leave it listed and refuse the holder at the door — is strictl
 ### 7.5 `venue.get_door_manifest(p_session_id, p_since_version)` — `NEW RPC` — **DB-RPC (read)**
 
 - **Purpose:** the scanner's manifest fetch/sync read. Returns the open episode's header + entries.
-- **Actor:** `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound
-  to the session (RLS §1.1 row 9).
+- **Actor:** `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with
+  `kernel.assert_door_session` **asserted with a token** and bound to that session (RLS §11.4, `AUTHZ-H3`).
+  **Not a bare `door_pin`** — a `door_pin` is a provisioning fact on a table with no device column, so it
+  cannot evidence that *this* device holds it. Reachable only via `door-session` `/manifest/sync`
+  (edge §9 item 17, §16 OQ-7); **corrected `DL-X3`.**
 - **Preconditions:** an episode with `status='open'` and `not_after > now()` exists. Otherwise returns
   `{ status:'no_open_manifest' }` — **not an error**, so the scanner can render the waiting state (§11.2).
 - **Returns:** `{ manifest_id, manifest_version, session_id, opened_at, not_after, manifest_digest,
@@ -1012,7 +1049,7 @@ rather than the open question.
   index on `(venue_id, status)` (the dashboard's "which doors are open right now" tile).
 - **Archival:** permanent (it is the evidence behind every freeze-boundary dispute); time-partitionable by
   session like `venue.scan`.
-- **RLS:** venue-scoped read (`venue_manager`, `venue_door` own session, org owner/admin, platform);
+- **RLS:** venue-scoped read (`venue_manager`, `venue_scanner` own session, org owner/admin, platform);
   writes RPC-only.
 - **Write authority:** `venue.open_door_manifest`, `venue.close_door_manifest`.
 - **SoT/PROJ:** **SoT.** `catalog.event_session.door_open_at` is its projection head.
@@ -1202,16 +1239,17 @@ Class: **venue-scoped** (schema §0.7). Write RPCs: `venue.open_door_manifest`, 
 | org_owner / org_admin | A (own-org venues) | R | R | D | `open_door_manifest` · `close_door_manifest` |
 | org_finance | A (own-org, status only)ᴬ | D | D | D | — |
 | venue_manager | A (own-venue) | R | R | D | `open_door_manifest` · `close_door_manifest` |
-| **venue_door** | **A (own session only)ᴮ** | **D** | **D** | D | **—** (O-4) |
-| venue_finance / venue_promoter | D | D | D | D | — |
+| **venue_scanner** | **A (own session only)ᴮ** | **D** | **D** | D | **—** (O-4) |
+| venue_finance / venue_box_office / venue_marketing / venue_promoter_manager | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A (all) | D | D | D | — |
 | platform_admin | A (all) | R | R | D | override |
 | service_role | A (machine) | R (def) | R (def) | D | definer |
 
 ᴬ finance sees only `status`/`opened_at`/`closed_at` (settlement timing context), never `manifest_digest`.
-ᴮ the door principal reads only the episode for the session its `venue_door` grant or `door_pin` covers
-(RLS §1.1 row 9, VD §5 note 3) — and only via `venue.get_door_manifest`, not by table scan.
+ᴮ the door principal reads only the episode for the session its `venue_scanner` grant — **or its token-bound
+door session (`kernel.assert_door_session`, `AUTHZ-H3`), never a bare `door_pin`** — covers (RLS §11.4,
+VD §5 note 3), and only via `venue.get_door_manifest`, not by table scan.
 
 **A fan cannot read this table at all.** The freeze reaches the client exclusively as the
 `kernel.is_transfer_frozen` boolean (RLS §14.3, unchanged). Exposing episode timings to fans would leak venue
@@ -1225,7 +1263,7 @@ Class: **venue-scoped**, append-only. Write RPC: `venue.open_door_manifest` only
 |---|---|---|---|---|---|
 | anon / fan / owner | D | D | D | D | — |
 | org_owner / org_admin / venue_manager | A (own-venue) | R | D | D | — |
-| **venue_door** | **V** (own session, via `venue.get_door_manifest` only) | D | D | D | — |
+| **venue_scanner** · door session | **V** (own session, via `venue.get_door_manifest` only) | D | D | D | — |
 | all other venue/org roles | D | D | D | D | — |
 | platform_risk / platform_admin | A | R (def) | D | D | — |
 | service_role | A (machine) | R (def) | D | D | definer |
@@ -1282,10 +1320,21 @@ zero learns nothing they could not infer from the event page.
 
 ### 10A.7 EXECUTE-authority additions to RLS §11
 
+> **CORRECTED 2026-08-28 (reviewer condition 4 · `DL-X3`).** This table is titled *"additions to RLS §11"* and
+> **disagreed with RLS §11.4, the thing it claims to extend**, on both rows below. It named the abolished label
+> `venue_door` and kept **a bare `door_pin` as a first-class OR-arm of the predicate** — the
+> provisioning-not-possession form closed by `AUTHZ-H3`. The prose that followed conceded the arm should not be
+> reachable on a PIN alone, which made the row **self-contradicting rather than merely stale**: an implementer
+> building from the predicate would have written the PIN arm, and the caveat sat *after* the code-shaped part.
+> A caveat is not a predicate. **Rule `EXEC-DERIVED` (RLS §11.0) governs: where this file and the RLS spec
+> disagree, the RLS spec is the authority and this table is the defect.** The corrected rows below are copied
+> from RLS §11.4 rather than re-derived. `T-RLS-EXEC-02` would have caught the label — but it is scoped to
+> predicates *in RLS §11* and cannot see this file (§20).
+
 | RPC | May invoke (predicate, live-rechecked) |
 |---|---|
-| `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role(org_of_venue,[org_owner,org_admin])` OR `is_platform([platform_admin])`. **`venue_door` and `door_pin` principals explicitly excluded (O-4).** |
-| `venue.get_door_manifest` | `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound to the session. **The PIN arm stands in the RPC, but no edge function may expose it on a PIN alone** — it is reachable only via `door-session` `/manifest/sync` behind `kernel.assert_door_session` (§16 OQ-7). A `door_pin` is a *provisioning* fact on a table with no device column; authorizing the manifest on it directly is H-3 reopened. |
+| `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` OR `is_platform([platform_admin])`. **`venue_scanner`, the door session, `venue_box_office`, every finance / marketing / promoter-manager role, `platform_support` and `platform_risk` explicitly excluded (O-4).** Opening the manifest freezes custody for the whole session — a scanner may not create the security boundary it works inside |
+| `venue.get_door_manifest` | `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with `kernel.assert_door_session` **asserted with a token** and bound to that session (`AUTHZ-H3`). **There is no `door_pin` arm.** A `door_pin` is a *provisioning* fact on a table with no device column — it evidences that a PIN was issued for a venue, never that *this device* holds it. The only door path is `door-session` `/manifest/sync` behind the token-bound assertion (edge §9 item 17, §16 OQ-7) |
 | `catalog.engage_door_freeze` | **`service_role`/definer only** — `REVOKE EXECUTE FROM anon, authenticated, public`; never granted to `authenticated`; never a UI path |
 | `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` | `authenticated` (STABLE reads; `is_transfer_frozen` is already the RN eligibility boolean, RLS §14.3) |
 | `kernel.grant_door_freeze_override` | `is_platform([platform_admin])` **only** |
@@ -1549,12 +1598,15 @@ Grouped by the property each group defends. All are DB-level; none require the a
 **D. Authority (7)**
 19. `venue_manager` of the venue may open; result `ok`.
 20. `org_owner` and `org_admin` of the operating org may open (inheritance expressed in the RPC, RLS §2.4).
-21. **`venue_door` may not open** → `insufficient_privilege(42501)`, and `door_open_at` is unchanged (O-4).
-22. A valid `door_pin` principal may not open → `42501`.
-23. `venue_finance`, `org_finance`, `venue_promoter`, `platform_support`, `platform_risk` may not open → `42501`.
+21. **`venue_scanner` may not open** → `insufficient_privilege(42501)`, and `door_open_at` is unchanged (O-4).
+22. A token-bound door-session principal may not open → `42501`; and **no bare `door_pin` authorizes anything** — `venue.get_door_manifest` presented a `door_pin` without a `kernel.assert_door_session` token raises `42501` (`AUTHZ-H3`, `DL-X3`).
+23. `venue_finance`, `venue_box_office`, `venue_marketing`, `venue_promoter_manager`, `org_finance`, `org_marketing`, `org_promoter_manager`, `platform_support`, `platform_risk` may not open → `42501`.
 24. A `venue_manager` of a **different** venue may not open → `42501` (cross-tenant).
-25. `venue_door` **may** call `venue.get_door_manifest` for its own session and **may not** for another
+25. `venue_scanner` **may** call `venue.get_door_manifest` for its own session and **may not** for another
     session of the same venue.
+25a. **No label outside the fifteen canonical labels of RLS §2.1 appears in any predicate in this file** — the
+    `T-RLS-EXEC-02` rule class, asserted **over this document** rather than only over RLS §11, which is the gap
+    `DL-X4` closes (§20).
 
 **E. Idempotency and concurrency (6)**
 26. Two `open_door_manifest` calls with the same `p_command_key` ⇒ one episode; second returns
@@ -1676,11 +1728,21 @@ Cancelling a seller's live listing when doors open is a product act, not just a 
 (leave it listed, refuse the holder at the door with `listed_locked`) is worse but is *visible* to the seller,
 whereas cancellation is a surprise. Recommend: drain, with the notification in §11.3. **Product sign-off.**
 
-**OQ-3 — `box_office` and the four-role enum (§4.1).**
-O-4 says `box_office` does not inherit manifest administration. There is no `box_office` label; a box-office
-seller today must hold `venue_manager`, which under this spec **also grants manifest open/close**. Closing that
-requires either a fifth enum label or VD Δ8's per-event/expiring grants. Neither is in scope here. **Owner
-call — and until it is made, "box_office does not inherit" is true of the label and false in practice.**
+**OQ-3 — `venue_box_office` over-provisioning (§4.1). RESTATED 2026-08-28 (`DL-X2`) — the "fifth enum label"
+half is CLOSED; the grant-hygiene half is still open.**
+This question was posed against a **four-label** venue enum in which no box-office label existed, and offered
+"a fifth enum label" as one of two remedies. **The canonical venue enum is six labels and `venue_box_office`
+is one of them** (schema §0.6, ROLE_MODEL §3.1–§3.3, RLS §2.1), and RLS §11.4 **already excludes it** from
+`open_door_manifest` / `close_door_manifest`. So "box_office does not inherit manifest administration" is now
+true **structurally**, not merely for want of a label — that half needs no owner call and must not be
+re-litigated as one.
+
+**What remains open is narrower and is a grant-hygiene question, not a schema question.** `venue_box_office`
+does not yet carry the selling capabilities a box-office seller needs, so in practice such a person may still
+be granted `venue_manager` — which **does** grant manifest open/close. Closing that requires VD Δ8's
+per-event / expiring / per-capability grants, which is not in scope here. **Owner call — and until it is made,
+"box_office does not inherit" is true of the label and of the enum, and can still be false of the human,
+through a `venue_manager` grant issued for an unrelated reason.**
 
 **OQ-4 — C43's per-open-manifest-ticket narrowing is Gate-M and the current helper does not implement it.**
 Schema §2.3, RPC §12.4, RLS §14.3 and the catalog migration package all say the freeze is *"narrowed per-open-manifest-ticket
@@ -1794,11 +1856,22 @@ not split into a second function.** Two independent reasons, and the second is t
    provisioning-not-possession gate one section after closing it — on the artifact that tells the door which
    tickets to admit.** A route deleted is a route that cannot drift back.
 
-**The RPC is unchanged.** `venue.get_door_manifest` **keeps** its PIN branch; §11's EXEC row (*"…OR a valid
-non-expired `venue.door_pin` bound to the session"*) stands as written. What changed is its **reachability**:
-the branch is now reachable **only** through `door-session` `/manifest/sync`, behind
-`kernel.assert_door_session`. **No edge function exposes it on a PIN alone**, and none may — an edge that
-authorized the manifest on a PIN by itself would re-open H-3 on M2 regardless of which function it lived in.
+> **CORRECTED 2026-08-28 (`DL-X3`).** The paragraph below said *"the RPC is unchanged … §11's EXEC row stands
+> as written"*, quoting a PIN arm. **RLS §11.4 no longer contains that arm** — it now reads
+> `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with
+> `assert_door_session` **asserted with a token** and bound to that session (`AUTHZ-H3`). The reachability
+> argument below is right and is kept; the claim that the predicate was left intact is not. **Deleting the
+> route while leaving the arm in the predicate is exactly the "reachable only by convention" posture
+> `AUTHZ-H3` was raised against** — a route deleted cannot drift back, but an arm left in the predicate can be
+> re-exposed by the next function that reads the predicate and builds to it.
+
+**The RPC's predicate changed too, and that is the stronger fix.** `venue.get_door_manifest` **no longer has a
+PIN branch**: RLS §11.4 replaced it with the token-bound `service_role` edge path under
+`kernel.assert_door_session`. The reachability argument still holds and is what makes the change safe to
+land — the door's manifest fetch is reachable **only** through `door-session` `/manifest/sync`, behind that
+assertion. **No edge function exposes it on a PIN alone**, and none may — an edge that authorized the manifest
+on a PIN by itself would re-open H-3 on M2 regardless of which function it lived in — **and now none can,
+because there is no longer a predicate arm for it to satisfy.**
 
 **Status.** Edge §9 recon #9 filed this to the door-spec owner as *"door-spec owner to confirm."* **This
 section adopts the resolution** rather than re-litigating it, and records it here because OQ-7 is where an
@@ -1850,7 +1923,8 @@ owed by any other owner on this item.
 | C25 sweep: complete frozen, compensate exempt | `SPEC CORRECTION` (§13.4) |
 | Drain of in-flight p2p / listings at open | `SPEC CORRECTION` (§13.5 / §7.3) |
 | Session `FOR SHARE` gate in custody RPCs | `SPEC CORRECTION` (§5.1) |
-| `venue_door` removed from VD Δ1's proposed role set | `SPEC CORRECTION` (§4) |
+| `venue_scanner` (ex-`venue_door`) removed from VD Δ1's proposed role set | `SPEC CORRECTION` (§4) |
+| Abolished `venue_door` label + bare `door_pin` arm purged from §4/§4.1/§4.2/§7.1/§7.2/§7.5/§10.1/§10A.1/§10A.2/**§10A.7**/§15/§16 | `SPEC CORRECTION` (§20 — `DL-X1`…`DL-X4`) |
 | `starts_at`/`doors_at` edits rejected once engaged | `SPEC CORRECTION` (§10.2) |
 | M1/M2 manifest disambiguation | `SPEC CORRECTION` (§9.1) |
 | Domain events 37–44 | `ADDITIVE` (envelope) |
@@ -1938,7 +2012,64 @@ values.*
 
 ---
 
+## 20. Correction index — reviewer-conditions pass (2026-08-28)
+
+An adversarial review of the Phase 2 corpus taken at `cbf8926` filed this file's **abolished-label and
+door-PIN residue** as its **condition 4**. Verification confirmed it and found it wider than filed.
+
+| ID | Defect | Where | Fix |
+|---|---|---|---|
+| **`DL-X1`** | The **abolished** label `venue_door` — renamed `venue_scanner` by O-2 / ROLE_MODEL §4.5 / schema §0.6 / RLS §2.1 — survived in predicates, matrices, deny-lists and assertions | §4, §4.2, §7.1, §7.2, §10.1, §10A.1, §10A.2, §15 | Renamed to `venue_scanner` throughout; deny-lists rebuilt on the **six** canonical venue labels |
+| **`DL-X2`** | §4.1 and §16 OQ-3 argued from a **four-label** venue enum with no box-office label, and offered "a fifth enum label" as a remedy. **`venue_box_office` exists** and RLS §11.4 already excludes it | §4.1, §16 OQ-3 | Premise corrected; conclusion **unchanged and still correct**; the open question restated as the narrower grant-hygiene problem (VD Δ8), with the schema half **closed** |
+| **`DL-X3`** | The **provisioning-not-possession** door-PIN arm closed by `AUTHZ-H3` survived as a first-class `OR` arm of the `venue.get_door_manifest` predicate — including in **§10A.7, a table titled "additions to RLS §11" that contradicted RLS §11.4**. §16 OQ-7 separately asserted *"the RPC is unchanged … §11's EXEC row stands as written"*, which is no longer true | §4, §4.2, §7.5, §10A.1, **§10A.7**, §15, §16 OQ-7 | Arm deleted; rows copied from RLS §11.4 rather than re-derived; token-bound `kernel.assert_door_session` form stated everywhere |
+| **`DL-X4`** | **The structural gap.** `T-RLS-EXEC-02` — *"no label in any §11 predicate is outside the fifteen canonical labels of §2.1"* — is the assertion designed to catch exactly `DL-X1`, and it caught nothing here | §15 (new assertion 25a) | Assertion added over **this document's** predicates |
+
+### 20.1 Why the authority was right and this file was wrong — and why that is the dangerous direction
+
+**Nothing above is a defect in the authority.** RLS §11.4 and `PHASE_2_EDGE_FUNCTION_SPEC.md` both carried the
+corrected, token-bound, `venue_scanner` form throughout. Rule **`EXEC-DERIVED`** (RLS §11.0) already says that
+where this file and RLS §11 disagree, **RLS §11 governs and this file is the defect**. That rule was in force
+and the disagreement still persisted for a full remediation cycle.
+
+**A door implementer does not read RLS §11.4. They read this file** — it is the document named "door
+lifecycle", it contains the RPC contracts, and its §10A.7 advertises itself as *the* EXECUTE-authority table
+for the door. A stale predicate here is not a documentation inconsistency waiting for a reconciliation pass;
+it is **build instructions**. The `door_pin` arm in particular was code-shaped — an `OR` clause an implementer
+transcribes — while the caveat that it must not be reachable sat in prose *after* it. **A caveat is not a
+predicate**, and the implementer who writes the `OR` and skips the paragraph has re-opened `AUTHZ-H3` on the
+artifact that tells the door which tickets to admit.
+
+### 20.2 `T-RLS-EXEC-02` is scoped to RLS §11 and cannot see this file — `DL-X4`
+
+`T-RLS-EXEC-02` is stated in RLS §11.0 as: *"No label appearing in a §11 predicate may be absent from the
+fifteen canonical labels of §2.1."* Its subject is **§11 of the RLS spec**. Every occurrence of `venue_door`
+corrected above lives in **this** document, in predicates that are *downstream copies* of §11 rows rather than
+§11 rows themselves. The assertion is not weak here — **it is not evaluated here at all.**
+
+This is the same defect class as the `T-RLS-EXEC-02` guard's own origin story: ROLE_MODEL edit `R-14` renamed
+`venue_door → venue_scanner` **lexically** across RLS §11, and nothing in the corpus could tell a lexical
+rename from a re-derivation. The guard was added so §11 could tell the difference. **It was scoped to the one
+table that had already been fixed, and not to the downstream copies that had not.** A guard that covers only
+the site of the last incident is a guard against the last incident.
+
+**Assertion `25a` (§15) closes the gap for this file.** The general form — enforcing the canonical-label set
+over **every** predicate in `docs/architecture/**` rather than over RLS §11 alone — is a corpus-wide change
+that belongs with the CI-gate owner, and is filed as `DL-X4` rather than made here. It is the same shape as
+the `OFFLINE-VERIFY-v1` byte-identity gate: a property currently held by review, buildable as a scan.
+
+### 20.3 What did NOT change
+
+No RPC signature, no table, no column, no state machine, no lock order, no invariant, no theorem, no package
+number, and **no `OFFLINE-VERIFY-v1` block** (§9.2 is a sanctioned byte-identical mirror and is untouched).
+Every fix above either replaces an abolished label with its ratified successor or deletes an authorization arm
+that the ratified authority had already deleted. **Every change narrows authority or leaves it unchanged;
+none widens it.**
+
+---
+
 *End of `docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md`. Design-only; no SQL files, no migrations, no
 implementation code. Delta on the Phase-2 implementation specs; closes venue-dashboard Δ1 and §22.7, gives
 `catalog.event_session.door_open_at` the writer it never had, and answers `PHASE_2_APPLE_WALLET_SPEC.md`
-§14 (DL-1 … DL-6) in §19.*
+§14 (DL-1 … DL-6) in §19. The abolished `venue_door` label and the `AUTHZ-H3` door-PIN arm are purged in §20
+(`DL-X1`…`DL-X4`); where this file and `PHASE_2_RLS_PERMISSION_SPEC.md` §11 disagree, §11 governs and this
+file is the defect (rule `EXEC-DERIVED`).*
