@@ -425,9 +425,32 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **DB-RPC:** `kernel.close_settlement` (§10.2) → generates `kernel.payout` intents; `kernel.request_org_payout`
   (§10.3) → advances `pending→submitted`; `kernel.release_payout` (§11.3) → resumes a held payout. **The DB
   records the payout intent + advances state; the edge executes the Stripe transfer** and writes back the
-  `stripe_transfer_ref` via the RPC's callback param. Order: **RPC-first to claim `submitted` under lock, THEN
-  Stripe transfer, THEN RPC callback to record the ref** — so a crash after transfer is recovered by the
-  deterministic idempotency key, never a double-pay.
+  `stripe_transfer_ref` **through `kernel.mark_payout_transfer_state`** (RPC §20.7.6). Order: **RPC-first to
+  claim `submitted` under lock, THEN Stripe transfer, THEN the state-sync RPC to record the ref** — so a
+  crash after transfer is recovered by the deterministic idempotency key, never a double-pay.
+  - **THIS FUNCTION IS THE WRITER OF `failed`, and that is a correction to §4 (`S-16`; ratification
+    `C104`).** A transfer that cannot be created fails as a **synchronous Stripe API error** — there is no
+    `transfer.failed` event — so the failure is known **here**, in the request that caught it, and nowhere
+    else. The edge calls
+    `kernel.mark_payout_transfer_state(payout_id, 'failed', tr_…, failure_code, command_key)` with the class
+    `payout-logic.ts` already produces. §4 routed `failed` to a webhook that will never fire, which is why a
+    failed transfer read `submitted` forever and dashboard §14.5's pinned *Failed payout* banner could never
+    fire. **`insufficient_funds` before `source_transaction` funding stays an operational state, not a
+    `failed` payout** — it is retried, not terminal, and the existing classifier already separates the two.
+  - **`paid` under `O16` form (a)** — *"the transfer succeeded and was not reversed"* — is written here too,
+    synchronously, on the `transfers.create` return. **`O16` is an OWNER DECISION and is not taken by this
+    spec**; under form (b) the same RPC is called from a `payout.paid` fan-out instead and this bullet moves.
+    Recorded so the choice sits in one place rather than being implied by whichever handler someone writes
+    first.
+  - **Class B (`EA-3` B-ii) for the state-sync call only.** `mark_payout_transfer_state` is
+    `service_role`-only with **no human path**, so the service client is correct for it; the
+    caller-`Authorization` client remains mandatory for `close_settlement` / `request_org_payout` /
+    `release_payout` (EA-1), where every predicate reads `auth.uid()`.
+  - **It never clears a hold.** The RPC **refuses** to advance a payout whose `hold_state <> 'none'` and the
+    edge must surface that refusal rather than retrying it: **a held payout Stripe reports as paid is a
+    reconciliation incident for `platform_risk`, not a state transition.** Clearing a hold by webhook would
+    defeat §17.7 Control 4 with no role at all.
+  - **On a money-RPC denial, call `kernel.record_money_denial` — see the denial-log bullet below.**
 - **Stripe:** reuse `_shared/payouts.ts` — capability pre-flight → funding-charge (`source_transaction`) verify
   → `stripe.transfers.create` under `buildPayoutIdempotencyKey(payout_id, destination)` (**deterministic,
   destination-salted** — a re-onboarded destination mints a new key, a retry replays ONE transfer). Honors the
@@ -1095,7 +1118,34 @@ new). External-rail branches are **byte-for-byte untouched.**
 | `refund.failed` · `charge.refund.updated → failed` | any | a refund Stripe **accepted and then could not settle** → `failed` with a cause | **`kernel.mark_refund_state(refund_id, 'failed', re_…, failure_code, key)`**. **A `refunds.create` that errors synchronously is NOT this row** — no `re_…` exists, nothing left for Stripe, and the row stays `pending` for the executor's retry (§3.5) |
 | `charge.dispute.created` / `.closed` | native | freeze the affected atom (native equivalent of transfer-freeze) + upsert dispute | native dispute freeze RPC (mirrors `freeze_transfer_for_dispute`) |
 | `account.updated` | (Connect account) | extend to match **org** connect ids → sync `kernel.organization` capability flags (in addition to existing `profiles` seller sync) | org connect capability writer RPC |
-| `transfer.created` / `.reversed` / `payout.paid` / `payout.failed` | (Connect) | extend logging to also cover `kernel.payout` rows | `mark`-style state sync RPCs |
+| `transfer.created` | (Connect) | confirm the `submitted` row and **record the `tr_…`** — **the only event that supplies the join key to a `kernel.payout` row** | **`kernel.mark_payout_transfer_state(payout_id, …, tr_…, …)`** (RPC §20.7.6) |
+| `transfer.reversed` | (Connect) | `→ reversed`, joined on the stored `tr_…` | **`kernel.mark_payout_transfer_state(payout_id, 'reversed', tr_…, …)`** |
+| `payout.paid` / `payout.failed` | (Connect) | **logging only. These describe the connected account's OWN BANK PAYOUT (`po_…`), which aggregates many transfers and is NOT attributable to one `kernel.payout` row.** No handler here may write one | **NONE — and this is the correction.** `T-RPC-MONEY-29` asserts structurally that no branch keyed on these events derives a payout id from a `po_…` |
+
+> **`SPEC CORRECTION` (`S-16`; ratification `C104`) — the four Connect events were ONE row routed at a
+> placeholder, and the placeholder named no function.** The row read *"`transfer.created` / `.reversed` /
+> `payout.paid` / `payout.failed` … extend logging to also cover `kernel.payout` rows | `mark`-style state
+> sync RPCs"*. Three consequences, all of them live:
+>
+> 1. **The named function did not exist in any contract.** `kernel.mark_payout_transfer_state` sits in the
+>    schema spec, the migration plan and the package registry, and had **no RPC contract and no RLS EXEC
+>    row**. §8's own preamble blames this construction for nine of twelve surviving gaps: *a placeholder
+>    naming no function is how they were created.*
+> 2. **`payout.paid` / `payout.failed` are the wrong events, not merely under-specified.** They report the
+>    **connected account's own bank payout** (`po_…`), which **aggregates many transfers**. There is no join
+>    from a `po_…` to one `kernel.payout` row, so a handler built from this row marks *some* payouts paid —
+>    the mis-join is invisible from any single-row test, which is why `T-RPC-MONEY-29` is structural.
+> 3. **`failed` has no event at all.** A transfer that cannot be created fails as a **synchronous Stripe API
+>    error**; Stripe emits no `transfer.failed`. So the **`payout-execute` edge function is the writer of
+>    `failed`** (§3.4), in the request that caught the error. Routing it here is why *"a failed transfer
+>    reads `submitted` forever"* and why dashboard §14.5's pinned *Failed payout* banner could never fire.
+>
+> **What `paid` should assert is OWNER DECISION `O16`, recorded and NOT taken here** — (a) *the transfer
+> succeeded and was not reversed*, written synchronously by the executor, or (b) *the funds reached the
+> payee's bank*, which needs a `balance_transaction` fan-out from `payout.paid` to recover which transfers
+> that bank payout covered. **Both are served by the same RPC; only the caller and the trigger change.**
+> Until `O16` is answered the executor writes form (a), which has no unbuilt dependency, and this is the one
+> place the choice is visible.
 
 **Boundary invariants each native branch preserves (RPC §6.2):**
 - money-in recorded **only** as a `public.payments` row via this frozen path — never re-implemented;

@@ -5463,6 +5463,83 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   transaction as the key row, and a scanner polling a closed episode is told the episode ended — asserted on
   the episode rows, **not** on the absence of admissions, which would pass on a manifest that merely lapsed).
 
+#### 20.7.6 `kernel.mark_payout_transfer_state(p_payout_id, p_new_status, p_stripe_transfer_ref, p_failure_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (schema §1.9.2, defect `MB-2b`; filed as §13.7 `S-16`)
+
+> **This function exists in the schema spec, the migration plan and the package registry, and in ZERO
+> contracts, ZERO RLS EXEC rows and one edge-spec placeholder that names no function** (*"`mark`-style state
+> sync RPCs"*, §4). It is the writer of three of `kernel.payout`'s five `status` labels and of
+> `stripe_transfer_ref`. **A function scheduled into a package with no contract is a function an engineer
+> invents**, and the one they will invent is a webhook handler that clears holds.
+
+- **Purpose.** Record what Stripe reported about a transfer that has already been decided and written.
+  **It moves no money and calls nothing external.**
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`,
+  **no human path**. Class B (`EA-3` B-ii) from the edge. **No human path may be added:** a principal who can
+  set a payout to `paid` can retire an org's undisbursed exposure without money moving.
+- **Params.** `p_payout_id`; `p_new_status ∈ {paid, failed, reversed}` — **`pending` and `submitted` are not
+  accepted arguments**: `pending` is the INSERT default and `submitted` belongs to
+  `kernel.request_org_payout` (§10.3), which takes the destination cool-down, SoD-1, the maturity floor and
+  the step-up. Accepting `submitted` here would be a second door onto the state the money controls guard.
+  `p_stripe_transfer_ref` (`tr_…`); `p_failure_code` (nullable, `failed` only); `p_command_key`.
+- **Preconditions.**
+  1. **Forward-only** — `submitted → paid|failed|reversed`; `paid → reversed` is the one terminal-to-terminal
+     edge and it is legal (Stripe can reverse a settled transfer). Any other pair raises
+     `precondition_failed('payout_state_backwards')`.
+  2. **It REFUSES to advance a row whose `hold_state <> 'none'`** (`precondition_failed('payout_held')`),
+     leaving **both** `status` and `hold_state` untouched. **A held payout that Stripe reports as paid is a
+     reconciliation incident, not a state transition** — silently clearing the hold would defeat Control 4 of
+     §17.7 **by webhook**, which is the one attacker path that needs no role at all.
+  3. **`p_stripe_transfer_ref` is mandatory and write-once** — equal on replay, else `conflict_locked`. It is
+     the join key to an external ledger.
+  4. **`p_failure_code` is required for `failed` and rejected otherwise** (`invalid_input`).
+- **Locks & order.** `kernel.payout` row `FOR UPDATE` — money plane, **rank 6**. Nothing else. **SSCAS:**
+  `n/a` (single aggregate); **no member added, C28's closed fifteen stands, no new lock class.**
+- **Writes.** `kernel.payout` (`status`, `stripe_transfer_ref`, `failure_code` where applicable),
+  `kernel.admin_audit` (`payout.state_sync`, before/after) in the same txn. **On `→ paid` it additionally
+  calls `venue.on_payout_settled(p_payout_id)`** — the SEAM-2 hook (§20.11.5), which is the only writer of
+  `venue.settlement.status='paid'`. **Nothing else.**
+- **Result.** `{ status ∈ {updated, noop_replay}, payout_id, new_status }`. **Idempotency.** `p_command_key`
+  plus the forward-only and equal-ref rules; a redelivered event on a row already in the target state returns
+  `noop_replay` and **does not raise** — a webhook that raises is a webhook Stripe retries forever.
+- **Errors.** `not_found` · `precondition_failed('payout_state_backwards' | 'payout_held')` ·
+  `conflict_locked` · `invalid_input`.
+
+- **THE EVENT MAPPING, CORRECTED — the four Stripe events are NOT four sources for one row** (schema §1.9.2;
+  edge §4's row is corrected in the same pass):
+
+  | Stripe event | What it actually is | What it may drive here |
+  |---|---|---|
+  | `transfer.created` | platform → connected-account transfer, id `tr_…` | confirms `submitted` and **writes `stripe_transfer_ref`** — **the only event that supplies the join key** |
+  | `transfer.reversed` | that same transfer, reversed | `→ reversed` |
+  | `payout.paid` / `payout.failed` | the **connected account's own bank payout**, id `po_…` | **nothing on a single `kernel.payout` row.** One bank payout **aggregates many transfers**, so it is not attributable to one row; treating it as one is a mis-join that marks arbitrary payouts paid |
+
+- **CONSEQUENCE, STATED BECAUSE IT DECIDES WHO WRITES `failed`.** A transfer that cannot be created fails as a
+  **synchronous Stripe API error, not as an event.** There is no `transfer.failed`. So **the `payout-execute`
+  edge function — not `stripe-webhook` — is the natural writer of `failed`**, in the same request that caught
+  the error, with the classifier `payout-logic.ts` already carries. The pre-fix corpus routed `failed` to a
+  webhook that will never fire, which is why *"a failed transfer reads `submitted` forever"* and dashboard
+  §14.5's pinned *Failed payout* banner could never fire.
+- **WHAT `paid` ASSERTS IS AN OWNER DECISION AND IS NOT TAKEN HERE — `O16`, recorded, left open.** Either
+  (a) *"the transfer succeeded and was not reversed"*, written **synchronously by the executor** on the
+  `transfers.create` return; or (b) *"the funds reached the payee's bank"*, which requires a
+  `balance_transaction` fan-out from `payout.paid` to recover which transfers that bank payout covered.
+  **Both are served by this one RPC — only the caller and the trigger change** — so the decision costs no
+  contract change either way. They differ in **what the venue is being told**, and one of them is a promise
+  about a bank we do not observe. **This contract does not choose.** Until `O16` is answered, an implementer
+  builds form (a), which is the form with no unbuilt dependency, and the choice is visible in one place.
+- **Callers.** `payout-execute` (edge §3.4) — `failed` synchronously, and `paid` under form (a);
+  `stripe-webhook` (edge §4) — `reversed` from `transfer.reversed`, and the `stripe_transfer_ref` confirmation
+  from `transfer.created`.
+- **Forbidden.** Every human role including `platform_admin` and `platform_risk`; any caller supplying
+  `pending` or `submitted`; any handler keyed on `payout.paid`/`payout.failed` writing a `kernel.payout` row.
+- **Tests.** `T-SCHEMA-PAYOUT-05` (the label-completeness sweep — schema §1.9.2; this contract is what makes
+  it pass) · `T-SCHEMA-PAYOUT-06` (a `hold_state='held'` payout **raises** and leaves **both** columns
+  unchanged — both halves, because the first passes if the function merely returned early after clearing the
+  hold) · `T-SCHEMA-PAYOUT-07` (forward-only) · **`T-RPC-MONEY-29`** (structural: **no handler keyed on
+  `payout.paid` or `payout.failed` calls this function with a payout id derived from a `po_…`** — asserted
+  over the webhook's branch table, because the mis-join is invisible from any single-row test) ·
+  **`T-RPC-MONEY-30`** (a replayed `transfer.reversed` returns `noop_replay` and writes no second audit row).
+
 #### 20.7.7 `kernel.mark_refund_state(p_refund_id, p_new_status, p_stripe_refund_ref, p_failure_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (schema §1.10.1, defect `R1-1`)
 
 > **`kernel.refund` had three unreachable `status` labels and a Stripe join key with zero writers and zero
@@ -5956,7 +6033,7 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 
 ### 20.11 SEAM AND HOOK FUNCTIONS — plan objects with no contract
 
-These four are **named as objects in migration plan §8** and contracted nowhere. Three of them are
+These **five** are **named as objects in migration plan §8** and contracted nowhere. **Four** of them are
 **`CREATE OR REPLACE` seams**: a stub lands in one package and a later package replaces its body. An
 implementer who does not know a function is a seam will either write the full body too early (and reference a
 table that does not exist yet — the SEAM-1 failure the plan's §13 exists to prevent) or forget the
@@ -6047,6 +6124,65 @@ replacement (and ship a stub that silently returns nothing).
   collide with another null. **`IMMUTABLE` matters:** without it Postgres refuses the expression index.
 - **It reads no table and takes no lock.** Any future version that consulted a table would cease to be
   `IMMUTABLE` and the index would be invalid — **which is a second, independent reason the body is frozen.**
+
+#### 20.11.5 `venue.on_payout_settled(p_payout_id)` — **DB-RPC** · `EXEC: DEF` · SEAM-2 (schema §1.9.2, defect `MB-2b`; filed as §13.7 `S-16`)
+
+> **The fifth seam, and the one §20.11's own preamble did not know about** — it was created by the
+> unwritable-control pass after this section was written, and it landed in the schema spec, the migration
+> plan and the package registry **with no contract, exactly like the four above.** *"These four"* is now
+> five; the count is corrected rather than left to read as a closed set.
+
+- **Purpose.** Advance `venue.settlement` `closed → paid` when **every** `cause='settlement'` payout of that
+  settlement has reached `status='paid'`. **It is the only writer of `venue.settlement.status='paid'`**
+  (schema §3.13), which had no writer at `734c814` — `kernel.close_settlement` writes only `→ closed`.
+- **Signature.** `(p_payout_id uuid) RETURNS void`. It takes the **payout**, not the settlement, because its
+  caller is the payout state writer and the settlement is recovered from `kernel.payout.cause_ref`. A
+  settlement parameter would let a caller assert a settlement is paid while naming a payout of another one.
+- **Authority.** **`EXEC: DEF`**, `service_role` only; `REVOKE EXECUTE FROM anon, authenticated, public`.
+  Called **only** by `kernel.mark_payout_transfer_state` (§20.7.6) inside the same transaction as the
+  `→ paid` write. **No human path.**
+- **Why it is a hook and not a function body inside the payout writer — SEAM-1 forces it.** It reads
+  `kernel.payout` (`085`) and writes `venue.settlement` (`087`) → **`max(085, 087) = 087`**, while its caller
+  lives in `085`. So `085` ships a **no-op stub** and `087` `CREATE OR REPLACE`s the real body — the
+  identical construction as `market.on_atom_voided` (stub `085`, replaced `088`, §20.11.3). **`085 → 087` is
+  already declared; no edge is added.** **A rollback of `087` must restore the `085` stub body**, per the
+  rollback rule §20.11.1 states for the royalty seam.
+- **It is ALSO the §0.7 boundary answer, and that is not incidental.** `kernel.*` may not write `venue.*`
+  tables. The kernel payout writer therefore calls a **`venue`-owned definer primitive** in the same
+  transaction — the same shape as `venue.record_scan → kernel.mark_ticket_scanned` and
+  `kernel.void_ticket_atom → market.on_atom_voided`. **An implementer who writes `UPDATE venue.settlement`
+  inside `mark_payout_transfer_state` breaks the modular-monolith boundary and the `085`-before-`087`
+  package order at once.**
+- **Preconditions & idempotency.** The settlement is located through `kernel.payout.cause_ref`; **if the
+  payout's `cause <> 'settlement'` the call is a silent no-op, not an error** — a `market_sale` or
+  `promoter_commission` payout has no settlement header to advance, and a payout must never fail because the
+  settlement layer has nothing to say (the same rule §20.11.3 states for a voided atom that was never
+  resold). A settlement already `paid` is a no-op. **`closed → paid` only:** an `open` settlement raises
+  `precondition_failed`, because a payout for a settlement that never closed is a defect upstream and
+  swallowing it hides it.
+- **The completeness predicate is a NEGATIVE and must be written as one.** *Every* `cause='settlement'`
+  payout of that settlement is `paid` ⇔ **no** such payout exists in a non-`paid` state. Written as a
+  positive count it passes on a settlement whose second payout row has not been created yet. The read takes
+  the settlement's payouts **under the settlement header's own `FOR UPDATE`**, so two concurrent
+  `→ paid` transitions cannot both observe "one left" and neither advance, nor both advance.
+- **Locks & order.** `venue.settlement` header `FOR UPDATE` — **admin/settlement plane, taken AFTER the
+  caller's rank-6 payout row lock**, which is the one ordering fact this seam introduces and it must be
+  honoured. **This is a settlement→payout inversion of §10.2's acquisition order and it is safe only because
+  this path never takes a second payout lock:** it reads the sibling payouts in the same snapshot, it does
+  not lock them. `T-RPC-SEAM-04` asserts the read is a read.
+- **SSCAS.** `n/a` — it participates in no member and adds none; `venue.settlement`'s status column is a
+  header field, not an aggregate write.
+- **Writes.** `venue.settlement` (→ `paid`), `kernel.admin_audit` (`settlement.paid`). **It never writes
+  `kernel.payout`** — the row that triggered it is already locked and written by its caller, and a hook that
+  writes back into its caller's aggregate is how a re-entrant loop gets built.
+- **Errors.** `precondition_failed` (settlement `open`). It must otherwise **not raise** — a raise here rolls
+  back the payout state sync, so a settlement-layer disagreement would silently un-record a Stripe fact.
+- **Tests.** `T-SCHEMA-SETTLE-01` (schema §1.9.2 — `paid` is reachable and is reached **only** when every
+  settlement-caused payout is `paid`, asserted with two payouts, one still `submitted`) ·
+  `T-SCHEMA-SETTLE-02` (the `085` stub is a no-op: it exists, returns, and changes no row — the SEAM-2
+  property, asserted **at `085`** rather than after `087` replays) · **`T-RPC-SEAM-04`** (structural: the
+  hook takes the settlement header lock and **no** payout row lock, and a `cause='promoter_commission'`
+  payout is a silent no-op rather than an error).
 
 ### 20.12 §14.1 ADDENDUM — new RPCs mapped to EXISTING SSCAS members
 
