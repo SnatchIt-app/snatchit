@@ -3468,6 +3468,475 @@ will build the function this section rules out.**
 - **Test.** `T-RPC-DOOR-24` (a loosening override raises for every authorized role including
   `platform_admin`; an override that would let a Wallet pass outlive the manifest TTL raises).
 
+### 20.7 MONEY AND KEYS — the `083` / `085` / `087` gap (`G-7`)
+
+#### 20.7.1 `kernel.admin_refund(p_payment_id, p_atom_ids, p_amount_minor, p_reason_code, p_command_key)` — **EDGE-FRONTED (DB-RPC + Stripe refund)**
+
+§11.4's closing note calls this *"the same DB shape as §11.4 … listed here as a sibling, not re-detailed."*
+**A sibling is not a contract.** It has its own EXEC row, its own authority, its own freeze exemption and its
+own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out here.
+
+- **Authority.** `is_platform(['platform_risk','platform_admin'])` — RLS §11.1 verbatim. **`platform_support`
+  is excluded**, which is the difference from §11.4: support holds a *capped* `refund_primary_order` reached
+  only through `kernel.request_order_refund`; this is the **uncapped dispute instrument** and it sits one
+  tier up. **Caller-authorized ⇒ bound by EDGE-CALLER-JWT**, and `refund-execute` must therefore build its
+  client from the caller's `Authorization` header — a service-role invocation would make `is_platform` NULL
+  and silently degrade the only gate on an uncapped refund.
+- **Why it exists separately from `kernel.refund_primary_order` (§11.4), which an implementer will otherwise
+  merge.** Three reachability differences, each load-bearing:
+  1. **It is not order-scoped.** §11.4 refunds a `venue.order`; `admin_refund` refunds a **payment**, which
+     is the only path that reaches a **native resale** (`market.market_sale`, whose money is a
+     `kernel.payment_native` row with no `venue.order` behind it) and a fee-only or goodwill reversal.
+  2. **It is the sanctioned destination for `custody_moved`.** §11.4 adds `custody_moved` to the failure
+     taxonomy and rules that an atom whose `current_owner_id` is no longer the order's buyer *"becomes a
+     platform dispute (`admin_refund`), not an org action."* **This is that function.** It may therefore
+     refund a primary purchase whose atom has since been resold — and it **must not void that atom**, for
+     §11.4's stated reason: the reseller already recovered their money and the current holder is a stranger
+     to the dispute. `p_atom_ids` on such a payment is rejected with `custody_moved`; the money leg proceeds
+     alone.
+  3. **It is freeze-exempt.** §12.4c: `kernel.force_void_ticket` · `kernel.admin_refund` — *"exempt,
+     audited"* — platform break-glass, *"residual is the C6 reconcile window."*
+- **The exemption's mandatory obligation, which §12.4c binds and which is the easiest thing here to omit.**
+  Because it may void an atom while a manifest episode is open, **every void it performs MUST write a
+  `revoke` delta** via `venue.append_door_manifest_delta` (§17.13). *"Omitting it re-opens the offline
+  revocation leak the exemptions were granted around."* **`T-RPC-MONEY-15`:** an `admin_refund` void on a
+  session with an open episode appends exactly one `revoke` delta per voided atom.
+- **The voidable/consumed partition applies unchanged** (§11.4). Atoms partition into `voidable`
+  (`state ∈ {issued, active}`) and `consumed` (`state='scanned'`); a `consumed` atom is **never voided and
+  never returns inventory** (the seat *was* consumed), **the money leg still completes**, and the result
+  names the split — `{ atoms_voided[], atoms_not_voided[{atom_id, reason}] }`, **never a silent partial**.
+  The audit row carries the consumed list so the goodwill-vs-collusion pattern stays queryable. **The
+  `refund.scanned_atom_policy` config tier does not gate this function** — `platform_review` *is* the tier
+  the caller already holds.
+- **Params.** `p_payment_id` (→ `public.payments` or `kernel.payment_native`), `p_atom_ids uuid[]`
+  (**may be empty** — a fee-only reversal), `p_amount_minor`, `p_reason_code ∈ {dispute, admin_action}`
+  (RLS §11.3 rejects these codes from the org entry point; here they are the **only** legal values),
+  `p_command_key`. All untrusted; **amount re-validated** under `FOR UPDATE` on the payment
+  (`Σ refunds ≤ payment.total`).
+- **Locks & acquisition order (SSCAS #3).** **Inventory (rank 2, before the atom — §14.2's NB, so no 5→2
+  back-edge)** → **Ticket Atom(s) ascending `ticket_atom_id` (rank 5)** → **Refund/Payment (rank 6,
+  `FOR UPDATE` on the payment for the sum guard)**. Ascending. **SSCAS: member #3 (Refund-void).**
+  `admin_refund` joins `void_ticket_atom` / `refund_primary_order` / `force_void_ticket` as a **caller of
+  member #3** — §14.1 gains a name in that row's RPC cell, **not a member.**
+- **Idempotency.** `kernel.refund.idempotency_key` (deterministic, Phase-0 payout discipline) + the
+  ownership-log `UNIQUE(refund_void, refund_id, atom)`. A retried edge call recovers the original refund.
+- **Writes.** `kernel.refund` (INSERT — **`kernel.refund_primary_order` remains the sole writer of
+  `kernel.refund` on the *order* path; this is the sole writer on the *dispute* path, and R7
+  money-single-path holds because no request/approve object writes a money row on either**),
+  `kernel.void_ticket_atom` per voidable atom, `venue.inventory_batch` (return), `market.market_sale`
+  (→ `terminal_state='compensated'` via `market.on_atom_voided`, §20.11.3, where the payment is a native
+  sale), `venue.door_manifest_delta` (`revoke`), `kernel.admin_audit` (`refund.admin`, before/after,
+  consumed-atom list, mandatory `reason_code`).
+- **Result.** `{ status, refund_id, atoms_voided[], atoms_not_voided[] }`.
+- **Errors.** `insufficient_privilege(42501)` · `payment_unverified` · `custody_moved` ·
+  `precondition_failed(over_refund | bad_reason_code)` · `not_found` · `idempotency_replay`.
+- **Forbidden callers.** `platform_support`, **every org role including `org_owner` and `org_finance`**
+  (they reach a refund only through `request_order_refund`), every venue role, fans, `anon`.
+- **Tests.** `T-RPC-MONEY-15` (above) · `T-RPC-MONEY-16` (a refund on a payment whose atom has been resold
+  completes the money leg, voids nothing, and returns `custody_moved` in `atoms_not_voided`) ·
+  `T-RPC-MONEY-17` (`platform_support` is refused; `org_owner` is refused).
+
+#### 20.7.2 `kernel.pay_promoter_commission(p_settlement_id, p_attribution_ids, p_command_key)` — **DB-RPC** · `EXEC: DEF`
+
+- **Authority.** **`EXEC: DEF`** — RLS §11.1: *"definer (settlement path)"*. `REVOKE EXECUTE FROM anon,
+  authenticated, public`; `GRANT EXECUTE TO service_role` only. **Called from `kernel.close_settlement`
+  (§10.2) inside the closing transaction, and from nowhere else.** No human path, no actor.
+- **What it is, in one sentence, because the name suggests something it is not.** It **records a
+  `kernel.payout` row** with `cause='promoter_commission'`. **It moves no money.** The Stripe Connect
+  transfer is executed by the payout edge fn (§13), reusing the frozen `source_transaction` funding and
+  deterministic idempotency. A function named `pay_*` that writes a ledger row is exactly the kind of name
+  that gets an external call added to it by a well-meaning engineer; **it must never perform external I/O**
+  (§0.7), and `T-RPC-MONEY-18` asserts the DB-side of that by pinning its write set.
+- **The double-payment guard is a database constraint, not this function's logic.** Migration `090` creates
+  `CREATE UNIQUE INDEX ON venue.settlement_line (cause_ref) WHERE cause = 'promoter_commission'` — *"the
+  constraint whose absence made double-payment possible"* (schema §3.14.1). **At most one commission line may
+  ever exist per attribution, across every settlement.** This function relies on that index rather than
+  re-deriving the check, so a concurrent second close is rejected by Postgres rather than by a race-prone
+  `NOT EXISTS`.
+- **The hold semantics it must honour (§17.18).** An unreviewed self-deal flag makes the commission
+  **`payable = 0`, and that is a HOLD, not a forfeiture** — so this function **writes no line at all** for a
+  flagged, unadjudicated attribution. *"A zero line would consume the one slot and permanently forfeit a
+  commission that adjudication might later release."* **`T-RPC-MONEY-19` asserts the absence**, which is the
+  only way to test a hold that is expressed as a missing row.
+- **Preconditions.** Settlement is being closed in the calling transaction and is locked `FOR UPDATE` by the
+  caller — **asserted, not assumed**; each attribution is in scope, `self_deal_flag = false` **or** its
+  latest `venue.attribution_review` at `max(seq)` is `release`; the promoter's commercial terms resolve
+  (`commission_kind='bps' ⇒ commission_bps`, `'flat_per_ticket' ⇒ commission_flat_minor` — the `090` XOR
+  CHECK), and the **`terms_version` recorded on the attribution row governs**, not the promoter's current
+  terms. *"The terms in force at settlement rather than at sale would govern the commission"* is the failure
+  §6.3 rules out, and it is enforced here by reading the attribution's snapshot.
+- **Locks & acquisition order.** **None of its own.** The caller holds **Settlement (rank 6)**; this function
+  appends `venue.settlement_line` rows and inserts `kernel.payout` (rank 6, Payout after Settlement by the
+  fixed sub-rank of §14.2). **SSCAS: member #5 (Attribution → commission), payout leg** — §14.1 already maps
+  member #5 to `kernel.close_settlement`; this is the primitive that row's *"commission line"* refers to.
+  **Attribution is READ, never locked** (§17.14), so *"C28's closed fifteen and its lock order stand
+  unamended."* **No sixteenth member.**
+- **Idempotency.** `kernel.payout.idempotency_key` deterministic on `(cause, cause_ref, payee)` (Phase-0
+  discipline) **plus** the `090` partial unique. A replayed close recovers the same payout and inserts no
+  second line.
+- **Writes.** `venue.settlement_line` (AO, `cause='promoter_commission'`, `cause_ref = attribution_id`),
+  `kernel.payout` (INSERT `pending`, `payee_identity_id` = the promoter, `cause='promoter_commission'`),
+  `kernel.admin_audit` (`settlement.commission`).
+- **Result.** `{ status, lines_written, payout_ids[], held[] }` — `held[]` names the attributions skipped for
+  an unadjudicated flag, so the close's own result explains the arithmetic rather than leaving a silent gap.
+- **Errors.** `precondition_failed(settlement_not_locked | terms_unresolvable)` · `conflict_locked` (the
+  cross-settlement unique — a second attempt to line the same attribution).
+- **Forbidden callers.** Every client, every human role, **including `org_finance` and `platform_admin`** —
+  the only door to a commission payout is closing a settlement.
+- **Tests.** `T-RPC-MONEY-18` (write-set pinned: it writes `settlement_line`, `payout` and `admin_audit` and
+  **nothing else**, and performs no external call) · `T-RPC-MONEY-19` (a flagged, unreviewed attribution
+  yields **no** settlement line, and a later `release` + close pays it) · `T-RPC-MONEY-20` (lining the same
+  attribution into a second settlement is rejected by the index).
+
+#### 20.7.3 `kernel.provision_signing_key(p_scope, p_scope_id, p_public_key, p_kms_handle_ref, p_not_before, p_reason_code, p_command_key)` — **EDGE-FRONTED** (`G-7`)
+
+> **The C33 key lifecycle — the security linchpin of the whole credential design.** Every ticket credential in
+> the system verifies against a key these three functions manage; §13 gives them one line and no contract.
+
+- **Authority.** `is_platform(['platform_admin'])` — RLS §11.1 verbatim — **and dual-controlled**, on the
+  same reasoning as §20.1.4: a key operation is at least as consequential as a platform-role grant, and
+  RLS §11.7 already mandates dual control for the *Wallet* certificate trio, which is the strictly less
+  consequential of the two credential surfaces. `INFERENCE:` §11.1 does not spell out dual control for the
+  signing-key trio while §11.7 does for `pass_type_cert`. **Contracted with it, and flagged**, because the
+  asymmetry reads as an omission rather than a decision: the pass certificate signs a wallet artifact, the
+  signing key signs the admission credential itself.
+- **`SPEC CORRECTION`/clarification — no private key material crosses this boundary, and the parameter list
+  is what enforces it.** `p_public_key` is the **verify** key (safe to distribute — doors carry it);
+  `p_kms_handle_ref` is an **opaque handle** to KMS. **There is no parameter through which a private key
+  could be passed**, which makes C33 structural rather than a promise: an implementer cannot store a secret
+  through this function even by mistake. The KMS keygen happens in the `signing-key-provision` edge fn
+  (§13/edge §3.6) **before** this call, and this RPC records the references. **`T-RPC-KEY-01`:** no parameter
+  and no column written accepts key material, asserted alongside the `083` CI scan that fails the build on
+  any tracked `*.p12`/`*.p8`/`*.cer` or `BEGIN … PRIVATE KEY`.
+- **Preconditions.** `p_scope ∈ {per_event, per_venue, global}` with scope/target coherence (schema §1.7:
+  `per_event ⇒ event_id NOT NULL`, etc.); **no `active` key already exists for that scope target** — the
+  partial `UNIQUE(event_id) WHERE status='active' AND scope='per_event'` (and its per-venue/global analogues)
+  makes a second one impossible, so a duplicate provision surfaces as `conflict_locked` and the caller is
+  directed to `rotate_signing_key`; `p_not_before` is not in the past by more than a clock-skew tolerance.
+  **`scope='global'` additionally requires an explicit reason code naming the exception** — schema §1.7:
+  *"global allowed but discouraged — a global key is an existential single point, R3."*
+- **Locks.** The scope target's `kernel.signing_key` rows `FOR UPDATE` (admin plane, outside the six ranks)
+  → the `kernel.approval_request` row (rank 5.5) on the parked path. **SSCAS.** `n/a (single-aggregate)`.
+- **Idempotency.** `p_command_key`; a replay returns the provisioned `key_id`.
+- **Writes.** `kernel.approval_request` (first call), `kernel.signing_key` (INSERT `active`, **on the second
+  approver's approval only**), `kernel.admin_audit` (`signing_key.provision`, `subject_kind='signing_key'`,
+  after = `{scope, target, kms_handle_ref}` — **never the public key blob**, which would make the audit table
+  the largest object in the database for no investigative value).
+- **Result.** `{ status, key_id, request_id }`. **Errors.** `insufficient_privilege` · `sod_violation` ·
+  `conflict_locked` (active key exists) · `precondition_failed(scope_incoherent | global_requires_reason)`.
+- **Forbidden callers.** `platform_support`, `platform_risk`, **every org and venue role**, fans, `anon`, and
+  every `service_role` path — as with §20.1.4, no `DEF` door exists at all.
+
+#### 20.7.4 `kernel.rotate_signing_key(p_old_key_id, p_public_key, p_kms_handle_ref, p_reason_code, p_command_key)` — **EDGE-FRONTED** (`G-7`)
+
+- **Authority.** As §20.7.3.
+- **Rotation is ONE transaction, and the invariant is what makes it safe.** Old row `active → rotating`, new
+  row inserted `active`, **both under the scope's partial `UNIQUE(... ) WHERE status='active'`** — so **a
+  mid-rotation snapshot never shows zero or two active keys** for a scope. Schema §1.7 states the mechanism
+  (*"rotation flips old→`rotating` and new→`active` in one txn"*); this contract states the consequence,
+  which is the reason it must not be split into two calls: with zero active keys, `kernel.issue_ticket_atoms`
+  (§7.1) fails its precondition *"an `active` `kernel.signing_key` resolves for the event scope"* and **the
+  box office stops selling**; with two, `credential-sign` has no deterministic signer.
+- **`rotating` is not `revoked`, and conflating them strands every live credential.** A key in `rotating`
+  **still verifies** — its `public_key` stays world-readable and its validity window stays open until
+  `not_after`. Credentials signed under it remain valid until they are re-minted by the next custody move or
+  their TTL lapses. **Rotation invalidates nothing.** Only `revoke_signing_key` (§20.7.5) does, and that is
+  precisely why the two are separate functions with separate reason codes.
+- **What rotation does NOT do.** It **appends no ownership-log row, bumps no `credential_version`, and
+  re-pins no existing atom's `signing_key_id`.** Only a custody move re-pins (§7.2). An implementer who
+  "helpfully" re-pins the event's atoms during a rotation performs N custody-table writes outside the three
+  kernel engines, which §0.7 forbids outright. **`T-RPC-KEY-02` (structural):** this function's definition
+  references neither `kernel.ticket_ownership_log` nor `kernel.tickets`.
+- **Preconditions.** `p_old_key_id` is `active` and its scope resolves; `p_not_after` on the old row is set
+  to a value **not earlier than the longest live credential TTL** (`config('credential.*')`), so rotation
+  cannot retroactively expire a token a fan already holds.
+- **Locks / SSCAS / idempotency / writes / errors.** As §20.7.3; both rows are updated under the one scope
+  lock. Audit action `signing_key.rotate`, before/after = the two `key_id`s.
+- **Test.** `T-RPC-KEY-03` (during and after a rotation, exactly one `active` key exists for the scope at
+  every observable instant; an atom minted before the rotation still verifies against the `rotating` key).
+
+#### 20.7.5 `kernel.revoke_signing_key(p_key_id, p_reason_code, p_command_key)` — **EDGE-FRONTED** (`G-7`)
+
+- **Authority.** As §20.7.3, **dual-controlled without exception** — and unlike §20.2.1's direction
+  asymmetry, **there is no "tightening executes directly" arm here.** Revocation is not a tightening in
+  effect: it **invalidates every credential signed under the key**, so its blast radius is *"every ticket
+  holder for this event is refused at the door until re-minted."* That is an availability event of the same
+  magnitude as an over-broad grant, in the opposite direction. **The asymmetry that applies to a threshold
+  does not apply to a key, and that is stated here so the §20.2.1 precedent is not read across.**
+- **Preconditions.** Key exists and is `active` or `rotating`; `p_reason_code` from a closed set
+  (`compromise_suspected` · `compromise_confirmed` · `superseded` · `scope_retired`) and **mandatory**;
+  **an acknowledgement parameter mirroring §17.11's `p_ack_live_devices`** — `p_ack_live_credentials` must
+  equal the current count of non-terminal atoms bound to the key. *"A deliberate speed bump forcing the admin
+  to look at the number before defeating a safety property"* is exactly the shape needed here, and for the
+  same reason. `INFERENCE:` the parameter is authored; the corpus specifies the pattern for the door override
+  and not for key revocation, and the consequence here is strictly larger.
+- **What it breaks, stated so the runbook is written before the incident and not during it.** Atoms whose
+  `signing_key_id` is the revoked key **cannot be verified online (C37) and cannot be admitted offline** —
+  their manifest entries reference a key the door will reject. **Recovery is re-minting credentials under the
+  successor key**, which requires the successor to exist. **Therefore: provision or rotate first, revoke
+  second.** A revoke with no `active` successor for the scope raises
+  `precondition_failed('no_active_successor')` — the one guard that stops a single call from closing a door.
+- **Locks / SSCAS / idempotency.** As §20.7.3; terminal-state idempotent (`revoked` is terminal — schema
+  §1.7's status is forward-only, guarded by a trigger).
+- **Writes.** `kernel.signing_key` (→ `revoked`, `not_after := now()`), `kernel.approval_request`,
+  `kernel.admin_audit` (`signing_key.revoke`, mandatory `reason_code`, acknowledged credential count).
+  **Revoked keys are retained** (plan `083` rollback posture: *"revoked keys and certs are retained so
+  historical credentials stay verifiable and explicable"*) — **this function never deletes a row.**
+- **Result.** `{ status, key_id, request_id, credentials_invalidated int }`.
+- **Errors.** `insufficient_privilege` · `sod_violation` · `not_found` ·
+  `precondition_failed(no_active_successor | unacknowledged_live_credentials | reason_required |
+  already_revoked)`.
+- **Test.** `T-RPC-KEY-04` (revoking the only `active` key for a scope raises; a wrong
+  `p_ack_live_credentials` raises and writes nothing; a revoked key's row survives and its `public_key`
+  stays readable so historical credentials remain explicable).
+
+### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
+
+> **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**
+> Package `088` creates `market.listing_native`, `market.auction` and `market.offer` — **three tables whose
+> only writers are these six functions.** §8 covers P2P only. One of the six is granted EXECUTE under the
+> name *"bid RPC"*: **the authority table declines to name a function even while granting it.**
+
+**Two boundary facts that bound every contract below, stated once.**
+
+- **C8 — the market never writes custody and the kernel never writes `market`.** A native sale is: the
+  `market` layer writes `market.market_sale`, **then** calls `kernel.transfer_ticket_ownership` **in the same
+  transaction** (§0.7, §7.2). That is SSCAS member #2, *"not a second, unnamed transaction"* (§14.3).
+- **The MVP price-discovery rail, and the one decision the corpus leaves open.** §16.5 rules that MVP
+  **reuses the frozen external `public.bids` / `auto-finalize-auctions` engine**, and schema §4.2 says bids
+  live on `public.bids` *"when the listing mirrors there"*, with a native `market.bid` ledger as an
+  **extension point (EXT, C42-style), not created in `088`.** **Neither document says what happens to a
+  native-only auction that does not mirror.** §20.8.3/§20.8.4 state the MVP position and flag the residue
+  rather than inventing a ledger — see §20.8.4's `OPEN DECISION`.
+
+#### 20.8.1 `market.create_listing(p_atom_id, p_price_minor, p_listing_mode, p_command_key)` — **DB-RPC (SSCAS member #6)**
+
+- **Authority.** **owner of the atom** — RLS §11.1 (*"owner of the atom · platform (cancel)"*): `auth.uid()`
+  must equal `kernel.tickets.current_owner_id` on a **live read under the atom lock** (C9/I-5), never from a
+  client parameter and never from a JWT claim. There is no role branch: **no venue or org role may list
+  someone's ticket**, which is the property that makes the resale rail a consumer surface rather than an
+  operator one.
+- **Params.** `p_atom_id`, `p_price_minor`, `p_listing_mode ∈ {buy_now, auction, offer}`, `p_command_key` —
+  all untrusted.
+- **Preconditions, in the order they must be evaluated.** Atom `state='active'`, `resale_state='none'`
+  (**`conflict_locked` otherwise — this is what blocks a double-sell**); caller is the current owner;
+  **`NOT kernel.is_transfer_frozen(p_atom_id)` → `frozen`** (§12.4c: *"rechecks — correct (error quality)"*,
+  so a fan sees *"Transfers are closed"* rather than an engine failure); the price is within the governing
+  `catalog.resale_policy` cap → `policy_violation`; `feature.native_resale_enabled` is ON, else
+  `precondition_failed('feature_disabled')`.
+- **The policy snapshot is taken here and is immutable for the listing's life.** `resale_policy_id` **and**
+  `resale_policy_version` are written onto the row (schema §4.1, O3/C11). §20.2.2's tightening therefore
+  binds only later listings. **An implementer who resolves the policy at sale time instead re-prices an offer
+  a buyer already accepted.**
+- **Locks & acquisition order (member #6).** **Listing (rank 4)** — the INSERT plus the partial
+  `UNIQUE(ticket_atom_id) WHERE status='active'` — → **Ticket Atom (rank 5) `FOR UPDATE`** via
+  `kernel.lock_ticket` (§7.4), which sets `resale_state := 'listed'` and **re-checks the freeze at the
+  choke-point** (§12.4c: *"correct — a choke-point"*). Ascending. **SSCAS: member #6 (Native listing
+  create)** — §14.1's existing row, now with a contract behind it.
+- **Idempotency.** `UNIQUE(seller_id, command_idempotency_key)` (C16) + the partial unique on the atom. A
+  replay returns the original `listing_id`; a **second** listing of the same atom is rejected by the index,
+  not by a race-prone `NOT EXISTS`.
+- **Writes.** `market.listing_native` (INSERT `active`), `kernel.tickets.resale_state` (→ `listed`, via
+  `kernel.lock_ticket` **only** — §0.7: the market layer never writes custody directly).
+  **No ownership-log row** — listing is an overlay, not a custody move (§7.4).
+- **Result.** `{ status, listing_id, resale_state, policy_version }`.
+- **Errors.** `insufficient_privilege(42501)` · `conflict_locked` (already listed/locked) · `frozen` ·
+  `policy_violation` (cap/window) · `precondition_failed(atom_not_active | feature_disabled)` ·
+  `idempotency_replay`.
+- **Forbidden callers.** Anyone who is not the atom's current owner — **including every venue role, every org
+  role and every platform role**; `anon`.
+- **Test.** `T-RPC-MARKET-01` (a non-owner, a `venue_manager` of the issuing venue and a `platform_admin` are
+  each refused; a second listing of a listed atom raises `conflict_locked`; a listing on a frozen session
+  raises `frozen`).
+
+#### 20.8.2 `market.cancel_listing(p_listing_id, p_reason_code, p_command_key)` — **DB-RPC (member #6 reverse)**
+
+- **Authority.** the listing's **seller** · **`is_platform(['platform_admin','platform_risk'])`** — RLS
+  §11.1's *"platform (cancel)"*. `INFERENCE:` §11.1 says *"platform"* without naming labels;
+  `platform_admin`/`platform_risk` are contracted (a takedown is a risk act), **`platform_support` is not**,
+  and this is flagged rather than assumed.
+- **Exempt from the freeze (§12.4c: *"delisting strands nothing"*).** Cancelling returns the atom to its
+  **existing** owner with an unchanged `credential_version`, so it cannot strand a credential and must stay
+  available after doors open — indeed `venue.open_door_manifest`'s drain (§12.4c) *is* this operation,
+  performed in bulk with `reason_code='door_freeze'`.
+- **Preconditions.** Listing `status='active'`. **A listing whose sale is `paid_pending_transfer` is NOT
+  cancellable** — `precondition_failed('sale_in_flight')`: money is already taken and `market.sweep_paid_
+  pending_sales` (§12.3) owns that row. This is the same exclusion `T-RPC-DOOR-12` asserts for the drain, and
+  it must hold on the direct path too or the drain's exclusion is bypassable by one tap.
+- **Locks & acquisition order.** **Listing (rank 4) `FOR UPDATE`** → **Ticket Atom (rank 5)** via
+  `kernel.unlock_ticket` (`resale_state → 'none'`). Ascending. **SSCAS:** the unlock overlay, member #6
+  reverse — the same classification §8.3 carries for #7 reverse.
+- **Idempotency.** Terminal state + `p_command_key`; a re-cancel is `noop_replay`.
+- **Writes.** `market.listing_native` (→ `cancelled`, `reason_code`), `kernel.tickets.resale_state` (→
+  `none`). Where an auction or open offers hang off the listing, **`market.auction` → `cancelled` and every
+  `pending` `market.offer` → `withdrawn` in the same transaction** — an offer against a cancelled listing
+  that stayed `pending` would be a live commitment against nothing, and a buyer would see it in their app.
+- **Result.** `{ status, listing_id, offers_withdrawn int }`.
+- **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(sale_in_flight |
+  not_active)` · `idempotency_replay`.
+- **Forbidden callers.** Any non-seller client; every org and venue role; `platform_support`.
+- **Test.** `T-RPC-MARKET-02` (cancelling a listing withdraws its pending offers and cancels its auction;
+  a `paid_pending_transfer` listing raises `sale_in_flight` on the direct path **and** is excluded from the
+  drain).
+
+#### 20.8.3 `market.create_auction(p_listing_id, p_reserve_minor, p_min_increment_minor, p_anti_snipe_seconds, p_ends_at, p_command_key)` — **DB-RPC**
+
+- **Authority.** the **listing seller** — RLS §11.1 (*"listing seller (create)"*), re-checked live against
+  `market.listing_native.seller_id`.
+- **Preconditions.** Listing exists, `status='active'`, `listing_mode='auction'`, and **has no auction**
+  (`UNIQUE(listing_id)` — one auction per listing, schema §4.2); `min_increment_minor > 0`;
+  `p_ends_at > now()` and within `config` bounds; `reserve_minor` (nullable) `>= 0`. The atom is already
+  `resale_state='listed'` from §20.8.1 — **`create_auction` takes no atom lock and changes no overlay.**
+- **Locks & acquisition order.** **Listing (rank 4) `FOR UPDATE`** (the parent, serialising against a
+  concurrent cancel) → the `market.auction` INSERT. **SSCAS.** `n/a (single-aggregate — Listing class;
+  `market.auction` is a Listing-class child written under the parent's lock)`.
+- **Idempotency.** `p_command_key` + `UNIQUE(listing_id)`.
+- **Writes.** `market.auction` (INSERT `active`, `current_highest_bid_minor := NULL`).
+- **Result.** `{ status, auction_id, ends_at }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `conflict_locked` (auction exists) · `precondition_failed(listing_not_active | bad_increment |
+  ends_in_past)` · `idempotency_replay`.
+- **`ends_at` and the door boundary.** An auction may legally end **after** `effective_freeze_at`, and
+  nothing here prevents it — but its finalize is a **custody move** and will be refused as `frozen`
+  (§12.4c). **This function warns rather than refuses:** the result carries
+  `{ ends_after_freeze bool, effective_freeze_at }` so the seller's UI can say so at creation time.
+  Refusing outright would be wrong — a session's boundary can move (§20.6.5), and an auction on a
+  multi-session event has no single boundary. `INFERENCE:` the warning field is authored; the corpus states
+  the freeze and never connects it to auction scheduling.
+- **Forbidden callers.** Any non-seller; every org, venue and platform role.
+
+#### 20.8.4 `market.place_bid(p_auction_id, p_amount_minor, p_command_key)` — **DB-RPC** · `NEW RPC` — **the function the corpus never named**
+
+> **Naming, stated plainly: `market.place_bid` is a name this document assigns.** RLS §11.1 grants EXECUTE
+> to *"any `authenticated` (bid)"* on a row literally reading **`market.create_auction` / bid RPC**; plan
+> `088`'s Functions row reads *"`create_auction`, **the bid RPC**, `make_offer`"*; schema §4.2's write
+> authority reads *"`create_auction`, **the bid RPC**, the finalize sweep."* Three documents grant, schedule
+> and assign write authority to a function none of them names. **Chosen to match the file's verb-first
+> convention** (`make_offer`, `respond_offer`, `create_auction`, `create_listing`) and to avoid colliding
+> with the EXT relation name `market.bid`.
+
+- **Authority.** **any `authenticated`** — RLS §11.1 verbatim — **except the listing's own seller**, who is
+  refused with `policy_violation('self_bid')`. `INFERENCE:` the seller exclusion is authored; *"any
+  authenticated"* read literally permits shill bidding on one's own listing, which is a fraud primitive, not
+  a capability. **Flagged for the owner** rather than silently assumed, because it narrows a granted row.
+- **Preconditions.** Auction `status='active'` and `now() < ends_at`; listing `status='active'`;
+  `p_amount_minor >= COALESCE(current_highest_bid_minor + min_increment_minor, reserve_minor,
+  min_increment_minor)` — evaluated **under the auction row lock**, so two simultaneous bids cannot both
+  clear the same head; `feature.native_resale_enabled` ON.
+- **Locks & acquisition order.** **Listing/Auction (rank 4) `FOR UPDATE`** on the `market.auction` row, and
+  **nothing else**. **It takes no rank-5 atom lock**, because a bid is not a custody event and the atom is
+  already `listed`. **SSCAS.** `n/a (single-aggregate — Listing class)`.
+- **Idempotency.** `p_command_key`; a replay returns the original bid outcome and does **not** re-raise the
+  head.
+- **Anti-snipe, and it is a write this function owns.** When a clearing bid lands within
+  `anti_snipe_seconds` of `ends_at`, `ends_at := now() + anti_snipe_seconds` **under the same lock**. This is
+  why the extension cannot live in the finalize sweep: by the time a sweep runs, the auction has ended.
+- **Writes.** `market.auction` (`current_highest_bid_minor`, `ends_at` on an anti-snipe extension) — the
+  **derived head** schema §4.2 describes as *"updated in the bid txn"* — **plus the bid ledger row, whose
+  home is the open decision below.**
+- **`OPEN DECISION` — the bid ledger's home, stated rather than invented.** §16.5 rules that MVP reuses the
+  frozen external `public.bids` engine; schema §4.2 qualifies that with *"when the listing mirrors there"*;
+  and schema §4.9 records `market.bid` as an **EXTENSION POINT**, explicitly **not created in `088`**.
+  **Nothing resolves the native-only case.** The MVP position contracted here:
+  1. **`market.create_auction` requires a listing that mirrors to `public.listings`**, so `public.bids` is
+     the ledger and the frozen `auto-finalize-auctions` engine is the finalizer. `market.place_bid` writes
+     the head and delegates the ledger append to the frozen path, **never re-implementing it** (I-10,
+     SPEC_FOUNDATION §2).
+  2. **A native-only auction is NOT offered in MVP.** `precondition_failed('native_only_auction_unsupported')`
+     at `create_auction` time, not at bid time — failing at the first door rather than after a seller has
+     collected bids.
+  3. Lifting (2) requires the EXT `market.bid` ledger, which is a package change and an owner decision.
+  **This is a proposal, not a ruling.** It is the reading most consistent with §16.5 and I-10; the owner may
+  instead schedule `market.bid`. **Either way it must be decided before `088` is written, because an
+  implementer facing this silence will create a `market.bid` table that no package specifies.**
+- **Result.** `{ status, auction_id, current_highest_bid_minor, ends_at, is_leading bool }`.
+- **Errors.** `insufficient_privilege(42501)` · `policy_violation(self_bid)` ·
+  `precondition_failed(auction_ended | below_increment | below_reserve | listing_not_active |
+  feature_disabled | native_only_auction_unsupported)` · `idempotency_replay`.
+- **Forbidden callers.** the listing's seller; `anon`. **No role is required to bid** — bidding is a consumer
+  capability.
+- **Test.** `T-RPC-MARKET-03` (two concurrent bids at the same amount: exactly one clears and the other
+  raises `below_increment`, asserted under real concurrency, not sequentially) · `T-RPC-MARKET-04` (a bid
+  inside the anti-snipe window extends `ends_at`; the seller's own bid raises `self_bid`).
+
+#### 20.8.5 `market.make_offer(p_listing_id, p_amount_minor, p_expires_at, p_command_key)` — **DB-RPC**
+
+- **Authority.** **any `authenticated`** — RLS §11.1 (*"any authenticated (offer)"*) — **except the listing's
+  seller**, refused with `policy_violation('self_offer')` on the same reasoning as §20.8.4 and flagged the
+  same way.
+- **Preconditions.** Listing `active` and `listing_mode ∈ {buy_now, offer}` (an auction takes bids, not
+  offers); `p_amount_minor > 0` and within the governing resale-policy cap → `policy_violation`;
+  `p_expires_at` within `config` bounds, **server-clamped, never client-trusted**;
+  `feature.native_resale_enabled` ON.
+- **An offer moves no money and takes no hold.** It is a **stated intent**, not an authorization: **no
+  `public.payments` row, no card authorization, no inventory hold, no atom lock.** The payment is verified
+  at accept time by `respond_offer` (§20.8.6, C35). **An implementer who takes a hold here creates a
+  capacity-consuming object with no sweep** — precisely the `G-24` failure this pass just closed in §20.3.3.
+- **Multiple live offers per listing are legal, and a buyer may hold at most one.** A second `pending` offer
+  from the same buyer on the same listing **replaces** the first (the earlier row → `withdrawn`, audited),
+  rather than raising: raising the amount is the common case and two live offers from one buyer against one
+  listing is a commitment they cannot both honour.
+- **Locks & acquisition order.** **Listing (rank 4) `FOR SHARE`** — shared, because many buyers offer
+  concurrently and none of them mutates the listing — then the `market.offer` INSERT. **SSCAS.**
+  `n/a (single-aggregate — Listing class)`.
+- **Idempotency.** `UNIQUE(buyer_id, command_idempotency_key)` (C16).
+- **Writes.** `market.offer` (INSERT `pending`; the buyer's prior `pending` offer → `withdrawn`).
+- **Result.** `{ status, offer_id, expires_at, replaced_offer_id }`.
+- **Errors.** `insufficient_privilege` · `not_found` · `policy_violation(self_offer | above_cap)` ·
+  `precondition_failed(listing_not_active | wrong_listing_mode | feature_disabled)` · `idempotency_replay`.
+- **Offer expiry.** `market.offer.status='expired'` is reached by **the same sweep pattern as §12.2** — a
+  `DEF` batch on the heartbeat. `INFERENCE:` the corpus gives `market.offer` an `expires_at` and an
+  `expired` status label and **schedules no sweep**, which is the `G-24` shape again in a second place.
+  Because an expired offer holds nothing, **it is not load-bearing** (unlike §20.3.3) — a stale `pending`
+  offer is a UI wart, not consumed capacity — so it is folded into `market.sweep_expired_p2p_transfers`'s
+  tick as a second statement rather than given its own function. **Filed in §20.14 for the plan owner.**
+
+#### 20.8.6 `market.respond_offer(p_offer_id, p_decision, p_payment_id, p_command_key)` — **DB-RPC (SSCAS member #2 on accept)**
+
+- **Authority.** the **listing seller** — RLS §11.1 (*"listing seller (respond)"*), live-rechecked.
+  `p_decision ∈ {accept, decline, counter}`.
+- **Accept is a native sale, and it is member #2 — not a new member.** §14.1 #2 already names its RPC cell
+  *"`kernel.transfer_ticket_ownership` (called by market checkout / **`respond_offer` accept** / auction
+  finalize)"*. This contract is what that parenthesis pointed at.
+- **Preconditions on accept (C35, the ones that matter).** Offer `pending`, not expired; listing still
+  `active`; atom still `resale_state='listed'` and owned by the seller; **`p_payment_id` resolves to a
+  verified `public.payments` row whose buyer is `market.offer.buyer_id`** — re-verified against the live
+  table, **the client-passed buyer is never trusted**; **`NOT kernel.is_transfer_frozen(atom)` → `frozen`**
+  (the caller-level recheck of §12.4c; the enforcement point remains
+  `kernel.transfer_ticket_ownership`, §7.2, which nothing bypasses).
+- **The market writes its own row FIRST, then calls the kernel — C8, and the order is not stylistic.**
+  `market.market_sale` is inserted (`sale_state='initiated' → 'paid_pending_transfer'`), **then**
+  `kernel.transfer_ticket_ownership(cause='market_sale', cause_ref=sale_id, p_payment_id)` is called **in the
+  same transaction**, which appends the ownership-log row, moves the head, **bumps `credential_version`**,
+  clears `resale_state` and sets `terminal_state`. **The kernel never writes `market` and the market never
+  writes custody** (§0.7). One cross-aggregate transaction per sale (§14.3).
+- **Locks & acquisition order (member #2).** **Event/Session `FOR SHARE` (rank 1 — the freeze read)** →
+  **Listing (rank 4) `FOR UPDATE`** → **Ticket Atom (rank 5) `FOR UPDATE`** → **Payment (rank 6) link**.
+  Ascending — no inversion, and identical to §7.2's stated sequence.
+- **Idempotency.** `UNIQUE(buyer_id, command_idempotency_key)` on `market_sale` **plus** the ownership-log
+  `UNIQUE(cause, cause_ref, ticket_atom_id)`, which makes *"a double transfer of the same atom under the same
+  sale physically impossible"* (§7.2). **Compensate-XOR-complete** holds on `market_sale.terminal_state`.
+- **Decline and counter.** `decline` → offer `declined`, **nothing else touched**. `counter` → the offer is
+  `declined` and a **new `pending` offer is written with the seller as its author** and the buyer as its
+  recipient, so the same accept path serves the counter-accept and no second state machine is created.
+  `INFERENCE:` `counter` is authored — RLS §11.1 grants *"respond"* without enumerating the verbs, and a
+  negotiation surface with no counter is a decline button.
+- **The losing offers.** On accept, **every other `pending` offer on that listing → `withdrawn`** in the same
+  transaction, and the listing → `sold`. Leaving them `pending` against a sold listing would show buyers a
+  live commitment against a ticket that is gone.
+- **Writes.** `market.offer` (→ `accepted`/`declined`/`withdrawn` ×N), `market.listing_native` (→ `sold`),
+  `market.market_sale` (INSERT), then via the kernel engine `kernel.ticket_ownership_log` +
+  `kernel.tickets` + `kernel.payment_native`.
+- **Result.** `{ status, sale_id, atom_id, credential_version, offers_withdrawn int }` — matching §7.2's
+  shape, so the RN "Finalizing…" flip reads the same fields it reads for every other native sale (§1.4).
+- **Errors.** `insufficient_privilege(42501)` · `payment_unverified` · `conflict_locked` · `frozen` ·
+  `precondition_failed(offer_expired | listing_not_active | not_pending)` · `idempotency_replay`.
+- **Forbidden callers.** Any non-seller; every org, venue and platform role; the buyer (they make and
+  withdraw offers, they do not respond to them).
+- **Test.** `T-RPC-MARKET-05` (accept with a payment belonging to a **different** identity raises
+  `payment_unverified` and moves no custody — the C35 regression) · `T-RPC-MARKET-06` (accept withdraws every
+  other pending offer and marks the listing `sold`; a replayed accept returns the original sale and appends
+  no second ownership-log row).
+
 ---
 
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
