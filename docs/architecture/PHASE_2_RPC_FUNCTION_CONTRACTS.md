@@ -3271,10 +3271,12 @@ their site as well as here.
    bidding and offering. RLS §11.1 grants *"any `authenticated`"*, which read literally permits shill
    bidding on one's own listing. **Narrowing a ratified grant is a decision, not a clarification**, and it is
    flagged for the owner rather than absorbed.
-10. **`venue.set_event_security_config` is wholly authored** (§20.6.6). RLS §11.4 grants EXECUTE and
-    ROLE_MODEL §11 row 15 classifies it `NEW RPC`; **no document states what it configures.** The key set,
-    the tighten-only direction and the Wallet-span invariant re-check are authored so it is not invented at
-    build time. Owner confirmation requested (§20.14 R-11).
+10. **`venue.set_event_security_config` is wholly authored AND `⛔ BLOCKED`** (§20.6.6). RLS §11.4 grants
+    EXECUTE and ROLE_MODEL §11 row 15 classifies it `NEW RPC`; **no document states what it configures**, and
+    **no table exists for it to write to.** The key set, the tighten-only direction and the Wallet-span
+    invariant re-check are authored so they are not invented at build time — but the storage gap is a
+    separate, harder block (§20.14 **`R-21`**), and `086` must not schedule the function while it stands.
+    Owner confirmation on the key set remains `R-11`.
 11. **`kernel.revoke_signing_key`'s `p_ack_live_credentials`** (§20.7.5) mirrors §17.11's
     `p_ack_live_devices`. The corpus specifies the acknowledgement pattern for the door override and not for
     key revocation, where the consequence is strictly larger.
@@ -3282,9 +3284,12 @@ their site as well as here.
     `pass_type_cert` trio and §11.1 does not state it for the *signing-key* trio. Contracted with it, because
     the asymmetry reads as an omission: the pass certificate signs a wallet artifact, the signing key signs
     the admission credential itself.
-13. **`venue.retire_scan_device`** (§20.4.3) and the **`market.offer` expiry sweep** (§20.8.5) are named
-    here. Each corresponds to a status label the schema defines and **no function writes** — the same shape
-    as `G-24`, found twice more during the reconciliation.
+13. **`venue.set_scan_device_status`** (§20.4.3, **superseding this document's earlier
+    `venue.retire_scan_device`** — §20.13) and the **`market.offer` expiry sweep** (§20.8.5). Each
+    corresponds to a status label the schema defines and **no function writes** — the same shape as `G-24`,
+    found twice more during the reconciliation. **The setter's name, its two-way domain and obligation RV-2
+    are TRANSCRIBED from schema §3.11.1, not authored**; only the earlier one-way `retire` was authored, and
+    it is withdrawn.
 14. **`market.respond_offer`'s `counter` branch** (§20.8.6). RLS §11.1 grants *"respond"* without
     enumerating the verbs; a negotiation surface with no counter is a decline button.
 15. **`market.create_auction`'s `ends_after_freeze` warning field** (§20.8.3). The corpus states the freeze
@@ -3307,6 +3312,28 @@ money or custody tables will produce policies that are never evaluated **and bel
 which is the single most likely way to build this wrong.
 
 ---
+
+**Additions from this reconciliation pass** (the four remediation passes' cross-file requests):
+
+17. **The door-session contract set** — §9.6 `venue.mint_door_session`, §9.7 `venue.revoke_door_session`,
+    §9.8 `venue.sweep_expired_door_sessions`. Schema §3.10a names all three (plus the `revoke_door_pin`
+    cascade) in its write-authority list and files them here; **the bodies, parameter lists, error classes,
+    lock orders, result shapes and the mint-supersedes-prior-session rule are authored.** The **security
+    properties** — the four assert clauses, the plain-digest-vs-slow-KDF split, RV-1, the partial unique —
+    are transcribed from schema §3.10a and are **not** this document's inventions.
+18. **The `p_door_session_id` / `/refresh` resolutions** (§1.1d `AUTHZ-H3a`) are **rulings between two
+    sibling specs**, not transcription. Both are filed back for confirmation (§20.14 `R-19`), and the
+    alternative for the selector is stated so the owner can take it.
+19. **The `venue.assert_may_request` helper** (§17.22) is named here. The CRM spec states the predicate must
+    be *"the same predicate a fresh request would face"* and gives it no name; **an unnamed shared predicate
+    is two copies of a predicate**, which is exactly how the download check lost the template.
+20. **`kernel.revoke_signing_key`'s door-episode force-close write set and lock order** (§20.7.5). Edge §5.6
+    and door §16 OQ-5 **require** the force-close as a grant condition; **which rows it writes, in which
+    order, and that `episodes_force_closed` is the blast-radius number shown to the operator are authored.**
+21. **Error-class opacity on the door path** — §1.1d returns one class for six distinct failures and
+    **never `not_found`**. The specs require equal timing and shape; **collapsing the error class is this
+    document's expression of that**, and it is stated because an implementer who returns `not_found` for an
+    unknown id has re-opened the enumeration oracle the dummy compare closes.
 
 ## 20. SET CLOSURE — the reconciliation of this document against RLS §11 and migration plan §8
 
@@ -5450,6 +5477,7 @@ six and to the three names §20 assigns.
 | *"bid RPC"* (unnamed) | **`market.place_bid`** (§20.8.4) | **NAMED HERE** |
 | the nightly holder-mix reconciliation (unnamed) | `venue.reconcile_holder_mix` (§17.20) | Named in §17.20; recorded here for completeness |
 | `venue.set_door_open_at` | **— does not exist —** | **RULED OUT** (§20.6.5); the capability is re-homed as `catalog.set_session_door_schedule`. **RLS §11.4's row is now replaced — `AUTHZ-R1` DISCHARGED** |
+| `venue.retire_scan_device` | **`venue.set_scan_device_status`** (§20.4.3) | **SUPERSEDED, not aliased** (schema §3.11.1 / §13.7 `S-11`). This document authored a one-way `retire`; the schema pass — which owns `venue.scan_device.status` — named a two-way setter and gave the reason: **un-retire must be permitted**, because a found device otherwise gets a duplicate row and **the scan ledger's device attribution fragments**, which is the property X-2 exists to protect. One function, `p_status ∈ {active, retired}`, carrying obligation **RV-2** |
 | `venue.decide_flagged_attribution` | `venue.review_attribution_flag` (§17.18) | **DELETED, not aliased** (`AUTHZ-H10`, §17.18). Two functions writing one append-only ledger under opposite authority is not a naming divergence — it is two authorities, and `max(seq)` made the permissive one decisive. The survivor carries the restrictive allow-list |
 
 > **`T-RPC-SET-02`:** exactly one physical function exists per row of this table. An alias that becomes a
@@ -5473,6 +5501,12 @@ change another spec's owner must make; each names the file, the section and the 
 | ~~R-2~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1a carries all fourteen, `DEF` rows first | — |
 | ~~R-3~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1c rules on all fifteen; fourteen accepted (three narrowed), `get_dashboard_summary` deferred to `R-10` | — |
 | ~~R-4~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1b, §9.16's authority rolled up unchanged | — |
+| ~~R-16~~ | schema §1.13 / plan `077` | **DONE by the schema pass** — `required_approver_class` and the three CHECKs landed, in the **three-label** spelling this document filed. This document now **writes** it in all three writers (§17.1, §10.3, §20.2.1) and **reads** it in §17.2 | — |
+| ~~R-17~~ | schema (`kernel.org_member`) / plan `077` | **DONE by the schema pass** — `granted_at` landed; `kernel.money_role_grant_matured` is bound in §17.1, §17.2, §17.7 **and now §10.3** | — |
+| ~~R-18~~ | plan §8 `078` | **DONE by the schema/plan pass** — the three keys are seeded and `comp.*` joined the dual-control namespace. **Extended here:** §20.2.1 adds `wallet.*`, `credential.*` and `door.session_*` (edge recon #16), and RLS §8.4 makes all seven `visibility='restricted'` | — |
+| **R-19** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a | **Two divergences between §3.9a and schema §3.10a, resolved here in favour of the pass that owns the table — §3.9a must be brought into line** (full reasoning: §1.1d `AUTHZ-H3a`). **(a)** The session's lookup handle is **`door_session_id`** (the uuid PK), not a `session_ref` text column — **no such column exists in §3.10a.1**. So the wire format is `DoorSession <door_session_id>.<secret>`, `token_hash = sha256(door_session_id::text \|\| ':' \|\| secret)`, and the derived limiter principal is `uuidv5(NS_DOOR_SESSION, door_session_id)`. **(b)** There is **no `/refresh` that extends a session without re-presenting the PIN**, and no `refresh_door_session` RPC is contracted; `/refresh` **re-mints** through §9.6 | §3.9a is unimplementable as written: it selects rows by a column the schema does not define, and its refresh route is the one property schema §3.10a.4 deliberately refused (*"a path that outlives the PIN"*). **The alternative for (a) is a one-column schema addition, not an edge edit** — but it must be decided in the schema, and until it is, an implementer following §3.9a writes a `session_ref` that nothing stores |
+| **R-20** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a · `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | **`assert_door_session` returns the bound `(device_id, event_session_id)`, and the edge MUST pass that returned device id as `p_actor_device_id`** — never a value from the request, which is now **rejected** rather than ignored (`invalid_input`) if it appears in `p_scan_meta`. Also: **`venue.reconcile_offline_scans` takes `p_session_id`** (the assert is per `(device, session)`, so a batch spanning sessions cannot be bound to one) | §3.9a already states the obligation in prose (per-relay rule 3); the **signature** it must call is now fixed, and matrix **X-5** should cite it. A batch parameter that changed shape is a compile error the edge author must see, not a runtime surprise |
+| **R-21** | **Owner ruling** (schema §13.7 `S-13`) | **`venue.set_event_security_config` is `⛔ BLOCKED`** (§20.6.6): it writes *"the per-event door-config rows"* and **no such table exists in any package.** Either schedule `catalog.event_security_config` into `078` (`restricted` visibility, AO per version) **or** rule the function out as `venue.set_door_open_at` was. **This document does not invent the table, and `086` must not schedule the function while it is BLOCKED** | A function scheduled with nowhere to write is unbuildable regardless of which keys it accepts. **This is separate from `R-11`**, which asks about the key set — answering `R-11` does not answer this |
 | **R-13** | `PHASE_2_ROLE_MODEL_SPEC.md` §11 R-16 + §12 row 17 · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §21.4 | **Drop `venue.decide_flagged_attribution`** (`AUTHZ-H10`, §17.18). Δ7 and Δ4 are the same control; `venue.review_attribution_flag` is the sole writer of `venue.attribution_review` and now carries the restrictive allow-list | Two functions writing one append-only ledger under opposite authority meant the deny-list stopped nothing: effective decision is `max(seq)`, so the conflicted party appends `release` at `seq+1`. **Plan `090` never named the deleted function**, so nothing is left without a writer |
 | **R-14** | `PHASE_2_ROLE_MODEL_SPEC.md` §5 (supersession clause) | **Add §11 to the list of sections §5.3 supersedes.** It currently names *"RLS §7.x/§9.x role rows and DA §7.6"* and **omits §11 — the one table that calls itself the authority model for every money and custody write** | This omission is the mechanism of `AUTHZ-H5`: ROLE_MODEL edit R-14 rewrote `venue_door → venue_scanner` lexically across §11, preserving capabilities §5 was simultaneously removing, and no clause said §5 governed. RLS §11.0 now states the rule from its own side and `T-RLS-EXEC-01` asserts it; **the role model should state it too, because a rule that only the downstream document knows is the rule that was just violated** |
 | **R-15** | `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | `G-8b(i)` is **closed on the specification side**: the C39 threshold now has keys (`comp.per_staff_step_up_max_units`, `comp.per_staff_step_up_window_hours`), a contract (§20.5.1) and tests (`T-RPC-AUTHZ-12/15`). It stays open on the **plan** side until `086`'s Tests row names them (`R-7`) | `G-8b(i)` records comps as *"asserted by neither surface"*; half of that is now false and the matrix should not keep asserting it |
@@ -5481,7 +5515,7 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-17** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` (`kernel.org_member`) / plan `077` | **`granted_at timestamptz NOT NULL DEFAULT now()`**, written by `accept_org_invite` and reset by `change_org_role` on promotion **into** a money role. RLS §17 **X-11** | **`AUTHZ-C1B`:** without it `kernel.money_role_grant_matured` cannot be written, and SoD-1/SoD-2 stay satisfiable by a counterparty the attacker minted through the ordinary invite flow |
 | **R-18** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `078` (config seeds) | Three keys: **`authn.money_role_maturity_hours`**, **`comp.per_staff_step_up_max_units`**, **`comp.per_staff_step_up_window_hours`**; and **`comp.*` joins the money dual-control namespace**. All four of these plus `refund.platform_support_max_minor` must be documented **fail-to-safe** — an absent key means *no grant is mature* / *every comp needs step-up* / *support approves nothing*. RLS §17 **X-12** | A threshold that gates an authority and does not exist is not a gate. The `comp.*` pair is C39, cited in five documents with **no key anywhere**; `authn.money_role_maturity_hours` is new with `AUTHZ-C1B` |
 | **R-6** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `081` | **Add `venue.sweep_expired_inventory_holds` to the Functions row and its assertion to the Tests row** | `G-24`. The index is built for a sweep the package does not create; without it held capacity never returns and every abandoned checkout removes inventory from sale permanently |
-| **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_event_security_config`, `set_session_door_schedule`; `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available` | A contracted function with no package is a function nobody builds. §8 is where an implementer looks |
+| **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `087`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_session_door_schedule`, **`mint_door_session`, `revoke_door_session`, `sweep_expired_door_sessions`, `set_scan_device_status`** (`AUTHZ-H3`), and **NOT `set_event_security_config`, which is `⛔ BLOCKED` (`R-21`)**; **`087`: `claim_artifacts_for_purge`, `confirm_artifact_purged`, `reconcile_export_orphans`, `assert_may_request`** (`AUTHZ-CRM2`) and **`077`/`082`: the two contact `_event` logs' writers** (`AUTHZ-CRM1`); `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available`. **Also `unpublish_holder_mix` / `unpublish_all_holder_mix`** in the demographics package | A contracted function with no package is a function nobody builds. §8 is where an implementer looks. **`venue.retire_scan_device` must NOT be scheduled** — it is superseded (§20.13), and scheduling both builds two writers for one column |
 | **R-8** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §20A.1 → §20A.2 | **Move the `venue.allocate_comp` / `venue.issue_comp` rows** out of *"mapped — write controls with a named RPC"* | `G-4`. §20A.1 asserts a contract that did not exist; the name existed and the contract did not. §20.5 now supplies it, so the rows may move to *"mapped"* only once §20 is merged — **and the earlier listing must not be cited as evidence that they were mapped** |
 | **R-9** | **Owner ruling** | **The bid ledger's home** (§20.8.4 `OPEN DECISION`): accept "native-only auctions are not offered in MVP", or schedule the EXT `market.bid` ledger into `088` | §16.5, schema §4.2 and schema §4.9 leave it open in three different words. An implementer facing that silence creates a table no package specifies — and a bid ledger invented at build time is a money surface with no review |
 | **R-10** | **Owner ruling** | **`venue.get_dashboard_summary`** (`G-18`): accept N queries on home, or schedule it | Nothing depends on it, which is exactly why it drifts. §20.10 makes it decidable |
