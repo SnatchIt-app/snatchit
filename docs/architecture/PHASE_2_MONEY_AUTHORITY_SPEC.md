@@ -116,9 +116,42 @@ control inverted. **Corrected in §3.3:** the Org Finance cell on *Release held 
 
 ## 2. Corrected RLS matrices — drop-in replacements
 
+> **`SPEC CORRECTION R4-1` (2026-08-28; ratification rows `C120` / `D30`) — THE DROP-IN INSTRUCTION IS
+> WITHDRAWN AS A VERBATIM INSTRUCTION, BECAUSE THE TARGET HAS SINCE BEEN REPAIRED PAST THIS SECTION.**
+>
+> **The defect.** §13's reconciliation pass swept ten sections of this document onto `AUTHZ-C1A`/`C1B`
+> (§13.1 enumerates them: **§6.1, §6.2, §6.6, §6.7, §6.7a, §7.3, §8.2, §8.5, §9.2, §12** — ten). **§2.1,
+> §2.2, §2.3 and §3.1 are absent from that list and were never swept.** Meanwhile this section still carried
+> the heading *"drop-in replacements"* and RLS **§11.3**'s own heading still reads *"(money spec §2.3 —
+> replaces the corresponding §11.1 rows)"* — while RLS §11.3 **has** been repaired and §2.3 **had not**. An
+> integrator executing §2 as literally instructed would have **overwritten the repaired RLS §11.3 with the
+> defect this document's own §6.2 explains at length.** Concretely, the pre-sweep §2.3 would have:
+> (1) re-branched `kernel.approve_refund_request` on the **unstored** tier strings `pending_approval` /
+> `pending_platform_review` — the exact `AUTHZ-C1A` defect, ratified as **`C57`**; (2) restored the
+> **pre-`AUTHZ-C1A2`** union predicate `is_platform([platform_support, platform_risk, platform_admin])` over
+> **every** approval flow, under which `platform_support` approves the raise of its own ceiling;
+> (3) dropped the **`kernel.money_role_grant_matured`** conjunct entirely (`AUTHZ-C1B` / **`C58`**);
+> (4) **narrowed the mandatory dual-control config namespaces from seven back to three**, silently deleting
+> `comp.*`, `wallet.*`, `credential.*` and `door.session_*` — a weakening, not a stale restatement; and
+> (5) **deleted two EXEC rows outright**, `kernel.list_approval_requests` and `kernel.record_money_denial`,
+> the second of which is the only audit path for a failed money predicate.
+>
+> **The repair, and its limit.** §2.1/§2.2/§2.3 below are swept onto the ratified text. **But the
+> replace-verbatim instruction does not come back.** RLS **§7.9 / §7.10 / §11.3 at head are the applied
+> result**, not a target awaiting this section; §2 is now the **derivation and the rationale** for those
+> rows, reconciled to them and carrying the footnotes RLS does not restate. **Where this section and RLS
+> differ in future, RLS §11.3 governs the EXEC authority branch and §7.9/§7.10 govern the table matrices** —
+> a determination read off ratification rows `C57`/`C58` exactly as `D14` read it, **not** a general
+> precedence rule between delta specs, which remains open decision **`O11`** and an owner call.
+>
+> **RLS's own back-reference needs the matching edit and this pass cannot make it:** §11.3's heading
+> *"(money spec §2.3 — replaces the corresponding §11.1 rows)"* should read *"— derived from money spec
+> §2.3; this section is the applied result"*. **Reported to the RLS owner; not edited here.**
+
 These are written in the RLS spec's own vocabulary (§1.2 cell legend: **A** allow · **D** deny · **R**
 RPC-only · **V** view-only-via-scoped-RPC · superscript = column/scope note) and its own row ordering, so they
-can replace §7.9 and §7.10 verbatim. `SPEC CORRECTION` throughout — **no table gains a client-writable path.**
+read against §7.9 and §7.10 line for line. `SPEC CORRECTION` throughout — **no table gains a client-writable
+path.**
 
 ### 2.1 Replacement for RLS §7.9 — `kernel.payout`
 
@@ -136,7 +169,7 @@ can replace §7.9 and §7.10 verbatim. `SPEC CORRECTION` throughout — **no tab
 > | **org_admin** | **D**¹⁵ᶜ | D | D | D | **—** |
 > | org_finance | V(own-org payouts)¹⁵ᵇ | D | R | D | `request_org_payout` (own org; same threshold rule) |
 > | venue_finance | **V(own-venue *settlement-caused* payouts only)**¹⁵ᵈ | D | D | D | — |
-> | venue_manager/door/promoter | D¹⁵ | D | D | D | — |
+> | venue_manager / venue_scanner / venue_box_office / venue_marketing / venue_promoter_manager / door session / promoter | D¹⁵ | D | D | D | — |
 > | platform_support | V | D | D | D | — |
 > | platform_risk | A(money read) | D | R | D | `hold_payout` · `release_payout` (dual-control seam, SoD-3) |
 > | platform_admin | A | R | R | D | admin payout ops (audited) · `hold_payout` · `release_payout` |
@@ -176,7 +209,7 @@ can replace §7.9 and §7.10 verbatim. `SPEC CORRECTION` throughout — **no tab
 > | **org_admin** | **D**²ᵇ | D | D | D | **—** |
 > | org_finance | V(own-org refunds)²ᵃ | R | D | D | `request_order_refund` · `approve_refund_request` (own org; SoD) |
 > | venue_finance | V(own-venue)²ᶜ | D | D | D | — |
-> | venue_manager/door/promoter | D | D | D | D | — |
+> | venue_manager / venue_scanner / venue_box_office / venue_marketing / venue_promoter_manager / door session / promoter | D | D | D | D | — |
 > | platform_support | V | R | D | D | `refund_primary_order` (support-initiated, capped, audited) · `approve_refund_request` (platform-review tier) |
 > | platform_risk | A(money read) | R | D | D | `admin_refund` (dispute) · `approve_refund_request` (platform-review tier) |
 > | platform_admin | A | R | R | D | `admin_refund` · `refund_primary_order` · `approve_refund_request` |
@@ -196,21 +229,47 @@ can replace §7.9 and §7.10 verbatim. `SPEC CORRECTION` throughout — **no tab
 
 ### 2.3 Replacement rows for RLS §11 (EXECUTE-via-RPC authority)
 
+> **SWEPT 2026-08-28 under `R4-1` (rows `C120` / `D30`).** Reconciled to RLS **§11.3** and RPC **§17.2** at
+> head, and to this document's own **§6.2**. The two rows that carried the defect are called out under the
+> table. **`kernel.approve_refund_request`'s predicate is not restated as a role list here** — it is keyed on
+> `(action, required_approver_class)` and that five-row table is §6.2's, stated once.
+
 | RPC | May invoke (predicate, live-rechecked) |
 |---|---|
 | `kernel.refund_primary_order` | **definer** (from `request_order_refund` / `approve_refund_request` / `catalog.cancel_event` / C25 sweep) · `is_platform([platform_support (capped), platform_admin])` |
 | `kernel.admin_refund` | `is_platform([platform_risk, platform_admin])` |
-| **`kernel.request_order_refund`** *(NEW)* | owner-of-order (capped + windowed) · `has_org_role([org_owner, org_finance])` · `is_platform([platform_support, platform_risk, platform_admin])` |
-| **`kernel.approve_refund_request`** *(NEW)* | `has_org_role([org_owner, org_finance])` **AND `approver ≠ requester`** (SoD) · `is_platform([platform_support, platform_risk, platform_admin])` for the platform-review tier |
-| **`kernel.cancel_refund_request`** *(NEW)* | the requester · `has_org_role([org_owner, org_finance])` · platform |
-| **`kernel.sweep_expired_refund_requests`** *(NEW)* | definer / scheduler only |
-| `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])` (unchanged — now consistent with §7.9) |
+| **`kernel.request_order_refund`** *(NEW)* | owner-of-order (`venue.order.buyer_id = auth.uid()`, capped + windowed) · `has_org_role(order.org_id,[org_owner, org_finance])` **AND** `kernel.money_role_grant_matured(order.org_id)` · `is_platform([platform_support, platform_risk, platform_admin])`. **`org_admin` and every venue role are forbidden callers** (§3.4) |
+| **`kernel.approve_refund_request`** *(NEW)* | **Keyed on `(action, required_approver_class)` and on NOTHING ELSE — §6.2's five-row table is the whole predicate**, and it is identical to RLS §11.3 and RPC §17.2. Common to every arm: `auth.uid() <> request.requested_by` (SoD-2, structural, `self_approval` its own named failure) **AND** the `kernel.money_role_grant_matured(request.org_id)` conjunct on the **org** arms (`AUTHZ-C1B`) **AND** step-up per `AUTHZ-M4`. **`state='pending' AND NOT expired` is an actionability precondition, never an authority input.** Bound by **EDGE-CALLER-JWT** (§8.3c) |
+| **`kernel.cancel_refund_request`** *(NEW)* | the requester · `has_org_role([org_owner, org_finance])` · platform. **No maturity conjunct** — it is never applied to a deny or a cancel (§6.7a) |
+| **`kernel.sweep_expired_refund_requests`** *(NEW)* | **`DEF`** — scheduler only. **Not optional:** without it a parked request is an unbounded denial-of-admission on a paying customer's ticket |
+| **`kernel.list_approval_requests`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` (own org) · `is_platform` — the approval queue |
+| **`kernel.record_money_denial`** *(NEW)* | **`DEF`** — `service_role` only, **no human path**. A failed predicate `RAISE`s, which rolls the transaction back and takes the audit row with it; the edge catches `insufficient_privilege` / `sod_violation` / `step_up_required` and calls this **in a separate transaction**. See `C93` — the contract's actor problem is repaired at RPC §17.9, not here |
+| `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])`. **Four preconditions** (§6.7): the destination-probation hold; the **SoD-1 destination-setter exclusion** (rejects `auth.uid() = organization.payout_destination_set_by`, **permanently for that destination**, `sod_violation`); step-up; and `kernel.money_role_grant_matured(p_org_id)`. Above `payout.dual_control_min_minor` it parks an approval instead of advancing |
 | **`kernel.list_org_payouts`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (settlement-cause rows for own venue only) · `is_platform` |
 | **`kernel.list_org_refunds`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (own-venue) · `is_platform` |
-| `kernel.set_org_payout_destination` | `has_org_role([org_owner])` **only** · **step-up + SoD + probation** — full control set in §8 |
+| `kernel.set_org_payout_destination` | `has_org_role([org_owner])` **only**, **AND `kernel.money_role_grant_matured(p_org_id)`** · **step-up + SoD + probation** — full control set in §8. `org_finance` **excluded entirely** (SoD-1) |
 | `kernel.close_settlement` | `has_org_role([org_finance])` · `has_venue_role([venue_finance])` · platform *(unchanged; `org_owner` still cannot close — see §3.2)* |
 | `kernel.hold_payout` / `kernel.release_payout` | `is_platform([platform_risk, platform_admin])` *(unchanged; SoD-3 — no org role, ever)* |
-| `catalog.set_platform_config` | `is_platform([platform_admin])`; **for keys in the `refund.*` / `payout.*` / `authn.*` namespaces, dual control is MANDATORY, not a seam** (§7.3) |
+| `catalog.set_platform_config` | `is_platform([platform_admin])`; **for keys in the `refund.*` / `payout.*` / `authn.*` / `comp.*` / `wallet.*` / `credential.*` / `door.session_*` namespaces — SEVEN, enumerated, not a count — dual control is MANDATORY, not a seam** (§7.3). The call creates a `kernel.approval_request` with `action='config.set_money_key'` and **`required_approver_class='platform_admin'`**, approved by a **second distinct `platform_admin`**; **`platform_support` and `platform_risk` hold NO approval authority on this action** (`AUTHZ-C1A2`). **Direction asymmetry:** *lowering* a limit executes directly; only *raising* one parks an approval. All seven namespaces are also `visibility='restricted'` (RLS §8.4 `AUTHZ-CFG1`) |
+
+> **The two rows that carried the defect, named so the trap is learnable and not merely gone.**
+>
+> **(1) `kernel.approve_refund_request`.** It read
+> *"`has_org_role([org_owner, org_finance])` AND `approver ≠ requester` · `is_platform([platform_support,
+> platform_risk, platform_admin])` **for the platform-review tier**"* — a branch on the tier, and the tier is
+> **not stored**. `kernel.approval_request.state` is `pending · approved · denied · cancelled · expired ·
+> stale`; the discriminator is `required_approver_class`, and reading anything else routes **every** parked
+> refund to the org arm, above-ceiling and consumed-atom cases included (`C57`). The same row's single
+> platform predicate also let **`platform_support` approve `config.set_money_key`** — the raise of its own
+> cap — which is what `AUTHZ-C1A2` closes. And it carried **no maturity conjunct**, leaving both money SoD
+> primitives satisfiable by a counterparty the acting `org_owner` mints seconds earlier (`C58`).
+>
+> **(2) `catalog.set_platform_config`.** It named **three** dual-control namespaces where the ratified set is
+> **seven**. Restated verbatim into RLS §11.3 this would have *removed* `comp.*` (the insider-fraud gate,
+> `AUTHZ-M8`), `wallet.*` and `credential.*` (feature kill switches — *"a kill switch one account can flip is
+> not a kill switch"*, Wallet §11.7) and `door.session_*` (the lifetime of a bearer credential, `AUTHZ-H3`).
+> **That is a weakening of a ratified control, not a stale restatement**, and it is the reason this pass
+> withdrew the verbatim instruction rather than only refreshing the text.
 
 ### 2.4 Row that does **not** change (stated so no one "helpfully" widens it)
 
@@ -231,9 +290,10 @@ scoped · **✱** step-up · blank = denied).
 | Privileged action | Plat Admin | Support | Risk Ops | Org Owner | Org Admin | Org Finance | Venue Mgr | Box Office | Marketing | Door | Promoter Mgr | Promoter | Seller | Buyer | Ambassador |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | Freeze account / payouts (risk) | ✔ | | ✔ | | | | | | | | | | | | |
-| Release held funds | ✔ᴰ✱ | | | | | | | | | | | | | | |
+| Release held funds | ✔ᴰ✱ | | **✔ᴰ✱** | | | | | | | | | | | | |
 | Initiate payout (≤ threshold) | | | | ✔✱ | | ✔✱ | | | | | | | | | |
-| Initiate/approve payout (> threshold) | ✔ᴰ✱ | | | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
+| Initiate payout (> threshold) — parks an approval | ✔ᴰ✱ | | | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
+| **Approve someone else's payout request** | ✔ᔆ | | **✔ᔆ** | ✔ᔆ | | ✔ᔆ | | | | | | | | | |
 | Change payout/bank account | | | | ✔✱ᔆ | | | | | | | | | | | |
 | Issue refund (≤ auto-execute threshold) | ✔ | ✔(capped) | ✔ | ✔✱ | | ✔✱ | | | | | | | | ◐(own, capped) | |
 | Issue refund (> auto-execute threshold) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
@@ -245,9 +305,48 @@ scoped · **✱** step-up · blank = denied).
 | Close settlement (→ payout) | ✔ | | | | | ✔ | | | | | | | | | |
 
 **New legend symbol: `ᔆ` = SoD-constrained** — allowed, but structurally excluded from the paired act by the
-same identity. Two uses: (a) *Change payout/bank account* — an `org_owner` who set the current destination can
-never themselves request a payout to it (§8.2); (b) *Approve someone else's refund request* — `approver ≠
-requester`, always (§6.2).
+same identity. Three uses: (a) *Change payout/bank account* — an `org_owner` who set the current destination
+can never themselves request a payout to it (§8.2); (b) *Approve someone else's refund request* — `approver ≠
+requester`, always (§6.2); (c) *Approve someone else's payout request* — `approver ≠ requester`, **plus** the
+§8.2 destination-setter exclusion applied to the **approver** as well as the requester, otherwise the
+destination-setter simply approves instead of requesting (§6.2, §9.2).
+
+> **`SPEC CORRECTION R4-2` (2026-08-28; rows `C121` / `D30`) — TWO CELLS OF THIS MATRIX CONTRADICTED THIS
+> DOCUMENT'S OWN §1.3, §2.1, §2.3 AND §6.2, AND THE MATRIX IS THE COPY THAT REACHED THE CONSTITUTION.**
+>
+> Both are the `§13.1`-omission class: §3.1 was never swept by the `AUTHZ-C1A`/`C1B` pass (§13.1 as amended).
+> Both are resolved **from the corpus, not by a new grant** — in each case three or more sibling statements
+> agree and this matrix was the sole dissenter. **Neither is an owner decision, and neither widens anyone's
+> authority beyond a predicate already ratified.**
+>
+> **(1) *Release held funds* — Risk Ops was blank.** This document's **§1.3** states `kernel.release_payout`
+> is *"`is_platform([platform_risk, platform_admin])` only"* and is the section that raised the row;
+> **§2.1**'s `platform_risk` EXEC cell reads *"`hold_payout` · `release_payout` (dual-control seam, SoD-3)"*;
+> **§2.3** and RLS **§11.3** both read `is_platform([platform_risk, platform_admin])`. **Four statements, one
+> blank cell.** §3.2's itemization shows why: the correction that produced this row removed **Org Finance**
+> and never asked what should be in the cell it left. Corrected to **✔ᴰ✱** — `ᴰ` carries SoD-3 exactly
+> (*"whoever freezes funds does not unilaterally release them"*, domain §7.4), which is the property the
+> blank was standing in for and stated far too strongly.
+>
+> **(2) *Initiate/approve payout (> threshold)* — one row asked two questions.** The old row merged
+> **initiate** and **approve** and left Risk Ops blank, while **§6.2**, **§9.2**, RLS **§11.3** and RPC
+> **§17.2** all give `payout.request` / `platform` → `is_platform(['platform_risk','platform_admin'])`. The
+> fix is **not** a ✔ in the merged row: `platform_risk` holds **no** `request_org_payout` grant anywhere
+> (that predicate is `has_org_role([org_finance, org_owner])`), so a ✔ there would have granted Risk Ops the
+> authority to *initiate* a payout — a real widening. **The row is split**, exactly as §3.2 split the refund
+> row into tiers, so the matrix asks the same two questions the stored `(action,
+> required_approver_class)` discriminator asks. The refund half of this matrix already had both rows; the
+> payout half had only one, and that asymmetry is what hid the contradiction.
+>
+> **`platform_support` is DENIED on the payout arm** in both new rows and holds no payout authority anywhere
+> in this document (§6.2, §9.2) — the generic approval object must not become the place it acquires one.
+>
+> **The constitution carries the uncorrected copy and this pass cannot edit it.**
+> `SNATCH_IT_DOMAIN_ARCHITECTURE.md` **§7.6** was populated from **this table** by ratified row **`D6`**
+> (*"Applied: the money spec's corrected matrix, in place, in the constitution"*), so DA §7.6 today has
+> *Release held funds* with Risk Ops blank and a single merged *Initiate/approve payout (> threshold)* row.
+> **Both need the identical edit**, and under freeze Rule 1 that reaches DA only through a ratified row —
+> filed as **`C121`**. **Reported to the constitution owner; not edited here.**
 
 ### 3.2 Changes vs the current §7.6, itemized
 
@@ -259,6 +358,9 @@ requester`, always (§6.2).
 | Change payout/bank account — Org Finance | ✔✱ | **blank** | SoD-1: `org_finance` requests payouts under O-3; one role may not hold both halves (§8.2) |
 | Change payout/bank account — Org Owner | ✔✱ | ✔✱**ᔆ** | O-3 requires strictly stronger controls than a payout request; §8 specifies them |
 | Release held funds — Org Finance | ✔ᴰ✱ | **blank** | SoD-3 + RPC §11.3; §1.3 |
+| **Release held funds — Risk Ops** | *(blank — never asked)* | **✔ᴰ✱** | `R4-2`. §1.3/§2.1/§2.3/RLS §11.3 all read `is_platform([platform_risk, platform_admin])`; the Org-Finance removal above left this cell unexamined |
+| **Initiate/approve payout (> threshold)** | one row merging two acts, Risk Ops blank | **split into *Initiate (> threshold)* and *Approve someone else's payout request*** | `R4-2`. The stored discriminator is `(action, required_approver_class)`; one row could not carry two answers, and the merge is what let the platform approve arm go missing |
+| **Approve someone else's payout request — Risk Ops** | *(no such row)* | **✔ᔆ** | `R4-2`. §6.2/§9.2/RLS §11.3/RPC §17.2 give `payout.request`/`platform` → `is_platform(['platform_risk','platform_admin'])`; `platform_support` denied |
 | View payout ledger & status | *(row did not exist)* | **new row** | O-3's core grant had no matrix row at all |
 | View refund ledger | *(row did not exist)* | **new row** | same |
 | Close settlement | *(covered only by "View org/venue finance reports")* | **new row, `org_finance` only** | preserves RPC §10.2 and dashboard §14.4; `org_owner` opens and reads, does not close |
@@ -377,7 +479,7 @@ is correct, not a leak: the org is the payee and the money is legally the org's.
 
 Venue-grain isolation is a claim about **venue roles**, and it holds by a different mechanism:
 
-- A `venue_manager` / `venue_finance` / `venue_door` at venue A holds a `venue.staff_role` row, **not** a
+- A `venue_manager` / `venue_finance` / `venue_scanner` at venue A holds a `venue.staff_role` row, **not** a
   `kernel.org_member` row. `has_org_role(...)` is therefore false for them, and the org arm of §4.2 denies
   outright. Venue staff cannot reach the org payout ledger at all.
 - The **only** venue arm is the narrow `venue_finance` one (matrix note ¹⁵ᵈ), which is:
@@ -860,7 +962,8 @@ Adopts and closes dashboard **Δ3**, and is the mechanism that makes O-3's read 
 
 - **Role.** `has_org_role(p_org_id, ['org_owner','org_finance'])` · `has_venue_role(p_venue_id,
   ['venue_finance'])` (settlement-cause arm only, §4.3) · `is_platform`. `org_admin`, `org_member`,
-  `venue_manager`, `venue_door`, `promoter` ⇒ `insufficient_privilege`.
+  `venue_manager`, `venue_scanner`, `venue_box_office`, `venue_marketing`, `venue_promoter_manager`, and the
+  promoter principal ⇒ `insufficient_privilege`.
 - **Params.** `p_org_id` **required and untrusted**; `p_venue_id` used only by the venue arm; `p_filters` a
   **closed set** `{status[], cause[], date_from, date_to}`; `p_cursor` opaque. **No parameter may widen scope**
   — the filter is always applied *in addition to* `payee_org_id = p_org_id`.
@@ -1613,6 +1716,14 @@ already existed in a ratified row; the only thing that changed is that this docu
 | **§9.2** | above-threshold payout parks an approval; dispatch described as `action`-based | dispatch is `(action, required_approver_class)`; named as the **third writer** of the class; `platform_support` denied on the payout arm; result shape stated | `C57` |
 | **§12** | ADDITIVE item 1 listed the table **without** the tier column and with a **single** SoD CHECK; no `granted_at` item | item 1 carries the column, the full CHECK set and both indexes; **new item 3a** for `kernel.org_member.granted_at` | `C57`, `C58` |
 
+> **AMENDED 2026-08-28 by `R4-1` (rows `C120` / `D30`) — this table lists TEN sections and the document has
+> FOURTEEN that state money authority.** The ten sections swept above are **§6.1, §6.2, §6.6, §6.7, §6.7a,
+> §7.3, §8.2, §8.5, §9.2, §12**. **§2.1, §2.2, §2.3 and §3.1 were not swept and are not in this table** — and
+> §2 is the section headed *"drop-in replacements"*, so the four unswept sections were precisely the ones an
+> integrator was instructed to copy over the repaired text. They are swept under `R4-1`; see **§15**. **The
+> omission is the finding, not the sections**: a section-by-section change log is only a proof of completeness
+> if something independently fixes its denominator, and nothing did.
+
 ### 13.2 What this pass did NOT do, stated because the boundaries are load-bearing
 
 - **It did not retire this document.** The live-vs-retired question was settled on evidence (banner, §13.3),
@@ -1722,6 +1833,55 @@ call and nothing bounded the sequence.**
 - **It renumbered nothing.** No package (`076`–`091`), no migration (`071`–`075`), no prior ratification row,
   no existing test id — `T-RPC-MONEY-21..24` are **appended** so `-15..-20` keep their numbers. **No
   `OFFLINE-VERIFY-v1` block appears in this document and none was touched anywhere.**
+
+---
+
+## 15. Correction index — the `R4` unswept-text pass (2026-08-28)
+
+**Authority:** ratification rows **`C120`** (`R4-1` — the drop-in section that still carried the defect),
+**`C121`** (`R4-2` — the intra-document payout-approval contradiction) and **`D30`** (the documentation half,
+including the abolished venue labels), filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass.
+
+**What it found, in one sentence.** §13's reconciliation pass swept **ten** sections and this document has
+**fourteen** that state money authority — and the four it missed (§2.1, §2.2, §2.3, §3.1) are the four an
+integrator is instructed to copy over the repaired text, so the unswept copy was not merely stale, it was
+**executable**.
+
+### 15.1 What changed, section by section
+
+| § | Before (at `f97f6cd`) | After | Row |
+|---|---|---|---|
+| **§2** heading | *"drop-in replacements … can replace §7.9 and §7.10 verbatim"*, with §2.3 unswept | the verbatim instruction is **withdrawn**; RLS §7.9/§7.10/§11.3 at head are the **applied result**; §2 is the derivation, reconciled to them; the five concrete consequences of executing the old instruction are enumerated | `C120` |
+| **§2.1**, **§2.2** venue row | `venue_manager/door/promoter` — the abolished four-label enum in shorthand | the six ratified labels + `door session` + `promoter`, matching RLS §7.9 at head | `D30` |
+| **§2.3** `approve_refund_request` | branch on the **unstored** tier strings; **pre-`AUTHZ-C1A2`** union predicate; **no** maturity conjunct | keyed on `(action, required_approver_class)` (§6.2's table, stated once); SoD-2; `money_role_grant_matured` on the org arms; step-up; actionability-≠-authority | `C120` |
+| **§2.3** `set_platform_config` | **three** dual-control namespaces | the ratified **seven**, enumerated; `AUTHZ-C1A2`; direction asymmetry; `visibility='restricted'` | `C120` |
+| **§2.3** row set | `list_approval_requests` and `record_money_denial` **absent** | both present; `request_org_payout` carries its **four** preconditions; `request_order_refund` and `set_org_payout_destination` carry the maturity conjunct | `C120` |
+| **§3.1** *Release held funds* | Risk Ops **blank**, contradicting §1.3, §2.1, §2.3 and RLS §11.3 | **✔ᴰ✱** | `C121` |
+| **§3.1** payout > threshold | **one** row merging *initiate* and *approve*, Risk Ops blank | **split into two rows**; Risk Ops **✔ᔆ** on approve only; `platform_support` denied on both | `C121` |
+| **§3.1** legend / **§3.2** | `ᔆ` had two uses; §3.2 itemized neither payout change | `ᔆ` has three; §3.2 gains the three rows | `C121` |
+| **§4.2**, **§6.4** | `venue_door` named as a live label | `venue_scanner`, and §6.4's deny list enumerated over the full six-label set | `D30` |
+| **§13.1** | a ten-row change log presented as complete | amended in place to state its own denominator (**fourteen**) and name the four sections it omitted | `D30` |
+
+### 15.2 What this pass deliberately did NOT do
+
+- **It decided no authority.** Every cell changed in §3.1 was **already** granted by three or more sibling
+  statements (§1.3/§2.1/§2.3/§6.2/§9.2/RLS §11.3/RPC §17.2) and was blank here alone. **No principal gains a
+  capability that was not already ratified**, and the one shape that *would* have been a widening — a bare ✔
+  for Risk Ops in the merged *initiate/approve* row — was specifically avoided by splitting the row.
+- **It closed no open decision.** `O6` … `O16` all stand. **`O11` in particular is untouched:** the
+  determination in §2's banner is read off ratification rows `C57`/`C58` exactly as `D14` read it — one
+  side's text is a ratified correction and the other's is the text that correction replaced — and it
+  **does not generalize** to a conflict where neither side carries a ratified row.
+- **It did not edit the constitution.** DA **§7.6** carries the uncorrected copy of both §3.1 cells via row
+  `D6`; the edit is **filed as `C121` and reported**, never applied here.
+- **It did not edit any sibling spec.** RLS §11.3's back-reference to *"money spec §2.3"* still reads as a
+  pending instruction and is **reported to the RLS owner**.
+- **It touched no money core, no package number and no gate.** No change to `kernel.refund`, `kernel.payout`,
+  the Stripe boundary or `public.*`; packages `076`–`091` and migrations `071`–`075` untouched; no CI gate,
+  ratchet or floor weakened. **No `OFFLINE-VERIFY-v1` block appears in this document and none was touched
+  anywhere** — the four blocks were re-hashed and are byte-identical at
+  `afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.
 
 ---
 
