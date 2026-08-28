@@ -168,10 +168,13 @@ regression ticket). See **G-8**.
 | **D3** | Stripe Connect onboarding | ✓ | **GAP** | **GAP** | ✓ | ✓ | **COND-A** | **GAP** | `077` |
 | **D4** | Event outbox (the carrier itself) | **GAP** | **GAP** | — | — | — | **GAP** | **GAP** | **GAP** |
 
-**Column totals.** `GAP` by cell kind: `TBL` 1 · `RPC` 12 · `RLS` 2 · `EDGE` 0 · `SURFACE` 0 ·
-`EVENT` 1 (plus **20** `COND-A`) · `TEST` 4 · `PKG` 2. Additionally `TEST` carries **8 `✓ᵖ`**.
-`—` by cell kind: `TBL` 1 · `RPC` 1 · `RLS` 1 · `EDGE` 8 · `SURFACE` 3 · `EVENT` 6 · `TEST` 0 · `PKG` 0
-— **28 in total, each justified in its capability block.**
+**Column totals.** `GAP` by cell kind: `TBL` 1 · `RPC` **12** · `RLS` 1 · `EDGE` **0** · `SURFACE` **0** ·
+`EVENT` 1 (plus **20** `COND-A`) · `TEST` 4 · `PKG` 2 — **21 `GAP` marks over 26 register entries**, the
+difference being entries that describe a divergence rather than an empty cell. `TEST` additionally carries
+**8 `✓ᵖ`**.
+`—` by cell kind: `TBL` 1 · `RPC` 1 · `RLS` 1 · `EDGE` 11 · `SURFACE` 3 · `EVENT` 7 · `TEST` 0 · `PKG` 0
+— **24 in total, and all 24 are justified in their capability block. Zero unjustified `—` exist in this
+document**, which is the property §0.2 makes binding on itself.
 
 **The shape of the corpus, read off that row:** the **EDGE** and **SURFACE** columns are complete — every
 edge function is specified and classified (edge §0.4), and every RN/dashboard surface has a spec. The
