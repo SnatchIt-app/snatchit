@@ -653,28 +653,40 @@ Placement: **Attendees tab, per event, below the list.** Not on Dashboard home. 
 - **Aggregate only.** No individual's value is ever shown, and no value ever appears beside a name. There is no drill-down, no row-level join, no "show me who".
 - **Suppression:** rendered only when **≥ 25 responses** for the event (k = 25), with a **per-bucket floor of 5** — buckets below 5 are merged into an "Other" bucket or the whole card suppresses if merging cannot preserve the floor.
 - **One dimension at a time.** No crossing with ticket type, promoter, price, or time. The dimension selector offers one choice; there is no second axis control to build.
-- **Subtitle, always rendered:**
-  > *"Based on N of M ticket holders who shared this. One person can hold more than one ticket, so this counts people, not tickets."*
-- **Suppressed state copy (exact):**
+- **Subtitle — PUBLISHED STATE ONLY** (`SPEC CORRECTION`, demographics **J-10** / §4.3 correction 1):
+  > *"Based on N of M ticket holders who shared this. One person can hold more than one ticket, so this counts people, not tickets. Counts people who bought a ticket to this event."*
+- **Suppressed state copy (exact) — and NOTHING ELSE:**
   > *"Not enough responses to show a breakdown for this event. We show this only when at least 25 ticket holders have shared it."*
 - **Footnote, always rendered:**
   > *"Snatch It never shows you who answered what."*
 - **Export:** the mix is **not** an exportable object and does not appear in the CRM export (§9.6). It is a read on screen.
 
-**The denominator, pinned (`SPEC CORRECTION`).** `M` in the subtitle is **`holders_total` = the distinct identities holding ≥1 non-voided ticket for this session at `as_of`** — the same set expression, over the same table, with the same filter, at the same instant as §9.1's holder view. Therefore:
+**The suppressed card renders NO NUMBERS OF ANY KIND (`SPEC CORRECTION`, demographics J-10 / R6).** Not a total, not a response count, **not a reason, and not an `as_of`**. `venue.get_holder_mix` returns the single boolean **`{ suppressed: true }`** and nothing else, so there is no denominator on the wire for the client to render even by accident.
 
-> **the number of rows in the list above this card is exactly the `M` the card is counting.**
+> **Why the projection is a bare boolean and not `{suppressed, reason, holders_total, holders_responded}`.** The richer shape carried **no floor on its denominators**, so a one-person session answered the question *"did this person answer?"* — `M = 1, N = 1` versus `M = 1, N = 0` — which is the exact individual-level disclosure the k-floor exists to prevent. A `reason` is the same leak in words, and an `as_of` on a suppressed card confirms a snapshot ran. **The suppression state is therefore not a *degraded* card; it is a card that has nothing to say, and it says nothing.**
 
-This is why §9.1 had to become holder-keyed and is not a tidiness argument: had the roster stayed purchaser-keyed, the card would have sat directly beneath a list whose length disagreed with its own denominator, and **the first operator to notice would have concluded one of them was broken.** A test pins the equality.
+**"Based on N of M" is a published-state string.** It is not a template with empty slots and it is not rendered with zeroes, dashes, or "—". In the suppressed state the subtitle **does not render at all**.
 
-`N` is `holders_responded` — holders with a **substantive** answer. **`prefer_not_to_say` is never a published bucket**; a deliberate decline and a never-answered row both land in `M − N`, so declining is indistinguishable from silence.
+**The denominator, pinned — and it is NOT the length of the list above it (`SPEC CORRECTION`, demographics R7).** `M` is **`holders_total` = the R7-**eligible** holders: distinct identities holding ≥1 non-voided ticket for this session at `as_of` **whose custody was acquired for consideration** — the ownership-log head cause is not `comp`, and the atom's issuance was not zero-price. **Comped and zero-price custody is excluded**, because a comp costs the venue nothing and the same `venue_manager` mints both the session and the comps; any *"an inferable group is at least 5 people"* bound assumes those five were not manufactured.
 
-Also render, beneath the existing subtitle:
+Therefore the earlier pinned equality — *"the number of rows in the list above this card is exactly the `M` the card is counting"* — **is false and is withdrawn.** The roster (§9.1) deliberately counts **all** holders, comps included, because the room has to be run. The binding identity is now:
+
+> **`COUNT(§9.1 holder rows) ≡ holders_total + holders_excluded_ineligible`**
+
+and **`holders_excluded_ineligible` exists as a stored number precisely so this surface can state the gap.** The original reasoning survives its own correction: an operator who counts the list and reads the card must not be left to discover a discrepancy and conclude one surface is broken — so the difference is **rendered**, not merely reconciled in a test. §9.1 still had to become holder-keyed; a purchaser-keyed roster would have made the two numbers differ for a *second*, unstated reason. A test pins the identity.
+
+`N` is `holders_responded` — R7-eligible holders with a **substantive** answer. **`prefer_not_to_say` is never a published bucket**; a deliberate decline and a never-answered row both land in `M − N`, so declining is indistinguishable from silence.
+
+Also render, beneath the subtitle, **in the published state only**:
 > *"As of {as_of}. This is who holds tickets — not a door count."*
+
+`INFERENCE:` **a genuinely free event never renders this card at all** — every holder is R7-ineligible, so `M = 0`. That is the correct outcome (at a free event the operator can mint the entire population, so no anonymity bound holds) and it is a real product loss. It is **owner decision D-12** in the demographics spec, not something this surface may soften with copy.
 
 **Suppression is enforced in the database, not the UI.** The per-bucket floor of 5 is a `CHECK` constraint — **a sub-floor bucket cannot physically be stored**, not merely hidden. Buckets below the floor merge into "Other", smallest first, until "Other" clears the floor; if no such set exists, the whole snapshot is suppressed and **zero** bucket rows are written. The shown buckets always sum exactly to `N` — omitting a suppressed bucket instead would make the residual computable and hand over its exact count.
 
-**There is no second axis, anywhere.** No crossing with ticket type, promoter, price, time window, or scan status — and not because the UI hides them, but because **no such aggregate exists in the database, in any view, cache, export, or parameter.** You cannot difference aggregates whose operands are absent. `venue.get_holder_mix` takes **exactly two parameters, and that is the contract**: adding a third is a design change requiring privacy re-review, not a routine enhancement.
+**There is no second axis, anywhere.** No crossing with ticket type, promoter, price, time window, or scan status — and not because the UI hides them, but because **no such aggregate exists in the database, in any view, cache, export, or parameter.** `venue.get_holder_mix` takes **exactly two parameters, and that is the contract**: adding a third is a design change requiring privacy re-review, not a routine enhancement.
+
+> **Scope of that argument, narrowed (demographics `J-9(1)`).** The absent-operand argument defeats **slicing** — differencing along an *axis* that does not exist. It is **not** a general answer to differencing, and the general form of it (*"you cannot difference aggregates that do not exist"*) **was deleted from the demographics spec as false.** The `(session, dimension, bucket)` aggregate does exist, one per session, and an operator who **composes two populations** — by minting a session, by minting custody, or by choosing which two of their own sessions to compare — differences two aggregates that both exist. The population-side defences are R7 (eligibility), R8 (churn) and R9 (cross-session near-duplicate); **this axis argument covers none of them and must not be cited as if it did.**
 
 The former `UNVERIFIED:` is **discharged** — the demographics spec supplies the storage (`kernel.identity_demographic`, package `077`), the collection surface (RN "About you (optional)", **profile enrichment only, never signup**), and the aggregation (`venue.holder_mix_snapshot` / `holder_mix_bucket` + `venue.get_holder_mix`, package `087`). This section still specifies only how the dashboard renders it.
 
@@ -683,7 +695,7 @@ The former `UNVERIFIED:` is **discharged** — the demographics spec supplies th
 **Asynchronous job**, never a synchronous download.
 
 - **Lifecycle:** `queued → running → ready → failed`, plus `revoked`, `expired`, `purged`. The UI renders each as a distinct state with its own copy; `ready` is the only state with a download control.
-- **Download:** a **300-second signed URL**, **re-authorized live at download time** — the click re-checks authority server-side before the URL is honoured. An export prepared while the user held `venue_manager` and downloaded after revocation must fail.
+- **Download:** a **300-second signed URL**, **re-authorized live at download time** — the click re-checks authority server-side before the URL is honoured. An export prepared while the user held `venue_manager` and downloaded after revocation must fail. **The re-check is over `(scope, template_id)`, not over the role set** (CRM K-15): a `marketing` role holds the job-list read, so a re-check that only asked *"do you still hold a role over this scope?"* let it download a colleague's **`operations_v1`** file — order refs, totals, unit prices, refund state — defeating *"Marketing sees contact and no money"* with no grant being wrong. The download predicate is **the same predicate a fresh request would face**.
 - **Audit:** every **request, generate, download, revoke** is audited. The export history panel shows who requested, when, what filters, and what happened to it — and is itself part of the venue activity feed (§17).
 - **Authorized — `SPEC CORRECTION` (CRM K-2, role-model V-5). Two templates, two allow-lists.** The former single list (`venue_manager`, `org_owner`, `org_admin`) predated the marketing role.
 
@@ -699,6 +711,16 @@ The former `UNVERIFIED:` is **discharged** — the demographics spec supplies th
   **Platform roles (CRM K-3):** `platform_risk` and `platform_admin` **read** the roster (§9.3) but the venue export surface **does not render for them** — a platform bulk extraction has a different justification, a different retention and needs dual control, and running it through a venue's own surface would file a platform action in that venue's history and give a compromised platform account the *venue's* rate limits rather than a platform-grade one. **Platform bulk extraction is not built in Phase 2.**
 - **Phone is never exportable.** Not as a column, not as a filter, not as a hash.
 - **Email only where a per-order, per-org opt-in was given.** Non-opted rows export an empty email cell, and the UI **explains why** rather than leaving it blank: an inline legend — *"Email is blank when the buyer didn't agree to share it with this organization."* — plus a count of suppressed cells in the export summary.
+- **The name column is gated on the SAME consent test as email (`SPEC CORRECTION`, CRM K-18 / §4.3).** In an **export**, `display_name` is emitted **only where a contact relationship exists** and is **blank otherwise**. The rule is one predicate — `emit_name := emit_email` — evaluated once per holder row and driving **both** cells, so the two can never disagree and nobody can gate one and forget the other.
+
+  **The suppression legend must therefore cover the name column too**, and the export summary carries a second counter pair:
+  > *"Name is blank for people who haven't agreed to share their details with this organization. They're still on your roster on screen."*
+
+  **Why the name column, which the venue can already read on screen, is gated in a file.** `display_name` came from the one global `public.profiles.display_name` string — **the same value for the same person at every organization on the platform** — and it was emitted on every row of every export, ungated. It was **the join key**: two orgs union their CSVs on the name column in one step and corroborate with admission time, `first_seen_at`, ticket type and acquisition route. The `customer_ref` pseudonym removes the platform-supplied *stable* join key **and nothing else**, so gating email while shipping the name defeated the pseudonym on every row.
+
+  **The gate is on the egress, not on the knowledge.** `display_name` stays **ungated on screen** (§9.1/§9.3), in the single-record lookup (§12.6), and in the door verification projection — after 068 it is one of the columns any authenticated principal may read, **and a screen cannot be unioned with another org's screen.** A CSV can. The room still gets run; what changes is what leaves in a file.
+
+  **Operator cost, stated rather than hidden:** an `audience_v1` export over a heavily transferred session is mostly `customer_ref` and ops columns with **name and email blank on the same rows**, and an `operations_v1` file identifies rows by `customer_ref` + `order_ref` rather than by name. That is **owner decision D-13** in the CRM spec, recommended as written; it is not a setting this surface may soften.
 - **Filters are the same closed enumerated set as §9.2.** No SQL box. No arbitrary column picker. The column set is fixed per export type.
 - **Revoke** is available on any `ready` export and takes effect immediately.
 - **Availability:** `lg`+ only (§3.3).
@@ -706,7 +728,7 @@ The former `UNVERIFIED:` is **discharged** — the demographics spec supplies th
 - **Never exportable, in addition to phone:** any global identity uuid · legal name · any payment identifier · credential/custody internals · door internals · the transfer counterparty · another org's data · **and every demographic object.** A demographic value may not even be an export **filter** — *"export attendees where gender = X"* is individual-level disclosure by construction even when the column is absent, because **the row set is the disclosure.** The closed filter set must never gain a demographic member, a proxy ("shared demographics: yes/no"), or a derived row order.
 - **No third-party destination, ever.** No emailed CSV, no webhook, no CDP sync, no ESP property, no ad-platform audience upload, no pixel parameter, no warehouse sync. Composition informs creative; it does not move data.
 - **Retention, and the honest limit of the signed URL.** The artifact is swept **24 hours** after `ready`, or immediately on revoke; the job row is kept 13 months and **contains no customer rows**; audit rows are permanent. Say this on the surface, because *a 300-second signed URL bounds the window in which the **link** is redeemable and buys nothing whatever about the **data**.* **Anyone who describes a signed URL as a privacy control for exported data is describing a promise as a control.** The real controls are the 24-hour sweep, the size cap, the per-actor daily cap, and revoke.
-- **Audit — and the one number that proves the consent gate ran.** Every request, generate, download, revoke, expire, purge, fail **and denial** writes `kernel.admin_audit` in the same transaction. A **refused** export attempt is more interesting than a successful one; an audit that records only successes cannot show an attacker probing scopes. Each row carries scope, template + version, normalized filters, `as_of`, row and byte counts, the artifact hash, the constraint-set version, and **`contact_cells_emitted` / `contact_cells_suppressed`** — the only evidence the consent gate ran. **Never in an audit row:** a customer row, a name, an email, a `customer_ref`, a probed email value, or any signed URL.
+- **Audit — and the one number that proves the consent gate ran.** Every request, generate, download, revoke, expire, purge, fail **and denial** writes `kernel.admin_audit` in the same transaction. A **refused** export attempt is more interesting than a successful one; an audit that records only successes cannot show an attacker probing scopes. Each row carries scope, template + version, normalized filters, `as_of`, row and byte counts, the artifact hash, the constraint-set version, and **`contact_cells_emitted` / `contact_cells_suppressed`** **plus `name_cells_emitted` / `name_cells_suppressed`** (CRM K-18) — the only evidence the consent gate ran, on **both** gated columns. Four integers, and they are the whole audit trail of the gate. **Never in an audit row:** a customer row, a name, an email, a `customer_ref`, a probed email value, or any signed URL.
 - **The audit lives where the venue cannot reach it.** `kernel.admin_audit` is platform-read-only, and that is the point: the actor most likely to want an export record gone is the venue.
 
 The former `UNVERIFIED:` is **discharged** — the export job table, its lifecycle, the opt-in record, the `crm-export` edge function and fifteen RPC contracts are specified. **Package `087`.**
@@ -903,15 +925,20 @@ Per live session, live counters from `venue.scan` (schema §3.12):
 **Admitted** · **Duplicate** · **Invalid** · **Frozen** · **Fraud review** — the exact `result` enum, with operator labels: Admitted · Already used · Not recognised · Blocked (door manifest) · Needs review.
 Plus: **admitted / issued**, arrivals per 5 minutes (a bar, the only chart here), last scan time, and per-device contribution.
 
-**Door reject reasons (Agent A, binding)** — the five reasons a pass is refused, each with its operator copy:
+**Door reject reasons (Agent A, binding)** — the **six** reasons a pass is refused, each with its operator copy. **`SPEC CORRECTION` (door §9.2): this table and its surrounding prose said *five*. `refund_hold` is the sixth.**
 
 | Reason (Agent A) | Pre-check `reason` (RPC §9.3) | Recorded `result` (schema §3.12) | Operator copy |
 |---|---|---|---|
 | `version_stale` | `version_stale` | `invalid` | *"This pass is out of date. Ask them to open the Snatch It app."* |
 | `voided` | `voided` | `invalid` | *"This ticket was refunded or cancelled."* |
 | `listed_locked` | `listed_locked` | `invalid` | *"This ticket is listed for resale or mid-transfer."* |
+| **`refund_hold`** | **`refund_hold`** — **owed by the RPC integrator; see below** | `invalid` | ***"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has to be cancelled in the Snatch It app — then this ticket works again."*** |
 | `duplicate` | `already_scanned` | `duplicate` | *"Already used"* + the first-admit time. |
 | `wrong_session` | `wrong_session` | `invalid` | *"Right event, wrong night."* + the correct session. |
+
+> **Why a sixth reason and not a reuse of `listed_locked` (door §9.2).** MONEY §12 ADDITIVE-2 added a **fourth** overlay label, `refund_hold` (schema §1.5). Under the offline predicate's five-conjunct 3b a `refund_hold` atom is correctly **rejected** — but it was rejected with **no reason arm at all**, so door staff saw an unmapped refusal of a paying customer and had nothing to say and nothing to offer. Folding it into `listed_locked` would tell the holder their ticket is *"listed for resale or mid-transfer"*, which is **false**, and would send door staff hunting a listing that does not exist. (§9.2's earlier ruling on DL-5 refused new vocabulary because the existing five already carried every *meaning*; that argument does not hold here.)
+>
+> **`SPEC CORRECTION` owed elsewhere, and it must ship with this one.** `venue.validate_ticket_online`'s `reason` enum (RPC §9.3) is `active|already_scanned|listed_locked|voided|wrong_session|version_stale` and **must gain `refund_hold`** — filed to the RPC-contract owner. **Until it does, the ONLINE door has exactly the unmapped-refusal problem the offline door just fixed:** it refuses a `refund_hold` atom with no reason to render.
 
 **Wallet staleness (Agent A):** every door surface carries the standing note *"A pass shown from a wallet can be out of date. The Snatch It app screen is the one that counts."* — it appears on the manual-lookup result and beside the `version_stale` reason, not buried in help.
 
