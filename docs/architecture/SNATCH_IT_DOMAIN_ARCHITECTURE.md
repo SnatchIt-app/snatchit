@@ -62,7 +62,17 @@ The specialist panel challenged the canonical core. These amendments are **ratif
 - **Multi-session passes = one ticket per session** (A3), authoritatively.
 - **`dual-control` / step-up MFA are config-gated seams, not hard preconditions:** a single-operator org satisfies them via single-approver-with-mandatory-audit until a second admin identity exists (a 2-person team must never be deadlocked out of releasing its own funds); the dual-control threshold is itself under dual-control (C11).
 
-**Open questions (tracked in `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md`):** **O2** offline first-admit-wins consensus under clock skew/partition (arbitration + fraud-queue design before offline at scale); **O3** resale-policy snapshot drift (decide before native resale — Gate M); **O4** per-event identity-verification strength (name-match vs custody-follows-credential); **O6** cross-region native-resale saga/escrow vs intra-region-only (C50 — a joint commercial + technical decision before multi-region resale). Two formerly-deferred items are resolved: cross-rail same-physical-seat dedup by **C17** (external-seat-reference, confirmed-enforced at Gate P for events with external inventory, per O5); cancellation refund liability + the reserve that funds it by **C29/C30/C31** (Gate M).
+> **`O1`…`O8` here are OPEN QUESTIONS. `O-1`…`O-5` (hyphenated) are OWNER RULINGS, and they are a different
+> series. Read the hyphen.** `O3` is resale-policy snapshot drift; **`O-3`** is payout visibility and requests.
+> `O4` is per-event identity-verification strength; **`O-4`** is door-manifest authority. The collision is
+> accidental and both series are already cited across the corpus, so neither is renumbered — the disambiguation
+> is the fix. The five owner rulings **O-1** (refund authority) · **O-2** (canonical role model) · **O-3**
+> (payout visibility/requests) · **O-4** (door-manifest authority) · **O-5** (`door_open_at` lifecycle) were
+> ratified 2026-08-27 and are integrated into this document's body and into
+> `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md`; each has a row in
+> `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`. (D4)
+
+**Open questions (tracked in `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md`):** **O2** offline first-admit-wins consensus under clock skew/partition (arbitration + fraud-queue design before offline at scale); **O3** resale-policy snapshot drift (decide before native resale — Gate M); **O4** per-event identity-verification strength (name-match vs custody-follows-credential); **O6** cross-region native-resale saga/escrow vs intra-region-only (C50 — a joint commercial + technical decision before multi-region resale); **O7** **the event outbox** — §6.2/§6.3 promise *"one outbox table and a drainer on the cron that already runs"* as the carrier for every eventual-consistency flow and for CDM C12's event envelope, and **no Phase-2 implementation spec schedules one** (C51 — the two readings and the consequence of each are recorded in the ratification record; neither is chosen); **O8** **the `notify` schema** — ratified Gate-P/MVP by C7, placed at Gate L / do-not-build by all four implementation specs (C52). Two formerly-deferred items are resolved: cross-rail same-physical-seat dedup by **C17** (external-seat-reference, confirmed-enforced at Gate P for events with external inventory, per O5); cancellation refund liability + the reserve that funds it by **C29/C30/C31** (Gate M).
 
 ### 0.5 Post-review ratified corrections (BINDING — supersede any conflicting body text)
 
@@ -1252,6 +1262,31 @@ sequenceDiagram
 
 > **Anti-over-engineering guarantee:** the only new infrastructure Phase 2 introduces is **one outbox table and a drainer on the cron that already runs**. No broker, no queue service, no saga framework ships until real load justifies it. The catalog above is the durable artifact; the transport is replaceable underneath it.
 
+> #### C51 / O7 — OPEN: this document promises an outbox that nothing builds
+>
+> **The contradiction, both sides, neither chosen here.** The guarantee above, §6.2's "Eventual (outbox) set",
+> the table row directly above it, and CDM C12's event-envelope guarantees (per-aggregate monotonic `sequence`,
+> `causation_id`, `correlation_id`, at-least-once delivery with idempotent consumers) all rest on an outbox
+> table and a drainer, and the door, promoter and notification designs each emit envelope messages into it.
+> **No Phase-2 implementation spec schedules one.** The word appears exactly once in the physical schema spec,
+> inside the *Gate-L* list ("projection checkpoints … + outbox retention/compaction"), and the migration plan
+> allocates no package for it — so the artifact that MVP's entire eventual-consistency story depends on is
+> currently a Gate-L line item.
+>
+> Both readings have a real consequence, and choosing between them is **open decision O7**:
+>
+> - **If this constitution is right**, an outbox package (table + envelope columns + drainer on the existing
+>   `pg_cron` heartbeat) is **Gate-P / MVP work missing from the migration plan**, and until it is scheduled
+>   every "eventual" flow named above is unimplementable as specified.
+> - **If the implementation specs are right**, this section must stop claiming an outbox exists in Phase 2,
+>   C12's envelope guarantees have **no carrier at MVP**, and every design that emits an envelope message —
+>   door-manifest events, promoter attribution, notifications — needs a stated alternative transport before it
+>   can be built.
+>
+> Recorded as row **C51**, status `OPEN-GATED(O7)`. It is **not** resolved by this pass, and the paragraph above
+> is left standing rather than quietly softened, because softening it would hide the contradiction instead of
+> deciding it.
+
 **Outbox hardening + rebuildability floors (C48/C49 — Gate L, modeled-not-built in MVP).** The single outbox + cron drainer is acceptable for MVP and is explicitly *not* the end-state. Before scale: (a) **poison messages quarantine** instead of blocking the stream, and the drainer becomes **partitioned (per-aggregate) / multi-drainer**, so one stuck aggregate cannot head-of-line-block every consumer (C49); (b) any future **region hand-off** of an aggregate's event stream is a specified protocol, never an implicit two-phase commit (C49); (c) outbox **compaction respects a retention floor for canonical inputs** — a projection whose only inputs are ephemeral events (risk, notify, social) is either rebuildable from retained canonical inputs or explicitly **marked non-rebuildable** and excluded from the "projections are disposable" claim (C48).
 
 ---
@@ -2347,9 +2382,26 @@ is dictated by two operational truths: **promoters run on cash flow**, and **pro
 
 | Object | Definition | Class |
 |---|---|---|
-| **promoter** | A user (or off-platform party) engaged by an org/event with commission terms: flat-per-ticket or %, `tier ∈ {professional_invited, public_ambassador}`. A promoter is a *relationship*, not a user type — same identity, new capability. | MUTABLE |
+| **promoter** | A user (or off-platform party) engaged by an org/event with commission terms. The terms are **constitutionally required to express all three of**: (a) **flat-per-ticket _or_ percentage** — flat-per-ticket is the *dominant* nightlife term, not an alternative to model later; (b) `tier ∈ {professional_invited, public_ambassador}`; (c) the `party_kind` discriminator (`promoter` \| `affiliate`) that lets one attribution engine serve both party kinds. A promoter is a *relationship*, not a user type — same identity, new capability, and **never a role label** (O-2). | MUTABLE |
 | **promoter_link** | A unique-slug tracking link, scoped to (promoter, event\|org), optionally backed by a `promoter_hold` batch. IMMUTABLE once minted (the slug is a permanent attribution key). | IMMUTABLE |
-| **attribution** | Append-only credit row: (order, promoter_link, commission_cents, state). Written when an attributed order is paid; never mutated, only superseded. | APPEND-ONLY |
+| **attribution** | Append-only credit row: (order, promoter_link, commission_cents, state). **Written in the same transaction that marks the order `paid` — never at order creation** (D7, and the emphasis is deliberate: see below). Never mutated, only superseded. | APPEND-ONLY |
+
+> **Attribution write timing — stated so it cannot drift back (D7).** The attribution row is written **when
+> the order is paid**, in that transaction, and **not** when the order is created. The reason is structural,
+> not stylistic: attribution is an **immutable Ledger** carrying a promoter's commission claim. An order that is
+> created and never paid is ordinary — abandoned checkouts, expired holds, declined cards — and a credit row
+> written at creation cannot be deleted when that happens, only *superseded*, which means every abandoned
+> checkout leaves a permanent phantom credit in a promoter's ledger and in every settlement projection that
+> reads it. Order creation is not a commercial fact; payment is. Where an implementation contract states that
+> attribution is recorded inside order creation, **the contract is wrong and moves** — this constitution does
+> not narrow to match it (`ARCHITECTURE_FREEZE.md` Rule 2).
+
+> **Commercial-terms gap, named rather than smoothed (D8).** The terms ratified above are **not currently
+> expressible**: the physical promoter object carries a percentage (`commission_bps`) and nothing else — no
+> flat-per-ticket amount, no `tier`, no `party_kind`. Percentage-only silently drops the dominant nightlife
+> term, collapses the ambassador tier into the professional one, and leaves the affiliate party kind with
+> nowhere to live despite the affiliate model below depending on it. The requirement stands as written here and
+> the columns are additive; **the schema owns closing the gap**, not this document.
 
 Because promoters are also fans, a promoter's link and their own fan account are the same identity — which is
 exactly why **self-dealing detection** is required: commission attribution excludes self-purchases and
@@ -2872,7 +2924,7 @@ The competitive field has spent a decade proving each half of this in isolation:
 
 ---
 
-# Appendix — Correction Index (C1–C50, D1–D3)
+# Appendix — Correction Index (C1–C52, D1–D8, O-1…O-5)
 
 Every ratified correction, mapped to where the body now states it. Gates: **P** pre-native-issuance · **M** pre-money-rail (native resale + instant payout) · **L** pre-legal-scale · **—** doc/ongoing (definitions in §0.6; per-correction ratification detail in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`). "DA" = this document; "CDM" = `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md`. Statuses: **Ratified·MVP** (Gate-P; implemented before the first native ticket) · **Ratified·gated-ext** (modeled in the constitution; built at its gate, not in MVP) · **Doc-fix applied** · **Open-gated**.
 
@@ -2932,3 +2984,15 @@ Every ratified correction, mapped to where the body now states it. Gates: **P** 
 | **D2** | Ticket state diagrams: no `refunded` terminal — `voided (refund_void)` | DA §3.1 (diagram, transition + illegal tables), §0.4 note | — | Doc-fix applied |
 | **D3** | One canonical cause-code registry | DA §5.2.1 ≡ CDM §11 (verbatim); partial lists tagged as subsets | — | Doc-fix applied |
 | **O6** | Cross-region native-resale form (saga/escrow vs intra-region-only) | DA §0.4 open questions, §6.2 · CDM §15 C50 | **M**/region | Open-gated decision (with C50) |
+| **O-1** | Refund authority: `org_owner`/`org_finance` **request**, never execute; three server-decided tiers replace "> micro"; `org_admin` none; §7.2's money "Inherits" deleted as a mechanism | DA §7.2, §7.4, §7.5, §7.6 · CDM §1.1 Refund, §15 | **P** | Ratified·MVP (owner ruling) |
+| **O-2** | Canonical role model: display names vs the fifteen plane-prefixed stored labels; `venue_door`→`venue_scanner`; `venue_promoter` removed; five new labels; rule RM-1 | DA §7.1, §7.2, §7.3, §7.6, §1 catalog/principals/ER, §1.8 · CDM §1.3, §8, §15 C36 | **P** | Ratified·MVP (owner ruling) |
+| **O-3** | Payout visibility & requests; destination change is `org_owner`-only under strictly stronger controls; **collapses SoD-1**, ratified with a permanent requester-vs-setter split + probation + out-of-band notice | DA §7.2, §7.4 (trade-off), §7.5, §7.6 · CDM §1.1 Payout, §15 | **P** | Ratified·MVP (owner ruling) |
+| **O-4** | Door-manifest authority: open/close, `door_open_at`, security config = `org_owner`/`org_admin`/`venue_manager` only; scanner and door session may sync/scan/admit and nothing else; admission is never gated on the manifest | DA §7.2, §7.6 door rows, §1.8 · CDM §1.3 | **P** | Ratified·MVP (owner ruling) |
+| **O-5** | `door_open_at` is the monotone head of an append-only episode ledger; effective freeze boundary is total and fail-closed; overrides are elevated, TTL-bounded and never move it | DA §1.8, §3.7, §5 ¶1.8, §7.6 · CDM §1.2, §1.3, §15 | **P** | Ratified·MVP (owner ruling) |
+| **C51** | The event outbox is promised by §6.2/§6.3 and CDM C12 and scheduled by no implementation spec — **open decision O7** | DA §6.2, §6.3 · CDM §2, §7, §15 C12/C48/C49 | **P** (if the constitution is right) | **Open-gated (O7)** |
+| **C52** | `notify` is RATIFIED Gate-P/MVP under C7 and do-not-build in all four implementation specs — **open decision O8** | CDM header/§1.6/§15 C7 · DA §6.2/§6.3 | P per C7 / L per the specs | **Open-gated (O8)** |
+| **D4** | The two `O` namespaces disambiguated (`O1`…`O8` open questions vs `O-1`…`O-5` owner rulings); neither renumbered | DA §0.4 note · ratification record · ARCHITECTURE_FREEZE.md | — | Doc-fix applied |
+| **D5** | The four pre-C36 bare-label role lists purged; §7.2 gains stored labels + the display-name rule at its head | DA §1 catalog, principals, ER diagram, §1.8, §7.1, §7.2 · CDM §1.3, §15 C36 | — | Doc-fix applied |
+| **D6** | §7.6 collision resolved: the money spec's corrected matrix applied in place; the role model's delete-and-point rejected; precedence stated | DA §7.6 (matrix + precedence note) | — | Doc-fix applied |
+| **D7** | Attribution is written **when the order is paid**, never at order creation — the constitutions are right; the implementation contracts move | DA §1.7 · CDM §1.3 | — | Doc-fix applied (RPC/RLS correction owed) |
+| **D8** | `venue.promoter` cannot express the ratified terms (flat-per-ticket, `tier`, `party_kind`); requirement restated, gap named, schema owns the columns | DA §1.7 · CDM §1.3 | — | Doc-fix applied (schema columns owed) |
