@@ -2,7 +2,7 @@
 
 > **STATUS 2026-08-27 — THIS SUITE NOW EXECUTES IN CI.**
 > It ran for the first time on 2026-08-27 (it had never been executed before).
-> Current: **13 files, 234 assertions, `Result: PASS`, 0 bad plans**, via
+> Current: **17 files, 305 assertions**, via
 > `supabase test db --local` in the `db` job of `ci.yml`, against the same
 > freshly-replayed stack that job already boots.
 >
@@ -21,7 +21,7 @@ RLS coverage, the profiles column-grant read boundary, anon/authenticated
 write bans, transfer state custody (RPC-only writes), payment/payout money
 invariants, admin isolation, and the webhook claim lease.
 
-**234 assertions** across 13 files. 2 are deliberate expected-fail `todo()`
+**305 assertions** across 17 files. 2 are deliberate expected-fail `todo()`
 markers pinning known open gaps (they flip green when the fix ships — see
 "Pinned findings" below).
 
@@ -76,6 +76,7 @@ No committed `supabase/config.toml` is needed: the db job already runs
 | `070_payouts.sql` | 19 | `record_transfer_payout` idempotency + NULL guards + dispute refusal (056d); 065 resolution gate + append-only audit; reversal |
 | `080_admin.sql` | 16 | no admin self-grant/enumeration, `is_admin()` client-EXECUTE stripped (067) but semantics intact, risk tables closed, TRUNCATE stripped (063) |
 | `090_webhooks.sql` | 21 | 064 claim/complete/fail lease (first-claim-wins, in_flight, already_processed, abandoned-lease recovery, fail releases immediately); 061 verified-payment gate on `ensure_transfer_exists` |
+| `110_money_authz_matrix.sql` | 18 | MONEY-1: the impersonation matrix for `request_is_service_role()` (0550) — legacy singular GUC precedence, disagreeing/malformed/empty claims, SQL-role irrelevance, anon grant posture, and forged `p_user_id` refused across the money RPCs (17/18 are a matched negative/positive pair against a reserved fixture, so 17 discriminates on identity) |
 
 ## Harness rules (read before adding tests)
 
@@ -101,9 +102,24 @@ No committed `supabase/config.toml` is needed: the db job already runs
 * **F-2** (`060` #11): `transfers.stripe_transfer_id` has no unique index
   (self-documented in 056a) — the same Stripe transfer id can land on two
   rows. Flips green when an index migration ships.
+  **MONEY-1 classification (2026-08-27): KEPT AS `todo()`, still open.**
+  Re-confirmed live against production: `pg_indexes` for `public.transfers`
+  contains no unique index mentioning `stripe_transfer_id`. Production data is
+  currently clean (36 transfers, 23 with a `stripe_transfer_id`, 23 distinct),
+  so `CREATE UNIQUE INDEX ... WHERE stripe_transfer_id IS NOT NULL` would build
+  without conflict. Not implemented here because MONEY-1 is an authorization
+  audit and this is a DDL/uniqueness fix on a live money table — it belongs in
+  its own migration with its own rollback and deploy window, and that branch is
+  deliberately tests-only.
 * **F-3** (`060` #12): `payments` has no column-guard trigger — the
   money-evidence table's amounts are freely mutable by any service-path
   writer, unlike listings (000/046) and transfers (055).
+  **MONEY-1 classification (2026-08-27): KEPT AS `todo()`, still open.**
+  Re-confirmed live against production: no trigger on `public.payments`
+  constrains `amount`/`status`. Not implemented here for the same reason as
+  F-2 — a column-guard trigger on the money-evidence table is DDL on a live
+  money table and needs its own migration, rollback and deploy window, not a
+  tests-only branch.
 * **proof_status fail-open** (`040` #14): `guard_proof_status()` (033) keys on
   the legacy `request.jwt.claim.role` GUC, which modern PostgREST does not
   set, and otherwise exempts `session_user = 'postgres'` — for a real client

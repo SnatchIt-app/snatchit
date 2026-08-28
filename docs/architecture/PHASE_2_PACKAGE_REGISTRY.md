@@ -123,6 +123,89 @@ in the corpus.
 > *decision*: the first adopts a resolution already made in the edge spec, the
 > second completes a declaration the corpus already contained in prose.
 
+> ## ⚠ FOURTH AMENDMENT PENDING RE-RATIFICATION — the K-2 / K-3 missing-object repair
+>
+> **No package is added, renumbered or removed. No object moves between packages. No
+> rollback posture, rollback order or rollout order changes. The DAG stays acyclic and
+> topologically ordered by package number. The count stays 16 (`076`–`091`).** Two
+> tables gain a package contents row, one package's contents row is made specific, and
+> two dependency edges are promoted from prose to declaration.
+>
+> **`K-2` — two contracted tables were in no package, because they were in no
+> document that creates anything.** `kernel.identity_contact_pref_event` and
+> `kernel.org_contact_consent_event` returned **zero hits** in this registry, in
+> `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8, and in
+> `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md`. They were asserted as existing by four
+> documents: `PHASE_2_SPEC_FOUNDATION.md` §6 (which lists them in the canonical table
+> inventory **and assigns them these package numbers**), `PHASE_2_CRM_EXPORT_SPEC.md`
+> §5.1 / §11.1 elements `5a`/`5b`, `PHASE_2_RLS_PERMISSION_SPEC.md` §6/§16.6 and the
+> **closed twelve-relation** `crm_export_builder` grant set of §16.10, and
+> `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20, whose `set_my_contact_prefs` and
+> `grant_`/`withdraw_org_contact_consent` **write a row into them in the same
+> transaction**. This registry's own closing line on the second amendment — *"a
+> contracted function absent from §8 is a function nobody builds"* — holds identically
+> for tables. **Placed in `077` and `082`**, exactly where `PHASE_2_SPEC_FOUNDATION.md`
+> §6 assigned them; the dependency graph permits both and independently **floors**
+> `org_contact_consent_event` at `082`, because its `source_order_id` FK targets
+> `venue.order`. No deviation was required. Full physical definition — columns, PK,
+> FKs, CHECKs, indexes, AO posture, RLS posture, write authority — is
+> `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` **§1.15**.
+>
+> **Why this one replays green and then fails in production.** `plpgsql` bodies are not
+> validated at `CREATE FUNCTION`, so the whole chain applies clean with both writers
+> referencing a relation nothing creates; the first fan who sets a contact preference
+> gets a runtime `42P01`. **The silent direction is worse.** RLS §16.10 rules that
+> omitting these two from the builder's relation set *"reproduces the zero-rows failure
+> this ruling exists to close"* — `crm_export_builder` is a role **subject to RLS**, so
+> a missing gate source yields no consent row for anybody, suppresses **every** contact
+> cell, and emits a syntactically valid CSV whose contact column is uniformly blank.
+> That reads as **"nobody consented,"** not as "denied", and `finalize_export`'s
+> invariant `cells_emitted + cells_suppressed = holder row count` **balances perfectly
+> at `cells_emitted = 0`**. Nothing detects it; the first signal is a venue asking why
+> their audience list is empty.
+>
+> **`K-3` — the three purge definers had a plan row and nothing else.**
+> `venue.claim_artifacts_for_purge`, `confirm_artifact_purged` and
+> `reconcile_export_orphans` were added to plan §8/`087`'s Functions row by the final
+> reconciliation pass, closing the plan half. **Two halves stayed open:** this registry
+> named them nowhere (§2's `087` row said only *"the three purge-agent definers"*, and
+> the JSON `scope` string the same), and the **physical objects they claim rows
+> through were undefined** — `venue.export_job.artifact_state`, `purge_lease_until`,
+> `purge_attempts`, and the **`(artifact_state, expires_at)`** index that is
+> `claim_artifacts_for_purge`'s only access path, which CRM §11.2 specifies and plan
+> §8/`087`'s Indexes row omitted. Both halves are closed: §2 and the JSON now **name**
+> the three, and schema **§3.18** defines the substrate. **Additive to `087` only; no
+> new object outside it, and no edge** — `max(087, 077) = 087` and `087` already
+> declares `077`. CRM §11 calls `POST /purge` *"the only thing in this design that
+> deletes bytes"*; without this substrate `revoke_export` and `sweep_expired_exports`
+> only flip the **job**'s state while the CSV of attendee names and emails persists in
+> the `crm-exports` bucket indefinitely. Filed as RPC §20.14 **`R-7`** and CRM `K-16`.
+>
+> **`087` additionally gains `venue.assert_may_request`** — the single request/download
+> authorization predicate (RPC §17.22, §20; `AUTHZ-CRM2`), named by `R-7` in the same
+> breath as the three definers and scheduled by nothing. Two independent
+> implementations of one authorization predicate is how a download outlives the
+> authority that granted it.
+>
+> **TWO DEPENDENCY EDGES ADDED — `077 → 082` and `078 → 082` (`‡`, §2.1).** Only the
+> first is *forced* by this repair (`org_contact_consent_event.org_id` FK →
+> `kernel.organization`); the second is a co-located pre-existing under-declaration
+> corrected in the same pass. **Both were already named in plan §8/`082`'s own
+> Dependencies prose** (*"`081` (ticket_type), `078`, `077`"*) while all four declared
+> sets said `{081}` — §2 mermaid, §3 seq 7, §2.1 here and the JSON `depends_on`.
+> **Declaration-only:** `077 < 078 < 081 < 082`, so ordering was never wrong and
+> nothing about the rollout changes; what changes is that the machine-readable graph
+> agrees with the human one. This is the **fourth** instance of the shape rule §6.6 /
+> SEAM-1 exists to catch, after `079 → 085`, `085 → 088` and `086 → 087` — and it is
+> resolved the same way, for the same reason. **Edge count `36 → 38`;** §2.2's
+> acceptance property re-verified after the edit and reported below.
+>
+> **Owner ratification required**, per rule §6.5. **No change here is an owner
+> *decision*:** every placement is the one `PHASE_2_SPEC_FOUNDATION.md` §6 already
+> assigned or the one SEAM-1 derives, and both edges complete declarations the corpus
+> already contained in prose. **One item IS an owner decision and is deliberately NOT
+> taken here — `OWNER-DECISION-K2-D3`, below §7.**
+
 Consult this file **before quoting, authoring, or reviewing any Phase-2 migration
 number.** If another document disagrees with this table, this table wins and the
 other document is stale — fix it, do not follow it.
@@ -160,17 +243,17 @@ of the corpus was written on. Two intermediate `+1` shifts (`072`–`087` and
 | New | Old | Pkg | Phase | Purpose | Scope (one line) |
 |---|---|---|---|---|---|
 | `076` | `071` | A | A — schema skeleton | `076_create_phase2_schemas_and_grants` | 4 schemas (`kernel`/`catalog`/`venue`/`market`) + GRANT boundary + shared helper functions/triggers |
-| `077` | `072` | B | B — organizations + permissions | `077_kernel_identity_orgs_and_roles` | `kernel.identity_ext`, `organization`, `org_member` (**six** org labels, **+`granted_at`**), `org_invite` (**six** org labels), `platform_role`, `admin_audit` + org/platform role predicates · **Δ `approval_request` (**+`required_approver_class`**), `identity_demographic(_erasure)`, `identity_contact_pref`, `org_customer_key`, `organization.payout_destination_set_by`, `identity_ext.locale`** |
+| `077` | `072` | B | B — organizations + permissions | `077_kernel_identity_orgs_and_roles` | `kernel.identity_ext`, `organization`, `org_member` (**six** org labels, **+`granted_at`**), `org_invite` (**six** org labels), `platform_role`, `admin_audit` + org/platform role predicates · **Δ `approval_request` (**+`required_approver_class`**), `identity_demographic(_erasure)`, `identity_contact_pref`, **`identity_contact_pref_event` (AO — `K-2`)**, `org_customer_key`, `organization.payout_destination_set_by`, `identity_ext.locale`** |
 | `078` | `073` | C | C — catalog | `078_catalog_reference_data_and_flags` | `catalog.venue`, `event`, `event_session` (incl. `door_open_at`), `platform_config` (**+`visibility`** — split read, not blanket public) + **all** feature-flag and config seeds, `resale_policy` · **Δ `event` marketing columns, `event_session.session_version`, `effective_freeze_at()`** |
 | `079` | `074` | D | D — ticket kernel | `079_kernel_ticket_atom_and_ownership_log` | `kernel.tickets` (custody atom) + `kernel.ticket_ownership_log` (append-only custody ledger, C26 idempotency) · **Δ `door_freeze_override`, `is_transfer_frozen`, `lock_/unlock_ticket`, `mark_ticket_scanned`** |
 | `080` | `075` | E1 | E — inventory | `080_venue_staff_roles_and_predicates` | `venue.staff_role` (**six canonical labels**) + `has_venue_role`/`has_event_role` · **Δ `has_org_role_over_venue`/`_over_event`** |
 | `081` | `076` | E2 | E — inventory | `081_venue_inventory` | `venue.ticket_type`, `inventory_batch`, `inventory_batch_shard`, `inventory_movement`, `inventory_hold` (oversell-safe counter) · **Δ `catalog.publish_event` authored here** |
-| `082` | `077` | F | F — orders | `082_venue_orders` | `venue.order`, `venue.order_item` (primary-purchase container) · **Δ `kernel.org_contact_consent`** |
+| `082` | `077` | F | F — orders | `082_venue_orders` | `venue.order`, `venue.order_item` (primary-purchase container) · **Δ `kernel.org_contact_consent`, `kernel.org_contact_consent_event` (AO — `K-2`)** |
 | `083` | `078` | G1 | G — credential infrastructure | `083_kernel_credential_infrastructure` | `kernel.signing_key` — public key + KMS handle reference only, **no private key material** · **Δ `pass_type_cert`, `wallet_pass`, `wallet_pass_device`, `wallet_pass_push_log`, `.pkpass` bucket** |
 | `084` | `079` | G2 | G — credential infrastructure (ADOPT) | `084_kernel_tickets_late_binding_fks` | late-binding FKs `kernel.tickets` → `venue.ticket_type` + `kernel.signing_key` (`NOT VALID` + `VALIDATE`) — **and nothing else; the only unconditionally reversible package** |
 | `085` | `080` | M | F/I bridge — kernel money-native | `085_kernel_money_native` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` (link to frozen `public.payments`, never re-charge) · **Δ `void_ticket_atom` + `market.on_atom_voided` stub; the nine money-authority RPCs** |
 | `086` | `081` | H | H — scan infrastructure | `086_venue_door_and_scan` | `venue.door_pin`, **`door_session`**, `scan_device`, `scan` (C41 re-entry hedge), `comp_allocation`, `guest_list`, `guest_entry` · **Δ `door_manifest(_entry/_delta)`, `holder_mix_snapshot`, `holder_mix_bucket`, `scan.actor_identity_id`, `assert_door_session` (token-bearing)** |
-| `087` | `082` | I | I — settlement | `087_venue_settlement_and_export` | `venue.settlement`, `venue.settlement_line` (per-event money rollup → `kernel.payout`) · **Δ `export_job` + `crm-exports` bucket; `close_settlement` + its two hook stubs; the three purge-agent definers; edge `crm-export` + `crm-export-worker` and their two `pg_cron` schedules** |
+| `087` | `082` | I | I — settlement | `087_venue_settlement_and_export` | `venue.settlement`, `venue.settlement_line` (per-event money rollup → `kernel.payout`) · **Δ `export_job` + `crm-exports` bucket; `close_settlement` + its two hook stubs; the three purge-agent definers **`claim_artifacts_for_purge` · `confirm_artifact_purged` · `reconcile_export_orphans`** plus **`assert_may_request`** (`K-3`); the `export_job` purge substrate **`artifact_state` · `purge_lease_until` · `purge_attempts` + the `(artifact_state, expires_at)` claim index**; edge `crm-export` + `crm-export-worker` and their two `pg_cron` schedules** |
 | `088` | `083` | J1 | J — native marketplace bridge | `088_market_native_rail` | `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` · **Δ `transfer_ticket_ownership`, `catalog.cancel_event`, replaces two hooks** |
 | `089` | `084` | J2 | J — native marketplace bridge (ADOPT) | `089_market_bridge_view_and_late_fk` | `market.listing_unified` VIEW (external ∪ native, flag-gated) + adopt `payment_native.sale_id` FK |
 | `090` | `085` | 2D | Phase 2D — promoter engine | `090_venue_promoter_engine` | `venue.promoter`, `promoter_link` (**+`status`**), `attribution` (modeled now, activated in the promoter phase) · **Δ commercial-terms columns, `promoter_code(_scope)`, `attribution_review`, the cross-settlement commission unique, `payment_native.instrument_fingerprint`** |
@@ -187,8 +270,8 @@ functions · RLS · triggers · indexes · grants · flags · dependencies · ro
 ### 2.1 Apply order and dependencies
 
 **+** marks an edge added by the delta-spec integration; **†** marks the one edge added by the final
-reconciliation pass. Every dependency precedes its dependent, so the graph is a DAG and is topologically
-ordered by package number.
+reconciliation pass; **‡** marks the two added by the K-2 repair. Every dependency precedes its dependent,
+so the graph is a DAG and is topologically ordered by package number. **Total: 38 edges.**
 
 | Seq | Pkg | Depends on |
 |---|---|---|
@@ -198,7 +281,7 @@ ordered by package number.
 | 4 | `079` | `077`, `078` |
 | 5 | `080` | `077`, `078` |
 | 6 | `081` | `078`, `080` |
-| 7 | `082` | `081` |
+| 7 | `082` | **‡`077`**, **‡`078`**, `081` |
 | 8 | `083` | `078`, **+`079`** |
 | 9 | `084` | `079`, `081`, `083` |
 | 10 | `085` | `077`, **+`079`**, `082` |
@@ -220,9 +303,11 @@ Why each added edge exists:
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
 | `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `kernel.settlement_commission_lines` |
+| **‡`077 → 082`** | `kernel.org_contact_consent_event.org_id` FK → `kernel.organization` — the `K-2` table added to `082`. **The pre-existing `kernel.org_contact_consent.org_id` and `venue.order.org_id` carry the identical FK and were already under-declared**, so the edge was owed before this repair and is only *forced* by it. **Declaration-only.** |
+| **‡`078 → 082`** | `venue.order.event_session_id` FK → `catalog.event_session`. Pre-existing, co-located, and named in plan §8/`082`'s own **Dependencies** prose (*"`081` (ticket_type), `078`, `077`"*) while all four declared sets said `{081}`. Corrected in the same pass because fixing one half of a two-edge under-declaration and leaving the other is worse than fixing neither. **Declaration-only.** Fourth instance of the SEAM-1 shape, after `079 → 085`, `085 → 088` and `086 → 087`. |
 | **†`086 → 087`** | `venue.list_attendees` / `venue.build_export_rows` read `venue.scan` for the check-in columns (previously undeclared — named in the migration plan's §8/`087` prose, absent from every declared set). **Declaration-only:** no package added, renamed or reordered; no object moved; no rollback changed. Third instance of the SEAM-1 shape, after `079 → 085` and `085 → 088`, and resolved identically. |
 
-> **`K-1` adds no edge, and that is a checked result rather than an assumption.** Door §10.3/§10.3a add
+> **`MP-1` adds no edge, and that is a checked result rather than an assumption.** Door §10.3/§10.3a add
 > `ticket_type_id` FK → `venue.ticket_type` to `venue.door_manifest_entry` **and** `venue.door_manifest_delta`.
 > `venue.ticket_type` is created in **`081`**, and `086` already declares `depends_on: ["079","080","081","083"]`
 > — so the edge `081 → 086` exists, and this is **not** a fourth instance of the SEAM-1 shape. Recorded
@@ -244,6 +329,18 @@ Two rules, ratified with this amendment, prevent recurrence:
 **Acceptance property:** *no function reads or writes a table created in a later package* — mechanically
 checkable from `pg_depend`/`pg_proc` after each package's replay.
 
+**Second acceptance property — the four declared edge sets are identical.** The dependency graph is written
+down in **four** places: `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §2's mermaid DAG, that plan's §3 rollout
+table, §2.1 above, and the JSON `depends_on` in §3. **They must be the same set, exactly** — not merely
+compatible, and not merely "the mermaid is a superset". Three of the four instances found so far
+(`079 → 085`, `085 → 088`, `086 → 087`) were caught only because someone read the prose; the fourth
+(`077 → 082` / `078 → 082`) was caught because a new table's FK could not be declared without it.
+
+> **Verified after the K-2 repair (2026-08-28).** All four sets enumerate the **same 38 edges**. Every
+> declared dependency **strictly precedes** its dependent by package number, so the graph is acyclic and
+> topologically ordered by number. The mermaid edge set **equals** the declared edge set — no edge is in
+> one and not the others.
+
 ---
 
 ## 3. Machine-readable
@@ -254,7 +351,10 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
   "ratified": "2026-08-27",
   "amended": "2026-08-27",
   "amendment_status": "PENDING_RE_RATIFICATION",
-  "amendment_summary": "Delta-spec integration. Structural: kernel.approval_request placed in 077 (it had no package and no home). Scope: 083 and 087 renamed; seven dependency edges added (an eighth, 086 -> 087, added later by the final reconciliation pass as a declaration-only correction); per-package object sets extended. Count unchanged at 16 unless COND-B (notify) is ruled Gate P.",
+  "amendment_count": 4,
+  "declared_edge_count": 38,
+  "edge_set_parity_verified": "2026-08-28",
+  "amendment_summary": "Delta-spec integration. Structural: kernel.approval_request placed in 077 (it had no package and no home). Scope: 083 and 087 renamed; seven dependency edges added (an eighth, 086 -> 087, added later by the final reconciliation pass as a declaration-only correction); per-package object sets extended. FOURTH AMENDMENT (K-2/K-3): kernel.identity_contact_pref_event placed in 077 and kernel.org_contact_consent_event placed in 082 — both were contracted by four documents and created by none; 087 names the three purge definers and assert_may_request explicitly and gains the export_job purge substrate; two declaration-only edges added, 077 -> 082 and 078 -> 082, bringing the declared edge count to 38. Count unchanged at 16 unless COND-B (notify) is ruled Gate P.",
   "canonical_source": "docs/architecture/PHASE_2_PACKAGE_REGISTRY.md",
   "placement_record": "docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md#13",
   "package_specification": "docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md#8",
@@ -317,17 +417,17 @@ checkable from `pg_depend`/`pg_proc` after each package's replay.
   ],
   "packages": [
     { "new": "076", "old": "071", "package": "A", "phase": "A", "name": "076_create_phase2_schemas_and_grants", "purpose": "schema skeleton", "scope": "4 schemas + GRANT boundary + shared helper functions/triggers", "depends_on": [], "rollback_posture": "REVERSIBLE" },
-    { "new": "077", "old": "072", "package": "B", "phase": "B", "name": "077_kernel_identity_orgs_and_roles", "purpose": "organizations + permissions + dual-control substrate", "scope": "identity_ext (+locale), organization (+payout_destination_set_by), org_member (six org labels, +granted_at), org_invite (six org labels), platform_role, admin_audit, approval_request (+required_approver_class), identity_demographic(_erasure), identity_contact_pref, org_customer_key + role predicates", "depends_on": ["076"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.approval_request", "kernel.approval_request.required_approver_class", "kernel.org_member.granted_at", "kernel.identity_demographic", "kernel.identity_demographic_erasure", "kernel.identity_contact_pref", "kernel.org_customer_key", "kernel.organization.payout_destination_set_by", "kernel.identity_ext.locale"] },
+    { "new": "077", "old": "072", "package": "B", "phase": "B", "name": "077_kernel_identity_orgs_and_roles", "purpose": "organizations + permissions + dual-control substrate", "scope": "identity_ext (+locale), organization (+payout_destination_set_by), org_member (six org labels, +granted_at), org_invite (six org labels), platform_role, admin_audit, approval_request (+required_approver_class), identity_demographic(_erasure), identity_contact_pref, identity_contact_pref_event (AO), org_customer_key + role predicates — TWELVE tables", "depends_on": ["076"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.approval_request", "kernel.approval_request.required_approver_class", "kernel.org_member.granted_at", "kernel.identity_demographic", "kernel.identity_demographic_erasure", "kernel.identity_contact_pref", "kernel.org_customer_key", "kernel.organization.payout_destination_set_by", "kernel.identity_ext.locale", "kernel.identity_contact_pref_event"], "k2_added": ["kernel.identity_contact_pref_event"] },
     { "new": "078", "old": "073", "package": "C", "phase": "C", "name": "078_catalog_reference_data_and_flags", "purpose": "catalog + all config/flag seeds", "scope": "catalog.venue/event/event_session/platform_config (+visibility, split read)/resale_policy + every feature-flag and config seed in the chain", "depends_on": ["077"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["catalog.platform_config.visibility", "catalog.event.description", "catalog.event.hero_image_ref", "catalog.event.category", "catalog.event.genre_tags", "catalog.event_session.session_version", "catalog.effective_freeze_at"] },
     { "new": "079", "old": "074", "package": "D", "phase": "D", "name": "079_kernel_ticket_atom_and_ownership_log", "purpose": "ticket kernel", "scope": "kernel.tickets + kernel.ticket_ownership_log (C26 idempotency) + the complete transfer-freeze input set", "depends_on": ["077", "078"], "rollback_posture": "FORWARD_FIX_ONLY", "delta_added": ["kernel.door_freeze_override", "kernel.is_transfer_frozen", "kernel.tickets.resale_state:refund_hold"] },
     { "new": "080", "old": "075", "package": "E1", "phase": "E", "name": "080_venue_staff_roles_and_predicates", "purpose": "inventory (roles)", "scope": "venue.staff_role (six canonical labels, text+CHECK) + has_venue_role/has_event_role/has_org_role_over_venue/has_org_role_over_event", "depends_on": ["077", "078"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
     { "new": "081", "old": "076", "package": "E2", "phase": "E", "name": "081_venue_inventory", "purpose": "inventory (capacity)", "scope": "ticket_type, inventory_batch, inventory_batch_shard, inventory_movement, inventory_hold + catalog.publish_event", "depends_on": ["078", "080"], "rollback_posture": "CLEAN_WHILE_EMPTY" },
-    { "new": "082", "old": "077", "package": "F", "phase": "F", "name": "082_venue_orders", "purpose": "orders", "scope": "venue.order + venue.order_item + kernel.org_contact_consent", "depends_on": ["081"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.org_contact_consent"] },
+    { "new": "082", "old": "077", "package": "F", "phase": "F", "name": "082_venue_orders", "purpose": "orders", "scope": "venue.order + venue.order_item + kernel.org_contact_consent + kernel.org_contact_consent_event (AO)", "depends_on": ["077", "078", "081"], "depends_on_added_by_k2_repair": ["077", "078"], "depends_on_note": "077 is FORCED by kernel.org_contact_consent_event.org_id -> kernel.organization; 078 is a co-located pre-existing under-declaration (venue.order.event_session_id -> catalog.event_session). Both were already named in migration plan section 8/082 Dependencies prose while all four declared sets said [081]. Declaration-only: 077 < 078 < 081 < 082, so ordering was never wrong.", "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["kernel.org_contact_consent"], "k2_added": ["kernel.org_contact_consent_event"] },
     { "new": "083", "old": "078", "package": "G1", "phase": "G", "name": "083_kernel_credential_infrastructure", "purpose": "credential infrastructure", "scope": "kernel.signing_key + pass_type_cert + wallet_pass + wallet_pass_device + wallet_pass_push_log + .pkpass bucket (public key / KMS handle refs only, no key material)", "depends_on": ["078", "079"], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "083_kernel_signing_key", "delta_added": ["kernel.pass_type_cert", "kernel.wallet_pass", "kernel.wallet_pass_device", "kernel.wallet_pass_push_log"] },
     { "new": "084", "old": "079", "package": "G2", "phase": "G", "name": "084_kernel_tickets_late_binding_fks", "purpose": "credential infrastructure (ADOPT)", "scope": "late-binding FKs kernel.tickets -> ticket_type + signing_key, and nothing else", "depends_on": ["079", "081", "083"], "rollback_posture": "REVERSIBLE", "invariant": "Creates zero relations and zero routines. This purity is what makes its rollback unconditionally reversible; nothing may be added to it." },
     { "new": "085", "old": "080", "package": "M", "phase": "F/I bridge", "name": "085_kernel_money_native", "purpose": "kernel money-native + money authority", "scope": "kernel.payment_native, kernel.refund, kernel.payout, void_ticket_atom + on_atom_voided stub, the nine money-authority RPCs", "depends_on": ["077", "079", "082"], "rollback_posture": "FORWARD_FIX_ONLY" },
     { "new": "086", "old": "081", "package": "H", "phase": "H", "name": "086_venue_door_and_scan", "purpose": "scan infrastructure + door manifest + holder mix", "scope": "door_pin, door_session, scan_device, scan (+actor_identity_id, +manifest_id), comp_allocation, guest_list, guest_entry, door_manifest(_entry/_delta), holder_mix_snapshot, holder_mix_bucket", "depends_on": ["079", "080", "081", "083"], "rollback_posture": "CLEAN_WHILE_EMPTY", "delta_added": ["venue.door_session", "venue.door_manifest", "venue.door_manifest_entry", "venue.door_manifest_delta", "venue.holder_mix_snapshot", "venue.holder_mix_bucket", "venue.scan.actor_identity_id", "venue.scan.manifest_id", "venue.scan_device.manifest_id"] },
-    { "new": "087", "old": "082", "package": "I", "phase": "I", "name": "087_venue_settlement_and_export", "purpose": "settlement + CRM export", "scope": "venue.settlement + venue.settlement_line + venue.export_job + crm-exports bucket + close_settlement and its two hook stubs + the three purge-agent definers", "depends_on": ["077", "081", "085", "086"], "depends_on_added_by_reconciliation": ["086"], "edge_functions": [ { "name": "crm-export", "routes": ["POST /download"], "class": "A", "verify_jwt": true, "worker_secret_in_env": false }, { "name": "crm-export-worker", "routes": ["POST /build", "POST /purge"], "class": "B", "verify_jwt": true, "worker_secret_in_env": true, "worker_header": "X-Crm-Export-Worker", "secret_name": "CRM_EXPORT_WORKER_SECRET", "never_compared_against": "SUPABASE_SERVICE_ROLE_KEY" } ], "cron_schedules": [ { "target": "crm-export-worker", "route": "POST /build", "cadence": "1 minute", "header": "X-Crm-Export-Worker" }, { "target": "crm-export-worker", "route": "POST /purge", "cadence": "15 minutes", "header": "X-Crm-Export-Worker", "note": "daily orphan reconciliation rides this route" } ], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "087_venue_settlement", "delta_added": ["venue.export_job", "storage.buckets:crm-exports", "crm_export_builder role"] },
+    { "new": "087", "old": "082", "package": "I", "phase": "I", "name": "087_venue_settlement_and_export", "purpose": "settlement + CRM export", "scope": "venue.settlement + venue.settlement_line + venue.export_job (incl. the purge substrate artifact_state / purge_lease_until / purge_attempts and the (artifact_state, expires_at) claim index) + crm-exports bucket + close_settlement and its two hook stubs + the three purge-agent definers + assert_may_request", "depends_on": ["077", "081", "085", "086"], "depends_on_added_by_reconciliation": ["086"], "edge_functions": [ { "name": "crm-export", "routes": ["POST /download"], "class": "A", "verify_jwt": true, "worker_secret_in_env": false }, { "name": "crm-export-worker", "routes": ["POST /build", "POST /purge"], "class": "B", "verify_jwt": true, "worker_secret_in_env": true, "worker_header": "X-Crm-Export-Worker", "secret_name": "CRM_EXPORT_WORKER_SECRET", "never_compared_against": "SUPABASE_SERVICE_ROLE_KEY" } ], "cron_schedules": [ { "target": "crm-export-worker", "route": "POST /build", "cadence": "1 minute", "header": "X-Crm-Export-Worker" }, { "target": "crm-export-worker", "route": "POST /purge", "cadence": "15 minutes", "header": "X-Crm-Export-Worker", "note": "daily orphan reconciliation rides this route" } ], "rollback_posture": "CLEAN_WHILE_EMPTY", "renamed_from": "087_venue_settlement", "delta_added": ["venue.export_job", "storage.buckets:crm-exports", "crm_export_builder role"], "k3_named": ["venue.claim_artifacts_for_purge", "venue.confirm_artifact_purged", "venue.reconcile_export_orphans", "venue.assert_may_request", "venue.export_job.artifact_state", "venue.export_job.purge_lease_until", "venue.export_job.purge_attempts", "index:venue.export_job(artifact_state, expires_at)"], "k3_note": "The three purge definers reached migration plan section 8/087 by the final reconciliation pass but were named nowhere here and had no physical substrate in the schema spec. max(087 venue.export_job, 077 kernel.admin_audit) = 087 by SEAM-1; 087 already declares 077, so no edge is created. This is the only agent in the design that deletes bytes." },
     { "new": "088", "old": "083", "package": "J1", "phase": "J", "name": "088_market_native_rail", "purpose": "native marketplace rail + custody engine", "scope": "listing_native, auction, offer, market_sale, p2p_transfer, transfer_ticket_ownership, catalog.cancel_event", "depends_on": ["078", "079", "081", "085"], "rollback_posture": "CLEAN_WHILE_EMPTY", "restores_hooks": ["kernel.settlement_royalty_lines", "market.on_atom_voided"] },
     { "new": "089", "old": "084", "package": "J2", "phase": "J", "name": "089_market_bridge_view_and_late_fk", "purpose": "native marketplace bridge (ADOPT)", "scope": "market.listing_unified VIEW + adopt payment_native.sale_id FK", "depends_on": ["085", "088"], "rollback_posture": "REVERSIBLE" },
     { "new": "090", "old": "085", "package": "2D", "phase": "2D", "name": "090_venue_promoter_engine", "purpose": "promoter engine", "scope": "venue.promoter (+tier/party_kind/commission_kind/commission_flat_minor), promoter_link (+status), attribution (+15 cols), promoter_code, promoter_code_scope, attribution_review, the cross-settlement commission unique, payment_native.instrument_fingerprint", "depends_on": ["078", "082", "085", "087"], "rollback_posture": "CLEAN_WHILE_EMPTY", "restores_hooks": ["kernel.settlement_commission_lines"], "delta_added": ["venue.promoter_link.status", "venue.promoter_code", "venue.promoter_code_scope", "venue.attribution_review", "venue.settlement_line:uq_promoter_commission_cause_ref", "kernel.payment_native.instrument_fingerprint", "venue.order.attribution_candidate_code_id", "venue.order.attribution_candidate_link_id"] },
@@ -433,3 +533,21 @@ authority — each carries its own scheduler.
 
 Full treatment: `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §13.3/§13.4 and
 `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 COND-A/COND-B.
+
+---
+
+### 7.1 Owner decisions surfaced by the K-2 / K-3 repair — recorded, NOT taken
+
+The repair placed every object by a rule (`PHASE_2_SPEC_FOUNDATION.md` §6's assignment, or SEAM-1's
+`max()`), so **no placement is a decision.** Two questions it hit **are** decisions about who may do what,
+and neither is answerable from the corpus. They are recorded here so a ruling is an apply rather than a
+design exercise, and **left with the owner.**
+
+| ID | Question | Why the repair could not answer it | Consequence of each answer |
+|---|---|---|---|
+| **`OWNER-DECISION-K2-D3`** | **`D-3`'s outstanding sign-off now covers SIX relations, not four.** `PHASE_2_CRM_EXPORT_SPEC.md` §11.2 files `ON DELETE CASCADE` from `auth.users` on the contact tables as *"a named exception requiring acknowledgment"* — the corpus default is `ON DELETE RESTRICT` — still owed from the **schema and RLS spec owners**. The two `_event` ledgers inherit the cascade. | The inheritance is mechanical (an append-only history of a grant belonging to nobody is the same residue with a timestamp on it, and `RESTRICT` here would make an **account deletion fail** on the log of a permission the account already withdrew) — **but `D-3` is an unresolved sign-off, and silently widening its scope from four relations to six is exactly the shape of change rule §6.5 exists to stop.** | **CASCADE (recommended, and what §1.15 specifies):** deletion is clean; the fan's evidence dies with the account, consistent with `§9.2`. **RESTRICT:** account deletion blocks on consent history, which contradicts `020`'s `delete_account_cleanup` — this answer needs an erasure path designed, and none exists. |
+| **`OWNER-DECISION-K2-READ`** | **May the SUBJECT read their own consent *history*, or only their current state?** `kernel.list_my_org_contact_consents` returns current state. `PHASE_2_CRM_EXPORT_SPEC.md` §9.2's pre-deletion screen shows *which venues exported a list with you* — that is **export** history, not **consent** history. Whether a fan may see *"you allowed this venue on 3 March and withdrew on 9 May"* is stated by **no document**. | §1.15 specifies both ledgers **deny-all with an empty grant set**, reachable only by the export gate — the strictest posture, and the one every cited document already assumes. That is the safe default, **but it is a default this repair chose by inheritance, not a ruling.** CRM §5.3 argues at length that *"a consent record is the person's own evidence in the dispute they are most likely to have"* — which is an argument **for** a read path, and no read path exists. | **NO (current, safe):** nothing changes; the §5.3 evidence argument stands unimplemented. **YES:** one new definer RPC, own-`identity_id` only, on `082` (SEAM-1 `max()`), and the `_event` tables' grant set stays empty because the RPC is a definer — **no RLS posture changes either way.** The cost is one function, not a permission model. |
+
+**Neither blocks the fourth amendment.** `K-2` and `K-3` close with the strict posture in both cases; a
+later ruling on `OWNER-DECISION-K2-READ` is **additive** (one RPC) and a ruling on `OWNER-DECISION-K2-D3`
+either confirms what is written or opens an erasure-path design that `D-3` already owed.

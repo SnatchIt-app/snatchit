@@ -1137,6 +1137,163 @@ that makes the whole control vacuous, and it is invisible without this assertion
   (b) every threshold read in MONEY §7.2 becomes a two-step resolution; (c) `kernel.approval_request`
   `config_versions` must pin the **org** policy version as well as the platform `(key, version)` pair.
 
+### 1.15 `kernel.identity_contact_pref_event` · `kernel.org_contact_consent_event` — the two as-of consent ledgers (ADDED — defect **K-2**)
+
+> **INTEGRATION RULING — two tables were asserted by four documents and defined by none.**
+> `PHASE_2_SPEC_FOUNDATION.md` §6 lists both in the canonical table inventory **and assigns them package
+> numbers** (`077` and `082`); `PHASE_2_CRM_EXPORT_SPEC.md` §5.1 introduces them as the fix that makes the
+> export consent gate as-of evaluable and §11.1 schedules them as elements `5a`/`5b`;
+> `PHASE_2_RLS_PERMISSION_SPEC.md` §6/§16.6/§16.10 puts them in the six-table CRM deny-all set and inside
+> the **closed twelve-relation** `crm_export_builder` grant set; and `PHASE_2_RPC_FUNCTION_CONTRACTS.md`
+> §20 contracts `kernel.set_my_contact_prefs` and `kernel.grant_/withdraw_org_contact_consent` as
+> **writing a row into them in the same transaction**. They appeared in **this spec, in
+> `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 and in `PHASE_2_PACKAGE_REGISTRY.md` — zero times each.** No PK,
+> no column list, no FK, no index, no package contents row. Under the registry's own rule (§2.2, and the
+> second amendment's closing line) **a contracted object absent from plan §8 is an object nobody builds.**
+>
+> **Why the absence is worse than a missing table usually is.** `plpgsql` bodies are not validated at
+> `CREATE FUNCTION`, so the whole `076`–`091` chain replays green with both writers referencing a relation
+> that does not exist; the first fan who touches the master switch gets a runtime `42P01`. The silent
+> direction is worse. RLS §16.10 rules that omitting these two from the builder's relation set
+> *"reproduces the zero-rows failure this ruling exists to close, in the two relations the gate depends on
+> most"* — and `crm_export_builder` is a role **subject to RLS**, so a missing-or-unreadable gate source
+> yields **no consent row for anybody**, suppresses every contact cell, and emits a syntactically valid
+> CSV whose contact column is uniformly blank. That does not read as *"denied"*; it reads as **"nobody
+> consented."** `venue.finalize_export`'s invariant `cells_emitted + cells_suppressed = holder row count`
+> **balances perfectly at `cells_emitted = 0`**, so nothing in the pipeline detects it.
+>
+> **Placement respects `PHASE_2_SPEC_FOUNDATION.md` §6 exactly — `077` and `082` — and the dependency
+> graph permits both** (the SEAM-1 arithmetic is stated per table below). No deviation was required.
+
+Both tables are **AO** (§0.8): INSERT-only, `REVOKE UPDATE, DELETE`, and the `kernel.raise_append_only()`
+guard trigger created in `076`. Both are **deny-all with an EMPTY grant set — not a reduced one** (RLS §6
+tier 2/3), and both join the §16.10 zero-policy register, carrying **exactly one** policy each: the
+`_sel_svc_export` role gate of §16.10 clause 2, `USING (current_user = 'crm_export_builder')` and nothing
+else. Neither carries a sensitive attribute; neither is reachable by any client role at any verb.
+
+#### 1.15.1 `kernel.identity_contact_pref_event` — package `077`
+
+- **Purpose:** the append-only history of the **master switch**, so conjunct 1 of the §5.1 export consent
+  gate is evaluable **at one instant** (`venue.export_job.gate_as_of`) rather than at whatever `now()`
+  each page of a paged build happens to see. Without it a long build evaluates its conjuncts at
+  inconsistent instants and the §6.3/§9.2 replay claim — *"the export is reproducible from its audit
+  row"* — is false, which degrades `artifact_sha256` from *"this is or is not the file we produced"* to
+  *"this is or is not a file matching a build we can no longer reproduce."*
+- **PK:** `id` uuid (surrogate — `PHASE_2_SPEC_FOUNDATION.md` §6 names `id`; the natural key
+  `(identity_id, occurred_at)` is **not** unique, because two flips inside one transaction share `now()`).
+- **Columns:**
+  - `id` uuid — PK.
+  - `identity_id` uuid — not null, FK→`auth.users(id)` **ON DELETE CASCADE** (rides the named exception
+    **D-3**, below).
+  - `venue_email_contact` text — not null, `CHECK IN ('allow','block')` — **the value the switch took at
+    `occurred_at`**, same closed set as `kernel.identity_contact_pref.venue_email_contact`. Stored as the
+    resulting value, not as a delta, so the as-of read is a single `ORDER BY occurred_at DESC LIMIT 1`
+    and never a fold.
+  - `occurred_at` timestamptz — not null, default `now()`.
+- **FKs:** `identity_id` ON DELETE CASCADE.
+- **Unique:** none beyond PK (an append log).
+- **Check:** the two-label closed set above. **No `CHECK` on `occurred_at` ordering** — an append log with
+  a monotonicity constraint fails a legitimate same-instant pair.
+- **Immutability:** **AO** — INSERT-only; `kernel.raise_append_only()` trigger; `REVOKE UPDATE, DELETE`.
+- **Index:** PK; **`(identity_id, occurred_at DESC)`** — this is the gate's whole access path
+  (*"latest row for this identity at or before `gate_as_of`"*) and it is on the hot path of every page of
+  every export build.
+- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero client policies (§6, §16.6). One
+  `kernel_identity_contact_pref_event_sel_svc_export` policy per §16.10 clause 2. **`INFERENCE:` it
+  inherits the current-state table's posture rather than a relaxed one on the grounds that it is "just a
+  log": a column grant here to `authenticated` would publish a timestamped history of when a person
+  changed their mind about being emailed** — strictly worse than the row it derives from (RLS §6, verbatim
+  reasoning for the sibling table).
+- **Write authority (canonical — A4):** `kernel.set_my_contact_prefs` **only**, appending one row in the
+  **same transaction** as the current-state upsert (RPC §20; CRM §11.1 element 4 / §5.1 change 2). No
+  other routine, no `service_role` path, no backfill.
+- **Read authority:** the §5.1 gate inside `venue.build_export_rows`, running as `crm_export_builder`.
+- **SoT/PROJ:** SoT for *"what was the switch at instant T"*; `kernel.identity_contact_pref` remains the
+  read path for everything else.
+
+> **`GATE-DEFAULT-1` — the no-row case is `'allow'` for this table and `NOT granted` for the other, and
+> the asymmetry is load-bearing.** An identity who has never touched the switch has **no** event row. The
+> current-state column is `NOT NULL DEFAULT 'allow'` because §5.3 rules the master switch **a kill switch,
+> not a consent** — so the as-of read of *this* table resolves a no-row result to **`'allow'`**. The
+> org-grain table below resolves a no-row result to **not granted**. An implementer who picks one
+> convention for both either suppresses every cell for every fan who never opened Settings (if `block`
+> wins here) or emits contact for orgs nobody consented to (if `granted` wins there). **Stated here
+> because neither default is derivable from the other table's shape**, and the second failure is the one
+> that ships customer email without permission.
+
+**SEAM-1 for the writer.** `kernel.set_my_contact_prefs` reads/writes `kernel.identity_contact_pref`
+(`077`) and `kernel.identity_contact_pref_event` (`077`). **`max(077, 077) = 077`** — the package plan §8
+already authors it in. **No dependency edge is created:** this table's only FK is to `auth.users`, which
+is a precondition relation, not a Phase-2 package (§0.1 — the frozen core references nothing upward).
+
+#### 1.15.2 `kernel.org_contact_consent_event` — package `082`
+
+- **Purpose:** the append-only history of the **per-org consent**, so conjunct 2 of the §5.1 gate is
+  as-of evaluable at `gate_as_of`. This is also the person's own evidence in the dispute they are most
+  likely to have (*"I never agreed to that venue emailing me"*) — CRM §5.3 argues at length that a consent
+  record is the fan's evidence, and an append-only log is a strictly better version of the evidence the
+  design already keeps.
+- **PK:** `id` uuid (surrogate; `(identity_id, org_id, occurred_at)` is not unique for the same
+  same-transaction reason).
+- **Columns:**
+  - `id` uuid — PK.
+  - `identity_id` uuid — not null, FK→`auth.users(id)` **ON DELETE CASCADE** (**D-3**).
+  - `org_id` uuid — not null, FK→`kernel.organization(org_id)` **ON DELETE RESTRICT**.
+  - `event` text — not null, `CHECK IN ('granted','withdrawn')`. **The column is named `event`, per
+    `PHASE_2_SPEC_FOUNDATION.md` §6 and CRM §5.1 verbatim** — deliberately *not* `state`, so that a reader
+    cannot mistake a log row for the current-state row it derives from.
+  - `occurred_at` timestamptz — not null, default `now()`.
+  - `notice_version` text — nullable; **which consent copy they saw**. `CHECK (event <> 'granted' OR
+    notice_version IS NOT NULL)` — a grant with no notice version is unprovable consent, and a withdrawal
+    has no notice to record.
+  - `source_order_id` uuid — nullable, FK→`venue.order(order_id)` ON DELETE RESTRICT; where consent was
+    given. Nullable because a Settings-side grant has no order. `CHECK (event = 'granted' OR
+    source_order_id IS NULL)` — a withdrawal is never caused by a purchase.
+- **FKs:** `identity_id` CASCADE; `org_id` RESTRICT; `source_order_id` RESTRICT.
+- **Unique:** none beyond PK.
+- **Check:** the two-label closed set, plus the two conditional CHECKs above.
+- **Immutability:** **AO** — INSERT-only; `kernel.raise_append_only()` trigger; `REVOKE UPDATE, DELETE`.
+  **Withdrawal is a new row, never an UPDATE of the grant row** — the same discipline §5.3 already
+  imposes on the current-state table, where withdrawal is a state change and never a delete.
+- **Index:** PK; **`(org_id, identity_id, occurred_at DESC)`** — the build-time gate is scoped to one
+  `:job_org_id` and sweeps many identities, so `org_id` leads; **`(identity_id, occurred_at DESC)`** —
+  the fan-side *"which venues exported a list with you"* pre-deletion screen (§9.2, CRM §11.1 element 27)
+  and `kernel.list_my_org_contact_consents`.
+- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero client policies. One
+  `kernel_org_contact_consent_event_sel_svc_export` policy per §16.10 clause 2.
+- **Write authority (canonical — A4):** `kernel.grant_org_contact_consent` (appends
+  `event='granted'`) and `kernel.withdraw_org_contact_consent` (appends `event='withdrawn'`), each in the
+  **same transaction** as its current-state write. Nothing else writes it.
+- **Read authority:** the §5.1 gate inside `venue.build_export_rows` (as `crm_export_builder`), and
+  `kernel.list_my_org_contact_consents` for the row's own subject.
+- **SoT/PROJ:** SoT for *"what was consent at instant T"*.
+
+**SEAM-1 for the writers.** `kernel.grant_org_contact_consent` reads/writes `kernel.org_contact_consent`
+(`082`), `kernel.org_contact_consent_event` (`082`) and `venue.order` (`082`, via `source_order_id`);
+`kernel.withdraw_org_contact_consent` reads/writes the first two. **`max(082, 082, 082) = 082`** — the
+package plan §8 already authors both in. **The table is therefore floored at `082` independently of
+`PHASE_2_SPEC_FOUNDATION.md` §6's assignment**, and cannot sit in `077` with its sibling: its
+`source_order_id` FK targets `venue.order`, which `082` creates. `§6`'s `082` is confirmed, not merely
+adopted.
+
+**Dependency consequence — one edge is FORCED, `077 → 082`.** `org_id` is a hard FK to
+`kernel.organization`, created in `077`. `082`'s declared dependency set was **`{081}`** in all four
+places the registry keeps it, so this table cannot be added without either the edge or a forward
+reference. See §13.6 `DAG-4`. (The pre-existing `kernel.org_contact_consent` carries the same FK and was
+already under-declared; the edge is therefore a **declaration-only** correction the same shape as
+`086 → 087`, not a reordering — `077 < 082` was always true.)
+
+> **`D-3` scope note — NOT a new decision, but D-3 is now SIX relations, not four.** CRM §11.2 files
+> `ON DELETE CASCADE` from `auth.users` on the contact tables as a *"named exception requiring
+> acknowledgment"* — the corpus default is `ON DELETE RESTRICT` — justified because *"an orphaned contact
+> permission belonging to a deleted account is the worst possible residue: a live grant with no grantor"*,
+> and `VERIFIED:` cascade-from-`auth.users` is already the house pattern (migrations `012`/`023`/`033`).
+> Both tables here inherit it, for the identical reason and with no new argument: an append-only history
+> of a grant that belongs to nobody is the same residue with a timestamp on it, and `RESTRICT` here would
+> make an account deletion **fail** on the log of a permission the account already withdrew. **The
+> outstanding sign-off D-3 already requires from the schema and RLS spec owners now covers six relations
+> rather than four.** No decision is taken here.
+
 ---
 
 ## 2. Schema `catalog` — kernel-owned reference data (A7/C7)
@@ -2246,6 +2403,114 @@ out and §20.9.4 plus `U-4` are removed with it** — but that is a ruling, not 
 `T-SCHEMA-PROMO-03` (an inactive link attracts no new attribution — asserted through
 `resolve_order_attribution`, not by reading the column).
 
+### 3.18 `venue.export_job` — the artifact lifecycle and the purge claim substrate (ADDED — defect **K-3**)
+
+> **INTEGRATION RULING — the only three functions in this design that can delete a customer CSV had no
+> physical substrate in this spec.** `venue.claim_artifacts_for_purge`, `venue.confirm_artifact_purged`
+> and `venue.reconcile_export_orphans` are contracted in `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20 and
+> specified in `PHASE_2_CRM_EXPORT_SPEC.md` §11.1 element `19a` / §11.4. A later pass added them to
+> `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8/`087`'s **Functions** row, closing the plan half. Two halves
+> stayed open: **`PHASE_2_PACKAGE_REGISTRY.md` named them nowhere** (its `087` row said only *"the three
+> purge-agent definers"*), and **the columns and the index they claim rows through appeared in this spec
+> zero times** — `venue.export_job` reaches this document only as one placement-index row (§13.1) pointing
+> at CRM §11.1. In particular plan §8/`087`'s **Indexes** row listed three `export_job` indexes and
+> **omitted `(artifact_state, expires_at)`, which is the purge claim's entire access path.**
+>
+> **What the absence costs.** CRM §11 calls `POST /purge` *"the only thing in this design that deletes
+> bytes."* Without the state column and the claim lease, `venue.revoke_export` and
+> `venue.sweep_expired_exports` only flip the **job**'s state — the CSV of attendee names and email
+> addresses stays in the private `crm-exports` bucket indefinitely, and every retention statement in the
+> corpus becomes a statement about **rows**. Rows are not what leaks. That is filed as `K-16` in the CRM
+> spec and as **`R-7`** in RPC §20.14.
+>
+> **This section is the physical definition. It adopts `PHASE_2_CRM_EXPORT_SPEC.md` §11.2 in substance
+> and does not compete with it** — §11.2 remains the semantic source for the build-side columns; what is
+> added here is the purge substrate, stated in this spec's house form so the object has a definition in
+> the document that is authoritative for columns, PKs, FKs, CHECKs and indexes.
+
+- **Purpose:** the CRM export job — the request, the build lease, the gate-instant stamp, the emitted/
+  suppressed accounting, the artifact's own lifecycle and the purge lease. **Contains no customer rows.**
+- **PK:** `job_id` uuid.
+- **Columns** (build-side, adopted from CRM §11.2 — abbreviated here to the constraint-bearing ones):
+  `job_id` uuid PK; `scope_kind` text not null `CHECK IN ('session','event','venue','org')` — **no `'all'`
+  member** (`EX-1`); `scope_id` uuid not null; `org_id` uuid not null FK→`kernel.organization` — the job's
+  org, **resolved once at request time and frozen**, never re-derived at build time because
+  `catalog.venue.org_id` is mutable; `template_id` text, `template_version` integer; `filters` jsonb
+  normalized and sorted at write; `as_of` timestamptz not null (frozen at **request**); `gate_as_of`
+  timestamptz nullable (stamped at **claim**, re-stamped on re-claim — §1.15's two event ledgers are what
+  make it evaluable); `state` text not null `CHECK IN ('queued','running','ready','failed','revoked',
+  'expired','purged')`; `requested_by` uuid not null FK→`auth.users` ON DELETE **RESTRICT**;
+  `command_key` text not null; `lease_until` timestamptz nullable (the `064` claim lease, **build**);
+  `row_count`, `byte_count` integer nullable; `artifact_sha256` text nullable; `object_path` text
+  nullable; `contact_cells_emitted`, `contact_cells_suppressed`, `name_cells_emitted`,
+  `name_cells_suppressed` integer not null default `0` — **not nullable: a null is indistinguishable from
+  a gate that ran and emitted nothing**; `failure_code` text nullable `∈ {too_large, scope_unreachable,
+  build_error, limit_exceeded}`; `requested_at`, `ready_at`, `expires_at`, `purge_after` timestamptz.
+- **Columns — the purge substrate (this is the K-3 half):**
+  - `artifact_state` text — **not null**, `CHECK IN ('absent','present','delete_pending','deleted')`,
+    **DEFAULT `'absent'`**. **The object's lifecycle, tracked separately from the job's, because the two
+    genuinely diverge:** a job is `revoked` the instant the RPC commits while its object survives until
+    the purge route runs (≤ 15 minutes). Without this column *"is the file gone"* is unanswerable.
+  - `purge_lease_until` timestamptz — nullable. The `064` claim lease for the **purge** route,
+    **distinct from `lease_until`**, which is the build's. One column for both leases would let a build
+    claim and a purge claim evict each other on the same row.
+  - `purge_attempts` integer — not null default `0`. A row `delete_pending` for more than three cycles
+    raises a `platform_risk` signal (§6.6). **A delete that never succeeds is an alarm, not a silent gap.**
+- **FKs:** `org_id` RESTRICT; `requested_by` **RESTRICT, not CASCADE** — deleting the requester must not
+  delete the accounting for an artifact that may still exist.
+- **Unique:** `UNIQUE (requested_by, command_key)` — the C16 idempotency pattern.
+- **Check:** the three closed sets above (`scope_kind`, `state`, `artifact_state`).
+- **Immutability:** **MUT** — a lifecycle row driven by single-writer definers with `FOR UPDATE` on
+  transition. `state` and `artifact_state` are two independent machines on one row and are never
+  collapsed:
+  - `state`: `queued → running → ready → {revoked, expired} → purged`, plus `→ failed`.
+  - `artifact_state`: `absent → present → delete_pending → deleted`. **`deleted` is terminal and is the
+    only state that asserts the bytes are gone.**
+- **Index:** PK; `UNIQUE (requested_by, command_key)`; `(state, requested_at)` — the `/build` cron drain,
+  every minute; **`(artifact_state, expires_at)` — the purge claim, every 15 minutes. This is
+  `claim_artifacts_for_purge`'s only access path and it was absent from plan §8/`087`;** `(org_id,
+  requested_at)` — the venue's export-history panel.
+- **RLS:** deny-all with an **EMPTY grant set**, RLS enabled, zero client policies (§6, §16.6 — the sixth
+  member of the CRM deny-all set). It carries the one `venue_export_job_sel_svc_export` policy of §16.10
+  clause 2, because `build_export_rows` reads its own job row as `crm_export_builder`.
+- **Write authority (canonical — A4):** `venue.request_export` (insert, `queued`) · `venue.build_export_rows`
+  (claim, `gate_as_of`, the four cell counters) · `venue.finalize_export` (`ready`, `artifact_state :=
+  'present'`, sha/bytes/path) · `venue.authorize_export_download` (read-only re-authorization) ·
+  `venue.revoke_export` (`ready → revoked`, `artifact_state := 'delete_pending'`) ·
+  `venue.sweep_expired_exports` (state-transition-only; **moves no bytes**) · and the three
+  `service_role`-only purge definers below. **No other routine writes this table, and no client role
+  writes it at any verb.**
+- **SoT/PROJ:** SoT for the job **and** for the artifact's accounting.
+
+#### 3.18.1 The three purge definers — what each one claims, and against which physical object
+
+All three are `SECURITY DEFINER`, owned by `postgres` with a pinned `search_path` (`066`), and **`EXECUTE`
+granted to `service_role` only** — CRM §11.1 element `19a`. No human caller exists and none may: they are
+reached exclusively by the `crm-export-worker` edge function's `POST /purge` route.
+
+| Function | Reads / writes | Physical object it depends on |
+|---|---|---|
+| `venue.claim_artifacts_for_purge(p_limit int)` | `venue.export_job` | `artifact_state = 'delete_pending'` under the `purge_lease_until` claim lease, driven by the **`(artifact_state, expires_at)`** index. Returns a bounded page of `(job_id, object_path)`. The lease is what stops two overlapping 15-minute runs double-working a row |
+| `venue.confirm_artifact_purged(p_job_id uuid, p_outcome text)` | `venue.export_job`, `kernel.admin_audit` | sets `artifact_state := 'deleted'`; advances `ready → expired → purged` where `purge_after` allows; writes one `crm_export.purge` audit row **in the same transaction**. Increments `purge_attempts` on a non-success outcome |
+| `venue.reconcile_export_orphans(...)` | `venue.export_job`, `kernel.admin_audit` | the daily bidirectional pass: an object with no job row, or with a job row already claiming `artifact_state ∈ {deleted, absent}`, is deleted with `reason_code ∈ {orphan_no_job, orphan_state_mismatch}`; a job claiming an artifact with no object is set `artifact_state := 'deleted'` and alarms if the job is still `ready`. **This pass is the only reason the retention bound is a statement about the bucket rather than about the job table** |
+
+**SEAM-1 for all three.** Every relation they touch is `venue.export_job` (`087`),
+`kernel.admin_audit` (`077`) and `storage.objects` (a precondition relation, not a Phase-2 package).
+**`max(087, 077) = 087`** — which is where plan §8 authors them. **No dependency edge is created:** `087`
+already declares `077`. The placement is confirmed by the rule, not merely consistent with it.
+
+**The tick that reaches them, verified end to end.** Registry §2/`087` and plan §8/`087` schedule **two**
+`pg_cron` + `pg_net` jobs, both targeting the **`crm-export-worker`** deployment and both sending
+`X-Crm-Export-Worker`: `POST /build` every minute and **`POST /purge` every 15 minutes**, with the daily
+orphan reconciliation riding the `/purge` route. `venue.sweep_expired_exports` is a **state-transition-only**
+tick — it sets `artifact_state := 'delete_pending'` and moves no bytes, so it is the producer of the purge
+queue and never its consumer. **The chain `revoke_export | sweep_expired_exports → delete_pending →
+claim_artifacts_for_purge → Storage remove() → confirm_artifact_purged → deleted` is closed**, and the
+orphan pass closes it in the other direction. A schedule left pointing at the actor deployment
+(`crm-export`), or sent without the header, is a 404/403 every cycle **on the only agent in the design
+that deletes a customer-contact CSV** — which is why the target and the header are recorded in the
+registry rather than left to the deploy.
+
 ---
 
 ## 4. Schema `market` — native rail (bridges to existing `public.*`)
@@ -2755,6 +3020,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `077` | `kernel.identity_ext.locale` (Δ-N2) | NOTIFICATIONS §5.4 | — → `077` |
 | `077` | `kernel.identity_demographic`, `kernel.identity_demographic_erasure` | DEMOGRAPHICS §10.1/§10.2 | ✓ |
 | `077` | `kernel.identity_contact_pref`, `kernel.org_customer_key` | CRM §11.1-1/2 | ✓ |
+| `077` | **`kernel.identity_contact_pref_event`** — **defined for the first time by this repair (`K-2`); it was asserted by four documents and physically defined by none** | CRM §11.1-**5b** / §5.1 · SPEC_FOUNDATION §6 | ✓ → `077` (§1.15.1) |
 | `077` | `kernel.is_org_affiliate` | ROLE_MODEL §6.2 | — → `077` |
 | `078` | `catalog.event` marketing columns (`description`, `hero_image_ref`, `category`, `genre_tags`) | ROLE_MODEL S-5 | — → `078`, **types assigned here** (§2.2) |
 | `078` | `catalog.event_session.session_version` (Δ-N1) | NOTIFICATIONS §2.2-E | — → `078` |
@@ -2769,6 +3035,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `081` | **`venue.sweep_expired_inventory_holds`** (`G-24` — the index existed, the function did not) | **this remediation** | — → `081` (§3.5.1) |
 | `081` | `catalog.publish_event` (authored here, not `078`) | RPC §4.2 | — (§13.2 FR-2) |
 | `082` | `kernel.org_contact_consent` + its three RPCs | CRM §11.1-5/6/7/8 | ✓ |
+| `082` | **`kernel.org_contact_consent_event`** — **defined for the first time by this repair (`K-2`)**; forces the declaration-only edge `077 → 082` (§13.6 `DAG-4`) | CRM §11.1-**5a** / §5.1 · SPEC_FOUNDATION §6 | ✓ → `082` (§1.15.2) |
 | `083` | `kernel.pass_type_cert` | WALLET §11.3 | ✓ |
 | `083` | **`kernel.wallet_pass`, `wallet_pass_device`, `wallet_pass_push_log`, the `.pkpass` bucket** | WALLET §11.10 | ▲ spec said `084` (§13.5-C) |
 | `084` | *(unchanged — two `ADD CONSTRAINT NOT VALID` + `VALIDATE`, nothing else)* | plan §5 | — |
@@ -2783,6 +3050,8 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `086` | `catalog.engage_door_freeze`, `kernel.assert_door_session`, `venue.open_/close_door_manifest`, `get_door_manifest`, `append_door_manifest_delta`, `kernel.grant_/revoke_door_freeze_override` | DOOR §7/§8 | — → `086` |
 | `086` | **`venue.holder_mix_snapshot`, `venue.holder_mix_bucket`, `refresh_holder_mix`, `get_holder_mix`** | DEMOGRAPHICS §10.1 | ▲ spec said `087` (§13.5-A) |
 | `087` | `venue.export_job`, the `crm-exports` bucket, the eight export RPCs, `crm_export_builder` role | CRM §11.1-9…19/23 | ✓ |
+| `087` | **`venue.export_job.artifact_state` / `purge_lease_until` / `purge_attempts`, the `(artifact_state, expires_at)` purge-claim index, and the three purge definers `venue.claim_artifacts_for_purge` / `confirm_artifact_purged` / `reconcile_export_orphans`** — **the physical substrate of the only agent in the design that deletes bytes (`K-3`)** | CRM §11.1-**19a** / §11.4 · RPC §20.14 **`R-7`** | ✓ → `087` (§3.18) |
+| `087` | **`venue.assert_may_request`** — the shared request/download predicate (RPC §17.22, §20; named by `R-7`), contracted and scheduled nowhere | RPC §20.14 **`R-7`** (`AUTHZ-CRM2`) | — → `087` |
 | `087` | `kernel.close_settlement` + the two hook **stubs** (`settlement_royalty_lines`, `settlement_commission_lines`) | RPC §10.2 | — (§13.2 FR-5) |
 | `087` | `kernel.request_org_payout` (three new preconditions + approval branch) | MONEY §6.7 | — → `087` |
 | `088` | `kernel.transfer_ticket_ownership`, `catalog.cancel_event` | RPC §7.2/§4.4 | — (§13.2 FR-3, FR-2b) |
@@ -2806,7 +3075,7 @@ manifest with **no reject mapping and no defined offline behaviour**. `086`'s CH
 all four labels, and DOOR §9.2's map needs a `refund_hold` arm — reported to the RLS/RPC integrator, since
 the reject vocabulary is theirs.
 
-> **`K-1` — the column existed and the read did not return it.** The correction above makes
+> **`MP-1` — the column existed and the read did not return it.** The correction above makes
 > `door_manifest_entry.resale_state` *store* all four overlay labels. It does **not** make the offline door
 > able to read one: RPC §20.6.1 and DOOR §7.5 each projected a **different** subset of the entry, and neither
 > carried the full input set of `OFFLINE-VERIFY-v1` — DOOR §7.5 omitted `resale_state` outright, so the very
@@ -3070,6 +3339,37 @@ Gate P, in which case it becomes 17.
 (`086 < 087`) and no acceptance property is violated**; only the *declared* set is incomplete. It is
 recorded here, not applied, because §2.1's edge table was ratified with the first amendment and the count
 of added edges is part of that record. **Recommended: add `086 → 087` at re-ratification.**
+
+**`DAG-4` — two edges added by the K-2 repair, and only the first is forced by it.** Adding
+`kernel.org_contact_consent_event` to `082` (§1.15.2) puts a hard FK to `kernel.organization` — a `077`
+table — into a package whose declared dependency set was **`{081}`** in all four places the registry keeps
+it (plan §2 mermaid, plan §3 seq 7, registry §2.1, registry JSON `depends_on`).
+
+| Edge | Because | Forced by this repair? |
+|---|---|---|
+| **`077 → 082`** | `kernel.org_contact_consent_event.org_id` FK → `kernel.organization` (`077`) — **and the pre-existing `kernel.org_contact_consent.org_id`, and `venue.order.org_id`, carry the identical FK and were already under-declared** | **YES** |
+| **`078 → 082`** | `venue.order.event_session_id` FK → `catalog.event_session` (`078`) — pre-existing, co-located, and named in plan §8/`082`'s own **Dependencies** prose (*"`081` (ticket_type), `078`, `077`"*) while every declared set omitted it | no — corrected in the same pass because fixing one half of a two-edge under-declaration on one package and leaving the other is worse than fixing neither |
+
+**Both are declaration-only.** `077 < 078 < 081 < 082`, so the ordering was never wrong and **nothing about
+the rollout, the rollback posture or the package contents changes**; what changes is that the machine-readable
+graph agrees with the prose that was already in plan §8. This is the **fourth** instance of the shape SEAM-1
+exists to catch — after `079 → 085`, `085 → 088` and `086 → 087` — and it is resolved the same way, for the
+same reason. Edge count `36 → 38`. **No package is added, renumbered or removed; the DAG stays acyclic and
+topologically ordered by package number; the count stays 16 (`076`–`091`).**
+
+**`DAG-5` — the K-3 repair adds no edge, verified rather than assumed.** The three purge definers touch
+`venue.export_job` (`087`), `kernel.admin_audit` (`077`) and `storage.objects` (a precondition relation).
+`max(087, 077) = 087`, and `087` already declares `077`. Likewise `kernel.identity_contact_pref_event`
+(`077`) has one FK, to `auth.users` — a precondition relation, not a Phase-2 package. **Neither adds an
+edge.**
+
+**One pre-existing prose error observed while checking `DAG-4`, recorded and NOT applied.** §13.6's own
+`venue.door_session` paragraph above asserts *"`086` already declares `078`."* It does not: `086`'s declared
+set is `{079, 080, 081, 083}` in all four places. The claim is *true transitively* (`086 → 081 → 078`), and
+`078 < 086`, so no acceptance property is violated and no object is at risk — but by the corpus's own
+direct-declaration convention (`079` declares both `077` and `078` even though `078` declares `077`) it is
+the same under-declaration shape a third time on a third package. **Recorded here rather than applied,
+because `086`'s edge set is outside the K-2/K-3 remit and a package's declared set is ratified material.**
 
 **The schema-security remediation adds no edge.** Every object it introduces or corrects
 (`approval_request.required_approver_class`, `org_member.granted_at`, `platform_config.visibility`,

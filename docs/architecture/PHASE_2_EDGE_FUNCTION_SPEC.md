@@ -1184,7 +1184,7 @@ diagnostics only. **No edge function may treat `manifest_version` as an authorit
   re-synced by delta (`last_synced_seq`, door §7.7).
 - **M2's contents are contracted in door §7.5 / RPC §20.6.1, not here — and §5.4.3 depends on them.**
   `OFFLINE-VERIFY-v1` is only evaluable if the manifest actually carries what it reads, and for a period it
-  did not (`K-1`): the two documents that state M2's wire shape stated **two different shapes**, and each was
+  did not (`MP-1`): the two documents that state M2's wire shape stated **two different shapes**, and each was
   missing a different conjunct's input. Door **§7.5a** now carries the binding superset rule — *every field
   the predicate reads appears in the entry projection and in the `op='add'` delta projection* — with the read
   set derived from the block below rather than transcribed beside it. **An edge author wrapping this read
