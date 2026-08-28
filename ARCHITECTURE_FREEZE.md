@@ -52,6 +52,33 @@ Record contents, current as of 2026-08-27: **44 rows** — C26–C52 + D1–D8 +
 1. **Modifications to any covered architecture/constitution document after this point require an explicit architectural amendment** — a new correction ID ratified into `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` with owner approval — never a silent edit.
 2. **Normal implementation may clarify details but may not violate invariants.** If implementation contradicts the frozen design: STOP; determine whether the implementation is wrong or an amendment is required (`docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` §0).
 3. Authority order: live production reality (deployed-state questions) → this freeze + constitutions → implementation specs → `docs/architecture/SNATCH_IT_ENGINEERING_STANDARDS.md` → current implementation → old audits/stale branches.
+
+   > **This order ranks TIERS, and every delta specification sits in ONE of them.** The covered-document list
+   > above places the eight delta specs *"same tier as the implementation specs in the authority order below"*
+   > — so **when two documents inside that tier contradict each other, this rule decides nothing**, and
+   > `docs/architecture/PHASE_2_SPEC_FOUNDATION.md` §0 supplies no companion: it says *"if a source document
+   > conflicts with this file, surface the conflict; **do not silently pick a side**"*, which is correct and
+   > names no winner. **That gap is not hypothetical.** `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.2 and
+   > `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.2 each carried a build-ready authority branch for the same money
+   > RPC and **they contradicted each other**, with the money spec's branch keyed on two strings that are
+   > stored nowhere — an implementer following it routes every parked refund to the org arm, above-ceiling and
+   > consumed-atom cases included.
+   >
+   > **The three admissible forms** — recorded so the choice is a choice, **not decided here**: **(a) recency**
+   > (the later ratified correction governs); **(b) subject-matter ownership** (a named owner per subject —
+   > authority branches → RPC, predicates/grants → RLS, physical columns → schema, the money-authority model →
+   > the money spec); **(c) remediation-tag precedence** (where two documents state the same rule and one
+   > carries a ratified correction tag and the other carries none, the tagged text governs and the untagged is
+   > presumed pre-remediation).
+   >
+   > **Choosing among them decides which document's authority statement binds an implementer, which is an
+   > OWNER decision.** Recorded as row **`C73`**, open decision **`O11`**, in
+   > `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`; **until it is made, the standing
+   > obligation remains SPEC_FOUNDATION §0's — surface the conflict, do not pick a side.** The 2026-08-28
+   > money-authority reconciliation (row `D13`) relied on **neither** of these forms as a general rule: it
+   > read *this record*, in which one side's text is a **ratified correction** (rows `C57`/`C58`) and the
+   > other's is **the text that correction replaced** — a determination available with no precedence rule at
+   > all, and one that does not generalize to a conflict where neither side carries a ratified row.
 4. Gates stand: **Gate P** before the first native credential · **Gate M** before native resale/instant payout · **Gate L** before international/enterprise claims. Feature flags `feature.native_issuance_enabled` / `native_scanning_enabled` / `native_resale_enabled` are seeded **OFF** and are flipped only by an audited runtime config change, never a migration.
 5. Supabase automatic production deployment remains **OFF** until the migration-history repair in `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md` is executed and verified with owner authorization.
 6. The frozen money core and live external-rail marketplace (`public.*`) remain protected per `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` §1.
