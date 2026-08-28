@@ -897,6 +897,7 @@ on, named exactly as the schema names them:
 | `action` text — not null, `CHECK IN ('refund.issue','payout.request','config.set_money_key')` | The other half of §6.2's dispatch key. A closed label set, not an FK. |
 | `subject_kind` text — not null, `CHECK IN ('order','settlement','config_key')`; `subject_id` uuid — not null | Deliberately **soft** (no FK — three subjects in three packages), constrained instead by the `action ↔ subject_kind` pairing CHECK and by the RPC-side existence assertions `APPR-SUBJ-1`/`APPR-SUBJ-2` (schema §1.13.3, RPC §17.0a). |
 | `org_id` uuid — **nullable**, FK→`kernel.organization` | NULL for platform-scope actions (`config.set_money_key`). §6.2's org arm scopes `has_org_role` to it, which is why `CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)` exists. |
+| **`amount_minor`** integer — NULL only for `action='config.set_money_key'` | **ADDED by `MB-1` / ratification row `C88`.** The **parked** term of `refund_exposure_minor(payment)` (§6.1a). It is a first-class column and not a `payload` key **because it is an authority input**, and no authority predicate in §6.2 may read `payload`. Server-set at request time, pinned exactly as `required_approver_class` and `config_versions` are; never a parameter. **Without it the cumulative operand silently degrades to settled refunds only, and the split reopens through the approval queue.** |
 | `payload`, `config_versions` jsonb | Server-computed evidence and the pinned `(key, version)` set (§7.2). **Never authority** — see the footgun below. |
 | `requested_by`, `approved_by` uuid | SoD-2's two identities; both server-derived (C35). |
 | `state` text — `pending · approved · denied · cancelled · expired · stale` | **Actionability only, never authority.** |
@@ -1699,6 +1700,7 @@ call and nothing bounded the sequence.**
 | **§7.2** | keys described as ceilings, operand unstated | banner + per-row annotation: `*_max_minor` are **cumulative** ceilings; the payout pair is annotated **operand OPEN** | `C88`, `C90` |
 | **§9.2** | above-threshold payout parks; operand unstated | **`MB-1b`** block: the shape, why it is worse than `MB-1` (caller-chosen subject decomposition), the invariance property a fix must have, two admissible forms, **and no choice made** | `C90` / `O14` |
 | **§11** | `D-1`…`D-8` | `D-3` annotated (**the numbers now denominate a cumulative ceiling — a per-call £50 and a cumulative £50 are different products**); **`D-9`** (optional buyer order-value conjunct) and **`D-10`** (the payout operand) added | `D20` |
+| **§6.6** | the column set this document's authority model depends on, `required_approver_class` first | **`amount_minor`** added to that set, with the reason it is a column and not a `payload` key | `C88` |
 | **§12** | `ADDITIVE SCHEMA CHANGE` items 1–4 | item **3b** — `kernel.approval_request.amount_minor`, with the reason it cannot be a `payload` read; two `SPEC CORRECTION` items added (the downstream sites that restate a refund threshold; the rate-limit note) | `C88` |
 
 ### 14.2 What this pass deliberately did NOT do
