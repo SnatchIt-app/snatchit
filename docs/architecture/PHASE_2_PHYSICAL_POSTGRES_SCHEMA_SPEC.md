@@ -1181,6 +1181,16 @@ Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C93**. 
     platform-scope actions (`config.set_money_key`). **The only hard FK on this table besides the two
     identity columns.**
   - `payload` jsonb-concept — not null. **Server-computed evidence at request time, never authority.**
+  - **`amount_minor` integer — nullable, and nullable for EXACTLY ONE action. ADDED — defect `R-27` /
+    `MB-1`, §1.13.5.** The **parked** term of `refund_exposure_minor(payment)` (RPC §17.1a ≡ MONEY §6.1a):
+    the money this pending request would move if approved. It is a **first-class column and not a `payload`
+    key because it is an AUTHORITY input**, and no authority predicate on this table may read `payload`
+    (`T-RPC-AUTHZ-01` asserts that structurally). Set **server-side at request time** from the amount the
+    requesting function computed, and **pinned exactly as `required_approver_class` and `config_versions`
+    are** — never a parameter, never recomputed at approval time, never derived from `payload`. NULL only
+    for `action = 'config.set_money_key'`, which moves no money. **Without it the cumulative tier operand
+    silently degrades to settled refunds only, and a parked request stops counting against the ceiling —
+    which reopens the split through the approval queue instead of the execute path.**
   - `config_versions` jsonb-concept — not null. The `(key, version)` pair of **every** threshold the
     request was evaluated against (MONEY §7.2 version pinning), so a mid-flight config change cannot
     silently re-tier a parked request and an auditor can reconstruct the tier decision.
@@ -1223,7 +1233,17 @@ Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C93**. 
   CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'),
 
   -- (6) ADDED -- an org-arm request must have an org to scope the approver to.
-  CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)
+  CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL),
+
+  -- (7) ADDED -- defect R-27 / MB-1. The parked term of the cumulative tier operand
+  --     must EXIST on every row that parks money. A nullable amount on a refund or
+  --     payout request is a request that silently contributes ZERO to the ceiling,
+  --     which is the pre-fix behaviour with a column added.
+  CHECK (action = 'config.set_money_key' OR amount_minor IS NOT NULL),
+
+  -- (8) ADDED -- defect R-27 / MB-1. A zero or negative parked amount would lower
+  --     the cumulative operand, i.e. BUY tier headroom by filing a request.
+  CHECK (amount_minor IS NULL OR amount_minor > 0)
   ```
   Plus, unchanged: `action` label set; `state` label set; **`required_approver_class` label set**;
   **`subject_kind` label set**; `expires_at > created_at`; `org_id IS NOT NULL` when
@@ -1508,6 +1528,65 @@ owner owns the predicate**, and it is filed in §13.7 as request **S-3**. `error
 **Test.** `T-SCHEMA-APPR-07` (`granted_at` is `NOT NULL` and advances on a role UPDATE, asserted by
 changing a role and re-reading — the column that silently keeps its INSERT value is the failure mode
 that makes the whole control vacuous, and it is invisible without this assertion).
+
+#### 1.13.5 DEFECT `R-27` / `MB-1` — the parked term of the cumulative tier operand had no column, so it read as zero
+
+**The defect (CONFIRMED against this section's own column list at `f97f6cd`).** RPC §17.1a and MONEY §6.1a
+define the refund tier operand as
+
+> `refund_exposure_minor(payment)` := Σ `kernel.refund.amount_minor` for that payment whose
+> `status ∈ {pending, submitted, succeeded}` **+ Σ `kernel.approval_request.amount_minor` of every request
+> against that payment whose `state = 'pending'`**
+
+— and **`kernel.approval_request.amount_minor` appeared nowhere in this section's column list and nowhere in
+migration plan `077`.** The request was filed by `MB-1` in three places (MONEY §12 `ADDITIVE 3b`, MONEY §6.6's
+column table, RPC §20.14 `R-27`) and applied in none of them. **A filing is not a column.**
+
+**What was actually unbuildable.** The parked term is unreadable, so an implementer writes the aggregate with
+the term that exists — settled refunds only. The corpus states the consequence itself: *a parked request stops
+counting against the ceiling — reopening the split through the approval queue instead of the execute path.*
+The attack is worse than the one `MB-1` closed, not equal to it: the first sub-ceiling call **parks**, and
+while it sits `pending` it contributes nothing, so the attacker's own dual-control request buys the headroom
+for the next one. **This is `C57` one column over: a tier decided from a value the row does not store is a
+control that does not run.**
+
+**Why it is a column and not a `payload` key, stated because `payload` already exists and is the cheap
+answer.** `payload` is **evidence**, re-derived and re-compared at approval time and trusted for nothing; the
+cumulative operand is an **authority input**. §1.13's own footgun rule and `T-RPC-AUTHZ-01` (structural: no
+authority predicate reads `payload`) forbid the cheap answer, and a repair that violates the rule the table
+was built around is not a repair.
+
+**Why NULL is admitted for exactly one action, and constrained rather than conventional.** `config.set_money_key`
+moves no money — its subject is a config key, not a payment — so there is no amount to park, and CHECK (5)
+already pins that action to `platform_admin` and `org_id IS NULL`. CHECK (7) makes the nullability
+**action-scoped** rather than general, so a refund or payout request cannot be filed with a NULL amount and
+contribute zero; CHECK (8) forbids a non-positive amount, which would *lower* the operand — filing a request
+to buy tier headroom.
+
+**Additive to a table already scheduled in `077`: no new table, no new RPC, no new package, no dependency
+edge, and `C72`'s pending second amendment is untouched.** No new index is required either: the exposure read
+resolves parked requests to a payment through `venue.order` → `kernel.payment_native`, riding the existing
+`(subject_kind, subject_id)` access path plus `state='pending'`. **The frozen Stripe money core is not
+touched** — this specifies which column an authority predicate reads, not how money moves.
+
+**Writers.** The three functions that already write `required_approver_class` write this in the same
+statement, from the same evaluation: `kernel.request_order_refund` (RPC §17.1), `kernel.request_org_payout`
+(§10.3), and the money arm of `catalog.set_platform_config` (§20.2.1 — NULL there, per CHECK (7)).
+Ratification **C99**.
+
+**Reported, not applied here (§13.7 `S-23`).** `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8's `077` row must add
+`kernel.approval_request.amount_minor` + CHECKs (7) and (8) to its Objects/Constraints text and
+`T-SCHEMA-APPR-08`/`-09` to its Tests row; the placement is settled here and the plan owns the row.
+
+**Tests.**
+- `T-SCHEMA-APPR-08`: a `refund.issue` or `payout.request` row with `amount_minor IS NULL` **raises**
+  `23514`, and a row with `amount_minor <= 0` raises — both halves, because the first is the silent-zero
+  defect and the second is the negative-headroom one.
+- `T-SCHEMA-APPR-09`: **structural** — `amount_minor` is written by the same statement that writes
+  `required_approver_class`, and **no parameter of any requesting function can supply it**, asserted over the
+  signatures. Written structurally because a later "convenience" parameter is exactly how a pinned column
+  becomes a caller-supplied one.
+- `T-RPC-MONEY-21` (RPC §17.1) is the behavioural half and is unchanged: it now has a column to read.
 
 ### 1.14 `kernel.org_money_policy` — **CONDITIONAL (owner decision D-2). NOT IN THE MVP CHAIN.**
 
@@ -3618,6 +3697,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 |---|---|---|---|
 | `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
 | `077` | **`kernel.approval_request.required_approver_class`** + the four added CHECKs | **this remediation (C-1a/C-1b)** | — → `077` (§1.13.2/§1.13.3) |
+| `077` | **`kernel.approval_request.amount_minor`** + CHECKs (7) and (8) — the parked term of the cumulative tier operand, filed as `R-27` / MONEY `ADDITIVE 3b` and applied nowhere | RPC §20.14 **`R-27`** (`MB-1`) | — → `077` (§1.13.5) |
 | `077` | **`kernel.org_member.granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
 | `077` | **`kernel.org_member.role` / `kernel.org_invite.role` → the canonical SIX org labels, `text`+`CHECK`; `kernel.platform_role.role` → `text`+`CHECK`** | ROLE_MODEL §3.1/§3.5 — **applied to `venue.staff_role` only; missed here (defect M-5)** | — → `077` (§1.3.1) |
 | `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
