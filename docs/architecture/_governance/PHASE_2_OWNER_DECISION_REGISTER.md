@@ -103,7 +103,7 @@ not follow; one had been banded above its own `Blocks` line. Both are recorded a
 
 | Band | Count | Ids |
 |---|:-:|---|
-| **Band 1 — blocks the start of implementation** | **7** | `ODR-1` · `ODR-2` · `ODR-3` · `ODR-4` · `ODR-5` · `ODR-7` · **`ODR-23`** *(re-banded up from Band 2)* |
+| **Band 1 — blocks the start of implementation** | **7 entries, 6 still open** | `ODR-1` · `ODR-2` · `ODR-3` · **`ODR-4` (SPLIT: `4a` RULED, `4b` BLOCKED BY `ODR-16`, `4c` ENGINEERING, `4d` MECHANICAL, placement PENDING PROOF)** · `ODR-5` · `ODR-7` · ~~`ODR-23`~~ **CLOSED — OWNER RULING B** |
 | **Band 2 — blocks a named migration package** | **30** | `ODR-8` … `ODR-22` · `ODR-24` … `ODR-34` · **`ODR-125`** · **`ODR-126`** · **`ODR-127`** · **`ODR-128`** *(four new)* |
 | **Band 3 — blocks a named surface, contract, control or feature flag** | **58** | `ODR-35` … `ODR-92` |
 | **Band 4 — blocks nothing in the current scope** | **33** | **`ODR-6`** *(re-banded down from Band 1)* · `ODR-93` … `ODR-123` · **`ODR-124`** *(new)* |
@@ -658,9 +658,29 @@ here** — it is a stop-and-ask. §16.9's matrices are conditional."*
 
 ---
 
-## ODR-4 — Acknowledge the two global-posture exceptions, and bind whoever next edits migration `020`
+## ODR-4 — SPLIT by owner ruling 2026-08-28 · **the original single decision is REJECTED AS MISFRAMED**
 
-**Status.** OPEN — OWNER.
+**Status. SPLIT — the family is NOT closed.** The owner reviewed the four-specialist analysis
+(`_governance/ODR4_OWNER_DECISION_ANALYSIS.md`) and rejected the original framing on 2026-08-28. The single
+entry is replaced by four sub-decisions plus one scheduling action, each with its own status. **Do not mark
+the `ODR-4` family CLOSED until every row below is terminal.**
+
+| Sub-decision | Classification | Status |
+|---|---|---|
+| **`ODR-4a`** — the GP-2 `DELETE` exception **class** | **OWNER RULING** | **YES, IN PRINCIPLE** (2026-08-28). Ratifies the narrow DELETE exception class required for genuine withdrawal/erasure. **NOT permission to invent further GP-2 exceptions.** The architecture must **mechanically assert the exact closed exception set catalog-wide** so a future one cannot be added "by analogy." |
+| **`ODR-4b`** — the `auth.users` **CASCADE posture** | OWNER RULING | **BLOCKED BY `ODR-16`** — not to be ruled or implemented until `ODR-16` determines whether `auth.users` is actually deleted. Under option A the row is retained, the cascade never fires, and the Gate-L crypto-shred that would compensate is not built in Phase 2. |
+| **`ODR-4c`** — the sentinel binding on migration `020` | **MECHANICAL / ENGINEERING** | Not an owner decision. The prohibition becomes a **DB `CHECK` + standing assertion on every correctly enumerated relation in scope, before any of those relations can hold production data.** Time-critical: the `CHECK` is free while empty and impossible after one repointed row. |
+| **`ODR-4d`** — the scope | **MECHANICAL** | Correct the scope to the relations that actually carry **each** exception, separately. **The unsupported "six-relation" statement is not retained** — two of the six carry no cascade and one carries `RESTRICT`. |
+| **`ODR-4` package placement** | SCHEDULING ACTION | **PENDING DEPENDENCY PROOF.** Option 5 accepted in principle: defer the demographic objects from `077` to the `086`/`087` boundary **provided the dependency proof holds**. A package-placement action — **not** approval to build the demographic subsystem. |
+
+**Standing blockers to shipping the affected objects, kept open by the owner and not waived by `ODR-4a`:**
+the cascade is blocked by append-only row triggers · the `BEFORE DELETE` tombstone trigger is missing from the
+package · the tombstone UPSERT is incompatible with its append-only/PK design · the tombstone retention window
+is unresolved · there is no tombstone reaper · account deletion is non-transactional and half-completes.
+
+**Consequence map:** `_governance/ODR4_SPLIT_CONSEQUENCE_MAP.md`.
+
+**The question, as originally posed and now superseded, is preserved below for the record.**
 
 **The question.** Accept, as named exceptions to two standing corpus rules, that (i) `kernel.identity_demographic`
 carries a **definer-scoped `DELETE`** — the single `GP-2` exception in the whole model — and (ii) the
