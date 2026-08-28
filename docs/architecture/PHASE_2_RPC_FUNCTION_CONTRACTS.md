@@ -408,6 +408,181 @@ A contract is tagged one of:
 > the credential it was minted against, which is the whole class of defect `AUTHZ-H3` just closed.
 > **Filed to the edge owner (§20.14 `R-19`).**
 
+### 1.1e `kernel.money_role_grant_matured(p_org_id)` — **NEW RPC** — **AUTHORED HERE FOR THE FIRST TIME (`AUTHZ-C1C`)**
+
+> **`AUTHZ-C1C` — THE CONTROL THAT CLOSES `C58` WAS INVOKED BY FOUR CALL SITES AND DEFINED BY NONE.**
+>
+> **The defect.** Ratification row **C58** closes *"the money-plane SoD counterparty is mintable by the very
+> role that needs one"* with a **new predicate helper**, `kernel.money_role_grant_matured(org_id)`. That
+> helper is bound as a conjunct in **§10.3** (`request_org_payout`), **§17.1** (`request_order_refund`, org
+> arm), **§17.2** (`approve_refund_request`, both `org` arms) and **§17.7**
+> (`set_org_payout_destination`); RLS §2.2 lists it among the sanctioned helpers and states that helpers are
+> *"defined as SECURITY DEFINER helpers in the RPC spec"*; RLS §11.2 gives it an EXEC row. **This document
+> defined §1.1 … §1.1d and stopped.** So the predicate that makes SoD-1 and SoD-2 mean what they claim had
+> **four callers and no contract** — no signature, no volatility, no grant class, no statement of what
+> *matured* means, and above all **no statement of what it returns when the config key is absent**, which is
+> the one behaviour every other fail-to-safe predicate in this corpus writes down (`AUTHZ-M3`, `AUTHZ-M4`,
+> `AUTHZ-M8`).
+>
+> **Why an undefined predicate is worse here than elsewhere.** By ruling **GP-3a** every money mutation is
+> `EXECUTE` on a definer function, so **there is no table policy to review** on this plane. An implementer
+> reaching four call sites that name a function nothing defines writes the function, and the cheapest
+> spelling — `now() - granted_at > interval` against a NULL config — evaluates to **NULL**, which is not
+> true, which under `NOT (immature)` is **admit**. The failure is silent, it is on the highest-value money
+> writes in the system, and nothing downstream would see it.
+
+- **DB-RPC** (predicate helper), **`STABLE`**, **`SECURITY DEFINER`**, owner `postgres`, `search_path` pinned
+  per 066, **`EXEC: authenticated`** (explicit `REVOKE EXECUTE FROM public, anon` then
+  `GRANT EXECUTE TO authenticated`, per 067 — RLS §11.2).
+- **Signature.** `kernel.money_role_grant_matured(p_org_id uuid) RETURNS boolean`. **One argument, and it is
+  the scope, not the actor.** There is no actor parameter and there may never be one: the identity tested is
+  **`auth.uid()`, server-derived inside the body** (**C35** — *the kernel authorizes the principal itself; a
+  caller-supplied actor is never trusted*). A caller that could pass the identity could pass a matured one.
+- **Actor:** `auth.uid()`, server-derived. **Params:** `p_org_id` — **untrusted** (a scope id, exactly as in
+  `has_org_role`; passing a scope the caller holds no grant in returns **false**, never an error).
+- **Reads:** `kernel.org_member` (**live**, by `(org_id, identity_id)` — the row's `role` and `granted_at`)
+  and `catalog.platform_config` (the `authn.money_role_maturity_hours` key). **Never a JWT claim** (C9 / RLS
+  I-5), like every other helper in §2.2 — a stale token cannot assert a maturity it does not have, and a
+  revoke or a re-grant takes effect on the next call.
+- **Writes:** none. **Locks:** none. **SSCAS:** n/a. **Idempotency:** n/a (pure).
+- **Result:** boolean. **Never raises** — it is a predicate, and the *caller* raises (see *Errors*, below).
+
+- **The maturity predicate, stated once and derived, not chosen** (**C58** ratified form · RLS §11.3a ·
+  schema §1.13.4 · RLS §17 `X-11`):
+
+  ```text
+  -- 1. READ THE KEY FIRST, AND FAIL CLOSED ON IT BEFORE ANY ARITHMETIC.
+  v_hours := (SELECT value FROM catalog.platform_config
+               WHERE key = 'authn.money_role_maturity_hours'
+               ORDER BY version DESC LIMIT 1);          -- current version; see the pinning note
+  IF v_hours IS NULL THEN RETURN false; END IF;         -- absent, NULL or unparseable => NO grant is mature
+
+  -- 2. THE GRANT MUST BE A MONEY GRANT, AND IT MUST BE OLD ENOUGH.
+  RETURN EXISTS (
+    SELECT 1
+      FROM kernel.org_member m
+     WHERE m.org_id      = p_org_id
+       AND m.identity_id = auth.uid()                   -- server-derived; C35
+       AND m.role IN ('org_owner','org_finance')        -- the org-plane money roles, schema §1.13.4
+       AND m.granted_at <= now() - make_interval(hours => v_hours)
+  );
+  ```
+
+  **Four things about that shape are load-bearing.**
+  1. **`granted_at`, never `created_at`.** `kernel.org_member.role` is single-valued and changed by `UPDATE`
+     (schema §1.3), so `created_at` records **when the person joined the org**, not when they acquired money
+     authority. A two-year member promoted to `org_finance` this morning passes a `created_at` test
+     trivially — which is the attack, not the control. `granted_at` is set on INSERT by `accept_org_invite`
+     and **re-set by `change_org_role` whenever the new role is a money role** (RLS §17 `X-11`): a promotion
+     into `org_finance` starts a fresh clock, **including a lateral `org_finance` → `org_owner` move**, and a
+     move to a **non**-money role does not (there is nothing to time).
+  2. **The key is read and rejected on its own line, before any comparison.** This is the `AUTHZ-M4` lesson
+     applied one predicate over: `now() - NULL` is NULL, `granted_at <= NULL` is NULL, and **whether NULL
+     admits or denies is decided by whether the implementer wrote `matured` or `NOT immature`.** One spelling
+     is a lockout and the other is a silent bypass of the control on the highest-value money write in the
+     system. The early return removes the question rather than answering it. **A body that reaches
+     `make_interval` with a NULL is a defect regardless of what it then returns.**
+  3. **`EXISTS`, not a count and not a join.** The org grant key is `(org_id, identity_id)` — at most one row
+     — so this is a primary-key point probe, which is why `STABLE` is honest and why the helper costs the
+     same on the hot path as `has_org_role`.
+  4. **The money-role set is exactly `{org_owner, org_finance}`.** No `venue.staff_role` label holds money
+     authority (schema §1.13.4), so no venue label is comparable here, and the labels appear **only** as
+     elements of the `IN` list inside this helper's own body — which is what `T-RLS-ROLE-02` clause (c)
+     permits and what it forbids everywhere else.
+
+- **THE WINDOW ITSELF IS AN OWNER DECISION, RECORDED HERE AND NOT MADE HERE (`MD-14`).** The **key** ships
+  regardless (`078`, X-12/R-18); the **number** does not exist yet, and this contract does not invent one.
+  RLS `MD-14` records the admissible range as **24–72 hours** with the two failure directions stated; both
+  are real and neither is a default:
+
+  | Direction | What it costs |
+  |---|---|
+  | **Too short** (hours) | The attack becomes *"mint the counterparty, wait until tomorrow"* — pre-meditation, but not much of it. The control degrades toward the cool-down it was designed to outrank (§17.7 control 6), which stops nobody willing to wait |
+  | **Too long** (a week+) | A genuine new hire cannot be the second half of a dual-control pair for their whole first week, so the org is a **single-money-principal org** for that window and every refund and payout escalates to platform review under `MD-5`. The cost is real, it is operational, and it is paid by the honest case |
+
+  **The parameter, not the value, is what this contract fixes.** An implementer who needs a number before the
+  owner rules must seed the key at the **restrictive** end of the range and record the seed as provisional —
+  never leave it unseeded, because unseeded is *"nobody can approve anything"* (correct, but it presents as
+  a total money-plane outage rather than as a missing decision).
+
+- **Fail-closed behaviour, in all four directions it can fail.**
+  1. **Key absent, NULL or unparseable ⇒ `false`.** Binding, X-12: *no grant is mature*. **The test deletes
+     the config row rather than setting it to `0`**, because a missing seed and a seeded `0` behave
+     identically only if the early return is actually there.
+  2. **No `kernel.org_member` row for `(p_org_id, auth.uid())` ⇒ `false`**, not an error. The caller's role
+     test has already failed or is about to; this helper is a **conjunct**, never the thing that reports a
+     missing grant.
+  3. **A row at a non-money role ⇒ `false`.** An `org_admin` is not made mature by longevity, because it was
+     never a money principal.
+  4. **`auth.uid()` NULL (a `service_role` invocation) ⇒ `false`.** The helper does not degrade on the edge
+     path; **EDGE-CALLER-JWT** already requires the caller's JWT to reach the RPC, and `T-RLS-EDGE-01`
+     asserts the raise. A predicate that returned `true` for a machine identity would hand the whole control
+     to whatever holds the service key.
+
+- **Never the sole gate, and never applied to a stop.** Two standing constraints, both from C58:
+  - **Conjunct only.** It sits **beside** the role test, never in place of it (`has_org_role(...) AND
+    money_role_grant_matured(...)`). A mature grant is not an authority; it is a property of one.
+  - **Requesters and approvers, denials and cancels.** It binds **both halves of both primitives** — the
+    destination **setter** (§17.7) as much as the payout **requester** (§10.3), the refund **requester**
+    (§17.1) as much as the refund **approver** (§17.2) — because *applied to one half of a pair it is applied
+    to neither*: a fresh account simply moves to the other side. And it is **never** applied to
+    `approve_refund_request`'s **deny** branch, to `cancel_refund_request` (§17.3), to
+    `sweep_expired_refund_requests` (§17.4) or to `hold_payout`. **A control that blocks *stopping* a payment
+    is a control pointed the wrong way.**
+
+- **Errors — the helper raises nothing; the CALLER raises `sod_violation`.** All four call sites raise
+  **`sod_violation`**, **not** `insufficient_privilege` and **not** `precondition_failed`: the role is
+  genuinely held, and a permission error sends the operator to re-check a grant that is correct.
+  > **Supersedes schema §13.7 `S-3`'s spelling.** `S-3` filed this precondition as
+  > `precondition_failed('money_role_too_new')`. Four call sites (§10.3, §17.1, §17.2, §17.7) and the
+  > behavioural tests (`T-RLS-MONEY-06`, `T-RPC-AUTHZ-05`/`-07`) say `sod_violation`, and the argument is
+  > stated at each one. **`sod_violation` stands; `S-3`'s spelling is withdrawn as a divergence, not a second
+  > option** — two error codes for one predicate is how a UI ends up telling an operator two different things
+  > about the same refusal. Recorded as ratification row **D16**.
+
+- **Interaction with the global lock order (§0.4): it adds no edge, and the residual is stated rather than
+  assumed away.** The helper takes **no lock** and reads two tables that are **outside the six money/custody
+  ranks** — `kernel.org_member` (admin plane, `077`) and `catalog.platform_config` (`078`). It is therefore
+  callable at any point in any caller's lock sequence without perturbing it, and it is **evaluated before the
+  first money-plane lock is taken** at all four sites, so a caller that fails it acquires nothing.
+  **The residual, named:** because `kernel.org_member` is not locked, a `change_org_role` committing between
+  the caller's snapshot and its commit is not observed, and the helper answers as of the transaction
+  snapshot. **Three of the four race directions fail closed** — a promotion *into* a money role is invisible
+  to an older snapshot, which still sees the non-money role and returns `false`; a revoke likewise. **One
+  direction is open for the duration of one transaction**: a money→money re-grant (`org_finance` →
+  `org_owner`, which resets the clock) committing inside the window lets the caller pass on the pre-reset
+  `granted_at`. It is bounded by the caller's transaction, the re-grant is itself an audited act by an
+  already-authorized principal, and **closing it would require `kernel.org_member` to enter the global lock
+  order — an amendment to a ratified invariant, which this contract does not make.** Filed at §20.14 `R-23`.
+- **Config version pinning.** `kernel.approval_request.config_versions` pins the `(key, version)` pair of
+  **every** threshold a parked request was evaluated under, and `authn.money_role_maturity_hours` is one of
+  them. **The helper itself always reads the CURRENT version** — maturity is a property of the caller at the
+  instant they act, not of the request they are acting on, and an approver must be mature **now**, not as of
+  whenever the requester filed. This is the one deliberate asymmetry with `AUTHZ-M3`'s support cap, which
+  *is* pinned, because a cap is a property of the request. Stated so an implementer does not "fix" one into
+  the other.
+- **Forbidden.** Any body that hand-rolls this comparison instead of calling the helper; any caller that
+  passes an identity; any use as a **sole** predicate; any application to a deny, cancel, sweep or hold path.
+- **Tests.** **`T-RPC-AUTHZ-17`** (the helper set is **exactly** the ten of §1.1–§1.1e — see RLS
+  `T-RLS-ROLE-06`) · **`T-RPC-AUTHZ-18`** (with `authn.money_role_maturity_hours` **deleted from
+  `catalog.platform_config`** — the state a missed seed produces, **not** set to `0` — the helper returns
+  `false` for an `org_owner` whose grant is a year old; asserted **on the helper directly**, because
+  `T-RLS-MONEY-07` asserts it only through the callers and would pass on a helper that raises) ·
+  **`T-RPC-AUTHZ-19`** (structural, over `pg_get_functiondef`: the set of functions calling
+  `money_role_grant_matured` is **exactly** `{request_order_refund, approve_refund_request,
+  request_org_payout, set_org_payout_destination}` — a fifth caller is an over-application and a missing
+  fourth is the half-pair defect C58 names) · `T-RPC-AUTHZ-05` and `T-RPC-AUTHZ-07` (the two behavioural
+  tests, both of which **perform the mint through the real `invite_org_member` / `accept_org_invite` path**,
+  because the mint is the attack) · `T-RLS-MONEY-06`, `T-RLS-MONEY-07`.
+- **Package — SEAM-1 computed, not chosen: `078`.** The helper reads `kernel.org_member` (created by
+  **`077`**) and `catalog.platform_config` (created, with the `authn.money_role_maturity_hours` seed, by
+  **`078`**), so `max(077, 078) = 078`. **It is not authored in `077` beside `has_org_role`**, which reads
+  only `kernel.org_member`: doing so would be a forward reference `077 → 078` to a table and a seed row that
+  do not exist yet — the same shape SEAM-1 caught at `079 → 085`, `085 → 088` and `086 → 087`. `078` already
+  depends on `077`, so no new dependency edge is created and **no package is added, renamed or renumbered**
+  (the canonical band stays `076`–`091`). Recorded in plan §8 `078` and in the package registry.
+- **Policy:** none, and none is possible — see §0.8.
+
 ### 1.2 `market.get_ticket_history(p_ticket_atom_id)` — redacted owner history (recon #5)
 - **DB-RPC** (read). **Purpose:** the ONLY client path to custody history; raw `kernel.ticket_ownership_log`
   is deny-all to clients (RLS §7.6).
@@ -1255,15 +1430,19 @@ that door is using. Filed by edge §3.9a request #4.
   destination. **DB-RPC side** records/advances `kernel.payout` `pending → submitted` and enforces the
   payout-destination cool-down (`payout_destination_locked_until`); **the edge fn executes the Stripe transfer**
   (reuses the frozen `source_transaction` funding + deterministic idempotency, SPEC_FOUNDATION §2).
-- **Role:** `has_org_role([org_finance, org_owner])`. **Params:** `p_org_id`,`p_settlement_id`,`p_command_key`.
-  **Preconditions:** settlement `closed`, payout `pending`, destination not locked. **Locks & order:**
+- **Role:** `has_org_role(p_org_id, [org_finance, org_owner])` — **the scope argument is explicit, per RM-2**;
+  a bare `has_org_role([...])` is not a legal predicate in this corpus and the earlier shorthand here was a
+  transcription defect, not a different rule. **Params:** `p_org_id`,`p_settlement_id`,`p_command_key`.
+  **Preconditions:** settlement `closed`, payout `pending`, destination not locked, **and
+  `settlement.org_id = p_org_id`, re-resolved under the settlement's own lock** — see the scope-binding note
+  below. **Locks & order:**
   **Settlement** → **Payout** (`FOR UPDATE`) → **Approval** (rank 5.5, INSERT — parked arm only).
   **SSCAS:** member #4 continuation (Settlement→Payout).
   **Idempotency:** payout `idempotency_key`.
 - **Three preconditions this contract did not state, all of them controls the money spec already relies on:**
   1. **SoD-1 (structural).** Rejects when `auth.uid() = kernel.organization.payout_destination_set_by`,
      **permanently for that destination**, not merely during the cool-down — `sod_violation`. §17.7 control 1.
-  2. **`kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`, schema §13.7 `S-3`). **A money-role grant
+  2. **`kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`, schema §13.7 `S-3`; **contract: §1.1e**). **A money-role grant
      younger than `authn.money_role_maturity_hours` may neither request nor approve.** Without it, SoD-1 is
      satisfied by any two distinct `auth.uid()` values **and an `org_owner` can mint the second one** through
      the ordinary invite/accept flow. `sod_violation`, **not** `insufficient_privilege` — the role is
@@ -1274,6 +1453,17 @@ that door is using. Filed by edge §3.9a request #4.
      and never evaluates to a pass or a fail.
   **None of the three is ever applied to a deny or a cancel** (schema §13.7 `S-3`): a control that blocks
   *stopping* a payout is a control pointed the wrong way.
+- **Scope binding — the one way a client-supplied `p_org_id` could defeat the maturity check, closed here
+  (`AUTHZ-C1C`).** This function takes **two** untrusted identifiers, and every authority predicate on it —
+  `has_org_role`, SoD-1 and `money_role_grant_matured` — is evaluated against `p_org_id`, while the money it
+  moves is selected by `p_settlement_id`. **Nothing previously required the two to agree.** A caller holding
+  a mature `org_finance` grant at Org A could therefore pass `p_org_id = A` (every predicate passes) and
+  `p_settlement_id` = a settlement of Org B, and the checks would be true statements about the wrong
+  organization. **`settlement.org_id = p_org_id` is therefore a precondition, re-resolved under the
+  settlement's `FOR UPDATE` in the same transaction, raising `not_found`** (never `insufficient_privilege` —
+  the caller must not learn that the settlement exists). The actor was never client-passed (C35 is honoured
+  at all four call sites: the identity is always `auth.uid()` inside the helper), but **a scope that does not
+  bind to the subject is the same defect wearing the other parameter**. **`T-RPC-AUTHZ-20`.**
 - **Above `payout.dual_control_min_minor` it PARKS an approval instead of advancing, and it WRITES
   `required_approver_class` when it does (`AUTHZ-C1A`, schema §13.7 `S-1`).** RLS §11.3 states the parking;
   the column is what carries the tier forward, and this is its third writer (with §17.1 and §20.2.1).
@@ -1833,8 +2023,9 @@ filled here and flagged in §19 as authored rather than transcribed.
   `subject_id := p_order_id` — the `action ↔ subject_kind` pairing of RLS §16.1 `AUTHZ-M2` is written here, not
   assumed**), `kernel.tickets.resale_state := 'refund_hold'` on each covered **voidable** atom,
   `kernel.admin_audit` (`refund.request`).
-- **Grant maturity on the org arm (`AUTHZ-C1B`).** An `org_owner`/`org_finance` caller must satisfy
-  `kernel.money_role_grant_matured(order.org_id)`. **This binds the REQUESTER, not only the approver**, and
+- **Grant maturity on the org arm (`AUTHZ-C1B`; contract: §1.1e).** An `org_owner`/`org_finance` caller must
+  satisfy `kernel.money_role_grant_matured(order.org_id)` — **`order.org_id`, resolved under the order's own
+  lock, never a parameter**. **This binds the REQUESTER, not only the approver**, and
   that is deliberate: SoD-2 is a pair, and a control applied to one half of a pair is applied to neither. A
   freshly-minted second account can no more open the request than close it. `sod_violation` on failure —
   **not** `insufficient_privilege`, because the role is genuinely held and telling the operator "permission
@@ -1895,7 +2086,7 @@ filled here and flagged in §19 as authored rather than transcribed.
   | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated per `AUTHZ-M3` below** |
   | `payout.request` | `org` | as `refund.issue`/`org`, **plus the §17.7 destination-setter exclusion applied to the APPROVER** — otherwise the destination-setter simply approves instead of requesting |
   | `payout.request` | `platform` | `is_platform(['platform_risk','platform_admin'])`. **`platform_support` is denied** — it holds no payout authority anywhere else, and the generic approval object must not become the place it acquires one |
-  | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — see the note below |
+  | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — see the note below. **NO maturity floor: `kernel.money_role_grant_matured` is org-scoped and cannot be applied here — `AUTHZ-C1C`, filed as §20.14 `R-22` / ratification `C77`. This arm is the C58 attack one plane up and it is deliberately, visibly open pending an owner ruling** |
 
   Common to every arm: SoD-2 (`auth.uid() <> requested_by`), enforced **structurally** and backed by the table
   constraint pair of `AUTHZ-M1` — `CHECK (approved_by IS NULL OR approved_by <> requested_by)` **and** the
@@ -2054,7 +2245,8 @@ filled here and flagged in §19 as authored rather than transcribed.
 Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted nowhere** until now.
 
 - **Role.** `has_org_role(p_org_id, ['org_owner'])` **only**, with **step-up**, **and
-  `kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`). `org_finance` is **excluded entirely** — under
+  `kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`; contract: §1.1e — and here `p_org_id` **is** the
+  row being mutated, so no scope-binding gap of the §10.3 kind exists). `org_finance` is **excluded entirely** — under
   O-3 it holds payout-request authority, and one identity may not hold both halves of the named fraud
   primitive (*redirect the bank account, then release funds to it*). **Bound by EDGE-CALLER-JWT** — and this
   is the RPC where the rule bites hardest, because the step-up predicate reads `auth.jwt()`, which on a
@@ -3176,7 +3368,7 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Door — lifecycle** | `T-RPC-DOOR-09` (drained atom scans) · `T-RPC-DOOR-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (re-open leaves `door_open_at` byte-identical) · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) · `T-RPC-DOOR-13` (override expires with no sweep having run) · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RPC-DOOR-15` / `T-RPC-DOOR-16` (delta log) | §17.10–§17.13 |
 | **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
 | **Approval integrity** | `T-RPC-AUTHZ-15` (the set of functions inserting `kernel.approval_request` is **exactly** three — the enumeration the accepted no-FK residual rests on) · `T-RPC-AUTHZ-16` (a vanished `subject_id` resolves to **`stale`** on approval, holds released, no money row, on all three `subject_kind` values) | **§17.0a** `APPR-SUBJ-1/2` |
-| **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) | §1.1–§1.1d |
+| **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) · **`T-RPC-AUTHZ-17`** (the helper set is **exactly** the ten of §1.1–§1.1e, by name — see RLS `T-RLS-ROLE-06`) | §1.1–§1.1e |
 | **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
 | **Promoter** | `T-RPC-PROMO-01..11` | §17.15–§17.19 |
 | **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `T-RPC-DEMO-02` (`get_holder_mix` arity is 2) · **`T-RPC-DEMO-03`** (`AUTHZ-DEM1`(1): `set_my_demographics` and `clear_my_demographics` write **zero** rows to `kernel.admin_audit` — asserted over the audit table, not over the function text) · **`T-RPC-DEMO-04`** (`AUTHZ-DEM1`(2): the suppressed branch returns `{suppressed:true}` and **no other key** — asserted over the result's key set, because a NULL denominator is still a denominator) · **`T-RPC-DEMO-05`** (the read-side re-derivation fails closed on a hand-written sub-floor row) | §17.20 |
@@ -3245,6 +3437,10 @@ row and repeated here so the namespace stays contiguous.
 | `T-RPC-AUTHZ-14` | A `venue_manager` granting `venue_manager` raises `tier_guard`; **the same caller granting each of the other five succeeds** (so the test proves a narrowing, not a lockout); an `org_admin` of the venue's org grants `venue_manager` successfully | `AUTHZ-M7` |
 | `T-RPC-AUTHZ-15` | The set of functions inserting `kernel.approval_request` is **exactly** `{request_order_refund, request_org_payout, set_platform_config}` — structural. **The accepted no-FK residual rests on this enumeration**; a fourth writer turns `APPR-SUBJ-1` back into a convention | `APPR-SUBJ-1` |
 | `T-RPC-AUTHZ-16` | A parked request whose `subject_id` is deleted resolves to **`stale`** on approval — not `denied`, not `approved` — releases every hold and writes no money row. **Asserted on all three `subject_kind` values**, because one branch passing says nothing about the other two | `APPR-SUBJ-2` |
+| `T-RPC-AUTHZ-17` | The `kernel` predicate-helper set in `pg_proc` is **exactly** the ten names enumerated in RLS §2.2 — asserted as a **set equality against a literal list**, in both directions, never as a count. A count assertion passes on the wrong set of the right size, which is precisely how `money_role_grant_matured` was invoked by four call sites and defined by none | **`AUTHZ-C1C`** / `HELPER-DERIVED` |
+| `T-RPC-AUTHZ-18` | With `authn.money_role_maturity_hours` **deleted from `catalog.platform_config`** — the state a missed seed produces, **not** set to `0` — `kernel.money_role_grant_matured` returns **`false`** for an `org_owner` whose grant is a year old, and **does not raise**. Asserted **on the helper directly**: `T-RLS-MONEY-07` exercises it only through the callers and would pass on a helper that raised | **`AUTHZ-C1C`** (fail-to-safe, X-12) |
+| `T-RPC-AUTHZ-19` | The set of functions whose body calls `kernel.money_role_grant_matured` is **exactly** `{request_order_refund, approve_refund_request, request_org_payout, set_org_payout_destination}` — structural, over `pg_get_functiondef`. **Both directions fail**: a fifth caller is an over-application (a deny, cancel or sweep path that a control must never block), and a missing fourth is the half-pair defect C58 names, since a fresh account simply moves to the unbound side | **`AUTHZ-C1C`** / C58 |
+| `T-RPC-AUTHZ-20` | `kernel.request_org_payout` with `p_org_id` = an org where the caller holds a **mature** `org_finance` grant and `p_settlement_id` = a settlement of a **different** org raises **`not_found`** and moves no money — the authority predicates all pass, which is the point. **The fixture must give the caller a genuinely valid grant at `p_org_id`**, or the test passes on the role check and never reaches the binding | **`AUTHZ-C1C`** (scope binding) |
 
 > **Four of these fourteen assert a FAIL-TO-SAFE default** (`-04`, `-06`, `-12`, and RLS's
 > `T-RLS-MONEY-07`), and every one of them is written to **delete the config row rather than set it to zero**.
@@ -5570,6 +5766,8 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-10** | **Owner ruling** | **`venue.get_dashboard_summary`** (`G-18`): accept N queries on home, or schedule it | Nothing depends on it, which is exactly why it drifts. §20.10 makes it decidable |
 | **R-11** | **Owner confirmation** | **`venue.set_event_security_config`'s key set** (§20.6.6) and **`kernel.revoke_signing_key`'s acknowledgement parameter** (§20.7.5) are `INFERENCE — AUTHORED`. Both narrow or extend a granted row | RLS §11.4 grants a function no document defines; §20.6.6 supplies a definition so it is not invented at build time, but the owner should confirm it rather than inherit it |
 | **R-12** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `088` | **Fold `market.offer` expiry into the `088` sweep tick** (§20.8.5) | `market.offer` has `expires_at` and an `expired` label that nothing writes — the `G-24` shape a second time. **Not** load-bearing (an offer holds nothing), so it needs a statement, not a new function |
+| **R-22** | **Owner ruling** (`PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13.4 · §13.7 `S-3`) | **THE PLATFORM-PLANE HALF OF THE GRANT-MATURITY CONTROL IS UNBOUND, AND THE RATIFIED SIGNATURE CANNOT EXPRESS IT.** Schema §1.13.4 defines the money roles as `{org_owner, org_finance}` (org plane) **and `{platform_admin, platform_support, platform_risk}` (platform plane)**, states that `kernel.platform_role.created_at` **already is** the platform grant time, and `S-3` accordingly asks that **the money arm of `set_platform_config`** carry the precondition. **C58's ratified form names only `kernel.org_member.granted_at`, and the ratified helper takes one argument — an `org_id` — which the platform plane does not have.** So `config.set_money_key` (§17.2, `required_approver_class='platform_admin'`) is gated by `auth.uid() <> requested_by` and a second distinct `platform_admin` (`AUTHZ-C1A2`) **and by no maturity floor at all** — which is the C58 attack one plane up: `kernel.grant_platform_role` is held by `platform_admin`, so a `platform_admin` can mint the second `platform_admin` that approves the raise of a money ceiling. **Two admissible forms, and the choice is the owner's:** (a) a **second helper**, `kernel.platform_money_role_grant_matured()` (no scope argument; reads `kernel.platform_role.created_at` against the same key), bound on the `config.set_money_key` arm of §17.2 and on §20.2.1's money arm — **a new control and therefore a new ratification, not a clarification**; or (b) **rule the platform plane out of scope** and retract schema §1.13.4's platform-plane sentence and `S-3`'s `set_platform_config` clause, so the corpus stops describing a control it does not have. **This document does not choose**: (a) extends a ratified control to a plane C58 did not ratify it on, and (b) deletes ratified schema text | The gap is invisible from either side on its own. Schema §1.13.4 reads as though both planes are covered; C58 and §1.1e read as though only the org plane was ever in scope; and the one function that spans them — `set_platform_config`'s money arm — is named by `S-3` and by no call site. **An implementer reading §1.1e alone will not know the platform arm is deliberately unbound, and an implementer reading §1.13.4 alone will try to pass an `org_id` that does not exist.** Recorded as ratification row **C77 / OPEN-GATED(O12)** |
+| **R-23** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §13.6 (global lock order) · `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §6.2 | **Confirm the accepted residual on `kernel.money_role_grant_matured` (§1.1e), or amend the lock order.** The helper reads `kernel.org_member` **unlocked**, so a `change_org_role` committing between the caller's snapshot and its commit is not observed. **Three of the four race directions fail closed** (a promotion into a money role, and a revoke, are both invisible to an older snapshot, which sees the pre-change row and returns `false`). **One is open for the duration of one transaction:** a money→money re-grant (`org_finance` → `org_owner`) resets `granted_at`, and a caller on the pre-reset snapshot passes. **§1.1e records this as an accepted residual and does not close it**, because closing it means putting `kernel.org_member` into the global lock order — an amendment to a ratified invariant (C28/§0.4), not a contract edit | The residual is small and bounded and the re-grant is itself an audited act by an already-authorized principal — but it is **exactly the direction the control exists to stop** (a freshly-authorized money principal acting), so it must be an accepted residual on the record rather than an unstated one. **A reviewer who later finds it should find this row, not discover it** |
 
 ---
 

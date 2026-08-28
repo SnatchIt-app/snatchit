@@ -622,22 +622,42 @@ relationship to an *organization* is singular. Keep both keys as they are.
 
 ### 6.2 The predicate helpers — complete set
 
-Four exist. Three are new. One changes meaning.
+> **`SPEC CORRECTION F-4` (`AUTHZ-C1C`, 2026-08-28) — THIS TABLE WAS THE DERIVATION SOURCE FOR THE WHOLE
+> CORPUS AND IT WAS THREE RATIFIED CORRECTIONS STALE.**
+> RLS §2.2 says it adopts this table *"verbatim"*, and this table calls itself *"complete set"* — so a
+> reader who trusted both would have silently reverted **`C58`/`AUTHZ-C1B`** (which adds a **tenth** helper),
+> **`C54`/`AUTHZ-H3`** (which changes `assert_door_session`'s **signature** — it takes a token and returns
+> the bound pair) and **`AUTHZ-M10`** (which corrects `is_promoter_for_event`, whose old definition compared
+> a `promoter_id` to an `auth.uid()` and was therefore **false for every row that will ever exist**). The
+> prose above the table said *"Four exist. Three are new. One changes meaning"* — **seven** — while the table
+> listed **nine**, so this section did not agree with itself either.
+> **Re-derived below under RLS §2.2's `HELPER-DERIVED` rule**, whose clause 3 is written for exactly this
+> case: a stale derivation source is brought into line with a ratified correction, never cited over the top
+> of one. ROLE_MODEL filed `F-1`…`F-3` and no `F-4`; this is `F-4`.
 
-| Helper | Status | Reads | Returns true iff |
-|---|---|---|---|
-| `kernel.has_org_role(p_org_id, p_roles[])` | existing, unchanged | `kernel.org_member` | a live row exists for `(p_org_id, auth.uid())` with `role ∈ p_roles` |
-| `kernel.has_venue_role(p_venue_id, p_roles[])` | **CHANGED** — §7.5 | `venue.staff_role` **only** | a live row exists for `(p_venue_id, auth.uid(), role ∈ p_roles)` |
-| `kernel.has_event_role(p_event_id, p_roles[])` | existing, unchanged | `catalog.event` → `venue.staff_role` | `has_venue_role(catalog.event.venue_id, p_roles)` |
-| `kernel.is_platform(p_roles[])` | existing, unchanged | `kernel.platform_role` (+ `public.admin_users` bootstrap) | a live row exists for `auth.uid()` with `role ∈ p_roles` |
-| `kernel.has_org_role_over_venue(p_venue_id, p_roles[])` | **NEW** | `catalog.venue` → `kernel.org_member` | `has_org_role(catalog.venue.org_id, p_roles)` |
-| `kernel.has_org_role_over_event(p_event_id, p_roles[])` | **NEW** | `catalog.event` → `kernel.org_member` | `has_org_role(catalog.event.org_id, p_roles)` |
-| `kernel.is_org_affiliate(p_org_id)` | **NEW** | `kernel.org_member` | **any** row exists for `(p_org_id, auth.uid())`, regardless of role — §10 |
-| `kernel.assert_door_session(p_device_id, p_session_id)` | **NEW** | `venue.scan_device`, `venue.door_pin` | a valid, unexpired, unrevoked door session binds that device to that session — §7 |
-| `kernel.is_promoter_for_event(p_event_id)` | **NEW** (Phase 2D) | `venue.promoter_link` | a live link exists for `(p_event_id, auth.uid())` — §9 |
+**Ten helpers. Four pre-existed. Six are new. Three changed meaning or signature after they were first
+written here.** The defining contracts are `PHASE_2_RPC_FUNCTION_CONTRACTS.md` **§1.1–§1.1e**; membership is
+fixed by the ratification record (`HELPER-DERIVED` clauses 1–2) and asserted by `T-RLS-ROLE-06` /
+`T-RPC-AUTHZ-17`.
+
+| Helper | Status | Reads | Returns true iff | Contract |
+|---|---|---|---|---|
+| `kernel.has_org_role(p_org_id, p_roles[])` | existing, unchanged | `kernel.org_member` | a live row exists for `(p_org_id, auth.uid())` with `role ∈ p_roles` | §1.1 |
+| `kernel.has_venue_role(p_venue_id, p_roles[])` | **CHANGED** — §7.5 | `venue.staff_role` **only** | a live row exists for `(p_venue_id, auth.uid(), role ∈ p_roles)` | §1.1 |
+| `kernel.has_event_role(p_event_id, p_roles[])` | existing, unchanged | `catalog.event` → `venue.staff_role` | `has_venue_role(catalog.event.venue_id, p_roles)` | §1.1 |
+| `kernel.is_platform(p_roles[])` | existing, unchanged | `kernel.platform_role` (+ `public.admin_users` bootstrap) | a live row exists for `auth.uid()` with `role ∈ p_roles` | §1.1 |
+| `kernel.has_org_role_over_venue(p_venue_id, p_roles[])` | **NEW** | `catalog.venue` → `kernel.org_member` | `has_org_role(catalog.venue.org_id, p_roles)` | §1.1a |
+| `kernel.has_org_role_over_event(p_event_id, p_roles[])` | **NEW** | `catalog.event` → `kernel.org_member` | `has_org_role(catalog.event.org_id, p_roles)` | §1.1a |
+| `kernel.is_org_affiliate(p_org_id)` | **NEW** | `kernel.org_member` | **any** row exists for `(p_org_id, auth.uid())`, regardless of role — §10. **Scoping only, never authorizing** (RM-6) | §1.1b |
+| `kernel.is_promoter_for_event(p_event_id)` | **NEW** (Phase 2D) — **CORRECTED, `AUTHZ-M10`** | `venue.promoter` **→** `venue.promoter_link` **and** `venue.promoter_code`(+`_scope`) | the caller is a live promoter of that event **by either route, link or CODE**: `venue.promoter.identity_id = auth.uid() AND status='active'`, then out to links **or** code scopes by `promoter_id` — §9. **The old row said `venue.promoter_link` and *"a live link exists for `(p_event_id, auth.uid())`"*: `promoter_link` has no identity column, so that predicate is false for every row forever, and link-only excludes the code-only promoter the feature actually creates** | §1.1c |
+| `kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` | **NEW** — **SIGNATURE CHANGED, `AUTHZ-H3`/`C54`** | `venue.door_session` (by PK) · `venue.scan_device` · `venue.door_pin` | a valid, unexpired, unrevoked door session **whose token the caller holds** binds that device to that session — §7. **Returns the bound `(device_id, event_session_id)`, NOT a boolean**, and raises rather than returning false. **The old two-argument row proved provisioning, not possession.** `EXEC: DEF` — `service_role` only; **never an RLS predicate** (RM-5) | §1.1d |
+| **`kernel.money_role_grant_matured(p_org_id)`** | **NEW** — **`AUTHZ-C1B` / `C58`; absent from this table entirely until `F-4`** | `kernel.org_member` (`role`, `granted_at`) · `catalog.platform_config` (`authn.money_role_maturity_hours`) | the caller holds an **org-plane money role** (`org_owner` · `org_finance`) in `p_org_id` whose `granted_at` is at least `authn.money_role_maturity_hours` old. **An absent, NULL or unparseable key means NO grant is mature.** The only member of this set that is a function of **time** as well as role — it exists because every other money SoD test compares two `auth.uid()`s that one `org_owner` can mint. **Conjunct only, never a sole gate; binds both halves of both money SoD primitives; never applied to a deny or a cancel** | §1.1e |
 
 All are `SECURITY DEFINER`, owned by `postgres`, `search_path` pinned (066/067), `STABLE`, and read **live
-tables, never JWT claims** (C9 / RLS I-5).
+tables, never JWT claims** (C9 / RLS I-5). All take their actor from **`auth.uid()` inside the body and never
+as a parameter** (**C35**) — every argument above is a **scope**, and a scope argument that does not bind to
+the subject the operation acts on is the same defect wearing the other parameter (RPC §10.3, `AUTHZ-C1C`).
+`EXEC: authenticated` for nine of them; `assert_door_session` alone is `DEF`.
 
 `INFERENCE:` `has_org_role_over_venue` and `has_org_role_over_event` are new because the corpus **describes**
 org→venue inheritance in prose but never names a helper for it. `VERIFIED`
@@ -738,8 +758,13 @@ is a rule that lasts until the first hardening sprint.
 ### 6.6 Standing rules
 
 > **RM-1** — Every role label begins with its plane token (`org_` / `platform_` / `venue_`). §3.4.
-> **RM-2** — No RLS policy or RPC compares a bare role string, a display name, or a JWT claim. Only the nine
-> helpers of §6.2, always with an explicit scope argument. (Extends RLS §2.3 to display names.)
+> **RM-2** — No RLS policy or RPC compares a bare role string, a display name, or a JWT claim. Only the
+> **ten** helpers **enumerated by name** in §6.2, always with an explicit scope argument. (Extends RLS §2.3
+> to display names.) **The count read "nine" here and in RLS `RM-2`, "eleven" in RLS §2.2's heading and in
+> `T-RLS-ROLE-02` — six statements, three numbers. Under `HELPER-DERIVED` clause 4 no statement of this set
+> may be a bare count**, because a count assertion passes on the wrong set of the right size, and that is
+> precisely how `money_role_grant_matured` reached four money call sites with no defining contract
+> (`AUTHZ-C1C`). Asserted by `T-RLS-ROLE-06` / `T-RPC-AUTHZ-17`.
 > **RM-3** — Org→venue and org→event inheritance is expressed **only** through `has_org_role_over_venue` /
 > `has_org_role_over_event`. No policy re-inlines the `catalog.venue → kernel.org_member` join.
 > **RM-4** — Venue and event roles never inherit **up**. There is no venue→org path, in any helper.
@@ -1069,6 +1094,7 @@ recurs. Line numbers are at `phase2/consolidation@11ea2eb`.
 | F-1 | §4 C36, line 51 | ``- `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner|org_admin|org_finance|org_member` (org scope).`` | ``- `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner|org_admin|org_finance|org_marketing|org_promoter_manager|org_member` (org scope).`` |
 | F-2 | §4 C36, line 52 | ``- `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager|venue_finance|venue_door|venue_promoter` (venue scope).`` | ``- `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager|venue_finance|venue_box_office|venue_marketing|venue_promoter_manager|venue_scanner` (venue scope).`` |
 | F-3 | §4 C36, line 54 | `Predicate helpers: … `kernel.is_platform(role[])`.` | append: `` · `kernel.has_org_role_over_venue(venue_id, role[])` · `kernel.has_org_role_over_event(event_id, role[])` · `kernel.is_org_affiliate(org_id)`. Door principals are NOT tested by `has_venue_role` — see PHASE_2_ROLE_MODEL_SPEC §7. `` |
+| **F-4** | §4 C36, the Predicate-helpers line | the eight-name list left by `F-3` **as extended by the authz pass** — `has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` · `has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` · `money_role_grant_matured` | **complete it to the canonical TEN and enumerate, never count** — the list is missing **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** and **`kernel.is_promoter_for_event(event_id)`**, both of which are helpers in §6.2, in RLS §2.2 and in RPC §1.1c/§1.1d, and neither of which any `F-n` row ever asked for. **`SPEC_FOUNDATION` §4 is the file every implementation spec is told to take its names from**, so a short list there is a helper an implementer never learns exists. **Filed here because `SPEC_FOUNDATION` line 58 records that `F-3` was the last `F-n` and that `money_role_grant_matured` was therefore added *on the authz pass's own authority* with the omission reported back — this row is that report answered** (`AUTHZ-C1C`; ratification **C73**). |
 
 ### 11.2 `docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md`
 
