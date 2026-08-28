@@ -1617,17 +1617,44 @@ Why this specific hybrid, and not pure RBAC or pure ABAC:
 **How it lands on the modular monolith + RLS (Canonical §1):**
 
 - **Relationship rows live where the scope lives.** Platform-level allowlist in `core.roles`
-  (`platform_admin`/`support`/`risk_ops`); org membership in `core.org_members`
-  (`owner`/`admin`/`finance`/`member`); venue/event grants in `venue.staff_roles`; commissioned selling in
-  `venue.promoters`/`promoter_links`; marketplace seller status in `market.seller_onboarding`. Each schema
-  owns its own authz surface — no cross-schema role table to drift.
-- **Role labels are structurally scope-typed (C36).** The three planes use **disjoint label sets** — no label
-  exists in more than one plane (physically: three separate enums with scope-prefixed labels, `org_*` /
-  `venue_*` / `platform_*`, e.g. `org_finance` vs `venue_finance`) — so an org-vs-venue conflation is a *type
-  error*, not a lint finding. The scope-specific helpers (`has_org_role`, `has_venue_role`,
-  `is_platform_role`) are the only legal role tests; a bare `role='…'` comparison cannot even name a valid
-  cross-scope role. (The role names in §7.2's catalog are display names; the stored labels are the disjoint
-  scope-prefixed sets.)
+  (`platform_admin`/`platform_support`/`platform_risk`); org membership in `core.org_members`
+  (`org_owner`/`org_admin`/`org_finance`/`org_marketing`/`org_promoter_manager`/`org_member`); venue/event
+  grants in `venue.staff_role`; commissioned selling in `venue.promoters`/`promoter_links`; marketplace seller
+  status in `market.seller_onboarding`. Each schema owns its own authz surface — no cross-schema role table to
+  drift.
+- **Role labels are structurally scope-typed (C36), and O-2 fixes the membership.** The three planes use
+  **disjoint label sets** — no label exists in more than one plane (physically: three separate scope-typed
+  columns with plane-prefixed labels, `org_*` / `venue_*` / `platform_*`, e.g. `org_finance` vs
+  `venue_finance`) — so an org-vs-venue conflation is a *type error*, not a lint finding. The scope-specific
+  helpers (`has_org_role`, `has_venue_role`, `is_platform_role`) are the only legal role tests; a bare
+  `role='…'` comparison cannot even name a valid cross-scope role.
+
+  **The canonical fifteen stored labels (O-2 — this list is closed; adding one is an amendment):**
+
+  | Plane | Grant row | Stored labels |
+  |---|---|---|
+  | **org** | `core.org_members` | `org_owner` · `org_admin` · `org_finance` · `org_marketing` · `org_promoter_manager` · `org_member` |
+  | **venue** | `venue.staff_role` | `venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` · `venue_promoter_manager` · `venue_scanner` |
+  | **platform** | `core.roles` | `platform_admin` · `platform_support` · `platform_risk` |
+
+  Fifteen labels, fifteen distinct strings, three prefixes none of which is a prefix of another — so a
+  label's plane is decidable from its first token alone, without consulting the enum. Standing rule
+  **RM-1: every role label MUST begin with its plane token**; a proposed label that does not is rejected at
+  review. Two labels changed under O-2 and the change is substantive, not cosmetic: `venue_door` is renamed
+  **`venue_scanner`** (the door *session* is a device principal, not a role — §7.2), and **`venue_promoter`
+  is removed entirely** — a promoter's authority is `promoter_link` row ownership, and a promoter sitting in
+  the administrative grant table is an administrator with an empty capability set.
+
+> **The two namespaces, stated so they cannot be confused.** **§7.2's catalogue holds *display names*; the
+> *stored* labels are the disjoint plane-prefixed sets above.** They are two namespaces, deliberately. A
+> display name is what an operator reads in the dashboard ("Box Office"); a stored label is what a policy
+> compares (`venue_box_office`). **A display name is never a stored value and never legal in a predicate** —
+> `has_venue_role(v,['box_office'])` is exactly as illegal as `role = 'finance'`, because `box_office` is not
+> a member of any enum. Owner ruling O-2 is expressed in the display-name namespace (it rules *which jobs
+> exist and what each may do*); C36 governs the stored namespace. That is why O-2's own list is half-prefixed
+> — `org_owner` and `venue_manager` beside `box_office` and `scanner` — and why it is not a C36 violation.
+> This reading is the one this document has always carried, and it is now stated here rather than left in a
+> parenthesis. (D5)
 - **Capability is resolved by `SECURITY DEFINER` helper functions, not inline predicates.** Following the
   audit's Deliverable 7 pattern: `has_org_role(org_id, role)`, `has_venue_role(venue_id, role)`,
   `can_scan(event_id, ticket_type_id)`, `is_platform_role(role)` — each `SECURITY DEFINER`, each pinned
@@ -1645,35 +1672,51 @@ Why this specific hybrid, and not pure RBAC or pure ABAC:
 ### 7.2 The full role catalog
 
 Roles are grouped by the **plane** they act in. Scope column: `platform` / `org` / `venue` / `event`.
-"Inherits" means the role is a strict superset of the named role's capabilities *within the same scope*.
+
+> **Read this before the tables. The bolded names below are DISPLAY NAMES. The `code` beside each is the
+> STORED LABEL** — the only string a policy or a role predicate may ever compare (§7.1, C36/O-2). The two are
+> deliberately different namespaces and neither substitutes for the other.
+>
+> **"Inherits" is documentation, not a mechanism — and for money actions it is nothing at all (O-1).**
+> `org_member.role` is **single-valued**, so no `org_owner` row can ever satisfy `has_org_role([org_finance])`.
+> Every money authority a role holds is granted to *its own* label explicitly in §7.6 and in the RLS matrices;
+> none is derived by inheritance. Where this column once implied otherwise it has been corrected in place.
+
+**Not roles, and never added to any enum** (they appear in §7.6's columns because they are *principals*, not
+because they are grants): **Promoter** and **Affiliate** — authority is `promoter_link`/`attribution` row
+ownership (O-2); **Ambassador**, **Buyer**, **Seller**, **Attendee** — derived predicates over the consumer
+plane; and the **door session**, a loginless device principal (`door_pin` + `scan_device`) that satisfies no
+`has_venue_role` test at all (O-2/O-4). A promoter, an ambassador and a door session hold **no row** in any of
+the three grant tables, which is what makes escalation from any of them structurally impossible rather than
+merely unlikely.
 
 #### Platform plane (Snatch It operator — governed by `core.roles` allowlist)
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Platform Admin** | platform | Full internal admin plane: approve venues/orgs, resolve disputes/refunds (within dual-control), manage feature flags, hold/release payouts (dual-control), moderate users/content, configure `platform_config`. Every action audited. | **Cannot** unilaterally move money above threshold (needs the *second* approver — SoD); cannot change a payout *destination* **and** approve a payout to it; cannot edit or delete `admin_audit_log`; cannot bypass MFA on step-up actions. | Support, Risk Ops (read paths) |
-| **Support** | platform | Read customer records for assistance; **propose** refunds/dispute resolutions; issue account messages; view (not edit) audit trail; toggle non-financial user flags per runbook. | **Cannot** approve/execute payouts, refunds above micro-threshold, or venue approvals — *propose only*; cannot view full PAN/bank/KYC docs; cannot change roles. | — |
-| **Risk / Trust Ops** | platform | Review fraud/risk queues, risk scores, cluster/link-analysis; freeze/unfreeze accounts and payouts; force step-up; place holds and reserves; open investigations. | **Cannot** *release* held funds it froze (SoD — release is Admin/Finance with a second approver); cannot resolve the underlying dispute financially alone; cannot edit audit log. | Support (read) |
-| **Read-only Analyst** | platform (or org) | Read `analytics` rollups and aggregate/venue-scoped reporting. | **Cannot** read raw PII, cannot see individual payment/bank details, cannot mutate anything, cannot export beyond policy. | — |
+| **Platform Admin** `platform_admin` | platform | Full internal admin plane: approve venues/orgs, resolve disputes/refunds (within dual-control), manage feature flags, hold/release payouts (dual-control), moderate users/content, configure `platform_config`. Every action audited. | **Cannot** unilaterally move money above threshold (needs the *second* approver — SoD); cannot change a payout *destination* **and** approve a payout to it; cannot edit or delete `admin_audit_log`; cannot bypass MFA on step-up actions. | Support, Risk Ops (read paths) |
+| **Support** `platform_support` | platform | Read customer records for assistance; **propose** refunds/dispute resolutions; issue account messages; view (not edit) audit trail; toggle non-financial user flags per runbook. | **Cannot** approve/execute payouts, refunds above micro-threshold, or venue approvals — *propose only*; cannot view full PAN/bank/KYC docs; cannot change roles. | — |
+| **Risk / Trust Ops** `platform_risk` | platform | Review fraud/risk queues, risk scores, cluster/link-analysis; freeze/unfreeze accounts and payouts; force step-up; place holds and reserves; open investigations. | **Cannot** *release* held funds it froze (SoD — release is Admin/Finance with a second approver); cannot resolve the underlying dispute financially alone; cannot edit audit log. | Support (read) |
+| **Read-only Analyst** *(no stored label — a derived reporting scope, not a grant)* | platform (or org) | Read `analytics` rollups and aggregate/venue-scoped reporting. | **Cannot** read raw PII, cannot see individual payment/bank details, cannot mutate anything, cannot export beyond policy. | — |
 
 #### Organization plane (`core.org_members`) — a User acting *for* an Org
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Organization Owner** | org | Everything within the org: manage members/roles, all venues/events, initiate finance actions (with dual-control), accept platform terms for the org, manage Stripe Connect onboarding. The org's ultimate human authority. | **Cannot** self-approve a payout **and** change the payout bank account in one act (SoD, even as owner); cannot act outside their org; cannot see platform-plane data. | Org Admin, Org Finance |
-| **Org Admin** | org | Manage venues, events, ticket types, staff roles, promoters; run day-to-day operations across the org's venues. | **Cannot** view or initiate payouts/bank changes (that's Finance/Owner); cannot manage the Owner's role. | Venue Manager (all venues) |
-| **Org Finance** | org | View settlements/payouts/finance across the org; initiate payout and bank-account changes **subject to dual-control + step-up**; download financial reports. | **Cannot** edit events/inventory or manage staff; cannot *both* initiate and approve the same high-value payout; cannot approve a payout to an account they just changed. | — |
+| **Organization Owner** `org_owner` | org | Everything within the org: manage members/roles, all venues/events, accept platform terms for the org, manage Stripe Connect onboarding. **Money (O-1/O-3):** may **request** a refund on the org's own orders and **request** a payout, may read the org refund and payout ledgers, and is the **only** role that may change the payout destination. The org's ultimate human authority. | **Cannot** execute a refund directly — org refund authority is a *request*, resolved by tier (§7.6); **cannot** request a payout to a destination this same identity set (SoD-1, permanent, per-destination — §7.4); cannot close a settlement (that is Finance's certification); cannot act outside their org; cannot see platform-plane data. | Org Admin (operational surfaces only). **Role inheritance is not implemented for money actions**: `org_member.role` is single-valued (C36), so every money authority the Owner holds is granted to the `org_owner` label explicitly in §7.6 and the RLS matrices — never derived from Org Finance (O-1). |
+| **Org Admin** `org_admin` | org | Manage venues, events, ticket types, staff roles, promoters; run day-to-day operations across the org's venues; open and close the door manifest for the org's venues (O-4). | **DENY across the entire money plane** — cannot view, request, approve or execute a payout or a refund, cannot change or view the payout destination, cannot close a settlement, and is not eligible as the second approver on any money approval (O-1/O-2: *general administration, not unrestricted financial authority*). This is the constitution's own long-standing *"cannot view or initiate payouts/bank changes (that's Finance/Owner)"*, now stated as a total denial and made explicit in the RLS matrices too. Cannot manage the Owner's role. | Venue Manager (all venues) — **operational surfaces only; confers no money authority.** |
+| **Org Finance** `org_finance` | org | View settlements/payouts/finance across the org; read the org refund and payout ledgers; **request** refunds and **initiate payouts** subject to threshold + step-up; **view** the payout destination; close settlements; download financial reports. | **Cannot change the payout destination** — that is `org_owner`-only and SoD-separated from payout initiation (§7.4 SoD-1), because under O-3 `org_finance` also requests payouts and one role may not hold both halves of the fraud primitive; cannot edit events/inventory or manage staff; cannot *both* initiate and approve the same high-value payout or refund (`approver ≠ requester`, always); **cannot release held funds** (SoD-3 — release is platform risk/admin). | — |
 
 #### Venue / Event plane (`venue.staff_roles`) — scoped grants
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Venue Manager** | venue (all its events) | Build/edit events, ticket types, inventory batches, holds, comps; view venue orders and operational reporting; manage venue-scoped staff and door PINs; run box office. | **Cannot** view org-wide finances or initiate payouts; cannot change resale policy beyond delegated fields; cannot act on other venues. | Venue Staff, Door |
-| **Venue Staff — Box Office** | venue or event | Sell/comp at the door, issue tickets, process in-person orders, manage guest lists, look up an order/attendee for service. | **Cannot** see aggregate finance/payouts; cannot edit prices/policy; cannot manage staff or door PINs. | Door |
-| **Venue Staff — Marketing** | venue or event | Manage event public pages, media, descriptions, promo codes; view marketing analytics. | **Cannot** touch inventory pricing, orders, PII beyond aggregates, finance, or scanning. | — |
-| **Door (scanner)** | **event** (+ `scan_scopes`) | Submit scans for the bound event, within allowed ticket types; see the minimal attendee-verification result (name/ticket validity), guest-list check-in. **May be a human staff grant or a loginless `door_pin`.** | **Cannot** list attendees in bulk, see contact/PII beyond scan verification, see prices/finance, or scan ticket types outside `scan_scopes`, or scan other events. | — |
-| **Promoter Manager** | venue or event | Create/manage promoters and their `promoter_links`; view attribution/commission reporting for their venue/events; set commission terms within policy. | **Cannot** change ticket prices/inventory, initiate payouts (commission payouts run through settlement), or see full buyer PII. | Promoter (view own) |
-| **Promoter** | **event** (via `promoter_links`) | Generate/share own tracking links; view **own** attributed sales, stats, and commission owed; sub-links where allowed. | **Cannot** see other promoters' or the venue's aggregate finances, edit inventory, access back-office, or see buyer PII beyond own attributed aggregate counts. | — |
+| **Venue Manager** `venue_manager` | venue (all its events) | Build/edit events, ticket types, inventory batches, holds, comps; view venue orders and operational reporting; manage venue-scoped staff and door PINs; run box office. **Opens and closes the door manifest, sets `door_open_at`, and changes event security configuration for its venue (O-4/O-5)** — the only venue-plane role that may. | **Cannot** view org-wide finances or initiate payouts; cannot change resale policy beyond delegated fields; cannot act on other venues; **cannot disable a transfer freeze** (`platform_admin` under step-up). | Venue Staff, Door — **documentation only; the stored label is single-valued and grants nothing by inheritance.** |
+| **Venue Staff — Box Office** `venue_box_office` | venue or event | Sell/comp at the door, issue tickets, process in-person orders, manage guest lists, look up an order/attendee for service. | **Cannot** see aggregate finance/payouts; cannot edit prices/policy; cannot manage staff or door PINs; **cannot open, close or reconfigure the door manifest, and does not inherit manifest administration (O-4, explicit)**. Consequence stated rather than left implicit: until per-capability venue scoping ships, a person granted `venue_manager` *in order to sell at the box office* thereby also gains manifest-open authority — which is why the `venue_box_office` label exists. | Door |
+| **Venue Staff — Marketing** `venue_marketing` (venue grain) / `org_marketing` (org grain) | venue or event | Manage event public pages, media, descriptions, promo codes; view marketing analytics. **May export the contactable-audience CRM slice at its plane's grain, money columns excluded** (O-2). | **Cannot** touch inventory pricing, orders, finance, or scanning. The plane of the grant *is* the export scope: `venue_marketing` exports its venue's audience, `org_marketing` the org's. | — |
+| **Door (scanner)** `venue_scanner` — **or a door session, which is not a role at all** | **event** (+ `scan_scopes`) | Sync an **already-open** manifest to its own device, submit scans for the bound event within allowed ticket types, admit, queue offline scans for reconciliation; see the minimal attendee-verification result (name/ticket validity), guest-list check-in. Two distinct principals share this row: the authenticated **`venue_scanner`** staff grant (individually attributable) and the loginless **door session** (`door_pin` + registered device), which holds no row in any role enum and satisfies no `has_venue_role` test. | **Cannot open, close or re-open the door manifest, move `door_open_at`, or change event security configuration (O-4)** — opening the manifest freezes custody platform-wide for the session, and a scanner may not create the security boundary it stands inside. Cannot disable a transfer freeze; cannot authorize a refund (C46); cannot list attendees in bulk, see contact/PII beyond scan verification, see prices/finance, scan ticket types outside `scan_scopes`, or scan other events. | — |
+| **Promoter Manager** `venue_promoter_manager` (venue grain) / `org_promoter_manager` (org grain) | venue or event | Create/manage promoters and their `promoter_links`; view attribution/commission reporting for their venue/events; set commission terms within policy. | **Cannot** change ticket prices/inventory, initiate payouts (commission payouts run through settlement), or see full buyer PII. | Promoter (view own) |
+| **Promoter** *(not a role — `promoter_link` row ownership, O-2)* | **event** (via `promoter_links`) | Generate/share own tracking links; view **own** attributed sales, stats, and commission owed; sub-links where allowed. | **Cannot** see other promoters' or the venue's aggregate finances, edit inventory, access back-office, or see buyer PII beyond own attributed aggregate counts. | — |
 
 #### Consumer & growth plane (derived predicates, not stored account types)
 
