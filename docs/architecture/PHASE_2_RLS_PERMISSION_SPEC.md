@@ -24,33 +24,67 @@ DO-NOT-BUILD. Deferred schemas (`social`/`analytics`/`notify`/`adapter`, money-l
 
 ## 1. How to read this document
 
-### 1.1 Roles (the 15 principals) and how each is tested
+### 1.1 Roles (the 20 principals) and how each is tested
 
 Human "roles" here are **application roles**, not Postgres roles. The only Postgres roles are `anon`,
 `authenticated`, and `service_role`. Every app-role test is a **scope-qualified predicate** (C36, §2) run
 inside an RLS policy or RPC — never a bare string comparison.
 
-| # | Role (matrix label) | Postgres role | How the policy tests it | Scope |
-|---|---|---|---|---|
-| 1 | `anon` | `anon` | unauthenticated request | none |
-| 2 | `fan` (authenticated fan) | `authenticated` | `auth.uid()` present, no org/venue/platform role | self |
-| 3 | `owner` (row owner) | `authenticated` | `auth.uid() = <row owner col>` (buyer/seller/current_owner/identity/from/to) | row |
-| 4 | `o_mbr` (org_member) | `authenticated` | `has_org_role(org_id,[org_member])` | org |
-| 5 | `o_own` (org_owner) | `authenticated` | `has_org_role(org_id,[org_owner])` | org |
-| 6 | `o_adm` (org_admin) | `authenticated` | `has_org_role(org_id,[org_admin])` | org |
-| 7 | `o_fin` (org_finance) | `authenticated` | `has_org_role(org_id,[org_finance])` | org |
-| 8 | `v_mgr` (venue_manager) | `authenticated` | `has_venue_role(venue_id,[venue_manager])` | venue |
-| 9 | `v_door` (venue_door) | `authenticated`/door_pin device principal | `has_venue_role(venue_id,[venue_door])` or valid `venue.door_pin` for the session | venue/session |
-| 10 | `v_fin` (venue_finance) | `authenticated` | `has_venue_role(venue_id,[venue_finance])` | venue |
-| 11 | `promo` (promoter) | `authenticated` | `has_venue_role(venue_id,[venue_promoter])` (enum label = `venue_promoter`) | venue |
-| 12 | `p_sup` (platform_support) | `authenticated` | `is_platform([platform_support])` | platform |
-| 13 | `p_rsk` (platform_risk) | `authenticated` | `is_platform([platform_risk])` | platform |
-| 14 | `p_adm` (platform_admin) | `authenticated` | `is_platform([platform_admin])` | platform |
-| 15 | `svc` (service_role) | `service_role` | machine identity (Supabase service key / definer context) | machine only |
+> **AUTHORITY NOTE (O-2 / O-4).** The canonical role set is defined by
+> `docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md` §3 (fifteen stored enum labels across three planes) and its
+> §5.1 twenty-principal column key. That spec **supersedes** the four-label venue set this document previously
+> carried. `venue_door` is renamed **`venue_scanner`**; `venue_promoter` is **removed** from the venue enum;
+> five labels are added. This section is the reconciled form. Edits R-1 … R-4 of ROLE_MODEL §11.2 are applied
+> here.
 
-> **`promo` ↔ `venue_promoter`.** The prompt's `promoter` is the C36 **venue-scope** `venue_promoter` label,
-> tested by `has_venue_role`. It is NOT an org or platform role. Its data visibility is deliberately narrow
-> (own links/attributions/commission only — CDM §8; never the back office).
+| # | Code | Role (matrix label) | Postgres role | How the policy tests it | Scope |
+|---|---|---|---|---|---|
+| 1 | `ANO` | `anon` | `anon` | unauthenticated request | none |
+| 2 | `FAN` | `fan` (authenticated fan) | `authenticated` | `auth.uid()` present, no org/venue/platform role | self |
+| 2b | `FAN◐` | `owner` (row owner) | `authenticated` | `auth.uid() = <row owner col>` (buyer/seller/current_owner/identity/from/to) | row |
+| 3 | `OMB` | `org_member` | `authenticated` | `has_org_role(org_id,[org_member])` | org |
+| 4 | `OOW` | `org_owner` | `authenticated` | `has_org_role(org_id,[org_owner])` | org |
+| 5 | `OAD` | `org_admin` | `authenticated` | `has_org_role(org_id,[org_admin])` | org |
+| 6 | `OFI` | `org_finance` | `authenticated` | `has_org_role(org_id,[org_finance])` | org |
+| 7 | `OMK` | `org_marketing` | `authenticated` | `has_org_role(org_id,[org_marketing])` | org |
+| 8 | `OPM` | `org_promoter_manager` | `authenticated` | `has_org_role(org_id,[org_promoter_manager])` | org |
+| 9 | `VMG` | `venue_manager` | `authenticated` | `has_venue_role(venue_id,[venue_manager])` | venue |
+| 10 | `VFI` | `venue_finance` | `authenticated` | `has_venue_role(venue_id,[venue_finance])` | venue |
+| 11 | `VBO` | `venue_box_office` | `authenticated` | `has_venue_role(venue_id,[venue_box_office])` | venue |
+| 12 | `VMK` | `venue_marketing` | `authenticated` | `has_venue_role(venue_id,[venue_marketing])` | venue |
+| 13 | `VPM` | `venue_promoter_manager` | `authenticated` | `has_venue_role(venue_id,[venue_promoter_manager])` | venue |
+| 14 | `VSC` | `venue_scanner` (authenticated staff scanner) | `authenticated` | `has_venue_role(venue_id,[venue_scanner])` | venue |
+| 15 | `DOO` | **door session** (device + PIN) | **none** — `service_role` edge path; `auth.uid()` IS **NULL** | `kernel.assert_door_session(device_id, session_id)` **inside the RPC**; **NEVER an RLS predicate** (RM-5) | device + event_session |
+| 16 | `PRO` | `promoter` (**a relationship, not a role**) | `authenticated` | `kernel.is_promoter_for_event(event_id)` / `promoter_link.identity_id = auth.uid()`; holds **NO row** in `venue.staff_role` | event / row |
+| 17 | `PSU` | `platform_support` | `authenticated` | `is_platform([platform_support])` | platform |
+| 18 | `PRI` | `platform_risk` | `authenticated` | `is_platform([platform_risk])` | platform |
+| 19 | `PAD` | `platform_admin` | `authenticated` | `is_platform([platform_admin])` | platform |
+| 20 | `SVC` | `service_role` | `service_role` | machine identity (Supabase service key / definer context) | machine only |
+
+> **`promo` is NOT a role (R-3).** `venue_promoter` was removed from the venue enum (ROLE_MODEL §9.1). A
+> promoter's authority is **row ownership** over `venue.promoter_link` / `venue.attribution`, tested by
+> `kernel.is_promoter_for_event` — never by `has_venue_role`, which returns **false for every promoter**. Its
+> data visibility is deliberately narrow (own links/attributions/commission only — CDM §8; never the back
+> office). Every former `promoter` *matrix row* below is retained **only** as an own-row scope statement; it
+> confers no venue-plane authority.
+
+> **`DOO` (door session) is not an RLS principal (R-1, RM-5).** The scanner device never reaches PostgREST.
+> It calls the `door-session` edge function, which holds `service_role` and invokes the definer RPC with a
+> server-derived `p_actor_device_id`. Inside the RPC, `kernel.assert_door_session(device_id, session_id)`
+> re-checks the binding against `venue.scan_device` + `venue.door_pin` live and raises on failure. Because the
+> Postgres principal on that path is `service_role`, **RLS is bypassed entirely for the door**, and
+> `assert_door_session` is the *single* gate — a deliberate concentration of the door's whole authorization
+> surface into one auditable, security-critical function. It appears in a `DOO` matrix cell only to say *what
+> the RPC will permit*, never to describe a policy. `DOO` holds exactly four capabilities (ROLE_MODEL §5.3
+> F7–F10) and is `D` everywhere else, including the entire consumer plane — it has no `auth.uid()`, therefore
+> no owned rows.
+
+> **`service_role` is a machine identity, NEVER a human authority path** (Phase-0 056b/063, SPEC_FOUNDATION
+> §8). It bypasses RLS by Postgres design, so it appears as `A` on reads — but the discipline is: no human
+> ever authenticates as `service_role`; it is used only by edge functions and as the effective privilege the
+> `postgres`-owned `SECURITY DEFINER` RPCs run with. A `svc` write cell is always **the definer path**, never
+> a UI path. **See §3.1 (rule EDGE-CALLER-JWT): holding the service-role key does not license invoking a money
+> or custody RPC with it.**
 
 > **`service_role` is a machine identity, NEVER a human authority path** (Phase-0 056b/063, SPEC_FOUNDATION
 > §8). It bypasses RLS by Postgres design, so it appears as `A` on reads — but the discipline is: no human
@@ -91,6 +125,51 @@ Because GP-1/GP-2 make INS/UPD/DEL highly regular, each matrix's **discriminatin
 write nuance lives in **EXEC** (which RPC, which role). Read the SEL column and the EXEC column carefully;
 INS/UPD are `R` for the roles the EXEC column authorizes and `D` otherwise; DEL is always `D`.
 
+**GP-3 — every policy has a name, and the naming convention is normative (NEW).** Across the eight Phase-2
+delta specs, authority is expressed only as matrix cells and predicate shapes; **not one RLS policy is named
+anywhere**. That is a real gap: an implementer cannot diff, drop, replace, or test an anonymous policy, and CI
+cannot assert that a required policy exists. This section states the convention and §16 applies it to every
+object in this document.
+
+> **Policy name = `<schema>_<table>_<verb>_<principal-class>`**, lower snake case, no spaces, ≤ 63 bytes
+> (Postgres identifier limit — truncate the *principal-class* token, never the table token).
+>
+> | Token | Domain |
+> |---|---|
+> | `<schema>` | `kernel` · `catalog` · `venue` · `market` · `notify` |
+> | `<table>` | the physical table name **without** its schema, verbatim |
+> | `<verb>` | `sel` · `ins` · `upd` · `del` (a policy is written **`FOR SELECT`** etc., never `FOR ALL`) |
+> | `<principal-class>` | the *predicate family*, not the individual role: `anon` · `public` (any authenticated) · `owner` · `org` · `venue` · `event` · `platform` · `svc` |
+>
+> Examples: `catalog_event_sel_anon` · `venue_order_sel_owner` · `venue_staff_role_sel_venue` ·
+> `kernel_org_member_sel_org` · `market_listing_native_sel_public`.
+>
+> **Rules.**
+> 1. **One policy per (table, verb, principal-class).** Never one policy per role — five venue labels sharing
+>    one predicate share one policy, with the label array inside `has_venue_role(...)`. This keeps the policy
+>    count proportional to *predicate families* (≈ 3–4 per table), not to the 20 principals.
+> 2. **`FOR SELECT` only, in this document.** GP-1 means there is no `A` write cell anywhere, so **no Phase-2
+>    table carries an INSERT, UPDATE or DELETE policy at all** — writes are `REVOKE`d, not policy-gated. A
+>    write policy in a Phase-2 migration is a defect: it implies a client write path that must not exist.
+> 3. **Deny-all tables carry zero policies** and are named in §5; `ALTER TABLE … ENABLE ROW LEVEL SECURITY`
+>    with no policy *is* the deny. Do not write a `USING (false)` policy — it is noise that reads like a
+>    grant.
+> 4. Every policy name is asserted by pgTAP (`policies_are(schema, table, ARRAY[...])`), so an added,
+>    renamed, or dropped policy fails CI rather than silently widening or narrowing authority.
+>
+> **GP-3a — the money plane deliberately has no policies, and that must be STATED, not left implicit.**
+> Every money and custody mutation is `EXECUTE` on a `postgres`-owned `SECURITY DEFINER` function (GP-1). A
+> definer function runs as its owner, so **a table policy on `kernel.payout` / `kernel.refund` /
+> `kernel.tickets` / `kernel.ticket_ownership_log` / `market.market_sale` never runs on the write path.**
+> Authority on that plane is expressed **only** as: (a) `REVOKE EXECUTE … FROM anon, authenticated, public`
+> then a narrow `GRANT EXECUTE`, and (b) the in-body predicate re-check (§11). An implementer who writes RLS
+> policies for these tables will produce policies that are never evaluated **and believe they are protected**.
+> That is the single most likely way to build this wrong. The money-authority spec reaches the same conclusion
+> from the other direction for step-up (§3.1): *"any design that says 'enforce step-up in RLS' is describing a
+> policy that will never be evaluated on the path that matters."* The only policies these tables carry are
+> **read** policies where the matrix shows `A` for a platform role; every `V` cell is a scoped read RPC, not a
+> policy.
+
 ---
 
 ## 2. C36 — the scope-qualified role model, made STRUCTURAL
@@ -102,9 +181,9 @@ C36's mandate: roles are **never bare strings**; scope is always in the predicat
 
 | Scope | Physical table | enum labels (DISJOINT) |
 |---|---|---|
-| **org** | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · `org_member` |
-| **venue** | `venue.staff_role.role` | `venue_manager` · `venue_finance` · `venue_door` · `venue_promoter` |
-| **platform** | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` |
+| **org** (6) | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · `org_marketing` · `org_promoter_manager` · `org_member` |
+| **venue** (6) | `venue.staff_role.role` | `venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` · `venue_promoter_manager` · `venue_scanner` |
+| **platform** (3) | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` |
 
 The label sets share **no common string**. There is no bare `finance`, `admin`, or `manager` — only
 `org_finance`, `venue_finance`, `platform_admin`, etc. Consequence: a policy can never accidentally accept a
@@ -112,24 +191,130 @@ venue-finance staffer where org-finance is required, because the *strings never 
 carries the scope id*. A leaked/confused `role` value cannot cross a scope boundary — it fails the label check
 and the scope-id check simultaneously.
 
-### 2.2 The four predicate helpers (the ONLY sanctioned way to test a role)
+**Proof by enumeration (C36, adopted from ROLE_MODEL §3.4).** All fifteen labels, in strict lexicographic
+ascending order, each with its plane:
+
+`org_admin`(org) < `org_finance`(org) < `org_marketing`(org) < `org_member`(org) < `org_owner`(org) <
+`org_promoter_manager`(org) < `platform_admin`(plat) < `platform_risk`(plat) < `platform_support`(plat) <
+`venue_box_office`(venue) < `venue_finance`(venue) < `venue_manager`(venue) < `venue_marketing`(venue) <
+`venue_promoter_manager`(venue) < `venue_scanner`(venue).
+
+Fifteen labels, fifteen distinct strings (every adjacent pair differs), and the three plane sets partition them
+6 + 3 + 6 = 15 with every label assigned exactly one plane. ∴ **org ∩ venue = ∅, org ∩ platform = ∅,
+venue ∩ platform = ∅.** ∎ **Ratified row C36 is satisfied structurally, not by convention.**
+
+**Structural check (stronger than C36 requires).** Every org label matches `^org_`, every platform label
+`^platform_`, every venue label `^venue_`; the three prefixes are pairwise non-prefix-comparable, so a label's
+plane is decidable from its first token alone, without consulting the enum. A reviewer reading a policy line
+sees the plane in the literal.
+
+> **RM-1 (standing rule).** Every role label MUST begin with its plane token (`org_` / `platform_` /
+> `venue_`). A proposed label that does not is rejected at review.
+
+**Renames and removals in this set (declared, not silent):** `venue_door` → **`venue_scanner`** (ROLE_MODEL
+§4.5 — the rename makes the label agree with O-4: authority over *scanning*, not over *the door*);
+`venue_promoter` **removed** (ROLE_MODEL §9.1 — a promoter holds no administrative grant; its authority is row
+ownership). Five labels added: `org_marketing`, `org_promoter_manager`, `venue_box_office`, `venue_marketing`,
+`venue_promoter_manager`.
+
+**Physical form.** ROLE_MODEL §3.5 recommends `text` + `CHECK` rather than a native enum for all three role
+columns, so the label commitment stays correctable while the tables are empty (**OD-6**, owner-reserved). This
+document is agnostic: every predicate below is a set-membership test either way.
+
+### 2.2 The nine predicate helpers (the ONLY sanctioned way to test a role)
 
 Conceptual behavior (defined as SECURITY DEFINER helpers in the RPC spec, `search_path` pinned, owned by
-`postgres`; **live-table reads, never JWT claims** — C9/§3):
+`postgres`, `STABLE`; **live-table reads, never JWT claims** — C9/§3). Adopted verbatim from ROLE_MODEL §6.2.
 
-- **`kernel.has_org_role(org_id, role[])`** → reads `kernel.org_member` for `(org_id, auth.uid())` and returns
-  true iff the stored `role` ∈ the requested set. Reads the **live** membership row (a demotion/revoke takes
-  effect immediately; a stale JWT cannot re-grant).
-- **`kernel.has_venue_role(venue_id, role[])`** → reads `venue.staff_role` for `(venue_id, auth.uid(), role)`
-  live. Door path also accepts a valid non-expired `venue.door_pin` bound to the session as a `venue_door`
-  device principal.
-- **`kernel.has_event_role(event_id, role[])`** → **resolves event → venue via `catalog`**
-  (`catalog.event.venue_id`), then delegates to `has_venue_role(venue_id, role[])`. This is the single place
-  event-grain authorization is turned into venue-grain authority; no table stores an "event role" — it is
-  always derived, so there is no second source of venue authority to drift. (Org-level authority over an
-  event resolves `catalog.event.org_id` → `has_org_role`.)
-- **`kernel.is_platform(role[])`** → reads `kernel.platform_role` for `auth.uid()` live, extending the
-  existing `public.admin_users` bootstrap. Platform authority is global (no scope id).
+- **`kernel.has_org_role(org_id, role[])`** *(existing, unchanged)* → reads `kernel.org_member` for
+  `(org_id, auth.uid())` and returns true iff the stored `role` ∈ the requested set. Reads the **live**
+  membership row (a demotion/revoke takes effect immediately; a stale JWT cannot re-grant).
+- **`kernel.has_venue_role(venue_id, role[])`** *(**CHANGED** — R-8)* → reads `venue.staff_role` for
+  `(venue_id, auth.uid(), role)` live. **It reads no other table.** The former door-PIN branch
+  (*"Door path also accepts a valid non-expired `venue.door_pin` … as a `venue_door` device principal"*) is
+  **REMOVED**. Door principals never satisfy this predicate. See §2.5 for why this matters.
+- **`kernel.has_event_role(event_id, role[])`** *(existing, unchanged)* → **resolves event → venue via
+  `catalog`** (`catalog.event.venue_id`), then delegates to `has_venue_role(venue_id, role[])`. This is the
+  single place event-grain authorization is turned into venue-grain authority; no table stores an "event
+  role" — it is always derived, so there is no second source of venue authority to drift.
+- **`kernel.is_platform(role[])`** *(existing, unchanged)* → reads `kernel.platform_role` for `auth.uid()`
+  live, extending the existing `public.admin_users` bootstrap. Platform authority is global (no scope id).
+- **`kernel.has_org_role_over_venue(venue_id, role[])`** *(**NEW** — R-9)* → resolves `catalog.venue.org_id`,
+  then delegates to `has_org_role`. The **only** sanctioned expression of org→venue inheritance on the read
+  path (RM-3). No policy re-inlines the `catalog.venue → kernel.org_member` join.
+- **`kernel.has_org_role_over_event(event_id, role[])`** *(**NEW** — R-9)* → resolves `catalog.event.org_id`,
+  then delegates to `has_org_role`. Same rule at event grain.
+- **`kernel.is_org_affiliate(org_id)`** *(**NEW** — R-9)* → true iff **any** `kernel.org_member` row exists
+  for `(org_id, auth.uid())`, regardless of role. **Scoping only, never authorizing** (RM-6): it may decide
+  *which* orgs appear in a context switcher or *which* rows a roster read returns; it may **never** be the
+  sole gate on a capability.
+- **`kernel.assert_door_session(device_id, session_id)`** *(**NEW**)* → reads `venue.scan_device` +
+  `venue.door_pin`; raises unless a valid, unexpired, unrevoked door session binds that device to that
+  session. **NEVER appears in a `USING` clause** (RM-5) — it is asserted inside a definer RPC reachable only
+  from the `service_role` edge path. Security-critical: `postgres`-owned, pinned `search_path`, `EXECUTE`
+  revoked from `anon`/`authenticated`, covered by the package's adversarial verification.
+- **`kernel.is_promoter_for_event(event_id)`** *(**NEW**, Phase 2D)* → true iff a live `venue.promoter_link`
+  exists for `(event_id, auth.uid())`. Replaces the deleted `has_venue_role(…,[venue_promoter])` test
+  everywhere.
+
+**Predicate shapes (conceptual, not shippable SQL — ROLE_MODEL §6.3):**
+
+```text
+-- ORG PLANE (scope object = organization)
+USING ( kernel.has_org_role(org_id, ARRAY['org_owner','org_admin']) )
+
+-- VENUE PLANE (scope object = venue)
+USING ( kernel.has_venue_role(venue_id, ARRAY['venue_manager','venue_box_office']) )
+
+-- VENUE PLANE, with the ratified org→venue inheritance on the READ path (RM-3)
+USING (
+      kernel.has_venue_role(venue_id, ARRAY['venue_manager'])
+   OR kernel.has_org_role_over_venue(venue_id, ARRAY['org_owner','org_admin'])
+)
+
+-- EVENT GRAIN (no event-grain grant exists; always resolved to venue or org)
+USING (
+      kernel.has_event_role(event_id, ARRAY['venue_manager','venue_marketing'])
+   OR kernel.has_org_role_over_event(event_id, ARRAY['org_owner','org_admin','org_marketing'])
+)
+
+-- PLATFORM PLANE (no scope id)
+USING ( kernel.is_platform(ARRAY['platform_risk','platform_admin']) )
+
+-- DOOR SESSION — NOT an RLS predicate. Never appears in a USING clause.
+--   PERFORM kernel.assert_door_session(p_device_id, p_session_id);   -- raises on failure
+```
+
+### 2.2b Standing rules carried into this document (ROLE_MODEL §6.6)
+
+> **RM-1** — Every role label begins with its plane token. §2.1.
+> **RM-2** — No RLS policy or RPC compares a bare role string, a **display name**, or a JWT claim. Only the
+> nine helpers of §2.2, always with an explicit scope argument. (This extends §2.3 to display names:
+> `has_venue_role(v,['box_office'])` is as illegal as `role = 'finance'`, because `box_office` is not a member
+> of any enum.)
+> **RM-3** — Org→venue and org→event inheritance is expressed **only** through `has_org_role_over_venue` /
+> `has_org_role_over_event`.
+> **RM-4** — Venue and event roles never inherit **up**. There is no venue→org path in any helper.
+> **RM-5** — A door session is never an RLS predicate.
+> **RM-6** — Affiliation (`is_org_affiliate`) is a *scoping* input, never an *authorizing* one.
+> **INV-NOFORCE** — §3, invariant **I-12**.
+
+### 2.2c Multi-venue authority — one venue per grant row, and why there is no N+1
+
+A `venue_manager` grant scopes to exactly **one** venue: `venue.staff_role`'s key is
+`(venue_id, identity_id, role)`. There is no wildcard, no `venue_id IS NULL` grant, and no "all venues of org
+X" row. Multi-venue authority has exactly two sanctioned expressions: **N grant rows** (a person managing three
+of forty venues) or **an org-plane role that inherits down** via `has_org_role_over_venue` (a person managing
+all of them). `has_venue_role` is a **primary-key point probe**, declared `STABLE`, evaluated against each
+row's own `venue_id`; the cost is O(distinct venues in the result set), not O(rows), because **the caller's
+venue list is never materialized** — the question asked is always *"does this specific venue grant me this
+role?"*, never *"which venues grant me roles?"*. The one place the reverse question is asked (the dashboard's
+venue switcher) is a separate indexed read on `identity_id`, and it is **a projection for navigation, never an
+authorization input**.
+
+Note the deliberate key asymmetry: the **org** grant key omits `role` (one role per person per org) while the
+**venue** grant key includes it (a person may hold several roles at one venue — a small venue's one operations
+person plausibly holds `venue_manager` + `venue_box_office` + `venue_scanner` at once).
 
 ### 2.3 Why a bare `role = 'finance'` comparison is FORBIDDEN
 
@@ -150,6 +335,32 @@ separate; where the matrices grant an org role read access to a venue-scoped tab
 spec's read authority names the org (e.g. settlement/attribution money rollups), resolved via
 `catalog.venue.org_id`.
 
+**On the READ path the inheritance is expressed by `kernel.has_org_role_over_venue` /
+`kernel.has_org_role_over_event`, never by re-inlining the `catalog.venue → kernel.org_member` join (RM-3).**
+This closes a real contradiction in the previous text (ROLE_MODEL defect 14.6): this paragraph said read-path
+inheritance *does not exist*, while §9.9 grants `org_owner`/`org_admin` `A(venues of own org)` — which is
+read-path inheritance. Naming the helper makes the grant honest and stops every policy from re-inlining the
+same two-table join, which is the *"hundreds of policy clauses"* failure mode the domain architecture designs
+against.
+
+### 2.5 The caller-dependent predicate, closed (ROLE_MODEL defect 14.1 — HIGH)
+
+`has_venue_role` previously read **`venue.staff_role` on the staff path and `venue.door_pin` on the door
+path** — a predicate whose *meaning depended on who called it*. A reviewer looking at
+`USING (kernel.has_venue_role(venue_id, ARRAY['venue_manager']))` had to know whether a loginless, shared,
+deliberately weak device PIN could ever satisfy it. That is precisely the class of confusion C36 was ratified
+to eliminate one level up, reintroduced one level down.
+
+**Closed by R-8 + RM-5.** `has_venue_role` reads `venue.staff_role` **only**; the door is authorized by
+`kernel.assert_door_session` **inside a definer RPC**, never in a policy. After the change the answer is
+always *no*, for every policy in the corpus, without reading the helper.
+
+**Warning for the implementing engineer:** `auth.uid()` is **NULL** on the door path. Every policy and RPC that
+assumes a non-null `auth.uid()` must be re-read against the door flow — but because the door reaches the
+database only via `service_role`, RLS is bypassed on that path entirely and the *only* gate is
+`assert_door_session`. That is a deliberate concentration of the door's whole authorization surface into one
+auditable function; it is also a single point of failure, and must be treated as security-critical.
+
 ---
 
 ## 3. Phase-0 invariants preserved (the rules), then conformance
@@ -169,6 +380,80 @@ Every rule from SPEC_FOUNDATION §8 + Standards §7/§8/§9 is listed, with how 
 | I-9 | **Constant-time secret compare** | `venue.door_pin.pin_hash` is never client-readable and compared constant-time inside the door-auth RPC (§ venue.door_pin). |
 | I-10 | **`stripe-webhook` keeps `verify_jwt=false`** | Unchanged; the native rail links to `public.payments` (money-in) via `kernel.payment_native`, never re-implements the webhook (§14.4, §13). |
 | I-11 | **No self-grant of authority** (H-2/C9) | `grant_org_role`/`grant_platform_role`/`grant_staff_role` require an *existing* higher authority and forbid the caller granting themselves a role they don't already have the authority to grant; dual-control seam on platform-role + payout-destination. |
+| **I-12** | **INV-NOFORCE — the three authz tables MUST NOT carry `FORCE ROW LEVEL SECURITY`** (NEW; ROLE_MODEL §6.5 / defect 14.2) | `kernel.org_member`, `venue.staff_role`, `kernel.platform_role` each grant a **role-gated read of themselves** (§7.3, §9.9, §7.4). A naïve policy calls `has_*_role`, which `SELECT`s that same table, which fires the policy again. The model does **not** recurse only because the helpers are `SECURITY DEFINER` owned by `postgres` and **the table owner bypasses row-level security**. `FORCE` removes that bypass. See §3.2. |
+
+### 3.1 EDGE-CALLER-JWT — the binding rule for every edge function on a money or custody path (NEW)
+
+> **An edge function holding `SUPABASE_SERVICE_ROLE_KEY` MUST NOT invoke a money or custody RPC with a
+> service-role client.** For any RPC that authorizes on **caller identity**, the edge function MUST construct
+> its Supabase client from the **caller's own `Authorization` header**, so that `auth.uid()` and `auth.jwt()`
+> resolve to the human *inside the transaction*. The service-role key may be used for that function's other
+> work — Stripe calls, KMS calls, webhook callbacks, denial logging, push fan-out — but **never** to invoke a
+> money or custody RPC on a human's behalf.
+
+**Why this is not a style preference.** On a service-role client, inside the RPC:
+
+- `auth.uid()` is **NULL**, so **every** `has_org_role` / `has_venue_role` / `is_platform` check
+  **silently degrades** — the predicate does not error, it returns false, or worse, an implementer "fixes" it
+  by passing the actor in as a parameter;
+- `auth.jwt()` is the service token: **no `uid`, no `aal`, no `amr`**, so step-up freshness
+  (`authn.money_action_required_aal` / `authn.money_action_max_age_seconds`) is unenforceable and the
+  destination-change control set collapses to the cool-down alone;
+- the only remaining way to name the actor is for the **edge to attest it as a parameter** — which is exactly
+  the client-supplied-authority pattern **ratified row C35 forbids**, and which §0.1 of the RPC contracts
+  forbids in the same words (*"the acting principal is always `p_actor := auth.uid()` — server-derived, never
+  a client parameter"*).
+
+This is what makes the edge spec's *"the edge passes ids; the RPC decides — no role logic in the edge"* true
+rather than aspirational. The money-authority spec records it as **the single highest-severity correction in
+its document**. The edge integrator states the mirror of this rule in `PHASE_2_EDGE_FUNCTION_SPEC.md`
+§3.4/§3.5; both statements must exist, because either document alone can be read as describing the other's
+job.
+
+**Scope — which RPCs the rule binds.** Every RPC in §11 whose "may invoke" column names a *human* predicate:
+all `request_*` / `approve_*` / `cancel_*` money RPCs, every refund and payout RPC, every custody RPC reachable
+from a user action, every role-grant RPC, `set_org_payout_destination`, and the CRM-export authorization. It
+does **not** bind the six **definer-only** RPCs (`catalog.engage_door_freeze`,
+`venue.append_door_manifest_delta`, `kernel.record_money_denial`, `kernel.sweep_expired_refund_requests`,
+`market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales`, `kernel.sweep_expired_door_overrides`,
+`catalog.sweep_implicit_door_freezes`) — those have **no human actor by construction**, are `GRANT
+EXECUTE`ed to `service_role` only, and are the *only* sanctioned use of a service-role client against this
+schema.
+
+**Consequence for the door.** The door path is the deliberate exception that proves the rule: it has no
+`auth.uid()` *by design*, and therefore may not authorize on caller identity at all. Its authority comes from
+`kernel.assert_door_session(device_id, session_id)` re-validating a **server-validated device assertion**
+against live tables — not from an edge attestation of a human. A door RPC that accepted an edge-supplied
+`p_actor_identity` would be the same C35 violation wearing a different hat.
+
+### 3.2 I-12 in detail — why a one-line hardening change fails the whole authz model closed
+
+`FORCE ROW LEVEL SECURITY` is a plausible, well-intentioned one-line change during any hardening sprint. On
+these three tables it is catastrophic and **Postgres reports it as a policy error at query time, not at
+migration time** — so it passes review, passes migration, and fails in production on the first authorized read.
+When it fires, `has_org_role` / `has_venue_role` / `is_platform` all fail, and because every capability in
+this document is gated by one of them, **the entire authorization model fails closed, platform-wide.**
+
+> **INV-NOFORCE.** `kernel.org_member`, `venue.staff_role` and `kernel.platform_role` MUST NOT carry
+> `FORCE ROW LEVEL SECURITY`. The predicate helpers depend on owner-bypass to terminate. Any migration or
+> hardening pass proposing `FORCE` on these three tables is **rejected at review**. These three are the
+> **only** tables in the model with this exemption.
+
+**A documented rule that nothing checks is a rule that lasts until the first hardening sprint**, so I-12 is
+discharged as a **positive assertion**, not prose:
+
+- **Staging verification** of the package that creates each table asserts
+  `pg_class.relforcerowsecurity = false` for `kernel.org_member`, `venue.staff_role`,
+  `kernel.platform_role` — a *positive* equality on the catalog, not the absence of a `FORCE` statement in the
+  migration text (which a later migration could add).
+- **pgTAP, permanently:** three assertions in the standing suite, one per relation, so the check survives the
+  package that introduced it and fails CI on any future migration that flips the flag.
+- **The assertion is stated as an allow-list, not a scan:** exactly these three relations are exempt from
+  `FORCE`; the same suite asserts that no *other* Phase-2 relation depends on owner-bypass to terminate a
+  policy (i.e. no other table's policy calls a helper that reads that same table).
+
+Migration-plan integration (`M-3`) is the schema/plan integrator's edit; recorded here so the assertion has an
+owner. **See §16 for the policy and test names.**
 
 ---
 
