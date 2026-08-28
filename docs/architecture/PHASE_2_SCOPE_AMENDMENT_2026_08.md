@@ -603,7 +603,7 @@ The merge rule: two items are **one decision** when a single answer settles both
 |---|---|---|:-:|---|
 | **OD-78** | **Three of the six features have no boolean kill switch** — demographics, promoter codes and CRM export are gated only by package application, which is a deploy and not a runtime control | **this document, §12.2** | **the amendment's own flag rule** | none — naming a new flag is a scope decision. The keys would be rows in a table `078` already creates |
 | **OD-79** | **Re-ratify the amended package registry.** Its header reads `AMENDMENT PENDING RE-RATIFICATION`: `kernel.approval_request` placed in `077`, two packages renamed, seven dependency edges added | REGISTRY header · ROLE OD-10 · PROMO §14.1 · NOTIF O-N7 · VD §22.15 | **authoring any package** — rule §6.5 says the registry is updated only by ratified amendment | Ratify as amended; the count changes to 17 only if OD-14 is Gate P |
-| **OD-80** | **O6** — cross-region native resale: saga/escrow over the `paid_pending_transfer` window, or explicit intra-region-only scoping | RATIFY C50/**O6** | Gate M / multi-region — **not MVP** | Miami single-region builds neither; carried so it is not lost |
+| **OD-80** | **O6** — cross-region native resale: saga/escrow over the `paid_pending_transfer` window, or explicit intra-region-only scoping | RATIFY C50/**O6** | no for MVP (blocks Gate M / multi-region) | Miami single-region builds neither; carried so it is not lost |
 | **OD-81** | Retain `venue_finance` though O-2 does not list it; and do **not** rename `org_member` → `org_affiliate` | ROLE OD-1, OD-9 | no | Retain (`RLS` §9.13/§11 both depend on it, and deleting it would silently close `RLS` §15 item 3); do not rename |
 
 ### 14.3 Counts
@@ -614,8 +614,10 @@ The merge rule: two items are **one decision** when a single answer settles both
 | Distinct decisions after deduplication | **81** |
 | **Of which block a package or a named implementation item** | **54** |
 | Block **more than one feature** | **2** (OD-13, OD-14) |
-| Owner-only | 54 · Counsel | 4 (OD-15, OD-18, OD-49, and OD-16 jointly with ops) · Architecture sign-off | 5 (OD-01, OD-09/OD-19, OD-52, OD-55) · Security sign-off | 1 (OD-27) |
-| Decisions with a recommendation on record | **71 of 81**. The ten with none: OD-05, OD-11, OD-12, OD-13, OD-14, OD-60, OD-62, OD-63, OD-64, OD-69 |
+| Needing **counsel**, not the owner alone | 4 — OD-15, OD-18, OD-49, and OD-16 jointly with ops |
+| Needing an **architecture** sign-off | 4 — OD-01, OD-19, OD-52, OD-55 |
+| Needing a **security** sign-off | 1 — OD-27 (`verify_jwt=false`) |
+| Decisions carrying a recommendation on record | **71 of 81.** The ten with none: OD-05, OD-11, OD-12, OD-13, OD-14, OD-60, OD-62, OD-63, OD-64, OD-69 |
 
 **The four to answer first**, because each unblocks the most downstream work per answer: **OD-13** and **OD-14** (five features' schedules), **OD-19** (blocks `077`, the second package in the chain), **OD-79** (blocks authoring any package at all).
 
