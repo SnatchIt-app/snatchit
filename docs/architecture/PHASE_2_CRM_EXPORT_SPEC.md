@@ -235,7 +235,7 @@ in.
 | # | Field | Class | Grain | Source | Authorization |
 |---|---|---|---|---|---|
 | 1 | `customer_ref` | IDENT | holder | `HMAC(org_customer_key, identity_id)` — §4.3 | every role that may read the roster |
-| 2 | `display_name` | IDENT | holder | `public.profiles.display_name` — the 068 public-safe set | every role that may read the roster |
+| 2 | `display_name` | IDENT **on screen** / **CONTACT** in an export | holder | `public.profiles.display_name` — the 068 public-safe set | **on screen:** every role that may read the roster, ungated. **In an export: emitted only where a contact relationship exists — the §5.1 gate, unchanged — and blank otherwise.** See §4.3: the name is a global string, identical across orgs, so an ungated name column is a cross-tenant join key on every row |
 | 3 | `is_purchaser` | IDENT | holder | true iff this holder is the `buyer_id` of ≥1 of the atoms they hold | every role |
 | 4 | `tickets_held` | IDENT | holder | count of non-voided atoms held for the session | every role |
 | 5 | `ticket_types` | OPS | holder | `venue.ticket_type.name`, distinct, sorted | every role |
@@ -517,12 +517,51 @@ weakened. XO-1a and XO-2's "the job's org" clause remove the ambiguity by naming
   handled as a secret (no grant, no log, no return) but it does not need HSM custody, and saying otherwise
   would dilute what C33 means.
 
-**Honest limit, stated plainly.** The pseudonym removes the **platform-supplied** join key. It does not and
-cannot remove a join key the customer supplied to both parties themselves: if a person consented to email at
-Org A and at Org B, both CSVs carry the same email address and they join on it. That is a consequence of the
-person's own two deliberate acts, and no design short of never exporting email prevents it. What the pseudonym
-buys is that the **non-consenting majority — every transferee, every comp, every purchaser who left the box
-unticked — is unjoinable**, which is exactly the population with no relationship to either venue.
+**Honest limit, stated plainly — and corrected, because the previous statement of it was false.**
+
+The pseudonym removes the **platform-supplied *stable* join key**, and that is the whole of what it removes.
+It does not remove a join key the customer supplied to both parties themselves: if a person consented to email
+at Org A and at Org B, both CSVs carry the same email address and they join on it. That much was already
+stated and is still true.
+
+**What was false:** the claim that *"the non-consenting majority — every transferee, every comp, every
+purchaser who left the box unticked — is unjoinable, which is exactly the population with no relationship to
+either venue."* **That claim is deleted.** `display_name` was emitted on **every row of every export, at
+every org, ungated by consent**, from the one global `public.profiles.display_name` string — the same value
+for the same person everywhere on the platform. Two orgs union their files on it directly, and corroborate
+with admission time, `first_seen_at`, ticket types and `acquired_via`. The non-consenting majority was
+exactly as joinable as the consenting minority; the only difference was which column carried the key. The
+proof in §4.4 case (d)'s sub-case rested on that claim, so **that proof was void as written** — it is
+restated below against the corrected design.
+
+**The fix: `display_name` is consent-gated *in the export*, and ungated *on screen*.**
+
+| Surface | `display_name` | Why |
+|---|---|---|
+| **Roster on screen** (X1) | **always emitted** | The room has to be run. `VERIFIED:` §5.6 — after 068 `display_name` is one of eight columns `authenticated` may read on **any** row, so the screen discloses nothing a staff member could not already select. And a screen is not a file: it cannot be unioned with another org's screen. |
+| **Single-record lookup** (X4) | **always emitted** | Same reasoning, narrower surface — one record, service context. |
+| **Door verification projection** | **always emitted** | Name + validity is the whole projection. `VERIFIED:` DA §7.2 / role-model F11. |
+| **Export file** (X5/X6) | **emitted only where a contact relationship exists** — i.e. exactly where `emit_email` (§5.1) emits; **blank otherwise** | An export is exfiltration (§0). Once a name is in a CSV it is a durable, unioning join key over a population that never chose to have a relationship with the org holding it. |
+
+`INFERENCE:` the split is not a compromise, it is the actual shape of the risk. The harm is not that a venue
+*learns* a name — §5.6 already established it can. The harm is that a name **leaves in a file**, where it
+becomes the stable identifier the pseudonym exists to withhold. So the gate goes on the egress, not on the
+knowledge, and the door operation the venue actually needs is untouched.
+
+**Consequences, stated because someone will meet them at 9 p.m.:**
+
+- An `audience_v1` export over a heavily transferred session is mostly `customer_ref` + ops columns, with
+  name and email blank on the same rows. `INFERENCE:` that is the correct file — those rows describe people
+  the org has an *admission* relationship with and no *contact* relationship with, and §5.2 already ruled
+  that they are "on the roster and off the mailing list". The export now says the same thing the rule says.
+- An `operations_v1` export for finance reconciliation identifies rows by `customer_ref` and `order_ref`
+  rather than by name. Both are stable within the org and sufficient to reconcile; neither unions across
+  orgs.
+- The suppression legend and counters cover both columns: `name_cells_emitted` / `name_cells_suppressed`
+  alongside the contact pair (§8.3), and the inline legend gains *"Name is blank for people who haven't
+  agreed to share their details with this organization. They're still on your roster on screen."*
+- **Owner decision D-13.** The operator-facing loss is real and the alternative — emitting the name to
+  everyone — is what makes the cross-tenant proof false. This spec recommends the gate as written.
 
 ### 4.4 The five proofs
 
@@ -535,8 +574,14 @@ therefore learns "a person holds tickets to my show" and nothing about Org 2. Sy
 export contains a global identifier**, and `customer_ref` differs between them because the HMAC keys differ
 (XO-2). The two files describe the same human and cannot be shown to. ∎
 
-*Residual, stated:* if the person consented to email at both orgs, both files carry that email (§4.3). Bounded
-to the consenting population and produced by the person's own acts.
+*Residual, stated:* if the person consented at **both** orgs, both files carry their email **and their
+display name** (§4.3), and join on either. Bounded to the population that granted a contact relationship to
+both organizations, and produced by the person's own two deliberate acts.
+
+*What this proof used to over-claim.* Before `display_name` was gated (§4.3) the conclusion above was false
+for **every** row: the name column carried the same global string in both files, so the two exports joined
+directly whether or not anyone consented. The proof now holds because the only columns that survive in both
+files for the same person are ones that person granted to both orgs.
 
 **Case (b) — a multi-venue org.**
 
@@ -572,12 +617,20 @@ A promoter holds no `venue.staff_role` row (role-model §9.1 removed `venue_prom
 *The harder sub-case, which is the one that actually matters.* A promoter is **separately granted**
 `venue_marketing` at V_A (Org 1) **and** `venue_marketing` at V_B (Org 2) — two deliberate acts by two
 different venue managers, both legitimate. They now hold two audience exports. XO-1 keeps each anchored to its
-own venue; **XO-2 keeps the two customer lists unjoinable**, so even a person who holds both files cannot tell
-that a customer of V_A is a customer of V_B. `VERIFIED:` role-model §9.3 flags exactly this union as an
-accepted residual bounded by "the CRM export's live re-authorization at download and the money-column
-exclusion". `INFERENCE:` those two controls bound the *authority*; the per-org pseudonym is what bounds the
-*correlation*, and without it the residual is larger than that paragraph implies. This is the strongest
-argument for XO-2 and the reason it is a rule rather than a nicety. ∎
+own venue; **XO-2 and the §4.3 name gate together keep the two customer lists unjoinable for everyone who did
+not grant a contact relationship to both orgs**, so a person holding both files cannot tell that a
+non-consenting customer of V_A is a customer of V_B. `VERIFIED:` role-model §9.3 flags exactly this union as
+an accepted residual bounded by "the CRM export's live re-authorization at download and the money-column
+exclusion". `INFERENCE:` those two controls bound the *authority*; the per-org pseudonym **and the name gate**
+are what bound the *correlation*, and without both the residual is larger than that paragraph implies. ∎
+
+*This is the sub-case that failed hardest before the correction, and it is worth saying why.* The pseudonym
+was doing the work the design credited it with — it is genuinely per-org and unreadable by any principal —
+but it was not the only join key in the file. `display_name` sat in every row of both exports, ungated,
+carrying the same global string, so the promoter holding both files unioned them on the name column in one
+step and corroborated with admission time, `first_seen_at`, ticket types and acquisition route. XO-2 removed
+the *stable* platform-supplied key and nothing else; the design read it as removing *the* key. The name gate
+is what makes this proof true rather than reassuring.
 
 **Case (e) — a venue whose operator changed. (The case none of (a)–(d) covered.)**
 
@@ -632,7 +685,7 @@ building's — and it is a real product consequence someone should say out loud 
 
 | | On screen (audience roles) | In an export (audience roles) | Finance / box office / door / promoter / support |
 |---|---|---|---|
-| **Display name** | ✔ | ✔ | box office ✔ (single record); door ✔ (name + validity only); finance ✔; promoter ✗ |
+| **Display name** | ✔ | ✔ **only through the gate**, blank otherwise (§4.3) | box office ✔ (single record); door ✔ (name + validity only); finance ✔ **on screen**; promoter ✗ |
 | **Email** | ✔ **only through the gate** | ✔ **only through the gate**, blank otherwise | **✗ for all of them** |
 | **Phone** | **✗ — never, for anyone** | **✗ — never, for anyone** | ✗ |
 | **Legal name** | ✗ | ✗ | ✗ |
@@ -658,11 +711,21 @@ consent granted to the prior operator must not emit under the new one — the au
 transfer with the lease. Pinning the binding here makes that true by construction rather than by the
 happy accident that the two values usually coincide.
 
+**The same gate governs `display_name` in an export** (§4.3, finding: an ungated name column is a global
+cross-tenant join key on every row). `emit_name(identity, :job_org_id) := emit_email(identity, :job_org_id)`
+— **one predicate, evaluated once per holder row, driving both cells**, so the two can never disagree and a
+future engineer cannot gate one and forget the other. On screen, in the single-record lookup, and in the door
+projection, `display_name` is **ungated** — §5.6 establishes it is already readable there, and a screen
+cannot be unioned with another org's screen.
+
 Suppression is **visible, not silent**. `VERIFIED:` dashboard §9.6 already requires this: an inline legend
 *"Email is blank when the buyer didn't agree to share it with this organization."* plus a count of suppressed
-cells in the export summary. This document keeps both and adds the count to the audit row
-(`contact_cells_emitted` / `contact_cells_suppressed`, §8.3) — `INFERENCE:` that pair of numbers is the only
-evidence a later auditor has that the gate actually ran on a given export, and it costs two integers.
+cells in the export summary. This document keeps both, extends the legend to cover the name column
+(*"Name is blank for people who haven't agreed to share their details with this organization. They're still
+on your roster on screen."*), and adds the counts to the audit row (`contact_cells_emitted` /
+`contact_cells_suppressed` and `name_cells_emitted` / `name_cells_suppressed`, §8.3) — `INFERENCE:` those
+numbers are the only evidence a later auditor has that the gate actually ran on a given export, and they cost
+four integers.
 
 ### 5.2 Purchaser vs transferee — the contact rule
 
@@ -1208,7 +1271,7 @@ successful one, and an audit that only records successes cannot show an attacker
 | `as_of` | With the above, makes the file reproducible (§6.3). |
 | `row_count`, `byte_count` | Volume, for the anomaly signal and for the operator's own history. |
 | `artifact_sha256` | So a file produced later in a dispute can be proven to be — or **not** be — the one this venue exported. `INFERENCE:` this is the cheapest useful forensic artefact available and it costs 32 bytes. |
-| `contact_cells_emitted`, `contact_cells_suppressed` | **The only evidence the consent gate ran** on this export (§5.1). |
+| `contact_cells_emitted`, `contact_cells_suppressed`, `name_cells_emitted`, `name_cells_suppressed` | **The only evidence the consent gate ran** on this export (§5.1). Four integers, not two: the gate governs the name column as well as the email column (§4.3), and a per-column pair is what shows *which* limb ran. **Accumulated in the database by `venue.build_export_rows`, never supplied by the worker** — see §11.4. |
 | `constraint_set_version` | **X-9.** The identifier of the X-1…X-9 constraint text in force, from `catalog.platform_config['crm_export.constraint_set_version']`, e.g. `demographics-constraints/X1-X9@v1`. |
 
 **Never in an audit row:** a customer row, a name, an email, a `customer_ref`, a probed email value, an
@@ -1592,7 +1655,7 @@ well as its number** so it survives the renumber.
 | `row_count`, `byte_count` | int nullable |
 | `artifact_sha256` | text nullable |
 | `object_path` | text nullable |
-| `contact_cells_emitted`, `contact_cells_suppressed` | int nullable |
+| `contact_cells_emitted`, `contact_cells_suppressed`, `name_cells_emitted`, `name_cells_suppressed` | int NOT NULL DEFAULT 0 — **accumulated by `venue.build_export_rows` page by page inside the definer**, never written by the worker (§11.4). Not nullable: a null would be indistinguishable from a gate that ran and emitted nothing |
 | `artifact_state` | text NOT NULL, `CHECK IN ('absent','present','delete_pending','deleted')`, DEFAULT `'absent'` — **the object's lifecycle, tracked separately from the job's**, because the two genuinely diverge: a job is `revoked` the instant the RPC commits while its object survives until the purge route runs. Without this column "is the file gone" was unanswerable and the retention claim was a claim about rows |
 | `purge_lease_until` | timestamptz nullable — the 064 claim lease for the purge route, distinct from `lease_until` (the build's) |
 | `purge_attempts` | int NOT NULL DEFAULT 0 — > 3 raises a `platform_risk` signal (§6.6) |
@@ -1876,7 +1939,23 @@ logging; Sentry on unexpected 500s).
 11. The master switch set to `block` suppresses every org's cell for that identity in one call.
 12. Withdrawal suppresses from the next build; a build whose `as_of` precedes the withdrawal is unaffected
     (and this is the *documented* semantic, not an accident).
-13. `contact_cells_emitted + contact_cells_suppressed` equals the holder row count on every `ready` job.
+13. `contact_cells_emitted + contact_cells_suppressed` equals the holder row count on every `ready` job, and
+    so does `name_cells_emitted + name_cells_suppressed`.
+13a. **The name gate is the contact gate (§4.3).** For every holder row of an export, the `display_name` cell
+    is non-blank **iff** the `email` cell is non-blank — asserted as a per-row biconditional over a fixture
+    covering all four combinations of the master switch and the per-org consent, so gating one column and
+    forgetting the other fails.
+13b. **On screen the name is ungated.** The same non-consenting transferee whose export row is nameless
+    appears **with their display name** in `venue.list_attendees`, in `venue.lookup_attendee`, and in the
+    door verification projection. *(Asserted as a pair with 13a: a fix that gates the name everywhere breaks
+    door operations and must also fail.)*
+13c. **No other column reintroduces the join key.** No export column of any template resolves to
+    `public.profiles.display_name`, `full_name`, an email local-part, or any other value that is identical
+    for the same identity across two orgs — asserted by generating exports for the same identity at two orgs
+    and requiring the **intersection of their non-blank IDENT/OPS cell values to be empty** where that
+    identity consented at neither org. *(This is the assertion that would have caught the ungated name
+    column: it tests the property the proof claims — unjoinability — rather than the mechanism the proof
+    credits it to.)*
 14. **No staff write path:** the set of functions writing `kernel.org_contact_consent` is exactly
     `{grant_org_contact_consent, withdraw_org_contact_consent}`, and neither has a `uuid` parameter that could
     denote an identity.
@@ -2000,6 +2079,7 @@ logging; Sentry on unexpected 500s).
 | **D-10** | **`{N}` — the backup-retention window** in the §9.3 erasure copy. This is the demographics spec's **D-6**, not a second decision; it is listed only because the copy in §9.3 cannot ship with a placeholder either. | Owner / ops | **Yes — before the copy ships** |
 | **D-11** | **Does an operator ever need a printed door list?** §3.1 denies `venue_box_office` the roster on purpose, so the answer today is "no, box office looks people up one at a time." If the answer is yes, it needs its own template, its own retention, and an honest acknowledgment that a printed list has none of §6's controls. | Owner | No |
 | **D-12** | **Operatorship change: the new operator's CRM starts empty (§4.4 case (e)).** XO-1a pins tenancy to the atom's `org_id` at every grain, so a venue that changes hands does not hand the prior operator's customer list, consent, or `first_seen_at` history to the new one. That is the correct answer — the audience belongs to the organization the person transacted with, not to the building — and it is a real product consequence the incoming operator will contest. Confirm, and decide who tells them. A "the prior operator may share its own list with you, out of band, under its own terms" answer is a commercial arrangement between two orgs, **not** a platform feature, and this spec builds nothing for it. | Owner + **Counsel** | **Yes — before 087 / I** |
+| **D-13** | **`display_name` is consent-gated in the export and ungated on screen (§4.3).** The operator-facing loss is real: an `audience_v1` export over a heavily transferred session is mostly `customer_ref` and ops columns with name and email blank on the same rows, and an `operations_v1` file identifies rows by `customer_ref` + `order_ref` rather than by name. The alternative — emitting the global name string to every org on every row — is what made the cross-tenant proof false, because two orgs union on it in one step. **Recommend the gate as written.** If rejected, §4.3, §4.4 case (a) and case (d)'s sub-case must be restated to claim only what an ungated name column leaves true, which is very little. | Owner | **Yes — it changes what every export file looks like** |
 
 **Where I would push back on an inherited constraint — one place, and it is not a disagreement.** X-6 as
 written ("the export builder's SQL contains zero references") is correct and I have implemented it, but its
@@ -2033,6 +2113,7 @@ weakening it.
 | **K-15** | **This document, §3 (X8/X9 + note ᵗ) · §3.1 · §6.2 · §6.7 EX-4 · §7.4 · §11.4 · §12** | **H-12 remediation.** The download re-check read the role set and never the template — `template_id` was not mentioned in the contract at all. But the operations template's request-time allow-list is the narrowest in the matrix, so a `marketing` role could read a `job_id` from the job list (it holds X10) and download a colleague's **operations** export: order refs, order totals, unit prices, refund state. §3.1's own invariant — *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees both."* — was defeated by any org that ever ran one operations export, with no grant being wrong. Fix: `venue.authorize_export_download` re-evaluates `assert_may_request(actor, job.scope, job.template_id)` — the same predicate a fresh request would face. `◐` on X8/X9 is now defined as template-scoped. Assertions 24a/24b, the second stated as an **equality between the request and download predicates** so the two cannot drift. |
 | **K-16** | **This document, §6.2 · §6.6 · §9.2 · §11.1 · §11.2 · §11.4 · §11.5 · §12** | **H-13 remediation.** Nothing in the design could delete a Storage object. Revoke said it *"deletes the artifact, effective immediately"*; `venue.revoke_export` said it *"signals the edge to delete"*; the sweep said it *"deletes artifacts past retention"* — and the `crm-export` edge function had exactly two routes, **neither a delete**. A `SECURITY DEFINER` Postgres function cannot call the Storage API, and its only in-DB option (`DELETE FROM storage.objects`) drops the metadata row and **orphans the bytes**. So retention, sweep and revoke all had **no agent**: *"the lake is bounded by a 24-hour sweep"* was unimplementable and revoke could not remove the file it claimed to remove. Added: `POST /purge` on `crm-export`, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034 this spec already cites; `artifact_state` / `purge_lease_until` / `purge_attempts` on `venue.export_job`; three definer `service_role` RPCs; and a **daily orphan reconciliation pass** that reconciles the bucket against the job table in both directions — without which the 24-hour bound is a statement about rows, and rows are not what leaks. Revoke's honest bound restated as `min(300 s, time-to-purge)`, not zero. |
 | **K-17** | **This document, §7.1 · §7.2 · new §7.2a · §7.4 · §11.4 · §12** | **H-14 remediation.** The name-prefix lookup had **no rate limit** — the limit table carried rows for `email_exact` and `order_ref` and none for `name_prefix`, and `venue.lookup_attendee`'s contract scoped its limit to `email_exact` **explicitly**. `venue_box_office` holds X4, so iterating `a…z`, `aa…zz` against one session returned the roster one record at a time at no rate cost: the printed list §3.1 refuses (*"a box office cannot print a paper list. That is deliberate."*) reassembled from the surface meant to replace it, by the role denied it. Added: `attendee_lookup_by_name_prefix` at 20/actor + 60/org per 24 h; a **3-character minimum** raised before the lookup and without consuming budget; and **multi-match as an explicit `ambiguous_query` carrying no rows and no count** — a count is the harvest (`"sm"`→14, `"smi"`→9 reconstruct the name distribution without returning a record). **Per-org caps added for every lookup kind**, closing the medium that the export explains per-actor-alone is insufficient two rows above in the same table. Audit records kind **and outcome**, never the probed string; a run of `ambiguous`/`rate_limited` is the sweep signature and the only evidence of one. |
+| **K-18** | **This document, §2.2 field 2 · §4.3 · §4.4 (a) and (d) · §5.1 · §8.3 · §11.2 · §12** | **Known finding 6 — the cross-tenant defence works, the claim did not.** The per-org HMAC pseudonym is genuinely per-org and unreadable by any principal; that part holds. But `display_name` was emitted **on every row of every export at every org, ungated by consent**, from the one global `public.profiles.display_name` string, so two orgs union their files on it directly and corroborate with admission time, `first_seen_at`, ticket types and acquisition route. **Claim deleted verbatim:** *"the **non-consenting majority — every transferee, every comp, every purchaser who left the box unticked — is unjoinable**, which is exactly the population with no relationship to either venue."* The proof resting on it (case (d)'s sub-case) was void as written. **The pseudonym removes the platform-supplied *stable* join key and nothing else** — that is the corrected claim. Fix: `emit_name := emit_email`, one predicate driving both cells in the **export**; `display_name` stays **ungated on screen**, in the single-record lookup and in the door projection, where §5.6 already establishes it is readable and where a surface cannot be unioned with another org's. `name_cells_emitted/suppressed` join the audit pair; the legend covers both columns. Assertion **13c** tests unjoinability itself — the intersection of two orgs' non-blank cell values for a doubly-non-consenting identity must be empty — rather than testing the mechanism the proof credited. **D-13.** |
 
 ---
 
