@@ -153,6 +153,14 @@ argument for a native enum is nil.
 and both are now aligned. Disjointness is achieved by **three separate CHECK sets**, which is stronger
 than a shared type would be — there is no shared type to confuse.
 
+> **The alignment was incomplete until the M-5 fix, and the gap is worth recording.** At `aa78a47` only
+> §3.9 (`venue.staff_role`) had actually been rewritten to `text` + `CHECK`. §1.3, §1.3b and §1.4 still
+> read `enum(…)` — so a DDL author working from the kernel sections would have written **three native
+> Postgres enums** while §0.6.1 asserted, in the same document, that none exist. §1.3/§1.3b additionally
+> carried the **superseded four-label org set** (§1.3.1). All three are now `text` + `CHECK`, and the
+> label sets are 6/6/3. **`T-RLS-ROLE-01` is the assertion that makes this stay true**, and it must be
+> read as covering all three columns, not the one that was fixed first.
+
 ### 0.7 RLS classification vocabulary (every table is tagged one of these)
 - **public-read** — world-readable reference data (discovery); writes RPC-only.
 - **owner-scoped** — readable/writable only by the `auth.uid()` owner via policy.
@@ -284,7 +292,11 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
 - **Columns:**
   - `org_id` uuid — FK→kernel.organization(org_id) on delete restrict.
   - `identity_id` uuid — FK→auth.users(id) on delete restrict.
-  - `role` enum(`org_owner` · `org_admin` · `org_finance` · `org_member`) — not null (C36 org-scope enum).
+  - **`role` text + CHECK** (`org_owner` · `org_admin` · `org_finance` · **`org_marketing`** ·
+    **`org_promoter_manager`** · `org_member`) — not null. **CORRECTED to the canonical six (§0.6 /
+    ROLE_MODEL §3.1) — defect M-5.** This column enumerated **four** labels: the role-model edit was
+    applied to `venue.staff_role` (§3.9, which says so in its own text) and **not here**. See §1.3.1.
+    **`text` + `CHECK`, never a native enum** (§0.6.1 / ROLE_MODEL OD-6).
   - `granted_by` uuid — FK→auth.users(id) (audit of who granted; on delete restrict).
   - **`role_granted_at` timestamptz — not null, default `now()`. ADDED — defect C-1c (§1.13.4).** The
     timestamp of **the current role**, set on INSERT and **re-set by the grant/revoke RPC on every role
@@ -297,15 +309,57 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
   - `created_at`, `updated_at`.
 - **Unique:** PK `(org_id, identity_id)` — one role row per person per org (role is single-valued; changing
   role is an UPDATE, audited).
-- **Check:** `role` ∈ org enum only (disjoint from venue/platform labels).
+- **Check:** `role` ∈ **the canonical six** org labels only (disjoint from venue/platform labels).
 - **Immutability:** MUT; the "≥1 owner" invariant enforced in the revoke RPC (cannot remove the last owner),
   NOT by a table constraint.
+- **INV-NOFORCE:** this table must **not** carry `FORCE ROW LEVEL SECURITY` (§0.6) — `077`'s staging
+  verification asserts `relforcerowsecurity = false` positively.
 - **Index:** PK (by org); secondary index on `identity_id` (list "my orgs" hot-path).
 - **RLS:** org-scoped read; writes RPC-only via `kernel.grant_org_role` / `kernel.revoke_org_role`
   (require `has_org_role(org_id, [org_owner, org_admin])`; live-table recheck per C9).
 - **Write authority:** the grant/revoke RPCs. **Never** a self-grant (Phase-0 H-2 discipline, C9).
 - **Read authority:** org members + platform.
 - **SoT/PROJ:** SoT (this is the capability row; capability derives from it — CDM Principle 12).
+
+#### 1.3.1 DEFECT M-5 — the org label set was corrected in one place and not in the other two
+
+**The defect.** §0.6 is emphatic and correct: it opens with *"CORRECTED — this section previously stated
+the OLD 4/4/3 sets"*, reproduces ROLE_MODEL §3.1–§3.3 verbatim at **6/6/3**, and names the five added
+labels including **`org_marketing`** and **`org_promoter_manager`**. §3.9 applied that correction to
+`venue.staff_role` and **documents having done so** (*"CORRECTED to the canonical six (ROLE_MODEL §3.2 /
+edit S-1)"*).
+
+**`kernel.org_member.role` and `kernel.org_invite.role` were not touched.** Both still enumerated the
+superseded four — `org_owner · org_admin · org_finance · org_member` — and both still said `enum(...)`
+rather than `text` + `CHECK`, three sections after §0.6.1 resolved that globally.
+
+**What that costs, concretely.** The label set of `org_member` **is** what an org grant may be. A CHECK
+admitting four labels makes the other two **unstorable**:
+
+- `kernel.grant_org_role(org_id, identity, 'org_marketing')` raises `23514` — a check-constraint
+  violation, at write time, in production, for a grant the role model ratified.
+- `kernel.invite_org_member(..., 'org_promoter_manager')` raises the same, so the invite path is closed
+  as well — the two columns fail **identically**, which is why neither would be caught by the other.
+- Every org-grain marketing or promoter-manager grant therefore **fails closed, forever**, with no
+  workaround short of a migration. There is no degraded mode and no partial function.
+
+**Why it survives review so easily, stated so the class is recognised next time.** The failure is
+**not** a silent wrong answer — it is a loud raise. But it is a raise that can only occur once someone
+tries to *use* a role that no MVP surface exercises yet, and §0.6's own table reads as authoritative and
+correct. **A reviewer checking "does the spec state the six labels?" gets YES from §0.6 and stops.** The
+question that finds it is *"does every column that stores a role label enumerate the same set?"* — and
+that question has three answers in three sections, two of which disagreed with the one that declares
+itself canonical.
+
+**Fix.** Both columns carry the canonical six, as `text` + `CHECK`. **This is a correction to an
+unapplied package, not a schema alteration** — `077` has not been authored.
+
+**Test (`T-RLS-ROLE-01`, already contracted, and it is the test that would have caught this).** *"The
+three columns admit **exactly** the fifteen labels and reject every `org_*` label on the venue enum and
+vice-versa."* Asserted over **all three** role columns, it fails against the pre-fix text: the org
+column admits four of six. **`077`'s Tests row already claims to assert "the full 15-label enumeration
+matches ROLE_MODEL §3.4 exactly" — against a `077` that could only ever have stored thirteen.** The
+assertion was right; the table it was written against was not.
 
 ### 1.3b `kernel.org_invite` (ADDED — deliverable #7 R2: closes the RPC↔schema gap)
 - **Purpose:** a pending invitation for an identity to join an org at a scoped role. Required by
@@ -318,8 +372,10 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
   - `org_id` uuid — not null, FK→kernel.organization(org_id) on delete restrict.
   - `invitee_ref` text — not null (email/handle/phone as supplied; opaque until resolved).
   - `invitee_identity_id` uuid — nullable, FK→auth.users(id) (set when the ref resolves to an account).
-  - `role` enum(`org_owner` · `org_admin` · `org_finance` · `org_member`) — not null (org-scope enum, C36;
-    tier-guarded in the RPC so an `org_admin` cannot invite at `org_owner`).
+  - **`role` text + CHECK** (`org_owner` · `org_admin` · `org_finance` · **`org_marketing`** ·
+    **`org_promoter_manager`** · `org_member`) — not null. **CORRECTED to the canonical six — defect
+    M-5 (§1.3.1); this column enumerated the superseded four.** Tier-guarded in the RPC so an
+    `org_admin` cannot invite at `org_owner`. **`text` + `CHECK`, never a native enum** (§0.6.1).
   - `status` enum(`pending` · `accepted` · `declined` · `expired` · `revoked`) — not null default `pending`.
   - `invited_by` uuid — not null, FK→auth.users(id) (audit of the inviter).
   - `expires_at` timestamptz — not null (bounded invite window).
@@ -328,7 +384,7 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
 - **FKs:** as above (on delete restrict).
 - **Unique:** partial `UNIQUE(org_id, invitee_ref) WHERE status='pending'` (one open invite per invitee per
   org); `UNIQUE(org_id, command_idempotency_key)`.
-- **Check:** `role` ∈ org enum; `status` enum; `expires_at > created_at`.
+- **Check:** `role` ∈ **the canonical six** org labels; `status` label set; `expires_at > created_at`.
 - **Immutability:** MUT (status transitions only; accept creates the `kernel.org_member` row in the same txn).
 - **Index:** PK; the partial unique; index on `(invitee_identity_id, status)` ("my invites").
 - **RLS:** org-scoped read (org owners/admins see their org's invites) + the addressed invitee reads own;
@@ -342,11 +398,15 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
 - **PK:** composite `(identity_id, role)`.
 - **Columns:**
   - `identity_id` uuid — FK→auth.users(id) on delete restrict.
-  - `role` enum(`platform_admin` · `platform_support` · `platform_risk`) — part of PK.
+  - **`role` text + CHECK** (`platform_admin` · `platform_support` · `platform_risk`) — part of PK.
+    **`text` + `CHECK`, never a native enum** (§0.6.1) — the third role column, aligned with the other
+    two so the §0.6.1 ruling has no exception left in the physical model.
   - `granted_by` uuid — FK→auth.users(id).
   - `created_at`.
 - **Unique:** PK `(identity_id, role)` (a person may hold several platform roles).
-- **Check:** `role` ∈ platform enum only.
+- **Check:** `role` ∈ the platform label set only (disjoint from org/venue labels).
+- **INV-NOFORCE:** this table must **not** carry `FORCE ROW LEVEL SECURITY` (§0.6) — `077`'s staging
+  verification asserts `relforcerowsecurity = false` positively.
 - **Immutability:** MUT (grant/revoke), each write audited.
 - **Index:** PK; secondary on `role` (enumerate all admins).
 - **RLS:** audit-only to clients; managed by `kernel.grant_platform_role` gated on existing
@@ -2214,6 +2274,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
 | `077` | **`kernel.approval_request.required_approver_class`** + the four added CHECKs | **this remediation (C-1a/C-1b)** | — → `077` (§1.13.2/§1.13.3) |
 | `077` | **`kernel.org_member.role_granted_at`** | **this remediation (C-1c)** | — → `077` (§1.3/§1.13.4) |
+| `077` | **`kernel.org_member.role` / `kernel.org_invite.role` → the canonical SIX org labels, `text`+`CHECK`; `kernel.platform_role.role` → `text`+`CHECK`** | ROLE_MODEL §3.1/§3.5 — **applied to `venue.staff_role` only; missed here (defect M-5)** | — → `077` (§1.3.1) |
 | `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
 | `077` | `kernel.identity_ext.locale` (Δ-N2) | NOTIFICATIONS §5.4 | — → `077` |
 | `077` | `kernel.identity_demographic`, `kernel.identity_demographic_erasure` | DEMOGRAPHICS §10.1/§10.2 | ✓ |
