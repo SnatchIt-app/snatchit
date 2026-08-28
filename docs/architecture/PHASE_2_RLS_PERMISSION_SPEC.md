@@ -16,9 +16,12 @@ open it is flagged under §15 RECONCILIATION.
 4. the five RN reconciliation targets (session working file; all five CONSUMED and CLOSED — see `docs/architecture/_superseded/PHASE_2_IMPLEMENTATION_SPEC_REVIEW.md` §2.2/§5) — the five RN reconciliation targets, consumed in §14 (esp. #5
    redacted ownership-history read).
 
-**Coverage:** all **43** MVP objects (kernel 12 · catalog 5 · venue 20 · market 6-incl.-bridge-view). EXT
+**Coverage:** all **43** original MVP objects (kernel 12 · catalog 5 · venue 20 · market 6-incl.-bridge-view). EXT
 tables (`kernel.reserve`, `venue.inventory_unit`) are specified with their MVP deny-all posture and marked
-DO-NOT-BUILD. Deferred schemas (`social`/`analytics`/`notify`/`adapter`, money-ledger) are out of scope.
+DO-NOT-BUILD. Deferred schemas (`social`/`analytics`/`adapter`, money-ledger) are out of scope. **`notify` is
+DISPUTED, not settled** — C7 is `RATIFIED · Gate P · MVP` and names it, while this spec and three others
+defer it to Gate L. §16.9 records its authority model **conditionally**; see **MD-10**, §15.7. §16 adds the
+matrices for the objects the eight Phase-2 delta specs introduce.
 
 ---
 
@@ -527,6 +530,31 @@ GRANT and served (if at all) via a scoped RPC. Implements Phase-0 column-scoped 
 | `market.market_sale` | buyer/seller: own sale (plain verbs) | fee split, `payment_id`, counterpart PII, cause internals → scoped RPC / platform |
 | `market.listing_native` | active listing discovery cols (world) | seller PII / `command_idempotency_key` → seller + platform |
 | `kernel.ticket_ownership_log` | **none** to clients | entire table → redacted `market.get_ticket_history` RPC (owner-scoped) / platform (§14.5) |
+| `kernel.identity_demographic` | **none — no client role holds any column grant** | entire table → `kernel.get_my_demographics()` (own row only); **never cross-identity, never platform** |
+| `kernel.identity_demographic_erasure` | **none** | entire table → definer/`service_role` only; **no human role, including `platform_admin`** |
+| `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` | **none** | entire table → `venue.get_holder_mix()` (role- and scope-checked) |
+| `kernel.identity_contact_pref` | **none** | entire table → `kernel.get_my_contact_prefs()` (own row) |
+| `kernel.org_contact_consent` | **none** | entire table → `kernel.list_my_org_contact_consents()` (own rows); the export build-time gate is definer-internal |
+| `kernel.org_customer_key` | **none** | definer / `service_role` only; **no human role, including `platform_admin`** |
+| `venue.export_job` | **none** | entire table → `venue.list_export_jobs()` (role- and scope-checked) |
+| `venue.promoter_code` · `promoter_code_scope` | **none** | org/venue back office reads own-org rows; **promoter reads own codes only** (§9.17) |
+| `kernel.wallet_pass` | **none** | owner reads `{wallet_pass_id, ticket_atom_id, status, built_at, last_updated_at}` for **own** atoms via RPC; `auth_token_enc`, `auth_token_hash`, `serial_no_opaque` granted to **no role but `service_role`** and returned by no RPC |
+| `kernel.pass_type_cert` | **none** | `certificate_pem`/`wwdr_cert_pem`/`not_after` → `is_platform`; `kms_handle_ref` → `is_platform` only. **Deliberate contrast with `kernel.signing_key`**, whose `public_key` *is* world-readable because doors need it — **doors never verify the Apple signature**, so this gets no public projection |
+| `venue.door_manifest_entry` | **none** | the door's bulk read is `(ticket_atom_id, serial_no, credential_version, signing_key_id, ticket_state)` via `venue.get_door_manifest`. **The table carries no identity column by construction**, which is what keeps *"door staff never receive a bulk attendee list"* true even though the door now holds a legitimate bulk read |
+| `notify.notification` | own row: `{type_key, group_label, rendered_title, rendered_body, target_kind, target_id, read_at, created_at}` | **`UPDATE (read_at)` only** — RLS restricts rows, not columns, so without the column grant a user could rewrite `title`/`body`/`params`/`type_key`/`dedupe_key` on their own rows |
+
+> **The three tiers of column protection, and when each applies** (from the privacy spec's taxonomy, which
+> governs every row above):
+> 1. **Reduced public-safe subset** — the 068 pattern: grant `authenticated` a named safe column list. Valid
+>    only where a genuinely public-safe subset exists (`display_name`, `avatar_url`).
+> 2. **Empty grant set** — *not a reduced set, an empty set.* Used wherever **no column is public-safe**.
+>    `INFERENCE:` this is the load-bearing rule and the reason the demographic and contact tables look
+>    different from everything else: **column privileges in Postgres are per-role, not per-row**, so a column
+>    granted to `authenticated` is readable on **any** row, not just the caller's own. A single column grant
+>    on `kernel.org_contact_consent` would publish a map of who allows which venue to email them. **The
+>    absence of a grant is the enforcement** — RLS is belt and braces behind it.
+> 3. **Definer-only, no human role at all** — `kernel.identity_demographic_erasure`, `kernel.org_customer_key`.
+>    Not even `platform_admin`.
 
 ---
 
@@ -1950,8 +1978,369 @@ made a least-privilege choice the schema spec left generic:
    `market.bid` ledger is later added, it needs its own matrix (owner-scoped bidder read, RPC-only write). Not
    built in MVP; noted so it is not forgotten.
 
+### 15.7 Status after the delta-spec integration
+
+**CLOSED by this pass:**
+
+- **The role set** (§1.1, §2.1) — O-2/O-4 ratified; fifteen labels, three disjoint planes, `venue_door` →
+  `venue_scanner`, `venue_promoter` removed, five labels added.
+- **The scanner credential model** (§2.5) — `has_venue_role` reads `venue.staff_role` only; the door is
+  `assert_door_session` inside a definer RPC and is never an RLS predicate.
+- **Door-lifecycle authority** (§11.4) — O-4: the door principal is removed from open/close.
+- **Item 2 (door-freeze form)** — now §14.3, substantially corrected: the predicate is total, the recheck set
+  is right in four places it was wrong, and the C43 narrowing is stated as deferred rather than described as
+  implemented.
+- **Refund authority** — O-1; §7.10 replaced.
+- **Payout visibility** — O-3; §7.9 replaced, and the §11-vs-§7.9 self-contradiction is gone.
+- **The attribution write point** — §9.17; moved to `finalize_primary_order`.
+- **RLS policy naming** — GP-3 + the §16.10 register.
+- **The recursion hazard** — I-12.
+
+**STILL OPEN (items 1, 3, 4 of §15 stand):** the platform sub-role read boundary (item 1); org- vs
+venue-level settlement close (item 3, = money spec's open reconciliation item — O-1/O-3 do not reach it); the
+`platform_support` refund ceiling (item 4 — the **key** `refund.platform_support_max_minor` now has a config
+home, but **the number does not**).
+
+**Owner decisions this document surfaces or inherits.** None blocks writing the spec; each blocks
+implementation of the item named.
+
+| # | Decision | Recommendation | Blocks |
+|---|---|---|---|
+| **MD-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — the parked branch takes `FOR UPDATE` on exactly one pre-existing class (Ticket Atom); the approval row is a fresh INSERT that contends on nothing. It is lock-ordered either way, so an amendment would be a one-line ratification | the parked refund branch |
+| **MD-2** | A second definer owner (`crm_export_builder`) for the export builder, deviating from the RPC spec's `postgres`-owned global | **Adopt.** The alternative is a `postgres`-owned function with reach over everything. `BYPASSRLS` is not an acceptable substitute. Needs the explicit `_sel_svc_export` policies of §16.10 | the export package |
+| **MD-3** | The actual numbers: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours` | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config` | tier behaviour |
+| **MD-4** | `org_admin` reads `venue.settlement` (§9.13) while denied the payout and refund ledgers | Keep — settlement is operational reconciliation, payout is money-out. **The inconsistency is real and is named rather than smoothed** | consistency only |
+| **MD-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 | **Escalate** via the existing `release_payout` — the second human in the SoD pair becomes a platform operator. Relaxing reintroduces the exact named fraud primitive | §11.3 |
+| **MD-6** | `refund.scanned_atom_policy` default: `refuse` or `platform_review` | `platform_review` — refunding an attendee who already walked in is legitimate, but it is **also** the insider-collusion shape (staff scans a friend in, then refunds), so it should be *seen*, not silently allowed or silently blocked | the consumed-atom refund path |
+| **MD-7** | Ship step-up at `aal1` freshness now and flip to `aal2` on staff MFA enrollment? | Ship at `aal1` with the level in config, so `aal2` is a **config change, not a code change**. Blocking until MFA ships would ship a dashboard nobody can use. **`UNVERIFIED:` whether this project's tokens carry `amr` with per-factor timestamps was not checked — no production access. If absent, freshness degrades to token age (`iat`), which is weaker and must be labelled as such rather than described as "recent authentication"** | §11.3 step-up |
+| **MD-8** | Is a platform-plane bulk extraction path wanted at all? | **Not built in Phase 2** (§11.6). If wanted, it needs dual control, its own retention and its own audit action — not the venue surface | platform export |
+| **MD-9** | The GP-2 `DELETE` exception and the `ON DELETE CASCADE` on `kernel.identity_demographic` | **Accepted here** on the terms in §16.5, as the single GP-2 exception in the model. A second must not be granted by analogy | the demographics package |
+| **MD-10** | **What gate is the `notify` schema at?** C7 is `RATIFIED · Gate P · MVP` and names `notify`; all four implementation specs, including this one, defer it to Gate L | **Not resolved here** — it is a stop-and-ask. §16.9's matrices are conditional. Note the load-bearing argument: the venue dashboard already carries a *binding* dependency on `notify`, which no Gate-L object may have. Its companion **MD-11** asks whether the event outbox — the constitution's *"only new infrastructure Phase 2 introduces"* — is scheduled anywhere, and it is not | everything in §16.9 |
+| **MD-12** | Who may **disable** a transfer freeze? O-4 says not the scanner; it does not say who | `platform_admin` under step-up, placed there provisionally (§14.3.4) | the override RPC |
+| **MD-13** | Break-glass for the door: if `door_open_at` is mis-set and no manager is reachable, the door cannot open under O-4 | Ship without it; scheduling plus remote org-plane action should cover it. **The operational risk is real and the owner should see it here rather than discover it at 11 p.m.** | nothing; ops risk |
+
 Everything else has a determinate policy from the schema spec's stated read/write authority + the Phase-0
 class defaults (§4).
+
+---
+
+## 16. Matrices for the objects the eight delta specs add
+
+All inherit GP-1 (no client INSERT/UPDATE/DELETE on any Phase-2 table), GP-2 (DEL = `D` for every role on
+every table), GP-3 (policy naming, §16.10) and I-7 (`REVOKE ALL` first, then the exact GRANT). The
+twenty-principal key of §1.1 applies; roles not named in a matrix are `D` by deny-by-default (I-1), and a new
+label never inherits an old label's cells.
+
+### 16.1 `kernel.approval_request` — money-custody-RPC-only (the generic approval object)
+
+One generic object serves org refund dual control, money-namespace `platform_config` dual control, and
+payout-above-threshold dual control: one state machine, one SoD rule, one expiry sweep, one audit vocabulary.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan | D | D | D | D | — |
+| owner (requester, own request) | V(own) | R | D | D | `cancel_refund_request` (own) |
+| org_member / org_admin / org_marketing / org_promoter_manager | D | D | D | D | — |
+| org_owner / org_finance | V(own-org, via `list_approval_requests`) | R | R | D | `request_order_refund` · `approve_refund_request` (**approver ≠ requester**) · `cancel_refund_request` |
+| every venue role · door session · promoter | D | D | D | D | — |
+| platform_support / platform_risk | V | R | R | D | `approve_refund_request` (platform-review tier) |
+| platform_admin | A | R | R | D | all, incl. the money-config approval branch |
+| service_role | A(machine) | R(def) | R(def) | D | definer (incl. the expiry sweep) |
+
+**SoD is a table constraint, not a convention:** `CHECK (approved_by IS NULL OR approved_by <> requested_by)`.
+**The payload footgun, named and mitigated:** a generic `payload jsonb` invites the approval to become a
+client-supplied authority vector (*"approve this, amount = X"*). The payload is **server-computed at request
+time and re-derived and re-compared at approval time**; the stored payload is *evidence for the approver's
+UI*, and the executing code trusts nothing in it. A mismatch moves the request to `stale` — it is **never an
+override**. Every threshold's `(key, version)` is pinned onto the row, so a config change mid-flight cannot
+silently re-tier a parked request.
+
+### 16.2 `venue.door_manifest` — venue-scoped
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan / owner | **D** | D | D | D | — |
+| org_member | D | D | D | D | — |
+| org_owner / org_admin | A(own-org venues) | R | R | D | `open_door_manifest` · `close_door_manifest` |
+| org_finance | A(own-org: `status`/`opened_at`/`closed_at` only — settlement timing context, **never `manifest_digest`**) | D | D | D | — |
+| venue_manager | A(own-venue) | R | R | D | `open_door_manifest` · `close_door_manifest` |
+| venue_scanner · door session | **A(own session only, and only via `venue.get_door_manifest` — never a table scan)** | **D** | **D** | D | **—** (O-4) |
+| venue_finance / venue_box_office / venue_marketing / venue_promoter_manager / promoter | D | D | D | D | — |
+| platform_support | V | D | D | D | — |
+| platform_risk | A(all) | D | D | D | — |
+| platform_admin | A(all) | R | R | D | override |
+| service_role | A(machine) | R(def) | R(def) | D | definer |
+
+**A fan cannot read this table at all.** The freeze reaches the client exclusively as the
+`kernel.is_transfer_frozen` boolean (§14.3). Exposing episode timings to fans would leak venue operations and
+invite gaming the boundary. The operator must be able to tell an explicit open from the implicit backstop; the
+fan must not.
+
+### 16.3 `venue.door_manifest_entry` · `venue.door_manifest_delta` — venue-scoped, AO
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan / owner | D | D | D | D | — |
+| org_owner / org_admin / venue_manager | A(own-venue) | R | D | D | — |
+| venue_scanner · door session | **V** (own session, via `venue.get_door_manifest` only) | D | D | D | — |
+| all other org/venue roles · promoter | D | D | D | D | — |
+| platform_risk / platform_admin | A | R(def) | D | D | — |
+| service_role | A(machine) | R(def) | D | D | definer (`append_door_manifest_delta`) |
+
+**Column discipline (I-4).** These tables carry **no identity column by construction** — no
+`current_owner_id`, no buyer reference, no name. See §6.
+
+### 16.4 `kernel.door_freeze_override` — audit-only (RLS on, ZERO policies)
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| every role except platform + service_role | **D** | D | D | D | — |
+| platform_support | V | D | D | D | — |
+| platform_risk | V | D | R | D | `revoke_door_freeze_override` **only** (may tighten, never loosen — SoD) |
+| platform_admin | V | R | R | D | `grant_…` · `revoke_…` |
+| service_role | A(machine) | R(def) | R(def) | D | definer |
+
+### 16.5 `kernel.identity_demographic` · `_erasure` · `venue.holder_mix_snapshot` · `_bucket`
+
+**The grant set is EMPTY, not reduced** (§6 tier 2), and RLS is enabled with **no policy admitting `anon` or
+`authenticated`** behind it.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| owner (own row, `identity_demographic` only) | **V** (via `get_my_demographics()`) | **R** | **R** | **D**¹ | `get/set/clear_my_demographics` |
+| every other principal on `identity_demographic` | D | D | D | D | — |
+| every principal on `identity_demographic_erasure` | D | D | D | D | — (definer only; **no human role**) |
+| org_owner / org_admin (holder mix) | V (via `get_holder_mix`, own-org sessions) | D | D | D | `get_holder_mix` |
+| venue_manager / venue_marketing / venue_promoter_manager (holder mix) | V (own-venue sessions) | D | D | D | `get_holder_mix` |
+| platform_admin (holder mix) | V (any session, audited) | D | D | D | `get_holder_mix` |
+| org_finance / venue_finance / venue_box_office / venue_scanner / door session / promoter / platform_support / platform_risk / fan / anon | **D** | D | D | D | — |
+| service_role | A(machine) | R(def) | R(def) | D | definer (`refresh_holder_mix`, reconciliation) |
+
+¹ **Named GP-2 exception, requiring this document's acknowledgment (owner decision MD-9).** `DELETE` on
+`kernel.identity_demographic` is permitted **inside the definer `clear_my_demographics` only**; clients hold
+zero DELETE. Keeping a withdrawn gender answer as a tombstoned row would defeat the withdrawal, and this table
+references no ledger. **Acknowledged and accepted here** as the single GP-2 exception in the model — it is
+scoped to one table, one function, and a row that is not a ledger entry. A second such exception must not be
+granted by analogy. The paired `ON DELETE CASCADE` from `auth.users` (against the corpus's `RESTRICT` default)
+is accepted on the same terms: an orphaned demographic answer belonging to a deleted account is the worst
+possible residue, and cascade-from-`auth.users` is already the house pattern. **The row must never be
+repointed to the anonymized sentinel.**
+
+> **The reader-enumeration rule this matrix depends on.** The set of functions, views and matviews whose
+> definition references `kernel.identity_demographic` must be **exactly**
+> `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix}`, and the set
+> referencing the holder-mix tables exactly `{refresh_holder_mix, get_holder_mix, <reconciliation job>}`.
+> Any addition fails the suite. This is what makes "no export function can reach demographics" checkable
+> rather than asserted — and the assertion must carry a **non-vacuity guard** (it must be able to see all
+> nine export functions), or an empty match set would pass trivially.
+
+### 16.6 `kernel.identity_contact_pref` · `kernel.org_contact_consent` · `kernel.org_customer_key` · `venue.export_job`
+
+Same posture: **empty grant set**, RLS on, no policy admitting a client role.
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| owner (own rows, the two contact tables) | V (via the four own-row RPCs) | R | R | D | `get/set_my_contact_prefs` · `list/grant/withdraw_org_contact_consent` |
+| every principal on `kernel.org_customer_key` | **D** | D | D | D | — (definer only; **no human role, including `platform_admin`**) |
+| org_owner / org_admin / org_marketing (export_job) | V (own-org, via `list_export_jobs`) | R | R | D | `request_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` |
+| venue_manager / venue_marketing (export_job) | V (own-venue) | R | R | D | as above at venue grain |
+| org_finance / venue_finance / venue_box_office / venue_scanner / door session / promoter / promoter-manager labels / org_member | D | D | D | D | — |
+| platform_support / platform_risk | V (history only) | D | D | D | `list_export_jobs` |
+| platform_admin | V (history) | D | R | D | `list_export_jobs` · `revoke_export` (**revoking is not extraction**) |
+| service_role | A(machine) | R(def) | R(def) | D | definer (`build_export_rows`, `finalize_export`, `sweep_expired_exports`) |
+
+**Withdrawal is a state change, never a row deletion** (`state ∈ granted|withdrawn` with `granted_at` /
+`withdrawn_at`); the row cascades away only with the account. **There is no staff-side consent write path** —
+no `admin_set_contact_consent`, and **no `p_identity_id` parameter on any of the five contact RPCs**, so a
+venue can never record a consent on a fan's behalf. Asserted structurally, not by inspection.
+
+**Storage bucket `crm-exports`:** `public = false`, 32 MB size limit, `allowed_mime_types = {text/csv}`, object
+path `{org_id}/{job_id}.csv` carrying **no venue name, no event title, no date, no filter, no segment**, and
+**zero `storage.objects` policies for `anon` or `authenticated`** — not a reduced set, none. The only principal
+that touches the bucket is `service_role` inside the edge function.
+
+### 16.7 `venue.promoter_code` · `venue.promoter_code_scope` · `venue.attribution_review`
+
+`promoter_code`/`_scope` mirror §9.17's promoter/link matrices exactly — **a code is a link's sibling and must
+not acquire a wider grant by being newer**:
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon / fan / owner / org_member | D | D | D | D | — |
+| org_owner / org_admin / org_promoter_manager | A(own-org) | R | R | D | create · bulk · status · scope · window |
+| org_finance / venue_finance | A(own-org / own-venue) | D | D | D | — |
+| venue_manager / venue_promoter_manager | A(own-venue's org) | R | R | D | create · bulk · status · scope · window |
+| venue_scanner · door session · venue_box_office · venue_marketing | D | D | D | D | — |
+| **promoter** | **A(own codes only)** | **D** | **D** | D | — |
+| platform_support / platform_risk | A | D | D | D | — |
+| platform_admin | A | R | R | D | override (audited) |
+| service_role | A(machine) | R(def) | R(def) | D | definer |
+
+`venue.attribution_review` is **AO**: `UPD` is `D` for **every** role including `platform_admin`; a wrong
+decision is corrected by appending `seq+1`, never by an edit, and the **effective decision is `max(seq)`**.
+`platform_risk` holds `INS`/EXEC; `platform_admin` does **not**. The promoter reads `decision` +
+`reason_code` on their **own** attribution and **never** the reviewer's `note` (the venue's internal
+deliberation) or `displaced_promoter_id` (another promoter's identity) — enforced by the read RPC's
+projection, not by hoping the client omits columns. Supersession **closes at settlement**: once a
+`promoter_commission` settlement line exists, review is rejected with `attribution_settled` — the money and
+the decision freeze together.
+
+### 16.8 `kernel.wallet_pass` · `wallet_pass_device` · `pass_type_cert` · `wallet_pass_push_log`
+
+| Role | SEL | INS | UPD | DEL | EXEC |
+|---|---|---|---|---|---|
+| anon | D | D | D | D | — |
+| **fan / current owner** | **V** — own atoms only, `{wallet_pass_id, ticket_atom_id, status, built_at, last_updated_at}`, **via RPC only** | R | D | D | `mint_wallet_pass` |
+| **every org role and every venue role, including `venue_manager` and the door** | **D** | D | D | D | — |
+| platform_support | V | D | R | D | `revoke_wallet_pass` |
+| platform_risk | V | D | D | D | — |
+| platform_admin | A | R | R | D | `revoke_wallet_pass` · cert lifecycle |
+| service_role | A(machine) | R(def) | R(def) | D | definer |
+
+**No venue or org role reads this table at all.** A pass registry is not venue-operations data; the door's
+bulk read is the manifest and nothing else. `wallet_pass_device`, `wallet_pass_push_log` and `pass_type_cert`
+are **audit-only**: RLS on, **zero policies**, `REVOKE ALL FROM anon, authenticated`, read only through an
+`is_platform` RPC. **No client, no venue role and no org role ever reads a push token.**
+
+### 16.9 `notify.*` — nine tables
+
+| Table | Posture |
+|---|---|
+| `notify.notification` | **owner-scoped**, reusing the production-proven 040 posture verbatim: `GRANT SELECT`, `GRANT UPDATE (read_at)`, policies `notify_notification_sel_owner` / `notify_notification_upd_owner` on `recipient_id = auth.uid()`. **No INSERT policy, no DELETE policy, for any client role.** The column-level `UPDATE (read_at)` is not decoration — RLS restricts *rows*, not *columns* |
+| `notify.preference` | owner-scoped CRUD via `auth.uid()`. **The mandatory-type guard is DDL, never RLS** — a composite FK to `(type_key, delivery_class)` plus `CHECK (delivery_class <> 'mandatory')`. *A policy could be misconfigured; a CHECK cannot.* |
+| `notify.announcement` | venue-scoped read for `[venue_manager, org_owner, org_admin]` + platform; **writes RPC-only**. Recipients never read this table — they read their own `notify.notification` row |
+| `notify.notification_type` · `notify.template` | deny-all; surfaced only through `get_preference_matrix()` / the renderer. Deny-all rather than public-read because the UI needs the **resolved** state, not the raw registry |
+| `notify.delivery` · `outbox` · `schedule` · `identity_channel_state` | RLS on, **zero policies**, `REVOKE ALL FROM anon, authenticated` |
+
+**A "cleared" notification is a `dismissed_at` column, never a row removal** (GP-2 holds).
+
+> **SCOPE FLAG — `notify` is NOT settled, and this document does not settle it.** §0 of this spec lists
+> `notify` among the deferred schemas. The notifications spec reports a **BLOCKING** conflict: C7 is
+> `RATIFIED · Gate P · MVP` and names `notify`, while all four Phase-2 implementation specs (including this
+> one) defer it to Gate L. It **explicitly declines to resolve it** and escalates it as owner decision
+> **O-N1**, with the load-bearing argument that the venue dashboard already carries a *binding* dependency on
+> it — which no Gate-L object may have. A companion blocker **O-N2** asks whether the event outbox is in
+> Phase 2 at all: the domain architecture promises *"one outbox table and a drainer on the cron that already
+> runs"* as Phase 2's only new infrastructure, and **no Phase-2 spec defines it.**
+>
+> **The matrices above are therefore CONDITIONAL.** They are recorded so that, if the owner ratifies `notify`
+> at Gate P, the authority model is already written and nothing is invented under time pressure. **They are
+> not authority to build.** Flipping this document's scope line requires an owner ratification entry, which
+> is a stop-and-ask under the governance rules. Recorded as **MD-10**, §15.7.
+
+### 16.10 Policy-name register (GP-3 applied)
+
+Every policy this document requires, by name. **A migration that creates a policy not on this list, or omits
+one that is, fails review.** Read with GP-3's rules: one policy per (table, verb, principal-class); `FOR
+SELECT` only; deny-all tables carry **zero** policies.
+
+| Object | Policy name(s) | Predicate family |
+|---|---|---|
+| `catalog.venue` | `catalog_venue_sel_anon` · `catalog_venue_sel_org` · `catalog_venue_sel_venue` | narrow `approval_status='approved'`; org draft; own-venue draft |
+| `catalog.event` | `catalog_event_sel_anon` · `catalog_event_sel_org` · `catalog_event_sel_venue` | `status >= 'announced'`; org/venue draft |
+| `catalog.event_session` | `catalog_event_session_sel_anon` · `catalog_event_session_sel_org` · `catalog_event_session_sel_venue` | sessions of visible events |
+| `catalog.platform_config` | `catalog_platform_config_sel_public` | values are not secret |
+| `catalog.resale_policy` | `catalog_resale_policy_sel_public` | policy in force |
+| `kernel.identity_ext` | `kernel_identity_ext_sel_owner` | `identity_id = auth.uid()` |
+| `kernel.organization` | `kernel_organization_sel_org` · `kernel_organization_sel_platform` | `is_org_affiliate` / `has_org_role`; `is_platform` |
+| `kernel.org_member` | `kernel_org_member_sel_org` · `kernel_org_member_sel_platform` | **I-12 applies** |
+| `kernel.org_invite` | `kernel_org_invite_sel_invitee` · `kernel_org_invite_sel_org` | addressed invitee; inviter tier |
+| `kernel.platform_role` | `kernel_platform_role_sel_platform` | **I-12 applies** |
+| `kernel.signing_key` | `kernel_signing_key_sel_public` | `public_key` + window columns only |
+| `kernel.tickets` | `kernel_tickets_sel_owner` · `kernel_tickets_sel_venue` · `kernel_tickets_sel_platform` | `current_owner_id = auth.uid()`; issuing venue/org ops; platform |
+| `venue.staff_role` | `venue_staff_role_sel_venue` · `venue_staff_role_sel_org` · `venue_staff_role_sel_platform` | **I-12 applies** |
+| `venue.ticket_type` | `venue_ticket_type_sel_public` · `venue_ticket_type_sel_venue` | `visibility='public'`; venue-scoped incl. hidden/door_only |
+| `venue.inventory_batch` | `venue_inventory_batch_sel_public` · `venue_inventory_batch_sel_venue` | `remaining` projection; full counters |
+| `venue.inventory_hold` | `venue_inventory_hold_sel_owner` · `venue_inventory_hold_sel_venue` | holder; venue ops |
+| `venue.order` · `venue.order_item` | `venue_order_sel_owner` · `venue_order_sel_org` · `venue_order_sel_venue` (and the `_item` triple) | buyer; org back office; venue ops |
+| `venue.settlement` · `venue.settlement_line` | `venue_settlement_sel_org` · `venue_settlement_sel_venue` (and the `_line` pair) | org/venue finance |
+| `venue.comp_allocation` · `venue.guest_list` · `venue.guest_entry` · `venue.scan_device` · `venue.scan` | `<table>_sel_venue` (+ `venue_scan_sel_platform`) | venue-scoped |
+| `venue.door_manifest` · `venue.door_manifest_entry` · `venue.door_manifest_delta` | `<table>_sel_venue` · `venue_door_manifest_sel_platform` | §16.2–§16.3 |
+| `venue.promoter` · `promoter_link` · `promoter_code` · `promoter_code_scope` · `attribution` · `attribution_review` | `<table>_sel_org` · `<table>_sel_venue` · `<table>_sel_promoter` | back office; **promoter own-row via `promoter_id = auth.uid()`**, never a join through `link_id` (§9.17) |
+| `market.listing_native` | `market_listing_native_sel_public` · `market_listing_native_sel_owner` | `status='active'` discovery cols; seller full |
+| `market.auction` · `market.offer` | `market_auction_sel_public` · `market_offer_sel_owner` | active auction; buyer/seller |
+| `market.p2p_transfer` | `market_p2p_transfer_sel_owner` | `from_identity` or `to_identity` = `auth.uid()` |
+| `market.listing_unified` (VIEW) | **none** — `security_invoker`, inherits base-table policies | §14.1 |
+| `notify.notification` | `notify_notification_sel_owner` · `notify_notification_upd_owner` | `recipient_id = auth.uid()`. **The only UPDATE policy in this register**, and it is column-restricted to `read_at` |
+| `notify.preference` | `notify_preference_sel_owner` · `notify_preference_ins_owner` · `notify_preference_upd_owner` | `identity_id = auth.uid()`; mandatory guard is DDL |
+| `notify.announcement` | `notify_announcement_sel_venue` | venue-scoped staff read |
+
+**Objects with ZERO policies, by design (RLS enabled, `REVOKE ALL`):** `kernel.ticket_ownership_log` ·
+`kernel.payment_native` · `kernel.payout` · `kernel.refund` · `kernel.reserve` · `kernel.admin_audit` ·
+`kernel.approval_request` · `kernel.door_freeze_override` · `kernel.identity_demographic` ·
+`kernel.identity_demographic_erasure` · `kernel.identity_contact_pref` · `kernel.org_contact_consent` ·
+`kernel.org_customer_key` · `kernel.wallet_pass` · `kernel.wallet_pass_device` · `kernel.pass_type_cert` ·
+`kernel.wallet_pass_push_log` · `venue.inventory_batch_shard` · `venue.inventory_movement` ·
+`venue.inventory_unit` · `venue.export_job` · `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` ·
+`market.market_sale` · `notify.notification_type` · `notify.template` · `notify.delivery` · `notify.outbox` ·
+`notify.schedule` · `notify.identity_channel_state` · the `crm-exports` storage bucket.
+
+**Layer-0 exception, named because it needs policies this register would otherwise forbid.** If the CRM export
+builder runs as a narrow owner role (`crm_export_builder`) rather than `postgres` — the recommended
+least-privilege shape — that role is **subject to** the roster tables' RLS and therefore needs an explicit
+permissive policy naming it on exactly those relations, named `<schema>_<table>_sel_svc_export`. **`BYPASSRLS`
+on that role is NOT an acceptable shortcut** — it would restore access to everything and delete the entire
+benefit. This is a deviation from the RPC spec's *"definer owned by `postgres`"* global and is **owner
+decision MD-2**, §15.7.
+
+### 16.11 Test register — the assertions this document requires
+
+Named so they can be written, run and cited. Grouped by the property each defends.
+
+| ID | Assertion | Defends |
+|---|---|---|
+| `T-RLS-FORCE-01..03` | `pg_class.relforcerowsecurity = false` for `kernel.org_member`, `venue.staff_role`, `kernel.platform_role` — a **positive equality on the catalog**, not the absence of a `FORCE` statement in migration text | **I-12** |
+| `T-RLS-FORCE-04` | No **other** Phase-2 relation has a policy whose predicate calls a helper that reads that same relation (no second table depends on owner-bypass to terminate) | I-12 (allow-list, not scan) |
+| `T-RLS-DOOR-01` | `pg_get_functiondef('kernel.mark_ticket_scanned')` **does not match** `is_transfer_frozen` | **§14.3.5 — the CRITICAL regression** |
+| `T-RLS-DOOR-02` | With an episode open and `is_transfer_frozen = true`, `record_scan` on an `active`, `resale_state='none'` atom ⇒ `result='admitted'`, atom `scanned` | §14.3.5 |
+| `T-RLS-DOOR-03` | The same on a second scan ⇒ `result='duplicate'`, atom stays `scanned` (C41 first-in-wins holds under freeze) | §14.3.5 |
+| `T-RLS-DOOR-04` | With session `status='completed'`, `record_scan` ⇒ `precondition_failed` — admission is gated by **session status, not manifest state** | §14.3.5 |
+| `T-RLS-DOOR-05` | `transfer_ticket_ownership` and `accept_p2p_transfer` for an atom of a frozen session ⇒ `frozen` | §14.3.6 |
+| `T-RLS-DOOR-06` | The routine `refund_primary_order → void_ticket_atom` path ⇒ `frozen`; `catalog.cancel_event` on the same session **succeeds** (exempt) | §14.3.3 |
+| `T-RLS-DOOR-07` | `sweep_paid_pending_sales` **compensate** branch succeeds on a frozen session; the **complete** branch is refused | §14.3.7 |
+| `T-RLS-DOOR-08` | `catalog.effective_freeze_at` returns **NOT NULL** for every row of a seeded fixture covering every status × nullability combination | §14.3.1 totality |
+| `T-RLS-DOOR-09` | A drained atom (p2p cancelled at open) then scans successfully — the end-to-end lockout regression | §14.3.8 |
+| `T-RLS-DOOR-10` | `venue_scanner`, a valid door session, `venue_box_office`, both finance labels, `platform_support` and `platform_risk` may not `open_door_manifest` ⇒ `42501`, and `door_open_at` is unchanged | O-4 |
+| `T-RLS-EDGE-01` | Every RPC in §11 whose authority names a human predicate raises when invoked with `auth.uid()` NULL — i.e. a service-role invocation **fails loudly instead of degrading** | **§3.1 EDGE-CALLER-JWT** |
+| `T-RLS-EDGE-02` | Every RPC marked `DEF` in §11 has **no** EXECUTE grant to `anon` or `authenticated` | §11 grant classes |
+| `T-RLS-POL-01` | `policies_are(schema, table, ARRAY[...])` for every object in §16.10 — an added, renamed or dropped policy fails CI | **GP-3** |
+| `T-RLS-POL-02` | The zero-policy list of §16.10 has RLS **enabled** and **zero** policies; no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2 |
+| `T-RLS-POL-03` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner` | GP-1, GP-3 rule 2 |
+| `T-RLS-COL-01` | `anon` holds **zero** rows in `information_schema.role_column_grants` for every empty-grant-set table of §6 | §6 tier 2 |
+| `T-RLS-COL-02` | `authenticated` holds **zero** rows in `role_column_grants` for the same set — *the assertion that would have caught the pre-068 `public.profiles` exposure* | §6 tier 2 |
+| `T-RLS-COL-03` | `authenticated` holds no SELECT on `kernel.wallet_pass.auth_token_enc` / `.auth_token_hash` / `.serial_no_opaque`; no `venue_*` or `org_*` role holds SELECT on any wallet table | §16.8 |
+| `T-RLS-COL-04` | `venue.door_manifest_entry` exposes **no** owner/identity column | §16.3 |
+| `T-RLS-ROLE-01` | The three role columns admit **exactly** the fifteen labels of §2.1, and reject every `org_*` label on the venue enum and vice-versa | C36 |
+| `T-RLS-ROLE-02` | No policy body and no RPC body contains a bare role-string comparison or a display name (`box_office`, `marketing`, `scanner`, `promoter`) | RM-2 |
+| `T-RLS-ROLE-03` | `kernel.assert_door_session` appears in **no** `pg_policy` expression | RM-5 |
+| `T-RLS-ROLE-04` | `has_venue_role`'s definition does not reference `venue.door_pin` | R-8 |
+| `T-RLS-ATTR-01` | No `venue.attribution` row exists while the order is `pending`, even with both candidates set | §9.17 |
+| `T-RLS-ATTR-02` | A **code-sourced** attribution (`link_id IS NULL`) **is** visible to its own promoter | §9.17 predicate correction |
+| `T-RLS-MONEY-01` | `org_admin` is denied SELECT and EXECUTE on every `kernel.payout` / `kernel.refund` path | §7.9/§7.10 |
+| `T-RLS-MONEY-02` | `approve_refund_request` by the requester raises **`self_approval`**, distinctly from a generic `42501` | §11.3 SoD |
+| `T-RLS-MONEY-03` | `request_org_payout` by `organization.payout_destination_set_by` raises `sod_violation` **after** the cool-down has elapsed | §11.3 SoD-1 |
+| `T-RLS-MONEY-04` | `venue_finance` reads only `cause='settlement'` payouts for its own venue and zero rows of every other cause | §7.9 note 15ᵈ |
+| `T-RLS-CRM-01` | No platform role can call `venue.request_export` | §11.6 |
+| `T-RLS-CRM-02` | A `venue_marketing` at V1 of Org 1 is denied at V2 of the same org; `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue | §11.6 grain |
+
+---
+
+## 17. Requests to the other integrators (recorded, not applied here)
+
+This document does not edit any file but its own. Each item below is a change another owner must make for the
+authority model above to be implementable.
+
+| # | To | Request |
+|---|---|---|
+| X-1 | **schema + migration plan** | `venue.order` gains `attribution_candidate_code_id` / `_link_id` (nullable, guard-triggered to `status='pending'`), and `venue.attribution` is written by `finalize_primary_order` — §9.17. Assert `pg_class.relforcerowsecurity = false` on the three authz tables in the venue-staff-roles package's staging verification (I-12). |
+| X-2 | **schema** | `venue.scan.actor_identity_id uuid NULL` + `CHECK (device_id IS NOT NULL OR actor_identity_id IS NOT NULL)`. Without it a `venue_scanner` grant is indistinguishable from a `venue_manager` grant in the ledger — the insider-fraud trail has a hole exactly where O-2 asks for least privilege. |
+| X-3 | **schema** | The three role columns as `text` + `CHECK`, not native enums, so the fifteen-label commitment stays correctable while the tables are empty (OD-6). |
+| X-4 | **edge integrator** | State the mirror of **§3.1 EDGE-CALLER-JWT** in the edge spec §3.4/§3.5. Both statements must exist — either document alone reads as describing the other's job. Also: the `promoter-code-preview` wrapper and its derived `uuidv5` principal (§11.8), and `kernel.record_money_denial` called **in a separate transaction** on `insufficient_privilege` / `sod_violation` / `step_up_required`. |
+| X-5 | **edge integrator** | The `door-session` edge function is the **only** way a scanner reaches the database. It must derive `p_actor_device_id` server-side and never accept an attested human actor. |
+| X-6 | **dashboard/RN integrator** | The export allow-list gains both marketing labels (audience template only) and the deny-list gains the four new denied labels (§11.6). Δ1's door-manifest role list drops the door principal (O-4). |
+| X-7 | **amendment owner** | C43's narrowing is `RATIFIED-MODELED-ONLY(GATE-M)`; four documents describe it as implemented. §14.3.2 states the MVP mechanism instead. If the board wants the narrowing in MVP it is a **new** ratification, not a clarification. |
+| X-8 | **amendment owner** | `kernel.approval_request`'s placement between Ticket Atom and the money plane in the global lock order: if a reviewer judges it an **aggregate class** rather than an intent record, the parked refund branch is a **sixteenth SSCAS member** and C28's closure needs a formal amendment. It is lock-ordered either way, so the amendment is a one-line ratification, not a redesign. |
+| X-9 | **traceability owner** | Every `T-RLS-*` id of §16.11 and every policy name of §16.10 needs a matrix row. |
 
 ---
 
