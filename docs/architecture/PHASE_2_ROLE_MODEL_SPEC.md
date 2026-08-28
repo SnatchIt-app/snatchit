@@ -353,9 +353,49 @@ word `scanner` was descriptive rather than nominative.
 
 ## 5. Master role × capability matrix
 
-**This matrix supersedes** `PHASE_2_RLS_PERMISSION_SPEC.md` §7.x/§9.x role rows and
-`SNATCH_IT_DOMAIN_ARCHITECTURE.md` §7.6 in their entirety. Every capability appearing in either source appears
-here, reconciled. Where the two sources disagreed, the disagreement is named in the Notes column.
+**This matrix supersedes** `PHASE_2_RLS_PERMISSION_SPEC.md` §7.x/§9.x role rows, **`PHASE_2_RLS_PERMISSION_SPEC.md`
+§11 (the EXEC table)**, and `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §7.6 **except its money rows**. Every capability
+appearing in any of those sources appears here, reconciled. Where two sources disagreed, the disagreement is
+named in the Notes column.
+
+> ### 5.0 THE SUPERSESSION ORDER, STATED AS A STRICT ORDER (`R-14`, record row `D6`)
+>
+> **The `§11` addition is `AUTHZ-H5`'s mechanism, corrected.** `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.14
+> **`R-14`** filed it: this clause named *"RLS §7.x/§9.x role rows and DA §7.6"* and **omitted §11 — the one
+> table that calls itself the authority model for every money and custody write.** Because no clause said
+> §5 governed §11, edit **`R-14` of §11.2 below** (a *lexical* `venue_door → venue_scanner` substitution
+> across §11) carried the old `venue_door` capability set onto `venue_scanner` unexamined **while this matrix
+> was independently rebuilding that set from O-2 and O-4.** The two diverged; §11 won at build time; three
+> §11.1 rows granted `venue_scanner` capabilities section E marks `·`. `PHASE_2_RLS_PERMISSION_SPEC.md` §11.0
+> now states the rule from its own side (`EXEC-DERIVED`) and `T-RLS-EXEC-01` asserts it mechanically. **A rule
+> that only the downstream document knows is the rule that was just violated**, so it is stated here too.
+>
+> **The `except its money rows` carve-out is ratification record row `D6`, not a narrowing of my own choosing.**
+> This spec's edit **`D-6`** (§11.7) instructed the integrator to **delete** DA §7.6 and replace it with a
+> pointer to this section. **That instruction was REJECTED** and the money spec's corrected matrix was applied
+> in place instead, because §5's money block is *transcribed from the frozen corpus, not decided* (§15), still
+> carries two `⚠` cells, and defers to the money-authority pass — so pointing the constitution here would have
+> deleted the only ratified statement of O-1/O-3 money authority and re-opened **B1** on the day **O-3** closed
+> it. DA §7.6 now carries a normative precedence note in the same terms.
+>
+> **The resulting order is strict and acyclic. Read top to bottom; each line governs every line below it.**
+>
+> | # | Authority | Governs |
+> |---|---|---|
+> | 1 | Ratified owner rulings (**O-1 … O-5**) and ratified constraints (**C36**, C9, C37, C39, C46 …) | everything below; nothing here is re-decided by any spec |
+> | 2 | `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §7.6 — **money rows only** (record `D6`) | this section's money block (**§5.3 B**, and the money cells of any other block) |
+> | 3 | **This section (§5.3)** — the twenty-principal capability matrix | DA §7.6's **non-money** capability detail · RLS **§7.x/§9.x** role rows · RLS **§11** (all of §11.1–§11.7) |
+> | 4 | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | the EXEC/GRANT surface only; it is **this section's roll-up**, never its source (§11.0 `EXEC-DERIVED`) |
+>
+> **No cycle exists, and the reason is that rows 2 and 3 partition DA §7.6 rather than overlap it.** DA §7.6's
+> money rows govern §5.3's money block; §5.3 governs DA §7.6's non-money rows. The partition is disjoint along
+> the same money/non-money line §15 already draws around this document's scope, so no statement sits both above
+> and below another. Row 4 points only upward. ∴ the relation is a strict partial order. ∎
+>
+> **`INFERENCE:`** the practical instruction that falls out, and the one an integrator must actually follow:
+> **never satisfy a §11 row by substituting a label into it.** Rebuild the row from the §5.3 cell for that
+> principal. A lexical rename is not a re-derivation, and until `T-RLS-EXEC-01` exists nothing in the corpus
+> can tell the difference.
 
 ### 5.1 Column key (20 principals)
 
@@ -375,7 +415,7 @@ here, reconciled. Where the two sources disagreed, the disagreement is named in 
 | `VMK` | `venue_marketing` | `has_venue_role(venue,['venue_marketing'])` |
 | `VPM` | `venue_promoter_manager` | `has_venue_role(venue,['venue_promoter_manager'])` |
 | `VSC` | `venue_scanner` (authenticated staff grant) | `has_venue_role(venue,['venue_scanner'])` |
-| `DOO` | **door session** (PIN + device; `auth.uid()` IS NULL) | `assert_door_session(device,session)` — §7 |
+| `DOO` | **door session** (device + PIN-minted **bearer token**; `auth.uid()` IS NULL) | `assert_door_session(device, session, door_session_id, token)` — §7; four arguments, **`AUTHZ-H3`** |
 | `PRO` | promoter (**relationship, not a role**) | `promoter_link.identity_id = auth.uid()` — §9 |
 | `PSU` | `platform_support` | `is_platform(['platform_support'])` |
 | `PRI` | `platform_risk` | `is_platform(['platform_risk'])` |
@@ -633,11 +673,57 @@ Four exist. Three are new. One changes meaning.
 | `kernel.has_org_role_over_venue(p_venue_id, p_roles[])` | **NEW** | `catalog.venue` → `kernel.org_member` | `has_org_role(catalog.venue.org_id, p_roles)` |
 | `kernel.has_org_role_over_event(p_event_id, p_roles[])` | **NEW** | `catalog.event` → `kernel.org_member` | `has_org_role(catalog.event.org_id, p_roles)` |
 | `kernel.is_org_affiliate(p_org_id)` | **NEW** | `kernel.org_member` | **any** row exists for `(p_org_id, auth.uid())`, regardless of role — §10 |
-| `kernel.assert_door_session(p_device_id, p_session_id)` | **NEW** | `venue.scan_device`, `venue.door_pin` | a valid, unexpired, unrevoked door session binds that device to that session — §7 |
+| `kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` | **NEW** — **signature CORRECTED (`AUTHZ-H3`)** | `venue.door_session` (by PK), `venue.scan_device`, `venue.door_pin` — all **live** | a valid, unexpired, unrevoked door session **whose token the caller actually holds** binds that device to that session. **Returns the bound `(device_id, event_session_id)`, not a boolean** — §7, and the canonical contract is `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d |
 | `kernel.is_promoter_for_event(p_event_id)` | **NEW** (Phase 2D) | `venue.promoter_link` | a live link exists for `(p_event_id, auth.uid())` — §9 |
 
 All are `SECURITY DEFINER`, owned by `postgres`, `search_path` pinned (066/067), `STABLE`, and read **live
 tables, never JWT claims** (C9 / RLS I-5).
+
+> **`SPEC CORRECTION` — `assert_door_session` gained two parameters, and the two it had proved the wrong
+> thing (`AUTHZ-H3`; filed as schema §13.7 `S-5`, record row `D12`).** This document originally registered
+> `kernel.assert_door_session(p_device_id, p_session_id)` — **two identifiers and no secret.** Its two reads
+> (`venue.scan_device.status='active'` and a live `venue.door_pin` for the session) are both **provisioning
+> facts, not possession facts**, and `venue.door_pin` carries **no device column**, so the PIN branch was
+> satisfied by *any* live PIN for that session, including one issued to a different device. On the
+> `service_role` door path RLS is bypassed entirely and this function is the only gate (§7.5), so the net
+> effect was that **anyone holding one live `(device_id, event_session_id)` pair — the two least secret values
+> in the system, both of which appear in manifests, dashboards and logs — reached all four door capabilities
+> unauthenticated**, and a session could not be revoked independently of its PIN because nothing consulted a
+> token.
+>
+> **The canonical signature and contract are `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d** (mirrored in RLS
+> §2.2, `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a, schema §3.10a and plan `086`). Read it there; it is not
+> restated here. Its four live clauses on **every** call: (1) the `venue.door_session` row resolves by PK and
+> is `active`, unexpired, and bound to this `(device_id, event_session_id)`; (2) `token_hash` matches under a
+> **constant-time** compare, with a **dummy compare on an unresolved id** so absent-id and wrong-token cost
+> the same; (3) `venue.scan_device.status='active'` — the old read, unchanged; (4) `venue.door_pin` live via
+> the row's `pin_id` — the old read, unchanged. **The fix removes no liveness check**: clauses 3 and 4 *are*
+> the two old reads, which is why a bearer token here does not reintroduce the door-JWT model §7.3 rejects.
+>
+> **The return type changed too, and that half is not cosmetic.** It returns the **bound**
+> `(device_id, event_session_id)` rather than a boolean, and every relay handler passes the *returned*
+> `device_id` onward as `p_actor_device_id` — never a value from the request. A boolean would leave the edge
+> free to fabricate a device id for the very next call, which is the identity the scan ledger records.
+> `p_device_id` survives **only** as a cross-check that must equal the bound value.
+>
+> **Every occurrence of the two-argument form in this document has been corrected** (§5.1 `DOO`, this table,
+> §6.3, §7.2, §8.1 `O4-6`, §11.2 `R-1`). Where an occurrence is historical it is marked as such and left
+> readable, per the convention schema §3.10a uses. **A two-argument `assert_door_session` found anywhere in
+> any branch, diff or printed copy is a defect in that copy, not a position.**
+
+> **Helper count — nine here, and the corpus does not agree with itself.** This table registers **nine**
+> helpers, and **RM-2** (§6.6) says nine, so this document is internally consistent.
+> `PHASE_2_RLS_PERMISSION_SPEC.md` §2.2 is headed *"the eleven predicate helpers"* while listing these same
+> nine, and its own §2.2b **RM-2** says nine — that spec records the discrepancy as unresolved and reports it
+> to its owner; `T-RLS-ROLE-02` enumerates *"the eleven helpers"* structurally and cannot be written until one
+> number is right. Separately, `PHASE_2_SPEC_FOUNDATION.md` §4 C36 now lists **eight** — the four originals
+> plus `has_org_role_over_venue` / `has_org_role_over_event` / `is_org_affiliate` / **`kernel.money_role_grant_matured(org_id)`**
+> — omitting `assert_door_session` (correctly: it is not a *role* predicate, RM-5) and `is_promoter_for_event`
+> (Phase 2D). **`kernel.money_role_grant_matured` is not registered here and must not be**: it is a
+> money-plane maturity predicate introduced by `AUTHZ-C1B` and owned by `PHASE_2_MONEY_AUTHORITY_SPEC.md`.
+> Edit **`F-3`** below filed three helpers and **no `F-4`**, so the authz pass added it to SPEC_FOUNDATION on
+> its own authority and reported the omission back. **Recorded, not resolved: the single canonical helper
+> count is owed by the RLS owner** — see §11.2 `R-18`.
 
 `INFERENCE:` `has_org_role_over_venue` and `has_org_role_over_event` are new because the corpus **describes**
 org→venue inheritance in prose but never names a helper for it. `VERIFIED`
@@ -674,8 +760,13 @@ USING (
 USING ( kernel.is_platform(ARRAY['platform_risk','platform_admin']) )
 
 -- DOOR SESSION — NOT an RLS predicate. Never appears in a USING clause.
--- Asserted inside a SECURITY DEFINER RPC, reachable only from the service_role edge path:
---   PERFORM kernel.assert_door_session(p_device_id, p_session_id);   -- raises on failure
+-- Asserted inside a SECURITY DEFINER RPC, reachable only from the service_role edge path.
+-- FOUR arguments, and it RETURNS the bound pair; it does not return a boolean (AUTHZ-H3, RPC §1.1d):
+--   SELECT device_id, event_session_id
+--     INTO v_device_id, v_session_id
+--     FROM kernel.assert_door_session(p_device_id, p_session_id,
+--                                     p_door_session_id, p_session_token);  -- raises on failure
+--   -- v_device_id is what the ledger records. NEVER p_device_id, which is only a cross-check.
 ```
 
 ### 6.4 Multi-venue `venue_manager` — the answer, and why there is no N+1
@@ -792,7 +883,13 @@ The door session token:
 
 - is minted **only** by a `door-session` edge function that validates `(device_id, pin_plain, event_session_id)`
   server-side, constant-time-compares against `pin_hash`, and checks `status='active' AND expires_at > now()`
-  and `scan_device.status='active'`;
+  and `scan_device.status='active'` — the edge route calls the definer RPC `venue.mint_door_session`, which is
+  **the only writer that creates a `venue.door_session` row** and re-validates PIN ↔ device ↔ session itself;
+- is a **non-secret selector plus a high-entropy verifier**, digest-bound to each other: the row's uuid PK
+  `door_session_id` is the selector, the ≥ 256-bit CSPRNG secret is the verifier, and only
+  `token_hash = sha256(door_session_id::text || ':' || secret)` is stored. The secret is returned once at mint
+  and never re-returned. **This is the artifact `assert_door_session` checks on every call** — without it the
+  gate proved provisioning and not possession (`AUTHZ-H3`; §6.2);
 - is bound to `(device_id, event_session_id, pin_id)` and carries a TTL that is **`min(configured TTL,
   door_pin.expires_at)`** — a door session can never outlive its PIN;
 - carries **no** Supabase `authenticated` role and **no** `auth.uid()`;
@@ -803,10 +900,11 @@ The door session token:
 
 **How it reaches the database.** The door client never talks to PostgREST. It calls the door edge function,
 which holds `service_role` and invokes the definer RPC with an explicit, server-derived
-`p_actor_device_id` — so the Postgres principal is `service_role` (a machine identity, exactly as
-`PHASE_2_RLS_PERMISSION_SPEC.md:52` requires) acting on a **server-validated** device assertion, never on a
-client claim. Inside the RPC, `kernel.assert_door_session(p_device_id, p_session_id)` re-checks the binding
-against the live tables and raises on failure.
+`p_actor_device_id` — so the Postgres principal is `service_role` (a machine identity, exactly as RLS §1.1
+requires) acting on a **server-validated** device assertion, never on a client claim. Inside the RPC,
+`kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` re-checks the
+binding against the live tables and raises on failure — **and `p_actor_device_id` is the `device_id` that
+call returned**, never the one the request supplied (`AUTHZ-H3` / `S-6`; canonical contract: RPC §1.1d).
 
 ### 7.3 The alternative I rejected, and why
 
@@ -902,7 +1000,7 @@ by a separate agent (`design/o5-door-lifecycle`). Nothing here designs the lifec
 | **O4-3** | **Move** the door-freeze time (`event_session.door_open_at`) | same as O4-1 | same as O4-1 | same as O4-1 |
 | **O4-4** | **Change event security configuration** | same as O4-1 | same as O4-1 | same as O4-1 |
 | **O4-5** | **Disable** a transfer freeze | `platform_admin` (step-up) — **OD-7** | everyone below platform, incl. all three O4-1 roles | `is_platform(['platform_admin'])` |
-| **O4-6** | **Scan / admit** against an already-open manifest | `venue_scanner`, **door session**, `venue_manager` | everyone else | `has_venue_role(v,['venue_scanner','venue_manager'])` OR `assert_door_session(d,s)` |
+| **O4-6** | **Scan / admit** against an already-open manifest | `venue_scanner`, **door session**, `venue_manager` | everyone else | `has_venue_role(v,['venue_scanner','venue_manager'])` OR `assert_door_session(d, s, door_session_id, token)` — four arguments, `AUTHZ-H3` |
 | **O4-7** | Sync the manifest to a device | `venue_manager` (any device), `venue_scanner` / door session (**own device only**) | everyone else | as O4-6, plus `device_id` binding |
 
 **Every one of O4-1 … O4-5 is privileged, audited, and server-side.** Each writes `kernel.admin_audit` in the
@@ -1074,7 +1172,7 @@ recurs. Line numbers are at `phase2/consolidation@11ea2eb`.
 
 | # | Section | Old | New |
 |---|---|---|---|
-| R-1 | §1.1 table, line 43 | ``| 9 | `v_door` (venue_door) | `authenticated`/door_pin device principal | `has_venue_role(venue_id,[venue_door])` or valid `venue.door_pin` for the session | venue/session |`` | ``| 9 | `v_sca` (venue_scanner) | `authenticated` | `has_venue_role(venue_id,[venue_scanner])` | venue |`` **plus a new row** ``| 9b | `door` (door session) | **none** — `service_role` edge path, `auth.uid()` IS NULL | `kernel.assert_door_session(device_id, session_id)` inside the RPC; NEVER an RLS predicate | device+session |`` |
+| R-1 | §1.1 table, line 43 | ``| 9 | `v_door` (venue_door) | `authenticated`/door_pin device principal | `has_venue_role(venue_id,[venue_door])` or valid `venue.door_pin` for the session | venue/session |`` | ``| 9 | `v_sca` (venue_scanner) | `authenticated` | `has_venue_role(venue_id,[venue_scanner])` | venue |`` **plus a new row** ``| 9b | `door` (door session) | **none** — `service_role` edge path, `auth.uid()` IS NULL | `kernel.assert_door_session(device_id, session_id, door_session_id, token)` inside the RPC — **four arguments**, `AUTHZ-H3`; NEVER an RLS predicate | device+session |`` |
 | R-2 | §1.1 table, line 45 | ``| 11 | `promo` (promoter) | `authenticated` | `has_venue_role(venue_id,[venue_promoter])` (enum label = `venue_promoter`) | venue |`` | ``| 11 | `promo` (promoter) | `authenticated` | `kernel.is_promoter_for_event(event_id)` / `promoter_link.identity_id = auth.uid()` — **a relationship, not a role**; holds NO row in `venue.staff_role` | event/row |`` |
 | R-3 | §1.1, lines 52-54 (the `promo ↔ venue_promoter` note) | ``> **`promo` ↔ `venue_promoter`.** The prompt's `promoter` is the C36 **venue-scope** `venue_promoter` label, tested by `has_venue_role`. It is NOT an org or platform role. …`` | ``> **`promo` is NOT a role.** `venue_promoter` was removed from the venue enum (ROLE_MODEL §9.1). A promoter's authority is row ownership over `venue.promoter_link` / `venue.attribution`, tested by `kernel.is_promoter_for_event` — never by `has_venue_role`, which returns false for every promoter. …`` |
 | R-4 | §1.1 table | **add 5 rows** | `org_marketing`, `org_promoter_manager`, `venue_box_office`, `venue_marketing`, `venue_promoter_manager`, each `authenticated`, each tested by the plane helper. Renumber. |
@@ -1089,8 +1187,58 @@ recurs. Line numbers are at `phase2/consolidation@11ea2eb`.
 | R-13 | §9.9 `venue.staff_role` | role list in the row labels | replace `venue_door/finance/promoter` with `venue_finance/box_office/marketing/promoter_manager/scanner`. |
 | R-14 | §11 EXEC table, line 1094-1102 | every `[venue_door, venue_manager]` / `[venue_door,venue_manager]` | `[venue_scanner, venue_manager]`; and for `venue.record_scan` / `record_offline_scans` / manifest-sync, add `OR a valid door session (service_role edge path, `assert_door_session`)`. |
 | R-15 | §11, line 1101 | `` | `venue.allocate_comp`/`issue_comp` | `has_venue_role([venue_manager])` OR org_owner/admin (step-up seam C39) | `` | **split into two rows**: `venue.allocate_comp` → `has_venue_role([venue_manager])` OR org_owner/admin; `venue.issue_comp` → `has_venue_role([venue_manager, venue_box_office])` OR org_owner/admin. Both C39-gated. |
-| R-16 | §11 | **add rows** | `venue.open_door_manifest` / `close_door_manifest` / `set_door_open_at` / `set_event_security_config` (O4-1…O4-4 authority); `venue.decide_flagged_attribution` (G5); `venue.read_operational_audit` (A6); `venue.list_attendees` (F11/F12); the CRM-export authorization (H2/H3). |
+| R-16 | §11 | **add rows** | **CORRECTED — see the ruling immediately below; the original wording ordered three functions built that later rulings deleted, re-homed or blocked.** `venue.open_door_manifest` / `venue.close_door_manifest` (O4-1/O4-2 authority); **`catalog.set_session_door_schedule`** (O4-3 — **NOT `venue.set_door_open_at`**, which does not exist: `AUTHZ-R1` / `S-7`); **`venue.set_event_security_config`** (O4-4) **only if owner ruling `S-13`/`R-21` schedules `catalog.event_security_config`** — while that ruling stands open the function is **`⛔ BLOCKED`** and no EXEC row may be written for it; **`venue.review_attribution_flag`** (G5 — **NOT `venue.decide_flagged_attribution`**, which is deleted: `AUTHZ-H10` / `R-13` / `X-14`); `venue.read_operational_audit` (A6); `venue.list_attendees` (F11/F12); the CRM-export authorization (H2/H3). |
 | R-17 | §15 | **add** | items resolved by this spec (role-set, scanner credential, door authority) with a pointer; retain items 1, 3, 4 (still open — OD-3/OD-4). |
+| **R-18** | §2.2 | **NEW — reported, not instructed** | §2.2's heading says *"the eleven predicate helpers"*, its body lists **nine**, its §2.2b **RM-2** says **nine**, and `T-RLS-ROLE-02` enumerates *"the eleven helpers"* structurally. **One number must win before that test can be written.** This document registers nine (§6.2) and is not the source of the eleven. **The RLS owner's call**, not mine; recorded so it is not lost between the two files. |
+
+> ### `R-16` RULING — THE ORIGINAL WORDING ORDERED THREE ABOLISHED FUNCTIONS BUILT (`R-13`/`X-14`, `S-7`, `S-13`/`R-21`)
+>
+> `R-16` is an instruction **to the RLS owner** to write EXEC rows. It was authored before the authz, schema
+> and plan remediation passes ruled on the functions it names, and **no remediation pass edited this file** —
+> so until now it still ordered three functions built that those passes deleted, re-homed or blocked. An EXEC
+> row is not inert documentation: §11 is *"the document an implementer follows"*, and each of these rows would
+> have re-created, by construction, the exact defect its ruling closed.
+>
+> **1. `venue.decide_flagged_attribution` (G5) — DELETED, not renamed.** `AUTHZ-H10`; filed against this row
+> by RPC §20.14 **`R-13`** and RLS §17 **`X-14`**, and applied here. The defect in the corpus's own words:
+> *"Two functions writing one append-only ledger under opposite authority meant the deny-list stopped nothing:
+> effective decision is `max(seq)`, so the conflicted party appends `release` at `seq+1`."* This row's
+> **whole purpose** was to give G5 its restrictive allow-list — both promoter-manager labels denied, §4.3's
+> separation-of-duties reasoning — and building a second writer is precisely what made that denial ornamental.
+> **`venue.review_attribution_flag` is the sole writer of `venue.attribution_review`** and now carries the
+> restrictive allow-list; `T-RLS-ATTR-04` / `T-RPC-AUTHZ-09` assert *exactly one function in `pg_proc` writes
+> that table*. Plan `090` never named the deleted function, **which is itself the evidence it was never
+> scheduled anywhere** — this row was the last live instruction to build it. §5.3 **G5** is unchanged: the
+> authority was always right; only the function name was wrong.
+>
+> **2. `venue.set_door_open_at` (O4-3) — RULED OUT in both grant classes.** `AUTHZ-R1` / O-5; filed against
+> §11.4 by schema §13.7 **`S-7`** and RPC §20.14 **`R-1`**, both now discharged **there** and neither applied
+> **here**. RLS §11.4's own ruling: *caller-authorized* it is unimplementable, because
+> `catalog.tg_door_open_at_is_ledger_head` raises unless `door_open_at = MIN(door_manifest.opened_at)`, so the
+> only way to succeed is first to insert a manifest episode — and that **is** `open_door_manifest`; what
+> remains is a function that always raises. *Definer-only* it gives **"a sole-writer property two writers"**,
+> and sole-writer is what makes *"the boundary cannot move backwards"* arithmetic rather than a rule someone
+> must remember. **The capability O4-3 reaches for is real and is re-homed, not dropped:** the row conflated a
+> **schedule** with a **ledger head**. `catalog.set_session_door_schedule` writes `doors_at` — the published
+> door time — and **never references `door_open_at`** (structural assertion `T-RPC-DOOR-23`).
+> `catalog.engage_door_freeze` remains the sole writer of `door_open_at` and appears in no other EXEC row.
+>
+> **3. `venue.set_event_security_config` (O4-4) — `⛔ BLOCKED`, and that is an OWNER decision, not mine.**
+> Schema §13.7 **`S-13`** / RPC §20.14 **`R-21`** / RLS **`MD-18`**: the function writes *"the per-event
+> door-config rows"* and **no such table exists in any package.** The two admissible resolutions are (a)
+> schedule `catalog.event_security_config` into `078` (`restricted` visibility per schema §2.4.1, since it
+> overrides `door.*`; append-only per version), or (b) rule the function out as `set_door_open_at` was, in
+> which case **§11.4's O4-4 EXEC row goes with it and `086` never names it.** **This spec does not choose**,
+> and neither does it invent the table — it is carried as **OD-11** (§13). What it *does* rule is the
+> narrower thing that is its own to rule: **while `S-13` is open, `R-16` must not instruct an EXEC row for
+> this function.** A row granting EXECUTE on a function with nowhere to write is unbuildable regardless of
+> which keys it accepts, and `086` must not schedule it.
+>
+> **The §5.3 authority rows are untouched by all three corrections.** O4-1…O4-4's allow-list — `org_owner`,
+> `org_admin`, `venue_manager`, every O-4 exclusion intact — is a ruling about *who*, and none of these three
+> findings is about *who*. What changed is **which function carries the authority**, which is why the
+> corrections land in §11 and §12 and not in §5.3 or §8.1. `F1`, `F2`, `F4` and `G5` all still read exactly as
+> ratified.
 
 ### 11.3 `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md`
 
@@ -1169,13 +1317,13 @@ recurs. Line numbers are at `phase2/consolidation@11ea2eb`.
 | 8 | `kernel.has_org_role_over_venue` | `NEW RPC` |
 | 9 | `kernel.has_org_role_over_event` | `NEW RPC` |
 | 10 | `kernel.is_org_affiliate` | `NEW RPC` |
-| 11 | `kernel.assert_door_session` | `NEW RPC` |
+| 11 | `kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` | `NEW RPC` — **signature corrected (`AUTHZ-H3` / `S-5`)**: four arguments, returns the bound `(device_id, event_session_id)`. The two-argument form is dead (§6.2). Canonical contract: RPC §1.1d |
 | 12 | `kernel.is_promoter_for_event` | `NEW RPC` (Phase 2D, with the promoter engine) |
 | 13 | `venue.open_door_manifest` / `close_door_manifest` (O4-1/O4-2 **authority only**) | `NEW RPC` — state machine owned by `design/o5-door-lifecycle` |
-| 14 | `venue.set_door_open_at` (O4-3) | `NEW RPC` — same boundary |
-| 15 | `venue.set_event_security_config` (O4-4) | `NEW RPC` — same boundary |
+| 14 | ~~`venue.set_door_open_at` (O4-3)~~ → **`catalog.set_session_door_schedule`** | **RULED OUT and RE-HOMED — `AUTHZ-R1` / O-5 / `S-7`.** `venue.set_door_open_at` **does not exist in either grant class**: caller-authorized it always raises against the ledger-head trigger; definer-only it gives a *sole-writer property two writers*. The O4-3 capability is real and is re-homed to `catalog.set_session_door_schedule`, which writes `doors_at` (a **schedule**) and never references `door_open_at` (a **ledger head**) — `T-RPC-DOOR-23`. `catalog.engage_door_freeze` stays the sole writer of `door_open_at`. Classification of the survivor: `NEW RPC` — same boundary |
+| 15 | `venue.set_event_security_config` (O4-4) | **`⛔ BLOCKED` — `S-13` / `R-21` / `MD-18`, an OWNER decision (`OD-11`).** It writes *"the per-event door-config rows"* and **no such table exists in any package.** Either `catalog.event_security_config` is scheduled into `078` (`restricted`, append-only per version) or the function is ruled out as `set_door_open_at` was — in which case §11.4's O4-4 EXEC row goes with it. **`086` must not schedule it while this stands.** Classification if unblocked: `NEW RPC` — same boundary |
 | 16 | `venue.issue_comp` split from `allocate_comp` (E6/E7) | `NEW RPC` (split of an existing contract) |
-| 17 | `venue.decide_flagged_attribution` (G5) | `NEW RPC` — venue dashboard Δ7; storage shape not mine |
+| 17 | ~~`venue.decide_flagged_attribution` (G5)~~ → **`venue.review_attribution_flag`** | **DELETED, not aliased — `AUTHZ-H10` / `R-13` / `X-14`.** Two functions writing one append-only ledger under opposite authority is two authorities, and `max(seq)` made the permissive one decisive. The survivor is the **sole** writer of `venue.attribution_review` and carries this function's restrictive allow-list (both promoter-manager labels denied, §4.3). Dashboard Δ7 and Δ4 are the same control. Classification of the survivor: `NEW RPC` — storage shape not mine |
 | 18 | `venue.read_operational_audit` (A6) | `NEW RPC` — venue dashboard Δ2 |
 | 19 | `venue.list_attendees` (F11/F12, column-scoped by role) | `NEW RPC` — venue dashboard Δ3 |
 | 20 | CRM export authorization split (H2 audience / H3 money) | `NEW RPC` (column projection on the existing export) |
@@ -1209,11 +1357,12 @@ recurs. Line numbers are at `phase2/consolidation@11ea2eb`.
 | **OD-3** | **`set_org_payout_destination`: `org_owner` only, or owner + finance?** `VERIFIED` RLS §11:1076 says owner only; DA §7.6:1765 says both. | **Money authority — O-1/O-3, branch `design/o1-o3-money-authority`.** Not mine. | None. Cell B1 left `⚠`. Flag to the money-authority agent. |
 | **OD-4** | **Settlement close: `org_finance`, `venue_finance`, or both?** `VERIFIED` RLS §15 item 3 flags it open; §9.13/§11 list both. | Money authority; close drives payout. | None. Cell B10 left `⚠`. |
 | **OD-5** | **May `venue_box_office` refund cash at the door?** C46 requires refund-at-door to run through an authenticated staff principal; box office is the natural candidate and is authenticated. | Money authority. O-2 gives box office no money authority; C46 implies *someone* authenticated must exist at the door. | None granted here. If the answer is yes, it needs its own cap, step-up and reason code — money-authority agent's call. |
-| **OD-6** | **`text` + CHECK instead of a native enum** for all three role columns. | Edits a frozen physical-schema statement, and the two frozen specs already contradict each other on it. | **Adopt CHECK.** It makes the "cannot be edited afterwards" risk false, at zero cost at this cardinality. §3.5. |
+| **OD-6** | **`text` + CHECK instead of a native enum** for all three role columns. | Edits a frozen physical-schema statement, and the two frozen specs already contradict each other on it. | **Adopt CHECK.** It makes the "cannot be edited afterwards" risk false, at zero cost at this cardinality. §3.5. **STATUS: ADOPTED downstream.** Schema §3.9/§1.3 now specify `text` + `CHECK` for all three role columns, and plan `077` asserts `pg_type.typtype='e'` returns **zero** rows across the four Phase-2 schemas (`T-SCHEMA-ROLE-02`) — no native enum exists anywhere in the model. Recorded here so the row is not re-opened; the owner ratification of the recommendation is still the owner's to give. |
 | **OD-7** | **Who may disable a transfer freeze?** O-4 says not the scanner; it does not say who may. | The freeze is platform-wide custody state. | `platform_admin` under step-up. Placed there provisionally (F3/O4-5). |
 | **OD-8** | **Break-glass for the door.** If `door_open_at` is mis-set and no manager is reachable, the door cannot open under O-4. | A product/ops risk trade-off, not a role-model one. | Ship without it; scheduling + remote org-plane action should cover it. Revisit if it bites. §8.2. |
 | **OD-9** | **Rename the label `org_member` → `org_affiliate`?** | Cosmetic; O-2 says `org_member` may remain. | **Do not rename.** §10 resolves the ambiguity by naming the *other* concept. Listed only so the alternative is on the record. |
 | **OD-10** | **Phase-2 migration package numbering collides with the repo.** `VERIFIED`: `supabase/migrations/` already contains `073`, `074`, `075`, while `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §1 allocates `073–088` to Phase 2. The plan is **also internally inconsistent**: §1's table says `076` creates `venue.staff_role`, but the package header at `:491` is `077_venue_staff_roles_and_predicates` with its rollback labelled `076_*`. The ruling request refers to yet a third mapping (`077` org roles, `080` venue staff roles). | Renumbering is a different agent's scope — branch `phase2/renumber` exists. | **Not resolved here.** This spec deliberately refers to packages **by name**, never by number, so it survives any renumbering. Flagged so it is not lost. |
+| **OD-11** | **Does `venue.set_event_security_config` (O4-4) exist at all?** It writes *"the per-event door-config rows"* and **no such table exists in any package** (schema §13.7 `S-13`, RPC §20.6.6 `⛔ BLOCKED` / §20.14 `R-21`, RLS `MD-18`). | The two admissible answers have different consequences for a **ratified O-4 authority row**, and inventing the table at build time is exactly what `S-13` refuses. Not a role-model question: O-4 settled *who*, and this is *whether the object of that authority exists*. | **None — recorded, not decided.** Either (a) schedule `catalog.event_security_config` into `078` (`restricted` visibility per schema §2.4.1, append-only per version) and O4-4 stands as ratified, or (b) rule the function out as `venue.set_door_open_at` was, in which case §5.3 **F4** loses its RPC, RLS §11.4's O4-4 EXEC row goes with it and `086` never names it. **While it stands open, §11.2 `R-16` must not instruct an EXEC row for it and §12 row 15 is `⛔ BLOCKED`.** |
 
 ---
 
