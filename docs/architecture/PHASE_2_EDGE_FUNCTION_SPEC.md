@@ -498,18 +498,102 @@ specified against that fact, and it is why §0.4 puts them on opposite sides of 
 
 #### 3.9a `door-session` — mint + validate the loginless door session — **NEW EDGE** (role model §12 rows 21–22)
 
-- **Method:** `POST`. **verify_jwt:** `false`. **Auth model: Class B (B-iii)** — the credential is a
-  `venue.door_pin`, a deliberately weak, expiring, revocable, **loginless device credential**. There is no JWT
-  and no `auth.uid()` to preserve, so EA-1 has nothing to attach to; the function's own PIN check **is** the
-  authority, and `kernel.assert_door_session(p_device_id, p_session_id)` is the DB-side predicate.
-- **Routes (same function, separate paths):** mint a session from a PIN + device; validate/refresh it; and
-  relay scan / manifest-sync / offline-batch calls to the definer RPCs (`venue.get_door_manifest`,
-  `venue.record_scan`, `venue.reconcile_offline_scans`).
-- **EA-5 obligations, all mandatory:** PIN compared **constant-time** (`timingSafeEqual`, I-9); the session
-  authorizes **one device bound to one session** — never an account, never another session, never a venue;
-  `check_rate_limit` on the PIN attempt keyed by device, fail-closed; **an unknown device and a wrong PIN
-  return the same status with the same timing budget**; a revoked PIN fails on the **next** call (this is the
-  property a JWT would destroy — role model §7.3 rejects a door JWT for exactly this reason).
+> **`SPEC CORRECTION` — H-3. The door session proved provisioning, not possession.** As specified, the session
+> "credential" was **nothing the device held**. `kernel.assert_door_session(p_device_id, p_session_id)` read
+> `venue.scan_device` and `venue.door_pin` and took **no PIN, no token, no nonce**; the role model posits a
+> *"door session token — the bearer artifact the device actually holds"* and **no `door_session` object existed
+> anywhere** in the schema spec, the migration plan or the package registry. So the device id arrived as an
+> **untrusted parameter** on a `verify_jwt: false` function holding the service-role key, and every
+> anti-enumeration obligation was attached to the **PIN attempt** — none to a relay call. Consequences:
+> **anyone knowing one live `(device_id, event_session_id)` pair reached admission unauthenticated**, and a
+> session could not be revoked independently of the PIN because nothing consulted a token. This is the path the
+> RPC spec itself describes as *"RLS is bypassed entirely and this function is the only gate."*
+> **§3.9a below is that gate, specified.**
+
+- **Method:** `POST`. **verify_jwt:** `false`. **Auth model: Class B (B-iii)** — two credentials, in sequence,
+  and they are not interchangeable. The `venue.door_pin` is a deliberately weak, expiring, revocable,
+  **loginless provisioning credential**: it is presented **once**, to mint. Everything afterwards is
+  authorized by the **door session token** — the bearer artifact the device actually holds. There is no JWT
+  and no `auth.uid()` to preserve, so EA-1 has nothing to attach to; the DB-side predicate is
+  `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` and **it is the only gate**.
+- **Routes (same function, separate paths):** `/mint` (PIN + device → token); `/refresh` (token → extended
+  token); and the relay routes `/manifest/sync`, `/scan`, `/offline-batch` to the definer RPCs
+  (`venue.get_door_manifest`, `venue.record_scan`, `venue.reconcile_offline_scans`).
+
+##### The door session token — bearer format, issuance, verification
+
+- **Format.** `Authorization: DoorSession <session_ref>.<secret>`.
+  - `session_ref` — 128 bits of CSPRNG, base64url. A **lookup handle, not a secret**; unique-indexed; may
+    appear in logs and traces.
+  - `secret` — **256 bits of CSPRNG**, base64url. Returned **once**, at mint, and never re-returned by any
+    route.
+  - **Stored:** `token_hash = sha256(session_ref || ':' || secret)` only — never the plaintext, never
+    reversibly encrypted. Binding `session_ref` into the digest means a secret harvested from one row cannot be
+    replayed against another ref.
+  - **Never in a URL, query string, or redirect.** Never logged, never in Sentry context, never in a scan
+    payload. On the device it lives in the OS secure store (Keychain / Keystore — RN `SecureStore`, the H-5
+    posture), never in `AsyncStorage`.
+- **Issuance (`/mint`).** Body `{ venue_id, event_session_id, device_id_claim, pin }` — **all untrusted**.
+  The function rate-limits the attempt (below), compares the PIN **constant-time** (`timingSafeEqual`, I-9),
+  and calls the definer RPC `venue.mint_door_session(...)`, which re-validates PIN ↔ device ↔ session
+  **server-side** and returns `{ session_ref, secret, expires_at, bound_device_id, bound_session_id }`. The
+  edge asserts nothing on its own and derives no authority from the body.
+- **Verification (every other route).** Split the header on the last `.`, look the row up by `session_ref`,
+  and compare digests **constant-time**. When the ref does not resolve, the function performs a **dummy
+  compare against a fixed decoy digest** so the absent-ref and wrong-secret paths cost the same. Verification
+  happens **inside `kernel.assert_door_session`**, not in the edge, so no second implementation can drift from
+  it and no plaintext leaves the DB boundary.
+- **Binding.** One token ⇔ **one `(device_id, event_session_id)` pair**. Never an account, never a venue,
+  never a second session, never a role. Presenting a valid token with a different `p_session_id` is a hard
+  refusal, not a fallback.
+- **TTL.** `expires_at := LEAST( now() + config('door.session_ttl_interval'), pin.expires_at,
+  session_end + config('door.session_post_session_grace') )`. `/refresh` extends from `now()` under the same
+  `LEAST`, **without rotating the secret** (rotating it would strand a device that is about to go offline),
+  and is itself capped: no session may live past `issued_at + config('door.session_absolute_max_interval')`.
+  Past the absolute cap the device must re-enter a PIN. A refresh is not an extension of authority — it is a
+  re-assertion that the PIN and the session are both still live, re-read at that moment.
+- **Revocation — three paths, all effective on the *next* call.**
+  1. `venue.revoke_door_pin` **MUST cascade**: every `door_session` minted from that PIN is revoked in the
+     same transaction. **Without the cascade, revoking a PIN leaves live bearer tokens behind** — which is
+     H-3 reproduced one level up, and it is the single most important line in this subsection.
+  2. `venue.revoke_door_session(p_session_ref, p_reason_code)` — a lost or stolen device, without disturbing
+     the PIN every other door is using.
+  3. `venue.close_door_manifest(..., 'device_recall')` **should** revoke the session's tokens (recommended).
+  Revocation lands on the next relay call because **every** relay call re-reads the row (below). This is the
+  property a JWT would destroy — role model §7.3 rejects a door JWT for exactly this reason, and it is only
+  actually true once something the device holds is checked on every call.
+
+##### Per-relay-call obligations (BINDING — a relay call is not a lesser call than a PIN attempt)
+
+Every call to `/manifest/sync`, `/scan` and `/offline-batch` MUST:
+
+1. **Present the token.** No `Authorization: DoorSession` header ⇒ refuse before any DB work beyond the
+   limiter. There is no unauthenticated relay route.
+2. **Call `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` on every call** —
+   never cache the result across calls, never across the items of an offline batch. Caching is what converts
+   "revoked on the next call" into "revoked eventually".
+3. **Take the device id from the assert's return value, never from the request.** `assert_door_session`
+   returns the **bound** `device_id` and `event_session_id`; the edge passes that returned device id to
+   `venue.record_scan` / `venue.reconcile_offline_scans` as **`p_actor_device_id`**. A `device_id` in the
+   request body is **ignored**; if it is present and disagrees with the bound value, the call is refused and a
+   Sentry event raised — that shape is an attack, not a client bug. **(EA-6: no function passes an actor, a
+   role, or an authority assertion as an RPC parameter — the device id was exactly such an assertion.)**
+4. **Match the session.** `p_session_id` must equal the token's bound session; otherwise refuse.
+5. **Be rate-limited fail-closed, per route**, on the derived principal (§7's derived-principal rule):
+   `check_rate_limit(uuidv5(NS_DOOR_SESSION, session_ref), '<route>', …)`. The PIN attempt uses a **different**
+   principal, `uuidv5(NS_DOOR_PIN, venue_id || ':' || device_id_claim)`, so PIN grinding and relay abuse have
+   separate budgets and neither can exhaust the other.
+6. **Leak nothing by shape or by clock.** Unknown ref · wrong secret · expired · revoked · session mismatch ·
+   unknown device return the **same status, the same body, and the same timing budget**. The obligation that
+   previously sat only on the PIN attempt now sits on every route.
+7. **Touch `last_seen_at`**, and emit a per-`session_ref` and per-device 401 counter to Sentry — a device
+   whose token starts failing is either recalled or being replayed, and both are worth seeing.
+8. **Never log the token.** The `session_ref` may be logged (it is a handle); the secret and the full header
+   may not, in any stage line, error path, or Sentry context.
+
+**Structural gate.** Every relay handler's **first** DB call is `assert_door_session`. Asserted the way §0.3's
+T-1…T-6 are asserted — a handler that reaches `record_scan` without it fails CI, because on this function
+there is no RLS behind the mistake.
 - **RM-5 (binding, role model §6.6): a door session is never an RLS predicate.** Everything the door reaches,
   it reaches through a definer RPC gated on `assert_door_session`.
 - **What the door session may NOT do (O-4, role model §5 F1–F4, §8.2):** open or close the door manifest, move
@@ -517,6 +601,25 @@ specified against that fact, and it is why §0.4 puts them on opposite sides of 
   create the security boundary it scans against.** There is **no Open control in the scanner** — absent, not
   disabled (door §11.2). It also holds **no** consumer capability of any kind: no `auth.uid()` ⇒ no owned rows.
 - **Secrets:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`. **Package:** `086` (scan package).
+  **No token material in env** — the token is minted per device, per session, and lives only in
+  `venue.door_session.token_hash`.
+
+##### What §3.9a needs from the schema / RLS / RPC specs — `REPORTED, NOT MADE HERE`
+
+This spec owns the edge contract; it does not own the tables or the RPC signatures. The design above is
+**unimplementable without all five** of the following, and they are reported to their owners:
+
+| # | Owner document | Change |
+|:-:|---|---|
+| 1 | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` (+ migration plan pkg **`086`**, package registry) | **NEW TABLE `venue.door_session`** — `door_session_id` uuid PK; `session_ref` text **UNIQUE** not null; **`token_hash` text not null**; `device_id` uuid not null FK→`venue.scan_device`; `event_session_id` uuid not null FK→`catalog.event_session`; `venue_id` uuid not null; `pin_id` uuid not null FK→`venue.door_pin` (the cascade key); `issued_at`, `expires_at`, `last_seen_at`, `revoked_at` nullable, `revoke_reason_code` nullable. Partial index on `(device_id, event_session_id) WHERE revoked_at IS NULL AND expires_at > now()`. **`token_hash` and `session_ref` granted to `service_role` only; no client role reads this table at all.** AO-with-forward-transitions (revoke is the only UPDATE). |
+| 2 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d | **Signature change:** `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)`, and it **returns the bound `(device_id, event_session_id)`** rather than a boolean. `p_device_id` is retained only as a cross-check that must match the bound value — **never** as the source of the device identity. Constant-time digest compare inside the function, with a dummy compare on an unresolved ref. |
+| 3 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4 / §9.5 | **`venue.record_scan` and `venue.reconcile_offline_scans` gain a distinct `p_actor_device_id`**, supplied from `assert_door_session`'s return value, so the device id stops being a client-supplied claim. (The traceability matrix already names this as **X-5** for `door-session`: *"it must derive `p_actor_device_id` server-side"*.) |
+| 4 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` (new) | **`venue.mint_door_session(p_venue_id, p_session_id, p_device_id_claim, p_pin, p_command_key)`** and **`venue.revoke_door_session(p_session_ref, p_reason_code)`**, both `DEF`; and **`venue.revoke_door_pin` MUST cascade** to every session minted from that PIN, in the same transaction. |
+| 5 | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | EXEC rows for `mint_door_session` / `revoke_door_session` (`service_role` / `venue_manager` respectively), and **`venue.door_session` as an audit-only matrix** — RLS on, zero policies, `REVOKE ALL FROM anon, authenticated`. **RM-5 still holds: `assert_door_session` appears in no `pg_policy`.** |
+
+**Not requested, deliberately:** no change to the ticket atom, the ownership log, the transfer engine, the
+payment core, SSCAS membership, or the lock order. `venue.door_session` is a new leaf table on the door plane
+and joins no custody sequence.
 
 #### 3.9b `door-manifest` — sign the M2 ticket manifest — **NEW EDGE (OPTIONAL)** (Door §16 OQ-7)
 
@@ -1093,7 +1196,7 @@ flowchart TB
 | `crm-export` `/download` | POST | true | **A** | live re-check of the export allow-list at download time (EX-4) | `venue.authorize_export_download` | Storage signed URL (300s) | n/a | `087` |
 | `crm-export` `/build` | POST | **false** | **B-i/B-iii** | `service_role` only; authority re-derived from the **job row's** actor + scope | `venue.build_export_rows` → `venue.finalize_export` | Storage upload | claim lease + `UNIQUE(requested_by, command_key)` | `087` |
 | `promoter-code-preview` | POST | **false** | **A** *(when a JWT is present)* | none — read-only advisory; grants nothing | `venue.preview_promoter_code` | — | n/a (idempotent read) | `090` |
-| `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session)`; **no `auth.uid()` exists** | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
+| `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session, **session_ref, token**)` on **every** relay call; **no `auth.uid()` exists**; device id **derived from the assert**, never from the request (`p_actor_device_id`) | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
 | `door-manifest` *(optional)* | POST | true / **false** | **A** *(staff JWT route)* · **B-iii** *(PIN route)* | `has_venue_role([venue_scanner,venue_manager])` **or** a valid `door_pin` | `venue.get_door_manifest` | KMS sign | deterministic over the digest | `086` |
 | `wallet-pass-issue` | POST | true | **A** | atom current owner (`auth.uid()`, C35) | `kernel.mint_wallet_pass` | KMS sign + storage | RPC `command_key`; re-issue returns the same serial | `084` |
 | `wallet-pass-webservice` | GET/POST/DELETE | **false** | **B-i/B-iii** | per-pass `authenticationToken`, constant-time, **one serial only** | `get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` · `list_updated_wallet_passes` | KMS sign (rebuild) | natural (reads/upserts) | `084` |

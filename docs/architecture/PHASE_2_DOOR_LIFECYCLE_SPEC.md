@@ -1125,6 +1125,14 @@ claimed manifest actually existed and covered the atom.
 | `door.manifest_ttl_interval` | interval | `'12 hours'` | episode `not_after` horizon |
 | `door.manifest_early_open_window` | interval | `'12 hours'` | how far before doors an episode may be opened |
 | `door.max_override_interval` | interval | `'2 hours'` | hard ceiling on an override's TTL |
+| **`door.session_ttl_interval`** | interval | `'12 hours'` | door-session token lifetime, extended by `/refresh` (edge §3.9a). One door shift |
+| **`door.session_absolute_max_interval`** | interval | `'24 hours'` | hard cap from `issued_at`; past it the device re-enters a PIN. A refresh loop may not turn a shift credential into a permanent one |
+| **`door.session_post_session_grace`** | interval | `'4 hours'` | a token may not outlive the session it is bound to by more than this — covers late reconciliation of an offline batch without leaving a live credential for a finished show |
+
+The three `door.session_*` keys are the H-3 fix's operational surface (edge §3.9a). They bound a **bearer
+credential**, so they are tightening-only in the same sense as the money namespaces: **lowering any of them may
+execute directly; raising one requires the second approver** (RLS §11's direction asymmetry). A security
+control that is hard to tighten in an incident is a liability; one that is easy to loosen quietly is worse.
 
 **Cross-config invariant (`SPEC CORRECTION`, load-bearing for §16 OQ-5).**
 
