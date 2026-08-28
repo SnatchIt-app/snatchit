@@ -1,7 +1,38 @@
 # Phase 2 — Money Authority Specification (Refund + Payout)
 
-**Status:** BUILD-READY DELTA SPEC. **Design-only — no SQL, no migrations, no implementation code.** Snippets
-inside this document are illustrative predicate prose, never DDL to copy.
+**Status:** BUILD-READY DELTA SPEC — **LIVE, not superseded.** **Design-only — no SQL, no migrations, no
+implementation code.** Snippets inside this document are illustrative predicate prose, never DDL to copy.
+
+> **RECONCILIATION BANNER (`AUTHZ-C1A` / `AUTHZ-C1B`; ratification rows `D13` · `D14` · `C73`).**
+> **This document was excluded from the authz remediation pass that produced ratification rows C57 and C58,
+> and until this pass it still stated the C-1a defect as its contract.** §6.2 branched the approval authority
+> on `pending_approval` vs `pending_platform_review` — **two strings that are §6.1's return statuses and are
+> stored nowhere** — so an implementer working from this file alone would have built a branch that routes
+> **every** parked refund to the org arm, including the above-ceiling and consumed-atom cases the tier table
+> deliberately sends to platform review. §6.6 defined the approval object with no tier column; §6.7 listed
+> three added preconditions on `request_org_payout` and no grant-maturity conjunct; §8 contracted
+> `set_org_payout_destination` without one. **All four are reconciled here** onto
+> `(action, required_approver_class)` and `kernel.money_role_grant_matured(org_id)`, matching
+> `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.1/§17.2/§17.7 and `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md`
+> §1.13.2/§1.13.3. The itemized list of what changed is **§13**.
+>
+> **Why this file is live rather than retired** — stated because a reader may reasonably ask why a document a
+> remediation pass skipped is still authority. `ARCHITECTURE_FREEZE.md` lists it by path in the covered set as
+> an **owner-ruling delta (O-1, O-3)**, *"same tier as the implementation specs in the authority order …
+> and covered by Rule 1"*. It is the ratified design behind record rows **O-1** and **O-3**. Record row **D6**
+> applied **this document's** corrected §7.6 money matrix into the constitution and **rejected** the competing
+> instruction from the role-model spec. And it is cited as live authority by RLS §11.3 (*"money spec §2.3 —
+> replaces the corresponding §11.1 rows"*), by RPC §17.2 (*"The money spec §7.3 says…"*) and by schema §1.13
+> (*"MONEY §6.6, §12 ADDITIVE-1"*). It carries no supersession banner and does not sit under `_superseded/`.
+> **It is therefore reconciled, never retired** — retiring it would delete the only ratified statement of §4
+> read scoping, §5 request-vs-execute, §7 thresholds and §8's control set, which no sibling document covers.
+>
+> **Which side was conformed to which, and why.** RPC §17.x is treated as authority for the authority branch
+> because it carries the `AUTHZ-C1A` / `AUTHZ-C1B` remediation tags ratified as **C57** and **C58**, and this
+> document carried none: one side states a **ratified correction**, the other states **the text that
+> correction replaced**. That is a reading of the ratification record, **not** a precedence ruling between
+> delta specs — **no such rule exists in the corpus**, which is why the defect survived. The gap is recorded
+> as row **C73**, open decision **O11**, and is an **OWNER decision this pass does not make**. See §13.2.
 
 **Purpose.** Resolve the ratified owner rulings **O-1 (refund authority)** and **O-3 (payout visibility /
 requests)** against the frozen constitutions, and produce the exact corrected text that a later integration
@@ -15,9 +46,9 @@ pass drops into `PHASE_2_RLS_PERMISSION_SPEC.md` §7.9/§7.10/§11 and `SNATCH_I
    §7.4 SoD, §7.5 step-up, §7.6 permission matrix, §3.1 ticket state machine, §10.5.
 4. `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` — §1.1 Payout/Refund/Admin-Audit, §15 C12 SSCAS +
    global lock order, C28 closure-at-fifteen.
-5. `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — §1.2, §1.5, §1.8, §1.9, §1.10, §1.12, §2.4, §3.7, §3.8, §3.13.
+5. `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` — §1.2, §1.5, §1.8, §1.9, §1.10, §1.12, §2.4, §3.7, §3.8, §3.13, **and §1.13 / §1.13.2 / §1.13.3 / §1.13.4 — the physical definition of `kernel.approval_request` and of `kernel.org_member.granted_at`, which govern §6.6 and §6.7 of this document** (`D13`).
 6. `docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md` — §7.9, §7.10, §11, §15.
-7. `docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md` — §0 conventions, §7, §10, §11.
+7. `docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md` — §0 conventions, §7, §10, §11, **and §17.1 / §17.2 / §17.7, which carry the `AUTHZ-C1A` / `AUTHZ-C1B` remediation this document is reconciled to. The *defining* contract of `kernel.money_role_grant_matured` belongs to that spec's §1 predicate-helper substrate (§1.1 … today §1.1d) and is NOT written here** (`D13`; see §6.7a for the reference and the four properties this document depends on).
 8. `docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md` — §3.4, §3.5, §9.1 (OBS-1).
 9. `docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` — §5, §13, §14, §21, §22.1/§22.3.
 10. `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` — C28, C29/C30/C31 (Gate M), OBS-1.
@@ -525,8 +556,16 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   `catalog.cancel_event`, and `dispute`/`admin_action`/`auto_compensation` are platform/system causes
   (schema §1.10) and are **rejected** from this entry point for org and buyer callers.
 - **Server-derived.** `p_actor := auth.uid()`; `org_id := venue.order.org_id` (a real column — the client never
-  supplies the org); the covered-atom set; `expected_amount`; the tier; every threshold from
-  `catalog.platform_config` at its current version, **pinned onto the request row** (§7.4).
+  supplies the org); the covered-atom set; `expected_amount`; the tier; **`required_approver_class`**; every
+  threshold from `catalog.platform_config` at its current version, **pinned onto the request row** (§7.4).
+- **`required_approver_class` is WRITTEN HERE, and it is the only thing that carries the tier forward
+  (`AUTHZ-C1A`; RPC §17.1, schema §1.13.2).** The `Outcome` strings in the tier table below —
+  `pending_approval`, `pending_platform_review` — are **this function's return values and are stored
+  nowhere**: `kernel.approval_request.state` is `pending · approved · denied · cancelled · expired · stale`.
+  The tier is persisted as `required_approver_class ∈ {org, platform, platform_admin}`, set server-side from
+  the same evaluation that produced the matching row of the table, **pinned exactly as `config_versions` is**
+  (a later config change may no more re-class a parked request than re-tier one), **never a parameter and
+  never derived from `payload`**.
 - **Preconditions.**
   1. Order `status ∈ {paid, partially_refunded}`.
   2. Buyer/order/org relationship verified server-side from live tables (O-1's explicit requirement).
@@ -539,14 +578,26 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   7. For the parked branch only: `NOT kernel.is_transfer_frozen(atom)` for every atom — else `frozen`.
 - **Tier decision (server-side, from config — §7.2).**
 
-  | Condition | Outcome | Effect |
-  |---|---|---|
-  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | direct |
-  | org caller, `p_amount_minor ≤ refund.org_auto_execute_max_minor`, no consumed atom | `executed` | direct |
-  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | park + hold |
-  | any consumed (scanned) atom, and `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | park + hold |
-  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | park + hold |
-  | any consumed atom, and `refund.scanned_atom_policy = 'refuse'` | `rejected` | none |
+  | Condition | Outcome (**returned**) | `required_approver_class` (**stored**) | Effect |
+  |---|---|---|---|
+  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
+  | org caller, `p_amount_minor ≤ refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
+  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
+  | any consumed (scanned) atom, and `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | **`platform`** | park + hold |
+  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
+  | any consumed atom, and `refund.scanned_atom_policy = 'refuse'` | `rejected` | *(none)* | none |
+
+  **The consumed-atom row takes precedence over the amount rows.** A scanned atom routes to `platform` **even
+  when the amount is below `refund.org_dual_control_max_minor`** — the trigger for platform review is the
+  *consumed custody*, not the size. Stated explicitly because a table read top-to-bottom produces the opposite
+  result: the org-amount row matches first and the collusion shape §5.4 Race 3 exists to surface is handed to
+  the org arm. Identical to RPC §17.1's statement of the same table.
+
+- **Grant maturity on the org arm (`AUTHZ-C1B`).** An `org_owner`/`org_finance` caller must additionally
+  satisfy `kernel.money_role_grant_matured(order.org_id)` — see §6.7a. **It binds the REQUESTER, not only the
+  approver:** SoD-2 is a pair, and a control applied to one half of a pair is applied to neither. Failure is
+  **`sod_violation`**, not `insufficient_privilege` — the role is genuinely held, and a permission error sends
+  the operator to re-check a grant that is correct.
 
 - **Locks & order.** **Order** (`FOR UPDATE`) → **Ticket Atom(s)** ascending `ticket_atom_id` → **Approval** →
   **Payment** (`FOR UPDATE` on `public.payments` for the sum guard). Conforms to the global lock order with
@@ -557,15 +608,20 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   *Executed branch* — delegates to `kernel.refund_primary_order` in the same txn (definer→definer); that
   function alone writes `kernel.refund`, drives `kernel.void_ticket_atom` per voidable atom, updates
   `venue.order`, returns inventory, and writes `refund.issue` audit. **This function writes no money row.**
-  *Parked branch* — `kernel.approval_request` (INSERT, state `pending`), `kernel.tickets.resale_state :=
+  *Parked branch* — `kernel.approval_request` (INSERT, state `pending`, **with `required_approver_class`,
+  `subject_kind='order'` and `subject_id := p_order_id`** — the `action ↔ subject_kind` pairing CHECK of
+  schema §1.13.3 is satisfied here, not assumed), `kernel.tickets.resale_state :=
   'refund_hold'` on each covered voidable atom, `kernel.admin_audit` (`refund.request`).
 - **Idempotency.** `p_command_key` unique per `(actor, key)` on `kernel.approval_request`; the executed branch
   inherits `kernel.refund.idempotency_key`. Replay returns the original outcome, never a second refund.
 - **Result.** `{ status ∈ {executed, pending_approval, pending_platform_review, rejected, noop_replay},
   refund_id?, request_id?, amount_minor, atoms_voided[], atoms_not_voided[{atom_id, reason}], tier,
-  approval_required_role? }`.
-- **Errors.** `insufficient_privilege(42501)` · `precondition_failed` · `custody_moved` · `conflict_locked` ·
-  `frozen` · `not_found` · `over_refund` · `policy_violation` (reason code not permitted for this caller).
+  required_approver_class? }` — **`approval_required_role` is RENAMED to `required_approver_class`** so the
+  returned value and the stored column are the same word (RPC §17.1). **Two names for the same fact is how
+  the tier went missing in the first place.**
+- **Errors.** `insufficient_privilege(42501)` · **`sod_violation`** (grant immature) · `precondition_failed` ·
+  `custody_moved` · `conflict_locked` · `frozen` · `not_found` · `over_refund` · `policy_violation` (reason
+  code not permitted for this caller) · `step_up_required` · **`step_up_unavailable`** (`AUTHZ-M4`; RPC §17.7).
 - **Forbidden.** Any client writing `kernel.refund` directly; `org_admin`; venue roles; a buyer refunding
   another buyer's order; any caller supplying an `org_id` or an actor.
 
@@ -573,10 +629,61 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
 
 - **Purpose.** The second act of dual control. On approve, releases the holds and calls the canonical money
   writer. On deny, releases the holds and terminates the request.
-- **Role.** For `pending_approval`: `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND
-  `auth.uid() <> request.requested_by`** — SoD-2, enforced structurally, not by convention. For
-  `pending_platform_review`: `is_platform(['platform_support','platform_risk','platform_admin'])`, subject to
-  the support cap (RLS §15.4 / RPC §16.3 — still an open policy number, unchanged by this spec).
+- **Role — `AUTHZ-C1A`: the branch is keyed on `(action, required_approver_class)` and on NOTHING ELSE.**
+
+  > **The defect this replaces, stated plainly because a reader who only ever sees this file must learn the
+  > trap and not merely the answer.** **This document's previous text branched on `pending_approval` vs
+  > `pending_platform_review`. Those two strings are §6.1's return statuses. They are not stored.**
+  > `kernel.approval_request.state` is `pending · approved · denied · cancelled · expired · stale`; the table
+  > as this document originally specified it (§6.6, §12 ADDITIVE-1) had **no tier column at all**; and this
+  > function's own re-evaluation list named the order, the atoms and the amount — **not the tier**. An
+  > implementer with that schema in front of them has three discriminators to branch on — `action`, `state`,
+  > `org_id` — and **all three route every parked refund to the org arm.** The result is not a mis-routed
+  > queue item: **an org executes a refund the §6.1 tier table sent to platform review** — above the
+  > dual-control ceiling, or on a **consumed (scanned) atom**, which is precisely the collusion shape §5.4
+  > Race 3 and `MD-6` exist to surface. **The control read as present in four documents and was absent in the
+  > only place it ran.** Ratified as **C57**; the physical column is schema §1.13.2, and the identical branch
+  > is RPC §17.2 and RLS §11.3.
+
+  | `action` | `required_approver_class` | May approve |
+  |---|---|---|
+  | `refund.issue` | `org` | `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND** `auth.uid() <> request.requested_by` **AND** `kernel.money_role_grant_matured(request.org_id)` |
+  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated under lock per `AUTHZ-M3`** |
+  | `payout.request` | `org` | as `refund.issue`/`org`, **plus the §8.2 destination-setter exclusion applied to the APPROVER** — otherwise the destination-setter simply approves instead of requesting |
+  | `payout.request` | `platform` | `is_platform(['platform_risk','platform_admin'])`. **`platform_support` is DENIED** — it holds no payout authority anywhere else, and the generic approval object must not become the place it acquires one |
+  | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — §7.3's *"a second distinct `platform_admin`"*, and see `AUTHZ-C1A2` below |
+
+  Common to every arm: **SoD-2** (`auth.uid() <> requested_by`), enforced **structurally** and backed by the
+  table constraint pair of `AUTHZ-M1` — `CHECK (approved_by IS NULL OR approved_by <> requested_by)` **and**
+  the companion `CHECK (state <> 'approved' OR approved_by IS NOT NULL)`, **without which the first is
+  vacuously satisfiable by any writer that forgets the column** (§6.6). Plus step-up per `AUTHZ-M4`
+  (an absent `aal`/`amr` claim **raises `step_up_unavailable`** and never evaluates to a pass or a fail).
+  **Bound by EDGE-CALLER-JWT** — §8.3c: on a service-role client `auth.uid()` and `auth.jwt()` are empty and
+  every predicate above degrades silently.
+
+  **`state = 'pending' AND NOT expired` is an ACTIONABILITY precondition, never an authority input.** Those
+  are two questions and they get two columns. **No authority predicate in this function reads `payload`**
+  (§6.6's footgun; `T-RPC-AUTHZ-01` asserts it structurally).
+
+  > **`AUTHZ-C1A2` — `config.set_money_key` takes a second distinct `platform_admin`, never `platform_support`
+  > or `platform_risk`.** §7.3 of this document says *"a second distinct `platform_admin`"*, and the whole
+  > non-org arm was previously written as `is_platform(['platform_support','platform_risk','platform_admin'])`
+  > — one predicate spanning three different approval flows. Under it **`platform_support` approves the raise
+  > of its own ceiling**: the role capped precisely because it is not trusted with unbounded money is the role
+  > that lifts the cap, and the cap it lifts is the one bounding it on the arm directly above. That is why the
+  > stored label set is **three** arms (`org` · `platform` · `platform_admin`) and not two (schema §1.13.2).
+
+- **`action`-dispatched. `action` alone is NOT the dispatch key — `(action, required_approver_class)` is.**
+  A single `action` spans two approver classes (a refund parked at `org` and a refund parked at `platform`
+  are the same action with different authority), which is exactly why branching on `action` was never
+  sufficient and why the missing column was invisible.
+- **The tier is re-derived and must still equal the pinned class.** The re-evaluation list below names the
+  amount, the atoms and the order — **and originally not the tier**, which is the other half of why this
+  defect went unnoticed: nothing re-checked a value nothing stored. The recomputed tier (from the **pinned**
+  `config_versions`, never from live config) must equal the stored `required_approver_class`; a mismatch is
+  **`stale`**, never a re-route. In particular **an atom that became `scanned` while the request was parked
+  re-tiers it to `platform`**, and because a re-tier is `stale` rather than a silent escalation the org
+  approver is told to re-request rather than finding their approval quietly ineffective. `T-RPC-AUTHZ-02`.
 - **Preconditions.** Request `state = 'pending'` and not expired. **Every §6.1 precondition is RE-EVALUATED
   under lock at approval time** — the stored payload is *evidence*, never authority. Specifically: the order is
   still refundable; the atoms are still owned by the buyer; the payment sum guard still passes; the amount is
@@ -590,9 +697,10 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   voids, the inventory return, the order status, and `refund.issue`); `kernel.admin_audit`
   (`refund.request_approved` / `refund.request_denied`).
 - **Result.** `{ status, request_id, refund_id?, atoms_voided[], atoms_not_voided[] }`.
-- **Errors.** `insufficient_privilege` (incl. **self-approval**, which is its own named failure so the UI can
-  say *"a different person must approve this"* rather than a bare 403) · `precondition_failed` · `not_found` ·
-  `conflict_locked`.
+- **Errors.** **`self_approval`** — its own named failure, distinct from a bare `42501`, so the UI can say
+  *"a different person must approve this"* rather than "permission denied" · **`sod_violation`** (grant
+  immature, or the payout destination-setter) · `insufficient_privilege` · `precondition_failed` ·
+  `not_found` · `conflict_locked` · `step_up_required` · **`step_up_unavailable`**.
 
 ### 6.3 `kernel.cancel_refund_request(p_request_id, p_reason_code, p_command_key)` and `kernel.sweep_expired_refund_requests()` — `NEW RPC` ×2
 
