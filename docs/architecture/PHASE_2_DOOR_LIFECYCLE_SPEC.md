@@ -442,10 +442,16 @@ override between episodes) it would indeed admit the pre-override owner, and tha
    #7-reverse / #6-reverse, locks Transfer(4) → Ticket Atom(5) ascending by `ticket_atom_id`.
 6. INSERT `venue.door_manifest` — `opened_at := now()`, `manifest_version := next per-session`, `status='open'`,
    `opened_by := auth.uid()`, `reason_code`, `not_after := now() + config('door.manifest_ttl_interval')`.
-7. **Snapshot** — INSERT `venue.door_manifest_entry` for every admissible atom of the session, recording
-   `(ticket_atom_id, credential_version, signing_key_id, ticket_state, serial_no)` **as read after step 1's
-   lock**.
-8. Compute and store `manifest_digest` over the ordered entry set.
+7. **Snapshot** — INSERT `venue.door_manifest_entry` for **every** atom of the session (§9.2's completeness
+   ruling), recording `(ticket_atom_id, serial_no, ticket_type_id, credential_version, signing_key_id,
+   ticket_state, resale_state)` **as read after step 1's lock**. **`SPEC CORRECTION` (`K-1`): this step
+   previously omitted `resale_state`** — so the *writer* did not populate the column that §10.3 declares
+   `not null` and that `OFFLINE-VERIFY-v1` conjunct 3b.v reads. The column list here, §10.3's column list and
+   §7.5's projection are **the same list, deliberately**: this is the write, that is the store, and §7.5 is
+   the read, and a field dropped from any one of the three is a conjunct the door cannot evaluate.
+8. Compute and store `manifest_digest` over the ordered entry set. **The digest covers the full column list
+   in step 7**, so a projection that returns less than the digest covers is detectable, and a snapshot that
+   *writes* less is a failed INSERT rather than a quiet omission.
 9. `catalog.engage_door_freeze(p_session_id, opened_at)` — definer-only primitive that owns the
    `catalog.event_session.door_open_at` write; a no-op when already set (§10.2).
 10. INSERT `kernel.admin_audit` (`session.door_manifest_open`).
@@ -1990,6 +1996,7 @@ owed by any other owner on this item.
 | `venue.door_manifest_delta` CHECK `(op='add') ⇒ signing_key_id IS NOT NULL` (§10.3a) | `ADDITIVE` (constraint) — H-2/3c |
 | Offline predicate stated once as `OFFLINE-VERIFY-v1` in edge §5.4.3; §9.2 is a verbatim mirror | `SPEC CORRECTION` (§9.2 — **H-2**) |
 | **`get_door_manifest`'s result shape reconciled with RPC §20.6.1 to one wire shape; `resale_state` added to the entry projection, `session_id` to the header, the full entry payload to the `op='add'` delta** | **`SPEC CORRECTION` (§7.5/§7.5a — `K-1`)** |
+| **The atomic open's snapshot INSERT list gains `resale_state` + `ticket_type_id`** — the *writer* omitted a column §10.3 declares `not null` | **`SPEC CORRECTION` (§6 step 7 — `K-1`)** |
 | **The §7.5a projection superset rule + pgTAP group **P** (assertions 77–83)** | **`SPEC CORRECTION` (§7.5a — `K-1`)** |
 | **`p_since_version` / `p_since_seq` / `p_since_delta_seq` unified to `p_since_delta_seq`** | **`SPEC CORRECTION` (§7.5, §7.7, §15 #69 — `K-1`)** |
 | **`no_open_manifest` and `{open:false}` reconciled — both keys returned** | **`SPEC CORRECTION` (§7.5 — `K-1`)** |
