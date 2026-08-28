@@ -892,8 +892,12 @@ door is not a degraded door either: it is a more permissive one, which is the H-
   to the token's** (row 4 above; the live read is the online substitute for M2). `record_scan` (§9.4) is the
   authoritative admit. **This is why `scan-validate` is NOT an edge function** — no secret and no third-party
   is involved; the crypto is public-key + door-side, the liveness is a DB read.
-- **Reject vocabulary:** a 3b mismatch surfaces as `version_stale`, reusing the existing operator copy
-  *"This pass is out of date. Ask them to open the Snatch It app."* (door §11.2). **No new vocabulary.**
+- **Reject vocabulary:** door §9.2's map is normative for reasons. A **3b.iii** or **3c** mismatch surfaces as
+  `version_stale`, reusing the existing operator copy *"This pass is out of date. Ask them to open the Snatch
+  It app."* (door §11.2). **3b.v** splits by label: `{listed, locked}` → `listed_locked`, and
+  **`refund_hold` → `refund_hold`**, the one reason added by this correction — because it is the one refusal
+  with a remedy the holder can act on (`kernel.cancel_refund_request`, RPC §17.3), and folding it into
+  `listed_locked` tells a paying customer something false.
 
 ### 5.5 Offline token behavior + version-bump invalidation (recon #4)
 - `credential-sign` returns a **cacheable token + `credential_version` + `not_after` + `ttl_seconds`**. The

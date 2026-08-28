@@ -887,7 +887,32 @@ introduced, and every reason maps onto the five the venue dashboard already publ
 | `revoke`d by delta, or `ticket_state='voided'` | `voided` | *"This ticket was refunded or cancelled."* |
 | `ticket_state='scanned'` at snapshot | `duplicate` | *"Already used"* |
 | `resale_state ∈ {listed, locked}` | `listed_locked` | *"This ticket is listed for resale or mid-transfer."* |
+| **`resale_state = 'refund_hold'`** | **`refund_hold`** | ***"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has to be cancelled in the Snatch It app — then this ticket works again."*** |
 | version mismatch | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* |
+| `key_id` ≠ `M2[atom].signing_key_id` (3c) | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* — reuses the copy deliberately; from the holder's side it is the same situation |
+
+**The `refund_hold` arm — `SPEC CORRECTION`, and the one place this ruling adds vocabulary.** The map above
+originally enumerated only `{listed, locked}`. MONEY §12 ADDITIVE-2 added a **fourth** overlay label,
+`refund_hold` (schema §1.5), and §10.3's CHECK already admits all four — so under the five-conjunct predicate a
+`refund_hold` atom is correctly **rejected**, but it was rejected with **no reason arm at all**. Door staff saw
+an unmapped refusal of a paying customer and had nothing to say and nothing to offer.
+
+**Why a sixth reason rather than reuse.** §9.2's ruling on DL-5 refused new vocabulary because the existing
+five already carried every *meaning* — that argument does not hold here. Folding `refund_hold` into
+`listed_locked` tells the holder their ticket is *"listed for resale or mid-transfer"*, which is false, and
+sends door staff hunting a listing that does not exist. **The remedy is what makes the reason worth having:**
+the holder (or org finance, or platform) can cancel the parked request — `kernel.cancel_refund_request`
+(RPC §17.3) releases the overlay to `none` and the ticket admits — and if nobody acts,
+`kernel.sweep_expired_refund_requests` (RPC §17.4) releases it at `expires_at`. A reason with a remedy behind
+it is worth a word; a reason without one is not, which is why the other four were reused.
+
+**Two sibling-owned changes this arm requires — reported, not made here:**
+- **`PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §12.5** — the *"five reasons"* table becomes **six**, with the
+  row and copy above. The surrounding prose that says "five" changes with it.
+- **`PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.3** — `venue.validate_ticket_online`'s `reason` enum
+  (`active|already_scanned|listed_locked|voided|wrong_session|version_stale`) gains **`refund_hold`**. Without
+  it the **online** door has the same unmapped-refusal problem the offline door had: `mark_ticket_scanned`
+  requires `resale_state='none'`, so a `refund_hold` atom is refused online today with no reason to render.
 
 **This also closes a hole neither spec flagged.** A sale in `paid_pending_transfer` leaves its atom
 `state='active', resale_state='locked'` (RPC §12.3), and §7.3 deliberately excludes it from the drain to
@@ -1281,6 +1306,12 @@ Closes VD §12.4's "Gap" and VD Δ1; the surface's copy is already written there
   a role cannot use are absent rather than disabled, so a door operator never learns the control exists.
 - **New reject reason surfacing:** `version_stale` offline (§9.2) reuses the existing operator copy
   *"This pass is out of date. Ask them to open the Snatch It app."* — no new vocabulary.
+- **One new reject reason, `refund_hold`** (§9.2), online and offline, with its own copy:
+  > *"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has
+  > to be cancelled in the Snatch It app — then this ticket works again."*
+  It must render as a deny banner in the same weight as `listed_locked`, and **must not** be worded to imply
+  fraud: the holder in front of the door is a paying customer whose own refund request is parked, and the
+  action available to them is a real one (RPC §17.3).
 
 ### 11.3 Consumer RN — `NO CHANGE`
 
