@@ -1085,15 +1085,44 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   C25 auto-compensation. **Actor:** `service_role`/definer (refund flows / sweep); or platform via
   `force_void_ticket` (§11.1).
 - **Params:** `p_atom_id`,`p_refund_id`(→`kernel.refund`),`p_command_key` — untrusted. **Server-derived:**
-  `cause:='refund_void'`, `cause_ref:=refund_id`, `to_identity:=` void-sentinel/issuer.
+  `cause:='refund_void'`, `cause_ref:=refund_id`, **`to_identity := SN-VOID`** — the seeded platform void
+  sentinel (schema §1.16), **never the issuer and never the anonymization sentinel**, which is a different
+  uuid with a different meaning owned by a `public`-schema deletion path (`T-SCHEMA-SENTINEL-06`).
 - **Preconditions:** atom not already terminal (**re-void across two refunds is blocked by the atom's current
   state under the `FOR UPDATE` lock**, not by log uniqueness). **Locks & order (SSCAS #3):** **Ticket Atom**
   (`FOR UPDATE`) → **Inventory batch** (`sold -= 1`, return) → **Refund/Payment**. **SSCAS:** #3.
   **Idempotency:** `UNIQUE(refund_void, refund_id, atom)` → N-atom void under one refund allowed, replay no-op.
-- **Writes:** `kernel.ticket_ownership_log` (`refund_void`, `credential_version_after` bumped),
-  `kernel.tickets` (→ `voided`, credential bump so any live QR dies), `venue.inventory_batch` (`sold -= 1`),
-  `venue.inventory_movement` (`void_return`), `market.market_sale.terminal_state := 'compensated'` when driven
-  by C25. **Result:** `{ status, atom_id }`. **Forbidden callers:** any client directly.
+- **Writes:** `kernel.ticket_ownership_log` (`refund_void`, `to_identity := SN-VOID`,
+  `credential_version_after` bumped),
+  **`kernel.tickets` (`state → 'voided'`, **`current_owner_id := SN-VOID`** — the platform void sentinel of
+  schema §1.16 — and the credential bump so any live QR dies)**, `venue.inventory_batch` (`sold -= 1`),
+  `venue.inventory_movement` (`void_return`), **`market.on_atom_voided`** (the `market`-owned definer
+  primitive of §20.11.3 — **never a direct `UPDATE market.market_sale`**, per §0.7) when driven by C25.
+  **Result:** `{ status, atom_id }`. **Forbidden callers:** any client directly.
+  - **`SPEC CORRECTION` (`S-18`; schema §1.6.2/§1.16; ratification `C107`) — THE HEAD WRITE OMITTED
+    `current_owner_id`, AND WITH THE NEW DEFERRED CUSTODY TRIGGER THAT MAKES EVERY VOID ABORT AT COMMIT.**
+    The log row already sets `to_identity := ` the void sentinel; the `kernel.tickets` write named only
+    *"→ `voided`, credential bump"*. `kernel.tg_custody_head_is_ledger_tail` (schema §1.6.2, package `079`)
+    is a `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` asserting that the head's `to_identity` and
+    `credential_version_after` equal the greatest-sequence log row's. **This contract bumps
+    `credential_version`, which is one of the clauses the trigger fires on** — so at COMMIT the log tail says
+    `SN-VOID`, the cached head says the buyer, and **the transaction aborts.**
+  - **What that takes down, because this is the void leg of SSCAS #3 and four callers sit on it:**
+    `kernel.refund_primary_order` (§11.4), `kernel.force_void_ticket` (§11.1), `catalog.cancel_event` (§4.4)
+    and the **C25 auto-compensation sweep** (§12.3). **Every refund that voids a ticket fails.**
+  - **`T-SCHEMA-CUSTODY-06` asserts the void COMMITS — a test the contract as written cannot pass.** Which is
+    the useful property of the trigger and the reason the repair is one line: **without** the trigger the
+    same omission is *silent and permanent* — after every refund-void the log says sentinel and the head says
+    the buyer, **on the one surface that exists to settle custody disputes**. The trigger converts a wrong
+    answer into a failed build. **A build that does not run is still a build that does not run.**
+  - **`SN-VOID` becomes the recorded `current_owner_id` of every voided ticket**, which is why `S-20`
+    requires it excluded from every identity projection — CRM export rows, holder-mix buckets, notification
+    fan-out, attendee lists, demographics, and any *"tickets owned by X"* read. **An export that does not
+    exclude it emails a sentinel and counts it as an attendee.**
+  - **`state` is deliberately outside the trigger's clause set** (schema §1.6.2), which is what lets
+    `kernel.sweep_expired_ticket_atoms` (§12.5) move `active → expired` without appending a log row. **That
+    exemption covers `state` and nothing else** — an implementer who reads it as "the trigger is lenient"
+    reintroduces exactly this defect.
 
 ### 7.4 `kernel.lock_ticket(p_atom_id, p_reason, p_command_key)` / `kernel.unlock_ticket(p_atom_id, p_command_key)` — **DB-RPC (definer primitives; SSCAS #6/#7 overlays)**
 - **Purpose:** set `kernel.tickets.resale_state` `none→listed` (list) / `none→locked` (p2p) and back. **These
