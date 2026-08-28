@@ -18,11 +18,30 @@ Integration into the six implementation specs happens in a later pass.
    `docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §12 (Δ1, §22.7).
 7. `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` — C6, C23, C37, C41, C43.
 
-> **Migration-numbering note.** The frozen specs (RPC §16.2, RLS §15.2, edge §9.6, review §5 A2/A3) cite
-> migration `073` for `door_open_at`; the migration plan's PHASE-C package is `075_catalog_reference_data_
-> and_flags`. The drift is pre-existing and cosmetic. This document names the **catalog migration package**
-> and pins no number, to avoid deepening it. (Unrelated: *production* migration `075` is the cron-job repair
-> referenced in §0.)
+> **Migration-numbering note — RESTATED ON THE CANONICAL SCALE.** The canonical numbering authority is
+> `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`. Two bands, never to be confused: **`071`–`075` are applied
+> production security migrations** (real, applied, immovable SQL — *not* Phase-2 packages), and **Phase-2
+> packages occupy `076`–`091`** (design-only; no SQL authored).
+>
+> The frozen specs (RPC §16.2, RLS §15.2, edge §9.6, review §5 A2/A3) cite migration **`073`** for
+> `door_open_at`, and an earlier revision of this note named the PHASE-C package
+> **`075_catalog_reference_data_and_flags`**. **Both are pre-renumber tokens and both are now wrong** — the
+> first on the S0 scale (`071`–`086`, offset +5), the second on the S2 scale (`073`–`088`, offset +3). They
+> decode to the same package, and its canonical identity is **`078_catalog_reference_data_and_flags`** —
+> registry §2, PHASE C, the package that creates `catalog.event_session` (including `door_open_at`) and every
+> feature-flag and config seed. On the canonical scale `073` and `075` name **applied production security
+> migrations**, so quoting either for `door_open_at` now points at the wrong band, not merely at the wrong
+> number.
+>
+> This document continues to name the **catalog migration package** in its body rather than repeating a
+> number; where a number is unavoidable it is `078`, decoded via the registry and never by arithmetic on a
+> stale token (registry §4: the plan carried three scales simultaneously, so arithmetic alone is not safe —
+> decode by *package identity*, i.e. what the sentence says the package creates).
+>
+> The door substrate itself (`venue.door_pin`, `door_session`, `scan`, the manifest tables) is package
+> **`086`**, and `venue.export_job` / settlement is **`087`**. (Unrelated to all of the above: *production*
+> migration `075` — `075_replay_parity_storage_policies_and_cron.sql` — is the cron-job repair referenced in
+> §0.)
 
 **Change-class tags.** Every element below carries exactly one:
 `NO SCHEMA CHANGE` · `ADDITIVE SCHEMA CHANGE` · `SPEC CORRECTION` · `NEW RPC` · `NEW EDGE FUNCTION` ·
@@ -1266,7 +1285,7 @@ zero learns nothing they could not infer from the event page.
 | RPC | May invoke (predicate, live-rechecked) |
 |---|---|
 | `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role(org_of_venue,[org_owner,org_admin])` OR `is_platform([platform_admin])`. **`venue_door` and `door_pin` principals explicitly excluded (O-4).** |
-| `venue.get_door_manifest` | `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound to the session |
+| `venue.get_door_manifest` | `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound to the session. **The PIN arm stands in the RPC, but no edge function may expose it on a PIN alone** — it is reachable only via `door-session` `/manifest/sync` behind `kernel.assert_door_session` (§16 OQ-7). A `door_pin` is a *provisioning* fact on a table with no device column; authorizing the manifest on it directly is H-3 reopened. |
 | `catalog.engage_door_freeze` | **`service_role`/definer only** — `REVOKE EXECUTE FROM anon, authenticated, public`; never granted to `authenticated`; never a UI path |
 | `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` | `authenticated` (STABLE reads; `is_transfer_frozen` is already the RN eligibility boolean, RLS §14.3) |
 | `kernel.grant_door_freeze_override` | `is_platform([platform_admin])` **only** |
@@ -1741,13 +1760,53 @@ looks more correct on its face. **I have not changed it:** it is ratified behavi
 D2 makes `voided` the only money-reversal terminal, and the change would ripple into the C26 terminal state
 machine. Flagged for whoever owns RPC §12.3. If it is changed, §5.4's third row and failure #22 disappear.
 
-**OQ-7 — Manifest signing.**
-§7.5 returns the manifest from a DB read RPC. Edge §5.4 signs the *key* manifest with a KMS manifest key. For
-parity the ticket manifest should also be signed — a `NEW EDGE FUNCTION` `door-manifest` that authorizes the
-door principal, calls `venue.get_door_manifest`, KMS-signs `{manifest_id, manifest_version, session_id,
-not_after, manifest_digest}`, and returns the artifact. The signature is deterministic over the digest, so
-re-signing is free and needs no stored signature and no unsigned window. **Recommend building it**; the
-TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NEW EDGE FUNCTION` (optional).
+**OQ-7 — Manifest signing. RESOLVED on the auth model (edge `EDGE-2`); the signing recommendation stands.**
+§7.5 returns the manifest from a DB read RPC. Edge §5.4 signs the *key* manifest (M1) with a KMS manifest key.
+For parity the ticket manifest (M2) should also be signed — a `NEW EDGE FUNCTION` `door-manifest` that calls
+`venue.get_door_manifest`, KMS-signs `{manifest_id, manifest_version, session_id, not_after, manifest_digest}`,
+and returns the artifact. The signature is deterministic over the digest, so re-signing is free and needs no
+stored signature and no unsigned window. **Recommend building it**; the TLS-only fallback is acceptable for
+MVP if KMS budget is constrained — noting that M2's *integrity* then rests on transport alone while M1's does
+not. Marked `NEW EDGE FUNCTION` (optional). **Package `086`.**
+
+**What this open question left unstated, and how the edge spec closed it.** This section specified the
+function's behaviour and payload but named **no `verify_jwt` value and no env list**, while
+`venue.get_door_manifest` authorizes on *either* a staff role *or* a valid non-expired `venue.door_pin` bound
+to the session (§11 EXEC table). Edge §3.9b first read that as **two routes with two `verify_jwt` values** —
+staff at `true`, PIN at `false`. `verify_jwt` is a per-**function** Supabase setting fixed at deploy time, so
+one function cannot hold two, and the permissive resolution is forbidden outright because the staff route's
+authority **is** a human JWT.
+
+**Resolved: `door-manifest` is a single staff-JWT route at `verify_jwt: true`, and the PIN route is DELETED —
+not split into a second function.** Two independent reasons, and the second is the one that matters here:
+
+1. **It was redundant.** `door-session` (edge §3.9a) already exposes **`/manifest/sync`** as a relay route
+   wrapping `venue.get_door_manifest`, already at `verify_jwt: false`, already gated on
+   `kernel.assert_door_session` on **every** call. The door's manifest fetch already had a home; the PIN route
+   was a **second, weaker door to the same room**. Net effect on the edge spec's `verify_jwt=false` budget is
+   **zero** — the door's unauthenticated traffic moves onto a surface already enumerated.
+2. **It was weaker in exactly the way `AUTHZ-H3` was raised about.** The deleted route authorized on *"a valid
+   non-expired `venue.door_pin` bound to the session"* — a **provisioning** fact, not a possession one.
+   `venue.door_pin` has **no device column** (schema §3.10), so the check was satisfied by *any* live PIN for
+   that session, including one issued to a different device, and it consulted **nothing the requesting device
+   actually holds**. §3.9a fixed precisely this for `/scan`, `/offline-batch` and `/manifest/sync` by requiring
+   possession of the door session token (H-3). Keeping the PIN route would have **reintroduced the
+   provisioning-not-possession gate one section after closing it — on the artifact that tells the door which
+   tickets to admit.** A route deleted is a route that cannot drift back.
+
+**The RPC is unchanged.** `venue.get_door_manifest` **keeps** its PIN branch; §11's EXEC row (*"…OR a valid
+non-expired `venue.door_pin` bound to the session"*) stands as written. What changed is its **reachability**:
+the branch is now reachable **only** through `door-session` `/manifest/sync`, behind
+`kernel.assert_door_session`. **No edge function exposes it on a PIN alone**, and none may — an edge that
+authorized the manifest on a PIN by itself would re-open H-3 on M2 regardless of which function it lived in.
+
+**Status.** Edge §9 recon #9 filed this to the door-spec owner as *"door-spec owner to confirm."* **This
+section adopts the resolution** rather than re-litigating it, and records it here because OQ-7 is where an
+implementer looks for this function's auth model and would otherwise find the silence that produced the
+two-value reading. **`OWNER DECISION — RECORDED, NOT MADE`:** the adoption is an editorial reconciliation of
+two documents that already agree on the mechanism; the *ratification* of the deletion is the owner's, and it
+is cheap to rule on because the change **removes** an authorization surface and adds none. Nothing further is
+owed by any other owner on this item.
 
 ---
 
@@ -1764,7 +1823,8 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `kernel.grant_door_freeze_override` / `revoke_door_freeze_override` | `NEW RPC` |
 | `kernel.sweep_expired_door_overrides` | `NEW RPC` |
 | `catalog.sweep_implicit_door_freezes` | `NEW RPC` |
-| `door-manifest` (signed manifest distribution) | `NEW EDGE FUNCTION` (optional, OQ-7) |
+| `door-manifest` (signed manifest distribution) — **single staff-JWT route, `verify_jwt: true`; the PIN route is DELETED (edge `EDGE-2`)** | `NEW EDGE FUNCTION` (optional, OQ-7) |
+| `venue.get_door_manifest`'s PIN branch reachable **only** via `door-session` `/manifest/sync` behind `kernel.assert_door_session` | `SPEC CORRECTION` (§16 OQ-7 → edge §3.9a/§3.9b) — **RPC unchanged; reachability narrowed** |
 | `venue.door_manifest` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.door_manifest_entry` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.door_manifest_entry.resale_state` + snapshot completeness | `SPEC CORRECTION` (§9.2 — DL-5) |
