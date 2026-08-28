@@ -117,7 +117,7 @@ Predicate helpers (contracted in the RPC/RLS specs; the only sanctioned way to t
 | `kernel.has_org_role_over_venue(venue_id, role[])` **NEW** | `catalog.venue` → `kernel.org_member` | `080` |
 | `kernel.has_org_role_over_event(event_id, role[])` **NEW** | `catalog.event` → `kernel.org_member` | `080` |
 | `kernel.is_org_affiliate(org_id)` **NEW** | `kernel.org_member` | `077` |
-| `kernel.assert_door_session(device_id, session_id)` **NEW** | `venue.scan_device`, `venue.door_pin` | **`086`** |
+| `kernel.assert_door_session(device_id, session_id, door_session_id, session_token)` **NEW** | **`venue.door_session`** (the possession fact — §3.10a), `venue.scan_device`, `venue.door_pin` (both re-read **live**, which is why the session token does not reintroduce the door-JWT problem ROLE_MODEL §7.3 rejects) | **`086`** |
 | `kernel.is_promoter_for_event(event_id)` **NEW** | `venue.promoter_link` | **`090`** |
 
 **Why `has_venue_role` losing its door-PIN branch matters to packaging.** As contracted in RPC §1.1 the
@@ -1553,8 +1553,224 @@ a detection mechanism, not the enforcement.
 - **Immutability:** MUT (revoke); expiry enforced in the door auth path.
 - **Index:** PK; index on `(event_session_id, status)`.
 - **RLS:** venue-scoped; `pin_hash` never client-readable (money-custody-style column discipline, C9).
-- **Write authority:** `venue.issue_door_pin`, `venue.revoke_door_pin`.
+- **Write authority:** `venue.issue_door_pin`, `venue.revoke_door_pin`. **`revoke_door_pin` must
+  additionally revoke every `venue.door_session` minted from that pin** — §3.10a, RV-1.
 - **SoT/PROJ:** SoT.
+
+### 3.10a `venue.door_session` — **ADDED (defect H-3). The object the door predicate was already assuming.**
+
+> **STRUCTURAL ADDITION — one new table in `086`, requires re-ratification.** `086`'s dependency set
+> already satisfies every FK it takes, so **no dependency edge is added and the DAG is unchanged**
+> (§13.6).
+
+#### 3.10a.0 The defect, stated before the shape
+
+`kernel.assert_door_session(p_device_id, p_session_id)` is described by RPC §1.1d as *"the **entire**
+authorization surface of the door path"* and by RLS §7 as *"a deliberate concentration of the door's
+whole authorization surface into one auditable function."* Its contract says it *"raises unless a valid,
+unexpired, unrevoked **door session** binds that device to that session."*
+
+**No `door_session` object exists.** Not in this spec, not in the migration plan, not in the registry.
+What the function actually reads, per its own contract, is:
+
+- `venue.scan_device` where `status='active'`, and
+- `venue.door_pin` where `status='active' AND expires_at > now()` and bound to `p_session_id`.
+
+Both are **provisioning facts**. Neither is a possession fact. The predicate answers *"has a device been
+registered, and does this session have a live PIN?"* — it cannot answer *"is this caller holding a
+credential that was issued to that device."*
+
+**Four properties follow, and they compose badly:**
+
+1. **The function takes no PIN, no token and no nonce.** There is nothing in its parameter list that
+   only a legitimate holder could produce. Its two parameters are both **identifiers**.
+2. **The `door_pin` clause is not device-scoped.** `door_pin` has `venue_id` and `event_session_id` and
+   **no device column** (§3.10). So the PIN branch is satisfied by *any* live PIN for that session,
+   including one issued to a different device.
+3. **`p_device_id` arrives as an untrusted parameter on a path where RLS is bypassed entirely.** RPC
+   §1.1d states this in its own warning: the door reaches the database only via `service_role`, so
+   *"RLS is bypassed on that path entirely and this function is the only gate."* The edge function is
+   required to derive `p_actor_device_id` server-side (matrix X-5), but **the DB-side predicate cannot
+   verify that it did** — from Postgres's seat, `p_device_id` is a uuid someone supplied.
+4. **The edge spec says the session is *minted*.** §3.9a: *"Routes … **mint** a session from a PIN +
+   device; validate/refresh it."* A minted session is a stored object with a secret. **It was never
+   given one**, so "validate/refresh it" has nothing to validate against, and the mint step is
+   unfalsifiable.
+
+**Net effect.** The door path's single gate proves that *a door exists*, not that *this caller is at
+it*. Anyone who reaches the `service_role` surface with a device id and a session id — the two least
+secret values in the system, both of which appear in manifests, dashboards and logs — is authorized for
+all four door capabilities. The PIN, the one thing that is actually a secret, is checked **only inside
+the edge function**, and the database has no way to know whether that check happened.
+
+**This does not weaken the concentration RLS §7 chose deliberately. It gives the concentrated gate
+something to check.**
+
+#### 3.10a.1 Shape
+
+- **Purpose:** the **possession** fact for the door — a bearer credential bound to one device and one
+  event session, issued against a verified PIN, with a TTL and explicit revocation. It is what
+  `kernel.assert_door_session` verifies **in addition to** the two liveness reads it already does.
+- **Owner:** venue. Written only by the door-session RPCs; never by a client.
+- **PK:** `door_session_id` uuid — **the non-secret selector**, returned to the client alongside the
+  secret. The row is found by PK; the secret is then compared. (Selector + verifier, so the lookup is an
+  index probe and the comparison is constant-time over a fixed-width digest.)
+- **Columns:**
+  - `door_session_id` uuid — PK.
+  - `token_hash` text — not null. **The hash of the session token. The token itself is returned once,
+    at mint, and is never stored, never logged, and never client-readable thereafter** — the same
+    column discipline `pin_hash` carries (§3.10, C9), for the same reason.
+  - `device_id` uuid — not null, FK→`venue.scan_device(device_id)` on delete restrict. **The device
+    binding.**
+  - `event_session_id` uuid — not null, FK→`catalog.event_session(session_id)` on delete restrict.
+    **The session binding.**
+  - `venue_id` uuid — not null, FK→`catalog.venue(venue_id)` on delete restrict. Denormalised from the
+    device so the predicate's venue check is one row, not a join through two tables on the hot path.
+  - `pin_id` uuid — not null, FK→`venue.door_pin(pin_id)` on delete restrict. **The provenance of the
+    mint**, and the column RV-1 revokes along.
+  - `issued_at` timestamptz — not null default `now()`.
+  - `expires_at` timestamptz — not null. **Server-max TTL, never client-set** — the same discipline
+    `venue.inventory_hold.expires_at` carries (§3.5). Bounded by
+    `config('door.session_ttl_interval')`, seeded in `078` with the other `door.*` keys.
+  - `last_seen_at` timestamptz — nullable. Advanced by the predicate at most once per
+    `config('door.session_touch_interval')` — see 3.10a.4.
+  - `status` text — not null default `active`; CHECK ∈ (`active` · `revoked` · `expired`).
+  - `revoked_at` timestamptz — nullable; `revoked_reason` text — nullable (D3 cause code).
+  - `created_at`.
+- **FKs:** all four on delete restrict.
+- **Unique:** `UNIQUE(token_hash)`. Plus **partial `UNIQUE(device_id, event_session_id) WHERE
+  status='active'`** — at most one live session per device per session, enforced by the database rather
+  than by the mint RPC. This is what makes revocation **total**: with a second live session possible, a
+  revoke closes one door and leaves another open, and the operator has no way to see it.
+- **Check:** `status` label set; `expires_at > issued_at`; `status='revoked'` ⇒ `revoked_at IS NOT
+  NULL`; `status<>'revoked'` ⇒ `revoked_at IS NULL`.
+- **Cross-row invariants the RPC enforces, because a CHECK cannot reach another table** — stated as
+  obligations, not as constraints, so nobody mistakes them for enforced:
+  - **DS-1.** The `pin_id`'s `event_session_id` must equal this row's `event_session_id`. A PIN is
+    session-scoped (§3.10); a session minted from a PIN for a different night is the exact confusion
+    the binding exists to prevent.
+  - **DS-2.** The `device_id`'s `venue_id` must equal this row's `venue_id`, and the
+    `event_session_id`'s event must belong to that venue. **Cross-venue is the highest-value confusion
+    here**, because the door path has no RLS to fall back on.
+- **Immutability:** MUT, one-way (`active → revoked|expired`), plus `last_seen_at`. **No DELETE** —
+  an expired door session is evidence about who was at the door.
+- **Index:** PK; `UNIQUE(token_hash)`; the partial unique above; `(event_session_id, status)` (the
+  operator's "who is live at this door" read); `(pin_id)` (RV-1's cascade); partial on
+  `expires_at WHERE status='active'` (the sweep).
+- **Archival:** retained with the scan ledger for the event's evidence window; not permanent.
+- **RLS:** **deny-all + `REVOKE ALL`.** Read only by `kernel.assert_door_session` (definer) and the
+  operator read below. **`token_hash` is never client-readable, on any path, for any role** — including
+  `platform_admin`. There is no legitimate reader of a verifier.
+- **Write authority:** `venue.mint_door_session` (`EXEC: DEF` — the DB call behind the `door-session`
+  edge function's mint route), `venue.revoke_door_session`, `venue.revoke_door_pin` (RV-1),
+  `venue.sweep_expired_door_sessions`. **All four are filed to the RPC owner (§13.7 S-5); this spec
+  owns the table.**
+- **Read authority:** `kernel.assert_door_session` only, for the verifier. The **non-secret** projection
+  (`door_session_id`, `device_id`, `event_session_id`, `issued_at`, `expires_at`, `status`,
+  `last_seen_at`) is readable by `has_venue_role(venue, ['venue_manager'])` — this is what makes
+  `venue.get_live_device_count` (RPC §20.6.4) answerable from a **fact** rather than from
+  `scan_device.last_sync_at`, which reports a poll and not a presence.
+- **Lock order:** admin plane — outside the six SSCAS ranks, exactly as §20.0d classifies
+  `scan_device` and the other device-plane rows. **No SSCAS member is affected; the set stays closed at
+  fifteen.**
+- **SoT/PROJ:** SoT (the possession fact).
+- **Package `086`** — it FKs `venue.scan_device` and `venue.door_pin` (same package) and
+  `catalog.event_session`/`catalog.venue` (`078`, already a declared dependency of `086`).
+
+#### 3.10a.2 What the predicate must become, and why the session does NOT reintroduce the door-JWT problem
+
+**Signature change (filed — §13.7 S-5):**
+
+```
+kernel.assert_door_session(p_device_id, p_session_id)                        -- before
+kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)   -- after
+```
+
+and the body verifies, **all four, live, on every call**:
+
+1. `venue.door_session` row `p_door_session_id` exists, `status='active'`, `expires_at > now()`,
+   `device_id = p_device_id`, `event_session_id = p_session_id`;
+2. `token_hash` matches `p_session_token` under a **constant-time** comparison;
+3. `venue.scan_device.status='active'` — **live**, as today;
+4. `venue.door_pin` (`pin_id`) `status='active' AND expires_at > now()` — **live**, as today.
+
+**Clauses 3 and 4 are the whole reason this is safe.** ROLE_MODEL §7.3 rejects a door **JWT** for one
+specific property: *"a revoked PIN fails on the **next** call — this is the property a JWT would
+destroy."* A bearer session token is superficially the thing that would destroy it. It does not, because
+the session is **not self-describing**: it is a row, re-read on every call, and the predicate re-reads
+the PIN and the device **through it**. A revoked PIN fails the next call by clause 4; a revoked session
+fails by clause 1; a retired device fails by clause 3. **The token adds a possession check to a
+predicate that had none. It removes no liveness check.**
+
+**RV-1 (binding).** `venue.revoke_door_pin` revokes every `door_session` with that `pin_id` in the same
+transaction. Clause 4 already makes those sessions fail, so RV-1 is not what enforces revocation —
+**it is what makes the state observable.** A `status='active'` row whose PIN is dead is a row that lies
+to the operator console, and the console is where a manager decides whether the door is secure.
+
+**Hashing — the two credentials are not alike and must not share a construction.**
+
+| Credential | Entropy | Construction | Rate limit |
+|---|---|---|---|
+| `door_pin.pin_hash` | **low** — a human types it | slow KDF (Phase-0 §9), constant-time compare | **mandatory**, keyed by device, fail-closed (edge §3.9a) |
+| `door_session.token_hash` | **high** — ≥ 256 bits, server-generated, never typed | plain digest is sufficient; constant-time compare over a fixed-width value | not required for the token itself; the PIN attempt is where the limit belongs |
+
+Using a slow KDF for the session token would put a deliberately expensive function on **the scan hot
+path**, which is the one path in the system that must stay fast at the door and works offline for a
+reason. Using a plain digest for the **PIN** would be the standard catastrophe. **The distinction is
+load-bearing in both directions and is stated so neither substitution looks like a simplification.**
+
+#### 3.10a.3 The device parameter — the second half of H-3, filed to the RPC owner (§13.7 S-6)
+
+Binding the session to a device fixes nothing if the scan RPCs take the device from somewhere else. At
+`aa78a47` they do:
+
+- `venue.record_scan(p_atom_id, p_session_id, p_scan_meta, p_command_key)` reads `device_id` **out of
+  `p_scan_meta`**, which its own contract labels *"untrusted"*;
+- `venue.reconcile_offline_scans(p_device_id, p_batch, p_command_key)` takes it as a **bare
+  parameter**.
+
+On the `service_role` door path there is no RLS and no `auth.uid()`, so in both cases the device
+attribution written into the append-only `venue.scan` ledger is **a value the caller chose**. Every
+control that reads it downstream — the C23 offline ordering by `(device_boot_id, scan_sequence)`, the
+X-2 insider-fraud trail, the per-device reconciliation — is reading a self-declared field.
+
+**Required (S-6):** both take an explicit **actor device** parameter, distinct from the session token,
+and **assert it equals `door_session.device_id`** for the asserted session. `p_scan_meta.device_id`
+becomes telemetry, not identity — and is either dropped or explicitly documented as non-authoritative,
+because a field that looks like identity and is not is worse than no field.
+
+#### 3.10a.4 Two things deliberately NOT added, with the reason
+
+- **No refresh/rotation.** The edge spec's *"validate/refresh"* is served by **re-minting** against the
+  PIN, which re-runs the rate limit and the liveness checks. A refresh path that extends a session
+  without re-presenting the PIN is a path that outlives the PIN — precisely the property ROLE_MODEL
+  §7.3 refuses.
+- **`last_seen_at` is throttled, and its sweep is NOT load-bearing.** Writing `last_seen_at` on every
+  scan turns the hot read path into a write and puts a row update inside the admission transaction; it
+  is advanced at most once per `config('door.session_touch_interval')`. And
+  `venue.sweep_expired_door_sessions` is **explicitly not load-bearing** — expiry is arithmetic
+  (`expires_at > now()`) inside clause 1, so a session is dead the moment it expires whether or not the
+  sweep runs. It exists to keep `status` truthful for the operator console. **This is the same
+  distinction §17.11 draws for `sweep_expired_door_overrides`, and the opposite of
+  `sweep_expired_inventory_holds` (§3.5), which IS load-bearing because it returns a stored counter.**
+  Stated explicitly because the three sweeps look alike and only one of them can be skipped safely.
+
+#### 3.10a.5 Tests
+
+- `T-SCHEMA-DOOR-30` — **the H-3 regression, and it must be written as a negative:** a call carrying a
+  valid `device_id` and `event_session_id` but **no session token** (or a wrong one) **raises**. This is
+  the exact call that succeeded before the fix.
+- `T-SCHEMA-DOOR-31` — a session token minted for device A is refused for device B, and one minted for
+  session S1 is refused for S2, **with the same error and the same timing** as an unknown token.
+- `T-SCHEMA-DOOR-32` — revoking the **PIN** makes the next call fail (clause 4) **and** leaves no
+  `status='active'` session row behind (RV-1). Both halves asserted; the second is what the console
+  depends on.
+- `T-SCHEMA-DOOR-33` — the partial unique rejects a second active session for the same
+  `(device_id, event_session_id)`.
+- `T-SCHEMA-DOOR-34` — `token_hash` is absent from every projection the door reads and from the
+  manager's non-secret projection; asserted structurally, over the column list, not by a sample read.
+- `T-SCHEMA-DOOR-35` — a scan whose actor-device parameter disagrees with `door_session.device_id`
+  raises (S-6), asserted against **both** `record_scan` and `reconcile_offline_scans`.
 
 ### 3.11 `venue.scan_device`
 - **Purpose:** the hardware identity + manifest sync state for a scanner.
@@ -2029,6 +2245,9 @@ erDiagram
     CATALOG_VENUE ||--o{ VENUE_STAFF_ROLE : "staff"
     AUTH_USERS ||--o{ VENUE_STAFF_ROLE : "role"
     CATALOG_EVENT_SESSION ||--o{ VENUE_DOOR_PIN : "door principal"
+    VENUE_DOOR_PIN ||--o{ VENUE_DOOR_SESSION : "mints (possession)"
+    VENUE_SCAN_DEVICE ||--o{ VENUE_DOOR_SESSION : "bound to device"
+    CATALOG_EVENT_SESSION ||--o{ VENUE_DOOR_SESSION : "bound to session"
     CATALOG_VENUE ||--o{ VENUE_SCAN_DEVICE : "hardware"
 
     KERNEL_TICKETS ||--o| MARKET_LISTING_NATIVE : "locked when listed"
@@ -2298,6 +2517,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `085` | `kernel.void_ticket_atom` + the `market.on_atom_voided` hook **stub** | RPC §7.3 | — (§13.2 FR-4) |
 | `085` | The nine money-authority RPCs (`request_order_refund`, `approve_refund_request`, `cancel_`/`sweep_expired_refund_requests`, `list_org_payouts`/`_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`) | MONEY §12 | — → `085` |
 | `086` | `venue.door_manifest`, `door_manifest_entry`, `door_manifest_delta` | DOOR §10.1/§10.3/§10.3a | ✓ (task proposal) |
+| `086` | **`venue.door_session`** + the token-bearing `kernel.assert_door_session` signature | **this remediation (H-3)** | — → `086` (§3.10a) |
 | `086` | `venue.scan.actor_identity_id` + non-anonymous CHECK | ROLE_MODEL §7.4 | — → `086` |
 | `086` | `venue.scan.manifest_id`, `venue.scan_device.manifest_id` | DOOR §10.5 | — → `086` |
 | `086` | `catalog.tg_door_open_at_is_ledger_head` trigger (on a `078` table) | DOOR §10.2 | — → `086` (§13.2 FR-6) |
