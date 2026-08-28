@@ -4,6 +4,10 @@
 so an implementing engineer can author a `SECURITY DEFINER` function from it **without making an architectural
 decision**. Where a decision remained open it is flagged under §16 RECONCILIATION.
 
+**§1–§16 are the core surface. §17 adds every `NEW RPC` from the eight Phase-2 delta specs, §18 is the
+consolidated test register, and §19 lists what is AUTHORED here rather than transcribed — read §19 before
+implementing anything in §17.20–§17.25, where the source specs were incomplete.**
+
 **Binding inputs (authority order):**
 1. `docs/architecture/PHASE_2_SPEC_FOUNDATION.md` (committed copy of the session SPEC_FOUNDATION) — **BINDING**: §5 SSCAS + global lock order; §4 C26/C27/C33/C35/C36 and D3
    cause-codes; §2 integrate-never-rewrite; §8 security invariants.
@@ -1235,9 +1239,16 @@ never writes `market`, the market never writes custody, so there is exactly one 
 
 1. **CLOSED (addendum A1).** `kernel.org_invite` is now canonical in the physical schema (§1.3b) and created by
    migration package `077`; §2.2/§2.3 reference it directly. The pending-marker fallback is superseded.
-2. **CLOSED (addenda A2/A3).** Door-freeze canonical form is `catalog.event_session.door_open_at` + the
-   `kernel.is_transfer_frozen(atom_id)` helper (schema §2.3, migration `078`); §12.4 updated. No stored
-   `transfer_frozen` column exists; client read and create-RPC recheck target the same helper.
+2. **RE-OPENED, then CLOSED with corrections.** The canonical form (`catalog.event_session.door_open_at` +
+   the `kernel.is_transfer_frozen(atom_id)` helper, no stored `transfer_frozen` column) stands. But the
+   *predicate* and the *recheck set* were both wrong, and §12.4 now carries the corrections: (a)
+   `mark_ticket_scanned` **removed** from the recheck set — as written it rejected **every admission for the
+   rest of the night**; (b) `transfer_ticket_ownership` and `accept_p2p_transfer` **added**, closing a freeze
+   that gated transfer start but not completion; (c) the C25 **compensate** branch **exempted**, without which
+   a sale caught by doors-open strands the buyer's money forever; (d) the predicate body replaced with the
+   **total** form over `catalog.effective_freeze_at`, which was fail-open at NULL; (e) the
+   "per-open-manifest-ticket narrowing per C43" that four documents described is **stated as deferred**, since
+   the specified predicate is session-wide and C43 is `RATIFIED-MODELED-ONLY(GATE-M)`.
 3. **`platform_support` refund ceiling (§11.4).** RLS §7.10 grants support a *capped* `refund_primary_order`;
    the schema names only `admin_refund` for platform. The exact support cap / escalate-to-risk boundary is
    deferred to policy (mirrors RLS §15.4).
@@ -1249,6 +1260,21 @@ never writes `market`, the market never writes custody, so there is exactly one 
    engine.
 6. **`change_org_role` vs schema `grant_org_role`/`revoke_org_role`.** Contract uses the brief's names as the
    public surface; implementers may realize them as the schema's grant/revoke primitives (documented aliases).
+7. **`kernel.close_settlement` is contracted in a package that precedes the table it reads.** It reads
+   `venue.attribution` and writes `promoter_commission` payouts, but the settlement package lands **before**
+   the promoter-engine package that *creates* `venue.attribution`. A function defined in the earlier package
+   cannot reference a table created in the later one. **Resolution:** the settlement package defines
+   `close_settlement` **promoter-agnostic**, and the promoter package issues a `CREATE OR REPLACE` adding the
+   commission leg — so the partial unique index guaranteeing *at most one commission line ever per
+   attribution* must also land with the promoter package, not before it. Owner: the migration-plan author.
+8. **`kernel.approval_request`'s SSCAS status is FLAGGED, not assumed** (§17.1, RLS MD-1). Argued as an intent
+   record; if a reviewer judges otherwise it is a sixteenth member and C28's closure needs a formal amendment.
+   It is lock-ordered either way.
+9. **The `notify` gate is DISPUTED and this document does not settle it** (§17.24, RLS MD-10). C7 is
+   `RATIFIED · Gate P · MVP` and names `notify`; four implementation specs defer it to Gate L; the
+   notifications spec explicitly declines to resolve the conflict. Its companion question — whether the event
+   **outbox**, described by the domain architecture as *"the only new infrastructure Phase 2 introduces"*, is
+   scheduled in any Phase-2 package — is also unanswered, and it is not.
 
 ---
 
