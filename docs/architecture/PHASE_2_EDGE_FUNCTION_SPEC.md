@@ -130,7 +130,7 @@ Each is a build-time or CI check, not a code-review convention:
 | `signing-key-provision` | §3.6 | `is_platform([platform_admin])` |
 | `wallet-pass-issue` | §3.10 | `kernel.mint_wallet_pass` authorizes atom current owner via `auth.uid()` — **was self-contradictory; resolved here** |
 | `pass-cert-provision` | §3.13 | `is_platform([platform_admin])` |
-| `crm-export` | §3.7 | export allow-list by `has_venue_role` / `has_org_role`, **re-authorized live at download** |
+| `crm-export` | §3.7 | export allow-list by `has_venue_role` / `has_org_role`, **re-authorized live at download**; `/purge` is `service_role`-only and has no human caller |
 | `promoter-code-preview` | §3.8 | rate-limited per `auth.uid()`; eligibility is caller-scoped |
 | `door-manifest` | §3.9 | authorizes a `venue_scanner`/`venue_manager` **staff JWT** on this route (the PIN route is §3.9's Class-B sibling) |
 
@@ -188,7 +188,7 @@ runs `verify_jwt=true` and re-derives the actor (C35).** The `verify_jwt=false` 
 > **`SPEC CORRECTION` (`EDGE-1`).** This note previously read *"Only Stripe/KMS-webhook endpoints run
 > `verify_jwt=false`"*. That was false against §7's own enumeration the moment it was written: of the five
 > members, only `stripe-webhook` is a Stripe/KMS webhook. `wallet-pass-webservice` (Apple), `door-session`
-> (a loginless door), `crm-export /build` (cron) and `promoter-code-preview` (an anonymous buyer) are none of
+> (a loginless door), `crm-export`'s worker routes (cron) and `promoter-code-preview` (an anonymous buyer) are none of
 > those things. The sentence was the same defect §7 records in a different grammar — a **count-by-category**
 > asserted far from the enumeration, which is exactly how *"second and last"* survived in four documents.
 > **No section outside §7 may characterize the set, by count or by category.**
@@ -234,6 +234,7 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | Notification dispatch (claim → render → Expo/Resend → record) | **NEW EDGE** `notify-dispatch` (§3.14) | third-party push/email transport, batching, retry, receipts | Notifications §4.6, §6.4 |
 | Provider receipt poll + dead-token revocation | **NEW EDGE** `notify-receipts` (§3.15) | polls Expo's receipts endpoint on a cron | Notifications §4.6 |
 | CRM export build + signed download | **NEW EDGE** `crm-export` (§3.7) | CSV serialization + private-bucket streaming + `createSignedUrl` are Storage I/O | CRM §11.5 |
+| **Delete the export artifact from Storage** (retention sweep · revoke · orphan reconciliation) | **NEW ROUTE** `crm-export` `POST /purge` (§3.7) | **A `SECURITY DEFINER` Postgres function cannot call the Storage API**, and `DELETE FROM storage.objects` orphans the bytes. The *state transitions* stay RPCs on `pg_cron`; **only the byte delete is an edge route** | CRM §6.6, §11.5 |
 | Promoter-code preview at checkout | **NEW EDGE** `promoter-code-preview` (§3.8) | `public.check_rate_limit` is `GRANT EXECUTE … TO service_role` only, so a rate-limited preview **cannot** be a plain PostgREST RPC | Promoter §7.10 |
 | Demographic capture / holder-mix aggregation | **REJECTED → RPC** | deliberately no edge function: *"the demographic value never crosses a process boundary — no HTTP body, no function log, no error breadcrumb"* | Demographics §5.4 |
 | `crm-export-deliver` (email the CSV) · CDP/webhook sync | **REJECTED — never build** | EX-6 / X-5 / C40 — a third-party destination with extra steps, in an inbox that outlives every control | CRM §11.5, Demographics §9 X-5 |
@@ -436,20 +437,53 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **Idempotency:** RPC `command_key`. **Rate limit:** 5/60, fail-closed. **Timeout:** < 10s.
 - **Package:** `083` (`kernel.signing_key`). Rotation runbook: §5.6.
 
-### 3.7 `crm-export` — attendee export build + signed download — **NEW EDGE** (CRM §11.5)
+### 3.7 `crm-export` — attendee export build + signed download + artifact purge — **NEW EDGE** (CRM §11.5, §6.6)
 
-**Two routes, one function.** They have **different auth models** and the split is the point.
+**THREE routes, one function** (`SPEC CORRECTION` — CRM §6.6; was two). They have **different auth models** and
+the split is the point.
 
-| | `POST /build` (worker) | `POST /download` (actor) |
-|---|---|---|
-| **verify_jwt** | `false` — invoked by `pg_cron` via `net.http_post` with a service-role bearer, **constant-time compared** (I-9) | **`true`** — actor re-derived via `auth.getUser` (C35) |
-| **Auth model (§0)** | **Class B (B-i + B-iii)** — no human caller exists; `venue.build_export_rows` is `REVOKE EXECUTE FROM anon, authenticated` and re-derives authority **from the job row's recorded actor and scope**, not from the caller | **Class A (EA-1)** — `venue.authorize_export_download` **re-checks the caller's authority live against the grant tables at this instant** (EX-4). With a service client that re-check is vacuous, so this route is Class A without exception |
-| **Wraps** | `venue.build_export_rows` (paged) → `venue.finalize_export` | `venue.authorize_export_download` → `{ object_path, ttl_seconds: 300 }` |
-| **External I/O** | Storage upload to the private `crm-exports` bucket | Storage `createSignedUrl(path, 300)` |
-| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRM_EXPORT_WORKER_SECRET`, `SENTRY_DSN` | same |
-| **Rate limit** | n/a (cron-paced + per-org concurrency cap of 2 running jobs) | `check_rate_limit` fail-closed: 3 per actor per job, 10 per actor / 24 h |
-| **Idempotency** | claim lease + `UNIQUE(requested_by, command_key)`; a re-drive overwrites the same `{org_id}/{job_id}.csv` | none needed — a signed URL is not a side effect |
-| **Timeout** | 15s per page-batch; the **lease outlives the timeout**, so a crashed worker is reclaimed, never double-run to a second artifact | 3s |
+> **Why the third route exists, and why its absence was a hole rather than an omission.** `venue.revoke_export`
+> and `venue.sweep_expired_exports` are `SECURITY DEFINER` **Postgres** functions, and **a Postgres function
+> cannot call the Storage API.** Its only in-database option is `DELETE FROM storage.objects`, which removes
+> the metadata row and **orphans the bytes in the backing store** — strictly worse than doing nothing, because
+> the object survives while every accounting says it is gone. With only `/build` and `/download`, **neither of
+> which is a delete**, retention, sweep and revoke had **no agent at all**: the *"the lake is bounded by a
+> 24-hour sweep"* defence was unimplementable as specified, and revoke could not remove the file it claimed to
+> remove. **`POST /purge` is the only Storage delete agent in the entire design.**
+
+| | `POST /build` (worker) | `POST /download` (actor) | `POST /purge` (worker) |
+|---|---|---|---|
+| **verify_jwt** | `false` — invoked by `pg_cron` via `net.http_post` with a service-role bearer, **constant-time compared** (I-9) | **`true`** — actor re-derived via `auth.getUser` (C35) | `false` — **the same cron + `CRM_EXPORT_WORKER_SECRET` path as `/build`**, same constant-time compare |
+| **Auth model (§0)** | **Class B (B-i + B-iii)** — no human caller exists; `venue.build_export_rows` is `REVOKE EXECUTE FROM anon, authenticated` and re-derives authority **from the job row's recorded actor and scope**, not from the caller | **Class A (EA-1)** — `venue.authorize_export_download` **re-checks the caller's authority live against the grant tables at this instant** (EX-4), **including the job's `template_id`**. With a service client that re-check is vacuous, so this route is Class A without exception | **Class B (B-i + B-iii)** — no human caller exists and none may. Both wrapped RPCs are definer / `service_role` only |
+| **Wraps** | `venue.build_export_rows` (paged) → `venue.finalize_export` | `venue.authorize_export_download` → `{ object_path, ttl_seconds: 300 }` | `venue.claim_artifacts_for_purge(p_limit)` → Storage `remove()` → `venue.confirm_artifact_purged(p_job_id, p_outcome)`; **once per day** also `venue.reconcile_export_orphans` |
+| **External I/O** | Storage upload to the private `crm-exports` bucket | Storage `createSignedUrl(path, 300)` | **Storage `remove()` and `list()` — the only delete agent in this design** |
+| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRM_EXPORT_WORKER_SECRET`, `SENTRY_DSN` | same | same |
+| **Rate limit** | n/a (cron-paced + per-org concurrency cap of 2 running jobs) | `check_rate_limit` fail-closed: 3 per actor per job, 10 per actor / 24 h | n/a (cron-paced) |
+| **Idempotency** | claim lease + `UNIQUE(requested_by, command_key)`; a re-drive overwrites the same `{org_id}/{job_id}.csv` | none needed — a signed URL is not a side effect | the `purge_lease_until` claim lease (the 064 pattern, **distinct from the build's `lease_until`**); **a 404 from `remove()` is SUCCESS, not an error** — the object is gone, which is the goal — so a repeat is a no-op |
+| **Failure** | 400 / 403 / 409 / 429 / 503; job left reclaimable by the lease | same | leaves the row `delete_pending` with the lease expired so the next cycle retries; **> 3 failed cycles raises a `platform_risk` signal.** A delete that never succeeds is an alarm, not a silent gap |
+| **Timeout** | 15s per page-batch; the **lease outlives the timeout**, so a crashed worker is reclaimed, never double-run to a second artifact | 3s | 15s per claimed page; lease longer than the timeout |
+| **Cadence** | one-minute cron drain of `queued` | on demand | **15-minute `pg_cron` + `pg_net`**, the same in-database HTTP pattern `VERIFIED:` migrations 014/032/034 already use; **orphan reconciliation once per day** |
+
+- **The daily orphan reconciliation is two-directional, and that is the point.** A mark-then-delete design has
+  exactly one new failure mode — **the mark is lost while the object is not** — and its symptom is *a customer
+  list nobody knows about*. The pass lists `crm-exports` objects under each `{org_id}/` prefix and compares
+  them against `venue.export_job` **in both directions**:
+
+  | Condition | Action |
+  |---|---|
+  | Object exists, **no job row** (job purged, or the row was never written) | **Delete the object.** `crm_export.purge` with `reason_code = 'orphan_no_job'` |
+  | Object exists, job row says `artifact_state ∈ {deleted, absent}` | **Delete the object.** `reason_code = 'orphan_state_mismatch'` — the accounting said gone and it was not |
+  | Object exists, job row `ready` and inside retention | Leave it. The normal case |
+  | **Job row says the artifact is present, no object** | Set `artifact_state = 'deleted'`; **alarm if the job is `ready`** — a `ready` job with no bytes will fail a download |
+
+  **This pass is the only reason the 24-hour bound is a statement about the bucket rather than about the job
+  table.** Without it the retention claim is a claim about rows, and rows are not what leaks.
+- **What revoke can and cannot do (carry this into the operator copy).** Revoke is `ready → revoked` in the
+  same transaction, so **no further download is authorized from that instant** — that half is immediate and is
+  the half that matters. The **object** goes within one purge cycle (≤ 15 min), not instantly, and an
+  already-minted signed URL **stays redeemable until the object is actually deleted**, for at most its
+  300-second life. The honest bound on the revocation race is **`min(300 s, time-to-purge)`, not zero**, and
+  **the surface must not say "effective immediately" about the file.**
 
 - **Authorized (CRM K-2, role-model V-5):** `audience_v1` template — `org_owner`, `org_admin`, `org_marketing`
   *(org grain)*, `venue_manager`, `venue_marketing` *(venue grain)*. `operations_v1` (adds MONEY columns) —
@@ -684,7 +718,8 @@ and joins no custody sequence.
   `Authorization: ApplePass <token>`, not a Supabase JWT.
   > **`SPEC CORRECTION` — the count was wrong and had been copied.** This section, §0.4, §2 and Wallet §6.1 all
   > called this *"the second and last"* `verify_jwt=false` surface. **It is not.** §7 enumerates **five**:
-  > `stripe-webhook`, `wallet-pass-webservice`, **`door-session`**, `crm-export /build`, and
+  > `stripe-webhook`, `wallet-pass-webservice`, **`door-session`**, `crm-export`'s worker routes (`/build` +
+  > `/purge`), and
   > `promoter-code-preview`. `door-session` is the one that matters here — it relays scan and offline-batch
   > calls holding the service-role key (§3.9a) — and three documents asserting "second and last" is how a
   > third unauthenticated surface arrives without anyone counting it. **The count is stated in exactly one
@@ -1242,12 +1277,20 @@ flowchart TB
      **door session token** is what every subsequent call presents (§3.9a). **This is the highest-risk member
      of the set**: it relays admission while holding the service-role key, and RLS is bypassed entirely behind
      it. Its security sign-off is owed alongside `wallet-pass-webservice`'s, not after it.
-  4. `crm-export` `/build` — cron-invoked with a constant-time bearer (§3.7).
+  4. `crm-export` **worker routes — `/build` AND `/purge`** — both cron-invoked with the same constant-time
+     `CRM_EXPORT_WORKER_SECRET` bearer (§3.7). **One surface, two routes**, because they share one function,
+     one credential, one comparison and one caller. `/purge` was added by CRM §6.6 and is **the only Storage
+     delete agent in the design**; it is enumerated here rather than inheriting `/build`'s posture silently.
   5. `promoter-code-preview` — an unauthenticated buyer may type a code; grants nothing (§3.8).
 
-  **`verify_jwt: false` is never a default and never inherited from a neighbouring function.** Adding a sixth
-  requires an argued section **and** an edit to this list in the same change; a function whose section claims
-  the posture but is absent here is a defect, not a sixth surface.
+  **The unit of enumeration is the *surface*, and the count is FIVE.** A surface is one function-plus-credential
+  posture; `crm-export`'s two worker routes are one surface and its `/download` route is not a member at all.
+  **Route count is therefore six and surface count is five — state which one you mean or say neither.**
+
+  **`verify_jwt: false` is never a default and never inherited from a neighbouring function *or from a
+  neighbouring route*.** Adding a sixth surface — **or a third worker route to an existing one** — requires an
+  argued section **and** an edit to this list in the same change; a function or route whose section claims the
+  posture but is absent here is a defect, not a new member.
 - **CORS + security headers:** copy the whitelist (`snatchitapp.com`, `www.`) + `getSecurityHeaders()` from the
   existing functions on every response, including error and OPTIONS.
 - **Secrets (names only, never values):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`,
@@ -1277,6 +1320,7 @@ flowchart TB
   | `door-session` relay routes | `NS_DOOR_SESSION` | `session_ref` (authenticated; **not** the claimed device id) |
   | `promoter-code-preview` (anon) | `NS_PROMOCODE` | `ip \|\| ':' \|\| sha256(user_agent)` (§3.8, already written) |
   | `crm-export` `/build` | `NS_EXPORT_JOB` | the job row's `export_job_id` |
+| `crm-export` `/purge` | — | **cron-paced; no limiter.** The only caller is `pg_cron`, and a limiter on the sole delete agent would be a control that stops deletions |
 
   **The PIN attempt and the relay routes must use different namespaces**, so PIN grinding cannot consume the
   scanning budget of a legitimately provisioned door, and a busy door cannot mask a PIN-grinding attack.
@@ -1314,6 +1358,7 @@ flowchart TB
 | `signing-key-provision` | POST | true | **A** | `is_platform([platform_admin])` | `provision/rotate/revoke_signing_key` | KMS keygen | `command_key` on RPC | `083` |
 | `crm-export` `/download` | POST | true | **A** | live re-check of the export allow-list at download time (EX-4) | `venue.authorize_export_download` | Storage signed URL (300s) | n/a | `087` |
 | `crm-export` `/build` | POST | **false** | **B-i/B-iii** | `service_role` only; authority re-derived from the **job row's** actor + scope | `venue.build_export_rows` → `venue.finalize_export` | Storage upload | claim lease + `UNIQUE(requested_by, command_key)` | `087` |
+| `crm-export` `/purge` | POST | **false** | **B-i/B-iii** | `service_role` only; **no human caller exists or may** | `venue.claim_artifacts_for_purge` → `venue.confirm_artifact_purged`; daily `venue.reconcile_export_orphans` | **Storage `remove()` + `list()` — the only delete agent in the design** | `purge_lease_until` lease; **404 from `remove()` = success** | `087` |
 | `promoter-code-preview` | POST | **false** | **A** *(when a JWT is present)* | none — read-only advisory; grants nothing | `venue.preview_promoter_code` | — | n/a (idempotent read) | `090` |
 | `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session, **session_ref, token**)` on **every** relay call; **no `auth.uid()` exists**; device id **derived from the assert**, never from the request (`p_actor_device_id`) | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
 | `door-manifest` *(optional)* | POST | true / **false** | **A** *(staff JWT route)* · **B-iii** *(PIN route)* | `has_venue_role([venue_scanner,venue_manager])` **or** a valid `door_pin` | `venue.get_door_manifest` | KMS sign | deterministic over the digest | `086` |
@@ -1405,6 +1450,23 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
     `refund.*` / `payout.*` / `authn.*` only. **`wallet.*`, `credential.*` and `door.session_*` must be added**
     (Wallet §11.5b) — they gate a feature-enable and the lifetime of bearer credentials. Direction asymmetry
     applies: two approvers to loosen, one to tighten. **RLS-spec owner.**
+17. **`verify_jwt` is per-FUNCTION, but `crm-export` is specified with per-ROUTE values — RECORDED, NOT
+    RESOLVED.** §2's deployment note states that this tree carries no `supabase/config.toml` and that
+    **`verify_jwt` is set per-function at deploy time**. §3.7 and CRM §11.5 both specify `crm-export` with
+    `/build` = `false`, `/purge` = `false` and **`/download` = `true`** — three routes of *one deployed
+    function* carrying two different values, which the stated deployment model **cannot express**. Exactly one
+    of these is true and this spec does not choose between them:
+    **(a)** the function deploys `verify_jwt=false` and **`/download` must re-derive and verify the actor's JWT
+    in its own code** before touching `venue.authorize_export_download` — in which case `/download` is a Class A
+    route on a `verify_jwt=false` function, §7's enumeration must say so, and EA-4's warning
+    (*"`verify_jwt: true` proves a JWT was present; it does not prove the RPC saw it"*) applies in its mirror
+    image; or **(b)** `crm-export` is **split into two deployed functions** — a `verify_jwt=true` actor function
+    and a `verify_jwt=false` worker function — in which case CRM §11.5's "one function" framing is wrong and
+    the package `087` function list gains an entry.
+    **This is not cosmetic:** under (a), `/download` is one forgotten `getUser()` away from being an
+    unauthenticated export endpoint, and it is the single route in this design that hands out customer contact
+    data. **Owner + CRM-spec owner + whoever owns deploy configuration.** Until it is chosen, §3.7's
+    per-route table is a *requirements* statement, not a deployable configuration.
 
 ---
 
