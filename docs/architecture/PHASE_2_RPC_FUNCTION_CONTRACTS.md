@@ -2688,13 +2688,62 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   back and takes the audit row with it. **Postgres has no autonomous transactions.**
 - **Why it matters:** repeated failed attempts to change a payout destination or fire a payout are the
   **single highest-value fraud signal in the system, and today they leave no trace at all.**
-- **Actor.** `service_role` only; `REVOKE EXECUTE FROM anon, authenticated, public`. **No human path.**
-  Called by the edge (`refund-execute`, `payout-execute`) **in a separate transaction** after catching
-  `insufficient_privilege` / `sod_violation` / `step_up_required` from a money RPC.
-- **Locks:** none. **SSCAS:** n/a. **Writes:** `kernel.admin_audit` (`<action>.denied`). **Idempotency:**
-  none required — a denial is an event, and duplicates are informative rather than harmful.
+- **Actor — `SPEC CORRECTION` (`S-17`; schema §1.12.1; ratification `C106`). THE PREVIOUS TEXT MADE THIS
+  FUNCTION FAIL ON ITS FIRST CALL, IN PRODUCTION, ON THE FRAUD PATH.** It read *"`service_role` only;
+  `REVOKE EXECUTE FROM anon, authenticated, public`. **No human path.**"* — and this function's **entire
+  purpose is to name the human who was just refused.** On a `service_role` connection `auth.uid()` is NULL,
+  `kernel.admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and the FK forbids an invented sentinel:
+  **the INSERT cannot satisfy its own constraint.** The corrected rule, which is the schema's design:
+
+  > **`SECURITY DEFINER`, `EXECUTE` to `authenticated` ONLY — never `anon`, never `service_role` — and it is
+  > BOUND BY EDGE-CALLER-JWT** (§0.1a) like every other money RPC. **`actor_identity := auth.uid()`,
+  > server-derived. It RAISES when `auth.uid()` IS NULL**, so a service-role invocation fails loudly instead
+  > of writing a wrong row — the same fail-closed shape `T-RLS-EDGE-01` asserts for every human-predicate
+  > RPC. **The signature keeps its four parameters and NO actor parameter is added**, so this is not the
+  > `p_user_id`-trust pattern (C35/`S-6`) in a new place.
+
+  **Definer because `kernel.admin_audit` is audit-only/deny-all.** Not granted to `anon` because a denial
+  before authentication has no principal to record and belongs to rate-limiting, not to audit.
+  **Who knows the principal at the moment of denial?** Not the database — that transaction was rolled back.
+  Not the scheduler. **The edge, and it holds the principal as a verified JWT** — the *same* client it built
+  for the call that was just denied. The denial log is that call's second transaction on that same client.
+  **This EXTENDS EDGE-CALLER-JWT's scope by one function; it weakens nothing.**
+- **The pollution vector, named because granting a write to `authenticated` deserves the argument.** A
+  malicious authenticated caller can now insert denial rows. It **cannot forge `auth.uid()`**, so every row
+  it writes is **about itself**: it cannot frame another principal and it cannot suppress a row (the edge
+  writes those). It can only make its own denial count look worse and grow the table. Bounded by three
+  things that all already exist: `p_action` is validated against a **closed allow-list of money `*.denied`
+  names**; `(subject_kind, subject_id)` is validated against the same pairing rule `APPR-SUBJ-1` imposes
+  (§17.0a); and the call is **rate-limited per actor** through the production
+  `public.check_rate_limit(p_user_id, p_action, p_max, p_window_seconds)` (migration `005`, applied).
+- **Rejected repairs** (schema §1.12.1 carries the full table): a `p_actor_identity_id` parameter is the
+  C35-forbidden pattern with nothing to validate it against; the `SN-SYSTEM` sentinel **destroys the only
+  fact the row exists to carry** (*"how many denials"* is not *"by whom"*); making `actor_identity` nullable
+  weakens a `NOT NULL` on the audit backbone for one writer, and the nullable rows would be the ones that
+  matter most.
+- **Why it is NOT in the definer-only exclusion list.** RLS §3.1 lists it among RPCs with *"no human actor
+  by construction"*. **The genuine members of that list are the cron sweeps** — `sweep_expired_refund_requests`,
+  `market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales`,
+  `kernel.sweep_expired_door_overrides`, `catalog.sweep_implicit_door_freezes`,
+  `kernel.sweep_expired_ticket_atoms` (§12.5) — and they are served by the `SN-SYSTEM` sentinel of schema
+  §1.16. **A denial has a human actor. It is the only reason to write the row.**
+- **Locks:** none. **SSCAS:** n/a. **Writes:** `kernel.admin_audit` (`<action>.denied`, `actor_identity :=
+  auth.uid()`). **Idempotency:** none required — a denial is an event, and duplicates are informative rather
+  than harmful.
 - **Contains no payload from the failed call** beyond the four parameters, so a denial can never become a
   side channel for the data the denied call was refused.
+- **Tests.** `T-SCHEMA-AUDIT-01` (invoked on a **`service_role`** connection it **RAISES** and writes no row
+  — asserted on the service-role path deliberately, because that is how it was contracted and it is the call
+  that cannot satisfy `actor_identity NOT NULL`) · `T-SCHEMA-AUDIT-02` (on the caller's own JWT it writes
+  exactly one row whose `actor_identity` **equals `auth.uid()`**, and **no parameter can change that value**
+  — asserted structurally over the signature, because a later "convenience" parameter is exactly how this
+  returns) · `T-SCHEMA-AUDIT-03` (`p_action` outside the closed allow-list raises; `anon` holds no
+  `EXECUTE`).
+- **Reported, not applied here (§20.14 `R-28`).** `PHASE_2_RLS_PERMISSION_SPEC.md` must remove this function
+  from §3.1's definer-only exclusion list and change its §11 EXEC row from `DEF` to *`authenticated`,
+  EDGE-CALLER-JWT-bound*; `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 6 must drop *"no human path"*.
+  **Five documents said `service_role`-only in six places and the schema says the opposite; it cannot both
+  raise on a service-role connection and be callable only on one.**
 
 ### 17.10 `venue.open_door_manifest(p_session_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
 

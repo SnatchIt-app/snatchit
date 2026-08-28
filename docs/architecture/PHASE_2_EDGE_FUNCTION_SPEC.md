@@ -72,9 +72,23 @@ Every edge function is exactly one of two classes, and its class is stated in it
 > `auth.uid()` and `auth.jwt()` resolve to the human *inside the transaction*.
 >
 > **EA-2.** The service-role key **MAY** be used in the same function for work that takes no authority from the
-> caller: Stripe and KMS calls, object-storage writes, `kernel.record_money_denial`, outbox drains, structured
+> caller: Stripe and KMS calls, object-storage writes, outbox drains, structured
 > logging, and Sentry. It **MUST NOT** be used to invoke a money, custody, or role-authorizing RPC on a human's
 > behalf — **ever**, and not "temporarily", and not "because the edge already checked the role."
+>
+> > **`SPEC CORRECTION` (`S-17`; schema §1.12.1, RPC §17.9; ratification `C106`) — `kernel.record_money_denial`
+> > IS REMOVED FROM THIS LIST AND IS AN EA-1 CALL.** It was listed here as service-role work *"that takes no
+> > authority from the caller"*, and **its entire purpose is to name the human who was just refused.** On a
+> > service-role connection `auth.uid()` is NULL, `kernel.admin_audit.actor_identity` is
+> > `NOT NULL FK→auth.users`, and the FK forbids an invented sentinel — **so the call fails on its first
+> > attempt, in production, on the fraud path.** *"Repeated failed attempts by ONE PRINCIPAL"* is precisely
+> > the fact the row could not carry.
+> >
+> > **The denial log is the SAME call's second transaction, on the SAME caller-`Authorization` client** the
+> > function already built for the RPC that was denied. The database derives the actor itself
+> > (`actor_identity := auth.uid()`); **no actor parameter is added**, so EA-6 is honoured rather than
+> > excepted. **This EXTENDS EA-1's scope by one function; it weakens nothing**, and it is the one item on
+> > the pre-fix EA-2 list that was never external I/O.
 >
 > **EA-3 (Class B — service-authorized).** A function may use a service-role client for its RPC calls **only**
 > when the RPC takes **no** authority from `auth.uid()`. Three shapes qualify and no others:
@@ -84,6 +98,15 @@ Every edge function is exactly one of two classes, and its class is stated in it
 > credential** verified constant-time in the function itself (a Stripe signature, a per-pass
 > `authenticationToken`, a door session). In (B-iii) the function's own check **is** the authority and must be
 > specified as such — see EA-5.
+>
+> > **`S-17` — `kernel.record_money_denial` is NOT a member of (B-ii), and reading it as one is what broke
+> > it.** (B-ii) is about RPCs that take **no** authority from `auth.uid()`. This one **derives its only
+> > meaningful column from `auth.uid()`** and **RAISES when it is NULL** (RPC §17.9), so a service-role
+> > client makes it fail rather than succeed silently — the fail-closed direction, but a failure on the fraud
+> > path all the same. **The genuine money members of (B-ii) are the state-sync RPCs and the sweeps**:
+> > `kernel.mark_payout_transfer_state` (RPC §20.7.6), `kernel.mark_refund_state` (§20.7.7),
+> > `kernel.sweep_expired_ticket_atoms` (§12.5) and the four other sweeps — all of which really do have no
+> > human actor and are served by the `SN-SYSTEM` sentinel (schema §1.16).
 >
 > **EA-4.** `verify_jwt` is **not** the classification. `verify_jwt: true` proves a JWT was present; it does not
 > prove the RPC saw it. A function may be `verify_jwt: true` and still be broken under EA-1 if it then calls the
@@ -457,6 +480,16 @@ Full C33 architecture is in §5. This is the request/response contract.
   `payout_destination_locked_until` cool-down (checked in the RPC).
 - **Secrets:** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 - **Rate limit:** `check_rate_limit(user, 'payout-execute', 10, 60)`, fail-closed.
+- **Denial log — `kernel.record_money_denial`, and it is an EA-1 CALL (`S-17`; RPC §17.9; ratification
+  `C106`).** On `insufficient_privilege` / `sod_violation` / `step_up_required` / **`step_up_unavailable`**
+  (`AUTHZ-M4`, surfaced distinctly) from a money RPC, this function calls `record_money_denial(p_action,
+  p_subject_kind, p_subject_id, p_error_code)` **in a separate transaction** — because the denied call
+  `RAISE`d, which rolled back its audit row with it, and Postgres has no autonomous transactions.
+  **It MUST be invoked on the caller's own `Authorization` client, NOT the service client.** The RPC derives
+  `actor_identity := auth.uid()` and **raises when it is NULL**, so a service-role invocation writes nothing
+  — and *"repeated failed attempts by one principal"* is the entire signal. §0.2's EA-2 list previously named
+  this function as legitimate service-role work; **it was the one item on that list that was never external
+  I/O**, and it is removed there. **No actor is passed** (EA-6 holds).
 - **Idempotency:** `kernel.payout.idempotency_key` (deterministic on `(cause, cause_ref, payee)`) + the Stripe
   key — a retry recovers the original payout, never a second transfer.
 - **Retries:** safe. Stripe `insufficient_funds` before `source_transaction` funding is an expected operational
@@ -502,7 +535,14 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **Stripe:** `stripe.refunds.create({ payment_intent, amount })` under a **deterministic idempotency key**
   `refund_${refund_id}` (reconstructible from the `kernel.refund` row). Reuses `_shared/stripe.ts`.
 - **Secrets:** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
-- **Rate limit:** `check_rate_limit(user, 'refund-execute', 10, 60)`, fail-closed.
+- **Rate limit:** `check_rate_limit(user, 'refund-execute', 10, 60)`, fail-closed. **This is a throughput
+  limit, not a value limit** — 600 calls an hour moves any amount; the value control is §17.1a's cumulative
+  tier operand, and naming the limiter here is how a reviewer stops reaching for it as the missing control.
+- **Denial log — `kernel.record_money_denial`, and it is an EA-1 CALL (`S-17`; RPC §17.9; ratification
+  `C106`).** Identical to §3.4's bullet and for the identical reason: on `insufficient_privilege` /
+  `sod_violation` / `step_up_required` / **`step_up_unavailable`**, call it **in a separate transaction**, on
+  the **caller's own `Authorization` client**. The RPC derives the actor from `auth.uid()` and **raises when
+  it is NULL**; a service-role invocation writes nothing, on the highest-value fraud signal in the system.
 - **Idempotency:** `kernel.refund.idempotency_key` + the Stripe key → a retry replays ONE refund. The
   `charge.refunded` webhook branch (§4) reconciles state either way (a Dashboard refund and an app refund
   converge).
