@@ -534,6 +534,10 @@ assertion was right; the table it was written against was not.
   `cause` ∈ D3 set; `credential_version_after >= 0`.
 - **Immutability:** **AO** — INSERT-only. `REVOKE UPDATE, DELETE`; guard trigger raises on any UPDATE/DELETE.
   Corrections are new compensating entries (never edits) — CDM §10.1–10.3.
+- **Verify trigger (ADDED — defect `MB-4`, §1.6.2):** **`kernel.tg_custody_head_is_ledger_tail`**, a
+  **`DEFERRABLE INITIALLY DEFERRED` constraint trigger on `kernel.tickets`**, created in `079`. This is the
+  object the constitution names three times as *"head-equals-log-tail trigger"* / *"single-writer fn +
+  **verify trigger** + partial-unique on live custody"* and that no package built.
 - **Index:** PK `(ticket_atom_id, sequence)` (custody timeline read, Transfer View, strong); the three
   UNIQUE indexes double as lookup indexes; index on `cause_ref` (reconcile a sale/refund to its N atoms);
   index on `to_identity` (rebuild "tickets owned by X" projection).
@@ -544,7 +548,9 @@ assertion was right; the table it was written against was not.
 - **RLS:** money-custody-RPC-only (deny-all to clients). Reads via `kernel.get_ticket_custody_chain` scoped
   to current owner / issuing venue / platform.
 - **Write authority:** `kernel.issue_ticket_atoms`, `kernel.transfer_ticket_ownership`,
-  `kernel.void_ticket_atom` — the SSCAS choke-point functions only.
+  `kernel.void_ticket_atom` — the SSCAS choke-point functions only. **`public.delete_account_cleanup`
+  (migrations `019`/`020`, live) is NOT a writer of this table or of the atom head, and must never become
+  one — `CUSTODY-DEL-1`, §5.1.**
 - **Read authority:** current owner + issuing venue + platform.
 - **SoT/PROJ:** **SoT** (the custody truth). `kernel.tickets.current_owner_id` is its projection.
 
@@ -601,6 +607,100 @@ job is compensate-XOR-complete.
 (two different `refund_id`s are different triples). Under the `FOR UPDATE` atom lock the engine reads the
 atom's `state`; a `voided` atom **rejects any further terminal transition** (state machine in §7.5), so a
 second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
+
+#### 1.6.2 DEFECT `MB-4` — *"bypass is structurally impossible"* rested on a trigger no package built
+
+**The claim.** Door §7.6: *"`kernel.transfer_ticket_ownership` … **rechecks (the enforcement point)** | sole
+custody engine; enforcing here makes bypass **structurally impossible**"*. Its enforcement is named **three
+times** in the frozen constitution `SNATCH_IT_DOMAIN_ARCHITECTURE.md` — *"head-equals-log-tail **trigger**"*
+(§ mutation table), *"single-writer fn + **verify trigger** + partial-unique on live custody"* (invariant
+table), and invariant #1 *"Ownership head = ownership_log tail; head writable only by the engine | …
++ verify trigger + `FOR UPDATE`"*.
+
+**No such trigger existed in any of the sixteen packages.** Enumerate every Triggers row in plan §8:
+`076` none · `077` `raise_append_only`+`set_updated_at` · `078` `set_updated_at` · **`079`
+`raise_append_only` on the ownership log and `door_freeze_override`, and nothing else** · `080` none ·
+`081` `raise_append_only`+`set_updated_at` · `082` order-item IMM guard + `set_updated_at` +
+`raise_append_only` · `083` IMM/forward-only guards · `084` none · `085` `set_updated_at` · `086`
+`raise_append_only` ×3 + the manifest open→closed guard + **`catalog.tg_door_open_at_is_ledger_head`** ·
+`087` `raise_append_only`+`set_updated_at` · `088` `set_updated_at` · `089` none · `090`
+`raise_append_only` ×2 + two immutability guards · `091` `set_updated_at`. **The corpus built exactly this
+trigger for `door_open_at` (`086`) after ruling O-5 found that column unwritten, and did not build it for the
+column the head-of-ledger pattern is named after.**
+
+By the corpus's own standard — `AUTHZ-M1`, *"a control that depends on writers remembering **is** a
+convention"* — custody-head integrity was a convention. **The one column on the atom that survives that
+standard is `signing_key_id`, and only because Wallet §12 assertion 31 puts a `pg_get_functiondef`
+structural assertion behind it. That is the shape of the fix.**
+
+**The object.** `kernel.tg_custody_head_is_ledger_tail` — **a `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY
+DEFERRED`, `AFTER INSERT OR UPDATE FOR EACH ROW` on `kernel.tickets`**, created in **`079`**.
+**SEAM-1: it reads `kernel.ticket_ownership_log` (`079`) and `kernel.tickets` (`079`) → `max(079, 079) =
+079`. No dependency edge is created; no package is added, renamed or renumbered.**
+
+**It asserts, at COMMIT:** for the atom row, let `T` be the log row with the greatest `sequence` for
+`NEW.ticket_atom_id`. Then
+
+1. `T` **exists** (an atom with no custody entry is not a custody fact);
+2. `T.to_identity = NEW.current_owner_id`;
+3. `T.credential_version_after = NEW.credential_version`.
+
+**`state` is deliberately NOT a clause, and the omission is reasoned rather than an oversight.** The
+invariant the constitution names is *ownership* head = log tail; `kernel.tickets.state` is a lifecycle fact
+that moves without a custody move — `active → scanned` at the door (`mark_ticket_scanned`, an overlay
+writer) and `active → expired` when a session passes (§1.5.1) both leave `current_owner_id` untouched and
+append no log row, correctly. A fourth clause over `state_transition->>'to_state'` would make the trigger
+raise on every admission and on every expiry sweep, i.e. it would brick the door to enforce a property the
+door does not violate. **The three clauses above are exactly the custody head.**
+
+**Deferred, not immediate, and the reason is the whole point.** §1.6.1's engine writes the log row (step iii)
+**then** the head (step iv). An `AFTER ROW` trigger would pass **because of that statement order**, which is
+another convention. `DEFERRABLE INITIALLY DEFERRED` checks at COMMIT, so the property holds **whatever order
+a future engine edit uses** — and a `SET CONSTRAINTS … IMMEDIATE` cannot be used to skip it, only to hit it
+earlier.
+
+**It fires on `current_owner_id` and `credential_version`, and on nothing else.** A write touching only
+`resale_state`, `state`, `signing_key_id`, `seat_ref` or `updated_at` is not a custody move and appends no
+log row — `lock_ticket`/`unlock_ticket`/`mark_ticket_scanned` are overlay writers by contract (§1.5), and
+`kernel.sweep_expired_ticket_atoms` (§1.5.1) is a lifecycle writer. **This is the clause that keeps the
+trigger from becoming the thing it is guarding against: a control so broad that the next engineer disables
+it to ship.**
+
+**What the constitution's third clause — *"partial-unique on live custody"* — maps onto here, so a reader
+does not go looking for a missing index.** That phrase presumes a custody *table* with one row per live
+holding. In this physical model the head is a **column on the atom's PK row**, so *one live owner per atom*
+is a **functional dependency of the primary key**, not a constraint to add: there is nowhere to put a second
+live owner. The clause is discharged by construction. **The verify trigger is the half that was actually
+missing, and it is the half that does the work** — the PK stops two owners, the trigger stops the *wrong*
+one.
+
+**The in-corpus divergence this makes fail loudly instead of silently (filed as `S-18`).**
+`kernel.void_ticket_atom` (RPC §7.3) sets `to_identity := ` void-sentinel on the log row, while its
+`kernel.tickets` write set names only *"→ `voided`, credential bump so any live QR dies"* — **`current_owner_id`
+is absent.** As contracted, after **every** refund-void the log tail says sentinel and the cached head says
+the buyer, **permanently**, on the surface that exists to settle custody disputes. With this trigger the same
+code **aborts at COMMIT** instead of committing a lie. RPC §7.3 must add `current_owner_id := ` the void
+sentinel (§1.16) to its write set.
+
+**Tests.**
+- `T-SCHEMA-CUSTODY-01`: an `UPDATE kernel.tickets SET current_owner_id = <someone>` with **no** matching log
+  append **raises at COMMIT** — run as `postgres`, as `service_role` and inside a `SECURITY DEFINER` function,
+  because the whole claim is that no privilege level can bypass it. **This is the test that fails against the
+  pre-fix chain.**
+- `-02`: the same UPDATE **inside** a correct transfer (log append + head write, in either statement order)
+  **commits** — both orders asserted, which is what proves the check is deferred rather than order-dependent.
+- `-03`: `credential_version` advanced without a log append raises; a log append with
+  `credential_version_after` disagreeing with the head raises.
+- `-04`: writes touching only `resale_state`, only `state` (both `→ scanned` and `→ expired`) and only
+  `signing_key_id` **commit** with no log row — the non-vacuity guard, without which a trigger that raises on
+  everything would pass `-01` and brick the door.
+- `-05` (**structural**, the `signing_key_id` technique): the trigger **exists and is attached to
+  `kernel.tickets`** — asserted over `pg_trigger`/`pg_constraint` with `tgdeferrable` and `tginitdeferred`
+  both true, not by observing a raise. A trigger that was dropped and a trigger that never fires are
+  indistinguishable to every value-based test, which is how this defect survived sixteen packages.
+- `-06`: `void_ticket_atom` on a real atom commits **and** leaves `current_owner_id` equal to the void
+  sentinel — the `S-18` regression, written as an equality against the sentinel rather than as "not the
+  buyer", because "not the buyer" also passes if the column went NULL.
 
 ### 1.7 `kernel.signing_key` (C33 — key reference, NO secret on any row)
 - **Purpose:** the DB-side **reference** to an asymmetric signing key. The private key material NEVER appears
@@ -2973,11 +3073,77 @@ altered. Phase 2 references them:
 | `public.bids` | external auction bids | Reused by the existing auction engine; native auctions reference via the bridge (see CONFLICTS — bid storage). |
 | `public.admin_users` | existing admin identity | **`kernel.platform_role` extends it** (C36); the bootstrap authority for granting platform roles. |
 | existing payout/transfer RPCs (056a/059/061/064) | service_role-only writers | `kernel.payout` **extends this discipline** (deterministic idempotency, `source_transaction` funding), never bypasses it. |
+| **`public.delete_account_cleanup(p_user_id)`** (`020`, live; sentinel from `019`) | `SECURITY DEFINER`, service-role-only; repoints `listings.seller_id`, `payments.buyer_id`/`seller_id`, `transfers.buyer_id`/`seller_id` to `00000000-…-000000000000` | **A live writer no spec declared.** It touches **no** `kernel.*` relation today and **must never be extended to** — `CUSTODY-DEL-1`, §5.1. The `019` sentinel is the *anonymized-person* identity and is **not** reusable as the void or system sentinel (§1.16). |
 
 **Integration invariants preserved (SPEC_FOUNDATION §8, Phase-0 §9):** deny-by-default RLS; no client write
 path to money/custody; column-scoped grants; live-table recheck for money-consequential writes; SECURITY
 DEFINER `search_path` pinned (066); explicit REVOKE-then-GRANT (067); `service_role` = machine identity never
 human authority; constant-time secret compare; `stripe-webhook` keeps `verify_jwt=false`.
+
+### 5.1 `public.delete_account_cleanup` — the live writer the corpus never declared (`CUSTODY-DEL-1`)
+
+**Why this subsection exists.** `PHASE_2_CRM_EXPORT_SPEC.md` §9.2, marked `VERIFIED:` — checked against
+production, not inferred — states that *"the live account-deletion path (migrations 019/020) repoints
+ledger-referenced rows to the anonymized sentinel `00000000-0000-0000-0000-000000000000`; once
+`current_owner_id` is the sentinel, 'was I in that file' is unanswerable."* **`delete_account_cleanup` is not
+an RPC in this corpus, appears in no write-authority row of any spec, appends no ownership-log entry and
+bumps no `credential_version`.** Nothing anywhere reconciles it with the custody model, and the table above
+did not name it.
+
+**What is actually true in production, read from the applied migrations** (`019_anonymized_sentinel_user.sql`,
+`020_delete_account_cleanup_rpc.sql`), because the reconciliation depends on the difference:
+
+- `019` seeds **one `auth.users` row**, `00000000-0000-0000-0000-000000000000`, email
+  `deleted@snatchit.internal`, `role='authenticated'`, **plus a `public.profiles` row displaying
+  `'Deleted User'`**.
+- `020`'s `delete_account_cleanup(p_user_id)` repoints **`public.listings.seller_id`,
+  `public.payments.buyer_id`/`seller_id` and `public.transfers.buyer_id`/`seller_id`** — and nothing else. It
+  **does not touch any `kernel.*` relation**, because none exists yet.
+
+**So the CRM spec's clause is a claim about a future extension nobody has designed, carried under a
+`VERIFIED:` tag that means the opposite.** Filed as `S-19`. The claim is not harmless: it is the sentence an
+implementer reads before extending `020` to cover the Phase-2 tables, and extending it that way is the
+failure.
+
+**`CUSTODY-DEL-1` (binding).** **`kernel.tickets.current_owner_id` and every identity column of
+`kernel.ticket_ownership_log` (`from_identity`, `to_identity`, `actor_identity`) are permanently out of scope
+for anonymization-by-repointing.** Three ratified properties forbid it independently, and any one of them is
+sufficient:
+
+1. The ownership log is **AO** with `REVOKE UPDATE, DELETE` and a guard trigger — a repoint of
+   `to_identity` is an UPDATE on an append-only ledger and **raises**.
+2. §1.6's Archival row already says the log is *"**Never anonymized-by-deletion**; PII is only the identity
+   uuid (crypto-shred via the PII vault, C15/Gate L)"*. The mechanism for erasure here is **already named**,
+   and it is not repointing.
+3. With `kernel.tg_custody_head_is_ledger_tail` (§1.6.2), repointing the **head** alone aborts at COMMIT.
+   *"Either the trigger does not exist, or account deletion breaks the day `079` lands"* — the trigger now
+   exists, so the second horn is the live one, and it is better: it breaks in staging, on a test, with a
+   named constraint, rather than silently.
+
+**And the bind is two-sided, which is sharper than it first looks.** Refusing to repoint does **not** let
+deletion proceed: `current_owner_id` and all three log identity columns are **`ON DELETE RESTRICT`** FKs to
+`auth.users`, so **the `auth.users` DELETE itself fails** while any custody row references the identity.
+`delete_account_cleanup` therefore does not merely need to leave custody alone — **account deletion as a
+whole stops working for anyone who has ever held a ticket, the day `079` lands.** That is a product
+consequence, not a schema one.
+
+**The product handling is an OWNER DECISION (`O13`), recorded and not taken.** Three admissible forms, each
+consistent with `CUSTODY-DEL-1`:
+
+| Form | What the user experiences | Cost |
+|---|---|---|
+| **(a) Tombstone the identity** | the `auth.users` row is retained and marked erased (a `kernel.identity_ext` erasure marker); credentials are revoked, PII is crypto-shredded per C15, and the person cannot sign in. Custody rows keep a dereferenceable uuid | the row survives deletion. The honest description is *"we keep an opaque identifier, and nothing else"* |
+| **(b) Refuse while custody is live** | deletion is **refused, with a named operator-legible reason**, until every atom held by the identity is terminal (`scanned`/`voided`/`expired`) or transferred | a fan holding a ticket to a show next month cannot delete today, and must be told **why**, in the deletion flow, before the confirm step |
+| **(c) Forced hand-off** | deletion voids or transfers the remaining atoms through the custody engine first, appending real log rows | it destroys or moves something the person paid for as a side effect of a privacy action |
+
+**What is NOT admissible, and it is the shortcut an implementer will take:** reusing the
+`00000000-…` anonymization sentinel as the new `current_owner_id`. See §1.16 — it would make that identity
+the recorded current owner of every deleted person's tickets **and** (via `void_ticket_atom`) of every voided
+ticket, would render on the dispute surface as **"Deleted User"**, and would put the meaning of the custody
+ledger under the control of a `public`-schema deletion path outside the kernel's write authority.
+
+**Filed to the CRM-export, demographics and door owners as §13.7 `S-19`.** Ratification **C83** (the trigger)
+and **C84** (`CUSTODY-DEL-1` + `O13`).
 
 ---
 
@@ -3662,6 +3828,8 @@ reason it cannot wait.
 | **S-16** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20 (new) · `PHASE_2_EDGE_FUNCTION_SPEC.md` §4 | **Contract `kernel.mark_payout_transfer_state` and `venue.on_payout_settled`, and replace §4's placeholder** *"`mark`-style state sync RPCs"* with the named function. **And correct the event mapping** (§1.9.2): only `transfer.created` supplies the `stripe_transfer_ref` join key; `payout.paid`/`payout.failed` are the **connected account's own bank payout** (`po_…`), which aggregates many transfers and is **not joinable to one `kernel.payout` row**; a transfer that cannot be created fails as a synchronous API error, not an event, so the payout **executor** is the natural writer of `failed` | A placeholder naming no function is how nine of the twelve surviving gaps were created (§8 preamble). Until it is named, three of five `status` labels and `venue.settlement.status='paid'` have no writer, a failed transfer reads `submitted` forever, and dashboard §14.5's pinned *Failed payout* banner can never fire |
 | **S-21** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14.5 | **The three pills are three straight column reads, and the section should say which:** *held* = `hold_state='held'`, *on probation* = `hold_state='probation_hold'`, *failed* = `status='failed'`. `status` never carries a hold | §14.5 states *"They must never render as one pill"* as a working requirement while two of the three had no storable representation. Naming the column is what stops the implementer deriving the probation pill by inferring from the absence of a `payout.hold` audit row — the construction `AUTHZ-M1` refuses |
 | **S-17** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.9 · `PHASE_2_RLS_PERMISSION_SPEC.md` §3.1 + §11 · `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.4/§3.5 | **`kernel.record_money_denial` must be bound by EDGE-CALLER-JWT and removed from §3.1's definer-only exclusion list.** It becomes `SECURITY DEFINER` with `EXECUTE` to **`authenticated` only** (never `anon`, never `service_role`), derives `actor_identity := auth.uid()`, **RAISES when `auth.uid()` IS NULL**, validates `p_action` against a closed money-`*.denied` allow-list and the `(subject_kind, subject_id)` pairing, and is rate-limited per actor via the applied `public.check_rate_limit` (`005`). **The signature is unchanged — no actor parameter is added.** The edge builds the client for this call from the caller's own `Authorization` header, which is the client it already built for the call that was denied | **The function as contracted cannot execute once.** `service_role` ⇒ `auth.uid()` NULL ⇒ the INSERT violates `actor_identity NOT NULL`, and the FK forbids a sentinel. **§3.1 lists it among RPCs with *"no human actor by construction"* while its entire purpose is to name the human actor** — the genuine members of that list are the cron sweeps, which §1.16's system sentinel serves. This **extends** a security rule to one more function; it weakens nothing |
+| **S-18** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.3 | **`kernel.void_ticket_atom` must add `current_owner_id := ` the void sentinel to its `kernel.tickets` write set.** It already sets `to_identity := ` void-sentinel on the log row; the head write names only *"→ `voided`, credential bump"* | As contracted, after **every** refund-void the log tail says sentinel and the cached head says the buyer — **permanently**, on the surface that exists to settle custody disputes. With `kernel.tg_custody_head_is_ledger_tail` (§1.6.2) the same code aborts at COMMIT instead, which is better but is still a build that does not run |
+| **S-19** | `PHASE_2_CRM_EXPORT_SPEC.md` §9.2/§9.5 · `PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` §8.2 · `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §7.6 | **Carry `CUSTODY-DEL-1` (§5.1) and correct the `VERIFIED:` clause.** CRM §9.2's *"once `current_owner_id` is the sentinel"* is **not** verified against production: `020` touches `public.listings`/`payments`/`transfers` and **no `kernel.*` relation** — the clause describes a future extension that `CUSTODY-DEL-1` forbids. Door §7.6's *"structurally impossible"* may now cite the trigger, which exists as of `079` | A `VERIFIED:` tag means *checked against production*. This one carries a forward-looking claim, and it is the sentence an implementer reads immediately before extending `020` to the Phase-2 tables — which is the failure. Door §7.6's claim was true of the intent and false of the chain |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---
