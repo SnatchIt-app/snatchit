@@ -162,11 +162,36 @@ like Dependabot or `pinact`; keep the trailing `# vX.Y.Z` comment in sync.
 
 ## Known assumptions / caveats for the owner
 
-- **Supabase CLI + migration filenames.** The `db` job pins `supabase/setup-cli`
-  to v3.0.0 but installs the `latest` CLI at runtime (`version: latest`). If a
-  future CLI rejects the legacy `NNN_` (non-timestamp) filenames, pin `version:`
-  to a known-good CLI release, or rename going forward. Verify this job passes
-  on its first real run.
+- **Supabase CLI is pinned twice over — action *and* binary.** The `db` job
+  pins the action `supabase/setup-cli` to v3.0.0 by SHA **and** pins the CLI
+  binary it installs to an exact version. Both matter: the SHA stops the
+  installer from changing, the `version:` input stops the *installed tool* from
+  floating. It used to pass `version: latest`; that caveat is resolved.
+  - The expected version lives in **one** place — the job-level
+    `env.SUPABASE_CLI_VERSION` in `ci.yml` (currently **2.115.0**). The
+    installer input and the assertion both read it; never repeat the literal.
+  - A step named **"Assert pinned Supabase CLI (toolchain drift gate)"** runs
+    immediately after install and before anything migration-sensitive. It
+    prints the resolved binary path and version and fails the job on an exact
+    mismatch. This catches a bad input, an action behaviour change, and a
+    preinstalled/cached `supabase` earlier on `PATH`. `supabase --version`
+    prints the bare version on stdout; the "new version available" notice goes
+    to stderr and is discarded.
+  - **Why 2.115.0:** it is the version the normalized (Scheme B) chain's replay
+    order was verified against, and the client the production ledger repair was
+    executed with (2026-08-26). **2.116.0 exists upstream and is deliberately
+    not adopted.** Bumping the pin is its own PR: change the env value → fresh
+    replay green → Gate-2 parity green → merge. Local development must use the
+    same version, per `CLAUDE.md` §Commands.
+  - **Only the `db` job installs a CLI.** `migrations-guard` and `security`
+    intentionally do not: the guard is pure git/filename analysis over
+    `supabase/migrations/**` (shell + `git diff`, no database and no tool whose
+    version could change the verdict), and `security` runs CodeQL /
+    dependency-review / TruffleHog. Neither is migration-*replay*-sensitive, so
+    there is nothing to pin. The `2.75.0` / `2.115.0` versions named in
+    `migrations-guard.yml` comments and in §4 above are **historical**, part of
+    the explanation of why prefix-related version pairs are banned — not a
+    statement about what any job installs.
 - **`supabase/config.toml` is not committed.** The `db` job runs `supabase init`
   to generate it in-runner. If you later commit a `config.toml`, confirm
   `[db].major_version = 17` to match production Postgres 17.
