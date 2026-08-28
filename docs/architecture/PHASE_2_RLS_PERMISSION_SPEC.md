@@ -241,10 +241,77 @@ ownership). Five labels added: `org_marketing`, `org_promoter_manager`, `venue_b
 columns, so the label commitment stays correctable while the tables are empty (**OD-6**, owner-reserved). This
 document is agnostic: every predicate below is a set-membership test either way.
 
-### 2.2 The eleven predicate helpers (the ONLY sanctioned way to test a role)
+### 2.2 The TEN predicate helpers (the ONLY sanctioned way to test a role)
 
-Conceptual behavior (defined as SECURITY DEFINER helpers in the RPC spec, `search_path` pinned, owned by
-`postgres`, `STABLE`; **live-table reads, never JWT claims** — C9/§3). Adopted verbatim from ROLE_MODEL §6.2.
+> **`AUTHZ-C1C` — THIS SECTION STATED ITS OWN MEMBERSHIP SIX MUTUALLY INCONSISTENT WAYS, AND THAT DISABLED
+> THE ONLY MECHANICAL DEFENCE ON THE MONEY PLANE.**
+>
+> Six statements in four documents claimed to give this set. **Three different numbers, two different sets,
+> and one number that named no set at all:**
+>
+> | # | Statement | Says | Enumerates |
+> |---|---|:---:|---|
+> | 1 | this heading, before this correction | **eleven** | — (a bare count) |
+> | 2 | the bullets below | **ten** | the ten names |
+> | 3 | **`RM-2`** (§2.2b), before this correction | **nine** | — (a bare count) |
+> | 4 | `T-RLS-ROLE-02` + the `AUTHZ-M5` note (§16.11), before this correction | **eleven** | — (a bare count) |
+> | 5 | `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` **C2 · O-2**, before this correction | **nine** | nine names — **`money_role_grant_matured` absent** |
+> | 6 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1–§1.1d, before this correction | **nine** | nine defining contracts — **`money_role_grant_matured` absent** |
+>
+> **Diffed in both directions, the discrepancy resolves to one name and one phantom.**
+> The **union** of every name any statement gives is **ten**; the **intersection** of the enumerating
+> statements (2, 5, 6) is **nine**. The single element of the difference is
+> **`kernel.money_role_grant_matured`** — enumerated by statement 2 and by §11.2's EXEC table (which
+> independently already carried all ten), and by nothing else. **The number "eleven" corresponds to no set:
+> there is no eleventh helper anywhere in this corpus, under any name, in any document.** It is a miscount,
+> not a disagreement about membership — which is why counting more carefully could never have settled it.
+> **"Nine" is not wrong so much as stale: it is the correct membership *before* ratification row `C58`.**
+>
+> **Why this was not cosmetic.** `T-RLS-ROLE-02` is, in `AUTHZ-M5`'s own words, *"the corpus's ONLY defence
+> against a hand-rolled role comparison inside an RPC body"* — and by ruling **GP-3a** every money mutation
+> is `EXECUTE` on a definer function, so **on the plane that matters there is no policy to review.** That
+> test enumerates the helper set structurally. With the membership stated three ways it **could not be
+> written**, and it was filed as blocked in `PHASE_2_SPEC_FOUNDATION.md` for exactly that reason. So the
+> count mismatch did not merely look untidy: **it held the money plane's only mechanical defence in an
+> unwritable state.**
+>
+> **Rule `HELPER-DERIVED` (standing, and modelled on `EXEC-DERIVED` of §11.0).** The helper set has **one**
+> authority and everything else is a roll-up of it:
+>
+> 1. **A name is a member of this set if and only if it carries a defining contract in
+>    `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1–§1.1e.** That document is where §2.2 has always said helpers
+>    *"are defined"*; a helper with no contract is not a helper, it is a call site with a wish.
+> 2. **Membership itself is fixed by the ratification record.** Where §1.1–§1.1e and a `RATIFIED` row
+>    disagree, **the ratification record governs and the contract set is the defect** — in both directions: a
+>    ratified helper with no contract is a gap (this defect), a contracted helper with no ratification is an
+>    unratified control.
+> 3. **ROLE_MODEL §6.2 is the derivation source and is re-derived, not cited over the top.** §2.2 has always
+>    said it adopts §6.2 *"verbatim"*, and §6.2 calls itself *"complete set"* — but §6.2 predates **three**
+>    ratified corrections (`C58`/`AUTHZ-C1B` adds the tenth helper, `C54`/`AUTHZ-H3` changes
+>    `assert_door_session`'s signature, `AUTHZ-M10` corrects `is_promoter_for_event`), so applying it
+>    literally would silently revert all three. **A stale derivation source does not outrank a ratified
+>    correction**; it is brought into line with one. §6.2 is corrected in the same pass.
+> 4. **No statement of this set may be a bare count.** Every restatement — here, `RM-2`,
+>    `T-RLS-ROLE-02`, the traceability matrix, the role model — **enumerates by name**. A count is what let
+>    six statements disagree without any of them being checkable, and **a count assertion passes on the wrong
+>    set of the right size**, which is the precise failure this section shipped.
+>
+> Asserted by **`T-RLS-ROLE-06`** (set equality against the literal list, both directions) and
+> **`T-RPC-AUTHZ-17`**.
+
+**The canonical enumeration — ten names, and this list is the one every other statement must equal:**
+
+```text
+kernel.has_org_role                 kernel.has_org_role_over_venue      kernel.assert_door_session
+kernel.has_venue_role               kernel.has_org_role_over_event      kernel.is_promoter_for_event
+kernel.has_event_role               kernel.is_org_affiliate             kernel.money_role_grant_matured
+kernel.is_platform
+```
+
+Conceptual behavior (defined as SECURITY DEFINER helpers in the RPC spec **§1.1–§1.1e**, `search_path` pinned,
+owned by `postgres`, `STABLE`; **live-table reads, never JWT claims** — C9/§3). Derived from ROLE_MODEL §6.2
+under **`HELPER-DERIVED`** above — which is re-derived in the same pass, not adopted verbatim, because it
+predates three ratified corrections.
 
 - **`kernel.has_org_role(org_id, role[])`** *(existing, unchanged)* → reads `kernel.org_member` for
   `(org_id, auth.uid())` and returns true iff the stored `role` ∈ the requested set. Reads the **live**
@@ -315,7 +382,8 @@ Conceptual behavior (defined as SECURITY DEFINER helpers in the RPC spec, `searc
   least `authn.money_role_maturity_hours` old. **An absent config key means NO grant is mature.** This is the
   only predicate in the set that is a function of **time as well as role**, and it exists because every other
   money separation-of-duties test compares two `auth.uid()` values that one `org_owner` can mint. Full
-  statement: §11.3a. **Never the sole gate on a capability** — it is a *conjunct* on the dual-control
+  statement: §11.3a; **defining contract: RPC §1.1e (`AUTHZ-C1C`)** — which it did not have when this bullet
+  was written, and whose absence is what `HELPER-DERIVED` clause 1 now makes structurally visible. **Never the sole gate on a capability** — it is a *conjunct* on the dual-control
   primitives, never a substitute for the role test beside it.
 
 **Predicate shapes (conceptual, not shippable SQL — ROLE_MODEL §6.3):**
@@ -353,7 +421,11 @@ USING ( kernel.is_platform(ARRAY['platform_risk','platform_admin']) )
 
 > **RM-1** — Every role label begins with its plane token. §2.1.
 > **RM-2** — No RLS policy or RPC compares a bare role string, a **display name**, or a JWT claim. Only the
-> nine helpers of §2.2, always with an explicit scope argument. (This extends §2.3 to display names:
+> **ten** helpers **enumerated by name** in §2.2 — `has_org_role` · `has_venue_role` · `has_event_role` ·
+> `is_platform` · `has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` ·
+> `assert_door_session` · `is_promoter_for_event` · **`money_role_grant_matured`** — always with an explicit
+> scope argument. **The count was "nine" here, "eleven" in the heading and "eleven" in the test, and under
+> `HELPER-DERIVED` clause 4 this rule now names the members rather than counting them.** (This extends §2.3 to display names:
 > `has_venue_role(v,['box_office'])` is as illegal as `role = 'finance'`, because `box_office` is not a member
 > of any enum.)
 > **RM-3** — Org→venue and org→event inheritance is expressed **only** through `has_org_role_over_venue` /
@@ -1862,7 +1934,7 @@ Each is ruled here; the ruling is the row.
 | `kernel.has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` | `authenticated` (pure predicates; `STABLE`, live reads) |
 | `kernel.has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` | `authenticated` |
 | `kernel.is_promoter_for_event` | `authenticated` |
-| **`kernel.money_role_grant_matured(p_org_id)`** *(NEW — `AUTHZ-C1B`)* | `authenticated` (pure predicate; `STABLE`, live read of `kernel.org_member`). **See §11.3a — it is what makes SoD-1 and SoD-2 mean what they claim** |
+| **`kernel.money_role_grant_matured(p_org_id)`** *(NEW — `AUTHZ-C1B`; **contract: RPC §1.1e, `AUTHZ-C1C`**)* | `authenticated` (pure predicate; `STABLE`, live read of `kernel.org_member` **and `catalog.platform_config`**; explicit `REVOKE FROM public, anon`). **See §11.3a — it is what makes SoD-1 and SoD-2 mean what they claim.** **This table already carried all ten helpers when §2.2's heading said eleven and `RM-2` said nine** — it is the second independent enumeration that agrees with the derived set |
 | **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** *(signature corrected — `AUTHZ-H3`)* | **`DEF`** — `service_role` only. Security-critical: it is the *entire* authorization surface of the door path, and it now verifies **possession** (a `venue.door_session` bearer token, constant-time, dummy-compared on an unresolved id) rather than only **provisioning**. **Returns the bound `(device_id, event_session_id)`**, which is the only device identity `record_scan`/`reconcile_offline_scans` may write. Covered by the package's adversarial verification. **RM-5 still holds: it appears in no `pg_policy`** |
 
 ### 11.3 Money authority (money spec §2.3 — replaces the corresponding §11.1 rows)
@@ -1963,6 +2035,13 @@ once for the money plane, where the same evasion is worth money rather than attr
 **The fix — `kernel.money_role_grant_matured(p_org_id) → boolean`.** A **money-role grant younger than a
 configured age cannot approve and cannot request.**
 
+> **Defining contract: RPC §1.1e (`AUTHZ-C1C`), authored 2026-08-28.** Until then this section, §2.2, §11.2
+> and four call sites all *invoked* the predicate and **no document defined it** — no signature, no
+> volatility, no grant class, and no statement of the absent-key behaviour that the paragraph below calls
+> binding. §1.1e supplies all of it and adds the scope-binding precondition at §10.3 that a client-supplied
+> `p_org_id` otherwise leaves open. **The platform plane is deliberately NOT covered** — see the note at the
+> end of this section.
+
 - **Definition.** True iff the caller's `kernel.org_member` row for `p_org_id` holds a money role
   (`org_owner` · `org_finance`) whose **grant age** — `now() - granted_at` on the live row — is at least
   `authn.money_role_maturity_hours`. A live read, never a JWT claim (C9/I-5), like every other helper in
@@ -1989,6 +2068,21 @@ configured age cannot approve and cannot request.**
   single-money-principal org escalates through `release_payout`, i.e. the second human in the SoD pair is a
   platform operator. Grant maturity extends that path to a *newly*-single-principal org for a bounded window;
   it opens no new blocking case that `MD-5` has not already ruled on.
+
+> **The platform plane is NOT covered by this helper, and the corpus reads as though it were
+> (`AUTHZ-C1C`; ratification `C74` / `OPEN-GATED(O11)`; filed RPC §20.14 `R-22`).** Schema §1.13.4 defines
+> the money roles as `{org_owner, org_finance}` (org plane) **and `{platform_admin, platform_support,
+> platform_risk}` (platform plane)**, notes that `kernel.platform_role.created_at` **already is** the
+> platform grant time, and schema §13.7 `S-3` asks that **the money arm of `set_platform_config`** carry the
+> precondition. **`C58` ratified only the org half**, and the ratified signature takes an `org_id` the
+> platform plane does not have — so `approve_refund_request`'s `config.set_money_key` arm has
+> `auth.uid() <> requested_by` and a second distinct `platform_admin` (`AUTHZ-C1A2`) **and no maturity floor
+> at all.** That is this same defect one plane up: `kernel.grant_platform_role` is held by `platform_admin`,
+> so a `platform_admin` mints the second `platform_admin` who approves the raise of a money ceiling — and
+> raising a ceiling is, in the money spec's own words, a larger act than any refund it then authorizes.
+> **Two admissible forms and the choice is the owner's:** a second, scope-free helper bound on that arm
+> (**a new control, therefore a new ratification**), or retraction of §1.13.4's platform-plane sentence and
+> `S-3`'s `set_platform_config` clause (**deleting ratified schema text**). **Neither is taken here.**
 
 **Tests.** `T-RLS-MONEY-06` — an `org_owner` invites and accepts a second `org_finance` account and, from
 that account, both (a) approves a refund the first requested and (b) requests a payout to a destination the
@@ -3049,9 +3143,11 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-COL-03` | `authenticated` holds no SELECT on `kernel.wallet_pass.auth_token_enc` / `.auth_token_hash` / `.serial_no_opaque`; no `venue_*` or `org_*` role holds SELECT on any wallet table | §16.8 |
 | `T-RLS-COL-04` | `venue.door_manifest_entry` exposes **no** owner/identity column | §16.3 |
 | `T-RLS-ROLE-01` | The three role columns admit **exactly** the fifteen labels of §2.1, and reject every `org_*` label on the venue enum and vice-versa | C36 |
-| `T-RLS-ROLE-02` | **REWRITTEN — `AUTHZ-M5`; see the note below.** No policy body and no RPC body contains a role comparison outside the eleven helpers of §2.2: (a) no string literal from the fifteen labels of §2.1 appears anywhere except as an element of an `ARRAY[...]` argument to one of the helpers; (b) the four display names appear **as whole tokens**, never as substrings; (c) no body references `kernel.org_member.role`, `venue.staff_role.role` or `kernel.platform_role.role` except inside the helper definitions themselves | RM-2 |
+| `T-RLS-ROLE-02` | **REWRITTEN TWICE — `AUTHZ-M5`, then `AUTHZ-C1C`; see both notes below.** No policy body and no RPC body contains a role comparison outside **the ten helpers enumerated by name in §2.2** — the test takes that literal list as its input and **asserts no count**, because a count assertion passes on the wrong set of the right size: (a) no string literal from the fifteen labels of §2.1 appears anywhere except as an element of an `ARRAY[...]` argument to one of the helpers; (b) the four display names appear **as whole tokens**, never as substrings; (c) no body references `kernel.org_member.role`, `venue.staff_role.role` or `kernel.platform_role.role` except inside the helper definitions themselves | RM-2 |
 | `T-RLS-ROLE-03` | `kernel.assert_door_session` appears in **no** `pg_policy` expression | RM-5 |
 | `T-RLS-ROLE-04` | `has_venue_role`'s definition does not reference `venue.door_pin` | R-8 |
+| `T-RLS-ROLE-06` | **The `kernel` predicate-helper set is EXACTLY the ten names of §2.2** — set equality against the literal enumeration, **asserted in both directions** over `pg_proc`: a helper in `pg_proc` and not in the list is an unratified role test, and a name in the list with no function is a control that is invoked and not defined (**the `C58` defect: `money_role_grant_matured` had four call sites and no contract**). **`T-RLS-ROLE-02` consumes the same literal list**, so the two cannot drift. **Non-vacuity guard:** the assertion fails if the list it read is empty or shorter than ten, since an empty set equals an empty set | **§2.2 `HELPER-DERIVED` / `AUTHZ-C1C`** |
+| `T-RLS-ROLE-07` | Every name in that list resolves to a function that is `SECURITY DEFINER`, owned by `postgres`, `STABLE`, `search_path`-pinned, and holds **no** `EXECUTE` grant to `anon` — asserted **per name**, because one helper missing the pin is the whole model (§6.5 `INV-NOFORCE` relies on owner-bypass to terminate). `assert_door_session` additionally holds no grant to `authenticated` | §2.2 · §11.2 |
 | `T-RLS-ROLE-05` | **POSITIVE completeness (`AUTHZ-M6`)** — **every** RPC in the door-reachable set calls `kernel.assert_door_session`: `venue.record_scan` · `venue.record_offline_scans` · `venue.sync_scan_device_manifest` · `venue.check_in_guest_entry` · `venue.get_door_manifest` · `venue.validate_ticket_online`. Asserted over `pg_get_functiondef`, **plus the closure check**: no other function reachable from the `door-session` edge function's `service_role` client omits it | §1.1d — see the note below |
 | `T-RLS-EXEC-01` | The §11 EXEC set equals ROLE_MODEL §5.3's `R` cells **per principal**, in both directions, with the twenty-principal / seven-block non-vacuity guard | **§11.0 `AUTHZ-H5`** |
 | `T-RLS-EXEC-02` | No label in any §11 predicate is outside the fifteen canonical labels of §2.1 | §11.0 (the rename class) |
@@ -3099,11 +3195,25 @@ Named so they can be written, run and cited. Grouped by the property each defend
 > `role = 'finance'` comparison hidden in a definer body where **no policy review would ever see it** (GP-3a:
 > on the money plane there is no policy to review).
 > **The rewrite above is whole-token and inverted:** rather than banning display names, it requires that every
-> occurrence of a **canonical label** be an element of an `ARRAY[...]` argument to one of the eleven helpers,
-> and that the three `role` columns be referenced only inside the helper definitions. That is decidable by
-> tokenizing `pg_get_functiondef` / `pg_policy.polqual` and needs no substring heuristics. The display-name
-> clause survives as a whole-token check, which is what RM-2 meant. **Non-vacuity guard:** the scan must
-> report a non-zero count of legal helper call sites, or a broken tokenizer passes silently.
+> occurrence of a **canonical label** be an element of an `ARRAY[...]` argument to one of **the ten helpers
+> enumerated by name in §2.2**, and that the three `role` columns be referenced only inside the helper
+> definitions. That is decidable by tokenizing `pg_get_functiondef` / `pg_policy.polqual` and needs no
+> substring heuristics. The display-name clause survives as a whole-token check, which is what RM-2 meant.
+> **Non-vacuity guard:** the scan must report a non-zero count of legal helper call sites, or a broken
+> tokenizer passes silently.
+>
+> **`AUTHZ-C1C` — AND THE REWRITE WAS STILL NOT WRITABLE, BECAUSE IT ENUMERATED A SET STATED THREE WAYS.**
+> `AUTHZ-M5` made the assertion *decidable*; it left it *unwritable*. The clause above said **"the eleven
+> helpers of §2.2"** while §2.2's bullets gave **ten**, `RM-2` said **nine**, and the traceability matrix and
+> RPC §1.1–§1.1d enumerated **nine without `money_role_grant_matured`** — six statements, three numbers, and
+> **no eleventh helper existing anywhere under any name**. `PHASE_2_SPEC_FOUNDATION.md` filed exactly this,
+> in these words: the test *"cannot be written until one number is right."* It was filed and not applied.
+> **The fix is not to pick the right number — it is to stop the test taking a number at all.**
+> `T-RLS-ROLE-02` now consumes the **literal enumeration** of §2.2, `T-RLS-ROLE-06` asserts that enumeration
+> is the whole of `pg_proc` in both directions, and `HELPER-DERIVED` clause 4 forbids any restatement of the
+> set from being a bare count. **A count assertion passes on the wrong set of the right size**, so the number
+> was never the property worth asserting — which is why three documents could each carry a count and none of
+> them could catch a helper that had four call sites and no definition.
 
 > **`AUTHZ-M6` — the door had a negative assertion and no positive one, and the positive one is the
 > load-bearing half.**
@@ -3172,7 +3282,7 @@ authority model above to be implementable.
 | **X-13** | **schema `§3.17` / plan `090`** | `venue.attribution` must actually carry the denormalized **`promoter_id`** (+ `org_id`, `event_id`) that §9.17 relies on — schema §3.17 currently lists only `link_id`. And **`venue.promoter.status`** must exist for the `AND p.status='active'` conjunct in the corrected predicates (§2.2, §9.17). Without both, the corrected promoter predicate is unwritable and the previous one is unwritable-and-false. |
 | **X-14** | **plan `090` + dashboard owner** | **`venue.decide_flagged_attribution` is deleted** (`AUTHZ-H10`); `venue.review_attribution_flag` is the sole writer of `venue.attribution_review` and now carries the restrictive allow-list. Plan `090`'s Functions row already names only the survivor — **no plan change is needed, which is itself the evidence that the deleted function was never scheduled anywhere.** ROLE_MODEL §11 R-16 and its §12 row 17 should drop it. |
 | ~~X-10~~ | schema §1.13 / plan `077` | **DONE by the schema pass** — `required_approver_class` landed with the **three-label** `CHECK` this row filed, plus the `state <> 'approved' OR approved_by IS NOT NULL` companion, the `subject_kind` CHECK, the `action ↔ subject_kind` pairing and the queue index. **`subject_id` stays soft and the residual is now stated as ACCEPTED — not as equivalent to an FK** (RPC §17.0a `APPR-SUBJ-1/2`) | — |
-| ~~X-11~~ | schema (`kernel.org_member`) / plan `077` | **DONE by the schema pass** — `granted_at` landed; `kernel.money_role_grant_matured` binds **both** halves of **both** money SoD primitives (RPC §17.1, §17.2, §17.7, §10.3) and is **never applied to a deny or a cancel** | — |
+| ~~X-11~~ | schema (`kernel.org_member`) / plan `077` | **DONE by the schema pass** — `granted_at` landed; `kernel.money_role_grant_matured` binds **both** halves of **both** money SoD primitives (RPC §17.1, §17.2, §17.7, §10.3) and is **never applied to a deny or a cancel**. **Completed 2026-08-28 (`AUTHZ-C1C`):** the predicate those four call sites name now has a **defining contract** — RPC **§1.1e** — which it did not when this row was closed. `X-11` closed the *column*; the *function* was closed by nobody until §1.1e | — |
 | ~~X-12~~ | plan `078` | **DONE** — the three keys are seeded fail-to-safe and `comp.*` joined the dual-control namespace. **Extended:** `wallet.*`, `credential.*` and `door.session_*` join it too (§11.3, edge recon #16), and **all seven namespaces are `visibility='restricted'` under §8.4 `AUTHZ-CFG1`** | — |
 | **X-16** | **schema (`catalog.platform_config`, package `078`) + migration plan** | **`visibility text NOT NULL DEFAULT 'restricted' CHECK (visibility IN ('public','restricted'))`**, seeded per key in `078` (`AUTHZ-CFG1`, schema §2.4.1 / §13.7 `S-4`). §8.4 is now written against it. **The DEFAULT is load-bearing**: a key added later must be private until someone deliberately publishes it, so forgetting the column fails as *"the client can't read a value it needs"* — loud and fixed in one seed row — rather than *"the ceiling leaked"*, which is silent forever | §8.4 is the statement an implementer writes the `USING` clause from. Until the column exists, `078` publishes **every dual-control ceiling, step-up window, grant-maturity hours, export cap and door-session TTL to `anon`** — an attack-calibration table available to a signed-out browser at no cost and with no trace |
 | **X-17** | **owner ruling** (schema §13.7 `S-9`) | **`door.*`'s `visibility` classification.** Money, `authn.*`, `comp.*` and `crm.*` are `restricted` on settled arguments. **`door.*` is the one arguable row** — it states how long a door may operate on stale data. It is listed `restricted` in §8.4 because `door.session_*` now bounds the life of a bearer credential (`AUTHZ-H3`) | It is isolated: moving it to `public` changes nothing else in this document, and it should be closed deliberately rather than inherited |
