@@ -520,7 +520,15 @@ Today's contract says *"refund a primary order (full/partial) and void the cover
 - Idempotency: `kernel.refund.idempotency_key` remains deterministic, and the ownership-log
   `UNIQUE(refund_void, refund_id, atom)` (C26) means a replayed partial voids exactly the same atom set once.
   A **second, different** partial refund on the same order mints a new `refund_id` and therefore a new,
-  non-colliding key — so successive partials compose correctly.
+  non-colliding key — so successive partials compose correctly **as keys**.
+- **CORRECTED (`MB-1`) — key composition is not authority composition, and this bullet used to imply it was.**
+  *"Successive partials compose correctly"* is a true statement about idempotency keys and ownership-log
+  uniqueness, and it is **false about the tier**: because §6.1's table compared the **single call's** amount,
+  N sub-ceiling partials composed into an arbitrarily large refund that never reached `pending_approval`.
+  **The two properties are unrelated and the sentence read as though one implied the other**, which is how a
+  designed-in split came to be documented as a feature. Partials still compose as keys, exactly as stated;
+  **their authority is now decided on the cumulative operand of §6.1a**, so the N-th partial is tiered on the
+  sum of all N and not on its own size.
 
 ### 5.5 The cost this design incurs, stated plainly
 
@@ -573,18 +581,20 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
      never a partial success.
   4. Every named atom has `current_owner_id = order.buyer_id` — else `custody_moved` (§5.4 Race 2).
   5. Every named atom has `resale_state = 'none'` — else `conflict_locked` naming the listing/transfer.
-  6. `p_amount_minor ≤ expected_amount` **and** `Σ(refunds for the payment) + p_amount_minor ≤
-     payment.total`, the latter under `FOR UPDATE` on `public.payments`.
+  6. `p_amount_minor ≤ expected_amount` **and** `refund_exposure_minor(payment) + p_amount_minor ≤
+     payment.total`, the latter under `FOR UPDATE` on `public.payments`. **The same aggregate feeds the tier
+     test — see §6.1a; it is computed once, after the lock, and used twice.**
   7. For the parked branch only: `NOT kernel.is_transfer_frozen(atom)` for every atom — else `frozen`.
-- **Tier decision (server-side, from config — §7.2).**
+- **Tier decision (server-side, from config — §7.2). Every row's operand is `cumulative`, defined in §6.1a —
+  never `p_amount_minor` alone.**
 
   | Condition | Outcome (**returned**) | `required_approver_class` (**stored**) | Effect |
   |---|---|---|---|
-  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
-  | org caller, `p_amount_minor ≤ refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
-  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
+  | buyer caller, within `refund.buyer_self_service_window_hours` and `cumulative ≤ refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
+  | org caller, `cumulative ≤ refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
+  | org caller, `cumulative ≤ refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
   | any consumed (scanned) atom, and `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | **`platform`** | park + hold |
-  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
+  | org caller, `cumulative > refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
   | any consumed atom, and `refund.scanned_atom_policy = 'refuse'` | `rejected` | *(none)* | none |
 
   **The consumed-atom row takes precedence over the amount rows.** A scanned atom routes to `platform` **even
@@ -615,8 +625,11 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
 - **Idempotency.** `p_command_key` unique per `(actor, key)` on `kernel.approval_request`; the executed branch
   inherits `kernel.refund.idempotency_key`. Replay returns the original outcome, never a second refund.
 - **Result.** `{ status ∈ {executed, pending_approval, pending_platform_review, rejected, noop_replay},
-  refund_id?, request_id?, amount_minor, atoms_voided[], atoms_not_voided[{atom_id, reason}], tier,
-  required_approver_class? }` — **`approval_required_role` is RENAMED to `required_approver_class`** so the
+  refund_id?, request_id?, amount_minor, **cumulative_minor**, atoms_voided[], atoms_not_voided[{atom_id,
+  reason}], tier, required_approver_class? }` — **`cumulative_minor` is returned (`MB-1`) so an operator who
+  is sent to dual control on a small refund can see that it was the payment's accumulated exposure and not
+  their own amount that tiered it**; a tier the surface cannot explain is a tier the surface will be asked to
+  work around. **`approval_required_role` is RENAMED to `required_approver_class`** so the
   returned value and the stored column are the same word (RPC §17.1). **Two names for the same fact is how
   the tier went missing in the first place.**
 - **Errors.** `insufficient_privilege(42501)` · **`sod_violation`** (grant immature) · `precondition_failed` ·
@@ -624,6 +637,119 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   code not permitted for this caller) · `step_up_required` · **`step_up_unavailable`** (`AUTHZ-M4`; RPC §17.7).
 - **Forbidden.** Any client writing `kernel.refund` directly; `org_admin`; venue roles; a buyer refunding
   another buyer's order; any caller supplying an `org_id` or an actor.
+
+### 6.1a The tier operand is CUMULATIVE, and the aggregate is the PAYMENT (`MB-1`)
+
+> **THE DEFECT THIS REPLACES.** Every row of §6.1's tier table compared **the single call's `p_amount_minor`**
+> against its threshold. The only aggregate anywhere in this document was the over-refund ceiling
+> (§6.1 precondition 6), which bounds the **total to the order value** and says **nothing about the tier**.
+> **Consequence: one `org_owner` or `org_finance` refunds an arbitrarily large order to zero without ever
+> reaching `pending_approval`, by issuing ⌈total / `refund.org_auto_execute_max_minor`⌉ calls each at or below
+> the auto-execute ceiling.** SoD-2 on refunds was unenforceable against the exact insider it names — not
+> because the control was weak, but because the control was never reached. §5.4 Race 4 made it worse by
+> blessing the shape: *"successive partials compose correctly"* is **true of the idempotency keys and false of
+> the authority**, and nothing said so. The asymmetry that shows this was never a considered trade-off:
+> the consumed-atom row **is** given explicit precedence over the amount rows, with the reason written out —
+> splitting was not reasoned about at all.
+>
+> **The edge spec's `check_rate_limit(user, 'refund-execute', 10, 60)` is not the missing control.** It is
+> 600 calls an hour: a throughput limit, not a value limit. It is named here because it is the control a
+> reviewer reaches for, and reaching for it is how this survives review a second time.
+
+**Definition (one aggregate, stated once, used by every row of every refund tier table in the corpus).**
+
+> `refund_exposure_minor(payment)` :=
+> **Σ `kernel.refund.amount_minor`** for that `payment_id` whose `status ∈ {pending, submitted, succeeded}`
+> — every refund that is not `failed` (schema §1.10)
+> **+ Σ `kernel.approval_request.amount_minor`** of every request against that payment whose `state = 'pending'`
+> — parked, holds live, money not yet moved.
+>
+> **`cumulative` := `refund_exposure_minor(payment)` + `p_amount_minor`.** Every threshold in §6.1's table,
+> and the `refund.platform_support_max_minor` cap at §6.2, is compared against `cumulative`. **No refund
+> threshold anywhere in this corpus is compared against a single call's amount.**
+
+Parked requests are resolved to the payment through `venue.order` → `kernel.payment_native` → `public.payments`
+— the same link `venue.finalize_primary_order` writes and `kernel.refund_primary_order` reads. Refunds written
+by other causes count too: an `event_cancelled` refund from `catalog.cancel_event`, an `admin_refund`, or a
+C25 auto-compensation all raise the exposure and therefore tighten the tier of the next org refund on that
+payment. That is the correct direction — **more money already returned means more scrutiny, not less** — and
+it is stated because it will otherwise be read as a bug the first time an org hits it.
+
+**Why the payment, and why no time window.** Derived, not chosen:
+
+1. **It is the subject the over-refund ceiling already sums.** §6.1 precondition 6 is
+   `Σ(refunds for the payment) + p_amount_minor ≤ payment.total`. One aggregate now serves both guards;
+   inventing a second subject for the tier would mean two aggregates that can disagree.
+2. **The lock already exists.** That precondition takes `public.payments` `FOR UPDATE`, and `kernel.refund`
+   carries `payment_id` NOT NULL with an index on it (schema §1.10). The cumulative tier test therefore adds
+   **no lock, no lock-order rank, no SSCAS member, no index** — §7.5's placement of the approval object is
+   untouched and D-1 is not reopened.
+3. **It is the subject the money rail aggregates against.** A refund is `refunds.create` on the original
+   charge (§9.4), so the database's aggregate and Stripe's are the same set and cannot drift apart.
+4. **Invariance under decomposition is the property that matters, and only this subject has it.** A rolling
+   *time* window is defeated by waiting. An *actor*-scoped window is defeated by the second money principal —
+   **who is the collusion counterparty SoD-2 is named after**, so an actor-scoped aggregate is the one shape
+   that fails against precisely the attacker the control exists for. Σ over the payment is invariant: the
+   parts of an order sum to the whole, so splitting a refund into N calls changes **no** tier decision.
+5. **The corpus already uses a cumulative operand wherever an authority is per-act.**
+   `comp.per_staff_step_up_max_units` / `comp.per_staff_step_up_window_hours` count *"this actor's
+   `comp.allocate` and `comp.issue` units within the window"* (RPC §20.5.1). The comp threshold was written
+   cumulatively; the refund thresholds were the ones written per-call. **The pattern was in the corpus and
+   this table did not use it.**
+
+**The sum is computed AFTER the payment lock, in the same transaction, or it is a per-call test with extra
+steps.** Two concurrent sub-ceiling calls must serialize on the row the over-refund guard already locks, so
+the second observes the first. A cumulative test evaluated before that `FOR UPDATE` reproduces the defect
+exactly, and reproduces it in the form hardest to see in review.
+
+**The parked term needs a COLUMN, and it may not be read from `payload`.** §6.6's rule is that **no authority
+predicate reads `payload`** (`T-RPC-AUTHZ-01` asserts it structurally), and the cumulative operand is an
+authority input, not evidence. `kernel.approval_request` therefore requires **`amount_minor integer`** —
+server-set at request time from the amount the function computed, **pinned exactly as `required_approver_class`
+and `config_versions` are**, never a parameter, NULL only for `action = 'config.set_money_key'` (which moves
+no money). **This is `C57`'s lesson repeated verbatim: a tier decided from a value the row does not store is a
+control that does not run.** Additive, package `077`; classified in §12 and filed as RPC §20.14 `R-27`.
+
+**The buyer arm — the ambiguity is settled here, and the operand is stated.** The buyer row said only
+*"≤ `refund.buyer_self_service_max_minor`"* and **this document never said whether that cap bounded the
+refund amount or the order's eligibility.** The two readings have opposite security properties: under the
+*amount* reading a buyer drained an arbitrarily large order in ⌈total / cap⌉ calls; under the *eligibility*
+reading the key silently meant *"which orders may be self-serviced at all"*, which no document states and no
+surface shows. **Settled: the operand is `cumulative`, the same as every other row.** One operand for the
+whole table, because a table in which one row means *this call* and another means *this order* is a table that
+gets implemented as whichever the reader assumed. **The consequence, stated rather than left to be
+discovered: a buyer may self-serve part of an arbitrarily large order, up to
+`refund.buyer_self_service_max_minor` in total on that payment** — bounded absolutely, and every atom voided
+is their own. `refund.buyer_self_service_window_hours` is untouched and still bounds recency. **If the owner
+additionally wants high-value orders excluded from self-service entirely, that is a second, independent
+conjunct with its own key — recorded as owner decision `D-8` (§11) and not decided here.**
+
+**What this does NOT decide.** The **numbers** remain open owner decision **`D-3`**, and none is chosen here.
+But `D-3` must be re-read before it is answered: **these keys now denominate a cumulative ceiling per payment,
+not a per-call ceiling.** A per-call £50 and a cumulative £50 are different products, and an owner who sets
+the numbers against the old reading sets them against a control that no longer exists.
+
+**Tests.** `T-RPC-MONEY-21` (**the splitting regression** — N calls each at or below
+`refund.org_auto_execute_max_minor` against one payment: the call at which `cumulative` crosses the ceiling
+returns `pending_approval`, and **no sequence of calls moves more than the ceiling without an approval**) ·
+`T-RPC-MONEY-22` (the same for the buyer arm: a second self-service refund on the same payment tiers on the
+sum, not on its own amount) · `T-RPC-MONEY-23` (the approval-time exclusion below) ·
+`T-RPC-MONEY-24` (`platform_support` cannot approve N parked refunds each under
+`refund.platform_support_max_minor` whose sum exceeds it).
+
+**At approval time (§6.2) the same operand is used, and the request being approved is EXCLUDED from the parked
+term.** Formally `cumulative := refund_exposure_minor(payment) − this_request.amount_minor + recomputed_amount`.
+Without the exclusion every parked request double-counts itself and re-tiers upward on its own approval.
+**This is the most likely implementation error in this change and it fails in the *safe* direction — a
+spurious `stale`** — which is exactly why it survives a value-based suite and needs `T-RPC-MONEY-23` to name
+it. A **genuine** rise in exposure while parked (another refund executed meanwhile) re-tiers upward and is
+**`stale`, never a silent escalation**: the `C57` disposition already covers it and this change adds no new
+one.
+
+**Adjacent tiered money actions, checked rather than assumed.** `payout.*` has the same shape and is **worse**
+— see §9.2 `MB-1b`. Payout **destination change** (§8) carries no value tier at all, so it is not splittable
+by value; its controls are structural (permanent setter-vs-requester exclusion, probation, cool-down) and are
+unaffected. **Comps** were already cumulative-over-window (RPC §20.5.1) and are the precedent cited above.
 
 ### 6.2 `kernel.approve_refund_request(p_request_id, p_decision, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
 
@@ -648,7 +774,7 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   | `action` | `required_approver_class` | May approve |
   |---|---|---|
   | `refund.issue` | `org` | `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND** `auth.uid() <> request.requested_by` **AND** `kernel.money_role_grant_matured(request.org_id)` |
-  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated under lock per `AUTHZ-M3`** |
+  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated under lock per `AUTHZ-M3` — against `cumulative` (§6.1a), never against this request's amount alone (`MB-1`), or the same split works one arm over** |
   | `payout.request` | `org` | as `refund.issue`/`org`, **plus the §8.2 destination-setter exclusion applied to the APPROVER** — otherwise the destination-setter simply approves instead of requesting |
   | `payout.request` | `platform` | `is_platform(['platform_risk','platform_admin'])`. **`platform_support` is DENIED** — it holds no payout authority anywhere else, and the generic approval object must not become the place it acquires one |
   | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — §7.3's *"a second distinct `platform_admin`"*, and see `AUTHZ-C1A2` below |
@@ -684,6 +810,11 @@ tests, deny-by-default, audit-in-txn, `p_command_key` idempotency, no DELETE) ar
   **`stale`**, never a re-route. In particular **an atom that became `scanned` while the request was parked
   re-tiers it to `platform`**, and because a re-tier is `stale` rather than a silent escalation the org
   approver is told to re-request rather than finding their approval quietly ineffective. `T-RPC-AUTHZ-02`.
+- **The re-derivation uses the CUMULATIVE operand, and EXCLUDES this request from the parked term (`MB-1`).**
+  `cumulative := refund_exposure_minor(payment) − this_request.amount_minor + recomputed_amount` (§6.1a).
+  Without the exclusion every parked request double-counts itself and re-tiers upward on its own approval —
+  an error that fails in the **safe** direction and therefore survives a value-based suite unnoticed.
+  `T-RPC-MONEY-23`.
 - **Preconditions.** Request `state = 'pending'` and not expired. **Every §6.1 precondition is RE-EVALUATED
   under lock at approval time** — the stored payload is *evidence*, never authority. Specifically: the order is
   still refundable; the atoms are still owned by the buyer; the payment sum guard still passes; the amount is
@@ -859,20 +990,26 @@ here exactly.
 
 ### 7.2 The keys
 
+> **Every `*_max_minor` / `*_min_minor` key below is a CUMULATIVE ceiling, not a per-call one (`MB-1`,
+> §6.1a).** The refund keys denominate `refund_exposure_minor(payment) + this call`; the payout keys are the
+> open half of the same defect (§9.2 `MB-1b`). **The unit is unchanged and the number is still `D-3`'s to
+> set — what changed is what the number is compared against**, and an owner setting these against the old
+> per-call reading would be setting them against a control that no longer exists.
+
 | Key | Type | Governs |
 |---|---|---|
-| `refund.org_auto_execute_max_minor` | int (minor units) | at/below ⇒ org refund executes immediately |
-| `refund.org_dual_control_max_minor` | int | above the first, at/below this ⇒ in-org dual control |
+| `refund.org_auto_execute_max_minor` | int (minor units) | **cumulative** at/below ⇒ org refund executes immediately |
+| `refund.org_dual_control_max_minor` | int | above the first, **cumulative** at/below this ⇒ in-org dual control |
 | `refund.request_ttl_hours` | int | parked-request expiry ⇒ hold release (§6.3) |
 | `refund.scanned_atom_policy` | enum `refuse` \| `platform_review` | the already-scanned case (§5.4 Race 3); recommended default `platform_review` |
 | `refund.buyer_self_service_window_hours` | int | buyer's own capped refund window |
-| `refund.buyer_self_service_max_minor` | int | buyer's own cap — gives RPC §11.4's *"capped by policy"* a home for the first time |
+| `refund.buyer_self_service_max_minor` | int | buyer's own **cumulative** cap — gives RPC §11.4's *"capped by policy"* a home for the first time. **Bounds the refunded amount, not the order's eligibility — the ambiguity is settled in §6.1a** |
 | `refund.buyer_fee_refundable` | bool | whether buyer fees ride along on a partial (§5.4 Race 4) |
-| `refund.platform_support_max_minor` | int | the support ceiling RLS §15.4 / RPC §16.3 left open — **the key is specified here; the number is still an owner decision (§11 D-3)** |
+| `refund.platform_support_max_minor` | int | the support ceiling RLS §15.4 / RPC §16.3 left open — **the key is specified here; the number is still an owner decision (§11 D-3)**. **Cumulative**, re-evaluated at approval under lock (§6.2, `AUTHZ-M3` + `MB-1`) |
 | `payout.destination_cooldown_hours` | int | feeds `kernel.organization.payout_destination_locked_until` |
 | `payout.destination_probation_days` | int | first-payout-held window after a destination change (§8.4) |
-| `payout.request_auto_max_minor` | int | at/below ⇒ payout request proceeds directly (domain §7.6 *"≤ threshold"*) |
-| `payout.dual_control_min_minor` | int | above ⇒ dual control (domain §7.6 *"> threshold"*) |
+| `payout.request_auto_max_minor` | int | at/below ⇒ payout request proceeds directly (domain §7.6 *"≤ threshold"*). **Operand OPEN — `MB-1b` / `D-9`** |
+| `payout.dual_control_min_minor` | int | above ⇒ dual control (domain §7.6 *"> threshold"*). **Operand OPEN — `MB-1b` / `D-9`** |
 | `authn.money_action_max_age_seconds` | int | step-up freshness window (§8.3) |
 | `authn.money_action_required_aal` | enum `aal1` \| `aal2` | **the lever that makes the honest MVP answer shippable** (§8.3) |
 
@@ -1189,6 +1326,40 @@ holds no payout authority anywhere else and must not acquire one through the gen
 `{ status ∈ {submitted, pending_approval, pending_platform_review, noop_replay}, payout_id, request_id?,
 required_approver_class? }`.
 
+> **`MB-1b` — THE PAYOUT TIER HAS THE SAME SPLITTING SHAPE, AND ITS AGGREGATE SUBJECT IS MINTED BY THE
+> CALLER. OPEN — this pass does not close it.**
+> `payout.request_auto_max_minor` / `payout.dual_control_min_minor` are compared against **one payout's
+> amount**, and a payout is generated by `kernel.close_settlement` from a settlement whose **period is a
+> caller-supplied parameter**: `venue.open_settlement(p_org_id, p_venue_id, p_event_id, p_period, …)`, open to
+> `org_owner` / `org_finance` / `venue_finance` — **the same principals the tier gates**. An org that must not
+> disburse £X in one payout may open N narrow-period settlements and disburse it in N payouts, each below the
+> ceiling.
+>
+> **It is `MB-1` with a worse property.** The refund case splits a **fixed** subject — the payment exists,
+> its total is not caller-chosen, and Σ over the parts is the whole, which is exactly why §6.1a's aggregate
+> is invariant. The payout case lets the caller **choose the decomposition of the subject itself**, so no
+> aggregate over "this settlement" can be invariant by construction.
+>
+> **The property a correct fix must have, stated so the fix is checkable rather than plausible: the tier
+> operand must be invariant under decomposition of any caller-chosen subject.**
+>
+> **Two admissible forms, and the choice is the owner's — open decision `D-9` (§11).**
+> **(a) Undisbursed org exposure.** `Σ kernel.payout.amount_minor` for the org in a non-terminal state
+> (`pending` · `held` · `submitted`) `+` this payout. No new object, no new key, no time window; not
+> caller-mintable, because splitting a settlement does not change the sum of its parts; decays naturally as
+> payouts complete. **It does not close the slow case:** an attacker who lets each payout settle before
+> requesting the next still disburses unbounded value below the ceiling over time.
+> **(b) Rolling per-org window.** Σ over a new `payout.tier_window_hours`, counting disbursed and undisbursed
+> alike. Closes the slow case; costs a key, a decision about its width, and a read the refund case does not
+> need.
+>
+> **Why this pass does not choose.** The question is *who may disburse how much without a second approver* —
+> an owner call in exactly the sense this document reserves, and unlike the refund case there is **no subject
+> already in the corpus** that the answer can be derived from. What is **not** left open is the reading that
+> payouts were already safe: they are not, and the reason it reads as though they were is that §9.2 never
+> named the tier's operand either. **Nothing about payout destination change is affected** (§8 carries no
+> value tier; its controls are structural).
+
 ### 9.3 `close_settlement` stays put
 
 `org_owner` may `open_settlement` (RPC §10.1) and read settlements, but **may not close**. Close is the
@@ -1286,7 +1457,9 @@ implementation of the item named.
 |---|---|---|---|
 | **D-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — argued in §7.4; it is lock-ordered either way, so an amendment is a one-line ratification | §6.1 parked branch |
 | **D-2** | Per-org refund/payout thresholds at launch? | **No.** `platform_config` is world-readable, so per-org limits need a new non-public table (§7.4) and nothing in O-1/O-3 asks for it | §7.4 |
-| **D-3** | The actual **numbers**: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours`. The support cap was already open (RLS §15.4 / RPC §16.3); this spec gives it a home but not a value | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config` | tier behavior |
+| **D-3** | The actual **numbers**: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours`. The support cap was already open (RLS §15.4 / RPC §16.3); this spec gives it a home but not a value. **AMENDED (`MB-1`): the refund keys now denominate a CUMULATIVE ceiling per payment (§6.1a), not a per-call one. The unit is unchanged; what the number is compared against is not.** A per-call £50 and a cumulative £50 are different products, and the numbers must be chosen against the cumulative reading | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config`. **No number is chosen by the `MB-1` pass** | tier behavior |
+| **D-8** | **Should the buyer arm ALSO gate on order value?** §6.1a settles the operand — `refund.buyer_self_service_max_minor` bounds the **cumulative refunded amount**, not the order's eligibility — which means a buyer may self-serve part of an arbitrarily large order, up to the cap in total. An owner may additionally want high-value orders excluded from self-service entirely | **Not needed.** The cumulative cap already bounds exposure absolutely, every atom voided is the buyer's own, and the window key bounds recency. An eligibility conjunct is a **second, independent** rule with its own key, and adding it silently inside the existing key is what produced the ambiguity `MB-1` had to settle | §6.1a buyer row only |
+| **D-9** | **The payout tier's operand** (`MB-1b`, §9.2). Payout thresholds are compared against one payout's amount, and the settlement period that generates a payout is a caller-supplied parameter — so the tier is split by opening N narrow settlements. Two admissible forms: **(a)** undisbursed org exposure (`pending`/`held`/`submitted` + this payout) — invariant under decomposition, no new key, does **not** close the slow drip; **(b)** a rolling per-org window (`payout.tier_window_hours`) — closes it, costs a key and a width decision | **Not made here.** It is *who may disburse how much without a second approver*, and unlike the refund case there is no subject already in the corpus to derive it from. **What is not open** is whether payouts are currently splittable: they are | §9.2 payout tier |
 | **D-4** | `org_admin` reads `venue.settlement` (RLS §9.13, dashboard row 37) while being denied the payout/refund ledgers. Keep, or deny settlement too? | Keep — settlement is operational reconciliation, payout is money-out. But the inconsistency is real and I am naming it rather than smoothing it (§3.4) | nothing; consistency only |
 | **D-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 (§8.2). Escalate to platform, or relax? | **Escalate** via the existing `release_payout`. Relaxing reintroduces the exact named fraud primitive | §8.2 |
 | **D-6** | `refund.scanned_atom_policy` default: `refuse` or `platform_review`? | `platform_review` — refunding an attendee is legitimate, but it is also the insider-collusion shape, so it should be seen, not silently allowed or silently blocked | §5.4 Race 3 |
@@ -1314,12 +1487,15 @@ and must be documented as such rather than described as "recent authentication."
 10. Edge spec §3.4/§3.5 — denial audit via `kernel.record_money_denial` (§8.4 Control 6).
 11. Dashboard §5 rows 5/36/40/41/47; §13.3/§13.4/§13.5 copy; §14.5 probation state; §22.1 and §22.3 closed (§10.1).
 12. RN spec §7 state matrix — `refund_pending` column on My Ticket detail + Entry Pass (§10.2).
+13. **RPC §17.1/§17.2 — the cumulative tier operand (`MB-1`, §6.1a). APPLIED, not owed:** the two tier tables are predicate-identical by construction and were corrected in the same pass. Anything downstream that restates a refund threshold as *"this call's amount"* is now stale — **RLS §15.4 / RPC §16.3 (the support cap), dashboard §13.3/§13.4 copy, and the RN self-service surface (§10.2)** are the three known sites, and each is owed to its own owner.
+14. **Edge spec §3.4/§3.5 — a note, not a change: `check_rate_limit(user, 'refund-execute', 10, 60)` is a THROUGHPUT limit and bounds no value** (600 calls/hour). It must not be cited as the splitting control, which is what it was implicitly doing while §6.1's operand was per-call (`MB-1`).
 
 ### `ADDITIVE SCHEMA CHANGE` (all on Phase-2 tables; nothing in `public.*`)
 1. **`kernel.approval_request`** — new table, **placed in package `077`** by schema §1.13 (which is the physical definition; this list is the classification, not the DDL). `request_id` PK · `action` (`refund.issue` · `payout.request` · `config.set_money_key`) · **`required_approver_class` (`org` · `platform` · `platform_admin`) — NOT NULL, `AUTHZ-C1A` / row `C57`; this item originally omitted it, and §6.2 records what that omission did** · `subject_kind` (`order` · `settlement` · `config_key`, CHECKed) / `subject_id` · `org_id` (nullable, FK) · `payload` jsonb (server-computed evidence, never authority) · `config_versions` jsonb (§7.2 pinning) · `requested_by` · `approved_by` (nullable) · `state` (`pending` · `approved` · `denied` · `cancelled` · `expired` · `stale`) · `reason_code` · `expires_at` · `command_idempotency_key` · timestamps. **Unique** `(requested_by, command_idempotency_key)`. **Checks — SoD as a table constraint is a PAIR, not one line (`AUTHZ-M1`):** `approved_by IS NULL OR approved_by <> requested_by` **and** `state <> 'approved' OR approved_by IS NOT NULL` (the first is vacuously satisfiable without the second), the same on `'denied'`, the `action ↔ subject_kind` pairing, `action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'`, and `required_approver_class <> 'org' OR org_id IS NOT NULL`. **Indexes** include `(action, required_approver_class, state)` — §6.2's actual predicate — and a partial `(required_approver_class, created_at) WHERE state='pending'`, because the platform-review queue carries `org_id IS NULL` and is invisible to the `(org_id, state)` index. RLS: RPC-only, org-scoped read via the approval-queue RPC. Append-only-ish state machine; no DELETE.
 2. **`kernel.tickets.resale_state` gains the label `refund_hold`** (`ALTER TYPE … ADD VALUE`). Guard sets in RPC §7.2 (transfer preconditions), §7.4 (lock preconditions), §7.5 (scan preconditions) update accordingly — each is a `SPEC CORRECTION` riding this change.
 3. **`kernel.organization.payout_destination_set_by uuid`** — nullable, FK→`auth.users`, on delete restrict. Column-scoped exactly like `payout_destination_locked_until` (`org_owner`/`org_finance`/platform). Enables SoD-1 (§8.2).
 3a. **`kernel.org_member.granted_at timestamptz`** — NOT NULL, default `now()`, **ADDED by `AUTHZ-C1B` / ratification row `C58`; package `077`, schema §1.3/§1.13.4.** Written on grant by `accept_org_invite` and **re-set by `change_org_role` on promotion INTO a money role**. It is the clock `kernel.money_role_grant_matured` reads (§6.7a), and **without it SoD-1 and SoD-2 both compare two `auth.uid()` values that one `org_owner` can mint.** The companion config key `authn.money_role_maturity_hours` is package `078`; its **value** is an open number (RLS `MD-14`) and is not decided here, but an **absent** key means no grant is mature (row `C61`).
+3b. **`kernel.approval_request.amount_minor integer`** — **ADDED by `MB-1`; package `077`, riding the same table as item 1.** NULL only for `action = 'config.set_money_key'`, with `CHECK (action = 'config.set_money_key' OR amount_minor IS NOT NULL)` and `CHECK (amount_minor IS NULL OR amount_minor > 0)`. Server-set at request time from the amount the requesting function computed, **pinned exactly as `required_approver_class` and `config_versions` are** — never a parameter, never derived from `payload`. **It exists because the cumulative operand of §6.1a needs the parked term as an AUTHORITY input, and §6.6's rule is that no authority predicate reads `payload`** (`T-RPC-AUTHZ-01` asserts it structurally). **This is `C57`'s lesson repeated: a tier decided from a value the row does not store is a control that does not run.** Index: the exposure read resolves parked requests to a payment through `venue.order` → `kernel.payment_native`, so it rides the existing `(subject_kind, subject_id)` access path plus `state='pending'`; no new index is required beyond what §1.13 already carries. Filed to the schema owner as RPC §20.14 `R-27`.
 4. *(Conditional on D-2, NOT proposed for MVP)* `kernel.org_money_policy` — per-org threshold overrides in a non-public home (§7.4).
 
 ### `NEW RPC`
