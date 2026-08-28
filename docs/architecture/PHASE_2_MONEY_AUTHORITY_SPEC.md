@@ -272,6 +272,16 @@ authority* than as *no authority*, so a narrow read grant is arguable — but de
 posture (Standards §7, RLS GP-1) and **widening later is a one-line matrix change, while narrowing later is a
 migration plus an operator-facing removal.** Deny.
 
+> **BLOCKING OWNER DECISION `D-8` — added 2026-08-28 (reviewer condition 2). NOT RESOLVED HERE, BY DESIGN.**
+> **This section and §10.1 of this same document contradict each other**, and the contradiction was found by an
+> external reviewer rather than by either author. §3.4 above denies `org_admin` **all** money authority,
+> naming `D` on `kernel.refund` SEL. **§10.1 row 35 — "H. Refunds — order list" — carries `org_admin` at `●`
+> and labels the row *"unchanged"*.** Venue dashboard §5 row 35 shows the same `●`, and VD §5.2 does not
+> supersede row 35, so the dashboard is faithfully inheriting this document. **The defect is here, not
+> downstream.** Both positions are stated in full at `D-8` (§11), which is where the decision is registered.
+> Neither is adopted here. **The `D-4` entry below covers row 37 (settlement) only and does NOT cover row 35;
+> until `D-8` is closed, this document says two different things about the refund ledger.**
+
 **One residual tension I am NOT resolving unilaterally.** RLS §9.13 already grants `org_admin` `A(own-org)`
 SELECT on `venue.settlement`, and dashboard §5 row 37 renders that as `●`. A settlement header shows gross,
 fees, refunds, net. That is finance data, and it is arguably inconsistent with denying the payout ledger. I am
@@ -983,9 +993,9 @@ refund tiers above must never be described to an operator as "instant."
 | # | Surface | o_own | o_adm | o_fin | v_fin | Change |
 |---|---|:--:|:--:|:--:|:--:|---|
 | 5 | A. Home — Payout status | **○** | — | ● | — | note 5 (§22.3) **resolved**; `○` is now confirmed, not provisional |
-| 35 | H. Refunds — order list | ● | ● | ● | ○ | unchanged |
+| 35 | H. Refunds — order list | ● | **●** ⚠ | ● | ○ | **CONTESTED — `D-8`, BLOCKING.** This `●` and §3.4's *"`org_admin` holds NO money authority of any kind — not read"* cannot both hold. Previously labelled *"unchanged"*, which read as settled. **It is not settled and must not be built from either cell until `D-8` is closed** |
 | 36 | H. Refund — initiate | **●** | — | ● | — | **was `—`** with flagged-conflict note 20; O-1 grants it. Note 20 **resolved** |
-| 37 | I. Settlement — read | ● | ● | ● | ● | unchanged (see D-4) |
+| 37 | I. Settlement — read | ● | ● | ● | ● | unchanged (see `D-4` — **which covers this row only, not row 35**) |
 | 39 | I. Settlement — close | — | — | ● | ● | unchanged |
 | 40 | I. Payouts — status & history | **○** | — | ● | **◐** | `○` confirmed; `v_fin` becomes `◐` (settlement-cause rows for own venue only) |
 | 41 | I. Payout — request | ● | — | ● | — | unchanged; now consistent with the read |
@@ -1054,12 +1064,53 @@ implementation of the item named.
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | **D-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — argued in §7.4; it is lock-ordered either way, so an amendment is a one-line ratification | §6.1 parked branch |
-| **D-2** | Per-org refund/payout thresholds at launch? | **No.** `platform_config` is world-readable, so per-org limits need a new non-public table (§7.4) and nothing in O-1/O-3 asks for it | §7.4 |
+| **D-2** | Per-org refund/payout thresholds at launch? | **No** — **but the stated basis has since become false and the recommendation must be re-derived before it is acted on.** This row argues from *"`platform_config` is world-readable"*. **It is not**: RLS §8.4 is a two-class model on `visibility` (`AUTHZ-CFG1` / ratification **C71**), and money keys are `restricted`. A non-public home for per-org limits may therefore already exist. **Recorded, not re-decided** (reviewer-conditions pass, 2026-08-28) | §7.4 |
 | **D-3** | The actual **numbers**: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours`. The support cap was already open (RLS §15.4 / RPC §16.3); this spec gives it a home but not a value | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config` | tier behavior |
 | **D-4** | `org_admin` reads `venue.settlement` (RLS §9.13, dashboard row 37) while being denied the payout/refund ledgers. Keep, or deny settlement too? | Keep — settlement is operational reconciliation, payout is money-out. But the inconsistency is real and I am naming it rather than smoothing it (§3.4) | nothing; consistency only |
+| **D-8** | **`org_admin` on the money plane — BLOCKING.** §3.4 of this document denies `org_admin` **all** money authority (`D` on `kernel.payout` and `kernel.refund` SEL/EXEC) and labels its own position **`INFERENCE`**: O-1 and O-3 name `org_owner` and `org_finance` and are **silent on `org_admin`**. **§10.1 row 35 of this same document grants `org_admin` `●` on the refunds order list.** Dashboard §5 row 35 shows the same `●` and VD §5.2 does not supersede it, so the dashboard is inheriting this document rather than diverging from it. **NO RECOMMENDATION IS OFFERED — see §11.1** | **NONE — deliberately.** Every other row in this table carries a recommendation; this one must not, because the two positions are held by the same document and the tie-break is an authority question, not a design question | **Row 35, the refund read path, and the `D-4` settlement question it reopens.** Blocks any build of surface H |
 | **D-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 (§8.2). Escalate to platform, or relax? | **Escalate** via the existing `release_payout`. Relaxing reintroduces the exact named fraud primitive | §8.2 |
 | **D-6** | `refund.scanned_atom_policy` default: `refuse` or `platform_review`? | `platform_review` — refunding an attendee is legitimate, but it is also the insider-collusion shape, so it should be seen, not silently allowed or silently blocked | §5.4 Race 3 |
 | **D-7** | Ship step-up at `aal1` freshness now and flip to `aal2` on staff MFA enrollment, or block money actions until MFA ships? | Ship at `aal1` with the enum in config (§8.3). Blocking would ship a dashboard nobody can use | §8.3 |
+
+### 11.1 `D-8` stated in full — both positions, the default on silence, and why that default is the unsafe one
+
+**This subsection exists because `D-8` is the one decision in this document that a reader could resolve by
+accident.** The other seven are visibly open. `D-8` is a `●` in a table labelled *"unchanged"* — it looks
+settled, and an implementer would build it without ever knowing a decision was owed.
+
+**Position A — deny (`§3.4` of this document).** `org_admin` holds **no** money authority of any kind: `D` on
+`kernel.payout` SEL/EXEC, `D` on `kernel.refund` SEL/EXEC, `D` on `set_org_payout_destination`, `D` on
+`close_settlement`, ineligible as second approver. Two corroborations: Domain §7.2's Org Admin *Cannot* column
+verbatim — *"Cannot view or initiate payouts/bank changes (that's Finance/Owner)"* — and O-2's *"general
+administration but **not unrestricted financial authority**."* **§3.4 labels its own position `INFERENCE`.**
+
+**Position B — grant (`§10.1` row 35 of this document, and dashboard §5 row 35).** `org_admin` reads the
+refunds order list at `●`. The corroboration is that `org_admin` is the role that runs the org day to day, and
+an order list is an operational object before it is a financial one — the same argument `D-4` accepts for
+settlement. **VD §5.2 does not supersede row 35**, so the dashboard is faithfully inheriting this document.
+
+**The rulings are silent.** O-1 (refund authority) and O-3 (payout visibility/requests) name `org_owner` and
+`org_finance` and say nothing about `org_admin`. Neither position is a ruling; both are readings.
+
+**What silence defaults to, mechanically — and it defaults to GRANT.** An implementer resolves silence by
+building what RLS says, because RLS is the authority model. RLS currently says:
+- **§9.7 `venue.order`** — `org_owner/admin` → `A(own-org orders)` SELECT. This is what backs row 35.
+- **§9.13 `venue.settlement`** — `org_admin` → `A(own-org)` SELECT. A settlement header shows gross, fees,
+  refunds, net.
+
+**Both grant.** So the outcome of leaving `D-8` open is not "nothing gets built" — it is **Position B, built
+silently, with a `D` sitting unread in §3.4.**
+
+**Why that is the unsafe direction, stated plainly.** `org_admin` is, by §3.4's own reasoning, *"the role most
+likely to be handed out liberally"* — it manages venues, events, staff and promoters. The order ledger plus
+the settlement header is a substantial part of the financial picture of the business. And the asymmetry §3.4
+already identified governs the cost of being wrong in each direction: **widening later is a one-line matrix
+change; narrowing later is a migration plus an operator-facing removal of a capability people have been using.**
+Deny-by-default is the standing posture (Standards §7, RLS `GP-1`). **The default on silence runs against the
+standing posture, which is precisely why silence is not an acceptable resolution here.**
+
+**This document does not choose.** Recording which way the default falls is not a recommendation for it — it
+is the reason the decision is marked **BLOCKING** rather than deferred. `D-8` is the owner's.
 
 **Verification owed before implementation (not a decision — a fact I could not check).** `UNVERIFIED:` that
 this project's Supabase access tokens carry `amr` with per-factor timestamps. No production access was used.
