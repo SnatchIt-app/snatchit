@@ -1012,20 +1012,111 @@ change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C92*
     is always `refund_void`).
   - `amount_minor` integer — not null; `currency` text not null default `'USD'`.
   - `status` enum(`pending` · `submitted` · `succeeded` · `failed`) — not null default `pending`.
-  - `stripe_refund_ref` text — nullable.
+    **Forward-only across `pending → submitted → succeeded|failed`. Three of the four labels had no writer
+    at `f97f6cd` — see §1.10.1.**
+  - `stripe_refund_ref` text — nullable (the Stripe refund id, `re_…`). **Written by
+    `kernel.mark_refund_state` (§1.10.1) — it had ZERO writers and ZERO readers at `f97f6cd`, one
+    occurrence corpus-wide, this DDL line.**
   - `idempotency_key` text — not null.
   - `created_at`, `updated_at`.
 - **FKs:** `payment_id` on delete restrict.
-- **Unique:** `idempotency_key` unique.
+- **Unique:** `idempotency_key` unique; **`stripe_refund_ref` unique where non-null (ADDED — `MB-2b`-class
+  defect on `kernel.refund`, §1.10.1)** — two `kernel.refund` rows claiming one Stripe refund is a
+  reconciliation that has already gone wrong, and the partial unique makes it unstorable rather than
+  detectable.
 - **Check:** `amount_minor > 0`; invariant **sum(refunds for a payment) ≤ payment.total** enforced in the
-  refund RPC under `FOR UPDATE` on the payment (CDM §1.1), not a table constraint.
+  refund RPC under `FOR UPDATE` on the payment (CDM §1.1), not a table constraint. **ADDED (§1.10.1):
+  `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** — a refund that has left the database for
+  Stripe must carry the id it left under, in every non-initial state including `failed`. **`failed` is
+  included deliberately: a refund that failed AT Stripe has a `re_…`, and one that never reached Stripe
+  never leaves `pending`** (§1.10.1's `create`-error rule).
 - **Immutability:** state-machine MUT; a refund that voids tickets appends `refund_void` to the ownership log
-  via the transfer engine in the same txn (SSCAS member #3).
-- **Index:** PK; unique idempotency_key; index on `payment_id`.
+  via the transfer engine in the same txn (SSCAS member #3). **`status` is forward-only and `stripe_refund_ref`
+  is write-once** — it is the join key to an external ledger; a second value for one refund row silently
+  re-points the reconciliation.
+- **Index:** PK; unique idempotency_key; index on `payment_id`; **the partial unique on `stripe_refund_ref`
+  doubles as the webhook's lookup path** — `charge.refunded` arrives carrying `re_…` and nothing else that
+  identifies our row.
 - **RLS:** money-custody-RPC-only; buyer reads own via scoped RPC.
-- **Write authority:** `kernel.refund_primary_order` / `kernel.admin_refund` / the C25 auto-compensation sweep.
+- **Write authority:** `kernel.refund_primary_order` (INSERT `pending`) / `kernel.admin_refund` (INSERT
+  `pending`) / the C25 auto-compensation sweep (INSERT `pending`) / **`kernel.mark_refund_state`
+  (`status` advance + `stripe_refund_ref`; §1.10.1)**.
 - **Read authority:** buyer + org finance + platform.
 - **SoT/PROJ:** SoT.
+
+#### 1.10.1 DEFECT `R1-1` — three of four `status` labels had no writer, and `stripe_refund_ref` had neither a writer nor a reader
+
+**The defect (CONFIRMED against this spec, RPC §11.4/§20.7.1 and edge §3.5/§4 at `f97f6cd`).** The complete
+writer set of `kernel.refund` was `refund_primary_order`, `admin_refund` and the C25 sweep — **all three
+INSERT, all three at the `pending` DEFAULT.** No function in any document advanced the row. So:
+
+1. **`submitted`, `succeeded` and `failed` were unreachable.** A refund read `pending` forever, however it
+   actually ended at Stripe.
+2. **`MB-1`'s cumulative operand is permanently `pending`-only.** `refund_exposure_minor(payment)` sums
+   `kernel.refund.amount_minor` where `status ∈ {pending, submitted, succeeded}` — a three-label predicate
+   over a one-label column. **It is not wrong today and it is unfalsifiable tomorrow:** the moment a writer
+   is added by someone who did not read §17.1a, refunds start leaving the set and the tier silently loosens.
+   A `failed` refund **must** leave the exposure and a `succeeded` one **must not**, and neither transition
+   existed.
+3. **`stripe_refund_ref` had ZERO writers and ZERO readers** — a corpus-wide grep returns **one** hit, this
+   table's own DDL line. **A refund cannot be reconciled to Stripe at all**: not by a human in a dispute, not
+   by the `charge.refunded` branch, not by a support query. **This is exactly the `stripe_transfer_ref`
+   defect one table over** (§1.9.2), which was found and fixed on `kernel.payout` while the identical column
+   on `kernel.refund` was left.
+
+**Why it survived.** Edge §3.5 says the executor *"records `stripe_refund_id` via a callback param"* and
+edge §4's `charge.refunded` row says *"extend to also reconcile `kernel.refund` state"* — **two placeholders
+naming no function**, which is the `MB-2b` shape verbatim and the construction §8's preamble blames for nine
+of twelve surviving gaps. Two prose promises read like a writer and are not one.
+
+**Disposition — name the writer; do not remove the values** (§3.11.1's rule).
+
+**`kernel.mark_refund_state(p_refund_id, p_new_status, p_stripe_refund_ref, p_failure_code, p_command_key)`**
+— `service_role` only, **no human path**, forward-only, `FOR UPDATE` on the refund row, writes
+`kernel.admin_audit` (`refund.state_sync`, before/after) in the same transaction. **It moves no money and
+touches no `public.*` table:** the Stripe call is the executor's, and this records what the executor or the
+webhook observed. **SEAM-1: it writes `kernel.refund` (`085`) and `kernel.admin_audit` (`077`) →
+`max(077, 085) = 085`.** The edge `077 → 085` is already declared; **no edge is added, and no package is
+added, renamed or renumbered.** Contract: RPC §20.7.7.
+
+**Which label each event actually supports — and unlike the payout case, EVERY one is attributable.** This
+is the asymmetry worth stating, because the payout table's fix had to *decline* two of its four events:
+
+| Transition | Written by | Why it is attributable |
+|---|---|---|
+| → `submitted` | the **`refund-execute` edge**, synchronously, from the object `stripe.refunds.create` returns | the create call **returns** the `re_…`; this is the moment our row first has a join key, and it is written in the same step |
+| → `succeeded` | `stripe-webhook`, `charge.refunded` (and `refund.updated` where the account receives it) | the event payload **carries the `re_…`** the executor already stored, so the join is exact — a refund is not aggregated the way a bank payout is |
+| → `failed` | **both**: a synchronous `stripe.refunds.create` error (no `re_…` ⇒ **the row stays `pending`**, see below), and an asynchronous `refund.failed`/`charge.refund.updated → failed` carrying the `re_…` | Stripe can fail a refund after accepting it; that event is attributable |
+
+**The one case the CHECK forces an implementer to think about, stated rather than left to be discovered.**
+If `stripe.refunds.create` **itself** errors, there is no `re_…` and nothing left our database for Stripe —
+the correct state is **`pending`, unchanged**, and the executor retries under the deterministic
+`refund_${refund_id}` key. `failed` is reserved for a refund Stripe **accepted and then could not settle**.
+Collapsing the two would put a refund that was never attempted and a refund that was attempted and rejected
+into one label, and only one of them may be retried automatically. The `CHECK (status = 'pending' OR
+stripe_refund_ref IS NOT NULL)` makes the wrong version unstorable instead of merely wrong.
+
+**Not a change to the frozen Stripe money core.** Money movement, the deterministic idempotency key and the
+`sum(refunds) ≤ payment.total` guard are untouched; this names which function writes which column on a
+Phase-2 table. Ratification **C101** (the `status` writers) and **C102** (`stripe_refund_ref`).
+
+**Reported, not applied here (§13.7a `S-24`, `S-25`).** The migration plan's `085` row must add
+`kernel.mark_refund_state`, the partial unique and the CHECK; the package registry's `085` entry must name
+the function. Both surfaces are owned elsewhere and the placement is settled here.
+
+**Tests.**
+- `T-SCHEMA-REFUND-01`: every `status` label is reachable — a completeness sweep over the label set
+  asserting that for each of `pending`/`submitted`/`succeeded`/`failed` there is a **named function in the
+  chain whose contract writes it**. **This is the test that fails against the pre-fix corpus**, and it is
+  written as a sweep rather than as four transition tests because the defect was an absence.
+- `T-SCHEMA-REFUND-02`: `status` is forward-only — `succeeded → submitted` raises, and `failed → succeeded`
+  raises.
+- `T-SCHEMA-REFUND-03`: the pairing CHECK — an `UPDATE … SET status='submitted'` that does not also set
+  `stripe_refund_ref` **raises**; and a second, different `stripe_refund_ref` on a row that already has one
+  raises (write-once).
+- `T-SCHEMA-REFUND-04`: **the operand test.** `refund_exposure_minor(payment)` **excludes** a `failed`
+  refund and **includes** a `submitted` one — asserted on the aggregate, not on the row, because the label
+  set exists to feed that aggregate and a writer that ignores §17.1a's predicate is invisible from the row.
 
 ### 1.11 `kernel.reserve` — **EXT (Gate M stub only)**
 - **Purpose:** funding source for instant payout / cancellation refunds / C25 auto-refund (R4/C29). In MVP
@@ -3752,6 +3843,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `084` | *(unchanged — two `ADD CONSTRAINT NOT VALID` + `VALIDATE`, nothing else)* | plan §5 | — |
 | `085` | `kernel.void_ticket_atom` + the `market.on_atom_voided` hook **stub** | RPC §7.3 | — (§13.2 FR-4) |
 | `085` | The nine money-authority RPCs (`request_order_refund`, `approve_refund_request`, `cancel_`/`sweep_expired_refund_requests`, `list_org_payouts`/`_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`) | MONEY §12 | — → `085` |
+| `085` | **`kernel.mark_refund_state`** + the `stripe_refund_ref` partial unique and the `status`/`stripe_refund_ref` pairing CHECK — three of four `status` labels and the Stripe join key had no writer | **this remediation (`R1-1`)** | — → `085` (§1.10.1) |
 | `086` | `venue.door_manifest`, `door_manifest_entry`, `door_manifest_delta` | DOOR §10.1/§10.3/§10.3a | ✓ (task proposal) |
 | `086` | **`venue.door_session`** + the token-bearing `kernel.assert_door_session` signature | **this remediation (H-3)** | — → `086` (§3.10a) |
 | `086` | **`venue.set_scan_device_status`** (`retired` had no writer) | **this remediation** | — → `086` (§3.11.1) |

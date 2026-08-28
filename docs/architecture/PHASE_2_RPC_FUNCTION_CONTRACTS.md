@@ -5441,6 +5441,75 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   transaction as the key row, and a scanner polling a closed episode is told the episode ended — asserted on
   the episode rows, **not** on the absence of admissions, which would pass on a manifest that merely lapsed).
 
+#### 20.7.7 `kernel.mark_refund_state(p_refund_id, p_new_status, p_stripe_refund_ref, p_failure_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (schema §1.10.1, defect `R1-1`)
+
+> **`kernel.refund` had three unreachable `status` labels and a Stripe join key with zero writers and zero
+> readers.** Its complete writer set was `refund_primary_order`, `admin_refund` and the C25 sweep — **all
+> three INSERT at the `pending` DEFAULT.** `submitted`, `succeeded` and `failed` were written by nothing, and
+> `stripe_refund_ref` occurred **once** in the whole corpus: the schema's own DDL line. Edge §3.5's
+> *"records `stripe_refund_id` via a callback param"* and edge §4's *"extend to also reconcile
+> `kernel.refund` state"* are **two placeholders naming no function** — the `MB-2b` shape verbatim, on the
+> refund table this time. **`MB-1`'s cumulative operand sums `status ∈ {pending, submitted, succeeded}` over
+> a column that could only hold `pending`.**
+
+- **Purpose.** Record what Stripe reported about a refund that has already been decided and written. **It
+  moves no money, calls nothing external, and touches no `public.*` table.** The Stripe call belongs to
+  `refund-execute` (edge §3.5); this is the one function that writes the outcome back.
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`.
+  **No human path**, and none may be added: a human who can set a refund to `succeeded` can retire an
+  exposure that never settled and buy tier headroom under §17.1a. Class B (`EA-3` B-ii) from the edge.
+- **Params.** `p_refund_id`; `p_new_status ∈ {submitted, succeeded, failed}` — **`pending` is not an
+  accepted argument**, since it is the INSERT default and accepting it would make the state machine
+  reversible through a parameter; `p_stripe_refund_ref` (`re_…`); `p_failure_code` (nullable, `failed`
+  only); `p_command_key`.
+- **Preconditions.**
+  1. **Forward-only.** `pending → submitted → succeeded|failed`. Any other pair raises
+     `precondition_failed('refund_state_backwards')`. `succeeded` and `failed` are terminal.
+  2. **`p_stripe_refund_ref` is mandatory on every accepted transition** and **write-once**: if the row
+     already carries one it must be **equal**, else `conflict_locked`. It is the join key to an external
+     ledger; a second value silently re-points the reconciliation.
+  3. **`p_failure_code` is required for `failed` and rejected otherwise** (`invalid_input`) — a failure with
+     no cause is the audit row that made the whole reconciliation worthless.
+- **THE CASE AN IMPLEMENTER WILL GET WRONG, AND THE RULE THAT SETTLES IT.** A `stripe.refunds.create` that
+  **itself** errors produces **no `re_…`**, so nothing left the database for Stripe and **the row stays
+  `pending`** — the executor retries under the deterministic `refund_${refund_id}` key. **`failed` means
+  Stripe ACCEPTED the refund and then could not settle it.** Collapsing the two puts a never-attempted
+  refund and a rejected one into one label, and **only one of them may be retried automatically**. Schema
+  §1.10.1's `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)` makes the wrong version
+  unstorable rather than merely wrong.
+- **Locks & order.** `kernel.refund` row `FOR UPDATE` — money plane, **rank 6**. Nothing else. **SSCAS:**
+  `n/a` (single aggregate); **no member is added and C28's closed fifteen stands.**
+- **Writes.** `kernel.refund` (`status`, `stripe_refund_ref`, `failure_code` where applicable),
+  `kernel.admin_audit` (`refund.state_sync`, before/after) **in the same transaction**. **Nothing else** —
+  in particular it does **not** re-void, un-void or touch a ticket atom: custody was settled by
+  `refund_primary_order` at request time and a Stripe-side failure does not un-refund a ticket. **That is a
+  reconciliation incident for a human, not a state transition** — the same posture §20.7.6 takes for a held
+  payout Stripe reports as paid.
+- **Result.** `{ status ∈ {updated, noop_replay}, refund_id, new_status }`.
+- **Idempotency.** `p_command_key` per `(actor, key)`; **plus** natural idempotency from the forward-only
+  guard and the equal-ref rule — a redelivered `charge.refunded` for a row already `succeeded` returns
+  `noop_replay`, it does not raise. **A webhook that raises is a webhook Stripe retries forever.**
+- **Errors.** `not_found` · `precondition_failed('refund_state_backwards')` · `conflict_locked` (a
+  different `stripe_refund_ref`) · `invalid_input`.
+- **Callers, and which label each may write** — the mapping is part of the contract because the pre-fix
+  corpus routed four Stripe events at one placeholder:
+
+  | Caller | Trigger | Label | Why it is attributable |
+  |---|---|---|---|
+  | `refund-execute` (edge §3.5) | the object `stripe.refunds.create` **returns** | `submitted` | the create call returns the `re_…`; this is the first moment our row has a join key |
+  | `stripe-webhook` (edge §4) | `charge.refunded` / `refund.updated` | `succeeded` | **the event payload carries the `re_…` the executor stored** — a refund is not aggregated the way a bank payout is, so unlike `payout.paid` (§20.7.6) the join is exact |
+  | `stripe-webhook` (edge §4) | `refund.failed` / `charge.refund.updated → failed` | `failed` | same join key |
+
+- **Forbidden.** Every human role including `platform_admin`; any caller supplying `pending`; any client
+  writing `kernel.refund` directly.
+- **Tests.** `T-RPC-MONEY-25` (**the completeness sweep** — for each of `pending`/`submitted`/`succeeded`/
+  `failed` a named function in the chain writes it; this is schema `T-SCHEMA-REFUND-01`'s RPC half and it
+  fails against the pre-fix corpus) · `T-RPC-MONEY-26` (forward-only both ways: `succeeded → submitted`
+  raises and `failed → succeeded` raises) · `T-RPC-MONEY-27` (a second, different `stripe_refund_ref`
+  raises; an **equal** one returns `noop_replay` and writes no second audit row — both halves, because the
+  redelivery path is the common one and a raise there loops Stripe) · `T-RPC-MONEY-28` (`refund_exposure_minor`
+  **excludes** a `failed` refund and **includes** a `submitted` one, asserted on the aggregate of §17.1a).
+
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
 > **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**

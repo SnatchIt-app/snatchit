@@ -456,9 +456,26 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **Response:** `{ status, refund_id, atoms_voided, stripe_refund_id }`.
 - **DB-RPC:** `kernel.refund_primary_order` (§11.4) / `kernel.admin_refund` / `catalog.cancel_event` (§4.4,
   batch). **The DB records `kernel.refund` intent + voids the covered atoms atomically (SSCAS #3) BEFORE the
-  Stripe refund;** the edge then executes the Stripe refund and records `stripe_refund_id` via a callback param.
+  Stripe refund;** the edge then executes the Stripe refund and **records the outcome through
+  `kernel.mark_refund_state(refund_id, 'submitted', re_…, null, command_key)`** (RPC §20.7.7, schema §1.10.1).
   Amount is re-validated in the RPC (`sum(refunds) ≤ payment.total` under `FOR UPDATE` on `public.payments`) —
   the edge never trusts a client amount.
+  - **`SPEC CORRECTION` (`R1-1`) — this bullet said *"records `stripe_refund_id` via a callback param"*, and
+    named no function.** There was none: `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT,
+    so `submitted`/`succeeded`/`failed` were unreachable and `stripe_refund_ref` had **zero** writers and
+    **zero** readers corpus-wide. A prose promise is not a writer — the `MB-2b` failure shape, on the refund
+    table. **The callback is now a named RPC and it is `kernel.mark_refund_state`.**
+  - **The `create`-error rule, because this is the branch that decides whether a retry is safe.** If
+    `stripe.refunds.create` **itself** errors there is **no `re_…`** — nothing left for Stripe — so the edge
+    **does not call `mark_refund_state` at all**: the row stays `pending` and the retry replays the same
+    deterministic `refund_${refund_id}` key. **`failed` is reserved for a refund Stripe accepted and then
+    could not settle**, which arrives as a webhook (§4), not as a create error. Schema §1.10.1's
+    `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)` makes the wrong version unstorable.
+  - **Class B (`EA-3` B-ii) for this one call only.** `mark_refund_state` is `service_role`-only by contract
+    with **no human path**, so the service client is correct here and the caller-`Authorization` client
+    remains mandatory for `refund_primary_order` / `admin_refund` / `cancel_event` (EA-1). **The two clients
+    in one function is the ordinary shape, not an exemption** — see §3.4's identical note for payouts.
+  - **On a money-RPC denial, call `kernel.record_money_denial` — see the denial-log bullet below.**
 - **Stripe:** `stripe.refunds.create({ payment_intent, amount })` under a **deterministic idempotency key**
   `refund_${refund_id}` (reconstructible from the `kernel.refund` row). Reuses `_shared/stripe.ts`.
 - **Secrets:** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
@@ -1074,7 +1091,8 @@ new). External-rail branches are **byte-for-byte untouched.**
 | `payment_intent.succeeded` | `native_primary` | claim payment row (`.neq('status','succeeded')` idempotent claim), then finalize the order | `venue.finalize_primary_order(order_id, payment_id, command_key)` (§6.3) — re-verifies buyer==payment owner (C35) |
 | `payment_intent.succeeded` | `native_resale` | mark `market_sale` `paid_pending_transfer`; the transfer is driven by `market.accept`/the C25 sweep, not the webhook | records `public.payments`; `market.get_market_sale_status` becomes pollable (recon #2) |
 | `payment_intent.payment_failed` | `native_*` | release the inventory hold / cancel the pending order | `venue.release_inventory_hold` / order cancel RPC |
-| `charge.refunded` | any | already handled; extend to also reconcile `kernel.refund` state when the PI is a native order | state sync only (no money move) |
+| `charge.refunded` · `refund.updated` | any | already handled; extend to reconcile `kernel.refund` when the PI is a native order — **joined on the `re_…` the executor stored, never on the PI**, and `→ succeeded` | **`kernel.mark_refund_state(refund_id, 'succeeded', re_…, null, key)`** (RPC §20.7.7). `SPEC CORRECTION` (`R1-1`): this row said *"state sync only"* and named no function — **there was none**; `submitted`/`succeeded`/`failed` were unreachable |
+| `refund.failed` · `charge.refund.updated → failed` | any | a refund Stripe **accepted and then could not settle** → `failed` with a cause | **`kernel.mark_refund_state(refund_id, 'failed', re_…, failure_code, key)`**. **A `refunds.create` that errors synchronously is NOT this row** — no `re_…` exists, nothing left for Stripe, and the row stays `pending` for the executor's retry (§3.5) |
 | `charge.dispute.created` / `.closed` | native | freeze the affected atom (native equivalent of transfer-freeze) + upsert dispute | native dispute freeze RPC (mirrors `freeze_transfer_for_dispute`) |
 | `account.updated` | (Connect account) | extend to match **org** connect ids → sync `kernel.organization` capability flags (in addition to existing `profiles` seller sync) | org connect capability writer RPC |
 | `transfer.created` / `.reversed` / `payout.paid` / `payout.failed` | (Connect) | extend logging to also cover `kernel.payout` rows | `mark`-style state sync RPCs |
