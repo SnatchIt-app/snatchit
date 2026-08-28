@@ -1364,13 +1364,28 @@ SoD constraint, because the approver genuinely is a different person from the re
 **Fix.** `required_approver_class text NOT NULL CHECK (required_approver_class IN ('org','platform',
 'platform_admin'))`, written by the requesting function from the tier it computed:
 
-| Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) | `required_approver_class` |
+> **THE OPERAND IS `cumulative`, AND IT IS NAMED HERE (ADDED — defect `R-27` / `MB-1`; ratification `C100`).**
+> Every amount row below previously compared **an unnamed quantity** to its threshold. This table is the
+> corpus's **only** statement of which function *writes* `required_approver_class`, and the sentence beneath
+> it says the class is **never recomputed** — so whatever this table compares is decided once, at request
+> time, and is then unappealable for the life of the request. **A table that pins a decision forever and does
+> not say what the decision is taken on gets implemented as whatever the reader assumed**, and the reader's
+> default assumption is the parameter in front of them (`p_amount_minor`), which is precisely the defect
+> `MB-1` closed one document over. The operand is **`cumulative` := `refund_exposure_minor(payment)` +
+> `p_amount_minor`** (RPC §17.1a ≡ MONEY §6.1a) — **identical wording to RPC §17.1's tier table by
+> construction**, since there is no precedence rule between delta specifications (`C75`/`O11`) and two copies
+> of one predicate must be made to agree at the moment they are changed. **No refund threshold anywhere in
+> this corpus is compared against a single call's amount.** The payout rows carry the same shape and their
+> operand is **open** — `MB-1b` / money `D-10` / `O14` — and this table states that rather than implying a
+> settled one.
+
+| Requesting function | Tier condition (MONEY §5.2 / §9.2 / §7.3) — **operand `cumulative`, §1.13.5** | `required_approver_class` |
 |---|---|---|
-| `kernel.request_order_refund` | **any consumed (scanned) atom** + `refund.scanned_atom_policy='platform_review'` | **`platform`** |
-| `kernel.request_order_refund` | org caller, > `refund.org_dual_control_max_minor` | `platform` |
-| `kernel.request_order_refund` | org caller, ≤ `refund.org_dual_control_max_minor` | `org` |
-| `kernel.request_org_payout` | > `payout.dual_control_min_minor` | `org` |
-| `catalog.set_platform_config` (money/`comp` namespace) | always — a **second distinct `platform_admin`** | **`platform_admin`** |
+| `kernel.request_order_refund` | **any consumed (scanned) atom** + `refund.scanned_atom_policy='platform_review'` — **no amount operand; this row takes precedence over both amount rows** | **`platform`** |
+| `kernel.request_order_refund` | org caller, **`cumulative`** > `refund.org_dual_control_max_minor` | `platform` |
+| `kernel.request_order_refund` | org caller, **`cumulative`** ≤ `refund.org_dual_control_max_minor` | `org` |
+| `kernel.request_org_payout` | **the payout's `amount_minor`** > `payout.dual_control_min_minor` — **NOT `cumulative`: the payout aggregate is OPEN** (`MB-1b`, money `D-10`, ratification `C90`/`O14`), because a settlement's period is caller-chosen and no aggregate scoped to one settlement is invariant under decomposition. **Stated as open rather than silently reusing the refund operand** | `org` |
+| `catalog.set_platform_config` (money/`comp` namespace) | always — a **second distinct `platform_admin`**; no amount operand, and `amount_minor` is NULL on this arm (CHECK (7)) | **`platform_admin`** |
 
 **Row order is load-bearing and is stated in this direction deliberately (RPC §17.1).** The consumed-atom
 row **takes precedence over the amount rows**. Read top-to-bottom in the other order, an implementer
@@ -1386,7 +1401,19 @@ time, alongside `config_versions`**, and the approval function **reads** it. It 
 never client-supplied, and it is not derivable from `state`, `action` or `org_id` — which is why it must
 be a column and not a predicate.
 
-**Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits exactly two labels)
+**And "never recomputed" is exactly why the operand had to be named (`C100`).** A class that is recomputed can
+be corrected by a later reader; a class that is **pinned** cannot. The operand this table compares — settled
+here as `cumulative`, §1.13.5 — is therefore the single input to a decision no later code may revisit, and it
+was unstated. **`amount_minor` (§1.13.5) is what makes the pinning honest in the other direction too:** the
+row must store the amount its own class was decided on, or the next request's `cumulative` cannot include it
+and the pinned class of request N is computed from an exposure figure that omits requests 1…N−1.
+
+**Tests.** `T-SCHEMA-APPR-01` (the column is `NOT NULL` and its CHECK admits **exactly the three labels
+`org` · `platform` · `platform_admin`** — a fourth raises `23514`. **`SPEC CORRECTION` (`C100`): this test
+read *"exactly two labels"*, describing the label set as it stood **before** the `platform_admin` arm was
+added four paragraphs above it. A test written against a superseded label set is a test that fails on the
+correct schema, and the repair an implementer reaches for is to delete the third label — which is the
+`platform_support`-approves-its-own-ceiling hole the third label exists to close.**)
 · `T-SCHEMA-APPR-03` (structural: no function body branches approval authority on `action` or `org_id`
 alone — the branch must read `required_approver_class`) · `T-SCHEMA-APPR-04` (a `platform`/`platform_admin` row is
 **not** approvable by any `org_owner`/`org_finance` of its own `org_id`, asserted positively rather than
