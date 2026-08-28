@@ -2287,6 +2287,160 @@ which is the single most likely way to build this wrong.
 
 ---
 
+## 20. SET CLOSURE — the reconciliation of this document against RLS §11 and migration plan §8
+
+**Why this section exists, stated once.** A traceability pass established a structural property of the
+corpus, and it is the reason a dozen gaps survived four integration passes:
+
+> **`PHASE_2_RLS_PERMISSION_SPEC.md` §11's EXECUTE-authority table is the complete statement of Phase-2 write
+> authority. This document was a proper *subset* of it.**
+
+The corpus contracted the functions a **product surface** demanded. It did not contract the functions an
+**authority table** granted. Nine of the missing functions are additionally **scheduled as objects** in
+`PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8's per-package **Functions** rows — so an implementer opens the plan,
+sees the object, finds no signature anywhere in the corpus, **and invents one.** That is how an authority
+model gets quietly reinterpreted by whoever writes the SQL first.
+
+§20 closes the difference in **both** directions. It adds no authority: every contract below cites the RLS
+§11 EXEC row or the ratified ruling it derives from, and **where RLS §11 is silent the contract says so and
+proposes**, marked `PROPOSED AUTHORITY` — never assumed. Nothing in §0–§19 is rewritten; §20 is additive.
+
+### 20.0a Method (reproducible, not editorial)
+
+1. **Set A** — every function granted EXECUTE anywhere in RLS §11, all eight blocks (§11.1–§11.8).
+2. **Set B** — every function named in migration plan §8's per-package **Functions** rows, `076`–`091`.
+3. **Set C** — every function carrying a contract in this document, §1–§19.
+4. **Δ1 = (A ∪ B) \ C** — authorized or scheduled, uncontracted. *An engineer will invent each one.*
+5. **Δ2 = C \ A** — contracted, unauthorized. *Equally a defect: a function with no EXEC row has no stated
+   grant class, so a migration author must guess between `authenticated` and `service_role`.*
+
+**Aliases are resolved before differencing**, using §20.13's naming register, so a name divergence
+(`catalog.publish_event` ↔ `catalog.set_event_status`) is counted as **one function with two names** (a
+`G-20` defect) and **not** as a member of both differences.
+
+**Trigger functions are excluded from both sets by construction.** `kernel.set_updated_at`,
+`kernel.raise_append_only` (plan `076`) and `catalog.tg_door_open_at_is_ledger_head` (plan `086`) are
+attached to tables by `CREATE TRIGGER`; they are never `EXECUTE`d by a principal and hold no grant, so
+neither the authority table nor a contract document is the right home for them. Their specification is the
+trigger's behaviour, stated in the plan row that creates them.
+
+### 20.0b **Δ1 — authorized or scheduled, and contracted nowhere** (the forward difference, in full)
+
+**49 functions.** `A` = has an RLS §11 EXEC row · `B` = named in plan §8 · `U-n` = dashboard §20A.3 unbacked
+control · `G-n` = traceability-matrix gap id.
+
+| # | Function | In | Closed at |
+|---|---|:---:|---|
+| 1 | `kernel.set_org_connect_ref` | — *(edge §3.3 only; **`G-3`**)* | §20.1.1 |
+| 2 | `kernel.set_org_status` | `A` | §20.1.2 |
+| 3 | `kernel.upsert_identity_ext` | `A` | §20.1.3 |
+| 4 | `kernel.grant_platform_role` | `A` | §20.1.4 |
+| 5 | `kernel.revoke_platform_role` | `A` | §20.1.4 |
+| 6 | `kernel.update_organization` | `U-10`, **`G-12`** | §20.1.5 |
+| 7 | `catalog.set_platform_config` | `A` ×2, `B`(`078`), **`G-6`** | §20.2.1 |
+| 8 | `catalog.set_resale_policy` | `A`, `B`(`078`), **`G-20`** | §20.2.2 |
+| 9 | `catalog.update_event` | `U-9`, **`G-12`** | §20.2.3 |
+| 10 | `catalog.update_event_session` | `U-9`, **`G-12`** | §20.2.4 |
+| 11 | `catalog.set_session_door_schedule` | `A` *(as the mis-named `venue.set_door_open_at`, **`G-14`**)* | §20.6.5 |
+| 12 | `venue.set_ticket_type_price` | `A`, `B`(`081`), **`G-20`** | §20.3.1 |
+| 13 | `venue.set_batch_capacity` | `U-8`, **`G-12`** | §20.3.2 |
+| 14 | `venue.sweep_expired_inventory_holds` | schema §3.5 object list + the `081` partial index, **`G-24`** | §20.3.3 |
+| 15 | `venue.grant_staff_role` | `A`, **`G-13`** | §20.4.1 |
+| 16 | `venue.revoke_staff_role` | `A`, **`G-13`** | §20.4.2 |
+| 17 | `venue.register_scan_device` | `A`, `B`(`086`), **`G-13`** | §20.4.3 |
+| 18 | `venue.sync_scan_device_manifest` | `A` *(as the unnamed **"manifest-sync"**, **`G-13`**)* | §20.4.4 |
+| 19 | `venue.allocate_comp` | `A`, `B`(`086`), **`G-4`** | §20.5.1 |
+| 20 | `venue.issue_comp` | `A`, `B`(`086`), **`G-4`** | §20.5.2 |
+| 21 | `venue.create_guest_list` | RLS §9.16, `U-1`, **`G-10`** | §20.5.3 |
+| 22 | `venue.upsert_guest_entry` | RLS §9.16, `U-1`, **`G-10`** | §20.5.4 |
+| 23 | `venue.remove_guest_entry` | RLS §9.16, `U-1`, **`G-10`** | §20.5.5 |
+| 24 | `venue.check_in_guest_entry` | RLS §9.16 n39, `U-2`, **`G-9`** | §20.5.6 |
+| 25 | `venue.get_door_manifest` | `A`, `B`(`086`), **`G-15`** | §20.6.1 |
+| 26 | `catalog.sweep_implicit_door_freezes` | `A`, `B`(`086`), **`G-21`** | §20.6.2 |
+| 27 | `venue.preview_door_open_impact` | `U-5`/Δ11, **`G-16`** | §20.6.3 |
+| 28 | `venue.get_live_device_count` | `U-6`/Δ12, **`G-17`** | §20.6.4 |
+| 29 | `venue.set_event_security_config` | `A` (O4-4), **`G-14`** | §20.6.6 |
+| 30 | `kernel.admin_refund` | `A`, `B`(`085`), **`G-7`** | §20.7.1 |
+| 31 | `kernel.pay_promoter_commission` | `A`, **`G-7`** | §20.7.2 |
+| 32 | `kernel.provision_signing_key` | `A`, `B`(`083`), **`G-7`** | §20.7.3 |
+| 33 | `kernel.rotate_signing_key` | `A`, `B`(`083`), **`G-7`** | §20.7.4 |
+| 34 | `kernel.revoke_signing_key` | `A`, `B`(`083`), **`G-7`** | §20.7.5 |
+| 35 | `market.create_listing` | `A`, `B`(`088`), **`G-5`** | §20.8.1 |
+| 36 | `market.cancel_listing` | `A`, `B`(`088`), **`G-5`** | §20.8.2 |
+| 37 | `market.create_auction` | `A`, `B`(`088`), **`G-5`** | §20.8.3 |
+| 38 | `market.place_bid` | `A` *(as the unnamed **"bid RPC"**)*, `B`(`088`), **`G-5`** | §20.8.4 |
+| 39 | `market.make_offer` | `A`, `B`(`088`), **`G-5`** | §20.8.5 |
+| 40 | `market.respond_offer` | `A`, `B`(`088`), **`G-5`** | §20.8.6 |
+| 41 | `venue.create_promoter` | RLS §9.17, `U-3`, **`G-11`** | §20.9.1 |
+| 42 | `venue.update_promoter` | RLS §9.17, `U-3`, **`G-11`** | §20.9.2 |
+| 43 | `venue.create_promoter_link` | RLS §9.17, `U-4`, **`G-11`** | §20.9.3 |
+| 44 | `venue.set_promoter_link_status` | RLS §9.17, `U-4`, **`G-11`** | §20.9.4 |
+| 45 | `venue.check_promoter_slug_available` | `U-4`, **`G-11`** | §20.9.5 |
+| 46 | `venue.get_dashboard_summary` | `U-7`, **`G-18`** | §20.10 |
+| 47 | `kernel.settlement_royalty_lines` | `B`(`087`,`088`) | §20.11.1 |
+| 48 | `kernel.settlement_commission_lines` | `B`(`087`,`090`) | §20.11.2 |
+| 49 | `market.on_atom_voided` | `B`(`085`,`088`) | §20.11.3 |
+| 50 | `venue.normalize_promoter_code` | `B`(`090`) | §20.11.4 |
+
+*(Fifty rows for forty-nine functions: `catalog.set_session_door_schedule` at row 11 is the **re-homing** of
+the row `venue.set_door_open_at`, which §20.6.5 rules **does not exist**. It is listed so the EXEC row it
+replaces stays traceable, not because a fiftieth function is created.)*
+
+### 20.0c **Δ2 — contracted here, and granted by no EXEC row** (the reverse difference, in full)
+
+**A contract with no EXEC row is as much a defect as an EXEC row with no contract**, and for a concrete
+reason: RLS §11's two grant classes (caller-authorized vs **`DEF`**) are what tell a migration author whether
+to write `GRANT EXECUTE TO authenticated` or `GRANT EXECUTE TO service_role`. A function absent from §11 has
+**no stated grant class**, so the author guesses — and the guess that fails open (`authenticated` on a
+definer-only primitive) is the same class of defect as the missing contracts above, arriving from the other
+side. **Six of the fourteen below are `EXEC: DEF` custody or sweep primitives where that guess is
+catastrophic.**
+
+**This document cannot fix these — RLS §11 is not our file.** They are filed for the RLS integrator, with the
+grant class this document already fixes, so each row can be written without re-deriving it.
+
+| # | Contracted at | Function | Grant class this document fixes | Consequence of the missing row |
+|---|---|---|---|---|
+| 1 | §2.2 | `kernel.invite_org_member` | caller-authorized (`org_owner`,`org_admin`) | the org roster's **write** door has authority stated only in a contract |
+| 2 | §2.3 | `kernel.accept_org_invite` | caller-authorized (the addressed invitee) | — |
+| 3 | §3.3 | `catalog.update_venue` | caller-authorized (`venue_manager` OR org owner/admin) | the **operatorship (`org_id`) change** — an audited tenancy move — is authorized nowhere in §11 |
+| 4 | §5.2 | `venue.create_inventory_batch` | caller-authorized (`venue_manager` OR org owner/admin) | the capacity counter (C27) is **created** by a function §11 does not mention |
+| 5 | §5.4 | `venue.create_inventory_hold` | caller-authorized (`venue_manager` OR org owner/admin) | §11.1's `reserve_inventory`/`release_hold` row grants *"any authenticated (own hold)"*, which is the **buyer** hold's authority. The **staff** hold has different authority and no row |
+| 6 | §6.3 | `venue.finalize_primary_order` | **`DEF`** | **SSCAS member #1.** Mints every atom in the system. A guessed `authenticated` grant hands any signed-in user the mint |
+| 7 | §7.4 | `kernel.lock_ticket` | **`DEF`** | the resale-overlay choke-point and a freeze **enforcement** point (§12.4c) |
+| 8 | §7.4 | `kernel.unlock_ticket` | **`DEF`** | — |
+| 9 | §7.5 | `kernel.mark_ticket_scanned` | **`DEF`** | the custody-side `active → scanned` terminal transition |
+| 10 | §8.3 | `market.cancel_p2p_transfer` | caller-authorized (the sender) **+ `DEF`** for the `expired` transition | it **owns the `expired` state**, so it is dual-class; §11.1's `create_p2p_transfer`/`accept_p2p_transfer` row omits it entirely |
+| 11 | §9.3 | `venue.validate_ticket_online` | caller-authorized (`venue_scanner`,`venue_manager`) **OR** the `service_role` door path via `assert_door_session` | the C37 live-verify read — the same dual-path shape §11.1 spells out for `record_scan` |
+| 12 | §11.1 | `kernel.force_void_ticket` | caller-authorized (`platform_admin`,`platform_risk`) | a **platform break-glass void**, exempt from the door freeze (§12.4c), with no authority row |
+| 13 | §12.2 | `market.sweep_expired_p2p_transfers` | **`DEF`** | recon #1's TTL sweep |
+| 14 | §12.3 | `market.sweep_paid_pending_sales` | **`DEF`** | **C25 auto-compensation** — the sweep that stops a buyer's money dwelling in `paid_pending_transfer` forever |
+
+> **`T-RPC-SET-01` (structural, and the only test that keeps §20 true).** Enumerate `pg_proc` for the four
+> Phase-2 schemas, subtract the trigger functions of §20.0a, and assert the result equals the union of the
+> functions named in RLS §11 and the functions contracted in this document — **in both directions**. A future
+> RPC added to one surface and not the other then fails CI rather than waiting for a fifth audit pass.
+> Non-vacuity guard: the assertion must prove it can see at least the fifty functions §20 names.
+
+### 20.0d Two properties §20 preserves, asserted rather than assumed
+
+- **SSCAS stays closed at fifteen.** Not one contract below requires a sixteenth member. Every
+  multi-aggregate write in §20 is either a **caller of an existing member** (`venue.issue_comp` → member #1's
+  mint leg; `market.create_listing` → member #6; `market.respond_offer` accept → member #2;
+  `kernel.admin_refund` → member #3; `kernel.pay_promoter_commission` → member #5's payout leg) or a
+  **bounded batch of one** (`venue.sweep_expired_inventory_holds`), which is the construction
+  `catalog.cancel_event` (#3) and `venue.open_door_manifest` (#6/#7-reverse) already use. Everything else is
+  tagged `SSCAS: n/a (single-aggregate)`. **§14.1's member → RPC map gains callers, not members** — the
+  addendum is §20.12. **C28's closed fifteen and §14.2's lock-order proof stand unamended.**
+- **No new lock class and no new ordering obligation.** Every lock taken below is an existing rank of
+  `Event/Session(1) < Inventory(2) < Order(3) < Listing(4) < Ticket Atom(5) < Approval/Request(5.5) <
+  money-plane(6)`, or an **admin-plane** row (organization, identity_ext, platform_role, staff_role,
+  scan_device, signing_key, promoter, platform_config, guest_list) outside the six ranks — the same
+  classification §17.23 uses for the Wallet objects, and for the same reason: an object outside the order
+  creates no ordering obligation, so no member's proof changes.
+
+---
+
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
 schema (deliverable #1), RLS spec (#3), and the Edge Function spec (#5, which picks up every EDGE-FRONTED item
 flagged in §13), per SPEC_FOUNDATION §10.*
