@@ -2439,6 +2439,467 @@ grant class this document already fixes, so each row can be written without re-d
   classification §17.23 uses for the Wallet objects, and for the same reason: an object outside the order
   creates no ordering obligation, so no member's proof changes.
 
+### 20.1 ORGANIZATION AND PLATFORM AUTHORITY — the `077` / `085` gap
+
+#### 20.1.1 `kernel.set_org_connect_ref(p_org_id, p_connect_account_id, p_command_key)` — **EDGE-FRONTED** · `NEW RPC` (`G-3`)
+
+**The precondition for every payout in the system, wrapped by an edge function and contracted nowhere.**
+`connect-onboarding` (edge §3.3, `verify_jwt=true`) creates the Stripe Express `Account` and the
+`AccountLink`, then must record the account id on the org. Edge §9 recon #12 files the request verbatim:
+*"it appears in neither `PHASE_2_RPC_FUNCTION_CONTRACTS.md` nor RLS §11's EXEC table … or §3.3 has no write
+path."* It has none. Connect onboarding cannot complete, so **no org can ever be paid.**
+
+- **Signature.** `kernel.set_org_connect_ref(p_org_id uuid, p_connect_account_id text, p_command_key text)`.
+- **Actor & EXECUTE authority.** `p_actor := auth.uid()`. `PROPOSED AUTHORITY` — **RLS §11 is silent on this
+  function entirely.** Proposed: `has_org_role(p_org_id, ['org_owner','org_finance'])`, which is exactly the
+  predicate edge §3.3 already states and edge §9 recon #12 already proposes; this document adopts it rather
+  than inventing a third. Caller-authorized ⇒ **bound by EDGE-CALLER-JWT (§0.1a)**: `connect-onboarding` holds
+  the service-role key for its Stripe calls and **must** build its Supabase client from the caller's
+  `Authorization` header to invoke this, or both role predicates silently degrade to false-on-NULL.
+- **`SPEC CORRECTION` — this function is BIND-ONCE, and that is a security property, not a convenience.**
+  It and `kernel.set_org_payout_destination` (§17.7) write **the same column**,
+  `kernel.organization.stripe_connect_account_ref`. §17.7 restricts that write to `org_owner` **only** and
+  wraps it in the full control set — SoD-1, destination probation, out-of-band notification, step-up
+  freshness — expressly because `org_finance` holding both halves of *"redirect the account, then release
+  funds to it"* is the named fraud primitive. **This function grants `org_finance`.** If it could overwrite a
+  non-NULL ref it would be a **complete bypass of §17.7's entire control set through a lower-authority
+  door**, and nothing in the corpus currently says it cannot. Therefore:
+  - `stripe_connect_account_ref IS NULL` ⇒ **bind**, and stamp `payout_destination_set_by := auth.uid()` so
+    **SoD-1 applies from the very first destination** (without the stamp, the identity that onboards is also
+    eligible to request the first payout — the primitive, on day one);
+  - ref is non-NULL and **equal** to `p_connect_account_id` ⇒ `noop_replay` (this is the *"reuse existing
+    connect ids"* path SPEC_FOUNDATION §2 requires, and the common case on a re-onboarding retry);
+  - ref is non-NULL and **different** ⇒ **`precondition_failed('destination_already_set')`**, whose message
+    names `kernel.set_org_payout_destination` as the only path. **A re-point is never an onboarding event.**
+- **Preconditions.** Org exists and `status ∈ {applied, approved, active}` (a `suspended`/`closed` org may not
+  bind a payee); `p_connect_account_id` matches the Stripe account-id shape and is **not already bound to
+  another org** — the schema's `UNIQUE(stripe_connect_account_ref) WHERE NOT NULL` makes that structural, and
+  a violation surfaces as `conflict_locked`, never as a silent re-point.
+- **Locks & acquisition order.** `kernel.organization` row `FOR UPDATE` — **admin plane, outside the six
+  money/custody ranks**; nothing else is locked. No ordering obligation.
+- **SSCAS.** `n/a (single-aggregate — Organization)`.
+- **Idempotency.** `p_command_key`, plus the bind-once state guard above. A replayed onboarding returns the
+  bound id.
+- **Postconditions / writes.** `kernel.organization` (`stripe_connect_account_ref`,
+  `payout_destination_set_by := auth.uid()` **on the bind only**), `kernel.admin_audit`
+  (`org.connect_ref.bind`, `subject_kind='organization'`, `before=NULL`, `after=<account id>`). **No bank
+  detail ever enters the database** — the stored value is an opaque Stripe account id and bank details are
+  collected by Stripe's own KYC'd onboarding (§17.7 makes the same point about the same column).
+- **Result.** `{ status, org_id, connect_account_id, newly_bound bool }`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed(org_not_bindable |
+  destination_already_set | malformed_account_ref)` · `conflict_locked` (id bound to another org) ·
+  `idempotency_replay`.
+- **Forbidden callers.** `org_admin`, `org_member`, `org_marketing`, `org_promoter_manager`, every venue role,
+  every platform role, fans, `anon`. **Platform is deliberately excluded**: a platform role binding an org's
+  payee is a money-destination write, and RLS §11.3 already rules that no platform role touches the
+  destination — only `hold_payout`/`release_payout`.
+- **Tests.** `T-RPC-CONNECT-01` (bind on NULL succeeds and stamps `payout_destination_set_by`) ·
+  `T-RPC-CONNECT-02` (**the bypass regression**: an `org_finance` re-point of a non-NULL ref raises
+  `destination_already_set` and writes nothing — asserted, because this is the whole of §17.7's control set
+  defended at a second door) · `T-RPC-CONNECT-03` (the same id re-bound to the same org ⇒ `noop_replay`; to a
+  different org ⇒ `conflict_locked`) · `T-RPC-CONNECT-04` (invoked on a service-role client, `auth.uid()` is
+  NULL and the function **raises** rather than binding — the §0.1a enforceable form).
+
+#### 20.1.2 `kernel.set_org_status(p_org_id, p_target_status, p_reason_code, p_command_key)` — **DB-RPC**
+
+- **Signature / authority.** `is_platform(['platform_admin'])` — **RLS §11.1, verbatim.** The org lifecycle's
+  only writer after `create_organization` (§2.1) inserts at `applied`.
+- **Params.** `p_target_status ∈ {applied, approved, active, suspended, closed}` (schema §1.2's enum, closed
+  set, re-validated in-body), `p_reason_code` **mandatory on every non-forward transition**. All untrusted.
+- **Preconditions.** Org exists; the transition is legal —
+  `applied → approved → active`, and `{approved, active} → suspended → active`, and any state `→ closed`.
+  **`closed` is terminal**; there is no path out of it, and re-opening is a new org.
+- **Locks & acquisition order.** `kernel.organization` row `FOR UPDATE` (admin plane). Nothing else.
+- **SSCAS.** `n/a (single-aggregate)`.
+- **Idempotency.** `p_command_key` + the state guard (target = current ⇒ `noop_replay`).
+- **Writes.** `kernel.organization.status`; `kernel.admin_audit` (`org.status.change`, before/after,
+  `reason_code`).
+- **Result.** `{ status, org_id, org_status }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(illegal_transition | terminal_state | reason_required)` · `idempotency_replay`.
+- **What suspension does NOT do, stated because an implementer will otherwise assume it.** Suspending an org
+  **moves no custody, voids no atom, cancels no event and stops no admission.** It is an authority state read
+  by other functions' preconditions (`catalog.create_venue` §3.1 requires `approved`/`active`;
+  `kernel.request_org_payout` §10.3 reads it). Making it cascade would make a support action into a
+  bounded-batch custody operation, which is `catalog.cancel_event`'s job (§4.4) and requires that authority.
+- **Forbidden callers.** Every org role including `org_owner` (an org cannot approve itself),
+  `platform_support`, `platform_risk`, every venue role, fans, `anon`.
+- **Test.** `T-RPC-ORG-01` (an `org_owner` self-approval raises; `closed → active` raises; a suspension
+  leaves every atom, session and scan of that org's events untouched — asserted by row count, not inspection).
+
+#### 20.1.3 `kernel.upsert_identity_ext(p_patch, p_command_key)` — **DB-RPC**
+
+- **Authority — two disjoint branches in one function, which is why the parameter set is split.** RLS §11.1:
+  *"owner (benign) · `is_platform([platform_admin])` (region/kyc)"*.
+  - **self branch:** `auth.uid()` writes **only** `locale` on its own row. No identity parameter exists on
+    this branch, so *"edit someone else's row"* is **unexpressible**, the same construction §17.20 uses for
+    demographics.
+  - **platform branch:** `is_platform(['platform_admin'])` writes `residency_region` / `kyc_ref` for a named
+    `p_identity_id`, audited with `reason_code`.
+- **Signature.** `kernel.upsert_identity_ext(p_patch jsonb, p_command_key text)` for the self branch;
+  `kernel.admin_set_identity_ext(p_identity_id uuid, p_patch jsonb, p_reason_code text, p_command_key text)`
+  for the platform branch. **`INFERENCE` — the split into two functions is authored here.** One function
+  whose *"is this parameter honoured?"* answer depends on the caller's role is the pattern
+  ROLE_MODEL R-8 removed from `has_venue_role` (§1.1), and for the same reason: a reviewer reading the call
+  site cannot tell what it does. Two functions make the answer structural.
+- **Preconditions.** `residency_region ∈` the allowed-region CHECK set (MVP: `us-east`); `locale` is a
+  well-formed BCP-47 tag or NULL — **NULL is meaningful** (schema §1.1: it means *"not stated"*, the third
+  link of the resolution chain, not a default). `kyc_ref` is an opaque handle: **no PII is accepted into it**,
+  and the audit row records that it changed, never its value.
+- **Locks.** The `kernel.identity_ext` row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`; the upsert is naturally idempotent (PK = `identity_id`).
+- **Writes.** `kernel.identity_ext`; `kernel.admin_audit` (`identity_ext.update` — **platform branch only**;
+  a fan setting their own locale is not a privileged mutation and §0.3 does not reach it).
+- **Result.** `{ status, identity_id }`. **Errors.** `insufficient_privilege` · `precondition_failed(
+  bad_region | bad_locale)` · `not_found`.
+- **Forbidden callers.** Any principal writing another identity's row outside the platform branch; **every
+  org and venue role** — a venue may not set an attendee's region, locale or KYC reference, which is the same
+  boundary §17.21 draws around contact consent.
+- **Test.** `T-RPC-ORG-02` (the self-branch signature has **no** uuid parameter; a `venue_manager` and an
+  `org_owner` are both refused on the platform branch; a `kyc_ref` change writes an audit row whose payload
+  contains no value).
+
+#### 20.1.4 `kernel.grant_platform_role(p_identity_id, p_role, p_reason_code, p_command_key)` · `kernel.revoke_platform_role(...)` — **DB-RPC** ×2
+
+**The grant of platform authority itself, uncontracted.** Every `is_platform` predicate in the corpus reads
+the table these two write.
+
+- **Authority.** `is_platform(['platform_admin'])` **plus the `public.admin_users` bootstrap** — RLS §11.1
+  verbatim — **with dual control (C11)**. The bootstrap exists because the first `platform_admin` cannot be
+  granted by a `platform_admin`; it is a **read** of the frozen Phase-0 table, never a write to it.
+- **Dual control is structural here, not a seam.** A grant creates a `kernel.approval_request`
+  (`action='platform_role.grant'`) that a **second distinct `platform_admin`** must approve, and **only the
+  approval inserts the `kernel.platform_role` row** — the same two-step §11.3 mandates for
+  `catalog.set_platform_config` on money-namespace keys, and for the same reason: a control that gates money
+  authority is exactly as money-consequential as the action it gates. `kernel.approval_request`'s SoD CHECK
+  (`approved_by <> requested_by`, plan `077`) enforces the distinctness in the database.
+- **Direction asymmetry, matching §11.3's.** **Revocation executes directly; only a grant needs the second
+  approver.** A security control that is hard to *tighten* during an incident is a liability, and the failure
+  modes are not symmetric: an over-eager revoke locks an operator out for minutes, an unapproved grant hands
+  out `platform_risk`.
+- **`p_role ∈ {platform_admin, platform_support, platform_risk}`** — the platform enum only, re-validated
+  in-body (C36; org and venue labels are members of a different enum and raise).
+- **No self-grant, and no last-admin revoke.** `p_identity_id = auth.uid()` on the grant path raises
+  `precondition_failed('self_grant')` (I-11). A revoke that would leave **zero** identities holding
+  `platform_admin` across `kernel.platform_role` ∪ `public.admin_users` raises `precondition_failed(
+  'last_platform_admin')`, re-counted **under the lock**, not before it — the same construction §2.4 uses for
+  the last `org_owner`.
+- **Locks & acquisition order.** `kernel.platform_role` rows for `p_identity_id` `FOR UPDATE`, then the
+  `kernel.approval_request` row (rank 5.5) on the grant path. Both admin plane; the request object's rank is
+  the only one in the global order and it is acquired last, so no inversion. **SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`; PK `(identity_id, role)` makes a re-grant a `noop_replay` and a
+  re-revoke terminal.
+- **Writes.** `kernel.approval_request` (grant path), `kernel.platform_role` (INSERT on approval / DELETE-free
+  revoke — **the revoke removes the PK row, which is the one place a role table has no state column**;
+  GP-2's "no RPC deletes rows" is satisfied because the audit row carries the removed grant, exactly as §2.5
+  handles `org_member`), `kernel.admin_audit` (`platform_role.grant` / `.revoke`, before/after, mandatory
+  `reason_code`).
+- **Result.** `{ status, identity_id, role, request_id }` (`request_id` non-null on a parked grant).
+- **Errors.** `insufficient_privilege` · `precondition_failed(self_grant | last_platform_admin | bad_role)` ·
+  `sod_violation` (self-approval of one's own parked grant) · `idempotency_replay`.
+- **Forbidden callers.** `platform_support`, `platform_risk`, **every org and venue role including
+  `org_owner`**, fans, `anon`, and any `service_role` path — this is one function where no `DEF` door exists
+  at all, because a machine identity granting platform authority is the shape of a supply-chain compromise.
+- **Tests.** `T-RPC-ROLE-06` (a grant with one approver inserts **no** `platform_role` row) ·
+  `T-RPC-ROLE-07` (self-approval of one's own request raises `sod_violation`) · `T-RPC-ROLE-08` (revoking
+  the last `platform_admin` raises, counting `public.admin_users` in the total) · `T-RPC-ROLE-09` (an `org_*`
+  or `venue_*` label passed as `p_role` raises — the disjoint-enum property, C36).
+
+#### 20.1.5 `kernel.update_organization(p_org_id, p_patch, p_command_key)` — **DB-RPC** (`U-10`, `G-12`)
+
+- **Authority.** `PROPOSED AUTHORITY` — **RLS §11 is silent.** Proposed: `has_org_role(p_org_id,
+  ['org_owner','org_admin'])`, by symmetry with `catalog.update_venue` (§3.3), which grants
+  `venue_manager` **OR** org owner/admin for the venue's benign profile fields. Dashboard §16.1 asks for it
+  and RLS §7.2's column grants imply it; neither names a function.
+- **The patch set is closed, and its complement is the point.** Writable: `display_name`. **Not writable by
+  this function, each for a stated reason:** `legal_name` (it is the payee's legal identity and changing it
+  after a Connect account is bound de-synchronises the platform from Stripe's KYC record — a
+  `platform_admin` action with a reason code, not an org self-service edit); `status` (§20.1.2);
+  `stripe_connect_account_ref` and `payout_destination_*` (§17.7 / §20.1.1 — **a benign-profile RPC that
+  could touch a money column is the §20.1.1 bypass in another costume**); `home_region` (C14 single-region;
+  changing it is a data-residency decision). **A key outside the writable set raises `invalid_input`; it is
+  never silently ignored** — silent ignore is how a UI ships a control that does nothing.
+- **Locks.** `kernel.organization` row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`. **Idempotency.**
+  `p_command_key`; a no-change patch is `noop_replay`.
+- **Writes.** `kernel.organization`; `kernel.admin_audit` (`org.update`, before/after).
+- **Result.** `{ status, org_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `invalid_input(unwritable_key)` · `precondition_failed(empty_name)`.
+- **Forbidden callers.** `org_finance`, `org_marketing`, `org_promoter_manager`, `org_member`, every venue
+  role, fans, `anon`.
+- **Test.** `T-RPC-ORG-03` (**structural**: the function's definition references none of
+  `stripe_connect_account_ref`, `payout_destination_set_by`, `payout_destination_locked_until`, `status`,
+  `legal_name`, `home_region`; a patch naming any of them raises `invalid_input`).
+
+### 20.2 CATALOG AND CONFIG — the `078` gap
+
+#### 20.2.1 `catalog.set_platform_config(p_key, p_value, p_reason_code, p_command_key)` — **DB-RPC** (`G-6`)
+
+**Every money threshold in the system is set through this function, and it had no signature.** The refund
+tiers, the payout dual-control minimum, the destination probation window, the step-up AAL and max age, the
+door freeze offset and manifest TTL, the CRM caps and retention — all of them are `catalog.platform_config`
+rows, and RLS §11.3 makes this their mandatory dual-control writer.
+
+- **Signature.** `catalog.set_platform_config(p_key text, p_value jsonb, p_reason_code text,
+  p_command_key text)`.
+- **Authority.** `is_platform(['platform_admin'])` — RLS §11.1 and §11.3. **Caller-authorized ⇒ bound by
+  EDGE-CALLER-JWT.**
+- **Dual control is MANDATORY, not a seam, for three key namespaces** — RLS §11.3 verbatim: `refund.*`,
+  `payout.*`, `authn.*`. For those keys the call **creates a `kernel.approval_request`** which a **second
+  distinct `platform_admin`** must approve, and **only the approval inserts the new `(key, version+1)` row.**
+- **Direction asymmetry (RLS §11.3, binding).** **Lowering a limit executes directly; only raising one needs
+  the second approver.** *"A security control that is hard to tighten in an incident is a liability."*
+  The direction is computed server-side from the key's declared **polarity**, never supplied by the caller:
+  - `p_value` numerically **more restrictive** than the current version (a lower ceiling, a higher required
+    AAL, a shorter max age, a longer probation) ⇒ execute in one transaction;
+  - **less restrictive** ⇒ park an approval request;
+  - **not comparable** (a non-scalar value, a namespace change, a key with no declared polarity) ⇒ **park.**
+    `INFERENCE:` the third arm is authored here. RLS §11.3 states the asymmetry for the scalar case and is
+    silent on the rest, and *"not comparable"* must fail toward the approver, or a `jsonb` object becomes the
+    door through which a threshold is raised without one.
+- **Preconditions.** `p_key` is a **member of the seeded key registry** (`078` seeds every key; **this
+  function creates no new key** — a key that no code reads is a config row that lies, and a key an implementer
+  invents at 2 a.m. is worse); `p_value` passes the key's declared type/range; `p_reason_code` mandatory for
+  every key, not only the money namespaces.
+- **Locks & acquisition order.** The key's latest `catalog.platform_config` row `FOR UPDATE` (admin plane,
+  serialising two concurrent version bumps) → `kernel.approval_request` (rank 5.5) on the parked path.
+  Ascending; nothing else. **SSCAS.** `n/a (single-aggregate)`. The approval object's own SSCAS status is the
+  open flag of §16.8 and is **unchanged** by this contract.
+- **Idempotency.** `p_command_key` + `UNIQUE(key, version)`. **Config is append-only per version** (schema
+  §2.4): a change **inserts** `(key, version+1)`; **no row is ever updated or deleted**, so an object
+  governed by an old version stays interpretable (C11/O3). A replay returns the version it created.
+- **Writes.** `catalog.platform_config` (INSERT one new version — direct path, or from the approval),
+  `kernel.approval_request` (parked path), `kernel.admin_audit` (`config.change`, before/after = the two
+  version numbers **and** the two values, `reason_code`).
+- **Result.** `{ status ∈ {ok, parked, noop_replay}, key, version, request_id }`. **A parked call returns
+  `parked` with the request id and `version` unchanged** — the UI must say *"waiting for a second
+  approver"*, never *"saved"*.
+- **Errors.** `insufficient_privilege` · `precondition_failed(unknown_key | bad_value | reason_required)` ·
+  `sod_violation` (approving one's own parked change) · `idempotency_replay`.
+- **Forbidden callers.** `platform_support`, `platform_risk` (risk holds `hold_payout`, not the thresholds
+  that decide when a payout needs approval at all), **every org and venue role**, fans, `anon`, and every
+  `service_role` path — **a migration is not a config change** (plan §4: values are seeded in `078`; flips
+  are never a migration).
+- **Tests.** `T-RPC-CFG-01` (raising `payout.dual_control_min_minor` parks and inserts no version; lowering it
+  executes) · `T-RPC-CFG-02` (a `jsonb`-object value on a money key **parks**, whichever direction it
+  appears to move) · `T-RPC-CFG-03` (a key not in the `078` registry raises `unknown_key`) ·
+  `T-RPC-CFG-04` (the config table has **zero** UPDATE and **zero** DELETE paths — asserted as `postgres`
+  and as `service_role`, because the append-only-per-version property is what makes an old snapshot
+  interpretable).
+
+#### 20.2.2 `catalog.set_resale_policy(p_scope_kind, p_scope_id, p_policy, p_command_key)` — **DB-RPC**
+
+- **Authority.** `has_org_role(['org_owner','org_admin'])` OR `has_venue_role(['venue_manager'])` ·
+  `is_platform(['platform_admin'])` — RLS §11.1 verbatim.
+- **Params.** `p_scope_kind ∈ {org, venue, event}` with `p_scope_id`; `p_policy` = `{ mode ∈ {off, capped,
+  free}, price_cap_bps, transfer_window }`, all untrusted and re-validated against the CHECK set.
+- **Versioning is the whole contract.** `catalog.resale_policy` is **snapshot-referenced**:
+  `market.listing_native` stores `resale_policy_id` **and** `resale_policy_version` at listing creation
+  (schema §4.1, O3/C11). So a policy change **inserts a new version** and **never mutates a live one** — a
+  listing created under `capped` at 110% stays governed by that version for its whole life, and a tightening
+  binds only listings created after it. **Retroactive tightening is not offered**, because it would change
+  the terms of an offer a seller already published and a buyer may already have acted on.
+- **Preconditions.** Scope exists and the caller's authority covers it (an `org_admin` may not set a policy
+  on a venue outside their org — resolved through `has_org_role_over_venue`, §1.1a, never a re-inlined join);
+  `mode='capped' ⇒ price_cap_bps` present and within the platform ceiling read from
+  `catalog.platform_config`. **A venue may tighten below the platform ceiling and may never exceed it.**
+- **Locks.** The scope's latest policy row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key` + `UNIQUE(scope, version)`; an identical policy is `noop_replay` and
+  **issues no new version** — version churn on a no-op edit would make the snapshot references unreadable.
+- **Writes.** `catalog.resale_policy` (INSERT new version), `kernel.admin_audit` (`resale_policy.change`).
+- **Result.** `{ status, policy_id, version }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(cap_exceeds_platform_ceiling | bad_mode | scope_out_of_authority)` ·
+  `idempotency_replay`.
+- **Forbidden callers.** `org_finance`, `org_marketing`, both promoter-manager labels, `venue_box_office`,
+  `venue_scanner`, the door session, `venue_finance`, promoters, fans, `anon`.
+- **Test.** `T-RPC-CFG-05` (a live listing's governing policy is unchanged by a subsequent tightening —
+  asserted through `market.get_market_sale_status`'s fee split on a sale of that listing, not by reading the
+  policy table).
+
+#### 20.2.3 `catalog.update_event(p_event_id, p_patch, p_command_key)` — **DB-RPC** (`U-9`, `G-12`)
+
+**Creation is contracted; editing is not.** `catalog.create_event` (§4.1) exists and no update counterpart
+does, in any document.
+
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent on the update half. Proposed: **identical to
+  `catalog.create_event`** (RLS §11.1: `has_org_role(['org_owner','org_admin'])` OR
+  `has_venue_role(['venue_manager'])`). Editing an event one may create is not a wider capability.
+- **Editability is bounded by lifecycle, not by role, and the boundary is `draft`.** Dashboard §7.3
+  specifies editability while `draft`. This contract states what happens after:
+  - **`draft`** — the full benign patch set: `title`, `description`, `hero_image_ref`, `category`,
+    `genre_tags`.
+  - **`announced` / `on_sale` / `live`** — `description`, `hero_image_ref`, `category`, `genre_tags` remain
+    editable; **`title` requires a `reason_code` and is audited**, because the title is what a buyer saw on
+    the receipt for a ticket they already hold.
+  - **`completed` / `cancelled`** — **nothing is editable.** `precondition_failed('event_terminal')`.
+  - **Never editable by this function:** `venue_id` (moving an event between venues re-parents its sessions,
+    its inventory and its signing-key scope — it is not a patch, and Phase 2 does not build it),
+  `org_id`, `status` (that is `catalog.publish_event`, §4.2).
+- **Locks.** `catalog.event` row `FOR UPDATE` (**rank 1** — the lowest rank in the total order, so prefixing
+  it is unconditionally ascending, §0.4). Nothing else. **SSCAS.** `n/a (single-aggregate — Event/Session)`.
+- **Idempotency.** `p_command_key`; a no-change patch is `noop_replay`.
+- **Writes.** `catalog.event`; `kernel.admin_audit` (`event.update`, before/after — **mandatory on a title
+  change after `announced`**).
+- **Result.** `{ status, event_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(event_terminal | reason_required)` · `invalid_input(unwritable_key)`.
+- **Forbidden callers.** fans, promoters, the door session, `venue_scanner`, `venue_box_office`, every
+  finance and marketing label.
+- **Test.** `T-RPC-CAT-01` (a patch naming `venue_id`, `org_id` or `status` raises `invalid_input`; a title
+  change on an `on_sale` event without a reason code raises; on a `cancelled` event every patch raises).
+
+#### 20.2.4 `catalog.update_event_session(p_session_id, p_patch, p_command_key)` — **DB-RPC** (`U-9`, `G-12`)
+
+- **Authority.** `PROPOSED AUTHORITY` — as §20.2.3, mirroring `catalog.create_event_session` (§4.3).
+- **The patch set, and the three columns it must never touch.** Writable: `session_label`, `starts_at`,
+  `ends_at`, `doors_at` — **subject to the guard below**. **Never writable here:**
+  - **`door_open_at`** — `catalog.engage_door_freeze` (§17.12) is its **sole writer** under ruling O-5, and
+    a trigger enforces that independently of grants. See §20.6.5.
+  - **`session_version`** — a monotone counter owned by the notification plane.
+  - **`event_id`** — re-parenting a session moves its atoms' event scope.
+- **The time guard, which is a custody property and not a validation nicety.** `starts_at` and `doors_at`
+  are the **inputs to `catalog.effective_freeze_at`** (§12.4a), and that function is what decides when
+  transfers stop. Therefore:
+  - while the session is `scheduled` **and** `door_open_at IS NULL` **and** no atom has been issued against
+    it, all four fields move freely;
+  - once **any atom exists** for the session, `starts_at`/`doors_at` may move **only earlier or by less than
+    `config('door.schedule_move_grace_interval')`**, and any move is audited with a mandatory reason code —
+    **moving them later pushes the implicit freeze backstop later**, which is precisely the *"hour of
+    live-door / open-transfer overlap"* §12.4a's choice of `doors_at` exists to close;
+  - once `door_open_at IS NOT NULL`, `doors_at` and `starts_at` are **frozen** —
+    `precondition_failed('boundary_engaged')`. The boundary has been taken; the schedule that produced it is
+    now evidence. (The post-publish schedule move that O4-3 was reaching for is §20.6.5, which carries these
+    same guards and the audit trail.)
+  - `ends_at > starts_at` always; `session_label` unique per event always.
+- **Locks.** `catalog.event_session` row `FOR UPDATE` (rank 1). **SSCAS.** `n/a`. **Idempotency.**
+  `p_command_key`.
+- **Writes.** `catalog.event_session`; `kernel.admin_audit` (`session.update`, before/after, reason code
+  where required).
+- **Result.** `{ status, session_id, effective_freeze_at }` — **the recomputed boundary is returned**, so the
+  operator sees the consequence of the edit in the same round trip rather than discovering it at the door.
+- **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(boundary_engaged |
+  move_exceeds_grace | reason_required | session_terminal)` · `invalid_input(unwritable_key)`.
+- **Forbidden callers.** As §20.2.3.
+- **Test.** `T-RPC-CAT-02` (a patch naming `door_open_at` raises `invalid_input`; a later `doors_at` on a
+  session with issued atoms raises `move_exceeds_grace`; any `doors_at` move after `door_open_at` is set
+  raises `boundary_engaged`).
+
+### 20.3 INVENTORY — the `081` gap, including the sweep that returns held capacity
+
+#### 20.3.1 `venue.set_ticket_type_price(p_ticket_type_id, p_price_minor, p_reason_code, p_command_key)` — **DB-RPC**
+
+Promoted from §5.1's one-line *"Companion"* note to a contract: it carries its own RLS §11.1 EXEC row, it is
+money-consequential, and *"same role, live-recheck"* is not a signature.
+
+- **Authority.** `has_venue_role(venue_of_event, ['venue_manager'])` OR `has_org_role(org,
+  ['org_owner','org_admin'])` — RLS §11.1, **with the live-table recheck C9 requires** for a
+  money-consequential write (never a JWT claim).
+- **Preconditions.** `p_price_minor > 0`; the type's event is not `completed`/`cancelled`; `p_reason_code`
+  mandatory.
+- **The property that makes a price change safe, stated because it is easy to break.** **Every order snapshots
+  `unit_price_minor` from `venue.ticket_type` at `create_primary_checkout` time** (§6.1, server-authoritative
+  pricing). So a price change **binds only orders created after it** and **cannot re-price a pending order, a
+  paid order, a refund amount, or a settlement line.** `kernel.request_order_refund` (§17.1) derives
+  `expected` from `venue.order_item.unit_price_minor` — *"an immutable purchase snapshot"* — and never from
+  the type. **An implementer who "simplifies" the order item to a lookup on the type re-prices history and
+  breaks every refund cap in the system.**
+- **Locks.** `venue.ticket_type` row `FOR UPDATE` (rank 2, Inventory class). Nothing else. **SSCAS.**
+  `n/a (single-aggregate — Inventory)`.
+- **Idempotency.** `p_command_key`; an identical price is `noop_replay`.
+- **Writes.** `venue.ticket_type.price_minor`; `kernel.admin_audit` (`ticket_type.price_change`,
+  before/after, `reason_code`).
+- **Result.** `{ status, ticket_type_id, price_minor }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(bad_price | event_terminal | reason_required)`.
+- **Forbidden callers.** `venue_box_office`, `venue_scanner`, the door session, `venue_finance`,
+  `org_finance`, both promoter-manager labels, promoters, fans, `anon`.
+- **Test.** `T-RPC-INV-01` (a price change after an order is created leaves that order's
+  `order_item.unit_price_minor`, its refundable ceiling and its settlement line **byte-identical**).
+
+#### 20.3.2 `venue.set_batch_capacity(p_batch_id, p_new_capacity, p_reason_code, p_command_key)` — **DB-RPC** (`U-8`, `G-12`)
+
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed: **identical to
+  `venue.create_inventory_batch`** (§5.2) — `has_venue_role(['venue_manager'])` OR
+  `has_org_role(['org_owner','org_admin'])`. Changing a counter one may create is not a wider capability;
+  **but see the refusal floor, which is where the real control lives.**
+- **The refusal floor is a C27 property, and it is absolute.** Under the batch lock:
+  **`p_new_capacity >= held + sold`**, always. Below that, `precondition_failed('below_committed')` naming
+  the two numbers. There is **no force flag, no override role and no platform bypass** — a capacity beneath
+  what is already committed would mean *"tickets exist for seats that do not"*, which is the oversell C27
+  exists to make structurally impossible. **A room that got smaller is a refund decision
+  (`kernel.request_order_refund`), never a counter edit.**
+- **Sharded batches.** When `is_sharded`, the delta is distributed across shards and the invariant
+  `Σ shard.capacity = batch.capacity` is re-asserted **inside the transaction**, with shards locked
+  **ascending `shard_no`** (C27/§0.4). A shrink draws down only from shards whose own `held + sold` leaves
+  room; if the distribution cannot be satisfied, the whole call raises rather than leaving a partial spread.
+- **Locks & acquisition order.** `venue.inventory_batch` `FOR UPDATE` (rank 2) → `venue.inventory_batch_shard`
+  ascending `shard_no` `FOR UPDATE` (rank 2, within-class ascending). Ascending; nothing else.
+  **SSCAS.** `n/a (single-aggregate — Inventory)`.
+- **Idempotency.** `p_command_key`; an identical capacity is `noop_replay`.
+- **Writes.** `venue.inventory_batch.capacity` (+ shard capacities), `venue.inventory_movement` (a
+  cause-keyed `capacity_change` row, so the counter still reconciles to its ledger — **the C27 discipline is
+  that every capacity delta has a ledger row, and an edit is a delta**), `kernel.admin_audit`
+  (`inventory.capacity.change`, before/after, mandatory `reason_code`).
+- **Result.** `{ status, batch_id, capacity, held, sold, remaining }`.
+- **Errors.** `insufficient_privilege` · `not_found` · `precondition_failed(below_committed | bad_capacity |
+  shard_distribution_unsatisfiable | reason_required)` · `idempotency_replay`.
+- **Forbidden callers.** Fans, promoters, the door session, `venue_scanner`, `venue_box_office`, every
+  finance and marketing label, **and every platform role** — a platform capacity edit on a venue's room is
+  not a support action.
+- **Tests.** `T-RPC-INV-02` (a shrink below `held + sold` raises **as every authorized role, and as
+  `platform_admin`**, and writes nothing) · `T-RPC-INV-03` (after a sharded grow, `Σ shard.capacity =
+  batch.capacity` and the movement ledger reconciles).
+
+#### 20.3.3 `venue.sweep_expired_inventory_holds(p_limit)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`G-24`)
+
+> **Without this function, held capacity never returns to the counter.** Schema §3.5 lists *"the expiry
+> sweep"* among `venue.inventory_hold`'s write authorities and states *"expiry sweep flips `active→expired`
+> and returns `held`"*; migration plan `081` builds the partial index `expires_at WHERE status='active'`
+> **precisely so a sweep can use it**; and then `081`'s Functions row names `create_inventory_hold` and
+> `release_inventory_hold` and **no sweep**, its Tests row is silent, §12's sweeps are the two `market.*`
+> ones, and RLS §11 grants no such EXEC. **Four documents build the runway and none lands the plane.**
+>
+> **Consequence if it stays unbuilt:** a `venue.inventory_hold` row never leaves `active` on its own, so
+> every abandoned checkout removes inventory from sale **permanently**. A sold-out-looking Friday with
+> nobody in the room is not a degraded mode; it is the guaranteed steady state. This is the exact shape of
+> `kernel.sweep_expired_refund_requests`, which the money spec calls *"not optional"* and which **is**
+> contracted (§17.4).
+
+- **Signature.** `venue.sweep_expired_inventory_holds(p_limit int DEFAULT 500) RETURNS { swept, released_qty,
+  batches_touched }`.
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed **`EXEC: DEF`** — `REVOKE EXECUTE FROM
+  anon, authenticated, public`, `GRANT EXECUTE TO service_role` only; invoked by the **2-minute `pg_cron`
+  heartbeat that already runs** (the same carrier §8-COND-A names, and one this sweep does **not** depend on
+  the outbox ruling for — it needs a scheduler, not a carrier). No human path, no actor: `auth.uid()` is NULL
+  by construction, exactly as for `market.sweep_expired_p2p_transfers` (§12.2).
+- **Preconditions.** Selects `venue.inventory_hold WHERE status='active' AND expires_at < now()`, ordered by
+  `expires_at`, `LIMIT p_limit`, **`FOR UPDATE SKIP LOCKED`** — so a hold a checkout is mid-conversion on is
+  skipped rather than fought over, and two heartbeats overlapping is harmless.
+- **It performs no counter arithmetic of its own.** Per row it calls **`venue.release_inventory_hold(hold_id,
+  p_command_key := 'sweep:'||hold_id)`** (§5.5) with the `expired` transition. **The sweep is a scheduler, not
+  a second writer of the counter** — the same construction §12.2 uses (`sweep_expired_p2p_transfers` calls
+  `cancel_p2p_transfer`), and it is what keeps `venue.inventory_batch.held` single-writer.
+- **Locks & acquisition order.** Per row, inherited from `release_inventory_hold`: **Inventory batch
+  (`FOR UPDATE`, rank 2) → the hold row.** Rows are processed in ascending `batch_id` then `hold_id` so a
+  batch is never re-entered, and **the batch lock is taken before the hold** — the same
+  Inventory-before-anything discipline §14.2's NB pins for the void path. **SSCAS.** `n/a` — a **bounded batch
+  of a single-aggregate operation**, which is not a cross-aggregate transaction and needs no member. **The set
+  stays closed at fifteen.**
+- **Idempotency.** Per row, `release_inventory_hold`'s own terminal-state guard plus the deterministic command
+  key: a hold already `released`/`converted`/`expired` is a no-op, so a re-run, an overlapping tick and a
+  crashed mid-batch retry all converge. **Each row is its own transaction**, so one poisoned hold cannot
+  block the batch — the poison-quarantine shape §17.24 requires of `drain_outbox`.
+- **Result.** `{ swept, released_qty, batches_touched }`. **Errors.** None expected; a row that raises is
+  counted, audited as `inventory.hold.sweep_error` and skipped, and the tick continues.
+- **Load-bearing status, stated because §17.11 states the opposite about its own sweep and the distinction
+  matters.** `kernel.sweep_expired_door_overrides` is explicitly **not** load-bearing — overrides expire
+  arithmetically inside `is_transfer_frozen` whether or not it runs. **This sweep IS load-bearing.**
+  `venue.inventory_batch.held` is a **stored counter**, not a derived predicate: nothing recomputes it, so an
+  unswept hold is permanently consumed capacity. **`T-RPC-INV-04` asserts the difference:** with the sweep
+  disabled, `remaining` on a batch with an expired hold is provably wrong; with it enabled, it returns to the
+  pre-hold value.
+- **Forbidden callers.** Every client, every human role, every edge function on a caller-JWT client.
+- **Tests.** `T-RPC-INV-04` (above) · `T-RPC-INV-05` (a hold that converts to a sale in the same window is
+  **skipped, not released** — the `SKIP LOCKED` + terminal-state pair, asserted under concurrency, because
+  releasing a converted hold would return capacity that was actually sold) · `T-RPC-INV-06` (a re-run over
+  the same window releases nothing further and the counter is unchanged).
+
 ---
 
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
