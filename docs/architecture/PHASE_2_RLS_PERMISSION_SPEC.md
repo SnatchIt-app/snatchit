@@ -945,7 +945,11 @@ privileged RPC (guard trigger blocks UPDATE/DELETE; `REVOKE UPDATE,DELETE`).
 
 ---
 
-## 8. Schema `catalog` — matrices (all public-read; writes RPC-only)
+## 8. Schema `catalog` — matrices (public-read **except `platform_config`**; writes RPC-only)
+
+> **The section title used to say *all* public-read. It is no longer true and the exception is deliberate:
+> `catalog.platform_config` is a **two-class** table on its `visibility` column (§8.4, `AUTHZ-CFG1`).**
+> Everything else in `catalog` is genuinely discovery data.
 
 Catalog is world-readable **reference data** with a **narrow** predicate (never `USING(true)` — I-2): only
 `approved`/`announced`/`on_sale`/`live` rows are anon-visible; drafts are org/platform-scoped.
@@ -1006,16 +1010,72 @@ Write RPC: `create_event_session` (also auto-called by `create_event` for one-ni
 
 ¹⁹ `starts_at` change on an on-sale session is a confirmed op (money-adjacent — affects door-freeze, recon #3).
 
-### 8.4 `catalog.platform_config` — public-read (values not secret); writes platform-only, dual-control
-Write RPC: `set_platform_config` (platform; dual-control seam for fee changes; AO-per-version).
+### 8.4 `catalog.platform_config` — **TWO-CLASS read on `visibility`** (NOT blanket public-read); writes platform-only, dual-control — **CORRECTED (`AUTHZ-CFG1`)**
+Write RPC: `set_platform_config` (platform; dual control **mandatory** for seven namespaces — §11.3;
+AO-per-version).
+
+> **`AUTHZ-CFG1` — "VALUES ARE NOT SECRET" WAS TRUE OF FEE PERCENTAGES AND FALSE OF EVERYTHING ADDED SINCE.
+> THE CONFIG TABLE HAD BECOME AN ATTACK-CALIBRATION TABLE.** *(Schema §2.4.1 / §13.7 `S-4`.)*
+>
+> **The defect.** This section previously read *"values are not secret; every non-admin principal including
+> `anon` holds SELECT"* — and **§8.4 is the statement an implementer writes the `USING` clause from.** It was
+> written when the table held fee percentages and display copy. It now holds, among others:
+> `refund.org_auto_execute_max_minor` and `refund.org_dual_control_max_minor` (**the exact amount below which
+> a refund needs no second human**), `refund.platform_support_max_minor` (**the cap on the one platform role
+> the model deliberately bounds**), `payout.dual_control_min_minor`, `payout.destination_probation_days`,
+> `authn.money_action_required_aal` and `authn.money_action_max_age_seconds` (**the step-up window, i.e. how
+> stale a stolen session may be and still move money**), `authn.money_role_maturity_hours` (**exactly how
+> long an attacker must wait after minting a counterparty**), `comp.per_staff_step_up_max_units` /
+> `_window_hours`, the CRM export row caps and retention, and `door.session_ttl_interval` /
+> `door.session_absolute_max_interval` (**how long a stolen door tablet keeps working**).
+> **Publishing that set to `anon` hands an attacker the calibration for every threshold-based control in the
+> system, at no cost and with no trace.** Not one of those values is needed by a signed-out browser.
+>
+> **The two-class policy — this is the `USING` clause.** `catalog.platform_config` gains
+> **`visibility text NOT NULL DEFAULT 'restricted' CHECK (visibility IN ('public','restricted'))`**
+> (schema §2.4.1, seeded in `078`). **The default is `restricted`, and the default is the design**: a key
+> added later is private until someone deliberately publishes it, so the failure mode of forgetting the
+> column is *"the client can't read a value it needs"* — loud, immediate, and fixed in one seed row — rather
+> than *"the ceiling leaked"*, which is silent forever.
+>
+> ```sql
+> -- catalog_platform_config_sel_public
+> USING ( visibility = 'public' )                      -- anon + authenticated
+> -- catalog_platform_config_sel_restricted
+> USING ( kernel.is_platform(ARRAY['platform_admin','platform_risk']) )
+> ```
+>
+> **`restricted` covers, at minimum, the namespaces `refund.*` · `payout.*` · `authn.*` · `comp.*` ·
+> `crm.*` · `door.*`.** Everything else is `public` **only if a seed row says so.**
+>
+> **The `door.*` row is the one an owner could reasonably move, and it is isolated** (schema §13.7 `S-9`).
+> Money, `authn.*` and `crm.*` are settled. `door.*` states *how long a door may operate on stale data* —
+> arguably operational rather than sensitive. It is listed `restricted` here because `door.session_*` now
+> bounds a bearer credential's life (`AUTHZ-H3`); **moving it to `public` changes nothing else in this
+> document.**
+>
+> **What still reads restricted keys, so nothing breaks quietly:** the **definer RPCs**, which read config
+> inside `SECURITY DEFINER` bodies and are unaffected by any client policy; and `service_role`. **The RN
+> client and the web client read only `public` keys** — and if a screen needs a restricted value, the answer
+> is a scoped RPC that returns the *decision*, never the *threshold*. `INFERENCE:` that distinction is the
+> whole point — a client needs to know *"this refund needs approval"*, never *"approval starts at £250.00"*.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
-| anon → platform_risk (all 13 non-admin) | A(read config values) | D | D | D | — |
-| platform_admin | A | R²⁰ | D | D | `set_platform_config` (new version, dual-control) |
+| anon → platform_support (all 12 non-platform-admin/risk) | **V — `visibility='public'` ONLY** | D | D | D | — |
+| platform_risk | **A** (both classes — it investigates against the thresholds) | D | D | D | — |
+| platform_admin | **A** (both classes) | R²⁰ | D | D | `set_platform_config` (new version, dual-control) |
 | service_role | A(machine) | R(def) | D | D | definer |
 
 ²⁰ a config change **inserts a new `(key, version+1)` row** (AO-per-version); old versions retained; no UPDATE.
+**`visibility` is set at seed time and is itself changed only through `set_platform_config`** — publishing a
+restricted key is a config change like any other, and in a dual-controlled namespace it takes two approvers.
+
+**Policy names (§16.10):** `catalog_platform_config_sel_public` · `catalog_platform_config_sel_restricted`.
+**`T-RLS-CFG-01`:** `anon` and a plain `authenticated` fan read **zero** rows for every key in the six
+restricted namespaces — asserted **per namespace**, because a single-key test passes while five namespaces
+leak. **`T-RLS-CFG-02`:** a key seeded with **no** `visibility` value is unreadable by `anon` (the default is
+`restricted`, and this asserts the default rather than the seed).
 
 ### 8.5 `catalog.resale_policy` — public-read; writes org/venue-manager + platform
 Write RPC: `set_resale_policy`. Listings snapshot `policy_id`+`version` at creation.
@@ -1854,7 +1914,7 @@ Each is ruled here; the ruling is the row.
 | `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])` — *unchanged, now consistent with §7.9*. **Adds three preconditions:** the destination-probation hold, the **SoD-1 destination-setter exclusion** (rejects when `auth.uid() = organization.payout_destination_set_by`, **permanently for that destination**, with `sod_violation` — not merely during the cool-down), and the step-up predicate. Above `payout.dual_control_min_minor` it parks an approval instead of advancing |
 | `kernel.set_org_payout_destination` | `has_org_role([org_owner])` **only** · **step-up + SoD + probation**. `org_finance` is **excluded entirely** — under O-3 it holds payout-request authority, and one identity may not hold both halves of the SoD-1 fraud primitive (*redirect the account, then release funds to it*) |
 | `kernel.hold_payout` / `kernel.release_payout` | `is_platform([platform_risk, platform_admin])` — *unchanged; SoD-3, **no org role, ever***. (Domain §7.6 previously marked Org Finance ✔ on *Release held funds*; a risk-placed hold released by the org it was placed on is the control inverted. Corrected to blank.) |
-| `catalog.set_platform_config` | `is_platform([platform_admin])`; **for keys in the `refund.*` / `payout.*` / `authn.*` / `comp.*` namespaces dual control is MANDATORY, not a seam** — the call creates a `kernel.approval_request` with `action='config.set_money_key'` and **`required_approver_class='platform_admin'`**, which a **second distinct `platform_admin`** must approve, and only the approval inserts the new `(key, version+1)` row. **`platform_support` and `platform_risk` hold NO approval authority on this action** (`AUTHZ-C1A2`) — the arm that let `platform_support` approve the raise of its own ceiling is closed. A threshold that gates money authority is exactly as money-consequential as the action it gates. **Direction asymmetry:** *lowering* a limit may execute directly; only *raising* one needs the second approver — a security control that is hard to tighten in an incident is a liability. **`comp.*` joins the dual-control namespace** because `AUTHZ-M8` makes those keys the gate on the insider-fraud control |
+| `catalog.set_platform_config` | `is_platform([platform_admin])`; **for keys in the `refund.*` / `payout.*` / `authn.*` / `comp.*` / `wallet.*` / `credential.*` / `door.session_*` namespaces dual control is MANDATORY, not a seam** — the call creates a `kernel.approval_request` with `action='config.set_money_key'` and **`required_approver_class='platform_admin'`**, which a **second distinct `platform_admin`** must approve, and only the approval inserts the new `(key, version+1)` row. **`platform_support` and `platform_risk` hold NO approval authority on this action** (`AUTHZ-C1A2`) — the arm that let `platform_support` approve the raise of its own ceiling is closed. A threshold that gates money authority is exactly as money-consequential as the action it gates. **Direction asymmetry:** *lowering* a limit may execute directly; only *raising* one needs the second approver — a security control that is hard to tighten in an incident is a liability. **`comp.*` joins the dual-control namespace** because `AUTHZ-M8` makes those keys the gate on the insider-fraud control. **`wallet.*`, `credential.*` and `door.session_*` join it too** (edge recon #16, Wallet §11.5b): the first two gate a **feature-enable** — `wallet.apple.enabled` is the kill switch §11.7 calls *not role-bypassable*, and a kill switch one account can flip is not a kill switch — and `door.session_*` sets **the lifetime of a bearer credential**, so raising it extends how long every stolen door tablet on the platform keeps working (`AUTHZ-H3`). The direction asymmetry covers them unchanged: shortening a session TTL during an incident still executes in one transaction. **All seven namespaces are also `visibility='restricted'` under §8.4 `AUTHZ-CFG1`** — a threshold worth two approvers to change is not a value worth publishing to `anon` |
 
 ### 11.3a `AUTHZ-C1B` — THE COUNTERPARTY IS MINTABLE, AND GRANT MATURITY IS THE FIX
 
@@ -2791,7 +2851,7 @@ SELECT` only; deny-all tables carry **zero** policies.
 | `catalog.venue` | `catalog_venue_sel_anon` · `catalog_venue_sel_org` · `catalog_venue_sel_venue` | narrow `approval_status='approved'`; org draft; own-venue draft |
 | `catalog.event` | `catalog_event_sel_anon` · `catalog_event_sel_org` · `catalog_event_sel_venue` | `status >= 'announced'`; org/venue draft |
 | `catalog.event_session` | `catalog_event_session_sel_anon` · `catalog_event_session_sel_org` · `catalog_event_session_sel_venue` | sessions of visible events |
-| `catalog.platform_config` | `catalog_platform_config_sel_public` | values are not secret |
+| `catalog.platform_config` | `catalog_platform_config_sel_public` · **`catalog_platform_config_sel_restricted`** (`AUTHZ-CFG1`) | **TWO classes, not one.** `_sel_public` is `USING (visibility = 'public')`; `_sel_restricted` is `USING (kernel.is_platform(ARRAY['platform_admin','platform_risk']))`. The old single row was justified as *"values are not secret"* — **true of fee percentages, false of every dual-control ceiling, step-up window, grant-maturity hours, export cap and door-session TTL added since** (§8.4) |
 | `catalog.resale_policy` | `catalog_resale_policy_sel_public` | policy in force |
 | `kernel.identity_ext` | `kernel_identity_ext_sel_owner` | `identity_id = auth.uid()` |
 | `kernel.organization` | `kernel_organization_sel_org` · `kernel_organization_sel_platform` | `is_org_affiliate` / `has_org_role`; `is_platform` |

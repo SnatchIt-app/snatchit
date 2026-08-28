@@ -1242,12 +1242,38 @@ that door is using. Filed by edge §3.9a request #4.
   (reuses the frozen `source_transaction` funding + deterministic idempotency, SPEC_FOUNDATION §2).
 - **Role:** `has_org_role([org_finance, org_owner])`. **Params:** `p_org_id`,`p_settlement_id`,`p_command_key`.
   **Preconditions:** settlement `closed`, payout `pending`, destination not locked. **Locks & order:**
-  **Settlement** → **Payout** (`FOR UPDATE`). **SSCAS:** member #4 continuation (Settlement→Payout).
+  **Settlement** → **Payout** (`FOR UPDATE`) → **Approval** (rank 5.5, INSERT — parked arm only).
+  **SSCAS:** member #4 continuation (Settlement→Payout).
   **Idempotency:** payout `idempotency_key`.
-- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback),
-  `kernel.admin_audit` (`payout.request`). **Result:** `{ status, payout_id }`. **Failure:**
-  `precondition_failed` (destination locked / not closed). **Forbidden callers:** non-finance; the DB never
-  moves money itself.
+- **Three preconditions this contract did not state, all of them controls the money spec already relies on:**
+  1. **SoD-1 (structural).** Rejects when `auth.uid() = kernel.organization.payout_destination_set_by`,
+     **permanently for that destination**, not merely during the cool-down — `sod_violation`. §17.7 control 1.
+  2. **`kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`, schema §13.7 `S-3`). **A money-role grant
+     younger than `authn.money_role_maturity_hours` may neither request nor approve.** Without it, SoD-1 is
+     satisfied by any two distinct `auth.uid()` values **and an `org_owner` can mint the second one** through
+     the ordinary invite/accept flow. `sod_violation`, **not** `insufficient_privilege` — the role is
+     genuinely held, and a permission error would send the operator to re-check a grant that is correct.
+     **It binds the destination-SETTER (§17.7) as well as this requester: applied to one half of a pair it is
+     applied to neither.**
+  3. **Step-up per `AUTHZ-M4`** — an absent `aal`/`amr` claim raises **`step_up_unavailable`**, distinctly,
+     and never evaluates to a pass or a fail.
+  **None of the three is ever applied to a deny or a cancel** (schema §13.7 `S-3`): a control that blocks
+  *stopping* a payout is a control pointed the wrong way.
+- **Above `payout.dual_control_min_minor` it PARKS an approval instead of advancing, and it WRITES
+  `required_approver_class` when it does (`AUTHZ-C1A`, schema §13.7 `S-1`).** RLS §11.3 states the parking;
+  the column is what carries the tier forward, and this is its third writer (with §17.1 and §20.2.1).
+  Server-set from the same evaluation that decided to park, **pinned exactly as `config_versions` is**,
+  **never a parameter**: `required_approver_class := 'org'` for an org-approvable payout, `'platform'` where
+  the amount or a risk condition sends it to platform review — at which point **`platform_support` is DENIED
+  on the payout arm** (§17.2), because it holds no payout authority anywhere else and must not acquire one
+  through the generic approval object. `subject_kind='settlement'`, `subject_id := p_settlement_id`, resolved
+  under the settlement's lock per **`APPR-SUBJ-1`** (§17.0a).
+- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback — direct arm),
+  `kernel.approval_request` (INSERT `pending` with `required_approver_class` — parked arm),
+  `kernel.admin_audit` (`payout.request`). **Result:** `{ status ∈ {submitted, pending_approval,
+  pending_platform_review, noop_replay}, payout_id, request_id?, required_approver_class? }`. **Failure:**
+  `precondition_failed` (destination locked / not closed) · `sod_violation` · `step_up_required` ·
+  **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves money itself.
 
 ---
 
@@ -1663,6 +1689,52 @@ all, and an unstated lock order is how a deadlock class gets built.
 no policy.** The money and role specs together contribute 23 RPCs with **no named test and no named RLS policy
 anywhere**; the notifications spec names two RPCs with **no contract body at all** (§17.28). Those gaps are
 filled here and flagged in §19 as authored rather than transcribed.
+
+### 17.0a `kernel.approval_request` — the two integrity rules the DATABASE cannot hold, stated as binding obligations (`APPR-SUBJ-1` · `APPR-SUBJ-2`; schema §1.13.3 / §13.7 `S-2`)
+
+**Binding on every function that writes or reads a `kernel.approval_request` row** — §17.1, §17.2, §17.3,
+§17.4, §10.3 and §20.2.1's parked arm.
+
+> **The residual is ACCEPTED, and it is not equivalent to a constraint. Say so, or the next reader assumes
+> it is.** `kernel.approval_request.subject_id` has **no foreign key, by necessity, not by omission**: it
+> points at three different tables in three different packages, and the package order forbids the FK in
+> both directions — the approval table is **`077`**, `venue.order` is **`082`**, `venue.settlement` is
+> **`087`**. A polymorphic column cannot carry an FK anyway, and even a per-kind FK could not be declared
+> from `077` against tables that do not exist yet. **So the integrity is relocated into the RPC layer or it
+> does not exist at all.** What follows is the relocation. It is weaker than a constraint in exactly one
+> way — **a direct `INSERT` by a superuser or a future definer bypasses it**, where an FK would not — and
+> that residual is **accepted here on the record**, mitigated by the fact that every writer is enumerated
+> (`T-RPC-AUTHZ-08`) and the table holds no client grant. **It must never be described as "equivalent to a
+> foreign key", in this document or in a review.**
+
+- **`APPR-SUBJ-1` (the REQUESTING function).** Before inserting, the requester **resolves `subject_id`
+  under the subject's own lock, in the same transaction that writes the row** — `venue.order FOR UPDATE`
+  (rank 3) for `subject_kind='order'`, `venue.settlement FOR UPDATE` for `'settlement'`, the key's latest
+  `catalog.platform_config` row `FOR UPDATE` for `'config_key'` — and **raises `not_found` if it does not
+  resolve.** The lock is not decoration: resolving without it lets the subject vanish between the check and
+  the insert, which is the failure the FK would have prevented. `subject_kind` and the
+  `action ↔ subject_kind` pairing (`AUTHZ-M2`) are written in the same statement, never inferred later.
+- **`APPR-SUBJ-2` (the APPROVING function).** §17.2 **re-resolves `subject_id` under the same lock** as part
+  of its "every precondition is re-evaluated under lock" rule, and **a subject that has vanished moves the
+  request to `stale`** — with holds released — **never to `denied` and never to `approved`.** `stale` is the
+  correct terminal state because nothing was decided: the approver is told to re-request, rather than
+  discovering that an approval quietly executed against a row that is gone. This is the same disposition
+  §17.2 already applies to a drifted amount or a re-tiered atom, extended to the subject itself.
+- **Test.** `T-RPC-AUTHZ-08` (the set of functions inserting `kernel.approval_request` is **exactly**
+  `{request_order_refund, request_org_payout, set_platform_config}`, structural over `pg_get_functiondef` —
+  because the enumeration is what the accepted residual rests on) · `T-RPC-AUTHZ-09` (a request whose
+  `subject_id` is deleted while parked resolves to **`stale`** on approval, releases every hold, and writes
+  no money row).
+
+> **`required_approver_class` — two passes designed it independently and CONVERGED. The three-label set is
+> kept.** RLS §17 **X-10** / §20.14 **R-16** filed
+> `CHECK (required_approver_class IN ('org','platform','platform_admin'))`; schema §1.13.2 adopted that exact
+> spelling and recorded the reason a two-label set (`org` · `platform`) is wrong: **it would let
+> `platform_support` approve a raise of the cap that bounds `platform_support`** — `refund.issue` at
+> `platform` is approvable by `platform_support`, and collapsing `config.set_money_key` into the same label
+> hands the capped role the lever on its own cap (`AUTHZ-C1A2`). **The third label is not a tier refinement;
+> it is the entire content of `AUTHZ-C1A2`.** No pass proposed narrowing it, and none may without re-opening
+> that ruling.
 
 ### 17.1 `kernel.request_order_refund(p_order_id, p_atom_ids uuid[], p_amount_minor int, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
 
@@ -3299,9 +3371,29 @@ rows, and RLS §11.3 makes this their mandatory dual-control writer.
   p_command_key text)`.
 - **Authority.** `is_platform(['platform_admin'])` — RLS §11.1 and §11.3. **Caller-authorized ⇒ bound by
   EDGE-CALLER-JWT.**
-- **Dual control is MANDATORY, not a seam, for three key namespaces** — RLS §11.3 verbatim: `refund.*`,
-  `payout.*`, `authn.*`. For those keys the call **creates a `kernel.approval_request`** which a **second
-  distinct `platform_admin`** must approve, and **only the approval inserts the new `(key, version+1)` row.**
+- **Dual control is MANDATORY, not a seam, for SEVEN key namespaces** — RLS §11.3: `refund.*`, `payout.*`,
+  `authn.*`, **`comp.*`** (`AUTHZ-M8` — those keys are the gate on the insider-fraud control), and, added by
+  edge recon #16 / Wallet §11.5b, **`wallet.*`**, **`credential.*`** and **`door.session_*`**. For those keys
+  the call **creates a `kernel.approval_request`** which a **second distinct `platform_admin`** must approve,
+  and **only the approval inserts the new `(key, version+1)` row.**
+
+  > **Why the three new namespaces belong here and are not scope creep.** `wallet.*` and `credential.*` gate
+  > a **feature-enable** — `wallet.apple.enabled` is a kill switch RLS §11.7 states is *"not
+  > role-bypassable"*, and a kill switch one account can flip is not a kill switch. `door.session_*` sets
+  > **the lifetime of a bearer credential** (`door.session_ttl_interval`,
+  > `door.session_absolute_max_interval`, `door.session_post_session_grace`): raising it extends how long
+  > every stolen door tablet on the platform keeps working, which is the same class of act as raising a
+  > refund ceiling and is now the direct lever on `AUTHZ-H3`'s revocation guarantee. **The direction
+  > asymmetry applies unchanged — two approvers to loosen, one to tighten** — so shortening a session TTL
+  > during an incident still executes in one transaction.
+- **`required_approver_class = 'platform_admin'` is WRITTEN on the parked path (`AUTHZ-C1A`, schema §13.7
+  `S-1`).** The money arm of this function is one of the three writers of that column (with §17.1 and
+  §10.3), and **it is the arm with the narrowest approver set**: `action='config.set_money_key'` at
+  `required_approver_class='platform_admin'` is approvable by `is_platform(['platform_admin'])` **only**
+  (§17.2, `AUTHZ-C1A2`). It is **server-set from the namespace and the direction, never a parameter**, and
+  pinned exactly as `config_versions` is. Writing it here is what stops `platform_support` — the role capped
+  *because* it is not trusted with unbounded money — from approving the raise of the cap that bounds it.
+  **`subject_kind='config_key'` and `subject_id` are written with it**, per `APPR-SUBJ-1` below.
 - **Direction asymmetry (RLS §11.3, binding).** **Lowering a limit executes directly; only raising one needs
   the second approver.** *"A security control that is hard to tighten in an incident is a liability."*
   The direction is computed server-side from the key's declared **polarity**, never supplied by the caller:
@@ -3650,22 +3742,51 @@ in the corpus reads the table this function writes.
 - **A registered device is not yet an authorized device, and conflating the two is the failure to avoid.**
   Registration creates a hardware identity in `venue.scan_device`. **It confers no authority at all**: the
   door path's entire authorization surface is `kernel.assert_door_session(device_id, session_id,
-  door_session_id, token)` (§1.1d),
-  which additionally requires an active, unexpired `venue.door_pin` **bound to that session**. A device with
-  no live PIN can do nothing. **`T-RPC-STAFF-03` asserts it:** a freshly registered device with no PIN is
-  refused by `assert_door_session`, and therefore by `record_scan`, `get_door_manifest` and
-  `reconcile_offline_scans`.
-- **Retirement, and why it is a separate verb this contract also defines.**
-  `venue.retire_scan_device(p_device_id, p_reason_code, p_command_key)` — same authority — flips
-  `status → 'retired'`. **It is idempotent and it revokes nothing by itself**: a retired device whose PIN is
-  still live is still admitted by `assert_door_session`, because that predicate reads
-  `venue.scan_device.status='active'` **and** the PIN. Retiring a lost tablet therefore means **retire the
-  device and revoke its PIN** (§9.2), and the operator surface must say so. *(`INFERENCE` — the corpus names
-  registration and never retirement, while `venue.scan_device.status` carries a `retired` label that nothing
-  writes. A status no function can set is a column that lies.)*
-- **Locks.** The `venue.scan_device` row on retire; none on register (INSERT). **Admin plane. SSCAS.** `n/a`.
-- **Idempotency.** `p_command_key`; terminal-state guard on retire.
-- **Writes.** `venue.scan_device`; `kernel.admin_audit` (`scan_device.register` / `.retire`).
+  door_session_id, token)` (§1.1d), which additionally requires **a live `venue.door_session` whose token the
+  caller holds**, minted against an active, unexpired `venue.door_pin` **bound to that session**. A device
+  with no minted session can do nothing — **and since `AUTHZ-H3`, neither can one that has a live PIN but no
+  token.** **`T-RPC-STAFF-03` asserts it:** a freshly registered device with no session is refused by
+  `assert_door_session`, and therefore by `record_scan`, `get_door_manifest` and `reconcile_offline_scans`.
+- **Status changes are a separate verb this contract also defines — `venue.set_scan_device_status`, which
+  SUPERSEDES the `venue.retire_scan_device` this document previously authored.**
+
+  > **Naming reconciliation (schema §3.11.1 / §13.7 `S-11`).** Two passes named the same writer
+  > independently: this document authored **`venue.retire_scan_device(p_device_id, p_reason_code,
+  > p_command_key)`** (one-way, `active → retired`); the schema pass — which owns `venue.scan_device.status`
+  > — named **`venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)`**
+  > (two-way, `p_status ∈ {active, retired}`) and filed it here. **Resolved to the schema pass's name and
+  > shape**, for the reason it gives and this document did not consider: **un-retire must be permitted**,
+  > because the common real case is a device found again, and a one-way transition pushes operators to
+  > register a duplicate device row — **which fragments the scan ledger's device attribution, the exact
+  > property X-2 exists to protect**. `retire_scan_device` does not exist; the naming register (§20.13)
+  > records the supersession so an implementer following an older copy does not build both.
+
+  `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)` — **authority: the
+  O-4 allow-list** (`has_venue_role(venue,['venue_manager'])` OR
+  `has_org_role_over_venue(venue,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`), **and a
+  door session may never call it** (O-4: the scanner may not change the boundary it scans against — *and a
+  device that can retire itself can also un-retire itself*). `p_status` re-validated in-body against the
+  `active · retired` CHECK set; `p_reason_code` **mandatory**.
+- **RV-2 (BINDING) — retiring a device revokes every `active` `venue.door_session` for it in the SAME
+  transaction.** `revoked_reason := 'device_retired'`. §1.1d clause 3 already makes those sessions fail, so
+  **RV-2 is not what enforces revocation — it is what makes the console truthful**, the same reasoning as
+  RV-1 (§9.2). Un-retiring (`retired → active`) revokes nothing and restores nothing: the device must
+  re-mint against a live PIN, because a session revoked by RV-2 is terminal.
+- **This is the fastest kill switch in the system, and `AUTHZ-H3` is what makes it non-negotiable.**
+  Before the door session existed, retirement *"revoked nothing by itself"* — a retired device with a live
+  PIN was still admitted. It now stops a **physical device that already holds a live bearer token**, without
+  waiting for the session TTL and **without revoking the PIN every other device at the door is also using**.
+  A dashboard showing a *Retire device* control the database cannot honour is worse than no control, because
+  a manager will believe the device is dead.
+- **Locks & order on a status change.** `venue.scan_device` row `FOR UPDATE` → its `venue.door_session` rows
+  `FOR UPDATE` ascending `door_session_id` (RV-2). Admin plane; **no SSCAS rank**.
+- **Test.** `T-RPC-STAFF-05` (a retired device's next door call raises, **and** it holds no `status='active'`
+  session row — **both halves**, because the first passes even if RV-2 was never implemented) ·
+  `T-RPC-STAFF-06` (a door session calling it raises; un-retire does not resurrect a revoked session).
+- **Locks.** None on register (INSERT); the status-change lock order is stated above. **Admin plane. SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`; a status change to the value already held is `noop_replay`, not an error.
+- **Writes.** `venue.scan_device`; `venue.door_session` (→ `revoked` ×N on retire, RV-2); `kernel.admin_audit`
+  (`scan_device.register` / **`device.status.change`** with before/after and the mandatory `reason_code`).
 - **Result.** `{ status, device_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
   `precondition_failed(venue_archived)` · `idempotency_replay`.
 - **Forbidden callers.** `venue_scanner` (it may **sync** its own device, never register one), the door
@@ -4135,7 +4256,32 @@ allow-list, carrying the schedule-vs-ledger-head reasoning at the row itself. Th
 `catalog.engage_door_freeze` is the sole writer of `door_open_at` in the authority table as well as in the
 trigger.
 
-#### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`)
+#### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`) — **⛔ BLOCKED (schema §13.7 `S-13`)**
+
+> **⛔ BLOCKED — NOT BUILDABLE, AND THE BLOCK IS SEPARATE FROM THE KEY-SET QUESTION.**
+> **The `Writes` line below says "the per-event door-config rows" and no such table exists in any package.**
+> The schema pass (§13.7 `S-13`) swept every package for it and found nothing: there is no
+> `catalog.event_security_config`, no per-event override table, and no column on `catalog.event` or
+> `catalog.event_session` that could hold a versioned key/value override. **A function scheduled in `086`
+> with nowhere to write is unbuildable regardless of which keys it accepts** — the `R-11` key-set flag was
+> already open, and this is a second, independent block underneath it.
+>
+> **This document does not invent the table**, and the schema pass explicitly declined to as well: *"the
+> function's existence is not this spec's to decide."* The two exits, both owner rulings, are stated so the
+> decision is made once rather than at build time:
+>
+> | Exit | What it costs | What it implies here |
+> |---|---|---|
+> | **(a) Schedule `catalog.event_security_config`** into `078` — `(event_id, key, value, version, effective_from)`, AO per version, exactly like `catalog.platform_config`, and **`visibility='restricted'` by §2.4.1 since it overrides `door.*`** | one additive table in an already-scheduled package | the contract below stands as written, its `INFERENCE` key-set flag (`R-11`) still open, and `BLOCKED` lifts |
+> | **(b) Rule the function out**, as `venue.set_door_open_at` was ruled out (`AUTHZ-R1`, §11.4) | the O4-4 capability is dropped; nothing else in the corpus depends on it | this section is deleted, RLS §11.4's O4-4 EXEC row goes with it, and plan `086` never names it |
+>
+> **Until one of those is chosen, the contract below is a specification and not an instruction.** It is
+> retained rather than deleted because deleting it would lose the safety direction (the one-way restriction
+> rule) that whoever builds it must have — but **`086` must not schedule this function while it is
+> `BLOCKED`**, and an implementer who reaches it should stop, not improvise a table.
+>
+> *Related and NOT the same question:* `R-11` asks the owner to confirm the **key set**. `S-13` asks whether
+> the function exists at all. Answering `R-11` does not answer `S-13`.
 
 - **Provenance, stated first because it is thin.** RLS §11.4 grants EXECUTE on this function under the O-4
   allow-list, and ROLE_MODEL §11 row 15 classifies it `NEW RPC — same boundary`. **No document in the corpus
@@ -4166,8 +4312,9 @@ trigger.
 - **Locks.** The event's config row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`. **Idempotency.**
   `p_command_key`; versioned per event, append-only, exactly like `catalog.platform_config` — **and for the
   same reason:** a manifest already issued under an old TTL must stay interpretable.
-- **Writes.** The per-event door-config rows; `kernel.admin_audit` (`event.security_config.change`,
-  before/after, mandatory `reason_code`).
+- **Writes.** The per-event door-config rows — **⛔ this is the blocked line: no such table exists in any
+  package (`S-13`, above)**; `kernel.admin_audit` (`event.security_config.change`, before/after, mandatory
+  `reason_code`).
 - **Result.** `{ status, event_id, version, effective }` — `effective` is the **merged** platform+event view,
   so the operator sees what will actually apply rather than only what they typed.
 - **Errors.** `insufficient_privilege` · `not_found` · `invalid_input(unknown_key)` ·
@@ -4383,19 +4530,63 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   successor key**, which requires the successor to exist. **Therefore: provision or rotate first, revoke
   second.** A revoke with no `active` successor for the scope raises
   `precondition_failed('no_active_successor')` — the one guard that stops a single call from closing a door.
-- **Locks / SSCAS / idempotency.** As §20.7.3; terminal-state idempotent (`revoked` is terminal — schema
-  §1.7's status is forward-only, guarded by a trigger).
-- **Writes.** `kernel.signing_key` (→ `revoked`, `not_after := now()`), `kernel.approval_request`,
-  `kernel.admin_audit` (`signing_key.revoke`, mandatory `reason_code`, acknowledged credential count).
+- **It FORCE-CLOSES every open door episode in the key's scope, in its own transaction — and that write set
+  and lock order were not stated (edge §5.6, door §16 OQ-5 grant condition 2; edge recon #15).**
+
+  > **Why it must, and why "the doors will notice" is not an answer.** A revoked key's atoms *"cannot be
+  > verified online (C37) and cannot be admitted offline"* — but an **already-open** door episode is holding
+  > a snapshotted manifest whose entries pin `signing_key_id` to the key being revoked. Those doors keep
+  > admitting from a cached manifest until it lapses, which is precisely the window revocation exists to
+  > close. **OQ-5 was granted on the condition that revocation force-closes those episodes**, and until this
+  > is stated **a granted ruling rests on a condition nothing satisfies.**
+
+  - **Scope.** Every `venue.door_manifest` episode with `status='open'` whose `catalog.event_session`
+    resolves to an event in the revoked key's scope (schema §1.7's key scope: platform / org / venue /
+    event). **Closed with cause `key_revoked`**, a D3 code, not with the operator's `p_reason_code`.
+  - **Lock order — stated, because this function reaches rank 1 and the money contracts around it do not.**
+    **`catalog.event_session` `FOR UPDATE` (rank 1) for each affected session, ascending `session_id`** →
+    **`venue.door_manifest` (episode row)** → **`kernel.signing_key` (admin plane, LAST)**. Rank 1 is taken
+    **before** the key row, which is outside the six ranks: taking the key row first and then reaching for
+    rank 1 would be the one inversion available on this path. Ascending within rank 1 by `session_id`, the
+    same discipline §7.2 and §9.5 use for atoms.
+  - **`kernel.approval_request` (rank 5.5)** is inserted by the dual-control arm **before** any of the
+    above — it is the parked-intent write, and the force-close happens on the **approval**, not on the
+    request. A revoke that is merely *requested* closes no doors.
+  - **THE SCOPE'S OPEN-EPISODE COUNT IS THE BLAST RADIUS, and it is what the acknowledgement is actually
+    about.** `p_ack_live_credentials` is the count of non-terminal atoms bound to the key; **the operator
+    is additionally shown, and the result additionally returns, `episodes_force_closed`** — because *"every
+    ticket holder for this event is refused at the door until re-minted"* is an abstraction, while *"you are
+    about to close 4 live doors, mid-event"* is the number a human can refuse on. **A wrong
+    `p_ack_live_credentials` raises and writes nothing**, force-close included: the speed bump is in front
+    of the whole transaction, not in front of half of it.
+  - **The recovery order does not change and is now load-bearing twice over.** *Provision or rotate first,
+    revoke second.* A force-closed episode is re-opened by `venue.open_door_manifest` (§17.10), which
+    rebuilds the snapshot under the **successor** key — which is why `precondition_failed(
+    'no_active_successor')` is *"the one guard that stops a single call from closing a door"*: without a
+    successor, the re-open produces a manifest nothing can verify either.
+- **Locks / SSCAS / idempotency.** Lock order as stated above (it **extends** §20.7.3 rather than inheriting
+  it — §20.7.3 takes no rank-1 lock). **SSCAS:** `n/a` — no money, custody or inventory row is written;
+  `catalog.event_session` is locked as a **freeze/boundary read-modify**, not as an SSCAS member, and **the
+  closed set stays at fifteen.** Terminal-state idempotent (`revoked` is terminal — schema §1.7's status is
+  forward-only, guarded by a trigger); a replay force-closes nothing a second time and returns
+  `episodes_force_closed = 0`.
+- **Writes.** `kernel.signing_key` (→ `revoked`, `not_after := now()`), **`venue.door_manifest`** (every
+  `open` episode in scope → `closed`, `close_cause='key_revoked'`), **`venue.door_manifest_delta`** (a
+  terminal marker per closed episode, so a reconnecting scanner learns the episode ended rather than polling
+  a manifest that stopped changing), `kernel.approval_request`, `kernel.admin_audit` (`signing_key.revoke`,
+  mandatory `reason_code`, the acknowledged credential count, **and the force-closed episode ids**).
   **Revoked keys are retained** (plan `083` rollback posture: *"revoked keys and certs are retained so
   historical credentials stay verifiable and explicable"*) — **this function never deletes a row.**
-- **Result.** `{ status, key_id, request_id, credentials_invalidated int }`.
+- **Result.** `{ status, key_id, request_id, credentials_invalidated int, episodes_force_closed int }`.
 - **Errors.** `insufficient_privilege` · `sod_violation` · `not_found` ·
   `precondition_failed(no_active_successor | unacknowledged_live_credentials | reason_required |
   already_revoked)`.
 - **Test.** `T-RPC-KEY-04` (revoking the only `active` key for a scope raises; a wrong
   `p_ack_live_credentials` raises and writes nothing; a revoked key's row survives and its `public_key`
-  stays readable so historical credentials remain explicable).
+  stays readable so historical credentials remain explicable) · **`T-RPC-KEY-05`** (with **two** `open`
+  episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same
+  transaction as the key row, and a scanner polling a closed episode is told the episode ended — asserted on
+  the episode rows, **not** on the absence of admissions, which would pass on a manifest that merely lapsed).
 
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
@@ -4604,6 +4795,16 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 - **Accept is a native sale, and it is member #2 — not a new member.** §14.1 #2 already names its RPC cell
   *"`kernel.transfer_ticket_ownership` (called by market checkout / **`respond_offer` accept** / auction
   finalize)"*. This contract is what that parenthesis pointed at.
+- **The expiry check is ARITHMETIC and is never the stored label (schema §13.7 `S-12`).** Under the offer
+  row's `FOR UPDATE`, accept requires **`market.offer.expires_at > now()`**, evaluated on the row, **in
+  addition to and regardless of `status`**. **`status='expired'` is written by the `088` sweep tick and the
+  tick is presentational** (§20.8.5: an expired offer holds nothing, so the sweep is explicitly *not*
+  load-bearing). An accept path that trusts `status='pending'` because the sweep was *supposed* to have run
+  **consummates an expired offer every time the tick is late — which is the ordinary condition of cron**, not
+  an incident. This is the same distinction §9.8 draws for door sessions and §17.11 for freeze overrides:
+  **where a sweep is presentational, every consumer of the state must compute it.** Over-expiry ⇒
+  `precondition_failed('offer_expired')`. **`T-RPC-MARKET-07`:** an offer past `expires_at` whose stored
+  `status` is still `pending` (the sweep suppressed) is refused, and no `market_sale` row is written.
 - **Preconditions on accept (C35, the ones that matter).** Offer `pending`, not expired; listing still
   `active`; atom still `resale_state='listed'` and owned by the seller; **`p_payment_id` resolves to a
   verified `public.payments` row whose buyer is `market.offer.buyer_id`** — re-verified against the live
