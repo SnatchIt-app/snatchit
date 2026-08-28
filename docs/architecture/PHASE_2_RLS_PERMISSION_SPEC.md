@@ -2743,7 +2743,7 @@ EMPTY, not reduced** (§6 tier 2/3). It joins the §16.10 zero-policy register.
 | service_role | A(machine) | R(def) | R(def) | **D** | definer (`mint_door_session` · `revoke_door_session` · `revoke_door_pin` RV-1 · `set_scan_device_status` RV-2 · `sweep_expired_door_sessions` · `assert_door_session`) |
 
 - **`token_hash` is never client-readable, on any path, for any role — including `platform_admin`. There is
-  no legitimate reader of a verifier.** Asserted **structurally, over the column list** (`T-RLS-DOOR-05`),
+  no legitimate reader of a verifier.** Asserted **structurally, over the column list** (`T-RLS-DOOR-12`),
   not by a sample read, because a sample read passes on an empty table.
 - **The non-secret projection is exactly** `(door_session_id, device_id, event_session_id, issued_at,
   expires_at, status, last_seen_at)`. It is what lets `venue.get_live_device_count` answer from a **fact**
@@ -3069,9 +3069,9 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-CRM-08` | A revoked export job reaches `artifact_state='deleted'`; the daily reconciliation flags **both** a bucket object with no job row **and** a `ready` job with no object | **§11.6 `AUTHZ-M14`** |
 | `T-RLS-CFG-01` | `anon` and a plain `authenticated` fan read **zero** `catalog.platform_config` rows for every key in the six restricted namespaces — asserted **per namespace**, because a single-key test passes while five namespaces leak | **§8.4 `AUTHZ-CFG1`** |
 | `T-RLS-CFG-02` | A key seeded with **no** `visibility` value is unreadable by `anon` — this asserts the **default**, not the seed | **§8.4 `AUTHZ-CFG1`** |
-| `T-RLS-DOOR-04` | A call carrying a valid `device_id` and `event_session_id` but **no session token** raises — written as a **negative**, because it is the exact call that succeeded before the fix | **§16.4a `AUTHZ-H3`** |
-| `T-RLS-DOOR-05` | `token_hash` is absent from every projection any role can reach, **including `platform_admin`** — asserted **structurally over the column grants**, not by a sample read, which passes on an empty table | **§16.4a `AUTHZ-H3`** |
-| `T-RLS-DOOR-06` | Revoking a door **PIN** leaves **no `status='active'` `venue.door_session` row** for that PIN (RV-1), and retiring a **device** leaves none for that device (RV-2) — **both halves in one test**, because the liveness clauses already fail the call and would pass a one-sided assertion | **§11.4 RV-1/RV-2** |
+| `T-RLS-DOOR-11` | A call carrying a valid `device_id` and `event_session_id` but **no session token** raises — written as a **negative**, because it is the exact call that succeeded before the fix | **§16.4a `AUTHZ-H3`** |
+| `T-RLS-DOOR-12` | `token_hash` is absent from every projection any role can reach, **including `platform_admin`** — asserted **structurally over the column grants**, not by a sample read, which passes on an empty table | **§16.4a `AUTHZ-H3`** |
+| `T-RLS-DOOR-13` | Revoking a door **PIN** leaves **no `status='active'` `venue.door_session` row** for that PIN (RV-1), and retiring a **device** leaves none for that device (RV-2) — **both halves in one test**, because the liveness clauses already fail the call and would pass a one-sided assertion | **§11.4 RV-1/RV-2** |
 
 > **`AUTHZ-M5` — `T-RLS-ROLE-02` was not mechanically checkable, and it is the corpus's ONLY defence against a
 > hand-rolled role comparison inside an RPC body.**
