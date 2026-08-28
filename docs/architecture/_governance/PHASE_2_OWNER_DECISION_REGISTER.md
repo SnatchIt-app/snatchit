@@ -10,6 +10,204 @@ silence falls, and what is blocked until it is answered.
 
 ---
 
+## THE COUNT, AND THE ENUMERATION BESIDE IT
+
+
+> **This corpus has been bitten four times by a count that was updated while its enumeration was not**
+> (record rows `D9`, `D11`, `D15`, and the freeze document's still-stale *"44 rows … three open decisions"*).
+> The list below is **generated from this file's own entry headings**, not transcribed beside them. If the two
+> ever disagree, the headings are right and the count is wrong. Regenerate it with:
+>
+> ```
+> grep -cE '^#{2,3} ODR-[0-9]+ —' docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
+> ```
+
+
+**There are 123 open owner decisions in the Phase 2 design corpus.**
+
+Not counted, and held in their own sections below: **17 rows** of items that read as open and are already
+settled (bookkeeping close only — several rows bundle a set, so they cover more than seventeen filings), and
+**30 rows** of items filed in decision-shaped registers that are design defects with one correct answer.
+**123 + 17 + 30 = 170** dispositioned rows in this file. Nothing found in the sweep is left undispositioned.
+
+**Split by what each one blocks:**
+
+| Band | Count | Ids |
+|---|:-:|---|
+| **Band 1 — blocks the start of implementation** | **7** | `ODR-1` … `ODR-7` |
+| **Band 2 — blocks a named migration package** | **27** | `ODR-8` … `ODR-34` |
+| **Band 3 — blocks a named surface, contract, control or feature flag** | **58** | `ODR-35` … `ODR-92` |
+| **Band 4 — blocks nothing in the current scope** | **31** | `ODR-93` … `ODR-123` |
+| | **123** | |
+
+**The full enumeration.**
+
+
+**Band 1 — blocks the start of implementation** — 7 entries
+
+- **ODR-1** — Re-ratify the amended package registry
+- **ODR-2** — Is the event outbox in Phase 2?
+- **ODR-3** — What gate is the `notify` schema at?
+- **ODR-4** — Acknowledge the two global-posture exceptions, and bind whoever next edits migration `020`
+- **ODR-5** — Execute the migration-history repair, and authorize it
+- **ODR-6** — What happens to the untracked `043_profiles_select_column_restriction.sql`
+- **ODR-7** — Precedence between delta specifications
+
+**Band 2 — blocks a named migration package** — 27 entries
+
+- **ODR-8** — Per-org refund/payout thresholds at launch? · `077`
+- **ODR-9** — Were `org_marketing` and `org_promoter_manager` intended to be storable at the org grain? · `077`
+- **ODR-10** — Is `kernel.approval_request` an aggregate class or an intent record? · `077`
+- **ODR-11** — The six threshold values · `078` seeds
+- **ODR-12** — The money-role grant-maturity window · `078` seed
+- **ODR-13** — `door.*` config visibility: `restricted` or `public`? · `078` seed row
+- **ODR-14** — Confirm k = 25 and cell floor = 5, and where the constants live · `077` CHECK
+- **ODR-15** — `notify.push_token` as a new table, or additive columns on `public.push_tokens`?
+- **ODR-16** — How account deletion behaves for an identity holding custody · `079`
+- **ODR-17** — `kernel.door_freeze_override`: move the table to `079`, or take a `SEAM-2` hook? · `079`/`086`
+- **ODR-18** — Does disbursement auto-fire on `close_settlement`, or require an explicit human request? · `085`
+- **ODR-19** — What `kernel.payout.status='paid'` asserts · `085`/`087`
+- **ODR-20** — Does `venue.set_event_security_config` exist at all? · `078` + `086`
+- **ODR-21** — The door-session selector: `door_session_id` or `session_ref`? · `086`
+- **ODR-22** — `record_scan` under `FOR SHARE`, and whether M2 is signed · `086`
+- **ODR-23** — Adopt the Layer-0 privilege wall for the export builder? · before `087`
+- **ODR-24** — Operatorship change: the new operator's CRM starts empty, and who tells them · `087`
+- **ODR-25** — Export artifact retention: 24 hours or 7 days? · `087` sweep constant
+- **ODR-26** — Settlement close: `org_finance`, `venue_finance`, or both? · `087`
+- **ODR-27** — Where does the bid ledger live? · `088`
+- **ODR-28** — `venue.promoter_link.status`, or promoter-grain deactivation only? · `090`
+- **ODR-29** — Does a typed code beat a link when they name different promoters? · `090`
+- **ODR-30** — Commission basis: face subtotal, or gross including fees? · `090`
+- **ODR-31** — Do codes need redemption caps or expiry by default? · `090`
+- **ODR-32** — Who bears a post-settlement chargeback on a commissioned sale? · gates the promoter program
+- **ODR-33** — Promoter portal: web, or in the RN app? · `090` classification
+- **ODR-34** — May the subject read their own consent *history*? · `082` (additive)
+
+**Band 3 — blocks a named surface, contract, control or feature flag** — 58 entries
+
+- **ODR-35** — Does `org_admin` hold the money-plane read? · **surface H is BLOCKED**
+- **ODR-36** — Extend grant maturity to the platform plane, or retract the platform-plane claim?
+- **ODR-37** — The payout tier's operand
+- **ODR-38** — Does `kernel.tickets.resale_state` have one writer pair, or two writer sets?
+- **ODR-39** — Should the buyer self-service arm additionally gate on order value?
+- **ODR-40** — `refund.scanned_atom_policy`: `refuse` or `platform_review`?
+- **ODR-41** — A single-money-principal org blocked from payouts: escalate, or relax?
+- **ODR-42** — Ship step-up at `aal1` freshness now, or block money actions until MFA?
+- **ODR-43** — May a `venue_manager` mint another `venue_manager`?
+- **ODR-44** — Who may disable a transfer freeze?
+- **ODR-45** — The platform sub-role read boundary
+- **ODR-46** — Re-map legacy `venue_manager` grants when the six-label enum lands
+- **ODR-47** — Ratify the session-bounded Wallet token profile · gates `wallet.apple.enabled`
+- **ODR-48** — Acknowledge that Wallet may not ship before the door M2 tables and offline step 3b
+- **ODR-49** — Security sign-off on the `verify_jwt=false` set · gates deploy
+- **ODR-50** — Who owns the Apple Developer account and may renew the Pass Type ID certificate?
+- **ODR-51** — Wallet budget: KMS, APNs, storage — and the optional M2 signer it gates
+- **ODR-52** — Post-open issuance: build the manifest supplement, or accept online-only door sales?
+- **ODR-53** — Offer a credential or Wallet pass while `resale_state ∈ {listed, locked}`?
+- **ODR-54** — Does the pass carry the holder's name?
+- **ODR-55** — Does transactional email exist in Phase 2?
+- **ODR-56** — Announcement hold window, dual-control threshold, and the step-up primitive
+- **ODR-57** — May the marketing concept **release** announcements, or only draft?
+- **ODR-58** — Do venue-staff notifications share the consumer inbox table?
+- **ODR-59** — Notification retention, and the `C48` retention floor
+- **ODR-60** — Universal Links / App Links before any sensitive deep-link target
+- **ODR-61** — Marketing's CRM and analytics ceiling — answered once, for three specs
+- **ODR-62** — Is a platform-plane bulk extraction path wanted at all?
+- **ODR-63** — Is `display_name` consent-gated in the export?
+- **ODR-64** — Confirm `R7`: comped and zero-price custody are excluded from the mix card
+- **ODR-65** — Ship with the population-differencing residual, or close it?
+- **ODR-66** — Five roles hold both the by-name roster and the mix card
+- **ODR-67** — The backup-retention window `{N}`
+- **ODR-68** — Confirm the MVP transfer-freeze predicate is session-wide
+- **ODR-69** — Drain active listings and initiated transfers at door-open?
+- **ODR-70** — Does opening the manifest early bother anyone commercially?
+- **ODR-71** — Should the `C25` compensate branch void the seller's atom at all?
+- **ODR-72** — Name the guest-list write RPCs · surface F
+- **ODR-73** — Name the mark-a-guest-arrived RPC · the door
+- **ODR-74** — Name the promoter record and link RPCs, and a live slug-availability read · surface E
+- **ODR-75** — Grant the two door pre-confirm reads · the door-open confirm
+- **ODR-76** — Name a capacity-change RPC for an existing batch · §8.4
+- **ODR-77** — Name an update RPC for `catalog.event` / `event_session` · §7.3
+- **ODR-78** — Name `kernel.update_organization` · §16.1
+- **ODR-79** — Inventory warning thresholds
+- **ODR-80** — Kill switches for the three features that have none
+- **ODR-81** — Confirm `venue.set_event_security_config`'s key set and `revoke_signing_key`'s ack parameter
+- **ODR-82** — Confirm the offline clock-skew time-bucket is 30 seconds
+- **ODR-83** — Accept the maturity-helper race residual, or amend the global lock order?
+- **ODR-84** — Ratify the self-bid and self-offer narrowings
+- **ODR-85** — The credential token TTL value and re-sign cadence
+- **ODR-86** — KMS provider, signing algorithm, and token wire format
+- **ODR-87** — Notification permission priming
+- **ODR-88** — May `venue_box_office` refund cash at the door?
+- **ODR-89** — Does `org_admin` read `venue.settlement`?
+- **ODR-90** — Does the original promoter earn on a marketplace resale?
+- **ODR-91** — What is the remedy for a genuinely wrong attribution?
+- **ODR-92** — `venue.get_dashboard_summary`: schedule it, or accept N queries?
+
+**Band 4 — blocks nothing in the current scope** — 31 entries
+
+- **ODR-93** — Cross-region native resale: saga/escrow, or intra-region-only?
+- **ODR-94** — Offline first-admit-wins consensus under clock skew and partition
+- **ODR-95** — Resale-policy snapshot drift
+- **ODR-96** — Per-event identity-verification strength
+- **ODR-97** — Which privacy regimes apply? *(counsel)*
+- **ODR-98** — Is gender identity special-category / sensitive personal information? *(counsel)*
+- **ODR-99** — Which mandatory notification types are legally compulsory, and where? *(counsel)*
+- **ODR-100** — The confidential-IP document in repository history *(counsel)*
+- **ODR-101** — Repository visibility: private now, or stay public?
+- **ODR-102** — Buy the Supabase Pro plan?
+- **ODR-103** — GitHub Copilot?
+- **ODR-104** — Add `age_band` in a later wave?
+- **ODR-105** — Does `platform_admin` get aggregate demographic access at all?
+- **ODR-106** — Who owns the compelled-disclosure runbook?
+- **ODR-107** — Does a native-rail resale purchase create a contact relationship?
+- **ODR-108** — Acknowledge that consent withdrawal is a state change, not a hard delete
+- **ODR-109** — Confirm the attendee-lookup limit numbers
+- **ODR-110** — Does an operator ever need a printed door list?
+- **ODR-111** — Confirm that no demographic-based send exists, in any form
+- **ODR-112** — Sub-promoters or sub-codes with a split commission?
+- **ODR-113** — Code-enumeration thresholds
+- **ODR-114** — Migrate the 12 legacy inbox types into the registry, or leave them alongside?
+- **ODR-115** — Quiet hours · the `security_email_changed` mirror sweep · the promoter digest
+- **ODR-116** — Rotating barcodes later? Google Wallet?
+- **ODR-117** — Δ6: `catalog.event.announce_at` / `on_sale_at` for a scheduled on-sale
+- **ODR-118** — Δ7: `venue.ticket_type` sale windows and per-order min/max
+- **ODR-119** — Δ8: event-scoped, auto-expiring staff grants
+- **ODR-120** — Δ9: `venue.guest_list.promoter_id`
+- **ODR-121** — Δ10: org and venue `brand_logo_ref`
+- **ODR-122** — Retain `venue_finance`, and do not rename `org_member` → `org_affiliate`
+- **ODR-123** — Break-glass for the door
+
+**Which of the 123 default to the unsafe direction if nobody answers.** In blocking order:
+`ODR-2` (no outbox is built) · `ODR-3` (`notify` is never scheduled and a binding dashboard dependency dangles)
+· `ODR-4` (irreversible posture exceptions ship inside `077`, and one routine edit to migration `020`
+reintroduces the sentinel defect) · `ODR-15` (four push-token fixes have no home) · `ODR-16` (account deletion
+stops working for anyone who has ever held a ticket, the day `079` lands) · `ODR-18` (a money-out path with an
+ambiguous auth model) · `ODR-19` (a failed transfer reads `submitted` forever) · `ODR-21` (edge §3.9a is
+unimplementable as written) · `ODR-23` (a half-adopted privilege wall emits a blank contact column that reads
+as *"nobody consented"*) · `ODR-26` (silence ratifies the permissive reading of an explicitly open settlement
+authority) · `ODR-27` (an implementer invents a `market.bid` money surface at build time) · `ODR-35`
+(`org_admin` gets the money-plane read, silently) · `ODR-36` (the platform money-key arm has no maturity floor
+today) · `ODR-37` (payouts are splittable past the dual-control ceiling today) · `ODR-46` (a box-office lead
+keeps door-lifecycle authority through the cutover) · `ODR-49` (an unauthenticated endpoint ships unreviewed)
+· `ODR-50` (nobody owns the certificate that fails on a calendar) · `ODR-52` (a paying fan is refused at the
+door with no remedy and no stated limit) · `ODR-55` (a mandatory money notice with push as its only channel)
+· `ODR-63` (every export file's shape is undecided) · `ODR-65` (an unquantified inference channel ships
+unstated) · `ODR-75` (the door-open confirm asks a question the operator cannot evaluate) · `ODR-80` (three
+features with no runtime kill switch) · `ODR-87` (a cold OS prompt loses the push permission permanently) ·
+`ODR-91` (no remedy exists, and support will ask for one within the first month).
+
+**That is 25 of the 123** — the count is written after the list, from the list, for the reason in the box
+above. For these twenty-five, *not deciding* is not deferral: the unsafe branch is already the one that ships.
+
+**If only four can be answered this week**, the corpus's own priority stands and this register agrees with it:
+`ODR-1` (blocks authoring any package), `ODR-2` and `ODR-3` (five features' schedules, and they must be ruled
+together with the outbox first), and `ODR-4` (blocks `077`, the second package in the chain). Add `ODR-35`,
+`ODR-36` and `ODR-37` if the money plane is being built before the door.
+
+
+---
+
 ## How to read this file
 
 **Nothing here is a ruling and nothing here is new.** Every entry is assembled from text that already exists
@@ -21,20 +219,20 @@ positions are stated and neither is preferred.
 many as three different ids. This register merges those into one entry and lists every filing site, with the
 evidence for the merge.
 
-**The `Silence` column is the one to read first.** Several of these decisions have a default that ships
-automatically if nobody answers, and for several of those the default is the **unsafe** direction: the
-permissive grant, the missing floor, the unbounded value. Those are marked `SILENCE → UNSAFE`. A decision
-whose silent default is safe can wait; one whose silent default is unsafe cannot, because *not deciding* is
-already a decision and it has already been taken.
+**The `Silence` line is the one to read first.** Every entry states what happens if nobody answers, and
+whether that direction is **SAFE** or **UNSAFE**. Twenty-five of the 123 default to the unsafe direction — the
+permissive grant, the missing floor, the unbounded value, the endpoint that ships unreviewed. A decision whose
+silent default is safe can wait; one whose silent default is unsafe cannot, because *not deciding* is already a
+decision and it has already been taken.
 
 **Ordering.** Entries are ordered by what they block, most blocking first, then by blast radius:
 
 | Band | Meaning |
 |---|---|
 | **Band 1 — blocks the start** | Must be answered before the first Phase-2 migration (`076`) or before the package DAG can be re-ratified at all. Nothing downstream is safe to begin. |
-| **Band 2 — blocks a named package** | Implementation can start; one identified package (`077`, `082`, `086`, `087`, …) or one identified surface cannot be built until this closes. |
-| **Band 3 — blocks a flag or a value** | The build proceeds; a feature flag cannot be turned on, or a config key ships with no number in it. |
-| **Band 4 — blocks nothing today** | Real and unanswered, but nothing in the current scope waits on it. |
+| **Band 2 — blocks a named migration package** | Implementation can start; one identified package in `076`–`091` cannot be authored correctly until this closes. Ordered by package number. |
+| **Band 3 — blocks a named surface, contract, control or flag** | The migration chain proceeds; one identified surface, authority cell, contract or feature flag cannot be built or turned on. Ordered by blast radius — money plane, then door and Wallet, then product surfaces. |
+| **Band 4 — blocks nothing in the current scope** | Real and unanswered, but nothing in Phase 2 waits on it. Includes the four counsel questions and four platform questions from outside the design corpus. |
 
 ---
 
@@ -44,8 +242,9 @@ Ids in this file are **`ODR-1` … `ODR-n`** (*Owner Decision Register*). They a
 nothing, renumber nothing, and replace no existing id anywhere in the corpus: every entry keeps and lists its
 original ids, and those ids remain the ones to cite in their own documents.
 
-**Why a new namespace was needed.** Open owner decisions are currently filed under at least eight
-mutually-colliding series, and three of the collisions are documented hazards in the corpus itself:
+**Why a new namespace was needed.** Open owner decisions are currently filed under **twenty-two distinct
+series** — the full map is at the end of this file — and several of the collisions are documented hazards in
+the corpus itself. The worst of them, in the order a reader meets them:
 
 | Series | Where | Collision |
 |---|---|---|
@@ -59,7 +258,10 @@ mutually-colliding series, and three of the collisions are documented hazards in
 | `X-n` | `PHASE_2_RLS_PERMISSION_SPEC.md` §17 | — |
 | `OD-n` | `PHASE_2_ROLE_MODEL_SPEC.md` §13 | — |
 | `OQ-n` / `OQ-Wn` | `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §16 / `PHASE_2_APPLE_WALLET_SPEC.md` §15 | — |
-| `COND-A/B/C` | `PHASE_2_SCOPE_AMENDMENT_2026_08.md` | — |
+| `OD-nn` | `PHASE_2_SCOPE_AMENDMENT_2026_08.md` §14.2 | **`OD-01`…`OD-81` — the corpus's own consolidated index. It collides with the role model's `OD-1`…`OD-11` by a leading zero, and both are cited in the same file.** Already produced one mis-citation (`X-13`). |
+| `MD-n` | `PHASE_2_RLS_PERMISSION_SPEC.md` §15.7 | **The richest owner-decision register in the corpus — nineteen open rows with recommendations and blocking columns — and no other register's rows reference it.** |
+| `O-N n` · `OWNER DECISION n` · unnumbered | notifications §10 · promoter §13 · edge §9 · RN §12 | four further series, two of them with **no id prefix at all** |
+| `COND-A/B/C/D` | `PHASE_2_SCOPE_AMENDMENT_2026_08.md` · registry §7 | — |
 | `Δn` / `U-n` | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` | — |
 
 **Proof `ODR-` is unused.** Two checks, run against the whole repository at `32249f2`:
@@ -847,7 +1049,7 @@ Fifty-eight decisions. The migration chain can proceed; each of these stops one 
 authority cell, one contract or one flag. Ordered by blast radius — the money plane first, then the door and
 Wallet, then the product surfaces.
 
-**Read the `Silence` line.** Eleven entries in this band default to the **unsafe** direction.
+**Read the `Silence` line.** Fourteen entries in this band default to the **unsafe** direction — `ODR-35`, `ODR-36`, `ODR-37`, `ODR-46`, `ODR-49`, `ODR-50`, `ODR-52`, `ODR-55`, `ODR-63`, `ODR-65`, `ODR-75`, `ODR-80`, `ODR-87`, `ODR-91`.
 
 ---
 
@@ -1886,8 +2088,9 @@ Recommendation — yes: *"Ship without it — but the risk is real and should be
 
 # APPEARS OPEN — IS IN FACT SETTLED
 
-Seventeen items still read as open in the document that raised them, but a later ratified row, ruling or spec
-**already answered them**. They are **not entries in this register**, they are not counted in its total, and
+Seventeen rows below still read as open in the document that raised them, but a later ratified row, ruling or
+spec **already answered them**. Several rows bundle a set (four dashboard deltas, five dashboard collisions,
+three RLS requests, two risk-register questions), so the rows cover more than seventeen filings. They are **not entries in this register**, they are not counted in its total, and
 **this file does not close them** — closing a row is an act in the ratification record and that is the owner's.
 Each row below carries the evidence a bookkeeping close would cite.
 
@@ -1915,7 +2118,8 @@ Each row below carries the evidence a bookkeeping close would cite.
 
 # NOT THE FOUNDER'S — DEFECTS WEARING A DECISION'S CLOTHES
 
-These are filed in decision-shaped registers, or cited as open questions, but they have **one correct answer**.
+Thirty rows. These are filed in decision-shaped registers, or cited as open questions, but they have **one
+correct answer**.
 Ruling on them as if they were preferences risks ratifying a bug. They are **not counted in this register's
 total**, and none should be put in front of the founder as a choice.
 
