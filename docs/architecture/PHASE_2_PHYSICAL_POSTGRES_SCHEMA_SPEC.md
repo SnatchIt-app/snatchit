@@ -529,7 +529,7 @@ set.
 added, renamed or renumbered.** **Scheduled** on the **2-minute `pg_cron` heartbeat that already runs** —
 the same one `081`'s `venue.sweep_expired_inventory_holds` uses — so there is **no new cron entry** and it is
 not blocked on the `COND-A` outbox ruling. Filed to the RPC owner as §13.7 **`S-22`** for its contract and
-EXEC row. Ratification **C87**.
+EXEC row. Ratification **C98**.
 
 **Tests.** `T-SCHEMA-EXPIRY-01`: an `active` atom of an ended session becomes `expired`; **no ownership-log
 row is appended and `credential_version` is unchanged** — both halves, because the first passes even if the
@@ -921,7 +921,7 @@ adding a CHECK label would have been a schema change too, so the classification 
 carrying `hold_state='probation_hold'`"* — **the ratified behaviour is unchanged**: money does not leave,
 and only `is_platform(['platform_risk','platform_admin'])` may release it (O-3, RPC §11.3). Filed to the
 money-spec owner as §13.7 **S-14**, to the RPC owner as **S-15**, to the dashboard owner as **S-21**.
-Ratification **C80**.
+Ratification **C91**.
 
 **Tests.**
 - `T-SCHEMA-PAYOUT-01`: `hold_state` is `NOT NULL DEFAULT 'none'` and admits exactly the three labels; a
@@ -980,10 +980,10 @@ So `paid` and `failed` are **not** webhook-driven in the general case. A transfe
 fails as a **synchronous Stripe API error**, not as an event, which means the payout-executor edge function
 — not `stripe-webhook` — is the natural writer of `failed`. **Whether `paid` means "the transfer succeeded
 and was not reversed" (written synchronously by the executor) or "the funds reached the payee's bank"
-(requiring a `balance_transaction` fan-out from `payout.paid`) is an OWNER DECISION, recorded as `O14`, not
+(requiring a `balance_transaction` fan-out from `payout.paid`) is an OWNER DECISION, recorded as `O16`, not
 taken here** — the two differ in what the venue is being told, and one of them is a promise about a bank we
 do not observe. Both forms are served by the single RPC above; only the caller and the trigger event
-change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C81**.
+change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C92**.
 
 **Tests.**
 - `T-SCHEMA-PAYOUT-05`: every `status` label is reachable — a replay-level assertion that for each of
@@ -1129,7 +1129,7 @@ what makes table growth an answered question rather than an accepted risk.
 | Make `actor_identity` nullable for denial rows | Weakens a `NOT NULL` on the **audit backbone** for the benefit of one writer, and the nullable rows would be exactly the ones that matter most. `kernel.admin_audit` is `AO` and permanent; a nullable actor is permanent too |
 | An autonomous transaction (`dblink` / `pg_background`) | Not in this corpus, and unnecessary: a second connection is what the edge already **is**. Adding an in-database out-of-band connection would also run as the definer, reproducing the NULL-actor problem one layer down |
 
-Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C82**. **No schema change:
+Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C93**. **No schema change:
 `kernel.admin_audit` is correct as specified — the writer was wrong.**
 
 **Tests** (plan §8 `085` Tests row).
@@ -3309,7 +3309,7 @@ deletion proceed: `current_owner_id` and all three log identity columns are **`O
 whole stops working for anyone who has ever held a ticket, the day `079` lands.** That is a product
 consequence, not a schema one.
 
-**The product handling is an OWNER DECISION (`O13`), recorded and not taken.** Three admissible forms, each
+**The product handling is an OWNER DECISION (`O15`), recorded and not taken.** Three admissible forms, each
 consistent with `CUSTODY-DEL-1`:
 
 | Form | What the user experiences | Cost |
@@ -3324,8 +3324,8 @@ the recorded current owner of every deleted person's tickets **and** (via `void_
 ticket, would render on the dispute surface as **"Deleted User"**, and would put the meaning of the custody
 ledger under the control of a `public`-schema deletion path outside the kernel's write authority.
 
-**Filed to the CRM-export, demographics and door owners as §13.7 `S-19`.** Ratification **C83** (the trigger)
-and **C84** (`CUSTODY-DEL-1` + `O13`).
+**Filed to the CRM-export, demographics and door owners as §13.7 `S-19`.** Ratification **C94** (the trigger)
+and **C95** (`CUSTODY-DEL-1` + `O15`).
 
 ---
 
