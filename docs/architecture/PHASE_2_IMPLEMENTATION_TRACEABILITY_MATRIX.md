@@ -783,7 +783,7 @@ row"*). **Every id below is claimed by at least one capability. There are no orp
 
 > **`R3-2` — X-9 WAS NOT DISCHARGED, AND THIS SECTION'S OWN HEADING SAID SO WITHOUT ANYONE READING IT.**
 > §9.1 was headed *"35 ids in 33 register rows"* and listed **25** rows carrying **35** ids, while RLS §16.11
-> defines **66** ids in **64** rows. **Thirty of the thirty-one ids this section omitted were scheduled by
+> defined **66** ids in **64** rows (**67** in **65** after `R3-3a` adds `T-RLS-CAT-01`). **Thirty of the thirty-one ids this section omitted were scheduled by
 > nothing** — among them the entire `T-RLS-MONEY-05…-12` money-authority block, the entire `T-RLS-CRM-03…-08`
 > export block, `T-RLS-EXEC-01`/`-02`, `T-RLS-ROLE-05`/`-06`/`-07`, `T-RLS-CFG-01`/`-02`, `T-RLS-COMP-01`,
 > `T-RLS-ATTR-03…-06`, the `AUTHZ-H3` door-session trio `T-RLS-DOOR-11`/`-12`/`-13`, and `T-RLS-POL-04`. The
@@ -792,9 +792,9 @@ row"*). **Every id below is claimed by at least one capability. There are no orp
 > counts and the table stated ids and nothing compared them. **The heading now states the enumeration's own
 > arithmetic and the enumeration is complete**, so the two can be compared by reading. The *"no orphan test
 > ids"* claim above was **false when written** and is true as of this pass — for `T-RLS-*`. It remains
-> **false for `T-SCHEMA-*`**: see §9.3, which is new and is a gap register, not a discharge.
+> **false for `T-RPC-*`** (see the restated orphan check below), and `T-SCHEMA-*` had no register here at all until §9.3.
 
-### 9.1 `T-RLS-*` — the complete register: **66 ids in 48 rows here, against RLS §16.11's 66 ids in 64 rows**
+### 9.1 `T-RLS-*` — the complete register: **67 ids in 49 rows here, against RLS §16.11's 67 ids in 65 rows**
 
 | ID | Capability |
 |---|---|
@@ -840,6 +840,7 @@ row"*). **Every id below is claimed by at least one capability. There are no orp
 | `T-RLS-MONEY-10`, `-11` | **A2**, **A8** — the `kernel.approval_request` constraints (`AUTHZ-M1`/`M2`): `approved` with `approved_by IS NULL` rejected **by the constraint**; every `(action, subject_kind)` outside the three legal pairings rejected |
 | `T-RLS-MONEY-12` | **A3**, **A8** — `config.set_money_key` needs a **second distinct** `platform_admin` (`AUTHZ-C1A2`) |
 | `T-RLS-COMP-01` | **D1**, **A3** — `comp.per_staff_step_up_max_units` deleted ⇒ `allocate_comp`/`issue_comp` raise at `quantity = 1` and write nothing (`AUTHZ-M8`) |
+| `T-RLS-CAT-01` | **A3** — **`R3-3a`**: a `draft` `catalog.event` is invisible to `anon`, to a plain fan and to each of the five non-manager venue labels, and visible to `venue_manager` — asserted **per label** and over the **visible set**, not over the operator. The clause it defends read `status >= 'announced'` on a **`text`** column, which is true for all six labels |
 | `T-RLS-CFG-01`, `-02` | **A3** — `catalog.platform_config`'s two-class read (`AUTHZ-CFG1`): zero rows for `anon` and a plain fan **per restricted namespace**, and a key seeded with no `visibility` is unreadable — the **default**, not the seed |
 | `T-RLS-CRM-01`, `-02` | **B3** |
 | `T-RLS-CRM-03`, `-04` | **B3** — `list_attendees` reason-code + audit + limiter order (`AUTHZ-M12`); the one-granted / one-withdrawn export fixture emitting **exactly one** cell, which is the assertion a *"the job succeeded"* test would have passed against the all-blank output (`AUTHZ-M11`) |
@@ -870,7 +871,7 @@ capability."* Measured against the corpus rather than against this table:
 
 | Family | Ids defined in the corpus | Scheduled by a row here | Unscheduled |
 |---|---|---|---|
-| `T-RLS-*` | **66** (RLS §16.11, 64 rows — enumerated in §9.1) | **66** | **0** — true as of this pass, false before it |
+| `T-RLS-*` | **67** (RLS §16.11, 65 rows — enumerated in §9.1) | **67** | **0** — true as of this pass, false before it |
 | `T-RPC-*` | **185** (enumerated by family below) | **70** (§9.2's twelve group rows) | **115** |
 | `T-SCHEMA-*` | **55** (enumerated in §9.3) | **0** before this pass; **55** after | **0** |
 
@@ -954,6 +955,14 @@ Both land in documents this pass does not own. Recorded as ratification row **`C
 
 Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 
+> **`R3-3` — THIS SECTION WAS THE ONLY HOME OF TEN POLICY NAMES, AND `C84` SAYS THAT HOME GOES STALE.**
+> RLS §16.10 carried a **template** (`<table>_sel_venue`, `<table>_sel_org`, `<table>_sel_promoter`,
+> *"the `_item` triple"*, *"the `_line` pair"*) for 25 of its policies, and the literal forms of ten of them
+> appeared **only here** — which made a document whose own cell vocabulary is scoped *"at this baseline"*
+> (**`C84`**) the de facto authority for names `T-RLS-POL-01`'s `policies_are(…, ARRAY[…])` has to consume.
+> **RLS §16.10 now writes all 25 out and is the authority.** The rows below are aligned to it name-for-name
+> so the two can be diffed; where they ever disagree, **§16.10 wins** and this section is the stale copy.
+
 | Policy family | Capability |
 |---|---|
 | `catalog_venue_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
@@ -972,12 +981,12 @@ Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 | `venue_ticket_type_sel_public` · `_sel_venue` | **A5** |
 | `venue_inventory_batch_sel_public` · `_sel_venue` | **A5** |
 | `venue_inventory_hold_sel_owner` · `_sel_venue` | **A5** |
-| `venue_order_sel_owner` · `_sel_org` · `_sel_venue` (+ the `_item` triple) | **A6** |
-| `venue_settlement_sel_org` · `_sel_venue` (+ the `_line` pair) | **A10** |
+| `venue_order_sel_owner` · `_sel_org` · `_sel_venue` · `venue_order_item_sel_owner` · `venue_order_item_sel_org` · `venue_order_item_sel_venue` | **A6** |
+| `venue_settlement_sel_org` · `_sel_venue` · `venue_settlement_line_sel_org` · `venue_settlement_line_sel_venue` | **A10** |
 | `venue_comp_allocation_sel_venue` · `venue_guest_list_sel_venue` · `venue_guest_entry_sel_venue` | **D1** |
 | `venue_scan_device_sel_venue` · `venue_scan_sel_venue` · `venue_scan_sel_platform` | **A9** |
 | `venue_door_manifest_sel_venue` · `_entry_sel_venue` · `_delta_sel_venue` · `venue_door_manifest_sel_platform` | **B6**, **C4** |
-| `venue_promoter_sel_org`/`_venue`/`_promoter` and the `promoter_link` · `promoter_code` · `promoter_code_scope` equivalents | **A12**, **B5** |
+| `venue_promoter_sel_org` · `_sel_venue` · `_sel_promoter` · `venue_promoter_link_sel_org` · `_sel_venue` · `_sel_promoter` · `venue_promoter_code_sel_org` · `_sel_venue` · `_sel_promoter` · `venue_promoter_code_scope_sel_org` · `_sel_venue` · `_sel_promoter` (12) | **A12**, **B5** |
 | `venue_attribution_sel_org` · `venue_attribution_sel_venue` · `venue_attribution_sel_platform` — **`venue_attribution_sel_promoter` is DROPPED** (`AUTHZ-M9`; a promoter reads own attributions **only** through `venue.list_my_attributions` / `get_my_promoter_summary`, never by table SELECT) | **A12**, **B5** |
 | `venue.attribution_review` — **NO POLICIES**; it is in the zero-policy set (`AUTHZ-M9`), because it carries the reviewer's private `note`. Every reader goes through an RPC | **A12**, **B5** |
 | `market_listing_native_sel_public` · `_sel_owner` | **A11** |
