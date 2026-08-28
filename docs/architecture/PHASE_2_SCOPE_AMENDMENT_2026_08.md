@@ -434,3 +434,187 @@ The schema integrator established the coupling and it is binding on how the ruli
 **Therefore: rule on them together, in that order — outbox first.** The schema home follows from the pair: `notify.outbox` under Gate-P `notify`, `kernel.event_outbox` otherwise (`SCHEMA` §13.3).
 
 **Neither is decided here.** They appear in §14 as **OD-13** (outbox) and **OD-14** (`notify`), each marked as blocking, and they are the only two entries in this document that block more than one feature.
+
+---
+
+## 14. Consolidated owner-decision index
+
+### 14.1 What was collapsed, and on what rule
+
+**133 raised items across 17 sources** — the three ratified open rows, the eight delta specs, the four integration passes, and this document — collapse to **81 distinct decisions**, of which **54 block a package or a named implementation item.**
+
+The merge rule: two items are **one decision** when a single answer settles both, even where the words differ. Two items stay **separate** when the same owner could coherently answer one yes and the other no. Where a merged pair carried two recommendations, both are shown.
+
+| Merged into | From | Because |
+|---|---|---|
+| **OD-01** | MONEY D-1 · RLS MD-1 · RLS X-8 | One question — is `approval_request` an aggregate class? — asked as a design question, as an RLS note, and as a C28-amendment request |
+| **OD-03** | MONEY D-3 · RLS MD-3 · RLS §15 item 4 | The `platform_support` ceiling is one of the six numbers, not a seventh decision |
+| **OD-13** | RATIFY C51/O7 · REGISTRY COND-A · NOTIF O-N2 · RLS MD-11 · SCHEMA §13.3 | Five statements of the same missing outbox |
+| **OD-14** | RATIFY C52/O8 · REGISTRY COND-B · RLS MD-10 · NOTIF O-N1 · VD §22.16 | Five statements of the same `notify` gate |
+| **OD-16** | DEMOG D-6 · CRM D-10 | **The backup-retention window is one number**; `CRM` D-10 says so itself and is listed only because its own copy also cannot ship with a placeholder |
+| **OD-19** | DEMOG D-9 · DEMOG D-11 · CRM D-3 · RLS MD-9 | One acknowledgement of the named global-posture exceptions and the one constraint on whoever next edits migration `020` |
+| **OD-20** | CRM D-7 · DEMOG D-8 · ROLE §5 H2/H3 | **Marketing's CRM ceiling, asked by three specs. It must be answered once**, for the export template and the mix card together |
+| **OD-21** | RLS MD-8 · CRM D-8 · VD §22.6 | One question — is a platform bulk-extraction path wanted at all? |
+| **OD-22** | DEMOG D-4 · CRM D-9 | "Is a demographic-based send wanted" and "confirm X-8 stays closed" are the same question from the two ends |
+| **OD-25** | WALLET OQ-W4 · DOOR OQ-5 | Already *ruled* between the two specs; what remains is one owner sign-off on the relaxation |
+| **OD-59** | DOOR OQ-4 · VD §22.11 · RLS X-7 | One question — is the MVP freeze predicate session-wide, and do the four stale documents get corrected or does the board want the C43 narrowing in MVP (a **new** ratification, not a clarification)? |
+| **OD-64** | VD U-3 · U-4 | `VD` §20A.3 itself calls both "the same unnamed promoter CRUD" |
+| **OD-65** | VD U-5/Δ11 · U-6/Δ12 | Two reads on one confirm dialog, same surface, same role set, one grant |
+| **OD-79** | REGISTRY header · ROLE OD-10 · PROMO §14.1 · NOTIF O-N7 · VD §22.15 | Five reports of one numbering problem, now answered by the registry — which is itself **pending re-ratification** |
+
+**Closed, and listed so nobody re-opens them:** `ROLE` OD-2 (`venue_scanner` rename) and OD-3 (`set_org_payout_destination`) — closed by **O-2**/**O-3**; `ROLE` OD-6 (`text` + CHECK) — closed by `SCHEMA` §12.3; `DOOR` OQ-3 (`box_office` label) — superseded by **O-2**; `VD` Δ1–Δ4 — satisfied (`VD` §21.0); `VD` Δ5 — satisfied by `ROLE` S-5's marketing columns in `078`; `VD` §22.1/§22.2/§22.3/§22.4/§22.6/§22.7/§22.9 — closed by O-1…O-4 and CRM K-3/K-5.
+
+### 14.2 The index
+
+`Blocks` = **the named item cannot be implemented until this is answered.** "no" means the decision affects value or consistency, not correctness.
+
+#### A. Money, authority and dual control
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-01** | Is `kernel.approval_request` an aggregate class (⇒ a 16th SSCAS member ⇒ a C28 amendment) or an intent record? | MONEY §11 D-1 · RLS §15.7 MD-1 · RLS §17 X-8 | **the parked refund branch** | **Intent record** — it is lock-ordered either way, so an amendment is a one-line ratification |
+| **OD-02** | Per-org refund/payout thresholds at launch — build `kernel.org_money_policy`? | MONEY §11 D-2 · REGISTRY §7 COND-C · SCHEMA §1.14 | **`077` scope** | **No** — `platform_config` is world-readable so per-org limits need a non-public home, and nothing in O-1/O-3 asks for one |
+| **OD-03** | The six threshold **values**, including `refund.platform_support_max_minor` | MONEY D-3 · RLS MD-3 · RLS §15 item 4 | **tier behaviour** | Commercial + risk call; the keys ship, values set by an audited `set_platform_config` |
+| **OD-04** | `org_admin` reads `venue.settlement` while denied the payout and refund ledgers — keep or deny? | MONEY D-4 · RLS MD-4 | no (consistency) | **Keep** — settlement is reconciliation, payout is money-out; the inconsistency is named rather than smoothed |
+| **OD-05** | `org_admin` on the money plane: `VD` §5.2 row 35 shows `●` on the refunds order list; the corrected money matrix denies the refund read. **Both cannot hold** | VD §22.13 | **the Refunds surface** | none — O-1/O-3 are silent on `org_admin` and the denial is an inference |
+| **OD-06** | A single-money-principal org is blocked from payouts after a destination change by SoD-1 — escalate or relax? | MONEY D-5 · RLS MD-5 | **`release_payout` path** | **Escalate** — relaxing reintroduces the exact named fraud primitive |
+| **OD-07** | `refund.scanned_atom_policy` default: `refuse` or `platform_review`? | MONEY D-6 · RLS MD-6 | **the consumed-atom refund path** | **`platform_review`** — legitimate, but also the insider-collusion shape, so it should be *seen* |
+| **OD-08** | Ship step-up at `aal1` freshness now and flip to `aal2` on staff MFA enrolment? | MONEY D-7 · RLS MD-7 | **`RLS` §11.3 step-up** | **`aal1` with the level in config**, so `aal2` is a config change not a code change. Paired with **HG-7** |
+| **OD-09** | Who may **disable** a transfer freeze? O-4 says not the scanner; it does not say who | RLS MD-12 · ROLE OD-7 | **the override RPC** | `platform_admin` under step-up, placed there provisionally |
+| **OD-10** | Door break-glass: if `door_open_at` is mis-set and no manager is reachable, the door cannot open under O-4 | RLS MD-13 · ROLE OD-8 · DOOR §8.2 | no (ops risk) | Ship without it — but the risk is real and should be seen here, not at 11 p.m. |
+| **OD-11** | Settlement close — `org_finance`, `venue_finance`, or both? | ROLE OD-4 · RLS §15 item 3 · MONEY open reconciliation | **`close_settlement` authority** | none — O-1/O-3 do not reach it |
+| **OD-12** | The platform sub-role read boundary | RLS §15 item 1 | **the platform matrices** | none |
+
+#### B. The two coupled scope questions (§13)
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-13** | **Is the event outbox in Phase 2?** The constitution promises exactly one outbox table and a drainer; no implementation spec schedules one | RATIFY **C51/O7** · REGISTRY COND-A · NOTIF O-N2 · RLS MD-11 · SCHEMA §13.3 | **the Wallet push path · the door-manifest open transaction as specified · scanner push-to-sync · every notification** | `NOTIF` §10 recommends **build it** — one table plus one RPC on a cron that already runs. **`REGISTRY` and `SCHEMA` decline to recommend.** Not decided here |
+| **OD-14** | **What gate is the `notify` schema at?** C7 is `RATIFIED · Gate P · MVP` and names it; all four implementation specs place it at Gate L | RATIFY **C52/O8** · REGISTRY COND-B · RLS MD-10 · NOTIF O-N1 · VD §22.16 | **everything in `RLS` §16.9 · `VD` §16.5 · package count and range** | `NOTIF` §10 recommends Gate P on the dashboard-dependency argument. `RLS` MD-10 explicitly declines: *"a stop-and-ask."* Not decided here. **Must be ruled together with OD-13, outbox first** |
+
+#### C. Privacy and data protection
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-15** | Which privacy regimes apply (GDPR/UK GDPR, CPRA, other US state regimes)? | DEMOG §14 D-1 | no | Counsel. The design survives the strictest answer with no redesign |
+| **OD-16** | **The backup-retention window `{N}` days** — needed for the erasure promise sentence and the tombstone's `purge_after` | DEMOG D-6 · CRM D-10 | **the user-facing copy** (cannot ship with a placeholder) | Owner / ops |
+| **OD-17** | Confirm k = 25 and cell floor = 5, and whether they are CHECK constants or config | DEMOG D-5 | **the CHECK constant** | **CHECK constant** — *"a tunable privacy floor is a floor that gets tuned"*; may be raised, never lowered |
+| **OD-18** | Is gender identity special-category / sensitive personal information? | DEMOG D-2 | no | Counsel. A "yes" requires no change — the capture is already explicit-consent shaped |
+| **OD-19** | Acknowledge the two named global-posture exceptions **and** the constraint on migration `020` (contact and demographic rows must never be repointed to the anonymized sentinel) | DEMOG D-9 · D-11 · CRM D-3 · RLS MD-9 | **`077`** (**HG-8**) | Accept as the single GP-2 exception in the model; a second must not be granted by analogy |
+| **OD-20** | **Confirm marketing's CRM / analytics ceiling — once, for all three specs** | CRM D-7 · DEMOG D-8 · ROLE §5 H2/H3 | **the export template and the mix-card grant** | Audience template only, at each label's plane grain; no money columns; no email-lookup probe; the demographic mix is **outside** the export authorization |
+| **OD-21** | Is a platform-plane bulk extraction path wanted at all? | RLS MD-8 · CRM D-8 · VD §22.6 | **platform export** | **Not built in Phase 2.** If wanted it needs dual control, its own retention and its own audit action — not the venue surface |
+| **OD-22** | Confirm X-8 stays closed — no demographic-based send, and no send of any kind from that surface | DEMOG D-4 · CRM D-9 | no | Stays closed; recorded so the absence is a decision, not a gap |
+
+#### D. Apple Wallet
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-23** | Holder name on the pass? | WALLET §15 OQ-W1 | **the pass template** | **No name** — lock-screen physical safety for a nightlife product; ID matching goes behind the scanner's authenticated lookup |
+| **OD-24** | Who owns the Apple Developer account, and who can renew the Pass Type ID certificate? | WALLET OQ-W2 | **`pass-cert-provision` operations** | Name a primary **and a backup** with portal access and KMS import authority; calendar the renewal independently of alerting |
+| **OD-25** | Ratify the session-bounded wallet token profile (the one place a recorded constraint is relaxed) | WALLET OQ-W4 · DOOR OQ-5 (ruled between the specs; sign-off owed) | **the `credential.wallet_*` seeds** | Grant, with the cross-config invariant `wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval` and the three mandatory mitigations |
+| **OD-26** | Offer a Wallet pass while `resale_state ∈ {listed, locked}`? | WALLET OQ-W5 · EDGE §12.2 (same question for `credential-sign`) | **the RN control** | **Hide/refuse while listed or locked** — answer both together |
+| **OD-27** | `wallet-pass-webservice` runs `verify_jwt=false`, the second such function after `stripe-webhook` — security sign-off | WALLET OQ-W6 | **deploy** | Accept with the §6.1 compensating controls, subject to explicit sign-off |
+| **OD-28** | DL-1 post-open issuance — build the manifest supplement, or accept "door sales after manifest open are online-only"? | WALLET OQ-W7 · DOOR §7.7 | **door sales after manifest open** | **Build the supplement** — small, provably safe; the alternative silently refuses paying fans |
+| **OD-29** | Budget (KMS · APNs · storage) · rotating barcodes later? · Google Wallet? | WALLET OQ-W8, OQ-W9, OQ-W10 | no | Deferred; Google Wallet revisited after Apple ships and is measured |
+
+#### E. Demographics — residue
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-30** | Add `age_band` in a later wave? | DEMOG D-3 | no | Value set pre-specified; needs a new `notice_version` and a separate opt-in. **Not Phase 2** |
+| **OD-31** | Does `platform_admin` get aggregate access at all? | DEMOG D-7 | no | Default yes, any session, audited; zero platform access is also coherent and slightly stronger |
+| **OD-32** | Owner for the compelled-disclosure runbook | DEMOG D-10 | no | Out-of-band, dual-controlled, audited; never a product feature |
+
+#### F. Promoter codes
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-33** | **Code beats link** when they name different promoters? | PROMO §13-1 | **the precedence table** | **Code wins**, link recorded in `displaced_promoter_id`. Reversing later is a **breaking change** to frozen attributions |
+| **OD-34** | Does the original promoter earn on a marketplace resale? | PROMO §13-2 | **§5.6** | **No.** Additive later as a `market_sale`-grain attribution with its own cause |
+| **OD-35** | Who bears a post-settlement chargeback on a commissioned sale? | PROMO §13-3 | **the promoter program's gate** | **The org**, via a negative settlement line. "Promoter bears it" needs C29+C30 and is therefore a decision to **gate the program on Gate M** |
+| **OD-36** | Commission basis: face subtotal or gross including fees? | PROMO §13-4 | **terms** | **Face subtotal.** Deciding after codes are live means renegotiating every promoter's terms |
+| **OD-37** | Do codes need redemption caps / expiry by default? | PROMO §13-5 | **§1.1** | No cap, opt-in expiry. Enforcing "Jordy has 60" via the code puts a hot counter in the checkout path |
+| **OD-38** | What is the remedy for a genuinely wrong attribution? | PROMO §13-6 | **must be settled before anyone builds an override** | **None on-ledger** — the freeze is absolute; remedy is a commercial settlement off-ledger. An override that mutates an AO ledger destroys every §4 guarantee |
+| **OD-39** | Promoter portal: web, or in the RN app? | PROMO §13-7 | no | Web, mobile-first responsive |
+| **OD-40** | Sub-promoters / sub-codes with a split commission? | PROMO §13-8 | no | Not in Phase 2 — two payees per attribution breaks the one-payee shape |
+| **OD-41** | May a promoter *request* a vanity code? | PROMO §13-9 | no | Out of scope; an inbox flow, not a grant. Flagged so nobody implements it as an RLS permission |
+| **OD-42** | Enumeration thresholds (30 failures / 5 min) | PROMO §13-10 | no | Starting value, tunable via config; needs a real traffic baseline |
+
+#### G. CRM export — residue
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-43** | Does a native-rail resale purchase create a contact relationship with the event's org? | CRM §13 D-1 | no | **No by default**; offer the same unchecked opt-in at resale checkout |
+| **OD-44** | Acknowledge that consent **withdrawal is a state change, not a hard delete** — divergence from the demographics spec | CRM D-4 | no | Adopt — a consent record is evidence about a relationship, and it is the person's own evidence in the dispute they are most likely to have |
+| **OD-45** | Confirm the email-lookup limit — 40/day per actor for `email_exact` | CRM D-5 | no | The *shape* must not change; the **number** should be the owner's, because it is the sharpest anti-harvest control |
+| **OD-46** | Export artifact retention: **24 hours or 7 days**? | CRM D-6 | **the sweep constant** | **24 h** — 7 days multiplies the standing exposure sevenfold for operator convenience |
+| **OD-47** | Does an operator ever need a printed door list? | CRM D-11 | no | Today "no" — box office looks people up one at a time. A yes needs its own template, retention, and an honest note that print has none of §6's controls |
+
+#### H. Notifications
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-48** | **Does transactional email exist in Phase 2?** Requires a provider account and SPF/DKIM/DMARC on the domain | NOTIF §10 O-N3 | **19 of the 24 mandatory types name `E`** | Decide before build. The design degrades safely, but a mandatory money notice with **push as its only channel** is one revoked permission from unreachable |
+| **OD-49** | Which of the 24 mandatory types are *legally* compulsory, and where? | NOTIF O-N4 | **whether the class is policy or compliance** | Counsel. The design is built so the answer changes one registry column |
+| **OD-50** | Announcement hold-window length, dual-control threshold, and whether a step-up primitive exists to gate release | NOTIF O-N5 | **§7** | 300 s hold, 500-recipient threshold; step-up depends on OD-08 |
+| **OD-51** | May the marketing concept **release** announcements, or only draft? | NOTIF O-N6 | **composer authority** | **Draft only** — a product-authority call, needing owner ratification |
+| **OD-52** | Do venue-staff notifications share the consumer inbox table or get a separate surface? | NOTIF O-N8 | **the schema shape** | One table with `org_id`/`venue_id`; two would double every RLS and dedupe assertion |
+| **OD-53** | Retention for `notification` / `delivery` / `outbox`, and the C48 retention floor | NOTIF O-N9 | **retention + the C48 floor** | 24 months / 90 days / 30 days, **both projections marked NON-REBUILDABLE** |
+| **OD-54** | Migrate the 12 legacy inbox types into the registry, or leave them alongside? | NOTIF O-N10 | no | Leave them; register as `legacy=true`; do not touch working producers |
+| **OD-55** | `notify.push_token` as a new table, or additive columns on `public.push_tokens`? | NOTIF O-N11 | **the token model** | **Extend `public.push_tokens`** — a second table creates split-brain during migration. Flagged because C7 literally says *"into their own schema"* |
+| **OD-56** | Quiet hours · `security_email_changed` mirror sweep · promoter digest · **Universal Links / App Links** | NOTIF O-N12, O-N13, O-N14, O-N15 | **O-N15 blocks any deep-link target more sensitive than navigation** | First three: not in MVP. AASA/`assetlinks.json` required before a sensitive target |
+
+#### I. Door lifecycle
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-57** | Does opening the manifest early bother anyone commercially? (the early freeze) | DOOR §16 OQ-1 | **the operating recommendation** | Keep manifest-open and freeze **coupled**; accept the early freeze. Decoupling reintroduces the snapshot-then-freeze window |
+| **OD-58** | Draining active listings at door-open — a product act, not just a technical one | DOOR OQ-2 | **§7.3 sign-off** | Drain, with the notification. The alternative is worse but *visible* to the seller |
+| **OD-59** | **Confirm the MVP freeze predicate is session-wide** — and correct the four documents that describe a C43 narrowing nothing implements. If the board wants the narrowing in MVP it is a **new ratification, not a clarification** | DOOR OQ-4 · VD §22.11 · RLS X-7 | **four documents' correctness** | Keep the session-wide predicate; the narrowing is a pure additive conjunct once `door_manifest_entry` is populated |
+| **OD-60** | Is `record_scan` required to take the session `FOR SHARE`? · Manifest signing | DOOR OQ-6, OQ-7 | **the door transaction shape** | — |
+| **OD-61** | Should the C25 compensate branch void the seller's atom at all? | DOOR OQ-8 | **C25 semantics** | Surfaced, not resolved |
+
+#### J. Venue dashboard — unbacked controls and column asks
+
+`U-*` = a control with **no named backend capability**. Until each is closed, `VD`'s standing rule holds: **the control is read-only or it does not render.**
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-62** | Name the guest-list write RPCs — create list · add guest · remove entry. Three writes, **zero signatures** | VD §20A.3 **U-1** | **surface F** | — |
+| **OD-63** | Name the **mark-a-guest-arrived** RPC. RLS grants the door principal exactly this narrow update; **no contract exists** | VD **U-2** | **the door** — *"the single most-used control at a door"* | — |
+| **OD-64** | Name the promoter record + link RPCs, and a live slug-availability read (the UI must check a global namespace against nothing) | VD **U-3, U-4** | **surface E** | — |
+| **OD-65** | Grant the two door pre-confirm reads: blast-radius dry run, and live-device count | VD **U-5/Δ11, U-6/Δ12** | **the door-open confirm** | Small, read-only, same role set as the open RPC. Without them the most consequential door control asks for a confirmation the operator cannot evaluate |
+| **OD-66** | `venue.get_dashboard_summary` — the home tiles in one round trip | VD **U-7** / Δ3c | no | Home works at N queries |
+| **OD-67** | Name a capacity-change RPC for an existing batch | VD **U-8** | **§8.4** | The guarded behaviour and refusal floor are already specified in detail |
+| **OD-68** | Name an update RPC for `catalog.event` / `event_session` — creation is contracted, editing is not | VD **U-9** | **§7.3** | — |
+| **OD-69** | Name `kernel.update_organization` — `catalog.update_venue` exists; the org has no counterpart | VD **U-10** | **§16.1** | — |
+| **OD-70** | Δ6 — `catalog.event.announce_at` / `on_sale_at` for a scheduled on-sale | VD §21 Δ6 | no (degrades §7.4) | Two nullable timestamps plus a sweep. **Explicitly not a virtual queue or bot defence (C44)** |
+| **OD-71** | Δ7 — `venue.ticket_type` sale windows and per-order min/max | VD Δ7 | no (degrades §8.6) | "Tables sell 1 per order" is currently unexpressible |
+| **OD-72** | Δ8 — `venue.staff_role.event_id` / `expires_at` (event-scoped, auto-expiring grants) | VD Δ8 | no (degrades §15.3) | **Urgency raised by O-2**: a one-night `venue_box_office` lead now gets a permanent venue-wide grant |
+| **OD-73** | Δ9 — `venue.guest_list.promoter_id` | VD Δ9 | no | Low priority; today it is string matching |
+| **OD-74** | Δ10 — org/venue `brand_logo_ref` | VD Δ10 | no | Only if venue branding is a product commitment; otherwise drop the delta |
+| **OD-75** | Re-map legacy `venue_manager` grants when the six-label enum lands — anyone granted it *for box-office work* retains manifest open/close | VD §22.12 | **grant hygiene at cutover** | Under-provisioning is safe here; over-provisioning is not |
+| **OD-76** | Inventory warning thresholds — no config key is named and no per-venue override exists | VD §22.8 · NOTIF low-inventory rule | **§6.1 and the low-inventory notification** | Left unresolved rather than invented |
+| **OD-77** | Label reconciliation: `duplicate` / `already_scanned` / "Already used"; and the undefined `ˢᵒᵈ` legend symbol | VD §22.5, §22.10 | no | Not behavioural — a naming reconciliation for the RPC author, and a one-line confirmation from the money-spec owner |
+
+#### K. Governance and process
+
+| ID | Question (one line) | Raised by | Blocks | Recommendation on record |
+|---|---|---|:-:|---|
+| **OD-78** | **Three of the six features have no boolean kill switch** — demographics, promoter codes and CRM export are gated only by package application, which is a deploy and not a runtime control | **this document, §12.2** | **the amendment's own flag rule** | none — naming a new flag is a scope decision. The keys would be rows in a table `078` already creates |
+| **OD-79** | **Re-ratify the amended package registry.** Its header reads `AMENDMENT PENDING RE-RATIFICATION`: `kernel.approval_request` placed in `077`, two packages renamed, seven dependency edges added | REGISTRY header · ROLE OD-10 · PROMO §14.1 · NOTIF O-N7 · VD §22.15 | **authoring any package** — rule §6.5 says the registry is updated only by ratified amendment | Ratify as amended; the count changes to 17 only if OD-14 is Gate P |
+| **OD-80** | **O6** — cross-region native resale: saga/escrow over the `paid_pending_transfer` window, or explicit intra-region-only scoping | RATIFY C50/**O6** | Gate M / multi-region — **not MVP** | Miami single-region builds neither; carried so it is not lost |
+| **OD-81** | Retain `venue_finance` though O-2 does not list it; and do **not** rename `org_member` → `org_affiliate` | ROLE OD-1, OD-9 | no | Retain (`RLS` §9.13/§11 both depend on it, and deleting it would silently close `RLS` §15 item 3); do not rename |
+
+### 14.3 Counts
+
+| | Count |
+|---|---|
+| Items raised across all sources | **133** |
+| Distinct decisions after deduplication | **81** |
+| **Of which block a package or a named implementation item** | **54** |
+| Block **more than one feature** | **2** (OD-13, OD-14) |
+| Owner-only | 54 · Counsel | 4 (OD-15, OD-18, OD-49, and OD-16 jointly with ops) · Architecture sign-off | 5 (OD-01, OD-09/OD-19, OD-52, OD-55) · Security sign-off | 1 (OD-27) |
+| Decisions with a recommendation on record | **71 of 81**. The ten with none: OD-05, OD-11, OD-12, OD-13, OD-14, OD-60, OD-62, OD-63, OD-64, OD-69 |
+
+**The four to answer first**, because each unblocks the most downstream work per answer: **OD-13** and **OD-14** (five features' schedules), **OD-19** (blocks `077`, the second package in the chain), **OD-79** (blocks authoring any package at all).
