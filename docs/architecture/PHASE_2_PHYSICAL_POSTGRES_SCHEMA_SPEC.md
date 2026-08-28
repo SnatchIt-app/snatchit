@@ -899,7 +899,11 @@ change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C81*
 - **PK:** `id` uuid.
 - **Columns:**
   - `id` uuid — PK.
-  - `actor_identity` uuid — not null, FK→auth.users(id) (server-derived, C35).
+  - `actor_identity` uuid — not null, FK→auth.users(id) (server-derived, C35). **This column is the whole
+    reason the table exists, and `NOT NULL` + FK is not decoration: it means **every** writer of this table
+    must run on a connection where `auth.uid()` resolves, or on one that supplies a **seeded** identity
+    (§1.16). A `service_role`-only writer satisfies neither — `auth.uid()` is NULL and the FK forbids an
+    invented sentinel. See §1.12.1 for the one writer in the corpus that violated this.**
   - `action` text/enum-like — not null (namespaced action name, e.g. `org.approve`, `refund.issue`,
     `role.grant`, `key.rotate`).
   - `subject_kind` text — not null; `subject_id` uuid — not null (the affected object; NOT polymorphic
@@ -915,6 +919,82 @@ change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C81*
 - **RLS:** audit-only (readable only by `is_platform`).
 - **Write authority:** every privileged RPC writes its own audit row in-txn.
 - **SoT/PROJ:** SoT (audit backbone).
+
+#### 1.12.1 DEFECT `MB-3` — `kernel.record_money_denial` cannot write its own audit row
+
+**The defect (CONFIRMED against this spec and RPC §17.9 at `734c814`).**
+`kernel.record_money_denial(p_action, p_subject_kind, p_subject_id, p_error_code)` is `service_role` only,
+**no human path**, called by the edge **in a separate transaction** after catching a denial. **Four
+parameters, none of them an actor.** Running as `service_role`, `auth.uid()` is NULL; the FK on
+`actor_identity` forbids an invented sentinel; the INSERT cannot satisfy `NOT NULL`. **The function fails on
+its first call, in production, on the fraud path.**
+
+**And the row it cannot write is the one that matters.** The control exists because *"repeated failed
+attempts to change a payout destination or fire a payout are the single highest-value fraud signal in the
+system, and today they are invisible"* (MONEY §8.4 Control 6). **"Repeated attempts by ONE PRINCIPAL" is
+exactly the fact the row cannot carry** — the signal is not "some denials happened", it is a count grouped
+by actor.
+
+**The contradiction is stated inside the rule that fixes it.** RLS §3.1 **EDGE-CALLER-JWT** lists
+`kernel.record_money_denial` among the definer-only RPCs that *"have **no human actor by construction**"* —
+while §3.1's own body explains that a service-role client is precisely the connection on which
+`auth.uid()` is NULL and *"the only remaining way to name the actor is for the edge to attest it as a
+parameter — which is exactly the client-supplied-authority pattern ratified row C35 forbids."* **The
+denial RPC is misfiled in that list.** The genuine members of it — `sweep_expired_refund_requests`,
+`market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales`,
+`kernel.sweep_expired_door_overrides`, `catalog.sweep_implicit_door_freezes` — really do have no human
+actor, and they are served by the **seeded system-actor sentinel** of §1.16. A denial **has** a human
+actor: the principal who was just refused. It is the only reason to write the row.
+
+**The repair, and it changes no signature.** *Who knows the principal at the moment of denial?* Not the
+database — that transaction was rolled back. Not the sweep scheduler. **The edge function, and it holds the
+principal as a verified JWT, not as a uuid it invented.** So the row must be written **from a connection
+that already carries that JWT**, and the database derives the actor itself:
+
+- **`kernel.record_money_denial` is bound by EDGE-CALLER-JWT like every other money RPC.** The edge builds
+  its Supabase client from the **caller's own `Authorization` header** for this call too — §3.1 already
+  mandates exactly this construction for the RPC that was just denied; the denial log is the *same* call's
+  second transaction, on the *same* client. This **extends** §3.1's scope by one function; it weakens
+  nothing.
+- **`actor_identity := auth.uid()`, server-derived.** The signature keeps its four parameters. **No actor
+  parameter is added**, so this is not the `p_user_id`-trust anti-pattern in a new place.
+- **`SECURITY DEFINER`, `EXECUTE` to `authenticated` only — never `anon`, never `service_role`.** It must be
+  definer because `kernel.admin_audit` is audit-only/deny-all. It is not granted to `anon` because a denial
+  before authentication has no principal to record and belongs to rate-limiting, not to audit.
+- **It RAISES when `auth.uid()` IS NULL.** A service-role invocation must fail **loudly**, not write a wrong
+  row — the same fail-closed shape RLS asserts for every human-predicate RPC in `T-RLS-EDGE-01`.
+
+**The pollution vector, named rather than waved at, because granting a write to `authenticated` deserves
+the argument.** A malicious authenticated caller can now insert denial rows. It **cannot forge `auth.uid()`**,
+so every row it writes is **about itself**: it cannot frame another principal, and it cannot suppress a row
+(the edge writes those). The only thing it can do is make its own denial count look worse and grow the
+table. Bounded by three things, all of which already exist: `p_action` is validated against a **closed
+allow-list** of money `*.denied` names; `(subject_kind, subject_id)` is validated against the same pairing
+rule `APPR-SUBJ-1` imposes (§1.13.3); and the call is rate-limited per actor through the production
+`public.check_rate_limit(p_user_id, p_action, p_max, p_window_seconds)` (migration `005`, applied), which is
+what makes table growth an answered question rather than an accepted risk.
+
+**Rejected repairs, each with the reason it is worse than the defect.**
+
+| Rejected | Why |
+|---|---|
+| Add `p_actor_identity_id` | **The `p_user_id`-trust anti-pattern Phase 0 closed** (C35/R7, §7.5), which ratification `S-6` rejects in the identical shape on the door path. On a `service_role` connection there is nothing to validate it *against* — it would be an unauthenticated uuid selecting whose fraud counter increments, which is the same defect the denial log exists to detect |
+| Use the system sentinel as the actor | **Destroys the only fact the row exists to carry.** A ledger of denials all attributed to one machine identity answers "how many denials" and never "by whom", and is the accumulating sentinel the corpus refuses elsewhere (CRM §9.5) |
+| Make `actor_identity` nullable for denial rows | Weakens a `NOT NULL` on the **audit backbone** for the benefit of one writer, and the nullable rows would be exactly the ones that matter most. `kernel.admin_audit` is `AO` and permanent; a nullable actor is permanent too |
+| An autonomous transaction (`dblink` / `pg_background`) | Not in this corpus, and unnecessary: a second connection is what the edge already **is**. Adding an in-database out-of-band connection would also run as the definer, reproducing the NULL-actor problem one layer down |
+
+Filed to the RPC, RLS and edge owners as §13.7 **S-17**. Ratification **C82**. **No schema change:
+`kernel.admin_audit` is correct as specified — the writer was wrong.**
+
+**Tests** (plan §8 `085` Tests row).
+- `T-SCHEMA-AUDIT-01`: `record_money_denial` invoked on a **`service_role`** connection **RAISES**, and
+  writes no row. Asserted on the service-role path deliberately — that is how the function was contracted,
+  and it is the call that cannot satisfy `actor_identity NOT NULL`.
+- `T-SCHEMA-AUDIT-02`: invoked on the caller's own JWT it writes exactly one row whose `actor_identity`
+  **equals `auth.uid()`**, and **no parameter of the function can change that value** — asserted
+  structurally over the signature, because a later "convenience" parameter is exactly how this returns.
+- `T-SCHEMA-AUDIT-03`: `p_action` outside the closed money-`*.denied` allow-list raises, and `anon` holds no
+  `EXECUTE`.
 
 ### 1.13 `kernel.approval_request` — the generic dual-control object (MONEY §6.6, §12 ADDITIVE-1)
 
@@ -3581,6 +3661,7 @@ reason it cannot wait.
 | **S-15** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §11.2, §11.3, §17.7 control 2, §10.3 | **`hold_payout` and `release_payout` write `hold_state`, never `status`.** §11.2's *"Writes: `kernel.payout` (→ `held`-equivalent status)"` becomes `hold_state := 'held'` + `hold_reason_code`/`held_by`/`held_at`, `status` untouched; §11.3's *"→ `pending`/`submitted`"* becomes `hold_state := 'none'`, `status` untouched. §10.3's probation branch writes `hold_state := 'probation_hold'` with `held_by` NULL | §11.2 already hedged with *"`held`-equivalent"*, which is a contract writing a value that does not exist. **§11.3 as written is unimplementable under any single-column repair**: it must restore `pending` XOR `submitted` after the hold overwrote which one it was, and that is the difference between sending money once and twice |
 | **S-16** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20 (new) · `PHASE_2_EDGE_FUNCTION_SPEC.md` §4 | **Contract `kernel.mark_payout_transfer_state` and `venue.on_payout_settled`, and replace §4's placeholder** *"`mark`-style state sync RPCs"* with the named function. **And correct the event mapping** (§1.9.2): only `transfer.created` supplies the `stripe_transfer_ref` join key; `payout.paid`/`payout.failed` are the **connected account's own bank payout** (`po_…`), which aggregates many transfers and is **not joinable to one `kernel.payout` row**; a transfer that cannot be created fails as a synchronous API error, not an event, so the payout **executor** is the natural writer of `failed` | A placeholder naming no function is how nine of the twelve surviving gaps were created (§8 preamble). Until it is named, three of five `status` labels and `venue.settlement.status='paid'` have no writer, a failed transfer reads `submitted` forever, and dashboard §14.5's pinned *Failed payout* banner can never fire |
 | **S-21** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14.5 | **The three pills are three straight column reads, and the section should say which:** *held* = `hold_state='held'`, *on probation* = `hold_state='probation_hold'`, *failed* = `status='failed'`. `status` never carries a hold | §14.5 states *"They must never render as one pill"* as a working requirement while two of the three had no storable representation. Naming the column is what stops the implementer deriving the probation pill by inferring from the absence of a `payout.hold` audit row — the construction `AUTHZ-M1` refuses |
+| **S-17** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.9 · `PHASE_2_RLS_PERMISSION_SPEC.md` §3.1 + §11 · `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.4/§3.5 | **`kernel.record_money_denial` must be bound by EDGE-CALLER-JWT and removed from §3.1's definer-only exclusion list.** It becomes `SECURITY DEFINER` with `EXECUTE` to **`authenticated` only** (never `anon`, never `service_role`), derives `actor_identity := auth.uid()`, **RAISES when `auth.uid()` IS NULL**, validates `p_action` against a closed money-`*.denied` allow-list and the `(subject_kind, subject_id)` pairing, and is rate-limited per actor via the applied `public.check_rate_limit` (`005`). **The signature is unchanged — no actor parameter is added.** The edge builds the client for this call from the caller's own `Authorization` header, which is the client it already built for the call that was denied | **The function as contracted cannot execute once.** `service_role` ⇒ `auth.uid()` NULL ⇒ the INSERT violates `actor_identity NOT NULL`, and the FK forbids a sentinel. **§3.1 lists it among RPCs with *"no human actor by construction"* while its entire purpose is to name the human actor** — the genuine members of that list are the cron sweeps, which §1.16's system sentinel serves. This **extends** a security rule to one more function; it weakens nothing |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---
