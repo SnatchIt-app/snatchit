@@ -178,25 +178,97 @@ Three gaps found in the wall itself:
 
 **Documents disagree on the deadline.** Four say *"before `087`"*; the corpus at head puts the `CREATE ROLE` in **`076`**. `SEAM-4` forces it — a `GRANT` resolves its grantee immediately, so the first grant in `077` is a hard `42704`. **This decision gates the first migration, eleven packages earlier than three documents advertise.**
 
-## G. Engineering recommendation
-**[C].** Adopting an unverified privilege wall is the worst trade available — all the complexity, none of the guarantee. But [B] is wrong too: `X-6` is a promise about a **protected class**, the detective layers all depend on a human noticing a CI diff, and the retrofit cost is asymmetric (dropping and recreating 12 policies across five applied packages in production).
+## G. Engineering recommendation — **TWO SPECIALISTS DISAGREE. Read both.**
 
-Twelve one-line policies and thirteen grants is one afternoon, front-loaded, on the highest-consequence data surface in the product.
+This is the only decision in the brief where the reviews split, and the split is worth your attention because
+the second reviewer found four **more** blocking gaps than the first.
+
+### Position 1 — CRM/privacy reviewer: **adopt, gap-closed [C]**
+`X-6` is a promise about a **protected class**; the three detective layers all depend on a human noticing a CI
+diff; and the retrofit cost is asymmetric — adding the wall later means dropping and recreating twelve policies
+across five already-applied packages in production. Twelve one-line policies is one afternoon, front-loaded.
+
+### Position 2 — ECC `database-reviewer` (independent Postgres lens): **stay `postgres`-owned [B]**
+It accepts that the role buys something real — a `postgres`-owned definer on Supabase carries `BYPASSRLS`, so a
+bug that loses the consent row emits **all** contact cells, whereas under the role RLS is a second fail-closed
+gate. Then it found four further gaps that no previous pass caught:
+
+- **The grant set is `SELECT`-only, and the builder is a documented *writer*** of `venue.export_job` — it
+  accumulates the four gate counters page by page. That is `42501` on the first page. **And the repair is
+  blocked from both sides:** an `UPDATE` grant without a policy updates zero rows *silently*, and adding an
+  UPDATE policy fails `T-RLS-POL-05` (*"no Phase-2 table carries an INSERT, UPDATE or DELETE policy"*).
+- **No `GRANT USAGE ON SCHEMA` to the role exists anywhere in the corpus.** Table privileges without schema
+  `USAGE` are inert — `42501` before any policy is reached. The enumeration only ever counted tables.
+- **`auth.users` gets a grant and no policy**, and `public.profiles` (verified against the live migrations) has
+  RLS with a `TO authenticated` policy. Under the role both read **zero rows** — every email and every
+  `display_name` blank. The reason no existing definer notices is that `postgres` carries `BYPASSRLS`, which is
+  precisely the attribute the new role must not have.
+- **`kernel.tickets` has no index on `org_id`**, while the contract calls `org_id` *"this function's FIRST
+  predicate, on every branch."* At org grain there is no session anchor, so the driver is a sequential scan of
+  every atom on the platform.
+
+**Its decisive argument is about which way each option fails, and it runs opposite to the intuition:**
+`postgres`-owned fails **open** on a *consent* bug — loud in the product, and caught by a fixture that is
+already specified. Role-owned fails **closed and silent** on a *privilege* bug, and **the only detector covers
+1 of the 21 export columns.** A silently-empty `checked_in` column is caught by nothing in this design and
+reads to a venue as *"nobody scanned in."*
+
+Its second argument is about convergence: **four independent passes have now enumerated this grant set and
+produced four different lists** — ten, then twelve, then the `auth.users` grant that appeared in no list, then
+`C115` finding the grants were in no package at all — and this review adds four more. Under `postgres`
+ownership every one of those findings is a non-event, because the grant set and the policy set are both empty
+and nothing has to stay in sync.
+
+It also notes that `GP-3a` already put the entire money plane behind `EXECUTE` on `postgres`-owned definers
+where no table policy ever runs, and the corpus is not weaker for it — it moved its assurance to structural
+assertions over `pg_proc`. The consistent move here is the same one.
+
+### My synthesis
+**I now recommend `[B]`, with the `X-6` assurance strengthened rather than the wall built.** The deciding
+factor is not the count of gaps but what the count *means*: an enumeration that four careful passes could not
+converge on is not a boundary anyone will keep correct as the product grows — and `090` already proves it, by
+bringing three new relations into the read set with no grant row. Meanwhile the thing actually worth having —
+*"a demographic reference is a runtime error"* — does not require **this** role; it requires **any** owner
+lacking those grants, and it can be asserted over the catalog far more cheaply than twelve policies can be
+kept in sync.
+
+`[C]` remains defensible, and Position 1's protected-class argument is not wrong. Choose it only if you will
+close **all** of C-1…C-4 and H-1/H-4 before `076` — not as a follow-up.
 
 ## H. OWNER CHOICE
 ```
 [A] Adopt Layer 0 as currently specified
-[B] Stay postgres-owned; X-6 rests on the detective layers
-[C] Adopt, gap-closed — [A] plus, before 076 is authored:
-      1. reconcile the grant set against the builder's actual read path
-      2. column-scope or drop kernel.identity_ext
-      3. add a closed-world negative assertion on the role's grants and attributes
-      4. fix the migration plan to enumerate all twelve policies, conditionally on MD-2
-      5. correct the HG-4 deadline from 087 to 076
+    -- not recommended by either reviewer; the wall has four known holes
 
-RECOMMENDED: C
+[B] Stay postgres-owned; X-6 rests on the detective layers, strengthened with
+    catalog assertions (empty demographic grant set, rolbypassrls=false)
+    -- ECC database reviewer's recommendation; my synthesis
+
+[C] Adopt, gap-closed -- [A] plus, ALL before 076 is authored:
+      1. re-derive the relation set from the builder's actual read path
+         (7 relations missing: profiles, ticket_type, ticket_ownership_log,
+          scan, organization, attribution/promoter_link/promoter)
+      2. GRANT USAGE ON SCHEMA kernel, catalog, venue, auth
+      3. resolve the venue.export_job WRITE (counters) -- grant+policy, or
+         route it through a postgres-owned helper
+      4. verify relrowsecurity on auth.users and public.profiles; policy them
+         or route those two reads through a narrow helper
+      5. column-scope or drop kernel.identity_ext (kyc_ref, residency_region)
+      6. assert rolbypassrls=false, rolsuper=false, and the empty demographic
+         grant set over the catalog -- currently prose in five places, zero tests
+      7. extend the blank-column canary past the contact column (1 of 21 today)
+      8. fix the migration plan to enumerate all twelve policies, conditionally
+      9. correct the HG-4 deadline from 087 to 076
+    -- CRM/privacy reviewer's recommendation
+
+RECOMMENDED: B   (revised -- the brief as first published said C)
 ```
-**Under no ruling may the role ship without all twelve policies** — five documents call that the one silently-wrong combination, and the plan as written leads an implementer straight into it.
+**Independent of the ruling:** `kernel.tickets` needs an `(org_id, event_session_id)` index, or the org-grain
+driving path must be stated. And **under no ruling may the role ship without all twelve policies.**
+
+**Two facts to check on a branch before ruling** — both single queries, both load-bearing:
+`select relrowsecurity from pg_class where oid = 'auth.users'::regclass;` and
+`select rolbypassrls from pg_roles where rolname = 'postgres';`
 
 ---
 
