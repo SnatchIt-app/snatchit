@@ -680,7 +680,19 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
   - `amount_minor` integer — not null; `currency` text not null default `'USD'` (C13).
   - `status` enum(`pending` · `submitted` · `paid` · `failed` · `reversed`) — not null default `pending`
     (append-only state entries, CDM §1.1 Payout ledger; MVP models as a guarded state machine + audit).
+    **This is the Stripe-pipeline lifecycle and nothing else. `held` is NOT a member of it — see §1.9.1.**
+  - **`hold_state` text — not null default `'none'`, CHECK in (`none` · `held` · `probation_hold`)
+    (ADDED — defect `MB-2`, §1.9.1).** The **orthogonal** risk gate: a payout may be held in any
+    non-terminal `status`, and releasing it restores the `status` it already had rather than guessing one.
+    This reproduces the shape of the frozen Phase-0 discipline `hold_payout` is contracted to extend
+    (`public.transfers.payout_review_status` ∈ `held`/`manual_review` + `payout_hold_until`, migration
+    `039`), which is **also** a separate review dimension and not a lifecycle value.
+  - **`hold_reason_code` text — nullable; `held_by` uuid — nullable, FK→auth.users(id) on delete restrict;
+    `held_at` timestamptz — nullable (ADDED — `MB-2`).** `held_by` is the server-derived risk operator
+    (`auth.uid()`, C35) for `hold_state='held'`, and is **NULL for `probation_hold`**, which no human
+    initiates — the distinction is itself a queryable fact and not a convention.
   - `stripe_transfer_ref` text — nullable (the Stripe Connect transfer id; reuses existing pipeline).
+    **Written by `kernel.mark_payout_transfer_state` (§1.9.2) — it had no writer at `734c814`.**
   - `idempotency_key` text — not null (deterministic, mirroring the frozen payout idempotency on
     `(cause, cause_ref, payee)` — Phase-0 protected discipline).
   - `source_transaction_ref` text — nullable (`source_transaction` funding, Phase-0 discipline).
@@ -688,16 +700,158 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
 - **FKs:** as above (on delete restrict).
 - **Unique:** `idempotency_key` unique (payout idempotency + replay recovery, Phase-0 §9 protected);
   CHECK exactly one of payee_org_id/payee_identity_id per `payee_kind`.
-- **Check:** payee XOR coherent with `payee_kind`; `amount_minor > 0`; `cause` ∈ D3.
+- **Check:** payee XOR coherent with `payee_kind`; `amount_minor > 0`; `cause` ∈ D3. **`hold_state` ∈ the
+  three labels; `hold_state = 'none'` **iff** `hold_reason_code IS NULL AND held_at IS NULL` — the pairing
+  CHECK, without which a released payout can keep a stale reason and the risk queue reads wrong;
+  `held_by IS NULL` whenever `hold_state <> 'held'`.**
 - **Immutability:** status transitions guarded (single-writer, `FOR UPDATE`); reversals are new rows/entries,
   not edits (ledger discipline). No reserve/clawback funding modeled in MVP — that is **Gate M** (C29/C31,
-  see EXTENSION POINTS).
+  see EXTENSION POINTS). **`status` is forward-only across `pending → submitted → paid|failed|reversed`;
+  `hold_state` is the only bidirectional field on the row, and it is bidirectional by design (a hold is
+  applied and released, which is the whole control).**
 - **Index:** PK; unique idempotency_key; index on `(payee_org_id, status)`, `(payee_identity_id, status)`,
-  `cause_ref`.
+  `cause_ref`; **partial `(hold_state, created_at) WHERE hold_state <> 'none'`** — the platform risk queue,
+  which is a small slice of a large table and is invisible to the two `(payee, status)` indexes.
 - **RLS:** money-custody-RPC-only; payee reads own via scoped RPC.
-- **Write authority:** `kernel.close_settlement` / native-sale payout path / `kernel.pay_promoter_commission`.
+- **Write authority:** `kernel.close_settlement` (INSERT `pending`) / native-sale payout path /
+  `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, or
+  INSERT-with-`probation_hold`) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
+  never touch `status`)** / **`kernel.mark_payout_transfer_state` (`status` terminal advance +
+  `stripe_transfer_ref`; §1.9.2)**.
 - **Read authority:** payee + org finance + platform.
 - **SoT/PROJ:** SoT.
+
+#### 1.9.1 DEFECT `MB-2a` — `held` was ratified four times and was never a storable value
+
+**The defect (CONFIRMED against this spec's own text at `734c814`).** `PHASE_2_MONEY_AUTHORITY_SPEC.md`
+§8.4 Control 4, that spec's §12 (`NO SCHEMA CHANGE`), ratification row **O-3**, RPC §17.7 control 2 and
+dashboard §14.5 all rely on `kernel.payout.status = 'held'`. The `status` set above never contained it, and
+`PHASE_2_SUPABASE_MIGRATION_PLAN.md` §5's DDL-authoritative CHECK (`pending/submitted/paid/failed/reversed`)
+agreed with this spec and with nothing else. RPC §11.2 `kernel.hold_payout` already hedged rather than
+naming a value — *"Writes: `kernel.payout` (→ `held`-equivalent status)"* — which is a contract writing a
+value that does not exist.
+
+**Why a reviewer confirmed it and moved on.** `held` **does** exist in this schema — as
+`venue.inventory_batch.held` (§3.2), an **integer capacity counter**, and as a `venue.inventory_unit.status`
+label (§3.6, EXT/C42). A corpus-wide `grep held` returns dozens of hits and every one of them is about
+inventory. This is the wrong-column trap in its purest form: the search succeeds, the reader reads
+confirmation, and the money plane has no such value anywhere.
+
+**What was actually unbuildable.** `hold_payout`/`release_payout` are `platform_risk`'s **entire** payout
+authority (RLS §7.9); Control 5's one-tap *"I did not authorize this"* escalation calls `hold_payout` on
+every pending payout for the org; and dashboard §14.5 states as a working requirement *"Three states, three
+remedies: held · failed · on probation … They must never render as one pill"* — of which **two had no
+storable representation at all**.
+
+**The obvious repair is rejected, and the reason is not stylistic.** Adding `held` to `status` is **lossy**:
+`hold_payout`'s precondition is *"payout `pending`/`submitted`"* and `release_payout` is contracted to write
+*"→ `pending`/`submitted`"* (RPC §11.2/§11.3). Overwriting `status` with `held` destroys which of the two it
+was, so the ratified release contract becomes **unimplementable except by guessing** — and the guess is
+between "not yet submitted to Stripe" and "already submitted to Stripe", which is the difference between
+sending money once and sending it twice. A single-column state machine cannot carry two independent facts.
+
+**The repair, and why it is the shape the corpus already uses.** `hold_state` is an **orthogonal** column.
+This is not an invention: `kernel.hold_payout` is contracted to *"extend the frozen `apply_payout_hold`
+discipline onto `kernel.payout`"*, and that frozen discipline (migration `039`, applied) is exactly this
+shape — `public.transfers.payout_review_status` ∈ `held`/`manual_review` **beside** the transfer's own
+state, plus `payout_hold_until`. **Extending a discipline means reproducing its shape, not renaming its
+outcome.** The frozen money core is untouched; `kernel.payout` is a new Phase-2 table.
+
+**`probation_hold` is a second label, and it is forced rather than chosen.** Dashboard §14.5 requires three
+separately-rendered pills and says they *"must never render as one pill"*. With one `held` label, a
+probation hold and a risk hold are the **same stored value**, and the pill could only be derived by
+inferring from the absence of a `payout.hold` audit row — which is precisely the construction `AUTHZ-M1`
+refuses (*"a control that depends on writers remembering **is** a convention"*), and the same standard
+`MP-1` imposed on the manifest projection (*"the projection synthesizes no constant"*). Two ratified
+statements — §14.5's three-pill requirement and §8.4's *"needs no new column"* — are jointly satisfiable by
+exactly one construction: a second label on the new orthogonal column. Under it, each of the three pills is
+a straight column read.
+
+**MONEY §12's classification is corrected, and it was false under every candidate repair.** Destination
+probation is **`SCHEMA CHANGE` — four additive columns on `kernel.payout`, no new table, no new RPC, no new
+package, no new dependency edge.** §8.4's *"needs no new column"* was the claim that made the row look free;
+adding a CHECK label would have been a schema change too, so the classification was never true. §8.4's
+*"created at status `held` rather than `submitted`"* becomes *"created and **not advanced** to `submitted`,
+carrying `hold_state='probation_hold'`"* — **the ratified behaviour is unchanged**: money does not leave,
+and only `is_platform(['platform_risk','platform_admin'])` may release it (O-3, RPC §11.3). Filed to the
+money-spec owner as §13.7 **S-14**, to the RPC owner as **S-15**, to the dashboard owner as **S-21**.
+Ratification **C80**.
+
+**Tests.**
+- `T-SCHEMA-PAYOUT-01`: `hold_state` is `NOT NULL DEFAULT 'none'` and admits exactly the three labels; a
+  fourth raises `23514`.
+- `T-SCHEMA-PAYOUT-02`: hold a payout in `status='submitted'`, release it, re-read — `status` is
+  **still `submitted`**. Asserted as an equality against the pre-hold value, not against a literal, because
+  the defect this closes is a release that has to guess.
+- `T-SCHEMA-PAYOUT-03`: the pairing CHECK — `hold_state='none'` with a non-NULL `hold_reason_code` raises,
+  and `hold_state='probation_hold'` with a non-NULL `held_by` raises.
+- `T-SCHEMA-PAYOUT-04`: the risk-queue partial index exists and is used for
+  `WHERE hold_state <> 'none'` (`EXPLAIN`), because the queue is the surface Control 5 escalates into.
+
+#### 1.9.2 DEFECT `MB-2b` — nothing wrote `paid`, `failed`, `reversed`, `stripe_transfer_ref`, or `venue.settlement.status='paid'`
+
+**The defect (CONFIRMED).** The complete writer set of `kernel.payout` at `734c814` — RLS §7.9 plus this
+section's own write-authority row — was `close_settlement` (INSERT `pending`), `pay_promoter_commission`
+(INSERT `pending`), `request_org_payout` (→ `submitted`), `hold_payout`/`release_payout`. **Three of the
+five `status` labels, and `stripe_transfer_ref`, had no writer in any document.** `PHASE_2_EDGE_FUNCTION_SPEC.md`
+§4 routes the Stripe events to a placeholder that names no function: *"`transfer.created` / `.reversed` /
+`payout.paid` / `payout.failed` … extend logging to also cover `kernel.payout` rows | `mark`-style state
+sync RPCs"*. A failed transfer therefore leaves the row reading `submitted` **forever** — nobody retries,
+nobody is alerted, and dashboard §14.5's *"Failed payout: pinned, non-dismissible"* banner can never fire.
+`venue.settlement.status='paid'` (§3.13) is the same defect one table over: `kernel.close_settlement` writes
+only `→ closed`, so the third label of that enum had no writer either.
+
+This is the **fifth and sixth** instance of the class the corpus already caught four times — `door_open_at`
+(O-5), `scan_device.retired` (§3.11.1), `market.offer.expired` (§4.3.1), `required_approver_class` (C-1a) —
+and the first two instances of it on the money ledger.
+
+**Disposition — name the writers; do not remove the values** (§3.11.1's rule).
+
+1. **`kernel.mark_payout_transfer_state(p_payout_id, p_new_status, p_stripe_transfer_ref, p_failure_code,
+   p_command_key)`** — `service_role` only, **no human path**, forward-only, `FOR UPDATE` on the payout row,
+   writes `kernel.admin_audit` (`payout.state_sync`, before/after) in the same txn. It **refuses to advance a
+   row whose `hold_state <> 'none'`** — a held payout that Stripe reports as paid is a reconciliation
+   incident, not a state transition, and silently clearing the hold would defeat Control 4 by webhook.
+   **SEAM-1: it writes `kernel.payout` (`085`) and `kernel.admin_audit` (`077`) → `max(077, 085) = 085`.**
+   The edge `077 → 085` is already declared; no edge is added.
+2. **`venue.on_payout_settled(p_payout_id)` — a SEAM-2 hook.** No-op stub created in **`085`**, `CREATE OR
+   REPLACE`d in **`087`** with the real body, which advances `venue.settlement` `closed → paid` when every
+   `cause='settlement'` payout for that settlement has reached `paid`. **SEAM-1 on the real body:
+   `max(085, 087) = 087`**, which is exactly why it is a hook and not a function — the identical
+   construction as `market.on_atom_voided` (stub `085`, replaced `088`) already in the registry's hook list.
+   The edge `085 → 087` is already declared; no edge is added.
+
+**A correction the edge spec's placeholder row got backwards, and it is not cosmetic.** The four Stripe
+events are not four sources for one row:
+
+| Stripe event | What it is | What it may drive |
+|---|---|---|
+| `transfer.created` | platform → connected-account transfer, id `tr_…` | confirms `submitted`, **writes `stripe_transfer_ref`** — this is the only event that supplies the join key |
+| `transfer.reversed` | that same transfer, reversed | `→ reversed` |
+| `payout.paid` / `payout.failed` | the **connected account's own bank payout**, id `po_…` | **not joinable to a single `kernel.payout` row** — one bank payout aggregates many transfers |
+
+So `paid` and `failed` are **not** webhook-driven in the general case. A transfer that cannot be created
+fails as a **synchronous Stripe API error**, not as an event, which means the payout-executor edge function
+— not `stripe-webhook` — is the natural writer of `failed`. **Whether `paid` means "the transfer succeeded
+and was not reversed" (written synchronously by the executor) or "the funds reached the payee's bank"
+(requiring a `balance_transaction` fan-out from `payout.paid`) is an OWNER DECISION, recorded as `O14`, not
+taken here** — the two differ in what the venue is being told, and one of them is a promise about a bank we
+do not observe. Both forms are served by the single RPC above; only the caller and the trigger event
+change. Filed to the RPC and edge owners as §13.7 **S-16**. Ratification **C81**.
+
+**Tests.**
+- `T-SCHEMA-PAYOUT-05`: every `status` label is reachable — a replay-level assertion that for each of
+  `pending`/`submitted`/`paid`/`failed`/`reversed` there is a named function in the chain whose contract
+  writes it. **This is the test that fails against the pre-fix corpus**, and it is written as a completeness
+  sweep over the label set rather than as five separate transition tests, because the defect was an absence.
+- `T-SCHEMA-PAYOUT-06`: `mark_payout_transfer_state` on a payout with `hold_state='held'` **raises**, and
+  leaves both `status` and `hold_state` unchanged — both halves, because the first passes if the function
+  merely returned early after clearing the hold.
+- `T-SCHEMA-PAYOUT-07`: `status` is forward-only — `paid → submitted` raises.
+- `T-SCHEMA-SETTLE-01`: `venue.settlement.status='paid'` is reachable, and is reached **only** when every
+  settlement-caused payout of that settlement is `paid` — asserted with two payouts, one still `submitted`.
+- `T-SCHEMA-SETTLE-02`: the `085` stub of `venue.on_payout_settled` is a no-op (it exists, returns, and
+  changes no row) — the SEAM-2 property, asserted at `085` rather than after `087` replays.
 
 ### 1.10 `kernel.refund`
 - **Purpose:** first-class money reversal; references a `public.payments` row; drives `refund_void` on the
@@ -2193,7 +2347,9 @@ no control, because a manager will believe the device is dead.
 - **Immutability:** header MUT; lines immutable (§3.14). Close → payout is SSCAS member #4.
 - **Index:** PK; index on `(org_id, status)`; index on `event_id`.
 - **RLS:** org-scoped (org finance) + platform; writes RPC-only.
-- **Write authority:** `venue.open_settlement`, `kernel.close_settlement`.
+- **Write authority:** `venue.open_settlement` (INSERT `open`), `kernel.close_settlement` (→ `closed`),
+  **`venue.on_payout_settled` (→ `paid`; the SEAM-2 hook, stub in `085`, real body in `087` — §1.9.2,
+  defect `MB-2b`). `paid` had no writer at `734c814`.**
 - **SoT/PROJ:** SoT (header); net is a derived waterfall from lines.
 
 ### 3.14 `venue.settlement_line` (AO)
@@ -3421,6 +3577,10 @@ reason it cannot wait.
 | **S-11** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.4 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Contract `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)` and give it an EXEC row** — the O-4 allow-list, denied to every door session. Obligation **RV-2**: retiring a device revokes its active `door_session` rows in the same transaction | `scan_device.status='retired'` had **no writer** (§3.11.1), and with §3.10a it is the kill switch for a lost or stolen scanner — the only control that stops a device already holding a live session without revoking the PIN every other device at the door is using |
 | **S-12** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.8.5 | **`market.respond_offer` must reject an offer past `expires_at` regardless of its stored `status`** — an arithmetic check under the offer row's lock | The `expired` label is written by the `088` tick and the tick is presentational (§4.3.1). An accept path that trusts `status='pending'` because the sweep was *supposed* to have run consummates an expired offer **every time the tick is late**, which is the ordinary condition of cron |
 | **S-9** | **Owner ruling** | **§2.4.1's `door.*` classification.** Money, `authn.*` and `crm.*` are `restricted` on arguments this spec considers settled. `door.*` is the arguable row: it states how long a door may operate on stale data | It is the one line in the ruling that could reasonably go the other way, and it is isolated — moving it changes nothing else |
+| **S-14** | `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 4 · §12 `NO SCHEMA CHANGE` · §10.1 | **`kernel.payout.status='held'` does not exist and is not being created** (§1.9.1). Control 4's *"created at status `held` rather than `submitted`"* becomes *"created and **not advanced** to `submitted`, carrying `hold_state='probation_hold'`"*; §12's classification becomes **`SCHEMA CHANGE` — four additive columns on `kernel.payout`, no new table, no new RPC, no new package, no edge**. **The ratified behaviour is unchanged** — money does not leave, and only `platform_risk`/`platform_admin` release it (O-3) | The spec's `NO SCHEMA CHANGE` line is what a migration author reads to decide the package needs no DDL. It was false under **every** candidate repair — even adding a CHECK label is DDL — so the row was never merely imprecise |
+| **S-15** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §11.2, §11.3, §17.7 control 2, §10.3 | **`hold_payout` and `release_payout` write `hold_state`, never `status`.** §11.2's *"Writes: `kernel.payout` (→ `held`-equivalent status)"` becomes `hold_state := 'held'` + `hold_reason_code`/`held_by`/`held_at`, `status` untouched; §11.3's *"→ `pending`/`submitted`"* becomes `hold_state := 'none'`, `status` untouched. §10.3's probation branch writes `hold_state := 'probation_hold'` with `held_by` NULL | §11.2 already hedged with *"`held`-equivalent"*, which is a contract writing a value that does not exist. **§11.3 as written is unimplementable under any single-column repair**: it must restore `pending` XOR `submitted` after the hold overwrote which one it was, and that is the difference between sending money once and twice |
+| **S-16** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20 (new) · `PHASE_2_EDGE_FUNCTION_SPEC.md` §4 | **Contract `kernel.mark_payout_transfer_state` and `venue.on_payout_settled`, and replace §4's placeholder** *"`mark`-style state sync RPCs"* with the named function. **And correct the event mapping** (§1.9.2): only `transfer.created` supplies the `stripe_transfer_ref` join key; `payout.paid`/`payout.failed` are the **connected account's own bank payout** (`po_…`), which aggregates many transfers and is **not joinable to one `kernel.payout` row**; a transfer that cannot be created fails as a synchronous API error, not an event, so the payout **executor** is the natural writer of `failed` | A placeholder naming no function is how nine of the twelve surviving gaps were created (§8 preamble). Until it is named, three of five `status` labels and `venue.settlement.status='paid'` have no writer, a failed transfer reads `submitted` forever, and dashboard §14.5's pinned *Failed payout* banner can never fire |
+| **S-21** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14.5 | **The three pills are three straight column reads, and the section should say which:** *held* = `hold_state='held'`, *on probation* = `hold_state='probation_hold'`, *failed* = `status='failed'`. `status` never carries a hold | §14.5 states *"They must never render as one pill"* as a working requirement while two of the three had no storable representation. Naming the column is what stops the implementer deriving the probation pill by inferring from the absence of a `payout.hold` audit row — the construction `AUTHZ-M1` refuses |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---

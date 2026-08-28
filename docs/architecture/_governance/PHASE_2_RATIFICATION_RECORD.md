@@ -316,6 +316,35 @@ because an undefined tolerance is unimplementable, and is filed for confirmation
 
 ---
 
+## Unwritable-control pass — recorded 2026-08-28 (`MB-2` … `MB-5`, `MN-2`, `MN-4`)
+
+**Authority:** this record's own **Rule 1**. **Scope:** `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md`,
+`PHASE_2_SUPABASE_MIGRATION_PLAN.md`, `PHASE_2_PACKAGE_REGISTRY.md` and this record. Every change to another
+document is filed as a request in schema §13.7 (`S-14` … `S-21`) and **not made here**.
+
+**IDs claimed by this pass, stated so a concurrent pass can avoid them: `C80`–`C87`, `D19`, `O13`, `O14`,
+and schema §13.7 `S-14`–`S-21`.** The maxima read before claiming were `C79`, `D18`, `O12`, `RET-6`, `S-13`.
+No prior row is renumbered, reworded or retracted.
+
+**What it found, in one sentence.** Six controls that are specified, ratified and depended on had **no
+physical substrate or no writer** — a payout hold with no storable value, three payout lifecycle labels and
+a settlement label with nobody to write them, an audit RPC that cannot satisfy its own `NOT NULL` actor, the
+custody-head invariant three documents call *structural* with no trigger in any package, two sentinel
+identities that are `NOT NULL FK→auth.users` and are seeded by nothing, and a ticket state nothing reaches.
+
+**Band untouched: sixteen packages, `076`–`091`, no gaps, no duplicates, no renumbering. Zero dependency
+edges added — the declared edge count stays 38 and all four surfaces were re-verified identical after the
+edits.** Every new object was placed by SEAM-1 with its `max()` stated inline.
+
+| ID | Correction (one line) | Status | Final section(s) | Gate | MVP-must-implement? |
+|---|---|---|---|:---:|:---:|
+| **C80** | **`kernel.payout.status='held'` was ratified four times and was never a member of the status set.** MONEY §8.4 Control 4, MONEY §12 (`NO SCHEMA CHANGE`), row **O-3** and RPC §17.7 control 2 all store it; the schema and the plan's DDL-authoritative CHECK both enumerate `pending·submitted·paid·failed·reversed`. RPC §11.2 already hedged — *"→ `held`-equivalent status"*. The label a reviewer's `grep` finds is **`venue.inventory_batch.held`, an integer capacity counter**. Repair: `held` is **not** added to `status` — that is lossy and makes RPC §11.3's ratified release contract unimplementable (it must restore `pending` XOR `submitted` after the hold overwrote which) — a hold becomes an **orthogonal** `hold_state` column (`none`·`held`·`probation_hold`) plus `hold_reason_code`/`held_by`/`held_at`, reproducing the shape of the frozen `public.transfers.payout_review_status` discipline (migration `039`) that `hold_payout` is contracted to *extend*. `probation_hold` is a second label because dashboard §14.5 requires three separately-rendered pills and forbids inference. MONEY §12's classification is corrected to **`SCHEMA CHANGE` — four additive columns**; the ratified *behaviour* is unchanged | **RATIFIED** | schema §1.9, §1.9.1 · plan §5/§8 `085` · registry §2/§3 `085` · filed `S-14`/`S-15`/`S-21` | **P** | **YES** |
+| **C81** | **Nothing wrote `paid`, `failed`, `reversed`, `stripe_transfer_ref`, or `venue.settlement.status='paid'`.** The complete writer set (RLS §7.9 + schema §1.9) was `close_settlement`·`pay_promoter_commission` (INSERT `pending`), `request_org_payout` (→`submitted`), `hold_payout`/`release_payout`; the edge spec routed the Stripe events to *"`mark`-style state sync RPCs"* — a placeholder naming no function. A failed transfer therefore read `submitted` forever and §14.5's pinned *Failed payout* banner could never fire. Repair, per §3.11.1's rule *name the writer, do not remove the value*: **`kernel.mark_payout_transfer_state`** (`service_role` only, forward-only, refuses a row with `hold_state <> 'none'`) — **SEAM-1 `max(077, 085) = 085`** — and **`venue.on_payout_settled`**, a SEAM-2 no-op hook stubbed in `085` and replaced in `087`, whose real body is **SEAM-1 `max(085, 087) = 087`**. Both edges already declared; **none added.** The fifth and sixth instances of the class caught at `door_open_at`, `scan_device.retired`, `market.offer.expired` and `required_approver_class`, and the first two on the money ledger | **RATIFIED** | schema §1.9.2, §3.13 · plan §8 `085`/`087` · registry §3 hooks · filed `S-16` | **P** | **YES** |
+| **O14** | **What `kernel.payout.status='paid'` asserts.** The edge spec maps four Stripe events onto one row, and only `transfer.created` supplies the `stripe_transfer_ref` join key: `payout.paid`/`payout.failed` describe the **connected account's own bank payout**, which aggregates many transfers and is not attributable to a single `kernel.payout`. So `paid` means either *"the transfer succeeded and was not reversed"* (written synchronously by the payout executor) or *"the funds reached the payee's bank"* (a `balance_transaction` fan-out from `payout.paid`). **The two differ in what the venue is being told, and one is a promise about a bank we do not observe.** Both forms are served by the single RPC of `C81`; only the caller and the triggering event change | **OPEN-GATED** | schema §1.9.2 · filed `S-16` | **P** | decision, then YES |
+
+
+---
+
 **Remediation-reconciliation attestation (2026-08-27).** Four concurrent remediation passes changed ratified material and filed correction IDs that did not exist in this record. Those IDs are now recorded, **under their own names** — `H-2`/`H-3`/`H-4`, `AUTHZ-*`, `J-8`…`J-12`, `K-14`…`K-20`, `S-1`…`S-13` — so an implementer reading a defect ID in a spec can find it here by that ID rather than by a translation. **No prior row is renumbered**, and the two existing `O` namespaces are untouched; the new `RET-` prefix is deliberately not a third `R` series, because `R-1`…`R-18` (RPC §20.14) and `R-1`…`R-17` (role model) already collide with each other.
 
 **Two entries are retractions of ratified reasoning rather than additions, and they are the reason this pass exists.** `RET-1`…`RET-5` record five security claims **deleted as false**, each with the reason and each also carried in its own file's correction index so it cannot be cited from an older copy. And **C56** records a fact about a ratified *decision*: ruling `OQ-5`/`OQ-W4` relaxed a ratified constraint **on two conditions, and verification found neither implemented** — one bound only the `ends_at IS NULL` branch while the common branch admitted an unbounded `exp`, and the other had a mechanism with no caller. Both are now specified and both gate the Wallet enable, but **the owner's sign-off on the relaxation is still owed**, and the relaxation's safety rests on exactly those two conditions.
