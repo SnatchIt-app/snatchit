@@ -335,8 +335,8 @@ of a roster object by any client role** (GP-1 + the empty-grant posture of §0).
 | **X5** Request export — **audience** template | · | · | · | R | R | **·** | Rᵒ | · | R | **·** | · | Rᵛ | · | · | · | · | **·** | **·**ᵖ | **·**ᵖ | R |
 | **X6** Request export — **operations** template (adds MONEY) | · | · | · | R | R | **·** | **·** | · | R | **·** | · | **·** | · | · | · | · | **·** | **·**ᵖ | **·**ᵖ | R |
 | **X7** Org-grain CRM view (fields 13–15) | · | · | · | V | V | · | Vᵒ | · | **·** | · | · | **·** | · | · | · | · | · | V | V | R |
-| **X8** Download an export | · | · | · | R◐ | R◐ | · | R◐ | · | R◐ | · | · | R◐ | · | · | · | · | · | · | · | R |
-| **X9** Revoke an export | · | · | · | R | R | · | R◐ | · | R | · | · | R◐ | · | · | · | · | · | · | R | R |
+| **X8** Download an export | · | · | · | R◐ | R◐ | · | R◐ᵗ | · | R◐ | · | · | R◐ᵗ | · | · | · | · | · | · | · | R |
+| **X9** Revoke an export | · | · | · | R | R | · | R◐ᵗ | · | R | · | · | R◐ᵗ | · | · | · | · | · | · | R | R |
 | **X10** Read export history | · | · | · | V | V | · | V◐ | · | V | · | · | V◐ | · | · | · | · | V | V | V | R |
 | **X11** Read the ticket-holder-mix card | · | · | · | V | V | · | V | V | V | · | · | V | V | · | · | · | · | · | V | R |
 | **X12** Manage own contact permissions | · | **R◐** | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | · | R◐ | R◐ | R◐ | R◐ | R |
@@ -352,6 +352,11 @@ of a roster object by any client role** (GP-1 + the empty-grant posture of §0).
 > only. The plane of the grant is the export scope (role-model §4.2).
 > ᵐ Door principals get the **minimal verification projection** only — name + validity — never contact
 > detail. `VERIFIED:` DA §7.2 / role-model F11.
+> ᵗ **`◐` on X8/X9 is scoped by `template_id`, not only by grain.** A role may download or revoke exactly the
+> jobs whose template it may **request** — for both marketing labels, `audience_v1` only. Enforced by
+> re-evaluating the request-time allow-list for `job.template_id` at download (EX-4, §11.4), which is the one
+> predicate that keeps §3.1's "neither sees both" true. `org_marketing` legitimately *sees* an
+> `operations_v1` job in the history panel (X10) and cannot download it.
 > ᵖ **Platform roles do not use the venue CRM export.** See the conflict resolved in §3.2.
 > **X12** is the fan's own control (§5.3) and is the only row where `FAN` is not `·`. A door session (`DOO`)
 > has no `auth.uid()` and therefore no own-row anything (role-model §7.2).
@@ -379,6 +384,14 @@ a *contact* surface, not a money surface, and least privilege runs in both direc
 **Neither sees both.** Only `venue_manager`, `org_owner` and `org_admin` hold the union — and that union is
 the single most consequential grant in this document, which is why X6 (the operations template) is the
 narrowest allow-list in the matrix and why §7.1's per-actor limit is the same for all of them.
+
+**The invariant holds only if the download re-check reads the template.** `INFERENCE:` this asymmetry is
+stated as a property of the *request* allow-lists, and the download path is where it was lost: re-checking
+the role set alone let a marketing actor redeem a colleague's `operations_v1` job — money and contact in one
+file, from one `job_id` the export-history panel legitimately showed them. **X8's `R◐` for `OMK`/`VMK` means
+"jobs whose template that role may request", `audience_v1` only**, and it is enforced by re-evaluating the
+request-time predicate at download (EX-4, §11.4). Without that one predicate this paragraph is a claim about
+a matrix rather than about the system.
 
 **`venue_scanner` and the door session — nothing.** `VERIFIED:` dashboard §9.3: *"Bulk attendee listing is
 denied to door staff… A door principal hitting this route gets the permission-denied state"*, and the denial
@@ -792,7 +805,7 @@ Lifecycle, exactly as the dashboard ratified it: `queued → running → ready �
 | **request** | `venue.request_export` — **DB-RPC, definer** | Authorizes (in-body predicate re-check), rate-limits (fail-closed), validates the filter set against the closed grammar, resolves and **freezes `as_of` = `now()`**, writes the `venue.export_job` row as `queued`, writes the `crm_export.request` audit row **in the same transaction**. Returns `job_id`. **Builds no data.** |
 | **build** | `crm-export` — **NEW EDGE FUNCTION**, `service_role` | Claims the job (`queued → running` with a lease, the 064 `webhook_event` claim-lease pattern), calls `venue.build_export_rows(job_id, cursor)` in bounded pages, serialises CSV, streams to the private bucket, computes SHA-256 as it writes. Never logs a row. |
 | **finalize** | `venue.finalize_export` — **DB-RPC, definer, `service_role` only** | Records `row_count`, `byte_count`, `sha256`, `object_path`, `contact_cells_emitted/suppressed`; sets `ready`; writes the `crm_export.generate` audit row. |
-| **download** | `venue.authorize_export_download` — **DB-RPC** + `crm-export` `/download` route | **Re-authorizes live**: re-checks the caller still holds the role over the job's scope, at this instant. Writes the `crm_export.download` audit row. Returns the object path; the edge mints a **300-second** signed URL. |
+| **download** | `venue.authorize_export_download` — **DB-RPC** + `crm-export` `/download` route | **Re-authorizes live, against the job's `template_id`**: re-evaluates the **request-time allow-list for that template** (§6.4) — not merely "does the caller still hold a role over the job's scope". Writes the `crm_export.download` audit row. Returns the object path; the edge mints a **300-second** signed URL. |
 | **revoke** | `venue.revoke_export` — **DB-RPC, definer** | `ready → revoked`, deletes the artifact, writes the audit row. Effective immediately. |
 | **expire / purge** | `venue.sweep_expired_exports` — **DB-RPC, definer, `pg_cron`** | Deletes artifacts past retention, `ready → expired`, then `expired → purged` when the job row's own retention lapses. Each writes an audit row. |
 
@@ -952,7 +965,11 @@ inventory (§9.3), and it is deliberately the shortest-lived one on that list.
 > may be added.
 > **EX-3** — The column set is a **versioned template**, never a picker. The filter set is a **closed
 > conjunctive grammar over enumerated memberships**, never a predicate language.
-> **EX-4** — The download **re-authorizes live**, on every download, against live grant tables.
+> **EX-4** — The download **re-authorizes live**, on every download, against live grant tables — **and it
+> re-evaluates the request-time allow-list for the job's `template_id`, not just the role set.** Whoever may
+> download a job is exactly whoever may have requested it, evaluated now. `INFERENCE:` a role set is not an
+> authorization; the pair `(role set, template)` is. The two allow-lists differ — X6's is the narrowest in
+> the matrix — so re-checking only the role set authorizes the wrong thing and does it convincingly.
 > **EX-5** — Every state transition writes `kernel.admin_audit` **in the same transaction**.
 > **EX-6** — **There is no third-party destination.** No webhook, no CDP, no ESP, no ad platform, no
 > warehouse, no scheduled email, no venue-configurable URL of any kind. The only egress is a signed download
@@ -1038,6 +1055,7 @@ audited by kind, denied to marketing) should not change.
 | **Scraping the on-screen list instead** | `attendee_list_page` 240/h, audited. The screen is not a cheaper export. |
 | **Confirming attendance for a supplied email list** | §7.2 — 40/day, audited by kind, denied to marketing, and no bulk match surface exists. |
 | **A revoked staff member downloading a pending job** | EX-4 live re-authorization at download (already binding). |
+| **A marketing actor downloading a colleague's *operations* export** | EX-4 re-evaluates the **request-time allow-list for the job's `template_id`**, not just the role set (§11.4). `org_marketing` holds X10 and can see the `job_id`; without the template limb the role-set re-check passed and handed it order totals, unit prices and refund state alongside the contact column it already had. |
 | **A staff member exporting on their last day** | Not preventable, and saying otherwise would be dishonest. What exists: the audit row is permanent and names them, the anomaly signal below fires, and the artifact dies in 24 h. This is a *detection* control, and it is labelled as one. |
 | **Volume anomaly** | An actor whose 7-day export volume exceeds **3× their trailing 90-day median** raises a `platform_risk` signal. `INFERENCE:` a **signal, not a block** — blocking a venue's guest list at 10 p.m. on a false positive is worse than the risk it prevents. |
 | **A compromised finance / door / promoter / box-office / support account** | Those roles hold no export and no contact read (§3). The blast radius of the most commonly compromised accounts is zero contact rows. |
@@ -1597,12 +1615,48 @@ the grant tables at this instant** (EX-4). Rate-limits. Writes `crm_export.downl
 `{ object_path, ttl_seconds: 300 }` for the edge to sign. Raises on any state other than `ready`.
 EXEC: `authenticated`.
 
+**The re-check is over `(scope, template_id)`, not over the role set — one predicate, and it is the whole
+finding.** The function reads `job.template_id` and re-evaluates **the §6.4 allow-list for that template**,
+the same predicate `venue.request_export` would apply to a fresh request for the same
+`(scope_kind, scope_id, template_id)`:
+
+```text
+-- WRONG (what the previous contract specified):
+--   caller still holds one of {org_owner, org_admin, org_marketing,
+--                              venue_manager, venue_marketing} over job.scope
+-- RIGHT:
+   assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id)
+   -- audience_v1   → org_owner, org_admin, org_marketing (org grain),
+   --                 venue_manager, venue_marketing (venue grain)
+   -- operations_v1 → org_owner, org_admin, venue_manager  ONLY
+```
+
+`INFERENCE:` the previous contract mentioned no `template_id` at all, and the two allow-lists are not the
+same set — X6's is the narrowest in the matrix (§3). The concrete break: `org_marketing` is granted X10
+(read export history), so it can see a colleague's `job_id`; it holds a `venue_marketing`-class role over the
+scope, so the role-set re-check passes; and it downloads an **`operations_v1`** file — order refs, order
+totals, **unit prices**, refund state. §3.1's stated invariant — *"Finance sees money and no contact.
+Marketing sees contact and no money. Neither sees both."* — is then defeated by any org that ever runs one
+operations export, without a single grant being wrong.
+
+Two supporting rules, so the fix cannot be undone from the side:
+
+- **X8 `R◐` is defined, not decorative.** The `◐` on `OMK`/`VMK` in the §3 matrix means *"jobs whose
+  `template_id` that role may request"* — for both marketing labels that is `audience_v1` only. The same
+  reading applies to X9 (revoke): `◐` is template-scoped there too.
+- **`venue.list_export_jobs` returns `template_id` and a `downloadable` boolean** computed with the same
+  predicate, so the panel does not render a download control the RPC will refuse. The list itself stays
+  role-scoped rather than template-scoped — seeing *that* an operations export happened is export-history
+  transparency (X10) and is deliberate; downloading it is not.
+
 **`venue.revoke_export(p_job_id uuid, p_reason_code text)`** — write. Authority: the requester, plus
 `venue_manager` / org owner/admin over the job's scope, plus `platform_admin`. `ready → revoked`; signals the
 edge to delete the artifact; audited. Idempotent. EXEC: `authenticated`.
 
 **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — read. Scope-checked per X10. Returns job
-metadata only — never a row, never an object path, never a signed URL. EXEC: `authenticated`.
+metadata only — never a row, never an object path, never a signed URL — **including `template_id` and a
+`downloadable` boolean computed with `authorize_export_download`'s own predicate**, so the panel never
+renders a download control the RPC will refuse. EXEC: `authenticated`.
 
 **`venue.sweep_expired_exports()`** — write, **definer / `service_role` only**, `pg_cron` (hourly). Deletes
 artifacts past `expires_at`, `ready → expired`; `expired → purged` past `purge_after`. Writes one audit row
@@ -1700,6 +1754,15 @@ logging; Sentry on unexpected 500s).
 23. A job exceeding 50 000 rows ends `failed` with `too_large` and **writes no artifact** (never truncates).
 24. Every `crm_export.generate` audit row has a non-null `constraint_set_version` (**X-9**).
     Every `crm_export.download` row exists before its signed URL is minted.
+24a. **The download re-check reads the template (H-12).** With `org_marketing` and `venue_marketing` holding
+    live, valid roles over the job's scope, `venue.authorize_export_download` on a **`operations_v1`** job
+    raises `insufficient_privilege(42501)` and writes `crm_export.denied`; on an `audience_v1` job at the
+    same scope, by the same actor, in the same test, it succeeds. *(Asserted as a pair, so a fix that denies
+    marketing all downloads also fails.)* The same pair holds for `venue.revoke_export`.
+24b. **Symmetry with request.** For every `(actor, scope, template)` triple in a fixture matrix covering all
+    20 principals × both templates, `authorize_export_download` allows exactly the triples
+    `request_export` allows. *(Stated as an equality between two predicates rather than as two lists, so the
+    two cannot drift.)*
 
 **X-6**
 25. **Reader enumeration (mirrors demographics assertion 27):** the set of functions/views/matviews
@@ -1780,6 +1843,7 @@ weakening it.
 | **K-12** | Demographics spec | **No edit requested**, except the optional strengthening of X-6's stated method noted in §13. Its X-1…X-9 are satisfied as written (§2.4). |
 | **K-13** | Role-model spec | **No edit requested.** Its labels, predicates and H2/H3 split are used verbatim; §3.2 resolves a conflict *between* it and the dashboard spec rather than within it. |
 | **K-14** | **This document, §1.4 · §4.1 · §4.2 · §4.3 · §4.4 · §5.1 · §11.2 · §11.4 · §12** | **H-11 remediation.** The export's tenant predicate was bound at org grain only. `catalog.venue.org_id` is **mutable** while `catalog.event.org_id` is stamped at create, and the isolation traversal is downward `org → venue → event → session → ticket → holder`, so a **venue-grain export at a new operator reached every historic session of that venue** — the previous org's customer list. Added **XO-1a**: `kernel.tickets.org_id = :job_org_id` at **every** grain, with `:job_org_id` resolved once at request time and frozen on the job row. The `customer_ref` HMAC key and the consent gate's `EXISTS` are both pinned to the **job's** org, not the atom's — the previous text left both ambiguous, and the atom binding would have given two orgs the **same** pseudonym for the same person, joining their files directly. New proof **case (e)** and assertions **18a–18c** (asserted per grain, because a single-grain test passes while three branches leak). Product consequence recorded as **D-12**. |
+| **K-15** | **This document, §3 (X8/X9 + note ᵗ) · §3.1 · §6.2 · §6.7 EX-4 · §7.4 · §11.4 · §12** | **H-12 remediation.** The download re-check read the role set and never the template — `template_id` was not mentioned in the contract at all. But the operations template's request-time allow-list is the narrowest in the matrix, so a `marketing` role could read a `job_id` from the job list (it holds X10) and download a colleague's **operations** export: order refs, order totals, unit prices, refund state. §3.1's own invariant — *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees both."* — was defeated by any org that ever ran one operations export, with no grant being wrong. Fix: `venue.authorize_export_download` re-evaluates `assert_may_request(actor, job.scope, job.template_id)` — the same predicate a fresh request would face. `◐` on X8/X9 is now defined as template-scoped. Assertions 24a/24b, the second stated as an **equality between the request and download predicates** so the two cannot drift. |
 
 ---
 
