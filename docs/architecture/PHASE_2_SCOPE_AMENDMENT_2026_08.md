@@ -296,3 +296,141 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 13 | **Feature flag** | **none of its own.** Each surface renders on the flag of the capability it consumes; a surface whose capability is OFF must state that honestly rather than render a dead control | — | `PLAN` §4 · `VD` §20A (the standing rule) | — |
 | 14 | **Rollout gate** | Area-by-area, following its packages: A/B/C after `081`; D after `087`; E after `090`; G after `086`; H/I after `085`/`087`; §16.5 **blocked on §13** | — | `PLAN` §3 · `VD` §20 | — |
 | 15 | **Open decisions** | Δ5–Δ12 and U-1…U-10 → §14 as **OD-53…OD-70**; §22.5, §22.8, §22.10–§22.16 → §14 and §15 | — | `VD` §21, §20A.3, §22 | — |
+
+---
+
+## 10. The cross-feature dependency graph
+
+The six features are **not** independent. Six real couplings exist; each is a place where shipping one feature without the other produces a wrong answer rather than a missing one.
+
+```
+                     door manifest (086)  ─────────────┐
+                              ▲                        │ D1: offline safety
+        D6: FK signing_key    │                        ▼
+   credential infra (083) ────┘              APPLE WALLET (083)
+        ▲                                              │
+        │ credential_version comparison ───────────────┘
+   ticket atom (079)
+
+   DEMOGRAPHICS (077 + 086) ──D2: X-1…X-9 (binding)──▶ CRM EXPORT (087)
+        ▲                                                   │
+        └────────── D3: denominator ≡ holder count ──────────┘
+
+   PROMOTER CODES (090) ──D4: commission line──▶ SETTLEMENT (087)
+                              (SEAM-2 hook, stub in 087, replaced in 090)
+
+   NOTIFICATIONS (unscheduled) ──D5: binding dependency──▶ VENUE DASHBOARD §16.5
+                              (no Gate-L object may carry one)
+```
+
+| # | Coupling | What it actually is | Cited at | If ignored |
+|---|---|---|---|---|
+| **D1** | **Wallet ⟵ door manifest + `credential_version`** | Wallet's entire offline guarantee is *"the door compares the pass's `credential_version` against the manifest's"*. The manifest tables (M2) and offline-verify **step 3b** are the mechanism; defect **W-3** is the finding that they do not exist yet | `WALLET` §0.2, §4.2–§4.4, §2.4 · `DOOR` §9.1, §9.2 · `EDGE` §5.4 | A stale pass admits at an offline door. **Hard gate HG-1** |
+| **D2** | **CRM export ⟵ demographics X-1…X-9** | The demographics spec hands the export agent **nine binding constraints**, the sharpest being X-6: the export builder's SQL contains **zero** references to any demographic object. `CRM` §10 implements it in four layers and makes it stricter, adding the **non-vacuity guard** (a grep over a file set that does not yet exist passes vacuously — this repo shipped that exact failure once, at `073`) | `DEMOG` §9 · `CRM` §2.4, §10 | A demographic column reaches a venue CSV. The wall is the whole privacy argument |
+| **D3** | **Demographics card ⟶ CRM roster denominator** | The mix card renders *"Based on N of M ticket holders"*. **M ≡ `holder_mix.holders_total` ≡ `COUNT(holder view rows)`** for the same `(session, as_of)` — same table, same filter, same instant. This equality only holds because K-1 made the roster **holder-keyed** rather than purchaser-keyed | `CRM` §1.3 (proof + assertion 3 of §12) · `DEMOG` §4.3 | The card sits above a list whose length disagrees with the card's own denominator, and an operator correctly concludes one is broken. **Hard gate HG-5** |
+| **D4** | **Promoter attribution ⟶ settlement** | A commission **is** a settlement line. `kernel.close_settlement` is authored once in `087`; `090` replaces only the `settlement_commission_lines` hook. The cross-settlement `UNIQUE (cause_ref) WHERE cause='promoter_commission'` is what makes a second commission structurally impossible | `PROMO` §4.2, §6.3 · `SCHEMA` §13.2 FR-5, §3.14.1 · `REGISTRY` §2.2 | Either a forward reference that will not apply, or two packages rewriting one another's function body |
+| **D5** | **Venue dashboard ⟶ notifications** | `VD` §16.5 is a **binding delegation** to `NOTIF`, and no Gate-L object may carry a binding dependency. This is the load-bearing argument in the `notify` ruling — recorded, not acted on | `VD` §16.5 · `RLS` §15.7 MD-10 · `NOTIF` §10 O-N1 | A shipped dashboard surface with no backend. See §13 |
+| **D6** | **Door manifest ⟵ credential infrastructure** | `venue.door_manifest_entry.signing_key_id` is an FK to `kernel.signing_key`. This is the DAG edge `083 → 086` added by the integration — a **package-order** dependency, not a product one | `SCHEMA` §13.6 · `REGISTRY` §2.1 | `086` will not apply |
+
+**Two couplings that look real and are not, stated so nobody re-derives them.** Demographics does **not** read `venue.scan`, because `admitted_mix` is not built (`DEMOG` §4.1) — so the rollup has no dependency on the door. And the CRM roster's `checked_in` column is **never crossed with any demographic axis**; there is no such axis to cross it with (`CRM` §1.3).
+
+---
+
+## 11. Hard gates — what must not ship before what
+
+A hard gate is stronger than a dependency: it is an ordering whose violation deploys a known defect, not merely an incomplete feature. **None of these is a judgement call at implementation time.**
+
+| ID | Gate | Why it is hard, not soft | Authority |
+|---|---|---|---|
+| **HG-1** | **Apple Wallet must not ship before the door-manifest tables and the offline `credential_version` check exist and have been drilled.** | Wallet's whole guarantee rests on offline-verify **step 3b** and the **M2** manifest tables, neither of which exists (defect **W-3**, VERIFIED). Shipping first deploys W-3 **at scale onto devices we do not control** — a stale pass on an airplane-mode phone admits at an offline door, and the platform cannot recall it | `WALLET` §15 **OQ-W3** (*"Hard gate"*, owner acknowledgement required) · `WALLET` §0.2 · `DOOR` §9.2 · `EDGE` §5.4 |
+| **HG-2** | **No Wallet push path, no door-manifest open transaction as specified, no scanner push-to-sync and no notification may ship before the outbox ruling (§13) is made.** | Pass supersession runs in the outbox consumer **specifically** so Wallet can never block or roll back a custody transfer; the two alternatives — moving it inside the custody transaction, or leaving a superseded pass live — are **both prohibited by ratified invariants**. The door-manifest open transaction is all-or-nothing and its last step writes the envelopes | `REGISTRY` §7 COND-A (*"What breaks under COND-A = NO"*) · `SCHEMA` §13.3 · `RATIFY` **C51** |
+| **HG-3** | **`083` before `086`; `087` before `090`; `079` before `083` and `085`.** | Each is an FK or a function-body dependency added by the integration, not a preference. `086` will not apply without `kernel.signing_key`; a promoter commission cannot exist before the settlement line it is | `SCHEMA` §13.6 · `REGISTRY` §2.1 |
+| **HG-4** | **The Layer-0 privilege-wall decision (CRM D-2) must be made before `087` is authored.** | It changes **who owns** `venue.build_export_rows`. Deciding after authoring means rewriting the function's ownership and its policy set, in the package that also creates the bucket | `CRM` §13 D-2 (*"Yes — before 087 / I"*) · `RLS` §15.7 **MD-2** |
+| **HG-5** | **The holder-mix card must not render before the roster read is holder-keyed.** | The card's denominator is pinned by proof to `COUNT(holder view rows)`. The card lands at `086` and `venue.list_attendees` at `087`; rendering in between shows a denominator with nothing to agree with | `CRM` §1.3 · `DEMOG` §4.3 · `VD` §9.1 (K-1) |
+| **HG-6** | **Nothing may be added to `084` or `091`.** | `084` creates zero relations and zero routines and `091` is always empty; those properties are exactly what make their rollbacks unconditionally reversible. Adding an object silently converts a reversible rollback into one valid only in the empty window — which is why the Wallet registry was moved out of `084` | `REGISTRY` §6.7 · `SCHEMA` §13.5-C |
+| **HG-7** | **The step-up predicate must be checked against a real access token before the money surfaces are built.** | The money spec flags `UNVERIFIED:` that this project's tokens carry `amr` with per-factor timestamps. If the claim is absent the step-up either never fires or always fires — **both failure modes are silent** | `VD` §22.14 · `MONEY` §11 (verification owed) · `RLS` §15.7 **MD-7** |
+| **HG-8** | **`kernel.identity_demographic`'s two global-posture exceptions must be acknowledged before `077`.** | The definer-scoped `DELETE` (the single GP-2 exception in the model) and the `ON DELETE CASCADE` from `auth.users` against the `RESTRICT` default. Both are in the package; neither is reversible once data exists | `DEMOG` §14 **D-9, D-11** (*"Yes — before 077"*) · `CRM` §13 D-3 · `RLS` §15.7 **MD-9** |
+
+**One gate deliberately *not* asserted.** Nothing here gates a feature on a *product* decision (naming, thresholds, commercial terms). Those block value, not correctness, and they live in §14.
+
+---
+
+## 12. Feature flags and rollout gates
+
+### 12.1 The discipline (inherited, restated once because every row below depends on it)
+
+- Flags are **VALUES in `catalog.platform_config`**, seeded by **`078`**, read live by the engine RPCs.
+- **Every flag ships `false`.** The table is applied; the **behaviour** is gated. Deferring the *migration* instead would fork the chain and break Gate-2 reproducibility.
+- **Seeding is a migration. Flipping is never a migration** — it is an audited `catalog.set_platform_config` call, dual-controlled on money keys.
+- Config is world-readable; these are operational thresholds, **not secrets**.
+
+`PLAN` §4 · `SCHEMA` §13.5-D · `RLS` §8.4 · `WALLET` §11.5.
+
+### 12.2 Per-feature flag status — and the three that have none
+
+| Feature | Flag key(s) | Default | Guards | Flip mechanism | Status |
+|---|---|---|---|---|---|
+| **Apple Wallet** | `wallet.apple.enabled` (+5 tuning keys) | **`false`** | `kernel.mint_wallet_pass` and the whole issue path; **not role-bypassable** — `platform_admin` also gets `wallet_disabled` | audited `catalog.set_platform_config` | **COMPLIANT** (`WALLET` §11.5) |
+| **Notifications** | `notify.announcements_enabled` (+4 announcement keys) | **`false`** | the announcement surface only | same | **PARTIAL** — the delivery pipeline itself has no flag because it has no package (`NOTIF` §6.1) |
+| **Demographics** | — | — | — | — | **NO FLAG.** Capture is user-opt-in; the k/floor constants are recommended as **CHECK constants precisely so they cannot be tuned** (`DEMOG` §14 D-5) |
+| **Promoter codes** | — (enumeration thresholds are values, not a switch) | — | — | — | **NO FLAG** (`PROMO` §9.4, §13-10) |
+| **CRM export** | — (limits/caps/retention are values, not a switch) | — | — | — | **NO FLAG** (`CRM` §7.1, §11.1-20) |
+| **Venue dashboard** | none of its own | — | each surface renders on the flag of the capability it consumes | — | **BY DESIGN** (`VD` §20A) |
+| *(chain-wide, pre-existing)* | `feature.native_issuance_enabled` · `feature.native_scanning_enabled` · `feature.native_resale_enabled` | **`false`** ×3 | issuance, scanning, native resale | same | `PLAN` §4 |
+
+> **Recorded, not decided — OD-27.** The amendment brief asks for a flag **per feature**, defaulting off, flipped by audited runtime config. **Three of the six have none.** `PLAN` §4 defines exactly three boolean flags and none of them guards demographics, promoter codes or CRM export; those three are gated only by *package application*, which is a deploy, not a runtime control — and which cannot be reversed without a rollback. Adding three keys is small and additive (they are rows in a table `078` already creates), but **naming a new flag is a scope decision and this document does not make one.** See §14 OD-27.
+
+### 12.3 Rollout gate per feature
+
+| Feature | Package applies | Gate that must clear before the behaviour is enabled |
+|---|---|---|
+| **Apple Wallet** | `083` at `PLAN` §3 seq 8, flag OFF | **HG-1** (door manifest + step 3b, drilled) · `WALLET` §13 operational checklist green · OQ-W6 security sign-off on `verify_jwt=false` |
+| **Demographics** | `077` seq 2 (fan side); `086` seq 11 (rollup) | **HG-8** acknowledgements before `077` · the card must not render below threshold, and not before **HG-5** |
+| **Promoter codes** | `090` seq 15 | the **promoter phase** gate; `087` must exist (**HG-3**); the commission basis and code-vs-link precedence are commercial decisions that should be settled **before** codes are live, because attributions freeze |
+| **CRM export** | `077` seq 2 · `082` seq 7 · `087` seq 12 | **HG-4** (Layer-0 decision before `087`) · the X-6 four-layer check green, including the non-vacuity guard |
+| **Notifications** | **cannot be scheduled — §13** | the coupled ruling. Δ-N1/Δ-N2 ride `078`/`077` and are safe either way |
+| **Venue dashboard** | n/a (client) | area-by-area, on the packages it reads; §16.5 blocked on §13; every U-1…U-10 control stays read-only or unrendered until an owner closes it |
+
+---
+
+## 13. The two coupled unresolved scope questions
+
+> **This document does not decide either one, and does not lean.** Both are recorded in the ratification record as `OPEN-GATED`, each with a ratified constitutional statement on one side and four implementation specs on the other. They are stated here together because **they are coupled**, and because five of the six features' schedules depend on the answer.
+
+### 13.1 Question A — the event outbox (`RATIFY` **C51** / decision **O7**; `REGISTRY` **COND-A**)
+
+**The contradiction.** DA §6.3 states the anti-over-engineering guarantee as *"the only new infrastructure Phase 2 introduces is one outbox table and a drainer on the cron that already runs"*, and DA §6.1/§6.2 route **every** notification, analytics rollup, social update, promoter-commission accrual and transfer-expiry through it. CDM §15 **C12**'s envelope guarantees, and C28/C48/C49, all presuppose it.
+
+**And nothing schedules it.** The word "outbox" appears **exactly once** across the implementation specs before this pass — inside the **Gate-L** deferral list. No package allocates it. So the one piece of infrastructure the constitution promises Phase 2 *will* build is the one piece nothing schedules.
+
+**Consequence, priced.**
+
+| Ruling | What follows |
+|---|---|
+| **(a) the constitution is right** | An outbox package is Gate-P/MVP work missing from the plan. Placement is **`076`** — the table has zero FK dependencies, so no producer package gains an edge; drainer on the existing 2-minute `pg_cron` heartbeat |
+| **(b) the implementation specs are right** | DA §6.2/§6.3 must stop claiming an outbox exists in Phase 2; C12's envelope guarantees have **no carrier** at MVP; and every design that emits an envelope — door manifest, promoter attribution, notifications, Wallet supersession — needs a **stated alternative transport** |
+
+**What breaks under (b), precisely** (`REGISTRY` §7): the entire Apple Wallet push path — supersession runs in the outbox consumer *specifically* so Wallet can never block or roll back a custody transfer, and **both alternatives are prohibited by ratified invariants**; the door-manifest open transaction as specified (all-or-nothing, last step writes the envelopes); scanner push-to-sync; every notification. **Unaffected:** CRM export, demographics, promoter codes, money authority — each carries its own scheduler.
+
+### 13.2 Question B — the `notify` schema (`RATIFY` **C52** / decision **O8**; `REGISTRY` **COND-B**)
+
+**The contradiction.** Ratified row **C7 is `RATIFIED · Gate P · MVP`** and names `notify` as one of the seven contexts; CDM §1.6 gives Notification a canonical object and identity. **All four** implementation specs place `notify` at **Gate L / DO-NOT-BUILD**.
+
+**The load-bearing argument on the record** (not this document's): the venue dashboard already carries a **binding** dependency on `notify` (`VD` §16.5), and **no Gate-L object may carry one** (`RLS` MD-10).
+
+**Consequence, priced.** If ruled Gate P, `notify` is package **`092`** — not folded into `091` (a droppable, writer-less stub protected by registry rule §6.7) and not earlier, because `notify.drain_outbox` reads `venue.promoter_link` (`090`) and SEAM-1 floors it there. **The count becomes 17, the range `076`–`092`, and `REGISTRY` §2's own "no gaps, no duplicates" assertion is falsified** — which requires re-ratification of the registry, not an edit to it.
+
+### 13.3 Why they are coupled, and the one incoherent combination
+
+The schema integrator established the coupling and it is binding on how the ruling may be phrased:
+
+| Outbox | `notify` | Coherent? |
+|:-:|:-:|---|
+| IN | OUT | **Yes.** Wallet push and the door-manifest events get their carrier; notifications do not |
+| IN | IN | **Yes.** The full design as written; outbox lives as `notify.outbox` |
+| OUT | OUT | **Yes, but expensive.** Every envelope emitter needs a named alternative transport, and DA §6.2/§6.3 must be corrected |
+| OUT | IN | **No.** `NOTIF` §4 *is* the outbox pipeline. Ruling `notify` in while ruling the outbox out ratifies a schema whose central table is the thing that was just refused |
+
+**Therefore: rule on them together, in that order — outbox first.** The schema home follows from the pair: `notify.outbox` under Gate-P `notify`, `kernel.event_outbox` otherwise (`SCHEMA` §13.3).
+
+**Neither is decided here.** They appear in §14 as **OD-13** (outbox) and **OD-14** (`notify`), each marked as blocking, and they are the only two entries in this document that block more than one feature.
