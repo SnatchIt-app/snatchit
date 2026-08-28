@@ -1592,12 +1592,61 @@ that door is using. Filed by edge §3.9a request #4.
   on the payout arm** (§17.2), because it holds no payout authority anywhere else and must not acquire one
   through the generic approval object. `subject_kind='settlement'`, `subject_id := p_settlement_id`, resolved
   under the settlement's lock per **`APPR-SUBJ-1`** (§17.0a).
-- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback — direct arm),
-  `kernel.approval_request` (INSERT `pending` with `required_approver_class` — parked arm),
-  `kernel.admin_audit` (`payout.request`). **Result:** `{ status ∈ {submitted, pending_approval,
-  pending_platform_review, noop_replay}, payout_id, request_id?, required_approver_class? }`. **Failure:**
-  `precondition_failed` (destination locked / not closed) · `sod_violation` · `step_up_required` ·
-  **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves money itself.
+- **DESTINATION PROBATION — THE THIRD ARM, AND THE ONE THAT HAD NO WRITER (`S-15`; schema §1.9.1; ratification
+  `C105`).** §17.7 control 2 requires that **the first payout to a destination changed within
+  `payout.destination_probation_days` does not disburse until `platform_risk` releases it.** Schema §1.9's
+  write-authority row attributed that to this function as *"INSERT-with-`probation_hold`"* — and **this
+  contract had no INSERT arm and no probation arm at all**, so the label had no writer, `probation_hold` was
+  unreachable, and Control 4 of the destination-change set had **no storable outcome**. Corrected here:
+
+  > **This function does not INSERT a payout — `kernel.close_settlement` does (§10.2, at `pending`).** The
+  > probation arm therefore **declines to advance** the existing `pending` row and marks it, rather than
+  > creating anything:
+  >
+  > ```text
+  > IF destination changed within config('payout.destination_probation_days')
+  >    AND no payout to this destination has yet reached 'paid'   -- "the FIRST payout"
+  > THEN  status      stays 'pending'          -- NOT advanced to 'submitted'
+  >       hold_state       := 'probation_hold'
+  >       hold_reason_code := 'destination_probation'
+  >       held_at          := now()
+  >       held_by          := NULL              -- no human initiated it; the pairing CHECK requires NULL
+  > ```
+  >
+  > **All four columns or none — the pairing CHECK makes a partial write unstorable** (`hold_state='none'`
+  > **iff** `hold_reason_code IS NULL AND held_at IS NULL`; `held_by IS NULL` whenever
+  > `hold_state <> 'held'`). That is why the arm is spelled out as a column list rather than as *"set the
+  > hold"*: the contract as filed named one column of four, and a row that names one is rejected by the
+  > constraint.
+  > **`held_by` is NULL and that is a queryable fact, not an omission** — it is what separates a probation
+  > hold from a risk hold on the dashboard's three pills without inferring from the absence of an audit row.
+  > **Released by `kernel.release_payout` (§11.3) and by nothing else**, under
+  > `is_platform(['platform_risk','platform_admin'])` (O-3); release restores nothing, because `status` was
+  > never overwritten — it is still the `pending` this arm declined to advance.
+  > **`status='held'` NEVER EXISTED** (schema §1.9.1): it is not in the enum, not in plan §5's CHECK, and
+  > adding it would be lossy, since `release_payout` would then have to guess between "not yet sent to
+  > Stripe" and "already sent" — the difference between paying once and paying twice.
+  > **The ratified behaviour is unchanged:** money does not leave, and only `platform_risk`/`platform_admin`
+  > release it.
+
+- **Writes:** `kernel.payout` — **direct arm** (→ `submitted`; `stripe_transfer_ref` is written later by
+  `kernel.mark_payout_transfer_state`, §20.7.6, **not by a callback param on this function**), **probation
+  arm** (`hold_state := 'probation_hold'` + `hold_reason_code` + `held_at`, `held_by := NULL`, **`status`
+  untouched**), `kernel.approval_request` (INSERT `pending` with `required_approver_class` **and
+  `amount_minor`**, schema §1.13.5 — parked arm), `kernel.admin_audit` (`payout.request`, and
+  `payout.probation_hold` on the probation arm). **Result:** `{ status ∈ {submitted, probation_held,
+  pending_approval, pending_platform_review, noop_replay}, payout_id, request_id?,
+  required_approver_class? }` — **`probation_held` is returned distinctly**, because a surface that reports
+  `submitted` for a payout that did not submit is the failure §14.5's three-pill rule exists to prevent.
+  **Failure:** `precondition_failed` (destination locked / not closed) · `sod_violation` ·
+  `step_up_required` · **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves
+  money itself.
+- **Tests (probation arm).** **`T-RPC-MONEY-31`** — a destination changed inside the probation window leaves
+  `status='pending'`, sets exactly the three hold columns with `held_by IS NULL`, and returns
+  `probation_held`; **asserted on `status` as an equality against `pending`, not on the absence of a
+  transfer**, because the defect this closes is a contract that had nowhere to record the outcome.
+  **`T-RPC-MONEY-32`** — `release_payout` on that row restores `hold_state='none'` and leaves `status`
+  **still `pending`**, and a second `request_org_payout` then advances it normally.
 
 > **`MB-1b` — THE PAYOUT TIER HAS THE SAME SPLITTING SHAPE AS `MB-1`, AND ITS AGGREGATE SUBJECT IS MINTED BY
 > THE CALLER. OPEN — this pass does not close it, and it is not a defect in this contract's text but in the
@@ -1646,15 +1695,40 @@ that door is using. Filed by edge §3.9a request #4.
 - **Purpose:** freeze a pending payout (risk/dispute) — extends the frozen `apply_payout_hold` discipline onto
   `kernel.payout`. **Role:** `is_platform([platform_risk, platform_admin])`. **Preconditions:** payout
   `pending`/`submitted`. **Locks:** payout row `FOR UPDATE`. **SSCAS:** single-aggregate (Payout).
-- **Writes:** `kernel.payout` (→ `held`-equivalent status), `kernel.admin_audit` (`payout.hold`). **Result:**
-  `{ status }`. **Idempotency:** terminal/held state + command key. **Forbidden callers:** non-platform-risk.
+- **Writes:** **`kernel.payout` — `hold_state := 'held'`, `hold_reason_code := p_reason_code`,
+  `held_by := auth.uid()` (server-derived, C35), `held_at := now()`. `status` is NOT written** (schema §1.9.1,
+  `S-15`; ratification `C105`). `kernel.admin_audit` (`payout.hold`). **Result:** `{ status, hold_state }`.
+  **Idempotency:** already-held + command key. **Forbidden callers:** non-platform-risk.
+  - **`SPEC CORRECTION` — this line read *"→ `held`-equivalent status"*, which is a contract writing a value
+    that does not exist.** `kernel.payout.status` is `pending · submitted · paid · failed · reversed`;
+    `held` is not a member, is not in plan §5's CHECK, and **a corpus-wide grep for `held` returns only
+    `venue.inventory_batch.held`, an integer capacity counter** — the wrong-column trap in its purest form.
+    The hold lives on the **orthogonal** `hold_state` column, which reproduces the shape of the frozen
+    Phase-0 discipline this function is contracted to extend (`public.transfers.payout_review_status` +
+    `payout_hold_until`, migration `039`). **Extending a discipline means reproducing its shape, not
+    renaming its outcome.**
+  - **All four columns move together or the pairing CHECK rejects the row** (`hold_state='none'` **iff**
+    `hold_reason_code IS NULL AND held_at IS NULL`).
 
 ### 11.3 `kernel.release_payout(p_payout_id, p_command_key)` — **EDGE-FRONTED (DB-RPC advances state)**
 - **Purpose:** release a held payout → resume disbursement (extends `admin_release_held_payout`). **Role:**
   `is_platform([platform_risk, platform_admin])`; dual-control seam. **DB-RPC** advances `kernel.payout` state
   and writes audit; the **edge fn re-submits the Stripe transfer**. **Locks:** payout `FOR UPDATE`. **SSCAS:**
-  Payout single-aggregate. **Writes:** `kernel.payout` (→ `pending`/`submitted`), `kernel.admin_audit`
-  (`payout.release`). **Result:** `{ status }`. **Forbidden callers:** non-platform-risk.
+  Payout single-aggregate. **Writes:** **`kernel.payout` — `hold_state := 'none'`, `hold_reason_code := NULL`,
+  `held_by := NULL`, `held_at := NULL`. `status` is NOT written and is not read to decide anything** (schema
+  §1.9.1, `S-15`; ratification `C105`). `kernel.admin_audit` (`payout.release`). **Result:**
+  `{ status, hold_state }`. **Forbidden callers:** non-platform-risk.
+  - **`SPEC CORRECTION` — this line read *"→ `pending`/`submitted`"*, and as written it was UNIMPLEMENTABLE
+    under any single-column repair.** It had to restore **which** of the two the row was, after a `held`
+    status had overwritten exactly that fact — and the two are *"not yet submitted to Stripe"* and *"already
+    submitted to Stripe"*, **the difference between sending money once and sending it twice.** With
+    `hold_state` orthogonal there is nothing to restore: `status` was never touched, so the row resumes the
+    lifecycle position it already held. **`T-SCHEMA-PAYOUT-02` asserts this as an equality against the
+    pre-hold value rather than against a literal**, because the defect this closes is a release that has to
+    guess.
+  - **It releases `probation_hold` as well as `held`** — one release path for both labels, under
+    `is_platform(['platform_risk','platform_admin'])` (O-3). A probation hold released by anyone else, or by
+    the passage of time, would make §17.7 control 2 a delay rather than a review.
 
 ### 11.4 `kernel.refund_primary_order(p_order_id, p_amount_minor, p_reason_code, p_command_key)` — **EDGE-FRONTED (DB-RPC + Stripe refund)**
 - **Purpose:** refund a primary order (full/partial) and **void the covered atoms** (SSCAS #3). The **Stripe
@@ -2536,7 +2610,7 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   | # | Control | Stops | Cost |
   |---|---|---|---|
   | 1 | **SoD-1 identity split** — records `payout_destination_set_by`, and `request_org_payout` **rejects when `auth.uid() = payout_destination_set_by`, permanently for that destination**, not merely during the cool-down | the named fraud primitive, **structurally** | a single-principal org must escalate |
-  | 2 | **Destination probation** — the **first** payout to a destination changed within `payout.destination_probation_days` is created `held`, releasable only by `is_platform(['platform_risk','platform_admin'])` via the existing `release_payout`. Reuses machinery that already exists; needs no new column | money leaving to a fresh destination unreviewed | a support touch on the first payout |
+  | 2 | **Destination probation** — the **first** payout to a destination changed within `payout.destination_probation_days` is **created `pending` by `close_settlement` and NOT advanced to `submitted` by `request_org_payout`, carrying `hold_state='probation_hold'` + `hold_reason_code` + `held_at`, `held_by` NULL** (§10.3's probation arm), releasable only by `is_platform(['platform_risk','platform_admin'])` via the existing `release_payout`. **`SPEC CORRECTION` (`S-15`/`S-14`; ratification `C105`): this cell read *"is created `held` … needs no new column"*. `kernel.payout.status='held'` NEVER EXISTED** — it is absent from the enum and from plan §5's CHECK — **and *"needs no new column"* was false under every candidate repair**, since even adding a CHECK label is DDL. It is **four additive columns on `kernel.payout`** (`hold_state`, `hold_reason_code`, `held_by`, `held_at`; schema §1.9/§1.9.1), no new table, no new RPC, no new package, no edge. **The ratified behaviour is unchanged: money does not leave, and only `platform_risk`/`platform_admin` release it (O-3)** | money leaving to a fresh destination unreviewed | a support touch on the first payout |
   | 3 | **Out-of-band notification** — on change, notify **every** `org_owner` and `org_finance` **including the actor**, by push *and* email, immediately, with a one-tap *"I did not authorize this"* that calls `hold_payout` on every pending payout for the org | a silent takeover | none |
   | 4 | **Step-up freshness** — `auth.jwt()->>'aal'` vs `authn.money_action_required_aal`, and the newest `amr` timestamp vs `authn.money_action_max_age_seconds` | session-riding, stolen refresh tokens | a re-auth flow + retry |
   | 5 | **Denial audit** — `kernel.record_money_denial` (§17.9) | *nothing on its own* — it is **how you find out** | one extra edge call on failure |

@@ -860,8 +860,9 @@ sentinel (§1.16) to its write set.
   which is a small slice of a large table and is invisible to the two `(payee, status)` indexes.
 - **RLS:** money-custody-RPC-only; payee reads own via scoped RPC.
 - **Write authority:** `kernel.close_settlement` (INSERT `pending`) / native-sale payout path /
-  `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, or
-  INSERT-with-`probation_hold`) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
+  `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, **or —
+  probation arm — `hold_state := 'probation_hold'` + `hold_reason_code` + `held_at` on the EXISTING `pending`
+  row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
   never touch `status`)** / **`kernel.mark_payout_transfer_state` (`status` terminal advance +
   `stripe_transfer_ref`; §1.9.2)**.
 - **Read authority:** payee + org finance + platform.
@@ -923,9 +924,25 @@ and only `is_platform(['platform_risk','platform_admin'])` may release it (O-3, 
 money-spec owner as §13.7 **S-14**, to the RPC owner as **S-15**, to the dashboard owner as **S-21**.
 Ratification **C91**.
 
+**`SPEC CORRECTION` (`R1-3`; ratification `C105`) — *"INSERT-with-`probation_hold`"* was itself unbuildable,
+and it is corrected in the write-authority row above.** `kernel.request_org_payout` **does not INSERT a
+payout** — `kernel.close_settlement` does, at `pending` — and RPC §10.3 had **no INSERT arm and no probation
+arm of any kind**, so `probation_hold` had no writer and Control 4 of §17.7's destination-change set had **no
+storable outcome at all**. Worse, the phrasing named **one** column while the pairing CHECK makes
+`hold_reason_code` and `held_at` mandatory and `held_by` necessarily NULL: **an INSERT naming only
+`hold_state` is rejected by the constraint, so the row as described was un-INSERTable even in principle.**
+The probation arm therefore **declines to advance** the existing `pending` row and writes **all four hold
+columns together**, leaving `status` untouched — RPC §10.3's probation arm, which now states it as a column
+list rather than as *"set the hold"*. **The label is the same, the release path is the same, and the ratified
+behaviour is unchanged.**
+
 **Tests.**
 - `T-SCHEMA-PAYOUT-01`: `hold_state` is `NOT NULL DEFAULT 'none'` and admits exactly the three labels; a
   fourth raises `23514`.
+- **`T-SCHEMA-PAYOUT-08` (`R1-3`): `probation_hold` is REACHABLE** — after a destination change inside the
+  probation window, `request_org_payout` leaves a row with `status='pending'`, `hold_state='probation_hold'`,
+  non-NULL `hold_reason_code`/`held_at` and **NULL `held_by`**. Asserted as a positive existence over all
+  four columns, because the pre-fix defect was a label that no sequence of contracted calls could produce.
 - `T-SCHEMA-PAYOUT-02`: hold a payout in `status='submitted'`, release it, re-read — `status` is
   **still `submitted`**. Asserted as an equality against the pre-hold value, not against a literal, because
   the defect this closes is a release that has to guess.
