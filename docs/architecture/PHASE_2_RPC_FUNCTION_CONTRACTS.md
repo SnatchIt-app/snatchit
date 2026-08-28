@@ -8,6 +8,21 @@ decision**. Where a decision remained open it is flagged under §16 RECONCILIATI
 consolidated test register, and §19 lists what is AUTHORED here rather than transcribed — read §19 before
 implementing anything in §17.20–§17.25, where the source specs were incomplete.**
 
+> **Reconciliation pass (`AUTHZ-H3` · `AUTHZ-H3a/b` · `APPR-SUBJ-1/2` · `AUTHZ-DEM1` · `AUTHZ-CRM1/2`) — the
+> five signature changes an implementer must not miss**, because each breaks a call site that currently
+> compiles in prose:
+> 1. **`kernel.assert_door_session`** gains `(p_door_session_id, p_session_token)` and **returns the bound
+>    `(device_id, event_session_id)` instead of a boolean** (§1.1d).
+> 2. **`venue.record_scan` / `venue.reconcile_offline_scans`** take a distinct **`p_actor_device_id`**,
+>    supplied from that return value; `p_scan_meta.device_id` is **rejected**, not ignored (§9.4/§9.5).
+> 3. **`venue.finalize_export` LOSES `p_cells_emitted` / `p_cells_suppressed`** — they are accumulated inside
+>    the definer and cannot be supplied (§17.22).
+> 4. **`venue.list_attendees` gains `p_reason_code`**, required on the platform arm (§17.22).
+> 5. **`venue.retire_scan_device` is superseded by `venue.set_scan_device_status`** (§20.4.3, §20.13).
+>
+> **One contract is `⛔ BLOCKED`:** `venue.set_event_security_config` (§20.6.6) writes to a table that exists
+> in no package. **`086` must not schedule it** until owner ruling `R-21`.
+
 > **§20 is the SET CLOSURE, and it is the first thing to read if you are about to write SQL.**
 > `PHASE_2_RLS_PERMISSION_SPEC.md` §11 is the complete statement of Phase-2 write authority, and §1–§19 of
 > this document were a **proper subset** of it: **49 functions were granted EXECUTE, or scheduled as objects
@@ -93,7 +108,7 @@ as describing the other's job.
 
 **The door is the exception that proves the rule.** It has no `auth.uid()` *by design*, and therefore may not
 authorize on caller identity at all. Its authority comes from `kernel.assert_door_session(device_id,
-session_id)` re-validating a **server-validated device assertion** against live tables — not from an edge
+session_id, door_session_id, token)` re-validating a **server-validated device assertion** against live tables — not from an edge
 attestation of a human. A door RPC that accepted an edge-supplied `p_actor_identity` would be the same C35
 violation wearing a different hat.
 
@@ -275,15 +290,72 @@ A contract is tagged one of:
   `grant_platform_role` takes a `promoter_id`, `promoter_link_id`, `attribution_id` or referral id as input**,
   so no promoter artifact can appear on the write path to a grant (**`T-RPC-ROLE-04`**).
 
-### 1.1d `kernel.assert_door_session(p_device_id, p_session_id)` — **NEW RPC** — **EXEC: DEF**
+### 1.1d `kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` — **NEW RPC** — **EXEC: DEF** — **CORRECTED (`AUTHZ-H3`)**
+
+> **`AUTHZ-H3` — THE DOOR'S ONLY GATE PROVED PROVISIONING, NOT POSSESSION. SIGNATURE CHANGE.**
+>
+> **The defect (schema §3.10a.0, edge §3.9a, filed as schema §13.7 `S-5` and edge recon #13).**
+> `assert_door_session(p_device_id, p_session_id)` took **two identifiers and no secret**. Its two reads —
+> `venue.scan_device.status='active'` and a live `venue.door_pin` for the session — are both **provisioning
+> facts**; neither is a possession fact. Worse, `venue.door_pin` carries **no device column** (schema §3.10),
+> so the PIN branch was satisfied by *any* live PIN for that session, including one issued to a different
+> device. And `p_device_id` arrives on a `service_role` path where — as this contract's own warning says —
+> **RLS is bypassed entirely and this function is the only gate**. Net: **anyone holding one live
+> `(device_id, event_session_id)` pair — the two least secret values in the system, both of which appear in
+> manifests, dashboards and logs — reached all four door capabilities unauthenticated**, and a session could
+> not be revoked independently of the PIN because nothing consulted a token.
+>
+> **The fix gives the concentrated gate something to check. It removes no liveness check** — clauses 3 and 4
+> below are the two old reads, unchanged, and they are why a bearer token here does **not** reintroduce the
+> door-JWT problem ROLE_MODEL §7.3 rejects (schema §3.10a.2).
+
 - **DB-RPC**. **Purpose:** the *entire* authorization surface of the door path. Raises unless a valid,
-  unexpired, unrevoked door session binds that device to that session.
-- **Reads:** `venue.scan_device` (`status='active'`), `venue.door_pin` (`status='active'`,
-  `expires_at > now()`, bound to `p_session_id`) — **live**. **Writes:** none. **Locks:** none. **SSCAS:** n/a.
+  unexpired, unrevoked door session **whose token the caller actually holds** binds that device to that
+  session — and **returns the bound pair** so no caller downstream has to be trusted for it.
+- **Params.** `p_device_id` uuid · `p_session_id` uuid · `p_door_session_id` uuid · `p_session_token` text.
+  **All four untrusted.** `p_door_session_id` is the **non-secret selector** (`venue.door_session`'s PK);
+  `p_session_token` is the verifier, returned once at mint and never re-returned.
+- **Returns `(device_id uuid, event_session_id uuid)` — the BOUND pair, not a boolean.** This is the half of
+  the fix that is not cosmetic. A boolean leaves the edge free to fabricate a device id for the very next
+  call; returning the bound values means **the identity the ledger records is the identity the database
+  resolved**. Every relay handler passes the returned `device_id` onward as `p_actor_device_id` (§9.4/§9.5),
+  never a value from the request. **`p_device_id` is retained only as a cross-check that must equal the bound
+  value** — a mismatch is a hard refusal and a Sentry event, because that shape is an attack, not a client
+  bug — and is **never** the source of the device identity.
+- **The four clauses, all live, on every call** (schema §3.10a.2, verbatim):
+  1. `venue.door_session` row `p_door_session_id` exists, `status='active'`, `expires_at > now()`,
+     `device_id = p_device_id`, `event_session_id = p_session_id`;
+  2. `token_hash` matches `p_session_token` under a **constant-time** comparison;
+  3. `venue.scan_device.status='active'` — **live**, as before;
+  4. `venue.door_pin` (via the row's `pin_id`) `status='active' AND expires_at > now()` — **live**, as before.
+- **Digest construction and the timing rule.** `token_hash = sha256(door_session_id::text || ':' ||
+  secret)` — a **plain digest, deliberately not a slow KDF**: the token is ≥ 256 bits of server-generated
+  CSPRNG that no human types, and putting a deliberately expensive function on **the scan hot path** is the
+  one place in this system where that cost is unaffordable. The **opposite** substitution is the standard
+  catastrophe: `door_pin.pin_hash` is low-entropy and keeps its slow KDF. Binding the selector into the
+  digest means a verifier harvested from one row cannot be replayed against another id.
+  **When `p_door_session_id` does not resolve, the function performs a dummy compare against a fixed decoy
+  digest and returns the same failure**, so the absent-id and wrong-token paths cost the same. Unknown id ·
+  wrong token · expired · revoked · session mismatch · unknown device return **the same error and the same
+  timing budget** — the anti-enumeration obligation that previously sat only on the PIN attempt now sits
+  here, where every relay call lands.
+- **Reads:** `venue.door_session` (by PK), `venue.scan_device`, `venue.door_pin` — **live**.
+  **Writes:** `venue.door_session.last_seen_at`, **throttled** to at most once per
+  `config('door.session_touch_interval')` — a write on every scan would put a row update inside the
+  admission transaction. **Locks:** none. **SSCAS:** n/a (admin/door plane; outside the six ranks — the set
+  stays closed at fifteen).
 - **Actor:** none. **`auth.uid()` is NULL on this path**, by design. The door client never talks to PostgREST:
-  it calls the `door-session` edge function, which holds `service_role` and invokes the definer RPC with a
-  **server-derived** `p_actor_device_id`. The Postgres principal is a machine identity acting on a
-  server-validated **device** assertion, never on a client claim.
+  it calls the `door-session` edge function, which holds `service_role` and invokes the definer RPC. The
+  Postgres principal is a machine identity acting on a **verified possession** assertion, never on a client
+  claim.
+- **Errors.** One class, deliberately: `insufficient_privilege(42501)` with a single opaque reason for all
+  six failure shapes above. **`not_found` is never returned** — distinguishing "no such session" from "wrong
+  token" is the enumeration oracle the dummy compare exists to close.
+- **Tests.** `T-RPC-DOOR-30` (**the `AUTHZ-H3` regression, written as a negative**: a call carrying a valid
+  `device_id` and `event_session_id` and **no token** — the exact call that succeeded before this fix —
+  raises) · `T-RPC-DOOR-31` (a token minted for device A is refused for device B, and one minted for session
+  S1 for S2, **with the same error as an unknown id**) · `T-RPC-DOOR-32` (revoking the **PIN** fails the next
+  call by clause 4 **and** leaves no `status='active'` session row — RV-1, both halves).
 - **NEVER an RLS predicate (RM-5).** It must not appear in any `USING` clause (**`T-RPC-ROLE-05`**:
   `assert_door_session` appears in no `pg_policy` expression).
 - **Security-critical, and treated as such:** `postgres`-owned, pinned `search_path`, `EXECUTE` revoked from
@@ -306,6 +378,35 @@ A contract is tagged one of:
 - **Attribution gap this creates and how it is closed:** `venue.scan` has `device_id` but **no actor column**,
   and `device_id` is NULL on the authenticated-staff path — so a staff admit records *who admitted nobody at
   all*. Requires the schema owner's `venue.scan.actor_identity_id` + the non-anonymous CHECK (RLS §17 X-2).
+
+> **`AUTHZ-H3a` — TWO PASSES DESIGNED THIS CREDENTIAL INDEPENDENTLY AND DID NOT CONVERGE. BOTH
+> DIVERGENCES ARE RESOLVED HERE, IN FAVOUR OF THE PASS THAT OWNS THE TABLE.**
+>
+> **(a) The selector's name and physical form.** The edge spec (§3.9a) specifies a **separate `session_ref`
+> text column** as the lookup handle, with `token_hash = sha256(session_ref || ':' || secret)` and a wire
+> format `Authorization: DoorSession <session_ref>.<secret>`. The schema spec (§3.10a.1) — which **owns the
+> table** — defines **no `session_ref` column at all**: it makes `door_session_id` (the uuid PK) *"the
+> non-secret selector, returned to the client alongside the secret"*, and files the predicate to this
+> document as `assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)`.
+> **Resolved to `p_door_session_id`.** A parameter that selects a row by a column the table does not have is
+> unimplementable, and inventing the column here would be this document authoring schema. The two designs are
+> otherwise identical — a non-secret selector plus a high-entropy verifier, digest-bound to each other — so
+> nothing but the spelling changes. **Filed to the edge owner (§20.14 `R-19`):** §3.9a's token format becomes
+> `DoorSession <door_session_id>.<secret>`, its `session_ref` prose becomes `door_session_id`, and its
+> derived rate-limit principal becomes `uuidv5(NS_DOOR_SESSION, door_session_id)`. *(Alternative, if the
+> owner prefers the edge spelling: the schema owner adds `session_ref text UNIQUE NOT NULL` to §3.10a.1 and
+> this signature takes `p_session_ref`. It is a one-column decision either way — but it must be made in the
+> schema, not here.)*
+>
+> **(b) Refresh.** Edge §3.9a specifies a `/refresh` route that extends `expires_at` **without re-presenting
+> the PIN**; schema §3.10a.4 **deliberately declines** to add one, on the ground that *"a refresh path that
+> extends a session without re-presenting the PIN is a path that outlives the PIN — precisely the property
+> ROLE_MODEL §7.3 refuses."* **Resolved in favour of the schema pass: there is no `venue.refresh_door_session`
+> contract, and none is authored here.** `/refresh` is served by **re-minting** against the PIN
+> (§9.6), which re-runs the rate limit and re-reads every liveness fact. The functional cost is one PIN
+> re-entry when a session ages out; the alternative is a bearer credential whose lifetime is decoupled from
+> the credential it was minted against, which is the whole class of defect `AUTHZ-H3` just closed.
+> **Filed to the edge owner (§20.14 `R-19`).**
 
 ### 1.2 `market.get_ticket_history(p_ticket_atom_id)` — redacted owner history (recon #5)
 - **DB-RPC** (read). **Purpose:** the ONLY client path to custody history; raw `kernel.ticket_ownership_log`
@@ -911,10 +1012,27 @@ A contract is tagged one of:
   `{ status, pin_id }` (**never returns the hash**). **Security:** `pin_hash` stripped from every client GRANT;
   constant-time compare only inside the door-auth path (I-9). **Forbidden callers:** door/finance/promoter; fans.
 
-### 9.2 `venue.revoke_door_pin(p_pin_id, p_command_key)` — **DB-RPC**
-- **Role:** as §9.1. **Locks:** pin row `FOR UPDATE`. **SSCAS:** n/a. **Writes:** `venue.door_pin` (→
-  `revoked`), `kernel.admin_audit` (`door_pin.revoke`). **Result:** `{ status }`. **Idempotency:** terminal
-  state. **Forbidden callers:** as §9.1.
+### 9.2 `venue.revoke_door_pin(p_pin_id, p_command_key)` — **DB-RPC** — **CORRECTED (`AUTHZ-H3`, obligation RV-1)**
+- **Role:** as §9.1. **Locks:** pin row `FOR UPDATE` → its `venue.door_session` rows `FOR UPDATE` ascending
+  `door_session_id`. **SSCAS:** n/a (admin/door plane).
+- **RV-1 (BINDING) — the cascade.** Revoking a PIN **revokes every `venue.door_session` minted from it
+  (`door_session.pin_id = p_pin_id`, `status='active'`) in the SAME transaction**, stamping
+  `status='revoked'`, `revoked_at := now()`, `revoked_reason := 'pin_revoked'`. **Without the cascade,
+  revoking a PIN leaves live bearer tokens behind** — which is `AUTHZ-H3` reproduced one level up, and it is
+  the single most important line in this contract.
+  > **What RV-1 does and does not enforce, stated so it is not skipped as redundant.** §1.1d clause 4 already
+  > makes those sessions fail on their next call, so **RV-1 is not what enforces revocation — it is what
+  > makes the state observable.** A `status='active'` row whose PIN is dead is a row that **lies to the
+  > operator console**, and the console is where a manager decides whether the door is secure. A cascade
+  > implemented "later, by a sweep" restores exactly that lie for the length of the sweep interval.
+- **Writes:** `venue.door_pin` (→ `revoked`), `venue.door_session` (→ `revoked` ×N, RV-1),
+  `kernel.admin_audit` (`door_pin.revoke`, **carrying the cascaded session count**). **Result:**
+  `{ status, sessions_revoked int }` — the count is returned because the operator revoking a PIN mid-event
+  needs to know how many live doors they just closed. **Idempotency:** terminal state; a replay revokes no
+  second time and returns `sessions_revoked = 0`. **Forbidden callers:** as §9.1; **a door session may never
+  call it** (O-4).
+- **Test.** `T-RPC-DOOR-32` (both halves: the next door call raises, **and** the PIN's sessions hold no
+  `active` row — the second half is what the console depends on and the first passes without it).
 
 ### 9.3 `venue.validate_ticket_online(p_atom_id_or_credential, p_session_id)` — **DB-RPC (read; C37 live verify)**
 - **Purpose:** the **online per-scan live verify** — returns whether an atom is admittable **without**
@@ -925,16 +1043,55 @@ A contract is tagged one of:
   (`state`,`resale_state`,`credential_version`,`current_owner_id`), `kernel.signing_key.public_key`,
   `venue.scan` (prior admit). **Writes:** none. **SSCAS:** n/a.
 - **Result:** `{ admittable(bool), reason(active|already_scanned|listed_locked|voided|wrong_session|
-  version_stale), credential_version }`. **Security:** signature verification of the presented token uses the
-  **public key** (door-side / edge); the **private key is never in the DB** (C33). Online doors do a live
-  per-scan verify (C37); offline doors verify against the cached manifest (±2 time-bucket skew). **Forbidden
-  callers:** non-door clients.
+  version_stale|**refund_hold**), credential_version, **signing_key_id** }`. **Security:** signature
+  verification of the presented token uses the **public key** (door-side / edge); the **private key is never
+  in the DB** (C33). Online doors do a live per-scan verify (C37); offline doors verify against the cached
+  manifest (±2 time-bucket skew). **Forbidden callers:** non-door clients.
+- **`signing_key_id` is REQUIRED in the result, and it is not decoration (edge recon #14).** The offline path
+  already binds the key id: `venue.door_manifest_entry` carries `signing_key_id` (§20.6.1) and the door's
+  offline check 3c refuses a credential whose key id is not the one the manifest pinned. **With no online
+  counterpart, the key-id binding held on exactly one of the two admission paths** — and the claim
+  §20.7.5 makes about revocation (*"blast radius = the atoms pinned to that key"*) is only true if **both**
+  paths check it. The online verify therefore returns the atom's live `kernel.tickets.signing_key_id` and the
+  caller refuses on mismatch, exactly as the offline path does. **`T-RPC-DOOR-25`:** an atom whose
+  `signing_key_id` names a **revoked** key is refused online **and** offline, asserted on both paths, because
+  a test on one path passes while the other is the hole.
+- **`refund_hold` is a required `reason` label (edge recon #14, door §9.2).** §17.1 parks a refund by setting
+  `kernel.tickets.resale_state := 'refund_hold'`, which makes the atom non-admittable. Without the label the
+  **online** door refuses that atom with **no reason to render** and the box office cannot tell a parked
+  refund from a void. **The offline path cannot see it at all** — a `refund_hold` set after the manifest was
+  snapshotted reaches the door only as a `revoke` delta (§17.13), which is the documented and accepted gap,
+  not a new one.
 
-### 9.4 `venue.record_scan(p_atom_id, p_session_id, p_scan_meta, p_command_key)` — **DB-RPC (AO; authoritative admit)**
+### 9.4 `venue.record_scan(p_atom_id, p_session_id, p_actor_device_id, p_scan_meta, p_command_key)` — **DB-RPC (AO; authoritative admit)** — **CORRECTED (`AUTHZ-H3b`)**
+
+> **`AUTHZ-H3b` — THE DEVICE ATTRIBUTION IN THE ADMISSION LEDGER WAS A VALUE THE CALLER CHOSE.**
+> This function read `device_id` **out of `p_scan_meta`** — the parameter its own contract labels
+> *untrusted* — and `venue.reconcile_offline_scans` (§9.5) took it as a bare parameter. On the door path
+> there is no RLS and no `auth.uid()`, so in both cases the device attribution written into the **append-only**
+> `venue.scan` ledger was **an unauthenticated string that selected which device's scans were written**.
+> Every control that reads it downstream is reading a self-declared field: the C23 offline ordering by
+> `(device_boot_id, scan_sequence)`, the X-2 insider-fraud trail, the per-device reconciliation.
+> **Binding the session to a device (`AUTHZ-H3`) fixes nothing if the scan RPCs take the device from
+> somewhere else.** *(Schema §3.10a.3 / §13.7 `S-6`; edge §3.9a request #3; matrix X-5.)*
+
 - **Purpose:** record an admission attempt (AO ledger) and, on first valid `in`, move the atom to `scanned`
   via `kernel.mark_ticket_scanned`. **Actor:** door principal — **either** an authenticated `venue_scanner` **or** the `service_role` edge path asserting `kernel.assert_door_session` (§1.1d) — or
-  `venue_manager`. **Params:** `p_scan_meta` (device_id, direction default `in`, scan_type, device_boot_id,
-  scan_sequence, occurred_at) — untrusted; `p_command_key`.
+  `venue_manager`.
+- **`p_actor_device_id` — a distinct parameter, server-derived, never client-attested.**
+  - On the **door-session path** it is **the value `kernel.assert_door_session` returned** (§1.1d), never a
+    value from the request body. The function **asserts `p_actor_device_id = door_session.device_id` for the
+    asserted session** and raises otherwise. The edge is structurally forbidden from passing anything else:
+    EA-6 (*no function passes an actor, a role, or an authority assertion as an RPC parameter*) — **the
+    device id was exactly such an assertion**, and this is how it stops being one.
+  - On the **authenticated-staff path** it is **NULL**, and `venue.scan.actor_identity_id` carries the
+    attribution instead (RLS §17 X-2's `CHECK (device_id IS NOT NULL OR actor_identity_id IS NOT NULL)`).
+  - **`p_scan_meta.device_id` is DROPPED.** Not deprecated, not tolerated — removed from the accepted shape,
+    because *"a field that looks like identity and is not is worse than no field"* (schema §3.10a.3). A
+    `p_scan_meta` carrying a `device_id` key raises `invalid_input`, so a stale client fails loudly instead of
+    writing a lie into an append-only ledger.
+- **Params:** `p_scan_meta` (direction default `in`, scan_type, device_boot_id, scan_sequence, occurred_at)
+  — untrusted **telemetry only, no identity**; `p_command_key`.
 - **Preconditions:** session `live`; atom belongs to session; not `listed`/`locked`/terminal. **Locks & order:**
   **Ticket Atom** (`FOR UPDATE`) → scan ledger insert. **SSCAS:** atom + scan (custody-adjacent, single custody
   aggregate). **Idempotency:** partial `UNIQUE(ticket_atom_id, event_session_id) WHERE result='admitted' AND
@@ -943,10 +1100,18 @@ A contract is tagged one of:
   `scanned` via `mark_ticket_scanned`, first admit only). **Result:** `{ result, admitted(bool), atom_state }`.
   **Retry:** safe (duplicate recorded, not doubled). **Forbidden callers:** non-door clients; fans.
 
-### 9.5 `venue.reconcile_offline_scans(p_device_id, p_batch, p_command_key)` — **DB-RPC (offline reconciliation, C23)**
+### 9.5 `venue.reconcile_offline_scans(p_session_id, p_actor_device_id, p_batch, p_command_key)` — **DB-RPC (offline reconciliation, C23)** — **CORRECTED (`AUTHZ-H3b`)**
 - **Purpose:** ingest a device's queued offline scans, ordering by `(server_receipt_at, then device_boot_id +
   scan_sequence)` to resolve first-admit-wins across devices; flag conflicts. **Actor:** `venue_scanner` (or the `service_role` edge path asserting `assert_door_session`)
   (own device) / `venue_manager`. **Params:** `p_batch[]` (offline scan rows, untrusted),`p_command_key`.
+- **`p_actor_device_id` replaces the bare `p_device_id`, under the §9.4 rule verbatim** (`AUTHZ-H3b`):
+  server-derived from `assert_door_session`'s return value on the door path, asserted equal to
+  `door_session.device_id`, NULL on the authenticated-staff path. **`p_session_id` is added** because the
+  assert is per `(device, session)` and a batch that spans sessions cannot be bound to one — a batch row
+  naming a different session raises rather than being attributed to the asserted one.
+- **The assert is re-run per CALL, never per BATCH ITEM and never cached across items.** Caching it across a
+  600-row offline batch is what converts *"revoked on the next call"* into *"revoked eventually"*, and an
+  offline batch is precisely the call that arrives after the longest gap.
 - **Preconditions:** device belongs to venue; manifest window valid. **Locks & order:** per atom **Ticket
   Atom** (ascending `ticket_atom_id`) `FOR UPDATE`, then scan inserts. **SSCAS:** batched atom + scan.
   **Idempotency:** the scan `UNIQUE(cause,cause_ref,batch,kind)`-style + partial-unique dedupe; replay of a
@@ -954,6 +1119,108 @@ A contract is tagged one of:
 - **Writes:** `venue.scan` (INSERT each attempt, `offline_pending:=false` after reconcile), `kernel.tickets`
   (first-admit-wins → `scanned`), `venue.scan_device` (`last_sync_at`,`manifest_version`). **Result:**
   `{ status, admitted, duplicates, conflicts }`. **Retry:** re-entrant. **Forbidden callers:** non-door.
+
+### 9.6 `venue.mint_door_session(p_venue_id, p_session_id, p_device_id_claim, p_pin, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`AUTHZ-H3`)
+
+**The only writer that creates a `venue.door_session` row**, and the only place the PIN is exchanged for a
+possession credential. Filed by edge §3.9a request #4 and schema §3.10a.1.
+
+- **Authority.** **`DEF` — `service_role` only**, `REVOKE EXECUTE FROM anon, authenticated`. There is no
+  human path and no caller-identity predicate: this is the mint route of the `door-session` edge function
+  (`verify_jwt: false`), and **`auth.uid()` is NULL by design**. The edge derives no authority from the
+  request body; this function re-validates everything server-side.
+- **Params — ALL FOUR UNTRUSTED, and the naming says so.** `p_device_id_claim` is a **claim**, not an
+  identity: it is what the tablet asserts about itself and is authorized only by the PIN presented with it.
+  `p_pin` is the plaintext PIN, compared **constant-time** against `venue.door_pin.pin_hash` under the slow
+  KDF (I-9, Phase-0 §9) — the low-entropy credential keeps the expensive construction, unlike the session
+  token (§1.1d).
+- **Preconditions, re-validated server-side — the edge asserts none of them.**
+  1. A `venue.door_pin` for `p_venue_id` bound to `p_session_id` with `status='active' AND expires_at >
+     now()` whose hash matches `p_pin`.
+  2. `venue.scan_device(p_device_id_claim).status='active'` **and** its `venue_id = p_venue_id` (**DS-2**:
+     cross-venue is the highest-value confusion on a path with no RLS behind it).
+  3. The PIN's `event_session_id = p_session_id` (**DS-1**: a PIN is session-scoped; a session minted from a
+     PIN for a different night is the exact confusion the binding exists to prevent).
+  4. The event session belongs to that venue.
+  **Every failure returns the same opaque error with the same timing budget** — the PIN attempt's
+  anti-enumeration obligation, unchanged.
+- **Server-derived, never client-set.** `door_session_id` (uuid, the selector); the **secret** — ≥ 256 bits
+  of CSPRNG, returned **once** and never re-returned by any route; `token_hash := sha256(door_session_id::text
+  || ':' || secret)`; `pin_id`; `venue_id`; and
+  `expires_at := LEAST( now() + config('door.session_ttl_interval'), pin.expires_at,
+  session_end + config('door.session_post_session_grace') )` — a **server maximum**, the same discipline
+  `venue.inventory_hold.expires_at` carries.
+- **At most one live session per `(device, session)`, enforced by the DATABASE.** The partial
+  `UNIQUE(device_id, event_session_id) WHERE status='active'` (schema §3.10a.1) is what makes revocation
+  **total**: with a second live session possible, a revoke closes one door and leaves another open and the
+  operator cannot see it. **A re-mint for a `(device, session)` that already holds a live session revokes the
+  prior row in the same transaction** and returns a fresh secret — that is how the edge's `/refresh` is
+  served (§1.1d `AUTHZ-H3a`(b)), and it re-runs the rate limit and every liveness check above, which is the
+  whole point.
+- **Locks & order.** `venue.door_pin` row `FOR SHARE` → `venue.scan_device` row `FOR SHARE` → the prior
+  `venue.door_session` row `FOR UPDATE` (re-mint only) → INSERT. Admin/door plane, **outside the six SSCAS
+  ranks; the closed set stays at fifteen.** **SSCAS:** n/a.
+- **Idempotency.** `p_command_key`. **A replay returns `{ status: 'noop_replay' }` and the ORIGINAL
+  `door_session_id` — but NOT the secret**, which was returned once and is unrecoverable by construction. A
+  client that lost the secret re-mints; it does not replay.
+- **Writes.** `venue.door_session` (INSERT `active`; the superseded row → `revoked`,
+  `revoked_reason='superseded'`), `kernel.admin_audit` (`door_session.mint`, carrying `device_id`,
+  `event_session_id`, `pin_id`, `door_session_id` — **never the secret and never the hash**).
+- **Result.** `{ status, door_session_id, secret, expires_at, bound_device_id, bound_session_id }`.
+  **`secret` appears in this result and in no other result, log line, audit payload, or error in the corpus.**
+- **Errors.** `insufficient_privilege(42501)` — one opaque class for every precondition above ·
+  `idempotency_replay`.
+- **Test.** `T-RPC-DOOR-26` (a PIN for session S1 cannot mint a session bound to S2; a device at venue V2
+  cannot mint against V1's PIN; both fail with the **same** error and timing as a wrong PIN) ·
+  `T-RPC-DOOR-27` (a second mint for the same `(device, session)` leaves exactly one `active` row, and the
+  superseded token is refused by §1.1d on its next call).
+
+### 9.7 `venue.revoke_door_session(p_door_session_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC` (`AUTHZ-H3`)
+
+**The lost-or-stolen-tablet control** — it closes one door without disturbing the PIN every other device at
+that door is using. Filed by edge §3.9a request #4.
+
+- **Authority.** `has_venue_role(venue, ['venue_manager'])` OR `has_org_role_over_venue(venue,
+  ['org_owner','org_admin'])` OR `is_platform(['platform_admin'])` — the **O-4 allow-list, unchanged**, and
+  **a door session may never call it** (a credential that can revoke its siblings is a credential that can
+  close the door it is standing at). `EXEC: authenticated` with the in-body predicate re-check; also callable
+  by `service_role` from the edge.
+- **Params.** `p_door_session_id` (untrusted; resolved to its venue for the authority check — a caller with
+  no role over that venue gets `insufficient_privilege`, **never `not_found`**, which would confirm the id).
+  `p_reason_code` **mandatory**, from the D3 registry (`device_lost` · `device_stolen` · `device_recall` ·
+  `superseded` · `pin_revoked` · `operator_request`).
+- **Preconditions.** Row exists and `status='active'`. **Locks:** the row `FOR UPDATE`. **SSCAS:** n/a.
+- **Writes.** `venue.door_session` (→ `revoked`, `revoked_at`, `revoked_reason`), `kernel.admin_audit`
+  (`door_session.revoke`, mandatory `reason_code`).
+- **Effective on the NEXT call, and that is the property being bought.** §1.1d re-reads the row on **every**
+  relay call and caches nothing, so revocation lands at the next scan. **This is the property a door JWT
+  would destroy** (ROLE_MODEL §7.3) and it is only actually true because the token is a row rather than a
+  self-describing claim.
+- **Idempotency.** Terminal state + `p_command_key`; re-revoking is `noop_replay`, not an error.
+- **Result.** `{ status, door_session_id }`. **Errors.** `insufficient_privilege` · `precondition_failed(
+  reason_required | already_revoked)` · `idempotency_replay`.
+- **Related revocation paths, so the set is closed and none is assumed.** (1) `venue.revoke_door_pin` (§9.2)
+  cascades via **RV-1**; (2) `venue.set_scan_device_status(..., 'retired', …)` (§20.4.3) cascades via
+  **RV-2**; (3) `venue.close_door_manifest(…, 'device_recall')` **should** revoke the session's tokens
+  (recommended, edge §3.9a); (4) this function. **Four paths, and every one of them lands in the same
+  transaction as the act that motivated it** — a revocation deferred to a sweep is a live bearer token.
+- **Test.** `T-RPC-DOOR-28` (a `venue_scanner` and a door session are both refused; the next relay call on a
+  revoked session raises with the same error as an unknown id).
+
+### 9.8 `venue.sweep_expired_door_sessions()` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`AUTHZ-H3`)
+
+- **Purpose.** Move `active` rows past `expires_at` to `status='expired'`. `service_role`/`pg_cron` only;
+  `REVOKE EXECUTE FROM anon, authenticated`. Bounded batch, `SKIP LOCKED`, re-entrant.
+- **NOT LOAD-BEARING, and this is stated because three sweeps in this document look alike and only two of
+  them are safe to skip.** Expiry is **arithmetic** — `expires_at > now()` inside §1.1d clause 1 — so a
+  session is dead the moment it expires whether or not this ever runs. It exists to keep `status` truthful
+  for the operator console. **Same posture as `kernel.sweep_expired_door_overrides` (§17.11); the opposite of
+  `venue.sweep_expired_inventory_holds` (§20.3.3), which IS load-bearing because it returns a stored counter,
+  and of `kernel.sweep_expired_refund_requests` (§17.4), which releases a custody hold.**
+- **Writes.** `venue.door_session` (→ `expired`). **No audit row** — an expiry is arithmetic reaching a
+  label, not a privileged mutation. **No DELETE, ever:** an expired door session is evidence about who was at
+  the door.
+- **Result.** `{ swept_count }`. **SSCAS:** n/a.
 
 ---
 
@@ -990,12 +1257,38 @@ A contract is tagged one of:
   (reuses the frozen `source_transaction` funding + deterministic idempotency, SPEC_FOUNDATION §2).
 - **Role:** `has_org_role([org_finance, org_owner])`. **Params:** `p_org_id`,`p_settlement_id`,`p_command_key`.
   **Preconditions:** settlement `closed`, payout `pending`, destination not locked. **Locks & order:**
-  **Settlement** → **Payout** (`FOR UPDATE`). **SSCAS:** member #4 continuation (Settlement→Payout).
+  **Settlement** → **Payout** (`FOR UPDATE`) → **Approval** (rank 5.5, INSERT — parked arm only).
+  **SSCAS:** member #4 continuation (Settlement→Payout).
   **Idempotency:** payout `idempotency_key`.
-- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback),
-  `kernel.admin_audit` (`payout.request`). **Result:** `{ status, payout_id }`. **Failure:**
-  `precondition_failed` (destination locked / not closed). **Forbidden callers:** non-finance; the DB never
-  moves money itself.
+- **Three preconditions this contract did not state, all of them controls the money spec already relies on:**
+  1. **SoD-1 (structural).** Rejects when `auth.uid() = kernel.organization.payout_destination_set_by`,
+     **permanently for that destination**, not merely during the cool-down — `sod_violation`. §17.7 control 1.
+  2. **`kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`, schema §13.7 `S-3`). **A money-role grant
+     younger than `authn.money_role_maturity_hours` may neither request nor approve.** Without it, SoD-1 is
+     satisfied by any two distinct `auth.uid()` values **and an `org_owner` can mint the second one** through
+     the ordinary invite/accept flow. `sod_violation`, **not** `insufficient_privilege` — the role is
+     genuinely held, and a permission error would send the operator to re-check a grant that is correct.
+     **It binds the destination-SETTER (§17.7) as well as this requester: applied to one half of a pair it is
+     applied to neither.**
+  3. **Step-up per `AUTHZ-M4`** — an absent `aal`/`amr` claim raises **`step_up_unavailable`**, distinctly,
+     and never evaluates to a pass or a fail.
+  **None of the three is ever applied to a deny or a cancel** (schema §13.7 `S-3`): a control that blocks
+  *stopping* a payout is a control pointed the wrong way.
+- **Above `payout.dual_control_min_minor` it PARKS an approval instead of advancing, and it WRITES
+  `required_approver_class` when it does (`AUTHZ-C1A`, schema §13.7 `S-1`).** RLS §11.3 states the parking;
+  the column is what carries the tier forward, and this is its third writer (with §17.1 and §20.2.1).
+  Server-set from the same evaluation that decided to park, **pinned exactly as `config_versions` is**,
+  **never a parameter**: `required_approver_class := 'org'` for an org-approvable payout, `'platform'` where
+  the amount or a risk condition sends it to platform review — at which point **`platform_support` is DENIED
+  on the payout arm** (§17.2), because it holds no payout authority anywhere else and must not acquire one
+  through the generic approval object. `subject_kind='settlement'`, `subject_id := p_settlement_id`, resolved
+  under the settlement's lock per **`APPR-SUBJ-1`** (§17.0a).
+- **Writes:** `kernel.payout` (→ `submitted`, `stripe_transfer_ref` set by the edge callback — direct arm),
+  `kernel.approval_request` (INSERT `pending` with `required_approver_class` — parked arm),
+  `kernel.admin_audit` (`payout.request`). **Result:** `{ status ∈ {submitted, pending_approval,
+  pending_platform_review, noop_replay}, payout_id, request_id?, required_approver_class? }`. **Failure:**
+  `precondition_failed` (destination locked / not closed) · `sod_violation` · `step_up_required` ·
+  **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves money itself.
 
 ---
 
@@ -1411,6 +1704,54 @@ all, and an unstated lock order is how a deadlock class gets built.
 no policy.** The money and role specs together contribute 23 RPCs with **no named test and no named RLS policy
 anywhere**; the notifications spec names two RPCs with **no contract body at all** (§17.28). Those gaps are
 filled here and flagged in §19 as authored rather than transcribed.
+
+### 17.0a `kernel.approval_request` — the two integrity rules the DATABASE cannot hold, stated as binding obligations (`APPR-SUBJ-1` · `APPR-SUBJ-2`; schema §1.13.3 / §13.7 `S-2`)
+
+**Binding on every function that writes or reads a `kernel.approval_request` row** — §17.1, §17.2, §17.3,
+§17.4, §10.3 and §20.2.1's parked arm.
+
+> **The residual is ACCEPTED, and it is not equivalent to a constraint. Say so, or the next reader assumes
+> it is.** `kernel.approval_request.subject_id` has **no foreign key, by necessity, not by omission**: it
+> points at three different tables in three different packages, and the package order forbids the FK in
+> both directions — the approval table is **`077`**, `venue.order` is **`082`**, `venue.settlement` is
+> **`087`**. A polymorphic column cannot carry an FK anyway, and even a per-kind FK could not be declared
+> from `077` against tables that do not exist yet. **So the integrity is relocated into the RPC layer or it
+> does not exist at all.** What follows is the relocation. It is weaker than a constraint in exactly one
+> way — **a direct `INSERT` by a superuser or a future definer bypasses it**, where an FK would not — and
+> that residual is **accepted here on the record**, mitigated by the fact that every writer is enumerated
+> (`T-RPC-AUTHZ-15`) and the table holds no client grant. **It must never be described as "equivalent to a
+> foreign key", in this document or in a review.**
+
+- **`APPR-SUBJ-1` (the REQUESTING function).** Before inserting, the requester **resolves `subject_id`
+  under the subject's own lock, in the same transaction that writes the row** — `venue.order FOR UPDATE`
+  (rank 3) for `subject_kind='order'`, `venue.settlement FOR UPDATE` for `'settlement'`, the key's latest
+  `catalog.platform_config` row `FOR UPDATE` for `'config_key'` — and **raises `not_found` if it does not
+  resolve.** The lock is not decoration: resolving without it lets the subject vanish between the check and
+  the insert, which is the failure the FK would have prevented. `subject_kind` and the
+  `action ↔ subject_kind` pairing (`AUTHZ-M2`) are written in the same statement, never inferred later.
+- **`APPR-SUBJ-2` (the APPROVING function).** §17.2 **re-resolves `subject_id` under the same lock** as part
+  of its "every precondition is re-evaluated under lock" rule, and **a subject that has vanished moves the
+  request to `stale`** — with holds released — **never to `denied` and never to `approved`.** `stale` is the
+  correct terminal state because nothing was decided: the approver is told to re-request, rather than
+  discovering that an approval quietly executed against a row that is gone. This is the same disposition
+  §17.2 already applies to a drifted amount or a re-tiered atom, extended to the subject itself.
+- **Test.** `T-RPC-AUTHZ-15` (the set of functions inserting `kernel.approval_request` is **exactly**
+  `{request_order_refund, request_org_payout, set_platform_config}`, structural over `pg_get_functiondef` —
+  **because the enumeration is what the accepted no-FK residual rests on**; the moment a fourth writer
+  appears, `APPR-SUBJ-1` is a convention again) · `T-RPC-AUTHZ-16` (a request whose `subject_id` is deleted
+  while parked resolves to **`stale`** on approval — **not `denied`, not `approved`** — releases every hold,
+  and writes no money row; asserted on all three `subject_kind` values, because one branch passing says
+  nothing about the other two).
+
+> **`required_approver_class` — two passes designed it independently and CONVERGED. The three-label set is
+> kept.** RLS §17 **X-10** / §20.14 **R-16** filed
+> `CHECK (required_approver_class IN ('org','platform','platform_admin'))`; schema §1.13.2 adopted that exact
+> spelling and recorded the reason a two-label set (`org` · `platform`) is wrong: **it would let
+> `platform_support` approve a raise of the cap that bounds `platform_support`** — `refund.issue` at
+> `platform` is approvable by `platform_support`, and collapsing `config.set_money_key` into the same label
+> hands the capped role the lever on its own cap (`AUTHZ-C1A2`). **The third label is not a tier refinement;
+> it is the entire content of `AUTHZ-C1A2`.** No pass proposed narrowing it, and none may without re-opening
+> that ruling.
 
 ### 17.1 `kernel.request_order_refund(p_order_id, p_atom_ids uuid[], p_amount_minor int, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
 
@@ -2184,7 +2525,15 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   `instrument_fingerprint`, asserted by **column-list comparison**, not by inspection) · `T-RPC-PROMO-11`
   (`displaced_promoter_id` and `touch_corroborated` are absent from the promoter's own projection).
 
-### 17.20 Demographics — `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` · `venue.refresh_holder_mix` · `venue.get_holder_mix` · the reconciliation job — `NEW RPC` ×6
+### 17.20 Demographics — `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` · `venue.refresh_holder_mix` · `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · `venue.get_holder_mix` · `venue.reconcile_holder_mix` — `NEW RPC` ×8 — **CORRECTED (`AUTHZ-DEM1`)**
+
+> **`AUTHZ-DEM1` — three transcription defects, all of them corrections the demographics spec made to
+> ITSELF after this section was written.** They are applied here because this document is what an
+> implementer builds from, and on all three points it currently contradicts the binding source (§10.4).
+> (1) **`set_my_demographics` / `clear_my_demographics` wrote an audit row** — deleted by that spec's
+> **J-11**. (2) **`get_holder_mix`'s suppressed shape returned the denominators** — a per-person *"did you
+> answer"* oracle, closed by **R6**. (3) **The §5.5 kill switch had no writer** — supplied by the
+> `unpublish_*` pair below, which is why the count moves from six to eight.
 
 - **`kernel.get_my_demographics()`** — **DB-RPC** read, `EXEC: authenticated`. **Params: none, and
   parameterless is load-bearing** — a signature with no identity argument makes *"read someone else's row"*
@@ -2195,24 +2544,61 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
 - **`kernel.set_my_demographics(p_gender_identity, p_notice_version)`** — write. Both params **untrusted** and
   re-validated in-body against the CHECK value set and the known notice-version list. **No identity parameter
   exists.** Upserts one row keyed by `auth.uid()`; sets `first_answered_at` on insert only; always bumps
-  `updated_at`; writes an audit row recording `(identity_id, action, occurred_at)` — **never the value**.
+  `updated_at`.
+  **It writes NO audit row of any kind (`AUTHZ-DEM1`(1); demographics J-11).** This section previously
+  specified `(identity_id, action, occurred_at)` — *"never the value"* — and that is **not sufficient**,
+  because the source spec's own §8.3 names a timestamped history of a person's gender answers as *"the
+  single worst artefact this feature could produce — it would record a **transition**"*, and
+  `(identity, set → changed → cleared, when)` **is** that transition record with the value elided. There is
+  also no table it could go in: the demographics schema delta names no audit object, so the only fitting home
+  was `kernel.admin_audit` — **permanent and platform-readable** — which would have nullified the §8.5
+  tombstone's purge window, the sole mitigation on offer. **The aggregate READ audit on
+  `venue.get_holder_mix` is unchanged and remains binding**: that one records a staff member reading a room,
+  not a fan answering a question about themselves.
   Idempotent. Locks: none. SSCAS: n/a. **There is no `kernel.admin_set_demographics` and no staff write path
   of any kind** (`T-RPC-DEMO-01`: the set of functions writing `kernel.identity_demographic` is **exactly**
   `{set_my_demographics, clear_my_demographics}`).
 - **`kernel.clear_my_demographics()`** — withdrawal. Params: none. **Hard-DELETEs the caller's own row — the
-  single named GP-2 exception (§0.5), inside the definer**; upserts a value-free
-  `kernel.identity_demographic_erasure` tombstone with `purge_after`; writes the value-free audit row.
+  single named GP-2 exception (§0.5), inside the definer.** The value-free
+  `kernel.identity_demographic_erasure` tombstone (with `purge_after`) is written by a **`BEFORE DELETE FOR
+  EACH ROW` trigger on `kernel.identity_demographic`, not by this function** (demographics J-12), so **every**
+  removal path produces one — withdrawal, the `auth.users` cascade, a definer delete, a future C38 merge. The
+  cascade was the one path that wrote no tombstone, which made **the strictest erasure case the one case a
+  post-restore purge could not re-apply.** **Writes no audit row** (`AUTHZ-DEM1`(1)): the tombstone is the
+  only trace, it is value-free, definer-only, and self-purging — precisely the properties an
+  `kernel.admin_audit` row would have destroyed.
   Idempotent (`noop_replay` when no row is present, **not** an error). Locks: none. SSCAS: n/a.
-- **`venue.refresh_holder_mix(p_event_session_id)`** — **`EXEC: DEF`**, `pg_cron`. Reads the custody head
-  (`kernel.tickets`, non-voided, for the session) ⋈ `kernel.identity_demographic`. **Does not read**
-  `venue.scan`, `venue.order`, `venue.attribution`, `venue.ticket_type`, or any price. Applies the suppression
-  rules — a minimum responded-count, a per-bucket floor enforced as a `CHECK` **on the table**, a mandatory
-  merge of sub-floor buckets into `other`, all-or-nothing suppression, and a publication churn gate — then
-  persists **at most one** snapshot. **A discarded recomputation writes nothing.** Locks: none stated by the
-  source spec; `INFERENCE:` it needs none — it reads `kernel.tickets` without locking and writes only its own
-  derived aggregate, so it takes **no rank-5 lock and introduces no ordering obligation.** SSCAS: n/a — it is
-  **not** a member of the closed set and touches no money, custody or inventory row. Returns
-  `{ status ∈ {published, suppressed, discarded_churn_gate} }`.
+- **`venue.refresh_holder_mix(p_event_session_id)`** — **`EXEC: DEF`**, `pg_cron`. Reads the **declared read
+  set** the churn rule actually needs (demographics §5.4): `kernel.tickets`, `kernel.ticket_ownership_log`,
+  `venue.order`/`venue.order_item` (**zero/non-zero price test only**), `kernel.identity_demographic`,
+  `venue.holder_mix_snapshot`, `catalog.event_session`/`event`/`venue`, `catalog.platform_config`. **Does not
+  read** `venue.scan`, `venue.attribution`, `venue.ticket_type`, `public.profiles`, or any buyer identity.
+  **Algorithm, in order (H-6 remediation — the previous text named three of these seven):** resolve the
+  **R7-eligible** holder set — **comped and zero-price custody EXCLUDED**, because the privacy floors were
+  otherwise proved against a population the operator controls, *and comps cost nothing while the
+  `venue_manager` mints both the session and the comps* → compute `holders_total`, `holders_responded`,
+  **`holders_excluded_ineligible`**, raw bucket counts → **R1** event minimum → **R3** merge (the fully
+  determined procedure) → **R5** two-bucket / all-or-nothing → **R8** contributor-multiset churn gate, with
+  its distinct-identity limb → **R9** cross-session near-duplicate gate over every published snapshot
+  reachable by the same venue or org → persist. R2 is additionally a `CHECK` **on the table**; R4 by a writer
+  assertion **and** by `get_holder_mix`'s read-side re-derivation; R6 by `get_holder_mix`'s return shape.
+  **Writes** at most one snapshot (+ its buckets); **a discarded recomputation writes nothing**; publishing
+  un-publishes the prior one. **Writes no contributor multiset and no identity reference of any kind** — the
+  contributor set exists only inside the transaction. Locks: none — it reads `kernel.tickets` without locking
+  and writes only its own derived aggregate, so it takes **no rank-5 lock and introduces no ordering
+  obligation.** SSCAS: n/a — **not** a member of the closed set; touches no money, custody or inventory row.
+  Returns `{ status ∈ {published, suppressed, discarded_churn_gate, **discarded_near_duplicate**} }` — **to
+  `service_role` and the job log only; no client ever sees this value.**
+- **`venue.unpublish_holder_mix(p_event_session_id)` · `venue.unpublish_all_holder_mix()`** — **ADDED here**
+  (demographics §5.5 — the kill switch had no writer). Set `published_at = NULL` on the targeted snapshot(s);
+  **delete nothing**; write **one `kernel.admin_audit` row per invocation**, naming the actor and the count
+  affected. **`EXEC`: `service_role` / `platform_admin` step-up only; `REVOKE EXECUTE FROM anon,
+  authenticated`.** Locks: the targeted snapshot rows `FOR UPDATE`. SSCAS: n/a. Idempotent — a snapshot
+  already unpublished is not re-counted.
+  `INFERENCE:` these **do** write audit where the fan-side writes deliberately do not, and the asymmetry is
+  the point — an operator retracting a published aggregate is a privileged mutation with an actor; a fan
+  answering a question about themselves is not. **Unpublish rather than delete**, because deleting destroys
+  the evidence of what was shown, which is the one thing an incident review needs.
 - **`venue.get_holder_mix(p_event_session_id, p_dimension)`** — read. **Exactly two parameters, and that IS
   the contract.** No `as_of`, no ticket type, no promoter, no source, no date range, no scan status, no
   limit/offset, no ordering, no free-form filter. **Adding a third parameter is a design change requiring
@@ -2221,16 +2607,39 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   `has_venue_role(venue,['venue_manager','venue_marketing','venue_promoter_manager'])` OR
   `has_org_role_over_event(event,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`; **denied**
   to `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`,
-  `platform_support`, `platform_risk`, `fan`, `anon`. Returns **either** `{ suppressed: true, reason,
-  holders_total, holders_responded }` with **no bucket rows**, **or** `{ suppressed: false, as_of,
-  holders_total, holders_responded, buckets[] }` where the buckets **always sum to `holders_responded`** so
-  the residual is not computable. **Which projection you get is decided by the writer's suppression rules, not
-  by the reader.** Writes one audit row **per call**; rate-limited per principal, fail-closed. Locks: none.
-- **The nightly reconciliation job** — **`EXEC: DEF`**. Asserts the bucket-sum and per-bucket-floor invariants
-  across every published snapshot and alarms on violation, mirroring the C27 counter-vs-ledger discipline.
-  **`INFERENCE:` the source spec classifies this as a `NEW RPC` but never names it**, and its own assertion
-  list says "all five RPCs" while listing six. Named here **`venue.reconcile_holder_mix()`** so it can be
+  `platform_support`, `platform_risk`, `fan`, `anon`.
+  - **The suppressed branch is a CONSTANT — `{ suppressed: true }`, and nothing else (`AUTHZ-DEM1`(2),
+    R6).** No `reason`, no `holders_total`, no `holders_responded`, no `as_of`, no bucket rows. **This is the
+    single most important line in the contract.** The previous shape returned the **denominators** on a
+    suppressed snapshot, which lets a `venue_manager` **mint a throwaway session, comp one ticket to a
+    target, and read `holders_responded ∈ {0,1}` as that person's "did you answer" bit** — the exact
+    per-person proxy X-4 bans, reachable by the role that holds the card, at the cost of one comp. **The
+    suppressed branch must have no other fields to fill.**
+  - The published branch is `{ suppressed: false, as_of, holders_total, holders_responded, buckets:
+    [{bucket, holder_count}, …] }`, where the buckets **always sum to `holders_responded`** so the residual
+    is not computable. **Which branch you get is decided by the writer's suppression rules, never by the
+    reader.**
+  - **Read-side re-derivation, fail-closed — the second enforcement layer.** Before emitting the published
+    shape the function re-checks, **on the row it just read**: `holders_responded >= 25` (R1);
+    `min(holder_count) >= 5` (R2); `Σ holder_count = holders_responded` (R4); `count(buckets) >= 2` (R5);
+    `holders_responded <= holders_total`. **Any failure returns `{ suppressed: true }` and raises a
+    reconciliation alarm** — it never returns a partial or a corrected card. This layer is what makes a
+    writer bug, a hand-written `INSERT`, or a restored-from-backup row **fail closed at the read**.
+  - **Kill switch, read LIVE on every call.** `catalog.platform_config['demographics.holder_mix_enabled']`
+    false ⇒ `{ suppressed: true }` for every session regardless of stored state; a snapshot with
+    `published_at IS NULL` likewise. (The key is `restricted` under RLS §8.4 `AUTHZ-CFG1`; the function reads
+    it inside the definer, so no client policy applies.)
+  Writes one audit row **per call**; rate-limited per principal, fail-closed. Locks: none.
+- **`venue.reconcile_holder_mix()`** — the nightly reconciliation job, **`EXEC: DEF`**. Asserts R4
+  (`Σ buckets = holders_responded`) and R2 (`min(holder_count) >= 5`) across every published snapshot and
+  alarms on violation, mirroring the C27 counter-vs-ledger discipline.
+  **`INFERENCE:` the source spec classifies this as a `NEW RPC` but never names it.** Named here so it can be
   granted, tested and cited; flagged in §19 as authored, not transcribed.
+- **`D-14`, recorded because it bounds what the floor actually means.** **Five roles hold both the roster
+  read (`venue.list_attendees`) and the mix card** — `venue_manager`, `venue_marketing`, `org_owner`,
+  `org_admin`, `org_marketing`. For them the floor of 5 is *"a bound over five people the reader can
+  **name**"*. The floor remains the right control; the claim that it anonymises **against those five** is
+  weaker than against a stranger, and is stated rather than assumed (CRM K-19(6)).
 - **A consent rule that binds this document, not just the product.** **Widening who may see the aggregate — a
   new role, a new surface — requires a new `notice_version` and an in-app notice to everyone who has already
   answered.** Adding a role to `get_holder_mix`'s authority predicate is therefore an RLS/RPC change **with a
@@ -2245,20 +2654,66 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   set of functions writing `kernel.org_contact_consent` is exactly
   `{grant_org_contact_consent, withdraw_org_contact_consent}`, and **neither has a `uuid` parameter that could
   denote an identity.**
+- **Every one of the three writes ALSO appends one row to an append-only event log, in the SAME transaction
+  (`AUTHZ-CRM1`; CRM K-19(1)).** `kernel.identity_contact_pref_event` for the master switch,
+  `kernel.org_contact_consent_event` for the per-org consent.
+
+  > **Why the current-state rows are not sufficient, and why this is a correctness fix rather than
+  > bookkeeping.** The export's consent gate has four conjuncts, **two of them mutable** (the master switch
+  > and the per-org consent). §6.3 promises a build is **byte-identical on replay** and that per-export
+  > membership is therefore not stored. But a paged build evaluates its conjuncts once per page, so with no
+  > history it necessarily evaluates them **at inconsistent instants** — a fan who withdraws mid-build is in
+  > page 1 and out of page 9. That falsifies the determinism claim, assertion 22, and the whole reason
+  > membership is not persisted. The fix is `gate_as_of`, stamped at **claim** and re-stamped on re-claim
+  > (one instant per build), **which is only answerable if both mutable conjuncts are as-of evaluable** —
+  > hence the two logs. `INFERENCE:` the log is also what makes a **re-grant after a withdrawal**
+  > representable at all: the current-state row holds one `granted_at` and one `withdrawn_at`, so
+  > grant → withdraw → grant overwrites its own history — and that cycle belongs to the person who changed
+  > their mind, who is exactly the person the record exists to protect in the dispute they are most likely
+  > to have.
+  >
+  > **Both logs are AO, `REVOKE UPDATE, DELETE`, definer/`service_role` only, with an EMPTY client grant set
+  > and zero policies** (RLS §6, §16.6). A column grant on `kernel.org_contact_consent_event` to
+  > `authenticated` would publish a **timestamped history of who allowed which venue to email them and when
+  > they changed their mind** — strictly worse than the current-state table it derives from, which is why it
+  > inherits the same posture rather than a relaxed one on the grounds that it is *"just a log"*.
+  >
+  > **A no-op appends no event.** Re-granting an existing consent, re-withdrawing a withdrawn one, or setting
+  > a preference to the value it already holds is a no-op update and writes **no** log row — otherwise the
+  > log records a client's retry pattern rather than a person's decisions.
 - `set_my_contact_prefs(p_venue_email_contact)` — the master kill switch; value re-validated in-body against
-  the CHECK set; idempotent; audited (`crm_contact.pref_changed`); rate-limited per identity.
+  the CHECK set; **appends one `kernel.identity_contact_pref_event` row**; idempotent; audited
+  (`crm_contact.pref_changed`); rate-limited per identity.
 - `grant_org_contact_consent(p_org_id, p_notice_version, p_source_order_id)` — `p_org_id` untrusted and
-  re-validated as a live org; `p_notice_version` validated against the known list; sets `state='granted'`;
-  re-granting is a **no-op update**; audited; rate-limited.
-- `withdraw_org_contact_consent(p_org_id)` — sets `state='withdrawn'` and stamps `withdrawn_at`; idempotent
-  (`noop_replay` if already withdrawn). **Withdrawal is a state change, never a row deletion**; it takes
-  effect **immediately on every on-screen read and at the next export build** — a build whose `as_of`
+  re-validated as a live org; `p_notice_version` validated against the known list; sets `state='granted'`
+  **and appends one `kernel.org_contact_consent_event(…, 'granted', …)` row in the same transaction**;
+  re-granting is a **no-op update** appending no event; audited; rate-limited.
+- `withdraw_org_contact_consent(p_org_id)` — sets `state='withdrawn'`, stamps `withdrawn_at`, **and appends
+  one `…_event(…, 'withdrawn', …)` row in the same transaction**; idempotent (`noop_replay` if already
+  withdrawn, appending no event). **Withdrawal is a state change, never a row deletion**; it takes
+  effect **immediately on every on-screen read and at the next export build** — a build whose `gate_as_of`
   precedes the withdrawal is unaffected, **and that is the documented semantic, not an accident**.
+- **`D-3` / K-6, carried here because it is an obligation on a function outside this document:** a
+  contact-preference or contact-consent row **must never be repointed to migration 020's anonymized
+  sentinel.** The row cascades away with the account or it stays with the person; pointing a live consent at
+  the sentinel would make a deleted account appear to consent.
 - **Locks:** none for any of the five. **SSCAS:** n/a. **Result shapes** for the three write RPCs are
   `{ status }` / `{ status:'noop_replay' }` — **authored here; the source spec states idempotency but no
   result shape** (§19).
 
-### 17.22 CRM export — `venue.request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` · `sweep_expired_exports` · `venue.list_attendees` · `venue.lookup_attendee` — `NEW RPC` ×9
+### 17.22 CRM export — `venue.request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `claim_artifacts_for_purge` · `confirm_artifact_purged` · `reconcile_export_orphans` · `list_export_jobs` · `sweep_expired_exports` · `venue.list_attendees` · `venue.lookup_attendee` — `NEW RPC` ×12 — **CORRECTED (`AUTHZ-CRM2`)**
+
+> **The CRM surface is now EIGHTEEN contracts: the five own-row contact RPCs of §17.21 plus the twelve here,
+> plus `venue.assert_may_request` — the shared request/download predicate named below, which is a contract
+> because two functions must evaluate the SAME one or they drift.** The three purge contracts and the
+> template-scoped download are new; the count and the reasons are CRM K-9/K-15/K-16.
+>
+> **`AUTHZ-CRM2` — three signature-level defects, applied from the CRM pass's own remediation.**
+> 1. **`finalize_export` was TOLD the numbers that are the only evidence its gate ran.** Parameters removed.
+> 2. **`authorize_export_download` re-checked the ROLE SET and never the TEMPLATE** — so `org_marketing`
+>    could download a colleague's **operations** export: order refs, order totals, unit prices, refund state.
+> 3. **Nothing in the design could delete a Storage object.** Revoke, retention and the sweep all claimed to
+>    delete and had **no agent**. Three definer contracts supply one.
 
 - **`venue.request_export(p_scope_kind, p_scope_id, p_template_id, p_filters, p_command_key)`** — **DB-RPC**,
   the authorization and admission point. **Builds no data.** Authorizes per the two template allow-lists
@@ -2268,63 +2723,245 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   Validates the filter set against a **closed conjunctive grammar** (anything outside it raises; no OR, no
   NOT, no nesting, no demographic filter name). Enforces the size caps **at request**, so a too-large job
   fails immediately rather than after a five-minute build. Rate-limits **fail-closed**. **Freezes `as_of :=
-  now()`.** Writes the job row `queued` **and** the `crm_export.request` audit row **with
-  `constraint_set_version`** in the same transaction. Idempotent on `(auth.uid(), p_command_key)`. **Locks:**
-  none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
+  now()`.** **Resolves and freezes `org_id` — the job's org — from the scope object, in the same transaction
+  that authorized against it (XO-1a).** Writes the job row `queued` **and** the `crm_export.request` audit row
+  **with `constraint_set_version`** in the same transaction. Idempotent on `(auth.uid(), p_command_key)`.
+  **Locks:** none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
+  - **The authorization is `venue.assert_may_request(actor, scope_kind, scope_id, template_id)` — one
+    function, shared verbatim with `authorize_export_download`** (`AUTHZ-CRM2`(2)). Two functions evaluating
+    two copies of one allow-list is how the download check lost the template.
+  - `INFERENCE:` **freezing `org_id` here rather than resolving it at build time is not tidiness.**
+    Authorization resolved the scope's org at request; a build-time re-resolution could read a **different**
+    org for the same venue, because **`catalog.venue.org_id` is mutable while `catalog.event.org_id` is
+    stamped at create**. A job must be built against the org it was **authorized** against, or the
+    authorization proved something about a tenancy that no longer holds — which is the venue-grain leak at a
+    re-operated venue (H-11).
 - **`venue.build_export_rows(p_job_id, p_cursor, p_limit)`** — **`EXEC: DEF`**; `REVOKE EXECUTE FROM anon,
   authenticated`, **no human path**. **Re-derives authority from the job row's recorded actor and scope, not
   from the caller.** One bounded page, at the job's frozen `as_of`, in a **deterministic, demographic-free
   order** so two builds of the same job are byte-identical. **This function is the entire SQL surface that
   touches customer data**, and it **contains no dynamic SQL** (`T-RPC-CRM-02`: no `EXECUTE`, no `format(`, no
   `quote_ident(`). **Locks:** none. **Never logs a row.**
-- **`venue.finalize_export(...)`** — **`EXEC: DEF`**; `running → ready`, records `row_count`, `byte_count`,
-  `sha256`, `object_path`, and the emitted/suppressed contact-cell counts; writes `crm_export.generate`.
-  Idempotent. Every `generate` row carries a non-null `constraint_set_version`, and
-  `cells_emitted + cells_suppressed` must equal the holder row count on every `ready` job.
+  - **It ACCUMULATES the four gate counters on the job row, page by page, inside the definer** — incremented
+    by the code that evaluates each cell, not by code that is told the verdict (`AUTHZ-CRM2`(1)). This is
+    where `finalize_export`'s numbers come from.
+  - **The consent gate is evaluated at `gate_as_of`, ONE instant for the whole build** — stamped at claim,
+    re-stamped on re-claim — read from the two append-only event logs of §17.21. A paged build that
+    re-evaluates the two mutable conjuncts per page evaluates them at **inconsistent instants**, which
+    falsifies the byte-identical-replay property that is the entire reason per-export membership is not
+    stored.
+  - **`emit_name := emit_email` — ONE predicate driving BOTH cells** (CRM K-18). `display_name` was
+    previously emitted **on every row of every export at every org, ungated by consent**, from the one global
+    `public.profiles.display_name` string — so two orgs union their files on it directly and corroborate with
+    admission time, ticket types and acquisition route. **The per-org HMAC `customer_ref` removes the
+    platform-supplied *stable* join key and nothing else** — that is the corrected claim, and the deleted one
+    (*"the non-consenting majority … is unjoinable"*) must not be cited from an older copy.
+    `display_name` **stays ungated on screen**, in the single-record lookup and in the door projection, where
+    a surface cannot be unioned with another org's. `name_cells_emitted`/`name_cells_suppressed` join the
+    counter pair; the legend covers both columns.
+  - **XO-1a is this function's FIRST predicate, on every branch.** Every grain — `session`, `event`, `venue`,
+    `org` — ANDs **`kernel.tickets.org_id = job.org_id`**, read from the job row and **never re-derived**.
+    The `customer_ref` HMAC key is `org_customer_key(job.org_id)` and the consent gate's `EXISTS` binds
+    `org_id = job.org_id`. `INFERENCE:` **these three must move together.** If a future refactor takes any
+    one of them from the **atom** instead of the **job**, the venue-grain export at a re-operated venue leaks
+    the prior operator's list — and, for the HMAC, **two orgs get the same pseudonym for the same person,
+    joining their files directly**, which is the opposite of what the pseudonym exists to do.
+- **`venue.finalize_export(p_job_id, p_row_count, p_byte_count, p_sha256, p_object_path)`** — **`EXEC: DEF`**;
+  `running → ready`; writes `crm_export.generate`. Idempotent. Every `generate` row carries a non-null
+  `constraint_set_version`.
+
+  > **The gate counters are GONE from this signature, and that is the point (`AUTHZ-CRM2`(1); CRM K-19(3)).**
+  > They were `p_cells_emitted, p_cells_suppressed` — **worker-supplied parameters** — for numbers the source
+  > spec calls *"the only evidence the consent gate ran on this export."* **Evidence the caller hands you is
+  > not evidence about the caller.** A worker that skipped, mis-evaluated or short-circuited the gate would
+  > report whatever counts it liked, and every downstream check — the audit row, the auditor's query,
+  > assertion 13 — would agree with it. Instead:
+  > - **`venue.build_export_rows` accumulates the four counters on the job row, page by page, INSIDE the
+  >   definer**, in the same statement that decides each cell. The counter is incremented by the code that
+  >   **evaluates** the gate, never by code that is **told** what the gate decided.
+  > - **`finalize_export` reads them from the job row and copies them into the audit payload. It cannot be
+  >   told them.** The contract and the audit payload therefore agree by construction rather than by
+  >   convention — there is no second source for the number.
+  > - **It cross-checks `p_row_count` against the DB-side accumulated row count and raises `count_mismatch`
+  >   on disagreement**, leaving the job reclaimable. `cells_emitted + cells_suppressed = row_count` is then
+  >   an invariant over two independently-derived numbers rather than an identity the worker can satisfy by
+  >   arithmetic.
+  > - **The worker still supplies `byte_count`, `sha256` and `object_path`** — those are facts about the
+  >   *artifact*, which only the worker can observe, and they are **not** evidence that a **database**
+  >   predicate ran. `artifact_sha256` stays useful: it proves which bytes were produced and is checkable
+  >   against the object if a dispute needs it.
+  > - **The blank-column canary, because "zero rows" and "nobody consented" are indistinguishable in the
+  >   output.** A `ready` job with `contact_cells_emitted = 0` **and** `contact_cells_suppressed = row_count`
+  >   raises a `platform_risk` signal. `INFERENCE:` `cells_emitted + cells_suppressed = row_count` **balances
+  >   perfectly at `cells_emitted = 0`**, so the invariant alone detects nothing; only a positive assertion
+  >   separates a gate that never emitted from a gate that never ran.
 - **`venue.authorize_export_download(p_job_id)`** — **re-checks the caller's authority LIVE against the grant
-  tables at this instant**, so an export prepared before a revocation **fails after it**. Raises on any state
-  but `ready`. Writes the `crm_export.download` audit row **in-txn, before the URL is returned**, and returns
-  `{ object_path, ttl_seconds: 300 }` for the edge to sign. **Known over-report, stated rather than hidden:**
-  if the network then fails, the audit says a download happened when no bytes arrived. **The audit records
-  that a URL was issued, not that bytes reached a laptop** — and that is the honest reading of every row in
-  it. **Locks:** none.
+  tables at this instant**, so an export prepared before a revocation **fails after it** (EX-4). Raises on any
+  state but `ready`. Rate-limited. Writes the `crm_export.download` audit row **in-txn, before the URL is
+  returned**, and returns `{ object_path, ttl_seconds: 300 }` for the edge to sign. **Locks:** none.
+
+  > **The re-check is over `(scope, template_id)` — NOT over the role set — and that one predicate is the
+  > whole finding (`AUTHZ-CRM2`(2); CRM K-15 / H-12).**
+  >
+  > ```text
+  > -- WRONG (what this contract specified — it did not mention template_id at all):
+  > --   caller still holds one of {org_owner, org_admin, org_marketing,
+  > --                              venue_manager, venue_marketing} over job.scope
+  > -- RIGHT:
+  >    venue.assert_may_request(auth.uid(), job.scope_kind, job.scope_id, job.template_id)
+  >    -- the SAME predicate a fresh request for that (scope, template) would face:
+  >    --   audience_v1   → org_owner, org_admin, org_marketing (org grain),
+  >    --                   venue_manager, venue_marketing (venue grain)
+  >    --   operations_v1 → org_owner, org_admin, venue_manager  ONLY
+  > ```
+  >
+  > **The concrete break.** `org_marketing` holds X10 (read export history), so it can see a colleague's
+  > `job_id`; it holds a marketing-class role over the scope, so a **role-set** re-check passes; and it
+  > downloads an **`operations_v1`** file — order refs, order totals, **unit prices**, refund state. The
+  > stated invariant *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees
+  > both."* is then defeated by **any org that ever ran one operations export, without a single grant being
+  > wrong.**
+  >
+  > **Two supporting rules so the fix cannot be undone from the side.** (a) The `◐` on X8/X9 in the CRM
+  > matrix is **defined, not decorative**: it means *"jobs whose `template_id` that role may request"* — for
+  > both marketing labels, `audience_v1` only — and the same reading applies to **revoke**. (b)
+  > **`venue.assert_may_request` is one function, called by both `request_export` and this one**, and
+  > assertion 24b is stated as an **equality between the request and download predicates** so the two cannot
+  > drift.
 - **`venue.revoke_export(p_job_id, p_reason_code)`** — the requester, plus `venue_manager` / org owner-admin
   over the job's scope, plus **`platform_admin`** — the one export-lifecycle write a platform role holds,
-  because **revoking is not extraction**. `ready → revoked`; signals the edge to delete the artifact; audited;
-  idempotent.
-- **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — scope-checked. **Job metadata only —
-  never a row, never an object path, never a signed URL.**
-- **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. Deletes artifacts past
-  `expires_at` (`ready → expired`), then `expired → purged` past `purge_after`; one audit row per transition.
-- **`venue.list_attendees(p_session_id, p_filters, p_cursor)`** — the holder-grain roster read (dashboard Δ3).
-  Four authority branches (venue/org **operations**, venue/org **marketing**, venue/org **finance** for the
-  money-only projection, and platform), **column-scoped by role — and denied classes are ABSENT from the
-  result shape, not null.** Filters validated against the same closed grammar. Rate-limited. **Audited on
-  every page.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both
+  because **revoking is not extraction** — and, per `AUTHZ-CRM2`(2), **template-scoped for both marketing
+  labels**. `ready → revoked` **in the same transaction, so no further download is authorized from that
+  instant**; sets `artifact_state = 'delete_pending'`; audited; idempotent.
+  **It does not delete the object.** The previous contract said it *"signals the edge to delete"*, which
+  named no mechanism — **there was no delete route to signal.** The honest bound on revoke is
+  **`min(300 s, time-to-purge)`**, not zero.
+- **`venue.claim_artifacts_for_purge(p_limit int)`** — **`EXEC: DEF`**; `REVOKE EXECUTE FROM anon,
+  authenticated`. Takes the 064 claim lease over a bounded page of jobs in `artifact_state='delete_pending'`
+  and returns `(job_id, object_path)` for the purge route. **Returns nothing else — no scope, no counts, no
+  actor.** Idempotent under the lease. Locks: the claimed job rows `FOR UPDATE SKIP LOCKED`.
+- **`venue.confirm_artifact_purged(p_job_id, p_outcome)`** — **`EXEC: DEF`**. `p_outcome ∈ {deleted,
+  not_found}` — **both are success**; a 404 from Storage means the object is gone, which is the goal. Sets
+  `artifact_state='deleted'`, advances `ready → expired → purged` where retention allows, writes
+  `crm_export.purge`. Idempotent.
+- **`venue.reconcile_export_orphans(p_org_id, p_object_paths text[])`** — **`EXEC: DEF`**, daily. Given the
+  paths the purge route listed under one `{org_id}/` prefix, returns those with no live job row or whose job
+  claims the artifact is already gone (the route deletes those), and marks `artifact_state='deleted'` for job
+  rows whose object is absent — **alarming when such a job is still `ready`**, because a `ready` job with no
+  bytes fails at download.
+  > **Why a definer function cannot do the deleting, stated so nobody re-proposes it.** A `SECURITY DEFINER`
+  > Postgres function **cannot call the Storage API**, and its only in-DB option — `DELETE FROM
+  > storage.objects` — **drops the metadata row and orphans the bytes**, which is worse than doing nothing:
+  > the object survives while every accounting says it is gone. The bytes are deleted by `POST /purge` on the
+  > `crm-export` edge function, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034. **The
+  > reconciliation runs in BOTH directions** — without it the 24-hour retention bound is a statement about
+  > **rows**, and rows are not what leaks.
+- **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — scope-checked per X10. **Job metadata
+  only — never a row, never an object path, never a signed URL** — **including `template_id` and a
+  `downloadable` boolean computed with `authorize_export_download`'s own predicate**, so the panel never
+  renders a download control the RPC will refuse. **The list itself stays role-scoped rather than
+  template-scoped**: seeing *that* an operations export happened is export-history transparency and is
+  deliberate; downloading it is not.
+- **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. **MARKS** artifacts past
+  `expires_at` as `artifact_state='delete_pending'` and moves `ready → expired`; `expired → purged` once
+  `artifact_state='deleted'` and `purge_after` has passed; one audit row per transition. **It deletes no
+  bytes** — the purge route does. The previous contract said *"deletes artifacts"*, which a Postgres function
+  cannot do.
+- **`venue.list_attendees(p_session_id, p_filters, p_cursor, p_reason_code)`** — the holder-grain roster read
+  (dashboard Δ3). Four authority branches (venue/org **operations**, venue/org **marketing**, venue/org
+  **finance** for the money-only projection, and platform), **column-scoped by role — and denied classes are
+  ABSENT from the result shape, not null.** Filters validated against the same closed grammar. Rate-limited.
+  **Audited on every page.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both
   promoter-manager labels, `org_member`, `fan`, `anon`. **Locks:** none.
+  - **`p_reason_code` is REQUIRED and non-empty when the authority that resolved is the PLATFORM branch, and
+    ignored on the venue/org branches** (`AUTHZ-M12`, CRM K-19(4)). A **closed enum** — `support_ticket` ·
+    `risk_investigation` · `incident` · `data_subject_request` — plus an optional ticket reference. **Free
+    text is not accepted.** Recorded in the audit row with the session id. *A platform read of a venue's
+    attendees is an investigation, and an investigation has a reason; the venue/org arms are routine
+    operations and do not.*
+  - **The platform branch is separately limited and capped**, because it was the only branch with no scope
+    object: `attendee_list_page_platform` at **40/hour and 200/24 h per actor**, plus a **20-distinct-session
+    cap per 24 h**. Its audit action is **`crm_lookup.platform_roster`, distinct from the venue action**, so
+    a platform read never disappears into a venue's page-view volume. `platform_support` is limited to the
+    operations projection and holds **no** contact columns. **This is a throttle and a record, not the
+    dual-controlled platform extraction path `MD-8` declines to build.**
+  - **XO-1a applies here too.** The org resolved during authorization is the operand of
+    `kernel.tickets.org_id = :org_id`, of the `customer_ref` HMAC key, and of the consent gate — **resolved
+    once, in the same statement that authorized, and used for all three.** A roster read at a re-operated
+    venue therefore shows the current operator's own sessions and none of the prior operator's, exactly as
+    the export does; **the two surfaces must agree or the export becomes the narrow one and the screen
+    becomes the leak.**
 - **`venue.lookup_attendee(p_session_id, p_query_kind, p_query_value)`** — **one record**, service context.
   `p_query_kind ∈ {email_exact, order_ref, name_prefix}`. `venue_manager`, `venue_box_office`, org
-  owner/admin, `platform_support`; **denied to both marketing labels.** Rate-limited hard on `email_exact`.
-  **Audited with the query KIND only, never the value** — *logging a probed address would build the harvest
-  list inside our own audit.* Email is **not** an export filter, **not** a bulk match key, and **not** a
-  suppression key: there is no "upload a list and tell me who's coming" surface, in any form.
+  owner/admin, `platform_support`; **denied to both marketing labels.**
+  - **Rate-limited per actor AND per org, for EVERY `query_kind`** (CRM K-17 / H-14) — not *"hard on
+    `email_exact`"*, which is what this contract said and which **left `name_prefix` limited by nothing at
+    all**. Limits are looked up by `(action = 'attendee_lookup_by_' || p_query_kind, actor)` and
+    `(…, org)`, so **a `query_kind` with no configured limit RAISES rather than passes** — the fail-closed
+    posture 021 established for the limiter, applied to the limiter's own configuration.
+  - **`name_prefix` additionally:** `length(trim(p_query_value)) >= 3`, else `prefix_too_short`, **raised
+    before the lookup and WITHOUT consuming the rate budget** (the call reached no data; charging for it
+    makes the limiter a denial-of-service against the box office). **More than one match raises
+    `ambiguous_query`, returning no rows and NO COUNT** — not a count, not a truncated list, not the first
+    result, not *"3 matches — refine your search"*. **A count is the harvest:** `"sm"` → 14 and `"smi"` → 9
+    reconstruct the roster's name distribution without ever returning a record.
+    `INFERENCE:` `venue_box_office` holds the lookup, so before this limit an operator could iterate
+    `a…z`, `aa…zz` against one session and **reassemble, one record at a time and at no rate cost, the
+    printed list the design explicitly refuses to give it.**
+  - **Audited with the query KIND and OUTCOME, never the value** — `crm_lookup.attendee` records
+    `(actor, session, query_kind, outcome ∈ {hit, no_match, ambiguous, rate_limited, prefix_too_short})`.
+    *Logging a probed address would build the harvest list inside our own audit.* **`ambiguous` and
+    `rate_limited` are the load-bearing outcomes** — a run of them is the signature of an alphabet sweep and
+    the **only** evidence of one, since the probed strings are deliberately never stored.
+  - Email is **not** an export filter, **not** a bulk match key, and **not** a suppression key: there is no
+    "upload a list and tell me who's coming" surface, in any form.
 - **The two structural rules that keep the whole surface honest.** (1) **Platform roles read the roster and do
   NOT use the venue CRM export** — see RLS §11.6 for the full resolution; **platform bulk extraction is not
   built in Phase 2.** (2) **Finance sees money and no contact; marketing sees contact and no money; neither
   sees both.** Only `venue_manager`, `org_owner` and `org_admin` hold the union, which is why the operations
   template's allow-list is the narrowest in the document.
-- **Layer-0 note (owner decision, RLS MD-2).** The least-privilege shape gives `build_export_rows` a **narrow
-  owner role** (`crm_export_builder`) granted `SELECT` on exactly the roster relations and the two contact
-  tables, with **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. It
-  then needs explicit permissive policies naming that role (RLS §16.10). **`BYPASSRLS` is not an acceptable
-  shortcut — it would restore access to everything and delete the entire benefit.**
+- **Layer-0 note (owner decision, RLS MD-2) — and the grant set as previously sketched RETURNS ZERO ROWS.**
+  The least-privilege shape gives `build_export_rows` a **narrow owner role** (`crm_export_builder`) with
+  **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. That role is
+  **not** the table owner and holds no `BYPASSRLS`, so **it is subject to RLS on every relation it reads**,
+  and the two relations that decide whether a contact cell may be emitted at all carry **zero policies by
+  design**. Three things must therefore ship together, and the full ruling is RLS §16.10 `AUTHZ-M11`:
+  (a) `SELECT` on the ten enumerated roster/contact relations **plus `kernel.org_contact_consent_event` and
+  `kernel.identity_contact_pref_event`** (the `gate_as_of` reads); (b) a **column-scoped**
+  `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — free under a `postgres` owner, a grant that
+  must exist under a narrow one, and column-scoped so the builder cannot read `encrypted_password`,
+  `raw_user_meta_data` or the recovery tokens; (c) one permissive `<schema>_<table>_sel_svc_export` policy per
+  relation.
+  **Without (c) the builder reads zero rows — silently, because RLS filters rather than raising — and every
+  export ships a blank contact column that reads as *"nobody consented."*** The blank-column canary above is
+  what tells the two apart. **`BYPASSRLS` is not an acceptable shortcut — it would restore access to
+  everything and delete the entire benefit.** **If `MD-2` resolves the other way and the builder stays
+  `postgres`-owned, none of (a)–(c) is built** — the two shapes are mutually exclusive, and **shipping the
+  role without the policies is the one combination that is silently wrong.**
 - **Tests.** `T-RPC-CRM-03` (a `venue_marketing` at V1 of Org 1 is denied at V2 of the same org;
   `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue) · `T-RPC-CRM-04` (a job exceeding the
   row cap ends `failed` and **writes no artifact — it never truncates**) · `T-RPC-CRM-05` (two builds of the
   same job produce byte-identical output and the same hash) · `T-RPC-CRM-06` (**reader enumeration**: no
   export function's definition matches a demographic relation, **with a non-vacuity guard proving the
-  assertion can see all nine export functions**) · `T-RPC-CRM-07` (no audit row's payload contains an `@` in
-  a value position, an `org_customer_key`, or a `customer_ref`).
+  assertion can see all twelve export functions**) · `T-RPC-CRM-07` (no audit row's payload contains an `@`
+  in a value position, an `org_customer_key`, or a `customer_ref`) ·
+  **`T-RPC-CRM-08`** (`AUTHZ-CRM2`(1): `finalize_export` **has no `p_cells_emitted`/`p_cells_suppressed`
+  parameter** — asserted structurally over `pg_proc.proargnames`, because a parameter that is *ignored* is
+  a parameter a future refactor re-honours; and a worker `p_row_count` disagreeing with the accumulated count
+  raises `count_mismatch` and leaves the job reclaimable) ·
+  **`T-RPC-CRM-09`** (`AUTHZ-CRM2`(2): an `org_marketing` holding a valid `job_id` for an **`operations_v1`**
+  export over a scope it does hold a marketing role on is **refused at download** — the fixture must use a
+  role that *passes* the role-set check, or the test passes against the broken predicate) ·
+  **`T-RPC-CRM-10`** (the request predicate and the download predicate are the **same function**, asserted as
+  an equality rather than by two independent role lists) ·
+  **`T-RPC-CRM-11`** (`AUTHZ-CRM2`(3): a revoked job reaches `artifact_state='deleted'`, and the daily
+  reconciliation flags **both** directions — a bucket object with no job row, and a `ready` job with no
+  object) ·
+  **`T-RPC-CRM-12`** (`p_reason_code` absent on the **platform** branch of `list_attendees` is refused; the
+  reason lands in the audit row with the session id; the platform limiter trips **before** the venue limiter
+  would have; **the venue branch is unaffected by an absent reason code**) ·
+  **`T-RPC-CRM-13`** (a `name_prefix` lookup of 2 characters raises `prefix_too_short` **and consumes no rate
+  budget**; a 3-character prefix matching two holders raises `ambiguous_query` **carrying no count**).
 
 ### 17.23 Apple Wallet — `kernel.mint_wallet_pass` + twelve — `NEW RPC` ×13
 
@@ -2538,23 +3175,28 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Door — freeze set** | `T-RPC-DOOR-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `T-RPC-DOOR-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `T-RPC-DOOR-07` (compensate succeeds, complete refused) · `T-RPC-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
 | **Door — lifecycle** | `T-RPC-DOOR-09` (drained atom scans) · `T-RPC-DOOR-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (re-open leaves `door_open_at` byte-identical) · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) · `T-RPC-DOOR-13` (override expires with no sweep having run) · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RPC-DOOR-15` / `T-RPC-DOOR-16` (delta log) | §17.10–§17.13 |
 | **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
+| **Approval integrity** | `T-RPC-AUTHZ-15` (the set of functions inserting `kernel.approval_request` is **exactly** three — the enumeration the accepted no-FK residual rests on) · `T-RPC-AUTHZ-16` (a vanished `subject_id` resolves to **`stale`** on approval, holds released, no money row, on all three `subject_kind` values) | **§17.0a** `APPR-SUBJ-1/2` |
 | **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) | §1.1–§1.1d |
 | **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
 | **Promoter** | `T-RPC-PROMO-01..11` | §17.15–§17.19 |
-| **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `-02` (`get_holder_mix` arity is 2) | §17.20 |
-| **CRM** | `T-RPC-CRM-01..07` | §17.21–§17.22 |
+| **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `T-RPC-DEMO-02` (`get_holder_mix` arity is 2) · **`T-RPC-DEMO-03`** (`AUTHZ-DEM1`(1): `set_my_demographics` and `clear_my_demographics` write **zero** rows to `kernel.admin_audit` — asserted over the audit table, not over the function text) · **`T-RPC-DEMO-04`** (`AUTHZ-DEM1`(2): the suppressed branch returns `{suppressed:true}` and **no other key** — asserted over the result's key set, because a NULL denominator is still a denominator) · **`T-RPC-DEMO-05`** (the read-side re-derivation fails closed on a hand-written sub-floor row) | §17.20 |
+| **CRM** | `T-RPC-CRM-01..13` | §17.21–§17.22 |
 | **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
 | **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
 | **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `T-RPC-GLOBAL-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `T-RPC-GLOBAL-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `T-RPC-GLOBAL-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
 
-**Ids, not rows (`G-22`).** The twelve group rows above enumerate **70 distinct ids**
-(4+4+8+14+5+4+11+2+7+3+4+4). A CI plan provisioned from the row count under-provisions by 58. Every suffix
+**Ids, not rows (`G-22`).** The thirteen group rows above enumerate **83 distinct ids**
+(4+4+8+14+2+5+4+11+5+13+3+4+4) — the demographics group grew from 2 to 5 (`AUTHZ-DEM1`), CRM from 7 to 13
+(`AUTHZ-CRM2`), and the approval-integrity group is new (`APPR-SUBJ-1/2`). A CI plan provisioned from the row count under-provisions by 58. Every suffix
 above is written as a full id (`G-23`), so a harness grepping for `T-RPC-` finds all of them.
 
 #### 18.1 §20 additions — the set-closure register
 
-Every id below is named at its contract in §20. **66 ids across 16 groups**, bringing the document's total to
-**136**.
+Every id below is named at its contract in §20. **73 ids across 16 groups**, bringing the document's total to
+**156** (83 in §18 + 73 here). The seven added by this reconciliation pass are `T-RPC-STAFF-05/-06`
+(`AUTHZ-H3` RV-2), `T-RPC-DOOR-25` through `-32` minus the two already listed (the online key-id binding, the
+mint/revoke set and the two live counts), `T-RPC-KEY-05` (the signing-key force-close) and
+`T-RPC-MARKET-07` (offer expiry as arithmetic).
 
 | Group | Ids | What they defend |
 |---|---|---|
@@ -2565,24 +3207,25 @@ Every id below is named at its contract in §20. **66 ids across 16 groups**, br
 | **Config** | `T-RPC-CFG-01` (raise parks, lower executes) · `-02` (a `jsonb` value on a money key parks in either apparent direction) · `-03` (unknown key raises) · `-04` (**zero UPDATE and zero DELETE paths on `platform_config`**, as `postgres` and as `service_role`) · `-05` (a live listing's governing resale policy survives a later tightening) | §20.2.1, §20.2.2 |
 | **Catalog update** | `T-RPC-CAT-01` (`venue_id`/`org_id`/`status` in a patch raise; a title change on `on_sale` without a reason raises; a `cancelled` event refuses every patch) · `-02` (`door_open_at` in a patch raises; a later `doors_at` past the grace raises; any move after the boundary engages raises) | §20.2.3, §20.2.4 |
 | **Inventory** | `T-RPC-INV-01` (a price change leaves an existing order's snapshot, refund ceiling and settlement line byte-identical) · `-02` (a shrink below `held+sold` raises **for every role including `platform_admin`**) · `-03` (sharded grow preserves `Σ shard = batch` and the movement ledger) · `-04` (**the `G-24` regression** — with the sweep disabled `remaining` is provably wrong; with it enabled the hold's capacity returns) · `-05` (a hold converting in-window is skipped, not released) · `-06` (a re-run releases nothing further) | §20.3 |
-| **Staff & devices** | `T-RPC-STAFF-01` (self-grant, superseded labels and cross-scope labels all raise; org inheritance goes **through the §1.1a helper**) · `-02` (a revoked scanner's next `record_scan` raises **on the same JWT**) · `-03` (a registered device with no live PIN is refused by `assert_door_session` and therefore by every door RPC) · `-04` (cross-venue sync raises; an out-of-order poll cannot lower stored sync state) | §20.4 |
+| **Staff & devices** | `T-RPC-STAFF-01` (self-grant, superseded labels and cross-scope labels all raise; org inheritance goes **through the §1.1a helper**) · `-02` (a revoked scanner's next `record_scan` raises **on the same JWT**) · `-03` (a registered device with no live session is refused by `assert_door_session` and therefore by every door RPC) · `-04` (cross-venue sync raises; an out-of-order poll cannot lower stored sync state) · **`-05`** (a retired device's next door call raises **and** it holds no `active` `door_session` row — **both halves**, since the first passes even if RV-2 was never built) · **`-06`** (a door session calling `set_scan_device_status` raises; un-retire does not resurrect a revoked session) | §20.4 |
 | **Comps** | `T-RPC-COMP-01` (**the R-15/E6/E7 split** — `venue_box_office` refused on allocate, permitted on issue) · `-02` (above the C39 threshold a stale-`amr` token raises and moves no counter) · `-03` (a comp atom scans, transfers and refunds identically to a purchased atom; a replayed issue mints no second atom) | §20.5.1, §20.5.2 |
 | **Guest list** | `T-RPC-GUEST-01` (a checked-in entry cannot be removed or edited; the removal audit carries the removed row; **no client role holds table DELETE**) · `-02` (**structural** — `check_in_guest_entry` writes no `guest_entry` column outside `status`/`checked_in_at`) | §20.5.3–§20.5.6 |
-| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises) | §20.6 |
+| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises — **held while §20.6.6 is `⛔ BLOCKED`**) · **`-25`** (an atom pinned to a **revoked** key is refused **online and offline**, asserted on both paths) · **`-26`/`-27`** (mint: a PIN for S1 cannot mint a session bound to S2 and a foreign-venue device cannot mint, both with the same error and timing as a wrong PIN; a re-mint leaves exactly one `active` row and the superseded token is refused) · **`-28`** (a `venue_scanner` and a door session are both refused `revoke_door_session`) · **`-29`** (a revoked PIN or a retired device drops out of `live_sessions` in the same transaction, while `live_devices` may still count its un-lapsed manifest — **asserted as a difference**) · **`-30`/`-31`/`-32`** (the `AUTHZ-H3` regression trio, §1.1d) | §20.6, §9.1–§9.8 |
 | **Money — set closure** | `T-RPC-MONEY-15` (**an `admin_refund` void on an open episode appends one `revoke` delta per atom** — the §12.4c exemption obligation) · `-16` (a resold atom's primary payment refunds money only, returning `custody_moved`) · `-17` (`platform_support` and `org_owner` both refused) · `-18` (`pay_promoter_commission`'s write set pinned; no external call) · `-19` (**a flagged unreviewed attribution yields NO settlement line**, and `release` + close pays it) · `-20` (the same attribution cannot be lined into a second settlement) | §20.7.1, §20.7.2 |
-| **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) | §20.7.3–§20.7.5 |
-| **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) | §20.8 |
+| **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) · **`-05`** (with two `open` episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same transaction as the key row — asserted **on the episode rows**, not on the absence of admissions, which would pass on a manifest that merely lapsed) | §20.7.3–§20.7.5 |
+| **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) · **`-07`** (an offer past `expires_at` whose stored `status` is still `pending` — **the sweep suppressed** — is refused and writes no `market_sale`) | §20.8 |
 | **Promoter — records** | `T-RPC-PROMO-12` (**structural** — `create_promoter` writes none of the three authz tables) · `-13` (a terms change leaves every existing attribution's `terms_version` and the commission it pays byte-identical) · `-14` (slug check refused to a fan and to a foreign org; result payload is `{available}` and nothing else) | §20.9 |
 | **Dashboard** | `T-RPC-DASH-01` (for every tile × role, the summary equals the owning read's value **or the key is absent** — never null, never a computed second answer) | §20.10 |
 | **Seams** | `T-RPC-SEAM-01` (`settlement_royalty_lines` returns rows after `088` — the stub was **replaced**, not merely present) · `-02` (`settlement_commission_lines` returns a row after `090`) · `-03` (`on_atom_voided` flips a seeded sale to `compensated`, a `completed` sale raises, **and the call sits before the rank-5 atom lock**) | §20.11 |
 
 #### 18.2 `T-RPC-AUTHZ-*` — the authority-defect remediation register
 
-**A separate id namespace on purpose.** These fourteen assertions defend properties that were **stated in
+**A separate id namespace on purpose.** These **sixteen** assertions defend properties that were **stated in
 prose and enforced nowhere**, across five sections of this document and three of the RLS spec. Filing them
 under `MONEY`/`PROMO`/`COMP`/`STAFF` would scatter them into groups whose other members test *behaviour*;
 these test *whether the control exists at all*, and a reviewer should be able to run the set and get an answer
-to that one question. **14 ids, taking the document's total to 150.**
+to that one question. **16 ids** — `-15`/`-16` are `APPR-SUBJ-1/2` (§17.0a), listed in §18's approval-integrity
+row and repeated here so the namespace stays contiguous.
 
 | Id | Assertion | Defect |
 |---|---|---|
@@ -2600,6 +3243,8 @@ to that one question. **14 ids, taking the document's total to 150.**
 | `T-RPC-AUTHZ-12` | With `comp.per_staff_step_up_max_units` **deleted from `catalog.platform_config`** — the state a missed seed produces, not set to `0` — `allocate_comp` and `issue_comp` at `quantity = 1` both raise on a stale-`amr` token and move no counter | `AUTHZ-M8` |
 | `T-RPC-AUTHZ-13` | The comp count is **per actor**: actor A at the threshold does not step-up actor B's first comp at the same venue and session | `AUTHZ-M8` |
 | `T-RPC-AUTHZ-14` | A `venue_manager` granting `venue_manager` raises `tier_guard`; **the same caller granting each of the other five succeeds** (so the test proves a narrowing, not a lockout); an `org_admin` of the venue's org grants `venue_manager` successfully | `AUTHZ-M7` |
+| `T-RPC-AUTHZ-15` | The set of functions inserting `kernel.approval_request` is **exactly** `{request_order_refund, request_org_payout, set_platform_config}` — structural. **The accepted no-FK residual rests on this enumeration**; a fourth writer turns `APPR-SUBJ-1` back into a convention | `APPR-SUBJ-1` |
+| `T-RPC-AUTHZ-16` | A parked request whose `subject_id` is deleted resolves to **`stale`** on approval — not `denied`, not `approved` — releases every hold and writes no money row. **Asserted on all three `subject_kind` values**, because one branch passing says nothing about the other two | `APPR-SUBJ-2` |
 
 > **Four of these fourteen assert a FAIL-TO-SAFE default** (`-04`, `-06`, `-12`, and RLS's
 > `T-RLS-MONEY-07`), and every one of them is written to **delete the config row rather than set it to zero**.
@@ -2649,10 +3294,12 @@ their site as well as here.
    bidding and offering. RLS §11.1 grants *"any `authenticated`"*, which read literally permits shill
    bidding on one's own listing. **Narrowing a ratified grant is a decision, not a clarification**, and it is
    flagged for the owner rather than absorbed.
-10. **`venue.set_event_security_config` is wholly authored** (§20.6.6). RLS §11.4 grants EXECUTE and
-    ROLE_MODEL §11 row 15 classifies it `NEW RPC`; **no document states what it configures.** The key set,
-    the tighten-only direction and the Wallet-span invariant re-check are authored so it is not invented at
-    build time. Owner confirmation requested (§20.14 R-11).
+10. **`venue.set_event_security_config` is wholly authored AND `⛔ BLOCKED`** (§20.6.6). RLS §11.4 grants
+    EXECUTE and ROLE_MODEL §11 row 15 classifies it `NEW RPC`; **no document states what it configures**, and
+    **no table exists for it to write to.** The key set, the tighten-only direction and the Wallet-span
+    invariant re-check are authored so they are not invented at build time — but the storage gap is a
+    separate, harder block (§20.14 **`R-21`**), and `086` must not schedule the function while it stands.
+    Owner confirmation on the key set remains `R-11`.
 11. **`kernel.revoke_signing_key`'s `p_ack_live_credentials`** (§20.7.5) mirrors §17.11's
     `p_ack_live_devices`. The corpus specifies the acknowledgement pattern for the door override and not for
     key revocation, where the consequence is strictly larger.
@@ -2660,9 +3307,12 @@ their site as well as here.
     `pass_type_cert` trio and §11.1 does not state it for the *signing-key* trio. Contracted with it, because
     the asymmetry reads as an omission: the pass certificate signs a wallet artifact, the signing key signs
     the admission credential itself.
-13. **`venue.retire_scan_device`** (§20.4.3) and the **`market.offer` expiry sweep** (§20.8.5) are named
-    here. Each corresponds to a status label the schema defines and **no function writes** — the same shape
-    as `G-24`, found twice more during the reconciliation.
+13. **`venue.set_scan_device_status`** (§20.4.3, **superseding this document's earlier
+    `venue.retire_scan_device`** — §20.13) and the **`market.offer` expiry sweep** (§20.8.5). Each
+    corresponds to a status label the schema defines and **no function writes** — the same shape as `G-24`,
+    found twice more during the reconciliation. **The setter's name, its two-way domain and obligation RV-2
+    are TRANSCRIBED from schema §3.11.1, not authored**; only the earlier one-way `retire` was authored, and
+    it is withdrawn.
 14. **`market.respond_offer`'s `counter` branch** (§20.8.6). RLS §11.1 grants *"respond"* without
     enumerating the verbs; a negotiation surface with no counter is a decline button.
 15. **`market.create_auction`'s `ends_after_freeze` warning field** (§20.8.3). The corpus states the freeze
@@ -2685,6 +3335,28 @@ money or custody tables will produce policies that are never evaluated **and bel
 which is the single most likely way to build this wrong.
 
 ---
+
+**Additions from this reconciliation pass** (the four remediation passes' cross-file requests):
+
+17. **The door-session contract set** — §9.6 `venue.mint_door_session`, §9.7 `venue.revoke_door_session`,
+    §9.8 `venue.sweep_expired_door_sessions`. Schema §3.10a names all three (plus the `revoke_door_pin`
+    cascade) in its write-authority list and files them here; **the bodies, parameter lists, error classes,
+    lock orders, result shapes and the mint-supersedes-prior-session rule are authored.** The **security
+    properties** — the four assert clauses, the plain-digest-vs-slow-KDF split, RV-1, the partial unique —
+    are transcribed from schema §3.10a and are **not** this document's inventions.
+18. **The `p_door_session_id` / `/refresh` resolutions** (§1.1d `AUTHZ-H3a`) are **rulings between two
+    sibling specs**, not transcription. Both are filed back for confirmation (§20.14 `R-19`), and the
+    alternative for the selector is stated so the owner can take it.
+19. **The `venue.assert_may_request` helper** (§17.22) is named here. The CRM spec states the predicate must
+    be *"the same predicate a fresh request would face"* and gives it no name; **an unnamed shared predicate
+    is two copies of a predicate**, which is exactly how the download check lost the template.
+20. **`kernel.revoke_signing_key`'s door-episode force-close write set and lock order** (§20.7.5). Edge §5.6
+    and door §16 OQ-5 **require** the force-close as a grant condition; **which rows it writes, in which
+    order, and that `episodes_force_closed` is the blast-radius number shown to the operator are authored.**
+21. **Error-class opacity on the door path** — §1.1d returns one class for six distinct failures and
+    **never `not_found`**. The specs require equal timing and shape; **collapsing the error class is this
+    document's expression of that**, and it is stated because an implementer who returns `not_found` for an
+    unknown id has re-opened the enumeration oracle the dummy compare closes.
 
 ## 20. SET CLOSURE — the reconciliation of this document against RLS §11 and migration plan §8
 
@@ -3047,9 +3719,29 @@ rows, and RLS §11.3 makes this their mandatory dual-control writer.
   p_command_key text)`.
 - **Authority.** `is_platform(['platform_admin'])` — RLS §11.1 and §11.3. **Caller-authorized ⇒ bound by
   EDGE-CALLER-JWT.**
-- **Dual control is MANDATORY, not a seam, for three key namespaces** — RLS §11.3 verbatim: `refund.*`,
-  `payout.*`, `authn.*`. For those keys the call **creates a `kernel.approval_request`** which a **second
-  distinct `platform_admin`** must approve, and **only the approval inserts the new `(key, version+1)` row.**
+- **Dual control is MANDATORY, not a seam, for SEVEN key namespaces** — RLS §11.3: `refund.*`, `payout.*`,
+  `authn.*`, **`comp.*`** (`AUTHZ-M8` — those keys are the gate on the insider-fraud control), and, added by
+  edge recon #16 / Wallet §11.5b, **`wallet.*`**, **`credential.*`** and **`door.session_*`**. For those keys
+  the call **creates a `kernel.approval_request`** which a **second distinct `platform_admin`** must approve,
+  and **only the approval inserts the new `(key, version+1)` row.**
+
+  > **Why the three new namespaces belong here and are not scope creep.** `wallet.*` and `credential.*` gate
+  > a **feature-enable** — `wallet.apple.enabled` is a kill switch RLS §11.7 states is *"not
+  > role-bypassable"*, and a kill switch one account can flip is not a kill switch. `door.session_*` sets
+  > **the lifetime of a bearer credential** (`door.session_ttl_interval`,
+  > `door.session_absolute_max_interval`, `door.session_post_session_grace`): raising it extends how long
+  > every stolen door tablet on the platform keeps working, which is the same class of act as raising a
+  > refund ceiling and is now the direct lever on `AUTHZ-H3`'s revocation guarantee. **The direction
+  > asymmetry applies unchanged — two approvers to loosen, one to tighten** — so shortening a session TTL
+  > during an incident still executes in one transaction.
+- **`required_approver_class = 'platform_admin'` is WRITTEN on the parked path (`AUTHZ-C1A`, schema §13.7
+  `S-1`).** The money arm of this function is one of the three writers of that column (with §17.1 and
+  §10.3), and **it is the arm with the narrowest approver set**: `action='config.set_money_key'` at
+  `required_approver_class='platform_admin'` is approvable by `is_platform(['platform_admin'])` **only**
+  (§17.2, `AUTHZ-C1A2`). It is **server-set from the namespace and the direction, never a parameter**, and
+  pinned exactly as `config_versions` is. Writing it here is what stops `platform_support` — the role capped
+  *because* it is not trusted with unbounded money — from approving the raise of the cap that bounds it.
+  **`subject_kind='config_key'` and `subject_id` are written with it**, per `APPR-SUBJ-1` below.
 - **Direction asymmetry (RLS §11.3, binding).** **Lowering a limit executes directly; only raising one needs
   the second approver.** *"A security control that is hard to tighten in an incident is a liability."*
   The direction is computed server-side from the key's declared **polarity**, never supplied by the caller:
@@ -3397,22 +4089,52 @@ in the corpus reads the table this function writes.
   NULL`.
 - **A registered device is not yet an authorized device, and conflating the two is the failure to avoid.**
   Registration creates a hardware identity in `venue.scan_device`. **It confers no authority at all**: the
-  door path's entire authorization surface is `kernel.assert_door_session(device_id, session_id)` (§1.1d),
-  which additionally requires an active, unexpired `venue.door_pin` **bound to that session**. A device with
-  no live PIN can do nothing. **`T-RPC-STAFF-03` asserts it:** a freshly registered device with no PIN is
-  refused by `assert_door_session`, and therefore by `record_scan`, `get_door_manifest` and
-  `reconcile_offline_scans`.
-- **Retirement, and why it is a separate verb this contract also defines.**
-  `venue.retire_scan_device(p_device_id, p_reason_code, p_command_key)` — same authority — flips
-  `status → 'retired'`. **It is idempotent and it revokes nothing by itself**: a retired device whose PIN is
-  still live is still admitted by `assert_door_session`, because that predicate reads
-  `venue.scan_device.status='active'` **and** the PIN. Retiring a lost tablet therefore means **retire the
-  device and revoke its PIN** (§9.2), and the operator surface must say so. *(`INFERENCE` — the corpus names
-  registration and never retirement, while `venue.scan_device.status` carries a `retired` label that nothing
-  writes. A status no function can set is a column that lies.)*
-- **Locks.** The `venue.scan_device` row on retire; none on register (INSERT). **Admin plane. SSCAS.** `n/a`.
-- **Idempotency.** `p_command_key`; terminal-state guard on retire.
-- **Writes.** `venue.scan_device`; `kernel.admin_audit` (`scan_device.register` / `.retire`).
+  door path's entire authorization surface is `kernel.assert_door_session(device_id, session_id,
+  door_session_id, token)` (§1.1d), which additionally requires **a live `venue.door_session` whose token the
+  caller holds**, minted against an active, unexpired `venue.door_pin` **bound to that session**. A device
+  with no minted session can do nothing — **and since `AUTHZ-H3`, neither can one that has a live PIN but no
+  token.** **`T-RPC-STAFF-03` asserts it:** a freshly registered device with no session is refused by
+  `assert_door_session`, and therefore by `record_scan`, `get_door_manifest` and `reconcile_offline_scans`.
+- **Status changes are a separate verb this contract also defines — `venue.set_scan_device_status`, which
+  SUPERSEDES the `venue.retire_scan_device` this document previously authored.**
+
+  > **Naming reconciliation (schema §3.11.1 / §13.7 `S-11`).** Two passes named the same writer
+  > independently: this document authored **`venue.retire_scan_device(p_device_id, p_reason_code,
+  > p_command_key)`** (one-way, `active → retired`); the schema pass — which owns `venue.scan_device.status`
+  > — named **`venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)`**
+  > (two-way, `p_status ∈ {active, retired}`) and filed it here. **Resolved to the schema pass's name and
+  > shape**, for the reason it gives and this document did not consider: **un-retire must be permitted**,
+  > because the common real case is a device found again, and a one-way transition pushes operators to
+  > register a duplicate device row — **which fragments the scan ledger's device attribution, the exact
+  > property X-2 exists to protect**. `retire_scan_device` does not exist; the naming register (§20.13)
+  > records the supersession so an implementer following an older copy does not build both.
+
+  `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)` — **authority: the
+  O-4 allow-list** (`has_venue_role(venue,['venue_manager'])` OR
+  `has_org_role_over_venue(venue,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`), **and a
+  door session may never call it** (O-4: the scanner may not change the boundary it scans against — *and a
+  device that can retire itself can also un-retire itself*). `p_status` re-validated in-body against the
+  `active · retired` CHECK set; `p_reason_code` **mandatory**.
+- **RV-2 (BINDING) — retiring a device revokes every `active` `venue.door_session` for it in the SAME
+  transaction.** `revoked_reason := 'device_retired'`. §1.1d clause 3 already makes those sessions fail, so
+  **RV-2 is not what enforces revocation — it is what makes the console truthful**, the same reasoning as
+  RV-1 (§9.2). Un-retiring (`retired → active`) revokes nothing and restores nothing: the device must
+  re-mint against a live PIN, because a session revoked by RV-2 is terminal.
+- **This is the fastest kill switch in the system, and `AUTHZ-H3` is what makes it non-negotiable.**
+  Before the door session existed, retirement *"revoked nothing by itself"* — a retired device with a live
+  PIN was still admitted. It now stops a **physical device that already holds a live bearer token**, without
+  waiting for the session TTL and **without revoking the PIN every other device at the door is also using**.
+  A dashboard showing a *Retire device* control the database cannot honour is worse than no control, because
+  a manager will believe the device is dead.
+- **Locks & order on a status change.** `venue.scan_device` row `FOR UPDATE` → its `venue.door_session` rows
+  `FOR UPDATE` ascending `door_session_id` (RV-2). Admin plane; **no SSCAS rank**.
+- **Test.** `T-RPC-STAFF-05` (a retired device's next door call raises, **and** it holds no `status='active'`
+  session row — **both halves**, because the first passes even if RV-2 was never implemented) ·
+  `T-RPC-STAFF-06` (a door session calling it raises; un-retire does not resurrect a revoked session).
+- **Locks.** None on register (INSERT); the status-change lock order is stated above. **Admin plane. SSCAS.** `n/a`.
+- **Idempotency.** `p_command_key`; a status change to the value already held is `noop_replay`, not an error.
+- **Writes.** `venue.scan_device`; `venue.door_session` (→ `revoked` ×N on retire, RV-2); `kernel.admin_audit`
+  (`scan_device.register` / **`device.status.change`** with before/after and the mandatory `reason_code`).
 - **Result.** `{ status, device_id }`. **Errors.** `insufficient_privilege` · `not_found` ·
   `precondition_failed(venue_archived)` · `idempotency_replay`.
 - **Forbidden callers.** `venue_scanner` (it may **sync** its own device, never register one), the door
@@ -3433,7 +4155,8 @@ with no name.** It is named here.
 - **Authority — the dual path, verbatim from RLS §11.1.** (a) an authenticated `venue_manager` for the venue,
   or a `venue_scanner` **for its own device only** (the device's `venue_id` must be one the caller holds
   `venue_scanner` on, and the sync may not name another device); **or** (b) the `service_role` **edge** path
-  with `kernel.assert_door_session(p_device_id, p_session_id)` asserted in-body. **Never a `door_pin` tested
+  with `kernel.assert_door_session(p_device_id, p_session_id, p_door_session_id, p_session_token)` asserted
+  in-body. **Never a `door_pin` tested
   by `has_venue_role`** (R-8). On branch (b) `auth.uid()` is NULL **by design**, exactly as for
   `record_scan`.
 - **What it does, and what it deliberately does not.** It **records sync state and returns the delta cursor**:
@@ -3651,7 +4374,7 @@ with no name.** It is named here.
   p_command_key text)`, `p_outcome ∈ {arrived, no_show}`.
 - **Authority — the dual path, matching `record_scan`'s exactly.** (a) an authenticated `venue_scanner` or
   `venue_manager` for the session's venue; **or** (b) the `service_role` **edge** path with
-  `kernel.assert_door_session(device_id, p_session_id)` asserted in-body. §1.1d names *"guest-entry check-in
+  `kernel.assert_door_session(device_id, p_session_id, door_session_id, token)` asserted in-body. §1.1d names *"guest-entry check-in
   (`status` + `checked_in_at` only) for its session"* as **one of the four capabilities a door session
   authorizes** — so branch (b) is not an extension of the door credential, it is the function the existing
   grant was written for. `org_owner`/`org_admin` and `venue_manager` also hold it through §9.16.
@@ -3813,11 +4536,26 @@ its digest.
   `T-RPC-DOOR-22` asserts the two predicates are the same expression, because a preview that counts one
   population while the guard counts another is worse than no preview: the admin types a number that means
   nothing and the speed bump is removed.
-- **Returns.** `{ live_devices int, as_of, stalest_not_after }`. `stalest_not_after` is included because it
-  is the answer to the operator's actual next question — *"how long until this is zero?"* — and it costs the
-  same query.
+- **A second number, added by `AUTHZ-H3`: `live_sessions`, read from `venue.door_session`.** The manifest
+  count above is the **override's** predicate and does not change. But the operator's *"who is live at this
+  door"* question is now answerable from a **fact** — `venue.door_session` rows with `status='active' AND
+  expires_at > now()` for the session — where before it could only be answered from
+  `scan_device.last_sync_at`, **which reports a poll and not a presence**: a tablet that has been switched
+  off for an hour still shows its last sync. The two numbers legitimately differ (a device can hold a live
+  session and a lapsed manifest, or the reverse), and **both are returned rather than reconciled**, because
+  collapsing them would put the override's acknowledgement back on a population it does not guard.
+  The projection is the **non-secret** one only (RLS §16.4a): `door_session_id`, `device_id`,
+  `event_session_id`, `issued_at`, `expires_at`, `status`, `last_seen_at`. **`token_hash` is returned by no
+  RPC, to no role.**
+- **Returns.** `{ live_devices int, live_sessions int, as_of, stalest_not_after }`. `stalest_not_after` is
+  included because it is the answer to the operator's actual next question — *"how long until this is
+  zero?"* — and it costs the same query.
 - **Writes: none. Locks: none. SSCAS: n/a.**
 - **Errors.** `insufficient_privilege` · `not_found`.
+- **Test.** `T-RPC-DOOR-29` — a device whose PIN was revoked (RV-1) or whose row was retired (RV-2) drops out
+  of `live_sessions` **in the same transaction as the revoke**, while `live_devices` may still count its
+  un-lapsed manifest. **Asserted as a difference**, because a test that only checks both fall to zero would
+  pass on an implementation that conflated them.
 
 #### 20.6.5 **`venue.set_door_open_at` — RESOLUTION: it does not exist** (`G-14`)
 
@@ -3881,7 +4619,32 @@ allow-list, carrying the schedule-vs-ledger-head reasoning at the row itself. Th
 `catalog.engage_door_freeze` is the sole writer of `door_open_at` in the authority table as well as in the
 trigger.
 
-#### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`)
+#### 20.6.6 `venue.set_event_security_config(p_event_id, p_overrides, p_reason_code, p_command_key)` — **DB-RPC** (`G-14`) — **⛔ BLOCKED (schema §13.7 `S-13`)**
+
+> **⛔ BLOCKED — NOT BUILDABLE, AND THE BLOCK IS SEPARATE FROM THE KEY-SET QUESTION.**
+> **The `Writes` line below says "the per-event door-config rows" and no such table exists in any package.**
+> The schema pass (§13.7 `S-13`) swept every package for it and found nothing: there is no
+> `catalog.event_security_config`, no per-event override table, and no column on `catalog.event` or
+> `catalog.event_session` that could hold a versioned key/value override. **A function scheduled in `086`
+> with nowhere to write is unbuildable regardless of which keys it accepts** — the `R-11` key-set flag was
+> already open, and this is a second, independent block underneath it.
+>
+> **This document does not invent the table**, and the schema pass explicitly declined to as well: *"the
+> function's existence is not this spec's to decide."* The two exits, both owner rulings, are stated so the
+> decision is made once rather than at build time:
+>
+> | Exit | What it costs | What it implies here |
+> |---|---|---|
+> | **(a) Schedule `catalog.event_security_config`** into `078` — `(event_id, key, value, version, effective_from)`, AO per version, exactly like `catalog.platform_config`, and **`visibility='restricted'` by §2.4.1 since it overrides `door.*`** | one additive table in an already-scheduled package | the contract below stands as written, its `INFERENCE` key-set flag (`R-11`) still open, and `BLOCKED` lifts |
+> | **(b) Rule the function out**, as `venue.set_door_open_at` was ruled out (`AUTHZ-R1`, §11.4) | the O4-4 capability is dropped; nothing else in the corpus depends on it | this section is deleted, RLS §11.4's O4-4 EXEC row goes with it, and plan `086` never names it |
+>
+> **Until one of those is chosen, the contract below is a specification and not an instruction.** It is
+> retained rather than deleted because deleting it would lose the safety direction (the one-way restriction
+> rule) that whoever builds it must have — but **`086` must not schedule this function while it is
+> `BLOCKED`**, and an implementer who reaches it should stop, not improvise a table.
+>
+> *Related and NOT the same question:* `R-11` asks the owner to confirm the **key set**. `S-13` asks whether
+> the function exists at all. Answering `R-11` does not answer `S-13`.
 
 - **Provenance, stated first because it is thin.** RLS §11.4 grants EXECUTE on this function under the O-4
   allow-list, and ROLE_MODEL §11 row 15 classifies it `NEW RPC — same boundary`. **No document in the corpus
@@ -3912,8 +4675,9 @@ trigger.
 - **Locks.** The event's config row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`. **Idempotency.**
   `p_command_key`; versioned per event, append-only, exactly like `catalog.platform_config` — **and for the
   same reason:** a manifest already issued under an old TTL must stay interpretable.
-- **Writes.** The per-event door-config rows; `kernel.admin_audit` (`event.security_config.change`,
-  before/after, mandatory `reason_code`).
+- **Writes.** The per-event door-config rows — **⛔ this is the blocked line: no such table exists in any
+  package (`S-13`, above)**; `kernel.admin_audit` (`event.security_config.change`, before/after, mandatory
+  `reason_code`).
 - **Result.** `{ status, event_id, version, effective }` — `effective` is the **merged** platform+event view,
   so the operator sees what will actually apply rather than only what they typed.
 - **Errors.** `insufficient_privilege` · `not_found` · `invalid_input(unknown_key)` ·
@@ -4129,19 +4893,63 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   successor key**, which requires the successor to exist. **Therefore: provision or rotate first, revoke
   second.** A revoke with no `active` successor for the scope raises
   `precondition_failed('no_active_successor')` — the one guard that stops a single call from closing a door.
-- **Locks / SSCAS / idempotency.** As §20.7.3; terminal-state idempotent (`revoked` is terminal — schema
-  §1.7's status is forward-only, guarded by a trigger).
-- **Writes.** `kernel.signing_key` (→ `revoked`, `not_after := now()`), `kernel.approval_request`,
-  `kernel.admin_audit` (`signing_key.revoke`, mandatory `reason_code`, acknowledged credential count).
+- **It FORCE-CLOSES every open door episode in the key's scope, in its own transaction — and that write set
+  and lock order were not stated (edge §5.6, door §16 OQ-5 grant condition 2; edge recon #15).**
+
+  > **Why it must, and why "the doors will notice" is not an answer.** A revoked key's atoms *"cannot be
+  > verified online (C37) and cannot be admitted offline"* — but an **already-open** door episode is holding
+  > a snapshotted manifest whose entries pin `signing_key_id` to the key being revoked. Those doors keep
+  > admitting from a cached manifest until it lapses, which is precisely the window revocation exists to
+  > close. **OQ-5 was granted on the condition that revocation force-closes those episodes**, and until this
+  > is stated **a granted ruling rests on a condition nothing satisfies.**
+
+  - **Scope.** Every `venue.door_manifest` episode with `status='open'` whose `catalog.event_session`
+    resolves to an event in the revoked key's scope (schema §1.7's key scope: platform / org / venue /
+    event). **Closed with cause `key_revoked`**, a D3 code, not with the operator's `p_reason_code`.
+  - **Lock order — stated, because this function reaches rank 1 and the money contracts around it do not.**
+    **`catalog.event_session` `FOR UPDATE` (rank 1) for each affected session, ascending `session_id`** →
+    **`venue.door_manifest` (episode row)** → **`kernel.signing_key` (admin plane, LAST)**. Rank 1 is taken
+    **before** the key row, which is outside the six ranks: taking the key row first and then reaching for
+    rank 1 would be the one inversion available on this path. Ascending within rank 1 by `session_id`, the
+    same discipline §7.2 and §9.5 use for atoms.
+  - **`kernel.approval_request` (rank 5.5)** is inserted by the dual-control arm **before** any of the
+    above — it is the parked-intent write, and the force-close happens on the **approval**, not on the
+    request. A revoke that is merely *requested* closes no doors.
+  - **THE SCOPE'S OPEN-EPISODE COUNT IS THE BLAST RADIUS, and it is what the acknowledgement is actually
+    about.** `p_ack_live_credentials` is the count of non-terminal atoms bound to the key; **the operator
+    is additionally shown, and the result additionally returns, `episodes_force_closed`** — because *"every
+    ticket holder for this event is refused at the door until re-minted"* is an abstraction, while *"you are
+    about to close 4 live doors, mid-event"* is the number a human can refuse on. **A wrong
+    `p_ack_live_credentials` raises and writes nothing**, force-close included: the speed bump is in front
+    of the whole transaction, not in front of half of it.
+  - **The recovery order does not change and is now load-bearing twice over.** *Provision or rotate first,
+    revoke second.* A force-closed episode is re-opened by `venue.open_door_manifest` (§17.10), which
+    rebuilds the snapshot under the **successor** key — which is why `precondition_failed(
+    'no_active_successor')` is *"the one guard that stops a single call from closing a door"*: without a
+    successor, the re-open produces a manifest nothing can verify either.
+- **Locks / SSCAS / idempotency.** Lock order as stated above (it **extends** §20.7.3 rather than inheriting
+  it — §20.7.3 takes no rank-1 lock). **SSCAS:** `n/a` — no money, custody or inventory row is written;
+  `catalog.event_session` is locked as a **freeze/boundary read-modify**, not as an SSCAS member, and **the
+  closed set stays at fifteen.** Terminal-state idempotent (`revoked` is terminal — schema §1.7's status is
+  forward-only, guarded by a trigger); a replay force-closes nothing a second time and returns
+  `episodes_force_closed = 0`.
+- **Writes.** `kernel.signing_key` (→ `revoked`, `not_after := now()`), **`venue.door_manifest`** (every
+  `open` episode in scope → `closed`, `close_cause='key_revoked'`), **`venue.door_manifest_delta`** (a
+  terminal marker per closed episode, so a reconnecting scanner learns the episode ended rather than polling
+  a manifest that stopped changing), `kernel.approval_request`, `kernel.admin_audit` (`signing_key.revoke`,
+  mandatory `reason_code`, the acknowledged credential count, **and the force-closed episode ids**).
   **Revoked keys are retained** (plan `083` rollback posture: *"revoked keys and certs are retained so
   historical credentials stay verifiable and explicable"*) — **this function never deletes a row.**
-- **Result.** `{ status, key_id, request_id, credentials_invalidated int }`.
+- **Result.** `{ status, key_id, request_id, credentials_invalidated int, episodes_force_closed int }`.
 - **Errors.** `insufficient_privilege` · `sod_violation` · `not_found` ·
   `precondition_failed(no_active_successor | unacknowledged_live_credentials | reason_required |
   already_revoked)`.
 - **Test.** `T-RPC-KEY-04` (revoking the only `active` key for a scope raises; a wrong
   `p_ack_live_credentials` raises and writes nothing; a revoked key's row survives and its `public_key`
-  stays readable so historical credentials remain explicable).
+  stays readable so historical credentials remain explicable) · **`T-RPC-KEY-05`** (with **two** `open`
+  episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same
+  transaction as the key row, and a scanner polling a closed episode is told the episode ended — asserted on
+  the episode rows, **not** on the absence of admissions, which would pass on a manifest that merely lapsed).
 
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
@@ -4350,6 +5158,16 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 - **Accept is a native sale, and it is member #2 — not a new member.** §14.1 #2 already names its RPC cell
   *"`kernel.transfer_ticket_ownership` (called by market checkout / **`respond_offer` accept** / auction
   finalize)"*. This contract is what that parenthesis pointed at.
+- **The expiry check is ARITHMETIC and is never the stored label (schema §13.7 `S-12`).** Under the offer
+  row's `FOR UPDATE`, accept requires **`market.offer.expires_at > now()`**, evaluated on the row, **in
+  addition to and regardless of `status`**. **`status='expired'` is written by the `088` sweep tick and the
+  tick is presentational** (§20.8.5: an expired offer holds nothing, so the sweep is explicitly *not*
+  load-bearing). An accept path that trusts `status='pending'` because the sweep was *supposed* to have run
+  **consummates an expired offer every time the tick is late — which is the ordinary condition of cron**, not
+  an incident. This is the same distinction §9.8 draws for door sessions and §17.11 for freeze overrides:
+  **where a sweep is presentational, every consumer of the state must compute it.** Over-expiry ⇒
+  `precondition_failed('offer_expired')`. **`T-RPC-MARKET-07`:** an offer past `expires_at` whose stored
+  `status` is still `pending` (the sweep suppressed) is refused, and no `market_sale` row is written.
 - **Preconditions on accept (C35, the ones that matter).** Offer `pending`, not expired; listing still
   `active`; atom still `resale_state='listed'` and owned by the seller; **`p_payment_id` resolves to a
   verified `public.payments` row whose buyer is `market.offer.buyer_id`** — re-verified against the live
@@ -4667,6 +5485,17 @@ its drain): `venue.sweep_expired_inventory_holds` (§20.3.3) — Inventory(2) pe
 **Everything else in §20 is `SSCAS: n/a (single-aggregate)`.** **The set stays closed at fifteen. No contract
 in this section required a sixteenth member, and none was added.**
 
+**The reconciliation pass's additions do not change that, and each is checked rather than assumed.**
+`venue.mint_door_session` · `revoke_door_session` · `sweep_expired_door_sessions` (§9.6–§9.8) and
+`venue.set_scan_device_status` (§20.4.3) touch **`venue.door_session` and `venue.scan_device` only** — schema
+§3.10a places both on the **admin plane, outside the six ranks**, and `venue.door_session` *"joins no custody
+sequence"*. `venue.revoke_door_pin`'s RV-1 cascade adds a second admin-plane row to a transaction that was
+already admin-plane. The **one** addition that reaches a rank is `kernel.revoke_signing_key`'s door-episode
+force-close (§20.7.5), which takes **`catalog.event_session` at rank 1 before the key row** — a single rank,
+taken first, ascending across sessions, with no second rank below it: **not a cross-aggregate money or
+custody sequence, therefore not a member.** The three CRM purge contracts and the demographics `unpublish_*`
+pair write derived or lifecycle state and touch no money, custody or inventory row at all.
+
 **One ordering fact §20 introduces**, recorded here because it is the only one: **`market.on_atom_voided`
 takes rank 4 inside member #3, and must therefore be invoked BEFORE the rank-5 atom lock, not after**
 (§20.11.3). This is consistent with §14.2's NB, which already pins **Inventory-before-Atom** in every void
@@ -4697,6 +5526,7 @@ six and to the three names §20 assigns.
 | *"bid RPC"* (unnamed) | **`market.place_bid`** (§20.8.4) | **NAMED HERE** |
 | the nightly holder-mix reconciliation (unnamed) | `venue.reconcile_holder_mix` (§17.20) | Named in §17.20; recorded here for completeness |
 | `venue.set_door_open_at` | **— does not exist —** | **RULED OUT** (§20.6.5); the capability is re-homed as `catalog.set_session_door_schedule`. **RLS §11.4's row is now replaced — `AUTHZ-R1` DISCHARGED** |
+| `venue.retire_scan_device` | **`venue.set_scan_device_status`** (§20.4.3) | **SUPERSEDED, not aliased** (schema §3.11.1 / §13.7 `S-11`). This document authored a one-way `retire`; the schema pass — which owns `venue.scan_device.status` — named a two-way setter and gave the reason: **un-retire must be permitted**, because a found device otherwise gets a duplicate row and **the scan ledger's device attribution fragments**, which is the property X-2 exists to protect. One function, `p_status ∈ {active, retired}`, carrying obligation **RV-2** |
 | `venue.decide_flagged_attribution` | `venue.review_attribution_flag` (§17.18) | **DELETED, not aliased** (`AUTHZ-H10`, §17.18). Two functions writing one append-only ledger under opposite authority is not a naming divergence — it is two authorities, and `max(seq)` made the permissive one decisive. The survivor carries the restrictive allow-list |
 
 > **`T-RPC-SET-02`:** exactly one physical function exists per row of this table. An alias that becomes a
@@ -4720,6 +5550,12 @@ change another spec's owner must make; each names the file, the section and the 
 | ~~R-2~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1a carries all fourteen, `DEF` rows first | — |
 | ~~R-3~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1c rules on all fifteen; fourteen accepted (three narrowed), `get_dashboard_summary` deferred to `R-10` | — |
 | ~~R-4~~ | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **DONE** — §11.1b, §9.16's authority rolled up unchanged | — |
+| ~~R-16~~ | schema §1.13 / plan `077` | **DONE by the schema pass** — `required_approver_class` and the three CHECKs landed, in the **three-label** spelling this document filed. This document now **writes** it in all three writers (§17.1, §10.3, §20.2.1) and **reads** it in §17.2 | — |
+| ~~R-17~~ | schema (`kernel.org_member`) / plan `077` | **DONE by the schema pass** — `granted_at` landed; `kernel.money_role_grant_matured` is bound in §17.1, §17.2, §17.7 **and now §10.3** | — |
+| ~~R-18~~ | plan §8 `078` | **DONE by the schema/plan pass** — the three keys are seeded and `comp.*` joined the dual-control namespace. **Extended here:** §20.2.1 adds `wallet.*`, `credential.*` and `door.session_*` (edge recon #16), and RLS §8.4 makes all seven `visibility='restricted'` | — |
+| **R-19** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a | **Two divergences between §3.9a and schema §3.10a, resolved here in favour of the pass that owns the table — §3.9a must be brought into line** (full reasoning: §1.1d `AUTHZ-H3a`). **(a)** The session's lookup handle is **`door_session_id`** (the uuid PK), not a `session_ref` text column — **no such column exists in §3.10a.1**. So the wire format is `DoorSession <door_session_id>.<secret>`, `token_hash = sha256(door_session_id::text \|\| ':' \|\| secret)`, and the derived limiter principal is `uuidv5(NS_DOOR_SESSION, door_session_id)`. **(b)** There is **no `/refresh` that extends a session without re-presenting the PIN**, and no `refresh_door_session` RPC is contracted; `/refresh` **re-mints** through §9.6 | §3.9a is unimplementable as written: it selects rows by a column the schema does not define, and its refresh route is the one property schema §3.10a.4 deliberately refused (*"a path that outlives the PIN"*). **The alternative for (a) is a one-column schema addition, not an edge edit** — but it must be decided in the schema, and until it is, an implementer following §3.9a writes a `session_ref` that nothing stores |
+| **R-20** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a · `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | **`assert_door_session` returns the bound `(device_id, event_session_id)`, and the edge MUST pass that returned device id as `p_actor_device_id`** — never a value from the request, which is now **rejected** rather than ignored (`invalid_input`) if it appears in `p_scan_meta`. Also: **`venue.reconcile_offline_scans` takes `p_session_id`** (the assert is per `(device, session)`, so a batch spanning sessions cannot be bound to one) | §3.9a already states the obligation in prose (per-relay rule 3); the **signature** it must call is now fixed, and matrix **X-5** should cite it. A batch parameter that changed shape is a compile error the edge author must see, not a runtime surprise |
+| **R-21** | **Owner ruling** (schema §13.7 `S-13`) | **`venue.set_event_security_config` is `⛔ BLOCKED`** (§20.6.6): it writes *"the per-event door-config rows"* and **no such table exists in any package.** Either schedule `catalog.event_security_config` into `078` (`restricted` visibility, AO per version) **or** rule the function out as `venue.set_door_open_at` was. **This document does not invent the table, and `086` must not schedule the function while it is BLOCKED** | A function scheduled with nowhere to write is unbuildable regardless of which keys it accepts. **This is separate from `R-11`**, which asks about the key set — answering `R-11` does not answer this |
 | **R-13** | `PHASE_2_ROLE_MODEL_SPEC.md` §11 R-16 + §12 row 17 · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §21.4 | **Drop `venue.decide_flagged_attribution`** (`AUTHZ-H10`, §17.18). Δ7 and Δ4 are the same control; `venue.review_attribution_flag` is the sole writer of `venue.attribution_review` and now carries the restrictive allow-list | Two functions writing one append-only ledger under opposite authority meant the deny-list stopped nothing: effective decision is `max(seq)`, so the conflicted party appends `release` at `seq+1`. **Plan `090` never named the deleted function**, so nothing is left without a writer |
 | **R-14** | `PHASE_2_ROLE_MODEL_SPEC.md` §5 (supersession clause) | **Add §11 to the list of sections §5.3 supersedes.** It currently names *"RLS §7.x/§9.x role rows and DA §7.6"* and **omits §11 — the one table that calls itself the authority model for every money and custody write** | This omission is the mechanism of `AUTHZ-H5`: ROLE_MODEL edit R-14 rewrote `venue_door → venue_scanner` lexically across §11, preserving capabilities §5 was simultaneously removing, and no clause said §5 governed. RLS §11.0 now states the rule from its own side and `T-RLS-EXEC-01` asserts it; **the role model should state it too, because a rule that only the downstream document knows is the rule that was just violated** |
 | **R-15** | `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | `G-8b(i)` is **closed on the specification side**: the C39 threshold now has keys (`comp.per_staff_step_up_max_units`, `comp.per_staff_step_up_window_hours`), a contract (§20.5.1) and tests (`T-RPC-AUTHZ-12/15`). It stays open on the **plan** side until `086`'s Tests row names them (`R-7`) | `G-8b(i)` records comps as *"asserted by neither surface"*; half of that is now false and the matrix should not keep asserting it |
@@ -4728,7 +5564,7 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-17** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` (`kernel.org_member`) / plan `077` | **`granted_at timestamptz NOT NULL DEFAULT now()`**, written by `accept_org_invite` and reset by `change_org_role` on promotion **into** a money role. RLS §17 **X-11** | **`AUTHZ-C1B`:** without it `kernel.money_role_grant_matured` cannot be written, and SoD-1/SoD-2 stay satisfiable by a counterparty the attacker minted through the ordinary invite flow |
 | **R-18** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `078` (config seeds) | Three keys: **`authn.money_role_maturity_hours`**, **`comp.per_staff_step_up_max_units`**, **`comp.per_staff_step_up_window_hours`**; and **`comp.*` joins the money dual-control namespace**. All four of these plus `refund.platform_support_max_minor` must be documented **fail-to-safe** — an absent key means *no grant is mature* / *every comp needs step-up* / *support approves nothing*. RLS §17 **X-12** | A threshold that gates an authority and does not exist is not a gate. The `comp.*` pair is C39, cited in five documents with **no key anywhere**; `authn.money_role_maturity_hours` is new with `AUTHZ-C1B` |
 | **R-6** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `081` | **Add `venue.sweep_expired_inventory_holds` to the Functions row and its assertion to the Tests row** | `G-24`. The index is built for a sweep the package does not create; without it held capacity never returns and every abandoned checkout removes inventory from sale permanently |
-| **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_event_security_config`, `set_session_door_schedule`; `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available` | A contracted function with no package is a function nobody builds. §8 is where an implementer looks |
+| **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `087`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_session_door_schedule`, **`mint_door_session`, `revoke_door_session`, `sweep_expired_door_sessions`, `set_scan_device_status`** (`AUTHZ-H3`), and **NOT `set_event_security_config`, which is `⛔ BLOCKED` (`R-21`)**; **`087`: `claim_artifacts_for_purge`, `confirm_artifact_purged`, `reconcile_export_orphans`, `assert_may_request`** (`AUTHZ-CRM2`) and **`077`/`082`: the two contact `_event` logs' writers** (`AUTHZ-CRM1`); `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available`. **Also `unpublish_holder_mix` / `unpublish_all_holder_mix`** in the demographics package | A contracted function with no package is a function nobody builds. §8 is where an implementer looks. **`venue.retire_scan_device` must NOT be scheduled** — it is superseded (§20.13), and scheduling both builds two writers for one column |
 | **R-8** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §20A.1 → §20A.2 | **Move the `venue.allocate_comp` / `venue.issue_comp` rows** out of *"mapped — write controls with a named RPC"* | `G-4`. §20A.1 asserts a contract that did not exist; the name existed and the contract did not. §20.5 now supplies it, so the rows may move to *"mapped"* only once §20 is merged — **and the earlier listing must not be cited as evidence that they were mapped** |
 | **R-9** | **Owner ruling** | **The bid ledger's home** (§20.8.4 `OPEN DECISION`): accept "native-only auctions are not offered in MVP", or schedule the EXT `market.bid` ledger into `088` | §16.5, schema §4.2 and schema §4.9 leave it open in three different words. An implementer facing that silence creates a table no package specifies — and a bid ledger invented at build time is a money surface with no review |
 | **R-10** | **Owner ruling** | **`venue.get_dashboard_summary`** (`G-18`): accept N queries on home, or schedule it | Nothing depends on it, which is exactly why it drifts. §20.10 makes it decidable |
