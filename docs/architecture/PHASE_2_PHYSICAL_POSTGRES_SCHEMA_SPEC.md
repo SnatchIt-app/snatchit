@@ -496,6 +496,46 @@ assertion was right; the table it was written against was not.
 - **Read authority:** current owner + issuing venue staff + platform (CDM §8 isolation).
 - **SoT/PROJ:** SoT for state/identity; `current_owner_id` and `credential_version` are heads pinned to the log.
 
+#### 1.5.1 DISPOSITION `MN-4` — `state='expired'` had no writer. **Name the writer; do not remove the value.**
+
+`kernel.tickets.state` CHECKs `issued · active · scanned · voided · expired`, §7.6 specifies the transition
+(*"`active → expired` (terminal, session passed)"*), and **no function in any of the sixteen packages writes
+it.** The write authorities on `kernel.tickets` are the issuance/transfer/void engines and the scan RPC; none
+of them observes a session ending. **A fifth instance of the `MB-2b` class**, after `door_open_at`,
+`scan_device.retired`, `market.offer.expired` and `required_approver_class`.
+
+**How load-bearing is it? — the question §4.3.1 makes the corpus ask, and the answer here is *not very*, which
+changes the disposition.** One might expect the security consequence to be *a ticket to a past show can still
+be listed or transferred*. **It cannot**: `kernel.is_transfer_frozen` freezes **every atom of a session**
+once `now() >= catalog.effective_freeze_at(session)` (`079`), and that boundary is at **doors**, strictly
+before the session ends. So the load-bearing guard is already arithmetic and already stronger than the label.
+**`expired` is presentational** — it is what makes *My Tickets* render a past ticket as spent rather than
+live, and what keeps a venue's own atom counts honest after the night.
+
+**Which means the sweep must not become the enforcement** — the same rule §4.3.1 states for `market.offer`:
+no path may trust `state <> 'expired'` because a tick was *supposed* to have run. Nothing does today, and
+nothing may start.
+
+**The writer.** `kernel.sweep_expired_ticket_atoms(p_limit)` — `service_role`/scheduler only, no human path,
+re-entrant, bounded batch. It advances `active → expired` for atoms whose `catalog.event_session` has ended
+by more than `config('ticket.expiry_grace')`, leaves `scanned`/`voided`/`expired` atoms untouched (they are
+terminal, §7.6), **appends no ownership-log row and bumps no `credential_version`** — an expiry is a
+lifecycle fact, not a custody move, and the atom's owner does not change. **`kernel.tg_custody_head_is_ledger_tail`
+(§1.6.2) therefore does not fire on it**, which is exactly why `state` was kept outside that trigger's clause
+set.
+
+**SEAM-1: it reads `catalog.event_session` (`078`) and writes `kernel.tickets` (`079`) →
+`max(078, 079) = 079`.** The edge `078 → 079` is already declared; **no edge is added, and no package is
+added, renamed or renumbered.** **Scheduled** on the **2-minute `pg_cron` heartbeat that already runs** —
+the same one `081`'s `venue.sweep_expired_inventory_holds` uses — so there is **no new cron entry** and it is
+not blocked on the `COND-A` outbox ruling. Filed to the RPC owner as §13.7 **`S-22`** for its contract and
+EXEC row. Ratification **C87**.
+
+**Tests.** `T-SCHEMA-EXPIRY-01`: an `active` atom of an ended session becomes `expired`; **no ownership-log
+row is appended and `credential_version` is unchanged** — both halves, because the first passes even if the
+sweep went through the transfer engine, which would be the wrong construction and would trip §1.6.2 at
+COMMIT. A `scanned` or `voided` atom is left alone; the sweep is re-entrant (a second run is a no-op).
+
 ### 1.6 `kernel.ticket_ownership_log` — the custody ledger (SoT / AO) — **DEEP SECTION**
 - **Purpose:** the complete, ordered, append-only history of who held each atom and why. The atom's
   `current_owner_id` is the head of this log. Written ONLY by the transfer/issuance engines (CDM §1.1).
@@ -3973,6 +4013,7 @@ reason it cannot wait.
 | **S-18** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.3 | **`kernel.void_ticket_atom` must add `current_owner_id := ` the void sentinel to its `kernel.tickets` write set.** It already sets `to_identity := ` void-sentinel on the log row; the head write names only *"→ `voided`, credential bump"* | As contracted, after **every** refund-void the log tail says sentinel and the cached head says the buyer — **permanently**, on the surface that exists to settle custody disputes. With `kernel.tg_custody_head_is_ledger_tail` (§1.6.2) the same code aborts at COMMIT instead, which is better but is still a build that does not run |
 | **S-19** | `PHASE_2_CRM_EXPORT_SPEC.md` §9.2/§9.5 · `PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` §8.2 · `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §7.6 | **Carry `CUSTODY-DEL-1` (§5.1) and correct the `VERIFIED:` clause.** CRM §9.2's *"once `current_owner_id` is the sentinel"* is **not** verified against production: `020` touches `public.listings`/`payments`/`transfers` and **no `kernel.*` relation** — the clause describes a future extension that `CUSTODY-DEL-1` forbids. Door §7.6's *"structurally impossible"* may now cite the trigger, which exists as of `079` | A `VERIFIED:` tag means *checked against production*. This one carries a forward-looking claim, and it is the sentence an implementer reads immediately before extending `020` to the Phase-2 tables — which is the failure. Door §7.6's claim was true of the intent and false of the chain |
 | **S-20** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.1, §7.3, §12.2, §12.3 · `PHASE_2_CRM_EXPORT_SPEC.md` §5/§11 · `PHASE_2_NOTIFICATIONS_SPEC.md` · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §8 · `PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md` | **Name the two sentinels of §1.16 where each is used, and exclude both from every identity projection** — CRM export rows, holder-mix buckets, notification fan-out, attendee lists, demographics, and any *"tickets owned by X"* read. **Two specific corrections:** §7.3's void must write `current_owner_id := SN-VOID` (see `S-18`), and §7.1's *"`actor_identity := auth.uid()` (or system sentinel for **import**/sweep)"* must drop `import` — **a bulk import is initiated by a human operator through the edge, which under EDGE-CALLER-JWT holds that operator's JWT**, so attributing it to `SN-SYSTEM` discards the one fact an import audit exists for. `SN-SYSTEM` is for **scheduler**-initiated writes only | Two `NOT NULL FK→auth.users` columns were satisfied by identities no package created; naming them without saying which surfaces must skip them just moves the defect. **The void sentinel becomes the recorded `current_owner_id` of every voided ticket** — an export or a fan-out that does not exclude it emails a sentinel and counts it as an attendee |
+| **S-22** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §12 (sweeps) · `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Contract `kernel.sweep_expired_ticket_atoms(p_limit)` and give it an EXEC row** — `DEF`, `pg_cron` only, no human path, actor `SN-SYSTEM` (§1.16), re-entrant, appends **no** ownership-log row. And state, in the transfer/list preconditions, that **no path may trust `state <> 'expired'` because the tick was supposed to have run** (§4.3.1's rule, second instance) | `kernel.tickets.state='expired'` is in the enum, its transition is specified in §7.6, and **no function in any package writes it** — the fifth instance of this class. It is presentational rather than load-bearing (`is_transfer_frozen` already freezes every atom of a session at doors, strictly before the session ends), which is *why* it can be folded onto the existing heartbeat instead of getting its own control — but a value the schema defines and no code can reach is still a value an implementer will invent a writer for |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---

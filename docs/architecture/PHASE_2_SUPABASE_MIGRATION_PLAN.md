@@ -579,9 +579,19 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 - **Purpose:** venue-scope roles (C36) + the remaining role predicates, so venue inventory/scan/settlement RLS
   can express `has_venue_role`/`has_event_role`.
 - **Objects created** (schema spec §3.9):
-  - `venue.staff_role` (PK `(venue_id, identity_id, role)`; `role` CHECK in
-    `venue_manager/venue_finance/venue_door/venue_promoter` — **disjoint** from org/platform labels, C36;
-    `venue_id` FK→catalog.venue, `identity_id` FK→auth.users).
+  - `venue.staff_role` (PK `(venue_id, identity_id, role)`; `role` **`text` + CHECK in the SIX canonical
+    venue labels — `venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` ·
+    `venue_promoter_manager` · `venue_scanner`** (schema §0.6, ROLE_MODEL §3.4) — **disjoint** from
+    org/platform labels, C36; `venue_id` FK→catalog.venue, `identity_id` FK→auth.users).
+    > **CORRECTED — defect `MN-2`.** This bullet previously enumerated the **superseded four**
+    > (`venue_manager/venue_finance/venue_door/venue_promoter`) while **§8's table for the same package**
+    > said *"the six canonical venue labels"* and *"the CHECK rejects `venue_door` and `venue_promoter`"* —
+    > **the same document specifying opposite DDL for one constraint.** `venue_door` was **renamed**
+    > `venue_scanner` and `venue_promoter` was **removed** (a promoter is a relationship, `venue.promoter`,
+    > not a staff grant). §1024's precedence rule (*"where it differs from §5's original blocks, §8 wins"*)
+    > resolved it for a reader who knows the rule; **a reader of §5 does not**, and §5 is where a DDL author
+    > looking for "objects created" lands first. The precedence rule is a tie-breaker, not a substitute for
+    > the two statements agreeing — so this bullet is corrected rather than left to be out-voted.
   - **Predicates (SECURITY DEFINER, 066/067):** `kernel.has_venue_role(venue_id, role[])` and
     `kernel.has_event_role(event_id, role[])` (event→venue resolution via catalog). Live-table recheck (C9);
     never self-grant (H-2).
@@ -591,7 +601,8 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 - **Rollout:** staging → gated prod. No flag.
 - **Rollback (`080_*`):** drop predicates + `venue.staff_role`. Clean while empty.
 - **Staging verification:** replay green; `has_venue_role`/`has_event_role` correct; disjoint CHECK rejects an
-  `org_*`/`platform_*` label; non-staff cannot read the row.
+  `org_*`/`platform_*` label **and rejects the two superseded labels `venue_door` and `venue_promoter`**
+  (`MN-2`); the full six-label enumeration matches ROLE_MODEL §3.4 exactly; non-staff cannot read the row.
 - **Production verification:** table/CHECK/RLS; predicates owned by `postgres`, `search_path` pinned.
 - **Additive-only:** YES. **Marketplace change:** NO. **Gate-2:** per §0.5.
 
@@ -1117,7 +1128,8 @@ ratified, SEAM-1 floors it at `090`** (it aggregates money, door and attribution
 |---|---|
 | **Purpose** | The custody core — the ticket atom (SoT) and its append-only ownership ledger with the fixed C26 idempotency — plus the complete input set of the transfer-freeze predicate, so no later package can make that predicate forward-reference anything. |
 | **Tables** | `kernel.tickets` (`resale_state` label set **includes `refund_hold`**) · `kernel.ticket_ownership_log` (AO) · **`kernel.door_freeze_override`** (AO). |
-| **Functions** | **`kernel.is_transfer_frozen(atom_id)`** (its complete, corrected body — no stub, no tolerance for an unknown atom) · `lock_ticket` / `unlock_ticket` · `mark_ticket_scanned`; **`catalog.update_event_session` (authored HERE, not `078` — SEAM-1: its time guard reads `kernel.tickets` (*"once any atom exists for the session"*, RPC §20.2.4), so `078` would be a forward reference. `catalog.update_event` stays in `078`, which reads no atom)**. |
+| **Functions** | **`kernel.is_transfer_frozen(atom_id)`** (its complete, corrected body — no stub, no tolerance for an unknown atom) · `lock_ticket` / `unlock_ticket` · `mark_ticket_scanned`; **`catalog.update_event_session` (authored HERE, not `078` — SEAM-1: its time guard reads `kernel.tickets` (*"once any atom exists for the session"*, RPC §20.2.4), so `078` would be a forward reference. `catalog.update_event` stays in `078`, which reads no atom)**; **`kernel.sweep_expired_ticket_atoms(p_limit)`** (ADDED — schema §1.5.1, defect `MN-4`): `kernel.tickets.state='expired'` is in the enum, its transition is specified in schema §7.6, and **no function in any package wrote it** — the fifth instance of the `MB-2b` class. `DEF`/scheduler-only, re-entrant, bounded batch, actor `SN-SYSTEM`; it **appends no ownership-log row and bumps no `credential_version`** (an expiry is a lifecycle fact, not a custody move), which is exactly why `state` sits outside `kernel.tg_custody_head_is_ledger_tail`'s clause set. **It is presentational, not load-bearing** — `is_transfer_frozen` already freezes every atom of a session at doors, strictly before the session ends — so, per schema §4.3.1's rule stated a second time, **no path may trust `state <> 'expired'` because the tick was supposed to have run**. **SEAM-1: it reads `catalog.event_session` (`078`) and writes `kernel.tickets` (`079`) → `max(078, 079) = 079`; `078 → 079` is already declared, no edge added.** |
+| **Scheduled ticks** | **`kernel.sweep_expired_ticket_atoms`** on the **2-minute `pg_cron` heartbeat that already runs** — the same schedule `081`'s `venue.sweep_expired_inventory_holds` uses. **No new cron entry, and not blocked on the `COND-A` outbox ruling** (it needs a *scheduler*, not the outbox *carrier*). Lateness is harmless by construction: the label is presentational and the transfer freeze is the enforcement. |
 | **RLS** | Ownership log money-custody-RPC-only (deny-all). `kernel.tickets` owner-scoped + venue-scoped read; writes RPC-only. **`door_freeze_override` audit-only — RLS on, zero policies, `REVOKE ALL FROM anon, authenticated`.** |
 | **Triggers** | `raise_append_only` on the ownership log and on `door_freeze_override` (whose only permitted UPDATE is the `revoked_at`/`revoked_by` forward transition). **Plus `kernel.tg_custody_head_is_ledger_tail` — a `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED`, `AFTER INSERT OR UPDATE FOR EACH ROW` on `kernel.tickets` (ADDED — schema §1.6.2, defect `MB-4`).** This is the object `SNATCH_IT_DOMAIN_ARCHITECTURE.md` names **three times** — *"head-equals-log-tail **trigger**"*, *"single-writer fn + **verify trigger** + partial-unique on live custody"*, invariant #1 — and that door §7.6 cites when it claims enforcing at `kernel.transfer_ticket_ownership` makes bypass *"structurally impossible"*. **No package in the band built it**, while the corpus **did** build exactly this trigger for `door_open_at` (`086`, `catalog.tg_door_open_at_is_ledger_head`) after ruling O-5 found that column unwritten. It asserts at COMMIT that the atom's greatest-`sequence` ownership-log row exists and that its `to_identity` and `credential_version_after` equal the head's `current_owner_id` and `credential_version`. **Deferred, not immediate:** schema §1.6.1's engine appends the log row **before** the head write, so an `AFTER ROW` trigger would pass **because of statement order** — which is another convention. **`state` is deliberately NOT a clause**: a fourth clause over `state_transition` would raise on every admission and every expiry sweep, bricking the door to enforce a property the door does not violate. **SEAM-1: it reads `kernel.ticket_ownership_log` (`079`) and `kernel.tickets` (`079`) → `max(079, 079) = 079`; no edge is added, and no package is added, renamed or renumbered.** |
 | **Indexes** | Log: PK `(ticket_atom_id, sequence)`; **`UNIQUE(cause, cause_ref, ticket_atom_id)`** (the fixed C26 key); `UNIQUE(ticket_atom_id, command_idempotency_key)`; `(cause_ref)`; `(to_identity)`. Atom: `(current_owner_id)`, `(event_session_id)`, `(ticket_type_id)`, partial on `resale_state <> 'none'`, `(event_session_id, serial_no)` unique. Override: partial `(session_id) WHERE revoked_at IS NULL AND expires_at > now()`. |
