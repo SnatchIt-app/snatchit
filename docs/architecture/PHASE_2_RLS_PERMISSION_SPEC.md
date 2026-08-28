@@ -534,6 +534,22 @@ GRANT and served (if at all) via a scoped RPC. Implements Phase-0 column-scoped 
 
 > Reminder (GP-1/GP-2): INS/UPD = `R` where EXEC authorizes, else `D`; **DEL = `D` for all roles, all tables**.
 > `svc` = machine/definer path only (I-8).
+>
+> **Reading the matrices after the role-model integration (§1.1, §2).** Three mechanical rules apply to every
+> matrix in §7–§10, so they are not repeated per table:
+> 1. **`venue_door` is now `venue_scanner`** everywhere. Wherever the old `venue_door` cell described a
+>    *PIN-path* capability (manifest sync · scan/admit · offline batch · guest-entry check-in — ROLE_MODEL §5.3
+>    F7–F10), the **door session** (`DOO`) shares that cell; **everywhere else the door session is `D`.** A
+>    `DOO` cell is always a statement about what the RPC permits, never about a policy (RM-5).
+> 2. **`promoter` is a relationship, not a venue-plane role.** Every `promoter` cell below is an **own-row**
+>    statement resolved by `kernel.is_promoter_for_event` / `promoter_link.identity_id = auth.uid()` /
+>    `venue.promoter.identity_id = auth.uid()` on a **live** row — never by `has_venue_role`, which returns
+>    false for every promoter. A `promoter` cell confers no authority over any venue object.
+> 3. **The five new labels** (`org_marketing`, `org_promoter_manager`, `venue_box_office`, `venue_marketing`,
+>    `venue_promoter_manager`) are `D` on every table in §7–§10 **except** where a matrix names them
+>    explicitly. Deny-by-default (I-1) does the work; a new label does not inherit an old label's cells. Their
+>    positive grants are exactly the cells of the master matrix (§4A) — marketing on the event/marketing and
+>    CRM surfaces, promoter-manager on the promoter engine, box office on issuance and door-adjacent reads.
 
 ### 7.1 `kernel.identity_ext` — owner-scoped (col-scoped: kyc/region)
 Write RPC: `kernel.upsert_identity_ext` (self for benign fields; `is_platform` for `residency_region`/`kyc_ref`, audited).
@@ -650,7 +666,7 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom
 | org_owner/admin | A⁸(issuer org) | D | D | D | — |
 | org_finance | A⁸ | D | D | D | — |
 | venue_manager | A⁸(issuing venue ops) | D | D | D | — |
-| venue_door | A⁸(scan cols, session) | R⁹ | R⁹ | D | `record_scan` (state→scanned) |
+| venue_scanner | A⁸(scan cols, session) | R⁹ | R⁹ | D | `record_scan` (state→scanned) |
 | venue_finance | A⁸ | D | D | D | — |
 | promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
@@ -662,7 +678,7 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom
 custody change is driven by invoking `market`/`venue` RPCs that call the kernel transfer engine (buyer id is
 **server-verified**, C35). ⁸ issuing-venue/org staff read atoms of their own events (ops/manifest) —
 current_owner PII col-scoped. ⁹ door writes only the `scanned` state transition via `record_scan`, under the
-atom lock, and only for its session (door_pin/venue_door scope).
+atom lock, and only for its session (door_pin/venue_scanner scope).
 
 ### 7.6 `kernel.ticket_ownership_log` — money-custody-RPC-only, AO (deny-all direct)
 Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom` (SSCAS choke-points only). **Reads via `kernel.get_ticket_custody_chain` / redacted `market.get_ticket_history` — NO direct SELECT for any client.**
@@ -676,7 +692,7 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom
 | org_owner/admin | V¹² | D | D | D | `get_ticket_custody_chain` (own-event atoms) |
 | org_finance | V¹² | D | D | D | reconciliation read (scoped) |
 | venue_manager | V¹²(issuing venue) | D | D | D | `get_ticket_custody_chain` |
-| venue_door | D | D | D | D | — |
+| venue_scanner | D | D | D | D | — |
 | venue_finance | V¹² | D | D | D | — |
 | promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | `get_ticket_custody_chain` |
@@ -700,7 +716,7 @@ Write RPCs: `provision_signing_key`, `rotate_signing_key`, `revoke_signing_key` 
 | owner | A¹³ | D | D | D | — |
 | all org roles | A¹³ | D | D | D | — |
 | venue_manager | A¹³ | D | D | D | — |
-| venue_door | A¹³ | D | D | D | — (verifies with public_key in manifest) |
+| venue_scanner | A¹³ | D | D | D | — (verifies with public_key in manifest) |
 | venue_finance/promoter | A¹³ | D | D | D | — |
 | platform_support | A¹³ | D | D | D | — |
 | platform_risk | A¹³ | D | D | D | — |
@@ -730,41 +746,102 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership` (link only; never 
 | service_role | A(machine) | R(def) | R(def) | D | definer |
 
 ### 7.9 `kernel.payout` — money-custody-RPC-only
-Write RPCs: `close_settlement`, native-sale payout path, `pay_promoter_commission`. Idempotency-keyed (Phase-0 discipline).
+
+> **REPLACED WHOLESALE** by `PHASE_2_MONEY_AUTHORITY_SPEC.md` §2.1 under ratified owner ruling **O-3**. The
+> previous matrix **contradicted this document's own §11**, which granted `org_owner` `request_org_payout`
+> while §7.9 denied `org_owner` the read — *an owner who could request a payout it could not see*. O-3 resolves
+> it in favour of §11: `org_owner` reads the org payout ledger and requests payouts. **The old SELECT row was
+> the text that was wrong.**
+
+Write RPCs: `close_settlement`, native-sale payout path, `pay_promoter_commission`, `request_org_payout`
+(state advance), `hold_payout`/`release_payout` (state advance). Idempotency-keyed (Phase-0 discipline).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
 | anon | D | D | D | D | — |
 | fan | D | D | D | D | — |
-| owner (payee identity) | V(own payout) | D | D | D | — |
-| org_member/owner/admin | D | D | D | D | — |
-| org_finance | V(own-org payouts) | D | D | D | — |
-| venue_finance | V(own-venue payouts) | D | D | D | — |
-| venue_manager/door/promoter | D¹⁵ | D | D | D | — |
+| owner (payee identity) | V(own payout)¹⁵ᵃ | D | D | D | — |
+| org_member | D | D | D | D | — |
+| **org_owner** | **V(own-org payouts)**¹⁵ᵇ | D | **R** | D | **`request_org_payout` (own org; ≤ threshold direct, > threshold via approval)** |
+| **org_admin** | **D**¹⁵ᶜ | D | D | D | **—** |
+| org_finance | V(own-org payouts)¹⁵ᵇ | D | R | D | `request_org_payout` (own org; same threshold rule) |
+| venue_finance | **V(own-venue *settlement-caused* payouts only)**¹⁵ᵈ | D | D | D | — |
+| venue_manager / venue_scanner / venue_box_office / venue_marketing / venue_promoter_manager / door session / promoter | D¹⁵ | D | D | D | — |
+| org_marketing / org_promoter_manager | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
-| platform_risk | A(money read) | D | D | D | — |
-| platform_admin | A | R | R | D | admin payout ops (audited) |
+| platform_risk | A(money read) | D | R | D | `hold_payout` · `release_payout` (dual-control seam, SoD-3) |
+| platform_admin | A | R | R | D | admin payout ops (audited) · `hold_payout` · `release_payout` |
 | service_role | A(machine) | R(def) | R(def) | D | definer (settlement/native-sale/commission) |
 
-¹⁵ `promoter` reads own `promoter_commission` payout **only** via a scoped RPC (own attribution), not the org
-payout ledger (CDM §8).
+¹⁵ `promoter` reads own `promoter_commission` payout **only** via `venue.get_my_promoter_summary` (§16.9),
+whose filter is derived from `auth.uid()` and cannot be widened by a parameter — never the org payout ledger
+(CDM §8).
+¹⁵ᵃ payee-identity read is `payee_identity_id = auth.uid()`, one row set, no org context.
+¹⁵ᵇ **the ONLY read path is `kernel.list_org_payouts(p_org_id, …)` (§16.5)** — a definer read RPC requiring
+`has_org_role(p_org_id,[org_owner, org_finance])` and filtering `payee_org_id = p_org_id`. **There is no
+direct table SELECT grant for any org role** (GP-3a: no policy runs here).
+¹⁵ᶜ **`org_admin` is DENY on the whole money plane.** Domain §7.2 states Org Admin *"cannot view or initiate
+payouts/bank changes (that's Finance/Owner)"*, and O-2 constrains `org_admin` to *"general administration but
+not unrestricted financial authority."* Deny rather than a narrow read grant, because `org_admin` is the role
+most likely to be handed out liberally, and the payout ledger plus the refund ledger together are the complete
+financial picture of the business — **widening later is a one-line matrix change; narrowing later is a
+migration plus an operator-facing removal.** (`INFERENCE` in the money spec §3.4; residual tension with
+`org_admin`'s existing `A(own-org)` on `venue.settlement` (§9.13) is named, not smoothed — owner decision
+**MD-4**, §15.7.)
+¹⁵ᵈ **narrowed, and the narrowing is load-bearing.** `kernel.payout` has **no `venue_id`** (schema §1.9:
+`payee_kind ∈ {organization, identity}`, `payee_org_id`/`payee_identity_id`, `cause`, `cause_ref`). A payout's
+venue is derivable **only** for `cause='settlement'`, via `cause_ref → venue.settlement_line →
+venue.settlement.venue_id`, and is **undefined** for `promoter_commission`, `market_sale`, and every
+identity-payee payout. The previous unqualified *"V(own-venue payouts)"* was **not expressible against the
+physical schema.** `venue_finance` reads settlement-caused payouts for its own venue and is `D` on every other
+cause. Enforced **inside `kernel.list_org_payouts`, never as a table policy.**
 
 ### 7.10 `kernel.refund` — money-custody-RPC-only
-Write RPCs: `refund_primary_order`, `admin_refund`, C25 auto-compensation sweep.
+
+> **REPLACED WHOLESALE** by `PHASE_2_MONEY_AUTHORITY_SPEC.md` §2.2 under ratified owner ruling **O-1**. The
+> previous matrix denied every org role but `org_finance` any refund authority, while Domain §7.6 granted
+> *Issue refund* to Org Owner. The "Org Owner **inherits** Org Finance" prose cannot bridge that:
+> `kernel.org_member.role` is **single-valued** and C36 permits only a literal membership-row label test, so
+> **no `org_owner` row can ever satisfy `has_org_role(org,[org_finance])`.** Inheritance is prose, not a
+> predicate. O-1 moves the *authority*; the *inheritance mechanism* is deleted.
+
+Write RPCs: `refund_primary_order`, `admin_refund`, C25 auto-compensation sweep. **Org and buyer authority
+enters exclusively through `kernel.request_order_refund` (§16.1), which calls `refund_primary_order` as
+definer** — the org never invokes the money writer directly.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
 | anon | D | D | D | D | — |
 | fan | D | D | D | D | — |
-| owner (buyer) | V(own refund) | D | D | D | — |
-| org_finance | V(own-org refunds) | D | D | D | — |
-| org_owner/admin/member | D | D | D | D | — |
-| venue_finance | V(own-venue) | D | D | D | — |
-| venue_manager/door/promoter | D | D | D | D | — |
-| platform_support | V | R | D | D | `refund_primary_order` (support-initiated, capped, audited) |
-| platform_risk | A(money read) | R | D | D | `admin_refund` (dispute) |
-| platform_admin | A | R | R | D | `admin_refund` |
+| owner (buyer) | V(own refund) | **R** | D | D | **`request_order_refund` (own order only; capped + windowed by config)** |
+| org_member | D | D | D | D | — |
+| **org_owner** | **V(own-org refunds)**²ᵃ | **R** | D | D | **`request_order_refund` · `approve_refund_request` (own org; SoD)** |
+| **org_admin** | **D**²ᵇ | D | D | D | **—** |
+| org_finance | V(own-org refunds)²ᵃ | R | D | D | `request_order_refund` · `approve_refund_request` (own org; SoD) |
+| venue_finance | V(own-venue)²ᶜ | D | D | D | — |
+| venue_manager / venue_scanner / venue_box_office / venue_marketing / venue_promoter_manager / door session / promoter | D | D | D | D | — |
+| org_marketing / org_promoter_manager | D | D | D | D | — |
+| platform_support | V | R | D | D | `refund_primary_order` (support-initiated, capped, audited) · `approve_refund_request` (platform-review tier) |
+| platform_risk | A(money read) | R | D | D | `admin_refund` (dispute) · `approve_refund_request` (platform-review tier) |
+| platform_admin | A | R | R | D | `admin_refund` · `refund_primary_order` · `approve_refund_request` |
 | service_role | A(machine) | R(def) | R(def) | D | definer (incl. C25 sweep) |
+
+²ᵃ **the ONLY read path is `kernel.list_org_refunds(p_org_id, …)` (§16.6).** `kernel.refund` carries no
+`org_id` (schema §1.10 — `payment_id`, `reason_code`, `amount_minor`, `status`, refs). Org scope is resolved
+`kernel.refund.payment_id → kernel.payment_native.payment_id → order_id → venue.order.org_id`
+(`venue.order.org_id` is a real column — schema §3.7 — so this is a two-hop join, not a search). **The join
+direction is part of the contract, not an implementation detail.** Refunds whose `payment_native` link is a
+`sale_id` (native resale) resolve through `market.market_sale → listing → atom.org_id`; **in MVP native resale
+is `resale_policy='off'` (Gate M), so that arm returns no rows and MUST fail closed rather than fall through.**
+²ᵇ `org_admin` DENY on the money plane — see note ¹⁵ᶜ.
+²ᶜ `venue_finance` own-venue read resolves through the same order join filtered on
+`catalog.event_session → catalog.event.venue_id`; scope is venue, and it is a **read** only — **venue roles
+hold no refund EXEC at any tier.**
+
+> **Money-plane policy posture (GP-3a restated where it bites).** Neither §7.9 nor §7.10 carries an RLS policy
+> admitting `authenticated`. Every `V` cell above is a **scoped read RPC**; every `R` cell is `EXECUTE` on a
+> definer function. A policy written on these two tables would never be evaluated on the path that matters.
+> The money-authority spec reaches the identical conclusion for step-up enforcement (§3.1).
 
 ### 7.11 `kernel.reserve` — EXT (Gate M stub) — money-custody-RPC-only, DENY-ALL
 **DO NOT BUILD writers in MVP.** Deny-all to every client; no read/write policy. Present only as an empty stub.
@@ -810,7 +887,7 @@ Write RPCs: `create_venue`, `set_venue_approval` (platform).
 | org_owner/admin | A(own-org incl. draft) | R | R | D | `create_venue` |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own venue incl. draft) | D | R¹⁸ | D | benign venue profile edits |
-| venue_door/finance/promoter | A(own venue) | D | D | D | — |
+| venue_scanner/finance/promoter | A(own venue) | D | D | D | — |
 | platform_support | A(all) | D | D | D | — |
 | platform_risk | A(all) | D | D | D | — |
 | platform_admin | A(all) | R | R | D | `set_venue_approval` |
@@ -830,7 +907,7 @@ Write RPCs: `create_event`, `set_event_status`, `cancel_event`.
 | org_owner/admin | A(own-org) | R | R | D | `create_event`/`set_event_status`/`cancel_event` |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue incl. draft) | R | R | D | `create_event`/`set_event_status`/`cancel_event` |
-| venue_door/finance/promoter | A(own-venue announced+) | D | D | D | — |
+| venue_scanner/finance/promoter | A(own-venue announced+) | D | D | D | — |
 | platform_support | A(all) | D | D | D | — |
 | platform_risk | A(all) | D | D | D | — |
 | platform_admin | A(all) | R | R | D | override/cancel (audited) |
@@ -846,7 +923,7 @@ Write RPC: `create_event_session` (also auto-called by `create_event` for one-ni
 | org_owner/admin | A | R | R | D | `create_event_session` |
 | org_finance | A | D | D | D | — |
 | venue_manager | A(own-venue) | R | R¹⁹ | D | `create_event_session` |
-| venue_door | A(own-venue, tonight) | D | D | D | — |
+| venue_scanner | A(own-venue, tonight) | D | D | D | — |
 | venue_finance/promoter | A(own-venue) | D | D | D | — |
 | platform_support/risk | A(all) | D | D | D | — |
 | platform_admin | A(all) | R | R | D | override |
@@ -875,7 +952,7 @@ Write RPC: `set_resale_policy`. Listings snapshot `policy_id`+`version` at creat
 | org_owner/admin | A | R | D²¹ | D | `set_resale_policy` (org events) |
 | org_finance | A | D | D | D | — |
 | venue_manager | A | R | D²¹ | D | `set_resale_policy` (own venue) |
-| venue_door/finance/promoter | A | D | D | D | — |
+| venue_scanner/finance/promoter | A | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
 | platform_admin | A | R | D²¹ | D | override |
 | service_role | A(machine) | R(def) | D | D | definer |
@@ -896,7 +973,7 @@ Write RPCs: `create_ticket_type`, `set_ticket_type_price` (C9 live-recheck).
 | org_owner/admin | A(own-org incl. hidden) | R | R²² | D | `create_ticket_type`/`set_ticket_type_price` |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue incl. hidden/door_only) | R | R²² | D | `create_ticket_type`/`set_ticket_type_price` |
-| venue_door | A(door_only + public, own session) | D | D | D | — |
+| venue_scanner | A(door_only + public, own session) | D | D | D | — |
 | venue_finance | A(own-venue) | D | D | D | — |
 | promoter | A(public) | D | D | D | — |
 | platform_support/risk | A(all) | D | D | D | — |
@@ -915,7 +992,7 @@ Write RPCs: `reserve_inventory`, `release_hold`, `issue_ticket_atoms`, `void_tic
 | org_owner/admin | A(full counters, own-org) | R | R | D | `create` batch / manage capacity (audited) |
 | org_finance | A(full, own-org) | D | D | D | — |
 | venue_manager | A(full counters, own-venue) | R | R | D | batch/capacity RPCs |
-| venue_door | A(remaining, own session) | R²⁴ | R²⁴ | D | door-sale reserve/issue path |
+| venue_scanner | A(remaining, own session) | R²⁴ | R²⁴ | D | door-sale reserve/issue path |
 | venue_finance | A(full) | D | D | D | — |
 | promoter | A(remaining) | D | D | D | — |
 | platform_support | A(full) | D | D | D | — |
@@ -936,7 +1013,7 @@ Write: the reserve/issue functions (ordered shard draw, `SKIP LOCKED`).
 | anon / fan / owner | D²⁵ | R²⁴ | D | D | via `reserve_inventory` |
 | org_owner/admin/finance | A(own-org) | D | R | D | via batch RPCs |
 | venue_manager | A(own-venue) | R | R | D | via batch RPCs |
-| venue_door | D²⁵ | R²⁴ | R²⁴ | D | via door reserve/issue |
+| venue_scanner | D²⁵ | R²⁴ | R²⁴ | D | via door reserve/issue |
 | venue_finance | A | D | D | D | — |
 | org_member/promoter | D | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
@@ -956,7 +1033,7 @@ Write: the reserve/issue/void functions (same txn as the counter move).
 | org_owner/admin | V(own-org, scoped) | D | D | D | reconciliation RPC |
 | org_finance | V(own-org) | D | D | D | reconciliation RPC |
 | venue_manager | V(own-venue) | D | D | D | reconciliation RPC |
-| venue_door/promoter | D | D | D | D | — |
+| venue_scanner/promoter | D | D | D | D | — |
 | venue_finance | V(own-venue) | D | D | D | reconciliation RPC |
 | platform_support | V | D | D | D | — |
 | platform_risk | A | D | D | D | — |
@@ -977,7 +1054,7 @@ Write RPCs: `reserve_inventory`, `release_hold`, expiry sweep. Per-user caps via
 | org_owner/admin | A(own-org) | D | R | D | `release_hold` (venue ops) |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue) | R | R | D | `reserve_inventory`/`release_hold` |
-| venue_door | A(own session) | R | R | D | door reserve/release |
+| venue_scanner | A(own session) | R | R | D | door reserve/release |
 | venue_finance/promoter | A(own-venue)/D | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | admin release |
@@ -1003,7 +1080,7 @@ Write RPCs: `create_order`, `issue_ticket_atoms` (on paid), refund RPCs.
 | org_owner/admin | A(own-org orders) | R²⁸ | D | D | `create_order` (door/staff on behalf) |
 | org_finance | A(own-org, money summary) | D | D | D | — |
 | venue_manager | A(own-venue orders) | R²⁸ | D | D | `create_order` (door) |
-| venue_door | A(own session orders) | R²⁸ | D | D | door `create_order` |
+| venue_scanner | A(own session orders) | R²⁸ | D | D | door `create_order` |
 | venue_finance | A(own-venue) | D | D | D | — |
 | promoter | D²⁹ | D | D | D | — |
 | platform_support | V | R | D | D | support order actions (audited) |
@@ -1045,7 +1122,7 @@ Write RPCs: `grant_staff_role`, `revoke_staff_role` (`has_venue_role(venue_id,[v
 | org_owner/admin | A(venues of own org) | R | R | D | `grant/revoke_staff_role` (org inheritance) |
 | org_finance | D | D | D | D | — |
 | venue_manager | A(own-venue roster) | R | R | D³¹ | `grant/revoke_staff_role` (own venue) |
-| venue_door/finance/promoter | A(own-venue roster) | D | D | D | — |
+| venue_scanner/finance/promoter | A(own-venue roster) | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | override |
 | service_role | A(machine) | R(def) | R(def) | D | definer |
@@ -1062,7 +1139,7 @@ Write RPCs: `issue_door_pin`, `revoke_door_pin`. Constant-time hash compare insi
 | org_owner/admin | A³²(own-org, no hash) | R | R | D | `issue_door_pin`/`revoke_door_pin` |
 | org_finance | D | D | D | D | — |
 | venue_manager | A³²(own-venue, no hash) | R | R | D | `issue_door_pin`/`revoke_door_pin` |
-| venue_door | A³²(own, no hash) | D | D | D | — (authenticates via the pin in the door RPC) |
+| venue_scanner | A³²(own, no hash) | D | D | D | — (authenticates via the pin in the door RPC) |
 | venue_finance/promoter | D | D | D | D | — |
 | platform_support | A³²(no hash) | D | D | D | — |
 | platform_risk | A³²(no hash) | D | D | D | — |
@@ -1082,7 +1159,7 @@ Write RPCs: `register_scan_device`, manifest-sync RPC.
 | org_owner/admin | A(own-org) | R | R | D | `register_scan_device` |
 | org_finance | D | D | D | D | — |
 | venue_manager | A(own-venue) | R | R | D | `register_scan_device`/manifest-sync |
-| venue_door | A(own device) | D | R³³ | D | manifest-sync (own device) |
+| venue_scanner | A(own device) | D | R³³ | D | manifest-sync (own device) |
 | venue_finance/promoter | D | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | override |
@@ -1101,7 +1178,7 @@ Write RPCs: `record_scan` (online) + door_pin path, offline-reconciliation batch
 | org_owner/admin | A(own-org events) | D | D | D | — |
 | org_finance | D | D | D | D | — |
 | venue_manager | A(own-venue) | R | D³⁵ | D | `record_scan` / reconciliation |
-| venue_door | A(own session) | R | D³⁵ | D | `record_scan` |
+| venue_scanner | A(own session) | R | D³⁵ | D | `record_scan` |
 | venue_finance/promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A(fraud_flag) | R | D | D | fraud-review scan actions |
@@ -1123,7 +1200,7 @@ Write RPCs: `open_settlement`, `close_settlement` (→ payout, SSCAS #4).
 | org_finance | A(own-org) | R | R³⁶ | D | `open_settlement`/`close_settlement` |
 | venue_manager | A(own-venue) | R | D | D | `open_settlement` |
 | venue_finance | A(own-venue) | R | R³⁶ | D | `open_settlement`/`close_settlement` |
-| venue_door/promoter | D | D | D | D | — |
+| venue_scanner/promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A(money read) | D | D | D | — |
 | platform_admin | A | R | R | D | override |
@@ -1142,7 +1219,7 @@ Write: the settlement close engine.
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue) | D | D | D | — |
 | venue_finance | A(own-venue) | D | D | D | — |
-| venue_door/promoter | D | D | D | D | — |
+| venue_scanner/promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A | D | D | D | — |
 | platform_admin | A | D³⁷ | D | D | — |
@@ -1161,7 +1238,7 @@ Write RPCs: `allocate_comp`, `issue_comp` (→ `issue_ticket_atoms` cause `comp`
 | org_owner/admin | A(own-org) | R | R | D | `allocate_comp`/`issue_comp` |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue) | R | R | D | `allocate_comp`/`issue_comp` (audited, step-up seam C39) |
-| venue_door | A(own session) | D | D | D | — |
+| venue_scanner | A(own session) | D | D | D | — |
 | venue_finance/promoter | A(own-venue)/D | D | D | D | — |
 | platform_support/risk | V/A | D | D | D | — |
 | platform_admin | A | R | R | D | override |
@@ -1177,7 +1254,7 @@ Write RPCs: guest-list CRUD RPCs; conversion to admission via the named hold fun
 | org_owner/admin | A(own-org) | R | R | D³⁸ | guest-list RPCs |
 | org_finance | D | D | D | D | — |
 | venue_manager | A(own-venue) | R | R | D³⁸ | guest-list RPCs |
-| venue_door | A(own session, check-in) | D | R³⁹ | D | check-in RPC (`status→arrived`) |
+| venue_scanner | A(own session, check-in) | D | R³⁹ | D | check-in RPC (`status→arrived`) |
 | venue_finance/promoter | D | D | D | D | — |
 | platform_support/risk | A/V | D | D | D | — |
 | platform_admin | A | R | R | D | override |
@@ -1199,7 +1276,7 @@ Write RPCs: promoter CRUD; attribution recorded in-txn by `create_order` (AO). `
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager | A(own-venue) | R | R | D | manage promoters/links |
 | venue_finance | A(own-venue) | D | D | D | — |
-| venue_door | D | D | D | D | — |
+| venue_scanner | D | D | D | D | — |
 | promoter | A(**own** promoter row + own links only⁴⁰) | D | D | D | — |
 | platform_support/risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | override |
@@ -1213,7 +1290,7 @@ Write RPCs: promoter CRUD; attribution recorded in-txn by `create_order` (AO). `
 | org_owner/admin | A(own-org) | D | D | D | — |
 | org_finance | A(own-org) | D | D | D | — |
 | venue_manager/finance | A(own-venue) | D | D | D | — |
-| org_member/venue_door | D | D | D | D | — |
+| org_member/venue_scanner | D | D | D | D | — |
 | promoter | A(**own** attributions⁴⁰) | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A | D | D | D | — |
@@ -1239,7 +1316,7 @@ Write RPCs: `create_listing` (native), `cancel_listing`. Creating sets atom `res
 | org_owner/admin | A(active + own-venue events) | D | D | D | — |
 | org_finance | A(active) | D | D | D | — |
 | venue_manager | A(own-venue listings) | D | D | D | — |
-| venue_door/finance/promoter | A(active) | D | D | D | — |
+| venue_scanner/finance/promoter | A(active) | D | D | D | — |
 | platform_support | A | D | R | D | `cancel_listing` (support, audited) |
 | platform_risk | A | D | R | D | freeze/cancel (fraud) |
 | platform_admin | A | R | R | D | override |
@@ -1298,7 +1375,7 @@ Write: `transfer_ticket_ownership` (via market, SSCAS #2) + C25 auto-compensatio
 | org_finance | V(own-venue royalty) | D | D | D | royalty reconciliation |
 | venue_manager | V(own-venue) | D | D | D | — |
 | venue_finance | V(own-venue royalty) | D | D | D | — |
-| venue_door/promoter | D | D | D | D | — |
+| venue_scanner/promoter | D | D | D | D | — |
 | platform_support | V | D | D | D | — |
 | platform_risk | A(money read) | D | R | D | dispute resolution (SSCAS #8) |
 | platform_admin | A | R | R | D | override |
@@ -1376,15 +1453,15 @@ authority — a demoted user's call fails inside the function via live-table rec
 | `catalog.set_platform_config` | `is_platform([platform_admin])` (dual-control) |
 | `catalog.set_resale_policy` | `has_org_role([org_owner,org_admin])` OR `has_venue_role([venue_manager])` · platform |
 | `venue.create_ticket_type`/`set_ticket_type_price` | `has_venue_role([venue_manager])` OR org_owner/admin (live-recheck, C9) |
-| `venue.reserve_inventory`/`release_hold` | any `authenticated` (own hold) · `has_venue_role([venue_manager,venue_door])` |
-| `venue.create_order` | any `authenticated` (own) · door/staff on-behalf (`has_venue_role([venue_door,venue_manager])`) |
+| `venue.reserve_inventory`/`release_hold` | any `authenticated` (own hold) · `has_venue_role([venue_manager,venue_scanner])` |
+| `venue.create_order` | any `authenticated` (own) · door/staff on-behalf (`has_venue_role([venue_scanner,venue_manager])`) |
 | `venue.grant_staff_role`/`revoke_staff_role` | `has_venue_role([venue_manager])` OR org_owner/admin inheritance; no self-grant |
 | `venue.issue_door_pin`/`revoke_door_pin` | `has_venue_role([venue_manager])` OR org_owner/admin |
-| `venue.register_scan_device` / manifest-sync | `has_venue_role([venue_manager])`; sync also `venue_door` (own device) |
-| `venue.record_scan` | `has_venue_role([venue_door,venue_manager])` OR valid `door_pin` device principal |
+| `venue.register_scan_device` / manifest-sync | `has_venue_role([venue_manager])`; sync also `venue_scanner` (own device) |
+| `venue.record_scan` | `has_venue_role([venue_scanner,venue_manager])` OR valid `door_pin` device principal |
 | `venue.open_settlement`/`close_settlement` | `has_venue_role([venue_finance])` OR `has_org_role([org_finance])` · platform |
 | `venue.allocate_comp`/`issue_comp` | `has_venue_role([venue_manager])` OR org_owner/admin (step-up seam C39) |
-| `venue.record_offline_scans` | `has_venue_role([venue_door,venue_manager])` |
+| `venue.record_offline_scans` | `has_venue_role([venue_scanner,venue_manager])` |
 | `market.create_listing`/`cancel_listing` | owner of the atom · platform (cancel) |
 | `market.create_auction` / bid RPC | listing seller (create) · any `authenticated` (bid) |
 | `market.make_offer`/`respond_offer` | any `authenticated` (offer) · listing seller (respond) |
