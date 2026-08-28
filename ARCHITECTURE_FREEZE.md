@@ -102,8 +102,9 @@ paragraph is a convenience copy**: on any disagreement, recount from
 `docs/architecture/PHASE_2_SCOPE_AMENDMENT_2026_08.md` — the **INTEGRATION LAYER** for the six owner-approved Phase-2 additions (Wallet · demographics · promoter codes · CRM export · notifications · venue dashboard). It is the document that authorizes the five feature deltas already covered above, so covering the deltas and not their authorization was the gap. Same tier as the implementation specs.
 `docs/architecture/_governance/PHASE_2_PREIMPLEMENTATION_CLOSEOUT.md` — **engineering governance**, and load-bearing: it carries the `071`–`075` → `076`–`091` renumbering note that Rule 4 and the migration statement below both depend on.
 `docs/architecture/_governance/GUARD_RESTORATION_PATCH.md` — **engineering governance**, `STATUS: APPLIED 2026-08-26`. Covered as the record of a **CI-guard change** (`migrations-guard.yml`, the Scheme-B exception retired). **Rule 1 covers the record; it does not freeze the workflow file**, and nothing in this freeze may be read as licence to weaken that guard.
+`docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md` — **engineering governance.** A **fifth** file, landed on `phase2/consolidation` while this correction was being written, and caught by the re-check rule below on its first use. Its own header states it is *"an **INSTRUMENT, not authority** … it **decides nothing** and **changes nothing**"*, so **covering it changes no authority order** — it is covered because it is a register readers will cite, and an uncovered register cited as authority is exactly the defect this correction was raised against for the traceability matrix. **Its content is derived**: it restates open decisions the ratification record and the delta specs own, so on any disagreement **the owning document governs and the register is corrected**, never the reverse.
 
-**None of the four is excluded.** The covered set is now **36 of 36** files under `docs/architecture/`, and that equality is the check to re-run whenever a document is added.
+**None of the five is excluded.** The covered set is now **37 of 37** files under `docs/architecture/`, and **that equality is the check to re-run whenever a document is added** — `find docs/architecture -name '*.md' | wc -l` against the count of paths named in this section. It has already caught one addition.
 
 **These deltas do not themselves edit the constitutions.** Each records the constitutional edits it requires; those edits reach DA/CDM only through a ratified row in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, per Rule 1. Where two deltas prescribed conflicting edits to the same constitution section, the conflict is resolved and the rejected instruction named in the record (see row **D6**, DA §7.6).
 
@@ -178,8 +179,9 @@ written here** — that is a separate, later act gated on a readiness verdict.
    listed. Adding them to the covered set is what puts them under Rule 1. **Amended 2026-08-28 (`R4-7`,
    row `C126`): that pass still omitted four files** — the traceability matrix, the scope amendment, the
    pre-implementation closeout and the guard-restoration patch — **and the traceability matrix is a register
-   other documents cite, so it was outside Rule 1 while being treated as authority.** All four are now
-   listed; coverage is 36 of 36.
+   other documents cite, so it was outside Rule 1 while being treated as authority.** A **fifth**, the owner
+   decision register, landed during the same pass and was caught by the new re-check rule. All five are now
+   listed; coverage is **37 of 37**, and the equality itself is now the standing check.
 3. **The `O` namespace was ambiguous.** This document previously said "O2/O3/O4 tracked as open questions in DA
    §0.4" beside owner rulings numbered `O-2`/`O-3`/`O-4`. Both readings are legitimate and neither series is
    renumbered; the sentence is replaced by an explicit note (record row **D4**).
