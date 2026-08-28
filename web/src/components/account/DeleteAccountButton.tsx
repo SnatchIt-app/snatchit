@@ -8,14 +8,24 @@ export function DeleteAccountButton() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Kept in step with app/settings/index.tsx. See the note there: the previous
+  // copy claimed erasure the platform does not perform, and broke the corpus
+  // rule against "permanently deleted" / "all associated data" before provable
+  // erasure exists. Register follows PHASE_2_CRM_EXPORT_SPEC.md §9.3.
   async function handleClick() {
     const firstConfirm = window.confirm(
-      "Delete account\n\nThis will permanently delete your account, profile, and all associated data. Active listings will be cancelled. This cannot be undone.\n\nAre you sure?",
+      "Delete account\n\n" +
+        "We'll remove your sign-in, your profile and your photos, and cancel any active listings. " +
+        "You won't be able to sign in again.\n\n" +
+        "We keep a record of past sales and purchases, because they're financial records — " +
+        "but they'll no longer be linked to your name.\n\nContinue?",
     );
     if (!firstConfirm) return;
 
     const finalConfirm = window.confirm(
-      "Final confirmation\n\nThis action is irreversible. Your account and data will be permanently deleted.\n\nProceed with deletion?",
+      "Are you sure?\n\n" +
+        "This can't be undone, and you won't be able to get the account back.\n\n" +
+        "Delete my account?",
     );
     if (!finalConfirm) return;
 

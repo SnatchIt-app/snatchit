@@ -6,10 +6,21 @@
  * Strategy (App Store compliant, marketplace safe):
  *   1. Block if user has active transfers (pending seller_sent / buyer needs to confirm)
  *   2. Cancel any active listings (set auction_status = 'cancelled')
- *   3. Anonymize user references in payments/transfers using sentinel UUID (legal/financial records kept)
- *   4. Delete bids placed by user
- *   5. Delete storage files (avatars, auction-media)
+ *   3. Anonymize user references in payments/transfers using sentinel UUID (legal/financial records kept),
+ *      clear every NO ACTION reference to auth.users, delete the user's bids and
+ *      reconcile the derived auction head — all inside delete_account_cleanup
+ *   4. (bids: now handled in step 3's transaction)
+ *   5. Delete storage files RECURSIVELY from avatars, auction-media AND proof-docs,
+ *      verifying afterwards that nothing survived
  *   6. Delete auth user (CASCADE handles profiles, push_tokens, notification_preferences)
+ *
+ * WHAT THIS FUNCTION DOES NOT DO, AND MUST NOT BE DESCRIBED AS DOING:
+ *   It does not erase the person. public.payments, public.transfers and
+ *   public.listings are retained and repointed to a shared sentinel — which is
+ *   PSEUDONYMIZATION, not anonymization: the counterparty, the Stripe payment
+ *   intent and the listing's own authored text all remain re-identifying.
+ *   Client copy must not claim "permanently deleted" or "all associated data"
+ *   (see PHASE_2_CRM_EXPORT_SPEC.md §9.3 for the register that is accurate).
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -181,37 +192,91 @@ serve(async (req) => {
 
     console.log('[delete-account] listings cancelled and financial records anonymized');
 
-    // ── 4. Delete bids ───────────────────────────────────────────────────
-    await supabase
-      .from('bids')
-      .delete()
-      .eq('bidder_id', userId);
+    // ── 4. Bids ──────────────────────────────────────────────────────────
+    // Deleted INSIDE delete_account_cleanup as of migration 20260828041500, so
+    // that the delete and the auction-head reconciliation share one
+    // transaction. Deleting them here, in a separate transaction, left
+    // listings.current_bid / bid_count / highest_bidder_id describing bids that
+    // no longer existed — a phantom high bid nobody could outbid or win. The
+    // error return was also discarded, so a failure here silently guaranteed
+    // that step 6 would fail on bids.bidder_id. Nothing to do here now.
 
     // ── 5. Delete storage files ──────────────────────────────────────────
-    // Avatars
-    try {
-      const { data: avatarFiles } = await supabase.storage
-        .from('avatars')
-        .list(userId);
-      if (avatarFiles && avatarFiles.length > 0) {
-        const paths = avatarFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('avatars').remove(paths);
+    // Uploads are written TWO levels deep — `<userId>/<folder>/<ts>.<ext>`
+    // (src/hooks/useImageUpload.ts:161) — so a non-recursive list(userId)
+    // returns FOLDER entries, and remove() was then called on directory
+    // prefixes, which is a silent no-op. The error was discarded. Every listing
+    // cover, ticket-proof photo and transfer-evidence image therefore survived
+    // account deletion permanently. Ticket proofs are screenshots carrying real
+    // names, order numbers, barcodes, seat numbers and email addresses.
+    //
+    // Avatars were the one case that worked, because avatarImage.ts:115 writes
+    // a FLAT path. That is why this went unnoticed.
+    //
+    // `proof-docs` was never listed here at all. It holds BOTH `proofs` and
+    // `transfer-evidence` (CreateListingScreen.tsx:195-198,
+    // app/transfer/send/[id].tsx:89-92) — the most sensitive of the three.
+    const BUCKETS = ['avatars', 'auction-media', 'proof-docs'] as const;
+
+    /** Recursively collect every object path under a prefix. */
+    async function collectPaths(bucket: string, prefix: string): Promise<string[]> {
+      const out: string[] = [];
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .list(prefix, { limit: 1000 });
+      if (error) throw new Error(`list ${bucket}/${prefix}: ${error.message}`);
+      for (const entry of data ?? []) {
+        const child = `${prefix}/${entry.name}`;
+        // A storage "folder" is a synthetic entry with no id and no metadata.
+        if (entry.id === null || entry.metadata === null) {
+          out.push(...(await collectPaths(bucket, child)));
+        } else {
+          out.push(child);
+        }
       }
-    } catch {
-      console.warn('[delete-account] avatar cleanup error (non-fatal)');
+      return out;
     }
 
-    // Auction media
-    try {
-      const { data: mediaFiles } = await supabase.storage
-        .from('auction-media')
-        .list(userId);
-      if (mediaFiles && mediaFiles.length > 0) {
-        const paths = mediaFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('auction-media').remove(paths);
+    let storageFullyCleared = true;
+    for (const bucket of BUCKETS) {
+      try {
+        const paths = await collectPaths(bucket, userId);
+        if (paths.length === 0) continue;
+
+        // remove() accepts at most 1000 keys per call.
+        for (let i = 0; i < paths.length; i += 1000) {
+          const { error: rmErr } = await supabase.storage
+            .from(bucket)
+            .remove(paths.slice(i, i + 1000));
+          if (rmErr) throw new Error(`remove ${bucket}: ${rmErr.message}`);
+        }
+
+        // Verify rather than assume. The previous implementation "succeeded" on
+        // every call while deleting nothing, for years.
+        const leftover = await collectPaths(bucket, userId);
+        if (leftover.length > 0) {
+          storageFullyCleared = false;
+          console.error(
+            `[delete-account] ${bucket}: ${leftover.length} object(s) survived removal`,
+          );
+        } else {
+          console.log(`[delete-account] ${bucket}: removed ${paths.length} object(s)`);
+        }
+      } catch (e) {
+        storageFullyCleared = false;
+        console.error(`[delete-account] storage cleanup failed for ${bucket}:`, e);
+        captureException(e, { userId, bucket, step: 'storage-cleanup' });
       }
-    } catch {
-      console.warn('[delete-account] media cleanup error (non-fatal)');
+    }
+
+    if (!storageFullyCleared) {
+      // Do not delete the auth row while the user's uploaded files are still
+      // there — that is the state that leaves ticket-proof photos with no owner
+      // and no way to find them. The auth row is still present at this point,
+      // so the whole operation is safely retryable.
+      return json({
+        error: 'Could not remove all of your uploaded files. Your account has not been deleted. Please try again, or contact support.',
+      }, 500, getResponseHeaders(req));
     }
 
     // ── 6. Delete auth user ──────────────────────────────────────────────
@@ -219,7 +284,18 @@ serve(async (req) => {
     const { error: deleteErr } = await supabase.auth.admin.deleteUser(userId);
 
     if (deleteErr) {
+      // This is the branch that used to leave a half-deleted account behind: the
+      // cleanup RPC had already committed, and a 23503 here returned a bare 500
+      // with no Sentry event. It is now much harder to reach — the cleanup clears
+      // every NO ACTION reference before we get here — but if it still fires,
+      // the operator must find out, because the user's history is already
+      // anonymized and their account is still live.
       console.error('[delete-account] auth delete error:', deleteErr.message);
+      captureException(new Error(`auth.admin.deleteUser failed: ${deleteErr.message}`), {
+        userId,
+        step: 'auth-delete',
+        note: 'cleanup RPC already committed — account is in a half-deleted state',
+      });
       return json({ error: 'Failed to delete account. Please contact support.' }, 500, getResponseHeaders(req));
     }
 

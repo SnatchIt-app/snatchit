@@ -171,34 +171,55 @@ export default function SettingsScreen() {
     }
   }
 
+  // ── Deletion copy ──────────────────────────────────────────────────────────
+  // This wording is deliberate. The previous copy said "permanently delete your
+  // account, profile, and all associated data" with a confirm button reading
+  // "Yes, Delete Everything". That was not true: sales and purchases are
+  // retained as financial records and repointed to a shared placeholder
+  // identity, which is pseudonymization, not erasure — the counterparty, the
+  // Stripe payment reference and the listing's own text all remain.
+  //
+  // It also broke a binding rule in the architecture corpus: no surface may
+  // tell a user their data is "erased", "permanently deleted", "gone forever"
+  // or "removed everywhere" until provable erasure (C34) exists, which it does
+  // not. See PHASE_2_CRM_EXPORT_SPEC.md §9.3 for the register this follows —
+  // plain language, no regime names, and no claim we have not earned.
+  const DELETE_TITLE = 'Delete account';
+  const DELETE_BODY =
+    'We\'ll remove your sign-in, your profile and your photos, and cancel any active listings. ' +
+    'You won\'t be able to sign in again.\n\n' +
+    'We keep a record of past sales and purchases, because they\'re financial records — ' +
+    'but they\'ll no longer be linked to your name.';
+  const DELETE_CONFIRM_TITLE = 'Are you sure?';
+  const DELETE_CONFIRM_BODY =
+    'This can\'t be undone, and you won\'t be able to get the account back.';
+
   function handleDeleteAccount() {
     if (Platform.OS === 'web') {
-      const first = window.confirm(
-        'Delete Account\n\nThis will permanently delete your account, profile, and all associated data. Active listings will be cancelled. This cannot be undone.\n\nAre you sure?',
-      );
+      const first = window.confirm(`${DELETE_TITLE}\n\n${DELETE_BODY}\n\nContinue?`);
       if (!first) return;
       const second = window.confirm(
-        'Final Confirmation\n\nThis action is irreversible. Your account and data will be permanently deleted.\n\nProceed with deletion?',
+        `${DELETE_CONFIRM_TITLE}\n\n${DELETE_CONFIRM_BODY}\n\nDelete my account?`,
       );
       if (!second) return;
       executeDeleteAccount();
     } else {
       Alert.alert(
-        'Delete Account',
-        'This will permanently delete your account, profile, and all associated data. Active listings will be cancelled.\n\nThis cannot be undone.',
+        DELETE_TITLE,
+        DELETE_BODY,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Delete My Account',
+            text: 'Delete my account',
             style: 'destructive',
             onPress: () => {
               Alert.alert(
-                'Are you absolutely sure?',
-                'This action is irreversible. Your account and data will be permanently deleted.',
+                DELETE_CONFIRM_TITLE,
+                DELETE_CONFIRM_BODY,
                 [
                   { text: 'Cancel', style: 'cancel' },
                   {
-                    text: 'Yes, Delete Everything',
+                    text: 'Delete my account',
                     style: 'destructive',
                     onPress: executeDeleteAccount,
                   },
