@@ -205,6 +205,19 @@ contends on nothing — its only serialization is the trailing unique index on t
 last. **This integration does not decide it.** It is lock-ordered either way, so if a reviewer judges the
 approval object an aggregate class, the amendment is a one-line ratification and not a redesign.
 
+**One ordering fact recorded here because it is the only one §20 introduces (RPC §20.12).**
+**`market.on_atom_voided` takes rank 4 (Sale/Listing) inside SSCAS member #3, and must therefore be
+invoked BEFORE the rank-5 atom lock, not after.** The hook's neutral `085` body is a no-op and its `088`
+body sets `market_sale.terminal_state := 'compensated'` — a **rank-4 write**. Called after the atom lock,
+as its position in a naïve reading of `kernel.void_ticket_atom` suggests, it is an ascending-order
+**violation** (5 → 4) in the one path where a lower rank is naturally reached for late. This is
+consistent with §14.2's NB, which already pins **Inventory-before-Atom** in every void path for the
+identical reason: **the void path is where the model walks backwards, so both of its lower ranks must be
+taken up front.** Member #3's full sequence is therefore
+**Inventory(2) → Sale(4, via `on_atom_voided`) → Ticket Atom(5, ascending id) → Refund/Payment(6)**.
+**No member is added and no proof is amended** — this is where an existing member's existing ranks are
+acquired, not a new rank class.
+
 Index and PK design below is chosen so each of these `FOR UPDATE` acquisitions hits a single b-tree row.
 
 ### 0.10 Migration baseline (SPEC_FOUNDATION §3)
@@ -2943,6 +2956,14 @@ Added edges (each preceding its dependent — the DAG stays acyclic and topologi
 No edge is removed. No package changes number. The count stays **16** unless CONDITIONAL B is ruled
 Gate P, in which case it becomes 17.
 
+**One further undeclared edge, observed while re-verifying and recorded rather than silently added —
+`DAG-3`.** `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `087` states *"References catalog, `086`
+(`venue.scan` for check-in columns)"*, so `087` reads a `086` table; **`087`'s declared dependency set
+(`077`, `081`, `085`) omits `086`.** This is the `DAG-1`/`DAG-2` shape a third time — **ordering is fine
+(`086 < 087`) and no acceptance property is violated**; only the *declared* set is incomplete. It is
+recorded here, not applied, because §2.1's edge table was ratified with the first amendment and the count
+of added edges is part of that record. **Recommended: add `086 → 087` at re-ratification.**
+
 **The schema-security remediation adds no edge.** Every object it introduces or corrects
 (`approval_request.required_approver_class`, `org_member.role_granted_at`, `platform_config.visibility`,
 `venue.door_session`, `promoter_link.status`, the org-label correction) sits in a package whose existing
@@ -2969,6 +2990,7 @@ reason it cannot wait.
 | **S-6** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4/§9.5, §20.4.4 | **`record_scan` and `reconcile_offline_scans` must take the actor device as a parameter distinct from the session token**, server-derived and never client-attested, and must assert that it equals `door_session.device_id`. Today `record_scan` reads `device_id` out of the **untrusted** `p_scan_meta`, and `reconcile_offline_scans` takes `p_device_id` as a bare parameter | On the `service_role` door path **RLS is bypassed entirely** (RPC §1.1d's own warning). The device id is therefore an unauthenticated string that selects which device's scans are written. Binding it to the session is what makes the ledger's device attribution mean anything |
 | **S-7** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Replace the `venue.set_door_open_at` (O4-3) EXEC row with `catalog.set_session_door_schedule`, same allow-list** — restating RPC §20.14 **R-1**, because this plan has now removed `set_door_open_at` from every `086` row and §11.4 is the last place it survives | §11.4 **is** the authority table. An implementer following it builds the function ruled out, and O-5's sole-writer property becomes false in practice |
 | **S-8** | `PHASE_2_ROLE_MODEL_SPEC.md` §3.1 (or an owner note) | **Confirm that `org_marketing` and `org_promoter_manager` were intended to be storable at the org grain.** This pass restores them to `kernel.org_member` / `kernel.org_invite` on the strength of §0.6's own canonical table; the role model is the document that ratified the six | The correction is mechanical **if** the six-label set is right. If the intent was venue-grain-only marketing/promoter roles, the fix is the opposite one — remove them from §0.6 — and this pass would have entrenched the wrong reading |
+| **S-13** | **Owner ruling** + `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.6.6 | **`venue.set_event_security_config` writes "the per-event door-config rows" — and no such table exists in any package.** Either (a) schedule `catalog.event_security_config` (`event_id`, `key`, `value`, `version`, `effective_from`; AO per version, exactly like `catalog.platform_config`; **`restricted` visibility by §2.4.1, since it overrides `door.*`**) into `078`, or (b) rule the function out as `set_door_open_at` was | The contract is already flagged `INFERENCE — AUTHORED` under R-11, but the storage gap is separate from the key-set question: **a function scheduled in `086` with nowhere to write is unbuildable regardless of which keys it accepts.** This spec does not invent the table — the function's existence is not this spec's to decide |
 | **S-11** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.4 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Contract `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)` and give it an EXEC row** — the O-4 allow-list, denied to every door session. Obligation **RV-2**: retiring a device revokes its active `door_session` rows in the same transaction | `scan_device.status='retired'` had **no writer** (§3.11.1), and with §3.10a it is the kill switch for a lost or stolen scanner — the only control that stops a device already holding a live session without revoking the PIN every other device at the door is using |
 | **S-12** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.8.5 | **`market.respond_offer` must reject an offer past `expires_at` regardless of its stored `status`** — an arithmetic check under the offer row's lock | The `expired` label is written by the `088` tick and the tick is presentational (§4.3.1). An accept path that trusts `status='pending'` because the sweep was *supposed* to have run consummates an expired offer **every time the tick is late**, which is the ordinary condition of cron |
 | **S-9** | **Owner ruling** | **§2.4.1's `door.*` classification.** Money, `authn.*` and `crm.*` are `restricted` on arguments this spec considers settled. `door.*` is the arguable row: it states how long a door may operate on stale data | It is the one line in the ruling that could reasonably go the other way, and it is isolated — moving it changes nothing else |
