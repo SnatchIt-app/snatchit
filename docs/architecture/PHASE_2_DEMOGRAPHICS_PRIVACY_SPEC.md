@@ -761,6 +761,30 @@ exception to CDM §10 / RLS GP-2's "no row deletion" default — see §10.2.
 Account deletion removes it automatically via `ON DELETE CASCADE` from `auth.users(id)` (`VERIFIED:` the
 established pattern in migrations 012/023/033).
 
+**The cascade must also write the erasure tombstone, and a cascade cannot do that on its own.** `INFERENCE:`
+this was a hole with exactly the wrong shape. The §8.5 tombstone exists so a post-restore purge can re-apply
+removals a restore would otherwise resurrect — and `clear_my_demographics` wrote one while the *cascade*
+wrote none. So the **strictest** erasure case, a full account deletion, was the one case a post-restore purge
+could not re-apply: restore the backup, and the deleted account's gender answer comes back with nothing to
+tell the purge it should go. The weaker case (a fan removing one answer) was covered; the stronger case was
+not.
+
+**Fix:** a `BEFORE DELETE FOR EACH ROW` trigger on `kernel.identity_demographic` — `SECURITY DEFINER`,
+`search_path` pinned — that upserts the value-free `kernel.identity_demographic_erasure` row. It fires on
+**every** path that removes the row: the `clear_my_demographics` delete, the `auth.users` cascade, a manual
+definer delete, and a future merge (§8.6). The RPCs therefore no longer write the tombstone themselves;
+there is one writer, and it is the one thing every removal path must go through.
+
+Two consequences that must be stated or the trigger is wrong:
+
+1. **`kernel.identity_demographic_erasure.identity_id` carries no FK to `auth.users`.** An FK with `CASCADE`
+   would delete the tombstone in the same statement that makes it necessary; an FK with `RESTRICT` would make
+   account deletion fail. It is a bare uuid, and §10.2 says so.
+2. **pgTAP assertion 25's "zero triggers other than the `updated_at` maintainer" is amended** to "exactly two
+   triggers: the `updated_at` maintainer and the erasure-tombstone writer", with the added assertion that the
+   tombstone writer's function body references **no** gender column. The assertion is narrowed rather than
+   loosened: the point of 25 was "no trigger writes prior values", and that is asserted directly.
+
 `VERIFIED:` **critical interaction with migration 019/020.** The existing account-deletion path repoints
 ledger-referenced rows to the anonymized sentinel `00000000-0000-0000-0000-000000000000`. The demographic row
 **must never be repointed to that sentinel** — doing so would pile every deleted user's gender answer onto a
@@ -854,6 +878,13 @@ append-only, **value-free** tombstone `(identity_id, erased_at, purge_after)`. I
 post-restore purge re-apply removals that a restore would otherwise resurrect. It records **only that a
 removal happened**, never what was removed.
 
+**It is written by a `BEFORE DELETE` trigger, not by the RPCs** (§8.2). `INFERENCE:` this is the difference
+between the promise being true and being true-for-the-easy-case. When the RPC wrote the tombstone, a fan
+removing one answer was covered and a fan **deleting their whole account** was not — the cascade removed the
+row and left nothing behind, so the sentence *"if we ever had to restore from one, we re-apply removals as
+part of the restore"* was false for exactly the person who asked for the most. One trigger on the one table
+makes every removal path produce a tombstone, including paths that do not exist yet.
+
 This tombstone is itself a small privacy cost — it reveals that a given identity once answered and later
 withdrew — and that trade is accepted deliberately, with three mitigations: it is **definer-only** (no human
 role, including `platform_admin`, holds any grant on it), it holds **no value**, and it is **purged at
@@ -920,6 +951,7 @@ ownership log · `080` venue staff roles + predicates · `081` venue inventory �
 |---|---|---|
 | `kernel.identity_demographic` | `ADDITIVE SCHEMA CHANGE` | **077** |
 | `kernel.identity_demographic_erasure` | `ADDITIVE SCHEMA CHANGE` | **077** |
+| `BEFORE DELETE` erasure-tombstone trigger on `kernel.identity_demographic` (§8.2) | `ADDITIVE SCHEMA CHANGE` | **077** |
 | `kernel.get_my_demographics()` | `NEW RPC` | **077** |
 | `kernel.set_my_demographics(...)` | `NEW RPC` | **077** |
 | `kernel.clear_my_demographics()` | `NEW RPC` | **077** |
@@ -982,9 +1014,14 @@ threshold-clearing aggregate — which is the desired ordering.
 
 | Column | Notes |
 |---|---|
-| `identity_id` | PK |
+| `identity_id` | PK, **bare uuid — deliberately NO foreign key to `auth.users`.** A `CASCADE` FK would delete the tombstone in the same statement that creates the need for it (account deletion); a `RESTRICT` FK would make account deletion fail. This is the one identity-keyed column in the design that is intentionally unreferenced, and §8.2 explains why |
 | `erased_at` | timestamptz NOT NULL |
 | `purge_after` | timestamptz NOT NULL — `erased_at + {N} + margin` (D-6) |
+
+**Written by exactly one thing: a `BEFORE DELETE FOR EACH ROW` trigger on `kernel.identity_demographic`**
+(§8.2), so every removal path — the withdrawal RPC, the `auth.users` cascade, a definer delete, a future C38
+merge — produces a tombstone, and none of them can forget to. The trigger function is `SECURITY DEFINER` with
+`search_path` pinned, references no gender column, and is asserted as such (assertion 25).
 
 **`venue.holder_mix_snapshot`** — PROJ/derived, rebuildable, **zero identity references**.
 
@@ -1195,8 +1232,11 @@ C27 counter-vs-ledger reconciliation discipline.
 **(a) No flow reads the table.** Purchase, checkout, issuance, transfer, listing creation, resale, bidding,
 scan/admission, refund, dispute, payout, and settlement contain **zero reads** of
 `kernel.identity_demographic`. The complete set of readers is: `kernel.get_my_demographics` (own row) and
-`venue.refresh_holder_mix` (definer aggregate). Assertable — pgTAP assertions 27 and 10 enumerate every
-function, view, and writer that references the table and assert those sets are exactly these.
+`venue.refresh_holder_mix` (definer aggregate). The complete set of **writers** is `set_my_demographics` and
+`clear_my_demographics`; the complete set of **triggers** is the `updated_at` maintainer and the
+`BEFORE DELETE` erasure-tombstone writer (§8.2), neither of which reads or copies a value. Assertable —
+pgTAP assertions 27 and 10 enumerate every function, view, writer and trigger that reaches the table and
+assert those sets are exactly these.
 
 **(b) No UI state depends on it.** No badge, no completeness meter, no red dot, no lock icon, no "finish
 your profile" state, no reduced feature set, no different ranking, no different pricing, no different
@@ -1290,9 +1330,11 @@ ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_sa
 24. Every call to `get_holder_mix` writes exactly one audit row naming actor, session, dimension, time.
 
 **No history, no leakage**
-25. **No history:** zero triggers on `kernel.identity_demographic` other than the `updated_at` maintainer;
-    no table anywhere has a column whose type/CHECK matches the gender value set except
-    `kernel.identity_demographic` and `venue.holder_mix_bucket`.
+25. **No history:** `kernel.identity_demographic` carries **exactly two** triggers — the `updated_at`
+    maintainer and the `BEFORE DELETE` erasure-tombstone writer (§8.2) — and **neither function body
+    references a gender column** (asserted on `pg_get_functiondef`, which is the property that matters;
+    "zero triggers" was only ever a proxy for it). No table anywhere has a column whose type/CHECK matches
+    the gender value set except `kernel.identity_demographic` and `venue.holder_mix_bucket`.
 26. **No fan-side audit row exists at all** (§8.3 — stronger than the previous "carries no value"): running
     `set_my_demographics`, changing the value, and running `clear_my_demographics` produces **zero** new rows
     in `kernel.admin_audit` and zero rows in any other audit-shaped relation. Asserted as a before/after row
@@ -1301,18 +1343,26 @@ ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_sa
     the very object §8.3 names as the worst artefact — a transition record — by testing only that it carried
     no value.)*
 27. **Reader enumeration (the X-6 / §12(a) check):** the set of functions, views, and matviews in the
-    catalog whose definition references `kernel.identity_demographic` is exactly
-    `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix}`. Any addition
-    fails the suite. Mirrored by a CI grep over the export builder and edge-function sources.
+    catalog whose definition references `kernel.identity_demographic`, **plus every function attached to it
+    as a trigger**, is exactly
+    `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix,
+    <the updated_at maintainer>, <the erasure-tombstone writer>}`. Any addition fails the suite. Mirrored by
+    a CI grep over the export builder and edge-function sources. *(The trigger limb is stated explicitly: a
+    trigger function reaches the table without its body naming it, so a definition-text enumeration alone has
+    a blind spot exactly the size of a trigger.)*
 28. **Snapshots hold no identity reference:** `holder_mix_snapshot` and `holder_mix_bucket` have no `uuid`
     column referencing `auth.users`, and no FK to any identity-bearing table.
 
 **Erasure**
-29. `clear_my_demographics` removes the row and writes exactly one erasure row; a second call is
+29. `clear_my_demographics` removes the row and the trigger writes exactly one erasure row; a second call is
     `noop_replay` and does not write a duplicate.
 30. Deleting the `auth.users` row cascades the demographic row away, and the row is **not** repointed to the
     `00000000-0000-0000-0000-000000000000` sentinel; the sentinel identity holds no demographic row after
-    any account deletion.
+    any account deletion. **And the cascade leaves an erasure tombstone** — deleting the `auth.users` row of
+    an identity that had answered produces exactly one `kernel.identity_demographic_erasure` row, which
+    **survives** the account deletion (no FK, so nothing cascades it away). *(This is the case that had no
+    tombstone at all: a restore would have resurrected the answer with nothing to tell the purge to remove
+    it — the strictest erasure case was the one the purge could not re-apply.)*
 31. The erasure tombstone holds no gender value column, and no human role holds any grant on it.
 
 **Population control (R6–R9, the read-side layer, and the kill switch)**
@@ -1398,6 +1448,7 @@ every one of those references.*
 | **J-9** | **Deleted claims (recorded verbatim so they cannot be cited from an older copy)** | (1) *"You cannot difference aggregates that do not exist."* — deleted as the general answer to differencing; it is true about axes and false about populations (§5.3 B). (2) *"each fake data point costs a real ticket purchase"* — deleted; comps cost nothing and the `venue_manager` mints both the session and the comps (§11). (3) *"Removing any one of layers 1–3 still leaves a correct floor"* — deleted; layers 1 and 3 were the same function and only R2 was a database constraint (§5.2). (4) The R6-era bound *"an anonymity set of at least 5, matching the per-bucket floor"* — deleted; 5 contributor-pair changes is at minimum 3 people, and the ≥ 5 bound is restored only by the added distinct-identity limb (§5.3 vector 4). |
 | **J-10** | Venue dashboard §9.5 card copy | **Correction (§4.3).** "Based on N of M" is a published-state string only — the suppressed state renders no numbers, no reason and no `as_of`. `M` is the R7-eligible paying population, not the room, and the subtitle says so. |
 | **J-11** | **This document, §8.1 · §8.3 · §10.4 · §13 assertion 26** | **H-7 remediation.** The fan-side audit row `(identity_id, action ∈ {set, changed, cleared}, occurred_at)` is **deleted**. §8.3 specified it in the same section that names a timestamped history of a person's gender answers as *"the single worst artefact this feature could produce — it would record a **transition**"*, and §3.2 had already rejected the same object by name. "Never the value" does not cover the harm §8.3 itself names. No audit table was named in §10.2, so the only fitting object was `kernel.admin_audit` — permanent and platform-readable — which would have nullified the §8.5 tombstone's purge window, the sole mitigation offered. `set_my_demographics` and `clear_my_demographics` now write **no audit row of any kind**. The aggregate **read** audit on `venue.get_holder_mix` is unchanged and remains binding. |
+| **J-12** | **This document, §8.2 · §8.5 · §10.2 · §10.4 · §13 assertions 25/27/29/30 · §12(a)** | **Medium — erasure tombstone on the cascade.** Account deletion cascaded the demographic row away without writing the §8.5 tombstone, so the *strictest* erasure case was the one case a post-restore purge could not re-apply. The tombstone is now written by a `BEFORE DELETE FOR EACH ROW` trigger on `kernel.identity_demographic` rather than by the RPCs, so every removal path produces one — withdrawal, cascade, definer delete, future C38 merge. `kernel.identity_demographic_erasure.identity_id` is explicitly **FK-free** (a CASCADE FK would delete the tombstone in the statement that creates the need for it). Assertion 25 narrowed from "zero triggers" to "exactly two, neither referencing a gender column", which asserts the property the proxy stood for. |
 
 ---
 
