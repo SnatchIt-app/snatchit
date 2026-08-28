@@ -58,7 +58,7 @@ makes **no architectural decision** while writing DDL; where a real choice remai
 
 ---
 
-## 0. Preconditions, global rules, and the two decisions this plan makes
+## 0. Preconditions, global rules, and the three decisions this plan makes
 
 ### 0.1 PRECONDITION — the phase0 chain must be merged first (NOT a Phase-2 migration)
 Phase-2 migrations are authored **assuming the phase0 chain is already merged to the integration branch and
@@ -138,6 +138,35 @@ disposition as CONFLICTS #7 neighborhood duplication.)
   seat-enablement (populate `venue.inventory_unit`, drop the "unit_row_id NULL" assumption) and re-entry
   (relax the `venue.scan` partial unique) — both named future changes, neither in MVP.
 
+### 0.4b DECISION 3 — where a function is authored is **derived, not chosen** (SEAM-1 / SEAM-2)
+
+Added by the delta-spec integration. See `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §13.2 for the full
+forward-reference sweep that motivated it.
+
+> **SEAM-1.** A function is authored in the package equal to **`max()` of the packages creating every
+> table it reads or writes** — not the package of its schema, and not the package of its subject.
+>
+> **SEAM-2.** Where an *earlier* artifact must be able to resolve the name (an RLS policy references it,
+> or an earlier function calls it), the earlier package ships a **hook stub** returning the neutral
+> result, and the later package `CREATE OR REPLACE`s **only that hook**. The caller is authored once and
+> is never rewritten by another package.
+
+**Acceptance property this creates, and which CI can assert:** *no function reads or writes a table
+created in a later package.* A `pg_depend`/`pg_proc` walk after each package's replay proves it
+mechanically — this is a Gate-2-class check, not a review convention.
+
+SEAM-2 is used exactly three times in the MVP chain. Each stub's neutral result is chosen so that the
+pre-replacement behaviour is not merely inert but **correct at that point in the chain**, and fails safe:
+
+| Hook | Stub in | Neutral result | Replaced in |
+|---|---|---|---|
+| `kernel.settlement_royalty_lines(settlement_id)` | `087` — returns zero rows | correct: no native sale can exist at `087` | `088` |
+| `kernel.settlement_commission_lines(settlement_id)` | `087` — returns zero rows | correct: no promoter can exist at `087` | `090` |
+| `market.on_atom_voided(atom_id, refund_id)` | `085` — no-op | correct: no `market_sale` can exist at `085` | `088` |
+
+A stub is **not** a placeholder to be forgotten: each replacing package's staging verification asserts
+that the replaced body is in place and returns rows for a seeded fixture.
+
 ### 0.5 Global properties asserted by EVERY package (stated once; referenced per-package)
 - **Additive-only: YES** for all MVP packages (076–091). No `public.*` semantic change; no destructive edit.
 - **Marketplace behavior change: NO** for all packages — the external-rail marketplace and frozen money core
@@ -180,21 +209,24 @@ disposition as CONFLICTS #7 neighborhood duplication.)
 
 ## 1. Phase → package map (076–091)
 
+Rows marked **+Δ** carry objects added by the eight ratified delta specs; the binding placement record,
+with the argument for every disagreement, is `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` **§13**.
+
 | Phase (mandated) | Package(s) | Creates |
 |---|---|---|
-| **A** schema skeleton | `076` | 4 schemas + GRANT boundary + shared helper functions/triggers |
-| **B** organizations + permissions | `077` | `kernel.identity_ext`, `organization`, `org_member`, `platform_role`, `admin_audit` + org/platform role predicates |
-| **C** catalog | `078` | `catalog.venue`, `event`, `event_session`, `platform_config` (+ feature-flag seeds), `resale_policy` |
-| **D** ticket kernel | `079` | `kernel.tickets` (atom), `kernel.ticket_ownership_log` (custody ledger, C26) |
-| **E** inventory | `080`, `081` | `080`: `venue.staff_role` + venue/event role predicates · `081`: `ticket_type`, `inventory_batch`, `inventory_batch_shard`, `inventory_movement`, `inventory_hold` |
-| **F** orders | `082` | `venue.order`, `venue.order_item` |
-| **G** credential infrastructure | `083`, `084` | `083`: `kernel.signing_key` (key-ref, NO secret) · `084`: **adopt** — `kernel.tickets` late-binding FKs → `ticket_type` + `signing_key` |
-| *(F/I bridge)* kernel money-native | `085` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` |
-| **H** scan infrastructure | `086` | `venue.door_pin`, `scan_device`, `scan` (C41 hedge), `comp_allocation`, `guest_list`, `guest_entry` |
-| **I** settlement | `087` | `venue.settlement`, `venue.settlement_line` |
-| **J** native marketplace bridge | `088`, `089` | `088`: `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` · `089`: `market.listing_unified` VIEW + **adopt** `payment_native.sale_id` FK |
-| *(2D)* promoter engine | `090` | `venue.promoter`, `promoter_link`, `attribution` (roadmap Phase 2D; modeled now, activated in the promoter phase) |
-| **K** money-ledger extensions | `091` (stub only) + **documented-only** | `091`: `kernel.reserve` **stub** (empty shape, no writers). Full Gate-M double-entry ledger (`ledger_entry`/`clawback`/`receivable`), `market.bid`, and Gate-L `social`/`analytics`/`notify`/`adapter`/multi-currency are **documented extension points, NOT scheduled** (see §5). |
+| **A** schema skeleton | `076` | 4 schemas + GRANT boundary + shared helper functions/triggers **+Δ** *(conditional: the event outbox table, §8 COND-A)* |
+| **B** organizations + permissions | `077` | `kernel.identity_ext`, `organization`, `org_member`, `org_invite`, `platform_role`, `admin_audit` + org/platform role predicates **+Δ `kernel.approval_request`**, `identity_demographic(_erasure)`, `identity_contact_pref`, `org_customer_key`, `organization.payout_destination_set_by`, `identity_ext.locale` |
+| **C** catalog | `078` | `catalog.venue`, `event`, `event_session`, `platform_config` (+ **all** feature-flag and config seeds), `resale_policy` **+Δ** `event` marketing columns, `event_session.session_version`, `effective_freeze_at()` |
+| **D** ticket kernel | `079` | `kernel.tickets` (atom), `kernel.ticket_ownership_log` (custody ledger, C26) **+Δ `kernel.door_freeze_override`**, `is_transfer_frozen`, `lock_/unlock_ticket`, `mark_ticket_scanned`, `resale_state += refund_hold` |
+| **E** inventory | `080`, `081` | `080`: `venue.staff_role` + venue/event/org-over-scope role predicates · `081`: `ticket_type`, `inventory_batch`, `inventory_batch_shard`, `inventory_movement`, `inventory_hold` **+Δ `catalog.publish_event` authored here** |
+| **F** orders | `082` | `venue.order`, `venue.order_item` **+Δ `kernel.org_contact_consent`** |
+| **G** credential infrastructure | `083`, `084` | `083`: `kernel.signing_key` (key-ref, NO secret) **+Δ `kernel.pass_type_cert`, `wallet_pass`, `wallet_pass_device`, `wallet_pass_push_log`, the `.pkpass` bucket** · `084`: **adopt** — `kernel.tickets` late-binding FKs → `ticket_type` + `signing_key`, **and nothing else** |
+| *(F/I bridge)* kernel money-native | `085` | `kernel.payment_native`, `kernel.refund`, `kernel.payout` **+Δ `kernel.void_ticket_atom` + the `market.on_atom_voided` stub; the nine money-authority RPCs** |
+| **H** scan infrastructure | `086` | `venue.door_pin`, `scan_device`, `scan` (C41 hedge), `comp_allocation`, `guest_list`, `guest_entry` **+Δ `venue.door_manifest(_entry/_delta)`, `holder_mix_snapshot`, `holder_mix_bucket`, `scan.actor_identity_id`, `scan(_device).manifest_id`, `assert_door_session`, the door-freeze-ledger trigger** |
+| **I** settlement | `087` | `venue.settlement`, `venue.settlement_line` **+Δ `venue.export_job` + `crm-exports` bucket; `close_settlement` + its two hook stubs; `request_org_payout`** |
+| **J** native marketplace bridge | `088`, `089` | `088`: `market.listing_native`, `auction`, `offer`, `market_sale` (C26 terminal SM), `p2p_transfer` **+Δ `transfer_ticket_ownership`, `catalog.cancel_event`, `CREATE OR REPLACE` of two hooks** · `089`: `market.listing_unified` VIEW + **adopt** `payment_native.sale_id` FK |
+| *(2D)* promoter engine | `090` | `venue.promoter`, `promoter_link`, `attribution` **+Δ commercial-terms columns, `promoter_code`, `promoter_code_scope`, `attribution_review`, the cross-settlement commission unique, `payment_native.instrument_fingerprint`** (roadmap Phase 2D; modeled now, activated in the promoter phase) |
+| **K** money-ledger extensions | `091` (stub only) + **documented-only** | `091`: `kernel.reserve` **stub** (empty shape, no writers). Full Gate-M double-entry ledger (`ledger_entry`/`clawback`/`receivable`), `market.bid`, and Gate-L `social`/`analytics`/`adapter`/multi-currency are **documented extension points, NOT scheduled** (see §5). **`notify` is no longer simply deferred — it is a marked conditional, §8 COND-B.** |
 
 **Flag-gated OFF in production (§4):** `078` seeds `feature.native_issuance_enabled=false` and
 `feature.native_resale_enabled=false` (and `feature.native_scanning_enabled=false`). The **issuance path**
@@ -237,26 +269,46 @@ graph TD
     E080 --> E081
     E081 --> F082
     C078 --> G083
+    D079 --> G083
     D079 --> G084
     E081 --> G084
     G083 --> G084
     F082 --> M085
     B077 --> M085
+    D079 --> M085
     D079 --> H086
     E081 --> H086
     E080 --> H086
+    G083 --> H086
     B077 --> I087
     E081 --> I087
     M085 --> I087
     D079 --> J088
     C078 --> J088
     E081 --> J088
+    M085 --> J088
     M085 --> J089
     J088 --> J089
     F082 --> D090
+    C078 --> D090
+    M085 --> D090
+    I087 --> D090
     B077 --> K091
     classDef pre fill:#fee,stroke:#c00,stroke-width:2px;
 ```
+
+**Seven edges added by the delta-spec integration** (schema §13.6). Each precedes its dependent, so the
+graph is still a DAG and still topologically ordered by package number — the property §3 relies on:
+
+| Edge | Because |
+|---|---|
+| `079 → 083` | `kernel.wallet_pass.ticket_atom_id` FK → `kernel.tickets` (schema §13.5-C) |
+| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` |
+| `079 → 085` | `kernel.refund_primary_order` drives `void_ticket_atom` → `kernel.tickets` (was an undeclared dependency) |
+| `085 → 088` | `market.sweep_paid_pending_sales` writes `kernel.refund` (was an undeclared dependency) |
+| `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `settlement_commission_lines` |
+| `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
+| `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 
 Edges into `public.*` (FK to `public.payments`, `auth.users`; VIEW over `public.listings`) are implicit and
 one-directional — the frozen core references nothing upward (SPEC_FOUNDATION §2, schema spec §0.1).
@@ -277,14 +329,14 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 | 5 | 080 | E | 077,078 | Y | N | new-table only | none | s | — |
 | 6 | 081 | E | 078,080 | Y | N | new-table only | none | s | — |
 | 7 | 082 | F | 081 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 8 | 083 | G | 078 | Y | N | new-table only | none | s | — |
+| 8 | 083 | G | 078,**079** | Y | N | new-table only | none | s | wallet gated (`wallet.apple.enabled=false`) |
 | 9 | 084 | G(adopt) | 079,081,083 | Y | N | ADD CONSTRAINT NOT VALID+VALIDATE (empty) | none | s | — |
-| 10 | 085 | F/I | 077,082 | Y | N | new-table only | none | s | — |
-| 11 | 086 | H | 079,080,081 | Y | N | new-table only | none | s | scanning gated (2B door gate) |
-| 12 | 087 | I | 077,081,085 | Y | N | new-table only | none | s | — |
-| 13 | 088 | J | 078,079,081 | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
+| 10 | 085 | F/I | 077,**079**,082 | Y | N | new-table only | none | s | — |
+| 11 | 086 | H | 079,080,081,**083** | Y | N | new-table only | none | s | scanning gated (2B door gate) |
+| 12 | 087 | I | 077,081,085 | Y | N | new-table only + 1 storage bucket | none | s | — |
+| 13 | 088 | J | 078,079,081,**085** | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
 | 14 | 089 | J | 085,088 | Y | N | VIEW create + ADD CONSTRAINT (empty) | none | s | resale gated; VIEW inert until flag |
-| 15 | 090 | 2D | 082 | Y | N | new-table only | none | s | promoter phase |
+| 15 | 090 | 2D | 082,**078**,**085**,**087** | Y | N | new-table + ADD COLUMN on 3 empty tables | none | s | promoter phase |
 | 16 | 091 | K | 077 | Y | N | new-table only | none | s | **stub — no writers wired** |
 
 **Per-package "does marketplace behavior change?" = NO for all 16.** **Additive-only = YES for all 16.**
@@ -314,6 +366,12 @@ stays safe. Deferring the *migration* instead would fork the chain. The migratio
 Each block gives: **name · purpose · objects · dependencies · backwards-compat · lock risk · backfill ·
 runtime · rollout · rollback/recovery · staging verify · production verify · additive? · marketplace change?**
 Global properties from §0.5 are asserted once there and referenced as "per §0.5" rather than repeated.
+
+> **§5 is the PRE-DELTA record. §8 is canonical.** The eight ratified delta specs added objects to twelve
+> of these sixteen packages. §5's object lists, dependency bullets and verification steps are **not
+> updated in place** — deliberately, so the pre-delta baseline stays legible and diffable. **Where §5 and
+> §8 differ on what a package contains, §8 wins.** The name, number, phase, rollout position and rollback
+> filename of every package are identical in both, and in §1, §2 and §3.
 
 ---
 
@@ -568,7 +626,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE G — credential infrastructure
 
-#### `083_kernel_signing_key`
+#### `083_kernel_credential_infrastructure`
 - **Purpose:** the DB-side **reference** to the asymmetric signing key — public key + KMS handle only,
   **NO private key material in any row** (C33/C1).
 - **Objects created** (schema spec §1.7):
@@ -693,7 +751,7 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
 
 ### PHASE I — settlement
 
-#### `087_venue_settlement`
+#### `087_venue_settlement_and_export`
 - **Purpose:** per-event/period money rollup → `kernel.payout` (SSCAS #4); **never touches ticket history**.
 - **Objects created** (schema spec §3.13–3.14):
   - `venue.settlement` (`settlement_id` PK; `org_id`/`venue_id`/`event_id` FKs; `status` CHECK in
@@ -892,11 +950,13 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
 - **`catalog.platform_config` PK shape** — this plan uses composite `(key, version)` (schema spec §12's
   primary option). A surrogate `config_id` uuid + `UNIQUE(key, version)` is an equivalent choice; either
   satisfies versioned config. Author's discretion, documented in the `078` header.
-- **Engine RPC co-location** — this plan schedules the **table/constraint/RLS/grant DDL** and names where each
-  SSCAS engine function is written (deliverable #4). Whether the engine function bodies live in the same
-  `0NN_` file as their tables or in dedicated function-migrations is an author choice; either way they are
-  created **by a migration in the chain** (Gate-2) and kept inert by the §4 flags. Assumption: functions are
-  co-located with, or immediately follow, the tables they write.
+- **~~Engine RPC co-location~~ — NO LONGER AN AUTHOR CHOICE. Replaced by DECISION 3 (§0.4b).**
+  This plan previously said *"whether the engine function bodies live in the same `0NN_` file as their
+  tables or in dedicated function-migrations is an author choice."* **That discretion produced nine
+  forward references** (schema §13.2 FR-1…FR-9), one of which — `kernel.close_settlement` reading
+  `venue.attribution` — would have failed to apply. Function placement is now determined by SEAM-1, not
+  chosen. Whether a function's *text* sits in the same physical `.sql` file as its tables or in a
+  sibling file within the same package is still free; **which package it belongs to is not.**
 - **`NOT VALID` + `VALIDATE` on empty tables** — technically a no-op distinction while tables are empty; used
   anyway as the standing discipline so the same migration text is safe if a table is ever pre-populated.
 - **Precondition ownership** — this plan assumes a human/owner performs the phase0 merge, the `migration
@@ -904,6 +964,329 @@ resale/instant-payout/international gates. They are **not built now** (schema sp
   `076` is applied. If the integration branch does not yet contain `000 + 046–070` (plus the applied security
   migrations `071`–`075`), **stop** — `076` cannot be authored or replayed against this tree
   (`mobile/profile-rpc-compat`) as-is.
+
+---
+---
+
+## 8. THE FINAL PACKAGE TABLE — `076`–`091`, post-delta-integration
+
+**Status: canonical.** This is the complete, per-package specification after the eight ratified delta
+specs (door lifecycle · money authority · role model · demographics/privacy · promoter codes ·
+notifications · CRM export · Apple Wallet) were integrated. Where it differs from §5's original blocks,
+**§8 wins** and §5 is the pre-delta record. Placement arguments live in
+`PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §13.
+
+Global properties from §0.5 apply to every row and are not repeated: additive-only YES · marketplace
+change NO · Gate-2 replays clean, creates all its own objects · defensively idempotent DDL · deny-by-default
+RLS at table birth · `SECURITY DEFINER` owned by `postgres` with pinned `search_path` (066) ·
+explicit REVOKE-then-GRANT (067) · expected runtime seconds · no backfill unless stated · every package
+ships `supabase/rollbacks/<its own number>_*.sql`.
+
+**Rollback posture vocabulary** (used in every row):
+- **REVERSIBLE** — reversible unconditionally, forever, even with production rows present.
+- **CLEAN-WHILE-EMPTY** — DROP-based rollback is valid only in the empty / flag-OFF window; once the
+  package's tables carry production custody or money rows it is **forward-fix only** (Standards §5), and
+  the rollback script's header says so.
+- **FORWARD-FIX ONLY (from first row)** — a permanent ledger. The rollback exists for the pre-go-live
+  window and nothing else.
+
+---
+
+### `076_create_phase2_schemas_and_grants`
+
+| Field | Value |
+|---|---|
+| **Purpose** | Stand up the four MVP schemas and the modular-monolith GRANT boundary, plus the shared helper functions every later package attaches. No product tables. |
+| **Tables** | none. *(COND-A: the event outbox lands here if ratified — §8-COND-A.)* |
+| **Functions** | `kernel.set_updated_at()`; `kernel.raise_append_only()` (the AO guard trigger function). |
+| **RLS** | n/a (no tables). `ALTER DEFAULT PRIVILEGES` in `kernel`/`venue`/`market` revokes table rights from `anon`/`authenticated` so future tables are deny-by-default **before** their own RLS lands. |
+| **Triggers** | none created; the two trigger *functions* above are created here and attached by later packages. |
+| **Indexes** | none. |
+| **Grants** | `REVOKE ALL ON SCHEMA kernel, venue, market FROM PUBLIC, anon, authenticated`; `GRANT USAGE ON SCHEMA catalog TO anon, authenticated`; `GRANT USAGE ON SCHEMA kernel, venue, market TO authenticated` **for function EXECUTE only**. `service_role` is a machine identity, never a human grant target. |
+| **Feature flags** | none. |
+| **Dependencies** | precondition only (phase0 chain `000` + `046`–`070`, plus applied `071`–`075`). |
+| **Rollback** | **REVERSIBLE** — `DROP SCHEMA … CASCADE` ×3 + drop helpers. Nothing references them yet. |
+| **Tests** | Replay `000→076` green. `\dn` shows four schemas. `has_schema_privilege('anon','kernel','USAGE') = false`; `catalog` USAGE `= true`. Helpers owned by `postgres` with pinned `search_path`. No default table privilege for `anon`/`authenticated` in the three private schemas. |
+
+### `077_kernel_identity_orgs_and_roles`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The tenant + identity-extension + scope-qualified role substrate (C36), the privileged audit backbone, **and the generic dual-control object** — so every later package can express org/platform authz, write audit in-txn, and park an approval. |
+| **Tables** | `kernel.identity_ext` (+`locale`, Δ-N2) · `organization` (+`payout_destination_set_by`) · `org_member` · `org_invite` · `platform_role` · `admin_audit` (AO) · **`approval_request`** · `identity_demographic` · `identity_demographic_erasure` (AO) · `identity_contact_pref` · `org_customer_key`. |
+| **Functions** | `has_org_role`, `is_platform`, `is_org_affiliate`; `get_my_demographics`, `set_my_demographics`, `clear_my_demographics`; `get_my_contact_prefs`, `set_my_contact_prefs`. |
+| **RLS** | `identity_ext` owner-scoped read · `organization`/`org_member`/`org_invite` org-scoped · `platform_role`/`admin_audit` audit-only · **`approval_request` money-custody-RPC-only** (deny-all + `REVOKE ALL`; org read only via `list_approval_requests`) · the four demographic/CRM tables **deny-all with an EMPTY grant set — not a reduced one**. |
+| **Triggers** | `raise_append_only` on `admin_audit` and `identity_demographic_erasure`; `set_updated_at` on the MUT tables. **`identity_demographic` carries exactly one trigger — the `updated_at` maintainer — and nothing else** (no prior-value capture). |
+| **Indexes** | `org_member(identity_id)`; `organization` partial on `status='active'`; `org_invite` partial unique + `(invitee_identity_id,status)`; `admin_audit(subject_kind,subject_id)`, `(actor_identity)`, `(occurred_at)`; **`approval_request`** `(org_id,state)`, partial on `expires_at WHERE state='pending'`, `(subject_kind,subject_id)`. |
+| **Grants** | `REVOKE ALL` on all eleven from `PUBLIC, anon, authenticated`; EXECUTE granted only to the intended role per RPC. |
+| **Feature flags** | none (the authz substrate is inert until an org exists). |
+| **Dependencies** | `076`. References `auth.users`, `public.admin_users` (read). |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** Drop in reverse: contact/demographic tables, `approval_request`, `admin_audit`, `org_invite`, `platform_role`, `org_member`, `organization`, `identity_ext`, then helpers. `admin_audit` and `approval_request` become forward-fix once they hold real audit/adjudication rows. |
+| **Tests** | Replay green. Adversarial RLS: anon and non-member cannot read an org row; a member can. `has_org_role`/`is_platform` correct. Self-grant rejected. **Disjoint-role CHECK rejects an `org_*` label in `staff_role` and vice-versa, and asserts the full 15-label enumeration matches ROLE_MODEL §3.4 exactly.** **INV-NOFORCE: `pg_class.relforcerowsecurity = false` asserted positively for `org_member` and `platform_role`.** `approval_request` SoD CHECK rejects `approved_by = requested_by`; C16 unique rejects a replay. Demographic tables: grant set is **empty** (not reduced); `get_my_demographics` has arity 0; `set_my_demographics` writes no value into any audit row. |
+
+### `078_catalog_reference_data_and_flags`
+
+| Field | Value |
+|---|---|
+| **Purpose** | Kernel-owned world-readable reference data, versioned config, **and every seed row in the chain** — the single auditable answer to *"is every gate seeded and every flag OFF?"* |
+| **Tables** | `catalog.venue` · `event` (+`description`, `hero_image_ref`, `category`, `genre_tags`) · `event_session` (+`door_open_at`, **+`session_version`**) · `platform_config` · `resale_policy`. |
+| **Functions** | `catalog.create_venue`, `set_venue_approval`, `create_event`, `create_event_session`, `set_event_status`, `set_platform_config`, `set_resale_policy`; **`catalog.effective_freeze_at(session_id)`** (STABLE). |
+| **RLS** | All `catalog` tables public-read for approved/announced rows; draft/pending org-scoped + platform. Writes RPC-only. |
+| **Triggers** | `set_updated_at`. *(The door-freeze ledger-head trigger on `event_session` is created by `086` — it reads a `086` table; §13.2 FR-6.)* |
+| **Indexes** | `venue(org_id)`, `(neighborhood)`, partial `approval_status='approved'`; `event(venue_id)`, `(org_id)`, partial `status IN ('on_sale','live')`; `event_session(event_id)`, `(starts_at)`; `platform_config(key)`. |
+| **Grants** | `GRANT SELECT` to `anon`/`authenticated` on the public-read projections; writes revoked. |
+| **Feature flags** | **The production-OFF anchor.** Seeds `feature.native_issuance_enabled=false`, `feature.native_scanning_enabled=false`, `feature.native_resale_enabled=false`, `wallet.apple.enabled=false`, `notify.announcements_enabled` — **plus** `door.*` ×4, `credential.*`/`wallet.*` ×5, money `refund.*`/`payout.*`/`authn.*` ×14, `notify.*` ×4 thresholds, and the CRM limits/caps/retention/`constraint_set_version`. Seeds are idempotent (`ON CONFLICT DO NOTHING`). **Values seeded here; flips are never a migration (§4).** |
+| **Dependencies** | `077` (org FK). |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** Drop `resale_policy`, `platform_config`, `event_session`, `event`, `venue`. |
+| **Tests** | Replay green. Anon can `SELECT` an approved venue/event but **not** a draft; write as anon fails. All flags present and `false`. `resale_policy` default mode `off`. `session_version` defaults to 1 and is `NOT NULL`. **Cross-config invariant asserted over the seeded values: `credential.wallet_default_span + credential.wallet_exp_skew <= door.manifest_ttl_interval`** — a Wallet token may never outlive the offline window any manifest could authorise. |
+
+### `079_kernel_ticket_atom_and_ownership_log`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The custody core — the ticket atom (SoT) and its append-only ownership ledger with the fixed C26 idempotency — plus the complete input set of the transfer-freeze predicate, so no later package can make that predicate forward-reference anything. |
+| **Tables** | `kernel.tickets` (`resale_state` label set **includes `refund_hold`**) · `kernel.ticket_ownership_log` (AO) · **`kernel.door_freeze_override`** (AO). |
+| **Functions** | **`kernel.is_transfer_frozen(atom_id)`** (its complete, corrected body — no stub, no tolerance for an unknown atom) · `lock_ticket` / `unlock_ticket` · `mark_ticket_scanned`. |
+| **RLS** | Ownership log money-custody-RPC-only (deny-all). `kernel.tickets` owner-scoped + venue-scoped read; writes RPC-only. **`door_freeze_override` audit-only — RLS on, zero policies, `REVOKE ALL FROM anon, authenticated`.** |
+| **Triggers** | `raise_append_only` on the ownership log and on `door_freeze_override` (whose only permitted UPDATE is the `revoked_at`/`revoked_by` forward transition). |
+| **Indexes** | Log: PK `(ticket_atom_id, sequence)`; **`UNIQUE(cause, cause_ref, ticket_atom_id)`** (the fixed C26 key); `UNIQUE(ticket_atom_id, command_idempotency_key)`; `(cause_ref)`; `(to_identity)`. Atom: `(current_owner_id)`, `(event_session_id)`, `(ticket_type_id)`, partial on `resale_state <> 'none'`, `(event_session_id, serial_no)` unique. Override: partial `(session_id) WHERE revoked_at IS NULL AND expires_at > now()`. |
+| **Grants** | `REVOKE UPDATE, DELETE` on both AO tables; `REVOKE ALL` from `anon`/`authenticated` on all three. |
+| **Feature flags** | Issuance path inert behind `feature.native_issuance_enabled=false`. |
+| **Dependencies** | `077` (org), `078` (event_session, `effective_freeze_at`, config). **Forward FKs to its own siblings deferred to `084`.** |
+| **Rollback** | **FORWARD-FIX ONLY (from first row).** The custody ledger is permanent and is never dropped once it holds real atoms. The DROP script serves only the pre-go-live window. |
+| **Tests** | Replay green. **The C26 proof rig run against the real constraints** (schema §1.6.1 a/b/c/d): (a) a second `(market_sale, sale_id, atom)` is rejected; (b) N `(issue, order_id, atom_k)` all succeed; (c) N `(refund_void, refund_id, atom_k)` all succeed; (d) a replayed `command_idempotency_key` is rejected. AO guard raises on UPDATE/DELETE. Adversarial RLS: a non-owner cannot read an atom or its chain. **`is_transfer_frozen` returns TRUE for an unknown atom id** — the fail-open escape hatch the plan previously permitted is asserted absent. A `refund_hold` atom cannot be locked or scanned. |
+
+### `080_venue_staff_roles_and_predicates`
+
+| Field | Value |
+|---|---|
+| **Purpose** | Venue-scope roles on the corrected six-label set, and the org-over-scope inheritance predicates, so every later venue package can express its RLS. |
+| **Tables** | `venue.staff_role` (`role` **text + CHECK** in the six canonical venue labels). |
+| **Functions** | `kernel.has_venue_role` (**reads `venue.staff_role` only** — the door-PIN branch is removed), `has_event_role`, **`has_org_role_over_venue`**, **`has_org_role_over_event`**. |
+| **RLS** | venue-scoped read; grant/revoke RPC-only, never a self-grant (C9/H-2). |
+| **Triggers** | none. |
+| **Indexes** | PK `(venue_id, identity_id, role)`; `(identity_id)` ("my venues" — a navigation projection, never an authorization input); `(venue_id, role)`. |
+| **Grants** | `REVOKE ALL`; EXECUTE on the four predicates to `authenticated`. |
+| **Feature flags** | none. |
+| **Dependencies** | `077` (predicates live in `kernel`), `078` (`catalog.venue`/`event`). |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** Drop the four predicates, then `venue.staff_role`. |
+| **Tests** | Replay green. All four predicates correct. **The CHECK rejects `venue_door` and `venue_promoter`** (the superseded labels) and every `org_*`/`platform_*` label. **INV-NOFORCE asserted positively for `venue.staff_role`** — this is the table whose recursion hazard motivated the invariant. A non-staff principal cannot read the row. |
+
+### `081_venue_inventory`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The priced product plus the authoritative capacity counter (C27) with its sharding and audit ledger and holds — the oversell-safe substrate (C4/C5). |
+| **Tables** | `venue.ticket_type` · `inventory_batch` · `inventory_batch_shard` · `inventory_movement` (AO) · `inventory_hold`. **`venue.inventory_unit` is NOT created** (EXT/C42). |
+| **Functions** | `venue.create_ticket_type`, `set_ticket_type_price`, `create_inventory_batch`, `reserve_primary_inventory`, `create_inventory_hold`, `release_inventory_hold`, `kernel.issue_ticket_atoms`; **`catalog.publish_event` (authored here — SEAM-1: it reads `ticket_type` + `inventory_batch`)**. |
+| **RLS** | `remaining` is a public-read projection; counter writes money-custody-RPC-only; holds owner + venue scoped. |
+| **Triggers** | `raise_append_only` on `inventory_movement`; `set_updated_at`. |
+| **Indexes** | `inventory_batch(event_session_id, ticket_type_id)` (checkout availability), `(ticket_type_id)`; shard PK `(batch_id, shard_no)`; movement `UNIQUE(cause, cause_ref, batch_id, movement_kind)`, `(batch_id)`, `(cause_ref)`; hold `UNIQUE(identity_id, command_idempotency_key)`, partial `expires_at WHERE status='active'`, `(identity_id, status)`. |
+| **Grants** | `REVOKE UPDATE, DELETE` on `inventory_movement`; counters revoked from clients entirely. |
+| **Feature flags** | Real draws gated by `feature.native_issuance_enabled`. |
+| **Dependencies** | `078` (event_session), `080` (`has_venue_role` for RLS). Unblocks `079`'s deferred `ticket_type` FK, adopted in `084`. |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** Drop hold, movement, shard, batch, ticket_type (shard cascades with batch). |
+| **Tests** | Replay green. **The oversell proof rig** (schema §3.3.1): concurrent decrements cannot drive `remaining < 0`; the sharded draw plus single-shard last-unit fallback sells the final unit **exactly once**; the movement ledger reconciles to the counter (`Σ shards == batch`). AO guard on movement. `publish_event` refuses an event with no ticket type or no batch. |
+
+### `082_venue_orders`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The primary-purchase container that, when paid, issues atoms atomically (SSCAS #1) — and the per-org contact consent that a checkout captures. |
+| **Tables** | `venue.order` · `venue.order_item` · **`kernel.org_contact_consent`**. |
+| **Functions** | `venue.create_primary_checkout`, `finalize_primary_order`; **`kernel.grant_org_contact_consent`, `withdraw_org_contact_consent`, `list_my_org_contact_consents`**. |
+| **RLS** | Order owner-scoped (buyer) + org/venue-scoped (issuer) + platform; money writes RPC-only. **`org_contact_consent` deny-all with an empty grant set**, reached only through its three RPCs. |
+| **Triggers** | `order_item` **IMM-after-issuance** guard keyed on the parent order reaching `paid`; `set_updated_at`. |
+| **Indexes** | `order(buyer_id)`, `(event_session_id)`, `(org_id, status)`, `UNIQUE(buyer_id, command_idempotency_key)`; `order_item UNIQUE(order_id, ticket_type_id)`, `(order_id)`; **consent PK `(identity_id, org_id)` + `(org_id, state)`** (the export build-time gate). |
+| **Grants** | `REVOKE ALL` on all three; EXECUTE per RPC. |
+| **Feature flags** | Issuance-on-paid gated by `feature.native_issuance_enabled`. |
+| **Dependencies** | `081` (ticket_type), `078`, `077`. References `auth.users`. |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** Drop `org_contact_consent`, `order_item`, `order`. |
+| **Tests** | Replay green. C16 replay (same buyer + key) rejected. `order_item` UPDATE after the order flips to `paid` raises. A non-buyer cannot read the order. **Consent: withdrawal is a state change, never a row deletion; `(state='withdrawn') = (withdrawn_at IS NOT NULL)` holds; the FK cascades from `auth.users` and `delete_account_cleanup` (020) does not repoint it to the anonymized sentinel** — a sentinel row holding "consent granted to 40 orgs" would be an accumulating grant belonging to nobody, and the §5.1 email gate would evaluate it. |
+
+### `083_kernel_credential_infrastructure`
+
+*(renamed from `083_kernel_signing_key` — it now carries the whole credential-artifact set; schema §13.5-C)*
+
+| Field | Value |
+|---|---|
+| **Purpose** | Phase G's credential substrate, complete: the DB-side **references** to both signing identities (C33 signer, Apple Pass Type ID) and the Wallet pass/device registries. **No private key material in any row.** |
+| **Tables** | `kernel.signing_key` · **`kernel.pass_type_cert`** · **`kernel.wallet_pass`** · **`kernel.wallet_pass_device`** · **`kernel.wallet_pass_push_log`** (AO) · the private `.pkpass` **storage bucket** (`public=false`, signed URLs only, short TTL). |
+| **Functions** | `provision_/rotate_/revoke_signing_key`; `provision_/rotate_/revoke_pass_type_cert`; `mint_wallet_pass`, `supersede_wallet_passes_for_atom`, `touch_wallet_pass`, `revoke_wallet_pass`, `get_wallet_pass_build_context`, `register_/unregister_wallet_pass_device`, `list_updated_wallet_passes`, `record_wallet_push_result`, `sweep_wallet_pass_lifecycle`. |
+| **RLS** | `signing_key.public_key` + validity window world-readable (doors carry the verify key); `kms_handle_ref` platform-only. **`pass_type_cert`: no client access at all** — doors never verify the Apple signature. **`wallet_pass`: audit-only for `auth_token_enc`/`auth_token_hash`/`serial_no_opaque`; the owner reads only `{wallet_pass_id, ticket_atom_id, status, built_at, last_updated_at}` for their own atoms, via RPC. No venue or org role reads this table at all.** `wallet_pass_device` and `wallet_pass_push_log` audit-only, zero policies. |
+| **Triggers** | Guard triggers enforcing IMM identity columns and forward-only `status` on `signing_key`, `pass_type_cert`, `wallet_pass`, `wallet_pass_device`; `raise_append_only` on `wallet_pass_push_log`. |
+| **Indexes** | `signing_key`: partial unique one-active-per-scope ×3; `(event_id,status)`, `(venue_id,status)`. `pass_type_cert`: **partial `UNIQUE(pass_type_identifier) WHERE status='active'`**; `(status, not_after)` (the expiry monitor). `wallet_pass`: `UNIQUE(ticket_atom_id, generation)`, `UNIQUE(serial_no_opaque)`, `UNIQUE(holder_identity_id, command_idempotency_key)`, **partial `UNIQUE(ticket_atom_id) WHERE status='issued'`**, `(ticket_atom_id)`, `(status, last_updated_at)`. `wallet_pass_device`: `UNIQUE(wallet_pass_id, device_library_identifier)`, partial `(wallet_pass_id) WHERE unregistered_at IS NULL`. `push_log`: `UNIQUE(wallet_pass_id, trigger_kind, cause_ref, registration_id)`. |
+| **Grants** | `REVOKE ALL` from `anon`/`authenticated` on `pass_type_cert`, `wallet_pass_device`, `wallet_pass_push_log`; column-scoped SELECT on `signing_key`; **the secret columns are granted to no role but `service_role`, and no RPC returns them.** Zero storage policies on the `.pkpass` bucket. |
+| **Feature flags** | `wallet.apple.enabled=false` — a kill switch that is **not role-bypassable** (a `platform_admin` mint attempt fails while it is off). |
+| **Dependencies** | `078` (catalog event/venue, config), **`079`** (`wallet_pass.ticket_atom_id` FK). Unblocks `079`'s deferred `signing_key_id` FK, adopted in `084`. |
+| **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix — revoked keys and certs are retained so historical credentials stay verifiable and explicable. |
+| **Tests** | Replay green. The active-per-scope partial unique rejects a second active per-event key; a rotation txn (old→`rotating`, new→`active`) succeeds. Anon reads `public_key` but **not** `kms_handle_ref`. **No column anywhere holds private-key material** (asserted, plus the CI scan that fails the build on any tracked `*.p12`/`*.p8`/`*.cer`/`*.pkpass`/`*.mobileprovision` or `BEGIN … PRIVATE KEY`). **`UNIQUE(ticket_atom_id) WHERE status='issued'` rejects a second live pass for one atom** — the structural half of the Wallet non-negotiable. `mint_wallet_pass` appends no ownership-log row and bumps no `credential_version`. With the kill switch off, every caller including `platform_admin` gets `precondition_failed('wallet_disabled')`. |
+
+### `084_kernel_tickets_late_binding_fks` — the ADOPT step, and **nothing else**
+
+| Field | Value |
+|---|---|
+| **Purpose** | Add the two FK constraints `kernel.tickets` could not carry at birth, closing the forward reference without reordering the mandated phases. **This package deliberately contains no tables, no functions, no RLS and no grants** — that purity is what makes its rollback unconditionally reversible, and it is the only package in the chain with that property. Nothing may be added to it. |
+| **Tables** | none. |
+| **Functions** | none. |
+| **RLS / Triggers / Indexes / Grants / Flags** | none. |
+| **Objects** | `ADD CONSTRAINT fk_tickets_ticket_type (ticket_type_id) → venue.ticket_type` and `fk_tickets_signing_key (signing_key_id) → kernel.signing_key`, each `NOT VALID` then `VALIDATE CONSTRAINT`. **`unit_row_id` gets no FK** (target is EXT/C42); a header note records that enabling seating later adds it as another adopt step. |
+| **Dependencies** | `079`, `081`, `083`. |
+| **Rollback** | **REVERSIBLE.** `DROP CONSTRAINT` ×2 — valid forever, including with production rows present. |
+| **Tests** | Replay green; both FKs present and `convalidated = true`; a ticket with a bogus `ticket_type_id`/`signing_key_id` is rejected; `unit_row_id` has no FK. **Assert the package creates zero relations and zero routines** — the guard against it being used as a dumping ground. |
+
+### `085_kernel_money_native`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The additive money-native kernel tables that **link to** the frozen `public.payments` (never re-charge), extend the service_role-only payout discipline, and carry the money-authority control set. |
+| **Tables** | `kernel.payment_native` · `kernel.refund` · `kernel.payout`. |
+| **Functions** | `refund_primary_order`, `admin_refund`, `force_void_ticket`, `hold_payout`, `release_payout`; **`kernel.void_ticket_atom`** (SEAM-1: it writes `kernel.refund`) **+ the `market.on_atom_voided` no-op stub** (SEAM-2, replaced in `088`); and the nine money-authority RPCs — `request_order_refund`, `approve_refund_request`, `cancel_refund_request`, **`sweep_expired_refund_requests`**, `list_org_payouts`, `list_org_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`. |
+| **RLS** | All three money-custody-RPC-only (deny-all + `REVOKE ALL`); payee/buyer read own via scoped RPC only. `kernel.payout` retains **no** direct table SELECT grant to `authenticated`. |
+| **Triggers** | `set_updated_at`; state transitions guarded in-function under `FOR UPDATE`, not by trigger. |
+| **Indexes** | `payment_native`: `UNIQUE(payment_id)`, `(order_id)`, `(sale_id)`. `refund`: `UNIQUE(idempotency_key)`, `(payment_id)`. `payout`: `UNIQUE(idempotency_key)`, `(payee_org_id,status)`, `(payee_identity_id,status)`, `(cause_ref)`. |
+| **Grants** | `REVOKE ALL` from `anon`/`authenticated` on all three. |
+| **Feature flags** | Reads `refund.*`, `payout.*`, `authn.*` thresholds seeded in `078`; the tiers are config, not code. |
+| **Dependencies** | `077` (org, `approval_request`), **`079`** (`void_ticket_atom` → `kernel.tickets`), `082` (order). References `public.payments`. |
+| **Rollback** | **FORWARD-FIX ONLY (from first row)** — these are money ledgers. Drop order while empty: payout, refund, payment_native. |
+| **Tests** | Replay green. `payment_native` XOR CHECK rejects both-null and both-set; `UNIQUE(payment_id)` rejects a duplicate link; both `idempotency_key` uniques reject replays; anon reads nothing. `payout.cause_ref` has **no** FK (by design — it points across schemas without an ordering cycle). **`sweep_expired_refund_requests` exists, is scheduler-only, and releases every `refund_hold` overlay — asserted, because a hold with no sweep is a bricked ticket on a paying customer.** `approve_refund_request` re-derives the payload and moves a drifted request to `stale` rather than executing it. `set_org_payout_destination` writes `payout_destination_set_by`, and `request_org_payout` then rejects that identity with `sod_violation`. |
+
+### `086_venue_door_and_scan`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The offline-first door substrate (C6 model), the append-only admission ledger with the C41 re-entry hedge, the door-manifest episode ledger that gives the offline door a staleness check, comp/guest admissions, and the per-session audience-composition projection. |
+| **Tables** | `venue.door_pin` · `scan_device` (+`manifest_id`) · `scan` (AO; **+`actor_identity_id`**, **+`manifest_id`**) · `comp_allocation` · `guest_list` · `guest_entry` · **`door_manifest`** (AO+1 forward transition) · **`door_manifest_entry`** (AO) · **`door_manifest_delta`** (AO) · **`holder_mix_snapshot`** · **`holder_mix_bucket`**. |
+| **Functions** | `venue.issue_/revoke_door_pin`, `register_scan_device`, `record_scan`, `reconcile_offline_scans`, `validate_ticket_online`, `allocate_comp`, `issue_comp`; **`open_/close_door_manifest`, `get_door_manifest`, `append_door_manifest_delta`, `catalog.engage_door_freeze`, `kernel.assert_door_session`, `kernel.grant_/revoke_door_freeze_override`, `sweep_expired_door_overrides`, `catalog.sweep_implicit_door_freezes`, `venue.refresh_holder_mix`, `venue.get_holder_mix`**. |
+| **RLS** | Venue-scoped (door/manager); writes RPC-only. `pin_hash` never client-readable. `door_manifest_entry`/`_delta` carry **no identity column by construction**. **`holder_mix_snapshot`/`_bucket` deny-all with an empty grant set** — read only through `get_holder_mix`. |
+| **Triggers** | `raise_append_only` on `scan`, `door_manifest_entry`, `door_manifest_delta`; a guard on `door_manifest` permitting **only** the single `open → closed` transition; **`catalog.tg_door_open_at_is_ledger_head` created here and attached to `catalog.event_session`** (it reads `venue.door_manifest`, so it cannot be created in `078` — §13.2 FR-6): `door_open_at` may never be cleared, never moved once set, and must equal `MIN(door_manifest.opened_at)`. |
+| **Indexes** | `scan`: **partial `UNIQUE(ticket_atom_id, event_session_id) WHERE result='admitted' AND direction='in'`** (first-in-wins), `(event_session_id, server_receipt_at)`, `(ticket_atom_id)`. `door_manifest`: **partial `UNIQUE(session_id) WHERE status='open'`** (at most one open episode per session, enforced by the database not the RPC), `UNIQUE(session_id, manifest_version)`, `UNIQUE(session_id, command_idempotency_key)`, `(session_id, opened_at)`, `(venue_id, status)`. `door_manifest_entry`: PK `(manifest_id, ticket_atom_id)`, `(ticket_atom_id)`. `door_manifest_delta`: PK `(manifest_id, seq)`, `UNIQUE(manifest_id, ticket_atom_id, op)`, `(ticket_atom_id)`. `holder_mix_snapshot`: `UNIQUE(event_session_id, dimension, as_of)` + a partial unique enforcing **at most one published snapshot per (session, dimension)**. |
+| **Grants** | `REVOKE ALL` throughout; the door's bulk read is the projected column set of `get_door_manifest` and nothing else. |
+| **Feature flags** | Scanning gated by `feature.native_scanning_enabled=false` until the 2B door gate. |
+| **Dependencies** | `079` (`kernel.tickets`), `080` (`has_venue_role`), `081` (comp draws a batch), **`083`** (`door_manifest_entry.signing_key_id` FK), `078`. |
+| **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix — the scan ledger and the manifest episodes are permanent evidence once they hold real admissions. Drop the `catalog.event_session` trigger first, then the manifest tables, then guest/comp/scan/device/pin, then the holder-mix pair. |
+| **Tests** | Replay green. **The C41 partial unique**: a second admitted `in` for the same atom/session is rejected and recorded as `duplicate`. AO guards. `pin_hash` never client-readable. **The non-anonymous-admission CHECK rejects a scan row with both `device_id` and `actor_identity_id` NULL** — without it a staff scan records who admitted nobody. **The `door_manifest` open-episode partial unique rejects a second open episode.** **`door_open_at` cannot be cleared, cannot be moved once set, and must equal `MIN(opened_at)`** — three separate raises. **`door_manifest_entry.resale_state` CHECK admits all four overlay labels including `refund_hold`.** `door_manifest_delta`'s `op='add' ⇒ credential_version = 0` CHECK holds (a supplemented atom is by construction newly minted, so a post-freeze custody move is structurally impossible). Holder mix: **`CHECK (holder_count >= 5)` makes a sub-floor bucket physically unstorable**, not merely hidden; `prefer_not_to_say` is not a legal bucket; `holders_responded <= holders_total`; the grant set is empty. |
+
+### `087_venue_settlement_and_export`
+
+*(renamed from `087_venue_settlement` — it now also carries the CRM export machinery)*
+
+| Field | Value |
+|---|---|
+| **Purpose** | The per-event/period money rollup → `kernel.payout` (SSCAS #4, never touching ticket history), and the venue's attendee-read + CRM-export surface. |
+| **Tables** | `venue.settlement` · `venue.settlement_line` (AO) · **`venue.export_job`** · the private **`crm-exports`** storage bucket. |
+| **Functions** | `venue.open_settlement`; **`kernel.close_settlement` (authored once, here)** plus its two SEAM-2 hook stubs **`kernel.settlement_royalty_lines`** (replaced in `088`) and **`kernel.settlement_commission_lines`** (replaced in `090`); `kernel.request_org_payout` (with the probation hold, the SoD-1 destination-setter exclusion, the step-up predicate and the above-threshold approval branch); **`venue.list_attendees`, `lookup_attendee`, `request_export`, `build_export_rows`, `finalize_export`, `authorize_export_download`, `revoke_export`, `list_export_jobs`, `sweep_expired_exports`**. |
+| **RLS** | Settlement org-scoped (org finance) + platform; writes RPC-only. **`export_job` deny-all with an empty grant set**; **zero storage policies of any verb** for `anon`/`authenticated` on `crm-exports`. `build_export_rows` runs as the narrow **`crm_export_builder`** role — granted SELECT on exactly the enumerated roster relations and the three consent/key tables, holding **zero grant on any demographic object**, and never `BYPASSRLS`. |
+| **Triggers** | `raise_append_only` on `settlement_line`; `set_updated_at`. |
+| **Indexes** | `settlement`: `(org_id, status)`, `(event_id)`. `settlement_line`: `UNIQUE(settlement_id, cause, cause_ref)`, `(settlement_id)`, `(cause_ref)`. *(The cross-settlement commission unique is added by `090` — §8/`090`.)* `export_job`: `UNIQUE(requested_by, command_key)`, `(state, requested_at)` (the cron drain), `(org_id, requested_at)` (the history panel). |
+| **Grants** | `REVOKE ALL` on both new tables; the bucket is created **with its constraints in the same statement and a raising `DO $$ … $$` self-verification block — no `ON CONFLICT DO NOTHING`**: `public=false`, `file_size_limit=33554432`, `allowed_mime_types={text/csv}` exactly. |
+| **Feature flags** | Reads the CRM limits/caps/retention and `crm_export.constraint_set_version` seeded in `078`. |
+| **Dependencies** | `077` (org), `081` (venue context), `085` (payout target). References catalog, `086` (`venue.scan` for check-in columns). |
+| **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix once the ledger holds real lines. Drop `export_job` and the bucket, then `settlement_line`, then `settlement`, then the three settlement functions. |
+| **Tests** | Replay green. `settlement_line` unique per `(settlement, cause, cause_ref)`; AO guard; a non-`org_finance` principal cannot read; a close writes a `kernel.payout` row. **Both hook stubs exist and return zero rows** (so a close at `087` is arithmetically complete without them). `export_job.scope_kind` CHECK has **no `'all'` member**. `emitted + suppressed = holder row count` on every `ready` job — that pair is the only evidence a later auditor has that the consent gate actually ran. The export builder's SQL contains **zero references to any of the four demographic objects** — CI-checked, not grep-of-a-file-that-may-not-exist. Every `export_job` state transition has a `kernel.admin_audit` row in the **same** transaction. The bucket's three property assertions pass. |
+
+### `088_market_native_rail`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The native resale rail — listings that lock a ticket atom, auction/offer price discovery, the consummation fact with the C26 compensate-XOR-complete terminal state machine, native P2P — and the custody engine that only becomes authorable here. |
+| **Tables** | `market.listing_native` · `auction` · `offer` · `market_sale` · `p2p_transfer`. `market.bid` is **EXT, not created**. |
+| **Functions** | `market.create_listing`, `cancel_listing`, `create_auction`, the bid RPC, `make_offer`, `respond_offer`, `create_/accept_/cancel_p2p_transfer`, `sweep_expired_p2p_transfers`, `sweep_paid_pending_sales`; **`kernel.transfer_ticket_ownership` (SEAM-1: it reads `listing_native` and writes `payment_native`)**; **`catalog.cancel_event` (SEAM-1: it writes across `079`/`081`/`085`/`088`)**; **`CREATE OR REPLACE kernel.settlement_royalty_lines`** (adds the `market_sale` royalty arm) and **`CREATE OR REPLACE market.on_atom_voided`** (sets `market_sale.terminal_state := 'compensated'`). |
+| **RLS** | Public-read for active listings/auctions (flag-gated); owner-scoped for offers/sales/transfers; money-custody-RPC-only writes. **No `market` object mutates a `public.*` money/custody row** — it only references `public.payments` by id. |
+| **Triggers** | `set_updated_at`; the terminal state machine is enforced in-function under `FOR UPDATE`, backed by a CHECK making a single terminal reachable once. |
+| **Indexes** | `listing_native`: **partial `UNIQUE(ticket_atom_id) WHERE status='active'`**, `UNIQUE(seller_id, command_idempotency_key)`, `(event_session_id)`, `(seller_id, status)`. `auction`: `UNIQUE(listing_id)`, `(status, ends_at)`. `offer`: `UNIQUE(buyer_id, command_idempotency_key)`, `(listing_id,status)`, `(buyer_id,status)`. `market_sale`: `UNIQUE(buyer_id, command_idempotency_key)`, `(listing_id)`, `(ticket_atom_id)`, `(seller_id)`, `(buyer_id)`, **partial on `sale_state='paid_pending_transfer'`** (the C25 sweep hot-path). `p2p_transfer`: **partial `UNIQUE(ticket_atom_id) WHERE status='initiated'`**, `UNIQUE(from_identity, command_idempotency_key)`, `(to_identity,status)`, `(from_identity,status)`. |
+| **Grants** | `REVOKE ALL`; discovery SELECT only on the flag-gated projections. |
+| **Feature flags** | **Native resale gated by `feature.native_resale_enabled=false`** until Gate-M (reserve/ledger) + Phase 2C. |
+| **Dependencies** | `078` (resale_policy), `079` (`kernel.tickets`), `081` (venue context), **`085`** (`sweep_paid_pending_sales` writes `kernel.refund`; `transfer_ticket_ownership` writes `payment_native`). |
+| **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix for `market_sale`. Drop p2p_transfer, market_sale, offer, auction, listing_native; **restore the two hook stubs to their `087`/`085` bodies** — a rollback of `088` must not leave `settlement_royalty_lines` reading a dropped table. |
+| **Tests** | Replay green. The two partial uniques enforce single-lock (one active listing / one open p2p per atom); C16 uniques reject replays. **The `market_sale` terminal state machine: a sale reaches exactly one of `completed`/`compensated`, never both.** The `paid_pending_transfer` sweep index is present. Discovery RLS surfaces native listings to anon **only when the flag is ON** (with the flag OFF in the gate test, not surfaced). **`settlement_royalty_lines` now returns rows for a seeded native sale** (the stub was replaced, not merely present). **`on_atom_voided` flips a seeded sale to `compensated`.** No write path into `public.*` custody. |
+
+### `089_market_bridge_view_and_late_fk` — the ADOPT step for Phase J
+
+| Field | Value |
+|---|---|
+| **Purpose** | The read bridge unifying external + native discovery without rewriting `public.listings`, and the late-binding FK from `kernel.payment_native` to `market.market_sale`. |
+| **Tables** | none. **VIEW** `market.listing_unified` — a UNION of `public.listings` (`rail='external'`/`external_verified`) and `market.listing_native` (`rail='native'`), projecting the common discovery column set. Native rows are filtered by `feature.native_resale_enabled`. |
+| **Functions** | none. |
+| **RLS** | The view inherits the underlying tables' public-read discovery policies. It is read-only; there is no write path through it. |
+| **Triggers / Indexes** | none. |
+| **Grants** | `GRANT SELECT` on the view to `anon`/`authenticated`. |
+| **Feature flags** | Resale gated; the VIEW is inert for native rows until the flag flips. |
+| **Objects** | `ADD CONSTRAINT fk_payment_native_sale (sale_id) → market.market_sale(sale_id)`, `NOT VALID` then `VALIDATE`. |
+| **Dependencies** | `085` (payment_native), `088` (market_sale + listing_native). |
+| **Rollback** | **REVERSIBLE.** `DROP VIEW` + `DROP CONSTRAINT`. The external rail is untouched, so dropping the view removes only the native union. |
+| **Tests** | Replay green. The view returns external rows **byte-identical** to querying `public.listings` directly (marketplace parity), and native rows **only when the flag is ON**. The FK is `convalidated = true`. No write path exists through the view. |
+
+### `090_venue_promoter_engine`
+
+| Field | Value |
+|---|---|
+| **Purpose** | The commissioned-selling substrate (roadmap Phase 2D), complete with the commercial terms DA §1.7 ratified and the money constraint that makes double-payment structurally impossible. Applied inert; activated in the promoter phase. |
+| **Tables** | `venue.promoter` (+`tier`, `party_kind`, `commission_kind`, `commission_flat_minor`, `currency`) · `promoter_link` · `attribution` (+15 columns; `link_id` becomes **nullable**) · **`promoter_code`** · **`promoter_code_scope`** · **`attribution_review`** (AO). Columns on earlier packages' tables: `venue.order.attribution_candidate_code_id`/`_link_id`; `kernel.payment_native.instrument_fingerprint`. |
+| **Functions** | **`venue.normalize_promoter_code(text)`** (IMMUTABLE, STRICT — **frozen once `090` applies with live codes**); `create_promoter_code`, `create_promoter_codes_bulk`, `set_promoter_code_status`, `set_promoter_code_scope`, `set_promoter_code_window`, `preview_promoter_code`, `bind_order_attribution`, `review_attribution_flag`, `resolve_order_attribution` (internal, never client-callable), `get_my_promoter_summary`, `list_my_attributions`, `list_promoter_attributions`; `kernel.is_promoter_for_event`; **`CREATE OR REPLACE kernel.settlement_commission_lines`** (adds the `venue.attribution` arm). |
+| **RLS** | A promoter reads **own** links/attributions/commission only — never the back office; org-scoped for the org; writes RPC-only. `instrument_fingerprint` is never exposed to a promoter, a venue role, or any client. |
+| **Triggers** | `raise_append_only` on `attribution` and `attribution_review`; `promoter_code` immutability guard on `promoter_id`/`code_display`/`code_normalized`/`kind`/`org_id`; org-consistency assertions on `promoter_code` and `promoter_code_scope`; **the `venue.order` candidate-freeze guard** — raises on any UPDATE of either candidate column once `OLD.status <> 'pending'`; `attribution` org_id/event_id consistency against the order. |
+| **Indexes** | `promoter_link UNIQUE(slug)` (global). `attribution`: `UNIQUE(order_id)`, `(promoter_id, order_paid_at DESC, id DESC)`, `(org_id, event_id, order_paid_at DESC)`, partial `(code_id)`, partial `(link_id)`, partial `(org_id) WHERE self_deal_flag`. `promoter_code`: **`UNIQUE(code_normalized)` (global — the only index on the checkout hot path)**, `(promoter_id,status)`, `(org_id,status,created_at DESC)`, `(code_normalized text_pattern_ops)` for the issue-time confusable warning. `promoter_code_scope` PK `(code_id,event_id)` + `(event_id)`. `attribution_review UNIQUE(attribution_id, seq)`. **And the money constraint: `CREATE UNIQUE INDEX ON venue.settlement_line (cause_ref) WHERE cause = 'promoter_commission'`.** |
+| **Grants** | `REVOKE ALL`; `resolve_order_attribution` has EXECUTE revoked from `anon` and `authenticated`. |
+| **Feature flags** | Promoter phase; the package may be applied with the MVP chain and simply left unused. |
+| **Dependencies** | `077`, **`078`** (`promoter_code_scope.event_id` FK), `082` (order), **`085`** (`payment_native` column), **`087`** (`settlement_line` index + the commission hook). |
+| **Rollback** | **CLEAN-WHILE-EMPTY**, then forward-fix for `attribution`. Drop the settlement-line index, the two `venue.order` columns, the `payment_native` column, `attribution_review`, `promoter_code_scope`, `promoter_code`, `attribution`, `promoter_link`, `promoter`, `normalize_promoter_code`; **restore `settlement_commission_lines` to its `087` stub body.** The promoter spec's insistence that the feature not be split across packages is honoured: it reverts as one unit. |
+| **Tests** | Replay green. `slug` globally unique; `attribution UNIQUE(order_id)`; AO guards; a promoter cannot read another promoter's attributions. **The commercial-terms XOR CHECK: `commission_kind='bps'` requires `commission_bps` and forbids `commission_flat_minor`, and vice-versa — a promoter with no terms at all is rejected.** `tier` and `party_kind` accept only their ratified label sets. **`UNIQUE(code_normalized)` rejects a second code differing only by Crockford-confusable characters** (`O`/`0`, `I`/`L`/`1`) after normalization. The `venue.order` candidate-freeze trigger raises once the order leaves `pending`. **The cross-settlement commission unique rejects lining the same attribution into a second settlement** — the constraint whose absence made double-payment possible (schema §3.14.1). `settlement_commission_lines` now returns a row for a seeded attribution. |
+
+### `091_kernel_reserve_stub` — the ONLY Gate-K object built in MVP
+
+| Field | Value |
+|---|---|
+| **Purpose** | Create `kernel.reserve` as an empty-shaped stub so the extension point exists in the chain and its RLS/grants are correct from day one — **with no writers, no reserve math, no clawback, no double-entry ledger.** Its defining property is that it is always empty and always droppable; nothing may be added to it. |
+| **Tables** | `kernel.reserve` (`reserve_id` PK; `org_id` FK; `balance_minor` default 0; `currency` default `'USD'`; timestamps). |
+| **Functions** | none. **No RPC writes it in MVP.** |
+| **RLS** | Money-custody-RPC-only: RLS on, zero policies, `REVOKE ALL`. |
+| **Triggers / Indexes** | `set_updated_at`; PK only. |
+| **Grants** | `REVOKE ALL` from `anon`/`authenticated`. |
+| **Feature flags** | none — the stub has no behaviour to gate. |
+| **Dependencies** | `077` (org). |
+| **Rollback** | **REVERSIBLE.** `DROP TABLE kernel.reserve` — always valid, because the table is always empty in MVP. |
+| **Tests** | Replay green; deny-all confirmed (anon and authenticated can neither read nor write); **the table is empty and no routine in the database references it** — asserted, so "stub" is a checked property rather than an intention. |
+
+---
+
+### §8 COND-A — the event outbox. **CONDITIONAL: specified, not scheduled.**
+
+`SNATCH_IT_DOMAIN_ARCHITECTURE.md:1253` promises that *"the only new infrastructure Phase 2 introduces is
+one outbox table and a drainer on the cron that already runs"*, and DA §6.1 classifies every notification,
+rollup, commission accrual and transfer-expiry as Async/outbox. **No implementation spec schedules one.**
+
+**If ratified:** the table lands in **`076`** — it has zero FK dependencies (`aggregate_kind`/`aggregate_id`
+are polymorphic by design), so it is born with the schemas and no producer package gains a dependency
+edge. Schema home is `notify.outbox` if COND-B is Gate P, `kernel.event_outbox` if not. The drainer is one
+`SECURITY DEFINER` RPC on the **2-minute `pg_cron` heartbeat that already runs**, using
+`pg_try_advisory_xact_lock` + `FOR UPDATE SKIP LOCKED`; under SEAM-1 it lands with the last consumer it
+must reach. Rollback posture **CLEAN-WHILE-EMPTY**. Full column list, uniques and the lock-order rule
+(*the outbox row is written last in its transaction, after every money/custody row*) are in schema §13.3.
+
+**Unimplementable without it:** the entire Apple Wallet push path (supersession runs in the outbox
+consumer precisely so Wallet can never block or roll back a transfer — the two alternatives are both
+prohibited); the door-manifest open transaction as specified (DOOR §6 steps 5–11 are all-or-nothing and
+step 11 inserts the envelopes); scanner push-to-sync; every notification.
+**Not affected:** CRM export (`pg_cron` + `pg_net` + claim-lease), demographics, promoter codes, money
+authority. **Owner ruling required.**
+
+### §8 COND-B — the `notify` schema. **CONDITIONAL: specified, not scheduled.**
+
+Ratified row **C7 is Gate P / MVP and names `notify`**; all four implementation specs place it at Gate L /
+do-not-build. Both readings are defensible and neither disposes of the venue dashboard's binding
+dependency on the notification plane.
+
+**If Gate L:** not built. `kernel.identity_ext.locale` (`077`) and `catalog.event_session.session_version`
+(`078`) are added anyway — cheap, additive, and unrecoverable later without a data-bearing migration.
+**If Gate P:** the nine `notify.*` tables land as **a new package `092`**, not folded into `091` (which is
+a droppable stub — the same argument that keeps `084` pure) and not earlier, because `notify.drain_outbox`
+reads `venue.promoter_link` (`090`) and SEAM-1 therefore floors it at `090`. **That makes the chain 17
+packages, `076`–`092`, and falsifies the registry's "16 packages … no gaps, no duplicates" assertion — a
+structural change requiring re-ratification.**
+
+**The two conditionals are coupled.** Outbox-in / `notify`-out is coherent. `notify`-in / outbox-out is
+not: NOTIFICATIONS §4 *is* the outbox pipeline. **Owner ruling required, on both together.**
 
 ---
 
