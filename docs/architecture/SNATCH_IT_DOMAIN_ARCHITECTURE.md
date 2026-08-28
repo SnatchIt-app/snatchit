@@ -2122,6 +2122,10 @@ removed, risk-based holds):
 
 **One challenge, scoped and minor — the Canonical Core is otherwise adopted verbatim.**
 
+> **The two label lists quoted in the next paragraph are the PRE-C36 state — the defect being reported, not
+> current design.** They are retained verbatim so the challenge still reads as it was written. The current
+> labels are §7.1's fifteen plane-prefixed strings, and no bare label is legal anywhere. (D5)
+
 The Catalog defines `core.org_members` role as `owner/admin/finance/member` while `venue.staff_roles` uses
 `owner/manager/finance/marketing/door/promoter_manager`. Having a role named **`owner`** *and* **`finance`**
 in **both** the org table and the venue table invites a real authorization bug: a `SECURITY DEFINER` helper
