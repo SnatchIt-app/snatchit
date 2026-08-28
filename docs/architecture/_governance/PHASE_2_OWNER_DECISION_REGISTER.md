@@ -6,7 +6,10 @@ decision needs to be decidable — a question with named options, the failure un
 silence falls, and what is blocked until it is answered.
 
 **Built:** 2026-08-28, against branch `phase2/consolidation` at `32249f2`.
-**Corpus scanned:** `docs/architecture/**` (33 files) and `ARCHITECTURE_FREEZE.md`.
+**Corpus scanned:** every `.md` file under `docs/architecture/**` at that commit — **36** of them (23 at the
+top level, 9 under `_governance/`, 4 under `_superseded/`) — plus `ARCHITECTURE_FREEZE.md` at the repository
+root. **37 files.** Verify with `find docs/architecture -name '*.md' | wc -l`, which returns 37 once this file
+exists.
 
 ---
 
