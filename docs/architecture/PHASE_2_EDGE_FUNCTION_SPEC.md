@@ -100,6 +100,41 @@ Every edge function is exactly one of two classes, and its class is stated in it
 >
 > **EA-7.** A Class A function that cannot obtain a caller `Authorization` header **fails closed** with `401`.
 > It does not fall back to the service client. There is no degraded mode.
+>
+> **EA-8 (`verify_jwt` is a property of the DEPLOYMENT UNIT, never of a route). `SPEC CORRECTION` —
+> `EDGE-2`.** A Supabase edge function carries **one** `verify_jwt` setting for the whole function; it is set
+> per function at deploy time (§1's `config.toml` note). A specification that gives two routes of one function
+> two different `verify_jwt` values is therefore **not a specification** — it is unimplementable, and the way
+> an unimplementable spec gets implemented is that somebody picks the permissive value and writes a comment.
+> This document did that twice (`crm-export` §3.7, `door-manifest` §3.9b). Binding, from here:
+>
+> 1. **One value per function.** A function's spec states **exactly one** `verify_jwt` value. Two values ⇒
+>    **two deployed functions**, or one route deleted. There is no third outcome.
+> 2. **A route whose authority is a human JWT MUST NOT share a deployment with a route reachable without
+>    one.** This is the only combination the rule exists to prevent, and it is not a code-review matter: the
+>    permissive resolution leaves the human route **one forgotten `getUser()` away from an unauthenticated
+>    version of whatever that route returns**. For `crm-export` `/download` that is the venue's entire
+>    attendee contact list.
+> 3. **Routes may differ in auth *model* within one function** — Class B on one path, Class A on another —
+>    **only** where clause 2 is satisfied and the two routes **do not share a Supabase client**. The spec must
+>    then name which route is which class. `wallet-pass-push` (§3.12) is the sanctioned instance.
+> 4. **A machine credential checked in-function travels in a dedicated header, never in `Authorization`.**
+>    Under `verify_jwt: true` the gateway claims `Authorization`; under `verify_jwt: false` reusing it invites
+>    the same confusion in the other direction. One header, one meaning.
+> 5. **Prefer `verify_jwt: true`, and *"the caller is a machine"* is not an argument for `false`.** A
+>    `pg_cron` / `pg_net` caller presenting the project's **JWT-format** service-role key satisfies the
+>    gateway — `VERIFIED:` migrations `014_frequent_cron_schedules.sql` and `032_pre_testflight_blocker_fixes.sql`
+>    send exactly that bearer today, and §3.14/§3.15 already specify cron-invoked functions at
+>    `verify_jwt: true`. §7's `verify_jwt=false` enumeration is a **security budget**, not a convenience;
+>    every member is argued or it is not a member.
+>
+> **Why `verify_jwt: true` is a structural control and not a decorative one.** It moves the anonymous-request
+> rejection **out of the function and into the platform gateway**, before any handler code runs. That does not
+> make the function's own authorization optional — EA-4 still holds, and a JWT arriving is still not the RPC
+> seeing it — but it does mean that the *specific* catastrophe in clause 2 is no longer reachable by omission.
+> A missing check inside a `verify_jwt: true` function yields an **under-authorized** call by an identified
+> principal; the same omission inside a `verify_jwt: false` function yields an **unauthenticated** one. Those
+> are not the same severity and the spec must stop treating the choice as a deployment detail.
 
 ### 0.3 How it is tested (this is why the rule is written this way)
 
@@ -113,6 +148,12 @@ Each is a build-time or CI check, not a code-review convention:
 | **T-4** | Integration: assert `auth.uid()` observed inside the RPC equals the JWT's `sub` | equal for every Class-A function |
 | **T-5** | Static: no RPC parameter in any function is named `p_actor*`, `p_caller*`, `p_user_id`, `p_role*`, or equivalent | zero hits (EA-6) |
 | **T-6** | Integration, Class B (B-iii): wrong credential and unknown subject | identical status, identical timing budget (EA-5d) |
+| **T-7** | Static, **EA-8 clause 1**: parse every function's spec section for `verify_jwt` values | exactly **one** value per function. Two values in one section is a build failure, not a review comment |
+| **T-8** | Static, **EA-8 clause 2**: for each deployed function, intersect *(routes whose authority is a caller JWT)* with *(routes reachable without one)* | empty for every function |
+| **T-9** | Static, **the split's structural half — an absence, not a behaviour**: `CRM_EXPORT_WORKER_SECRET` in the `crm-export` (actor) deploy manifest, env list, or source | **zero hits.** The actor deployment has no worker credential to succeed with, so a worker-path coding error there cannot authorize itself |
+| **T-10** | Static, the split's other half: `createSignedUrl`, `/download`, or `authorize_export_download` in the `crm-export-worker` bundle | **zero hits.** Reaching a signed URL from the worker is not an omission bug; it requires adding code |
+| **T-11** | Integration: `crm-export` (actor) invoked with the **worker credential and no user JWT**; `crm-export-worker` invoked with a **valid exporter's JWT and no worker header** | both **403**, no job claimed, no URL minted. Neither deployment serves the other's caller |
+| **T-12** | Integration, both: **no `Authorization` header at all** | **401 emitted by the platform gateway before any handler runs** — asserted by the *absence* of a function log line, which is what distinguishes a gateway rejection from an in-function one and is the entire reason EA-8 clause 5 prefers `verify_jwt: true` |
 
 `INFERENCE:` the tests are this spec's; the money spec states the rule but names no test.
 
@@ -130,19 +171,20 @@ Each is a build-time or CI check, not a code-review convention:
 | `signing-key-provision` | §3.6 | `is_platform([platform_admin])` |
 | `wallet-pass-issue` | §3.10 | `kernel.mint_wallet_pass` authorizes atom current owner via `auth.uid()` — **was self-contradictory; resolved here** |
 | `pass-cert-provision` | §3.13 | `is_platform([platform_admin])` |
-| `crm-export` | §3.7 | export allow-list by `has_venue_role` / `has_org_role`, **re-authorized live at download**; `/purge` is `service_role`-only and has no human caller |
+| `crm-export` | §3.7 | **one route, `/download`.** Export allow-list by `has_venue_role` / `has_org_role`, **re-authorized live at download** (EX-4). The worker routes are no longer in this deployment — see `crm-export-worker` below (EA-8) |
 | `promoter-code-preview` | §3.8 | rate-limited per `auth.uid()`; eligibility is caller-scoped |
-| `door-manifest` | §3.9 | authorizes a `venue_scanner`/`venue_manager` **staff JWT** on this route (the PIN route is §3.9's Class-B sibling) |
+| `door-manifest` | §3.9b | `has_venue_role([venue_scanner, venue_manager])` on a **staff JWT**. **Single-route function** — the former PIN route is deleted and served by `door-session` `/manifest/sync` (EA-8, §3.9b) |
 
 **Class B — service-authorized. The caller is not a human, or the credential is not a JWT.**
 
 | Fn | § | Sub-class | What actually authorizes it |
 |---|---|---|---|
 | `stripe-webhook` | §4 | B-i + B-iii | Stripe HMAC-SHA256 `v1` signature, `timingSafeEqual`, ±300s replay window, `claim_stripe_webhook_event` lease. `verify_jwt=false` (frozen, I-10) |
-| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — **one of five such surfaces; see §7's enumeration, which is the only place that count is stated** |
+| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — **a member of §7's enumeration, which is the only place that set is characterized. This cell states no count** (it previously said *"one of five"*, which went stale the moment `EDGE-2` took the count to four — the precise failure mode the no-count-outside-§7 rule exists to prevent) |
 | `wallet-pass-push` | §3.12 | B-i | outbox drain / scheduler; wraps `record_wallet_push_result`, a definer-only writer. Its `is_platform` *manual* re-drive route is **Class A** (§3.12) |
 | `notify-dispatch` | §3.14 | B-i | scheduler/outbox drain; no human caller exists |
 | `notify-receipts` | §3.15 | B-i | provider (Expo/APNs) receipt poll; no human caller exists |
+| **`crm-export-worker`** | §3.7 | B-i | **NEW deployment (EA-8).** `pg_cron` drains `/build` and `/purge`; no human caller exists and none may. `verify_jwt: true` (the cron bearer is a project-signed JWT) **plus** a constant-time `CRM_EXPORT_WORKER_SECRET` in a **dedicated header**. Both wrapped RPC sets are definer / `service_role` only. **Carries no download handler and cannot mint a signed URL** |
 | `door-session` | §3.9a | B-iii | **two credentials in sequence.** A `venue.door_pin` — a loginless device credential with no `auth.uid()` (role model §7.2) — **provisions**; the **door session token** (§3.9a: `session_ref` + 256-bit secret, stored as a hash, presented on every subsequent call) **authorizes**. `kernel.assert_door_session(device, session, session_ref, token)` is the authority and is called on **every relay call**; the device id comes from its **return value**, never the request. RM-5 forbids a door session from ever being an RLS predicate |
 
 **Consequence for the door plane (role model §7.2/§7.3, RM-5):** a door session carries no `auth.uid()`, so
@@ -186,12 +228,16 @@ runs `verify_jwt=true` and re-derives the actor (C35).** The `verify_jwt=false` 
 **§7, and only in §7** — this note states no count.
 
 > **`SPEC CORRECTION` (`EDGE-1`).** This note previously read *"Only Stripe/KMS-webhook endpoints run
-> `verify_jwt=false`"*. That was false against §7's own enumeration the moment it was written: of the five
-> members, only `stripe-webhook` is a Stripe/KMS webhook. `wallet-pass-webservice` (Apple), `door-session`
-> (a loginless door), `crm-export`'s worker routes (cron) and `promoter-code-preview` (an anonymous buyer) are none of
-> those things. The sentence was the same defect §7 records in a different grammar — a **count-by-category**
-> asserted far from the enumeration, which is exactly how *"second and last"* survived in four documents.
-> **No section outside §7 may characterize the set, by count or by category.**
+> `verify_jwt=false`"*. That was false against §7's own enumeration the moment it was written: only
+> `stripe-webhook` is a Stripe/KMS webhook, while `wallet-pass-webservice` (Apple), `door-session` (a
+> loginless door) and `promoter-code-preview` (an anonymous buyer) are none of those things. The sentence was
+> the same defect §7 records in a different grammar — a **category assertion** made far from the enumeration,
+> which is exactly how *"second and last"* survived in four documents.
+> **No section outside §7 may characterize the set, by count or by category** — and this correction notice
+> now obeys its own rule: it names members to show the category claim was false, and states no total.
+> (`crm-export`'s worker routes were members when this notice was written; `EDGE-2` removed them by moving
+> both to `verify_jwt: true`. **A historical notice that restates a live count becomes a stale count**, which
+> is the same defect one layer up.)
 
 ---
 
@@ -243,11 +289,14 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | Row selection for the export in TypeScript | **REJECTED → RPC** | a query assembled in the edge is invisible to catalog assertions and pgTAP; the SQL must be one named catalog object | CRM §11.5 |
 | A second push function for the 40 new notification types | **REJECTED → `notify-dispatch`, NOT `send-push`** | §2's original *"reuse `send-push`"* verdict is right about **transport** and wrong about **pipeline**: `send-push` has no batching, no receipt loop, no retry, no idempotency and no preference check. `send-push` stays for the 15 legacy types and is **not extended** | Notifications §6.4 (`SPEC CORRECTION` to this table) |
 
-**Net new edge functions: 16** — the original 6 (`primary-checkout`, `credential-sign`,
-`signing-key-provision`, `refund-execute`, `payout-execute`, `connect-onboarding`) **+ 10 from the delta specs**
-(`crm-export`, `promoter-code-preview`, `door-session`, `door-manifest` *(optional)*, `wallet-pass-issue`,
-`wallet-pass-webservice`, `wallet-pass-push`, `pass-cert-provision`, `notify-dispatch`, `notify-receipts`)
-**+ 1 extended** (`stripe-webhook`). Every one is classified under §0.4.
+**Net new edge functions: 17** — the original 6 (`primary-checkout`, `credential-sign`,
+`signing-key-provision`, `refund-execute`, `payout-execute`, `connect-onboarding`) **+ 11 from the delta specs**
+(`crm-export`, **`crm-export-worker`**, `promoter-code-preview`, `door-session`, `door-manifest` *(optional)*,
+`wallet-pass-issue`, `wallet-pass-webservice`, `wallet-pass-push`, `pass-cert-provision`, `notify-dispatch`,
+`notify-receipts`) **+ 1 extended** (`stripe-webhook`). Every one is classified under §0.4.
+**16 → 17 by `EDGE-2`**: `crm-export` split into an actor function and a worker function, because one
+deployed function cannot carry two `verify_jwt` values (EA-8). **A count of deployed functions is a count of
+`verify_jwt` settings** — that is the whole reason this total moved.
 
 ---
 
@@ -437,10 +486,72 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **Idempotency:** RPC `command_key`. **Rate limit:** 5/60, fail-closed. **Timeout:** < 10s.
 - **Package:** `083` (`kernel.signing_key`). Rotation runbook: §5.6.
 
-### 3.7 `crm-export` — attendee export build + signed download + artifact purge — **NEW EDGE** (CRM §11.5, §6.6)
+### 3.7 `crm-export` + `crm-export-worker` — attendee export build + signed download + artifact purge — **TWO NEW EDGES** (CRM §11.5, §6.6)
 
-**THREE routes, one function** (`SPEC CORRECTION` — CRM §6.6; was two). They have **different auth models** and
-the split is the point.
+**THREE routes across TWO deployed functions** (`SPEC CORRECTION` — CRM §6.6 made it three routes; **`EDGE-2`**
+makes it two functions). They have **different auth models**, and the split is the point.
+
+> **`SPEC CORRECTION` — `EDGE-2`. THIS FUNCTION WAS SPECIFIED WITH TWO `verify_jwt` VALUES AND WAS THEREFORE
+> NOT IMPLEMENTABLE.** As written, §3.7 gave `/build` `false`, `/download` `true` and `/purge` `false` — while
+> §1's own `config.toml` note states that **`verify_jwt` is set per function at deploy time**. One function
+> cannot hold two values. §9 recon #17 recorded the conflict and left the resolution open; leaving it open was
+> the defect, because the resolution an implementer reaches for is the permissive one — deploy the whole
+> function at `verify_jwt: false` and check the JWT inside `/download` — and **that resolution puts the
+> venue's entire attendee contact list one forgotten `getUser()` away from an unauthenticated endpoint.**
+> Not a hypothetical class: §3.10 records this exact shape (`wallet-pass-issue` was `verify_jwt: true` holding
+> a service-role key with nothing saying which client reached the RPC), and §3.11 records a `verify_jwt=false`
+> surface where *"a former owner unzips their own `.pkpass` … and polls this endpoint with no device."*
+>
+> **Resolved: split into two deployed functions, both `verify_jwt: true`.**
+>
+> | | chosen | rejected |
+> |---|---|---|
+> | **(c) split, both `verify_jwt: true`** | **✔** | — |
+> | **(b) one function, `verify_jwt: true`, in-function bearer discrimination** | — | The gateway rejection is right, but the **class stays a per-request property**: one deployment, one env holding both credentials, and the Class A / Class B decision made by a `switch` on a path string. §0 requires a class **per function**; a function whose class depends on the path is not classified, it is two functions sharing a bundle. And the worker secret sits in the same env as `/download`, waiting for a routing bug |
+> | **(a) one function, `verify_jwt: false`, in-function discrimination** | — | Requires §7's enumeration to grow, and **the argument cannot be made**. `/download`'s entire authority *is* a human JWT (EX-4 re-checks the caller live against the grant tables); a `verify_jwt: false` posture for it exists only to accommodate its siblings. EDGE-1 forbids exactly this: *"a `verify_jwt=false` posture must be argued in its own section"*, and "my neighbour needed it" is not an argument |
+>
+> **What the split buys, and why each item is structural rather than conventional.** The distinction matters —
+> §0's whole complaint is about controls that are described as structural and are actually prose.
+>
+> 1. **Gateway.** Both functions are `verify_jwt: true`, so an anonymous request never reaches either
+>    function's code. The catastrophe in EA-8 clause 2 is not merely unlikely; it is **not reachable by
+>    omission**. Enforced by Supabase, not by this document.
+> 2. **Env inventory — an absence, not a behaviour.** `crm-export` (actor) **does not carry
+>    `CRM_EXPORT_WORKER_SECRET`**. A worker-path coding error inside the actor function has **no credential to
+>    succeed with**. Statically checkable against the deploy manifest (**T-9**), and an absence cannot be
+>    forgotten the way a check can.
+> 3. **Bundle contents.** `crm-export-worker` **contains no download handler, no `createSignedUrl` call and no
+>    reference to `venue.authorize_export_download`**. Minting a signed URL from the worker is not a bug
+>    reachable by forgetting something — it requires *adding code* (**T-10**).
+> 4. **§7's budget shrinks 5 → 4.** The worker routes leave the `verify_jwt=false` enumeration entirely,
+>    rather than `/download` joining it. Under EDGE-1 that count is security-relevant, so this is a real
+>    reduction in unauthenticated surface, not a relabelling.
+>
+> **Costs, stated honestly rather than buried:** two deploys instead of one; the row-builder, storage and
+> Sentry helpers move to `_shared/crm-export.ts` so the split does not become two divergent copies (the C53
+> failure mode, one layer down); and **CRM §11.5's *"one function"* framing is now wrong** — `REPORTED, NOT
+> MADE HERE`, §9 recon #17.
+>
+> **The cron bearer is a JWT — this is why `verify_jwt: true` costs nothing here.** `pg_cron` invokes edge
+> functions via `net.http_post` with `Authorization: Bearer <service_role_key>` (`VERIFIED:` migrations
+> `014_frequent_cron_schedules.sql`, `032_pre_testflight_blocker_fixes.sql`), and the JWT-format service-role
+> key satisfies the gateway. The worker secret is therefore a **second, independent factor in its own header**
+> (EA-8 clause 4) — it is what distinguishes cron from *any other holder of a project JWT*, which the gateway
+> alone cannot do.
+>
+> **`SPEC CORRECTION` — `EDGE-3`, and it invalidates a comparison this spec asked for twice.** §3.7's original
+> `/build` cell said the cron caller is authenticated by *"a service-role bearer, **constant-time compared**"*.
+> **On this project that comparison cannot succeed.** Under Supabase's newer signing-key system the runtime
+> `SUPABASE_SERVICE_ROLE_KEY` env value is a **41-character opaque secret**, while the value `pg_cron` sends is
+> the **219-character JWT-format key** from the dashboard — they are different strings, so
+> `constantTimeEqual(bearer, SUPABASE_SERVICE_ROLE_KEY)` is **always false**. `VERIFIED:` this is recorded in
+> the repository's own shipped code, `supabase/functions/enforce-transfer-expiry/index.ts`, which is why
+> `INTERNAL_CRON_SECRET` exists at all. **Consequences, applied throughout this spec:** every internal
+> function's machine credential must be a **dedicated secret** (`CRM_EXPORT_WORKER_SECRET`,
+> `INTERNAL_CRON_SECRET`) compared constant-time in a dedicated header — never the service-role key; and
+> §3.14/§3.15's *"accepting **either** `INTERNAL_CRON_SECRET` **or** the service-role key"* is corrected in
+> those sections, because the service-role half is **dead code** on this project and a dual-secret check with
+> one dead half is a single-secret check that reads like a fallback.
 
 > **Why the third route exists, and why its absence was a hole rather than an omission.** `venue.revoke_export`
 > and `venue.sweep_expired_exports` are `SECURITY DEFINER` **Postgres** functions, and **a Postgres function
@@ -451,13 +562,14 @@ the split is the point.
 > 24-hour sweep"* defence was unimplementable as specified, and revoke could not remove the file it claimed to
 > remove. **`POST /purge` is the only Storage delete agent in the entire design.**
 
-| | `POST /build` (worker) | `POST /download` (actor) | `POST /purge` (worker) |
+| | `POST /build` — **`crm-export-worker`** | `POST /download` — **`crm-export`** | `POST /purge` — **`crm-export-worker`** |
 |---|---|---|---|
-| **verify_jwt** | `false` — invoked by `pg_cron` via `net.http_post` with a service-role bearer, **constant-time compared** (I-9) | **`true`** — actor re-derived via `auth.getUser` (C35) | `false` — **the same cron + `CRM_EXPORT_WORKER_SECRET` path as `/build`**, same constant-time compare |
-| **Auth model (§0)** | **Class B (B-i + B-iii)** — no human caller exists; `venue.build_export_rows` is `REVOKE EXECUTE FROM anon, authenticated` and re-derives authority **from the job row's recorded actor and scope**, not from the caller | **Class A (EA-1)** — `venue.authorize_export_download` **re-checks the caller's authority live against the grant tables at this instant** (EX-4), **including the job's `template_id`**. With a service client that re-check is vacuous, so this route is Class A without exception | **Class B (B-i + B-iii)** — no human caller exists and none may. Both wrapped RPCs are definer / `service_role` only |
+| **Deployed function** | **`crm-export-worker`** | **`crm-export`** | **`crm-export-worker`** |
+| **verify_jwt** | **`true`** — `pg_cron` invokes it via `net.http_post` with the project's JWT-format service-role bearer, which satisfies the gateway (`VERIFIED:` migrations 014/032). **Second factor:** `CRM_EXPORT_WORKER_SECRET` in the dedicated header `X-Crm-Export-Worker`, **constant-time compared** (I-9), fail-closed. **Never compared against `SUPABASE_SERVICE_ROLE_KEY`** — see `EDGE-3` above | **`true`** — actor re-derived via `auth.getUser` (C35) | **`true`** — **the identical cron + `X-Crm-Export-Worker` path as `/build`**, same constant-time compare |
+| **Auth model (§0)** | **Class B (B-i + B-iii)** — no human caller exists; `venue.build_export_rows` is `REVOKE EXECUTE FROM anon, authenticated` and re-derives authority **from the job row's recorded actor and scope**, not from the caller. **A valid user JWT with no worker header is refused `403`** (T-11) — a human never reaches a worker route | **Class A (EA-1)** — `venue.authorize_export_download` **re-checks the caller's authority live against the grant tables at this instant** (EX-4), **including the job's `template_id`**. With a service client that re-check is vacuous, so this route is Class A without exception. **This deployment holds no worker secret** (T-9) | **Class B (B-i + B-iii)** — no human caller exists and none may. Both wrapped RPCs are definer / `service_role` only |
 | **Wraps** | `venue.build_export_rows` (paged) → `venue.finalize_export` | `venue.authorize_export_download` → `{ object_path, ttl_seconds: 300 }` | `venue.claim_artifacts_for_purge(p_limit)` → Storage `remove()` → `venue.confirm_artifact_purged(p_job_id, p_outcome)`; **once per day** also `venue.reconcile_export_orphans` |
-| **External I/O** | Storage upload to the private `crm-exports` bucket | Storage `createSignedUrl(path, 300)` | **Storage `remove()` and `list()` — the only delete agent in this design** |
-| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRM_EXPORT_WORKER_SECRET`, `SENTRY_DSN` | same | same |
+| **External I/O** | Storage upload to the private `crm-exports` bucket | Storage `createSignedUrl(path, 300)` — **and this call appears in no other deployment** (T-10) | **Storage `remove()` and `list()` — the only delete agent in this design** |
+| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, **`CRM_EXPORT_WORKER_SECRET`**, `SENTRY_DSN` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN` — **`CRM_EXPORT_WORKER_SECRET` is deliberately ABSENT, and its absence is the control** (T-9). The service-role key stays, legitimate under **EA-2**, for the Storage `createSignedUrl` call only | as `/build` |
 | **Rate limit** | n/a (cron-paced + per-org concurrency cap of 2 running jobs) | `check_rate_limit` fail-closed: 3 per actor per job, 10 per actor / 24 h | n/a (cron-paced) |
 | **Idempotency** | claim lease + `UNIQUE(requested_by, command_key)`; a re-drive overwrites the same `{org_id}/{job_id}.csv` | none needed — a signed URL is not a side effect | the `purge_lease_until` claim lease (the 064 pattern, **distinct from the build's `lease_until`**); **a 404 from `remove()` is SUCCESS, not an error** — the object is gone, which is the goal — so a repeat is a no-op |
 | **Failure** | 400 / 403 / 409 / 429 / 503; job left reclaimable by the lease | same | leaves the row `delete_pending` with the lease expired so the next cycle retries; **> 3 failed cycles raises a `platform_risk` signal.** A delete that never succeeds is an alarm, not a silent gap |
@@ -501,7 +613,10 @@ the split is the point.
   redeemable and buys nothing about the **data**.* The controls that matter are the 24-hour artifact sweep, the
   32 MB object cap, the per-actor daily cap, and revoke.
 - **Sentry:** unexpected 500s and any storage failure. **Failure:** 400 / 403 / 409 / 429 / 503, job left
-  reclaimable by the lease. **Package:** `087` (Phase I).
+  reclaimable by the lease. **Package:** `087` (Phase I) — **now two deployed functions in that package,
+  `crm-export` and `crm-export-worker`** (`EDGE-2`; registry/migration-plan change `REPORTED` at §9 recon #17).
+  Shared row-building, Storage and Sentry helpers live in **`_shared/crm-export.ts`** so the split is one
+  implementation deployed twice, not two implementations that will diverge.
 
 ### 3.8 `promoter-code-preview` — checkout code preview — **NEW EDGE** (Promoter §7.10)
 
@@ -672,15 +787,36 @@ and joins no custody sequence.
 - **Purpose:** parity with §5.4.2 — M1 is KMS-signed, so M2 should be too. KMS-signs
   `{ manifest_id, manifest_version, session_id, not_after, manifest_digest }` and returns the artifact. The
   signature is **deterministic over the digest**, so re-signing is free: no stored signature, no unsigned window.
-- **Two routes, two auth models — and this is the whole design note:**
-  - **staff route — Class A (EA-1), `verify_jwt: true`.** A `venue_scanner` / `venue_manager` **staff JWT**;
-    `venue.get_door_manifest` authorizes on `has_venue_role(venue,[venue_scanner, venue_manager])`, a
-    caller-identity predicate, so the RPC call rides the caller's `Authorization` header.
-  - **PIN route — Class B (B-iii), `verify_jwt: false`.** A door session, per §3.9a. `get_door_manifest` also
-    accepts *"a valid non-expired `venue.door_pin` bound to the session"*, and that path has no `auth.uid()`.
+- **ONE route, one auth model, one `verify_jwt` value — `SPEC CORRECTION` (`EDGE-2`).**
+  **staff route only — Class A (EA-1), `verify_jwt: true`.** A `venue_scanner` / `venue_manager` **staff
+  JWT**; `venue.get_door_manifest` authorizes on `has_venue_role(venue,[venue_scanner, venue_manager])`, a
+  caller-identity predicate, so the RPC call rides the caller's `Authorization` header.
+
+> **`SPEC CORRECTION` — `EDGE-2`. THE PIN ROUTE IS DELETED, NOT SPLIT — AND DELETING IT CLOSES AN `H-3`
+> RELAPSE.** This section previously specified a second route, *"PIN route — Class B (B-iii),
+> `verify_jwt: false`,"* giving one function two `verify_jwt` values. Under **EA-8 clause 1** that is
+> unimplementable, and clause 2 forbids the permissive resolution outright: the staff route's authority **is**
+> a human JWT.
+>
+> **Splitting was not necessary, because the second route was already redundant.** §3.9a's `door-session`
+> function *already* exposes `/manifest/sync` as a relay route wrapping `venue.get_door_manifest`, already at
+> `verify_jwt: false`, already Class B (B-iii), and already gated on `kernel.assert_door_session` on **every**
+> call. The door's manifest fetch therefore has a home; this section's PIN route was a **second, weaker door
+> to the same room**.
+>
+> **Weaker in the specific way `AUTHZ-H3` was raised about.** The deleted route authorized on *"a valid
+> non-expired `venue.door_pin` bound to the session"* — a **provisioning** fact. That is precisely the
+> predicate `AUTHZ-H3` condemned: `venue.door_pin` carries no device column (schema §3.10), so the check was
+> satisfied by *any* live PIN for that session, including one issued to a different device — and it consulted
+> nothing the requesting device actually **holds**. §3.9a fixed exactly this for `/scan`, `/offline-batch` and
+> `/manifest/sync` by requiring possession of the door session token. Leaving the PIN route here would have
+> **reintroduced the provisioning-not-possession gate on the manifest**, one section after closing it, on the
+> artifact that tells the door which tickets to admit. **A route deleted is a route that cannot drift back.**
+>
+> **Net effect on §7's budget: zero.** The door's `verify_jwt=false` traffic moves onto `door-session`, which
+> is already enumerated; no surface is added, and one ungated predicate is removed.
 - **`INFERENCE`, flagged:** door §16 OQ-7 specifies this function's behaviour but states **no** `verify_jwt`
-  value, no env list, and no JWT-vs-PIN handling. The two-route split above is this spec's resolution under
-  §0 and is the minimum that makes the function specifiable. → §9 recon #9.
+  value and no env list. The single-route resolution above is this spec's, under §0 and EA-8. → §9 recon #9.
 - **Secrets:** `KMS_SIGNER_ROLE_ARN` / `KMS_ENDPOINT`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`.
 - **Recommendation:** build it. **The TLS-only fallback is acceptable for MVP if KMS budget is constrained** —
   but note that M2's *integrity* then rests on transport alone while M1's does not. **Package:** `086`.
@@ -717,13 +853,14 @@ and joins no custody sequence.
 - **Method:** `GET`/`POST`/`DELETE` on Apple's five fixed paths. **verify_jwt:** **`false`** — iOS presents
   `Authorization: ApplePass <token>`, not a Supabase JWT.
   > **`SPEC CORRECTION` — the count was wrong and had been copied.** This section, §0.4, §2 and Wallet §6.1 all
-  > called this *"the second and last"* `verify_jwt=false` surface. **It is not.** §7 enumerates **five**:
-  > `stripe-webhook`, `wallet-pass-webservice`, **`door-session`**, `crm-export`'s worker routes (`/build` +
-  > `/purge`), and
-  > `promoter-code-preview`. `door-session` is the one that matters here — it relays scan and offline-batch
-  > calls holding the service-role key (§3.9a) — and three documents asserting "second and last" is how a
-  > third unauthenticated surface arrives without anyone counting it. **The count is stated in exactly one
-  > place, §7. No other section states a count; they cite §7.** A `verify_jwt=false` posture must be argued in
+  > called this *"the second and last"* `verify_jwt=false` surface. **It is not** — §7 enumerates others,
+  > **`door-session`** among them, and that is the one that matters here: it relays scan and offline-batch
+  > calls while holding the service-role key (§3.9a). Three documents asserting "second and last" is how a
+  > third unauthenticated surface arrives without anyone counting it. **The set is characterized in exactly one
+  > place, §7. No other section states a count; they cite §7 — including this notice, which is why it now
+  > names a member instead of a total** (its earlier text said "five", and `EDGE-2` has since made it four:
+  > a corrected count copied out of §7 goes stale exactly like the wrong one did).
+  > A `verify_jwt=false` posture must be argued in
   > its own section and enumerated in §7, in the same change.
 - **Auth model: Class B (B-i + B-iii).** The caller is an Apple device. The per-pass `authenticationToken`
   is the credential. All DB access is through definer RPCs using `service_role`; **the function never issues
@@ -756,10 +893,20 @@ and joins no custody sequence.
 
 ### 3.12 `wallet-pass-push` — APNs pass-update push — **NEW EDGE** (Wallet §6.3)
 
-- **Method:** `POST`. **verify_jwt:** `true`. **Auth model: Class B (B-i)** on its normal route — a scheduler
-  or the outbox drains it, and it wraps `record_wallet_push_result`, a definer-only writer. **Its manual
-  `is_platform` re-drive route is Class A (EA-1)** and must build its client from the operator's
-  `Authorization` header; the two routes must not share a client.
+- **Method:** `POST`. **verify_jwt:** `true` — **one value, for both routes.** **Auth model: Class B (B-i)**
+  on its normal route — a scheduler or the outbox drains it, and it wraps `record_wallet_push_result`, a
+  definer-only writer. **Its manual `is_platform` re-drive route is Class A (EA-1)** and must build its client
+  from the operator's `Authorization` header; the two routes must not share a client.
+  > **This is EA-8 clause 3's sanctioned instance, and it is worth saying why it is allowed where §3.7 and
+  > §3.9b were not.** Two routes here differ in **auth model**, not in `verify_jwt`: both are `true`, so
+  > **neither route is reachable without a project-signed JWT** and clause 2 is satisfied with room to spare.
+  > Nothing here is one omission away from an unauthenticated endpoint — the worst an omission yields is a
+  > push re-driven by an identified principal who should not have. Obligations that make it hold rather than
+  > merely read well: the routes are **distinct paths**; the scheduler path requires `INTERNAL_CRON_SECRET` in
+  > a **dedicated header** (EA-8 clause 4, and **never** a comparison against `SUPABASE_SERVICE_ROLE_KEY` —
+  > `EDGE-3`); the `is_platform` path **refuses** a request carrying that header, and the scheduler path
+  > **refuses** one carrying a user JWT. Two routes that accept each other's callers are one route with two
+  > names.
 - **Drained from the existing outbox** (C12 envelope: per-aggregate monotonic `sequence`, `causation_id`,
   `correlation_id`, at-least-once, consumer idempotent by dedup key).
   **Dedup key:** `(wallet_pass_id, trigger_kind, cause_ref, registration_id)`.
@@ -783,13 +930,25 @@ and joins no custody sequence.
 
 ### 3.14 `notify-dispatch` — the notification delivery pipeline — **NEW EDGE** (Notifications §4.6, §6.4)
 
-- **Method:** `POST`. **verify_jwt:** `true`, **plus** a constant-time bearer check accepting **either**
-  `INTERNAL_CRON_SECRET` **or** the service-role key. **Auth model: Class B (B-i)** — cron-invoked; there is no
-  human caller and no `auth.uid()` to preserve. `notify.claim_deliveries` / `notify.record_delivery_result` are
-  `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` then `GRANT … TO service_role`.
-- **`SPEC CORRECTION` (Notifications §6.4):** `send-push` accepts **only** the service-role key while both its
-  callers accept both — the inconsistency that killed the outbid path (D-7). **Every new internal function
-  accepts both secrets, compared constant-time.**
+- **Method:** `POST`. **verify_jwt:** `true`, **plus** a constant-time check of `INTERNAL_CRON_SECRET`
+  presented in a **dedicated header** (EA-8 clause 4). **Auth model: Class B (B-i)** — cron-invoked; there is
+  no human caller and no `auth.uid()` to preserve. `notify.claim_deliveries` /
+  `notify.record_delivery_result` are `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` then
+  `GRANT … TO service_role`.
+- **`SPEC CORRECTION` — `EDGE-3`. The "dual-secret" check had one dead half, and this section specified it.**
+  This section previously required *"a constant-time bearer check accepting **either** `INTERNAL_CRON_SECRET`
+  **or** the service-role key."* **The service-role half cannot match on this project.** Under Supabase's
+  newer signing-key system the runtime `SUPABASE_SERVICE_ROLE_KEY` env value is a **41-character opaque
+  secret**, while `pg_cron` sends the **219-character JWT-format** key — `constantTimeEqual` of the two is
+  **always false**. `VERIFIED:` recorded in the repository's shipped
+  `supabase/functions/enforce-transfer-expiry/index.ts`, which is the reason `INTERNAL_CRON_SECRET` exists.
+  **A dual-secret check with one dead half is a single-secret check that reads like a fallback** — and a
+  reader who trusts the fallback will delete the working half. The requirement is now **one** dedicated
+  secret, in its own header, compared constant-time. The service-role key's only remaining job on this path
+  is what EA-8 clause 5 gives it: satisfying the `verify_jwt: true` gateway as the `Authorization` bearer.
+- **`SPEC CORRECTION` (Notifications §6.4) — unchanged in substance:** `send-push` accepts **only** the
+  service-role key while both its callers accept both; that inconsistency killed the outbid path (D-7). The
+  fix is that every new internal function uses **the same one dedicated secret**, not that it accepts more.
 - **Schedule:** `pg_cron * * * * *`. **Pipeline:** claim `pending` deliveries with `next_attempt_at <= now()`
   under a lease → render → Expo (**chunked at 100 messages per request** — there is no chunking today) or
   Resend → `notify.record_delivery_result`. Honours `429` + `Retry-After` by setting `next_attempt_at`, **never
@@ -805,14 +964,17 @@ and joins no custody sequence.
 - **Secrets:** `INTERNAL_CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `EXPO_PUSH_URL`,
   `RESEND_API_KEY`, `EMAIL_ENABLED`, `SENTRY_DSN`.
 - **Logging: never** `rendered_body` for a `security_*` type, an announcement body, or any counterparty name.
-- **Uses `_shared/notify-auth.ts`** (NEW) — one `constantTimeEqual` + dual-secret check replacing **five**
-  copy-pasted implementations. **`send-push` stays for the 15 legacy push types and is NOT extended.**
+- **Uses `_shared/notify-auth.ts`** (NEW) — one `constantTimeEqual` + **single dedicated-secret** header check
+  (`EDGE-3`; it was specified as a dual-secret check, and the service-role half is dead on this project)
+  replacing **five** copy-pasted implementations. **`send-push` stays for the 15 legacy push types and is NOT
+  extended.**
 - **Package:** `076+`; the notifications spec assigns no package number — see §9 recon #10.
 
 ### 3.15 `notify-receipts` — provider receipt poll + dead-token revocation — **NEW EDGE** (Notifications §4.6)
 
-- **Method:** `POST`. **verify_jwt:** `true` + the same dual-secret constant-time bearer check.
-  **Auth model: Class B (B-i)** — cron-invoked provider poll, no human caller.
+- **Method:** `POST`. **verify_jwt:** `true` + the same **single** dedicated-header `INTERNAL_CRON_SECRET`
+  constant-time check (`EDGE-3`, §3.14). **Auth model: Class B (B-i)** — cron-invoked provider poll, no human
+  caller.
 - **Schedule:** `pg_cron */15 * * * *`. Polls Expo's receipts endpoint for `provider_receipt_id` values older
   than 15 minutes:
   - `DeviceNotRegistered` → `push_tokens.revoked_at = now()`, `revoked_reason = 'device_not_registered'`.
@@ -1265,11 +1427,20 @@ flowchart TB
   for the RPC from the caller's `Authorization` header** (EA-1); the service-role key is for external I/O only
   (EA-2). No function passes an actor, a role, or an authority assertion as an RPC parameter (EA-6). Tests
   T-1…T-6 (§0.3) are CI gates, not review conventions.
-- **verify_jwt:** `true` for every user-facing edge (JWT actor re-derived via `auth.getUser`, C35).
-  **`false` for exactly FIVE surfaces — this list is the single authoritative enumeration, and no other
+- **verify_jwt:** `true` for every user-facing edge (JWT actor re-derived via `auth.getUser`, C35) — **and
+  for every machine-invoked edge too, per EA-8 clause 5.**
+  **`false` for exactly FOUR surfaces — this list is the single authoritative enumeration, and no other
   section may state a count** (`SPEC CORRECTION`: §0.4, §2, §3.11 and Wallet §6.1 each said *"second and
   last"*, which was wrong and had been copied between them; a third unauthenticated surface arrived while
   three documents asserted there could not be one). Each is argued rather than inherited:
+
+  > **`SPEC CORRECTION` — `EDGE-2`: the count moved FIVE → FOUR, and it moved DOWN.** `crm-export`'s worker
+  > routes left this list. They did not leave by being re-argued; they left because §3.7 split into two
+  > deployed functions, **both `verify_jwt: true`** — the cron caller's project-signed service-role bearer
+  > satisfies the gateway, so *"the caller is a machine"* never needed this budget in the first place. The
+  > only two edits this list has ever taken are a correction upward (a surface that was always there and had
+  > not been counted) and this one downward. **A change to this number is a change to the system's
+  > unauthenticated attack surface and is reviewed as one.**
   1. `stripe-webhook` — Stripe-signed, frozen I-10.
   2. `wallet-pass-webservice` — Apple presents `ApplePass`, not a JWT (§3.11); **requires a security
      sign-off**, and carries §11.6a's liveness preconditions.
@@ -1277,20 +1448,25 @@ flowchart TB
      **door session token** is what every subsequent call presents (§3.9a). **This is the highest-risk member
      of the set**: it relays admission while holding the service-role key, and RLS is bypassed entirely behind
      it. Its security sign-off is owed alongside `wallet-pass-webservice`'s, not after it.
-  4. `crm-export` **worker routes — `/build` AND `/purge`** — both cron-invoked with the same constant-time
-     `CRM_EXPORT_WORKER_SECRET` bearer (§3.7). **One surface, two routes**, because they share one function,
-     one credential, one comparison and one caller. `/purge` was added by CRM §6.6 and is **the only Storage
-     delete agent in the design**; it is enumerated here rather than inheriting `/build`'s posture silently.
-  5. `promoter-code-preview` — an unauthenticated buyer may type a code; grants nothing (§3.8).
+  4. `promoter-code-preview` — an unauthenticated buyer may type a code; grants nothing (§3.8).
 
-  **The unit of enumeration is the *surface*, and the count is FIVE.** A surface is one function-plus-credential
-  posture; `crm-export`'s two worker routes are one surface and its `/download` route is not a member at all.
-  **Route count is therefore six and surface count is five — state which one you mean or say neither.**
+  **Explicitly NOT members, recorded so they are not re-added by inheritance:**
+  **`crm-export` / `crm-export-worker`** — both `verify_jwt: true` since `EDGE-2`; the worker's credential is
+  a dedicated header, not a `verify_jwt` posture. **`door-manifest`** — single staff-JWT route since
+  `EDGE-2`; its deleted PIN route's traffic lives on `door-session` `/manifest/sync`, already member 3.
+  **`notify-dispatch` / `notify-receipts`** — cron-invoked at `verify_jwt: true`, which is the precedent
+  EA-8 clause 5 generalizes.
+
+  **The unit of enumeration is the *surface*, and the count is FOUR.** A surface is one
+  function-plus-credential posture. Since `EDGE-2` every member is a whole function rather than a subset of
+  one's routes, so **surface count and function count now coincide at four** — which is the shape this list
+  should always have had, because a *route*-level `verify_jwt` was never implementable (EA-8).
 
   **`verify_jwt: false` is never a default and never inherited from a neighbouring function *or from a
-  neighbouring route*.** Adding a sixth surface — **or a third worker route to an existing one** — requires an
-  argued section **and** an edit to this list in the same change; a function or route whose section claims the
-  posture but is absent here is a defect, not a new member.
+  neighbouring route*.** Adding a fifth surface requires an argued section **and** an edit to this list in the
+  same change; a function or route whose section claims the posture but is absent here is a defect, not a new
+  member. **A new function may not join this list on the ground that its caller is a machine** — EA-8
+  clause 5 settles that case, and settling it is what took the count from five to four.
 - **CORS + security headers:** copy the whitelist (`snatchitapp.com`, `www.`) + `getSecurityHeaders()` from the
   existing functions on every response, including error and OPTIONS.
 - **Secrets (names only, never values):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`,
@@ -1319,8 +1495,8 @@ flowchart TB
   | `door-session` `/mint` (PIN attempt) | `NS_DOOR_PIN` | `venue_id \|\| ':' \|\| device_id_claim` |
   | `door-session` relay routes | `NS_DOOR_SESSION` | `session_ref` (authenticated; **not** the claimed device id) |
   | `promoter-code-preview` (anon) | `NS_PROMOCODE` | `ip \|\| ':' \|\| sha256(user_agent)` (§3.8, already written) |
-  | `crm-export` `/build` | `NS_EXPORT_JOB` | the job row's `export_job_id` |
-| `crm-export` `/purge` | — | **cron-paced; no limiter.** The only caller is `pg_cron`, and a limiter on the sole delete agent would be a control that stops deletions |
+  | `crm-export-worker` `/build` | `NS_EXPORT_JOB` | the job row's `export_job_id` |
+| `crm-export-worker` `/purge` | — | **cron-paced; no limiter.** The only caller is `pg_cron`, and a limiter on the sole delete agent would be a control that stops deletions |
 
   **The PIN attempt and the relay routes must use different namespaces**, so PIN grinding cannot consume the
   scanning budget of a legitimately provisioned door, and a busy door cannot mask a PIN-grinding attack.
@@ -1356,21 +1532,26 @@ flowchart TB
 | `payout-execute` | POST | true | **A** | `has_org_role([org_finance,org_owner])` / `is_platform`; SoD; step-up | `close_settlement`/`request_org_payout`/`release_payout` | Stripe transfer | `payout_${payout_id}_${dest}_src` | `085` |
 | `refund-execute` | POST | true | **A** | buyer(capped)/`org_owner`/`org_finance`/`is_platform`; second-approver SoD | `request_order_refund`/`approve_refund_request`/`refund_primary_order`/`admin_refund`/`cancel_event` | Stripe refund | `refund_${refund_id}` | `085` |
 | `signing-key-provision` | POST | true | **A** | `is_platform([platform_admin])` | `provision/rotate/revoke_signing_key` | KMS keygen | `command_key` on RPC | `083` |
-| `crm-export` `/download` | POST | true | **A** | live re-check of the export allow-list at download time (EX-4) | `venue.authorize_export_download` | Storage signed URL (300s) | n/a | `087` |
-| `crm-export` `/build` | POST | **false** | **B-i/B-iii** | `service_role` only; authority re-derived from the **job row's** actor + scope | `venue.build_export_rows` → `venue.finalize_export` | Storage upload | claim lease + `UNIQUE(requested_by, command_key)` | `087` |
-| `crm-export` `/purge` | POST | **false** | **B-i/B-iii** | `service_role` only; **no human caller exists or may** | `venue.claim_artifacts_for_purge` → `venue.confirm_artifact_purged`; daily `venue.reconcile_export_orphans` | **Storage `remove()` + `list()` — the only delete agent in the design** | `purge_lease_until` lease; **404 from `remove()` = success** | `087` |
+| **`crm-export`** `/download` | POST | true | **A** | live re-check of the export allow-list at download time (EX-4). **Deployment holds no worker secret** (T-9) | `venue.authorize_export_download` | Storage signed URL (300s) | n/a | `087` |
+| **`crm-export-worker`** `/build` | POST | **true** ᵇ | **B-i/B-iii** | `service_role` only; authority re-derived from the **job row's** actor + scope; a user JWT without the worker header is **403** | `venue.build_export_rows` → `venue.finalize_export` | Storage upload | claim lease + `UNIQUE(requested_by, command_key)` | `087` |
+| **`crm-export-worker`** `/purge` | POST | **true** ᵇ | **B-i/B-iii** | `service_role` only; **no human caller exists or may** | `venue.claim_artifacts_for_purge` → `venue.confirm_artifact_purged`; daily `venue.reconcile_export_orphans` | **Storage `remove()` + `list()` — the only delete agent in the design** | `purge_lease_until` lease; **404 from `remove()` = success** | `087` |
 | `promoter-code-preview` | POST | **false** | **A** *(when a JWT is present)* | none — read-only advisory; grants nothing | `venue.preview_promoter_code` | — | n/a (idempotent read) | `090` |
 | `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session, **session_ref, token**)` on **every** relay call; **no `auth.uid()` exists**; device id **derived from the assert**, never from the request (`p_actor_device_id`) | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
-| `door-manifest` *(optional)* | POST | true / **false** | **A** *(staff JWT route)* · **B-iii** *(PIN route)* | `has_venue_role([venue_scanner,venue_manager])` **or** a valid `door_pin` | `venue.get_door_manifest` | KMS sign | deterministic over the digest | `086` |
+| `door-manifest` *(optional)* | POST | true | **A** | `has_venue_role([venue_scanner,venue_manager])`. **Single staff route** — the PIN route is deleted (`EDGE-2`); the door fetches its manifest via `door-session` `/manifest/sync`, gated on `assert_door_session` | `venue.get_door_manifest` | KMS sign | deterministic over the digest | `086` |
 | `wallet-pass-issue` | POST | true | **A** | atom current owner (`auth.uid()`, C35) | `kernel.mint_wallet_pass` | KMS sign + storage | RPC `command_key`; re-issue returns the same serial | `084` |
 | `wallet-pass-webservice` | GET/POST/DELETE | **false** | **B-i/B-iii** | per-pass `authenticationToken`, constant-time, **one serial only** | `get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` · `list_updated_wallet_passes` | KMS sign (rebuild) | natural (reads/upserts) | `084` |
 | `wallet-pass-push` | POST | true | **B-i** *(outbox)* · **A** *(manual `is_platform` re-drive)* | scheduler / `is_platform` | `record_wallet_push_result` | **APNs** | `(wallet_pass_id, trigger_kind, cause_ref, registration_id)` | `084` |
 | `pass-cert-provision` | POST | true | **A** | `is_platform([platform_admin])`, dual control | `provision/rotate/revoke_pass_type_cert` | KMS import/keygen | RPC `command_key` | `083` |
-| `notify-dispatch` | POST | true + dual bearer | **B-i** | `INTERNAL_CRON_SECRET` **or** service-role, constant-time; no human caller | `claim_deliveries` → `record_delivery_result` | Expo / Resend | `UNIQUE(notification_id, channel)` + `claimed_until` lease | `076+`ᵃ |
-| `notify-receipts` | POST | true + dual bearer | **B-i** | as above | `record_delivery_result`; revokes dead tokens | Expo receipts | `provider_receipt_id` | `076+`ᵃ |
+| `notify-dispatch` | POST | true + header secret | **B-i** | `INTERNAL_CRON_SECRET` in a dedicated header, constant-time; **not** the service-role key (`EDGE-3`); no human caller | `claim_deliveries` → `record_delivery_result` | Expo / Resend | `UNIQUE(notification_id, channel)` + `claimed_until` lease | `076+`ᵃ |
+| `notify-receipts` | POST | true + header secret | **B-i** | as above | `record_delivery_result`; revokes dead tokens | Expo receipts | `provider_receipt_id` | `076+`ᵃ |
 | `stripe-webhook` (extended) | POST | **false** | **B-i/B-iii** | Stripe HMAC signature + `claim_stripe_webhook_event` lease | `finalize_primary_order` + native branches | Stripe (inbound) | event lease + domain key | frozen |
 
 ᵃ the notifications spec states only *"these land at `076`+"* and assigns no package — §9 recon #10.
+ᵇ `verify_jwt: true` **plus** a constant-time `CRM_EXPORT_WORKER_SECRET` in the dedicated header
+`X-Crm-Export-Worker`. The gateway proves a project-signed JWT arrived; the header proves it was *cron*.
+Neither alone is sufficient and the spec says so, because EA-4's warning applies here in full: a JWT arriving
+is not the RPC seeing it, and a header arriving is not the caller being cron unless the compare is
+constant-time and fail-closed (`EDGE-2`, `EDGE-3`).
 
 **Every function above is classified. `send-push`, `notify-transfer`, `notify-report`, `confirm-payment`,
 `confirm-and-release`, `create-payment-intent`, `create-connect-account`, `delete-account`,
@@ -1413,10 +1594,20 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
 8. **`promoter-code-preview` env list.** Promoter §7.10 specifies the function, its rate limits and its
    enumeration defences but **no env/secrets list**, despite requiring a service-role client for
    `public.check_rate_limit`. §3.8's list is this spec's `INFERENCE`. **Promoter-spec owner to confirm.**
-9. **`door-manifest` auth model.** Door §16 OQ-7 specifies the function's behaviour and payload but states no
-   `verify_jwt` value, no env list, and no JWT-vs-`door_pin` handling — while
-   `venue.get_door_manifest` accepts **both** a staff role and a door PIN. §3.9b resolves it as two routes with
-   two auth models under §0. **Door-spec owner to confirm**, or collapse the function to the PIN route only.
+9. **`door-manifest` auth model — RESOLVED (`EDGE-2`), one item REPORTED.** Door §16 OQ-7 specifies the
+   function's behaviour and payload but states no `verify_jwt` value and no env list — while
+   `venue.get_door_manifest` accepts **both** a staff role and a door PIN. §3.9b previously resolved this as
+   **two routes with two `verify_jwt` values**, which EA-8 clause 1 makes unimplementable.
+   **Resolved: the function is a single staff-JWT route at `verify_jwt: true`, and the PIN route is DELETED
+   rather than split into a second function.** It was redundant — `door-session` `/manifest/sync` (§3.9a)
+   already serves the door's manifest fetch — and it was **weaker in the specific way `AUTHZ-H3` was raised
+   about**: it authorized on a live `venue.door_pin`, a *provisioning* fact, on a table with no device column,
+   so any live PIN for the session satisfied it. Keeping it would have reintroduced the
+   provisioning-not-possession gate on the very artifact that tells the door which tickets to admit.
+   **`REPORTED, NOT MADE HERE` — `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §16 OQ-7:** OQ-7's *"or a valid non-expired
+   `door_pin` bound to the session"* branch of `venue.get_door_manifest` is now reachable **only** through
+   `door-session` `/manifest/sync` behind `kernel.assert_door_session`. The RPC keeps the branch; no edge
+   exposes it on a PIN alone. **Door-spec owner to confirm.**
 10. **Notification package numbers.** The notifications spec assigns no package to `notify.*`,
     `notify-dispatch` or `notify-receipts` — only *"these land at `076`+"*. The nine `notify.*` tables, 23 RPCs
     and 2 cron jobs need a package in `076`–`091`, or a ratified amendment extending the registry.
@@ -1450,23 +1641,28 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
     `refund.*` / `payout.*` / `authn.*` only. **`wallet.*`, `credential.*` and `door.session_*` must be added**
     (Wallet §11.5b) — they gate a feature-enable and the lifetime of bearer credentials. Direction asymmetry
     applies: two approvers to loosen, one to tighten. **RLS-spec owner.**
-17. **`verify_jwt` is per-FUNCTION, but `crm-export` is specified with per-ROUTE values — RECORDED, NOT
-    RESOLVED.** §2's deployment note states that this tree carries no `supabase/config.toml` and that
-    **`verify_jwt` is set per-function at deploy time**. §3.7 and CRM §11.5 both specify `crm-export` with
-    `/build` = `false`, `/purge` = `false` and **`/download` = `true`** — three routes of *one deployed
-    function* carrying two different values, which the stated deployment model **cannot express**. Exactly one
-    of these is true and this spec does not choose between them:
-    **(a)** the function deploys `verify_jwt=false` and **`/download` must re-derive and verify the actor's JWT
-    in its own code** before touching `venue.authorize_export_download` — in which case `/download` is a Class A
-    route on a `verify_jwt=false` function, §7's enumeration must say so, and EA-4's warning
-    (*"`verify_jwt: true` proves a JWT was present; it does not prove the RPC saw it"*) applies in its mirror
-    image; or **(b)** `crm-export` is **split into two deployed functions** — a `verify_jwt=true` actor function
-    and a `verify_jwt=false` worker function — in which case CRM §11.5's "one function" framing is wrong and
-    the package `087` function list gains an entry.
-    **This is not cosmetic:** under (a), `/download` is one forgotten `getUser()` away from being an
-    unauthenticated export endpoint, and it is the single route in this design that hands out customer contact
-    data. **Owner + CRM-spec owner + whoever owns deploy configuration.** Until it is chosen, §3.7's
-    per-route table is a *requirements* statement, not a deployable configuration.
+17. **`verify_jwt` is per-FUNCTION, but `crm-export` was specified with per-ROUTE values — RESOLVED
+    (`EDGE-2`), with two items REPORTED to other owners.** §1's deployment note states that this tree carries
+    no `supabase/config.toml` and that **`verify_jwt` is set per-function at deploy time**. §3.7 and CRM §11.5
+    both specified `crm-export` with `/build` = `false`, `/purge` = `false` and **`/download` = `true`** —
+    three routes of *one deployed function* carrying two different values, which the stated deployment model
+    **cannot express**. This item previously listed options (a) and (b) and declined to choose. **Declining
+    was the defect**, because the option an implementer reaches for unprompted is (a) — deploy permissive,
+    check inside — and under (a) `/download` is one forgotten `getUser()` away from being an unauthenticated
+    endpoint handing out the venue's entire attendee contact list.
+    **Chosen: (b), with both halves at `verify_jwt: true`** — `crm-export` (Class A, `/download` only) and
+    `crm-export-worker` (Class B, `/build` + `/purge`, `CRM_EXPORT_WORKER_SECRET` in a dedicated header).
+    (a) was rejected because EDGE-1 requires a `verify_jwt=false` posture to be argued in its own section and
+    `/download`'s cannot be; the plain (b) variant with a `verify_jwt=false` worker was rejected because EA-8
+    clause 5 makes it unnecessary — cron's project-signed bearer satisfies the gateway (`VERIFIED:` migrations
+    014/032). Full reasoning, the rejected-options table and the four structural consequences: **§3.7**.
+    The generalized rule is **EA-8** (§0.2); the second instance it caught is `door-manifest` §3.9b, whose PIN
+    route is deleted rather than split. §7's enumeration goes **5 → 4**.
+    **`REPORTED, NOT MADE HERE` — two items for other owners:**
+    | Owner document | Change |
+    |---|---|
+    | `PHASE_2_CRM_EXPORT_SPEC.md` §11.5, §6.6 | Its **"one function, three routes"** framing is now wrong: **two deployed functions**. `/download` is `crm-export`; `/build` and `/purge` are `crm-export-worker`. The worker credential is a **dedicated header**, not a bearer, and **not** the service-role key (`EDGE-3`) |
+    | `PHASE_2_PACKAGE_REGISTRY.md` / `PHASE_2_SUPABASE_MIGRATION_PLAN.md` pkg `087` | The `087` function list gains **`crm-export-worker`** as a second deployed function. The `pg_cron` schedules for `/build` (1 min) and `/purge` (15 min) retarget to the worker's URL and must send the `X-Crm-Export-Worker` header |
 
 ---
 
