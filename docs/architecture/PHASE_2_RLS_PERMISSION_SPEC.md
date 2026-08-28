@@ -499,7 +499,7 @@ applied to every money/custody ledger — the exact set the prompt requires be R
 | `kernel.admin_audit` | audit-only | every privileged RPC writes its own row in-txn | privileged-action ledger |
 | `venue.scan` | venue read; RPC-only (AO) | `record_scan` · offline-reconciliation batch | admission ledger (custody-adjacent) |
 | `venue.comp_allocation` | venue read; RPC-only | `allocate_comp` · `issue_comp` | capacity-drawing (money-adjacent) |
-| `venue.attribution` | promoter/org read; RPC-only (AO) | attribution recorder (in `create_order`) | commission basis |
+| `venue.attribution` | promoter/org read; RPC-only (AO) | `venue.resolve_order_attribution`, in `finalize_primary_order` (§9.17) | commission basis |
 
 > **Clients receive ownership-log / payout / refund / market_sale / inventory-movement data ONLY as
 > `V` (scoped, redacted read RPC).** Raw ledger rows are never SELECTable by `anon`/`authenticated`. See §14.5
@@ -1264,7 +1264,56 @@ Write RPCs: guest-list CRUD RPCs; conversion to admission via the named hold fun
 ³⁹ door updates only `status`/`checked_in_at` on entries for its session.
 
 ### 9.17 `venue.promoter` / `venue.promoter_link` / `venue.attribution` (Phase 2D)
-Write RPCs: promoter CRUD; attribution recorded in-txn by `create_order` (AO). `promoter_link.slug` globally unique; link IMM.
+
+> **`SPEC CORRECTION` — the attribution write moves from `create_order` to `finalize_primary_order`.**
+> This section previously said *"attribution recorded in-txn by `create_order` (AO)"* and RPC §6.1 said the
+> same. **Four documents disagreed with those two.** DA §1.7 says attribution is *"written when an attributed
+> order is **paid**"*; CDM §1.3 defines it as *"an append-only record of a **sale**"*.
+>
+> The two were not merely inconsistent — the `create_order` placement is **unsatisfiable**. An append-only
+> ledger row written for a **pending** order records a sale that has not happened and may never happen. Most
+> abandoned carts never pay, so the ledger fills with rows every reader must then "ignore" — and an ignorable
+> append-only ledger row is a contradiction in terms. It also makes the owner requirement *"immutable once
+> economically committed"* impossible to satisfy, because the row would be frozen **before** the economic
+> commitment, and it makes a promoter's dashboard show earnings that evaporate.
+>
+> **Resolution.** Attribution **freezes at the commit of the transaction that moves `venue.order.status` from
+> `pending` to `paid`** — inside `venue.finalize_primary_order` (SSCAS member #1), in the same transaction that
+> mints the atoms. Order-paid is the point where the platform first has irreversible economic consequence
+> (money captured, tickets minted, capacity consumed); that is what *"economically committed"* means.
+> (Ticket issuance is the same instant but the wrong **aggregate** — attribution is a property of the order,
+> the money event, not of the ticket, the asset. Settlement close is far too late: the terms in force at
+> settlement rather than at sale would govern the commission.)
+>
+> **Before the freeze the candidate is fully mutable**, held in two nullable columns on `venue.order` —
+> `attribution_candidate_code_id`, `attribution_candidate_link_id` — writable **only while
+> `order.status='pending'`** and frozen by a guard trigger the instant it leaves `pending`. The candidate is
+> 1:1 with the order and dies with it, which is why it lives on the order row rather than in a second table
+> the hottest write path would have to join.
+>
+> **After the freeze nothing can change who was credited** — not the promoter, not `venue_manager`, not
+> `org_owner`, not `platform_admin`, not `service_role`. A rebind returns `attribution_frozen`; every UPDATE
+> raises on the AO guard; DELETE is denied by GP-2; deactivating the code is **not retroactive** (eligibility
+> is evaluated at freeze only); changing `commission_bps` binds new sales only, because the row snapshotted
+> `terms_version` and the applied rate. **There is no "fix a wrong attribution" path by design** — the remedy
+> is an off-ledger commercial settlement between the org and the promoter.
+>
+> **Second correction — the promoter's own-row predicate.** It must resolve
+> `venue.attribution.promoter_id = auth.uid()`, **not** `attribution → link_id → promoter_link → promoter`.
+> `link_id` is now nullable (a code-sourced attribution has no link), so the old join **silently returns zero
+> rows for every code-sourced attribution** — a promoter would see none of their code earnings. This is the
+> concrete reason `promoter_id` is denormalized onto the row, alongside `org_id`/`event_id`: an RLS predicate
+> that joins two or three tables, evaluated per row on the largest table the promoter engine has, is the
+> classic Postgres scale trap.
+>
+> **Third correction — promoter authority derivation.** Row 11 of §1.1 and §2.1 previously expressed
+> "promoter" as `venue.staff_role.role = 'venue_promoter'`. After ROLE_MODEL §9.1 that label does not exist.
+> Every promoter-facing read derives authority from **`venue.promoter.identity_id = auth.uid()` on a live
+> row** (or `kernel.is_promoter_for_event`), never from `has_venue_role`.
+
+Write RPCs: promoter CRUD; **attribution recorded in-txn by `venue.finalize_primary_order` via the internal
+`venue.resolve_order_attribution` (AO)** — never by `create_order`. `promoter_link.slug` globally unique;
+link IMM.
 
 **`venue.promoter`** and **`venue.promoter_link`** (venue/org-scoped; promoter reads OWN):
 
@@ -1508,15 +1557,186 @@ cause-codes** and internal fields, so the RN "Finalizing…" → success/compens
 table access. The C25 sweep drives the terminal transition (definer). SLO: named in the RPC/edge spec (bounded
 dwell); RLS's job is only that the read is owner-scoped and cause-code-free.
 
-### 14.3 Door-freeze signal (#3) — **ADDENDUM A2/A3 CLOSED**
-Transfer/Sell must disable once the offline door manifest opens (C6/C43, per-open-manifest-ticket scope).
-**Canonical form (RECONCILED — schema §2.3, migration 078 — package C, catalog):** the stored signal is
+### 14.3 Door-freeze signal (#3) — **CORRECTED (door lifecycle spec §3, §7.6, §13.1–§13.5)**
+
+Transfer/Sell must disable once the event is underway (C6). The stored signal is
 `catalog.event_session.door_open_at`; the ONLY authorization read is the derived helper
 `kernel.is_transfer_frozen(ticket_atom_id)` — there is **no stored `kernel.tickets.transfer_frozen` column**.
-RLS consequence: `market.create_listing`, `market.create_p2p_transfer`, `kernel.lock_ticket`, and
-`kernel.mark_ticket_scanned` re-check the helper **under the atom lock** and reject with `frozen`. This is a
-live-table recheck (I-5), never a client-trusted flag. The RN client reads the same helper (owner-scoped
-boolean via the ticket read) to disable the buttons; the edge layer never independently decides freeze.
+This is a live-table recheck (I-5), never a client-trusted flag. The RN client reads the same helper
+(owner-scoped boolean via the ticket read) to disable the buttons; the edge layer never independently decides
+freeze. **`NO SCHEMA CHANGE` to the helper's signature or to any call site** — only its body and its recheck
+set change.
+
+#### 14.3.1 The corrected predicate — total, so the freeze can never silently fail to engage
+
+The previous body was `door_open_at IS NOT NULL AND now() >= door_open_at`. That is **fail-open at NULL**: a
+session whose manifest is never opened is never frozen. Replaced with:
+
+```text
+catalog.effective_freeze_at(p_session_id) -> timestamptz NOT NULL       -- NEW helper, STABLE
+  := LEAST(
+       door_open_at,                                           -- explicit: first manifest open (nullable)
+       COALESCE(doors_at, starts_at) + config('door.implicit_freeze_offset_interval')
+     )                                                         -- implicit backstop: NEVER null
+
+kernel.is_transfer_frozen(p_ticket_atom_id) ->
+       now() >= catalog.effective_freeze_at(session_of(atom))
+   AND NOT EXISTS (active, unexpired kernel.door_freeze_override covering this atom)
+```
+
+`starts_at` is `NOT NULL` (schema §2.3), so **`effective_freeze_at` is total** — there is no input for which
+it returns NULL, and therefore **no input for which the freeze silently never engages.** That is the
+fail-closed property expressed as a type, not as a promise. `doors_at` rather than `starts_at` is the primary
+backstop because `doors_at` is when humans physically arrive; `starts_at` is often an hour later, and freezing
+there would leave an hour of live-door / open-transfer overlap — exactly the window C6 exists to close.
+
+#### 14.3.2 **The narrowing four documents described and nothing implements — corrected**
+
+Schema §2.3, RPC §12.4, **this section**, and the migration plan all previously said the freeze is *"narrowed
+per-open-manifest-ticket, not blanket per-session, per C43."* **The specified predicate is session-wide.**
+There is no per-ticket term in it, and none was ever specified. Worse, **C43 is
+`RATIFIED-MODELED-ONLY(GATE-M)` — it is not MVP**, so the narrowing could not be implemented in Phase 2 even
+if a predicate existed for it.
+
+Four documents therefore described a mechanism that does not exist and cannot be built in this phase. **This
+document now says what the mechanism does:**
+
+> **MVP: the freeze is session-wide.** `is_transfer_frozen(atom)` is true for **every** atom of a session once
+> `now() >= effective_freeze_at(session)`, subject only to an active override (§14.3.4). The
+> per-open-manifest-ticket narrowing is a **purely additive conjunct** deferred to Gate M with C43; adding it
+> later strictly *reduces* the frozen set and breaks nothing that depends on the MVP predicate.
+
+`INFERENCE:` this is the reconciliation, not a new decision — the door spec keeps the session-wide predicate
+for MVP and makes the narrowing additive. Restating it here removes an implementer's only reason to look for
+a per-ticket term that was never written.
+
+#### 14.3.3 The freeze recheck set — **CORRECTED; the old set is wrong in one direction and incomplete in three**
+
+| RPC | Old §14.3 / RPC §12.4 | **This spec** | Why |
+|---|:---:|:---:|---|
+| `market.create_listing` | rechecks | **rechecks** | correct |
+| `market.create_p2p_transfer` | rechecks | **rechecks** | correct |
+| `kernel.lock_ticket` | rechecks | **rechecks** | correct — a choke-point |
+| **`kernel.mark_ticket_scanned`** | **rechecks → rejects `frozen`** | **MUST NOT RECHECK** | **§14.3.5 — CRITICAL. As written, nobody gets in.** |
+| **`kernel.transfer_ticket_ownership`** | absent | **rechecks — THE enforcement point** | the sole custody engine; enforcing here makes bypass structurally impossible |
+| **`market.accept_p2p_transfer`** | absent | **rechecks** | the freeze gated transfer *start* but not *completion* — §14.3.6 |
+| **`kernel.void_ticket_atom`** (routine refund path only) | absent | **rechecks** | C23 extends the freeze to refund-voids |
+| `market.cancel_p2p_transfer` (cancel-to-self) | — | **exempt** | C43, ratified: owner and `credential_version` unchanged; nothing can strand |
+| `market.cancel_listing` | — | **exempt** | delisting strands nothing |
+| `catalog.cancel_event` | — | **exempt** | the session is being cancelled; no admission will occur |
+| `kernel.force_void_ticket` · `kernel.admin_refund` | — | **exempt, audited** | platform break-glass; residual is the C6 reconcile window |
+| `market.sweep_paid_pending_sales` — **complete** branch | — | **frozen** | it is a custody move |
+| `market.sweep_paid_pending_sales` — **compensate** branch | — | **exempt** | §14.3.7 — otherwise the money is stranded forever |
+| `kernel.issue_ticket_atoms` (door sale · comp · import) | — | **exempt — never frozen** | minting from ∅ is not a custody move; door-release inventory exists precisely to be sold after doors open |
+| `kernel.request_order_refund` — **parked** branch only | — | **rechecks** | a parked refund places a custody hold; it must not be parked on a door-open session (money spec §5.5) |
+
+**Every exempt path that voids an atom MUST write a `revoke` delta to the open manifest episode** (door spec
+§7.7). Without it, the exemption re-opens the offline-revocation leak it was granted to avoid. This binds all
+three voiding exemptions: `catalog.cancel_event`, `force_void_ticket`/`admin_refund`, and the C25 compensate
+branch.
+
+**Defense in depth, deliberately two-layered.** The **enforcement** points are
+`kernel.transfer_ticket_ownership` and `kernel.lock_ticket` — the choke-points nothing bypasses. The
+caller-level rechecks (`create_listing`, `create_p2p_transfer`, `accept_p2p_transfer`) exist for **error
+quality**, so a fan sees *"Transfers are closed"* rather than a generic engine failure. Both layers must hold.
+
+#### 14.3.4 The override, and what an RLS reader must know about it
+
+`kernel.door_freeze_override` (audit-only class, §16.4) is an audited, TTL-bounded, reason-coded suspension of
+the freeze's *effect*; it never alters the boundary, so `door_open_at` survives verbatim. Granting it is
+`is_platform([platform_admin])` **only** — strictly above the authority that engaged the freeze — and it is
+refused while any manifest episode is `open`, which is what preserves the Door Safety Theorem: **no custody
+move can commit while an offline manifest is armed, override or not.** Revoking (tightening) additionally
+allows `platform_risk`; the role that can *loosen* a safety property is strictly narrower than the role that
+can *restore* it. Overrides expire arithmetically (`expires_at > now()` inside the helper) with **no sweep
+required for correctness** — correctness that depends on a cron running is the failure class this whole area
+exists to prevent.
+
+#### 14.3.5 **CRITICAL — `mark_ticket_scanned` rejecting on `frozen` denies admission to every fan**
+
+The previous text of this section, and RPC §12.4 verbatim, made `kernel.mark_ticket_scanned` re-check
+`kernel.is_transfer_frozen` under the atom lock **and reject with `frozen`.**
+
+**Trace it.** Opening the manifest sets `door_open_at`. `is_transfer_frozen` then returns **true for every atom
+of the session** (§14.3.2 — the predicate is session-wide, and even after the corrected body it is true for
+every atom past `effective_freeze_at`). `mark_ticket_scanned` is the custody-side transition
+`active → scanned` that `venue.record_scan` invokes on the first valid admit. Therefore, **from the moment
+doors open until the end of the night, every scan of every valid ticket is rejected. Nobody gets in.** This is
+not a degraded mode or an edge case — it is the normal, intended operating sequence of every event, and it
+fails 100% of admissions.
+
+**Why the check was there, and why it is redundant.** The evident intent was that a mid-transfer atom must not
+be scanned. **That is already fully enforced by the function's own precondition `resale_state = 'none'`** —
+RPC §7.5, verbatim: *"a `listed`/`locked` atom cannot be scanned — 'delist first'"*. An atom in an open p2p or
+an active listing carries `locked`/`listed` and is refused on that precondition alone, with a precise reason
+(`listed_locked`), whether or not the door is open. The freeze adds nothing to it.
+
+**Why the check is also categorically wrong.** The freeze is a **custody-move** guard. Scanning is **not a
+custody move** — the same RPC document says so: *"an ownership-log entry is **not** appended (scan is not a
+custody change)"*. Applying a custody-move guard to a non-custody-move is a category error, and the category
+error is what produced the total-denial behaviour.
+
+**Correction: `kernel.mark_ticket_scanned` is REMOVED from the recheck set and MUST NEVER consult
+`kernel.is_transfer_frozen`.**
+
+**Argument that admission works after door open** (the four conditions that gate an admit, none of which is
+the freeze):
+1. the session is `live` — `venue.record_scan`'s own precondition, and the *only* thing that stops admission;
+2. the atom is `state='active'` and belongs to the session;
+3. `resale_state='none'` — the delist-first rule, which independently covers every case the freeze check was
+   reaching for;
+4. `credential_version` is current (online live verify, C37) or matches the manifest entry (offline).
+Opening the manifest changes **none** of these. It changes `door_open_at`, which drives `is_transfer_frozen`,
+which after this correction has **no reader on the admission path at all.** The drain (§14.3.8) additionally
+guarantees condition 3 is satisfiable: any atom left `listed`/`locked` when doors open is unlocked back to its
+owner at open time, so a fan mid-transfer is not refused at the door with no remedy.
+
+**Made structural, not merely documented.** A prose correction to a check that "seemed safer" will be
+re-added by the next engineer who reads the freeze section. This document therefore adopts the door spec's
+structural assertion as a **standing pgTAP test**, `T-RLS-DOOR-01` (§16.11):
+
+> `pg_get_functiondef('kernel.mark_ticket_scanned')` **does not match** `is_transfer_frozen`.
+
+plus the behavioural regressions `T-RLS-DOOR-02..04`: with an episode open and `is_transfer_frozen = true`,
+`venue.record_scan` on an `active`, `resale_state='none'` atom returns `result='admitted'` and the atom moves
+to `scanned`; a second scan returns `duplicate` with the atom still `scanned` (C41 first-in-wins holds under
+freeze); and with the session `status='completed'`, `record_scan` returns `precondition_failed` — proving
+admission is gated by **session status, not manifest state**.
+
+#### 14.3.6 The freeze gated transfer *start* but not *completion*
+
+`market.create_p2p_transfer` rechecked; **`market.accept_p2p_transfer` and
+`kernel.transfer_ticket_ownership` did not appear in the recheck set at all.** A transfer initiated at 21:00
+and accepted at 23:30, with doors open at 22:00, therefore **moved custody and bumped `credential_version`
+after the manifest snapshot was taken** — precisely the credential-stranding C6 exists to prevent. C43's TTL
+auto-unlock mitigates but does not close it; the TTL may be many hours. **Both are added, with
+`transfer_ticket_ownership` as the enforcement point** (§14.3.3).
+
+#### 14.3.7 Freezing both branches of the C25 sweep strands money forever
+
+`market.sweep_paid_pending_sales` resolves a sale stuck in `paid_pending_transfer` by **either** completing the
+transfer **or** auto-compensating (refund-void). If the freeze applied to both branches, a sale caught by
+doors-open could do **neither**: complete is a custody move (frozen) and compensate is a refund-void (frozen
+under C23). The buyer's money sits in `paid_pending_transfer` **forever** — the exact unbounded-dwell failure
+C25 exists to forbid.
+
+**Ruling: complete is frozen; compensate is EXEMPT.** A sale caught by doors-open resolves as `compensated` —
+the buyer is refunded. That is not a compromise, it is the correct outcome: a buyer who cannot receive a
+working credential before an offline door opens was never going to be admitted. The compensate branch is a
+**refund-void, not a custody move**; exempting it moves no ticket to a new owner and strands nothing. (It
+must still write its `revoke` delta — §14.3.3.)
+
+#### 14.3.8 In-flight overlays would lock fans out — the drain
+
+`mark_ticket_scanned` requires `resale_state='none'`. Once the freeze engages, `accept_p2p_transfer` is
+rejected as `frozen` (§14.3.6), so a pending transfer's atom stays `locked` until its TTL expires — possibly
+hours. A fan whose ticket is mid-transfer or listed arrives at the door and is refused, **with no action
+available to them and none to the door.** On open, before the snapshot, `venue.open_door_manifest` therefore
+**drains** the session's in-flight market overlays: `initiated` p2p transfers → `cancelled`
+(`reason_code='door_freeze'`, atom unlocked back to the **sender**, which C43 exempts because owner and
+`credential_version` do not change) and `active` listings → `cancelled`, atom unlocked. **Excluded:** any
+listing whose sale is in `paid_pending_transfer` — money is already taken and the C25 sweep owns that row
+(§14.3.7). The drain **moves no custody, appends no ownership-log row, and bumps no `credential_version`.**
 
 ### 14.4 Credential offline behavior (#4)
 The `credential-sign` edge fn returns a cacheable signed token + `credential_version`. RLS/read consequence:
