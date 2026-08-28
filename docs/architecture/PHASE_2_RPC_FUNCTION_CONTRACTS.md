@@ -1675,6 +1675,592 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   `credential_version = 0`; the CHECK rejects an `add` with a non-zero version — **the theorem made
   structural**) · `T-RPC-DOOR-16` (a mint with **no** open episode appends nothing and does **not** error).
 
+### 17.14 `venue.resolve_order_attribution(p_order_id)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+
+- **Purpose.** The promoter-attribution precedence engine, and the **sole writer of `venue.attribution`**.
+- **Actor.** `service_role`/definer only; `REVOKE EXECUTE FROM anon, authenticated`. Called **only** from
+  `venue.finalize_primary_order` **inside the paid transaction** (§6.3).
+- **Preconditions.** Called with the order row already locked `FOR UPDATE` by the caller, in the transaction
+  setting `status='paid'`.
+- **Reads (no locks taken).** `venue.order` (the candidate columns), `venue.order_item`,
+  `venue.promoter_code`, `venue.promoter_code_scope`, `venue.promoter_link`, `venue.promoter`,
+  `catalog.event_session → event`, `kernel.payment_native` (instrument fingerprint, for self-deal detection).
+- **Locks & acquisition order.** **None of its own.** The only lock in the path is the caller's **Order**
+  (rank 3), which `finalize_primary_order` already holds. **This is a deliberate constraint on the design, not
+  a lucky outcome:** any version of this feature that locked a promoter or code row during checkout would have
+  required a constitutional amendment **and** created a deadlock class between "a manager deactivates a code"
+  and "a buyer checks out". **A promoter engine must never be able to stall a checkout.**
+- **SSCAS.** `n/a`. **Member #1's lock sequence is unchanged**, and member **#5 (Attribution → commission)**
+  keeps its ratified shape — attribution is **read**, not locked, at settlement close. **C28's closed fifteen
+  and its lock order stand unamended.**
+- **Writes.** **0 or 1** `venue.attribution` row. Nothing else.
+- **Idempotency.** `UNIQUE(order_id)` — a replayed finalize hits the constraint and the function returns the
+  **existing** row.
+- **The race at the freeze boundary, and why it is deliberately not serialized.** A manager deactivates a code
+  at the same moment a checkout commits. Whichever state the resolver's snapshot saw is final: if the status
+  flip commits first the code reads `inactive` and no attribution is written; if the checkout commits first
+  the attribution stands and the deactivation binds only future sales. A benign sub-second race with a
+  deterministic outcome in **both** directions.
+- **CROSS-CUTTING RULE, binding on this and every promoter RPC.** **No attribution condition — unknown code,
+  deactivated code, out-of-scope code, malformed input, missing promoter, rate-limited preview, or resolver
+  error — may abort a checkout, refuse a payment, or roll back an issuance.** Because this function runs
+  inside `finalize_primary_order`, **a raise here would roll back the money and the tickets.** It therefore
+  **never raises**: every non-happy path resolves to "no attribution row", and an *unexpected* internal error
+  is caught, written to `kernel.admin_audit` as `attribution.resolver_error` with the order id, and swallowed.
+  **A missing commission is a support ticket; a failed checkout on a sold-out Friday is a business incident.**
+  `INFERENCE:` this asymmetry appears in no binding input and is the single most important operational rule
+  attached to this feature.
+- **Tests.** `T-RPC-ATTR-02` (a deliberately faulted resolver still commits the order, the payment link and
+  the atoms, and writes `attribution.resolver_error`) · `T-RPC-ATTR-03` (finalizing twice produces exactly one
+  attribution and the second call returns the first row) · `T-RPC-ATTR-04` (both race orderings).
+
+### 17.15 Promoter-code management — `venue.create_promoter_code` · `create_promoter_codes_bulk` · `set_promoter_code_status` · `set_promoter_code_scope` · `set_promoter_code_window` — `NEW RPC` ×5
+
+- **Role (all five).** `has_venue_role(venue,['venue_manager','venue_promoter_manager'])` OR
+  `has_org_role(['org_owner','org_admin','org_promoter_manager'])`, scoped to the promoter's org. **A promoter
+  is explicitly forbidden from minting their own codes.** A self-minted code is a self-minted *distribution
+  surface over the org's namespace*: the promoter could seize `CLUBSPACE`, `NYE`, or a rival's brand, and
+  because codes are immutable and the namespace is global, **those grabs are permanent**. The org must be the
+  issuer. (The *request* path — a promoter asking for a code — is a legitimate product need and is a
+  notification/inbox flow, **not a permission**.)
+- **Locks:** none cross-aggregate. **SSCAS:** n/a (single aggregate). **Idempotency:** `p_command_key`; a
+  replay returns the same `code_id`, while a *different* command key with the same normalized code returns
+  `code_taken` — **never a silent second code**.
+- **`create_promoter_code`** — preconditions: promoter `active` and in the caller's org; normalization passes
+  the length/alphabet CHECKs; every scoped event belongs to the promoter's org; `valid_until > valid_from`;
+  for `kind='generated'` the display form meets the entropy floor. Writes one `venue.promoter_code` + N scope
+  rows + `kernel.admin_audit('promoter_code.issue')`. Returns `{ status, code_id, code_display,
+  code_normalized, confusable_with[] }` — `confusable_with` lists existing codes within edit-distance 1, for
+  an issue-time warning; **that index is issue-time only and is never touched at checkout.** Errors:
+  `code_taken` · `invalid_code_format` · `promoter_inactive` · `event_out_of_org` · `entropy_below_floor` ·
+  `unauthorized`.
+- **`create_promoter_codes_bulk`** — `p_count` **capped at 1,000 per call**, so the transaction, the lock time
+  and the audit row all stay bounded; a larger program is multiple calls. Server-side CSPRNG at the entropy
+  floor; on a unique violation, retry that one code up to 5 times then **fail the call — never silently emit
+  fewer codes than requested**. Writes N codes and **one** audit row recording `(promoter_id, count, kind,
+  scope)`, not N. Errors add `count_exceeds_cap` · `generation_exhausted`.
+- **`set_promoter_code_status` / `_scope` / `_window`** — audited; **neither scope nor window is
+  retroactive**: no recorded attribution is affected. **Explicitly impossible:** changing `promoter_id`,
+  `code_display`, `code_normalized` or `kind` — the immutability trigger raises regardless of caller **and no
+  RPC accepts those parameters**. No-reassignment is enforced twice.
+- **Tests.** `T-RPC-PROMO-01` (a promoter cannot EXECUTE any of the five) · `T-RPC-PROMO-02` (the same
+  normalized code in two different orgs raises — global scope proven, not assumed) · `T-RPC-PROMO-03` (an
+  UPDATE of `promoter_id`/`code_display`/`kind` raises as `postgres`, as `service_role`, and through every RPC
+  above).
+
+### 17.16 `venue.preview_promoter_code(p_code_display, p_session_id)` — **EDGE-FRONTED** (read) · `NEW RPC`
+
+- **Role.** any `authenticated`; also reachable **unauthenticated only through the `promoter-code-preview`
+  edge wrapper** (§17.17).
+- **Returns exactly one of** `{ status:'eligible', promoter_display_name, method_hint:'code' }` **or**
+  `{ status:'not_applicable' }` — **for every failure**: unknown code, inactive, out of window, wrong org, out
+  of scope, inactive promoter. **The single response for all failures IS the design:** any distinction turns
+  this into a code-existence oracle. The client copy is *"That code isn't valid for this event"*, which is
+  true in every branch.
+- **Writes:** none. **Locks:** none. **SSCAS:** n/a. **Rate-limited by its edge wrapper, not here.**
+- **Advisory only.** A code that previews eligible may still lose at commit (a link cannot beat it, but a
+  deactivation can). **The client must never persist the preview as the answer.**
+- **Test.** `T-RPC-PROMO-04` — the `not_applicable` payload is **byte-identical** across unknown, inactive,
+  expired, out-of-org and out-of-scope inputs, asserted by payload equality so an oracle cannot creep back in
+  through a field.
+
+### 17.17 The rate-limit adaptation — `public.check_rate_limit` and an unauthenticated principal
+
+`public.check_rate_limit(p_user_id **uuid**, p_action text, p_limit int, p_window int)` is a **frozen Phase-0
+function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two consequences bind this document:
+
+1. **A rate-limited RPC cannot be a plain PostgREST call** — the limiter is unreachable from `authenticated`.
+   That is why §17.16 is fronted by an edge function rather than called directly, and it is the *reason* that
+   function exists, not an implementation detail of it.
+2. **Its first parameter is a `uuid`, so it cannot rate-limit an unauthenticated principal at all.** A buyer
+   may type a promoter code before signing in, and that path has no user uuid to key on.
+
+> **Recorded as an ADAPTATION of a frozen function's contract, not a change to it.** The edge wrapper
+> **derives** a principal — `uuidv5(NS_PROMOCODE, ip || ':' || sha256(user_agent))` — and passes it as
+> `p_user_id`. The function is unmodified; a synthetic uuid is supplied where a real one does not exist.
+> Limits: **10/min authenticated, 5/min anonymous per derived principal**, **fail-closed** (503 on limiter
+> error, 429 over-limit). A burst of `not_applicable` results from one principal writes
+> `kernel.admin_audit('promoter_code.enumeration_suspected')` and disables code entry for that session.
+> **Flagged so it is a reviewed decision rather than a clever workaround, and because it will recur for every
+> future anonymous-callable edge function.** Owner: the edge-spec author.
+>
+> `INFERENCE:` the derived principal is a **rate-limiting key only**. It is never persisted as an identity,
+> never joined to a real `auth.users` row, and never used in an authorization predicate. An IP+UA hash is a
+> weak, spoofable key; it is proportionate for an advisory preview whose every failure mode returns the same
+> payload, and it would **not** be proportionate for anything that writes.
+>
+> The edge function must also **never log the submitted code string** at info level — only the outcome class.
+
+### 17.18 `venue.bind_order_attribution` · `venue.review_attribution_flag` · `venue.decide_flagged_attribution` — `NEW RPC` ×3
+
+- **`venue.bind_order_attribution(p_order_id, p_code_display, p_link_slug, p_command_key)`** — attach or
+  replace the *candidate* on a pending order (the "I forgot to enter the code" path). **Role:** the order's
+  buyer, OR a door/box-office principal for an on-behalf order. **Pre:** `order.status = 'pending'`; at most
+  one code and one link (two of either ⇒ `invalid_input`). **Locks:** the order row `FOR UPDATE` (rank 3 —
+  inside the ratified order, no new class). **SSCAS:** n/a. **Writes:** the candidate columns + audit
+  (`attribution.candidate_changed`, old → new). **Does not write `venue.attribution`.** A rebind while pending
+  is **last-write-wins, audited, and not an error** — a buyer correcting a typo is the common case. Any
+  binding attempted once `status <> 'pending'` ⇒ **`attribution_frozen`**. **Never fails the order:** an
+  unresolvable code sets the candidate to NULL and returns `{ status:'ok', bound:false,
+  reason:'not_applicable' }`.
+- **`venue.review_attribution_flag(p_attribution_id, p_decision, p_reason_code, p_note, p_command_key)`** —
+  adjudicate a self-deal flag. **Role:** `has_venue_role(['venue_manager','venue_promoter_manager'])` OR
+  `has_org_role(['org_owner','org_admin'])` · `is_platform(['platform_risk'])`. **`platform_admin` holds no
+  EXECUTE here.** **Pre:** attribution exists, in scope, `self_deal_flag = true`, and **no
+  `promoter_commission` settlement line exists for it** ⇒ else `attribution_settled`. **Locks:** none
+  cross-aggregate. **SSCAS:** n/a. **Writes:** one `venue.attribution_review` row at `seq = max(seq)+1` +
+  audit. **The attribution row is not touched.** **The effective decision is `max(seq)`** — a wrong denial is
+  corrected by appending, never by an edit — and **supersession closes at settlement**: once the commission
+  line exists, the money and the decision freeze together.
+- **`venue.decide_flagged_attribution(...)`** (dashboard Δ7) — release/deny a flagged self-deal.
+  **Role:** `has_venue_role(venue,['venue_manager'])` OR `has_org_role_over_venue(venue,['org_owner',
+  'org_admin'])` · `is_platform(['platform_risk'])`. **Both promoter-manager labels are DENIED** — a promoter
+  manager adjudicating a flag against a promoter they recruited and are measured on is the fox at the
+  henhouse. Same separation-of-duties principle as propose-vs-approve.
+- **The hold semantics these interact with.** An unreviewed flag makes the commission **`payable = 0`, and
+  that is a HOLD, not a forfeiture.** Because at most one commission line may ever exist per attribution, a
+  hold must **write no line at all** rather than a zero line — a zero line would consume the one slot and
+  permanently forfeit a commission that adjudication might later release.
+- **Tests.** `T-RPC-PROMO-05` (a flagged attribution produces no settlement line while unreviewed; `release`
+  ⇒ the next close pays it; `deny` ⇒ no line ever, and the attribution stays visible) · `T-RPC-PROMO-06`
+  (review after the commission line exists ⇒ `attribution_settled`) · `T-RPC-PROMO-07` (`seq` 2 overrides
+  `seq` 1 and **both rows survive**).
+
+### 17.19 `venue.get_my_promoter_summary` · `venue.list_my_attributions` · `venue.list_promoter_attributions` — `NEW RPC` ×3 (reads)
+
+- **The first two derive authority from `venue.promoter.identity_id = auth.uid()` on a LIVE row (C9), never
+  from `has_venue_role`** — which returns false for every promoter after the label's removal. **The promoter
+  id set is derived from `auth.uid()` and is NOT accepted as input**, so the filter cannot be widened by
+  passing a parameter.
+- **`get_my_promoter_summary(p_org_id, p_event_id, p_window)`** — per-event and total: tickets attributed,
+  gross attributed, commission accrued, commission **held** (flagged, unreviewed), commission **paid**, code
+  count, link count. Reads `venue.attribution` filtered to the caller's own promoter rows and `kernel.payout`
+  filtered to `cause='promoter_commission' AND cause_ref IN (those attributions)`. **This filter is the
+  entirety of RLS §7.9's "scoped RPC"** — the promoter never touches the payout table and never sees an org
+  aggregate. **Never returns** buyer identity, buyer contact, other promoters' order ids, org totals, or
+  `instrument_fingerprint`.
+- **`list_my_attributions(p_org_id, p_filters, p_cursor)`** — keyset pagination on `(order_paid_at DESC, id
+  DESC)`. **Projection:** `occurred_at · event title · ticket type · qty · basis_minor ·
+  credited_amount_minor · method · terms_version · self_deal_flag · self_deal_reasons · review decision +
+  reason_code · payout status`. **Redacted:** buyer name/email/id, order ref, `displaced_promoter_id`, the
+  reviewer's `note`, `instrument_fingerprint`, and **`touch_corroborated`** — the venue's hijack-detection
+  signal; showing it to the promoter would turn a fraud control into a coaching tool for gaming it.
+- **`list_promoter_attributions(p_scope_kind, p_scope_id, p_filters, p_cursor)`** — the back-office view.
+  `has_venue_role(['venue_manager','venue_finance','venue_promoter_manager'])` OR
+  `has_org_role(['org_owner','org_admin','org_finance','org_promoter_manager'])`. **No buyer PII in any
+  projection** — it returns an order **reference**, never an attendee, so *the promoter dimension never
+  becomes a back door into the attendee list*. `venue_scanner`, the door session, `org_member` and `promoter`
+  are denied outright.
+- **Locks:** none (reads). **SSCAS:** n/a.
+- **Tests.** `T-RPC-PROMO-08` (promoter A cannot see promoter B's attributions — direct table **and** through
+  every read RPC) · `T-RPC-PROMO-09` (**a code-sourced attribution, `link_id IS NULL`, IS visible to its own
+  promoter** — the regression the §9.17 predicate correction prevents; without it a promoter sees none of
+  their code earnings) · `T-RPC-PROMO-10` (no read RPC here returns buyer name, email, id or
+  `instrument_fingerprint`, asserted by **column-list comparison**, not by inspection) · `T-RPC-PROMO-11`
+  (`displaced_promoter_id` and `touch_corroborated` are absent from the promoter's own projection).
+
+### 17.20 Demographics — `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` · `venue.refresh_holder_mix` · `venue.get_holder_mix` · the reconciliation job — `NEW RPC` ×6
+
+- **`kernel.get_my_demographics()`** — **DB-RPC** read, `EXEC: authenticated`. **Params: none, and
+  parameterless is load-bearing** — a signature with no identity argument makes *"read someone else's row"*
+  **unexpressible**, not merely denied. Actor `auth.uid()`; raises `insufficient_privilege(42501)` when NULL.
+  Returns `{ gender_identity, notice_version, updated_at }` or the empty set. **`first_answered_at` is stored
+  but deliberately NOT projected** — its purpose is product analytics on the prompt, never per-person.
+  Locks: none. SSCAS: n/a.
+- **`kernel.set_my_demographics(p_gender_identity, p_notice_version)`** — write. Both params **untrusted** and
+  re-validated in-body against the CHECK value set and the known notice-version list. **No identity parameter
+  exists.** Upserts one row keyed by `auth.uid()`; sets `first_answered_at` on insert only; always bumps
+  `updated_at`; writes an audit row recording `(identity_id, action, occurred_at)` — **never the value**.
+  Idempotent. Locks: none. SSCAS: n/a. **There is no `kernel.admin_set_demographics` and no staff write path
+  of any kind** (`T-RPC-DEMO-01`: the set of functions writing `kernel.identity_demographic` is **exactly**
+  `{set_my_demographics, clear_my_demographics}`).
+- **`kernel.clear_my_demographics()`** — withdrawal. Params: none. **Hard-DELETEs the caller's own row — the
+  single named GP-2 exception (§0.5), inside the definer**; upserts a value-free
+  `kernel.identity_demographic_erasure` tombstone with `purge_after`; writes the value-free audit row.
+  Idempotent (`noop_replay` when no row is present, **not** an error). Locks: none. SSCAS: n/a.
+- **`venue.refresh_holder_mix(p_event_session_id)`** — **`EXEC: DEF`**, `pg_cron`. Reads the custody head
+  (`kernel.tickets`, non-voided, for the session) ⋈ `kernel.identity_demographic`. **Does not read**
+  `venue.scan`, `venue.order`, `venue.attribution`, `venue.ticket_type`, or any price. Applies the suppression
+  rules — a minimum responded-count, a per-bucket floor enforced as a `CHECK` **on the table**, a mandatory
+  merge of sub-floor buckets into `other`, all-or-nothing suppression, and a publication churn gate — then
+  persists **at most one** snapshot. **A discarded recomputation writes nothing.** Locks: none stated by the
+  source spec; `INFERENCE:` it needs none — it reads `kernel.tickets` without locking and writes only its own
+  derived aggregate, so it takes **no rank-5 lock and introduces no ordering obligation.** SSCAS: n/a — it is
+  **not** a member of the closed set and touches no money, custody or inventory row. Returns
+  `{ status ∈ {published, suppressed, discarded_churn_gate} }`.
+- **`venue.get_holder_mix(p_event_session_id, p_dimension)`** — read. **Exactly two parameters, and that IS
+  the contract.** No `as_of`, no ticket type, no promoter, no source, no date range, no scan status, no
+  limit/offset, no ordering, no free-form filter. **Adding a third parameter is a design change requiring
+  privacy re-review, not a routine enhancement** — it is the differencing-attack contract (`T-RPC-DEMO-02`
+  asserts the arity and parameter names). Authority: resolves session → event → venue → org, then
+  `has_venue_role(venue,['venue_manager','venue_marketing','venue_promoter_manager'])` OR
+  `has_org_role_over_event(event,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`; **denied**
+  to `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`,
+  `platform_support`, `platform_risk`, `fan`, `anon`. Returns **either** `{ suppressed: true, reason,
+  holders_total, holders_responded }` with **no bucket rows**, **or** `{ suppressed: false, as_of,
+  holders_total, holders_responded, buckets[] }` where the buckets **always sum to `holders_responded`** so
+  the residual is not computable. **Which projection you get is decided by the writer's suppression rules, not
+  by the reader.** Writes one audit row **per call**; rate-limited per principal, fail-closed. Locks: none.
+- **The nightly reconciliation job** — **`EXEC: DEF`**. Asserts the bucket-sum and per-bucket-floor invariants
+  across every published snapshot and alarms on violation, mirroring the C27 counter-vs-ledger discipline.
+  **`INFERENCE:` the source spec classifies this as a `NEW RPC` but never names it**, and its own assertion
+  list says "all five RPCs" while listing six. Named here **`venue.reconcile_holder_mix()`** so it can be
+  granted, tested and cited; flagged in §19 as authored, not transcribed.
+- **A consent rule that binds this document, not just the product.** **Widening who may see the aggregate — a
+  new role, a new surface — requires a new `notice_version` and an in-app notice to everyone who has already
+  answered.** Adding a role to `get_holder_mix`'s authority predicate is therefore an RLS/RPC change **with a
+  product-side obligation attached**, and must not be treated as a routine matrix edit.
+
+### 17.21 Contact preferences and consent — `kernel.get_my_contact_prefs` · `set_my_contact_prefs` · `list_my_org_contact_consents` · `grant_org_contact_consent` · `withdraw_org_contact_consent` — `NEW RPC` ×5
+
+- All five are **DB-RPC**, `EXEC: authenticated`, **own-row only**, and **none takes an identity parameter of
+  any type.** `get_my_contact_prefs()` and `list_my_org_contact_consents()` are **parameterless**.
+- **There is no staff-side write path — no `admin_set_contact_consent`, no `p_identity_id` anywhere.** **A
+  venue can never record a contact consent on a fan's behalf.** `T-RPC-CRM-01` asserts this structurally: the
+  set of functions writing `kernel.org_contact_consent` is exactly
+  `{grant_org_contact_consent, withdraw_org_contact_consent}`, and **neither has a `uuid` parameter that could
+  denote an identity.**
+- `set_my_contact_prefs(p_venue_email_contact)` — the master kill switch; value re-validated in-body against
+  the CHECK set; idempotent; audited (`crm_contact.pref_changed`); rate-limited per identity.
+- `grant_org_contact_consent(p_org_id, p_notice_version, p_source_order_id)` — `p_org_id` untrusted and
+  re-validated as a live org; `p_notice_version` validated against the known list; sets `state='granted'`;
+  re-granting is a **no-op update**; audited; rate-limited.
+- `withdraw_org_contact_consent(p_org_id)` — sets `state='withdrawn'` and stamps `withdrawn_at`; idempotent
+  (`noop_replay` if already withdrawn). **Withdrawal is a state change, never a row deletion**; it takes
+  effect **immediately on every on-screen read and at the next export build** — a build whose `as_of`
+  precedes the withdrawal is unaffected, **and that is the documented semantic, not an accident**.
+- **Locks:** none for any of the five. **SSCAS:** n/a. **Result shapes** for the three write RPCs are
+  `{ status }` / `{ status:'noop_replay' }` — **authored here; the source spec states idempotency but no
+  result shape** (§19).
+
+### 17.22 CRM export — `venue.request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` · `sweep_expired_exports` · `venue.list_attendees` · `venue.lookup_attendee` — `NEW RPC` ×9
+
+- **`venue.request_export(p_scope_kind, p_scope_id, p_template_id, p_filters, p_command_key)`** — **DB-RPC**,
+  the authorization and admission point. **Builds no data.** Authorizes per the two template allow-lists
+  (audience: `org_owner`/`org_admin`/`org_marketing` at org grain, `venue_manager`/`venue_marketing` at venue
+  grain; **operations, which adds money columns: `org_owner`/`org_admin`/`venue_manager` only** — the
+  narrowest allow-list in either spec). **Rejects `scope_kind='all'` — it is not a member of the CHECK set.**
+  Validates the filter set against a **closed conjunctive grammar** (anything outside it raises; no OR, no
+  NOT, no nesting, no demographic filter name). Enforces the size caps **at request**, so a too-large job
+  fails immediately rather than after a five-minute build. Rate-limits **fail-closed**. **Freezes `as_of :=
+  now()`.** Writes the job row `queued` **and** the `crm_export.request` audit row **with
+  `constraint_set_version`** in the same transaction. Idempotent on `(auth.uid(), p_command_key)`. **Locks:**
+  none. **SSCAS:** n/a. Returns `{ job_id, state, as_of }`.
+- **`venue.build_export_rows(p_job_id, p_cursor, p_limit)`** — **`EXEC: DEF`**; `REVOKE EXECUTE FROM anon,
+  authenticated`, **no human path**. **Re-derives authority from the job row's recorded actor and scope, not
+  from the caller.** One bounded page, at the job's frozen `as_of`, in a **deterministic, demographic-free
+  order** so two builds of the same job are byte-identical. **This function is the entire SQL surface that
+  touches customer data**, and it **contains no dynamic SQL** (`T-RPC-CRM-02`: no `EXECUTE`, no `format(`, no
+  `quote_ident(`). **Locks:** none. **Never logs a row.**
+- **`venue.finalize_export(...)`** — **`EXEC: DEF`**; `running → ready`, records `row_count`, `byte_count`,
+  `sha256`, `object_path`, and the emitted/suppressed contact-cell counts; writes `crm_export.generate`.
+  Idempotent. Every `generate` row carries a non-null `constraint_set_version`, and
+  `cells_emitted + cells_suppressed` must equal the holder row count on every `ready` job.
+- **`venue.authorize_export_download(p_job_id)`** — **re-checks the caller's authority LIVE against the grant
+  tables at this instant**, so an export prepared before a revocation **fails after it**. Raises on any state
+  but `ready`. Writes the `crm_export.download` audit row **in-txn, before the URL is returned**, and returns
+  `{ object_path, ttl_seconds: 300 }` for the edge to sign. **Known over-report, stated rather than hidden:**
+  if the network then fails, the audit says a download happened when no bytes arrived. **The audit records
+  that a URL was issued, not that bytes reached a laptop** — and that is the honest reading of every row in
+  it. **Locks:** none.
+- **`venue.revoke_export(p_job_id, p_reason_code)`** — the requester, plus `venue_manager` / org owner-admin
+  over the job's scope, plus **`platform_admin`** — the one export-lifecycle write a platform role holds,
+  because **revoking is not extraction**. `ready → revoked`; signals the edge to delete the artifact; audited;
+  idempotent.
+- **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — scope-checked. **Job metadata only —
+  never a row, never an object path, never a signed URL.**
+- **`venue.sweep_expired_exports()`** — **`EXEC: DEF`**, `pg_cron` hourly. Deletes artifacts past
+  `expires_at` (`ready → expired`), then `expired → purged` past `purge_after`; one audit row per transition.
+- **`venue.list_attendees(p_session_id, p_filters, p_cursor)`** — the holder-grain roster read (dashboard Δ3).
+  Four authority branches (venue/org **operations**, venue/org **marketing**, venue/org **finance** for the
+  money-only projection, and platform), **column-scoped by role — and denied classes are ABSENT from the
+  result shape, not null.** Filters validated against the same closed grammar. Rate-limited. **Audited on
+  every page.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both
+  promoter-manager labels, `org_member`, `fan`, `anon`. **Locks:** none.
+- **`venue.lookup_attendee(p_session_id, p_query_kind, p_query_value)`** — **one record**, service context.
+  `p_query_kind ∈ {email_exact, order_ref, name_prefix}`. `venue_manager`, `venue_box_office`, org
+  owner/admin, `platform_support`; **denied to both marketing labels.** Rate-limited hard on `email_exact`.
+  **Audited with the query KIND only, never the value** — *logging a probed address would build the harvest
+  list inside our own audit.* Email is **not** an export filter, **not** a bulk match key, and **not** a
+  suppression key: there is no "upload a list and tell me who's coming" surface, in any form.
+- **The two structural rules that keep the whole surface honest.** (1) **Platform roles read the roster and do
+  NOT use the venue CRM export** — see RLS §11.6 for the full resolution; **platform bulk extraction is not
+  built in Phase 2.** (2) **Finance sees money and no contact; marketing sees contact and no money; neither
+  sees both.** Only `venue_manager`, `org_owner` and `org_admin` hold the union, which is why the operations
+  template's allow-list is the narrowest in the document.
+- **Layer-0 note (owner decision, RLS MD-2).** The least-privilege shape gives `build_export_rows` a **narrow
+  owner role** (`crm_export_builder`) granted `SELECT` on exactly the roster relations and the two contact
+  tables, with **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. It
+  then needs explicit permissive policies naming that role (RLS §16.10). **`BYPASSRLS` is not an acceptable
+  shortcut — it would restore access to everything and delete the entire benefit.**
+- **Tests.** `T-RPC-CRM-03` (a `venue_marketing` at V1 of Org 1 is denied at V2 of the same org;
+  `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue) · `T-RPC-CRM-04` (a job exceeding the
+  row cap ends `failed` and **writes no artifact — it never truncates**) · `T-RPC-CRM-05` (two builds of the
+  same job produce byte-identical output and the same hash) · `T-RPC-CRM-06` (**reader enumeration**: no
+  export function's definition matches a demographic relation, **with a non-vacuity guard proving the
+  assertion can see all nine export functions**) · `T-RPC-CRM-07` (no audit row's payload contains an `@` in
+  a value position, an `org_customer_key`, or a `customer_ref`).
+
+### 17.23 Apple Wallet — `kernel.mint_wallet_pass` + twelve — `NEW RPC` ×13
+
+- **`kernel.mint_wallet_pass(p_atom_id, p_command_key)`** — **EDGE-FRONTED**, `EXEC: authenticated`;
+  authorizes `kernel.tickets.current_owner_id = auth.uid()` **in-body, live-read** (C35/I-5). **Preconditions:**
+  atom `state='active'`; `resale_state='none'`; `config('wallet.apple.enabled')`. **Locks:** `kernel.tickets`
+  PK **`FOR SHARE` (rank 5)** — single lock, no ordering question. **SSCAS: n/a** — **no custody move, no
+  ownership-log row, and no `credential_version` bump**, asserted structurally (`T-RPC-WALLET-01`:
+  `pg_get_functiondef('kernel.mint_wallet_pass')` references neither `market.*` nor
+  `kernel.ticket_ownership_log`). **Idempotency:** `UNIQUE(holder_identity_id, command_idempotency_key)` + a
+  state guard — an existing `issued` generation for the same owner returns `noop_replay` **with the same
+  serial**. Supersedes any prior `issued` generation and inserts generation *g+1*. Returns build context to
+  the **edge**: `serial`, `generation`, `credential_version`, `signing_key_id`, `pass_type_cert_id`, and the
+  plaintext auth token **once — never stored in plaintext, never re-returned**. Errors:
+  `insufficient_privilege(42501)` · `precondition_failed(atom_not_active | atom_listed_locked |
+  wallet_disabled)` · `not_found`. **The kill switch is not role-bypassable** — `platform_admin` also gets
+  `wallet_disabled` (`T-RPC-WALLET-02`).
+- **`kernel.revoke_wallet_pass(p_wallet_pass_id, p_reason_code, p_command_key)`** —
+  `is_platform(['platform_admin','platform_support'])`; the support path for a leaked pass file or a lost
+  device. Pass → `revoked`, all its device registrations unregistered, holder prompted to re-add.
+  **No credential impact** — the auth token grants only *"fetch/register this one pass"*. Audited in-txn.
+- **`kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert`** —
+  `is_platform(['platform_admin'])` **only**, dual-controlled, audited. **Rotation is one transaction**: old
+  row `active → rotating`, new row `active`, both under the partial `UNIQUE(pass_type_identifier) WHERE
+  status='active'`, so **a mid-rotation snapshot never shows zero or two active certificates**.
+- **`kernel.supersede_wallet_passes_for_atom(p_atom_id, p_reason_code)`** — **`EXEC: DEF`**. Marks every
+  `issued` pass for the atom `superseded`/`invalidated`/`consumed`/`expired` per reason. **Called from the
+  OUTBOX CONSUMER, not inside the custody transaction — a Wallet failure must never be able to roll back or
+  block a transfer.** Locks: the pass rows only; **it takes no custody lock and therefore imposes no ordering
+  obligation on the transfer engine**, which is the whole point of running it outside that transaction.
+- **`kernel.touch_wallet_pass` · `get_wallet_pass_build_context` · `register_wallet_pass_device` ·
+  `unregister_wallet_pass_device` · `list_updated_wallet_passes` · `record_wallet_push_result` ·
+  `sweep_wallet_pass_lifecycle`** — all **`EXEC: DEF`**, `REVOKE EXECUTE FROM anon, authenticated, public`.
+  - `get_wallet_pass_build_context(p_serial, p_auth_token)` — **constant-time comparison against
+    `auth_token_hash` inside the function** (I-9), and it **returns an identical shape for "not found" and
+    "bad token"** so it is not an enumeration oracle. `T-RPC-WALLET-03`: `pg_get_functiondef` contains a
+    constant-time comparison and **no bare `=` against `auth_token_hash`**.
+  - `register_wallet_pass_device(...)` — constant-time auth; upserts on
+    `UNIQUE(wallet_pass_id, device_library_identifier)`; **encrypts the push token**. A wrong token writes
+    **no** row.
+  - `record_wallet_push_result(...)` — appends the push log, increments the failure count, and **unregisters
+    on a permanent APNs rejection**. Idempotent on the outbox dedup key.
+  - `sweep_wallet_pass_lifecycle()` — cron; reconciles pass status to atom state. **Explicitly NOT
+    load-bearing: every safety property holds whether or not it ever runs.** Stated because *"a correct thing
+    that nothing called"* is the exact failure class the door ruling was issued to eliminate.
+- **Locks (the twelve non-mint RPCs).** `INFERENCE — AUTHORED, not transcribed:` the source spec supplies no
+  lock statement for any of them. **None takes a lock in the six money/custody ranks.** They lock only
+  `kernel.wallet_pass` / `wallet_pass_device` / `pass_type_cert` rows, which are **admin-plane objects outside
+  the global order**, so no ordering obligation is created and no member's proof changes. `sweep_…` and
+  `supersede_…` process rows with `SKIP LOCKED` in bounded batches. **This is the property that lets the
+  Wallet feature be added without re-proving §14.2**, and it must be preserved by any future Wallet RPC.
+- **Structural guarantee this rests on.** The partial `UNIQUE(ticket_atom_id) WHERE status = 'issued'` gives
+  **at most one live pass generation per atom, enforced by the database rather than by the RPC** — the
+  structural half of the "no two people admitted on one atom" guarantee.
+
+### 17.24 Notifications — the twenty-three `notify.*` RPCs
+
+**Scope caveat first.** §16.9 of the RLS spec records that `notify`'s gate is **DISPUTED and unresolved**
+(C7 says `Gate P · MVP`; four implementation specs say Gate L), and that the notifications spec **explicitly
+declines to resolve it**. **The contracts below are conditional** — recorded so nothing is invented under time
+pressure if the owner ratifies, and **they are not authority to build.** Owner decision RLS **MD-10**.
+
+- **Consumer (`EXEC: authenticated`, `auth.uid()`-scoped):** `notify.get_inbox(p_cursor, p_limit ≤ 50)`
+  (own rows, newest first, **keyset-paginated** — the current web inbox truncates at 50 with no pagination) ·
+  `get_unread_count()` (**fails to `0`, never raises** — it renders in a global header) · `mark_read(p_ids)` ·
+  `mark_all_read()` (write `read_at` only) · `dismiss(p_ids)` (writes `dismissed_at`; **never deletes**) ·
+  `get_preference_matrix()` · `set_preference(p_type_key, p_channel, p_enabled)` ·
+  `register_push_token(...)` (**always sets `user_id = auth.uid()`** and `last_used = now()`, fixing a device
+  that changes hands keeping the previous owner's `user_id`) · `revoke_push_token(p_token)` ·
+  `report_announcement(p_announcement_id, p_reason)`. **Locks:** none. **SSCAS:** n/a.
+- **`notify.channel_enabled(p_identity uuid, p_type_key text, p_channel text) RETURNS boolean`** —
+  **`EXEC: DEF`**, and the single resolver. **Order of evaluation is the contract:** registry row absent or
+  inactive ⇒ false; channel not in `allowed_channels` ⇒ false; **`delivery_class = 'mandatory'` ⇒ TRUE, and
+  RETURN NOW — the preference table is never read**; preference row exists ⇒ its `enabled`; otherwise channel
+  ∈ `default_channels`. **Step 3 returns before step 4 is reachable**, so even a preference row that somehow
+  existed for a mandatory type could not suppress anything. That is one of two independent guarantees; the
+  other is the DDL guard, and `set_preference` raises `mandatory_type_not_configurable` before touching the
+  table. **Both layers must hold.**
+- **`notify.emit_event(...)`** — **`EXEC: DEF`**, **non-raising**. A producer that cannot emit its envelope
+  logs a warning and **commits its money/custody work regardless**. **Lock order:** the outbox row is written
+  **last within its transaction, after every money/custody row**, and `sequence` is allocated per
+  `(aggregate_kind, aggregate_id)` **under the aggregate's existing row lock**, which every SSCAS member
+  already holds — so **no new lock and no new deadlock class**. Idempotency: `UNIQUE(event_type, event_key)`.
+  **The payload never contains a recipient list and never contains rendered copy** — only ids and scalars.
+- **`notify.drain_outbox(p_limit)`** — **`EXEC: DEF`**, cron. `pg_try_advisory_xact_lock` + `FOR UPDATE SKIP
+  LOCKED LIMIT p_limit`, then **one set-based `INSERT … SELECT … ON CONFLICT (dedupe_key) DO NOTHING`** per
+  envelope — no row loop. **Poison quarantine:** a handler that raises marks **that envelope** `dead` and
+  continues; **one bad row can never block the batch.**
+- **`notify.sweep_scheduled()`** — **`EXEC: DEF`**, cron. Advisory lock with early return; claim a bounded
+  batch under a lease; **expand set-wise, one statement, cursor-bounded**, so a 50,000-holder event drains
+  over many ticks instead of holding one long transaction and one long lock; `done` only when the cursor is
+  exhausted; **on failure the cursor and state are left unadvanced**, so a failure retries the window rather
+  than dropping events. **Three guards catch a double run, and only the third is load-bearing:** the advisory
+  lock prevents overlap, the lease prevents a crashed run wedging a row, and **`UNIQUE(dedupe_key)` is what
+  correctness depends on** — every failure mode collapses to the same no-op.
+- **`notify.enqueue(recipient, type_key, subject_kind, subject_id, params, dedupe_key)`** — **`EXEC: DEF`**,
+  non-raising. **Supersedes by extension:** the legacy `public.enqueue_notification` stays unmodified serving
+  its existing types; this one derives channels, template and target from the registry.
+- **`notify.resolve_web_link(p_target_kind, p_target_id)`** — **`EXEC: DEF`**. Composes a web path from a
+  **closed set**. `notify.notification` stores `target_kind` (closed enum) + `target_id`, and **never a
+  URL** — the existing producers build links by string-concatenating a uuid, which is safe only because the
+  input is a uuid, and **that pattern must not be extended.**
+- **Staff announcements (`EXEC: authenticated`, role-gated):** `draft_announcement` (venue/org manager, org
+  owner/admin, **and marketing**) · `preview_announcement_audience` (**returns a COUNT only, never an
+  enumeration** — there is no parameter through which an audience can be widened, which denies an
+  audience-harvesting primitive) · `approve_announcement` / `cancel_announcement` / `revoke_announcement`
+  (`venue_manager`, `org_owner`, `org_admin` — **never marketing**; drafting and releasing are distinct acts).
+  **Above a blast-radius threshold, release requires a second distinct approve-authorized principal, so a
+  single compromised credential cannot blast a stadium.** A **mandatory hold window** precedes send, during
+  which cancel means nothing leaves the database. **After the hold, revocation is partial and the UI must say
+  which part:** in-app entries are replaced, pending deliveries are `suppressed`, and **push notifications
+  already delivered cannot be removed — they stay on the device forever.** The remedy after delivery is a
+  correction announcement, which is **the only cap exemption in the design**. Per-subject caps are counted
+  **over rows, not over `check_rate_limit`** — the limiter is keyed `(user_id, action)`, so two managers at
+  one venue would each get a full quota and together double the blast; **the cap must live on the subject**,
+  and the limiter is the second layer, not the first.
+- **Recipient derivation — four sanctioned forms, and nothing else.** Row-column (a uuid on the causing row) ·
+  custody expansion (`current_owner FROM kernel.tickets WHERE event_session_id = $1 AND state='active'`,
+  **evaluated at expansion time, never at schedule time**, so a ticket transferred away notifies the *new*
+  holder) · scope-role **union** (always an explicit array union, **never inheritance**; an unresolvable scope
+  yields the **empty set** plus an error, **never a broadcast**) · self. **Illegal:** a recipient list as an
+  RPC parameter, a recipient list inside an outbox payload, or any `SELECT` over `auth.users` outside those
+  four forms. `T-RPC-NOTIFY-01` asserts it structurally over `pg_proc` and `pg_get_functiondef`.
+
+### 17.25 `notify.claim_deliveries` and `notify.record_delivery_result` — contracts **AUTHORED, not transcribed**
+
+These two are named as `NEW RPC` in the notifications spec **with no contract body anywhere in its 1,566
+lines** — no signature, no parameters, no return type, no precondition, no lock statement, no error set, no
+idempotency clause, no SSCAS statement. Everything below is **`INFERENCE`**, derived from the delivery-row
+state machine, the lease predicate, the retry schedule and the dispatcher description the spec *does* supply.
+**Flagged in §19 for review as authored material.**
+
+**`notify.claim_deliveries(p_channel text, p_limit int) RETURNS SETOF delivery_claim`** — **`EXEC: DEF`**
+
+- **Purpose.** Atomically lease a bounded batch of due deliveries to one dispatcher, so two dispatchers can
+  never work the same row.
+- **Actor.** `service_role` only; invoked by the `notify-dispatch` edge function on its cron tick.
+- **Params.** `p_channel ∈ {push, email}`; `p_limit` bounded server-side (**`INFERENCE:` default 200,
+  hard-capped; the "100" in the source is an Expo *request chunk* in the edge function, not a claim size —
+  conflating the two would couple the DB batch to a third party's request limit**).
+- **Preconditions.** `state='pending' AND next_attempt_at <= now() AND (claimed_until IS NULL OR claimed_until
+  < now())`.
+- **The claim itself is the lock:** a single `UPDATE … SET state='claimed', claimed_until = now() +
+  config('notify.delivery_lease_interval'), attempt = attempt + 1 … WHERE <predicate> … RETURNING`, ordered by
+  `next_attempt_at`, with `SKIP LOCKED`. **No separate `SELECT … FOR UPDATE`** — the update *is* the
+  serialization point, which is the same claim-lease shape the webhook path already proves.
+- **Locks & order.** `notify.delivery` rows only. **The `notify` plane sits outside the six money/custody
+  ranks**, and this function touches nothing inside them, so **it creates no ordering obligation and no
+  member's lock-order proof changes.** `SKIP LOCKED` makes it safe to run multiple dispatchers without
+  redesign.
+- **SSCAS.** n/a — single aggregate class, no money, no custody.
+- **Idempotency.** The lease. A crashed dispatcher's rows become re-claimable when `claimed_until` passes;
+  `UNIQUE(notification_id, channel)` upstream guarantees a re-fan-out creates **no second delivery row**.
+- **Returns.** Per row: `delivery_id, notification_id, channel, attempt, recipient_id, type_key,
+  template_key, params, locale_resolved` — **enough to render, and no more**.
+- **Errors.** None expected; a limiter or config failure raises and the tick is retried.
+- **The honest limit, which no lease can close.** A dispatcher that dies in the ~200 ms window between the
+  provider returning 200 and the `sent_at` write **will re-post after the lease expires**, and the user gets
+  two banners for one row. Narrowing that window is the lease's job; **closing it would require exactly-once
+  semantics against a third party that does not offer them.** For MANDATORY money types the design
+  **deliberately prefers a rare duplicate banner to a rare missing one**, and the support-visible consequence
+  is bounded because both banners open **the same single notification row** — the app never shows two refunds.
+
+**`notify.record_delivery_result(p_delivery_id, p_outcome, p_provider_message_id, p_provider_receipt_id,
+p_apns_status, p_error text)` — `EXEC: DEF`**
+
+- **Purpose.** The single terminal-state writer for a delivery, and the only place a push token is ever
+  marked inactive.
+- **Actor.** `service_role` only; called by `notify-dispatch` after the provider call and by
+  `notify-receipts` on the receipt poll.
+- **Outcome mapping (the contract):** `sent` ⇒ `state='sent'`, stamp `sent_at`, persist
+  `provider_message_id`/`provider_receipt_id`, clear the lease. **Persisting the ticket id is required** — the
+  current path echoes the provider response into a 200 and discards it, which is why no receipt loop is
+  possible today. `transient` ⇒ back to `state='pending'` with `next_attempt_at` per the backoff schedule
+  (+1 m, +5 m, +25 m, +2 h, +12 h; **five attempts, then `dead`**), honouring a provider `Retry-After` by
+  **setting `next_attempt_at`, never by spinning**. `device_not_registered` ⇒ `state='failed'` **and**
+  `public.push_tokens.revoked_at = now()`, `revoked_reason='device_not_registered'` — **the first code path in
+  the system's history that ever marks a token inactive.** `permanent` (message too big, invalid credentials)
+  ⇒ `state='dead'` + `last_error`, and **`captureException` on a MANDATORY type** (the notification path has
+  no error reporting at all today). `no_transport` ⇒ `state='suppressed'` with the reason; if no transport at
+  all is available for a mandatory type, record `undelivered_mandatory`.
+- **Locks & order.** The `notify.delivery` row, then optionally the `public.push_tokens` row. **Both outside
+  the money/custody ranks; no ordering obligation.** `INFERENCE:` acquire delivery-then-token consistently, so
+  a receipt batch touching many tokens cannot deadlock against a dispatcher.
+- **SSCAS.** n/a. **Idempotency.** Terminal-state guarded: a second call on an already-`sent`/`dead` row is a
+  **no-op returning the existing state**, never a second token revocation.
+- **Dead-letter.** `state='dead'` with `last_error`. **There is no separate DLQ table — the delivery row IS
+  the dead letter**, which keeps the failure attached to the notification a support agent is already looking
+  at.
+- **Returns.** `{ status, delivery_id, state }`.
+
+### 17.26 `venue.read_operational_audit(p_scope_kind, p_scope_id, p_filters, p_cursor)` — **DB-RPC (read)** · `NEW RPC`
+
+- **Role.** `has_org_role([org_owner, org_admin, org_finance])` OR
+  `has_venue_role([venue_manager, venue_finance])`, **restricted to the caller's own org/venue subject**.
+- **Returns plain verbs with no `before`/`after` payloads, and EXCLUDES the security plane entirely** —
+  role grants, platform actions, key operations and money-denial rows are never visible here. Platform reads
+  the security plane through the existing `is_platform` path.
+- **Locks:** none. **SSCAS:** n/a. Every call is itself audited.
+
+---
+
+## 18. Consolidated test register
+
+Every `T-RPC-*` id named above, plus the ones that belong to no single contract. Two source specs supply **no
+named test for any of their 23 RPCs**; those rows are authored here (§19).
+
+| Group | Ids | What they defend |
+|---|---|---|
+| **Door — admission** | `T-RPC-DOOR-01` (structural: `mark_ticket_scanned` does not reference `is_transfer_frozen`) · `-02` (admit succeeds with the freeze engaged) · `-03` (second scan ⇒ `duplicate`, atom stays `scanned`) · `-04` (`status='completed'` ⇒ `precondition_failed` — admission is gated by session status, not manifest state) | **§7.5 — the CRITICAL defect. `-01` is what stops it recurring** |
+| **Door — freeze set** | `-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `-07` (compensate succeeds, complete refused) · `-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
+| **Door — lifecycle** | `-09` (drained atom scans) · `-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `-11` (re-open leaves `door_open_at` byte-identical) · `-12` (a `paid_pending_transfer` listing is not drained) · `-13` (override expires with no sweep having run) · `-14` (direct writes to `door_open_at` raise) · `-15`/`-16` (delta log) | §17.10–§17.13 |
+| **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
+| **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) | §1.1–§1.1d |
+| **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
+| **Promoter** | `T-RPC-PROMO-01..11` | §17.15–§17.19 |
+| **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `-02` (`get_holder_mix` arity is 2) | §17.20 |
+| **CRM** | `T-RPC-CRM-01..07` | §17.21–§17.22 |
+| **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
+| **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `-03` (a claimed delivery inside its lease is not re-claimable) · `-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
+| **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
+
+---
+
+## 19. What is AUTHORED here rather than transcribed — read this before implementing
+
+The eight delta specs are not uniformly complete, and pretending otherwise would hand an implementer inferred
+material as if it were ratified. Everything in this list is **`INFERENCE`**, marked so it can be reviewed as a
+design decision rather than absorbed as a citation.
+
+1. **`notify.claim_deliveries` and `notify.record_delivery_result` (§17.25) are wholly authored.** Their
+   source names them as `NEW RPC` and supplies **no contract body at all**. The claim predicate, the lease
+   semantics, the batch bound, the outcome mapping, the return shapes and the idempotency rule are derived
+   from the delivery-row state machine and the retry schedule the spec does give.
+2. **Locks and lock order for 22 RPCs.** The Wallet spec supplies a lock statement for exactly one of its
+   thirteen; the CRM spec supplies none for its fourteen; the demographics spec supplies none for its six.
+   §17.20, §17.21, §17.22 and §17.23 state one for each — mostly *"none, and here is why that is safe"*, which
+   is a claim about the design, not an absence of information.
+3. **Result shapes** for `set_my_contact_prefs`, `grant_org_contact_consent`, `list_attendees`,
+   `lookup_attendee`, `build_export_rows`, `finalize_export`, `revoke_export` and `list_export_jobs` — the CRM
+   spec describes behaviour and idempotency but no return shape for these.
+4. **`venue.reconcile_holder_mix()` is named here.** Its source classifies it as a `NEW RPC` but never gives
+   it a name, and its own assertion list says "all five RPCs" while listing six.
+5. **The `notify` matrices and contracts are CONDITIONAL** on owner decision MD-10 (§17.24). They are not
+   authority to build.
+6. **`p_limit` for `claim_deliveries`** is a DB batch bound, deliberately **not** the provider request chunk
+   the source mentions; conflating them would couple the database batch to a third party's request limit.
+7. **Test ids.** Every `T-RPC-*` id is authored. The money and role specs name **no test at all** for their 23
+   RPCs; the door, promoter, CRM, demographics and Wallet specs each carry their own assertion lists, which
+   §18 references by property rather than renumbering.
+
+**RPCs still lacking a named RLS policy after this pass: all of them — and that is correct, not a gap.**
+Every contract in this document is a `SECURITY DEFINER` function, so a table policy on the objects it writes
+never runs (§0.8, RLS GP-3a). Authority is `REVOKE EXECUTE` + a narrow `GRANT EXECUTE` + the in-body
+predicate. The **only** policies in the Phase-2 model are **read** policies, registered by name in RLS §16.10,
+plus the one Layer-0 exception (`crm_export_builder`) named there. An implementer who writes policies for the
+money or custody tables will produce policies that are never evaluated **and believe they are protected** —
+which is the single most likely way to build this wrong.
+
+---
+
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
 schema (deliverable #1), RLS spec (#3), and the Edge Function spec (#5, which picks up every EDGE-FRONTED item
 flagged in §13), per SPEC_FOUNDATION §10.*
