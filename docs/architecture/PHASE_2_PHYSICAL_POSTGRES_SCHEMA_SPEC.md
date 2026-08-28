@@ -77,19 +77,81 @@ New causes are added **only by amendment** (C18). No spec compares against a cau
 **D1:** the language is **"SSCAS" / "closed set"** — never "the one cross-aggregate transaction".
 **D2:** there is **NO `refunded` ticket terminal** — money reversal is state `voided` with cause `refund_void`.
 
-### 0.6 Scope-qualified role enums (C36 — structural, DISJOINT label sets)
-Roles are scope-typed, never bare strings. The three enums are **disjoint** so cross-scope confusion is
-structurally impossible (no RLS/RPC may ever compare a bare `role='finance'`):
+### 0.6 Scope-qualified role labels (C36 — structural, DISJOINT, plane-prefixed)
 
-| Scope | Table | enum labels |
+> **CORRECTED — this section previously stated the OLD 4/4/3 sets** (`venue_door`, `venue_promoter`, and
+> no marketing / box-office / promoter-manager labels). Two documents stated different "canonical" C36
+> sets. **`PHASE_2_ROLE_MODEL_SPEC.md` §3.1–§3.4 is canonical and is reproduced below verbatim.**
+
+Roles are scope-typed, never bare strings. The three label sets are **disjoint** so cross-scope confusion is
+structurally impossible (no RLS/RPC may ever compare a bare `role='finance'`). **Fifteen labels total.**
+
+| Plane | Column | Labels (canonical — ROLE_MODEL §3.1–§3.3) | n |
+|---|---|---|---|
+| org | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · **`org_marketing`** · **`org_promoter_manager`** · `org_member` | 6 |
+| venue | `venue.staff_role.role` | `venue_manager` · `venue_finance` · **`venue_box_office`** · **`venue_marketing`** · **`venue_promoter_manager`** · **`venue_scanner`** | 6 |
+| platform | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` | 3 |
+
+**Changes against the superseded set, stated so no reader carries the old one forward:**
+- `venue_door` → **renamed `venue_scanner`** (ROLE_MODEL §4.5).
+- `venue_promoter` → **REMOVED** (ROLE_MODEL §9.1). A promoter is a **relationship** (`venue.promoter`),
+  not a staff grant. The internal counterpart is `venue_promoter_manager` / `org_promoter_manager`.
+- Added: `org_marketing`, `org_promoter_manager`, `venue_box_office`, `venue_marketing`,
+  `venue_promoter_manager`.
+
+**RM-1 (binding):** every role label begins with its plane token (`org_` / `platform_` / `venue_`). A
+proposed label that does not is rejected at review. A bare label (`box_office`, `marketing`,
+`promoter_manager`) is **never** a stored value and is **never** legal in a predicate argument.
+
+**RM-6:** affiliation (`kernel.is_org_affiliate`) is a **scoping** input, never an **authorizing** one.
+
+Predicate helpers (contracted in the RPC/RLS specs; the only sanctioned way to test a role — ROLE_MODEL
+§6.2). The package column is this integration's placement, derived from the tables each helper reads:
+
+| Helper | Reads | Package |
 |---|---|---|
-| org | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · `org_member` |
-| venue | `venue.staff_role.role` | `venue_manager` · `venue_finance` · `venue_door` · `venue_promoter` |
-| platform | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` |
+| `kernel.has_org_role(org_id, role[])` | `kernel.org_member` | `077` |
+| `kernel.is_platform(role[])` | `kernel.platform_role` + `public.admin_users` | `077` |
+| `kernel.has_venue_role(venue_id, role[])` | `venue.staff_role` **only** (the door-PIN branch is REMOVED — ROLE_MODEL §7.5) | `080` |
+| `kernel.has_event_role(event_id, role[])` | `catalog.event` → `venue.staff_role` | `080` |
+| `kernel.has_org_role_over_venue(venue_id, role[])` **NEW** | `catalog.venue` → `kernel.org_member` | `080` |
+| `kernel.has_org_role_over_event(event_id, role[])` **NEW** | `catalog.event` → `kernel.org_member` | `080` |
+| `kernel.is_org_affiliate(org_id)` **NEW** | `kernel.org_member` | `077` |
+| `kernel.assert_door_session(device_id, session_id)` **NEW** | `venue.scan_device`, `venue.door_pin` | **`086`** |
+| `kernel.is_promoter_for_event(event_id)` **NEW** | `venue.promoter_link` | **`090`** |
 
-Predicate helpers (defined in the RPC/RLS specs, referenced here as the only sanctioned way to test a
-role): `kernel.has_org_role(org_id, role[])`, `kernel.has_venue_role(venue_id, role[])`,
-`kernel.has_event_role(event_id, role[])` (event→venue via catalog), `kernel.is_platform(role[])`.
+**Why `has_venue_role` losing its door-PIN branch matters to packaging.** As contracted in RPC §1.1 the
+helper also read `venue.door_pin` — a table created in `086` — while the helper itself ships in `080`.
+That was a **forward reference `080 → 086`** (§13.2, FR-1). ROLE_MODEL §7.5 removes the branch and
+replaces it with the separate `kernel.assert_door_session`, which is **never an RLS predicate** (RM-5) and
+lands in `086` with the tables it reads. The forward reference is closed by the role-model delta, not by
+this integration; RPC §1.1's text is now **stale** and must be corrected by the RLS/RPC integrator.
+
+**INV-NOFORCE (binding invariant — ROLE_MODEL §6.5).** `kernel.org_member`, `venue.staff_role` and
+`kernel.platform_role` **MUST NOT** carry `FORCE ROW LEVEL SECURITY`. The predicate helpers depend on
+owner-bypass to terminate; a naive policy on `venue.staff_role` that calls `has_venue_role` re-enters the
+policy — **infinite recursion, reported by Postgres at query time, not at migration time.** These three
+tables are the only ones in the model with this exemption. It must be **asserted positively** in the
+staging verification of each package that creates them — `pg_class.relforcerowsecurity = false` — because
+a documented rule nothing checks lasts until the first hardening sprint. The three tables span **two**
+packages (`077` for `org_member`/`platform_role`, `080` for `staff_role`), so the assertion is split
+across both, not written once.
+
+### 0.6.1 Physical form of the three role columns — `text` + `CHECK`, never a native enum
+
+**RESOLVED (ROLE_MODEL §3.5 / OD-6).** All three role columns are `text NOT NULL` with a per-column
+`CHECK (role IN (...))`. This is not merely consistent with §12.3's global decision — for these columns it
+is the point: the stated risk in the ruling request was *"an applied-migration commitment that cannot be
+edited afterwards."* **A CHECK constraint makes that statement false.** A label can be added, renamed or
+removed by `DROP CONSTRAINT` + `ADD CONSTRAINT` while the tables are empty, and corrected while nearly
+empty; `ALTER TYPE … ADD VALUE` is permanent and removing an enum value requires recreating the type and
+rewriting every dependent column and function. At fifteen labels on three tiny tables the performance
+argument for a native enum is nil.
+
+**Two frozen specs currently contradict each other on this exact column:** this spec's §3.9 said `role`
+**enum**(…); `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §5 said `role` **CHECK** in (…). The CHECK reading wins
+and both are now aligned. Disjointness is achieved by **three separate CHECK sets**, which is stronger
+than a shared type would be — there is no shared type to confuse.
 
 ### 0.7 RLS classification vocabulary (every table is tagged one of these)
 - **public-read** — world-readable reference data (discovery); writes RPC-only.
@@ -120,8 +182,20 @@ ascending order**, releasing in reverse:
 ```
 Event/Session → Inventory(batch, then shard ascending shard_no) → Order → Listing
   → Ticket Atom (ascending ticket_atom_id for multi-atom lots/passes)
+  → Approval/Request                                          ← ADDED (MONEY §7.5)
   → Payment / Payout / Reserve / Settlement
 ```
+
+**`Approval/Request` placement (MONEY §7.5).** `kernel.approval_request` (§1.13) is acquired **after** the
+custody rows it holds and **before** the money rows it authorizes, so no inversion is introducible. This
+is a placement in the existing order, not a new rank class competing with one.
+
+**Does it create a sixteenth SSCAS member? — OPEN, owner decision D-1.** C28 closes the set at fifteen; no
+sixteenth without an amendment. MONEY §7.4 argues **no**: the parked refund branch takes `FOR UPDATE` on
+exactly one pre-existing aggregate class (Ticket Atom), and the approval row is a **fresh INSERT** that
+contends on nothing — its only serialization is the trailing unique index on the command key, acquired
+last. **This integration does not decide it.** It is lock-ordered either way, so if a reviewer judges the
+approval object an aggregate class, the amendment is a one-line ratification and not a redesign.
 
 Index and PK design below is chosen so each of these `FOR UPDATE` acquisitions hits a single b-tree row.
 
@@ -152,6 +226,11 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     anonymization per CDM §4, not cascade).
   - `residency_region` text/enum-like — not null, **default `'us-east'`** (C14 single current region).
   - `kyc_ref` text — nullable (opaque handle to an out-of-band KYC record; no PII stored here).
+  - `locale` text — **nullable** (**ADDED — NOTIFICATIONS Δ-N2 / §5.4**). The identity's preferred
+    render locale. Resolution chain: `kernel.identity_ext.locale` → device locale captured at
+    push-token registration → `'en-US'`. Nullable is correct: NULL means "not stated", which is the
+    third link, not a default written into every row. `notify.notification.locale_resolved` stores the
+    resolved answer at fan-out so a re-render is reproducible. **Package `077`.**
   - `created_at` timestamptz, `updated_at` timestamptz.
 - **FKs:** `identity_id`→auth.users on delete restrict.
 - **Unique:** PK only (1:1 with identity).
@@ -177,9 +256,17 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     discipline, SPEC_FOUNDATION §2); NOT a new Connect integration.
   - `payout_destination_locked_until` timestamptz — nullable (cool-down seam for payout-destination changes,
     CDM §1.1 dual-control seam; enforced in RPC, not a hard constraint here).
+  - `payout_destination_set_by` uuid — **nullable**, FK→auth.users(id) on delete restrict
+    (**ADDED — MONEY §12 ADDITIVE-3, §8.2**). Records **who** last changed the payout destination.
+    Column-scoped exactly like `payout_destination_locked_until` (`org_owner`/`org_finance`/platform).
+    This column is what makes **SoD-1** enforceable: the identity that set the destination is excluded
+    from requesting the first payout to it — the named fraud primitive is "redirect the bank, then
+    withdraw", and without this column the exclusion cannot be evaluated at all.
+    **Package:** `077` (its own table's package; no later dependency).
   - `home_region` text — not null default `'us-east'`.
   - `created_at`, `updated_at`.
-- **FKs:** none upward (references auth via org_member, not here).
+- **FKs:** `payout_destination_set_by`→auth.users(id) on delete restrict. Otherwise none upward
+  (person↔org membership is expressed by `org_member`, not here).
 - **Unique:** `stripe_connect_account_ref` unique when not null (one Connect payee per org).
 - **Check:** `status` enum; non-empty names.
 - **Immutability:** MUT; status + payout-destination changes audited (dual-control seam per C11).
@@ -277,8 +364,16 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     ownership log).** Written ONLY inside the transfer engine, same txn as the log append.
   - `state` enum(`issued` · `active` · `scanned`(terminal) · `voided`(terminal) · `expired`(terminal))
     — not null default `issued`. **NO `refunded` terminal** (A5/D2): refund → `voided` cause `refund_void`.
-  - `resale_state` enum(`none` · `listed` · `locked`) — not null default `none` (CDM §1.1; R34 notes this is
-    a market fact physically on the kernel atom — accepted with dependency-smell flag, see CONFLICTS).
+  - `resale_state` enum(`none` · `listed` · `locked` · `refund_hold`) — not null default `none` (CDM §1.1;
+    R34 notes this is a market fact physically on the kernel atom — accepted with dependency-smell flag, see
+    CONFLICTS). **`refund_hold` ADDED — MONEY §12 ADDITIVE-2:** the parked-refund overlay set by
+    `kernel.request_order_refund`'s parked branch so an atom under a pending refund approval cannot be
+    listed, transferred or scanned out from under the approver, and released by
+    `kernel.sweep_expired_refund_requests` when the request expires. The transfer/lock/scan precondition
+    sets in RPC §7.2/§7.4/§7.5 all narrow accordingly (`resale_state='none'` required to lock or scan).
+    **Because §12.3 chooses `text` + `CHECK` over a native enum, adding this label is a
+    `DROP CONSTRAINT` + `ADD CONSTRAINT` in `079` — not the irreversible `ALTER TYPE … ADD VALUE` the
+    money spec assumed.** See §12.3.
   - `credential_version` integer — not null default 0. **Monotonic; pinned to the ownership-log head**
     (C28/R28): bumped by exactly +1 inside every transfer txn. NOT an independent counter.
   - `signing_key_id` uuid — not null, FK→kernel.signing_key(key_id) on delete restrict (which key signs the
@@ -581,6 +676,155 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
 - **Write authority:** every privileged RPC writes its own audit row in-txn.
 - **SoT/PROJ:** SoT (audit backbone).
 
+### 1.13 `kernel.approval_request` — the generic dual-control object (MONEY §6.6, §12 ADDITIVE-1)
+
+> **INTEGRATION RULING — structural change, requires re-ratification.** `PHASE_2_MONEY_AUTHORITY_SPEC.md`
+> §6.6/§12 introduced this table and gave it **no package**. It was absent from this spec, from
+> `PHASE_2_SUPABASE_MIGRATION_PLAN.md`, and from `PHASE_2_PACKAGE_REGISTRY.md` (whose §2 asserts
+> "16 packages, `076`–`091` inclusive, no gaps, no duplicates"). It is placed here in **package `077`**.
+> Registry rule §6.5 ("this registry is updated only by ratified amendment") therefore applies: see
+> §13.1 for the full statement of what changed and why. **Owner ratification required.**
+
+- **Purpose:** the **single generic dual-control intent record** serving all three approval flows —
+  (a) org refund dual control (MONEY §6.1/§6.2), (b) money-namespace `catalog.platform_config` dual
+  control (MONEY §7.3), (c) above-threshold payout dual control (MONEY §9.2). One state machine, one
+  separation-of-duties rule, one expiry sweep, one audit vocabulary (MONEY §6.6 "one object, not three").
+- **Owner:** kernel. Written only by the approval RPCs; never by a client.
+- **PK:** `request_id` uuid.
+- **Columns:**
+  - `request_id` uuid — PK.
+  - `action` text — not null; CHECK ∈ (`refund.issue` · `payout.request` · `config.set_money_key`).
+    **A closed label set, not an FK** — the three actions name flows, not rows.
+  - `subject_kind` text — not null; `subject_id` uuid — not null. The affected object
+    (order_id / settlement_id / config key-hash). **Deliberately soft (no FK)** — the same
+    audit-subject pattern `kernel.admin_audit` (§1.12) already uses, permitted by CDM §10.7. This is
+    what lets one table serve three domains **without** an FK to a table in a later package.
+  - `org_id` uuid — **nullable**, FK→`kernel.organization(org_id)` on delete restrict. NULL for
+    platform-scope actions (`config.set_money_key`). **The only hard FK on this table besides the two
+    identity columns.**
+  - `payload` jsonb-concept — not null. **Server-computed evidence at request time, never authority.**
+  - `config_versions` jsonb-concept — not null. The `(key, version)` pair of **every** threshold the
+    request was evaluated against (MONEY §7.2 version pinning), so a mid-flight config change cannot
+    silently re-tier a parked request and an auditor can reconstruct the tier decision.
+  - `requested_by` uuid — not null, FK→auth.users(id) on delete restrict (server-derived, C35).
+  - `approved_by` uuid — nullable, FK→auth.users(id) on delete restrict.
+  - `state` text — not null default `pending`; CHECK ∈ (`pending` · `approved` · `denied` ·
+    `cancelled` · `expired` · `stale`).
+  - `reason_code` text — nullable.
+  - `expires_at` timestamptz — not null (feeds `kernel.sweep_expired_refund_requests`, MONEY §6.3).
+  - `command_idempotency_key` text — not null (C16).
+  - `created_at`, `updated_at`.
+- **Unique:** `UNIQUE(requested_by, command_idempotency_key)` (C16 replay guard).
+- **Check — SoD as a table constraint, not a convention (MONEY §12 ADDITIVE-1):**
+  ```sql
+  CHECK (approved_by IS NULL OR approved_by <> requested_by)
+  ```
+  Plus: `action` label set; `state` label set; `expires_at > created_at`; `org_id IS NOT NULL` when
+  `action IN ('refund.issue','payout.request')` and `org_id IS NULL` when `action='config.set_money_key'`.
+- **The named footgun and its mandatory mitigation (MONEY §6.6):** a generic `payload jsonb` invites the
+  approval to become a client-supplied authority vector. The payload is **server-computed at request time
+  and re-derived and re-compared at approval time**; the executing code trusts nothing in it. A mismatch
+  moves the row to `stale`, never an override. This is contractual and mandatory, not advisory.
+- **Immutability:** append-only-ish state machine (`pending → approved|denied|cancelled|expired|stale`),
+  one-way, under `FOR UPDATE`. **No DELETE.**
+- **Index:** PK; the C16 unique; index on `(org_id, state)` (the org approval queue,
+  `kernel.list_approval_requests`); partial index on `expires_at WHERE state='pending'` (the expiry
+  sweep hot-path); index on `(subject_kind, subject_id)`.
+- **Archival:** permanent (audit class — a dual-control record is evidence).
+- **RLS:** money-custody-RPC-only (deny-all + `REVOKE ALL`); org-scoped read **via**
+  `kernel.list_approval_requests` only.
+- **Write authority:** `kernel.request_order_refund`, `kernel.approve_refund_request` (action-dispatched
+  — also serves payout and config approvals), `kernel.cancel_refund_request`,
+  `kernel.sweep_expired_refund_requests`, and the dual-controlled arm of `catalog.set_platform_config`.
+- **Read authority:** the org's approvers (`has_org_role([org_owner, org_finance])`) + platform.
+- **Lock order (MONEY §7.5):** **`Approval/Request` is placed between Ticket Atom and the money plane** —
+  always acquired after the custody rows it holds and before the money rows it authorizes, so no
+  inversion is introducible. See §0.9 (amended).
+- **SoT/PROJ:** SoT (the intent + its adjudication).
+- **OPEN — owner decision D-1 (MONEY §11):** is this an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a
+  C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? The money spec argues **intent record** and
+  places it in the global lock order either way, so an amendment — if the board wants one — is a
+  one-line ratification, not a redesign. **This integration does not decide it.**
+
+#### 1.13.1 Why `077`, and why one table rather than three
+
+**One table, not three (CONFIRMED, not merely adopted).** The money spec's own argument (one state
+machine / one SoD rule / one expiry sweep / one audit vocabulary) is sound, but the decisive reason is
+**packaging**, and it only becomes visible once the table is given a home:
+
+- A per-domain split puts the config-approval table with `catalog.platform_config` (`078`) and the
+  refund/payout approval tables with `kernel.refund`/`kernel.payout` (`085`). That is **two different
+  physical implementations of the same SoD CHECK, in two packages, with two expiry sweeps** — and the
+  SoD CHECK is the whole control. Duplicating a security control across packages is how one copy drifts.
+- The three flows share exactly one FK (`org_id`) and otherwise address their subject **polymorphically**
+  (`subject_kind`/`subject_id`). There is nothing per-domain to specialise: the columns that would
+  differ are already inside `payload`.
+- `state`, `expires_at`, `approved_by <> requested_by`, and `config_versions` are identical in all three
+  flows. A split buys type safety on a column set that has no per-domain shape.
+
+**Package `077`, not `085` (the placement, and the argument that decides it).**
+
+| Consumer flow | Function | Package the function must be authored in | Needs `approval_request` at |
+|---|---|---|---|
+| money-key config dual control | `catalog.set_platform_config` (money-namespace arm) | **`078`** — it writes `catalog.platform_config`, created in `078`, and `078` seeds the three feature flags | ≤ `078` |
+| org refund dual control | `kernel.request_order_refund` / `approve_refund_request` | `085` (writes `kernel.refund`) | ≤ `085` |
+| above-threshold payout | `kernel.request_org_payout` | `087` (reads `venue.settlement`) | ≤ `087` |
+
+The binding constraint is the **config** flow, not the money flows. `catalog.set_platform_config` is the
+audited runtime operation that flips every feature flag (migration plan §4: "flag flips are runtime ops,
+not migrations"), and `078` is the package that seeds those flags. Placing `approval_request` in `085`
+would mean the function that governs the flags cannot be authored until the money package exists — a
+**forward reference from `078` to `085`**, which is exactly the defect class §13.2 exists to eliminate.
+
+`085` was the tempting answer because that is where the table's *money* consumers live. It is wrong for
+one reason: the table has **three** consumers, and the earliest is not a money table.
+
+**`077` is affirmatively right, not merely early:**
+1. Its only hard FKs — `org_id` → `kernel.organization`, `requested_by`/`approved_by` → `auth.users` —
+   are **all satisfied by `077` itself**. Nothing about the table needs `078`, `085` or `087` to exist.
+2. Its nearest structural sibling is `kernel.admin_audit` (§1.12), which is in `077`, uses the identical
+   `subject_kind`/`subject_id` soft-subject pattern, and is written in-txn by the same privileged RPCs.
+   Approval and audit are the two halves of one control: *who asked* and *what was recorded*.
+3. The predicates every approval RPC calls — `kernel.has_org_role`, `kernel.is_platform` — are created in
+   `077`. Placing the table anywhere else separates the control from its authority test.
+4. `077` is the **authz/dual-control substrate** package by its own stated purpose (migration plan §5,
+   `077`: "the tenant + identity-extension + scope-qualified role substrate (C36) and the privileged
+   audit backbone"). A generic approval object is that substrate, not a money object.
+
+**Cost of the choice, stated honestly:** `077` now carries a table whose only consumers appear in `078`,
+`085` and `087`. It ships inert (no writer exists until `078`), which is the same posture as
+`kernel.platform_role` and `kernel.admin_audit` in the same package. That is a smaller cost than a
+forward reference, and it is the same cost the registry already accepts for `091` (`kernel.reserve`
+stub, no writers at all).
+
+### 1.14 `kernel.org_money_policy` — **CONDITIONAL (owner decision D-2). NOT IN THE MVP CHAIN.**
+
+> **CONDITIONAL PACKAGE ELEMENT — DO NOT BUILD WITHOUT AN OWNER RULING.**
+> Status: specified, **not scheduled**. No package number is assigned. If D-2 resolves YES it becomes an
+> additive element of **`077`** (same reasoning as §1.13.1 — its consumers are the threshold reads in
+> `085`/`087`, all later). If D-2 resolves NO (the money spec's own recommendation) it is never built.
+
+- **Why it exists as a question (MONEY §7.4):** `catalog.platform_config` is **world-readable** (RLS
+  §8.4: values are not secret; every non-admin principal including `anon` holds SELECT). A per-org refund
+  ceiling or payout limit is **not** public information — it discloses an organization's financial
+  posture, and the *set of keys* would disclose the platform's whole customer list. So a per-org override
+  cannot live in `platform_config`; it needs a non-public home.
+- **MVP position (money spec's recommendation, adopted here as the default):** **one platform-wide
+  threshold set, no per-org override.** Nothing in owner rulings O-1/O-3 asks for per-org limits, and a
+  per-org table doubles the resolution logic (per-org → fall back to platform) at **every** money
+  decision point.
+- **Shape if built:** `org_id` uuid PK, FK→`kernel.organization` on delete restrict; the override
+  columns mirroring the `refund.*`/`payout.*` keys of MONEY §7.2 (integer minor units, nullable = "no
+  override, use platform"); `version` integer not null; `effective_from` timestamptz; `created_at`,
+  `updated_at`. **AO per version**, same discipline as `catalog.platform_config`.
+- **RLS:** org-scoped read via `has_org_role([org_owner, org_finance])`; **platform-only write**;
+  audited. Never public-read — that is the entire reason it is a separate table.
+- **Owner decision D-2 (MONEY §11):** *does launch need per-org refund/payout limits?* Recommendation on
+  record: **No.**
+- **If D-2 is YES**, three things follow and must be re-ratified together: (a) `077` gains the table;
+  (b) every threshold read in MONEY §7.2 becomes a two-step resolution; (c) `kernel.approval_request`
+  `config_versions` must pin the **org** policy version as well as the platform `(key, version)` pair.
+
 ---
 
 ## 2. Schema `catalog` — kernel-owned reference data (A7/C7)
@@ -615,6 +859,21 @@ outward-kernel dependency, A7/C7).
   hot-path, kept consistent by the create RPC); `title` text not null;
   `status` enum(`draft` · `announced` · `on_sale` · `live` · `completed` · `cancelled`) not null default
   `draft` (CDM §1.2); `created_at`, `updated_at`.
+- **Marketing columns (ADDED — ROLE_MODEL edit S-5, capabilities D3 + H4, venue dashboard Δ5).** The role
+  model grants `org_marketing`/`venue_marketing` the capability *"Edit event marketing fields
+  (description, hero, media, tags)"* against a table that carried **only `title` and `status`** — a
+  capability with nothing to write. **The role-model spec assigns these no types and no package**; both
+  are decided here:
+  - `description` text — nullable.
+  - `hero_image_ref` text — nullable. An **opaque storage object reference**, never a URL and never
+    bytes — matching the `_ref` convention already used by `stripe_connect_account_ref`, `kyc_ref` and
+    `kms_handle_ref`. A URL column would be an unvalidated egress vector on a world-readable table.
+  - `category` text — nullable, CHECK against a closed set (Miami MVP; the set is a config value, not a
+    new lookup table — same disposition as CONFLICTS #7).
+  - `genre_tags` text[] — not null **default `'{}'`**. Array, not a join table: tags are a display facet
+    with no identity, no lifecycle and no authority; a `catalog.event_genre` table would add a package
+    for a decoration. `CHECK (array_length(genre_tags,1) IS NULL OR array_length(genre_tags,1) <= 10)`.
+  - **Package `078`** (the package that creates the table). No later dependency; no reason to defer.
 - **FKs:** `venue_id`, `org_id` on delete restrict.
 - **Unique:** none structural.
 - **Check:** `status` enum. Invariant "event has ≥1 session" enforced by the create flow (auto-creates the
@@ -637,7 +896,20 @@ outward-kernel dependency, A7/C7).
   deliverable #7 R3: the **canonical door-freeze signal**; set when the offline door manifest opens for this
   session; distinct from the informational `doors_at`); `status` enum(`scheduled` · `live` · `completed` ·
   `cancelled`) not null default `scheduled`; `home_region` text not null default `'us-east'`;
-  `created_at`, `updated_at`.
+  **`session_version` integer not null default 1** (**ADDED — NOTIFICATIONS Δ-N1, §2.2 Group E;
+  CORRECTNESS-BLOCKING**); `created_at`, `updated_at`.
+- **`session_version` — why it is correctness-blocking, not a nicety (NOTIFICATIONS §2.2 Group E).**
+  A monotonic counter bumped by `catalog.update_event_session` on every change to `starts_at`,
+  `doors_at`, `ends_at`, venue or status. Three notification dedupe keys embed it:
+  `event_time_changed:<session_id>:<session_version>:<ticket_id>`, and the `event_venue_changed` and
+  `event_postponed` analogues. The dedupe key is enforced by a partial `UNIQUE(dedupe_key)` with
+  `ON CONFLICT DO NOTHING`. **Without `session_version`, a venue that moves the door time twice cannot
+  notify twice** — the second change produces the identical dedupe key and is *silently swallowed*. The
+  failure is silent by construction (a conflict is a no-op, not an error), so it would never surface in
+  testing. **Package `078`** (the package that creates the table).
+- **Bump discipline:** `session_version` is advanced **only** by the session-update RPC, inside the same
+  transaction as the change it describes, under the session row's `FOR UPDATE`. It is not a general
+  optimistic-concurrency token and no other writer touches it.
 - **Door-freeze (RECONCILED — R3, canonical for RLS/RPC/edge/RN):** transfer-freeze is **derived**, not a
   stored per-ticket flag. A helper `kernel.is_transfer_frozen(p_atom_id)` returns true iff the atom's session
   has `door_open_at IS NOT NULL AND now() >= door_open_at` (narrowed per-open-manifest-ticket per C43). The RPC
@@ -899,10 +1171,19 @@ a detection mechanism, not the enforcement.
 - **Purpose:** a user's scope-qualified capability at a venue (C36 venue enum, disjoint from org/platform).
 - **PK:** composite `(venue_id, identity_id, role)`.
 - **Columns:** `venue_id` uuid FK→catalog.venue on delete restrict; `identity_id` uuid FK→auth.users on
-  delete restrict; `role` enum(`venue_manager` · `venue_finance` · `venue_door` · `venue_promoter`) part of
-  PK; `granted_by` uuid FK→auth.users; `created_at`.
+  delete restrict; **`role` text + CHECK** (`venue_manager` · `venue_finance` · `venue_box_office` ·
+  `venue_marketing` · `venue_promoter_manager` · `venue_scanner`) part of PK — **CORRECTED to the canonical
+  six (ROLE_MODEL §3.2 / edit S-1); `venue_door` is renamed `venue_scanner` and `venue_promoter` is
+  removed**; `granted_by` uuid FK→auth.users; `created_at`.
 - **Unique:** PK `(venue_id, identity_id, role)` (a person may hold several venue roles).
-- **Check:** `role` ∈ venue enum only (disjoint labels → cross-scope confusion structurally impossible, C36).
+- **Check:** `role` ∈ the venue set only (disjoint labels → cross-scope confusion structurally impossible,
+  C36). **`text` + `CHECK`, never a native enum** (§0.6.1 / ROLE_MODEL OD-6) — this is what keeps the label
+  set correctable after the package applies.
+- **INV-NOFORCE:** this table must **not** carry `FORCE ROW LEVEL SECURITY` (§0.6) — `080`'s staging
+  verification asserts `relforcerowsecurity = false` positively.
+- **Event-grain grants — EXT, pre-cleared as additive (ROLE_MODEL S-6, venue dashboard Δ8):** the PK
+  extends to `(venue_id, identity_id, role, event_id)` with nullable `event_id`, plus `expires_at` and a
+  sweep. **Not built in MVP.** Documented so the later change is additive.
 - **Immutability:** MUT (grant/revoke), audited; live-table recheck for authz (C9).
 - **Index:** PK; index on `identity_id` ("my venues"); index on `(venue_id, role)`.
 - **RLS:** venue-scoped read; writes RPC-only via `venue.grant_staff_role` (require `has_venue_role(venue_id,
@@ -949,6 +1230,11 @@ a detection mechanism, not the enforcement.
   - `ticket_atom_id` uuid — not null, FK→kernel.tickets on delete restrict.
   - `event_session_id` uuid — not null, FK→catalog.event_session on delete restrict.
   - `device_id` uuid — nullable, FK→venue.scan_device (null for online/web admits).
+  - `actor_identity_id` uuid — **nullable**, FK→auth.users(id) **on delete restrict**
+    (**ADDED — ROLE_MODEL §7.4 / edit S-4 / classification #23**). The authenticated staff principal who
+    performed the admit (`auth.uid()`, server-derived, C35). **NULL on the device path** (where `device_id`
+    carries the principal); **set on the authenticated-staff path** (where `device_id` is NULL).
+    See the defect note in §3.12.2.
   - `direction` enum(`in` · `out`) — not null **default `in`** (C41 hedge column).
   - `scan_type` enum(`admission` · `re_entry` · `pass_out`) — not null default `admission` (C41).
   - `result` enum(`admitted` · `duplicate` · `invalid` · `frozen` · `fraud_review`) — not null.
@@ -959,12 +1245,20 @@ a detection mechanism, not the enforcement.
   - `manifest_version` integer — nullable (which manifest window admitted, C23 reconciliation).
   - `server_receipt_at` timestamptz — not null default now(); `occurred_at` timestamptz not null (device time).
   - `created_at`.
+  - `manifest_id` uuid — **nullable**, FK→`venue.door_manifest(manifest_id)` on delete restrict
+    (**ADDED — DOOR §10.5**). Turns "which manifest window admitted" (C23 reconciliation) from a bare
+    number into a join, and lets `venue.reconcile_offline_scans` verify that a device's *claimed* manifest
+    actually existed and actually covered the atom. `manifest_version` is retained beside it for
+    device-reported/diagnostic use. **Package `086`** (same package as `venue.door_manifest`).
 - **FKs:** as above (on delete restrict).
 - **Unique:** **MVP no-re-entry enforcement** = partial `UNIQUE(ticket_atom_id, event_session_id) WHERE
   result='admitted' AND direction='in'` — the **first** admitted `in` wins; a second `in` violates the
   partial unique and is recorded (via the RPC) as `result='duplicate'`. **This partial unique is what makes
   MVP first-in-wins; relaxing it is the re-entry switch.**
-- **Check:** enum coherence.
+- **Check:** enum coherence, **plus the non-anonymous-admission CHECK (DEFECT FIX, ROLE_MODEL §7.4):**
+  ```sql
+  CHECK (device_id IS NOT NULL OR actor_identity_id IS NOT NULL)
+  ```
 - **Immutability:** **AO** (INSERT-only; every attempt is recorded, even duplicates/invalids).
 - **Index:** PK; the partial unique doubles as the duplicate-check index; index on `(event_session_id,
   server_receipt_at)` (live door count + reconciliation); index on `ticket_atom_id`.
@@ -1009,13 +1303,54 @@ a detection mechanism, not the enforcement.
   text not null default `'USD'`; `is_rounding_bearer` boolean not null default false (C31 — the line that
   absorbs the rounding residual in a 3-way split); `occurred_at` timestamptz; `created_at`.
 - **FKs:** `settlement_id` on delete restrict.
-- **Unique:** `UNIQUE(settlement_id, cause, cause_ref)` (a cause contributes one line per settlement).
+- **Unique:** `UNIQUE(settlement_id, cause, cause_ref)` (a cause contributes one line **per settlement**).
+- **Unique — cross-settlement attribution guard (DEFECT FIX, package `090`):**
+  ```sql
+  CREATE UNIQUE INDEX uq_settlement_line_promoter_attribution
+    ON venue.settlement_line (cause_ref)
+    WHERE cause = 'promoter_commission';
+  ```
 - **Check:** `cause` ∈ D3.
 - **Immutability:** **AO** (INSERT-only).
-- **Index:** PK; index on `settlement_id`; index on `cause_ref`.
+- **Index:** PK; index on `settlement_id`; index on `cause_ref`; the cross-settlement partial unique above.
 - **RLS:** org-scoped read + platform; writes RPC-only.
 - **Write authority:** the settlement close engine.
 - **SoT/PROJ:** SoT (Immutable Ledger). Full double-entry balancing of royalty/rounding is **Gate M** (C31).
+
+#### 3.14.1 DEFECT FIX — `UNIQUE(settlement_id, cause, cause_ref)` does not prevent double payment
+
+**The defect (CONFIRMED against this spec's own text).** `UNIQUE(settlement_id, cause, cause_ref)` scopes
+uniqueness **within one settlement**. It is a correct constraint for what it says — "a cause contributes
+one line per settlement" — and it is **not** the constraint the money invariant needs.
+
+`venue.attribution` carries `UNIQUE(order_id)` (§3.17): one attribution per order. But a settlement is
+opened per `(org, venue, event, period)` (§3.13) and **nothing stops the same `attribution.id` being
+lined into two different settlements** — an overlapping period, a re-opened event settlement, a
+venue-level close after an org-level close, or simply an operator opening a second settlement. Both lines
+satisfy `UNIQUE(settlement_id, cause, cause_ref)` because the `settlement_id`s differ. `kernel.payout`'s
+`UNIQUE(idempotency_key)` on `(cause, cause_ref, payee)` is the *last* line of defence, and it is a
+different aggregate reached later in the SSCAS — the ledger would already carry two commission lines and
+two settlements would already report a net that includes the same promoter commission twice.
+
+**Therefore: double-paying an attribution is not structurally blocked.** (Independently confirmed by two
+reviewers before this integration.)
+
+**The fix** is the partial unique index above: **one `promoter_commission` line per `cause_ref`, platform
+-wide**, not per settlement. A second attempt to line the same attribution — in any settlement — aborts.
+
+**Why it lives in `090`, not `087`.** The index names `cause = 'promoter_commission'`, a promoter
+concept. Package `087` (settlement) must not know that promoters exist — that is the same forward
+reference §13.2 removes from `kernel.close_settlement`. `087` creates the table and its
+per-settlement unique; `090` (promoter engine), which creates `venue.attribution`, adds the
+attribution-specific guard **beside the table whose rows it protects**. This makes `090` depend on `087`
+(a new DAG edge — see §13.3), which is correct and acyclic: `087 < 090`.
+
+**What this does NOT fix (named honestly).** The same shape exists for any other cause a future settlement
+could double-line (`market_sale` royalty, `refund_void`). Those are not fixed here because their
+`cause_ref`s legitimately recur across settlement periods in ways an attribution does not — an
+attribution is a once-ever credit for one order, a royalty is a per-sale fact that a period-based
+settlement may legitimately reference from a period boundary. Making the general rule structural is a
+**Gate-M double-entry-ledger property** (C31), not a partial index. Flagged, not silently closed.
 
 ### 3.15 `venue.comp_allocation`
 - **Purpose:** complimentary admissions that still draw real capacity (A4).
@@ -1047,8 +1382,68 @@ a detection mechanism, not the enforcement.
 - **Purpose:** the commissioned-selling engine (CDM §1.3). Commissions flow through `kernel.payout` cause
   `promoter_commission` (SSCAS member #5). **Phase 2D** — modeled now, built in the promoter phase.
 - **`venue.promoter`:** PK `promoter_id` uuid; `identity_id` uuid FK→auth.users; `org_id` uuid FK; `event_id`
-  uuid nullable FK; `commission_bps` integer not null; `terms_version` integer not null; `status`
-  enum(`active` · `inactive`); `created_at`, `updated_at`. Terms Operational (versioned).
+  uuid nullable FK; `terms_version` integer not null; `status` enum(`active` · `inactive`); `created_at`,
+  `updated_at`. Terms Operational (versioned). **Plus the four commercial-terms columns below.**
+
+#### 3.17.1 DEFECT FIX — `venue.promoter` cannot express DA §1.7's ratified commercial terms
+
+**The defect (CONFIRMED against DA §1.7, verbatim).** The ratified domain architecture defines a promoter
+as *"A user (or off-platform party) engaged by an org/event with commission terms: flat-per-ticket or %,
+`tier ∈ {professional_invited, public_ambassador}`"*, and defines **`affiliate`** as the same machinery
+for non-user channels *"attributed by API key or link instead of a personal account. Same `attribution`
+ledger, a `party_kind` discriminator (`promoter` | `affiliate`)."*
+
+This spec modelled **`commission_bps` alone**. So:
+- **there is no `tier`** — an ambassador programme and a professional promoter carry different terms and a
+  materially different fraud posture, and the model could not tell them apart;
+- **there is no flat-per-ticket** — and flat-per-head is the **dominant nightlife term**, so the physical
+  model could not express the *common* case, only the rarer percentage case;
+- **there is no `party_kind`** — so an affiliate could not reuse the one attribution ledger DA §1.7
+  requires it to reuse, and a later affiliate feature would have forked the ledger.
+
+**Fix — four additive columns plus one XOR CHECK** (package `090`; the table is unbuilt, so this is a
+design edit to an unapplied package, not a schema alteration):
+
+```sql
+tier                  text    NOT NULL DEFAULT 'professional_invited'
+                              CHECK (tier IN ('professional_invited','public_ambassador')),
+party_kind            text    NOT NULL DEFAULT 'promoter'
+                              CHECK (party_kind IN ('promoter','affiliate')),
+commission_kind       text    NOT NULL DEFAULT 'bps'
+                              CHECK (commission_kind IN ('bps','flat_per_ticket')),
+commission_bps        integer NULL,                -- was NOT NULL; now the 'bps' arm of the XOR
+commission_flat_minor integer NULL,                -- the 'flat_per_ticket' arm
+currency              text    NOT NULL DEFAULT 'USD',
+
+CHECK (
+  (commission_kind = 'bps'
+     AND commission_bps IS NOT NULL AND commission_bps BETWEEN 0 AND 10000
+     AND commission_flat_minor IS NULL)
+  OR
+  (commission_kind = 'flat_per_ticket'
+     AND commission_flat_minor IS NOT NULL AND commission_flat_minor > 0
+     AND commission_bps IS NULL)
+)
+```
+
+`commission_bps` becomes **nullable** — the XOR CHECK, not `NOT NULL`, is what guarantees exactly one
+term is present. Making both columns nullable without the XOR would allow a promoter with no terms at all;
+the CHECK is load-bearing and must not be relaxed to "at least one".
+
+**Commission math (PROMOTER_CODES §6.2), stated here because it is what the columns must support:**
+```
+commission_kind = 'bps'             : credited = floor(basis_minor * commission_bps_applied / 10000)
+commission_kind = 'flat_per_ticket' : credited = commission_flat_minor_applied * Σ(order_item.quantity)
+```
+Rounding is `floor`, always; the residual stays with the org. **`venue.attribution` snapshots
+`commission_kind`, `commission_bps_applied`, `commission_flat_minor_applied` and `basis_minor`** at
+freeze — the terms *as applied*, frozen with the row, so a later terms change cannot restate a past
+accrual (§13.1 table).
+
+**Ambassador is a tier, not a table.** DA §11.1 defines a separate social *referral/ambassador* growth
+loop; DA §1.7's `public_ambassador` is a **tier of promoter inside the commercial engine**. They must
+never share the `promoter_commission` cause. Production also carries an unrelated
+`public.ambassador_applications` table — neither is this.
 - **`venue.promoter_link`:** PK `link_id` uuid; `promoter_id` uuid FK on delete restrict; `slug` text not
   null; `created_at`. **`slug` globally unique** (tracked link). Link **IMM** once created.
 - **`venue.attribution`:** PK `id` uuid; `link_id` uuid FK→venue.promoter_link on delete restrict; `order_id`
@@ -1489,11 +1884,339 @@ only kernel/catalog/venue/market MVP tables above).
 - **jsonb payload shapes** — `state_transition` (§1.6), `platform_config.value`, `resale_policy` extras, and
   `admin_audit.before/after` are typed here as "jsonb-concept"; their exact key schemas belong in the RPC
   contract spec (deliverable #4), not the physical schema.
-- **Exact enum label wire-form** — enums are specified by their label sets; whether each is a Postgres `enum`
-  type or a `text` + CHECK is an implementation choice deferred to the migration plan (deliverable #2), which
-  must apply it consistently.
+- **~~Exact enum label wire-form~~ — RESOLVED, no longer under-specified (§12.3).**
 - **O3 runtime snapshot rule, O4 identity-verification strength, O2 offline consensus comparator** — open
   questions from the risk register; storage columns exist (§2.5, §3.12) but the runtime policy is a later spec.
+
+### 12.3 RESOLVED — enum wire-form is `text` + `CHECK`, everywhere, no exceptions
+
+The former open choice is closed and **agrees with `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §0.3 DECISION 1**
+(the two documents previously disagreed on the role columns; see §0.6.1). **Every** enum-like column named
+in this spec is `text NOT NULL` with a named `CHECK (col IN (...))`. **No `CREATE TYPE … AS ENUM` is
+authored anywhere in Phase 2.** Where the same value set repeats (the D3 cause registry on
+`ticket_ownership_log`, `inventory_movement`, `payout`, `settlement_line`) each column carries its **own**
+inline CHECK with the set copied verbatim — not a shared type.
+
+Three consequences this integration relies on:
+1. **The role sets stay correctable after apply** (§0.6.1) — the property whose absence was the stated risk.
+2. **`kernel.tickets.resale_state` gains `refund_hold` (§1.5) by constraint swap**, not by the
+   irreversible `ALTER TYPE … ADD VALUE` MONEY §12 assumed.
+3. **Every per-migration rollback stays real.** An enum `ADD VALUE` cannot be dropped, so a package that
+   added one could not honour Standards §5's rollback rule; a CHECK swap is trivially reversible.
+
+---
+
+## 13. Delta-spec integration — placement, seams, and the two conditionals
+
+> **Scope of this section.** Eight ratified delta specs (door lifecycle · money authority · role model ·
+> demographics/privacy · promoter codes · notifications · CRM export · Apple Wallet) each introduce
+> objects. Several assign no package; several assign one without argument; two assign contradictory ones.
+> **This section is the binding placement record.** Each delta spec remains authoritative for the *full*
+> column list, RLS matrix and pgTAP set of its own objects — they are not restated here, deliberately, to
+> avoid a second copy that drifts. What is binding here is: **which package, which dependencies, and which
+> constraints this integration adds or moves.**
+
+### 13.1 Placement index — every new object, its package, and its source
+
+`✓` = the delta spec's own proposal, evaluated and accepted. `▲` = **this integration disagrees**;
+the reason is in §13.5. `—` = the delta spec assigned none.
+
+| Pkg | Object | Source | |
+|---|---|---|---|
+| `077` | **`kernel.approval_request`** | MONEY §6.6/§12-1 | — → `077` (§1.13.1) |
+| `077` | `kernel.organization.payout_destination_set_by` | MONEY §12-3 | — → `077` |
+| `077` | `kernel.identity_ext.locale` (Δ-N2) | NOTIFICATIONS §5.4 | — → `077` |
+| `077` | `kernel.identity_demographic`, `kernel.identity_demographic_erasure` | DEMOGRAPHICS §10.1/§10.2 | ✓ |
+| `077` | `kernel.identity_contact_pref`, `kernel.org_customer_key` | CRM §11.1-1/2 | ✓ |
+| `077` | `kernel.is_org_affiliate` | ROLE_MODEL §6.2 | — → `077` |
+| `078` | `catalog.event` marketing columns (`description`, `hero_image_ref`, `category`, `genre_tags`) | ROLE_MODEL S-5 | — → `078`, **types assigned here** (§2.2) |
+| `078` | `catalog.event_session.session_version` (Δ-N1) | NOTIFICATIONS §2.2-E | — → `078` |
+| `078` | `catalog.effective_freeze_at()` | DOOR §3 | — → `078` |
+| `078` | **All `catalog.platform_config` seed rows** — the 3 native flags, `door.*` ×4 (DOOR §10.6), wallet/credential ×6 (WALLET §11.5), money `refund.*`/`payout.*`/`authn.*` ×14 (MONEY §7.2), `notify.*` ×5, CRM limits/caps/retention/`constraint_set_version` | DOOR/WALLET/MONEY/NOTIF/CRM | ▲ CRM said `087` |
+| `079` | `kernel.tickets.resale_state += refund_hold` | MONEY §12-2 | — → `079` |
+| `079` | **`kernel.door_freeze_override`** | DOOR §8.1 | ▲ (§13.5-B) |
+| `079` | `kernel.is_transfer_frozen` (corrected body) | DOOR §3 | ▲ plan said `078`-or-`079` — **resolved to `079`** |
+| `079` | `kernel.lock_ticket` / `unlock_ticket` / `mark_ticket_scanned` | RPC §7.4/§7.5 | — → `079` |
+| `080` | `venue.staff_role` six labels; `has_org_role_over_venue` / `_over_event` | ROLE_MODEL §3.2/§6.2 | — → `080` |
+| `081` | `catalog.publish_event` (authored here, not `078`) | RPC §4.2 | — (§13.2 FR-2) |
+| `082` | `kernel.org_contact_consent` + its three RPCs | CRM §11.1-5/6/7/8 | ✓ |
+| `083` | `kernel.pass_type_cert` | WALLET §11.3 | ✓ |
+| `083` | **`kernel.wallet_pass`, `wallet_pass_device`, `wallet_pass_push_log`, the `.pkpass` bucket** | WALLET §11.10 | ▲ spec said `084` (§13.5-C) |
+| `084` | *(unchanged — two `ADD CONSTRAINT NOT VALID` + `VALIDATE`, nothing else)* | plan §5 | — |
+| `085` | `kernel.void_ticket_atom` + the `market.on_atom_voided` hook **stub** | RPC §7.3 | — (§13.2 FR-4) |
+| `085` | The nine money-authority RPCs (`request_order_refund`, `approve_refund_request`, `cancel_`/`sweep_expired_refund_requests`, `list_org_payouts`/`_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`) | MONEY §12 | — → `085` |
+| `086` | `venue.door_manifest`, `door_manifest_entry`, `door_manifest_delta` | DOOR §10.1/§10.3/§10.3a | ✓ (task proposal) |
+| `086` | `venue.scan.actor_identity_id` + non-anonymous CHECK | ROLE_MODEL §7.4 | — → `086` |
+| `086` | `venue.scan.manifest_id`, `venue.scan_device.manifest_id` | DOOR §10.5 | — → `086` |
+| `086` | `catalog.tg_door_open_at_is_ledger_head` trigger (on a `078` table) | DOOR §10.2 | — → `086` (§13.2 FR-6) |
+| `086` | `catalog.engage_door_freeze`, `kernel.assert_door_session`, `venue.open_/close_door_manifest`, `get_door_manifest`, `append_door_manifest_delta`, `kernel.grant_/revoke_door_freeze_override` | DOOR §7/§8 | — → `086` |
+| `086` | **`venue.holder_mix_snapshot`, `venue.holder_mix_bucket`, `refresh_holder_mix`, `get_holder_mix`** | DEMOGRAPHICS §10.1 | ▲ spec said `087` (§13.5-A) |
+| `087` | `venue.export_job`, the `crm-exports` bucket, the eight export RPCs, `crm_export_builder` role | CRM §11.1-9…19/23 | ✓ |
+| `087` | `kernel.close_settlement` + the two hook **stubs** (`settlement_royalty_lines`, `settlement_commission_lines`) | RPC §10.2 | — (§13.2 FR-5) |
+| `087` | `kernel.request_org_payout` (three new preconditions + approval branch) | MONEY §6.7 | — → `087` |
+| `088` | `kernel.transfer_ticket_ownership`, `catalog.cancel_event` | RPC §7.2/§4.4 | — (§13.2 FR-3, FR-2b) |
+| `088` | `CREATE OR REPLACE` of `settlement_royalty_lines` and `market.on_atom_voided` | this integration | — |
+| `090` | `venue.promoter` `tier`/`party_kind`/`commission_kind`/`commission_flat_minor`/`currency` + XOR CHECK | PROMOTER §1.4 (defect §14.3) | ✓ |
+| `090` | `venue.promoter_code`, `promoter_code_scope`, `attribution_review`, `normalize_promoter_code()` | PROMOTER §1.1/§1.2/§1.6/§1.3 | ✓ |
+| `090` | `venue.attribution` +15 columns; `link_id` becomes **nullable** | PROMOTER §1.5 | ✓ |
+| `090` | `venue.order.attribution_candidate_code_id` / `_link_id` (+ freeze trigger) | PROMOTER §1.7 | ✓ — FK targets are `090` |
+| `090` | `kernel.payment_native.instrument_fingerprint` | PROMOTER §1.8 | ✓ |
+| `090` | **`UNIQUE INDEX ON venue.settlement_line (cause_ref) WHERE cause='promoter_commission'`** | PROMOTER §4.2-(2) | ✓ (§3.14.1) |
+| `090` | `CREATE OR REPLACE` of `settlement_commission_lines`; `kernel.is_promoter_for_event` | this integration / ROLE_MODEL §6.2 | — |
+| **cond.** | `kernel.org_money_policy` | MONEY §7.4 | **CONDITIONAL — D-2** (§1.14) |
+| **cond.** | the event outbox + drainer | DA:1253 | **CONDITIONAL** (§13.3) |
+| **cond.** | the nine `notify.*` tables | NOTIFICATIONS §6.1 | **CONDITIONAL** (§13.4) |
+
+**One cross-spec CHECK correction this index forces.** `venue.door_manifest_entry.resale_state` (DOOR
+§10.3) CHECKs the atom's overlay set, and DOOR §9.2's offline reject map enumerates only
+`{listed, locked}`. MONEY §12-2 adds **`refund_hold`**. A `refund_hold` atom would snapshot into the
+manifest with **no reject mapping and no defined offline behaviour**. `086`'s CHECK must therefore admit
+all four labels, and DOOR §9.2's map needs a `refund_hold` arm — reported to the RLS/RPC integrator, since
+the reject vocabulary is theirs.
+
+### 13.2 Forward references — the complete sweep, and the seam discipline
+
+A **forward reference** here means: *a function authored in package N reads or writes a table created in a
+package later than N.* The chain would either fail to apply or create a function against a dangling
+reference. One instance was known (`087 → 090`); it was found by accident. **This is the systematic sweep.**
+
+**Method.** Every function contracted in `PHASE_2_RPC_FUNCTION_CONTRACTS.md` and in the eight delta specs
+was reduced to `max(package of every table it reads or writes)` and compared against the package the plan
+or the spec places it in.
+
+| # | Function | Placed | Reads/writes created later | Status |
+|---|---|---|---|---|
+| **FR-1** | `kernel.has_venue_role` | `080` | `venue.door_pin` (`086`) — RPC §1.1's door-PIN branch | **Closed by ROLE_MODEL §7.5**, which deletes the branch and adds `kernel.assert_door_session` (`086`). RPC §1.1 is now stale. |
+| **FR-2** | `catalog.publish_event` | `078` | `venue.ticket_type`, `venue.inventory_batch` (`081`) — the "no empty on-sale" precondition | **Moved to `081`.** Nothing earlier calls it. |
+| **FR-2b** | `catalog.cancel_event` | `078` | `kernel.tickets` (`079`), `venue.inventory_batch` (`081`), `kernel.refund` (`085`), `market.listing_native`/`auction`/`p2p_transfer` (`088`) | **Moved to `088`.** The worst offender: four packages ahead. Nothing earlier calls it. |
+| **FR-3** | `kernel.transfer_ticket_ownership` | `079` | `kernel.signing_key` (`083`), `kernel.payment_native` (`085`), `market.listing_native` + `market_sale` (`088`) | **Moved to `088`.** Its only callers are `088`'s market layer and `088`'s sweeps. |
+| **FR-4** | `kernel.void_ticket_atom` | `079` | `venue.inventory_batch` (`081`), `kernel.refund` (`085`), `market.market_sale.terminal_state` (`088`) | **Authored in `085`** (with `kernel.refund`, which its signature takes) + **hook stub** `market.on_atom_voided(atom, refund)` — a no-op in `085`, `CREATE OR REPLACE`d in `088` to set `terminal_state := 'compensated'`. Callers exist from `085` (`refund_primary_order`, `force_void_ticket`). |
+| **FR-5** | `kernel.close_settlement` | `087` | **`venue.attribution` (`090`)** *and* **`market.market_sale` (`088`)** | The known defect **plus a second arm nothing had named**: the royalty read is also forward. Fixed by **two hook stubs** — see below. |
+| **FR-6** | `catalog.tg_door_open_at_is_ledger_head` (trigger on `catalog.event_session`, `078`) | `078` | `venue.door_manifest` (`086`) — it asserts `door_open_at = MIN(door_manifest.opened_at)` | **Trigger created in `086`**, attached to the `078` table. Additive; no table rewrite. |
+| **FR-7** | `kernel.is_transfer_frozen` | `078`-or-`079` (the plan left the author a choice) | `kernel.tickets` (`079`), `kernel.door_freeze_override` | **Resolved to `079`**, and `kernel.door_freeze_override` moved to `079` with it (§13.5-B). The plan's "the helper tolerates a not-yet-existing atom id" escape hatch is **withdrawn** — a predicate that silently returns `false` for an unknown atom **fails open on the transfer path** and must not exist. |
+| **FR-8** | `venue.build_export_rows` / `venue.list_attendees` | `087` | `venue.attribution` → `promoter_link` → `promoter` (`090`) | **Already handled by CRM §6.4**: the promoter columns are *absent from the file, not blank*, until `090`, and the template version carries it (`audience_v1` → `audience_v2`). Accepted as-is. |
+| **FR-9** | `wallet-pass-push` (edge) | `084`→`083` | drains *"the market outbox"* (`088`) and *"the catalog outbox"* | **Not a DDL forward reference** — an edge function is deployed, not migrated — but it **is** a real ordering dependency the Wallet spec does not flag, and it is subsumed by the outbox conditional (§13.3). |
+| **DAG-1** | `market.sweep_paid_pending_sales` (`088`) writes `kernel.refund` (`085`) | — | — | Ordering is fine (`085 < 088`) but **`088`'s declared dependency set omits `085`**. Missing edge, added §13.6. |
+| **DAG-2** | `kernel.refund_primary_order` (`085`) drives `kernel.void_ticket_atom` → `kernel.tickets` (`079`) | — | — | Ordering fine; **`085`'s declared dependency set omits `079`**. Missing edge, added §13.6. |
+
+#### The seam discipline (binding — replaces the plan §7 "author's choice")
+
+`PHASE_2_SUPABASE_MIGRATION_PLAN.md` §7 previously left function co-location to the author's discretion.
+**That discretion is what produced FR-1…FR-7.** It is replaced by two rules:
+
+> **SEAM-1 — A function is authored in the package equal to `max()` of the packages creating every table
+> it reads or writes.** Not the package of its schema, not the package of its subject.
+>
+> **SEAM-2 — Where an *earlier* artifact must be able to resolve the name** (an RLS policy references it,
+> or an earlier function calls it), the earlier package ships a **hook stub** returning the neutral
+> result, and the later package `CREATE OR REPLACE`s **only that hook**. The caller is authored once and
+> is never rewritten by another package.
+
+SEAM-2 is used exactly three times, and each stub's neutral result is chosen to **fail safe**:
+
+| Hook | Stub in | Neutral result | Replaced in | Fails |
+|---|---|---|---|---|
+| `kernel.settlement_royalty_lines(settlement_id)` | `087` (zero rows) | no royalty lines — correct at `087`, when no native sale can exist | `088` | safe |
+| `kernel.settlement_commission_lines(settlement_id)` | `087` (zero rows) | no commission lines — correct at `087`, when no promoter exists | `090` | safe |
+| `market.on_atom_voided(atom_id, refund_id)` | `085` (no-op) | no `market_sale` terminal flip — correct at `085`, when no sale exists | `088` | safe |
+
+**Why hooks and not "`087` writes `close_settlement`, `090` rewrites it".** The instruction on record was
+to make `087` promoter-agnostic and have `090` `CREATE OR REPLACE` it. That closes FR-5's promoter arm,
+but FR-5 has **two** arms (`090` *and* `088`), so a whole-function replace would mean `088` and `090` each
+rewriting the same function body — and `090`'s copy would have to re-contain `088`'s royalty logic, which
+it does not own. With hooks, `kernel.close_settlement` is authored **once, in `087`**, and never
+rewritten; each later package owns exactly the small function whose body it is qualified to write. Same
+correction, generalised, with no package rewriting another package's code.
+
+### 13.3 CONDITIONAL A — the event outbox. **SPECIFIED, NOT SCHEDULED.**
+
+> **This is a conditional package element and this integration does NOT decide it.** It is specified here
+> so that a YES ruling is an apply, not a design exercise.
+
+**The contradiction, on both sides.** `SNATCH_IT_DOMAIN_ARCHITECTURE.md:1253` states the
+anti-over-engineering guarantee as: *"the only new infrastructure Phase 2 introduces is one outbox table
+and a drainer on the cron that already runs"*, and DA §6.1 classifies **every** notification, analytics
+rollup, social update, promoter-commission accrual and transfer-expiry as **Async/outbox**. **No Phase-2
+implementation spec schedules one.** The sole occurrence of "outbox" in this spec before today sat in the
+**Gate-L** deferral list (§11); the migration plan's object inventory contains none. So the one piece of
+infrastructure the constitution promises Phase 2 will build is the one piece nothing schedules.
+
+**Shape if ratified** (from NOTIFICATIONS §4.3, the only place it is designed):
+
+```sql
+-- schema home depends on the notify ruling (§13.4):
+--   notify.outbox        if notify is Gate P
+--   kernel.event_outbox  if notify stays Gate L
+outbox_id      uuid PK
+event_type     text NOT NULL
+aggregate_kind text NOT NULL          -- polymorphic, deliberately no FK
+aggregate_id   uuid NOT NULL
+sequence       bigint NOT NULL        -- per (aggregate_kind, aggregate_id), allocated under the
+                                      -- aggregate's existing row lock (C12 envelope)
+causation_id   uuid, correlation_id uuid
+event_key      text NOT NULL
+payload        jsonb NOT NULL         -- ids and scalars ONLY: never a recipient list, never rendered copy
+occurred_at    timestamptz NOT NULL
+state          text NOT NULL CHECK (state IN ('pending','claimed','done','dead'))
+claimed_until  timestamptz, attempt int NOT NULL DEFAULT 0, last_error text, created_at timestamptz
+
+UNIQUE (event_type, event_key)
+UNIQUE (aggregate_kind, aggregate_id, sequence)
+INDEX  (state, occurred_at) WHERE state IN ('pending','claimed')
+```
+
+**Drainer:** one `SECURITY DEFINER` RPC on the **2-minute `pg_cron` heartbeat that already runs** —
+`pg_try_advisory_xact_lock(hashtext('drain_outbox'))`, then
+`… WHERE state='pending' AND occurred_at <= now() ORDER BY occurred_at, outbox_id FOR UPDATE SKIP LOCKED
+LIMIT n`. At-least-once; every consumer idempotent on a persisted dedup key or expressed as an
+upsert/set-operation, never a naked increment (C12).
+
+**Package if ratified: `076`.** The table has **zero FK dependencies** — `aggregate_kind`/`aggregate_id`
+are polymorphic by design — so it can be born with the schemas and the shared helpers, which is exactly
+what it is: infrastructure, not domain. Every producer across `078`–`090` then writes to a table that
+already exists, and **no producer package needs a new dependency edge.** The **drainer** is separate: it
+dispatches to consumers, so under SEAM-1 it lands with the last consumer it must reach.
+
+**The outbox row is written LAST within its transaction**, after every money/custody row, so it sits
+strictly below the money plane in the lock order (§0.9) and can never invert it.
+
+**Exactly which deltas become unimplementable without it:**
+
+| Delta | What fails, precisely |
+|---|---|
+| **Apple Wallet — the entire push path** | WALLET §6.3: *"Driven by the existing outbox."* §7.1 step 2 runs `kernel.supersede_wallet_passes_for_atom` **in the outbox consumer, deliberately not inside the custody transaction**, and §16 makes that a preserved invariant: *"Wallet can never block or roll back a transfer."* With no outbox there are two options and **both are prohibited**: move supersession into the custody txn (violates §16), or leave a superseded pass `issued` — a previous owner keeps a live pass, which is the exact non-negotiable the `UNIQUE(ticket_atom_id) WHERE status='issued'` partial index exists to prevent. |
+| **Door lifecycle — the open transaction itself** | DOOR §6 step 11 INSERTs the `DoorManifestOpened` (+ first-open `TransferFreezeEngaged`) envelopes **inside** the open txn, and §6 declares steps 5–11 all-or-nothing. Without an outbox table the transaction cannot be authored as specified. Events #37–#44 have no carrier. |
+| **Scanner push-to-sync** | DOOR event #37's consumer list includes *"scanner push-to-sync"* — a device learns a new manifest episode exists only through it. |
+| **Notifications — all of it** | NOTIFICATIONS §4 *is* the outbox→drainer→notification pipeline; its own `CONFLICT-2` names this **BLOCKING**. All 40 type keys are Async. |
+| *(not double-counted)* **cross-context royalty fact** | C8 permits *"a named `core`/`catalog` function **or** outbox event"*. The §13.2 hook satisfies the named-function arm, so this one survives without the outbox. |
+
+**NOT dependent on the outbox** (verified, so the blast radius is not overstated): CRM export
+(`pg_cron` + `pg_net` + the `064` claim-lease on `venue.export_job.lease_until`), demographics
+(`pg_cron` only), promoter codes (no async at all), money authority (its own
+`kernel.sweep_expired_refund_requests`, which is separately marked *not optional*).
+
+**Owner ruling required:** *build the outbox in Phase 2, per DA:1253 — or amend DA:1253 to withdraw the
+promise and re-scope Wallet push, door events and notifications accordingly.* There is no third option in
+which DA:1253 stands and nothing implements it.
+
+### 13.4 CONDITIONAL B — the `notify` schema. **SPECIFIED, NOT SCHEDULED.**
+
+> **This integration does NOT decide it.** Same treatment as §13.3.
+
+**The contradiction.** Ratified correction **C7 is `Gate P / MVP`** and names `notify` explicitly —
+*"leaf services (notifications, push_tokens, reports, risk_scores) are **evicted** from the kernel into
+their own schema"* (DA:79; the CDM header names `notify` among the C7 contexts; CDM §1.6 defines the
+Notification object as `notify`). **All four implementation specs place `notify` at Gate L /
+do-not-build** — SPEC_FOUNDATION §1, this spec §11 (Gate L), RLS §1 ("out of scope"), the migration plan
+§1/§5 ("documented extension points, NOT scheduled").
+
+Two defensible readings, both on record (NOTIFICATIONS `CONFLICT-1`):
+- **(a) satisfied vacuously** — the leaves live in `public.*` and were never *in* the kernel, so C7's
+  *eviction* requires nothing to move at Gate P. This is evidently what the four spec authors intended.
+- **(b) contradicted** — C7 names `notify` as an MVP context and the specs contradict it.
+
+Reading (a) does **not** dispose of the question, because the venue dashboard already carries a **binding
+dependency** on the notification plane, and no Gate-L object may have one.
+
+**Consequence either way — stated so the ruling can be made on cost, not on doctrine:**
+
+| Ruling | Consequence |
+|---|---|
+| **Gate L (do not build)** | The nine `notify.*` tables, 23 RPCs, 2 cron jobs and 2 edge functions are not built. Every notification stays on the frozen `public.notifications` path, which has **no preference matrix, no mandatory-type guard, no delivery-state ledger, no dedupe key and no locale**. Concretely: MONEY §10.3's seven money emitters, DOOR #37–#44's fan notices, and WALLET's holder-facing updates have **no carrier**. The venue dashboard's binding dependency is unsatisfied and must be re-scoped. `kernel.identity_ext.locale` (`077`) and `catalog.event_session.session_version` (`078`) are added **anyway** — they are cheap, additive, and their absence is unrecoverable later without a data-bearing migration. The event outbox (§13.3), if ratified, lands as **`kernel.event_outbox` in `076`**. |
+| **Gate P (build)** | The nine tables land as **one new package, `092`** — *not* folded into `091`. `091` is a deliberately empty, writer-less stub whose defining property is that it is always droppable; loading nine tables, an outbox, 23 RPCs and 2 cron jobs into it destroys that property, exactly as §13.5-C argues for `084`. Independently, `notify.drain_outbox` reads `kernel.tickets`, `catalog.*`, `venue.order`, `venue.inventory_batch`, `venue.scan`, `kernel.payout`, `market.p2p_transfer` and **`venue.promoter_link` (`090`)** — so under SEAM-1 the drainer's floor is `090` and `092` is the earliest legal package regardless. **This makes the registry 17 packages, `076`–`092`, and its §2 assertion of "16 packages … no gaps, no duplicates" false — a structural change requiring re-ratification.** |
+
+**The two conditionals are coupled and must be ruled on together.** The outbox is `notify.outbox` under
+Gate P and `kernel.event_outbox` under Gate L. Ruling the outbox **in** while ruling `notify` **out** is
+coherent (Wallet and Door get their carrier; notifications do not). Ruling `notify` **in** while ruling
+the outbox **out** is not — NOTIFICATIONS §4 *is* the outbox pipeline.
+
+**One decision that does not wait for either.** NOTIFICATIONS O-N11 asks whether push tokens get a new
+`notify.push_token` table or additive columns on `public.push_tokens`. **Extend `public.push_tokens`** —
+a second token table creates a split-brain during migration, and C7's eviction is satisfied either way.
+The four columns (`revoked_at`, `revoked_reason`, `provider_receipt_checked_at`, `last_provider_error`)
+are additive, need no backfill, and close a real defect: **nothing has ever marked a token inactive.**
+`is_active` is left in place and untouched; `revoked_at IS NULL` becomes the authoritative predicate.
+
+### 13.5 Placement disagreements — every one, with its argument
+
+**A. `venue.holder_mix_snapshot` / `venue.holder_mix_bucket` (+ their two RPCs): `087` → `086`.**
+DEMOGRAPHICS §10.1 places the holder-mix rollup in `087` and gives a **scheduling** reason —
+*"keeping the demographic objects off the critical path of every MVP gate"* — while conceding *"it has no
+dependency on `086` and could move earlier."* `087` is the **settlement** package: a per-event money
+rollup. A privacy-gated audience-composition projection has no relationship to it, and the owner's rule
+forbids overloading an unrelated package. The objective argument: `venue.refresh_holder_mix` reads
+**`kernel.tickets` (`079`)**, and **`087`'s declared dependency set is `077`/`081`/`085` — it does not
+depend on `079`.** Placing the rollup in `087` therefore *adds* a `079 → 087` edge. `086` already depends
+on `079`, `080` and `081` — every input the rollup has. **`086` is the placement that requires no DAG
+change at all**, and `086` is already the venue's per-session audience package (`guest_list`,
+`guest_entry` and `comp_allocation` are not scan objects either). The spec's own floor — *"must not move
+earlier than `084`"* — is honoured.
+
+**B. `kernel.door_freeze_override`: the door package → `079`.**
+DOOR §8.1 puts the table in schema `kernel` — *"this is a custody-authority object, not a venue-operations
+object"* — and assigns no package; the surrounding door objects imply `086`. But
+`kernel.is_transfer_frozen` **reads it**, and `is_transfer_frozen` must exist by **`079`**, because
+`kernel.lock_ticket` (`079`) rechecks it under the atom lock. At `086` it is a forward reference (FR-7).
+The table's own dependencies — `catalog.event_session` (`078`), `kernel.tickets` (`079`), `auth.users` —
+are **all satisfied at `079`**, so no DAG edge is added.
+*The alternative considered and rejected:* a SEAM-2 hook (`079` stubs `door_freeze_override_active()`
+returning false, `086` replaces it). It does fail safe — a `false` stub means "no override", so
+`is_transfer_frozen` returns **true** and transfers stay blocked — but it buys nothing, because the table
+has no dependency requiring `086`. The hook would exist purely to defend a package boundary that no data
+dependency justifies; moving the table removes the seam instead of papering it. **Recorded so the owner
+can take the hook instead if `079`'s blast radius is judged too precious to touch.**
+
+**C. `kernel.wallet_pass` + `wallet_pass_device` + `wallet_pass_push_log` + the `.pkpass` bucket:
+`084` → `083`.**
+WALLET §11.10 assigns them `084` and **gives no reason**. The FK graph does not require it: the registry's
+FKs are `kernel.tickets` (`079`), `kernel.signing_key` (`083`), `kernel.pass_type_cert` (`083`) and
+`auth.users` — **all satisfied at `083`**. The reason to move them is what `084` *is*: `084` is the
+**adopt** package and its entire content is two `ADD CONSTRAINT … NOT VALID` + `VALIDATE` statements. It
+is the **only package in the chain whose rollback is unconditionally and permanently reversible** —
+`DROP CONSTRAINT` ×2, valid even after the tables carry production rows. Adding four objects turns that
+into a table-dropping rollback valid only in the empty window. Meanwhile `083`'s declared phase is
+literally *"PHASE G — credential infrastructure"*, a Wallet pass **is** a credential artifact, and `083`
+already receives `kernel.pass_type_cert` by the spec's own assignment. Moving the registry makes G one
+coherent package (signer ref · pass-type cert · pass registry · device registry) and leaves the adopt step
+pure. **Cost:** `083` gains a dependency on `079` (acyclic; `079 < 083`).
+*Note on the inference in circulation* — that `084` is "where FK edges into `kernel.tickets` get bound" —
+it is a misreading: `084` binds `kernel.tickets`' **outgoing** FKs. An incoming FK from another table
+needs only `kernel.tickets` to exist, which it does from `079`.
+
+**D. All `catalog.platform_config` seed rows: consolidated into `078`.**
+CRM §11.1-20 places its limits/caps/retention seeds in `087`; DOOR, WALLET, MONEY and NOTIFICATIONS assign
+theirs no package at all. Seeds are **rows in a table `078` creates**, with no FK and no dependency, so any
+package `≥ 078` could write them. Consolidating them in `078` gives one auditable answer to *"is every
+gate seeded and every flag OFF?"* — which `078`'s production verification step already asks — instead of
+five packages writing the same table at five points in the chain. The migration-plan §4 flag discipline is
+unchanged: **seeding is a migration; flipping is never a migration.**
+
+**E. Accepted without change, having been evaluated (not rubber-stamped):** demographics fan-side →
+`077` (correct — keyed by `auth.users`, no other dependency, and it unblocks the RN surface at the
+earliest point so answers accumulate before any venue can read a threshold-clearing aggregate); CRM
+contact prefs → `077` and consent → `082` (consent carries `source_order_id` → `venue.order`, which is
+`082`); wallet config seeds → `078`; `kernel.pass_type_cert` → `083`; door manifest + delta log → `086`;
+CRM export → `087`; and everything the promoter spec places in `090` — including its own settlement-line
+index and its stated refusal to split the feature across packages, which is right for the reason it gives:
+`090` is the only package whose rollback is clean while empty, so splitting the code objects would make
+the feature un-revertible as a unit.
+
+### 13.6 DAG amendments this integration requires
+
+Added edges (each preceding its dependent — the DAG stays acyclic and topologically ordered by number):
+
+| Edge | Because |
+|---|---|
+| `079 → 083` | `kernel.wallet_pass.ticket_atom_id` FK (§13.5-C) |
+| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` |
+| `079 → 085` | `kernel.refund_primary_order` drives `void_ticket_atom` → `kernel.tickets` (DAG-2) |
+| `085 → 088` | `market.sweep_paid_pending_sales` writes `kernel.refund` (DAG-1) |
+| `087 → 090` | `090` adds the partial unique on `venue.settlement_line` and replaces `settlement_commission_lines` |
+| `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
+| `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
+
+No edge is removed. No package changes number. The count stays **16** unless CONDITIONAL B is ruled
+Gate P, in which case it becomes 17.
 
 ---
 
