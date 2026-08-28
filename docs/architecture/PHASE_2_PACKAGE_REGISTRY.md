@@ -215,12 +215,20 @@ Why each added edge exists:
 |---|---|
 | `079 → 083` | `kernel.wallet_pass.ticket_atom_id` FK → `kernel.tickets` |
 | `079 → 085` | `kernel.refund_primary_order` drives `void_ticket_atom` → `kernel.tickets` (previously undeclared) |
-| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` |
+| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` — **and `venue.door_manifest_delta.signing_key_id`, same target** (door §10.3a) |
 | `085 → 088` | `market.sweep_paid_pending_sales` writes `kernel.refund` (previously undeclared) |
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
 | `087 → 090` | `090` adds the cross-settlement commission unique on `venue.settlement_line` and replaces `kernel.settlement_commission_lines` |
 | **†`086 → 087`** | `venue.list_attendees` / `venue.build_export_rows` read `venue.scan` for the check-in columns (previously undeclared — named in the migration plan's §8/`087` prose, absent from every declared set). **Declaration-only:** no package added, renamed or reordered; no object moved; no rollback changed. Third instance of the SEAM-1 shape, after `079 → 085` and `085 → 088`, and resolved identically. |
+
+> **`K-1` adds no edge, and that is a checked result rather than an assumption.** Door §10.3/§10.3a add
+> `ticket_type_id` FK → `venue.ticket_type` to `venue.door_manifest_entry` **and** `venue.door_manifest_delta`.
+> `venue.ticket_type` is created in **`081`**, and `086` already declares `depends_on: ["079","080","081","083"]`
+> — so the edge `081 → 086` exists, and this is **not** a fourth instance of the SEAM-1 shape. Recorded
+> explicitly because an undeclared FK across packages is exactly what SEAM-1 is for, and "we checked and it was
+> already there" is worth writing down once so the next reviewer does not re-derive it. **No package is added,
+> renamed or reordered; the `076`–`091` band is untouched.**
 
 ### 2.2 The seam rule that keeps the DAG honest
 

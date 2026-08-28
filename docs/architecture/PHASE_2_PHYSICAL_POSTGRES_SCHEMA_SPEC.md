@@ -2806,6 +2806,19 @@ manifest with **no reject mapping and no defined offline behaviour**. `086`'s CH
 all four labels, and DOOR §9.2's map needs a `refund_hold` arm — reported to the RLS/RPC integrator, since
 the reject vocabulary is theirs.
 
+> **`K-1` — the column existed and the read did not return it.** The correction above makes
+> `door_manifest_entry.resale_state` *store* all four overlay labels. It does **not** make the offline door
+> able to read one: RPC §20.6.1 and DOOR §7.5 each projected a **different** subset of the entry, and neither
+> carried the full input set of `OFFLINE-VERIFY-v1` — DOOR §7.5 omitted `resale_state` outright, so the very
+> label this note adds was stored, CHECKed, digest-covered and **never sent to the device**. The two
+> projections are reconciled to one shape in DOOR §7.5/§7.5a and RPC §20.6.1. Two `ADDITIVE` schema
+> consequences land in `086`, both inside the existing package and inside the `076`–`091` band:
+> **`venue.door_manifest_entry.ticket_type_id`** (RPC §20.6.1 projected a column no table carried), and
+> **`venue.door_manifest_delta.ticket_state` / `.resale_state` / `.ticket_type_id`** plus five `op='add'`
+> CHECKs, so an atom supplemented after doors open is evaluable from its delta row alone. **A stored,
+> constrained, unprojected column is the shape of this defect** — worth naming here, because this index is
+> where a CHECK correction gets checked and the projection does not.
+
 ### 13.2 Forward references — the complete sweep, and the seam discipline
 
 A **forward reference** here means: *a function authored in package N reads or writes a table created in a
