@@ -177,9 +177,17 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     discipline, SPEC_FOUNDATION §2); NOT a new Connect integration.
   - `payout_destination_locked_until` timestamptz — nullable (cool-down seam for payout-destination changes,
     CDM §1.1 dual-control seam; enforced in RPC, not a hard constraint here).
+  - `payout_destination_set_by` uuid — **nullable**, FK→auth.users(id) on delete restrict
+    (**ADDED — MONEY §12 ADDITIVE-3, §8.2**). Records **who** last changed the payout destination.
+    Column-scoped exactly like `payout_destination_locked_until` (`org_owner`/`org_finance`/platform).
+    This column is what makes **SoD-1** enforceable: the identity that set the destination is excluded
+    from requesting the first payout to it — the named fraud primitive is "redirect the bank, then
+    withdraw", and without this column the exclusion cannot be evaluated at all.
+    **Package:** `077` (its own table's package; no later dependency).
   - `home_region` text — not null default `'us-east'`.
   - `created_at`, `updated_at`.
-- **FKs:** none upward (references auth via org_member, not here).
+- **FKs:** `payout_destination_set_by`→auth.users(id) on delete restrict. Otherwise none upward
+  (person↔org membership is expressed by `org_member`, not here).
 - **Unique:** `stripe_connect_account_ref` unique when not null (one Connect payee per org).
 - **Check:** `status` enum; non-empty names.
 - **Immutability:** MUT; status + payout-destination changes audited (dual-control seam per C11).
@@ -277,8 +285,16 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     ownership log).** Written ONLY inside the transfer engine, same txn as the log append.
   - `state` enum(`issued` · `active` · `scanned`(terminal) · `voided`(terminal) · `expired`(terminal))
     — not null default `issued`. **NO `refunded` terminal** (A5/D2): refund → `voided` cause `refund_void`.
-  - `resale_state` enum(`none` · `listed` · `locked`) — not null default `none` (CDM §1.1; R34 notes this is
-    a market fact physically on the kernel atom — accepted with dependency-smell flag, see CONFLICTS).
+  - `resale_state` enum(`none` · `listed` · `locked` · `refund_hold`) — not null default `none` (CDM §1.1;
+    R34 notes this is a market fact physically on the kernel atom — accepted with dependency-smell flag, see
+    CONFLICTS). **`refund_hold` ADDED — MONEY §12 ADDITIVE-2:** the parked-refund overlay set by
+    `kernel.request_order_refund`'s parked branch so an atom under a pending refund approval cannot be
+    listed, transferred or scanned out from under the approver, and released by
+    `kernel.sweep_expired_refund_requests` when the request expires. The transfer/lock/scan precondition
+    sets in RPC §7.2/§7.4/§7.5 all narrow accordingly (`resale_state='none'` required to lock or scan).
+    **Because §12.3 chooses `text` + `CHECK` over a native enum, adding this label is a
+    `DROP CONSTRAINT` + `ADD CONSTRAINT` in `079` — not the irreversible `ALTER TYPE … ADD VALUE` the
+    money spec assumed.** See §12.3.
   - `credential_version` integer — not null default 0. **Monotonic; pinned to the ownership-log head**
     (C28/R28): bumped by exactly +1 inside every transfer txn. NOT an independent counter.
   - `signing_key_id` uuid — not null, FK→kernel.signing_key(key_id) on delete restrict (which key signs the
@@ -1098,6 +1114,11 @@ a detection mechanism, not the enforcement.
   - `ticket_atom_id` uuid — not null, FK→kernel.tickets on delete restrict.
   - `event_session_id` uuid — not null, FK→catalog.event_session on delete restrict.
   - `device_id` uuid — nullable, FK→venue.scan_device (null for online/web admits).
+  - `actor_identity_id` uuid — **nullable**, FK→auth.users(id) **on delete restrict**
+    (**ADDED — ROLE_MODEL §7.4 / edit S-4 / classification #23**). The authenticated staff principal who
+    performed the admit (`auth.uid()`, server-derived, C35). **NULL on the device path** (where `device_id`
+    carries the principal); **set on the authenticated-staff path** (where `device_id` is NULL).
+    See the defect note in §3.12.2.
   - `direction` enum(`in` · `out`) — not null **default `in`** (C41 hedge column).
   - `scan_type` enum(`admission` · `re_entry` · `pass_out`) — not null default `admission` (C41).
   - `result` enum(`admitted` · `duplicate` · `invalid` · `frozen` · `fraud_review`) — not null.
@@ -1108,12 +1129,20 @@ a detection mechanism, not the enforcement.
   - `manifest_version` integer — nullable (which manifest window admitted, C23 reconciliation).
   - `server_receipt_at` timestamptz — not null default now(); `occurred_at` timestamptz not null (device time).
   - `created_at`.
+  - `manifest_id` uuid — **nullable**, FK→`venue.door_manifest(manifest_id)` on delete restrict
+    (**ADDED — DOOR §10.5**). Turns "which manifest window admitted" (C23 reconciliation) from a bare
+    number into a join, and lets `venue.reconcile_offline_scans` verify that a device's *claimed* manifest
+    actually existed and actually covered the atom. `manifest_version` is retained beside it for
+    device-reported/diagnostic use. **Package `086`** (same package as `venue.door_manifest`).
 - **FKs:** as above (on delete restrict).
 - **Unique:** **MVP no-re-entry enforcement** = partial `UNIQUE(ticket_atom_id, event_session_id) WHERE
   result='admitted' AND direction='in'` — the **first** admitted `in` wins; a second `in` violates the
   partial unique and is recorded (via the RPC) as `result='duplicate'`. **This partial unique is what makes
   MVP first-in-wins; relaxing it is the re-entry switch.**
-- **Check:** enum coherence.
+- **Check:** enum coherence, **plus the non-anonymous-admission CHECK (DEFECT FIX, ROLE_MODEL §7.4):**
+  ```sql
+  CHECK (device_id IS NOT NULL OR actor_identity_id IS NOT NULL)
+  ```
 - **Immutability:** **AO** (INSERT-only; every attempt is recorded, even duplicates/invalids).
 - **Index:** PK; the partial unique doubles as the duplicate-check index; index on `(event_session_id,
   server_receipt_at)` (live door count + reconciliation); index on `ticket_atom_id`.
@@ -1158,13 +1187,54 @@ a detection mechanism, not the enforcement.
   text not null default `'USD'`; `is_rounding_bearer` boolean not null default false (C31 — the line that
   absorbs the rounding residual in a 3-way split); `occurred_at` timestamptz; `created_at`.
 - **FKs:** `settlement_id` on delete restrict.
-- **Unique:** `UNIQUE(settlement_id, cause, cause_ref)` (a cause contributes one line per settlement).
+- **Unique:** `UNIQUE(settlement_id, cause, cause_ref)` (a cause contributes one line **per settlement**).
+- **Unique — cross-settlement attribution guard (DEFECT FIX, package `090`):**
+  ```sql
+  CREATE UNIQUE INDEX uq_settlement_line_promoter_attribution
+    ON venue.settlement_line (cause_ref)
+    WHERE cause = 'promoter_commission';
+  ```
 - **Check:** `cause` ∈ D3.
 - **Immutability:** **AO** (INSERT-only).
-- **Index:** PK; index on `settlement_id`; index on `cause_ref`.
+- **Index:** PK; index on `settlement_id`; index on `cause_ref`; the cross-settlement partial unique above.
 - **RLS:** org-scoped read + platform; writes RPC-only.
 - **Write authority:** the settlement close engine.
 - **SoT/PROJ:** SoT (Immutable Ledger). Full double-entry balancing of royalty/rounding is **Gate M** (C31).
+
+#### 3.14.1 DEFECT FIX — `UNIQUE(settlement_id, cause, cause_ref)` does not prevent double payment
+
+**The defect (CONFIRMED against this spec's own text).** `UNIQUE(settlement_id, cause, cause_ref)` scopes
+uniqueness **within one settlement**. It is a correct constraint for what it says — "a cause contributes
+one line per settlement" — and it is **not** the constraint the money invariant needs.
+
+`venue.attribution` carries `UNIQUE(order_id)` (§3.17): one attribution per order. But a settlement is
+opened per `(org, venue, event, period)` (§3.13) and **nothing stops the same `attribution.id` being
+lined into two different settlements** — an overlapping period, a re-opened event settlement, a
+venue-level close after an org-level close, or simply an operator opening a second settlement. Both lines
+satisfy `UNIQUE(settlement_id, cause, cause_ref)` because the `settlement_id`s differ. `kernel.payout`'s
+`UNIQUE(idempotency_key)` on `(cause, cause_ref, payee)` is the *last* line of defence, and it is a
+different aggregate reached later in the SSCAS — the ledger would already carry two commission lines and
+two settlements would already report a net that includes the same promoter commission twice.
+
+**Therefore: double-paying an attribution is not structurally blocked.** (Independently confirmed by two
+reviewers before this integration.)
+
+**The fix** is the partial unique index above: **one `promoter_commission` line per `cause_ref`, platform
+-wide**, not per settlement. A second attempt to line the same attribution — in any settlement — aborts.
+
+**Why it lives in `090`, not `087`.** The index names `cause = 'promoter_commission'`, a promoter
+concept. Package `087` (settlement) must not know that promoters exist — that is the same forward
+reference §13.2 removes from `kernel.close_settlement`. `087` creates the table and its
+per-settlement unique; `090` (promoter engine), which creates `venue.attribution`, adds the
+attribution-specific guard **beside the table whose rows it protects**. This makes `090` depend on `087`
+(a new DAG edge — see §13.3), which is correct and acyclic: `087 < 090`.
+
+**What this does NOT fix (named honestly).** The same shape exists for any other cause a future settlement
+could double-line (`market_sale` royalty, `refund_void`). Those are not fixed here because their
+`cause_ref`s legitimately recur across settlement periods in ways an attribution does not — an
+attribution is a once-ever credit for one order, a royalty is a per-sale fact that a period-based
+settlement may legitimately reference from a period boundary. Making the general rule structural is a
+**Gate-M double-entry-ledger property** (C31), not a partial index. Flagged, not silently closed.
 
 ### 3.15 `venue.comp_allocation`
 - **Purpose:** complimentary admissions that still draw real capacity (A4).
