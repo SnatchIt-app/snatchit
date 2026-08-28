@@ -3269,7 +3269,7 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-POL-02` | The zero-policy list of §16.10 has RLS **enabled** and **zero** policies; no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2 |
 | `T-RLS-POL-03` | **`AUTHZ-PKG1` — the four deferred venue-plane policies exist AND WORK after `080` applies.** Existence by name (`policies_are()` on `catalog.venue`, `catalog.event`, `catalog.event_session`, `kernel.tickets`) **plus a positive read**: a `venue_manager` granted on venue V reads V's own row on all four objects, and a `venue_manager` of a different venue reads **zero** rows on all four. **Existence alone is not the assertion** — a policy present with a wrong predicate passes it, and the failure mode being guarded is an operator plane that reads zero rows and presents as broken accounts rather than as a bad migration | **§16.10a**, `SEAM-3`, `I-1` |
 | `T-RLS-POL-04` | **`SEAM-3` mechanical — no policy is created in a package earlier than the package creating any function its predicate calls.** Build the map `policy → { helpers called }` from §16.10a and §16.10, map each helper to its package via schema §0.6, and assert `package(policy) >= max(package(helper))` for every policy in the register. **Non-vacuity: the check must resolve at least one helper for at least one policy per venue-plane table, or an empty map passes trivially** — which is exactly how the function-scoped §13.2 sweep returned clean over `FR-10`…`FR-13` | **§16.10a**, `SEAM-3`, schema §13.2 |
-| `T-RLS-POL-03` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner` | GP-1, GP-3 rule 2 |
+| `T-RLS-POL-05` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner`. **RENUMBERED from `T-RLS-POL-03` — see the collision note below** | GP-1, GP-3 rule 2 |
 | `T-RLS-COL-01` | `anon` holds **zero** rows in `information_schema.role_column_grants` for every empty-grant-set table of §6 | §6 tier 2 |
 | `T-RLS-COL-02` | `authenticated` holds **zero** rows in `role_column_grants` for the same set — *the assertion that would have caught the pre-068 `public.profiles` exposure* | §6 tier 2 |
 | `T-RLS-COL-03` | `authenticated` holds no SELECT on `kernel.wallet_pass.auth_token_enc` / `.auth_token_hash` / `.serial_no_opaque`; no `venue_*` or `org_*` role holds SELECT on any wallet table | §16.8 |
@@ -3315,6 +3315,44 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-DOOR-11` | A call carrying a valid `device_id` and `event_session_id` but **no session token** raises — written as a **negative**, because it is the exact call that succeeded before the fix | **§16.4a `AUTHZ-H3`** |
 | `T-RLS-DOOR-12` | `token_hash` is absent from every projection any role can reach, **including `platform_admin`** — asserted **structurally over the column grants**, not by a sample read, which passes on an empty table | **§16.4a `AUTHZ-H3`** |
 | `T-RLS-DOOR-13` | Revoking a door **PIN** leaves **no `status='active'` `venue.door_session` row** for that PIN (RV-1), and retiring a **device** leaves none for that device (RV-2) — **both halves in one test**, because the liveness clauses already fail the call and would pass a one-sided assertion | **§11.4 RV-1/RV-2** |
+
+> **`R3-1` — `T-RLS-POL-03` NAMED TWO DIFFERENT ASSERTIONS IN THIS TABLE, AND TWO DOCUMENTS CITED IT IN
+> OPPOSITE DIRECTIONS. RENUMBERED 2026-08-28.**
+>
+> **What was wrong.** This register carried **two rows** headed `T-RLS-POL-03`, with `-04` between them: the
+> `AUTHZ-PKG1` venue-plane control (*the four deferred policies exist and work after `080`*) and the
+> `GP-1`/`GP-3` rule (*no INSERT/UPDATE/DELETE policy except `notify_notification_upd_owner`*). `C86` was
+> appended 2026-08-28 and claimed `-03`/`-04` without noticing `-03` was already in use. **The two meanings
+> were then cited in opposite directions**: the traceability matrix §12 row and
+> `PHASE_2_SCOPE_AMENDMENT_2026_08.md` §11 row 4 meant the no-write-policy rule; ratified row **`C86`** means
+> the venue-plane control. **The consequence was not cosmetic — the control `C86` relies on to prove the four
+> deferred venue-plane policies actually work after `080` was scheduled by nothing**, because the only
+> traceability-matrix row bearing that id scheduled the other assertion.
+>
+> **What moved, and why that direction.** The **no-INSERT/UPDATE/DELETE-policy rule** is renumbered
+> `T-RLS-POL-03` → **`T-RLS-POL-05`**. The venue-plane control **keeps `-03`**. It is the newer of the two and
+> would normally be the one to move — but its only citation outside this document is inside ratified row
+> **`C86`** of `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, which is **append-only**: a
+> ratified row is never reworded, so moving `-03` would leave `C86` citing an id that no longer exists and the
+> correction could only be carried as an erratum a reader has to find. The no-write-policy rule's citations
+> are both in **editable registers** and are repointed in the same commit. **The renumber therefore leaves
+> every ratified row literally true and touches no frozen text.**
+>
+> **Every citation repointed (the complete list — there are three, and they are these):**
+> 1. this row, in this table;
+> 2. `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §9.1 (the combined `T-RLS-POL-01`, `-02`, `-03` row is
+>    split: `-05` now carries the `notify_notification_upd_owner` exception, and `-03`/`-04` get their own
+>    rows — `-04` had no row at all);
+> 3. `PHASE_2_SCOPE_AMENDMENT_2026_08.md` §8 (Feature 5 — Notifications) layer-4 RLS row
+>    (`assertion T-RLS-POL-03` → `T-RLS-POL-05`).
+>
+> **`T-RLS-POL-*` is now exactly five ids, and here they are** — stated as an enumeration and not as a count,
+> because a count is what let a sixth row wear a fifth name: **`T-RLS-POL-01`** (`policies_are()` per object
+> in §16.10) · **`-02`** (the zero-policy list is zero, plus the `_sel_svc_export` carve-out of §16.10 clause
+> 3) · **`-03`** (`AUTHZ-PKG1` — the four venue-plane policies exist **and work** after `080`) · **`-04`**
+> (`SEAM-3` mechanical — no policy precedes a helper its predicate calls) · **`-05`** (no INSERT/UPDATE/DELETE
+> policy, one named exception). **No `T-RLS-*` id in this register is defined twice**; that is now a property
+> a reader can check against this list rather than a hope.
 
 > **`AUTHZ-M5` — `T-RLS-ROLE-02` was not mechanically checkable, and it is the corpus's ONLY defence against a
 > hand-rolled role comparison inside an RPC body.**
