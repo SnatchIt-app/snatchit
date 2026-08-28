@@ -19,7 +19,11 @@
 ## Documents covered by this freeze
 
 **Constitutions (consolidated — the body is authoritative; no precedence algorithm needed):**
-`docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md` · `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` · `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` (record rows: C26–C50 + D1–D3 + O6 = 29, zero pending; C1–C25 prior-ratified in the constitutions; O2/O3/O4 tracked as open questions in DA §0.4)
+`docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md` · `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` · `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`
+
+Record contents, current as of 2026-08-27: **44 rows** — C26–C52 + D1–D8 + E-1 + OBS-1 + A-2 + O6 + the five owner rulings O-1 … O-5. C1–C25 are prior-ratified inside the constitutions themselves. **Three open decisions block a gate: O6** (cross-region native-resale form, carried from 2026-08-24), **O7** (the event outbox — promised by DA §6.2/§6.3 and CDM C12, scheduled by no implementation spec; row C51) and **O8** (the `notify` schema — Gate-P/MVP under C7, do-not-build in all four implementation specs; row C52). The record's earlier "zero pending" line no longer holds and has been withdrawn.
+
+> **Two `O` namespaces, and they are not the same series — read the hyphen.** `O1`…`O8` **unhyphenated** are the architecture **open questions** tracked in DA §0.4 and the risk register (`O3` = resale-policy snapshot drift, `O4` = per-event identity-verification strength, `O6`/`O7`/`O8` as above). `O-1`…`O-5` **hyphenated** are the **owner rulings** ratified 2026-08-27 (`O-3` = payout visibility/requests, `O-4` = door-manifest authority). `O3` ≠ `O-3` and `O4` ≠ `O-4`. Neither series is renumbered; the disambiguation is the fix (record row **D4**).
 
 **Architecture validation:**
 `docs/architecture/_superseded/PHASE_2_ARCHITECTURE_REVIEW.md` · `docs/architecture/_superseded/PHASE_2_FINAL_ARCHITECTURE_AUDIT.md` · `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md` · `docs/architecture/_governance/IMPLEMENTATION_READINESS_SCORE.md` · `docs/architecture/_governance/CTO_DECISION_MEMO.md` · `docs/architecture/_superseded/PHASE_2_IMPLEMENTATION_ROADMAP.md`
@@ -27,8 +31,21 @@
 **Implementation specifications (addenda A1–A5 applied and closed):**
 `docs/architecture/PHASE_2_SPEC_FOUNDATION.md` · `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` · `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md` · `docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md` · `docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md` · `docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md` · `docs/architecture/PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md` · `docs/architecture/_superseded/PHASE_2_IMPLEMENTATION_SPEC_REVIEW.md`
 
+**Delta specifications added after the 2026-08-24 freeze (design-only; same tier as the implementation specs in the authority order below, and covered by Rule 1 from the moment they are ratified into the record):**
+
+*Owner-ruling deltas — the design work behind record rows O-1 … O-5:*
+`docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md` (O-1, O-3) · `docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md` (O-2, O-4) · `docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md` (O-5, O-4)
+
+*Feature deltas:*
+`docs/architecture/PHASE_2_APPLE_WALLET_SPEC.md` · `docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md` · `docs/architecture/PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` · `docs/architecture/PHASE_2_NOTIFICATIONS_SPEC.md` · `docs/architecture/PHASE_2_PROMOTER_CODES_SPEC.md`
+
+*Surface and registry:*
+`docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` · `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md` (the canonical migration-package map)
+
+**These deltas do not themselves edit the constitutions.** Each records the constitutional edits it requires; those edits reach DA/CDM only through a ratified row in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, per Rule 1. Where two deltas prescribed conflicting edits to the same constitution section, the conflict is resolved and the rejected instruction named in the record (see row **D6**, DA §7.6).
+
 **Engineering governance:**
-`docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` · `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md` · Phase-0 baseline docs (`docs/architecture/PHASE_1_FOUNDATION.md`, `docs/architecture/SNATCH_IT_ENGINEERING_STANDARDS.md`, `docs/security/SNATCH_IT_PHASE_0_COMPLETION_REPORT.md`, `docs/security/PHASE_0_GATE2_SCHEMA_DIFF.md`, `docs/security/PHASE_0_EXECUTION.md`)
+`docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` · `docs/architecture/_governance/PHASE_2_FINAL_PREIMPLEMENTATION_GATE.md` · `docs/architecture/_governance/SNATCHIT_GITHUB_REPOSITORY_STABILIZATION_ROADMAP.md` · `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md` · Phase-0 baseline docs (`docs/architecture/PHASE_1_FOUNDATION.md`, `docs/architecture/SNATCH_IT_ENGINEERING_STANDARDS.md`, `docs/security/SNATCH_IT_PHASE_0_COMPLETION_REPORT.md`, `docs/security/PHASE_0_GATE2_SCHEMA_DIFF.md`, `docs/security/PHASE_0_EXECUTION.md`)
 
 ## Rules of the freeze
 
@@ -54,3 +71,25 @@ PR #3 (`phase2/architecture` → `main`) was **rebase-merged**. Recorded consequ
   document's path references accordingly. Nothing else changed.
 
 Recorded as row **A-2** in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`.
+
+## Maintenance note (2026-08-27) — this is not a new freeze
+
+Three statements in this document had become **false** and are corrected above. Nothing else changed: the rules
+are untouched, the baseline commit is untouched, no new freeze is declared, and **no new freeze record is
+written here** — that is a separate, later act gated on a readiness verdict.
+
+1. **The record-row inventory was stale** — "C26–C50 + D1–D3 + O6 = 29, zero pending". The record now carries
+   **44 rows** and **three open decisions (O6, O7, O8)**; "zero pending" is withdrawn rather than restated.
+2. **The covered-document list predated the delta specs.** Eight design-only delta specifications (three
+   owner-ruling, five feature) plus the venue dashboard product spec and the package registry now exist and are
+   listed. Adding them to the covered set is what puts them under Rule 1.
+3. **The `O` namespace was ambiguous.** This document previously said "O2/O3/O4 tracked as open questions in DA
+   §0.4" beside owner rulings numbered `O-2`/`O-3`/`O-4`. Both readings are legitimate and neither series is
+   renumbered; the sentence is replaced by an explicit note (record row **D4**).
+
+**Checked and already correct, therefore not changed:** the migration statement above already reads *implementation
+begins at `076`; `071`–`075` are applied production security migrations, not Phase-2 packages*. It needed no fix
+at this baseline.
+
+Corrections applied under record rows **D4**, **D5** and **D6**, and under the owner rulings **O-1 … O-5**, in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`.
