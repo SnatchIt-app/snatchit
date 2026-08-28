@@ -47,6 +47,326 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
+      # -----------------------------------------------------------------------
+      # OFFLINE-VERIFY-v1 byte-identity gate (docs-only; touches no database).
+      #
+      # PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3 states the offline door admission
+      # predicate ONCE, tagged `OFFLINE-VERIFY-v1`, and permits sanctioned
+      # mirrors elsewhere under docs/architecture/** on condition that they are
+      # reproduced byte-for-byte. Clause 3 of that single-source rule promises
+      # "a docs job ... fails the build unless every one is byte-identical".
+      # THIS IS THAT JOB. Until it existed the property held by inspection, not
+      # by construction — the exact defect class (a control described as
+      # structural that is only prose) the C53 correction was raised against.
+      #
+      # Why the predicate is worth a gate: ratification record C53. Four
+      # documents each held an editable copy of the offline door check; one was
+      # corrected and the others were not, and the copy that stayed wrong was
+      # the one a scanner SDK implements. It carried TWO conjuncts at 3b where
+      # FIVE are required, which made the OFFLINE door strictly more permissive
+      # than the ONLINE one: it admitted `paid_pending_transfer` and
+      # `refund_hold` atoms the online door refuses.
+      #
+      # Runs first, before `npm ci`, so a broken lockfile cannot take the gate
+      # offline. It is a step in an ALREADY-REQUIRED job rather than a new
+      # workflow: the check name "Typecheck / Lint / Unit tests" is load-bearing
+      # in branch protection (.github/workflows/README.md), so a gate added here
+      # blocks merge today with no branch-protection change and no rename.
+      #
+      # FAIL CLOSED, four ways. Byte-identity alone is not enough:
+      #   1. non-vacuity  — a scan over ZERO blocks passes silently forever.
+      #      This repo has shipped that bug: a bare UPDATE reported success
+      #      against zero rows and every audit that read the migration source
+      #      concluded the limits were in place. They were not. Hence a FLOOR.
+      #   2. anti-emptying — four blocks emptied together are byte-identical and
+      #      four in number. Hence a minimum body size.
+      #   3. anti-coordinated-weakening — four copies that all drop conjunct
+      #      3b.v are byte-identical too, and that is C53 reproduced exactly.
+      #      Hence the content anchors: the gate asserts the predicate's
+      #      STRENGTH, not merely its uniformity.
+      #   4. normative home — if §5.4.3's own block were deleted, the surviving
+      #      mirrors would happily agree with each other. Hence the requirement
+      #      that the edge spec contribute at least one block.
+      #
+      # Ratchets. Raise OFFLINE_VERIFY_MIN_BLOCKS when a mirror is added; NEVER
+      # lower it to make a red build pass. Removing a sanctioned mirror is a
+      # reviewed decision that lowers it deliberately, in the same commit that
+      # removes the mirror and amends §5.4.3's list of sanctioned mirrors.
+      # -----------------------------------------------------------------------
+      - name: OFFLINE-VERIFY-v1 spec byte-identity gate
+        env:
+          # Floor, not an equality. 4 today: edge §5.4.3 (normative) + door
+          # §9.2 + Wallet §2.3 + Wallet §11.9 — the Wallet spec carries TWO,
+          # which is why "three mirrors" and "three documents" are not the same
+          # number and why this is counted rather than assumed.
+          OFFLINE_VERIFY_MIN_BLOCKS: 4
+          # The canonical body is 2017 bytes / 34 lines. This floor exists only
+          # to catch a wholesale emptying or truncation of every copy at once;
+          # it is not a second copy of the length and must stay well under it.
+          OFFLINE_VERIFY_MIN_BODY_BYTES: 1900
+          # The normative home. At least one block MUST come from this file.
+          OFFLINE_VERIFY_NORMATIVE_FILE: docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md
+        run: |
+          set -uo pipefail
+
+          scan_root="docs/architecture"
+          if [ ! -d "$scan_root" ]; then
+            echo "::error::${scan_root} does not exist — the OFFLINE-VERIFY-v1 gate cannot certify a tree it cannot read."
+            exit 1
+          fi
+
+          # Recursive on purpose. _governance/ and _superseded/ are real
+          # subdirectories of docs/architecture, and a mirror that lands in one
+          # of them must be gated, not silently exempted by a flat glob.
+          files_list="$RUNNER_TEMP/ov_files.txt"
+          find "$scan_root" -type f -name '*.md' | LC_ALL=C sort > "$files_list"
+          files_n=$(wc -l < "$files_list" | tr -d ' ')
+          if [ "${files_n:-0}" -eq 0 ]; then
+            echo "::error::no .md files found under ${scan_root} — refusing to certify an empty scan."
+            exit 1
+          fi
+          echo "OFFLINE-VERIFY-v1 gate: scanning ${files_n} markdown file(s) under ${scan_root}/"
+
+          ov_awk="$RUNNER_TEMP/ov_scan.awk"
+          cat > "$ov_awk" <<'OVAWK'
+          # ov_scan.awk — extract every fenced OFFLINE-VERIFY-v1 block under
+          # docs/architecture/**.
+          #
+          # Each qualifying block's body is written VERBATIM to
+          # OUTDIR/block_<n>.txt so the hash below is over bytes on disk, not
+          # over anything this script re-serialised. Emits on stdout:
+          #
+          #   BLOCK        <n> <file> <open_line> <body_lines> <outfile>
+          #   LOOSE        <file> <line> <source>
+          #   UNTERMINATED <file> <open_line>
+          #   TOTALS       <blocks> <loose> <unterminated>
+          #
+          # A block QUALIFIES when its FIRST body line begins with the tag. That
+          # is the same rule §5.4.3 clause 2 states for a sanctioned mirror
+          # ("inside a fence whose first line is the OFFLINE-VERIFY-v1 tag"), so
+          # the gate and the prose agree on what a mirror is.
+          #
+          # LOOSE: the tag at column 1 OUTSIDE any fence. That is a mirror whose
+          # fence was lost — the copy is still there and still editable, but it
+          # is no longer gated. Under a count-only check it would vanish from
+          # the census; here it is a hard failure.
+          #
+          # UNTERMINATED: a fence opened and never closed. FAIL CLOSED — an
+          # unterminated fence silently swallows the rest of the file, so every
+          # later block in it disappears from the scan.
+
+          BEGIN { blocks = 0; loose = 0; unterm = 0; infence = 0 }
+
+          FNR == 1 {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", curfile, openline; unterm++ }
+            infence = 0; nbody = 0
+            curfile = FILENAME
+          }
+
+          {
+            line = $0
+            isfence = 0
+            if (match(line, /^`+/) && RLENGTH >= 3)      { isfence = 1; mchar = "`"; mlen = RLENGTH }
+            else if (match(line, /^~+/) && RLENGTH >= 3) { isfence = 1; mchar = "~"; mlen = RLENGTH }
+
+            # Opening fence. An info string ("```text") is allowed and is NOT
+            # part of the body, so a mirror may be fenced as ```text or ``` and
+            # still be byte-identical to the normative block.
+            if (isfence && !infence) {
+              infence = 1; fencechar = mchar; fencelen = mlen
+              openline = FNR; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            # Closing fence: same character, at least as long, nothing after it.
+            # A shorter or different marker inside the fence is body text, which
+            # is what lets a fenced block quote a fence.
+            if (isfence && infence && mchar == fencechar && mlen >= fencelen && substr(line, mlen + 1) ~ /^[ \t]*$/) {
+              if (nbody > 0 && bodyfirst ~ /^OFFLINE-VERIFY-v1/) {
+                blocks++
+                out = OUTDIR "/block_" blocks ".txt"
+                for (i = 1; i <= nbody; i++) print bodyline[i] > out
+                close(out)
+                printf "BLOCK\t%d\t%s\t%d\t%d\t%s\n", blocks, FILENAME, openline, nbody, out
+              }
+              infence = 0; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            if (infence) {
+              nbody++
+              bodyline[nbody] = line
+              if (nbody == 1) bodyfirst = line
+              next
+            }
+
+            if (line ~ /^OFFLINE-VERIFY-v1/) { loose++; printf "LOOSE\t%s\t%d\t%s\n", FILENAME, FNR, line }
+          }
+
+          END {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", FILENAME, openline; unterm++ }
+            printf "TOTALS\t%d\t%d\t%d\n", blocks + 0, loose + 0, unterm + 0
+          }
+          OVAWK
+
+          ov_out="$RUNNER_TEMP/ov_blocks"
+          rm -rf "$ov_out"; mkdir -p "$ov_out"
+          ov_index="$RUNNER_TEMP/ov_index.txt"
+
+          # A bash array rather than xargs: one awk invocation (the block
+          # counter and OUTDIR numbering are global across files), safe with
+          # spaces in paths, and identical on GNU and BSD userlands so a
+          # developer can run this exact logic locally before pushing.
+          ov_files=()
+          while IFS= read -r f; do ov_files+=("$f"); done < "$files_list"
+          if ! awk -v OUTDIR="$ov_out" -f "$ov_awk" "${ov_files[@]}" > "$ov_index"; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner failed to run — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+
+          # sha256sum on the runner; shasum is the BSD/macOS fallback so the
+          # gate is reproducible by hand off-CI. Neither is optional.
+          if command -v sha256sum >/dev/null 2>&1; then
+            ov_sha() { sha256sum "$1" | cut -d' ' -f1; }
+          elif command -v shasum >/dev/null 2>&1; then
+            ov_sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          else
+            echo "::error::neither sha256sum nor shasum is available — refusing to certify byte-identity without a hash."
+            exit 1
+          fi
+
+          totals=$(grep -m1 '^TOTALS' "$ov_index" || true)
+          if [ -z "$totals" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner produced no TOTALS line — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+          found=$(printf '%s\n' "$totals" | cut -f2)
+          loose=$(printf '%s\n' "$totals" | cut -f3)
+          unterm=$(printf '%s\n' "$totals" | cut -f4)
+          for v in "$found" "$loose" "$unterm"; do
+            case "$v" in
+              ''|*[!0-9]*) echo "::error::the OFFLINE-VERIFY-v1 scanner emitted a non-numeric total (\"$v\") in: $totals"; exit 1 ;;
+            esac
+          done
+
+          awk -F'\t' '$1 == "BLOCK" { printf "  block %s  %s:%s  (%s lines)\n", $2, $3, $4, $5 }' "$ov_index"
+
+          # Guard 1 — a fence that never closed. Fail before counting anything.
+          if [ "$unterm" -gt 0 ]; then
+            echo "::error::${unterm} unterminated code fence(s) under ${scan_root} — every block after one is invisible to this scan."
+            awk -F'\t' '$1 == "UNTERMINATED" { printf "  %s: fence opened at line %s never closed\n", $2, $3 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 2 — the tag at column 1 outside a fence: an ungated copy.
+          if [ "$loose" -gt 0 ]; then
+            echo "::error::${loose} OFFLINE-VERIFY-v1 tag(s) at column 1 outside any code fence. An unfenced copy is an ungated copy — it is exactly the fourth editable copy C53 was raised about. Re-fence it, or delete it and cite §5.4.3."
+            awk -F'\t' '$1 == "LOOSE" { printf "  %s:%s  %s\n", $2, $3, $4 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 3 — NON-VACUITY. A scan over zero blocks is not a pass.
+          if [ "${found:-0}" -lt "$OFFLINE_VERIFY_MIN_BLOCKS" ]; then
+            echo "::error::found ${found} OFFLINE-VERIFY-v1 block(s), floor is ${OFFLINE_VERIFY_MIN_BLOCKS}. Either a sanctioned mirror was deleted or renamed out of ${scan_root}, or the tag was altered so the scan no longer sees it. A gate that scans nothing passes forever — that is why this is a floor and not a comparison against whatever happens to be there."
+            exit 1
+          fi
+
+          # Guard 4 — the normative home must still exist and still be tagged.
+          normative_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { n++ } END { print n + 0 }' "$ov_index")
+          if [ "${normative_n:-0}" -lt 1 ]; then
+            echo "::error::no OFFLINE-VERIFY-v1 block found in ${OFFLINE_VERIFY_NORMATIVE_FILE} — the normative home (§5.4.3). Without it the mirrors would agree with each other and with nothing authoritative."
+            exit 1
+          fi
+          # The normative block's index, used below as the diff base.
+          norm_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { print $2; exit }' "$ov_index")
+
+          # Guard 5 — BYTE-IDENTITY. The gate §5.4.3 clause 3 promises.
+          hash_list="$RUNNER_TEMP/ov_hashes.txt"
+          : > "$hash_list"
+          while IFS=$'\t' read -r _tag n file openline _lines out; do
+            printf '%s\t%s\t%s:%s\n' "$(ov_sha "$out")" "$n" "$file" "$openline" >> "$hash_list"
+          done < <(awk -F'\t' '$1 == "BLOCK"' "$ov_index")
+
+          distinct=$(cut -f1 "$hash_list" | LC_ALL=C sort -u | wc -l | tr -d ' ')
+          canonical=$(awk -F'\t' -v n="$norm_n" '$2 == n { print $1; exit }' "$hash_list")
+          body_bytes=$(wc -c < "$ov_out/block_${norm_n}.txt" | tr -d ' ')
+
+          {
+            echo ""
+            echo "### OFFLINE-VERIFY-v1 spec byte-identity gate"
+            echo ""
+            echo "| metric | value | gate |"
+            echo "|---|---|---|"
+            echo "| tagged blocks found | ${found} | at least ${OFFLINE_VERIFY_MIN_BLOCKS} |"
+            echo "| distinct body hashes | ${distinct} | exactly 1 |"
+            echo "| canonical body bytes | ${body_bytes} | at least ${OFFLINE_VERIFY_MIN_BODY_BYTES} |"
+            echo "| unfenced tags at column 1 | ${loose} | 0 (fail closed) |"
+            echo "| unterminated fences | ${unterm} | 0 (fail closed) |"
+            echo "| canonical sha256 | \`${canonical}\` | — |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${distinct:-0}" -ne 1 ]; then
+            echo "::error::the ${found} OFFLINE-VERIFY-v1 blocks are NOT byte-identical (${distinct} distinct bodies). §5.4.3 is the single normative statement; a mirror that differs is a defect in that mirror, never a change to the predicate. Copy §5.4.3's block verbatim."
+            LC_ALL=C sort "$hash_list" | awk -F'\t' '{ printf "  %s  %s\n", substr($1,1,16), $3 }'
+            echo "--- each divergent body, diffed against the normative block ---"
+            while IFS=$'\t' read -r _h n where; do
+              [ "$n" = "$norm_n" ] && continue
+              if ! cmp -s "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt"; then
+                echo "### ${where}"
+                diff -u "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt" | head -60 || true
+              fi
+            done < "$hash_list"
+            exit 1
+          fi
+
+          # Guard 6 — ANTI-EMPTYING. Four empty blocks are byte-identical and
+          # four in number, and would sail through every guard above.
+          if [ "${body_bytes:-0}" -lt "$OFFLINE_VERIFY_MIN_BODY_BYTES" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 body is ${body_bytes} bytes, floor is ${OFFLINE_VERIFY_MIN_BODY_BYTES}. Identical copies of a truncated predicate are still identical — uniformity is not strength."
+            exit 1
+          fi
+
+          # Guard 7 — ANTI-COORDINATED-WEAKENING. This is the guard that would
+          # have caught C53 itself. Byte-identity says the four copies agree; it
+          # says nothing about WHAT they agree on. Four copies that all drop
+          # conjunct 3b.v are byte-identical, four in number, and full length —
+          # and the offline door is once again strictly more permissive than the
+          # online one. Each anchor below is a load-bearing clause of the
+          # ratified predicate (ratification record C53). Editing this list is a
+          # reviewed change to the predicate, made in §5.4.3 first.
+          anchors="$RUNNER_TEMP/ov_anchors.txt"
+          cat > "$anchors" <<'OVANCHORS'
+          Single source: PHASE_2_EDGE_FUNCTION_SPEC.md
+          The device MUST evaluate against the APPLIED set.
+          3b   FIVE conjuncts, ALL required
+          i    atom ∈ M2
+          ii   M2[atom] carries no applied
+          iii  token.credential_version == M2[atom].credential_version
+          iv   M2[atom].ticket_state  == 'active'
+          v    M2[atom].resale_state  == 'none'
+          3c   token.key_id == M2[atom].signing_key_id
+          MUST NOT admit
+          OVANCHORS
+          anchors_n=$(grep -c . "$anchors" | tr -d ' ')
+          if [ "${anchors_n:-0}" -lt 10 ]; then
+            echo "::error::the anchor list has ${anchors_n} entries, expected at least 10 — the heredoc was truncated and this guard would be vacuous."
+            exit 1
+          fi
+          missing=0
+          while IFS= read -r anchor; do
+            [ -z "$anchor" ] && continue
+            if ! grep -qF -- "$anchor" "$ov_out/block_${norm_n}.txt"; then
+              echo "::error::OFFLINE-VERIFY-v1 no longer contains the required clause: ${anchor}"
+              missing=$((missing + 1))
+            fi
+          done < "$anchors"
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::${missing} load-bearing clause(s) missing from the predicate. All ${found} copies agreeing is not a defence — C53 is precisely the case where the offline door was weakened and every copy of it read consistently. Conjunct 3b.v in particular is load-bearing, not defence in depth: without it the offline door admits paid_pending_transfer and refund_hold atoms the ONLINE door refuses."
+            exit 1
+          fi
+
+          echo "OFFLINE-VERIFY-v1 gate OK: ${found} tagged block(s) (floor ${OFFLINE_VERIFY_MIN_BLOCKS}), 1 distinct body, ${body_bytes} bytes (floor ${OFFLINE_VERIFY_MIN_BODY_BYTES}), ${anchors_n} clause anchors present, ${loose} unfenced tags, ${unterm} unterminated fences; sha256=${canonical}"
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
