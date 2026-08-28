@@ -740,6 +740,45 @@ the subject the operation acts on is the same defect wearing the other parameter
 > readable, per the convention schema §3.10a uses. **A two-argument `assert_door_session` found anywhere in
 > any branch, diff or printed copy is a defect in that copy, not a position.**
 
+> ### ✅ `DISCHARGED 2026-08-28` — `R4` unswept-text pass · ratification rows **`C122`** / **`D31`**
+>
+> **The filing below stands as the record of what was found; this block records what was done about it.
+> Nothing below is deleted. It is a HISTORICAL FILING and is NOT an instruction.** Read the table above, not
+> the paragraph below it.
+>
+> **Why it needed a stamp rather than a quiet edit.** This is a **merge artefact**: `F-4` replaced the
+> nine-helper **table** with the ten-helper one and the nine-helper **prose** survived fifty-five lines
+> beneath it, live, unmarked and present-tense — including the sentence
+> ***"`kernel.money_role_grant_matured` is not registered here and must not be"***, which **forbids the
+> repair the section immediately above it received**. A reader who scrolled reverts `C58`. Treated the way
+> `PHASE_2_SPEC_FOUNDATION.md` §4 treats its own superseded filing: preserved, stamped, and unmistakably
+> past-tense.
+>
+> **Every count in the filing below is now false. The current values, each stated with its enumeration:**
+>
+> | The filing said | At head | Evidence |
+> |---|---|---|
+> | this table registers **nine** | **ten** — `has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` · `has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` · `is_promoter_for_event` · `assert_door_session` · `money_role_grant_matured` | the table above, `F-4` |
+> | **`RM-2`** (§6.6) says **nine** | **ten**, *"enumerated by name"*, and it carries the no-bare-count rule | §6.6 `RM-2` |
+> | RLS §2.2 is headed *"the **eleven** predicate helpers"* | *"The **TEN** predicate helpers"* | RLS §2.2 heading |
+> | SPEC_FOUNDATION §4 C36 lists **eight** | *"the canonical **TEN**, enumerated and never counted"* | SPEC_FOUNDATION §4 |
+> | `T-RLS-ROLE-02` *"cannot be written until one number is right"* | **written, and it asserts no count** — it consumes the literal ten-name enumeration of §2.2; `T-RLS-ROLE-06` asserts set equality against `pg_proc` **in both directions** | RLS §16.11 `T-RLS-ROLE-02` / `-06` |
+> | *"`money_role_grant_matured` is not registered here and must not be"* | **registered here, and required to be** — contract RPC **§1.1e**, ratified **`C76`**; the belief that it belonged to the money spec is precisely how it reached four money call sites with no definition | RPC §1.1e · record `C76` / `D16` |
+>
+> **How the count question was settled — mechanically, not by choosing** (`AUTHZ-C1C`, rows `C76`/`D16`):
+> the **union** of every name any statement gave is **ten**; the **intersection** of the three statements
+> that actually *enumerate* is **nine**; the sole element of the difference is
+> `kernel.money_role_grant_matured`. Picking a number would have left a count assertion that **passes on the
+> wrong set of the right size** — which is the failure that hid the missing helper. **The rule that replaced
+> the count is `HELPER-DERIVED` clause 4: no statement of this set may be a bare count.**
+>
+> **`R-18` is discharged with this block** — see §11.2, stamped there. Nothing in the filing below is
+> outstanding work for the RLS owner or for anyone else.
+>
+> ---
+>
+> **📋 THE ORIGINAL FILING, PRESERVED (2026-08-28, pre-`F-4` merge) — HISTORICAL, NOT NORMATIVE:**
+>
 > **Helper count — nine here, and the corpus does not agree with itself.** This table registers **nine**
 > helpers, and **RM-2** (§6.6) says nine, so this document is internally consistent.
 > `PHASE_2_RLS_PERMISSION_SPEC.md` §2.2 is headed *"the eleven predicate helpers"* while listing these same
@@ -1225,17 +1264,17 @@ recurs.
 > | ⚠️ **APPLIED — harmful as written** | landed, **and the instruction itself is now known to be the wrong *kind* of instruction.** `R-12` and `R-14`. Do not re-execute in that form. |
 > | 🔁 **CORRECTED HERE** | the instruction was wrong and this pass fixed it in place. `R-16`, `P-5`. |
 > | ❌ **REJECTED** | ruled against by a later authority. **Do not apply.** `D-6` (ratification row `D6`). |
-> | 📋 **FILED** | new, reported to another owner, nothing for this file to do. `R-18`. |
+> | 📋 **FILED** | new, reported to another owner, nothing for this file to do. `R-18` — **now ✅ DISCHARGED 2026-08-28** (`AUTHZ-C1C`, rows `C76`/`D16`); no `📋` row is outstanding. |
 >
 > **Disposition summary — 55 rows.** ✅ 49 applied (of which 11 are superseded or extended in part) ·
 > ⚠️ 2 applied-but-harmful-as-written (`R-12`, `R-14`) · 🔁 2 corrected by this pass (`R-16`, `P-5`) ·
-> ❌ 1 rejected (`D-6`) · 📋 1 newly filed (`R-18`). **Nothing in this list is outstanding work for another
-> integrator except `R-18`, which is a report.** The three functions `R-16`/`P-5` named are governed by
+> ❌ 1 rejected (`D-6`) · 📋 1 newly filed (`R-18`), **now ✅ DISCHARGED 2026-08-28** (`R4`; rows `C122`/`D31`).
+> **Nothing in this list is outstanding work for another integrator.** The three functions `R-16`/`P-5` named are governed by
 > `AUTHZ-H10`, `AUTHZ-R1` and open owner ruling `S-13`/`R-21` (`OD-11`) respectively.
 >
 > **`VERIFIED:` every disposition was checked against the current text of the target file at `cbf8926`, not
 > inherited from a prior pass's claim.** Where a target file is held by another integrator this pass **read**
-> it and edited nothing; the two things it found that other owners must fix are `R-18` (RLS's helper count)
+> it and edited nothing; the two things it found that other owners must fix were `R-18` (RLS's helper count — **discharged 2026-08-28**, `AUTHZ-C1C`)
 > and the `S-` id collision noted under §11.7.
 
 ### 11.1 `docs/architecture/PHASE_2_SPEC_FOUNDATION.md`
@@ -1244,7 +1283,7 @@ recurs.
 |---|---|---|---|---|
 | F-1 | §4 C36 — the `kernel.org_member(org_id, identity_id, role)` bullet | ``- `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner\|org_admin\|org_finance\|org_member` (org scope).`` | ``- `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner\|org_admin\|org_finance\|org_marketing\|org_promoter_manager\|org_member` (org scope).`` | ✅ **APPLIED.** SPEC_FOUNDATION §4 C36 carries the six org labels, tagged inline `SPEC CORRECTION (ROLE_MODEL F-1)`. |
 | F-2 | §4 C36 — the `venue.staff_role(venue_id, identity_id, role)` bullet | ``- `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager\|venue_finance\|venue_door\|venue_promoter` (venue scope).`` | ``- `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager\|venue_finance\|venue_box_office\|venue_marketing\|venue_promoter_manager\|venue_scanner` (venue scope).`` | ✅ **APPLIED.** Same bullet, six venue labels, tagged `F-2`. Ratification row **D11** (`SF-2`) records that §4 still carried the pre-O-2 lists until then — *"the exact strings ruling O-2 abolished, in the naming authority itself."* |
-| F-3 | §4 C36 — the `Predicate helpers:` bullet | `Predicate helpers: … `kernel.is_platform(role[])`.` | append: `` · `kernel.has_org_role_over_venue(venue_id, role[])` · `kernel.has_org_role_over_event(event_id, role[])` · `kernel.is_org_affiliate(org_id)`. Door principals are NOT tested by `has_venue_role` — see PHASE_2_ROLE_MODEL_SPEC §7. `` | ✅ **APPLIED, and EXTENDED past the instruction.** The three helpers landed. The authz pass then added a **fourth**, `kernel.money_role_grant_matured(org_id)` (`AUTHZ-C1B`, owned by the money spec), **on its own authority because this list filed no `F-4`**, and reported the omission back. See §6.2’s helper-count note and `R-18`. |
+| F-3 | §4 C36 — the `Predicate helpers:` bullet | `Predicate helpers: … `kernel.is_platform(role[])`.` | append: `` · `kernel.has_org_role_over_venue(venue_id, role[])` · `kernel.has_org_role_over_event(event_id, role[])` · `kernel.is_org_affiliate(org_id)`. Door principals are NOT tested by `has_venue_role` — see PHASE_2_ROLE_MODEL_SPEC §7. `` | ✅ **APPLIED, and EXTENDED past the instruction.** The three helpers landed. The authz pass then added a **fourth**, `kernel.money_role_grant_matured(org_id)` (`AUTHZ-C1B`, owned by the money spec), **on its own authority because this list filed no `F-4`**, and reported the omission back. See §6.2’s helper-count note — **stamped ✅ DISCHARGED 2026-08-28**, the fourth helper is ratified as `C76` with contract RPC §1.1e — and `R-18`. |
 | **F-4** | §4 C36, the Predicate-helpers line | the eight-name list left by `F-3` **as extended by the authz pass** — `has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` · `has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` · `money_role_grant_matured` | **complete it to the canonical TEN and enumerate, never count** — the list is missing **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** and **`kernel.is_promoter_for_event(event_id)`**, both of which are helpers in §6.2, in RLS §2.2 and in RPC §1.1c/§1.1d, and neither of which any `F-n` row ever asked for. **`SPEC_FOUNDATION` §4 is the file every implementation spec is told to take its names from**, so a short list there is a helper an implementer never learns exists. **Filed here because `SPEC_FOUNDATION` line 58 records that `F-3` was the last `F-n` and that `money_role_grant_matured` was therefore added *on the authz pass's own authority* with the omission reported back — this row is that report answered** (`AUTHZ-C1C`; ratification **C76**). | 📋 **NEWLY FILED** by the helper-set closure pass; the canonical helper set is **ten** — see §6.2 and RPC §1.1–§1.1e. |
 
 ### 11.2 `docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md`
@@ -1268,7 +1307,7 @@ recurs.
 | R-15 | §11 — the `venue.allocate_comp`/`issue_comp` row | `` \| `venue.allocate_comp`/`issue_comp` \| `has_venue_role([venue_manager])` OR org_owner/admin (step-up seam C39) \| `` | **split into two rows**: `venue.allocate_comp` → `has_venue_role([venue_manager])` OR org_owner/admin; `venue.issue_comp` → `has_venue_role([venue_manager, venue_box_office])` OR org_owner/admin. Both C39-gated. | ✅ **APPLIED** — RLS §11 splits the two, with `venue_box_office` **denied** on `allocate_comp` and admitted on `issue_comp`; both C39-gated on `comp.per_staff_step_up_max_units`. |
 | R-16 | §11 | **add rows** | **CORRECTED — see the ruling immediately below; the original wording ordered three functions built that later rulings deleted, re-homed or blocked.** `venue.open_door_manifest` / `venue.close_door_manifest` (O4-1/O4-2 authority); **`catalog.set_session_door_schedule`** (O4-3 — **NOT `venue.set_door_open_at`**, which does not exist: `AUTHZ-R1` / `S-7`); **`venue.set_event_security_config`** (O4-4) **only if owner ruling `S-13`/`R-21` schedules `catalog.event_security_config`** — while that ruling stands open the function is **`⛔ BLOCKED`** and no EXEC row may be written for it; **`venue.review_attribution_flag`** (G5 — **NOT `venue.decide_flagged_attribution`**, which is deleted: `AUTHZ-H10` / `R-13` / `X-14`); `venue.read_operational_audit` (A6); `venue.list_attendees` (F11/F12); the CRM-export authorization (H2/H3). | 🔁 **CORRECTED BY THIS PASS — it ordered three abolished functions built.** See the ruling immediately below this table. Everything else it asks for is ✅ **APPLIED**: RLS §11.4 `open_/close_door_manifest`, §11.5 `review_attribution_flag`, §11.6 `read_operational_audit` and `list_attendees`, and the CRM-export authorization (now template-scoped in `PHASE_2_CRM_EXPORT_SPEC.md`). |
 | R-17 | §15 | **add** | items resolved by this spec (role-set, scanner credential, door authority) with a pointer; retain items 1, 3, 4 (still open — OD-3/OD-4). | ✅ **APPLIED** — RLS §15.7 *"Status after the delta-spec integration."* |
-| **R-18** | §2.2 | **NEW — reported, not instructed** | §2.2's heading says *"the eleven predicate helpers"*, its body lists **nine**, its §2.2b **RM-2** says **nine**, and `T-RLS-ROLE-02` enumerates *"the eleven helpers"* structurally. **One number must win before that test can be written.** This document registers nine (§6.2) and is not the source of the eleven. **The RLS owner's call**, not mine; recorded so it is not lost between the two files. | 📋 **FILED BY THIS PASS — a report, not an instruction.** Nothing to apply here; the single canonical helper count is the RLS owner’s to set. |
+| **R-18** | §2.2 | **NEW — reported, not instructed** | §2.2's heading says *"the eleven predicate helpers"*, its body lists **nine**, its §2.2b **RM-2** says **nine**, and `T-RLS-ROLE-02` enumerates *"the eleven helpers"* structurally. **One number must win before that test can be written.** This document registers nine (§6.2) and is not the source of the eleven. **The RLS owner's call**, not mine; recorded so it is not lost between the two files. | ✅ **DISCHARGED 2026-08-28** (`R4`; rows `C122`/`D31`). **The RLS owner did not pick a number — the corpus stopped using one.** RLS §2.2 is headed *"The **TEN** predicate helpers"*, SPEC_FOUNDATION §4 says *"the canonical **TEN**, enumerated and never counted"*, §6.6 `RM-2` says **ten, enumerated by name**, and `T-RLS-ROLE-02` was rewritten to consume the **literal ten-name enumeration** and **assert no count** — because a count assertion passes on the wrong set of the right size, which is how `money_role_grant_matured` reached four money call sites undefined. Settled **mechanically** under `AUTHZ-C1C` / rows `C76`/`D16`: union = **ten**, intersection of the enumerating statements = **nine**, difference = `kernel.money_role_grant_matured`, contract RPC **§1.1e**. **`HELPER-DERIVED` clause 4 now forbids a bare count of this set anywhere.** Nothing remains for the RLS owner. |
 
 > ### `R-16` RULING — THE ORIGINAL WORDING ORDERED THREE ABOLISHED FUNCTIONS BUILT (`R-13`/`X-14`, `S-7`, `S-13`/`R-21`)
 >
@@ -1429,7 +1468,7 @@ and §5.0.
 | 25 | Event-scoped staff grants (`event_id` + `expires_at`, PK extension) | `ADDITIVE SCHEMA CHANGE` — **deferred**, pre-cleared; venue dashboard Δ8 | ✅ **Still correct.** Documented as an EXT point in schema §3.9; still deferred, still pre-cleared as additive. |
 | 26 | `scan_scopes` (per-ticket-type door narrowing, DA §7.3) | `ADDITIVE SCHEMA CHANGE` — **deferred**; the door-session token can carry the scope set since it is minted server-side | ✅ **Still correct.** Still deferred; unchanged by any pass. |
 | 27 | INV-NOFORCE (§6.5) | `NO SCHEMA CHANGE` — a prohibition + a verification assertion | ✅ **Still correct.** RLS invariant `I-12`; asserted positively in `077`/`080` staging verification, which is what the row asked for. |
-| 28 | RM-1 … RM-6 standing rules | `NO SCHEMA CHANGE` | ✅ **Still correct.** Carried into RLS §2.2b verbatim. (RM-2’s helper count is contested corpus-wide — `R-18`.) |
+| 28 | RM-1 … RM-6 standing rules | `NO SCHEMA CHANGE` | ✅ **Still correct.** Carried into RLS §2.2b verbatim. (`RM-2` says **ten, enumerated by name**; the corpus-wide count dispute is **discharged** — `R-18`, `AUTHZ-C1C`, rows `C76`/`D16`.) |
 | 29 | Org affiliation vs `org_member` label (§10) | `NO SCHEMA CHANGE` — naming + one new predicate (#10) | ✅ **Still correct.** Unchanged. |
 | 30 | Ambassador model | `NO SCHEMA CHANGE` — confirmed correct as-is | ✅ **Still correct.** Ambassador is in no enum. |
 | 31 | Multi-venue `venue_manager` (§6.4) | `NO SCHEMA CHANGE` — the existing PK already answers it | ✅ **Still correct.** Carried into RLS §2.2c. |
