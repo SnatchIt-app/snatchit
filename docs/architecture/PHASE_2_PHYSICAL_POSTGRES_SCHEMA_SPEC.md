@@ -2901,15 +2901,88 @@ no control, because a manager will believe the device is dead.
   timestamptz; `status` enum(`open` · `closed` · `paid`) not null default `open`; `gross_minor` integer;
   `fees_minor` integer; `refunds_minor` integer; `net_minor` integer; `currency` text not null default
   `'USD'`; `created_at`, `updated_at`.
+  **The four money columns are `NULL` while `status='open'` and are written exactly once, by
+  `kernel.close_settlement`, in the transaction that moves the header to `closed` — §3.13.1. They had ZERO
+  writers at `f97f6cd`.**
 - **FKs:** on delete restrict.
-- **Check:** `status` enum.
-- **Immutability:** header MUT; lines immutable (§3.14). Close → payout is SSCAS member #4.
+- **Check:** `status` enum. **ADDED (§3.13.1) — the waterfall identity, as a table constraint rather than a
+  convention:**
+  ```sql
+  CHECK (
+    status = 'open'
+    OR (gross_minor IS NOT NULL AND fees_minor IS NOT NULL
+        AND refunds_minor IS NOT NULL AND net_minor IS NOT NULL
+        AND net_minor = gross_minor - fees_minor - refunds_minor)
+  )
+  ```
+  **A closed settlement with a NULL header, or with a `net_minor` that does not equal its own waterfall, is
+  unstorable.** The header is the number the dashboard shows a venue and the number `request_org_payout`
+  disburses against; *"net is derived from the lines"* is only true if something derives it.
+- **Immutability:** header MUT; lines immutable (§3.14). Close → payout is SSCAS member #4. **The four money
+  columns are write-once at close** — a re-close is refused by `status <> 'open'`, so no path re-derives them
+  after a payout has been generated from them.
 - **Index:** PK; index on `(org_id, status)`; index on `event_id`.
 - **RLS:** org-scoped (org finance) + platform; writes RPC-only.
-- **Write authority:** `venue.open_settlement` (INSERT `open`), `kernel.close_settlement` (→ `closed`),
+- **Write authority:** `venue.open_settlement` (INSERT `open`, money columns NULL), **`kernel.close_settlement`
+  (→ `closed`, **and `gross_minor` / `fees_minor` / `refunds_minor` / `net_minor`, rolled up from
+  `venue.settlement_line` under the header's own `FOR UPDATE`** — §3.13.1)**,
   **`venue.on_payout_settled` (→ `paid`; the SEAM-2 hook, stub in `085`, real body in `087` — §1.9.2,
   defect `MB-2b`). `paid` had no writer at `734c814`.**
 - **SoT/PROJ:** SoT (header); net is a derived waterfall from lines.
+
+#### 3.13.1 DEFECT `R1-2` — the settlement header's four money columns had no writer, and the close RPC *returns* one of them
+
+**The defect (CONFIRMED against this spec and RPC §10.2 at `f97f6cd`).** `gross_minor`, `fees_minor`,
+`refunds_minor` and `net_minor` each appear **exactly twice in the entire corpus, and both occurrences are
+DDL** — this section's column list and migration plan §5's column list. **No function writes any of them.**
+Meanwhile:
+
+- `kernel.close_settlement` (RPC §10.2) **returns `net_minor`** in its result — *"`{ status, payout_ids[],
+  net_minor }`"* — while its **Writes** line names only `venue.settlement_line`, `venue.settlement (→
+  `closed`)`, `kernel.payout` and `kernel.admin_audit`. **A function that returns a column it does not write
+  is a function that computed the number and threw it away.**
+- Dashboard §14 reads the **header**, not a re-aggregation of the lines. So the surface a venue is paid
+  against renders four NULLs.
+- `venue.on_payout_settled` moves the same header to `paid` (§1.9.2). **A settlement can therefore reach
+  `paid` with a NULL `net_minor`.**
+
+**This is the `MB-2b` class again — a value the schema defines and no code can reach — but with a twist worth
+naming: the number is not merely unwritten, it is *computed and discarded*.** The close transaction already
+has it; it has to, or it could not have generated the payout. Nothing said to store it.
+
+**Disposition.** `kernel.close_settlement` writes all four in the same transaction that writes the lines and
+the payout, from the lines it just wrote — **one derivation, inside the lock, never re-derived**:
+
+- `gross_minor` — Σ the positive revenue lines of `venue.settlement_line` for this settlement.
+- `fees_minor` — Σ the platform-fee and royalty lines.
+- `refunds_minor` — Σ the refund lines.
+- `net_minor` — `gross_minor − fees_minor − refunds_minor`, **including the rounding residual assigned to
+  the named `settlement_line.is_rounding_bearer` (C31)**, so the header equals the sum of the lines exactly
+  and not to within a cent.
+
+**Why the header and not a view.** The lines are immutable but the *set* is not closed to future readers —
+`settlement_royalty_lines` (`088`) and `settlement_commission_lines` (`090`) are `CREATE OR REPLACE` seams,
+so a view over the lines would return **different numbers before and after `090` replays** for a settlement
+closed at `087`. **A payout must be explicable by the arithmetic that produced it, not by the arithmetic the
+database can do today.** Storing the header is what makes the close reproducible; the CHECK is what stops the
+stored value drifting from its own lines.
+
+**No new object, no new package, no dependency edge, and no change to money movement** — the payout amount is
+still `kernel.payout.amount_minor`, generated by the same close, and the frozen Stripe core is untouched.
+Additive DDL on a table already scheduled in `087`. Ratification **C103**.
+
+**Reported, not applied here (§13.7a `S-26`).** Migration plan §8's `087` row must add the CHECK and
+`T-SCHEMA-SETTLE-03`/`-04`; the dashboard spec (§14) should state that the four header figures are straight
+column reads and are NULL until close, so the panel renders "not yet closed" rather than zeroes — **zero and
+unknown are the same pixel and only one of them is a bug.**
+
+**Tests.**
+- `T-SCHEMA-SETTLE-03`: a `closed` row with any of the four NULL **raises** `23514`, and one whose
+  `net_minor` disagrees with its own waterfall raises. Both halves — the first is the zero-writer defect, the
+  second is the drift it invites.
+- `T-SCHEMA-SETTLE-04`: after `kernel.close_settlement`, the stored header **equals the sum of the settlement
+  lines**, rounding bearer included — asserted against the lines rather than against a literal, because a
+  test against a literal passes on a function that stores a constant.
 
 ### 3.14 `venue.settlement_line` (AO)
 - **Purpose:** immutable money lines, each referencing a canonical cause (order/sale/refund/attribution).

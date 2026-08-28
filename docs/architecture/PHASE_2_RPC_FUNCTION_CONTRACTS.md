@@ -1515,12 +1515,34 @@ that door is using. Filed by edge §3.9a request #4.
   `venue.attribution`. **SSCAS:** #4 (+#5). **Idempotency:** `kernel.payout.idempotency_key` deterministic on
   `(cause, cause_ref, payee)` (Phase-0 discipline) → replay recovers the same payout.
 - **Reads:** `venue.settlement(_line)`,`venue.attribution`,`market.market_sale`(royalty). **Writes:**
-  `venue.settlement_line` (AO, incl. rounding bearer), `venue.settlement` (→ `closed`), `kernel.payout`
-  (INSERT `pending`, cause `settlement` + `promoter_commission`), `kernel.admin_audit` (`settlement.close`).
+  `venue.settlement_line` (AO, incl. rounding bearer), **`venue.settlement` (→ `closed`, **AND the four money
+  columns `gross_minor` / `fees_minor` / `refunds_minor` / `net_minor`** — schema §3.13.1, defect `R1-2`)**,
+  `kernel.payout` (INSERT `pending`, cause `settlement` + `promoter_commission`), `kernel.admin_audit`
+  (`settlement.close`).
+  - **`SPEC CORRECTION` (`R1-2`; ratification `C103`) — this contract RETURNED `net_minor` and wrote none of
+    the four.** The Writes line named only *"`venue.settlement` (→ `closed`)"*, and the four columns appeared
+    **exactly twice corpus-wide, both DDL**. So the number the dashboard shows a venue, and the header
+    `venue.on_payout_settled` later moves to `paid`, were **NULL forever** — while this function had the
+    figure in hand, since it could not have generated the payout without it. **A function that returns a
+    column it does not write is a function that computed the number and threw it away.**
+  - **One derivation, inside the header's own `FOR UPDATE`, from the lines this transaction just wrote:**
+    `gross_minor` = Σ the positive revenue lines · `fees_minor` = Σ the platform-fee and royalty lines ·
+    `refunds_minor` = Σ the refund lines · `net_minor` = `gross − fees − refunds`, **including the rounding
+    residual assigned to `settlement_line.is_rounding_bearer` (C31)**, so the header equals the sum of the
+    lines exactly and not to within a cent. Schema §3.13.1's CHECK makes the identity a table constraint;
+    the four are **write-once**, because a re-close is already refused by the `open` precondition.
+  - **Not a view over the lines, and the reason is the seams.** `settlement_royalty_lines` (`088`) and
+    `settlement_commission_lines` (`090`) are `CREATE OR REPLACE` — a view would return **different numbers
+    before and after `090` replays** for a settlement closed at `087`. A payout must be explicable by the
+    arithmetic that produced it.
 - **Emitted facts:** payout cause `settlement`/`promoter_commission`. **Result:** `{ status, payout_ids[],
-  net_minor }`. **EDGE note:** the actual Stripe Connect transfer is executed by the payout edge fn / existing
-  `record_transfer_payout`-style pipeline (§13) — this RPC only records the payout intent. **Forbidden
-  callers:** non-finance; anything touching ticket history from settlement.
+  net_minor }` — **and `net_minor` is now a read-back of the column this function wrote, not a value that
+  exists only in the response.** **EDGE note:** the actual Stripe Connect transfer is executed by the payout
+  edge fn / existing `record_transfer_payout`-style pipeline (§13) — this RPC only records the payout intent.
+  **Forbidden callers:** non-finance; anything touching ticket history from settlement.
+- **Tests.** `T-SCHEMA-SETTLE-03` / `-04` (schema §3.13.1) are this contract's assertions: a `closed` row
+  with any of the four NULL raises, and the stored header equals the sum of its own lines — asserted against
+  the lines, never against a literal, because a literal passes on a function that stores a constant.
 
 ### 10.3 `kernel.request_org_payout(p_org_id, p_settlement_id, p_command_key)` — **EDGE-FRONTED (DB-RPC records intent)**
 - **Purpose:** org finance requests disbursement of a closed settlement's payout to the org's Stripe Connect
