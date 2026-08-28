@@ -838,3 +838,779 @@ repair chose by inheritance, not a ruling."*
 **Blocks.** Nothing. Would attach to `082`.
 **Filed at.** `PHASE_2_PACKAGE_REGISTRY.md` §7.1 `OWNER-DECISION-K2-READ` · CRM §5.3 · record row `D13`.
 **Recommendation.** **None.** Both outcomes are costed and neither is preferred.
+
+---
+
+# BAND 3 — blocks a named surface, contract, control or feature flag
+
+Fifty-eight decisions. The migration chain can proceed; each of these stops one identified surface, one
+authority cell, one contract or one flag. Ordered by blast radius — the money plane first, then the door and
+Wallet, then the product surfaces.
+
+**Read the `Silence` line.** Eleven entries in this band default to the **unsafe** direction.
+
+---
+
+## The money plane
+
+### ODR-35 — Does `org_admin` hold the money-plane read? · **surface H is BLOCKED**
+**Choice.** **(A) deny** — MONEY §3.4's reading, corroborated by Domain §7.2's Org Admin *Cannot* column and
+`O-2`'s *"not unrestricted financial authority"*. **(B) grant** — MONEY §10.1 row 35 and VD §5 row 35,
+corroborated by RLS §9.7 and §9.13, which grant today.
+**Breaks.** The two positions are held by the **same document**: §3.4 denies `org_admin` all money authority
+and **labels its own position `INFERENCE`**, while §10.1 row 35 of that same document grants `●` and once
+called the row *"unchanged"*. `O-1` and `O-3` name `org_owner` and `org_finance` and are **silent on
+`org_admin`**, so neither position is a ruling.
+**Silence.** **GRANT, silently — and this is the single most important line in this register.** RLS §9.7 grants
+`org_owner/admin` `A(own-org orders)` SELECT on `venue.order`; RLS §9.13 grants `org_admin` `A(own-org)` SELECT
+on `venue.settlement`, whose header carries gross, fees, refunds and net. *"**Both grant.** So the outcome of
+leaving `D-8` open is not 'nothing gets built' — it is **Position B, built silently, with a `D` sitting unread
+in §3.4**."* **UNSAFE**, and the remedy costs are asymmetric: *"widening later is a one-line matrix change;
+**narrowing later is a migration plus removing a capability operators have been using**."*
+**Blocks.** Venue dashboard **surface H**: *"UNRESOLVED. DO NOT BUILD SURFACE H FROM EITHER CELL."* It also
+reopens `ODR-89`.
+**Filed at.** Record rows `C85` / **`O13`** · MONEY §11 `D-8` + §11.1 (both positions in full) + §3.4 + §10.1
+row 35 · VD §5.2 blocking banner + §22.13 · AMEND §14.2-A `OD-05`.
+**Recommendation.** **NONE, and the absence is deliberate and stated.** MONEY §11: *"**NONE — deliberately.**
+Every other row in this table carries a recommendation; this one must not, because the two positions are held
+by the same document and the tie-break is an authority question, not a design question."* Record `C85`: *"**NO
+SIDE IS TAKEN AND NO RECOMMENDATION IS OFFERED.**"*
+**Answer `ODR-89` in the same sitting** — position (A) reopens it.
+
+### ODR-36 — Extend grant maturity to the platform plane, or retract the platform-plane claim?
+**Choice.** **(a)** a second, scope-free helper `kernel.platform_money_role_grant_matured()` reading
+`kernel.platform_role.created_at` against the same key, bound on the `config.set_money_key` arm — *"a new
+control and therefore a new ratification, not a clarification"*; **or (b)** retract schema §1.13.4's
+platform-plane sentence and `S-3`'s `set_platform_config` clause, *"so the corpus stops describing a control it
+does not have."*
+**Breaks.** *(a)* extends a ratified control to a plane `C58` did not ratify it on. *(b)* deletes ratified
+schema text and concedes that the platform plane is defended by dual control and audit alone.
+**Silence.** **UNSAFE, and live today.** *"`config.set_money_key` therefore carries no maturity floor today,
+visibly and on purpose"*, while *"`kernel.grant_platform_role` is itself held by `platform_admin`, so a
+`platform_admin` can mint the second `platform_admin` that approves the raise of a money ceiling. **That is the
+C58 attack one plane up, on the act the money spec calls larger than any refund it then authorizes.**"*
+**Blocks.** No package. A live authority hole on the arm that governs every money threshold in the system.
+**Filed at.** Record rows `C77` / **`O12`** · SCHEMA §1.13.4 + §13.7 `S-3` · RPC §20.14 `R-22` *(second
+occurrence — see defect **DF-1**)* + §17.2 dispatch table · RLS §11.3a · MONEY §6.7a conflict 2 ·
+SPEC_FOUNDATION §4.
+**Recommendation.** **None; refused by both documents.** RPC §20.14: *"**This document does not choose.**"*
+RLS §11.3a: *"**Neither is taken here.**"* Record `C77` adds: *"**Whichever is chosen, one document currently
+says the opposite and must be corrected in the same act.**"*
+
+### ODR-37 — The payout tier's operand
+**Choice.** **(a) undisbursed org exposure** — Σ `kernel.payout.amount_minor` in `pending`/`held`/`submitted`
+plus this payout: no new key, no window, not caller-mintable, decays as payouts complete. **(b) rolling per-org
+window** — Σ over a new `payout.tier_window_hours`, disbursed and undisbursed alike.
+**Breaks.** *(a)* *"**does not close the slow case:** an attacker who lets each payout settle before requesting
+the next still disburses unbounded value below the ceiling over time."* *(b)* closes it, and costs a key plus a
+width decision that is itself a second `ODR-12`-shaped question.
+**Silence.** The tier stays compared against **one payout's amount**, and the caller supplies the settlement
+period. **UNSAFE, and the defect is live:** *"**What is not open is whether payouts are currently splittable:
+they are.**"* It is worse than the refund case because *"the caller **chooses the decomposition of the subject
+itself**."*
+**Acceptance criterion the corpus states, so a fix is checkable.** *"the tier operand must be invariant under
+decomposition of any caller-chosen subject."*
+**Blocks.** The payout tier in `kernel.request_org_payout` (§9.2 / RPC §10.3).
+**Filed at.** Record rows `C90` / **`O14`** · MONEY §11 `D-10` + §9.2 + §7.2 · RPC §10.3 (`MB-1b`) + §21 ·
+record row `D20`.
+**Recommendation.** **None.** MONEY §11: *"**Not made here.** It is *who may disburse how much without a second
+approver*, and unlike the refund case there is **no subject already in the corpus** to derive the answer
+from."*
+
+### ODR-38 — Does `kernel.tickets.resale_state` have one writer pair, or two writer sets?
+**Choice.** **(a)** extend `lock_ticket`/`unlock_ticket` to carry `refund_hold`, so `resale_state` has exactly
+two writers and the freeze re-check is unbypassable by construction; **or (b)** keep the four money RPCs'
+direct writes and **say so explicitly** in RLS §7.4 and the authority statement, pinned by tests asserting the
+money RPCs perform no freeze re-check on release paths.
+**Breaks.** *(a)* changes a custody-engine contract. *(b)* ratifies a second writer set. *"a hold release must
+never be refused because doors opened, which is why (a) is not obviously right."*
+**Silence.** **UNSAFE for consistency, not for security today:** *"Not a defect in either direction today …
+**What is wrong is that nothing states which of the two the design is**, so an implementer picks one per
+function."*
+**Blocks.** Nothing named. The four functions are `request_order_refund`, `approve_refund_request`,
+`cancel_refund_request`, `sweep_expired_refund_requests`.
+**Filed at.** RPC §20.14 `R-25` + §0.7a + §12.4c · MONEY §6.1–§6.3 · record row `D20`. **Not in any
+consolidated index.**
+**Recommendation.** **None.** RPC: *"**This document does not choose.**"*
+**Cross-reference defect:** RPC §0.7a points at `R-24` for this finding while the register and §21 point at
+`R-25` — see **DF-13**.
+
+### ODR-39 — Should the buyer self-service arm additionally gate on order value?
+**Choice.** Leave the cumulative per-payment cap as the only bound, or add a second independent conjunct with
+its own key excluding high-value orders from self-service entirely.
+**Breaks.** *No exclusion* — *"**a buyer may self-serve part of an arbitrarily large order, up to
+`refund.buyer_self_service_max_minor` in total on that payment**."* *Adding it wrongly* — *"adding it silently
+inside the existing key is precisely what produced the ambiguity `MB-1` had to settle."*
+**Silence.** Not built. **SAFE** — the cumulative cap is absolute per payment and the window key bounds
+recency.
+**Blocks.** The §6.1a buyer row only.
+**Filed at.** MONEY §11 `D-9` + §6.1a · RPC §17.1a · record row `D20`. **Not in any consolidated index.**
+**Recommendation — yes.** MONEY §11: *"**Not needed.** The cumulative cap bounds exposure absolutely, every
+atom voided is the buyer's own, and `refund.buyer_self_service_window_hours` bounds recency."*
+
+### ODR-40 — `refund.scanned_atom_policy`: `refuse` or `platform_review`?
+**Choice.** Refunding an atom that has already been scanned in: refuse outright, or route to platform review.
+**Breaks.** *`refuse`* — *"Refunding an attendee who already walked in is an ordinary goodwill act, so 'the
+whole refund fails' is wrong product behavior."* *`platform_review`* — *"it is **also** the exact shape of an
+insider-fraud primitive (staff scans a friend in, then refunds the ticket)"*, so it is seen rather than
+silently allowed or silently blocked. RLS `MD-16` adds that the control **was inert** before `AUTHZ-C1A` and
+now is not: *"the operational load it creates is real and arrives the day the fix ships."*
+**Silence.** **No absent-key rule is stated for this key** — it is not in the fail-to-safe list. See **DF-7**.
+**Blocks.** The consumed-atom refund path; a `078` seed.
+**Filed at.** MONEY §11 `D-6` + §5.4 Race 3 + §7.2 · RLS §15.7 `MD-6` and `MD-16` · AMEND §14.2-A `OD-07`.
+**Recommendation — yes.** MONEY §11: *"`platform_review` — refunding an attendee is legitimate, but it is also
+the insider-collusion shape, so it should be seen, not silently allowed or silently blocked."*
+
+### ODR-41 — A single-money-principal org blocked from payouts: escalate, or relax?
+**Choice.** Escalate the first post-destination-change payout to `platform_risk`/`platform_admin` via the
+existing `release_payout`, or let the same identity do both after the cool-down.
+**Breaks.** *Relax* — *"reintroduces the exact named fraud primitive"* (`SoD-1`: redirect the bank account,
+then release funds to it). *Escalate* — *"a one-person org therefore contacts Snatch It for exactly one
+payout."*
+**Silence.** Escalate; the path already exists and *"No code path bypasses the rule."* **SAFE.**
+**Blocks.** The `release_payout` path (MONEY §8.2).
+**Filed at.** MONEY §11 `D-5` + §8.2 · RLS §15.7 `MD-5` · AMEND §14.2-A `OD-06`.
+**Recommendation — yes.** MONEY §11: *"**Escalate** via the existing `release_payout`. Relaxing reintroduces
+the exact named fraud primitive."*
+
+### ODR-42 — Ship step-up at `aal1` freshness now, or block money actions until MFA?
+**Choice.** `authn.money_action_required_aal = 'aal1'` now with the level in config (flip to `aal2` on staff
+MFA enrolment — a config change, not a code change), or block money actions until MFA ships.
+**Breaks.** *`aal2` on day one* — *"nothing enrolls MFA today, so `aal2` on day one locks every operator
+out."* *Block* — *"Blocking would ship a dashboard nobody can use."* *`aal1`* is defended: *"`aal1` freshness
+is **not** security theatre: it defeats the most common real attack against a 90-day-refresh-token dashboard."*
+**Silence.** `aal1`. **SAFE.**
+**Blocks.** RLS §11.3 step-up; `078` seeds; a `NEW DASHBOARD SURFACE` (re-authentication flow).
+**Filed at.** MONEY §11 `D-7` + §8.3 · RLS §15.7 `MD-7` · AMEND §14.2-A `OD-08` + §11 `HG-7`.
+**Recommendation — yes, with a verification attached.** AMEND `OD-08`: *"**`aal1` with the level in config**,
+so `aal2` is a config change not a code change. Paired with **HG-7**."* The verification is not a decision and
+is owed either way: `UNVERIFIED:` whether this project's access tokens carry `amr` with per-factor timestamps —
+*"If absent, freshness degrades to token age (`iat`), which is weaker and must be labelled as such."*
+
+### ODR-43 — May a `venue_manager` mint another `venue_manager`?
+**Choice.** Allow it, or require the grant to come from the org tier or `platform_admin`.
+**Breaks.** *Allow* — minting a `venue_manager` mints **an `O-4` door-lifecycle principal**. *Deny* — *"a small
+venue whose only manager is on holiday now needs an org-plane action to add a second."*
+**Silence.** The guard is written (`AUTHZ-M7`). **SAFE, but it narrows a grant the corpus previously stated
+affirmatively**, which is why it is filed as a decision rather than applied silently.
+**Blocks.** `venue.grant_staff_role`.
+**Filed at.** RLS §15.7 `MD-15` (`AUTHZ-M7`) · RPC §20.4.1 · ROLE_MODEL §12 row 32. **Not in any consolidated
+index.**
+**Recommendation — yes.** RLS `MD-15`: *"**No** … Recorded as a decision because it **narrows a grant the
+corpus previously stated affirmatively**."*
+
+### ODR-44 — Who may disable a transfer freeze?
+**Choice.** `O-4` says not the scanner and does not say who. The placement on record is `platform_admin` under
+step-up, *"placed there provisionally."*
+**Breaks.** Placing it below the platform plane lets a venue principal defeat platform-wide custody state
+(`kernel.is_transfer_frozen`). Leaving it unplaced leaves a capability with no actor.
+**Silence.** `platform_admin` under step-up. **SAFE** (most restrictive) but explicitly provisional.
+**Blocks.** The override RPC.
+**Filed at.** ROLE_MODEL §13 `OD-7` + §5.3 `F3` + §8.1 `O4-5` · RLS §15.7 `MD-12` · DOOR §8.2/§8.3/§10A.3/§10A.7
+· AMEND §14.2-A `OD-09`.
+**Recommendation — yes, and the door spec has already gone further.** AMEND `OD-09`: *"`platform_admin` under
+step-up, placed there provisionally."* The door spec independently rules `kernel.grant_door_freeze_override` =
+`is_platform([platform_admin])` only, with **revoke** shared with `platform_risk` — *"may tighten, never loosen
+— SoD."* Confirming the door spec's finer form closes this.
+
+### ODR-45 — The platform sub-role read boundary
+**Choice.** Confirm the least-privilege split the RLS spec already assigned — support = ops `V`, risk =
+money/fraud read `A`, admin = full `A`/audit — or widen it; specifically, *"whether `platform_support` may read
+money summaries at all, and whether `platform_risk` may read `kernel.admin_audit` fully."*
+**Breaks.** Widening puts money summaries in the hands of the most numerous platform role. The assigned split
+is narrower than the schema spec's generic `is_platform`.
+**Silence.** The assigned split ships. **SAFE** (narrower than what the schema delegated).
+**Blocks.** Every platform cell in RLS §7–§10.
+**Filed at.** RLS §15 item 1 · AMEND §14.2-A `OD-12`.
+**Recommendation.** **None.** AMEND `OD-12` carries an empty recommendation cell; RLS flags it as *"a real
+authorization choice the schema spec delegated."*
+
+### ODR-46 — Re-map legacy `venue_manager` grants when the six-label enum lands
+**Choice.** Re-map existing grants at the cutover, or carry them across unchanged.
+**Breaks.** *Carry across* — anyone granted `venue_manager` **for box-office work** retains manifest
+open/close, which is an `O-4` door-lifecycle authority. *Re-map* — some staff lose access until re-granted.
+**Silence.** Grants carry across. **UNSAFE**, and the amendment says which way to err: *"Under-provisioning is
+safe here; over-provisioning is not."*
+**Blocks.** Grant hygiene at the cutover.
+**Filed at.** VD §22.12 · AMEND §14.2-J `OD-75`.
+**Recommendation — yes, as a direction rather than a rule.** AMEND `OD-75`: *"Under-provisioning is safe here;
+over-provisioning is not."*
+
+## The door and Apple Wallet
+
+### ODR-47 — Ratify the session-bounded Wallet token profile · gates `wallet.apple.enabled`
+**Choice.** Grant the relaxation of the ratified constraint *"a `.pkpass` must never carry a longer TTL than
+the token"*, with its conditions — or keep the constraint as written.
+**Breaks.** *Keep as written* — *"That was circular (the pass carries *the* token) and, taken literally, makes
+Wallet impossible — a short-TTL barcode expires on an offline phone and locks a paying fan out."* *Grant* —
+*"If step 3b regresses … a short `exp` would still have expired the stale token within hours; a
+session-bounded `exp` will not."* — a defence-in-depth layer is knowingly given up.
+**Silence.** **UNSAFE.** The grant is treated as given while **both of its own conditions were unimplemented
+when it was granted**: (1) the offline-window bound, which *"applies **only when `session.ends_at IS NULL`**"*
+and *"on the common branch bound nothing"* — now discharged by a clamp on the computed `exp`; and (2) key
+revocation force-closing open door episodes, where the ruling's own words are *"Without this I would reject
+DL-4"* and the mechanism *"was specified nowhere as invoking it."*
+**Blocks.** The `wallet.apple.enabled` flag via Wallet §13 items **10a** and **10b**.
+**Filed at.** Record rows `C56` / **`O9`** · DOOR §16 `OQ-5` · WALLET §15 `OQ-W4` + §14 `DL-4` + §5.2/§5.2a +
+§13 items 10a/10b · EDGE §5.6 + §9 item 15 · AMEND §14.2-D `OD-25`.
+**Recommendation — yes, with the two conditions named as the substance of the sign-off.** WALLET §15
+`OQ-W4`: *"Accept the session-bounded wallet profile with the three §5.3 mitigations **and both of the ruling's
+own conditions, neither of which was implemented when granted** … **The owner is signing off on a relaxation
+whose safety rests on these two; §13 items 10a/10b gate the enable on them.**"*
+
+### ODR-48 — Acknowledge that Wallet may not ship before the door M2 tables and offline step 3b
+**Choice.** Acknowledge the hard gate, or ship Wallet first.
+**Breaks.** *Ship first* — *"Without step 3b, Scenarios 2, 3 and 4 all **ADMIT**, and this document's central
+claim is false"*, i.e. *"deploying defect W-3 at scale, on devices the platform does not control"*, which
+cannot be recalled.
+**Silence.** The gate is asserted by the spec and by `HG-1`; only the acknowledgement is missing. **SAFE.**
+**Blocks.** The whole Wallet feature enable; requires `086` before `083`/`084`.
+**Filed at.** WALLET §15 `OQ-W3` + §0.2 + §4.5 + §13 item 10 · AMEND §11 `HG-1`. **Not in the scope
+amendment's `OD-` series.**
+**Recommendation — yes.** WALLET §15: *"**Hard gate: Wallet may not ship before the door-lifecycle spec's M2
+tables and step 3b are implemented and drilled.** Shipping first deploys W-3 at scale onto devices we do not
+control. **Owner acknowledgement required.**"* *(This is close to a defect rather than a choice — see
+**DF-16**.)*
+
+### ODR-49 — Security sign-off on the `verify_jwt=false` set · gates deploy
+**Choice.** Sign off on `wallet-pass-webservice` alone, or on **the whole `verify_jwt=false` set**.
+**Breaks.** *Function-only* — the higher-risk member goes unreviewed: `door-session` *"is the highest-risk
+member of the set … RLS is bypassed entirely behind it. Its security sign-off is owed alongside
+`wallet-pass-webservice`'s, not after it."* *No sign-off* — *"the second unauthenticated endpoint ships
+unreviewed."*
+**Silence.** The surface ships unreviewed. **UNSAFE.**
+**Blocks.** Deploy; `wallet.apple.enabled` via Wallet §13 item 12.
+**Filed at.** WALLET §15 `OQ-W6` + §6.1 + §11.6a/§11.6b + §13 item 12 · EDGE §7 members 2 and 3 + §3.11 ·
+record row `D9` · AMEND §14.2-D `OD-27`.
+**Recommendation — yes.** WALLET §15: *"Accept with the §6.1 compensating controls **and §11.6a's liveness
+preconditions (H-4)**, subject to an explicit security sign-off … **The sign-off should cover the
+`verify_jwt=false` set as a whole, not this function alone.**"*
+**Stale count to ignore.** The `OQ-W6` row says *"one of five such surfaces"*; edge §7 — the sole authoritative
+enumeration — has since moved the count to **four**. Read §7, not the row.
+
+### ODR-50 — Who owns the Apple Developer account and may renew the Pass Type ID certificate?
+**Choice.** Name a single owner, or a primary **and** a named backup with portal access and KMS import
+authority.
+**Breaks.** *"the Apple certificate is **the only object in this design that fails on a calendar rather than
+on an event**"*, and its expiry means *"**no new passes can be built and no pass update can be signed** — a
+silent, calendar-driven outage of the whole Wallet feature."* Single-owner: *"a single person's absence takes
+the feature down."*
+**Silence.** Nobody is named. **UNSAFE.**
+**Blocks.** `wallet.apple.enabled` (Wallet §13 items 1, 3, 5); `pass-cert-provision` operations.
+**Filed at.** WALLET §15 `OQ-W2` + §8.1/§8.4 + §13 · AMEND §14.2-D `OD-24`.
+**Recommendation — yes.** WALLET §15: *"Name a primary and a **backup** with portal access and KMS import
+authority; put the renewal in a shared calendar independent of the alerting. **Owner call — organizational,
+not technical.**"*
+
+### ODR-51 — Wallet budget: KMS, APNs, storage — and the optional M2 signer it gates
+**Choice.** Approve the budget at expected pass volume, or constrain it.
+**Breaks.** Constrained KMS budget makes the optional `door-manifest` M2-signing edge function a skip, and
+*"M2's *integrity* then rests on transport alone while M1's does not."*
+**Silence.** Unfunded; Wallet §13 item 18 is not green, so the flag cannot flip. **SAFE (blocks rather than
+ships).**
+**Blocks.** `wallet.apple.enabled`; the build/skip call on the optional `086` edge function. Coupled to
+`ODR-22`(ii).
+**Filed at.** WALLET §15 `OQ-W8` + §13 item 18 · EDGE §3.9b + §5.4.2 · DOOR §16 `OQ-7`.
+**Recommendation.** **None on the budget** — the register's cell is literally *"—"*. The dependent build call
+does carry one (EDGE §3.9b: *"build it. The TLS-only fallback is acceptable for MVP if KMS budget is
+constrained"*).
+
+### ODR-52 — Post-open issuance: build the manifest supplement, or accept online-only door sales?
+**Choice.** Build an append-only manifest supplement — `venue.append_door_manifest_entries`, definer, called
+from `kernel.issue_ticket_atoms` when an open episode exists — or state *"door sales after manifest open are
+online-only"* as an operational limit.
+**Breaks.** *Neither* — *"Atoms issued afterwards (box-office/door sales, late comps) are absent from M2, so an
+offline door rejects them — **a paying fan refused with no remedy**."* *Supplement* — no cost named: *"**This
+is safe under the theorem**: issuing a *new* atom is not a custody move of an existing one, its
+`credential_version` starts at 0, and it can strand nobody."*
+**Silence.** **UNSAFE — and it is the worst of the three:** neither the supplement nor the stated limit, so the
+failure arrives as an unnoticed rejection at the door.
+**Blocks.** Door sales after manifest open; a door-spec change in `086`; Wallet §13 item 11a's drill.
+**Filed at.** WALLET §15 `OQ-W7` + §14 `DL-1` + §13 item 11a · DOOR §7.7 · AMEND §14.2-D `OD-28`.
+**Recommendation — yes.** WALLET §15: *"Build the supplement; it is small, provably safe, and the alternative
+silently refuses paying fans. **Owner call.**"*
+
+### ODR-53 — Offer a credential or Wallet pass while `resale_state ∈ {listed, locked}`?
+**Choice.** Hide/refuse while listed or locked, or issue and let the door reject.
+**Breaks.** *Issue* — the holder can display a QR the door will refuse with `listed_locked`; *"a ticket being
+sold or transferred should not gain a new copy on a device."* *Hide* — *"zero product cost: the holder can add
+after delisting."*
+**Silence.** **Two documents default in opposite directions.** WALLET §15 `OQ-W5` defaults to **hide/refuse**
+(`mint_wallet_pass` raises `precondition_failed('atom_listed_locked')`); EDGE §9 item 2 defaults to
+**sign-but-door-rejects** (*"Defaulted to sign-but-door-rejects; product/policy to confirm"*). Neither is
+unsafe; the divergence is. Wallet says explicitly: *"**Answer both together.**"*
+**Blocks.** The RN control; `kernel.mint_wallet_pass`'s precondition (`084`) and `credential-sign`'s (`083`).
+**Filed at.** WALLET §15 `OQ-W5` + §9.2 + §11.6 + §12 `W-E 26` · EDGE §9 item 2 + §3.2 · RN §4.4.1/§5.3 ·
+AMEND §14.2-D `OD-26`.
+**Recommendation — yes, from the Wallet side only.** WALLET §15: *"Answer both together. Recommend
+**hide/refuse while listed or locked** — it reduces screenshot-resale confusion at zero product cost, since the
+holder can add after delisting. **Product call.**"* EDGE offers no recommendation.
+**Stale pointer.** `OQ-W5` and Wallet §9.2 both cite *"edge §12.2"*; the edge spec on this branch has no §12 —
+the live location is edge §9 item 2.
+
+### ODR-54 — Does the pass carry the holder's name?
+**Choice.** Name present, or absent.
+**Breaks.** *Present* — *"'Jane Doe · &lt;Club&gt; · Tonight 11:00 PM', on a phone left on a bar in a nightlife
+venue, tells any stranger a named person's location, that they are out, and that they are not home"*, and it is
+the loudest violation of the corpus's no-identity-on-the-credential posture. *Absent* — a venue wanting visual
+ID matching must use the scanner's authenticated single-record lookup instead.
+**Silence.** No name. **SAFE.**
+**Blocks.** The pass template (a `pass.json` field).
+**Filed at.** WALLET §15 `OQ-W1` + §9.1 · AMEND §14.2-D `OD-23`.
+**Recommendation — yes.** WALLET §15: *"**No name.** If a venue needs ID matching, put it behind the
+scanner's authenticated single-record lookup, never on a lock screen. **Owner/product call.**"*
+
+### ODR-55 — Does transactional email exist in Phase 2?
+**Choice.** Stand up a real transactional-email capability (provider account plus SPF/DKIM/DMARC on the
+domain), or ship without it and let every `E` delivery row go `suppressed` with reason `channel_unavailable`.
+**Breaks.** *Without* — *"**19 of the 24 mandatory types name `E`**"*, and *"**a mandatory money notice with
+push as its only channel is one revoked permission away from unreachable**."*
+**Silence.** Email rows go `suppressed`. **Structurally safe, operationally unsafe** — the design degrades
+cleanly while the reachability guarantee for mandatory money notices does not hold. It compounds `ODR-87`.
+**Blocks.** `_shared/email.ts`; every `E` channel row across the notification groups; `EMAIL_ENABLED` /
+`RESEND_API_KEY` in `notify-dispatch`.
+**Filed at.** NOTIF §10 `O-N3` + §1.6 `D-16` + §2.1/§3.5/§4.6/§6.4 · EDGE §3.14 · AMEND §14.2-H `OD-48`.
+**Recommendation — yes, as a sequencing instruction.** NOTIF §10: *"Decide before build. The design degrades
+safely (email rows go `suppressed`), but a mandatory money notice with **push as its only channel** is one
+revoked permission away from unreachable."*
+
+### ODR-56 — Announcement hold window, dual-control threshold, and the step-up primitive
+**Choice.** The hold-window length and recipient threshold above which an announcement needs dual control —
+and whether a step-up primitive exists to gate release at all.
+**Breaks.** Too short or too high a threshold sends a mis-addressed blast to a venue's whole audience with no
+recall. The step-up limb is not free-standing: *"the platform has no step-up primitive today"*, so it depends
+on `ODR-42`.
+**Silence.** Seeds ship at 300 s / 500 recipients if they are seeded at all; the step-up gate does not exist.
+**Blocks.** NOTIF §7; the `notify.announcement_hold_seconds` (floor 120) and
+`notify.announcement_dual_control_threshold` seeds.
+**Filed at.** NOTIF §10 `O-N5` + §7.3/§7.4 · AMEND §14.2-H `OD-50`.
+**Recommendation — yes.** AMEND `OD-50`: *"300 s hold, 500-recipient threshold; step-up depends on OD-08."*
+
+### ODR-57 — May the marketing concept **release** announcements, or only draft?
+**Choice.** Draft-only, or draft-and-release.
+**Breaks.** Release authority puts a venue-wide, unrecallable broadcast in the hands of the role with the
+standing incentive to use it.
+**Silence.** Draft only, as specified. **SAFE.**
+**Blocks.** Composer authority; pgTAP `N-A41`.
+**Filed at.** NOTIF §10 `O-N6` + §7.3 + §2.5 · AMEND §14.2-H `OD-51`.
+**Recommendation — yes.** NOTIF §10: *"**Draft only** (§7.3). Needs owner ratification because it is a
+product-authority call, not a technical one."*
+
+### ODR-58 — Do venue-staff notifications share the consumer inbox table?
+**Choice.** One `notify.notification` table with `org_id`/`venue_id` columns, or a separate staff surface.
+**Breaks.** *Two tables* — *"would double every RLS and dedupe assertion."*
+**Silence.** One table. **SAFE.**
+**Blocks.** The `notify.notification` table shape; the RLS matrix; the dashboard surface.
+**Filed at.** NOTIF §10 `O-N8` + §2.2 Group V + §6.1 · AMEND §14.2-H `OD-52`.
+**Recommendation — yes.** AMEND `OD-52`: *"One table with `org_id`/`venue_id`; two would double every RLS and
+dedupe assertion."*
+
+### ODR-59 — Notification retention, and the `C48` retention floor
+**Choice.** Retention for `notify.notification`, `notify.delivery` and `notify.outbox`, and whether the two
+projections are marked **NON-REBUILDABLE** under `C48`.
+**Breaks.** Marking them rebuildable when they are not means a rebuild silently loses delivery history; short
+retention on `notification` loses the fan's own record of what they were told.
+**Silence.** No policy; `C48`'s compaction floor has nothing to respect.
+**Blocks.** Retention; the `C48` floor.
+**Filed at.** NOTIF §10 `O-N9` + §8.8 · AMEND §14.2-H `OD-53`.
+**Recommendation — yes.** AMEND `OD-53`: *"24 months / 90 days / 30 days, **both projections marked
+NON-REBUILDABLE**."*
+
+### ODR-60 — Universal Links / App Links before any sensitive deep-link target
+**Choice.** Stand up AASA and `assetlinks.json`, or keep every notification target navigation-only.
+**Breaks.** Without them, `N-DL-4` binds: *"a notification link may never carry a secret, a token, or a
+one-time action."* Adding a sensitive target without them is the failure the rule exists to stop.
+**Silence.** `N-DL-4` binds; targets stay navigational. **SAFE.**
+**Blocks.** Any deep-link target more sensitive than navigation.
+**Filed at.** NOTIF §10 `O-N15` + §4.4 `N-DL-4` · AMEND §14.2-H `OD-56`.
+**Recommendation — yes.** AMEND `OD-56`: *"AASA/`assetlinks.json` required before a sensitive target."*
+
+## Privacy, CRM and the venue dashboard
+
+### ODR-61 — Marketing's CRM and analytics ceiling — answered once, for three specs
+**Choice.** Confirm that both marketing labels get the `audience_v1` template at their own plane's grain, are
+denied `operations_v1`, are denied the email/name lookup probe, and that the demographic mix card is **outside**
+the export authorization — or widen any of those.
+**Breaks.** *Widening to `operations_v1`* defeats CRM §3.1's invariant *"Finance sees money and no contact.
+Marketing sees contact and no money. **Neither sees both.**"* *Granting the lookup* hands the existence oracle
+to *"the role with the standing incentive to run a list."* *Reading `O-2`'s "CRM/export/analytics access as
+authorized" to include the mix* breaches demographics `X-3`.
+**Silence.** Ships as specified. **SAFE.**
+**Blocks.** The export template and the mix-card grant.
+**Filed at.** CRM §13 `D-7` + §3 + §6.4 · DEMOG §14 `D-8` + §6 · ROLE_MODEL §5 `H2`/`H3` · AMEND §14.2-C
+`OD-20`.
+**Recommendation — yes.** AMEND `OD-20`: *"Audience template only, at each label's plane grain; no money
+columns; no email-lookup probe; the demographic mix is **outside** the export authorization."* CRM §13 adds the
+merge instruction: *"**Both should be answered once, together.**"*
+**Citation defect.** CRM `D-7` points at `ROLE OD-8` (door break-glass) where it means ROLE_MODEL §5 `H2`/`H3`
+— a consequence of the `OD-8` / `OD-08` collision. See **DF-2**.
+
+### ODR-62 — Is a platform-plane bulk extraction path wanted at all?
+**Choice.** Not built in Phase 2 (platform roles get a throttled read only), or build one.
+**Breaks.** *Routing it through the venue surface* *"would file a platform action in a venue's history and
+would give a compromised platform account the venue export's rate limits rather than a platform-grade one."*
+*Building one properly* needs dual control, its own retention and its own audit action.
+**Silence.** *"**Platform bulk extraction is not built in Phase 2.**"* **SAFE.**
+**Blocks.** Platform export.
+**Filed at.** CRM §13 `D-8` + §3.2 (`K-3`) · RLS §15.7 `MD-8` + §11.6 · VD §22.6 · AMEND §14.2-C `OD-21`.
+**Recommendation — yes.** AMEND `OD-21`: *"**Not built in Phase 2.** If wanted it needs dual control, its own
+retention and its own audit action — not the venue surface."*
+
+### ODR-63 — Is `display_name` consent-gated in the export?
+**Choice.** Keep `emit_name := emit_email` — one predicate driving both cells, so a name is blank wherever
+email is — or emit the global `public.profiles.display_name` on every row of every export.
+**Breaks.** *Ungated* — this is the claim record `RET-5` **deleted as false**: *"**`display_name` was emitted on
+every row of every export, at every org, ungated by consent** … Two orgs union their files on the name column
+directly and corroborate with admission time, `first_seen_at`, ticket types and acquisition route. **The
+non-consenting majority was exactly as joinable as the consenting minority; only the carrying column
+differed.**"* *Gated* — *"an `audience_v1` export over a heavily transferred session is mostly `customer_ref`
+and ops columns with name and email blank on the same rows."*
+**Silence.** **No default** — *"it changes what every export file looks like."*
+**Blocks.** Every export file's shape.
+**Filed at.** CRM §13 `D-13` + §4.3/§4.4 + §5.1 + §8.3 (correction `K-18`, carrying `RET-5`) · VD §9.6 ·
+record row `C69`. **Not in the scope amendment's `OD-` series.**
+**Recommendation — yes.** CRM: *"**Recommend the gate as written.** If rejected, §4.3, §4.4 case (a) and case
+(d)'s sub-case must be restated to claim only what an ungated name column leaves true, which is very little."*
+
+### ODR-64 — Confirm `R7`: comped and zero-price custody are excluded from the mix card
+**Choice.** Keep `R7` — population eligibility limited to custody acquired **for consideration** — or count
+everyone in the room.
+**Breaks.** *Count everyone* — *"restores a population the operator can mint for free, which **voids every
+k-anonymity claim in §5**."* *`R7`* — *"a genuinely free event never renders the card"*, a real product loss,
+and the roster and card denominators legitimately differ (which is why `holders_excluded_ineligible` is
+stored).
+**Silence.** `R7`. **SAFE.**
+**Blocks.** The eligibility rule; the card.
+**Filed at.** DEMOG §14 `D-12` + §5.2 · CRM §1.3 + assertion 3 (`K-20`) · VD §9.5 · record row `C62`. **Not in
+the scope amendment's `OD-` series.**
+**Recommendation — yes.** DEMOG: *"This spec recommends R7 as written and asks that any relaxation be an
+amendment, not a config change."* VD §9.5 adds: *"It is **owner decision D-12** in the demographics spec, not
+something this surface may soften with copy."*
+
+### ODR-65 — Ship with the population-differencing residual, or close it?
+**Choice.** **(a)** accept and record; **(b)** raise `k` above 25 for venues above a repeat-audience
+threshold; **(c)** withhold the card from sessions whose eligible-holder set overlaps a prior session by more
+than a stated fraction.
+**Breaks.** *(a)* *"An operator running the same 300 regulars weekly, holding the roster by name, and diffing
+week over week retains a real inference channel **whose size this document cannot state as a number**."*
+*(b)/(c)* fewer cards render for exactly the residency venues that want them.
+**Silence.** (a). **UNSAFE in the sense that an unquantified channel ships unstated to the venue.**
+**Blocks.** Before the card ships.
+**Filed at.** DEMOG §14 `D-13` + §5.3 vector 7 + §11 (`J-8`/`J-9`, carrying `RET-1`). **Not in the scope
+amendment's `OD-` series.**
+**Recommendation — yes.** DEMOG: *"This spec asserts **no** coverage here and recommends (a) with the residual
+published in the venue-facing help text."*
+
+### ODR-66 — Five roles hold both the by-name roster and the mix card
+**Choice.** Accept and say so, or make the two grants mutually exclusive.
+**Breaks.** *Accept* — *"The bound is a group bound, never an anonymity bound in the colloquial sense"*: the
+floor of 5 is a bound over five people the reader **can name**, and it sharpens `ODR-65` because *"an operator
+who can enumerate the room by name between two published snapshots knows **which** five people the delta ranges
+over."* *Split* — `venue_manager` loses either the roster or the card, *"a significant product change."*
+**Silence.** Accept. **SAFE only because the claim is corrected either way** — the corpus already restates the
+bound honestly.
+**Blocks.** Nothing; *"the claim is corrected either way."*
+**Filed at.** DEMOG §14 `D-14` + §5.3 vector 6 + §11 · CRM §4.5 + `K-19` item (6) · record row `C70`. **Not in
+the scope amendment's `OD-` series.**
+**Recommendation.** **None.** CRM §4.5: *"only the owner can decide whether to split them."*
+
+### ODR-67 — The backup-retention window `{N}`
+**Choice.** The number of days of encrypted backup retention named in binding user-facing erasure copy and
+used to set the tombstone's `purge_after`.
+**Breaks.** A wrong number in binding copy is a promise the platform cannot keep; the tombstone's purge window
+is derived from it.
+**Silence.** **No default — the copy cannot ship:** *"**The user-facing copy cannot ship with a
+placeholder.**"*
+**Blocks.** The user-facing erasure copy; `purge_after = erased_at + {N} + margin`.
+**Filed at.** DEMOG §14 `D-6` + §8.5 + §10.2 · CRM §13 `D-10` + §9.3 (which states *"this document does not
+create a second one"*) · AMEND §14.2-C `OD-16`.
+**Recommendation.** **None** — no number is proposed anywhere. Owner / ops, jointly.
+
+### ODR-68 — Confirm the MVP transfer-freeze predicate is session-wide
+**Choice.** Keep the session-wide predicate for MVP and correct the four documents that describe `C43`'s
+per-open-manifest-ticket narrowing as implemented — **or** pull the narrowing into MVP, which *"is a **new**
+ratification, not a clarification."*
+**Breaks.** *Keep* — nothing functionally; the session-wide predicate is strictly more restrictive and the
+narrowing is *"a pure additive conjunct"* later. *Pull it in* — a Gate-M item enters MVP.
+**Silence.** Session-wide in code, narrowed in four documents. **Functionally safe, documentationally
+UNSAFE** — *"four documents currently describe a narrowing nothing implements."*
+**Blocks.** Four documents' correctness (schema §2.3.1, RPC §12.4b, RLS §14.3, migration plan).
+**Filed at.** DOOR §16 `OQ-4` · RLS §17 `X-7` + §14.3.2 · VD §22.11 · EDGE §9 item 7 + §5.6 · RN §12 item 9 +
+§4.5 · SCHEMA §2.3.1 · AMEND §14.2-I `OD-59`.
+**Recommendation — yes.** AMEND `OD-59`: *"Keep the session-wide predicate; the narrowing is a pure additive
+conjunct once `door_manifest_entry` is populated."* *(The confirmation is ceremony over a documentation defect
+— see **DF-17**.)*
+
+### ODR-69 — Drain active listings and initiated transfers at door-open?
+**Choice.** Cancel them, return the atom to the owner and notify — or leave them and refuse the holder at the
+door with `listed_locked`.
+**Breaks.** *No drain* — *"a fan whose ticket is mid-transfer or listed therefore arrives at the door and is
+refused, with no action available to them and none to the door"* until the `C43` TTL, hours later. *Drain* —
+*"cancellation is a surprise"* to the seller; the alternative *"is worse but is *visible*."*
+**Silence.** Drain — it is already in the door RPC's write set. **SAFE for admission; a product surprise.**
+**Blocks.** DOOR §7.3 sign-off, plus the §11.3 notification copy.
+**Filed at.** DOOR §16 `OQ-2` + §7.3 + §13.5 + §11.3 · AMEND §14.2-I `OD-58`.
+**Recommendation — yes.** DOOR §16: *"Recommend: drain, with the notification in §11.3. **Product
+sign-off.**"*
+
+### ODR-70 — Does opening the manifest early bother anyone commercially?
+**Choice.** **(i)** keep manifest-open and the transfer freeze coupled and accept the early freeze;
+**(ii)** decouple — open the manifest early for offline capability, engage the freeze at `doors_at`;
+**(iii)** re-snapshot the manifest at the freeze moment.
+**Breaks.** *(ii)* *"reintroduces exactly the snapshot-then-freeze window §5.3 closes — a transfer committing
+between manifest generation and freeze would strand a credential at an already-armed offline door."*
+*(iii)* *"means devices must re-sync at doors, which reintroduces failure #10"* — the venue network dying at
+doors time, on the night offline capability matters most.
+**Silence.** Coupled. **SAFE on custody**; it costs the late-transfer window.
+**Blocks.** The operating recommendation only — no code path differs; it sits on
+`door.manifest_early_open_window` (default `'12 hours'`).
+**Filed at.** DOOR §16 `OQ-1` + §5.3 + §14.5 + §10.6 · AMEND §14.2-I `OD-57`.
+**Recommendation — yes.** DOOR §16: *"Recommend: keep them coupled; accept the early freeze. **Owner call.**"*
+
+### ODR-71 — Should the `C25` compensate branch void the seller's atom at all?
+**Choice.** Keep the ratified behaviour, or refund the buyer and merely unlock the seller's atom.
+**Breaks.** *Keep* — this is *"§5.4's only unelevated residual"* and failure #22: a routine, **unelevated,
+unaudited, human-free** sweep voids an atom that an open episode's snapshot still records as active, so an
+offline device admits a refunded ticket (*"Revenue leak, not a double-admit"*). *Change* — *"it is ratified
+behaviour in a document I do not own, `D2` makes `voided` the only money-reversal terminal, and the change
+would ripple into the `C26` terminal state machine."*
+**Silence.** Unchanged; the residual is bounded by the `revoke` delta for any device that syncs.
+**Blocks.** `C25` semantics.
+**Filed at.** DOOR §16 `OQ-8` + §5.4 + §7.6/§7.7 + §14 #22 · RPC §12.3 · AMEND §14.2-I `OD-61`.
+**Recommendation.** **None.** DOOR: *"**I have not changed it** … Flagged for whoever owns RPC §12.3."*
+
+### ODR-72 — Name the guest-list write RPCs · surface F
+**Choice.** Contract create-list / add-guest / remove-entry, or drop the surface. *"**No RPC is named anywhere.**
+Three distinct writes, zero signatures."*
+**Silence.** VD's standing rule holds: *"the control is read-only or it does not render. Do not soften it to
+'hidden behind a flag'."* **SAFE.**
+**Blocks.** Venue dashboard surface F.
+**Filed at.** VD §20A.3 `U-1` + §11.2 · TRACE `G-10` · AMEND §14.2-J `OD-62`.
+**Recommendation.** **None** — `OD-62`'s cell is empty.
+
+### ODR-73 — Name the mark-a-guest-arrived RPC · the door
+**Choice.** Contract it, or the control does not render. RLS grants the door principal exactly this narrow
+update and **no contract exists**.
+**Silence.** The control does not render. **SAFE, and operationally expensive:** *"the single most-used control
+at a door"*, *"the one a door will hit a thousand times a night."*
+**Blocks.** The door.
+**Filed at.** VD §20A.3 `U-2` + §11.5 · TRACE `G-9` · AMEND §14.2-J `OD-63`.
+**Recommendation.** **None** — `OD-63`'s cell is empty.
+
+### ODR-74 — Name the promoter record and link RPCs, and a live slug-availability read · surface E
+**Choice.** Contract create/edit promoter, commission terms, create link, set status and an availability check
+— or drop the surface. *"the UI is required to run a live global-namespace check **against nothing**."*
+**Silence.** The controls do not render. **SAFE.**
+**Blocks.** Venue dashboard surface E. Overlaps `ODR-28` on the `status` limb.
+**Filed at.** VD §20A.3 `U-3`, `U-4` + §10.2/§10.3/§10.4 · TRACE `G-11` · AMEND §14.2-J `OD-64`.
+**Recommendation.** **None** — `OD-64`'s cell is empty.
+
+### ODR-75 — Grant the two door pre-confirm reads · the door-open confirm
+**Choice.** Add a blast-radius dry-run read and a live-device-count read, or ship the confirm dialog without
+them.
+**Breaks.** Without them *"the most consequential door control in the product asks for a confirmation the
+operator cannot evaluate."* The live-device count should come from `venue.door_session` — *"a presence fact"* —
+rather than `scan_device.last_sync_at`, *"which reports a poll."*
+**Silence.** The confirm dialog ships blind. **UNSAFE in the operational sense.**
+**Blocks.** The door-open confirm.
+**Filed at.** VD §20A.3 `U-5`/Δ11 and `U-6`/Δ12 + §12.4 · TRACE `G-16`/`G-17` · RLS §17 `X-19` · AMEND §14.2-J
+`OD-65`.
+**Recommendation — yes.** AMEND `OD-65`: *"Small, read-only, same role set as the open RPC. Without them the
+most consequential door control asks for a confirmation the operator cannot evaluate."*
+
+### ODR-76 — Name a capacity-change RPC for an existing batch · §8.4
+**Silence.** The control does not render. **SAFE.** **Blocks.** VD §8.4.
+**Filed at.** VD `U-8` + §8.4 · AMEND §14.2-J `OD-67`.
+**Recommendation — partial.** AMEND `OD-67`: *"The guarded behaviour and refusal floor are already specified in
+detail"* — i.e. only the signature is missing.
+
+### ODR-77 — Name an update RPC for `catalog.event` / `event_session` · §7.3
+**Choice.** Contract editing, or ship create-only. *"Creation is contracted; editing is not."*
+**Silence.** Draft events cannot be edited. **SAFE.** **Blocks.** VD §7.3.
+**Filed at.** VD `U-9` + §7.3 · AMEND §14.2-J `OD-68`. **Recommendation.** **None.**
+
+### ODR-78 — Name `kernel.update_organization` · §16.1
+**Choice.** Contract it, or the org display name cannot be edited. *"`catalog.update_venue` exists; the org has
+no counterpart."*
+**Silence.** Not editable. **SAFE.** **Blocks.** VD §16.1.
+**Filed at.** VD `U-10` + §16.1 · AMEND §14.2-J `OD-69`. **Recommendation.** **None.**
+
+### ODR-79 — Inventory warning thresholds
+**Choice.** The low-inventory threshold values, and whether a per-venue override exists. *"no key is named and
+no per-venue override exists. **Left unresolved rather than invented.**"*
+**Silence.** No key; the zone-6 warning and the low-inventory notification rule both have nothing to fire on.
+**Blocks.** VD §6.1 and the low-inventory notification rule.
+**Filed at.** VD §22.8 · NOTIF low-inventory rule · AMEND §14.2-J `OD-76`.
+**Recommendation.** **None.** AMEND `OD-76`: *"Left unresolved rather than invented."*
+
+### ODR-80 — Kill switches for the three features that have none
+**Choice.** Name runtime flags for demographics, promoter codes and CRM export, or leave them gated only by
+package application.
+**Breaks.** *"gated only by package application, which is a deploy and not a runtime control"* — there is no way
+to turn any of the three off without a migration.
+**Silence.** No kill switches. **UNSAFE** for anything that goes wrong in production on those three features.
+**Blocks.** The scope amendment's own flag rule.
+**Filed at.** AMEND §12.2 + §14.2-K `OD-78`.
+**Recommendation.** **None.** AMEND: *"none — naming a new flag is a scope decision. The keys would be rows in a
+table `078` already creates."*
+
+## Contracts and confirmations
+
+### ODR-81 — Confirm `venue.set_event_security_config`'s key set and `revoke_signing_key`'s ack parameter
+**Choice.** Confirm the authored closed key set — `door.manifest_ttl_interval`,
+`door.manifest_early_open_window`, `door.implicit_freeze_offset_interval`, with anything else raising
+`invalid_input` and the function creating no key — and the authored `p_ack_live_credentials` parameter on
+`kernel.revoke_signing_key`; or supply different ones.
+**Breaks.** *"RLS §11.4 grants a function no document defines; §20.6.6 supplies a definition so it is not
+invented at build time, but the owner should confirm it rather than inherit it."* The ack parameter is
+`INFERENCE`: *"the corpus specifies the pattern for the door override and not for key revocation, and the
+consequence here is strictly larger."*
+**Silence.** The authored forms stand, inherited rather than confirmed. **SAFE** — the override direction is
+one-way (*"An event override may only be more restrictive than the platform value, never less"*).
+**Blocks.** Rides `ODR-20`. **`ODR-20` and `ODR-81` are explicitly different questions:** *"answering `R-11`
+does not answer this."*
+**Filed at.** RPC §20.14 `R-11` + §20.6.6 + §20.7.5 + §19 items 10 and 11. **Not in any consolidated index.**
+**Recommendation — the authored form itself, flagged as inherited.** RPC §20.6.6: *"the owner should confirm
+the key set before it is built."*
+
+### ODR-82 — Confirm the offline clock-skew time-bucket is 30 seconds
+**Choice.** Confirm 30 s (so `± 2 time-buckets` = `± 60 s`), or set a different magnitude.
+**Breaks.** *"**A tolerance with no stated width is not implementable: two scanner builds would each pick a
+number, and admission would differ by vendor.**"* The corpus cited the bucket in **eight** places and defined it
+in **none**.
+**Silence.** 30 s stands as a **fixed protocol constant, deliberately not a config key** — *"signer and
+long-offline verifier must agree"*, and a runtime-tunable value is read by the signer now and by the device
+only at its last sync. **SAFE.**
+**Blocks.** Nothing. *"**Not a blocker and not an open decision** … What is owed is confirmation of the
+magnitude."* But: changing it later *"is a change to `OFFLINE-VERIFY-v1` … plus a scanner-SDK release, **not** a
+config edit — so it is cheaper to confirm now than after the first build ships."*
+**Filed at.** RPC §20.14 `R-22` *(first occurrence)* + §9.3 · record row `C79` (`MP-1`). **Not in any
+consolidated index.**
+**Recommendation — yes.** RPC §9.3: *"`30 s` is chosen as the smallest window that absorbs ordinary
+unsynchronised-device drift without materially widening replay … **This is a numeric tolerance, not an
+authority change** — it is decided here, not left open — but the owner should confirm the magnitude rather than
+inherit it."*
+
+### ODR-83 — Accept the maturity-helper race residual, or amend the global lock order?
+**Choice.** Confirm the recorded residual on `kernel.money_role_grant_matured`, or put `kernel.org_member` into
+the global lock order.
+**Breaks.** *"**Three of the four race directions fail closed** … **One is open for the duration of one
+transaction:** a money→money re-grant (`org_finance` → `org_owner`) resets `granted_at`, and a caller on the
+pre-reset snapshot passes."* Closing it *"means putting `kernel.org_member` into the global lock order — an
+amendment to a ratified invariant (`C28`), not a contract edit."*
+**Silence.** The residual stands. **Bounded, but pointed the wrong way:** *"it is **exactly the direction the
+control exists to stop** … **A reviewer who later finds it should find this row, not discover it.**"*
+**Blocks.** Nothing.
+**Filed at.** RPC §20.14 `R-23` + §1.1e · SCHEMA §13.6 · DA §6.2. **Not in any consolidated index.**
+**Recommendation — implicit accept.** RPC: *"**§1.1e records this as an accepted residual and does not close
+it.**"*
+
+### ODR-84 — Ratify the self-bid and self-offer narrowings
+**Choice.** Ratify the exclusion of a listing's own seller from bidding on and making offers against their own
+listing, or leave the literal ratified grant.
+**Breaks.** RLS §11.1 grants *"any `authenticated`"*, which read literally permits shill bidding on one's own
+listing — *"which is a fraud primitive, not a capability."*
+**Silence.** The narrowing stands as contracted (`policy_violation('self_bid')` / `('self_offer')`). **SAFE in
+direction — but it is an unratified narrowing of a ratified row.**
+**Blocks.** Nothing; `088` inherits it.
+**Filed at.** RPC §19 item 9 + §20.8.4 + §20.8.5 · RLS §11.1. **Filed in no register at all — it exists only
+in RPC §19.**
+**Recommendation — the narrowing itself.** RPC §19: *"**Narrowing a ratified grant is a decision, not a
+clarification**, and it is flagged for the owner rather than absorbed."*
+
+### ODR-85 — The credential token TTL value and re-sign cadence
+**Choice.** The numeric app-profile TTL and the rolling re-sign cadence.
+**Breaks.** *"depends on the offline dead-zone tolerance at real venues and the acceptable screenshot-resale
+window"* — *"long enough to survive a dead-zone at the door, short enough to bound a verifier running an M2
+older than its `not_after`."*
+**Silence.** `credential.app_ttl_interval` seeds at `'4 hours'`. **SAFE.**
+**Blocks.** A `078` seed value only.
+**Filed at.** EDGE §9 item 4 + §5.5 · WALLET §11.5. **Not in any consolidated index.**
+**Recommendation.** **None** — *"needs a product/ops number. **Bounded, not fixed.**"*
+
+### ODR-86 — KMS provider, signing algorithm, and token wire format
+**Choice.** Ed25519 or ECDSA-P256; AWS KMS, GCP KMS or CloudHSM; compact JWT-like or custom COSE.
+**Breaks.** Nothing security-wise — *"both satisfy the non-exposure rule."* Wallet §5.4 already sizes the QR
+against an Ed25519 64-byte signature.
+**Silence.** Unpinned. **SAFE, but the door SDK's wire format cannot be fixed.**
+**Blocks.** The door SDK contract. No migration.
+**Filed at.** EDGE §9 item 3 + §5.1/§5.3. **This is an infra/ops call, not the founder's**, and the edge spec
+says so: *"**Flagged, not decided here** … left to infra/ops."*
+**Recommendation.** **None**, beyond §5.1's *"Ed25519 preferred."*
+
+### ODR-87 — Notification permission priming
+**Choice.** Specify a pre-permission priming screen before the OS notification prompt, or ship the cold prompt.
+**Breaks.** *"`INFERENCE:` one is needed — **a cold OS prompt with no context is the classic way to lose the
+permission permanently** — but it is **not invented here.**"*
+**Silence.** A cold OS prompt, and a permanently lost push permission. **UNSAFE — and it compounds `ODR-55`:**
+if transactional email does not exist either, a mandatory money notice becomes unreachable.
+**Blocks.** An RN surface that nothing specifies.
+**Filed at.** RN §12 item 12 + §6.4. **This gap has NO id in any register in the corpus** — not `O-N1`…`O-N15`,
+not the notifications spec's cross-agent list, not the scope amendment's index. It exists in exactly one place.
+**Recommendation.** **None.**
+
+### ODR-88 — May `venue_box_office` refund cash at the door?
+**Choice.** Grant a capped cash-refund-at-door authority — *"its own cap, step-up and reason code"* — or not.
+**Breaks.** *No* — `C46` requires refund-at-door to run through an authenticated staff principal, and among
+venue-side principals *"only `org_finance` initiates a refund"*, so the door-refund path has **no operational
+actor**. *Yes* — box office gains money authority `O-2` says it must not have.
+**Silence.** Not granted. **Privilege-safe; leaves `C46`'s implied actor missing.**
+**Blocks.** Nothing structural.
+**Filed at.** ROLE_MODEL §13 `OD-5` + §5.3 cell `B6` + §7.6 · `C46`. **Not in the scope amendment's `OD-`
+series.**
+**Recommendation.** **None.** ROLE_MODEL: *"None granted here. If the answer is yes, it needs its own cap,
+step-up and reason code — money-authority agent's call."*
+
+### ODR-89 — Does `org_admin` read `venue.settlement`?
+**Choice.** Keep the `A(own-org)` settlement SELECT, or deny settlement too.
+**Breaks.** Nothing functional; coherence only. *"A settlement header shows gross, fees, refunds, net. That is
+finance data, and it is arguably inconsistent with denying the payout ledger."*
+**Silence.** Keep. **SAFE in isolation** — but see the note below.
+**Blocks.** *"nothing; consistency only."*
+**Filed at.** MONEY §11 `D-4` + §3.4 · RLS §15.7 `MD-4` · VD §5 row 37 · AMEND §14.2-A `OD-04`.
+**Recommendation — yes.** MONEY §11: *"Keep — settlement is operational reconciliation, payout is money-out.
+But the inconsistency is real and I am naming it rather than smoothing it."*
+**Answer with `ODR-35`.** Answering `ODR-35` "deny" and this one "keep" is internally incoherent, and no
+document says so — see **DF-8**.
+
+### ODR-90 — Does the original promoter earn on a marketplace resale?
+**Choice.** No — or a lifetime-attribution model.
+**Breaks.** *Yes* fails four ways, per PROMO §5.6: **structural** — *"`venue.attribution.order_id` FKs
+`venue.order`. A native resale is a `market.market_sale`, not an order. There is no column that could hold the
+credit"*, and manufacturing one is a `venue → market` coupling the aggregate rules forbid; **commercial** —
+*"Paying again on a resale pays them for someone else's decision to sell"*; **incentive** — *"A promoter who
+earns on resale earns more when their allocation is scalped … the single most self-defeating money rule in the
+platform"*; **consistency** — the venue's recapture is the `venue_royalty` line.
+**Silence.** No commission on resale. **SAFE.**
+**Blocks.** PROMO §5.6. Additive later as a `market_sale`-grain attribution with its own cause.
+**Filed at.** PROMO §13 `OWNER DECISION 2` + §5.6 · AMEND §14.2-F `OD-34`.
+**Recommendation — yes.** AMEND `OD-34`: *"**No.** Additive later as a `market_sale`-grain attribution with
+its own cause."*
+
+### ODR-91 — What is the remedy for a genuinely wrong attribution?
+**Choice.** None on-ledger — an off-ledger commercial settlement, recordable later as a Gate-M adjustment — or
+build an override.
+**Breaks.** *Override* — *"an override that mutates an AO ledger destroys every guarantee in §4"*: the
+no-double-commission proof, the freeze, and `displaced_promoter_id`'s evidentiary value.
+**Silence.** No remedy exists, and the spec says what happens next: *"**Support will ask for an override within
+the first month. The answer must be decided *before* someone builds one.**"* **UNSAFE by omission.**
+**Blocks.** Nothing to build now; it is a pre-emptive prohibition on a future build.
+**Filed at.** PROMO §13 `OWNER DECISION 6` + §3.4 + §4 · AMEND §14.2-F `OD-38`.
+**Recommendation — yes.** AMEND `OD-38`: *"**None on-ledger** — the freeze is absolute; remedy is a commercial
+settlement off-ledger. An override that mutates an AO ledger destroys every §4 guarantee."*
+
+### ODR-92 — `venue.get_dashboard_summary`: schedule it, or accept N queries?
+**Choice.** Schedule the aggregate RPC, or leave the dashboard home at N separate queries.
+**Breaks.** *N queries* — a slower home screen, nothing more. *Schedule* — the aggregate-read risk: *"one
+function, one grant, N projections, and the narrowest caller ends up seeing a number derived from data they may
+not read."*
+**Silence.** Deferred — and the corpus names the deferral itself as the problem: *"**Nothing else in the corpus
+depends on it**, so it may be deferred without blocking a package — which is precisely why it will be deferred
+by default unless named."*
+**Blocks.** Only its own RLS §11 EXEC row, which is explicitly withheld: *"**No EXEC row is written for a
+function whose existence is undecided** — writing one would make §11 the document that decided it."* If
+scheduled, `SEAM-1` floors it at `090`.
+**Filed at.** RPC §20.14 `R-10` + §20.10 · RLS §11.1c (`AUTHZ-R3`) · VD `U-7` / Δ3c · TRACE `G-18` · PLAN §8
+preamble · AMEND §14.2-J `OD-66`.
+**Recommendation — split.** AMEND `OD-66`: *"Home works at N queries."* RPC declines: *"it is contracted rather
+than dropped so the decision is the owner's."*
