@@ -676,6 +676,17 @@ building's — and it is a real product consequence someone should say out loud 
   pseudonym defends bulk correlation, not recognition.
 - **Collusion using out-of-band data.** Two orgs that already share a mailing list can join on email. Out of
   scope for a data-access control.
+- **The roster and the demographics card in the same pair of hands.** Five roles hold **both** X1 (the
+  by-name roster) and X11 (the ticket-holder-mix card): `org_owner`, `org_admin`, `org_marketing`,
+  `venue_manager`, `venue_marketing`. The demographics spec's floor of 5 is therefore a bound over **five
+  people the reader can name**, not five unknowns — a *group* bound, never an anonymity bound in the
+  colloquial sense. `INFERENCE:` this does not break that spec's arithmetic; it changes what the arithmetic
+  means, and both documents now say so rather than one implying otherwise. It matters most for the
+  differencing vector that spec records as open (its §5.3 vector 7): an operator who can enumerate the room
+  by name between two published snapshots knows *which* five people the delta ranges over. Recorded there as
+  **D-14** and here so the union of the two grants is visible from either side. This document creates no
+  demographic aggregate and takes nothing from that card; the residual is a property of holding both grants,
+  and only the owner can decide whether to split them.
 
 ---
 
@@ -702,6 +713,53 @@ emit_email(identity, :job_org_id) :=
   AND identity is live (not deactivated, not erased, not the anonymized sentinel)
   AND the reading role holds the CONTACT class for this scope                   -- §3
 ```
+
+**The gate's evaluation instant is `gate_as_of`, a single instant stamped on the job — not "whenever each
+conjunct happened to be read".** `INFERENCE:` this was unspecified, and unspecified here is not a gap in the
+prose but a defect in the artifact. A build is **paged**; the four conjuncts read three different tables; and
+`kernel.identity_contact_pref` carried only `updated_at` with no history while `kernel.org_contact_consent`
+was a single MUT row per `(identity, org)` that a re-grant overwrites. So the conjuncts were **necessarily**
+evaluated at inconsistent instants — page 1's master switch against page 40's consent state — and two
+consequences follow that the document elsewhere denies:
+
+- **§6.3's determinism claim was false.** *"Two identical requests one second apart produce identical files"*
+  and assertion 22's *"byte-identical output and the same `artifact_sha256`"* cannot hold when a withdrawal
+  between page 3 and page 4 changes one build and not the other.
+- **§6.3's and §9.2's replay claim was false.** *"the export is reproducible from its audit row"* is the load
+  bearing property of the whole retention design — it is why per-export membership is **not** stored. A
+  non-as-of-evaluable gate makes the replay produce a different file, so the forensic value of
+  `artifact_sha256` degrades from "this is or is not the file we produced" to "this is or is not a file that
+  matches a build we can no longer reproduce".
+
+**Three changes make the gate a function of one instant.**
+
+1. **`gate_as_of` on the job**, stamped when the build **claims** the job (not at request — see below), and
+   recorded in the `crm_export.generate` audit row alongside `as_of`. Every page of that build evaluates the
+   gate at `gate_as_of`. **A re-claim after a lease expiry re-stamps `gate_as_of` and rebuilds from page 1**,
+   discarding the partial artifact — `INFERENCE:` keeping the original instant across a retry hours later
+   would ignore a withdrawal made in between, which is the fail-**open** direction; a full rebuild is cheap
+   and byte-identity is what matters within a claim, not across claims.
+2. **Two append-only event logs** so both mutable conjuncts are as-of evaluable:
+   `kernel.org_contact_consent_event(identity_id, org_id, event ∈ granted|withdrawn, occurred_at,
+   notice_version, source_order_id)` and
+   `kernel.identity_contact_pref_event(identity_id, venue_email_contact, occurred_at)`. The current-state
+   tables remain the read path for everything else; the event logs are definer-only and exist so the gate can
+   ask "what was true at `gate_as_of`". `INFERENCE:` these are not a new privacy cost — §5.3 already argues
+   at length that a consent record is **the person's own evidence** in the dispute they are most likely to
+   have, and an append-only log is a strictly better version of the evidence the design already keeps. They
+   carry no sensitive attribute; they are the opposite of the demographic history §8.3 of that spec forbids.
+3. **`gate_as_of` is stamped at claim, not at request.** Membership (`as_of`) is frozen at request because
+   "who held tickets then" should be stable; **consent is not membership**, and §5.3's binding copy says
+   withdrawal *"takes effect at the next export build"*. Freezing consent at request time would let a job
+   requested Monday and built Tuesday emit an email withdrawn on Monday night — fail-open, and contradicting
+   the copy. Stamping at claim keeps the copy true, bounds the window to one build, and still gives every
+   page one instant.
+
+**The determinism and forensic claims, restated to what is now true.** The file is a deterministic function
+of `(scope, filters, template_version, as_of, gate_as_of)` plus the retained ledger and the two event logs.
+Two builds of one job under one claim are byte-identical. A replay months later reproduces the file **unless
+an identity in it has since been erased**, which §9.2 already names and accepts. `artifact_sha256` therefore
+proves what §8.3 says it proves.
 
 **The org in conjunct 2 is the job's org — never the atom's, never the venue's current one.** `INFERENCE:`
 the previous wording said "this org, specifically" without saying which `org` the free variable bound to,
@@ -893,12 +951,17 @@ cron drain remains the authority — never as the only trigger.
 `as_of` is frozen at **request** time, not at build time, and is stored on the job and in the audit row.
 Consequences, all of them wanted:
 
-1. Two identical requests one second apart produce identical files (the same `as_of`, the same deterministic
-   order) — so a duplicate request is diagnosable rather than mysterious.
-2. A file's contents are a **deterministic function of `(scope, filters, template_version, as_of)`** plus the
-   retained ledger. Therefore **the export is reproducible from its audit row**, which is what makes §9's
+1. Two identical requests one second apart produce identical files **if no consent changed between their two
+   `gate_as_of` instants** (§5.1) — so a duplicate request is diagnosable rather than mysterious. The
+   qualifier is not a hedge: `as_of` alone never determined the file, because the consent gate is read at
+   build time and a withdrawal in between changes a cell.
+2. A file's contents are a **deterministic function of
+   `(scope, filters, template_version, as_of, gate_as_of)`** plus the retained ledger **and the two consent
+   event logs** (§5.1). Therefore **the export is reproducible from its audit row**, which is what makes §9's
    erasure answer possible **without storing per-export membership**. See §9.2 — this is the single most
-   important structural decision in the retention design.
+   important structural decision in the retention design, and `gate_as_of` plus the event logs are what make
+   it hold: with a current-state-only consent table the replay reads today's consent against a past roster
+   and produces a file that never existed.
 3. The file is honestly stale-stamped: the CSV's first line and the download UI both name `as_of`, so nobody
    reads a Tuesday file as a Friday door list.
 
@@ -1112,7 +1175,9 @@ error, 429 on over-limit, both with `Retry-After`, and *"never silently disable 
 | `crm_export_request` **per org** | **25** | 24 h | Bounds a compromised org with many staff accounts — the per-actor limit alone is defeated by five accounts. |
 | `crm_export_download` **per actor per job** | **3** | job lifetime | A download that fails twice is a bug; a job downloaded forty times is a redistribution channel. |
 | `crm_export_download` **per actor** | **10** | 24 h | |
-| `attendee_list_page` **per actor** | **240** | 1 h | The on-screen list is paginated at 50; 240 pages/h is 12 000 rows/h — above any human reading, below a scraper. `INFERENCE:` without this, the screen is an unaudited export with extra steps. |
+| `attendee_list_page` **per actor** (venue / org branches) | **240** | 1 h | The on-screen list is paginated at 50; 240 pages/h is 12 000 rows/h — above any human reading, below a scraper. `INFERENCE:` without this, the screen is an unaudited export with extra steps. Bounded by the sessions the actor holds a role over. |
+| **`attendee_list_page_platform`** **per actor** | **40** | 1 h | **Added.** The platform branch of `list_attendees` shared the venue budget and had **no scope constraint** — 12 000 rows/h across **every session on the platform**, in a document whose §3.2 says platform bulk extraction *"needs dual control"* and *"is not built in Phase 2"*. See §11.4. |
+| **`attendee_list_page_platform`** **per actor** | **200** | 24 h | **Added**, with a **distinct-session cap of 20 per 24 h** and a required `p_reason_code`. A support ticket concerns one session. |
 | **`attendee_lookup_by_email`** **per actor** | **40** | 24 h | **The sharpest limit in this document.** See §7.2. |
 | **`attendee_lookup_by_email`** **per org** | **120** | 24 h | **Added.** The per-actor cap alone is defeated by three accounts, and this is the table that says so two rows above about exports: *"the per-actor limit alone is defeated by five accounts."* The same reasoning had not been applied to the lookup. |
 | **`attendee_lookup_by_name_prefix`** **per actor** | **20** | 24 h | **Added — there was no row at all.** See §7.2. |
@@ -1268,7 +1333,7 @@ successful one, and an audit that only records successes cannot show an attacker
 | `scope_kind`, `scope_id` | What was reachable. |
 | `template_id`, `template_version` | Which columns existed at the time. |
 | `filters` — **normalized and sorted** | So two audit rows are comparable and a replay is deterministic. |
-| `as_of` | With the above, makes the file reproducible (§6.3). |
+| `as_of`, **`gate_as_of`** | With the above, makes the file reproducible (§6.3). Both are required: `as_of` pins the roster, `gate_as_of` pins the consent gate, and a replay that pins only the first reads today's consent against a past roster and produces a file that never existed. |
 | `row_count`, `byte_count` | Volume, for the anomaly signal and for the operator's own history. |
 | `artifact_sha256` | So a file produced later in a dispute can be proven to be — or **not** be — the one this venue exported. `INFERENCE:` this is the cheapest useful forensic artefact available and it costs 32 bytes. |
 | `contact_cells_emitted`, `contact_cells_suppressed`, `name_cells_emitted`, `name_cells_suppressed` | **The only evidence the consent gate ran** on this export (§5.1). Four integers, not two: the gate governs the name column as well as the email column (§4.3), and a per-column pair is what shows *which* limb ran. **Accumulated in the database by `venue.build_export_rows`, never supplied by the worker** — see §11.4. |
@@ -1374,7 +1439,7 @@ create a second one. **The copy cannot ship with a placeholder.**
 | C34 part | This design's contribution |
 |---|---|
 | Per-identity DEK lifecycle | Contact data lives in two small tables keyed on `auth.users(id)` with one owner-scoped read path each — a trivially enumerable encryption target. Email is **never materialized** in a venue-side table at all. |
-| **PII-sink inventory + purge** | The sink list is **closed, short, and written down here**: `kernel.identity_contact_pref`, `kernel.org_contact_consent`, the `crm-exports` bucket artifact (24 h), and the on-screen render. No third-party destination (EX-6), no notification payload, no search index, no cache, no warehouse. |
+| **PII-sink inventory + purge** | The sink list is **closed, short, and written down here**: `kernel.identity_contact_pref` (+ its event log), `kernel.org_contact_consent` (+ its event log), the `crm-exports` bucket artifact (≤ 24 h, deleted by the §6.6 purge route and reconciled against the bucket daily), and the on-screen render. No third-party destination (EX-6), no notification payload, no search index, no cache, no warehouse. The two event logs hold **no contact value** — an org id, a state and a timestamp — and cascade with the account. |
 | Retained-graph re-identification | The export stores **no membership** (§9.2) and emits **no global identity id** (XO-2), so no retained identity↔export edge exists in the graph. |
 | 7-year financial retention | Contact consent is not a money object and appears in no settlement, payout, refund or order-money row, so the retention obligation and contact erasure never conflict. |
 
@@ -1396,8 +1461,8 @@ of continuity and it is the correct trade against re-linking.
 ### 9.5 Constraint on whoever next edits migration 020
 
 `VERIFIED:` `delete_account_cleanup` repoints ledger-referenced rows to the anonymized sentinel.
-`kernel.identity_contact_pref` and `kernel.org_contact_consent` must **cascade** from `auth.users`, never be
-repointed to the sentinel — a sentinel row holding "consent granted to 40 orgs" would be an accumulating
+`kernel.identity_contact_pref`, `kernel.org_contact_consent` **and their two event logs** (§5.1) must
+**cascade** from `auth.users`, never be repointed to the sentinel — a sentinel row holding "consent granted to 40 orgs" would be an accumulating
 grant belonging to nobody, and the gate in §5.1 would evaluate it. Same shape as the demographics spec's
 D-11. Recorded as **D-3** and as edit **K-6** in §11.7.
 
@@ -1418,18 +1483,36 @@ failure mode** — `INFERENCE:` a check whose blind spot is undocumented is a ch
 Make the reference **impossible**, not merely detectable.
 
 `venue.build_export_rows` is `SECURITY DEFINER` owned by a narrow role **`crm_export_builder`** rather than by
-`postgres`. That role is granted `SELECT` on exactly the enumerated roster relations (§1.4) and on
-`kernel.identity_contact_pref` / `kernel.org_contact_consent` / `kernel.org_customer_key`, and holds **zero
-grant of any kind on the four demographic objects**. A reference to them is then a **runtime permission
-error**, discovered by the first test that runs the builder — no CI check required to find it, and no future
-engineer can add one that works.
+`postgres`. That role holds **zero grant of any kind on the four demographic objects**, so a reference to them
+is a **runtime permission error**, discovered by the first test that runs the builder — no CI check required
+to find it, and no future engineer can add one that works.
+
+**The grant set, enumerated completely — because the sketch as written returns zero rows.** `INFERENCE:` the
+previous text said "granted `SELECT` on exactly the enumerated roster relations and on the three
+contact/key tables", and that grant set produces a builder that runs, raises nothing, and emits a **blank
+contact column on every row** — which reads, to the operator and to the audit counters alike, as *"nobody
+consented"*. A silent wrong answer, in the one column the whole document is about. Two omissions caused it,
+and both must be written down or the next person reconstructs the same set:
+
+| Needed | Why it was missing from the sketch |
+|---|---|
+| `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — **column-scoped** | §5.1 says the email is read "inside the definer". With `postgres` as owner that is free; with a narrow owner it is a grant that has to exist, and `auth.users` was not in the enumerated list at all. Column-scoped so the builder cannot read `encrypted_password`, `raw_user_meta_data`, or the recovery tokens |
+| An explicit **permissive RLS policy naming `crm_export_builder`** on every relation in §1.4 **and** on the contact/consent/key/event tables | The relations are owned by `postgres` with RLS enabled and, per §0, **no policy admits any role but the owner's bypass**. A non-owner definer is subject to RLS, so without a policy each relation returns **zero rows** — silently, because RLS filters rather than raising |
+| `SELECT` on `kernel.org_contact_consent_event` and `kernel.identity_contact_pref_event` (§5.1) | Added by the `gate_as_of` fix; named here so the two land together |
+
+**The canary, because "zero rows" and "nobody consented" are indistinguishable in the output.** A `ready` job
+whose `contact_cells_emitted = 0` **and** `contact_cells_suppressed = row_count` raises a `platform_risk`
+signal, and the CI fixture for the builder asserts a **non-zero** `contact_cells_emitted` over a fixture with
+at least one consenting holder. `INFERENCE:` this is the same non-vacuity discipline §10.2 rule 1 and §10.3
+(c) apply to the checks themselves, applied to the thing being checked: a gate that never emits and a gate
+that never ran produce the same file, and only a positive assertion tells them apart.
 
 **Cost, stated honestly, because it is a real deviation.** `VERIFIED:` the RPC spec's §0 global is
-`SECURITY DEFINER` owned by `postgres`. A second definer owner is a deviation, and it needs plumbing: the
-roster relations are owned by `postgres`, so `crm_export_builder` is subject to their RLS and needs an
-explicit permissive policy naming that role on exactly those relations. That is a handful of extra policy
-lines and a second owner to keep track of. `BYPASSRLS` on the role is **not** an acceptable shortcut — it
-would restore access to everything and delete the entire benefit.
+`SECURITY DEFINER` owned by `postgres`. A second definer owner is a deviation, and the plumbing above is its
+price: a column-scoped grant on `auth.users`, one permissive policy per relation, and a second owner to keep
+track of. `BYPASSRLS` on the role is **not** an acceptable shortcut — it would restore access to everything
+and delete the entire benefit. **This cost is part of D-2**, and the zero-rows failure mode is the reason
+D-2 cannot be answered "adopt it" without also adopting the enumeration and the canary.
 
 **Recommendation: adopt Layer 0.** `INFERENCE:` it converts X-6 from a rule that is checked into a rule that
 cannot be broken, which is the same upgrade C36 made for role scoping ("a type error, not a lint finding") and
@@ -1572,6 +1655,8 @@ well as its number** so it survives the renumber.
 | 3 | `kernel.get_my_contact_prefs()` | `NEW RPC` | **077 / B** |
 | 4 | `kernel.set_my_contact_prefs(...)` | `NEW RPC` | **077 / B** |
 | 5 | `kernel.org_contact_consent` | `ADDITIVE SCHEMA CHANGE` | **082 / F** |
+| 5a | `kernel.org_contact_consent_event` (AO, definer-only — makes conjunct 2 as-of evaluable, §5.1) | `ADDITIVE SCHEMA CHANGE` | **082 / F** |
+| 5b | `kernel.identity_contact_pref_event` (AO, definer-only — makes conjunct 1 as-of evaluable, §5.1) | `ADDITIVE SCHEMA CHANGE` | **077 / B** |
 | 6 | `kernel.grant_org_contact_consent(...)` | `NEW RPC` | **082 / F** |
 | 7 | `kernel.withdraw_org_contact_consent(...)` | `NEW RPC` | **082 / F** |
 | 8 | `kernel.list_my_org_contact_consents()` | `NEW RPC` | **082 / F** |
@@ -1602,8 +1687,8 @@ well as its number** so it survives the renumber.
 | 31 | Dashboard §9.1 attendee list is purchaser-keyed | **`SPEC CORRECTION`** — §11.7 K-1 | doc |
 | 32 | Dashboard §9.6 allow-list predates `marketing` | **`SPEC CORRECTION`** — §11.7 K-2 | doc |
 | 33 | Role-model F12 vs dashboard note 13 on platform export | **`SPEC CORRECTION`** — §3.2, §11.7 K-3 | doc |
-| 34 | RLS spec §6 column-scoped table — add 4 deny-all rows | **`SPEC CORRECTION`** | doc |
-| 35 | SPEC_FOUNDATION §6 table inventory — add 4 tables | **`SPEC CORRECTION`** | doc |
+| 34 | RLS spec §6 column-scoped table — add **6** deny-all rows | **`SPEC CORRECTION`** | doc |
+| 35 | SPEC_FOUNDATION §6 table inventory — add **6** tables | **`SPEC CORRECTION`** | doc |
 | 36 | `kernel.tickets`, `venue.order`, `order_item`, `scan`, `attribution`, `public.profiles`, `kernel.admin_audit` | **`NO SCHEMA CHANGE`** | — |
 | 37 | Every demographic object | **`NO SCHEMA CHANGE`** — untouched, unreferenced | — |
 
@@ -1647,7 +1732,8 @@ well as its number** so it survives the renumber.
 | `org_id` | uuid `→ kernel.organization` — **the job's org, resolved once at request time from the scope object and frozen here.** This is `:job_org_id`: the operand of XO-1a's atom-level equality, of the `customer_ref` HMAC key (§4.3), and of the consent gate's `EXISTS` (§5.1) — at **every** grain, not only org grain. It is also used for the bucket path and the per-org rate limit. The builder reads it from this row and never re-derives it from the scope object, because `catalog.venue.org_id` is mutable and a re-derivation at build time could differ from the one the request was authorized against |
 | `template_id`, `template_version` | text / int |
 | `filters` | jsonb, **normalized and sorted at write** (§8.3) |
-| `as_of` | timestamptz NOT NULL — frozen at request (§6.3) |
+| `as_of` | timestamptz NOT NULL — frozen at **request** (§6.3): membership, "who held tickets then" |
+| `gate_as_of` | timestamptz nullable — stamped when the build **claims** the job, **re-stamped on re-claim**; the single instant every page evaluates the §5.1 consent gate at. Nullable only before the first claim. `INFERENCE:` deliberately *not* frozen at request — consent is not membership, and §5.3's binding copy says withdrawal takes effect at the next **build** |
 | `state` | text, `CHECK IN ('queued','running','ready','failed','revoked','expired','purged')` |
 | `requested_by` | uuid `→ auth.users` ON DELETE RESTRICT |
 | `command_key` | text NOT NULL; `UNIQUE (requested_by, command_key)` (C16 idempotency pattern) |
@@ -1675,12 +1761,16 @@ Following 068 (column grants) + 042 (definer own-row read), at its strongest set
 the demographics spec's §10.3:
 
 ```text
-REVOKE ALL ON kernel.identity_contact_pref  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON kernel.org_contact_consent    FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON kernel.org_customer_key       FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON venue.export_job              FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON kernel.identity_contact_pref        FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON kernel.identity_contact_pref_event  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON kernel.org_contact_consent          FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON kernel.org_contact_consent_event    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON kernel.org_customer_key             FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON venue.export_job                    FROM PUBLIC, anon, authenticated;
 -- and NO re-GRANT of any column to any client role. The grant set is EMPTY, not reduced.
-ENABLE ROW LEVEL SECURITY on all four, with no policy admitting anon or authenticated.
+ENABLE ROW LEVEL SECURITY on all six, with no policy admitting anon or authenticated.
+-- If D-2 is adopted, each of these additionally carries ONE permissive policy naming
+-- crm_export_builder (§10.1) — without it the non-owner definer reads zero rows, silently.
 ```
 
 `INFERENCE:` per 062's rule, any column grant on `kernel.org_contact_consent` to `authenticated` would make
@@ -1688,14 +1778,22 @@ ENABLE ROW LEVEL SECURITY on all four, with no policy admitting anon or authenti
 email them. There is no public-safe subset of that, so the grant set is empty and **the absence of a grant is
 the enforcement**, exactly as 052/062/068 established.
 
-**RLS spec §6 additions (`SPEC CORRECTION`), four deny-all rows:**
+**RLS spec §6 additions (`SPEC CORRECTION`), six deny-all rows:**
 
 | Table | Broad-readable columns | RESTRICTED |
 |---|---|---|
 | `kernel.identity_contact_pref` | **none** | entire table → `kernel.get_my_contact_prefs()` (own row) |
 | `kernel.org_contact_consent` | **none** | entire table → `kernel.list_my_org_contact_consents()` (own rows); the build-time gate is definer-internal |
+| `kernel.org_contact_consent_event` | **none** | definer / `service_role` only. AO, `REVOKE UPDATE, DELETE`. Read only by the §5.1 gate evaluating at `gate_as_of`; written only by `grant_/withdraw_org_contact_consent` |
+| `kernel.identity_contact_pref_event` | **none** | definer / `service_role` only. AO, `REVOKE UPDATE, DELETE`. Read only by the §5.1 gate; written only by `set_my_contact_prefs` |
 | `kernel.org_customer_key` | **none** | definer / `service_role` only; **no human role, including `platform_admin`** |
 | `venue.export_job` | **none** | entire table → `venue.list_export_jobs()` (role- and scope-checked) |
+
+The two event logs join the same `REVOKE ALL … FROM PUBLIC, anon, authenticated` block above; the grant set
+is empty for them too. `INFERENCE:` a column grant on `kernel.org_contact_consent_event` to `authenticated`
+would publish a **timestamped history** of who allowed which venue to email them and when they changed their
+mind — strictly worse than the current-state table it derives from, which is why it inherits the same posture
+rather than a relaxed one on the grounds that it is "just a log".
 
 **`storage` policies for `crm-exports`:** none. Not a reduced set — none.
 
@@ -1711,8 +1809,10 @@ only via the C36/role-model predicate helpers, **no client actor parameter**.
 else's preferences" is unexpressible, per 042). Actor `auth.uid()`, raises `insufficient_privilege(42501)` on
 NULL. Returns `{ venue_email_contact, updated_at }` or the default. EXEC: `authenticated`.
 
-**`kernel.set_my_contact_prefs(p_venue_email_contact text)`** — write. Upserts one row keyed on `auth.uid()`.
-Value re-validated against the CHECK set in-body. Writes `crm_contact.pref_changed` audit. Idempotent.
+**`kernel.set_my_contact_prefs(p_venue_email_contact text)`** — write. Upserts one row keyed on `auth.uid()`
+**and appends one `kernel.identity_contact_pref_event` row in the same transaction** (§5.1 — without it the
+master-switch conjunct is not as-of evaluable and the export is not replayable). Value re-validated against
+the CHECK set in-body. Writes `crm_contact.pref_changed` audit. Idempotent — a no-op change appends no event.
 **No identity parameter exists.** EXEC: `authenticated`.
 
 **`kernel.list_my_org_contact_consents()`** — read. **Params: none.** Returns
@@ -1720,16 +1820,26 @@ Value re-validated against the CHECK set in-body. Writes `crm_contact.pref_chang
 
 **`kernel.grant_org_contact_consent(p_org_id uuid, p_notice_version text, p_source_order_id uuid)`** — write.
 `p_org_id` untrusted, re-validated as a live org. `p_notice_version` validated against the known list. Sets
-`state='granted'`. Idempotent (re-granting is a no-op update). Audited. Rate-limited. EXEC: `authenticated`.
+`state='granted'` **and appends one `kernel.org_contact_consent_event(…, 'granted', …)` row in the same
+transaction** (§5.1). Idempotent — re-granting is a no-op update and appends no event. Audited. Rate-limited.
+EXEC: `authenticated`.
 **Forbidden: there is no staff-side write path — no `admin_set_contact_consent`, no `p_identity_id`
 parameter anywhere.** A venue can never record a consent on a fan's behalf.
 
 **`kernel.withdraw_org_contact_consent(p_org_id uuid)`** — write. Sets `state='withdrawn'`, stamps
-`withdrawn_at`. Idempotent (`{status:'noop_replay'}` if already withdrawn). Audited. EXEC: `authenticated`.
+`withdrawn_at`, **and appends one `…_event(…, 'withdrawn', …)` row in the same transaction**. Idempotent
+(`{status:'noop_replay'}` if already withdrawn, appending no event). Audited. EXEC: `authenticated`.
+
+`INFERENCE:` the event log is also what makes a **re-grant after a withdrawal** representable at all. The
+current-state row holds one `granted_at` and one `withdrawn_at`, so a grant → withdraw → grant cycle
+overwrites its own history and no as-of question about it can be answered — and that cycle belongs to the
+person who changed their mind, who is exactly the person §5.3 says the record exists to protect in the
+dispute they are most likely to have.
 
 ---
 
-**`venue.list_attendees(p_session_id uuid, p_filters jsonb, p_cursor text)`** — read. Satisfies dashboard Δ3
+**`venue.list_attendees(p_session_id uuid, p_filters jsonb, p_cursor text, p_reason_code text)`** — read.
+Satisfies dashboard Δ3
 with the §1.2 holder-grain correction. Actor `auth.uid()`; resolves session → event → venue → org and requires
 `has_venue_role(venue,[venue_manager, venue_marketing])` **or**
 `has_org_role_over_event(event,[org_owner, org_admin, org_marketing])` **or**
@@ -1738,6 +1848,24 @@ with the §1.2 holder-grain correction. Actor `auth.uid()`; resolves session →
 denied classes are **absent from the result shape, not null** (`VERIFIED:` dashboard §16.8's rule: *"fields
 are absent rather than blank"*). `p_filters` validated against the §6.5 grammar; anything outside it raises.
 Rate-limited (`attendee_list_page`). Audited on every page. EXEC: `authenticated` with the in-body re-check.
+
+**The platform branch is scoped, throttled and reasoned — it was none of those.** `INFERENCE:`
+`is_platform([platform_support, platform_risk, platform_admin])` sat in the same authority disjunction as the
+venue and org branches and therefore inherited the venue's `attendee_list_page` budget: **240 pages/hour ×
+50 = 12 000 rows/hour**, across **every session on the platform**, with no scope constraint of any kind. A
+venue role at that rate is bounded by the sessions it holds a role over; a platform role at that rate is
+bounded by nothing, and §3.2 had just finished arguing that platform bulk extraction *"needs dual control"*
+and *"is not built in Phase 2"* — while this branch was one. Four rules, all cheap:
+
+| Rule | Value |
+|---|---|
+| Separate rate limit `attendee_list_page_platform` **per actor** | **40 / hour** (2 000 rows/h), and **200 / 24 h** |
+| **Distinct-session cap** per platform actor | **20 distinct `p_session_id` values per 24 h.** A support ticket concerns one session; twenty is a generous week |
+| `p_reason_code` | **Required and non-empty when the authority resolved is the platform branch**, ignored on the venue/org branches. Free text is not accepted — a closed enum (`support_ticket`, `risk_investigation`, `incident`, `data_subject_request`) plus an optional ticket reference. Recorded in the audit row |
+| Audit action | `crm_lookup.platform_roster`, **distinct from the venue action**, so a platform read never disappears into a venue's page-view volume and the §7.4 anomaly signal can baseline the two separately |
+
+This is a **throttle and a record**, not the dual-controlled platform extraction path §3.2 declines to build:
+a platform role can still read a roster to resolve a ticket, and cannot page the platform.
 
 **XO-1a applies here too.** The org resolved during authorization is the operand of
 `kernel.tickets.org_id = :org_id`, of the `customer_ref` key, and of the consent gate — resolved **once**, in
@@ -1798,9 +1926,27 @@ future refactor takes any one of them from the atom instead of the job, the venu
 re-operated venue leaks the prior operator's list (§4.4 case (e)) and — for the HMAC — the two orgs' files
 join on the pseudonym. Asserted as assertions 18a–18c.
 
-**`venue.finalize_export(p_job_id, p_row_count, p_byte_count, p_sha256, p_object_path,
-p_cells_emitted, p_cells_suppressed)`** — write, **`service_role` only**. `running → ready`; writes
-`crm_export.generate` audit. Idempotent.
+**`venue.finalize_export(p_job_id, p_row_count, p_byte_count, p_sha256, p_object_path)`** — write,
+**`service_role` only**. `running → ready`; writes `crm_export.generate` audit. Idempotent.
+
+**The gate counters are gone from this signature, and that is the point.** They were
+`p_cells_emitted, p_cells_suppressed` — **worker-supplied parameters** — for numbers §5.1 calls *"the only
+evidence the consent gate ran on this export"*. `INFERENCE:` evidence that the caller hands you is not
+evidence about the caller. A worker that skipped, mis-evaluated or short-circuited the gate would report
+whatever counts it liked, and every downstream check — the audit row, §8.4's auditor query, assertion 13 —
+would agree with it. Instead:
+
+- **`venue.build_export_rows` accumulates the four counters on the job row, page by page, inside the
+  definer**, in the same statement that decides each cell. The counter is incremented by the code that
+  evaluates the gate, not by code that is told what the gate decided.
+- **`finalize_export` reads them from the job row** and copies them into the audit payload. It cannot be
+  told them.
+- **It cross-checks the worker's `p_row_count` against the DB-side accumulated row count and raises
+  `count_mismatch` on disagreement**, leaving the job reclaimable. The worker still supplies `byte_count`,
+  `sha256` and `object_path` — those are facts about the *artifact*, which only the worker can observe, and
+  they are not evidence that a **database** predicate ran.
+- `artifact_sha256` remains worker-supplied and remains useful: it proves which bytes were produced, and it
+  is checkable against the object itself if a dispute ever needs it.
 
 **`venue.authorize_export_download(p_job_id uuid)`** — write. **Re-checks the caller's authority live against
 the grant tables at this instant** (EX-4). Rate-limits. Writes `crm_export.download` audit in-txn. Returns
@@ -1917,8 +2063,9 @@ logging; Sentry on unexpected 500s).
 ## 12. pgTAP assertion list (described; no SQL files written)
 
 **Grants and RLS**
-1. `anon` holds **zero** rows in `information_schema.role_column_grants` for all four new tables.
-2. `authenticated` holds **zero** rows in `role_column_grants` for all four new tables. *(The assertion that
+1. `anon` holds **zero** rows in `information_schema.role_column_grants` for all **six** new tables
+   (the four originals plus the two consent event logs, §11.3).
+2. `authenticated` holds **zero** rows in `role_column_grants` for all six new tables. *(The assertion that
    would have caught the pre-068 `public.profiles` exposure.)*
 
 **Roster semantics**
@@ -1985,8 +2132,23 @@ logging; Sentry on unexpected 500s).
 20. `scope_kind = 'all'` is rejected — it is not a member of the CHECK set.
 21. A filter outside the §6.5 grammar raises; a demographic filter name raises; an OR/NOT/nested filter
     raises.
-22. **Deterministic order:** two builds of the same `(scope, filters, template_version, as_of)` produce
-    byte-identical output and the same `artifact_sha256`.
+22. **Deterministic order and instant:** two builds of the same
+    `(scope, filters, template_version, as_of, gate_as_of)` produce byte-identical output and the same
+    `artifact_sha256`. *(The previous assertion omitted `gate_as_of` and was therefore false whenever a
+    consent changed mid-build or between two builds — the consent gate is read at build time, so `as_of`
+    alone never determined the file.)*
+22a. **The gate is one instant, not four reads.** A withdrawal committed **between page 3 and page 4** of a
+    build does **not** change that build's output; the same withdrawal committed **before the claim** does.
+    Asserted over a multi-page fixture, since a single-page build cannot exhibit the defect.
+22b. **Replay from the audit row.** Rebuilding a job months later from
+    `(scope, filters, template_version, as_of, gate_as_of)` reproduces `artifact_sha256` **exactly**,
+    including cells whose consent has since been withdrawn — because the gate reads
+    `kernel.org_contact_consent_event` / `kernel.identity_contact_pref_event` as of `gate_as_of`. The one
+    documented exception is an identity erased since (§9.2), which the assertion covers as an expected
+    divergence rather than a failure.
+22c. **A re-claim rebuilds from page 1 and re-stamps `gate_as_of`.** After a lease expiry, the partial
+    artifact is discarded and the new build reflects a withdrawal made between the two claims. *(Fail-closed:
+    carrying the original instant across a retry hours later would ignore it.)*
 23. A job exceeding 50 000 rows ends `failed` with `too_large` and **writes no artifact** (never truncates).
 24. Every `crm_export.generate` audit row has a non-null `constraint_set_version` (**X-9**).
     Every `crm_export.download` row exists before its signed URL is minted.
@@ -2053,6 +2215,24 @@ logging; Sentry on unexpected 500s).
 34d. **The sweep is bounded and visible.** 21 `name_prefix` calls by one actor in 24 h: the 21st is
     `rate_limited`. The audit rows for all 21 carry `query_kind` and `outcome` and **contain none of the
     probed strings** (content scan).
+34e. **The gate counters are not worker-supplied.** `venue.finalize_export` has **no** `p_cells_emitted` /
+    `p_cells_suppressed` parameter (asserted on the signature). Calling it with a `p_row_count` that
+    disagrees with the DB-side accumulated count raises `count_mismatch` and leaves the job reclaimable.
+    The four counters on a `ready` job equal what a direct query over the fixture computes.
+34f. **The blank-column canary.** A `ready` job with `contact_cells_emitted = 0` and
+    `contact_cells_suppressed = row_count` raises a `platform_risk` signal; and the builder fixture, run over
+    a session with at least one consenting holder, asserts `contact_cells_emitted > 0`. *(A gate that never
+    emits and a gate that never ran produce the same file; only a positive assertion tells them apart —
+    the same non-vacuity discipline §10.2 rule 1 applies to the checks.)*
+34g. **The Layer-0 builder role actually returns rows.** With `crm_export_builder` as definer owner, a build
+    over a fixture with consenting and non-consenting holders returns the expected row count and a non-zero
+    `contact_cells_emitted`. *(Asserted because the enumerated grant set without the column-scoped
+    `auth.users` grant and the per-relation permissive policies returns **zero rows, silently** — RLS filters
+    rather than raising — which reads in the output as "nobody consented".)*
+34h. **The platform branch is scoped and throttled.** A `platform_support` actor hits
+    `attendee_list_page_platform` at 41 calls/hour, is refused a 21st distinct session in 24 h, and is
+    refused entirely when `p_reason_code` is absent or outside the enum. Each call writes
+    `crm_lookup.platform_roster`, **not** the venue action.
 
 **Erasure / merge**
 35. Deleting the `auth.users` row cascades both contact tables away, and neither is repointed to the
@@ -2102,9 +2282,9 @@ weakening it.
 | **K-4** | Venue dashboard §9.6 `UNVERIFIED` note (*"the export job, its lifecycle table, and the opt-in record are Agent B's delta"*) | **Resolved.** §11.2 supplies the job table, §5 the opt-in record, §6 the lifecycle. §9.6's ratified behaviour — async, 300-second signed URL re-authorized at download, audited request/generate/download/revoke, closed filter set, fixed columns, phone never exportable, email only on opt-in with an explaining legend, revoke on any `ready` export, `lg`+ only — is **unchanged and remains binding**. |
 | **K-5** | Venue dashboard §21 Δ3 `venue.list_attendees` | **Resolved and amended.** The contract is in §11.4, with the holder-grain correction (K-1), the column-scoping per §3, and the §9.5-flagged display-name source pinned to `public.profiles.display_name` (the 068 public-safe set). |
 | **K-6** | Migration 020 / account deletion | **Constraint recorded (§9.5, D-3):** never repoint a contact-preference or contact-consent row to the anonymized sentinel. |
-| **K-7** | RLS spec §6 + §7/§9 | Four deny-all rows and four role matrices added (§11.3). |
-| **K-8** | SPEC_FOUNDATION §6 canonical table inventory | Four tables added (§11.2). |
-| **K-9** | RPC contracts spec | Fifteen contracts added (§11.4). |
+| **K-7** | RLS spec §6 + §7/§9 | **Six** deny-all rows and six role matrices added (§11.3). |
+| **K-8** | SPEC_FOUNDATION §6 canonical table inventory | **Six** tables added (§11.2): the four originals plus `kernel.org_contact_consent_event` and `kernel.identity_contact_pref_event` (K-19). |
+| **K-9** | RPC contracts spec | **Eighteen** contracts added (§11.4) — the original fifteen plus `claim_artifacts_for_purge`, `confirm_artifact_purged` and `reconcile_export_orphans` (K-16). Three of the originals changed signature: `finalize_export` **loses** the gate-counter parameters (K-19), `list_attendees` **gains** `p_reason_code` (K-19), and `authorize_export_download` re-evaluates the template allow-list (K-15). |
 | **K-10** | Edge function spec §2 placement table + §8 summary matrix | One function added (`crm-export`), four candidate placements rejected on the record (§11.5). |
 | **K-11** | CDM §4 / DA §8.7 (C34), C38, C40 | **No constitution edit.** This document records the Phase-2-safe interim erasure promise (§9.3), the C38 contact-merge rule (§9.4), and the C40-class posture toward any future egress destination (EX-6) — all consistent with their GATE-L status. **The frozen constitutions are not modified by this document.** |
 | **K-12** | Demographics spec | **No edit requested**, except the optional strengthening of X-6's stated method noted in §13. Its X-1…X-9 are satisfied as written (§2.4). |
@@ -2114,6 +2294,7 @@ weakening it.
 | **K-16** | **This document, §6.2 · §6.6 · §9.2 · §11.1 · §11.2 · §11.4 · §11.5 · §12** | **H-13 remediation.** Nothing in the design could delete a Storage object. Revoke said it *"deletes the artifact, effective immediately"*; `venue.revoke_export` said it *"signals the edge to delete"*; the sweep said it *"deletes artifacts past retention"* — and the `crm-export` edge function had exactly two routes, **neither a delete**. A `SECURITY DEFINER` Postgres function cannot call the Storage API, and its only in-DB option (`DELETE FROM storage.objects`) drops the metadata row and **orphans the bytes**. So retention, sweep and revoke all had **no agent**: *"the lake is bounded by a 24-hour sweep"* was unimplementable and revoke could not remove the file it claimed to remove. Added: `POST /purge` on `crm-export`, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034 this spec already cites; `artifact_state` / `purge_lease_until` / `purge_attempts` on `venue.export_job`; three definer `service_role` RPCs; and a **daily orphan reconciliation pass** that reconciles the bucket against the job table in both directions — without which the 24-hour bound is a statement about rows, and rows are not what leaks. Revoke's honest bound restated as `min(300 s, time-to-purge)`, not zero. |
 | **K-17** | **This document, §7.1 · §7.2 · new §7.2a · §7.4 · §11.4 · §12** | **H-14 remediation.** The name-prefix lookup had **no rate limit** — the limit table carried rows for `email_exact` and `order_ref` and none for `name_prefix`, and `venue.lookup_attendee`'s contract scoped its limit to `email_exact` **explicitly**. `venue_box_office` holds X4, so iterating `a…z`, `aa…zz` against one session returned the roster one record at a time at no rate cost: the printed list §3.1 refuses (*"a box office cannot print a paper list. That is deliberate."*) reassembled from the surface meant to replace it, by the role denied it. Added: `attendee_lookup_by_name_prefix` at 20/actor + 60/org per 24 h; a **3-character minimum** raised before the lookup and without consuming budget; and **multi-match as an explicit `ambiguous_query` carrying no rows and no count** — a count is the harvest (`"sm"`→14, `"smi"`→9 reconstruct the name distribution without returning a record). **Per-org caps added for every lookup kind**, closing the medium that the export explains per-actor-alone is insufficient two rows above in the same table. Audit records kind **and outcome**, never the probed string; a run of `ambiguous`/`rate_limited` is the sweep signature and the only evidence of one. |
 | **K-18** | **This document, §2.2 field 2 · §4.3 · §4.4 (a) and (d) · §5.1 · §8.3 · §11.2 · §12** | **Known finding 6 — the cross-tenant defence works, the claim did not.** The per-org HMAC pseudonym is genuinely per-org and unreadable by any principal; that part holds. But `display_name` was emitted **on every row of every export at every org, ungated by consent**, from the one global `public.profiles.display_name` string, so two orgs union their files on it directly and corroborate with admission time, `first_seen_at`, ticket types and acquisition route. **Claim deleted verbatim:** *"the **non-consenting majority — every transferee, every comp, every purchaser who left the box unticked — is unjoinable**, which is exactly the population with no relationship to either venue."* The proof resting on it (case (d)'s sub-case) was void as written. **The pseudonym removes the platform-supplied *stable* join key and nothing else** — that is the corrected claim. Fix: `emit_name := emit_email`, one predicate driving both cells in the **export**; `display_name` stays **ungated on screen**, in the single-record lookup and in the door projection, where §5.6 already establishes it is readable and where a surface cannot be unioned with another org's. `name_cells_emitted/suppressed` join the audit pair; the legend covers both columns. Assertion **13c** tests unjoinability itself — the intersection of two orgs' non-blank cell values for a doubly-non-consenting identity must be empty — rather than testing the mechanism the proof credited. **D-13.** |
+| **K-19** | **This document, §4.5 · §5.1 · §6.3 · §7.1 · §10.1 · §11.1 · §11.2 · §11.4 · §12** | **CRM mediums.** (1) **The consent gate's evaluation instant was unspecified** and `identity_contact_pref` had no history, so a paged build necessarily evaluated the four conjuncts at inconsistent instants — falsifying §6.3's byte-identical determinism, assertion 22, and the replay property that is the entire reason per-export membership is not stored. Added `gate_as_of` (stamped at **claim**, re-stamped on re-claim, one instant per build) and two append-only event logs so both mutable conjuncts are as-of evaluable. (2) **The Layer-0 builder grant as written returns zero rows** — `auth.users(id, email)` was not in the enumerated set and non-owner definers are subject to RLS with no permissive policy, so every export would have shipped a blank contact column reading as *"nobody consented"*. Grant set enumerated completely, plus a **blank-column canary** and a positive builder fixture. (3) **`finalize_export` accepted the gate counters as worker-supplied parameters** for numbers §5.1 calls *"the only evidence the consent gate ran"* — evidence the caller hands you is not evidence about the caller. The counters are now accumulated on the job row by `build_export_rows`, inside the definer, by the code that evaluates each cell; `finalize_export` cannot be told them and cross-checks `row_count`. (4) **The platform branch of `list_attendees` had no scope constraint** at 12 000 rows/hour across every session on the platform, in a document whose §3.2 says platform bulk extraction needs dual control and is not built — added a separate limit, a 20-distinct-session cap, a required enum `p_reason_code`, and its own audit action. (5) **Per-org caps** for every lookup kind (with K-17). (6) **Five roles hold both the roster read and the mix card**, so the demographics floor of 5 is a bound over five people the reader can **name** — recorded in §4.5 and as that spec's **D-14**. |
 
 ---
 
