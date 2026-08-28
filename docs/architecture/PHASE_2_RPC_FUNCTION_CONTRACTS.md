@@ -930,8 +930,34 @@ A contract is tagged one of:
 ### 11.4 `kernel.refund_primary_order(p_order_id, p_amount_minor, p_reason_code, p_command_key)` — **EDGE-FRONTED (DB-RPC + Stripe refund)**
 - **Purpose:** refund a primary order (full/partial) and **void the covered atoms** (SSCAS #3). The **Stripe
   refund is executed by the refund edge fn**; the DB-RPC records `kernel.refund` and voids atoms atomically.
-  **Role:** owner (buyer-request, capped by policy) · `has_org_role([org_finance])` · `is_platform([
-  platform_support (capped), platform_admin])`. (`admin_refund` for pure dispute is the platform-risk variant.)
+- **`SPEC CORRECTION` — Role NARROWS to `EXEC: DEF` + `is_platform([platform_support (capped),
+  platform_admin])`.** Buyer, `org_finance` and the new `org_owner` authority reach this function **only via
+  `kernel.request_order_refund` (§17.1)**, which calls it definer→definer in the same transaction. **This
+  remains the sole writer of `kernel.refund`** on every tier, which is what preserves R7 money-single-path:
+  the request/approve objects *request*; none of them writes a money row.
+- **`SPEC CORRECTION` — the voidable/consumed partition.** `kernel.void_ticket_atom` requires the atom not to
+  be terminal, and `scanned` **is** terminal with **no `scanned → voided` edge in the frozen state machine**.
+  So as previously contracted, a refund on an order containing a scanned atom raised `precondition_failed` and
+  **the entire refund failed, including its money leg** — no spec said so, and no operator surface warned
+  about it. Refunding an attendee who already walked in is an ordinary goodwill act, so "the whole refund
+  fails" is wrong product behaviour; but voiding a scanned atom is an illegal transition **and** the exact
+  shape of an insider-fraud primitive (staff scans a friend in, then refunds the ticket). Therefore:
+  - covered atoms are partitioned into **`voidable`** (`state ∈ {issued, active}`) and **`consumed`**
+    (`state = 'scanned'`);
+  - a refund covering only `voidable` atoms behaves exactly as contracted today;
+  - a refund covering **any** `consumed` atom **never voids it, never returns inventory** (the seat *was*
+    consumed — returning it would oversell the room), and its tier is governed by
+    `refund.scanned_atom_policy ∈ {refuse, platform_review}`, default `platform_review`;
+  - **the money leg still completes**, and the result names the split explicitly:
+    `{ atoms_voided[], atoms_not_voided[{atom_id, reason:'already_scanned'}] }` — **never a silent partial**;
+  - the audit row carries the consumed-atom list, so the goodwill-vs-collusion pattern is queryable after the
+    fact. **That is the control that makes the capability safe, rather than the refusal.**
+  - **No new ticket state, no new edge in the state machine, no terminal re-animation.** The atom stays
+    `scanned`; only money moves.
+- **`custody_moved` is added to the failure taxonomy** (§0.5): an atom whose `current_owner_id` is no longer
+  the order's buyer is **not refundable through this path**, full stop — voiding it would confiscate a
+  stranger's ticket, and the reseller already recovered their money in the resale, so refunding the primary
+  purchase too is double recovery. It becomes a platform dispute (`admin_refund`), not an org action.
 - **Params:** `p_order_id`,`p_amount_minor`,`p_reason_code(buyer_request|event_cancelled|oversell_correction|
   dispute|admin_action|auto_compensation)`,`p_command_key` — untrusted; **amount re-validated** (`sum(refunds)
   ≤ payment.total` under `FOR UPDATE` on the payment).
@@ -1225,6 +1251,429 @@ never writes `market`, the market never writes custody, so there is exactly one 
    public surface; implementers may realize them as the schema's grant/revoke primitives (documented aliases).
 
 ---
+
+## 17. NEW RPC contracts from the eight Phase-2 delta specs
+
+Every contract inherits §0 (definer discipline, C35 actor derivation, C36 role tests, deny-by-default,
+audit-in-txn, `p_command_key` idempotency, no DELETE, EDGE-CALLER-JWT, the two grant classes). Only deltas are
+stated. **Lock acquisition order is given for every contract, including the read-only ones** (where it is
+`none`, that is a claim, not an omission) — because two of the eight source specs supply no lock statement at
+all, and an unstated lock order is how a deadlock class gets built.
+
+**Where a source spec supplied no test and no policy, this document supplies the test and states why there is
+no policy.** The money and role specs together contribute 23 RPCs with **no named test and no named RLS policy
+anywhere**; the notifications spec names two RPCs with **no contract body at all** (§17.28). Those gaps are
+filled here and flagged in §19 as authored rather than transcribed.
+
+### 17.1 `kernel.request_order_refund(p_order_id, p_atom_ids uuid[], p_amount_minor int, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
+
+- **Purpose.** The single org-and-buyer-facing refund door. Decides the tier server-side, then **either**
+  executes through the canonical money writer **or** parks an approval request with a custody hold. **The
+  caller does not choose which.**
+- **Role.** owner-of-order (`venue.order.buyer_id = auth.uid()`, capped + windowed) ·
+  `has_org_role(order.org_id, ['org_owner','org_finance'])` ·
+  `is_platform(['platform_support','platform_risk','platform_admin'])`. **`org_admin` and every venue role are
+  forbidden callers.** **Bound by EDGE-CALLER-JWT** (§0.1a) — this is one of the three RPCs where a
+  service-role invocation would silently degrade every predicate above.
+- **Params.** All **untrusted**: `p_order_id`, `p_atom_ids[]` (**may legitimately be empty** — a fee-only or
+  goodwill refund with no custody effect; always an exceptional tier, since there is no ticket to point at),
+  `p_amount_minor`, `p_reason_code ∈ {buyer_request, oversell_correction}` for org callers.
+  `event_cancelled` is produced only by `catalog.cancel_event`; `dispute` / `admin_action` /
+  `auto_compensation` are platform/system causes and are **rejected from this entry point** for org and buyer
+  callers (`policy_violation`).
+- **Server-derived.** `p_actor := auth.uid()`; `org_id := venue.order.org_id` (**a real column — the client
+  never supplies the org**); the covered-atom set; `expected_amount`; the tier; and **every threshold's
+  `(key, version)` from `catalog.platform_config`, pinned onto the request row** so a mid-flight config change
+  cannot silently re-tier a parked request and an auditor can reconstruct why a refund took the tier it did.
+- **Covered-atom derivation (fully server-side).** The atoms of an order are `kernel.ticket_ownership_log`
+  rows with `sequence = 1` whose `cause_ref` is one of that order's `venue.order_item.id` values — two indexed
+  joins, no schema change. **Atoms carry no price**, so per-atom value is `venue.order_item.unit_price_minor`
+  for the atom's `ticket_type_id`, unique per order and an immutable purchase snapshot. The RPC recomputes
+  `expected := Σ unit_price_minor(atom) + fee_component(config)` and **rejects any `p_amount_minor` exceeding
+  it**. Amount is never client-authoritative (C35).
+- **Preconditions.** (1) Order `status ∈ {paid, partially_refunded}`. (2) Buyer/order/org relationship
+  verified server-side from live tables. (3) Every named atom belongs to this order — a foreign atom is
+  `not_found`, **never a partial success**. (4) Every named atom has `current_owner_id = order.buyer_id`, else
+  `custody_moved`. (5) Every named atom has `resale_state = 'none'`, else `conflict_locked` **naming the open
+  listing or transfer**, so the operator knows what to cancel. (6) `p_amount_minor ≤ expected_amount` **and**
+  `Σ(refunds for the payment) + p_amount_minor ≤ payment.total`, the latter under `FOR UPDATE` on
+  `public.payments`. (7) **Parked branch only:** `NOT kernel.is_transfer_frozen(atom)` for every atom, else
+  `frozen` — a request may not be *parked* on a door-open session (§12.4c). Below-threshold *execution* is
+  unchanged and still voids the ticket at the door.
+- **Tier decision (server-side, from config).**
+
+  | Condition | Outcome | Effect |
+  |---|---|---|
+  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | direct |
+  | org caller, ≤ `refund.org_auto_execute_max_minor`, no consumed atom | `executed` | direct |
+  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | park + hold |
+  | any consumed (scanned) atom, `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | park + hold |
+  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | park + hold |
+  | any consumed atom, `refund.scanned_atom_policy = 'refuse'` | `rejected` | none |
+
+- **Locks & acquisition order.** **Event/Session** (`FOR SHARE`, rank 1 — the freeze read, parked branch) →
+  **Order** (`FOR UPDATE`, rank 3) → **Ticket Atom(s)** ascending `ticket_atom_id` (rank 5) → **Approval**
+  (rank 5.5, INSERT) → **Payment** (`FOR UPDATE` on `public.payments`, rank 6, for the sum guard). Strictly
+  ascending; conforms to §0.4.
+- **SSCAS.** Executed branch: **member #3** (existing refund-void). Parked branch: `n/a (single locked
+  aggregate class — Ticket Atom)`; the `kernel.approval_request` row is a **fresh INSERT** that contends on
+  nothing but its trailing unique index, acquired last. **See RLS MD-1** — if a reviewer judges the approval
+  object an aggregate class rather than an intent record, the parked branch is a sixteenth SSCAS member and
+  C28's closure needs a formal amendment. It is lock-ordered either way, so the amendment would be a one-line
+  ratification, not a redesign.
+- **Writes.** *Executed branch* — delegates to `kernel.refund_primary_order` in the same txn (definer→definer);
+  **that function alone writes `kernel.refund`. This function writes no money row.** *Parked branch* —
+  `kernel.approval_request` (INSERT `pending`), `kernel.tickets.resale_state := 'refund_hold'` on each covered
+  **voidable** atom, `kernel.admin_audit` (`refund.request`).
+- **Why the hold is on the atom row.** It is the row the scan path already locks, so the guard costs nothing
+  on the door hot path and adds no cross-schema read to `record_scan` (R8 scan isolation preserved). The
+  existing `lock_ticket` precondition `resale_state='none'` then does all the work: an atom at `refund_hold`
+  **cannot** enter a p2p transfer or a listing, with no new check written anywhere.
+- **Idempotency.** `p_command_key` unique per `(actor, key)` on `kernel.approval_request`; the executed branch
+  inherits `kernel.refund.idempotency_key`. **A replay returns the original outcome, never a second refund.**
+  A *second, different* partial refund on the same order mints a new `refund_id` and therefore a new,
+  non-colliding key — so successive partials compose correctly.
+- **Result.** `{ status ∈ {executed, pending_approval, pending_platform_review, rejected, noop_replay},
+  refund_id?, request_id?, amount_minor, atoms_voided[], atoms_not_voided[{atom_id, reason}], tier,
+  approval_required_role? }`.
+- **Errors.** `insufficient_privilege(42501)` · `precondition_failed` · `custody_moved` · `conflict_locked` ·
+  `frozen` · `not_found` · `over_refund` · `policy_violation` · `step_up_required`.
+- **Forbidden.** Any client writing `kernel.refund` directly; `org_admin`; every venue role; a buyer refunding
+  another buyer's order; any caller supplying an `org_id` or an actor.
+- **The cost this incurs, stated rather than buried.** A `refund_hold` **stops the ticket working at the door
+  while the request is parked** — a denial-of-admission capability in the hands of every
+  `org_owner`/`org_finance`. It is bounded, not eliminated: auto-executed refunds place no hold; every hold is
+  bounded by `refund.request_ttl_hours` and released by §17.4; a request cannot be parked on a door-open
+  session; and **the buyer must be told** (a ticket that silently stops scanning is the worst failure mode in
+  this area). **A hold with no sweep is a bricked ticket — the exact lesson C43 already learned about p2p
+  locks.**
+- **Tests.** `T-RPC-MONEY-01` (tier table, one case per row) · `T-RPC-MONEY-02` (`custody_moved` on a resold
+  atom) · `T-RPC-MONEY-03` (a scanned atom is reported in `atoms_not_voided[]`, is not voided, returns no
+  inventory, and the money leg still completes) · `T-RPC-MONEY-04` (parked on a frozen session ⇒ `frozen`) ·
+  `T-RPC-MONEY-05` (replay returns the original outcome, exactly one refund row).
+- **Policy:** none, and none is possible — see §0.8.
+
+### 17.2 `kernel.approve_refund_request(p_request_id, p_decision, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
+
+- **Purpose.** The second act of dual control. On approve, release the holds and call the canonical money
+  writer. On deny, release the holds and terminate the request. **Dual control cannot be done in one
+  transaction** — two humans, two sessions, two points in time force a durable pending object — which is why
+  §17.1 has two branches rather than one.
+- **Role.** For `pending_approval`: `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND
+  `auth.uid() <> request.requested_by`** — SoD-2, enforced **structurally**, backed by the table constraint
+  `CHECK (approved_by IS NULL OR approved_by <> requested_by)`. For `pending_platform_review`:
+  `is_platform(['platform_support','platform_risk','platform_admin'])`, subject to the support cap. **Bound by
+  EDGE-CALLER-JWT.**
+- **`action`-dispatched.** The same function serves the payout-above-threshold branch (`action =
+  'payout.request'`) and the money-config branch (`action = 'config.set_money_key'`), under the same SoD rule.
+  For payout, the §17.7 destination-setter exclusion applies **to the approver as well** — otherwise the
+  destination-setter could simply approve instead of request.
+- **Preconditions.** Request `state = 'pending'` and not expired. **Every §17.1 precondition is RE-EVALUATED
+  under lock at approval time — the stored payload is *evidence*, never authority.** Specifically: the order
+  is still refundable; the atoms are still owned by the buyer; the payment sum guard still passes; the amount
+  is **recomputed** from `venue.order_item` and must still equal the pinned `expected_amount`. Drift ⇒
+  `precondition_failed`, and the request moves to **`stale`** with holds released, rather than executing on
+  stale facts.
+- **Locks & acquisition order.** **Order** (rank 3) → **Ticket Atom(s)** ascending (rank 5) → **Approval**
+  (`FOR UPDATE`, rank 5.5) → **Refund/Payment** (rank 6). Ascending.
+- **SSCAS.** Member **#3** (approve branch); single-aggregate (deny branch).
+- **Writes.** `kernel.approval_request` (→ `approved`/`denied`/`stale`), `kernel.tickets.resale_state :=
+  'none'` per held atom, then on approve **`kernel.refund_primary_order`** (which writes `kernel.refund`, the
+  voids, the inventory return, the order status, and the `refund.issue` audit); `kernel.admin_audit`
+  (`refund.request_approved` / `refund.request_denied`).
+- **Idempotency.** `p_command_key` + the request's terminal state.
+- **Result.** `{ status, request_id, refund_id?, atoms_voided[], atoms_not_voided[] }`.
+- **Errors.** **`self_approval`** — its own named failure, distinct from a bare `42501`, so the UI can say
+  *"a different person must approve this"* rather than "permission denied" · `insufficient_privilege` ·
+  `precondition_failed` · `not_found` · `conflict_locked` · `step_up_required`.
+- **The generic-payload footgun, named and mitigated.** A generic `payload jsonb` invites the approval to
+  become a client-supplied authority vector (*"approve this, amount = X"*). The payload is **server-computed
+  at request time and re-derived and re-compared here**; the stored copy exists for the approver's UI, and the
+  executing code trusts **nothing** in it. A mismatch is `stale`, **never an override**.
+- **Tests.** `T-RPC-MONEY-06` (self-approval raises `self_approval`) · `T-RPC-MONEY-07` (a payload mutated
+  between request and approval ⇒ `stale`, holds released, no refund) · `T-RPC-MONEY-08` (the approver of a
+  payout may not be `payout_destination_set_by`).
+
+### 17.3 `kernel.cancel_refund_request(p_request_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
+
+- **Role.** the requester · `has_org_role([org_owner, org_finance])` of the request's org · platform.
+- **Preconditions.** Request `state='pending'`. **Locks:** **Ticket Atom(s)** ascending (release the overlay)
+  → **Approval** (`FOR UPDATE`). **SSCAS:** single-aggregate + atom overlay.
+- **Writes.** `kernel.approval_request` (→ `cancelled`), `kernel.tickets.resale_state := 'none'` per held
+  atom, `kernel.admin_audit` (`refund.request_cancelled`). **Idempotency:** terminal state + `p_command_key`.
+- **Result.** `{ status, request_id }`. **Errors.** `not_found` · `precondition_failed` ·
+  `insufficient_privilege`.
+
+### 17.4 `kernel.sweep_expired_refund_requests()` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+
+- **Purpose.** Release every `refund_hold` on a request past `expires_at` (= `created_at +
+  refund.request_ttl_hours`). **This function is not optional** — without it a parked request is an
+  **unbounded denial-of-admission on a paying customer's ticket**, which is precisely the failure C43 learned
+  from p2p locks.
+- **Actor.** `service_role`/scheduler only. Pattern: `market.sweep_expired_p2p_transfers` (§12.2).
+- **Preconditions.** `state='pending' AND expires_at < now()`. **Locks & order:** requests processed in
+  `expires_at` order with `SKIP LOCKED`; within each request, **Ticket Atom(s)** locked ascending
+  `ticket_atom_id` (rank 5) → **Approval** (rank 5.5). Bounded batch.
+- **Writes.** `kernel.tickets.resale_state := 'none'` per held atom, `kernel.approval_request` (→ `expired`),
+  `kernel.admin_audit` (`refund.request_expired`), and a notification emit.
+- **Result.** `{ swept_count, holds_released }`. **Retry:** re-entrant (acts only on still-`pending` rows).
+- **Note.** The C43 p2p TTL sweep **cannot** release these — it selects from `market.p2p_transfer`, and a
+  `refund_hold` atom has no p2p row. `refund_hold` needs its **own** sweep, and this is it.
+- **Test.** `T-RPC-MONEY-09` — an expired request releases every hold and the atom scans again.
+
+### 17.5 `kernel.list_org_payouts(p_org_id, p_venue_id, p_filters, p_cursor)` — **DB-RPC (read)** · `NEW RPC`
+
+- **Purpose.** The **only** read path to `kernel.payout` for any org or venue role — the mechanism that makes
+  O-3's read grant real. There is **no direct table SELECT grant** (RLS §7.9 note 15ᵇ).
+- **Role.** `has_org_role(p_org_id, ['org_owner','org_finance'])` · `has_venue_role(p_venue_id,
+  ['venue_finance'])` (**settlement-cause arm only**) · `is_platform`. `org_admin`, `org_member`,
+  `venue_manager`, `venue_scanner`, the door session and `promoter` ⇒ `insufficient_privilege`.
+- **Params.** `p_org_id` **required and untrusted**; `p_venue_id` used only by the venue arm; `p_filters` a
+  **closed set** `{status[], cause[], date_from, date_to}`; `p_cursor` opaque. **No parameter may widen
+  scope** — the filter is always applied *in addition to* `payee_org_id = p_org_id`.
+- **The venue arm, and why it is narrow.** `kernel.payout` has **no `venue_id`**. A payout's venue is
+  derivable **only** for `cause='settlement'`, via `cause_ref → venue.settlement_line →
+  venue.settlement.venue_id`, and is **undefined** for `promoter_commission`, `market_sale`, and every
+  identity-payee payout. The former unqualified *"V(own-venue payouts)"* was **not expressible against the
+  physical schema at all.** `venue_finance` therefore reads settlement-caused payouts for its own venue and
+  **zero rows of every other cause**.
+- **Returns.** `payout_id, cause, cause_ref, amount_minor, currency, status, created_at, updated_at,
+  settlement_id?` and a **`stripe_transfer_ref` presence boolean, not the ref itself**, for org roles — an
+  operator needs *"has it left?"*, not the identifier. **Never bank data; the platform holds none.**
+- **Locks:** **none** (read-only; no `FOR UPDATE`). **SSCAS:** n/a.
+- **Errors.** `insufficient_privilege` · `not_found` (an unknown org id is **indistinguishable from
+  unauthorized by design**, so the RPC is not an org-existence oracle).
+- **Test.** `T-RPC-MONEY-10` — `venue_finance` sees settlement-cause rows for its own venue and nothing else;
+  a tampered `p_org_id` yields `42501`, not another org's rows.
+
+### 17.6 `kernel.list_org_refunds(p_org_id, p_venue_id, p_filters, p_cursor)` — **DB-RPC (read)** · `NEW RPC`
+
+- Same shape and same scope rules as §17.5. **The join direction is part of the contract, not an
+  implementation detail:** org scope resolves `kernel.refund.payment_id → kernel.payment_native.payment_id →
+  order_id → venue.order.org_id`, filtered on `venue.order.org_id = p_org_id` (`venue.order.org_id` is a real
+  column, so this is a two-hop join, not a search). `venue_finance`'s own-venue arm resolves through the same
+  join filtered on `catalog.event_session → catalog.event.venue_id`.
+- **Returns.** `refund_id, order_id, reason_code, amount_minor, currency, status, created_at,
+  atoms_voided_count`. **Buyer PII is not in the projection.**
+- **The `sale_id` arm MUST FAIL CLOSED.** A refund whose `payment_native` link is a `sale_id` (native resale)
+  would resolve through `market.market_sale → listing → atom.org_id`. In MVP native resale is
+  `resale_policy='off'` (Gate M), so that arm returns no rows — and it must **return no rows**, never fall
+  through to an unfiltered read. **`T-RPC-MONEY-11`** asserts it.
+- **Locks:** none. **SSCAS:** n/a.
+
+### 17.7 `kernel.set_org_payout_destination(p_org_id, p_connect_account_ref, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC` (contract written for the first time)
+
+Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted nowhere** until now.
+
+- **Role.** `has_org_role(p_org_id, ['org_owner'])` **only**, with **step-up**. `org_finance` is **excluded
+  entirely** — under O-3 it holds payout-request authority, and one identity may not hold both halves of the
+  named fraud primitive (*redirect the bank account, then release funds to it*). **Bound by
+  EDGE-CALLER-JWT** — and this is the RPC where the rule bites hardest, because the step-up predicate reads
+  `auth.jwt()`, which on a service-role client carries no `aal` and no `amr` at all.
+- **What is actually being changed, which bounds the blast radius.** The platform **holds no bank details**;
+  `kernel.organization.stripe_connect_account_ref` is an opaque Stripe Connect account id, and bank details
+  are collected by Stripe's own KYC'd onboarding. So "change the payout destination" means *re-point the org
+  at a different Connect account that has itself passed Stripe identity/bank verification* — a materially
+  higher bar than typing an IBAN into a form. Consequently `before`/`after` in the audit row are Stripe
+  account ids, which are safe to store: **no control here may ever cause bank numbers to enter the database,
+  and none does.**
+- **The control set, ranked by what it actually stops** (not by what sounds strongest):
+
+  | # | Control | Stops | Cost |
+  |---|---|---|---|
+  | 1 | **SoD-1 identity split** — records `payout_destination_set_by`, and `request_org_payout` **rejects when `auth.uid() = payout_destination_set_by`, permanently for that destination**, not merely during the cool-down | the named fraud primitive, **structurally** | a single-principal org must escalate |
+  | 2 | **Destination probation** — the **first** payout to a destination changed within `payout.destination_probation_days` is created `held`, releasable only by `is_platform(['platform_risk','platform_admin'])` via the existing `release_payout`. Reuses machinery that already exists; needs no new column | money leaving to a fresh destination unreviewed | a support touch on the first payout |
+  | 3 | **Out-of-band notification** — on change, notify **every** `org_owner` and `org_finance` **including the actor**, by push *and* email, immediately, with a one-tap *"I did not authorize this"* that calls `hold_payout` on every pending payout for the org | a silent takeover | none |
+  | 4 | **Step-up freshness** — `auth.jwt()->>'aal'` vs `authn.money_action_required_aal`, and the newest `amr` timestamp vs `authn.money_action_max_age_seconds` | session-riding, stolen refresh tokens | a re-auth flow + retry |
+  | 5 | **Denial audit** — `kernel.record_money_denial` (§17.9) | *nothing on its own* — it is **how you find out** | one extra edge call on failure |
+  | 6 | **Cool-down** — `payout_destination_locked_until` | a rushed attacker only | operator confusion if unexplained |
+
+  **Note the ordering: the control that already exists (the cool-down) is the weakest in the set.** A
+  cool-down is a *detection window*, not a control — it stops nobody willing to wait, and its value is
+  entirely contingent on control 3. O-3's requirement that destination change be "strictly stronger than a
+  payout request" is met by controls 1–4, **not** by the timer that exists today.
+- **Step-up is enforced in the FUNCTION BODY, never in RLS.** Not because RLS cannot call `auth.jwt()` — it
+  can — but because **the money path is not a table policy at all**: every money mutation is `EXECUTE` on a
+  definer function (GP-1), so a table policy never runs. *Any design that says "enforce step-up in RLS" is
+  describing a policy that will never be evaluated on the path that matters.*
+- **The shippable position.** `authn.money_action_required_aal` ships at **`aal1`** and flips to `aal2` as a
+  **config change, not a code change**, once staff MFA enrollment exists — nothing enrolls MFA today, so
+  `aal2` on day one would lock every operator out. `aal1` freshness is not theatre: it defeats the most common
+  real attack on a 90-day-refresh-token dashboard (an unattended or hijacked session) and forces an
+  interaction the attacker must reproduce.
+- **`UNVERIFIED:` whether this project's access tokens actually carry `amr` with per-factor timestamps.** No
+  production access was used. **This must be checked against a real token before the predicate is
+  implemented**; if `amr` is absent, freshness degrades to token age (`iat` + a shortened access-token TTL),
+  which measures *token* age rather than *authentication* age and **must be labelled as such rather than
+  described as "recent authentication."**
+- **Locks & order.** **Organization** row `FOR UPDATE` (admin plane, outside the six money/custody ranks) →
+  nothing else. **SSCAS:** n/a (single aggregate).
+- **Writes.** `kernel.organization` (`stripe_connect_account_ref`, `payout_destination_set_by := auth.uid()`,
+  `payout_destination_locked_until := now() + config('payout.destination_cooldown_hours')`),
+  `kernel.admin_audit` (`org.payout_destination.change`, `subject_kind='organization'`, before/after = Stripe
+  account ids, `reason_code` **mandatory**).
+- **Errors.** `insufficient_privilege` · `step_up_required` · `precondition_failed` · `not_found`.
+- **Tests.** `T-RPC-MONEY-12` (`org_finance` is refused) · `T-RPC-MONEY-13` (the setter is refused a
+  subsequent `request_org_payout` **after** the cool-down elapses — the permanence of SoD-1) ·
+  `T-RPC-MONEY-14` (a stale-`amr` token raises `step_up_required` and writes nothing).
+
+### 17.8 `kernel.list_approval_requests(p_org_id, p_filters, p_cursor)` — **DB-RPC (read)** · `NEW RPC`
+
+- **Role.** `has_org_role(p_org_id, ['org_owner','org_finance'])` · `is_platform`. The second approver's inbox.
+- **Params.** `p_org_id` untrusted, re-checked; `p_filters` a closed set `{state[], action[], date_from,
+  date_to}`. **Locks:** none. **SSCAS:** n/a.
+- **Returns.** `request_id, action, subject_kind, subject_id, amount_minor, tier, state, requested_by
+  (display), requested_at, expires_at, reason_code` — **and the evidence payload marked as evidence**, never
+  as an authorization input.
+- **Errors.** `insufficient_privilege` · `not_found`.
+
+### 17.9 `kernel.record_money_denial(p_action, p_subject_kind, p_subject_id, p_error_code)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+
+- **Purpose.** Append a `*.denied` audit row **for an action that failed**. Exists because §0.3 writes audit
+  **in the same transaction** as the action, and a failed predicate `RAISE`s — which rolls the transaction
+  back and takes the audit row with it. **Postgres has no autonomous transactions.**
+- **Why it matters:** repeated failed attempts to change a payout destination or fire a payout are the
+  **single highest-value fraud signal in the system, and today they leave no trace at all.**
+- **Actor.** `service_role` only; `REVOKE EXECUTE FROM anon, authenticated, public`. **No human path.**
+  Called by the edge (`refund-execute`, `payout-execute`) **in a separate transaction** after catching
+  `insufficient_privilege` / `sod_violation` / `step_up_required` from a money RPC.
+- **Locks:** none. **SSCAS:** n/a. **Writes:** `kernel.admin_audit` (`<action>.denied`). **Idempotency:**
+  none required — a denial is an event, and duplicates are informative rather than harmful.
+- **Contains no payload from the failed call** beyond the four parameters, so a denial can never become a
+  side channel for the data the denied call was refused.
+
+### 17.10 `venue.open_door_manifest(p_session_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
+
+- **Purpose.** Open (or re-open) the session's offline door manifest and, **on the first open ever**,
+  atomically engage the session's terminal transfer-freeze boundary.
+- **Role.** `has_venue_role(venue_of_session,['venue_manager'])` OR
+  `has_org_role_over_venue(venue,['org_owner','org_admin'])` OR `is_platform(['platform_admin'])`, live-
+  rechecked. **`venue_scanner`, any door session, `venue_box_office`, every finance / marketing / promoter
+  role, `platform_support` and `platform_risk` are denied (O-4).** Opening the manifest **freezes custody for
+  an entire session** — that is a security boundary, and *the scanner may not create the boundary it works
+  inside*. The operational objection is real (a manager may not be at the door at 11 p.m.) and the answer is
+  **scheduling plus remote action** — the dashboard is online, so a manager can open from anywhere — not a
+  weaker credential at the door. Residual ops risk recorded as RLS **MD-13**.
+- **Params.** `p_session_id` (untrusted, re-resolved), `p_reason_code ∈ {doors_open, reopen_device_failure,
+  reopen_operator, drill}` (validated), `p_command_key`. **Server-derived (C35):** `auth.uid()`, `opened_at :=
+  now()`, `manifest_version`, `not_after`, `manifest_digest`, the entry snapshot. **No client timestamp is
+  ever accepted.**
+- **Preconditions.** Session exists and `status ∈ {scheduled, live}`; parent event `status ∈ {on_sale, live}`;
+  `now() >= COALESCE(doors_at, starts_at) - config('door.manifest_early_open_window')` (early opening is
+  permitted and encouraged for pre-sync at soundcheck, but not arbitrarily early); **no
+  `kernel.door_freeze_override` is active for the session** — an override and an open manifest are mutually
+  exclusive by construction.
+- **Locks & acquisition order.** `catalog.event_session` **`FOR UPDATE`** (rank 1) → *[drain:
+  `market.p2p_transfer` / `market.listing_native` `FOR UPDATE` (rank 4) → `kernel.tickets` `FOR UPDATE`
+  ascending `ticket_atom_id` (rank 5)]* → inserts. Ascending, no inversion.
+- **SSCAS.** `n/a (single-aggregate — Event/Session)`. The drain is a **bounded batch of the existing members
+  #6-reverse and #7-reverse** (the unlock overlay) — the same construction that classifies
+  `catalog.cancel_event` as a bounded batch of member #3. **The set stays closed at fifteen; no sixteenth
+  member and no amendment.**
+- **Idempotency.** Two-layer: a state guard (an `open` episode returns `noop_replay` with the **existing**
+  `manifest_id`, issues no new `manifest_version`, and does **not** touch `door_open_at`) **plus**
+  `UNIQUE(session_id, command_idempotency_key)`. Two managers pressing "Open doors" simultaneously: the first
+  to acquire `FOR UPDATE` wins; the second blocks, re-reads, and returns `noop_replay`. **Both operators see
+  "Door open."**
+- **Writes.** `venue.door_manifest` (INSERT), `venue.door_manifest_entry` (INSERT N),
+  `catalog.event_session.door_open_at` **via `catalog.engage_door_freeze` (first open only)**,
+  `market.p2p_transfer` / `market.listing_native` (drained → `cancelled`, `reason_code='door_freeze'`),
+  `kernel.tickets.resale_state` (→ `none`, via `kernel.unlock_ticket`), `kernel.admin_audit`.
+- **Result.** `{ status, manifest_id, manifest_version, entry_count, opened_at, door_open_at,
+  freeze_newly_engaged, drained_transfers, drained_listings }`.
+- **Errors.** `insufficient_privilege(42501)` · `not_found` · `precondition_failed` (`session_terminal` |
+  `event_not_live` | `too_early` | `override_active`) · `idempotency_replay`.
+- **The snapshot and the boundary are ONE transaction**, which is what makes an offline scanner's 90-second-old
+  snapshot exactly as safe as a fresh one: there is no interval in which the manifest has been read but the
+  freeze is not yet in force — precisely the interval in which a transfer would strand a credential.
+- **Tests.** `T-RPC-DOOR-09` (a drained atom then scans successfully — the end-to-end lockout regression) ·
+  `T-RPC-DOOR-10` (every denied principal ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (second open
+  after a close creates a new episode and leaves `door_open_at` **byte-identical**) · `T-RPC-DOOR-12` (a
+  listing whose sale is `paid_pending_transfer` is **not** drained).
+
+### 17.11 `venue.close_door_manifest` · `kernel.grant_door_freeze_override` · `kernel.revoke_door_freeze_override` · `kernel.sweep_expired_door_overrides` — `NEW RPC` ×4
+
+- **`venue.close_door_manifest(p_session_id, p_reason_code, p_command_key)`** — role as §17.10. **Does not
+  unfreeze and does not touch `door_open_at`** — closing the door is not an unfreeze, and an operator reading
+  "closed" as "back to normal" is the mistake the surface copy must prevent. Locks: session row `FOR UPDATE`
+  (rank 1) → the manifest row. SSCAS n/a. No open episode ⇒ `noop_replay`, **never an error**. Writes the
+  episode's `closed_at`/`closed_by`/`close_reason` and audit; **explicitly writes nothing to
+  `catalog.event_session`**. `offline_pending_count > 0` is **surfaced, not blocking** — a lost device must
+  never be able to pin a session open forever.
+- **`kernel.grant_door_freeze_override(p_session_id, p_ticket_atom_id, p_reason_code, p_expires_at,
+  p_ack_live_devices, p_command_key)`** — `is_platform(['platform_admin'])` **only**: an override defeats a
+  safety property, so it requires authority **strictly above** the authority that engaged the freeze. **Hard
+  precondition: no episode with `status='open'` exists for the session** — the admin must close it first, and
+  *that* is what preserves the Door Safety Theorem (no custody move can commit while an offline manifest is
+  armed, override or not). Also: `p_expires_at` within `config('door.max_override_interval')`, closed-set
+  reason code, and `p_ack_live_devices` **must equal the current count of devices still inside their
+  downloaded `not_after`** — a deliberate speed bump forcing the admin to look at the number before defeating
+  a safety property. Locks: `catalog.event_session` `FOR UPDATE` (rank 1), which serializes against a
+  concurrent open. SSCAS n/a. **Explicitly does NOT write `catalog.event_session`** — the historical boundary
+  survives verbatim. Errors: `insufficient_privilege` · `precondition_failed` (`manifest_open` |
+  `ttl_too_long` | `bad_reason_code` | `unacknowledged_live_devices`).
+- **`kernel.revoke_door_freeze_override(p_override_id, p_command_key)`** —
+  `is_platform(['platform_admin','platform_risk'])`. **Risk may *tighten* but not *grant*** — the role that
+  can loosen a safety property is strictly narrower than the role that can restore it (freezer ≠ releaser).
+  Terminal-state idempotent.
+- **`kernel.sweep_expired_door_overrides()`** — `EXEC: DEF`, cron. **Emits notifications and closes the audit
+  trail only.** Overrides expire arithmetically inside `is_transfer_frozen` (`expires_at > now()`), so **this
+  sweep must never be load-bearing for correctness** — correctness that depends on a cron running is the
+  failure class this whole area exists to prevent. **`T-RPC-DOOR-13`:** past `expires_at`,
+  `is_transfer_frozen` returns true again **with no sweep having run**.
+- **The residual, stated rather than glossed.** A device that is offline across a break-glass act cannot be
+  reached: setting `not_after := now()` server-side does not shorten the `not_after` the device already
+  downloaded. The bound is that downloaded TTL and nothing more. **Do not describe this residual as closed by
+  the re-sync requirement — it is not.**
+
+### 17.12 `catalog.engage_door_freeze(p_session_id, p_opened_at)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+
+- **Purpose.** The **sole writer** of `catalog.event_session.door_open_at`. Sets it iff currently NULL;
+  otherwise a no-op returning the existing value. **Never NULLs it. Never changes a non-NULL value.**
+- **Actor.** `service_role`/definer only. `REVOKE EXECUTE FROM anon, authenticated, public`. **Never
+  client-callable and it appears in NO RLS EXEC row.** A trigger enforces the single-writer property
+  independently of grants, so the guard survives a future RPC bug rather than only a future grant bug.
+- **Why it exists at all:** `venue.*` writing `catalog.*` directly would be a cross-schema write outside the
+  single-writer discipline. This mirrors `venue.record_scan → kernel.mark_ticket_scanned` exactly — the owning
+  schema exposes a definer primitive and the calling schema invokes it in the same transaction.
+- **Preconditions.** The caller holds `FOR UPDATE` on the session row — **asserted, not assumed**; the
+  primitive re-takes it, a no-op re-entrant acquisition in the same transaction.
+- **Locks:** session row (rank 1, re-entrant). **SSCAS:** n/a. **Result:** `{ door_open_at, newly_engaged }`.
+- **Tests.** `T-RPC-DOOR-14` — a direct `UPDATE … SET door_open_at = NULL`, a backwards move, and a
+  future-dated set all raise.
+
+### 17.13 `venue.append_door_manifest_delta(p_session_id, p_atoms, p_op, p_cause_ref)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+
+- **Purpose.** Append to the open episode's delta log so a synced device's admissible set tracks changes made
+  **after** the base snapshot. **Two operations only**, and both are **monotone in safety**:
+
+  | `p_op` | Written by | Meaning | Why it is safe |
+  |---|---|---|---|
+  | `add` | `kernel.issue_ticket_atoms` (door sale · comp · import) | a newly minted atom becomes admissible | the atom is **new**: `credential_version = 0`, never transferred, and it **cannot** be transferred (the session is frozen). Its reference value cannot go stale, so it **can strand nobody** |
+  | `revoke` | `kernel.void_ticket_atom` on any exempt path (§12.4c) | an atom ceases to be admissible | strictly **narrows** the admissible set; a device that misses it is no worse off than today, one that receives it is strictly safer |
+
+  `add` can only admit an atom that is provably current; `revoke` can only refuse. **Neither can cause an
+  offline door to admit something it should not** — which is why the delta log needs no freeze of its own and
+  no new lock.
+- **Actor.** `service_role`/definer only; same posture as §17.12. Never in an RLS EXEC row.
+- **Preconditions.** An episode with `status='open'` exists. **If none exists the call is a SILENT NO-OP, not
+  an error** — issuance and voiding must never fail because the door happens to be shut.
+- **Locks & order.** **None of its own.** The caller already holds `FOR SHARE` on the session row (rank 1) —
+  `issue_ticket_atoms` as the promoted form of the Event/Session read-gate member #1 already models,
+  `void_ticket_atom` per §12.4c. The delta insert takes no further lock.
+- **SSCAS.** `n/a` — one aggregate class (an Event/Session child), written under a lock the caller already
+  holds. **Members #1 and #3 keep their existing numbers. No sixteenth member.**
+- **Idempotency.** PK `(manifest_id, seq)` + `UNIQUE(manifest_id, ticket_atom_id, op)` — a replayed mint or
+  void appends nothing.
+- **Writes.** `venue.door_manifest_delta` (INSERT N), `venue.door_manifest.max_delta_seq` (advance).
+- **The honest limit, stated rather than implied.** A door sale requires taking payment, which requires
+  network, so the *selling* device is online by construction and can admit its own sale immediately. **A
+  different scanner that is offline will refuse that ticket until it syncs.** Post-open issuance is
+  *admissible online immediately, and offline only after the admitting device syncs*. That is an operational
+  limit, not a safety property, and it belongs in the door runbook.
+- **Tests.** `T-RPC-DOOR-15` (a mint with an open episode appends one `add` per atom, each with
+  `credential_version = 0`; the CHECK rejects an `add` with a non-zero version — **the theorem made
+  structural**) · `T-RPC-DOOR-16` (a mint with **no** open episode appends nothing and does **not** error).
 
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
 schema (deliverable #1), RLS spec (#3), and the Edge Function spec (#5, which picks up every EDGE-FRONTED item
