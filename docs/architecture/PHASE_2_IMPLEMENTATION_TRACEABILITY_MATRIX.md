@@ -85,6 +85,13 @@ missing. `S2` = a surface has authority but no signature (an implementer has per
 | **G-21** | **S3** | **`catalog.sweep_implicit_door_freezes` has an EXEC row (RLS §11.4) and no contract**, while its sibling `kernel.sweep_expired_door_overrides` is contracted (RPC §17.11). RLS notes neither is load-bearing for correctness, which is why this is S3 and not S2. | RPC §17.11 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
 | **G-22** | **S3** | **Test-id counts are stated as rows, not ids.** RPC §18 enumerates **70** distinct `T-RPC-*` ids across 12 group rows (4+4+8+14+5+4+11+2+7+3+4+4); RLS §16.11 enumerates **35** distinct `T-RLS-*` ids across **33** register rows (`T-RLS-FORCE-01..03` is one row, three ids). A CI plan provisioned from the row counts under-provisions by 37 assertions. | RPC §18 / RLS §16.11 | **both** — state ids, not rows | `TEST` |
 | **G-23** | **S3** | **`T-RPC-DOOR-05`, `-06`, `T-RPC-GLOBAL-02..04` and `T-RPC-NOTIFY-02..04` exist only as bare suffixes** (`-05`, `-02`) inside §18's group cells and never as full ids anywhere in the corpus. A harness that greps for `T-RPC-` misses all nine. | RPC §18 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `TEST` |
+| **G-25** | **S2** | **The event catalog says 36 and the ratification says ~16, and nothing reconciles them.** Ratified row **C11** states the catalog *"is trimmed to the ~10 invariant-bearing sync calls + ~6 real outbox events"*. **DA §6.1 still lists all 36 rows and no document says which sixteen survive.** Under COND-A the only question that matters is *which events need a carrier*, and the ratified answer is "about six" while the catalog presents thirty-six unmarked. **An owner pricing the O7 ruling is reading a list a ratified correction already cut by more than half.** Full analysis in §8.3. | DA §6.1 (mark the surviving set) | **`SNATCH_IT_DOMAIN_ARCHITECTURE.md`** | `EVENT` |
+
+**Register totals: 26 entries** — **`S1` 8** (G-1…G-7, G-24) · **`S2` 14** (G-8, G-8b, G-9…G-19, G-25) ·
+**`S3` 4** (G-20…G-23). **Nine appear in no prior spec's reconciliation list and were found by this pass**:
+G-4, G-5, G-6, G-7, G-8b, G-20, G-22, G-24, G-25. The other seventeen were filed by a sibling integrator
+(dashboard §20A.3 `U-1`…`U-10` and Δ11/Δ12; edge §9 recon #10/#12; registry §7 COND-A/COND-B) and are
+carried here so that a single document answers *"what is missing"* without a reader assembling four.
 
 ### 1.1 Holes of the `U-*` shape found by this pass, that §20A.3 did not list
 
@@ -687,3 +694,297 @@ under-specified; this one leaves a payment-infrastructure precondition unimpleme
 | **Package** | **`GAP`** — `076` if ratified (zero FK dependencies, so no producer package gains an edge) |
 
 ---
+
+## 8. EVENT REGISTER — producer, consumer, carrier, for all 36
+
+**All 36 events lack a carrier (COND-A).** Roughly nineteen carry a `Sync` arm and survive without one — a
+`Sync` event is a same-transaction call, not a message. The rest do not exist at MVP under COND-A = NO.
+
+**Which contexts exist in Phase 2:** `kernel`(core) · `catalog` · `venue` · `market` are built.
+**`social` and `analytics` are deferred schemas (C11)**, `notify` is COND-B, and **no `risk` table exists in
+any of the sixteen packages**. A consumer in a context that is not built is not a consumer.
+
+| # | Event | Producer status | Consumer status | Carrier |
+|---|---|---|---|---|
+| 1 | `OrganizationCreated` | ✓ `kernel.create_organization` | **NONE BUILT** — `analytics`, `(social)` only | COND-A |
+| 2 | `ConnectOnboardingCompleted` | **NO PRODUCER — G-3** (`set_org_connect_ref` is uncontracted) | ✓ `venue`, `market` | COND-A |
+| 3 | `VenueApproved` | ✓ `catalog.approve_venue` | ✓ `venue` (`social`/`analytics` not built) | COND-A |
+| 4 | `EventPublished` | ✓ `catalog.publish_event` | ✓ `venue`, `market` | COND-A |
+| 5 | `TicketTypeOpened / TierUnlocked` | **PARTIAL — no tier concept exists** in `venue.ticket_type` in any package, so the `TierUnlocked` arm has no producer | ✓ `market` (eligibility) | COND-A |
+| 6 | `InventoryHeldExpired` | **NO PRODUCER — G-24** (the hold-expiry sweep is named nowhere) | ✓ `venue` (counters) | COND-A |
+| 7 | `OrderPlaced (pending)` | ✓ `venue.create_primary_checkout` | ✓ `kernel` | **Sync — survives** |
+| 8 | `PaymentAuthorized` | ✓ `stripe-webhook` | ✓ `venue`/`market` | **Sync / webhook-idempotent — survives** |
+| 9 | `PaymentCaptured` | ✓ `stripe-webhook` | ✓ `venue`, `market` | **Sync — survives** |
+| 10 | `TicketIssued` | ✓ `kernel.issue_ticket_atoms` | ✓ `venue`, `market` | **Sync — survives** |
+| 11 | `TicketReserved` | ✓ `venue.reserve_primary_inventory` | ✓ `venue` | COND-A |
+| 12 | `ListingCreated` | **NO CONTRACTED PRODUCER — G-5** (`market.create_listing`) | ✓ `kernel` (lock, native only) | **Sync (native) — survives *if* the writer is contracted** |
+| 13 | `BidPlaced` | **NO NAMED PRODUCER — G-5** (RLS §11.1 says *"bid RPC"*) | ✓ `market` | **Sync — same condition** |
+| 14 | `OfferMade / OfferAccepted` | **NO CONTRACTED PRODUCER — G-5** | ✓ `market`, `kernel` | **Sync on accept — same condition** |
+| 15 | `AuctionWon` | **PARTIAL** — the existing `auto-finalize-auctions` edge function is external-rail and edge §8 states it is **untouched by this spec**; no native auction finalizer is contracted | ✓ `kernel` | **Sync — same condition** |
+| 16 | `ListingSold (buy-now)` | **NO CONTRACTED PRODUCER — G-5** | ✓ `kernel` | **Sync — same condition** |
+| 17 | `OwnershipTransferred` | ✓ `kernel.transfer_ticket_ownership` | ✓ `venue`, `market` | **Sync — survives** |
+| 18 | `TransferStarted (p2p)` | ✓ `market.create_p2p_transfer` | ✓ `kernel`; **`notifications` is COND-B** | Sync lock survives; Async notify does not |
+| 19 | `TransferAccepted` | ✓ `market.accept_p2p_transfer` | ✓ `kernel` | **Sync — survives** |
+| 20 | `TransferExpired` | ✓ `market.sweep_expired_p2p_transfers` | ✓ `kernel`; `notifications` COND-B | **Cron-swept — survives** (a DB sweep, not an outbox consumer) |
+| 21 | `CredentialInvalidated` | ✓ (rides on #17) | ✓ `venue` (scan manifests) | **Sync — survives** |
+| 22 | `ScanAdmitted` | ✓ `venue.record_scan` | ✓ `kernel`; **`risk` NOT BUILT**; `analytics` not built | **Sync online survives; the offline arm is outbox-reconciled and does not** |
+| 23 | `ScanRejected` | ✓ `venue.record_scan` | **NONE BUILT** — `risk`, `analytics` only | COND-A |
+| 24 | `SettlementClosed` | ✓ `kernel.close_settlement` | ✓ `kernel` (payout generation) | **Sync — survives** |
+| 25 | `PayoutReleased` | ✓ `kernel.release_payout` | ✓ `venue`, `market`; `notifications` COND-B | COND-A (**Async by design** — deferred deliberately) |
+| 26 | `PayoutFailed` | ✓ `payout-execute` | ✓ `venue`/`market`; `notifications` COND-B; `risk` not built | COND-A |
+| 27 | `RefundIssued` | ✓ `kernel.refund_primary_order` | ✓ `venue`/`market`; `notifications` COND-B; `risk` not built | **Sync with ticket void (if full) — survives** |
+| 28 | `TicketVoided` | ✓ `kernel.void_ticket_atom` | ✓ `venue`, `market` | **Sync — survives** |
+| 29 | `DisputeOpened (chargeback)` | **NO PRODUCER — no dispute or chargeback table exists in any of the sixteen packages** (C30 is Gate-M, modeled only) | ✓ `kernel` (freeze payout) | Sync freeze would survive — **if the producer existed** |
+| 30 | `DisputeResolved` | **NO PRODUCER** — same | ✓ `kernel` | same |
+| 31 | `AttributionRecorded` | ✓ `venue.resolve_order_attribution` | ✓ `kernel` (commission payout) | **Sync, same tx as OrderPaid (D7) — survives** |
+| 32 | `PromoterCommissionAccrued` | **NO CONTRACTED PRODUCER — G-7** (`kernel.pay_promoter_commission`) | ✓ `venue` | COND-A |
+| 33 | `FriendJoinedEvent` | **NO PRODUCER** — `social` is a deferred schema | **NONE BUILT** | COND-A |
+| 34 | `ReferralCompleted` | **NO PRODUCER** — `social` deferred | ✓ `venue`/`kernel` (credit) | COND-A |
+| 35 | `RiskFlagRaised` | **NO PRODUCER — no risk-plane table exists in any package** | ✓ `market`/`venue` (gating), admin | COND-A |
+| 36 | `AdminActionPerformed` | ✓ every privileged mutation (RPC §0.3) | **NONE BUILT** — `analytics` only; the row's own payload note says *"audit is the source"*, so the audit table is the system of record and the event is a derived copy | COND-A |
+
+### 8.1 Events with no producer — thirteen
+
+**#2** (G-3) · **#5** tier arm · **#6** (G-24) · **#12 · #13 · #14 · #16** (G-5) · **#15** (partial) ·
+**#29 · #30** (no dispute plane) · **#32** (G-7) · **#33 · #34** (`social` deferred) · **#35** (no risk
+plane). **Seven of the thirteen are downstream of a `GAP` already in §1** — the missing producer *is* the
+missing RPC. The other six are contexts Phase 2 deliberately does not build, and are honest `—`s **provided
+the catalog says so**, which it does not (see G-25).
+
+### 8.2 Events with no consumer in Phase 2 — four, plus a systematic one
+
+**#1 · #23 · #33 · #36** have **zero** built consumers. Beyond those, **every event whose consumer list is
+`analytics` and/or `social` loses that consumer**, because C11 ships both as deferred schemas — that is
+**28 of the 36 rows**. And every `notifications` consumer is COND-B.
+
+### 8.3 G-25 — the catalog says 36 and the ratification says ~16, and nothing reconciles them
+
+**`S2`, owner: `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §6.1.** Ratified row **C11** states the 36-event catalog
+*"is trimmed to the ~10 invariant-bearing sync calls + ~6 real outbox events"*. **DA §6.1 still lists all
+36 rows**, and **no document anywhere says which sixteen survive the trim.** The consequence is not
+cosmetic: under COND-A the only question that matters is *which events must have a carrier*, and the
+ratified answer is "about six" while the catalog presents thirty-six with no marking. An implementer sizing
+the outbox, or an owner pricing the O7 ruling, is reading a list that a ratified correction already
+reduced by more than half.
+
+---
+
+## 9. TEST-ID REGISTER — every id, and the capability that claims it
+
+Discharges **RLS §17 X-9** (*"Every `T-RLS-*` id of §16.11 and every policy name of §16.10 needs a matrix
+row"*). **Every id below is claimed by at least one capability. There are no orphan test ids.**
+
+### 9.1 `T-RLS-*` — 35 ids in 33 register rows
+
+| ID | Capability |
+|---|---|
+| `T-RLS-FORCE-01..03` (3 ids) | **A2**, **A5**, **C2** |
+| `T-RLS-FORCE-04` | **C2** |
+| `T-RLS-DOOR-01` | **A4** (the CRITICAL regression) |
+| `T-RLS-DOOR-02`, `-03`, `-04` | **A9**, **C4** |
+| `T-RLS-DOOR-05` | **A4**, **A11** |
+| `T-RLS-DOOR-06` | **A3**, **A8** |
+| `T-RLS-DOOR-07` | **A11** |
+| `T-RLS-DOOR-08` | **A3**, **C5** |
+| `T-RLS-DOOR-09` | **A9**, **B6** |
+| `T-RLS-DOOR-10` | **C4**, **B6** |
+| `T-RLS-EDGE-01`, `-02` | **A8** (and every Class-A edge row) |
+| `T-RLS-POL-01`, `-02`, `-03` | **A1**–**A13** globally; `-03` is the one that names `notify_notification_upd_owner` as the single exception (**B2**) |
+| `T-RLS-COL-01`, `-02` | **B3** (and §6 tier-2 tables globally) |
+| `T-RLS-COL-03` | **A7**, **B1** |
+| `T-RLS-COL-04` | **A9**, **B6** |
+| `T-RLS-ROLE-01`, `-02` | **C2** |
+| `T-RLS-ROLE-03` | **C2**, **A9** |
+| `T-RLS-ROLE-04` | **A5**, **C2** |
+| `T-RLS-ATTR-01` | **A6**, **A12** |
+| `T-RLS-ATTR-02` | **A12**, **B5** |
+| `T-RLS-MONEY-01` | **A8**, **C1**, **C3** |
+| `T-RLS-MONEY-02` | **C1** |
+| `T-RLS-MONEY-03` | **C3** |
+| `T-RLS-MONEY-04` | **A10**, **C3** |
+| `T-RLS-CRM-01`, `-02` | **B3** |
+
+### 9.2 `T-RPC-*` — 70 ids in 12 group rows
+
+| ID range | Capability | Note |
+|---|---|---|
+| `T-RPC-DOOR-01..04` | **A4**, **A9** | `-01` is the structural guard against the CRITICAL defect recurring |
+| `T-RPC-DOOR-05..08` | **A9**, **C5** | the freeze set. **`-05` and `-06` exist only as bare suffixes in §18 — G-23** |
+| `T-RPC-DOOR-09..16` | **B6**, **C4**, **C5** | the lifecycle set |
+| `T-RPC-MONEY-01..14` | **A8**, **C1**, **C3** | |
+| `T-RPC-ROLE-01..05` | **C2**, **A5**, **A9** | |
+| `T-RPC-ATTR-01..04` | **A6**, **A12** | |
+| `T-RPC-PROMO-01..11` | **A12**, **B5** | |
+| `T-RPC-DEMO-01..02` | **B4** | `-02` is the differencing-attack contract made mechanical |
+| `T-RPC-CRM-01..07` | **B3** | |
+| `T-RPC-WALLET-01..03` | **A7**, **B1** | |
+| `T-RPC-NOTIFY-01..04` | **B2** | **conditional on MD-10. `-02`, `-03`, `-04` exist only as bare suffixes — G-23** |
+| `T-RPC-GLOBAL-01..04` | **A1**–**D3** globally | structural posture, not behaviour. **`-02`, `-03`, `-04` exist only as bare suffixes — G-23** |
+
+**Orphan check — the instrument's own null result:** every `T-RLS-*` and every `T-RPC-*` id in the corpus
+maps to at least one capability. **The traffic runs the other way**: capabilities without ids (§3's eight
+`✓ᵖ` rows and four `GAP` rows), not ids without capabilities.
+
+---
+
+## 10. POLICY-NAME REGISTER — every name in RLS §16.10, and its capability
+
+Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
+
+| Policy family | Capability |
+|---|---|
+| `catalog_venue_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
+| `catalog_event_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
+| `catalog_event_session_sel_anon` · `_sel_org` · `_sel_venue` | **A3**, **C5** |
+| `catalog_platform_config_sel_public` | **A3**, **A8** (COND-C's whole premise: it is world-readable) |
+| `catalog_resale_policy_sel_public` | **A3**, **A11** |
+| `kernel_identity_ext_sel_owner` | **A2** |
+| `kernel_organization_sel_org` · `_sel_platform` | **A2**, **D3** |
+| `kernel_org_member_sel_org` · `_sel_platform` | **A2**, **C2** (**I-12**) |
+| `kernel_org_invite_sel_invitee` · `_sel_org` | **A2** |
+| `kernel_platform_role_sel_platform` | **A2**, **C2** (**I-12**) |
+| `kernel_signing_key_sel_public` | **A7** |
+| `kernel_tickets_sel_owner` · `_sel_venue` · `_sel_platform` | **A4** |
+| `venue_staff_role_sel_venue` · `_sel_org` · `_sel_platform` | **A5**, **C2** (**I-12**) |
+| `venue_ticket_type_sel_public` · `_sel_venue` | **A5** |
+| `venue_inventory_batch_sel_public` · `_sel_venue` | **A5** |
+| `venue_inventory_hold_sel_owner` · `_sel_venue` | **A5** |
+| `venue_order_sel_owner` · `_sel_org` · `_sel_venue` (+ the `_item` triple) | **A6** |
+| `venue_settlement_sel_org` · `_sel_venue` (+ the `_line` pair) | **A10** |
+| `venue_comp_allocation_sel_venue` · `venue_guest_list_sel_venue` · `venue_guest_entry_sel_venue` | **D1** |
+| `venue_scan_device_sel_venue` · `venue_scan_sel_venue` · `venue_scan_sel_platform` | **A9** |
+| `venue_door_manifest_sel_venue` · `_entry_sel_venue` · `_delta_sel_venue` · `venue_door_manifest_sel_platform` | **B6**, **C4** |
+| `venue_promoter_sel_org`/`_venue`/`_promoter` and the `promoter_link` · `promoter_code` · `promoter_code_scope` · `attribution` · `attribution_review` equivalents | **A12**, **B5** |
+| `market_listing_native_sel_public` · `_sel_owner` | **A11** |
+| `market_auction_sel_public` · `market_offer_sel_owner` | **A11** |
+| `market_p2p_transfer_sel_owner` | **A11** |
+| `market.listing_unified` — **none**, `security_invoker` | **A11** (the bridge creates no new authority) |
+| `notify_notification_sel_owner` · `notify_notification_upd_owner` | **B2** — **the only UPDATE policy in the register**, column-restricted to `read_at` |
+| `notify_preference_sel_owner` · `_ins_owner` · `_upd_owner` | **B2** |
+| `notify_announcement_sel_venue` | **B2** |
+| `<schema>_<table>_sel_svc_export` (the Layer-0 exception, **MD-2**) | **B3** |
+
+**The 31 zero-policy objects** of §16.10 are claimed by **A4** (`ticket_ownership_log`), **A8**
+(`payment_native`, `payout`, `refund`), **A13** (`reserve`), **A2**/**D2** (`admin_audit`,
+`approval_request`), **B6** (`door_freeze_override`), **B4** (`identity_demographic(_erasure)`,
+`holder_mix_snapshot`, `_bucket`), **B3** (`identity_contact_pref`, `org_contact_consent`,
+`org_customer_key`, `export_job`, the `crm-exports` bucket), **B1** (the four wallet tables), **A5**
+(`inventory_batch_shard`, `inventory_movement`, `inventory_unit`), **A11** (`market_sale`), **B2** (the six
+machine `notify.*` tables). **All 31 are claimed.**
+
+---
+
+## 11. PACKAGE REGISTER — every package to a capability, and back
+
+| Pkg | Capability owning it | Rollback posture |
+|---|---|---|
+| `076` | **A1** (and **D4** if O7 rules for the constitution) | REVERSIBLE |
+| `077` | **A2**, **C1**, **C3**, **B4**, **D2**, **D3** | CLEAN-WHILE-EMPTY |
+| `078` | **A3**, **C5** | CLEAN-WHILE-EMPTY |
+| `079` | **A4**, **C5** | **FORWARD-FIX ONLY from the first row** |
+| `080` | **A5**, **C2** | CLEAN-WHILE-EMPTY |
+| `081` | **A5** | CLEAN-WHILE-EMPTY |
+| `082` | **A6** | CLEAN-WHILE-EMPTY |
+| `083` | **A7**, **B1** | CLEAN-WHILE-EMPTY |
+| `084` | **A7**, **B1** | **REVERSIBLE — protected shape (rule §6.7): zero relations, zero routines** |
+| `085` | **A8**, **C1**, **C3** | **FORWARD-FIX ONLY from the first row** |
+| `086` | **A9**, **B4**, **B6**, **C4**, **C5**, **D1** | CLEAN-WHILE-EMPTY |
+| `087` | **A10**, **B3** | CLEAN-WHILE-EMPTY |
+| `088` | **A11** | CLEAN-WHILE-EMPTY |
+| `089` | **A11** | REVERSIBLE |
+| `090` | **A12**, **B5** | CLEAN-WHILE-EMPTY |
+| `091` | **A13** | **REVERSIBLE — protected shape (rule §6.7): always empty, referenced by no routine** |
+
+**Every one of the sixteen packages is claimed by at least one capability.** No package is orphaned.
+
+### 11.1 Capabilities that cannot be traced to a package — two
+
+| Capability | Why |
+|---|---|
+| **B2 Notifications** | **G-2 / COND-B.** Nine tables, 23 RPCs, two crons, two edge functions. Edge §8's `Pkg` column reads `076+`ᵃ and its own footnote admits no package is assigned. If Gate P it is `092`, floored there by SEAM-1 because `notify.drain_outbox` reads `venue.promoter_link` (`090`) |
+| **D4 Event outbox** | **G-1 / COND-A.** `076` if ratified — zero FK dependencies, so no producer package gains an edge |
+
+**No third exists.** Every other capability in §3 resolves to a numbered package.
+
+### 11.2 The seam discipline, and why it is a completeness property and not a style rule
+
+Nine forward references were found by the systematic sweep (schema §13.2), all now closed:
+
+| FR | Closure |
+|---|---|
+| **FR-1** `has_venue_role` → `door_pin` | closed by ROLE_MODEL §7.5 deleting the branch (**and RPC §1.1 is now stale on this point**) |
+| **FR-2** `publish_event` | moved `078` → `081` |
+| **FR-2b** `cancel_event` | moved `078` → `088` — **four packages ahead, the worst offender** |
+| **FR-3** `transfer_ticket_ownership` | moved `079` → `088` |
+| **FR-4** `void_ticket_atom` | authored in `085` + the `market.on_atom_voided` no-op stub replaced in `088` |
+| **FR-5** `close_settlement` | **the known defect plus a second arm nothing had named** — the royalty read was forward too. Two hook stubs: `settlement_royalty_lines` (`087`→`088`) and `settlement_commission_lines` (`087`→`090`) |
+| **FR-6** the `door_open_at` ledger-head trigger | created in `086`, attached to the `078` table |
+| **FR-7** `is_transfer_frozen` | resolved to `079`; **and the plan's "the helper tolerates a not-yet-existing atom id" escape hatch is withdrawn — a predicate that silently returns `false` for an unknown atom fails open on the transfer path** |
+| **FR-8** `build_export_rows` / `list_attendees` | accepted as-is; the promoter columns are *absent from the file, not blank*, until `090`, carried by the template version |
+| **FR-9** `wallet-pass-push` | **not a DDL forward reference** (an edge function is deployed, not migrated) but a real ordering dependency the Wallet spec never flags — **subsumed by COND-A** |
+| **DAG-1 / DAG-2** | two declared dependency sets were missing an edge (`088`→`085`, `085`→`079`); both added |
+
+**Acceptance property, mechanically checkable from `pg_depend`/`pg_proc` after each package's replay:**
+*no function reads or writes a table created in a later package.* This is the completeness instrument the
+package layer already has — **and the RPC layer has no equivalent**, which is exactly why the twelve `RPC`
+gaps in §3 went unnoticed for four integration passes.
+
+---
+
+## 12. WHAT THIS DOCUMENT COULD NOT CLOSE
+
+Recorded so the next reader does not mistake absence for coverage.
+
+1. **Nothing in §1 is fixed here.** This document has no authority to contract an RPC, assign a package, or
+   rule on O7/O8. Every `GAP` names an owner.
+2. **The `—` justifications are arguments, not proofs.** Where a cell reads `—` because "no external
+   provider or secret is involved", that is a reading of edge §2's placement table applied by this document.
+   A reviewer who disagrees with one should say so; there are 28 of them and they are individually stated.
+3. **`INFERENCE:` markers inherited from the source specs are carried, not resolved.** RPC §19 lists seven
+   things authored rather than transcribed — including two wholly-authored `notify` contracts, locks and
+   lock order for 22 RPCs, result shapes for eight, and **every `T-RPC-*` id**. That last one matters here:
+   *the test register this matrix cross-references is itself authored*, so §9's completeness is completeness
+   against an authored artifact.
+4. **This document did not read the pgTAP suite.** Whether an assertion is *implemented* is out of scope;
+   whether it is *named* is what was checked.
+5. **Two rows in §3 are marked `✓` on the strength of a single spec's word.** `B1`'s `EDGE` and `B2`'s
+   `RLS` rest on the Wallet and notifications specs respectively, both of which carry their own open items
+   (OQ-W1…OQ-W9, MD-10). They are not independently corroborated by a sibling spec the way the spine rows
+   are.
+
+---
+
+## 13. JUDGEMENT — is the corpus complete enough to implement package-by-package?
+
+**Yes for `076`–`082`, `084`, `089` and `091`. No for `086`, and conditionally no for the rest.**
+
+**What is genuinely ready.** The schema layer, the package DAG, the seam discipline, the RLS authority model
+and the edge classification are of a standard that makes the remaining holes *findable*. The forward-reference
+sweep (§11.2) and the policy-name register are real completeness instruments and they work. Nothing in the
+matrix suggests the architecture is wrong; the holes are omissions, not errors.
+
+**Why `086` specifically is not ready.** It is the package with the most capabilities attached (**six**), and
+it carries `GAP`s in six of the twenty-six registered: **G-4** (comp allocate/issue — scheduled as objects
+in the plan, contracted nowhere), **G-9** and **G-10** (`U-2`, `U-1` — the guest-list writes a door hits all
+night), **G-13** (`register_scan_device` + the unnamed *"manifest-sync"*), **G-15** (`get_door_manifest`, the
+read that delivers M2 to every scanner), **G-21**. Its Tests row is silent on comps and guest lists entirely.
+An engineer handed `086` would be authoring signatures for six functions the plan tells them to build.
+
+**The two rulings gate more than they appear to.** O7 and O8 are coupled (COND-D) and between them determine
+whether four capabilities are implementable *as designed* — Apple Wallet push (which has **no admissible
+alternative design**, since both fallbacks are prohibited by ratified invariants), the door-manifest open
+transaction, scanner push-to-sync, and all notifications. **Neither ruling can be deferred past `083`**,
+because `083`/`084` build the Wallet tables whose push path is the thing in question.
+
+**The one thing to do before writing any SQL.** Reconcile
+`PHASE_2_RPC_FUNCTION_CONTRACTS.md` against `PHASE_2_RLS_PERMISSION_SPEC.md` §11 as sets. §11 is the complete
+statement of Phase-2 write authority; the contracts document is a proper subset of it, and **every element of
+the difference is a function an engineer will otherwise invent**. That single reconciliation closes twelve of
+the twenty-five gaps in §1's twenty-six and is the highest-value hour available to this program.
+
+---
+
+*End of `docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md`. Completeness instrument, design-only.
+Creates no SQL, no migration and no code; edits no other file. Fixes nothing and decides nothing — every
+`GAP` names the spec that owns it. Companion to the package registry (numbering), the migration plan §8
+(per-package specification), RLS §16.10/§16.11 (policy and test registers) and RPC §18 (test register).*
