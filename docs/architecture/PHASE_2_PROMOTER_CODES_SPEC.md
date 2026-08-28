@@ -34,31 +34,45 @@ non-frozen spec is raised in §14 rather than applied silently.
 - **`OWNER DECISION:`** — a product/commercial call this file must not make alone. Collected in §13.
 - **`CONTRADICTION:`** — two binding inputs disagree. Reported in §14, never silently resolved.
 
-### 0.3 Package numbering — a discrepancy stated before anything is built
+### 0.3 Package numbering — decoded against the canonical registry
 
-`VERIFIED:` the repo copy of **mig** at this baseline (`11ea2eb`) numbers Phase-2 packages **073–088**, and is
-**internally inconsistent about the promoter package**: the §1 phase→package map and the §3 rollout table say
-`086`, while the §-detail heading says `087_venue_promoter_engine`, the §2 DAG node says `D087`, and the
-rollback paragraph inside that same section says `086_*`. `VERIFIED:` **dash** §0.1 cites a third range,
-`071–089`.
+> **CORRECTED 2026-08-28 (reviewer condition 5 · `X-01`).** The table below previously mapped the dead repo
+> scale to the canonical one **by arithmetic**, and got **three of its five rows wrong by one** — it placed
+> `venue.order` at `081`, `kernel.payment_native` at `084`, and **`venue.settlement` at `086`**. `086` is
+> `086_venue_door_and_scan`. Settlement is `087`. The wrong numbers had propagated into §14.7 and §15
+> (`X-02`…`X-04`). Three of the four wrong claims were wearing a `VERIFIED:` badge, which is the sharpest
+> form of this defect: **a verification label makes a wrong number harder to doubt, not easier.** A `VERIFIED:`
+> badge certifies *"the cited document states this"* — it never certified that the cited document was the
+> **canonical** one, and here it was not.
 
-`VERIFIED:` the instructing authority for this task states the ratified numbering is now **`076`–`091`**, with
-the promoter engine at **`090`** and `071`–`075` reserved for the already-applied production security
-migrations. That maps the repo numbering forward by **+3** and resolves the 086/087 collision in favour of
-`087 + 3 = 090`.
+**`docs/architecture/PHASE_2_PACKAGE_REGISTRY.md` §2 is canonical for every package number in this file.**
+Where this file and the registry disagree, **the registry wins and this file is the defect.** The canonical
+band is `076`–`091`, sixteen packages, each number used exactly once; `071`–`075` are the already-applied
+production security migrations and are not Phase-2 packages.
 
-**This file uses `076`–`091` throughout.** The correspondence used, stated once so no reader has to guess:
+**Decode by package identity, never by arithmetic.** This is the registry's own §4 rule and it is the rule
+this section previously broke: `PHASE_2_SUPABASE_MIGRATION_PLAN.md` carried three scales (`S0` `071`–`086`,
+`S1` `072`–`087`, `S2` `073`–`088`) **simultaneously in different sections**, and its §1 additionally assigned
+packages A and B the same version. No single offset decodes it. To resolve a package number found in an older
+document: read what the sentence says the package **creates**, then look that up in registry §2.
 
-| Repo (`11ea2eb`) | This file | Contents |
-|---|---|---|
-| 078 | **081** | `venue.order`, `venue.order_item` |
-| 081 | **084** | `kernel.payment_native`, `refund`, `payout` |
-| 083 | **086** | `venue.settlement`, `venue.settlement_line` |
-| 086/087 | **090** | `venue.promoter`, `promoter_link`, `attribution` — **and everything in this file** |
-| 088 | **091** | `kernel.reserve` stub (Gate-M boundary) |
+**This file uses the canonical `076`–`091` scale throughout.** The correspondence, restated once, decoded by
+package identity against registry §2 rather than by adding three:
 
-→ §14.1 raises the repo inconsistency as a documentation defect to be fixed by the renumber owner, not by this
-file.
+| Creates (the identity that decodes it) | Canonical | Registry §2 name | Stale tokens seen in the corpus |
+|---|---|---|---|
+| `venue.order`, `venue.order_item` | **`082`** | `082_venue_orders` | `077` (S0) · `078` (S1) · `079` (S2) |
+| `kernel.payment_native`, `refund`, `payout` | **`085`** | `085_kernel_money_native` | `080` (S0) · `081` (S1) · `082` (S2) |
+| `venue.settlement`, `venue.settlement_line` | **`087`** | `087_venue_settlement_and_export` | `082` (S0) · `083` (S1) · `084` (S2) |
+| `venue.promoter`, `promoter_link`, `attribution` — **and everything in this file** | **`090`** | `090_venue_promoter_engine` | `085` (S0) · `086`/`087` (the mig internal collision) |
+| `kernel.reserve` stub (Gate-M boundary) | **`091`** | `091_kernel_reserve_stub` | `086` (S0) · `087` (S1) · `088` (S2) |
+
+**`086` is not in this table, and that is the point.** `086` is `086_venue_door_and_scan` — door PINs,
+`door_session`, scan devices, scans, comp allocations, guest lists. It creates nothing this file reads or
+writes. Any sentence in this file that once said settlement was `086` was naming the door package.
+
+→ §14.1 records the historical inconsistency as **closed by ratification**, not as an open defect owed to a
+renumber owner.
 
 ### 0.4 Role vocabulary — concepts, not enum labels
 
@@ -1458,12 +1472,22 @@ assertions; these are that list for `090`.
 Per the boundary: these are raised for their owners. This file designs *around* them and says so; it does not
 edit a frozen constitution and does not quietly pick a side.
 
-### 14.1 Package numbering is inconsistent in three places (documentation defect)
+### 14.1 Package numbering — **CLOSED BY RATIFICATION, not a live contradiction**
+
+> **CORRECTED 2026-08-28 (reviewer condition 5 · `X-02`).** This entry stood open, addressed to "the renumber
+> author". It is closed: `PHASE_2_PACKAGE_REGISTRY.md` **is** that renumber, it is ratified, and it is
+> canonical. Leaving a resolved contradiction filed as open is not a harmless surplus — an implementer who
+> reads §14 as the live-conflict list treats a settled number as still in dispute, and picks.
 
 `VERIFIED:` **mig** at `11ea2eb` calls the promoter engine `086` in its §1 map and §3 rollout table, `087` in
 its §-detail heading and §2 DAG, and `086_*` again in that section's own rollback paragraph. `VERIFIED:`
-**dash** §0.1 cites the Phase-2 range as `071–089`, while **mig** §1's title says `073–088`. → **Owner: the
-renumber author.** This file uses `076–091` / promoter = `090` per §0.3 and is agnostic to the fix.
+**dash** §0.1 cites the Phase-2 range as `071–089`, while **mig** §1's title says `073–088`.
+
+**Resolution — no longer owed to anyone.** `PHASE_2_PACKAGE_REGISTRY.md` §2 fixes the canonical band at
+`076`–`091`, sixteen packages, each number once, and its §4 records `S0`/`S1`/`S2` as **dead scales retained
+only so stale quotations can be decoded**. The promoter engine is `090`. Registry §4.1 separately repairs the
+A/B version collision, the heading/body disagreement, the off-by-one rollback filenames and the `071`
+dependency error. **This file's own §0.3 was a casualty of the same confusion** and is corrected — see `X-01`.
 
 ### 14.2 O-2 says a promoter is not an administrator; the physical model makes them venue staff
 
@@ -1532,12 +1556,20 @@ to it. Flagged so it is a reviewed decision rather than a clever workaround. →
 
 ### 14.7 `close_settlement` is specified in a package that precedes the table it reads
 
-`VERIFIED:` RPC §10.2 says `kernel.close_settlement` **reads `venue.attribution`** and writes payouts with
-cause `promoter_commission`. `VERIFIED:` mig places settlement at `086` and the promoter engine (which
-*creates* `venue.attribution`) at `090`. A function defined in `086` cannot reference a table created in
-`090`; the migration would fail to apply, or the function would be created with a dangling reference.
+> **CORRECTED 2026-08-28 (reviewer condition 5 · `X-03`).** Every `086` in this section was **`087`**.
+> Settlement is `087_venue_settlement_and_export`; `086` is `086_venue_door_and_scan`, which creates nothing
+> `close_settlement` touches. The wrong number was carried under a `VERIFIED:` badge. **The ordering argument
+> below is unaffected and its conclusion is unchanged** — `087 < 090` exactly as `086 < 090` did — but a
+> spec-correction addressed to the migration-plan author naming the *wrong package* would have been applied to
+> the door package or, more likely, rejected as nonsense and dropped.
 
-**Resolution taken here:** `086` defines `close_settlement` **promoter-agnostic**, and `090` issues a
+`VERIFIED:` RPC §10.2 says `kernel.close_settlement` **reads `venue.attribution`** and writes payouts with
+cause `promoter_commission`. `VERIFIED:` **registry §2** places settlement at **`087`** and the promoter engine
+(which *creates* `venue.attribution`) at **`090`**. A function defined in `087` cannot reference a table
+created in `090`; the migration would fail to apply, or the function would be created with a dangling
+reference.
+
+**Resolution taken here:** `087` defines `close_settlement` **promoter-agnostic**, and `090` issues a
 `CREATE OR REPLACE` adding the commission leg. Consequently the §4.2 constraint (2) partial unique index also
 belongs in **`090`** — it must land with the writer that first emits the cause, not before it. → **owner: the
 migration-plan author.** `SPEC CORRECTION`.
@@ -1571,12 +1603,12 @@ Recorded so a later reviewer does not re-litigate them:
 | `venue.attribution_review` | `ADDITIVE SCHEMA CHANGE` | **090** | resolves dash §22.4; references `venue.attribution` |
 | `venue.promoter` +`tier`/`commission_kind`/`commission_flat_minor`/`party_kind` | `ADDITIVE SCHEMA CHANGE` (+ `SPEC CORRECTION` to schema §3.17) | **090** | same package creates the table |
 | `venue.attribution` +11 columns, `link_id` → nullable | `ADDITIVE SCHEMA CHANGE` (+ `SPEC CORRECTION`) | **090** | same package creates the table |
-| `venue.order` + 2 candidate columns + freeze trigger | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on `081`'s table; kept in 090 so the feature reverts as a unit |
-| `kernel.payment_native.instrument_fingerprint` | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on `084`'s table; only the self-deal detector reads it |
+| `venue.order` + 2 candidate columns + freeze trigger | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on **`082`**'s table (`082_venue_orders` — was `081`, corrected `X-04`); kept in 090 so the feature reverts as a unit |
+| `kernel.payment_native.instrument_fingerprint` | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on **`085`**'s table (`085_kernel_money_native` — was `084`, corrected `X-04`); only the self-deal detector reads it |
 | `settlement_line (cause_ref) WHERE cause='promoter_commission'` | `ADDITIVE SCHEMA CHANGE` | **090** | must land with the writer that emits the cause — see §14.7 |
 | Attribution / code indexes (§10.3, §10.4, §10.5) | `ADDITIVE SCHEMA CHANGE` | **090** | with their tables |
 | Attribution written at **paid**, not at order-create | **`SPEC CORRECTION`** (RPC §6.1, RLS §9.17) | **090** | §14.4 |
-| `close_settlement` split promoter-agnostic / `CREATE OR REPLACE` | **`SPEC CORRECTION`** (mig, RPC §10.2) | **086** + **090** | §14.7 |
+| `close_settlement` split promoter-agnostic / `CREATE OR REPLACE` | **`SPEC CORRECTION`** (mig, RPC §10.2) | **087** + **090** (was `086` — corrected `X-03`) | §14.7 |
 | `AttributionRecorded` key → `order_id` | **`SPEC CORRECTION`** (DA §6.1 event 31) | doc | §14.5 |
 | Promoter authority from `venue.promoter`, not `has_venue_role` | **`SPEC CORRECTION`** (RLS §1.1/§9.17) | **090** | §14.2 |
 | `venue.create_promoter_code` | **`NEW RPC`** | **090** | |
@@ -1584,7 +1616,7 @@ Recorded so a later reviewer does not re-litigate them:
 | `venue.set_promoter_code_status` | **`NEW RPC`** | **090** | |
 | `venue.set_promoter_code_scope` / `venue.set_promoter_code_window` | **`NEW RPC`** | **090** | |
 | `venue.preview_promoter_code` | **`NEW RPC`** (read) | **090** | |
-| `venue.bind_order_attribution` | **`NEW RPC`** | **090** | writes `081`'s table; ships with the feature |
+| `venue.bind_order_attribution` | **`NEW RPC`** | **090** | writes **`082`**'s table (`venue.order` — was `081`, corrected `X-04`); ships with the feature |
 | `venue.resolve_order_attribution` | **`NEW RPC`** (internal, no client grant) | **090** | the precedence engine |
 | `venue.review_attribution_flag` | **`NEW RPC`** | **090** | satisfies dash Δ4 / §21.4 |
 | `venue.get_my_promoter_summary` | **`NEW RPC`** (read) | **090** | implements RLS §7.9 footnote 15 |
@@ -1602,9 +1634,45 @@ Recorded so a later reviewer does not re-litigate them:
 
 ---
 
+## 16. Correction index — reviewer-conditions pass (2026-08-28)
+
+An adversarial review of the Phase 2 corpus taken at `cbf8926` filed this file's settlement package number as
+its **condition 5**, tracked by the reviewer as **`R-5`** with defect items **`X-01`…`X-04`**. Verification
+found the defect **wider than filed**: the reviewer named one wrong number, and there were **four**, from one
+root cause.
+
+> **`R-5` is the reviewer's request ID and is NOT a member of any existing `R-` series.** Three unrelated `R-n`
+> namespaces already exist in this corpus — RPC §20.14 `R-1`…`R-18`, the role-model spec's RLS-edit `R-1`…`R-17`,
+> and the ratification record's warning about exactly this. Read `R-5` as *"reviewer condition 5"*, cited here
+> only so the reviewer's finding can be found by the name the reviewer gave it. **This file files no `R-n` of
+> its own.** Its correction items are the `X-` series below.
+
+| ID | Defect | Where it was | Fix | Ratification row |
+|---|---|---|---|---|
+| **`X-01`** | **Root cause.** §0.3 decoded the dead repo scale onto the canonical scale **by adding 3**, against registry §4's explicit rule that *"arithmetic alone is not safe"* — the migration plan carried `S0`, `S1` and `S2` simultaneously in different sections. **Three of the table's five rows were wrong by one:** `venue.order` `081`→**`082`**, `kernel.payment_native` `084`→**`085`**, `venue.settlement` `086`→**`087`**. | §0.3 correspondence table | Table rebuilt, decoded **by package identity** against registry §2; registry named canonical; the arithmetic claim deleted | **C80** |
+| **`X-02`** | §14.1 filed the numbering inconsistency as an **open** contradiction owed to "the renumber author". That renumber exists, is ratified, and is canonical. A resolved conflict left on the live-conflict list invites an implementer to pick. | §14.1 | Re-titled **CLOSED BY RATIFICATION**; resolution stated | **C80** |
+| **`X-03`** | §14.7 placed `close_settlement` in **`086`** four times, under a `VERIFIED:` badge. `086` is `086_venue_door_and_scan` and creates nothing `close_settlement` touches. **The ordering argument survives unchanged** (`087 < 090` as `086 < 090` did) — but a `SPEC CORRECTION` addressed to the migration-plan author naming the door package would have been applied to the wrong migration or dropped as nonsense. | §14.7 (×4) | All four → **`087`**; the false `VERIFIED:` badge replaced with a citation to registry §2 | **C80** |
+| **`X-04`** | §15 propagated `X-01`'s wrong numbers into three rows an implementer reads as a build list: `ALTER` on `081`'s table (→ `082`), `ALTER` on `084`'s table (→ `085`), writes `081`'s table (→ `082`); plus `X-03`'s `086` (→ `087`). | §15 classification index (×4) | All four corrected inline with the prior value shown | **C80** |
+
+**What the `VERIFIED:` badge does and does not certify — the part of this defect worth keeping.** Per §0.2 a
+`VERIFIED:` claim means *"the cited document/file on this branch states it."* Three of the four wrong numbers
+above satisfied that test **exactly**: the migration plan really did say `086`. The badge was never a claim
+that the cited document was **canonical**, and the reader who trusted it read it as one. **A `VERIFIED:` cite
+of a superseded document is a correctly-applied badge on a false statement** — the most expensive kind, because
+it is precisely the claim a careful reader stops checking. Where this file cites a package number, it now
+cites **registry §2** and nothing else.
+
+**Nothing in this file's design changed.** Every corrected item is a package *number*; no table, column,
+constraint, RPC, RLS policy, precedence rule or invariant is altered. `090` — this file's own package, and the
+number on all sixty of its `ADDITIVE`/`NEW RPC` rows — was **correct throughout** and is untouched.
+
+---
+
 *End of Phase 2 Promoter / Referral Codes Spec. Design-only. Precedence is server-authoritative, total, and
 tie-free (§2). No double commission is enforced by three uniqueness constraints, not by policy (§4).
 Attribution freezes at order-paid and is append-only thereafter (§3). Clawback is Gate-M and the Phase-2
 interim is settle-then-pay (§5). Code uniqueness is global with event-scoped eligibility (§10.2). The original
 promoter does not earn on a resale (§5.6, owner decision 2). Seven contradictions with binding inputs are
-reported in §14 and none is silently resolved.*
+reported in §14 and none is silently resolved — §14.1 is now closed by ratification rather than open. Package
+numbers are decoded against `PHASE_2_PACKAGE_REGISTRY.md` §2 by package identity, never by arithmetic (§0.3);
+four wrong numbers from that one root cause are corrected in §16 (`X-01`…`X-04`).*

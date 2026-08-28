@@ -396,6 +396,15 @@ These supersede the matrix cells above them. Only the four columns the money spe
 
 `INFERENCE:` the money spec's corrected table carries no row 38 and does not restate the cell legend. Rows 35, 37 and 39 are listed there as unchanged context and are **not** re-stated here.
 
+> **⚠ ROW 35 IS CONTESTED — BLOCKING OWNER DECISION `D-8`. Added 2026-08-28 (reviewer condition 2).** Row 35
+> (H. Refunds — order list) carries `org_admin` at `●` in §5 above, and the money spec's §10.1 carries the same
+> `●` — **while that same money spec's §3.4 denies `org_admin` the refund ledger entirely and labels its own
+> position `INFERENCE`.** Because §5.2 does **not** supersede row 35, this spec is faithfully inheriting a
+> document that contradicts itself. **Silence defaults to GRANT** (RLS §9.7 and §9.13 both grant `org_admin`),
+> and **over-provisioning is the unsafe direction**. See §22.13 for both positions in full, money spec §11.1
+> for the registered decision, and `PHASE_2_RATIFICATION_RECORD.md` `O13`. **Do not render surface H's refund
+> list for `org_admin` on the strength of this table until `D-8` is closed.**
+
 ---
 
 ## 6. (A) Dashboard home
@@ -1604,8 +1613,17 @@ The physical schema spec (§643), the RPC contracts (§748), the RLS spec (§115
 **§22.12 — a legacy `venue_manager` grant still carries manifest authority a box-office user should not have.**
 O-2 created `venue_box_office`, and O-4 says box office does not inherit manifest administration — but anyone previously granted `venue_manager` *for box-office work* retains open/close. **This is a migration/grant-hygiene question, not a spec question**, and it needs an owner decision on whether existing grants are re-mapped when the six-label enum lands. Under-provisioning is safe here; over-provisioning is not.
 
-**§22.13 — `org_admin` on the money plane is an inference, not a ruling.**
-O-1 and O-3 name `org_owner` and `org_finance` and are **silent on `org_admin`**. The money spec infers total denial and this spec follows it, but row 35 (Refunds — order list) still shows `org_admin` at `●` while the corrected money matrix denies it the refund read. **Those two cannot both hold. Owner decision required.**
+**§22.13 — `org_admin` on the money plane is an inference, not a ruling. → BLOCKING OWNER DECISION `D-8` (money spec §11 / §11.1). UNRESOLVED. DO NOT BUILD SURFACE H FROM EITHER CELL.**
+O-1 (refund authority) and O-3 (payout visibility/requests) name `org_owner` and `org_finance` and are **silent on `org_admin`**. Neither position below is a ruling; both are readings.
+
+- **Position A — deny.** `PHASE_2_MONEY_AUTHORITY_SPEC.md` §3.4: `org_admin` holds **no** money authority of any kind, `D` on `kernel.payout` and `kernel.refund` SEL/EXEC. Corroborated by Domain §7.2's Org Admin *Cannot* column (*"Cannot view or initiate payouts/bank changes"*) and O-2's *"not unrestricted financial authority"*. **§3.4 labels its own position `INFERENCE`.**
+- **Position B — grant.** Row 35 (H. Refunds — order list) shows `org_admin` at `●`, and **money spec §10.1 row 35 shows the same `●` and previously called it *"unchanged"***. **§5.2 does not supersede row 35**, so this spec is faithfully inheriting the money spec — **the contradiction is internal to the money spec, not between the two documents.**
+
+**What silence defaults to — and it defaults to GRANT.** An implementer resolves silence by building what RLS says. **RLS §9.7** grants `org_owner/admin` `A(own-org orders)` SELECT on `venue.order` (this is what backs row 35), and **RLS §9.13** grants `org_admin` `A(own-org)` SELECT on `venue.settlement`, whose header carries gross / fees / refunds / net. **Both grant.** So leaving this open does not stall the build — it ships **Position B silently**, with a `D` sitting unread in money §3.4.
+
+**Why that default is the unsafe direction.** `org_admin` is the role most likely to be handed out liberally (it manages venues, events, staff, promoters). **Over-provisioning is the unsafe direction here**, and the remedy costs are asymmetric: widening later is a one-line matrix change; **narrowing later is a migration plus removing a capability operators have been using.** Deny-by-default is the standing posture (RLS `GP-1`) and the default on silence runs against it.
+
+**Neither this spec nor the money spec picks a side, deliberately.** Registered as **`D-8`** in the money spec's owner-decision register (§11) with the full statement at §11.1, and as **`O13`** in `PHASE_2_RATIFICATION_RECORD.md`. **`D-4` covers row 37 (settlement) only and does not cover row 35.**
 
 **§22.14 — the step-up predicate rests on an unverified claim about this project's tokens.**
 The money spec flags `UNVERIFIED:` that it has not confirmed the access tokens actually carry the per-factor claims its step-up predicate reads. **This must be checked against a real token before §16.9 is built** — if the claim is absent the step-up either never fires or always fires, and both failure modes are silent.

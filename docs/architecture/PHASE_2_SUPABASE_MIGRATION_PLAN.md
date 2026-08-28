@@ -247,7 +247,7 @@ graph TD
     B077["077 B · kernel identity/orgs/roles + admin_audit"]
     C078["078 C · catalog + feature-flag seeds"]
     D079["079 D · kernel.tickets + ownership_log"]
-    E080["080 E · venue.staff_role + venue/event role predicates"]
+    E080["080 E · venue.staff_role + venue/event role predicates + 4 deferred venue-plane RLS policies"]
     E081["081 E · venue inventory (batch/shard/movement/hold + ticket_type)"]
     F082["082 F · venue.order + order_item"]
     G083["083 G · kernel.signing_key (key-ref)"]
@@ -265,6 +265,7 @@ graph TD
     C078 --> D079
     C078 --> E080
     B077 --> E080
+    D079 --> E080
     C078 --> E081
     E080 --> E081
     E081 --> F082
@@ -338,7 +339,7 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 | 2 | 077 | B | 076 | Y | N | new-table only | lazy `identity_ext` | s | — |
 | 3 | 078 | C | 077 | Y | N | new-table only | seeds config+flags | s | seeds all flags **OFF** |
 | 4 | 079 | D | 077,078 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 5 | 080 | E | 077,078 | Y | N | new-table only | none | s | — |
+| 5 | 080 | E | 077,078,**079** | Y | N | new-table only + 4 deferred RLS policies (`AUTHZ-PKG1`) | none | s | — |
 | 6 | 081 | E | 078,080 | Y | N | new-table only | none | s | — |
 | 7 | 082 | F | **077**,**078**,081 | Y | N | new-table only | none | s | issuance gated by 15.A |
 | 8 | 083 | G | 078,**079** | Y | N | new-table only | none | s | wallet gated (`wallet.apple.enabled=false`) |
@@ -502,6 +503,14 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     fee/window baseline VALUES. Seeds are idempotent (`insert ... on conflict do nothing`) so replay is safe.
   - RLS: all `catalog` tables public-read (approved/announced rows) with draft/pending org-scoped + platform;
     writes RPC-only (`catalog.*` definer functions).
+  - **RLS POLICY DEFERRAL — `AUTHZ-PKG1` (binding).** This package creates `_sel_anon`, `_sel_org`
+    (`kernel.has_org_role`, `077`), `_sel_public`/`_sel_restricted` (`kernel.is_platform`, `077`) — **and
+    NOT** `catalog_venue_sel_venue`, `catalog_event_sel_venue`, `catalog_event_session_sel_venue`. Those
+    three call `kernel.has_venue_role` / `kernel.has_event_role`, which **do not exist until `080`**, and
+    `RM-3` forbids re-inlining the join. **They are created in `080`;** their full `USING` clauses are in
+    RLS **§16.10a**. Writing them here fails the replay with **`42883` (function does not exist)**. Between
+    this package and `080` the venue plane cannot read these tables — **intended, fail-closed, and it closes
+    one package later.**
 - **Dependencies:** `077` (org FK).
 - **Backwards compatibility:** additive; frozen `public.listings` neighborhood set is read/copied, not altered.
 - **Lock risk:** new-table only.
@@ -538,7 +547,12 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `UNIQUE(ticket_atom_id, command_idempotency_key)` (C16), plus the PK. AO: `raise_append_only` trigger +
     `REVOKE UPDATE,DELETE`. CHECK: `sequence>=1`; `from_identity IS NULL iff (cause='issue' AND sequence=1)`.
   - Indexes per spec §1.5/§1.6 (owner, session, type, cause_ref, to_identity, resale_state partial).
-  - RLS: money-custody-RPC-only on the log; `kernel.tickets` owner-scoped + venue-scoped read; writes RPC-only.
+  - RLS: money-custody-RPC-only on the log; `kernel.tickets` owner-scoped read (`kernel_tickets_sel_owner`)
+    and platform read (`kernel_tickets_sel_platform`, `kernel.is_platform`, `077`); writes RPC-only.
+  - **RLS POLICY DEFERRAL — `AUTHZ-PKG1` (binding).** **`kernel_tickets_sel_venue` is NOT created here.** It
+    needs `kernel.has_event_role` (`080`) to resolve the atom's session to its venue — `kernel.tickets`
+    carries `event_session_id` and `org_id` but **no `venue_id`**. **It is created in `080`** (`USING` clause
+    in RLS §16.10a), which is why `080` now declares `‡079`.
   - **No issuance/transfer engine RPC bodies here** — those are deliverable #4 (RPC contracts). This package
     is the DDL substrate they write to. (If the team prefers to co-locate the engine functions with this
     migration, they are added as `create or replace function` in the same file; either way the flag in §4 keeps
@@ -574,12 +588,28 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     `kernel.has_event_role(event_id, role[])` (event→venue resolution via catalog). Live-table recheck (C9);
     never self-grant (H-2).
   - RLS: venue-scoped read; grant/revoke RPC-only.
-- **Dependencies:** `077` (predicates live in `kernel`), `078` (catalog.venue/event).
+  - **THE FOUR DEFERRED VENUE-PLANE READ POLICIES — `AUTHZ-PKG1` (binding), created HERE, after the
+    predicates above.** `catalog_venue_sel_venue` and `catalog_event_sel_venue` (on `078` tables),
+    `catalog_event_session_sel_venue` (on a `078` table), `kernel_tickets_sel_venue` (on a **`079`** table —
+    this is the reason for the `‡079` edge). **Full `USING` clauses: RLS §16.10a.** They are here and not in
+    `078`/`079` because `has_venue_role` reads `venue.staff_role`, created in *this* package, so `SEAM-1`
+    binds the helper here and `RM-3` leaves the policies no other implementation. **Verify these four exist
+    before declaring this package green** — a silently skipped policy is denial (`I-1`), so the failure mode
+    is an operator plane that reads zero rows, which presents as broken accounts rather than as a bad
+    migration.
+- **Dependencies:** `077` (predicates live in `kernel`), `078` (catalog.venue/event), **`079`
+  (`kernel.tickets` — this package creates `kernel_tickets_sel_venue` on it; `AUTHZ-PKG1`)**.
 - **Backwards compat:** additive. **Lock:** new-table only. **Backfill:** none. **Runtime:** seconds.
 - **Rollout:** staging → gated prod. No flag.
-- **Rollback (`080_*`):** drop predicates + `venue.staff_role`. Clean while empty.
+- **Rollback (`080_*`):** drop the four `AUTHZ-PKG1` policies **first**, then the predicates, then
+  `venue.staff_role`. Clean while empty. **Fails closed**: dropping the policies removes venue-plane read on
+  four tables; it never leaves a table readable by a principal whose predicate has just been dropped.
 - **Staging verification:** replay green; `has_venue_role`/`has_event_role` correct; disjoint CHECK rejects an
-  `org_*`/`platform_*` label; non-staff cannot read the row.
+  `org_*`/`platform_*` label; non-staff cannot read the row. **Plus `AUTHZ-PKG1`: assert all four deferred
+  policies exist by name** — `policies_are()` on `catalog.venue`, `catalog.event`, `catalog.event_session`
+  and `kernel.tickets` (`T-RLS-POL-01` already owns this shape) — **and positively assert that a
+  `venue_manager` reads its own venue's rows on all four.** Existence alone would pass against a policy whose
+  predicate is wrong.
 - **Production verification:** table/CHECK/RLS; predicates owned by `postgres`, `search_path` pinned.
 - **Additive-only:** YES. **Marketplace change:** NO. **Gate-2:** per §0.5.
 
