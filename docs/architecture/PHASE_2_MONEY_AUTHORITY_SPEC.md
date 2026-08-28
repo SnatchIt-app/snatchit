@@ -1336,6 +1336,90 @@ indexed columns. Every threshold lives in the existing `catalog.platform_config`
 
 ---
 
+## 13. Correction index — the `AUTHZ-C1A` / `AUTHZ-C1B` reconciliation pass (2026-08-28)
+
+**Authority:** ratification rows **C57** (`AUTHZ-C1A`, `C1A2`, `M1`, `M2`) and **C58** (`AUTHZ-C1B`), both
+**RATIFIED · Gate P · MVP-must-implement YES**, recorded 2026-08-27 by the authz remediation pass. **That pass
+did not edit this document** — it named RLS, RPC and the schema spec in its target columns and not this file,
+which is how a `BUILD-READY DELTA SPEC` came to state a defect as its contract for a full remediation cycle.
+This pass applies those two ratified corrections here and files rows **`D13`** (this reconciliation),
+**`D14`** (the amendment of C57's and C58's own target columns to name this document) and **`C73`** / open
+decision **`O11`** (the missing precedence rule) in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`.
+
+**No new design decision is taken in this pass, and no owner decision is made.** Every substantive rule below
+already existed in a ratified row; the only thing that changed is that this document now states it.
+
+### 13.1 What changed, section by section
+
+| § | Before (as it stood at `cbf8926`) | After | Ratified by |
+|---|---|---|---|
+| header | `**Status:** BUILD-READY DELTA SPEC.` — no indication the document had been skipped by the remediation pass | **LIVE-not-superseded** status + reconciliation banner recording the live-vs-retired determination, its evidence, and which side was conformed to which | `D13` |
+| **§6.1** | tier table had two columns (`Outcome`, `Effect`); the tier was computed, returned and **discarded**; result field `approval_required_role?` | tier table carries the **stored** `required_approver_class` column; this function is named as its **first writer**; consumed-atom precedence stated; grant maturity binds the **requester**; result field renamed `required_approver_class?`; `sod_violation` / `step_up_unavailable` added to the taxonomy | `C57`, `C58` |
+| **§6.2** | *"For `pending_approval`: `has_org_role(...)` AND `auth.uid() <> requested_by` … For `pending_platform_review`: `is_platform([...])`"* — **a branch on two unstored return strings** | **`AUTHZ-C1A`**: five-row `(action, required_approver_class)` table identical to RPC §17.2, the trap explained rather than merely corrected, `AUTHZ-C1A2`, the *actionability ≠ authority* rule, the re-derived-tier rule (`stale`, never a re-route), and the corrected error taxonomy incl. `self_approval` | `C57` |
+| **§6.6** | *"one object, not three"* + the payload footgun; **no tier column, no approver class, one SoD CHECK** | full column set reconciled to schema §1.13.2/§1.13.3 with `required_approver_class` first; the **CHECK pair** of `AUTHZ-M1`; the footgun paragraph now says *why* the missing column was pushing implementers into `payload` | `C57` |
+| **§6.7** | `request_org_payout`: *"Adds three preconditions"*; `set_org_payout_destination`: no role predicate at all | **four** preconditions, the fourth being `kernel.money_role_grant_matured`; never applied to a deny or cancel; the destination setter's role predicate written out with the same conjunct | `C58` |
+| **§6.7a** | *did not exist* | **NEW** — a *reference*, not a definition, to `kernel.money_role_grant_matured`, with the four properties this document depends on stated so a drift at the defining site is visible | `C58` |
+| **§7.3** | the money-key approval object described without a stored class | `required_approver_class := 'platform_admin'`, `org_id IS NULL`, and why the third label exists | `C57` |
+| **§8.2** | controls 1–6 described; **no caller predicate stated as a contract**, no maturity conjunct | caller predicate written as a contract line (`org_owner` only + step-up + maturity), and *why maturity binds the SETTER* | `C58` |
+| **§8.5** | six ranked controls | control **1b** inserted below control 1, ranked separately because the two fail independently | `C58` |
+| **§9.2** | above-threshold payout parks an approval; dispatch described as `action`-based | dispatch is `(action, required_approver_class)`; named as the **third writer** of the class; `platform_support` denied on the payout arm; result shape stated | `C57` |
+| **§12** | ADDITIVE item 1 listed the table **without** the tier column and with a **single** SoD CHECK; no `granted_at` item | item 1 carries the column, the full CHECK set and both indexes; **new item 3a** for `kernel.org_member.granted_at` | `C57`, `C58` |
+
+### 13.2 What this pass did NOT do, stated because the boundaries are load-bearing
+
+- **It did not retire this document.** The live-vs-retired question was settled on evidence (banner, §13.3),
+  not on the fact that a remediation pass skipped it.
+- **It did not define `kernel.money_role_grant_matured`.** That contract belongs to RPC §1's predicate-helper
+  substrate and is owed there; §6.7a **references** it and states the four properties this document depends
+  on. **If those four and the defining contract disagree, the defining contract wins and §6.7a is the defect.**
+- **It did not decide the precedence question.** Two documents both labelled build-ready gave contradictory
+  authority branches for the same money RPC, and `PHASE_2_SPEC_FOUNDATION.md` §0 supplies no tie-break — it
+  says *"if a source document conflicts with this file, surface the conflict; do not silently pick a side"*,
+  and its authority order does not rank delta specs against each other. `ARCHITECTURE_FREEZE.md` Rule 3 ranks
+  *tiers* and places every delta spec **in one tier**, so a delta-vs-delta conflict is unresolvable by the
+  stated rules. **Ranking delta specs against each other is an OWNER decision** and is recorded as row
+  **`C73`** / open decision **`O11`**, not made here. What this pass relied on instead is narrower and does
+  not generalize: **RPC §17.x carries the `AUTHZ-C1A`/`AUTHZ-C1B` remediation tags ratified as C57/C58 and
+  this document carried none**, so one side stated a ratified correction and the other stated the text that
+  correction replaced. That is a reading of the ratification record, available with no precedence rule at all.
+- **It touched no SQL, no migration, no code, and nothing under `supabase/` or `.github/`.** It reopened no
+  production migration (`071`–`075`), renumbered no package (`076`–`091`), and weakened no CI gate, ratchet or
+  floor. **The frozen Stripe money core is untouched** — this pass reconciled *specification text about
+  authority*; no money-movement path, idempotency key, funding source or Stripe surface changed, and the
+  §Invariant-attestation table above still holds line for line.
+- **It made no owner decision.** The open numbers this reconciliation depends on stay open with their existing
+  owners: `authn.money_role_maturity_hours` (RLS `MD-14`), `refund.platform_support_max_minor` (§11 `D-3`),
+  and §11 `D-1` (whether the approval object is a sixteenth SSCAS member).
+
+### 13.3 The live-vs-retired determination, recorded so it is not re-litigated
+
+**Determination: LIVE.** The evidence, in the order a reviewer would check it:
+
+1. **`ARCHITECTURE_FREEZE.md` names this file by path** in the covered set, as an *owner-ruling delta (O-1,
+   O-3)*, *"same tier as the implementation specs in the authority order below, and covered by Rule 1 from the
+   moment they are ratified into the record."* It is ratified into the record — rows **O-1** and **O-3**.
+2. **It is cited as authority by documents that were themselves corrected by the remediation pass** — RLS
+   §11.3 (*"money spec §2.3 — replaces the corresponding §11.1 rows"*), RPC §17.2 (*"The money spec §7.3
+   says…"*), schema §1.13 (*"MONEY §6.6, §12 ADDITIVE-1"*) and §1.13.2 (tier conditions cited as
+   *"MONEY §5.2 / §9.2 / §7.3"*). A retired document cannot be the cited source of a live constraint.
+3. **Ratification row `D6` chose THIS document over a sibling** — it applied this spec's corrected §7.6 money
+   matrix into the constitution and **rejected** the role-model spec's instruction to delete §7.6 and point
+   elsewhere. That is a ratified finding that this document, not the sibling, holds the O-1/O-3 money
+   authority statement.
+4. **It carries no supersession banner and sits in `docs/architecture/`, not `_superseded/`** — the corpus
+   marks retirement by relocation, and four documents already sit there.
+5. **Sections nobody else covers.** §4 (read-scoping isolation proof), §5 (request-vs-execute with its four
+   races), §7 (threshold and configuration model, incl. the lock-order placement of the approval object) and
+   §8's ranked control set are stated in full **only here**. Retiring the file would delete them, and the
+   corpus rule the task's own framing states — *do not retire a document that other specs cite as authority
+   for sections nobody else covers* — is dispositive on its own.
+
+**Conclusion:** the exclusion was an **oversight of the remediation sweep**, not a signal of retirement. The
+remedy is reconciliation plus a ledger row that makes the omission visible (`D14`), not a supersession banner.
+
+---
+
 *End of `docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md`. Design-only; no SQL, no migrations, no
 implementation code. Delta against the frozen constitutions — integration is a later, separate act. Produced
 under owner rulings O-1, O-2 (context) and O-3; R7, OBS-1, GP-1/GP-2, C26, C28, C35 and C36 verified preserved
