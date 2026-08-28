@@ -469,15 +469,20 @@ Global properties from §0.5 are asserted once there and referenced as "per §0.
     nullable — ADDENDUM A2/A3, schema §2.3: the canonical door-freeze signal**, set when the session's offline
     door manifest opens; distinct from informational `doors_at`) — **the toward-reference target
     for `kernel.tickets.event_session_id`** (A7/C7).
-  - **`kernel.is_transfer_frozen(p_ticket_atom_id)` helper (ADDENDUM A3):** `STABLE` SECURITY DEFINER,
-    `search_path` pinned — true iff the atom's session has `door_open_at IS NOT NULL AND now() >= door_open_at`
-    (per-open-manifest-ticket scope, C43). The ONLY freeze read for RPC rechecks, the RN eligibility boolean,
-    and the edge layer (which never decides freeze independently). *(Ships here in `078` with the column it
-    reads; the atom-side recheck wiring lands with the kernel engines in `079`+ — the helper tolerates a
-    not-yet-existing atom id by returning false until `079` exists, or equivalently `078` ships the column and
-    `079` ships the helper; implementer picks one, both additive.)* No stored `transfer_frozen` column exists.
+  - **`kernel.is_transfer_frozen(p_ticket_atom_id)` helper (ADDENDUM A3) — three corrections; §8 wins, and
+    this bullet is now aligned with it rather than left as the pre-delta record.** `STABLE` SECURITY DEFINER,
+    `search_path` pinned — true iff `door_open_at IS NOT NULL AND now() >= catalog.effective_freeze_at(session)`,
+    subject to an active `kernel.door_freeze_override`. The ONLY freeze read for RPC rechecks, the RN
+    eligibility boolean, and the edge layer (which never decides freeze independently).
+    **(1) Scope is SESSION-WIDE, not per-open-manifest-ticket.** The C43 narrowing has no specified
+    predicate and C43 is `RATIFIED-MODELED-ONLY(GATE-M)` — not MVP (schema §2.3.1, RPC §12.4b).
+    **(2) It is authored in `079`, not here** — it reads `kernel.tickets` and `kernel.door_freeze_override`
+    (§13.2 FR-7). **(3) The "tolerates a not-yet-existing atom id by returning false" escape hatch is
+    WITHDRAWN — a predicate that silently returns `false` for an unknown atom FAILS OPEN on the transfer
+    path and must not exist.** No stored `transfer_frozen` column exists.
   - `catalog.platform_config` (composite PK `(key, version)` — see UNDER-SPECIFIED note; AO-per-version;
-    public-read).
+    **`visibility`-split read: `public` keys world-readable, `restricted` keys — `refund.*`/`payout.*`/
+    `authn.*`/`crm.*`/`door.*` — platform-only, schema §2.4.1**).
   - `catalog.resale_policy` (`policy_id` PK; `mode` CHECK in
     `off/transfers_only/fixed_cap/face_value_queue/buy_now/auction/offer`, **default `off`** per C11; versioned).
   - **Seed rows:** `platform_config` seeds for `feature.native_issuance_enabled=false`,
@@ -1087,7 +1092,7 @@ ratified, SEAM-1 floors it at `090`** (it aggregates money, door and attribution
 | **Feature flags** | Issuance path inert behind `feature.native_issuance_enabled=false`. |
 | **Dependencies** | `077` (org), `078` (event_session, `effective_freeze_at`, config). **Forward FKs to its own siblings deferred to `084`.** |
 | **Rollback** | **FORWARD-FIX ONLY (from first row).** The custody ledger is permanent and is never dropped once it holds real atoms. The DROP script serves only the pre-go-live window. |
-| **Tests** | Replay green. **The C26 proof rig run against the real constraints** (schema §1.6.1 a/b/c/d): (a) a second `(market_sale, sale_id, atom)` is rejected; (b) N `(issue, order_id, atom_k)` all succeed; (c) N `(refund_void, refund_id, atom_k)` all succeed; (d) a replayed `command_idempotency_key` is rejected. AO guard raises on UPDATE/DELETE. Adversarial RLS: a non-owner cannot read an atom or its chain. **`is_transfer_frozen` returns TRUE for an unknown atom id** — the fail-open escape hatch the plan previously permitted is asserted absent. A `refund_hold` atom cannot be locked or scanned. |
+| **Tests** | Replay green. **The C26 proof rig run against the real constraints** (schema §1.6.1 a/b/c/d): (a) a second `(market_sale, sale_id, atom)` is rejected; (b) N `(issue, order_id, atom_k)` all succeed; (c) N `(refund_void, refund_id, atom_k)` all succeed; (d) a replayed `command_idempotency_key` is rejected. AO guard raises on UPDATE/DELETE. Adversarial RLS: a non-owner cannot read an atom or its chain. **`is_transfer_frozen` returns TRUE for an unknown atom id** — the fail-open escape hatch the plan previously permitted is asserted absent. A `refund_hold` atom cannot be locked or scanned. **The freeze (schema §2.3.1): `kernel.mark_ticket_scanned`'s body references `is_transfer_frozen` NOWHERE — a structural assertion over `pg_proc.prosrc`, pinned because this is the defect a well-meaning engineer re-introduces by adding a check that looks prudent, and its blast radius is 100% of admissions from doors-open to end of night. And the predicate is SESSION-WIDE: every atom of a session is frozen once `now() >= effective_freeze_at(session)` — asserted over two atoms of the same session where only one appears in an open manifest, both frozen. The C43 per-open-manifest narrowing is `RATIFIED-MODELED-ONLY(GATE-M)` and has no specified predicate.** |
 
 ### `080_venue_staff_roles_and_predicates`
 

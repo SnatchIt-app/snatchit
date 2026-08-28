@@ -1185,12 +1185,55 @@ outward-kernel dependency, A7/C7).
 - **Bump discipline:** `session_version` is advanced **only** by the session-update RPC, inside the same
   transaction as the change it describes, under the session row's `FOR UPDATE`. It is not a general
   optimistic-concurrency token and no other writer touches it.
-- **Door-freeze (RECONCILED — R3, canonical for RLS/RPC/edge/RN):** transfer-freeze is **derived**, not a
-  stored per-ticket flag. A helper `kernel.is_transfer_frozen(p_atom_id)` returns true iff the atom's session
-  has `door_open_at IS NOT NULL AND now() >= door_open_at` (narrowed per-open-manifest-ticket per C43). The RPC
-  spec's assumed `kernel.tickets.transfer_frozen` column is **replaced by this helper**; `create_listing`,
-  `create_p2p_transfer`, `lock_ticket`, and `mark_ticket_scanned` call it under the atom lock (live-recheck,
-  I-5); the RN app reads it as a boolean via a scoped read. One signal, one source — no stored duplication.
+- **Door-freeze (RECONCILED — R3; CORRECTED twice below. Canonical for RLS/RPC/edge/RN):** transfer-freeze
+  is **derived**, not a stored per-ticket flag. A helper `kernel.is_transfer_frozen(p_atom_id)` returns true
+  iff the atom's session has `door_open_at IS NOT NULL AND now() >= catalog.effective_freeze_at(session)`.
+  The RPC spec's assumed `kernel.tickets.transfer_frozen` column is **replaced by this helper**. The RN app
+  reads it as a boolean via a scoped read. One signal, one source — no stored duplication.
+  **The recheck set is RPC §12.4c's, not this bullet's** — see §2.3.1.
+
+#### 2.3.1 Two stale sentences this bullet carried, and why a DDL author is the reader who is hurt by them
+
+This bullet is what a DDL author writes the door-freeze plumbing from. Both corrections are already made in
+the RPC and RLS specs; **neither had reached this file**, and this file is the one the schema is built from.
+
+**STALE 1 — `mark_ticket_scanned` was listed in the freeze recheck set. It MUST NOT recheck.**
+The bullet read *"`create_listing`, `create_p2p_transfer`, `lock_ticket`, and **`mark_ticket_scanned`** call
+it under the atom lock."* **This was the Critical defect that would have failed 100% of admissions from
+doors-open to end of night.** The freeze engages *when the doors open*; a `mark_ticket_scanned` that rechecks
+it returns `frozen` for **every** atom of that session, from that instant. Not a subset, not an edge case —
+**every paying fan, at every door, for the whole night**, and the failure begins at exactly the moment the
+venue can least afford to debug it.
+
+> **The freeze stops TRANSFERS, not ADMISSIONS.** It exists so a credential cannot move after the offline
+> manifest snapshot was taken. Scanning is the operation the snapshot was taken *for*. Making admission
+> conditional on the freeze inverts the control into a denial of the thing it protects — and O-4 states the
+> same property from the other side: *"admission is never gated on manifest state."*
+
+**Corrected.** The recheck set is RPC §12.4c's, which is *"wrong in one direction, incomplete in three"*
+against the old reading. It is not restated here — one table, one owner — but the shape matters to a DDL
+author: the **enforcement** points are `kernel.transfer_ticket_ownership` and `kernel.lock_ticket` (the
+choke-points nothing bypasses); the caller-level rechecks exist for **error quality**;
+**`kernel.mark_ticket_scanned` is in neither layer.** It is pinned by a structural test (RPC §12.4c) —
+**pinned, because this is a defect a well-meaning engineer re-introduces by adding a check that looks
+prudent.**
+
+**STALE 2 — the C43 per-open-manifest narrowing. The predicate is session-wide.**
+The bullet's parenthetical *"(narrowed per-open-manifest-ticket per C43)"* is **the exact string a DDL
+author copies into a WHERE clause**, and there is nothing to copy: **the specified predicate has no
+per-ticket term and none was ever written.** Independently, **C43 is `RATIFIED-MODELED-ONLY(GATE-M)` — it is
+not MVP**, so the narrowing could not be built in this phase even if a predicate existed. Four documents
+described it as implemented (RPC §12.4b's finding).
+
+> **MVP: the freeze is session-wide.** `is_transfer_frozen(atom)` is true for **every** atom of a session
+> once `now() >= catalog.effective_freeze_at(session)`, subject only to an active `kernel.door_freeze_override`.
+> The per-open-manifest-ticket narrowing is a **purely additive conjunct** deferred to Gate M with C43;
+> adding it later strictly **reduces** the frozen set and breaks no caller of the MVP predicate.
+
+**The parenthetical is deleted rather than annotated**, because an annotated parenthetical is still a
+parenthetical, and the reader this section is written for is the one who copies it. **Filed for the
+amendment owner** (RLS §17 X-7): if the board wants the narrowing in MVP, that is a **new ratification**,
+not a clarification.
 - **FKs:** `event_id` on delete restrict.
 - **Unique:** `(event_id, session_label)` where label not null (no duplicate named sessions).
 - **Check:** `status` enum; `ends_at > starts_at` when both present.
