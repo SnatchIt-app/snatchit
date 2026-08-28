@@ -677,9 +677,23 @@ and joins no custody sequence.
   no RPC on this path takes authority from `auth.uid()`.
 - **EA-5 obligations, all mandatory (Wallet §6.1, compensating controls):** constant-time compare against
   `auth_token_hash` (I-9); **the token authorizes one serial only — never a session, never an account, never
-  another pass**; `check_rate_limit` keyed on `(serial_no_opaque, deviceLibraryIdentifier)`, fail-closed;
+  another pass**; `check_rate_limit` on the **derived principal** `uuidv5(NS_WALLET_PASS, serial_no_opaque ||
+  ':' || deviceLibraryIdentifier)` (§7 — the limiter's first parameter is a `uuid`), fail-closed;
   **no enumeration — an unknown serial and a wrong token return the same status with the same timing budget**;
   no PII beyond what is already inside the pass the caller authenticated for.
+- **Liveness preconditions — `SPEC CORRECTION` (H-4).** The auth-token compare is **not** the whole authority.
+  `kernel.get_wallet_pass_build_context` additionally requires **`status='issued'`** and
+  **`holder_identity_id = kernel.tickets.current_owner_id`, read live** (Wallet §11.6a), and returns the
+  identical shape/status/timing when either fails. Without them a **former owner** unzips their own `.pkpass`,
+  reads `serialNumber` + `authenticationToken`, and polls this `verify_jwt=false` endpoint with no device for
+  the live state of a ticket they no longer own — supersession was the only guard and it runs **outside the
+  custody transaction**. **A rebuild re-signs at `credential_version_at_build`, never at the live
+  `credential_version`** — otherwise this function is a credential-refresh endpoint for whoever holds the auth
+  token.
+- **`list_updated_wallet_passes` is the one route that returns *multiple* serials** and must therefore be the
+  most tightly bound, not the least: see Wallet §11.6b. It takes the auth token, verifies it constant-time
+  against a pass **registered to the presenting device**, and returns serials **only** from that device's live
+  registrations.
 - **Wraps:** `get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` ·
   `list_updated_wallet_passes`. Honours `If-Modified-Since` → 304; 201 new / 200 already registered.
 - **Requires a security review sign-off for its `verify_jwt=false` posture** (Wallet §13 item 12, OQ-W6). This

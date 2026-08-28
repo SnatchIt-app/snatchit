@@ -601,8 +601,16 @@ controls, all mandatory:
 - the `authenticationToken` is compared **constant-time** against `auth_token_hash` (edge §7 invariant I-9,
   `timingSafeEqual`);
 - the token authorizes **one serial only** — never a session, never an account, never another pass;
-- `check_rate_limit` keyed on `(serial_no_opaque, deviceLibraryIdentifier)`, **fail-closed** (429/503 with
-  `Retry-After`);
+- **the token authorizes one serial only *while that pass is live and its holder still owns the atom*** — the
+  auth-token compare is **not** the whole authority. Every route that returns or rebuilds pass content goes
+  through `get_wallet_pass_build_context`, which additionally requires `status='issued'` **and**
+  `holder_identity_id = kernel.tickets.current_owner_id`, read live (**§11.6a — the H-4 fix**). Without it a
+  former owner reads `serialNumber` and `authenticationToken` out of their own `.pkpass` — it is a zip — and
+  polls this endpoint for the current state of a ticket they sold. **A pass file is not a bearer credential
+  for its atom's *current* state, and the auth token must never be treated as one;**
+- `check_rate_limit` keyed on the derived principal `uuidv5(NS_WALLET_PASS, serial_no_opaque || ':' ||
+  deviceLibraryIdentifier)` — see edge §7's derived-principal rule; `check_rate_limit`'s first parameter is a
+  `uuid`, so the pair cannot be passed as-is — **fail-closed** (429/503 with `Retry-After`);
 - **no enumeration:** an unknown serial and a wrong token return the **same** status with the same timing
   budget;
 - responses carry no PII beyond what is already inside the pass the caller authenticated for;
@@ -1175,7 +1183,7 @@ These are **operational thresholds, not secrets** — public-read like every oth
 | `kernel.mint_wallet_pass(p_atom_id, p_command_key)` | `authenticated`; **authorizes `current_owner_id = auth.uid()` internally, live-read (C35, I-5)** | Supersedes any prior `issued` generation for the atom, inserts generation *g+1*, returns build context to the **edge** (`serial`, `generation`, `credential_version`, `signing_key_id`, `pass_type_cert_id`, plaintext auth token **once, never stored in plaintext, never re-returned**). Preconditions: atom `state='active'`; `resale_state='none'` (§15 OQ-W5); `config('wallet.apple.enabled')`. Locks: `kernel.tickets` PK `FOR SHARE` (rank 5). **SSCAS: n/a** — no custody moves, no ownership-log row, **no `credential_version` bump.** Idempotency: `UNIQUE(holder_identity_id, command_idempotency_key)` + state guard (an existing `issued` generation for the same owner returns `noop_replay` with the same serial). Errors: `insufficient_privilege(42501)` · `precondition_failed(atom_not_active\|atom_listed_locked\|wallet_disabled)` · `not_found`. |
 | `kernel.supersede_wallet_passes_for_atom(p_atom_id, p_reason_code)` | **`service_role`/definer only**; `REVOKE EXECUTE FROM anon, authenticated, public` | Marks every `issued` pass for the atom `superseded`/`invalidated`/`consumed`/`expired` per reason. Called from the **outbox consumer, not inside the custody transaction** — a Wallet failure must never be able to roll back or block a transfer. |
 | `kernel.touch_wallet_pass(p_wallet_pass_id)` | `service_role`/definer | Bumps `last_updated_at` (drives `passesUpdatedSince` / `Last-Modified`). |
-| `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` | `service_role`/definer | Web-service authentication + build inputs. **Constant-time comparison against `auth_token_hash` inside the function.** Returns identical shape for "not found" and "bad token". |
+| `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` | `service_role`/definer | Web-service authentication + build inputs. **Constant-time comparison against `auth_token_hash` inside the function**, **plus the two liveness preconditions of §11.6a — `status='issued'` AND holder = live current owner.** Returns identical shape, status and timing for not-found, bad token, superseded pass and stale holder. |
 | `kernel.register_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier, p_push_token)` | `service_role`/definer | Constant-time auth; upserts the registration; encrypts the push token. |
 | `kernel.unregister_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier)` | `service_role`/definer | Terminal-state idempotent. |
 | `kernel.list_updated_wallet_passes(p_device_library_identifier, p_since)` | `service_role`/definer | Serials with `last_updated_at > p_since` for that device. |
@@ -1183,6 +1191,50 @@ These are **operational thresholds, not secrets** — public-read like every oth
 | `kernel.revoke_wallet_pass(p_wallet_pass_id, p_reason_code, p_command_key)` | `is_platform([platform_admin, platform_support])` | Support path (leaked pass file, lost device). Audited. |
 | `kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert` | **`is_platform([platform_admin])` only** | Mirrors `provision/rotate/revoke_signing_key`. Dual-controlled (DA §12.4). Audited. |
 | `kernel.sweep_wallet_pass_lifecycle()` | `service_role`/definer (cron) | Reconciles pass status to atom state (`scanned`→`consumed`, `voided`→`invalidated`, post-event→`expired`) and enqueues pushes. **Explicitly NOT load-bearing:** every safety property in §4 holds whether or not this ever runs. Stated because "a correct thing that nothing called" is the exact failure class the door-lifecycle ruling was issued to eliminate. |
+
+### 11.6a `get_wallet_pass_build_context` preconditions — the H-4 fix (`SPEC CORRECTION`, NORMATIVE)
+
+> **The defect.** As contracted, this function's entire authority was the auth-token compare. It had **no
+> `status='issued'` precondition** and **no comparison of `wallet_pass.holder_identity_id` against
+> `kernel.tickets.current_owner_id`** — even though §11.1 documents `holder_identity_id` as a snapshot at mint
+> *"so a divergence is detectable"*. **It was detected by nothing.** A former owner unzips their own `.pkpass`
+> (it is a zip), reads `serialNumber` and `authenticationToken`, and polls the `verify_jwt=false` web service
+> **with no device, no app, and no account** — a live oracle on a ticket they no longer own, and, if the
+> service rebuilds at the live version, a credential *refresh* endpoint for someone else's ticket.
+> Supersession was the only guard, and it runs **outside the custody transaction** (§11.6,
+> `supersede_wallet_passes_for_atom`, deliberately, so Wallet can never block a transfer) — so between the
+> custody commit and the outbox consumer draining, the only remaining check was one this function did not make.
+
+**Normative.** `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` MUST return a build context
+**only if all three hold**, evaluated in one statement, under one live read of `kernel.tickets`:
+
+1. the presented token matches `wallet_pass.auth_token_hash` under a **constant-time** comparison (I-9);
+2. **`wallet_pass.status = 'issued'`**;
+3. **`wallet_pass.holder_identity_id = kernel.tickets.current_owner_id`** for the pass's `ticket_atom_id`,
+   read **live, at this call** — not from a cached projection, not from the pass row.
+
+Any of the three failing — and a serial that does not exist — returns the **identical result shape, the
+identical status, and the same timing budget**. There is no discriminating error, no "pass superseded" hint,
+no `wallet_disabled` branch visible to the caller: a distinguishable failure is the enumeration oracle in a
+different costume.
+
+**Precondition 3 is not redundant with precondition 2.** 2 depends on the outbox consumer having run; 3 does
+not depend on anything having run. 3 is what makes the window between the custody commit and supersession
+**zero-width**, and it is the reason `holder_identity_id` is stored as a snapshot at all.
+
+**Rebuild rule (NORMATIVE).** A rebuild re-signs the barcode at **`wallet_pass.credential_version_at_build`** —
+the version the pass was minted at — and **never** at the live `kernel.tickets.credential_version`. Rebuilding
+at the live version would make the web service a credential-refresh endpoint for whoever holds the auth token,
+which is exactly the authority §2.1 says a pass must never carry. **A pass whose version is behind the live one
+is not brought up to date — it is superseded, and its holder re-adds** (§7.1). The only things a legitimate
+rebuild changes are pass *presentation* fields (event time, venue, status face) and the certificate it is
+signed with; the credential claim inside the barcode is immutable for the life of the generation.
+
+**Two pgTAP assertions (added to §12 W-F):**
+
+- `get_wallet_pass_build_context` with a **correct** token on a pass whose `holder_identity_id ≠` the live
+  `kernel.tickets.current_owner_id` returns the **same** shape and status as an unknown serial.
+- The same, with `status='superseded'` and a correct token.
 
 ### 11.7 RLS delta
 
@@ -1394,9 +1446,14 @@ Grouped by the property each defends. All DB-level; none require the app.
 29. `mint_wallet_pass` is not a member of any SSCAS lock sequence — asserted via `pg_get_functiondef` not
     referencing `market.*` or `kernel.ticket_ownership_log`.
 
-**W-F. Web-service authentication (4)**
+**W-F. Web-service authentication (6)**
 30. `get_wallet_pass_build_context` with a **wrong** token returns the same shape and error as with an
     **unknown serial** (no enumeration oracle).
+30a. **(H-4)** `get_wallet_pass_build_context` with a **correct** token, on a pass whose `holder_identity_id`
+    differs from the live `kernel.tickets.current_owner_id`, returns the **same shape and status** as an
+    unknown serial — asserted **without** running the supersession consumer, so the test proves precondition 3
+    and not the outbox.
+30b. **(H-4)** The same with `status='superseded'` and a correct token.
 31. `pg_get_functiondef(get_wallet_pass_build_context)` contains a constant-time comparison and does **not**
     contain a bare `=` comparison against `auth_token_hash` (structural test for I-9).
 32. `register_wallet_pass_device` with a wrong token writes **no** row.
