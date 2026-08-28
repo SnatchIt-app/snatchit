@@ -736,6 +736,18 @@ Derived mechanically from the fenced block, **not transcribed from a prior list*
 So the per-atom read set is **five** fields — `ticket_atom_id · credential_version · ticket_state ·
 resale_state · signing_key_id` — and the header read set adds **`session_id`** and **`not_after`**.
 
+> **`MP1-READ-SET` — this table is the ONE literal enumeration, and §15 assertions 77/78 consume it
+> (`R3-5`).** Named so it can be cited instead of re-typed. **Per atom (5):** `ticket_atom_id` ·
+> `credential_version` · `ticket_state` · `resale_state` · `signing_key_id`. **Header (2):** `session_id` ·
+> `not_after`. **Delta row (2, the 3b.ii linkage):** `op` · `ticket_atom_id`.
+> **Four of the five per-atom names are the `M2[atom].<field>` references of 3b.iii, 3b.iv, 3b.v and 3c;
+> the fifth, `ticket_atom_id`, is the membership key of 3b.i and carries no `.field` suffix.** That
+> asymmetry is not incidental — a parse that looks only for `M2[atom].<field>` finds **four**, and an
+> assertion demanding five from that one pattern is unsatisfiable against a correct block. §15 assertion 78
+> therefore runs **four** patterns and compares each against its own enumeration.
+> **Adding a conjunct to `OFFLINE-VERIFY-v1` (edge §5.4.3, and only there) requires updating this table in
+> the same change**; assertion 78 fails until it is, in both directions, which is the intended coupling.
+
 **Why the delta rule is op-conditional rather than "all fields always".** A `revoke` delta only removes an
 atom from the admissible set; the device evaluates nothing against it beyond 3b.ii, so requiring a version or
 a key on it would be ceremony that a writer would eventually fill with a placeholder. An `add` delta is the
@@ -1689,6 +1701,32 @@ permitted by `door.manifest_early_open_window`. The dashboard's Open control sho
 
 Grouped by the property each group defends. All are DB-level; none require the app.
 
+> **Naming: THIS LIST'S ORDINALS ARE ITS PRIMARY IDS, AND THE ALIASING IS DELIBERATE — stated 2026-08-28
+> (`R3-5`), because it was not stated anywhere before and an unremarked second name reads as a duplicate.**
+>
+> An assertion here may be cited by up to **three** names, and all three refer to **one** assertion, not to
+> two that happen to agree:
+> 1. **the ordinal** — *"door §15 assertion 77"* — the primary id, stable, and the form the totals and the
+>    group sizes count;
+> 2. **a `T-DOOR-*` id**, carried by assertions whose property a sibling document needs to cite by name.
+>    **There are exactly two in this list: `T-DOOR-PROJ-01` (= 77) and `T-DOOR-PROJ-02` (= 78);**
+> 3. **a sibling register's id**, where the same property is also scheduled in another document's register —
+>    for the `MP-1` pair that is **`T-RPC-DOOR-33` (= 77 = `T-DOOR-PROJ-01`)** and **`T-RPC-DOOR-34`
+>    (= 78 = `T-DOOR-PROJ-02`)** in `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §18/§20.6.1.
+>
+> **So the `MP-1` pair carries three names each, across three schemes.** That is intentional — a
+> door-owned property that an RPC contract must also schedule needs a name in both registers — but it was
+> nowhere declared, and **two names with no declared relation are indistinguishable from two assertions**,
+> which is how a corpus ends up implementing one of them. **Where the two documents' wordings ever differ,
+> this list governs the property and the sibling register governs the scheduling.** `R3-5` rewrote 77/78
+> here; **the `T-RPC-DOOR-33`/`-34` twin still carries the superseded "derived read set" / count-floor
+> wording and must be brought into line by the RPC owner** — filed as `DR-1` in §21.
+>
+> **The remaining cross-scheme aliases are NOT enumerated here**, because the sibling ids
+> (`T-RPC-DOOR-*`, `T-SCHEMA-DOOR-30`…`-35`, `T-RLS-DOOR-11`…`-13`) live in three other owners' registers
+> and an inventory written from this side would be a fourth copy going stale. **Filed as `DR-2` in
+> §21**: each register states its own aliases, and the traceability matrix §9 holds the join.
+
 **A. Structure and grants (7)**
 1. `venue.door_manifest`, `venue.door_manifest_entry`, `kernel.door_freeze_override` exist with RLS **enabled**.
 2. `anon` and `authenticated` hold **no** INSERT/UPDATE/DELETE on any of the three (GP-1).
@@ -1833,18 +1871,70 @@ The defect these defend is not a wrong value; it is a **missing column**, which 
 So 77 is written **structurally** — over the projection's column list — and the rest are the behavioural
 consequences that would have been silent.
 
-77. **`T-DOOR-PROJ-01` (structural, the acceptance property).** Every field named in the `OFFLINE-VERIFY-v1`
-    predicate (edge §5.4.3) appears in `venue.get_door_manifest`'s entry projection, and every such field
-    appears in its `op='add'` delta projection. Asserted by **column-list comparison** against the fixed read
-    set `{ticket_atom_id, credential_version, ticket_state, resale_state, signing_key_id}` per atom and
-    `{session_id, not_after}` on the header — **never by scanning a returned row**, since a row proves only
-    that one atom had those columns populated. **Fails if a field is dropped from either projection**, which
-    is the exact regression `MP-1` was.
-78. **`T-DOOR-PROJ-02` (structural, the anti-vacuity half of 77).** The read set 77 compares against is
-    **derived from the fenced block, not hard-coded beside it**: the assertion parses the `OFFLINE-VERIFY-v1`
-    block for `M2[atom].<field>` references and fails if that parse yields fewer than five distinct fields.
-    Without this, editing the predicate to add a sixth conjunct leaves 77 green against a stale list — a gate
-    that checks a copy of the requirement instead of the requirement.
+> **`R3-5` — 77 AND 78 CONTRADICTED EACH OTHER, AND 78 WAS RED AGAINST THE CORRECT FENCE ON DAY ONE.
+> REWRITTEN 2026-08-28. The fenced block is untouched.**
+>
+> **Three defects, in one pair of assertions.**
+> **(i) Unsatisfiable.** 78 said the parse *"fails if that parse yields fewer than **five** distinct
+> fields"*. The pattern it parses for is `M2[atom].<field>`, and the block contains **exactly four** such
+> references — `M2[atom].credential_version` (3b.iii) · `M2[atom].ticket_state` (3b.iv) ·
+> `M2[atom].resale_state` (3b.v) · `M2[atom].signing_key_id` (3c). **The fifth per-atom field,
+> `ticket_atom_id`, comes from `atom ∈ M2` (3b.i), which is a membership test and carries no `.field`
+> suffix**, so no correct fence can ever satisfy a `≥ 5` floor on that pattern. **The gate was red against
+> the right document**, and the only ways to make it green were to weaken the floor or to edit the fence —
+> the second being CI-gated and the first being the failure it exists to prevent.
+> **(ii) Contradiction.** 77 compared against a **hard-coded** set written out beside it; 78 said that set
+> is **derived**. Both cannot be true, and the corpus cited each version in a different place.
+> **(iii) A count floor is not the property.** Even satisfiable, `≥ n distinct fields` is the exact shape
+> **`AUTHZ-C1C`** ruled against for `T-RLS-ROLE-02`: *a count assertion passes on the wrong set of the right
+> size*. A sixth conjunct reading a **new** field, added while an old one is dropped, keeps the count and
+> leaves 77 green against a stale list — the drift 78 exists to catch.
+>
+> **The fix is the one `T-RLS-ROLE-02` / `T-RLS-ROLE-06` already model:** one **literal enumeration** stated
+> in exactly one place (§7.5a's derivation table), 77 consuming that literal list, and 78 asserting **set
+> equality** between that list and what the fence actually yields — **in both directions, per pattern, with a
+> non-vacuity guard** — never a count.
+
+77. **`T-DOOR-PROJ-01` (structural, the acceptance property).** Every field of the **`MP1-READ-SET`** —
+    §7.5a's derivation table, which is the single literal enumeration and is consumed, not re-typed —
+    appears in `venue.get_door_manifest`'s entry projection **and** in its `op='add'` delta projection.
+    **`MP1-READ-SET` is, per atom: `ticket_atom_id` · `credential_version` · `ticket_state` ·
+    `resale_state` · `signing_key_id` (five); on the header: `session_id` · `not_after` (two); on a delta
+    row: `op` · `ticket_atom_id` (two, the 3b.ii linkage).** Asserted by **column-list comparison** as a
+    **subset** in the projection direction — §7.5a's rule is a superset rule, so operator-facing extras
+    (`serial_no`, `ticket_type_id`) are legal — and **never by scanning a returned row**, since a row proves
+    only that one atom had those columns populated. **Fails if any field of `MP1-READ-SET` is absent from
+    either projection**, which is the exact regression `MP-1` was. **Set equality between the two
+    projections is assertion 79**, so the pair together forbids one projection gaining a field the other
+    lacks.
+78. **`T-DOOR-PROJ-02` (structural, the anti-vacuity half of 77) — SET EQUALITY, NOT A COUNT.** The
+    assertion extracts the `OFFLINE-VERIFY-v1` block and asserts that what the block yields **equals**
+    `MP1-READ-SET`, **in both directions**, by running each of the four extraction patterns separately and
+    comparing each result against its own literal expectation:
+    - **`M2[atom].<field>`** ⇒ must equal **exactly** `{credential_version, ticket_state, resale_state,
+      signing_key_id}` — **four**, and the enumeration is the assertion, not the number;
+    - **`atom ∈ M2`** (3b.i, membership) ⇒ must be **present**, and contributes `ticket_atom_id`. **This is
+      the conjunct the old `≥ 5` floor could not see**, and it is why the pattern set is four patterns
+      rather than one;
+    - **the applied-`revoke`-delta clause** (3b.ii) ⇒ must be **present**, and contributes delta `op` +
+      `ticket_atom_id`;
+    - **conjunct 3 and the no-M2 clause** ⇒ must yield **exactly** `{session_id, not_after}` on the header.
+
+    **Failure is symmetric and that is the whole value:** a field in the block and not in `MP1-READ-SET` is
+    a conjunct the wire does not carry (the `MP-1` regression); a field in `MP1-READ-SET` and not in the
+    block is a stale list still being enforced. **A sixth conjunct therefore fails 78 immediately**, whether
+    or not it changes the field count.
+
+    **Non-vacuity guard, four parts, because every one of them is a way this assertion silently passes:**
+    (a) the extraction must find **at least one** `OFFLINE-VERIFY-v1` block under `docs/architecture/**` —
+    zero blocks is a hard fail, never a pass (this is the same floor the CI gate states as
+    `OFFLINE_VERIFY_MIN_BLOCKS`, and 78 **reuses that gate's extractor rather than reimplementing it**, so a
+    fence that stops being recognised fails both or neither); (b) the block it read must be the
+    byte-identical body the gate certifies, so 78 cannot be satisfied by a divergent copy; (c) **each** of
+    the four patterns must return a **non-empty** result — a broken parser returning nothing everywhere
+    would otherwise satisfy every equality vacuously; (d) `MP1-READ-SET` as read from §7.5a must be
+    non-empty and must contain the five per-atom names, so an emptied derivation table cannot make the
+    comparison trivial. **This assertion reads the fenced block; it never edits one.**
 79. The entry projection and the `op='add'` delta projection have **identical column lists** (§7.5a), asserted
     as set equality in both directions, so neither can gain a field the other lacks.
 80. The `CHECK` rejects an `op='add'` delta with `ticket_state <> 'active'`, and one with
@@ -2232,9 +2322,24 @@ none widens it.**
 
 ---
 
+## 21. Requests to sibling owners — recorded 2026-08-28 (`R3-5`), not applied here
+
+The register-integrity pass rewrote §15 assertions **77** and **78** (`T-DOOR-PROJ-01`/`-02`). Three
+consequences land in documents this file does not own. **Nothing below is edited by this pass**; each is
+carried in ratification row **`C134`**.
+
+| # | To | What | Why it cannot be done here |
+|---|---|---|---|
+| **`DR-1`** | **RPC owner** — `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §18 (door set-closure row) and §20.6.1 | **`T-RPC-DOOR-33`/`-34` is the twin of assertions 77/78 and still carries the superseded wording.** §18 reads *"with `-34` deriving the compared read set **from the fenced block** so `-33` cannot pass against a stale hard-coded list"*, and §20.6.1 states the same. That is the half of the old pair that **contradicted** the other half: 77 compared against a hard-coded set, 78 said the set was derived, and **78's concrete rule — *"fail if that parse yields fewer than five distinct fields"* — is unsatisfiable against a correct fence, which yields four `M2[atom].<field>` references.** Bring `-33`/`-34` into line with the rewritten 77/78: one literal enumeration (**`MP1-READ-SET`**, §7.5a), 77/`-33` consuming it, 78/`-34` asserting **set equality** between it and the block across **four** extraction patterns, with the four-part non-vacuity guard. **Do not edit any `OFFLINE-VERIFY-v1` block to satisfy it** — the block is correct; the assertion was wrong | the RPC contracts are another owner's file, and a one-sided edit would leave the two twins disagreeing in a new way rather than the old one |
+| **`DR-2`** | **RPC owner** · **schema owner** · **RLS owner (this pass)** | **State each register's own cross-scheme aliases.** The `MP-1` pair carries **three** names — ordinal `77`/`78`, `T-DOOR-PROJ-01`/`-02`, `T-RPC-DOOR-33`/`-34` — and nothing declared the aliasing, so a second name is indistinguishable from a second assertion. §15's preamble now declares it **from this side only**. The sibling ids (`T-RPC-DOOR-*`, `T-SCHEMA-DOOR-30`…`-35`, `T-RLS-DOOR-11`…`-13`) should each declare theirs, with `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §9 holding the join | an alias inventory written from one side is a fourth copy of a mapping and goes stale exactly as `C84` describes |
+| **`DR-3`** | **RPC owner** — §18 `G-23` | **`G-23`'s closure claim is false and is reported in full in ratification row `D35`.** It reads *"every suffix above is written as a full id, so a harness grepping for `T-RPC-` finds all of them"*, while the row immediately above it writes `T-RPC-ROLE-02/-03/-04/-05` as bare suffixes — and those four are cited **by name 17 times across five documents** | §18 is the RPC owner's register |
+
+---
+
 *End of `docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md`. Design-only; no SQL files, no migrations, no
 implementation code. Delta on the Phase-2 implementation specs; closes venue-dashboard Δ1 and §22.7, gives
 `catalog.event_session.door_open_at` the writer it never had, and answers `PHASE_2_APPLE_WALLET_SPEC.md`
 §14 (DL-1 … DL-6) in §19. The abolished `venue_door` label and the `AUTHZ-H3` door-PIN arm are purged in §20
 (`DL-X1`…`DL-X4`); where this file and `PHASE_2_RLS_PERMISSION_SPEC.md` §11 disagree, §11 governs and this
-file is the defect (rule `EXEC-DERIVED`).*
+file is the defect (rule `EXEC-DERIVED`). §15 assertions 77/78 were rewritten by the register-integrity pass
+(`R3-5`) and the three consequences for sibling owners are filed in §21.*

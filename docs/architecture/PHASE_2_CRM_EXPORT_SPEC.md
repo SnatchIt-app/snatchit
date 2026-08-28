@@ -1421,9 +1421,40 @@ required to keep: the ledger is retained for financial reasons, the audit row pi
 is answered by replaying the builder, not by having stored the answer.**
 
 **The cost, stated honestly.** After erasure, the replay no longer produces the erased person's row.
-`VERIFIED:` the live account-deletion path (migrations 019/020) repoints ledger-referenced rows to the
-anonymized sentinel `00000000-0000-0000-0000-000000000000`; once `current_owner_id` is the sentinel, "was I in
-that file" is unanswerable. **That is not a bug and it should not be fixed.** Being able to answer it forever
+
+> **`SPEC CORRECTION R4-5` (2026-08-28; rows `C124` / `D32`; executing schema `S-19`, ratified `C95`) — THIS
+> PARAGRAPH CARRIED A FORWARD-LOOKING CLAIM UNDER A TAG THAT MEANS *CHECKED AGAINST PRODUCTION*, AND WHAT IT
+> DESCRIBED IS FORBIDDEN.**
+>
+> It read: *"`VERIFIED:` the live account-deletion path (migrations 019/020) repoints ledger-referenced rows
+> to the anonymized sentinel `00000000-0000-0000-0000-000000000000`; **once `current_owner_id` is the
+> sentinel**, 'was I in that file' is unanswerable."* **`current_owner_id` is a `kernel.tickets` column and
+> nothing in production writes it.** Read from the applied migrations, not inferred: **`019`** inserts the
+> sentinel into `auth.users` + `public.profiles`; **`020`**'s `public.delete_account_cleanup` repoints
+> **exactly five columns across three `public.*` tables** — `listings.seller_id`, `payments.buyer_id`,
+> `payments.seller_id`, `transfers.buyer_id`, `transfers.seller_id` — and **references no `kernel.*`,
+> `catalog.*`, `venue.*` or `market.*` relation at all** (grep count: zero).
+>
+> **Ratified `CUSTODY-DEL-1` (schema §5.1) forbids exactly the repointing the sentence describes.**
+> `kernel.tickets.current_owner_id` and every identity column of `kernel.ticket_ownership_log` are
+> **permanently out of scope for anonymization-by-repointing**, on three independent grounds any one of which
+> suffices: the log is append-only with `REVOKE UPDATE, DELETE` and a guard trigger, so the write **raises**;
+> §1.6's Archival row already names the erasure mechanism and it is **crypto-shred via the PII vault**, not
+> repointing; and with `kernel.tg_custody_head_is_ledger_tail` (`079`) repointing the head alone **aborts at
+> COMMIT**.
+>
+> **Why this was the dangerous sentence and not merely a wrong one.** It is what an implementer reads
+> immediately before extending `020` to the Phase-2 tables — and extending it that way *is* the failure.
+> **The product conclusion below is unchanged and does not depend on the false clause**: it rests on erasure,
+> not on how erasure is implemented.
+
+`VERIFIED (re-read from the applied migrations, 2026-08-28):` the live account-deletion path (`019`/`020`)
+repoints `public.listings`/`payments`/`transfers` to the anonymized sentinel
+`00000000-0000-0000-0000-000000000000` and **touches no Phase-2 relation**. `kernel.tickets.current_owner_id`
+is **not** repointed, now or ever (`CUSTODY-DEL-1`); the export-membership question becomes unanswerable
+because the **identity's PII is crypto-shredded**, which is the erasure this section promises. **How account
+deletion behaves for an identity still holding live custody is open decision `O15` and is not settled here.**
+**That is not a bug and it should not be fixed.** Being able to answer it forever
 would mean we had kept the link we just promised to remove. The product answer is to **offer the disclosure
 before deletion**, not to keep the data after it:
 
@@ -1478,7 +1509,12 @@ of continuity and it is the correct trade against re-linking.
 
 ### 9.5 Constraint on whoever next edits migration 020
 
-`VERIFIED:` `delete_account_cleanup` repoints ledger-referenced rows to the anonymized sentinel.
+`VERIFIED (re-read 2026-08-28; `R4-5`, schema `S-19`):` `delete_account_cleanup` (`020`) repoints
+`public.listings.seller_id`, `public.payments.buyer_id`/`seller_id` and `public.transfers.buyer_id`/`seller_id`
+to the anonymized sentinel — **five columns, three `public.*` tables, and no `kernel.*` relation.**
+**`CUSTODY-DEL-1` (schema §5.1) makes `kernel.tickets.current_owner_id` and every
+`kernel.ticket_ownership_log` identity column permanently out of scope for repointing**, so the constraint
+below is the *second* such constraint on `020`, not the first.
 `kernel.identity_contact_pref`, `kernel.org_contact_consent` **and their two event logs** (§5.1) must
 **cascade** from `auth.users`, never be repointed to the sentinel — a sentinel row holding "consent granted to 40 orgs" would be an accumulating
 grant belonging to nobody, and the gate in §5.1 would evaluate it. Same shape as the demographics spec's
@@ -2342,7 +2378,7 @@ weakening it.
 | **K-3** | Role-model §5 F12 vs dashboard §5 note 13 | **Conflict resolved (§3.2).** Platform roles **read** the roster and **do not use the venue CRM export**. Platform bulk extraction is not built in Phase 2 (**D-8**). |
 | **K-4** | Venue dashboard §9.6 `UNVERIFIED` note (*"the export job, its lifecycle table, and the opt-in record are Agent B's delta"*) | **Resolved.** §11.2 supplies the job table, §5 the opt-in record, §6 the lifecycle. §9.6's ratified behaviour — async, 300-second signed URL re-authorized at download, audited request/generate/download/revoke, closed filter set, fixed columns, phone never exportable, email only on opt-in with an explaining legend, revoke on any `ready` export, `lg`+ only — is **unchanged and remains binding**. |
 | **K-5** | Venue dashboard §21 Δ3 `venue.list_attendees` | **Resolved and amended.** The contract is in §11.4, with the holder-grain correction (K-1), the column-scoping per §3, and the §9.5-flagged display-name source pinned to `public.profiles.display_name` (the 068 public-safe set). |
-| **K-6** | Migration 020 / account deletion | **Constraint recorded (§9.5, D-3):** never repoint a contact-preference or contact-consent row to the anonymized sentinel. |
+| **K-6** | Migration 020 / account deletion | **Constraint recorded (§9.5, D-3):** never repoint a contact-preference or contact-consent row to the anonymized sentinel. **AMENDED `R4-5` (2026-08-28; rows `C124`/`D32`, executing schema `S-19` / ratified `C95`):** the companion constraint is `CUSTODY-DEL-1` — `kernel.tickets.current_owner_id` and every `kernel.ticket_ownership_log` identity column are **permanently** out of scope for anonymization-by-repointing, and §9.2's `VERIFIED:` clause asserting the live path already repoints `current_owner_id` was **false** (`020` touches only `public.listings`/`payments`/`transfers`) and is corrected there. |
 | **K-7** | RLS spec §6 + §7/§9 | **Six** deny-all rows and six role matrices added (§11.3). |
 | **K-8** | SPEC_FOUNDATION §6 canonical table inventory | **Six** tables added (§11.2): the four originals plus `kernel.org_contact_consent_event` and `kernel.identity_contact_pref_event` (K-19). |
 | **K-9** | RPC contracts spec | **Eighteen** contracts added (§11.4) — the original fifteen plus `claim_artifacts_for_purge`, `confirm_artifact_purged` and `reconcile_export_orphans` (K-16). Three of the originals changed signature: `finalize_export` **loses** the gate-counter parameters (K-19), `list_attendees` **gains** `p_reason_code` (K-19), and `authorize_export_download` re-evaluates the template allow-list (K-15). |

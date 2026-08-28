@@ -789,8 +789,15 @@ Two consequences that must be stated or the trigger is wrong:
    tombstone writer's function body references **no** gender column. The assertion is narrowed rather than
    loosened: the point of 25 was "no trigger writes prior values", and that is asserted directly.
 
-`VERIFIED:` **critical interaction with migration 019/020.** The existing account-deletion path repoints
-ledger-referenced rows to the anonymized sentinel `00000000-0000-0000-0000-000000000000`. The demographic row
+`VERIFIED (re-read from the applied migrations, 2026-08-28; `R4-5`, executing schema `S-19` / ratified
+`C95`):` **critical interaction with migration 019/020.** The existing account-deletion path
+(`public.delete_account_cleanup`) repoints **five columns across three `public.*` tables** —
+`listings.seller_id`, `payments.buyer_id`/`seller_id`, `transfers.buyer_id`/`seller_id` — to the anonymized
+sentinel `00000000-0000-0000-0000-000000000000`. **It touches no `kernel.*` relation**, and the earlier
+unscoped phrase *"repoints ledger-referenced rows"* corroborated a false `VERIFIED:` claim in
+`PHASE_2_CRM_EXPORT_SPEC.md` §9.2 that the live path already repoints
+`kernel.tickets.current_owner_id` — which **ratified `CUSTODY-DEL-1` (schema §5.1) permanently forbids**.
+The demographic row
 **must never be repointed to that sentinel** — doing so would pile every deleted user's gender answer onto a
 single identity and create a "sentinel demographics" row. `ON DELETE CASCADE` is the correct behaviour and
 `delete_account_cleanup` must not be extended to touch this table. **This is an explicit constraint on
@@ -1175,10 +1182,13 @@ write one `kernel.admin_audit` row per invocation naming the actor and the count
   no date range, no scan status, no limit/offset, no ordering, no free-form filter. **Adding a third
   parameter to this function is a design change requiring re-review of §5.3, not a routine enhancement.**
 - **Actor:** `auth.uid()`. **Authority:** resolves the session → event → venue → org, then requires
-  `kernel.has_venue_role(venue_id, ['venue_manager','marketing','promoter_manager'])` **or**
+  `kernel.has_venue_role(venue_id, ['venue_manager','venue_marketing','venue_promoter_manager'])` **or**
   `kernel.has_org_role(org_id, ['org_owner','org_admin'])` **or** `kernel.is_platform(['platform_admin'])`.
-  Everyone else: `insufficient_privilege(42501)`. Per §6, `org_finance`, `venue_finance`, `box_office`,
-  `venue_door`/`door_pin`, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon` are denied.
+  Everyone else: `insufficient_privilege(42501)`. Per §6, `org_finance`, `venue_finance`,
+  `venue_box_office`, `venue_scanner`, any `door_pin` / door-session principal, `promoter`,
+  `platform_support`, `platform_risk`, `fan`, `anon` are denied. **(`R4-4`: `venue_door` is not a label —
+  `O-2` renamed it `venue_scanner`; the bare `marketing` / `promoter_manager` / `box_office` forms are
+  pre-`RM-1` and carry no plane token.)**
 - **Returns:** exactly one of two shapes, and the suppressed shape has **no other fields to fill** (R6):
   - `{ suppressed: true }` — nothing else. No `reason`, no `holders_total`, no `holders_responded`, no
     `as_of`, no bucket rows. `INFERENCE:` this is the single most important line in the contract. The
@@ -1225,7 +1235,7 @@ C27 counter-vs-ledger reconciliation discipline.
 | **Demographic value escaping through logs / observability** | No edge function, no external call, no log statement, no notification payload, no Sentry breadcrumb touches the value (§5.4). The value never crosses a process boundary out of Postgres. |
 | **Re-identification by an operator who also knows the guest list** | Bounded, not eliminated — and the bound is weaker than "anonymity" suggests. Five roles hold **both** the CRM spec's by-name roster read and this card (`org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`), so the smallest inferable group is 5 people **the reader can name**, not 5 unknowns. Floor 5 and the absence of a second axis are what bound it; the roster is what makes the bound a group bound rather than an anonymity bound. Stated here, in the CRM spec, and as **D-14**. |
 | **Stopping the leak once it is found** | §5.5: a live read-path kill switch plus two un-publish RPCs. Stopping the cron is **not** a kill switch — it stops new snapshots while venues keep reading the last published card. |
-| **A compromised finance/door/promoter/support account** | Those roles hold nothing (§6). The blast radius of the most commonly-compromised accounts is zero. |
+| **A compromised finance / scanner / promoter / support account** | Those roles hold nothing (§6). The blast radius of the most commonly-compromised accounts is zero. |
 
 ---
 
@@ -1326,9 +1336,10 @@ ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_sa
 21. `holders_responded <= holders_total` on every snapshot.
 
 **Visibility**
-22. `get_holder_mix` **denies**: `anon`, `fan`, `owner`, `org_finance`, `venue_finance`, `box_office`,
-    `venue_door`, a valid `door_pin` principal, `promoter`, `platform_support`, `platform_risk`.
-23. `get_holder_mix` **allows**: `venue_manager`, `marketing`, `promoter_manager` (venue scope);
+22. `get_holder_mix` **denies**: `anon`, `fan`, `owner`, `org_finance`, `venue_finance`,
+    `venue_box_office`, `venue_scanner`, a valid `door_pin` / door-session principal, `promoter`,
+    `platform_support`, `platform_risk`.
+23. `get_holder_mix` **allows**: `venue_manager`, `venue_marketing`, `venue_promoter_manager` (venue scope);
     `org_owner`, `org_admin` (org scope); `platform_admin`. And a `venue_manager` of venue X is **denied**
     on a session belonging to venue Y.
 24. Every call to `get_holder_mix` writes exactly one audit row naming actor, session, dimension, time.
@@ -1447,7 +1458,7 @@ every one of those references.*
 | **J-4** | SPEC_FOUNDATION §6 table inventory | Four tables added (§10.2). |
 | **J-5** | RPC contracts spec | Five contracts added (§10.4). |
 | **J-6** | CDM §4 / DA §8.7 (C34) | No constitution edit. This document records the Phase-2-safe interim promise (§8.5) and the C38 merge rule for demographics (§8.6), both consistent with the GATE-L status. **The frozen constitutions are not modified by this document.** |
-| **J-7** | Migration 020 / account deletion | Constraint recorded (§8.2, D-11): never repoint the demographic row to the anonymized sentinel. |
+| **J-7** | Migration 020 / account deletion | Constraint recorded (§8.2, D-11): never repoint the demographic row to the anonymized sentinel. **AMENDED `R4-5` (2026-08-28):** §8.2's `VERIFIED:` scope is corrected to the five `public.*` columns `020` actually writes; the companion binding rule is `CUSTODY-DEL-1` (schema §5.1). |
 | **J-8** | **This document, §4.1 · §4.3 · §5.1–§5.5 · §8.4 · §10.2 · §10.4 · §11 · §12(e) · §13** | **H-6 remediation.** The privacy floors were proved against a population the operator controls. Added: R6 (denominator suppression — the suppressed projection is now the constant `{suppressed: true}`), R7 (population eligibility — comped and zero-price custody excluded), R8 (churn redefined over the contributor multiset `(identity, bucket)`, with a distinct-identity limb), R9 (cross-session near-duplicate gate), a fully determined R3 merge with a two-bucket minimum in R5, a fail-closed read-side re-derivation of R1/R2/R4/R5/R6, the §5.4 declared read set the churn rule actually needs, and the §5.5 kill switch. **Two claims deleted** — see J-9. |
 | **J-9** | **Deleted claims (recorded verbatim so they cannot be cited from an older copy)** | (1) *"You cannot difference aggregates that do not exist."* — deleted as the general answer to differencing; it is true about axes and false about populations (§5.3 B). (2) *"each fake data point costs a real ticket purchase"* — deleted; comps cost nothing and the `venue_manager` mints both the session and the comps (§11). (3) *"Removing any one of layers 1–3 still leaves a correct floor"* — deleted; layers 1 and 3 were the same function and only R2 was a database constraint (§5.2). (4) The R6-era bound *"an anonymity set of at least 5, matching the per-bucket floor"* — deleted; 5 contributor-pair changes is at minimum 3 people, and the ≥ 5 bound is restored only by the added distinct-identity limb (§5.3 vector 4). |
 | **J-10** | Venue dashboard §9.5 card copy | **Correction (§4.3).** "Based on N of M" is a published-state string only — the suppressed state renders no numbers, no reason and no `as_of`. `M` is the R7-eligible paying population, not the room, and the subtitle says so. |

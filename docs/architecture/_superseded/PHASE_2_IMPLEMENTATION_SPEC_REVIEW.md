@@ -1,5 +1,32 @@
 # Phase 2 — Implementation Specification Cross-Spec Review
 
+> ## ⛔ SUPERSEDED — this document is NOT current design. Banner added 2026-08-28 (`R4-8`; ratification rows `C127` / `D34`).
+>
+> **Why this banner exists.** This file sits under `docs/architecture/_superseded/` and **carried no
+> supersession notice at all**, while the one `_governance/` document that was salvaged the same way
+> (`PHASE_2_FINAL_PREIMPLEMENTATION_GATE.md`) does carry one. A directory name is not a banner: a reader who
+> opens the file directly, follows a cross-reference into it, or reads a printed copy sees only live-sounding
+> present-tense prose. **Nothing below is deleted** — these documents are the provenance of ratified
+> decisions and are still cited by name — but nothing below may be implemented from.
+>
+> **Superseded by:** `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` (its findings became
+> rows; `E-1` and `OBS-1` are two of them) and
+> `docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md`, which is the live cross-spec
+> completeness instrument this review was a one-off ancestor of. **The six specs it reviewed have each been
+> corrected many times since** — the `AUTHZ-*`, `MB-*` and `MN-*` remediation passes among them — so a
+> "verified consistent" statement below is verified against the specs **as they stood at the review**, not as
+> they stand now.
+>
+> **Still cited, legitimately:** `PHASE_2_RLS_PERMISSION_SPEC.md` §0 and `PHASE_2_EDGE_FUNCTION_SPEC.md` §0
+> both cite its **§2.2/§5** for the five RN reconciliation targets being *CONSUMED and CLOSED*. That
+> citation is to a closure record and stands.
+>
+> **Reading rule.** Cite this file for **provenance** — what was found, by whom, and why a decision was
+> taken. **Never for current design, current numbers, or current scope.** Where it disagrees with the
+> superseding document named above, **the superseding document governs**, and that determination needs no
+> precedence rule: this one is dated and closed.
+
+
 **The final consistency pass over the six implementation specs.** Its sole job: verify that the physical schema, migration plan, RLS spec, RPC contracts, edge-function spec, and React Native product spec **all describe the same system** — and to fix the inconsistencies **in the specifications only** (no code, no migrations, no production change).
 
 **Specs under review (all repo-root, design-only):**

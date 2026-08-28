@@ -87,12 +87,18 @@ missing. `S2` = a surface has authority but no signature (an implementer has per
 | **G-19** | **S2** | **The `notification_preferences` toggles are read by no sender** — a live production defect. The Phase-2 design must not inherit it: `notify.channel_enabled` exists as a `DEF` RPC in RLS §11.7, but under **G-2** it has no package, so at MVP the preference surface (RN §6.1 item 8, dashboard §16.5) would again render toggles that gate nothing. | notifications spec §4 / the MVP carrier decision | **owner ruling O8**, then `PHASE_2_NOTIFICATIONS_SPEC.md` | `RPC`, `EDGE` |
 | **G-20** | **S3** | **Six RPC names diverge between RLS §11 / dashboard §20A and the RPC contracts.** `grant_org_role`/`revoke_org_role` vs contracted `change_org_role`/`remove_org_member`; `catalog.set_venue_approval` vs `catalog.approve_venue`; `catalog.set_event_status` vs `catalog.publish_event`; `venue.record_offline_scans` vs `venue.reconcile_offline_scans`; plus `venue.set_ticket_type_price` and `catalog.set_resale_policy` (EXEC rows, no contract at all). **Two names for one function produces two functions or none.** | RLS §11.1 ↔ RPC §2/§3/§4/§5/§9 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** (canonical namer) | `RPC` |
 | **G-21** | **S3** | **`catalog.sweep_implicit_door_freezes` has an EXEC row (RLS §11.4) and no contract**, while its sibling `kernel.sweep_expired_door_overrides` is contracted (RPC §17.11). RLS notes neither is load-bearing for correctness, which is why this is S3 and not S2. | RPC §17.11 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
-| **G-22** | **S3** | **Test-id counts are stated as rows, not ids.** RPC §18 enumerates **70** distinct `T-RPC-*` ids across 12 group rows (4+4+8+14+5+4+11+2+7+3+4+4); RLS §16.11 enumerates **35** distinct `T-RLS-*` ids across **33** register rows (`T-RLS-FORCE-01..03` is one row, three ids). A CI plan provisioned from the row counts under-provisions by 37 assertions. | RPC §18 / RLS §16.11 | **both** — state ids, not rows | `TEST` |
+| **G-22** | **S3** | **Test-id counts are stated as rows, not ids.** RPC §18 enumerates **70** distinct `T-RPC-*` ids across 12 group rows (4+4+8+14+5+4+11+2+7+3+4+4); RLS §16.11 enumerated **35** distinct `T-RLS-*` ids across **33** register rows at this document's baseline. **UPDATED 2026-08-28 (`R3-2`/`R3-6`): both halves of this row have since gone stale in the direction the row warns about.** RLS §16.11 now carries **67 ids in 65 rows** — §9.1 holds the full enumeration and matches it by set equality in both directions — and the RPC half is re-opened as **`G-27`**, whose addends sum to 81 against a claimed 83 and a true 86. **`T-RLS-FORCE-01..03` no longer exists as a range**: it is written as three full ids, per `R3-6`. | RPC §18 / RLS §16.11 | **both** — state ids, not rows | `TEST` |
 | **G-23** | **S3** | **`T-RPC-DOOR-05`, `-06`, `T-RPC-GLOBAL-02..04` and `T-RPC-NOTIFY-02..04` exist only as bare suffixes** (`-05`, `-02`) inside §18's group cells and never as full ids anywhere in the corpus. A harness that greps for `T-RPC-` misses all nine. | RPC §18 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `TEST` |
+| **G-26** | **S2** | **`G-23`'s own closure claim is FALSE, and it sits two lines below the counter-example (`R3-6`).** RPC §18 states, immediately after the group table: *"Every suffix above is written as a full id (`G-23`), so a harness grepping for `T-RPC-` finds all of them."* **The row immediately above that sentence — Role model — writes `T-RPC-ROLE-01` in full and then `-02`, `-03`, `-04`, `-05` as bare suffixes.** Those four are cited **by name 17 times across four documents** **RPC contracts ×7** — §1.1a `T-RPC-ROLE-02`, §1.1b `-03`, §1.1c `-04`, §1.1d `-05`, §2.1 `-04`, §20.4.1 `-02`, §20.4.1 `-04`; **this document ×7** — §4 `A2` `-01..05`, §4 `A5` `-04`, §4 `A9` `-05`, §4 `A12` `-04`, §6 `C2` `-01..04` and `-05`, §9.2 `-01..05`; **RLS ×2** — §11.3a `-04`, §16.4a `-05`; **ROLE_MODEL ×1** — §12 `-03`) — so this is not a dormant id, it is a **name four documents rely on and no register writes out.** **A closure claim asserted beside its own counter-example is worse than no claim**, because the next reader stops grepping. **`G-23` is not superseded — it is re-opened and widened**: its nine ids stand, plus these four, plus the register-size defect below | RPC §18 (the Role-model row and the `G-22`/`G-23` closure paragraph) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `TEST` |
+| **G-27** | **S3** | **Every stated register size in RPC §18 is wrong, including inside the remediation of the gap that was ABOUT wrong register sizes (`R3-6`).** `G-22`'s fix paragraph says *"The thirteen group rows above enumerate **83 distinct ids** (4+4+8+14+2+5+4+11+5+13+3+4+4)"* — **the addends sum to 81, not 83**, and the true enumeration is **86**: the Money row carries `T-RPC-MONEY-01..14` **plus `-21..-24`** (18, addend says 14) and the Role-model row carries five `ROLE` ids **plus `T-RPC-AUTHZ-17`** (6, addend says 5). So the sentence states **three** different sizes — the addend list (81), the claimed total (83), and what the rows actually enumerate (86) — and the derived *"under-provisions by 58"* inherits the error. **§18.2 states its own size three ways and none is correct**: *"These **sixteen** assertions"*, *"**16 ids**"*, and *"the namespace stays contiguous"* — while the table below enumerates **`T-RPC-AUTHZ-01` … `-20`, twenty rows.** **The pattern is a count maintained beside an enumeration nobody re-derives**, which is the same class as `R3-1`, `R3-2` and `R3-3` and the fifth instance this corpus has taken | RPC §18 (`G-22` paragraph), §18.2 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `TEST` |
+| **G-30** | **S3** | **§9.2 of this document schedules 70 `T-RPC-*` ids and the corpus defines 185** (`R3-2`). Fourteen families have no row here at all — `AUTHZ` (20 ids), `CAT`, `CFG`, `COMP`, `CONNECT`, `DASH`, `GUEST`, `INV`, `KEY`, `MARKET`, `ORG`, `SEAM`, `SET`, `STAFF`. **Deliberately not closed in this pass**: §9.2 mirrors RPC §18, which is under repair for `G-26`/`G-27`, and rebuilding against a register about to be renumbered produces a second stale copy | this document §9.2 · RPC §18 | **this document**, after RPC §18 settles | `TEST` |
 | **G-25** | **S2** | **The event catalog says 36 and the ratification says ~16, and nothing reconciles them.** Ratified row **C11** states the catalog *"is trimmed to the ~10 invariant-bearing sync calls + ~6 real outbox events"*. **DA §6.1 still lists all 36 rows and no document says which sixteen survive.** Under COND-A the only question that matters is *which events need a carrier*, and the ratified answer is "about six" while the catalog presents thirty-six unmarked. **An owner pricing the O7 ruling is reading a list a ratified correction already cut by more than half.** Full analysis in §8.3. | DA §6.1 (mark the surviving set) | **`SNATCH_IT_DOMAIN_ARCHITECTURE.md`** | `EVENT` |
 
-**Register totals: 26 entries** — **`S1` 8** (G-1…G-7, G-24) · **`S2` 14** (G-8, G-8b, G-9…G-19, G-25) ·
-**`S3` 4** (G-20…G-23). **Nine appear in no prior spec's reconciliation list and were found by this pass**:
+**Register totals: 29 entries** — **`S1` 8** (G-1, G-2, G-3, G-4, G-5, G-6, G-7, G-24) · **`S2` 15**
+(G-8, G-8b, G-9, G-10, G-11, G-12, G-13, G-14, G-15, G-16, G-17, G-18, G-19, G-25, **G-26**) · **`S3` 6**
+(G-20, G-21, G-22, G-23, **G-27**, **G-30**). **Enumerated rather than counted, on purpose** — three of the
+five register defects this corpus has been bitten by were a total updated while its list was not
+(`R3-1`…`R3-6`), and this line is now checkable against the table above by reading. **Nine appear in no prior spec's reconciliation list and were found by this pass**:
 G-4, G-5, G-6, G-7, G-8b, G-20, G-22, G-24, G-25. The other seventeen were filed by a sibling integrator
 (dashboard §20A.3 `U-1`…`U-10` and Δ11/Δ12; edge §9 recon #10/#12; registry §7 COND-A/COND-B) and are
 carried here so that a single document answers *"what is missing"* without a reader assembling four.
@@ -363,7 +369,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Architecture invariant** | **C8** (the `venue.settlement` ↔ `market` royalty fact crosses contexts via **a named `core`/`catalog` function or an outbox event, never a cross-schema join**) · **C28** (SSCAS #4 close, + member #5 commission) · **O-3** (`org_owner` reads the ledger and requests; `venue_finance` is narrowed to **settlement-caused** payouts for its own venue, because `kernel.payout` has no `venue_id` and an unqualified "own-venue payouts" was never expressible) · **SEAM-2** |
 | **Table(s)** | `venue.settlement` · `venue.settlement_line` (incl. the **partial unique index that stops the same attribution being settled twice** — `uq_promoter_commission_cause_ref`, added by `090`) · `venue.export_job` · the `crm-exports` bucket |
 | **RPC(s)** | `venue.open_settlement` · `kernel.close_settlement` (SSCAS #4) + its **two hook stubs** — `kernel.settlement_royalty_lines` (stub `087` → replaced `088`) and `kernel.settlement_commission_lines` (stub `087` → replaced `090`), both returning zero rows in the stub · `kernel.request_org_payout` — **`GAP` G-7** (`pay_promoter_commission` is the definer that the settlement path calls and it has no contract) |
-| **RLS / EXEC** | `venue_settlement_sel_org` · `venue_settlement_sel_venue` and the `_line` pair. `venue.export_job` carries **zero policies by design**; the `crm_export_builder` Layer-0 exception is the **one** named deviation (owner decision **MD-2**) and **`BYPASSRLS` on that role is explicitly not an acceptable shortcut** |
+| **RLS / EXEC** | `venue_settlement_sel_org` · `venue_settlement_sel_venue` and the `_line` pair. `venue.export_job` carries **zero policies by design** — **or exactly one, `venue_export_job_sel_svc_export`, if owner decision `MD-2` / `O17` adopts the `crm_export_builder` owner (`R3-4`; the two states are exclusive and the decision is OPEN)**; that Layer-0 exception is the **one** named deviation and **`BYPASSRLS` on that role is explicitly not an acceptable shortcut** |
 | **Edge function** | **`payout-execute`** (settlement-close disbursement leg) · **`crm-export`** `/build` + `/download` |
 | **RN / dashboard surface** | Dashboard **I** §14 (settlement list, open, detail, close, payouts) · **D** §9.6 CRM export |
 | **Event** | **COND-A** — #24 `SettlementClosed` (**Sync**: close → request payouts, same tx) · #32 `PromoterCommissionAccrued` (Async). **The C8 royalty fact survives COND-A** — C8 admits *"a named function **or** an outbox event"*, and the §13.2 hook satisfies the named-function arm. This is the **only** cross-context channel in the corpus that is not outbox-dependent. |
@@ -781,35 +787,72 @@ reduced by more than half.
 Discharges **RLS §17 X-9** (*"Every `T-RLS-*` id of §16.11 and every policy name of §16.10 needs a matrix
 row"*). **Every id below is claimed by at least one capability. There are no orphan test ids.**
 
-### 9.1 `T-RLS-*` — 35 ids in 33 register rows
+> **`R3-2` — X-9 WAS NOT DISCHARGED, AND THIS SECTION'S OWN HEADING SAID SO WITHOUT ANYONE READING IT.**
+> §9.1 was headed *"35 ids in 33 register rows"* and listed **25** rows carrying **35** ids, while RLS §16.11
+> defined **66** ids in **64** rows (**67** in **65** after `R3-3a` adds `T-RLS-CAT-01`). **Thirty of the thirty-one ids this section omitted were scheduled by
+> nothing** — among them the entire `T-RLS-MONEY-05…-12` money-authority block, the entire `T-RLS-CRM-03…-08`
+> export block, `T-RLS-EXEC-01`/`-02`, `T-RLS-ROLE-05`/`-06`/`-07`, `T-RLS-CFG-01`/`-02`, `T-RLS-COMP-01`,
+> `T-RLS-ATTR-03…-06`, the `AUTHZ-H3` door-session trio `T-RLS-DOOR-11`/`-12`/`-13`, and `T-RLS-POL-04`. The
+> thirty-first, `T-RLS-POL-03`, had a row that scheduled a **different assertion of the same name** (`R3-1`).
+> **Both numbers in the old heading were wrong, and neither was checkable**, because the heading stated
+> counts and the table stated ids and nothing compared them. **The heading now states the enumeration's own
+> arithmetic and the enumeration is complete**, so the two can be compared by reading. The *"no orphan test
+> ids"* claim above was **false when written** and is true as of this pass — for `T-RLS-*`. It remains
+> **false for `T-RPC-*`** (see the restated orphan check below), and `T-SCHEMA-*` had no register here at all until §9.3.
+
+### 9.1 `T-RLS-*` — the complete register: **67 ids in 49 rows here, against RLS §16.11's 67 ids in 65 rows**
 
 | ID | Capability |
 |---|---|
-| `T-RLS-FORCE-01..03` (3 ids) | **A2**, **A5**, **C2** |
+| `T-RLS-FORCE-01` · `T-RLS-FORCE-02` · `T-RLS-FORCE-03` (3 ids) | **A2**, **A5**, **C2** |
 | `T-RLS-FORCE-04` | **C2** |
 | `T-RLS-DOOR-01` | **A4** (the CRITICAL regression) |
-| `T-RLS-DOOR-02`, `-03`, `-04` | **A9**, **C4** |
+| `T-RLS-DOOR-02`, `T-RLS-DOOR-03`, `T-RLS-DOOR-04` | **A9**, **C4** |
 | `T-RLS-DOOR-05` | **A4**, **A11** |
 | `T-RLS-DOOR-06` | **A3**, **A8** |
 | `T-RLS-DOOR-07` | **A11** |
 | `T-RLS-DOOR-08` | **A3**, **C5** |
 | `T-RLS-DOOR-09` | **A9**, **B6** |
 | `T-RLS-DOOR-10` | **C4**, **B6** |
-| `T-RLS-EDGE-01`, `-02` | **A8** (and every Class-A edge row) |
-| `T-RLS-POL-01`, `-02`, `-03` | **A1**–**A13** globally; `-03` is the one that names `notify_notification_upd_owner` as the single exception (**B2**) |
-| `T-RLS-COL-01`, `-02` | **B3** (and §6 tier-2 tables globally) |
+| `T-RLS-DOOR-11`, `T-RLS-DOOR-12`, `T-RLS-DOOR-13` | **A9**, **C4** — the `AUTHZ-H3` door-session trio (RLS §16.4a, §11.4): the no-token call written as a **negative**, `token_hash` absent from every projection asserted **structurally over column grants**, and the PIN-revoke / device-retire pair asserted as **both halves in one test** |
+| `T-RLS-EDGE-01`, `T-RLS-EDGE-02` | **A8** (and every Class-A edge row) |
+| `T-RLS-POL-01`, `T-RLS-POL-02` | **A1**–**A13** globally — the per-object `policies_are()` list and the zero-policy list |
+| `T-RLS-POL-03` | **A3**, **A4**, **A5** — **`AUTHZ-PKG1`: the four deferred venue-plane policies exist AND WORK after `080`** (`catalog.venue`, `catalog.event`, `catalog.event_session` → **A3**; `kernel.tickets` → **A4**; `kernel.has_venue_role`/`has_event_role`, created in `080` → **A5**). **This row is `R3-1`.** Until 2026-08-28 the only matrix row bearing this id scheduled the *no-write-policy* assertion instead, so **the control ratified row `C86` relies on was scheduled by nothing** |
+| `T-RLS-POL-04` | **A1**, **A5** — `SEAM-3` mechanical: no policy is created in a package earlier than the package creating any function its predicate calls. Pairs with **`C87`**, whose finding was that the §13.2 sweep could not see a policy→function edge at all |
+| `T-RLS-POL-05` | **A1**–**A13** globally; **this is the one that names `notify_notification_upd_owner` as the single exception** (**B2**). **RENUMBERED from `T-RLS-POL-03` (`R3-1`, RLS §16.11)** — the id named two different assertions in one register table and this row cited the other one |
+| `T-RLS-COL-01`, `T-RLS-COL-02` | **B3** (and §6 tier-2 tables globally) |
 | `T-RLS-COL-03` | **A7**, **B1** |
 | `T-RLS-COL-04` | **A9**, **B6** |
-| `T-RLS-ROLE-01`, `-02` | **C2** |
+| `T-RLS-ROLE-01`, `T-RLS-ROLE-02` | **C2** |
 | `T-RLS-ROLE-03` | **C2**, **A9** |
 | `T-RLS-ROLE-04` | **A5**, **C2** |
+| `T-RLS-ROLE-05` | **A9**, **C4**, **B6** — the **positive** door-session coverage assertion (`AUTHZ-M6`), over the closed six-function door-reachable set of RLS §1.1d. `-03` is its negative half and neither substitutes for the other |
+| `T-RLS-ROLE-06`, `T-RLS-ROLE-07` | **C2**, **A5**, **A1** — the helper set is **exactly** the ten names of RLS §2.2 asserted in both directions (`-06`, `AUTHZ-C1C`), and each of those names is `SECURITY DEFINER` / `postgres`-owned / `STABLE` / `search_path`-pinned / no `anon` grant, asserted **per name** (`-07`) |
+| `T-RLS-EXEC-01` | **C2** globally, and **A1**–**D3** by reach — the §11 EXEC set equals ROLE_MODEL §5.3's `R` cells per principal, both directions, with the twenty-principal / seven-block non-vacuity guard |
+| `T-RLS-EXEC-02` | **C2** — no label in any §11 predicate outside the fifteen canonical labels (the `venue_door` rename class, `C81`/`C82`) |
 | `T-RLS-ATTR-01` | **A6**, **A12** |
 | `T-RLS-ATTR-02` | **A12**, **B5** |
+| `T-RLS-ATTR-03`, `T-RLS-ATTR-04` | **A12**, **B5** — both promoter-manager labels refused `review_attribution_flag` **after** a `venue_manager` has written `seq=1` (`-03`, `AUTHZ-H10`); exactly one function in `pg_proc` writes `venue.attribution_review` (`-04`) |
+| `T-RLS-ATTR-05`, `T-RLS-ATTR-06` | **A12**, **B5** — no body contains the token `promoter_id = auth.uid()` (`-05`, `AUTHZ-M10`); `authenticated` holds zero column grants on `venue.attribution`/`_review` (`-06`, `AUTHZ-M9`) |
 | `T-RLS-MONEY-01` | **A8**, **C1**, **C3** |
 | `T-RLS-MONEY-02` | **C1** |
 | `T-RLS-MONEY-03` | **C3** |
 | `T-RLS-MONEY-04` | **A10**, **C3** |
-| `T-RLS-CRM-01`, `-02` | **B3** |
+| `T-RLS-MONEY-05` | **A8**, **C1** — no authority branch in any money RPC reads `payload` (`AUTHZ-C1A`), structural over `pg_get_functiondef` |
+| `T-RLS-MONEY-06` | **A2**, **A8**, **C1** — grant maturity through the **real** invite/accept path (`AUTHZ-C1B`) |
+| `T-RLS-MONEY-07` | **A3**, **A8** — `authn.money_role_maturity_hours` absent ⇒ every money approval raises (fail-to-zero) |
+| `T-RLS-MONEY-08` | **A3**, **A8**, **C1** — `refund.platform_support_max_minor` deleted ⇒ `platform_support` raises, `platform_risk` succeeds (`AUTHZ-M3`) |
+| `T-RLS-MONEY-09` | **A2**, **A8** — a token with **no `amr`** raises `step_up_unavailable`, distinct from `step_up_required` and from `42501`, on all five step-up sites (`AUTHZ-M4`) |
+| `T-RLS-MONEY-10`, `T-RLS-MONEY-11` | **A2**, **A8** — the `kernel.approval_request` constraints (`AUTHZ-M1`/`M2`): `approved` with `approved_by IS NULL` rejected **by the constraint**; every `(action, subject_kind)` outside the three legal pairings rejected |
+| `T-RLS-MONEY-12` | **A3**, **A8** — `config.set_money_key` needs a **second distinct** `platform_admin` (`AUTHZ-C1A2`) |
+| `T-RLS-COMP-01` | **D1**, **A3** — `comp.per_staff_step_up_max_units` deleted ⇒ `allocate_comp`/`issue_comp` raise at `quantity = 1` and write nothing (`AUTHZ-M8`) |
+| `T-RLS-CAT-01` | **A3** — **`R3-3a`**: a `draft` `catalog.event` is invisible to `anon`, to a plain fan and to each of the five non-manager venue labels, and visible to `venue_manager` — asserted **per label** and over the **visible set**, not over the operator. The clause it defends read `status >= 'announced'` on a **`text`** column, which is true for all six labels |
+| `T-RLS-CFG-01`, `T-RLS-CFG-02` | **A3** — `catalog.platform_config`'s two-class read (`AUTHZ-CFG1`): zero rows for `anon` and a plain fan **per restricted namespace**, and a key seeded with no `visibility` is unreadable — the **default**, not the seed |
+| `T-RLS-CRM-01`, `T-RLS-CRM-02` | **B3** |
+| `T-RLS-CRM-03`, `T-RLS-CRM-04` | **B3** — `list_attendees` reason-code + audit + limiter order (`AUTHZ-M12`); the one-granted / one-withdrawn export fixture emitting **exactly one** cell, which is the assertion a *"the job succeeded"* test would have passed against the all-blank output (`AUTHZ-M11`) |
+| `T-RLS-CRM-05`, `T-RLS-CRM-06` | **B3** — `request_export` and `authorize_export_download` resolve to the **same** `assert_may_request` function, asserted as an equality between call sites (`-05`); the `operations_v1` refusal fixture must use a role that passes the **old** check (`-06`) — both `AUTHZ-M13` |
+| `T-RLS-CRM-07` | **B3** — the two contact `_event` logs hold zero `UPDATE`/`DELETE` grants for **every** role including `service_role` (`AUTHZ-CRM1`) |
+| `T-RLS-CRM-08` | **B3** — the revoked-job reconciliation flags **both** directions: a bucket object with no job row, and a `ready` job with no object (`AUTHZ-M14`) |
 
 ### 9.2 `T-RPC-*` — 70 ids in 12 group rows
 
@@ -828,9 +871,89 @@ row"*). **Every id below is claimed by at least one capability. There are no orp
 | `T-RPC-NOTIFY-01..04` | **B2** | **conditional on MD-10. `-02`, `-03`, `-04` exist only as bare suffixes — G-23** |
 | `T-RPC-GLOBAL-01..04` | **A1**–**D3** globally | structural posture, not behaviour. **`-02`, `-03`, `-04` exist only as bare suffixes — G-23** |
 
-**Orphan check — the instrument's own null result:** every `T-RLS-*` and every `T-RPC-*` id in the corpus
-maps to at least one capability. **The traffic runs the other way**: capabilities without ids (§3's eight
-`✓ᵖ` rows and four `GAP` rows), not ids without capabilities.
+**Orphan check — RESTATED 2026-08-28 (`R3-2`), because the old one was a null result the instrument could
+not have produced.** It read *"every `T-RLS-*` and every `T-RPC-*` id in the corpus maps to at least one
+capability."* Measured against the corpus rather than against this table:
+
+| Family | Ids defined in the corpus | Scheduled by a row here | Unscheduled |
+|---|---|---|---|
+| `T-RLS-*` | **67** (RLS §16.11, 65 rows — enumerated in §9.1) | **67** | **0** — true as of this pass, false before it |
+| `T-RPC-*` | **185** (enumerated by family below) | **70** (§9.2's twelve group rows) | **115** |
+| `T-SCHEMA-*` | **55** (enumerated in §9.3) | **0** before this pass; **55** after | **0** |
+
+**The `T-RPC-*` family enumeration, at family grain, so the 185 is checkable** — `ATTR-01..04` (4) ·
+`AUTHZ-01..20` (20) · `CAT-01..02` (2) · `CFG-01..05` (5) · `COMP-01..03` (3) · `CONNECT-01..04` (4) ·
+`CRM-01..13` (13) · `DASH-01` (1) · `DEMO-01..05` (5) · `DOOR-01..35` (35) · `GLOBAL-01..04` (4) ·
+`GUEST-01..02` (2) · `INV-01..06` (6) · `KEY-01..05` (5) · `MARKET-01..07` (7) · `MONEY-01..24` (24) ·
+`NOTIFY-01..04` (4) · `ORG-01..03` (3) · `PROMO-01..14` (14) · `ROLE-01..09` (9) · `SEAM-01..03` (3) ·
+`SET-01..02` (2) · `STAFF-01..06` (6) · `WALLET-01..03` (3) — **184**, plus the one phantom
+**`T-RPC-APPR-06`** (§9.4), which is cited and defined nowhere and is the 185th. **No family carries an
+internal numbering gap.** §9.2's twelve group rows reach the first `-01..-nn` run of ten of those families
+and stop; **`AUTHZ`, `CAT`, `CFG`, `COMP`, `CONNECT`, `DASH`, `GUEST`, `INV`, `KEY`, `MARKET`, `ORG`,
+`SEAM`, `SET` and `STAFF` have no row here at all** — fourteen families, and `AUTHZ` alone is twenty ids
+including the whole `APPR-SUBJ-1`/`-2` no-FK residual. **Filed as `G-30`, not closed here**: §9.2 mirrors the
+RPC owner's §18 register, which is itself under repair for the bare-suffix and register-size defects
+(`R3-6`), and rebuilding this section against a register that is about to be renumbered would produce a
+second stale copy. **The traffic still runs both ways**, which is the correction: capabilities without ids
+(§3's eight `✓ᵖ` rows and four `GAP` rows) **and** ids without capabilities.
+
+### 9.3 `T-SCHEMA-*` — 55 ids in 15 families, scheduled here for the first time
+
+**`R3-2`.** This family had **no row anywhere in this document** — the §9 heading said *"every id, and the
+capability that claims it"* and the register it discharges (**RLS §17 X-9**) is worded only about `T-RLS-*`,
+so the schema spec's entire assertion set fell between the two. It is the largest single body of physical
+constraints in the corpus: the `NOT NULL`s, the CHECKs, the partial uniques and the replay-level
+reachability sweeps that every behavioural `T-RPC-*` test assumes have already held.
+
+**Provenance.** Ids are authored in `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` and restated per package in
+`PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8; `T-SCHEMA-ROLE-02` is carried in `PHASE_2_ROLE_MODEL_SPEC.md`
+§11.5/§12 (the `OD-6` rows). **All three are other owners' documents — nothing below edits them**, and the two defects this enumeration
+exposes are filed as requests in §9.4.
+
+| Family (ids) | Capability | What the family holds |
+|---|---|---|
+| `T-SCHEMA-APPR-01`, `T-SCHEMA-APPR-02`, `T-SCHEMA-APPR-03`, `T-SCHEMA-APPR-04`, `T-SCHEMA-APPR-05`, `T-SCHEMA-APPR-07` (6 — **`T-SCHEMA-APPR-06` is a numbering gap, §9.4**) | **A2**, **A8** | `required_approver_class` `NOT NULL` + two labels; the `approved`/`approved_by` pairing without which the SoD CHECK is **vacuous**; no body branching authority on `action`/`org_id`; the three legal `action`↔`subject_kind` pairs; `granted_at` advancing on a role UPDATE |
+| `T-SCHEMA-AUDIT-01`, `T-SCHEMA-AUDIT-02`, `T-SCHEMA-AUDIT-03` (3) | **A8**, **A2** | `record_money_denial` **raises** on a `service_role` connection (`C93`); no parameter can set the actor, asserted over the **signature**; the closed money-`*.denied` allow-list |
+| `T-SCHEMA-CFG-01`, `T-SCHEMA-CFG-02`, `T-SCHEMA-CFG-03` (3) | **A3** | `anon` reads zero `catalog.platform_config` rows; `visibility` constant across **every version** of a key; `set_platform_config` cannot change it |
+| `T-SCHEMA-CRM-01` · `T-SCHEMA-CRM-02` · `T-SCHEMA-CRM-03` · `T-SCHEMA-CRM-04` · `T-SCHEMA-CRM-05` · `T-SCHEMA-CRM-06` · `T-SCHEMA-CRM-07` · `T-SCHEMA-CRM-08` · `T-SCHEMA-CRM-09` (9) | **B3** | the two contact `_event` relations **EXIST after replay** — by `to_regclass`, never by grepping a migration (`K-2`) — their AO guards, the append-not-edit shape of grant-then-withdraw, and `GATE-DEFAULT-1` (no event row resolves as-of to `allow`) |
+| `T-SCHEMA-CUSTODY-01` (1) | **A4** | an `UPDATE kernel.tickets SET current_owner_id` with no matching log append **raises at COMMIT** — asserted as `postgres`, as `service_role` **and** from a definer (`C94`; the trigger three documents called structural and no package built) |
+| `T-SCHEMA-DEV-01` (1) | **A9** | a retired device's next door call raises **and** it holds no `active` session |
+| `T-SCHEMA-DOOR-30` · `T-SCHEMA-DOOR-31` · `T-SCHEMA-DOOR-32` · `T-SCHEMA-DOOR-33` · `T-SCHEMA-DOOR-34` · `T-SCHEMA-DOOR-35` (6) | **A9**, **C4**, **B6** | the `AUTHZ-H3` door-session set, **written as negatives** because the call each rejects is the call that succeeded before the fix; `token_hash` structural absence; the actor-device disagreement asserted against **both** `record_scan` and `reconcile_offline_scans` |
+| `T-SCHEMA-EXPIRY-01` (1) | **A4** | `kernel.tickets.state='expired'` is **reachable** — the `MN-4` writer (`C98`) |
+| `T-SCHEMA-OFFER-01` (1) | **A11** | `respond_offer` past `expires_at` **with the sweep DISABLED**, because with the tick running the test passes for the wrong reason |
+| `T-SCHEMA-PAYOUT-01` · `T-SCHEMA-PAYOUT-02` · `T-SCHEMA-PAYOUT-03` · `T-SCHEMA-PAYOUT-04` · `T-SCHEMA-PAYOUT-05` · `T-SCHEMA-PAYOUT-06` · `T-SCHEMA-PAYOUT-07` (7) | **A8**, **A10**, **C3** | `hold_state` and its pairing CHECK (`C91`); hold-then-release restores `status` **by equality against the pre-hold value, not a literal**; the risk-queue partial index; the **reachability sweep** over all five `status` labels (`C92`); forward-only `status` |
+| `T-SCHEMA-PROMO-01`, `T-SCHEMA-PROMO-02`, `T-SCHEMA-PROMO-03` (3) | **A12**, **B5** | immutable `promoter_id`/`slug`; the clawback shape; an inactive link attracts no new attribution, asserted **through the attribution path** |
+| `T-SCHEMA-PURGE-01` · `T-SCHEMA-PURGE-02` · `T-SCHEMA-PURGE-03` · `T-SCHEMA-PURGE-04` · `T-SCHEMA-PURGE-05` (5) | **B3** | disjoint claims under the `purge_lease_until` lease; a Storage **404 is success**; the orphan pass in **both** directions; `sweep_expired_exports` moves **zero bytes** |
+| `T-SCHEMA-ROLE-02` (1 — **the family has no `T-SCHEMA-ROLE-01`, §9.4**) | **C2**, **A5** | `pg_type.typtype='e'` returns **zero** rows across the four Phase-2 schemas — no native enum exists anywhere in the model (`OD-6` physical half) |
+| `T-SCHEMA-SENTINEL-01` · `T-SCHEMA-SENTINEL-02` · `T-SCHEMA-SENTINEL-03` · `T-SCHEMA-SENTINEL-04` · `T-SCHEMA-SENTINEL-05` · `T-SCHEMA-SENTINEL-06` (6) | **A4**, **A1** | both sentinel `auth.users` rows exist after `078` and the seed is **idempotent** (`C96`); neither is a principal; neither can authenticate; the **anti-shortcut** invariant that the all-zeroes uuid appears in zero custody rows; three distinct uuids |
+| `T-SCHEMA-SETTLE-01`, `T-SCHEMA-SETTLE-02` (2) | **A10**, **C3** | `venue.settlement.status='paid'` reachable and reached **only** when every payout is settled; the `085` stub of `venue.on_payout_settled` is a **no-op** |
+
+**Arithmetic, stated so it is checkable against the column beside it:** 6 + 3 + 3 + 9 + 1 + 1 + 6 + 1 + 1 +
+7 + 3 + 5 + 1 + 6 + 2 = **55**.
+
+### 9.4 The two `T-SCHEMA-*` / `T-RPC-*` register defects this enumeration exposed — filed, not fixed here
+
+Both land in documents this pass does not own. Recorded as ratification row **`C130`**.
+
+1. **`T-RPC-APPR-06` is cited once and defined nowhere — it is the corpus's only cited-but-undefined test
+   id.** `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13.3 cites it for *"an approval whose subject no
+   longer resolves lands in `stale`, and no money row is written"*. **There is no `T-RPC-APPR-*` family**:
+   twenty-five `T-RPC-*` families exist and `APPR` is not one of them. **The assertion is already defined,
+   under a different name** — `T-RPC-AUTHZ-16` in `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.0a and §18 reads
+   *"a parked request whose `subject_id` is deleted resolves to `stale` on approval — not `denied`, not
+   `approved` — releases every hold and writes no money row, asserted on all three `subject_kind` values"*,
+   and it is the stated test for `APPR-SUBJ-2`, which is exactly the obligation §1.13.3 is stating.
+   **Settlement: the citation is the defect, not the register.** §1.13.3's `T-RPC-APPR-06` should read
+   **`T-RPC-AUTHZ-16`**. → **schema owner** (one citation; `T-RPC-AUTHZ-16` needs no change).
+2. **`T-SCHEMA-APPR-06` is the only numbering gap in the whole `T-SCHEMA-*` set**, and it is in the same
+   family the phantom id names — which is what makes the typo look like a missing schema test rather than a
+   mis-typed RPC one. **It is not a missing test**: the assertion that would have occupied it is
+   behavioural, is RPC-owned, and exists as `T-RPC-AUTHZ-16`. **Settlement: leave the gap and say it is
+   deliberate.** Renumbering `T-SCHEMA-APPR-07` down into `-06` would be a corpus-wide repoint of a
+   ratified id across the schema spec §1.13.4 and the migration plan §8 `077` row, to buy contiguity and
+   nothing else. → **schema owner** (one sentence beside `T-SCHEMA-APPR-05`/`-07`). **`T-SCHEMA-ROLE-*`
+   likewise has no `-01`** and never did; same disposition, recorded here so the next reader does not
+   "close" either gap by renumbering.
 
 ---
 
@@ -838,40 +961,57 @@ maps to at least one capability. **The traffic runs the other way**: capabilitie
 
 Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 
+> **`R3-3` — THIS SECTION WAS THE ONLY HOME OF TEN POLICY NAMES, AND `C84` SAYS THAT HOME GOES STALE.**
+> RLS §16.10 carried a **template** (`<table>_sel_venue`, `<table>_sel_org`, `<table>_sel_promoter`,
+> *"the `_item` triple"*, *"the `_line` pair"*) for 25 of its policies, and the literal forms of ten of them
+> appeared **only here** — which made a document whose own cell vocabulary is scoped *"at this baseline"*
+> (**`C84`**) the de facto authority for names `T-RLS-POL-01`'s `policies_are(…, ARRAY[…])` has to consume.
+> **RLS §16.10 now writes all 25 out and is the authority.** The rows below are aligned to it name-for-name
+> so the two can be diffed; where they ever disagree, **§16.10 wins** and this section is the stale copy.
+
+> **`R3-6` — FULL NAMES ONLY IN THIS TABLE, AND THE RULE IS SCOPED SO IT CAN BE OBEYED.** Every name in the
+> left column below is now written **in full** — no `· _sel_org` continuations, no *"and the `_item`
+> triple"*, no *"the same triple for …"*. **A harness grepping for `venue_order_item_sel_org` must find it**,
+> and before this pass it found nothing for fifteen of these rows. **The rule binds the two ID/name
+> registers — §9 (test ids) and §10 (policy names) — and NOT the §4–§7 capability rows**, which are prose
+> about a capability and legitimately abbreviate; scoping the rule to the registers is what makes it
+> keepable, and an unkeepable rule is how the RPC spec's `G-23` came to assert closure it did not have
+> (§1 `G-26`, ratification row `D35`).
+
 | Policy family | Capability |
 |---|---|
-| `catalog_venue_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
-| `catalog_event_sel_anon` · `_sel_org` · `_sel_venue` | **A3** |
-| `catalog_event_session_sel_anon` · `_sel_org` · `_sel_venue` | **A3**, **C5** |
+| `catalog_venue_sel_anon` · `catalog_venue_sel_org` · `catalog_venue_sel_venue` | **A3** |
+| `catalog_event_sel_anon` · `catalog_event_sel_org` · `catalog_event_sel_venue` | **A3** |
+| `catalog_event_session_sel_anon` · `catalog_event_session_sel_org` · `catalog_event_session_sel_venue` | **A3**, **C5** |
 | `catalog_platform_config_sel_public` · **`catalog_platform_config_sel_restricted`** (`AUTHZ-CFG1` / **C71**) | **A3**, **A8**. **TWO classes, not one — and COND-C's premise is corrected, not preserved.** `_sel_public` is `USING (visibility = 'public')`; `_sel_restricted` requires `is_platform([platform_admin, platform_risk])`. The table is **not** world-readable: money, `authn.*`, `comp.*`, `crm.*` and `door.*` keys are `restricted`. The blanket public-read this row previously asserted is the exact defect **C71** was raised against — it published every dual-control ceiling, step-up window and export cap to `anon`. Any `COND-C` reasoning resting on world-readability must be re-derived |
 | `catalog_resale_policy_sel_public` | **A3**, **A11** |
 | `kernel_identity_ext_sel_owner` | **A2** |
-| `kernel_organization_sel_org` · `_sel_platform` | **A2**, **D3** |
-| `kernel_org_member_sel_org` · `_sel_platform` | **A2**, **C2** (**I-12**) |
-| `kernel_org_invite_sel_invitee` · `_sel_org` | **A2** |
+| `kernel_organization_sel_org` · `kernel_organization_sel_platform` | **A2**, **D3** |
+| `kernel_org_member_sel_org` · `kernel_org_member_sel_platform` | **A2**, **C2** (**I-12**) |
+| `kernel_org_invite_sel_invitee` · `kernel_org_invite_sel_org` | **A2** |
 | `kernel_platform_role_sel_platform` | **A2**, **C2** (**I-12**) |
 | `kernel_signing_key_sel_public` | **A7** |
-| `kernel_tickets_sel_owner` · `_sel_venue` · `_sel_platform` | **A4** |
-| `venue_staff_role_sel_venue` · `_sel_org` · `_sel_platform` | **A5**, **C2** (**I-12**) |
-| `venue_ticket_type_sel_public` · `_sel_venue` | **A5** |
-| `venue_inventory_batch_sel_public` · `_sel_venue` | **A5** |
-| `venue_inventory_hold_sel_owner` · `_sel_venue` | **A5** |
-| `venue_order_sel_owner` · `_sel_org` · `_sel_venue` (+ the `_item` triple) | **A6** |
-| `venue_settlement_sel_org` · `_sel_venue` (+ the `_line` pair) | **A10** |
+| `kernel_tickets_sel_owner` · `kernel_tickets_sel_venue` · `kernel_tickets_sel_platform` | **A4** |
+| `venue_staff_role_sel_venue` · `venue_staff_role_sel_org` · `venue_staff_role_sel_platform` | **A5**, **C2** (**I-12**) |
+| `venue_ticket_type_sel_public` · `venue_ticket_type_sel_venue` | **A5** |
+| `venue_inventory_batch_sel_public` · `venue_inventory_batch_sel_venue` | **A5** |
+| `venue_inventory_hold_sel_owner` · `venue_inventory_hold_sel_venue` | **A5** |
+| `venue_order_sel_owner` · `venue_order_sel_org` · `venue_order_sel_venue` · `venue_order_item_sel_owner` · `venue_order_item_sel_org` · `venue_order_item_sel_venue` | **A6** |
+| `venue_settlement_sel_org` · `venue_settlement_sel_venue` · `venue_settlement_line_sel_org` · `venue_settlement_line_sel_venue` | **A10** |
 | `venue_comp_allocation_sel_venue` · `venue_guest_list_sel_venue` · `venue_guest_entry_sel_venue` | **D1** |
 | `venue_scan_device_sel_venue` · `venue_scan_sel_venue` · `venue_scan_sel_platform` | **A9** |
-| `venue_door_manifest_sel_venue` · `_entry_sel_venue` · `_delta_sel_venue` · `venue_door_manifest_sel_platform` | **B6**, **C4** |
-| `venue_promoter_sel_org`/`_venue`/`_promoter` and the `promoter_link` · `promoter_code` · `promoter_code_scope` equivalents | **A12**, **B5** |
+| `venue_door_manifest_sel_venue` · `venue_door_manifest_entry_sel_venue` · `venue_door_manifest_delta_sel_venue` · `venue_door_manifest_sel_platform` | **B6**, **C4** |
+| `venue_promoter_sel_org` · `venue_promoter_sel_venue` · `venue_promoter_sel_promoter` · `venue_promoter_link_sel_org` · `venue_promoter_link_sel_venue` · `venue_promoter_link_sel_promoter` · `venue_promoter_code_sel_org` · `venue_promoter_code_sel_venue` · `venue_promoter_code_sel_promoter` · `venue_promoter_code_scope_sel_org` · `venue_promoter_code_scope_sel_venue` · `venue_promoter_code_scope_sel_promoter` (12) | **A12**, **B5** |
 | `venue_attribution_sel_org` · `venue_attribution_sel_venue` · `venue_attribution_sel_platform` — **`venue_attribution_sel_promoter` is DROPPED** (`AUTHZ-M9`; a promoter reads own attributions **only** through `venue.list_my_attributions` / `get_my_promoter_summary`, never by table SELECT) | **A12**, **B5** |
 | `venue.attribution_review` — **NO POLICIES**; it is in the zero-policy set (`AUTHZ-M9`), because it carries the reviewer's private `note`. Every reader goes through an RPC | **A12**, **B5** |
-| `market_listing_native_sel_public` · `_sel_owner` | **A11** |
+| `market_listing_native_sel_public` · `market_listing_native_sel_owner` | **A11** |
 | `market_auction_sel_public` · `market_offer_sel_owner` | **A11** |
 | `market_p2p_transfer_sel_owner` | **A11** |
 | `market.listing_unified` — **none**, `security_invoker` | **A11** (the bridge creates no new authority) |
 | `notify_notification_sel_owner` · `notify_notification_upd_owner` | **B2** — **the only UPDATE policy in the register**, column-restricted to `read_at` |
-| `notify_preference_sel_owner` · `_ins_owner` · `_upd_owner` | **B2** |
+| `notify_preference_sel_owner` · `notify_preference_ins_owner` · `notify_preference_upd_owner` | **B2** |
 | `notify_announcement_sel_venue` | **B2** |
-| `<schema>_<table>_sel_svc_export` (the Layer-0 exception, **MD-2**) | **B3** |
+| **The twelve `_sel_svc_export` policies** (the Layer-0 exception) — `kernel_identity_ext_sel_svc_export` · `kernel_identity_contact_pref_sel_svc_export` · `kernel_identity_contact_pref_event_sel_svc_export` · `kernel_org_contact_consent_sel_svc_export` · `kernel_org_contact_consent_event_sel_svc_export` · `kernel_org_customer_key_sel_svc_export` · `kernel_tickets_sel_svc_export` · `venue_order_sel_svc_export` · `venue_order_item_sel_svc_export` · `venue_export_job_sel_svc_export` · `catalog_event_sel_svc_export` · `catalog_event_session_sel_svc_export` | **B3** — **`R3-4`: the pattern is replaced by the enumeration, because a pattern cannot be an `ARRAY[…]` element and `T-RLS-POL-02`'s converse assertion is *no such policy outside this set*.** **CONDITIONAL on owner decision `MD-2` / `O17`**: if the builder stays `postgres`-owned, **none of the twelve exists** and the six zero-policy members of the set stay at zero. Six of the twelve are in §16.10's zero-policy list (`identity_contact_pref`, `identity_contact_pref_event`, `org_contact_consent`, `org_contact_consent_event`, `org_customer_key`, `export_job`); for the other six the policy is **additive** to policies they already hold |
 
 > **CORRECTED 2026-08-28 (`TM-X3`). The denominator was wrong, which made the completeness claim vacuous.**
 > This paragraph said *"The 31 zero-policy objects … **All 31 are claimed**"*. RLS §16.10 lists **35** (34

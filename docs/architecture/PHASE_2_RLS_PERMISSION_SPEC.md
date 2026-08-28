@@ -2683,7 +2683,7 @@ implementation of the item named.
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | **MD-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — the parked branch takes `FOR UPDATE` on exactly one pre-existing class (Ticket Atom); the approval row is a fresh INSERT that contends on nothing. It is lock-ordered either way, so an amendment would be a one-line ratification | the parked refund branch |
-| **MD-2** | A second definer owner (`crm_export_builder`) for the export builder, deviating from the RPC spec's `postgres`-owned global | **Adopt.** The alternative is a `postgres`-owned function with reach over everything. `BYPASSRLS` is not an acceptable substitute. Needs the explicit `_sel_svc_export` policies of §16.10 | the export package |
+| **MD-2** | A second definer owner (`crm_export_builder`) for the export builder, deviating from the RPC spec's `postgres`-owned global | **OPEN — recorded as owner decision `O17` (`R3-4`), NOT decided.** This column is headed *Recommendation* and the recommendation is **adopt**: the alternative is a `postgres`-owned function with reach over everything, and `BYPASSRLS` is not an acceptable substitute. **The word "Adopt" alone read as a ruling and was cited as one** — three other sites (§16.10 clause 5, RPC §17.22's Layer-0 note, `PHASE_2_SCOPE_AMENDMENT_2026_08.md` `HG-4`) correctly treat it as open, so the status is now stated beside the recommendation rather than inferred from the column heading. **Adopting requires the twelve `_sel_svc_export` policies of §16.10 clause 1 AND the `T-RLS-POL-02` amendment of clause 3 AND the column-scoped `GRANT SELECT (id, email) ON auth.users`; resolving the other way requires none of them. Shipping the role without the policies is the one combination that is silently wrong** — it emits a syntactically valid export whose contact column is uniformly blank, and `finalize_export`'s own invariant balances perfectly at `cells_emitted = 0` | the export package — **`HG-4`: must be decided before `087` is authored** |
 | **MD-3** | The actual numbers: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours` | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config` | tier behaviour |
 | **MD-4** | `org_admin` reads `venue.settlement` (§9.13) while denied the payout and refund ledgers | Keep — settlement is operational reconciliation, payout is money-out. **The inconsistency is real and is named rather than smoothed** | consistency only |
 | **MD-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 | **Escalate** via the existing `release_payout` — the second human in the SoD pair becomes a platform operator. Relaxing reintroduces the exact named fraud primitive | §11.3 |
@@ -3009,10 +3009,43 @@ Every policy this document requires, by name. **A migration that creates a polic
 one that is, fails review.** Read with GP-3's rules: one policy per (table, verb, principal-class); `FOR
 SELECT` only; deny-all tables carry **zero** policies.
 
+> **`R3-3` — THIS REGISTER SAID *"by name"* AND GAVE 25 OF ITS POLICIES NO NAME. CORRECTED 2026-08-28.**
+>
+> Five rows carried a **template** instead of names — `<table>_sel_venue`, `<table>_sel_org`,
+> `<table>_sel_promoter`, *"(and the `_item` triple)"*, *"(and the `_line` pair)"*. **`T-RLS-POL-01` is
+> `policies_are(schema, table, ARRAY[…])`, and `ARRAY[…]` cannot be filled from a template**: the assertion
+> was literally unwritable for those relations, so the register's own enforcement — *"a migration that
+> creates a policy not on this list, or omits one that is, fails review"* — did not reach a quarter of the
+> policies it governs. **Ten of the literal names existed only in
+> `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §10** (`venue_comp_allocation_sel_venue`,
+> `venue_guest_list_sel_venue`, `venue_guest_entry_sel_venue`, `venue_scan_device_sel_venue`,
+> `venue_scan_sel_venue`, `venue_door_manifest_sel_venue`, `venue_door_manifest_entry_sel_venue`,
+> `venue_door_manifest_delta_sel_venue`, and `venue_promoter_sel_org`/`_sel_venue`/`_sel_promoter` shown
+> only for `venue.promoter` itself). **That is the wrong home**, and ratified row **`C84`** already
+> establishes why: the matrix's binding cell vocabulary is *"exists in the cited spec **at this baseline**"*,
+> so a name that lives only there goes stale silently and by design. **The authority is this table.**
+>
+> **The 25 names now written out, so the enumeration and not a count is the thing a migration is checked
+> against** — 3 on `venue.order_item` (`_sel_owner`, `_sel_org`, `_sel_venue`) · 2 on
+> `venue.settlement_line` (`_sel_org`, `_sel_venue`) · 1 each on `venue.comp_allocation`,
+> `venue.guest_list`, `venue.guest_entry`, `venue.scan_device`, `venue.scan`, `venue.door_manifest`,
+> `venue.door_manifest_entry`, `venue.door_manifest_delta` (all `_sel_venue`; 8) · 3 each on
+> `venue.promoter`, `venue.promoter_link`, `venue.promoter_code`, `venue.promoter_code_scope`
+> (`_sel_org`, `_sel_venue`, `_sel_promoter`; 12). **3 + 2 + 8 + 12 = 25, across 14 relations** — or 16 if
+> the two parent relations whose rows carried the parenthetical template (`venue.order`,
+> `venue.settlement`) are counted with them, which is the reading under which this defect was first
+> reported. The parents' own names were always literal; the children's were not.
+>
+> **This changes no authority and adds no policy.** Every name below is the `<schema>_<table>_sel_<class>`
+> form the register already used everywhere it was literal, applied to the relations where it had been left
+> implicit; each predicate family is the one its own matrix (§9.8, §9.14, §9.15, §9.16, §9.11, §9.12,
+> §16.2, §16.3, §9.17, §16.7) already states. **Nothing here creates a policy on a relation in the
+> zero-policy list**, and nothing grants a class its matrix denies.
+
 | Object | Policy name(s) | Predicate family |
 |---|---|---|
 | `catalog.venue` | `catalog_venue_sel_anon` · `catalog_venue_sel_org` · `catalog_venue_sel_venue` | narrow `approval_status='approved'`; org draft; own-venue draft |
-| `catalog.event` | `catalog_event_sel_anon` · `catalog_event_sel_org` · `catalog_event_sel_venue` | `status >= 'announced'`; org/venue draft |
+| `catalog.event` | `catalog_event_sel_anon` · `catalog_event_sel_org` · `catalog_event_sel_venue` | **`status <> 'draft'`** (**`R3-3a`** — *not* `status >= 'announced'`; see the note below); org/venue draft |
 | `catalog.event_session` | `catalog_event_session_sel_anon` · `catalog_event_session_sel_org` · `catalog_event_session_sel_venue` | sessions of visible events |
 | `catalog.platform_config` | `catalog_platform_config_sel_public` · **`catalog_platform_config_sel_restricted`** (`AUTHZ-CFG1`) | **TWO classes, not one.** `_sel_public` is `USING (visibility = 'public')`; `_sel_restricted` is `USING (kernel.is_platform(ARRAY['platform_admin','platform_risk']))`. The old single row was justified as *"values are not secret"* — **true of fee percentages, false of every dual-control ceiling, step-up window, grant-maturity hours, export cap and door-session TTL added since** (§8.4) |
 | `catalog.resale_policy` | `catalog_resale_policy_sel_public` | policy in force |
@@ -3027,11 +3060,22 @@ SELECT` only; deny-all tables carry **zero** policies.
 | `venue.ticket_type` | `venue_ticket_type_sel_public` · `venue_ticket_type_sel_venue` | `visibility='public'`; venue-scoped incl. hidden/door_only |
 | `venue.inventory_batch` | `venue_inventory_batch_sel_public` · `venue_inventory_batch_sel_venue` | `remaining` projection; full counters |
 | `venue.inventory_hold` | `venue_inventory_hold_sel_owner` · `venue_inventory_hold_sel_venue` | holder; venue ops |
-| `venue.order` · `venue.order_item` | `venue_order_sel_owner` · `venue_order_sel_org` · `venue_order_sel_venue` (and the `_item` triple) | buyer; org back office; venue ops |
-| `venue.settlement` · `venue.settlement_line` | `venue_settlement_sel_org` · `venue_settlement_sel_venue` (and the `_line` pair) | org/venue finance |
-| `venue.comp_allocation` · `venue.guest_list` · `venue.guest_entry` · `venue.scan_device` · `venue.scan` | `<table>_sel_venue` (+ `venue_scan_sel_platform`) | venue-scoped |
-| `venue.door_manifest` · `venue.door_manifest_entry` · `venue.door_manifest_delta` | `<table>_sel_venue` · `venue_door_manifest_sel_platform` | §16.2–§16.3 |
-| `venue.promoter` · `promoter_link` · `promoter_code` · `promoter_code_scope` | `<table>_sel_org` · `<table>_sel_venue` · `<table>_sel_promoter` | back office; **promoter own-row via `promoter_id IN (SELECT promoter_id FROM venue.promoter WHERE identity_id = auth.uid() AND status='active')`** — never a join through `link_id`, and **never `promoter_id = auth.uid()`**, which compares a `venue.promoter` PK to an `auth.users` id and is false for every row (§9.17, `AUTHZ-M10`) |
+| `venue.order` | `venue_order_sel_owner` · `venue_order_sel_org` · `venue_order_sel_venue` | buyer; org back office; venue ops |
+| `venue.order_item` | `venue_order_item_sel_owner` · `venue_order_item_sel_org` · `venue_order_item_sel_venue` | inherits the order's scope (§9.8) |
+| `venue.settlement` | `venue_settlement_sel_org` · `venue_settlement_sel_venue` | org/venue finance |
+| `venue.settlement_line` | `venue_settlement_line_sel_org` · `venue_settlement_line_sel_venue` | org/venue finance, AO (§9.14) |
+| `venue.comp_allocation` | `venue_comp_allocation_sel_venue` | venue-scoped |
+| `venue.guest_list` | `venue_guest_list_sel_venue` | venue-scoped |
+| `venue.guest_entry` | `venue_guest_entry_sel_venue` | venue-scoped |
+| `venue.scan_device` | `venue_scan_device_sel_venue` | venue-scoped |
+| `venue.scan` | `venue_scan_sel_venue` · `venue_scan_sel_platform` | venue-scoped; platform |
+| `venue.door_manifest` | `venue_door_manifest_sel_venue` · `venue_door_manifest_sel_platform` | §16.2 |
+| `venue.door_manifest_entry` | `venue_door_manifest_entry_sel_venue` | §16.3 (AO; **no identity column by construction**) |
+| `venue.door_manifest_delta` | `venue_door_manifest_delta_sel_venue` | §16.3 (AO) |
+| `venue.promoter` | `venue_promoter_sel_org` · `venue_promoter_sel_venue` · `venue_promoter_sel_promoter` | back office; **promoter own-row via `promoter_id IN (SELECT promoter_id FROM venue.promoter WHERE identity_id = auth.uid() AND status='active')`** — never a join through `link_id`, and **never `promoter_id = auth.uid()`**, which compares a `venue.promoter` PK to an `auth.users` id and is false for every row (§9.17, `AUTHZ-M10`) |
+| `venue.promoter_link` | `venue_promoter_link_sel_org` · `venue_promoter_link_sel_venue` · `venue_promoter_link_sel_promoter` | same three families; the `_sel_promoter` predicate resolves the promoter exactly as above and **never through `link_id`** |
+| `venue.promoter_code` | `venue_promoter_code_sel_org` · `venue_promoter_code_sel_venue` · `venue_promoter_code_sel_promoter` | §16.7 — *a code is a link's sibling and must not acquire a wider grant by being newer* |
+| `venue.promoter_code_scope` | `venue_promoter_code_scope_sel_org` · `venue_promoter_code_scope_sel_venue` · `venue_promoter_code_scope_sel_promoter` | §16.7, mirroring `promoter_code` exactly |
 | `venue.attribution` | `venue_attribution_sel_org` · `venue_attribution_sel_venue` · `venue_attribution_sel_platform` — **`venue_attribution_sel_promoter` is DROPPED** (`AUTHZ-M9`) | back-office and platform reads only. **The promoter's own-row read is `venue.list_my_attributions` / `get_my_promoter_summary` and there is no policy behind it** — the redaction of `displaced_promoter_id` and `touch_corroborated` is the RPC's projection, and a direct grant would defeat it |
 | `venue.attribution_review` | **none** — moved to the zero-policy set (`AUTHZ-M9`) | it carries the reviewer's private `note`. **Every** reader goes through an RPC: the promoter through `list_my_attributions` (decision + `reason_code` only), the back office through `list_promoter_attributions` |
 | `market.listing_native` | `market_listing_native_sel_public` · `market_listing_native_sel_owner` | `status='active'` discovery cols; seller full |
@@ -3054,6 +3098,43 @@ SELECT` only; deny-all tables carry **zero** policies.
 **`venue.attribution_review`** (`AUTHZ-M9`) · `market.market_sale` · `notify.notification_type` ·
 `notify.template` · `notify.delivery` · `notify.outbox` · `notify.schedule` ·
 `notify.identity_channel_state` · the `crm-exports` storage bucket.
+
+> **`R3-4` — SIX OF THOSE RELATIONS ARE ALSO IN THE ONE-POLICY SET FOUR LINES BELOW, AND THE DOCUMENT NAMES
+> THE COLLISION ITSELF WITHOUT RESOLVING IT. RESOLVED 2026-08-28.**
+>
+> Clause 1 below closes a twelve-relation set that each carries **exactly one** `_sel_svc_export` policy.
+> **Six of the twelve are in the zero-policy list above** — `kernel.identity_contact_pref` ·
+> `kernel.identity_contact_pref_event` · `kernel.org_contact_consent` · `kernel.org_contact_consent_event` ·
+> `kernel.org_customer_key` · `venue.export_job`. The other six are **not** zero-policy relations and their
+> export policy is **additive** to policies they already hold: `kernel.identity_ext` (1 → 2),
+> `kernel.tickets` (3 → 4), `venue.order` (3 → 4), `venue.order_item` (3 → 4), `catalog.event` (3 → 4),
+> `catalog.event_session` (3 → 4). **6 + 6 = 12.**
+>
+> **The resolution is conditional, and the condition is the whole point.** Clause 5 already states it: if
+> **`MD-2`** resolves `postgres`-owned, **none of clauses 1–4 is built and this list stands unamended at
+> zero**. So the six relations are **zero-policy today and one-policy only under `MD-2` = adopt** — they are
+> not in two states at once; they are in one state that has not been chosen yet. **`MD-2` is OPEN** — see
+> §15.7, where the *"Adopt"* beside it sits in a column headed **Recommendation**, in a table whose preamble
+> says each row *"blocks implementation of the item named"*. It is recorded as open decision **`O17`** and is
+> **not decided here**.
+>
+> **What was actually broken.** Clause 3 says *"`T-RLS-POL-02` **is amended** to exclude exactly this policy
+> name pattern"* — **and the `T-RLS-POL-02` row in §16.11 was never touched.** The amendment was ordered in
+> prose and left unmade, so the register kept asserting *zero policies* over relations the same section
+> requires to have one. **Adding the policies would have failed the test; not adding them empties every
+> export.** §16.11's `T-RLS-POL-02` row now carries the amendment, its four converse assertions, and the
+> `MD-2` gate. **The prose ordering an amendment is not the amendment**; that is the class of defect, and it
+> is why the fix is in the register row rather than in another paragraph here.
+>
+> **Three sibling documents state this set differently and none of them is conditional — reported, not fixed
+> here** (they belong to the migration-plan and schema owners): `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8
+> asserts it as fact for **three** relations in two package rows (`077`: `kernel.identity_contact_pref_event`
+> with the literal `USING`; `082`: `kernel.org_contact_consent` and `kernel.org_contact_consent_event`);
+> `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` asserts it as fact for **three** (§1.15.1
+> `kernel.identity_contact_pref_event`, §1.15.2 `kernel.org_contact_consent_event`, §3.18
+> `venue.export_job`), and its §1.15 preamble states it for **both** `_event` tables generically; `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §10 carries it as a **pattern**, and
+> is `MD-2`-gated. **Four registers, three counts, two modalities, one set.** **This section is the
+> authority**: twelve relations, conditional on `MD-2`.
 
 **Layer-0 exception — `AUTHZ-M11`: as previously written it granted the export builder access to tables this
 very register lists under ZERO policies, and it would have shipped every export with a blank contact
@@ -3184,9 +3265,15 @@ USING (
 -- catalog_event_sel_venue    ON catalog.event        CREATED IN 080
 -- §8.2 grants TWO tiers and the difference is load-bearing: only venue_manager
 -- sees a DRAFT event; every other venue label sees announced+ only.
+-- R3-3a: the visibility test is `status <> 'draft'`, NOT `status >= 'announced'`.
+-- `status` is a TEXT column with a CHECK (no native enum exists anywhere in the
+-- model -- T-SCHEMA-ROLE-02), so `>=` is a LEXICOGRAPHIC comparison over
+-- {announced, cancelled, completed, draft, live, on_sale}. 'announced' sorts
+-- FIRST, so `status >= 'announced'` is TRUE for every label including 'draft'
+-- and the second tier collapses into the first.
 USING (
       kernel.has_venue_role(venue_id, ARRAY['venue_manager'])
-   OR (     status >= 'announced'
+   OR (     status <> 'draft'
         AND kernel.has_venue_role(
               venue_id,
               ARRAY['venue_finance','venue_box_office','venue_marketing',
@@ -3215,6 +3302,27 @@ USING (
         ARRAY['venue_manager','venue_finance','venue_scanner'] )
 )
 ```
+
+**`R3-3a` — the two-tier split this clause calls load-bearing did not hold, and the reason is the column
+type.** The clause read `status >= 'announced'`. **`catalog.event.status` is a `text` column with a CHECK,
+not a native enum** — the schema spec writes `enum(draft · announced · on_sale · live · completed ·
+cancelled)` as *notation*, and `T-SCHEMA-ROLE-02` asserts `pg_type.typtype='e'` returns **zero** rows across
+all four Phase-2 schemas, so no ordered type exists to compare against. `>=` on `text` is therefore
+**collation-lexicographic**, and the six labels sort **`announced` < `cancelled` < `completed` < `draft` <
+`live` < `on_sale`**. `'announced'` sorts **first**, so `status >= 'announced'` is **true for all six** —
+including `draft`. **The second tier admitted exactly what the first tier existed to withhold**, and the
+comment two lines above it asserted the opposite. The corrected form is the membership test the matrix
+actually means: **`status <> 'draft'`**, the complement of the one hidden label, which is also correct if a
+seventh label is added later for any reason other than pre-announcement concealment.
+
+**Where else this shape can hide.** Only two policies in this register compare a status at all, and the other
+is safe by construction: `catalog_venue_sel_anon` uses **`approval_status = 'approved'`**, an equality.
+`catalog_event_session_sel_anon`'s *"sessions of visible events"* resolves through `catalog.event`, so it
+inherits the corrected predicate rather than restating it. **`T-RLS-CAT-01` (new, §16.11) asserts the
+property rather than the spelling**: a `draft` event is read by **zero** rows for every venue label except
+`venue_manager`, and for `anon` — asserted **per label**, because a single-label test passes while five
+labels leak. A test written against `>=` would have passed on the broken clause, which is why the assertion
+is over the *visible set*, not over the operator.
 
 **`I-4` column discipline is carried by the `GRANT`, not by the `USING`.** Footnote 8 of §7.5 scopes the
 issuing-venue read so that `current_owner_id` is **not** among the granted columns; a row-level clause cannot
@@ -3251,7 +3359,7 @@ Named so they can be written, run and cited. Grouped by the property each defend
 
 | ID | Assertion | Defends |
 |---|---|---|
-| `T-RLS-FORCE-01..03` | `pg_class.relforcerowsecurity = false` for `kernel.org_member`, `venue.staff_role`, `kernel.platform_role` — a **positive equality on the catalog**, not the absence of a `FORCE` statement in migration text | **I-12** |
+| `T-RLS-FORCE-01` · `T-RLS-FORCE-02` · `T-RLS-FORCE-03` | `pg_class.relforcerowsecurity = false` for `kernel.org_member` (`-01`), `venue.staff_role` (`-02`), `kernel.platform_role` (`-03`) — a **positive equality on the catalog**, not the absence of a `FORCE` statement in migration text | **I-12** |
 | `T-RLS-FORCE-04` | No **other** Phase-2 relation has a policy whose predicate calls a helper that reads that same relation (no second table depends on owner-bypass to terminate) | I-12 (allow-list, not scan) |
 | `T-RLS-DOOR-01` | `pg_get_functiondef('kernel.mark_ticket_scanned')` **does not match** `is_transfer_frozen` | **§14.3.5 — the CRITICAL regression** |
 | `T-RLS-DOOR-02` | With an episode open and `is_transfer_frozen = true`, `record_scan` on an `active`, `resale_state='none'` atom ⇒ `result='admitted'`, atom `scanned` | §14.3.5 |
@@ -3266,10 +3374,10 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-EDGE-01` | Every RPC in §11 whose authority names a human predicate raises when invoked with `auth.uid()` NULL — i.e. a service-role invocation **fails loudly instead of degrading** | **§3.1 EDGE-CALLER-JWT** |
 | `T-RLS-EDGE-02` | Every RPC marked `DEF` in §11 has **no** EXECUTE grant to `anon` or `authenticated` | §11 grant classes |
 | `T-RLS-POL-01` | `policies_are(schema, table, ARRAY[...])` for every object in §16.10 — an added, renamed or dropped policy fails CI | **GP-3** |
-| `T-RLS-POL-02` | The zero-policy list of §16.10 has RLS **enabled** and **zero** policies; no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2 |
+| `T-RLS-POL-02` | **AMENDED 2026-08-28 (`R3-4`) — this row is where §16.10 clause 3's amendment lands; it had been ordered and never made.** Every relation in the zero-policy list of §16.10 has RLS **enabled** and holds **zero policies**, **with one exception whose shape is asserted rather than waived**: a relation may additionally hold **exactly one** policy named `<schema>_<table>_sel_svc_export`, and only if it is one of the **six** zero-policy relations in §16.10 clause 1's twelve-relation set — `kernel.identity_contact_pref` · `kernel.identity_contact_pref_event` · `kernel.org_contact_consent` · `kernel.org_contact_consent_event` · `kernel.org_customer_key` · `venue.export_job`. **Four converse assertions, all required, because the carve-out is otherwise a hole:** (a) **no `_sel_svc_export` policy exists on any relation outside those six** — including the other six of the twelve, which are not zero-policy relations and whose export policy is additive to their existing ones; (b) **no `_sel_svc_export` policy names `anon`, `authenticated` or `public`** as its role; (c) each such policy's `USING` is **exactly** `current_user = 'crm_export_builder'` — no `auth.uid()`, no role helper, no `true`; (d) **no other zero-policy relation holds any policy at all.** **`MD-2`-GATED (`O17`): if `MD-2` resolves `postgres`-owned, ZERO `_sel_svc_export` policies exist and clauses (a)–(d) collapse to the original assertion** — the test reads the resolution, it does not assume it, and **the one combination that is silently wrong is the role without the policies**. Plus, unconditionally: no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2, **§16.10 clause 3** |
 | `T-RLS-POL-03` | **`AUTHZ-PKG1` — the four deferred venue-plane policies exist AND WORK after `080` applies.** Existence by name (`policies_are()` on `catalog.venue`, `catalog.event`, `catalog.event_session`, `kernel.tickets`) **plus a positive read**: a `venue_manager` granted on venue V reads V's own row on all four objects, and a `venue_manager` of a different venue reads **zero** rows on all four. **Existence alone is not the assertion** — a policy present with a wrong predicate passes it, and the failure mode being guarded is an operator plane that reads zero rows and presents as broken accounts rather than as a bad migration | **§16.10a**, `SEAM-3`, `I-1` |
 | `T-RLS-POL-04` | **`SEAM-3` mechanical — no policy is created in a package earlier than the package creating any function its predicate calls.** Build the map `policy → { helpers called }` from §16.10a and §16.10, map each helper to its package via schema §0.6, and assert `package(policy) >= max(package(helper))` for every policy in the register. **Non-vacuity: the check must resolve at least one helper for at least one policy per venue-plane table, or an empty map passes trivially** — which is exactly how the function-scoped §13.2 sweep returned clean over `FR-10`…`FR-13` | **§16.10a**, `SEAM-3`, schema §13.2 |
-| `T-RLS-POL-03` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner` | GP-1, GP-3 rule 2 |
+| `T-RLS-POL-05` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner`. **RENUMBERED from `T-RLS-POL-03` — see the collision note below** | GP-1, GP-3 rule 2 |
 | `T-RLS-COL-01` | `anon` holds **zero** rows in `information_schema.role_column_grants` for every empty-grant-set table of §6 | §6 tier 2 |
 | `T-RLS-COL-02` | `authenticated` holds **zero** rows in `role_column_grants` for the same set — *the assertion that would have caught the pre-068 `public.profiles` exposure* | §6 tier 2 |
 | `T-RLS-COL-03` | `authenticated` holds no SELECT on `kernel.wallet_pass.auth_token_enc` / `.auth_token_hash` / `.serial_no_opaque`; no `venue_*` or `org_*` role holds SELECT on any wallet table | §16.8 |
@@ -3310,11 +3418,50 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-CRM-06` | An `org_marketing` **that passes the role-set check** on the scope is refused the download of an `operations_v1` job. **The fixture must use a role that passes the OLD check**, or the test passes against the broken predicate | **§11.6 `AUTHZ-M13`** |
 | `T-RLS-CRM-07` | The two contact `_event` logs hold **zero** `UPDATE`/`DELETE` grants for every role including `service_role`, and zero column grants for `anon`/`authenticated` | **§16.6 `AUTHZ-CRM1`** |
 | `T-RLS-CRM-08` | A revoked export job reaches `artifact_state='deleted'`; the daily reconciliation flags **both** a bucket object with no job row **and** a `ready` job with no object | **§11.6 `AUTHZ-M14`** |
+| `T-RLS-CAT-01` | **`R3-3a` — a `draft` `catalog.event` is read by ZERO rows for `anon`, for a plain fan, and for each of `venue_finance`, `venue_box_office`, `venue_marketing`, `venue_promoter_manager` and `venue_scanner` granted on that venue; the same row IS read by `venue_manager`.** Asserted **per label** (a single-label test passes while five leak) and over the **visible set**, never over the operator — a test written against `status >= 'announced'` passes on the broken clause | **§16.10a `R3-3a`**, §8.2 |
 | `T-RLS-CFG-01` | `anon` and a plain `authenticated` fan read **zero** `catalog.platform_config` rows for every key in the six restricted namespaces — asserted **per namespace**, because a single-key test passes while five namespaces leak | **§8.4 `AUTHZ-CFG1`** |
 | `T-RLS-CFG-02` | A key seeded with **no** `visibility` value is unreadable by `anon` — this asserts the **default**, not the seed | **§8.4 `AUTHZ-CFG1`** |
 | `T-RLS-DOOR-11` | A call carrying a valid `device_id` and `event_session_id` but **no session token** raises — written as a **negative**, because it is the exact call that succeeded before the fix | **§16.4a `AUTHZ-H3`** |
 | `T-RLS-DOOR-12` | `token_hash` is absent from every projection any role can reach, **including `platform_admin`** — asserted **structurally over the column grants**, not by a sample read, which passes on an empty table | **§16.4a `AUTHZ-H3`** |
 | `T-RLS-DOOR-13` | Revoking a door **PIN** leaves **no `status='active'` `venue.door_session` row** for that PIN (RV-1), and retiring a **device** leaves none for that device (RV-2) — **both halves in one test**, because the liveness clauses already fail the call and would pass a one-sided assertion | **§11.4 RV-1/RV-2** |
+
+> **`R3-1` — `T-RLS-POL-03` NAMED TWO DIFFERENT ASSERTIONS IN THIS TABLE, AND TWO DOCUMENTS CITED IT IN
+> OPPOSITE DIRECTIONS. RENUMBERED 2026-08-28.**
+>
+> **What was wrong.** This register carried **two rows** headed `T-RLS-POL-03`, with `-04` between them: the
+> `AUTHZ-PKG1` venue-plane control (*the four deferred policies exist and work after `080`*) and the
+> `GP-1`/`GP-3` rule (*no INSERT/UPDATE/DELETE policy except `notify_notification_upd_owner`*). `C86` was
+> appended 2026-08-28 and claimed `-03`/`-04` without noticing `-03` was already in use. **The two meanings
+> were then cited in opposite directions**: the traceability matrix §12 row and
+> `PHASE_2_SCOPE_AMENDMENT_2026_08.md` §11 row 4 meant the no-write-policy rule; ratified row **`C86`** means
+> the venue-plane control. **The consequence was not cosmetic — the control `C86` relies on to prove the four
+> deferred venue-plane policies actually work after `080` was scheduled by nothing**, because the only
+> traceability-matrix row bearing that id scheduled the other assertion.
+>
+> **What moved, and why that direction.** The **no-INSERT/UPDATE/DELETE-policy rule** is renumbered
+> `T-RLS-POL-03` → **`T-RLS-POL-05`**. The venue-plane control **keeps `-03`**. It is the newer of the two and
+> would normally be the one to move — but its only citation outside this document is inside ratified row
+> **`C86`** of `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, which is **append-only**: a
+> ratified row is never reworded, so moving `-03` would leave `C86` citing an id that no longer exists and the
+> correction could only be carried as an erratum a reader has to find. The no-write-policy rule's citations
+> are both in **editable registers** and are repointed in the same commit. **The renumber therefore leaves
+> every ratified row literally true and touches no frozen text.**
+>
+> **Every citation repointed (the complete list — there are three, and they are these):**
+> 1. this row, in this table;
+> 2. `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §9.1 (the combined `T-RLS-POL-01`, `-02`, `-03` row is
+>    split: `-05` now carries the `notify_notification_upd_owner` exception, and `-03`/`-04` get their own
+>    rows — `-04` had no row at all);
+> 3. `PHASE_2_SCOPE_AMENDMENT_2026_08.md` §8 (Feature 5 — Notifications) layer-4 RLS row
+>    (`assertion T-RLS-POL-03` → `T-RLS-POL-05`).
+>
+> **`T-RLS-POL-*` is now exactly five ids, and here they are** — stated as an enumeration and not as a count,
+> because a count is what let a sixth row wear a fifth name: **`T-RLS-POL-01`** (`policies_are()` per object
+> in §16.10) · **`-02`** (the zero-policy list is zero, plus the `_sel_svc_export` carve-out of §16.10 clause
+> 3) · **`-03`** (`AUTHZ-PKG1` — the four venue-plane policies exist **and work** after `080`) · **`-04`**
+> (`SEAM-3` mechanical — no policy precedes a helper its predicate calls) · **`-05`** (no INSERT/UPDATE/DELETE
+> policy, one named exception). **No `T-RLS-*` id in this register is defined twice**; that is now a property
+> a reader can check against this list rather than a hope.
 
 > **`AUTHZ-M5` — `T-RLS-ROLE-02` was not mechanically checkable, and it is the corpus's ONLY defence against a
 > hand-rolled role comparison inside an RPC body.**

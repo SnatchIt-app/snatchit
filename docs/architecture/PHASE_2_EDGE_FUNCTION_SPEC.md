@@ -72,9 +72,23 @@ Every edge function is exactly one of two classes, and its class is stated in it
 > `auth.uid()` and `auth.jwt()` resolve to the human *inside the transaction*.
 >
 > **EA-2.** The service-role key **MAY** be used in the same function for work that takes no authority from the
-> caller: Stripe and KMS calls, object-storage writes, `kernel.record_money_denial`, outbox drains, structured
+> caller: Stripe and KMS calls, object-storage writes, outbox drains, structured
 > logging, and Sentry. It **MUST NOT** be used to invoke a money, custody, or role-authorizing RPC on a human's
 > behalf — **ever**, and not "temporarily", and not "because the edge already checked the role."
+>
+> > **`SPEC CORRECTION` (`S-17`; schema §1.12.1, RPC §17.9; ratification `C106`) — `kernel.record_money_denial`
+> > IS REMOVED FROM THIS LIST AND IS AN EA-1 CALL.** It was listed here as service-role work *"that takes no
+> > authority from the caller"*, and **its entire purpose is to name the human who was just refused.** On a
+> > service-role connection `auth.uid()` is NULL, `kernel.admin_audit.actor_identity` is
+> > `NOT NULL FK→auth.users`, and the FK forbids an invented sentinel — **so the call fails on its first
+> > attempt, in production, on the fraud path.** *"Repeated failed attempts by ONE PRINCIPAL"* is precisely
+> > the fact the row could not carry.
+> >
+> > **The denial log is the SAME call's second transaction, on the SAME caller-`Authorization` client** the
+> > function already built for the RPC that was denied. The database derives the actor itself
+> > (`actor_identity := auth.uid()`); **no actor parameter is added**, so EA-6 is honoured rather than
+> > excepted. **This EXTENDS EA-1's scope by one function; it weakens nothing**, and it is the one item on
+> > the pre-fix EA-2 list that was never external I/O.
 >
 > **EA-3 (Class B — service-authorized).** A function may use a service-role client for its RPC calls **only**
 > when the RPC takes **no** authority from `auth.uid()`. Three shapes qualify and no others:
@@ -84,6 +98,15 @@ Every edge function is exactly one of two classes, and its class is stated in it
 > credential** verified constant-time in the function itself (a Stripe signature, a per-pass
 > `authenticationToken`, a door session). In (B-iii) the function's own check **is** the authority and must be
 > specified as such — see EA-5.
+>
+> > **`S-17` — `kernel.record_money_denial` is NOT a member of (B-ii), and reading it as one is what broke
+> > it.** (B-ii) is about RPCs that take **no** authority from `auth.uid()`. This one **derives its only
+> > meaningful column from `auth.uid()`** and **RAISES when it is NULL** (RPC §17.9), so a service-role
+> > client makes it fail rather than succeed silently — the fail-closed direction, but a failure on the fraud
+> > path all the same. **The genuine money members of (B-ii) are the state-sync RPCs and the sweeps**:
+> > `kernel.mark_payout_transfer_state` (RPC §20.7.6), `kernel.mark_refund_state` (§20.7.7),
+> > `kernel.sweep_expired_ticket_atoms` (§12.5) and the four other sweeps — all of which really do have no
+> > human actor and are served by the `SN-SYSTEM` sentinel (schema §1.16).
 >
 > **EA-4.** `verify_jwt` is **not** the classification. `verify_jwt: true` proves a JWT was present; it does not
 > prove the RPC saw it. A function may be `verify_jwt: true` and still be broken under EA-1 if it then calls the
@@ -425,15 +448,48 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **DB-RPC:** `kernel.close_settlement` (§10.2) → generates `kernel.payout` intents; `kernel.request_org_payout`
   (§10.3) → advances `pending→submitted`; `kernel.release_payout` (§11.3) → resumes a held payout. **The DB
   records the payout intent + advances state; the edge executes the Stripe transfer** and writes back the
-  `stripe_transfer_ref` via the RPC's callback param. Order: **RPC-first to claim `submitted` under lock, THEN
-  Stripe transfer, THEN RPC callback to record the ref** — so a crash after transfer is recovered by the
-  deterministic idempotency key, never a double-pay.
+  `stripe_transfer_ref` **through `kernel.mark_payout_transfer_state`** (RPC §20.7.6). Order: **RPC-first to
+  claim `submitted` under lock, THEN Stripe transfer, THEN the state-sync RPC to record the ref** — so a
+  crash after transfer is recovered by the deterministic idempotency key, never a double-pay.
+  - **THIS FUNCTION IS THE WRITER OF `failed`, and that is a correction to §4 (`S-16`; ratification
+    `C104`).** A transfer that cannot be created fails as a **synchronous Stripe API error** — there is no
+    `transfer.failed` event — so the failure is known **here**, in the request that caught it, and nowhere
+    else. The edge calls
+    `kernel.mark_payout_transfer_state(payout_id, 'failed', tr_…, failure_code, command_key)` with the class
+    `payout-logic.ts` already produces. §4 routed `failed` to a webhook that will never fire, which is why a
+    failed transfer read `submitted` forever and dashboard §14.5's pinned *Failed payout* banner could never
+    fire. **`insufficient_funds` before `source_transaction` funding stays an operational state, not a
+    `failed` payout** — it is retried, not terminal, and the existing classifier already separates the two.
+  - **`paid` under `O16` form (a)** — *"the transfer succeeded and was not reversed"* — is written here too,
+    synchronously, on the `transfers.create` return. **`O16` is an OWNER DECISION and is not taken by this
+    spec**; under form (b) the same RPC is called from a `payout.paid` fan-out instead and this bullet moves.
+    Recorded so the choice sits in one place rather than being implied by whichever handler someone writes
+    first.
+  - **Class B (`EA-3` B-ii) for the state-sync call only.** `mark_payout_transfer_state` is
+    `service_role`-only with **no human path**, so the service client is correct for it; the
+    caller-`Authorization` client remains mandatory for `close_settlement` / `request_org_payout` /
+    `release_payout` (EA-1), where every predicate reads `auth.uid()`.
+  - **It never clears a hold.** The RPC **refuses** to advance a payout whose `hold_state <> 'none'` and the
+    edge must surface that refusal rather than retrying it: **a held payout Stripe reports as paid is a
+    reconciliation incident for `platform_risk`, not a state transition.** Clearing a hold by webhook would
+    defeat §17.7 Control 4 with no role at all.
+  - **On a money-RPC denial, call `kernel.record_money_denial` — see the denial-log bullet below.**
 - **Stripe:** reuse `_shared/payouts.ts` — capability pre-flight → funding-charge (`source_transaction`) verify
   → `stripe.transfers.create` under `buildPayoutIdempotencyKey(payout_id, destination)` (**deterministic,
   destination-salted** — a re-onboarded destination mints a new key, a retry replays ONE transfer). Honors the
   `payout_destination_locked_until` cool-down (checked in the RPC).
 - **Secrets:** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 - **Rate limit:** `check_rate_limit(user, 'payout-execute', 10, 60)`, fail-closed.
+- **Denial log — `kernel.record_money_denial`, and it is an EA-1 CALL (`S-17`; RPC §17.9; ratification
+  `C106`).** On `insufficient_privilege` / `sod_violation` / `step_up_required` / **`step_up_unavailable`**
+  (`AUTHZ-M4`, surfaced distinctly) from a money RPC, this function calls `record_money_denial(p_action,
+  p_subject_kind, p_subject_id, p_error_code)` **in a separate transaction** — because the denied call
+  `RAISE`d, which rolled back its audit row with it, and Postgres has no autonomous transactions.
+  **It MUST be invoked on the caller's own `Authorization` client, NOT the service client.** The RPC derives
+  `actor_identity := auth.uid()` and **raises when it is NULL**, so a service-role invocation writes nothing
+  — and *"repeated failed attempts by one principal"* is the entire signal. §0.2's EA-2 list previously named
+  this function as legitimate service-role work; **it was the one item on that list that was never external
+  I/O**, and it is removed there. **No actor is passed** (EA-6 holds).
 - **Idempotency:** `kernel.payout.idempotency_key` (deterministic on `(cause, cause_ref, payee)`) + the Stripe
   key — a retry recovers the original payout, never a second transfer.
 - **Retries:** safe. Stripe `insufficient_funds` before `source_transaction` funding is an expected operational
@@ -456,13 +512,37 @@ Full C33 architecture is in §5. This is the request/response contract.
 - **Response:** `{ status, refund_id, atoms_voided, stripe_refund_id }`.
 - **DB-RPC:** `kernel.refund_primary_order` (§11.4) / `kernel.admin_refund` / `catalog.cancel_event` (§4.4,
   batch). **The DB records `kernel.refund` intent + voids the covered atoms atomically (SSCAS #3) BEFORE the
-  Stripe refund;** the edge then executes the Stripe refund and records `stripe_refund_id` via a callback param.
+  Stripe refund;** the edge then executes the Stripe refund and **records the outcome through
+  `kernel.mark_refund_state(refund_id, 'submitted', re_…, null, command_key)`** (RPC §20.7.7, schema §1.10.1).
   Amount is re-validated in the RPC (`sum(refunds) ≤ payment.total` under `FOR UPDATE` on `public.payments`) —
   the edge never trusts a client amount.
+  - **`SPEC CORRECTION` (`R1-1`) — this bullet said *"records `stripe_refund_id` via a callback param"*, and
+    named no function.** There was none: `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT,
+    so `submitted`/`succeeded`/`failed` were unreachable and `stripe_refund_ref` had **zero** writers and
+    **zero** readers corpus-wide. A prose promise is not a writer — the `MB-2b` failure shape, on the refund
+    table. **The callback is now a named RPC and it is `kernel.mark_refund_state`.**
+  - **The `create`-error rule, because this is the branch that decides whether a retry is safe.** If
+    `stripe.refunds.create` **itself** errors there is **no `re_…`** — nothing left for Stripe — so the edge
+    **does not call `mark_refund_state` at all**: the row stays `pending` and the retry replays the same
+    deterministic `refund_${refund_id}` key. **`failed` is reserved for a refund Stripe accepted and then
+    could not settle**, which arrives as a webhook (§4), not as a create error. Schema §1.10.1's
+    `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)` makes the wrong version unstorable.
+  - **Class B (`EA-3` B-ii) for this one call only.** `mark_refund_state` is `service_role`-only by contract
+    with **no human path**, so the service client is correct here and the caller-`Authorization` client
+    remains mandatory for `refund_primary_order` / `admin_refund` / `cancel_event` (EA-1). **The two clients
+    in one function is the ordinary shape, not an exemption** — see §3.4's identical note for payouts.
+  - **On a money-RPC denial, call `kernel.record_money_denial` — see the denial-log bullet below.**
 - **Stripe:** `stripe.refunds.create({ payment_intent, amount })` under a **deterministic idempotency key**
   `refund_${refund_id}` (reconstructible from the `kernel.refund` row). Reuses `_shared/stripe.ts`.
 - **Secrets:** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
-- **Rate limit:** `check_rate_limit(user, 'refund-execute', 10, 60)`, fail-closed.
+- **Rate limit:** `check_rate_limit(user, 'refund-execute', 10, 60)`, fail-closed. **This is a throughput
+  limit, not a value limit** — 600 calls an hour moves any amount; the value control is §17.1a's cumulative
+  tier operand, and naming the limiter here is how a reviewer stops reaching for it as the missing control.
+- **Denial log — `kernel.record_money_denial`, and it is an EA-1 CALL (`S-17`; RPC §17.9; ratification
+  `C106`).** Identical to §3.4's bullet and for the identical reason: on `insufficient_privilege` /
+  `sod_violation` / `step_up_required` / **`step_up_unavailable`**, call it **in a separate transaction**, on
+  the **caller's own `Authorization` client**. The RPC derives the actor from `auth.uid()` and **raises when
+  it is NULL**; a service-role invocation writes nothing, on the highest-value fraud signal in the system.
 - **Idempotency:** `kernel.refund.idempotency_key` + the Stripe key → a retry replays ONE refund. The
   `charge.refunded` webhook branch (§4) reconciles state either way (a Dashboard refund and an app refund
   converge).
@@ -1074,10 +1154,38 @@ new). External-rail branches are **byte-for-byte untouched.**
 | `payment_intent.succeeded` | `native_primary` | claim payment row (`.neq('status','succeeded')` idempotent claim), then finalize the order | `venue.finalize_primary_order(order_id, payment_id, command_key)` (§6.3) — re-verifies buyer==payment owner (C35) |
 | `payment_intent.succeeded` | `native_resale` | mark `market_sale` `paid_pending_transfer`; the transfer is driven by `market.accept`/the C25 sweep, not the webhook | records `public.payments`; `market.get_market_sale_status` becomes pollable (recon #2) |
 | `payment_intent.payment_failed` | `native_*` | release the inventory hold / cancel the pending order | `venue.release_inventory_hold` / order cancel RPC |
-| `charge.refunded` | any | already handled; extend to also reconcile `kernel.refund` state when the PI is a native order | state sync only (no money move) |
+| `charge.refunded` · `refund.updated` | any | already handled; extend to reconcile `kernel.refund` when the PI is a native order — **joined on the `re_…` the executor stored, never on the PI**, and `→ succeeded` | **`kernel.mark_refund_state(refund_id, 'succeeded', re_…, null, key)`** (RPC §20.7.7). `SPEC CORRECTION` (`R1-1`): this row said *"state sync only"* and named no function — **there was none**; `submitted`/`succeeded`/`failed` were unreachable |
+| `refund.failed` · `charge.refund.updated → failed` | any | a refund Stripe **accepted and then could not settle** → `failed` with a cause | **`kernel.mark_refund_state(refund_id, 'failed', re_…, failure_code, key)`**. **A `refunds.create` that errors synchronously is NOT this row** — no `re_…` exists, nothing left for Stripe, and the row stays `pending` for the executor's retry (§3.5) |
 | `charge.dispute.created` / `.closed` | native | freeze the affected atom (native equivalent of transfer-freeze) + upsert dispute | native dispute freeze RPC (mirrors `freeze_transfer_for_dispute`) |
 | `account.updated` | (Connect account) | extend to match **org** connect ids → sync `kernel.organization` capability flags (in addition to existing `profiles` seller sync) | org connect capability writer RPC |
-| `transfer.created` / `.reversed` / `payout.paid` / `payout.failed` | (Connect) | extend logging to also cover `kernel.payout` rows | `mark`-style state sync RPCs |
+| `transfer.created` | (Connect) | confirm the `submitted` row and **record the `tr_…`** — **the only event that supplies the join key to a `kernel.payout` row** | **`kernel.mark_payout_transfer_state(payout_id, …, tr_…, …)`** (RPC §20.7.6) |
+| `transfer.reversed` | (Connect) | `→ reversed`, joined on the stored `tr_…` | **`kernel.mark_payout_transfer_state(payout_id, 'reversed', tr_…, …)`** |
+| `payout.paid` / `payout.failed` | (Connect) | **logging only. These describe the connected account's OWN BANK PAYOUT (`po_…`), which aggregates many transfers and is NOT attributable to one `kernel.payout` row.** No handler here may write one | **NONE — and this is the correction.** `T-RPC-MONEY-29` asserts structurally that no branch keyed on these events derives a payout id from a `po_…` |
+
+> **`SPEC CORRECTION` (`S-16`; ratification `C104`) — the four Connect events were ONE row routed at a
+> placeholder, and the placeholder named no function.** The row read *"`transfer.created` / `.reversed` /
+> `payout.paid` / `payout.failed` … extend logging to also cover `kernel.payout` rows | `mark`-style state
+> sync RPCs"*. Three consequences, all of them live:
+>
+> 1. **The named function did not exist in any contract.** `kernel.mark_payout_transfer_state` sits in the
+>    schema spec, the migration plan and the package registry, and had **no RPC contract and no RLS EXEC
+>    row**. §8's own preamble blames this construction for nine of twelve surviving gaps: *a placeholder
+>    naming no function is how they were created.*
+> 2. **`payout.paid` / `payout.failed` are the wrong events, not merely under-specified.** They report the
+>    **connected account's own bank payout** (`po_…`), which **aggregates many transfers**. There is no join
+>    from a `po_…` to one `kernel.payout` row, so a handler built from this row marks *some* payouts paid —
+>    the mis-join is invisible from any single-row test, which is why `T-RPC-MONEY-29` is structural.
+> 3. **`failed` has no event at all.** A transfer that cannot be created fails as a **synchronous Stripe API
+>    error**; Stripe emits no `transfer.failed`. So the **`payout-execute` edge function is the writer of
+>    `failed`** (§3.4), in the request that caught the error. Routing it here is why *"a failed transfer
+>    reads `submitted` forever"* and why dashboard §14.5's pinned *Failed payout* banner could never fire.
+>
+> **What `paid` should assert is OWNER DECISION `O16`, recorded and NOT taken here** — (a) *the transfer
+> succeeded and was not reversed*, written synchronously by the executor, or (b) *the funds reached the
+> payee's bank*, which needs a `balance_transaction` fan-out from `payout.paid` to recover which transfers
+> that bank payout covered. **Both are served by the same RPC; only the caller and the trigger change.**
+> Until `O16` is answered the executor writes form (a), which has no unbuilt dependency, and this is the one
+> place the choice is visible.
 
 **Boundary invariants each native branch preserves (RPC §6.2):**
 - money-in recorded **only** as a `public.payments` row via this frozen path — never re-implemented;
@@ -1754,6 +1862,42 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
     |---|---|
     | `PHASE_2_CRM_EXPORT_SPEC.md` §11.5, §6.6 | Its **"one function, three routes"** framing is now wrong: **two deployed functions**. `/download` is `crm-export`; `/build` and `/purge` are `crm-export-worker`. The worker credential is a **dedicated header**, not a bearer, and **not** the service-role key (`EDGE-3`) |
     | `PHASE_2_PACKAGE_REGISTRY.md` / `PHASE_2_SUPABASE_MIGRATION_PLAN.md` pkg `087` | The `087` function list gains **`crm-export-worker`** as a second deployed function. The `pg_cron` schedules for `/build` (1 min) and `/purge` (15 min) retarget to the worker's URL and must send the `X-Crm-Export-Worker` header |
+
+---
+
+## 10. Correction index — the `R1` unapplied-filings pass (2026-08-28)
+
+**Authority:** ratification rows **`C104`**, **`C106`**, **`C101`/`C102`** and **`D22`**, filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. Companion indexes:
+RPC §22, schema §13.7a.
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§0.2 `EA-2`** | `kernel.record_money_denial` listed as legitimate service-role work *"that takes no authority from the caller"* | **removed from the list.** Its entire purpose is to name the human who was just refused; on a service-role connection `auth.uid()` is NULL, `admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and **the call fails on its first attempt, in production, on the fraud path.** It is the one item on that list that was never external I/O | `C106` (`S-17`) |
+| **§0.2 `EA-3`** | `(B-ii)` read as covering it | **excluded explicitly**, and the genuine money members of `(B-ii)` are named — `mark_payout_transfer_state`, `mark_refund_state`, `sweep_expired_ticket_atoms` and the four other sweeps, which really do have no human actor | `C106` (`S-17`) |
+| **§3.4** | *"writes back the `stripe_transfer_ref` via the RPC's callback param"*; `failed` implicitly the webhook's | names **`kernel.mark_payout_transfer_state`** (RPC §20.7.6); **this function is the writer of `failed`**, because a transfer that cannot be created fails as a **synchronous API error** and Stripe emits no `transfer.failed`. Adds the EA-1 denial-log bullet and the never-clear-a-hold rule | `C104`, `C106` |
+| **§3.5** | *"records `stripe_refund_id` via a callback param"* — **naming no function, and there was none** | names **`kernel.mark_refund_state`** (RPC §20.7.7) and states the `create`-error rule: **no `re_…` ⇒ the row stays `pending`**; `failed` means Stripe accepted and could not settle. Adds the EA-1 denial-log bullet | `C101`, `C102`, `C106` |
+| **§4** | **one row** for `transfer.created` / `.reversed` / `payout.paid` / `payout.failed` → *"`mark`-style state sync RPCs"* | **three rows and a named function.** Only `transfer.created` supplies the `tr_…` **join key**; `payout.paid`/`payout.failed` are the **connected account's own bank payout**, which **aggregates many transfers** and is **not attributable to one `kernel.payout` row** — logging only, with `T-RPC-MONEY-29` asserting structurally that no branch derives a payout id from a `po_…`. **`failed` moves to the executor.** `charge.refunded`/`refund.updated`/`refund.failed` gain their own rows and the named refund writer | `C104`, `C101` |
+
+**OWNER DECISION `O16` IS RECORDED AND NOT TAKEN.** What `kernel.payout.status='paid'` asserts — (a) *the
+transfer succeeded and was not reversed*, written synchronously by the executor, or (b) *the funds reached the
+payee's bank*, requiring a `balance_transaction` fan-out from `payout.paid` — **differs in what the venue is
+being told, and one of them is a promise about a bank we do not observe.** Both are served by the same RPC;
+only the caller and the trigger change, so answering it costs no contract change. **Until it is answered the
+executor writes form (a)**, which has no unbuilt dependency, and §3.4 and §4 are the two places the choice is
+visible.
+
+**What this pass did NOT change in this file.** No `verify_jwt` value, no auth **class** (the two new calls are
+`EA-3` (B-ii) service-role calls **inside** functions that stay Class A for every human-authorized RPC), no
+route, no deployment unit, no secret name, no rate limit, no `config.toml` implication, and **no
+`OFFLINE-VERIFY-v1` fenced block** — §5.4.3's copy was not edited, and the four copies were extracted and
+hashed after every commit: **4 blocks, 1 distinct body, 2017 bytes, 34 lines,
+`sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.** §7's `verify_jwt: false`
+enumeration stays at **four** and no function moved into or out of it.
+
+**`REPORTED, NOT MADE HERE`:** RPC §20.14 `R-28` (RLS §3.1/§11 and MONEY §8.4 still say
+`record_money_denial` is `service_role`-only — the half of `S-17` this file cannot write) and `R-31` (the three
+state-sync RPCs still have no RLS EXEC row).
 
 ---
 
