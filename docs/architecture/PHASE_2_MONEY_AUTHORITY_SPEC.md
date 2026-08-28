@@ -1620,6 +1620,58 @@ remedy is reconciliation plus a ledger row that makes the omission visible (`D15
 
 ---
 
+---
+
+## 14. Correction index — the `MB-1` cumulative-authority pass (2026-08-28)
+
+**Authority:** ratification rows **`C80`** (the cumulative refund tier operand) and **`C82` / open decision
+`O13`** (the payout tier operand, recorded open), with the documentation and integrator-request items in
+**`D19`**, all filed in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. **The
+sibling correction `MB-6` touches `PHASE_2_RPC_FUNCTION_CONTRACTS.md` only** (ratification `C81`) and changes
+nothing in this document.
+
+**What it found, in one sentence.** Every threshold in the refund tier table was compared against **the single
+call's amount**, the only aggregate in the document bounded the *total* rather than the *tier*, and §5.4 Race
+4 documented repeated partials as a designed property — so **`refund.org_auto_execute_max_minor` bounded one
+call and nothing bounded the sequence.**
+
+### 14.1 What changed, section by section
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§5.4 Race 4** | *"successive partials compose correctly"* — stated as a property, with no distinction between key composition and authority composition | the sentence is kept and **bounded**: true of `refund_id`/ownership-log keys, **false of the tier**, and the tier is now decided on the cumulative operand | `C80` |
+| **§6.1** precond. 6 | `Σ(refunds for the payment) + p_amount_minor ≤ payment.total` | same guard, now naming `refund_exposure_minor(payment)` — **one aggregate computed once after the payment lock and used twice** | `C80` |
+| **§6.1** tier table | every row keyed on `p_amount_minor`; the buyer row's operand **unstated** | every row keyed on `cumulative`; **the buyer row's operand settled and stated** (cumulative refunded amount, not order eligibility) | `C80` |
+| **§6.1** Result | `{… amount_minor, … tier, required_approver_class? }` | adds **`cumulative_minor`**, so a surface can explain a tier the operator's own amount does not account for | `C80` |
+| **§6.1a** | *did not exist* | **NEW** — the definition, the five-point derivation of the payment as the aggregate subject, the after-the-lock rule, the `amount_minor` column obligation, the buyer-arm resolution, and the four named tests | `C80` |
+| **§6.2** | support-cap row and re-derivation bullet keyed on the recomputed **single** amount | both keyed on `cumulative`, **with this request excluded from the parked term** — the error that would otherwise fail safe and pass every value-based test | `C80` |
+| **§7.2** | keys described as ceilings, operand unstated | banner + per-row annotation: `*_max_minor` are **cumulative** ceilings; the payout pair is annotated **operand OPEN** | `C80`, `C82` |
+| **§9.2** | above-threshold payout parks; operand unstated | **`MB-1b`** block: the shape, why it is worse than `MB-1` (caller-chosen subject decomposition), the invariance property a fix must have, two admissible forms, **and no choice made** | `C82` / `O13` |
+| **§11** | `D-1`…`D-7` | `D-3` annotated (**the numbers now denominate a cumulative ceiling — a per-call £50 and a cumulative £50 are different products**); **`D-8`** (optional buyer order-value conjunct) and **`D-9`** (the payout operand) added | `D19` |
+| **§12** | `ADDITIVE SCHEMA CHANGE` items 1–4 | item **3b** — `kernel.approval_request.amount_minor`, with the reason it cannot be a `payload` read; two `SPEC CORRECTION` items added (the downstream sites that restate a refund threshold; the rate-limit note) | `C80` |
+
+### 14.2 What this pass deliberately did NOT do
+
+- **It chose no number.** `D-3` is untouched as a decision and is annotated only because the keys now mean
+  something different. **`refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`,
+  `refund.buyer_self_service_max_minor` and `refund.platform_support_max_minor` have no value in this
+  document and acquire none here.**
+- **It closed no open decision.** `O6`…`O12` stand; **`O13` is added, not closed**, and `D-1` (the SSCAS
+  classification of the approval object) is specifically **not** reopened — the cumulative test reuses the
+  `public.payments` `FOR UPDATE` that precondition 6 already takes, so it adds no lock, no rank and no member.
+- **It touched no money core.** No change to `kernel.refund`, to `refund_primary_order`, to the Stripe
+  boundary, to `public.payments`, or to any ratified ownership invariant. **The change is to which operand an
+  authority threshold is compared against — not to how money moves.** R7 single-path preserved: no new object
+  writes a money row.
+- **It decided no authority.** No row changes *who* may refund or approve; every predicate keeps its role set
+  exactly as `O-1`, `O-3`, `C57` and `C58` left it. What changed is *when the second pair of eyes is
+  required*, which was the control `O-1` ratified and the operand silently disabled.
+- **It renumbered nothing.** No package (`076`–`091`), no migration (`071`–`075`), no prior ratification row,
+  no existing test id — `T-RPC-MONEY-21..24` are **appended** so `-15..-20` keep their numbers. **No
+  `OFFLINE-VERIFY-v1` block appears in this document and none was touched anywhere.**
+
+---
+
 *End of `docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md`. Design-only; no SQL, no migrations, no
 implementation code. Delta against the frozen constitutions — integration is a later, separate act. Produced
 under owner rulings O-1, O-2 (context) and O-3; R7, OBS-1, GP-1/GP-2, C26, C28, C35 and C36 verified preserved

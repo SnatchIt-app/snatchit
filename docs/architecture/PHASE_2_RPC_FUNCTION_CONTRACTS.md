@@ -6074,6 +6074,42 @@ change another spec's owner must make; each names the file, the section and the 
 
 ---
 
+## 21. Correction index — the `MB-1` / `MB-6` cumulative-authority and custody-routing pass (2026-08-28)
+
+**Authority:** ratification rows **`C80`** (cumulative refund tier operand), **`C81`** (`MB-6` — offline scan
+routing + the §0.7a enumeration), **`C82` / open decision `O13`** (payout tier operand, recorded open) and
+**`D19`** (documentation + integrator requests), filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. The `MB-1` half is
+**predicate-identical** to `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.1a/§14 by construction: both tier tables were
+corrected in the same edit, which is the only discipline available while `C75`/`O11` (no precedence rule
+between delta specs) stands open.
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§0.7** | *"only via the three kernel engines"* | *"only via a sanctioned kernel custody writer, enumerated in §0.7a"* — **the prohibition is unchanged; the delegation set is stated** | `C81` |
+| **§0.7a** | *did not exist* | **NEW** — five sanctioned writers with their callers, plus the two standing rules: **the Writes line must name the writer**, and **adding a member is an amendment** | `C81` |
+| **§9.5** | **Writes:** `kernel.tickets` (first-admit-wins → `scanned`) — a declared direct write, in the **batched** path, behind `verify_jwt=false` | routed **via `kernel.mark_ticket_scanned`**, once per admitted row inside the batch loop, under the existing ascending atom lock; `T-RPC-DOOR-35` asserts it structurally | `C81` |
+| **§17.1** | tier table keyed on `p_amount_minor`; buyer row's operand unstated; precondition 6 the only aggregate | every row keyed on `cumulative`; buyer operand settled; precondition 6 names the shared aggregate; `cumulative_minor` returned | `C80` |
+| **§17.1a** | *did not exist* | **NEW** — the definition, the derivation of the payment as subject, the after-the-lock rule, the `amount_minor` obligation, the buyer resolution | `C80` |
+| **§17.2** | support cap and re-derivation keyed on the recomputed single amount | both keyed on `cumulative`, **excluding this request from the parked term**; `T-RPC-MONEY-23`/`-24` | `C80` |
+| **§10.3** | above-threshold payout parks; operand unstated | **`MB-1b`** block — the shape, the invariance property a fix needs, two admissible forms, **no choice made** | `C82` / `O13` |
+| **§20.8.2** | `kernel.tickets.resale_state (→ none)` in **Writes**, delegation only in **Locks** | delegation named in **Writes** (`MB-6a`) | `C81` |
+| **§18 / §18.1** | Money `-01..14`; Door set closure `-17`…`-34` | `T-RPC-MONEY-21..24` and `T-RPC-DOOR-35` **appended**, so no existing id moves | `C80`, `C81` |
+| **§20.14** | `R-1`…`R-23` | **`R-24`** (RLS names 4 writers of `kernel.tickets`, 10 are contracted, and the 4th is `record_scan`) · **`R-25`** (four money RPCs bypass the `lock_ticket`/`unlock_ticket` overlay — owner ruling, unchanged here) · **`R-26`** (`R-22` is used twice in this table) · **`R-27`** (`kernel.approval_request.amount_minor`) | `D19` |
+
+**What this pass deliberately did NOT do.** It chose **no threshold value** (`D-3` untouched). It closed
+**no** open decision — `O6`…`O12` stand and **`O13` is added, not closed**. It changed **no** role set and
+**no** authority cell: every predicate keeps the principals `O-1`/`O-3`/`C57`/`C58` gave it. It touched
+**nothing** in the frozen Stripe money core, no `public.*` table, and no ratified ownership invariant — the
+`MB-1` change is to the **operand an authority threshold is compared against**, and the `MB-6` change is to
+**which function performs a write that already happens**. It **weakened no CI gate, ratchet or floor** and
+changed no workflow file. It renumbered **no** package (`076`–`091`), **no** migration (`071`–`075`), no
+ratification row and no test id. It touched **no `OFFLINE-VERIFY-v1` fenced block** — none appears in either
+file it edited, and the four copies were extracted and hashed after the last edit to confirm they remain
+byte-identical, one distinct body, `sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.
+
+---
+
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
 schema (deliverable #1), RLS spec (#3), and the Edge Function spec (#5, which picks up every EDGE-FRONTED item
 flagged in §13), per SPEC_FOUNDATION §10.*
