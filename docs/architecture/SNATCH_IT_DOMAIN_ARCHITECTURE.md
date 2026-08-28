@@ -1768,6 +1768,44 @@ permission model must make *structurally impossible* to violate — not merely d
 5. **Role management is itself SoD-governed.** Granting oneself or a confederate a powerful role is an audited
    action; role escalation above a threshold requires a second approver (audit 7.3).
 
+> #### SoD-1 under O-3 — a ratified trade-off, not an unqualified capability grant
+>
+> **What changed, stated without euphemism. O-3 collapses SoD-1's structural guarantee.** Before O-3,
+> `set_org_payout_destination` was `org_owner`-only *and* `org_owner` held no payout authority, so rule 1 held
+> **by construction**: the identity that could point the money somewhere could not send money anywhere. O-3
+> grants `org_owner` the payout request. One identity now holds **both halves of the exact fraud primitive rule
+> 1 names** — redirect the bank account, then release funds to it. That is a real reduction in structural
+> safety and it is recorded here as such, not buried in a matrix cell.
+>
+> **The ruling is ratified with its compensating control, and the control is the reason it is acceptable.**
+>
+> 1. **A permanent requester-vs-setter identity split (the control that actually restores rule 1).** The
+>    organization records *who* set the current payout destination, and a payout request from **that same
+>    identity is rejected — permanently, for that destination**, not merely during a cool-down. **A cool-down
+>    does not fix this**: it is a delay, and an attacker holding the credentials simply waits it out. The pair
+>    must be split by *identity*, not by *time*. Rule 1 is therefore restored structurally, at the cost named
+>    below.
+> 2. **Destination probation.** The **first** payout to a destination changed inside the probation window is
+>    created *held* and released only by platform risk/admin — a human between "the destination just changed"
+>    and "money left the platform", which is strictly stronger than any timer.
+> 3. **Out-of-band notification.** A destination change notifies **every** `org_owner` and `org_finance` of the
+>    org, **including the actor**, immediately, by push and email, with a one-tap *"I did not authorize this"*
+>    that holds every pending payout. Without this the cool-down protects nobody, because nobody is watching:
+>    it is what converts a delay into a detection.
+> 4. **Fresh step-up** at the action boundary, and **audited denials** — repeated *failed* attempts to change a
+>    destination or fire a payout are the highest-value fraud signal in the system and must leave a trace even
+>    though the failing transaction rolls back.
+> 5. **The cool-down is retained and demoted.** It is a *detection window*, not a control, and it is the
+>    **weakest** member of this set. O-3's requirement that destination change carry *strictly stronger*
+>    controls than a payout request is met by 1–4, not by the timer that already existed.
+>
+> **The cost, stated honestly.** An organization with exactly **one** money principal is **blocked** from
+> payouts after a destination change — that is what a real separation of duties costs. The sanctioned escape is
+> escalation, never a bypass: the first payout after a destination change may be released by platform risk/admin
+> through the existing hold/release seam, so the second human in the SoD pair is a Snatch It operator. **No code
+> path relaxes rule 1**, and `org_finance` is excluded from destination changes entirely for the same reason —
+> under O-3 it, too, requests payouts. (O-3)
+
 ### 7.5 Step-up / MFA for high-risk actions (ABAC gate)
 
 MFA is mandatory (`aal2`) for **all staff and admin principals** and for **sellers** (audit Deliverable 1.6,
@@ -1777,9 +1815,9 @@ boundary against the **live** grant (never a stale JWT claim):
 
 | High-risk action | Requirement |
 |---|---|
-| Change payout/bank account | Step-up (fresh `aal2`) **+ SoD** (separate from approver) **+ payout cool-down freeze** |
+| Change payout/bank account | **`org_owner` only** (`org_finance` excluded — O-3). Step-up (fresh re-authentication at the action boundary) **+ SoD-1 permanent requester-vs-setter split** (the setter may never later request a payout to that destination) **+ destination probation** (first payout held for platform release) **+ out-of-band notification to every org money principal** **+ audited denials**. The legacy cool-down freeze is retained as a detection window, and is the weakest control in the set (§7.4) |
 | Initiate/approve payout above threshold | Step-up **+ dual control** (two distinct approvers) |
-| Issue refund above micro-threshold | Step-up **+ dual control** + reason code |
+| Issue refund above the org auto-execute threshold | Step-up **+ dual control** (`approver ≠ requester`, structurally, not by convention) + reason code. Org authority is a **request**, resolved server-side into one of three tiers — auto-execute · in-org dual control · platform review — from configured thresholds, never chosen by the caller (O-1, §7.6) |
 | Approve a venue/org (grant platform access) | Step-up + reason code + audit |
 | Ownership override / manual ticket custody change | Step-up + dual control + reason code (Invariant 2 — never a raw write) |
 | Resolve dispute affecting escrow | Step-up + dual control + evidence link |
@@ -1794,7 +1832,15 @@ step-up, longer holds, or manual review even below the fixed thresholds.
 ### 7.6 Permission matrix — roles × key privileged actions
 
 Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two approvers) · **✔ᴾ** propose-only ·
-**◐** scoped/limited (own or aggregate) · **✱** requires step-up (fresh `aal2`) · blank = denied.
+**◐** scoped/limited (own or aggregate) · **✱** requires step-up (fresh `aal2`) · **ᔆ** SoD-constrained —
+allowed, but structurally excluded from the paired act by the *same identity* (O-3) · blank = denied.
+
+**Columns are display names; the stored labels are §7.1's fifteen.** `Org Owner`=`org_owner` ·
+`Org Admin`=`org_admin` · `Org Finance`=`org_finance` · `Venue Mgr`=`venue_manager` ·
+`Box Office`=`venue_box_office` · `Marketing`=`venue_marketing`/`org_marketing` ·
+`Promoter Mgr`=`venue_promoter_manager`/`org_promoter_manager` · `Door`=`venue_scanner` **or a door session
+(not a role)** · `Plat Admin`/`Support`/`Risk Ops`=`platform_admin`/`platform_support`/`platform_risk`.
+`Promoter`, `Seller`, `Buyer`, `Ambassador` are **not roles** — they are derived principals (§7.2).
 
 | Privileged action | Plat Admin | Support | Risk Ops | Org Owner | Org Admin | Org Finance | Venue Mgr | Box Office | Marketing | Door | Promoter Mgr | Promoter | Seller | Buyer | Ambassador |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
@@ -1802,11 +1848,14 @@ Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two appro
 | Configure feature flags / `platform_config` | ✔✱ | | | | | | | | | | | | | | |
 | Manage platform user moderation / bans | ✔ | ✔ᴾ | ✔ | | | | | | | | | | | | |
 | Freeze account / payouts (risk) | ✔ | | ✔ | | | | | | | | | | | | |
-| Release held funds | ✔ᴰ✱ | | | | | ✔ᴰ✱ | | | | | | | | | |
+| Release held funds | ✔ᴰ✱ | | | | | | | | | | | | | | |
 | Initiate payout (≤ threshold) | | | | ✔✱ | | ✔✱ | | | | | | | | | |
 | Initiate/approve payout (> threshold) | ✔ᴰ✱ | | | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
-| Change payout/bank account | | | | ✔✱ | | ✔✱ | | | | | | | | | |
-| Issue refund (> micro) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | ◐(own request) | |
+| Change payout/bank account | | | | ✔✱ᔆ | | | | | | | | | | | |
+| Issue refund (≤ auto-execute threshold) | ✔ | ✔(capped) | ✔ | ✔✱ | | ✔✱ | | | | | | | | ◐(own, capped) | |
+| Issue refund (> auto-execute threshold) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
+| Issue refund (> org ceiling / exceptional) | ✔ᴰ✱ | ✔ᴾ | ✔ᴰ✱ | ✔ᴾ | | ✔ᴾ | | | | | | | | | |
+| Approve someone else's refund request | ✔ | ✔(tiered) | ✔ | ✔ᔆ | | ✔ᔆ | | | | | | | | | |
 | Resolve dispute (escrow) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | | | | | | | | | | | | |
 | Ownership override (manual custody) | ✔ᴰ✱ | | | | | | | | | | | | | | |
 | Build/edit events & ticket types | | | | ✔ | ✔ | | ✔ | | ◐(pages) | | | | | | |
@@ -1814,15 +1863,66 @@ Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two appro
 | Set/edit resale policy | ✔(platform) | | | ✔ | ✔ | | ◐(delegated) | | | | | | | | |
 | Manage staff roles & door PINs | | | | ✔ | ✔ | | ◐(venue) | | | | | | | | |
 | Create/manage promoter links | | | | ✔ | ✔ | | ✔ | | | | ✔ | ◐(sub-links) | | | |
-| Scan / validate entry | | | | | | | ✔ | ✔ | | ✔(scoped) | | | | | |
+| Scan / validate entry (admit) | | | | | | | ✔ | ◐(guest-list check-in only) | | ✔(scoped) | | | | | |
+| **Open / close the door manifest** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Move the door-freeze time (`door_open_at`)** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Change event security configuration** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Disable a transfer freeze (override)** | ✔✱ | | | | | | | | | | | | | | |
 | View buyer PII | ◐ | ◐ | ◐ | ◐ | ◐ | ◐(limited) | ◐(limited) | ◐(service) | | ◐(scan-only) | | | | (self) | |
 | Create listing / run auction | | | | | | | | | | | | | ✔ | | |
 | Buy / bid / hold / p2p transfer | | | | | | | | | | | | | ✔ | ✔ | |
 | View org/venue finance reports | ◐ | | ◐(risk) | ✔ | | ✔ | ◐(venue ops) | | | | ◐(commission) | ◐(own) | ◐(own) | | ◐(own) |
+| **View payout ledger & status** | ✔ | ◐ | ◐ | **✔(own org)** | | ✔(own org) | | | | | | ◐(own commission) | ◐(own) | | ◐(own) |
+| **View refund ledger** | ✔ | ◐ | ✔ | **✔(own org)** | | ✔(own org) | ◐(own venue, `venue_finance` only) | | | | | | | ◐(own) | |
+| **Close settlement (→ payout)** | ✔ | | | | | ✔ | | | | | | | | | |
 | Referral/affiliate program | | | | | | | | | | | | | | | ✔ |
 
-*The matrix is illustrative of the design intent; the authoritative source is the relationship rows +
-`SECURITY DEFINER` helpers, re-checked live for every ✔ᴰ/✱ cell.*
+#### Reading the money rows (O-1 / O-3 — these three readings are load-bearing)
+
+1. **A refund cell is authority to *request*, not to execute.** `Issue refund` ✔ for `org_owner`/`org_finance`
+   means the org may open **one** door — a refund *request* — and the server decides its tier from configured
+   thresholds: below the auto-execute threshold it completes in the same transaction; above it, it parks a
+   durable approval that a **different** identity in the org must approve; beyond the org ceiling it goes to
+   platform review. The caller never chooses the tier, and no org role ever invokes the money writer directly.
+   That is why the row is split into three and why the old undefined *"> micro"* row is gone: "micro" was never
+   defined and had no configuration home.
+2. **The two payout rows are NOT the same authority, and must never be read as one.** *Initiate payout* is held
+   by `org_owner` **and** `org_finance`. *Change payout/bank account* is held by **`org_owner` alone** —
+   `org_finance` is blank, deliberately, because under O-3 it also requests payouts and one identity may not
+   hold both halves of SoD-1's fraud primitive. The `ᔆ` on the owner's cell is the rest of the difference:
+   destination change carries **strictly stronger** controls than a payout request (permanent
+   requester-vs-setter identity split, destination probation, out-of-band notification, step-up, audited
+   denials — §7.4), and an owner who set the current destination can **never** later request a payout to it.
+   Two ✔ cells in the same column are not two equal capabilities.
+3. **`Org Admin` is blank down the entire money block, and that is a decision.** Not an omission, not
+   "inherited from Owner": `org_admin` holds no money authority of any kind — not read, not request, not
+   approve, and it is not eligible as the second approver on any money approval (§7.2, O-1/O-2).
+
+*Every ✔ᴰ/✱ cell is re-checked **live** against the relationship rows through the `SECURITY DEFINER`
+helpers at the action boundary — a stale JWT claim never satisfies one (C9).*
+
+> #### Precedence — which document governs which half of this matrix (D6)
+>
+> Two Phase-2 delta specs rewrote this section, and their instructions were mutually exclusive:
+> `PHASE_2_MONEY_AUTHORITY_SPEC.md` §12 supplied a corrected money block for this matrix, while
+> `PHASE_2_ROLE_MODEL_SPEC.md` edit `D-6` instructed that the matrix be **deleted** and replaced with a pointer
+> to that spec's §5. **The matrix stays, with the corrected money block applied. The delete-and-point is
+> rejected**, because `PHASE_2_ROLE_MODEL_SPEC.md` §5's money block is, by its own §15, *transcribed from the
+> frozen corpus, not decided there* — it carries `⚠` on payout-destination authority and on settlement close and
+> explicitly defers both to the money ruling. Replacing this matrix with a pointer to it would have deleted the
+> only ratified statement of O-1/O-3 and re-opened the payout-destination question on the day O-3 closed it.
+>
+> The resulting division of authority, stated once so it cannot drift:
+>
+> | Question | Governing text |
+> |---|---|
+> | **Stored role labels** (what a predicate may compare) | §7.1's fifteen labels · `PHASE_2_ROLE_MODEL_SPEC.md` §3 |
+> | **Money authority** — refunds, payouts, payout destination, settlement close, money-ledger reads | **This matrix** (O-1/O-3). It governs over `PHASE_2_ROLE_MODEL_SPEC.md` §5's section B, whose money cells are transcription, not ruling |
+> | **Non-money capability detail** at 20-principal grain (door session vs `venue_scanner`, the five new labels, attendee-data column scoping, promoter/ambassador derivation) | `PHASE_2_ROLE_MODEL_SPEC.md` §5, which is finer-grained than this matrix and supersedes it wherever this matrix is silent or coarser |
+> | **Door lifecycle authority** | This matrix's door rows + §1.8 (O-4/O-5) |
+>
+> Where the two disagree on a **money** cell, this matrix wins. Where they disagree on a **non-money** cell, the
+> role model wins. There is no third case, and neither document is a pointer to the other.
 
 ```mermaid
 graph TD
