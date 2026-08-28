@@ -1457,12 +1457,44 @@ a detection mechanism, not the enforcement.
 - **Check:** `quantity > 0`; `status` enum. **Per-user caps (C5):** enforced by a `user_id` advisory lock or
   `SERIALIZABLE` in the reserve RPC — **never** a `COUNT(*) < limit` trigger (C5 write-skew note).
 - **Immutability:** MUT; expiry sweep flips `active→expired` and returns `held` (idempotent, cause-keyed).
-- **Index:** PK; index on `expires_at` where `status='active'` (the expiry sweep hot-path); index on
-  `(identity_id, status)` (per-user cap check + "my holds").
+- **Index:** PK; index on `expires_at` where `status='active'` (**the hot-path of
+  `venue.sweep_expired_inventory_holds` — named here, defect G-24; the index existed for a sweep no
+  package created**); index on `(identity_id, status)` (per-user cap check + "my holds").
 - **RLS:** owner-scoped (holder sees own) + venue-scoped; writes RPC-only.
 - **Write authority (canonical — A4):** `venue.reserve_primary_inventory` (buyer hold),
-  `venue.create_inventory_hold` (staff/comp/promoter hold), `venue.release_inventory_hold`, the expiry sweep.
+  `venue.create_inventory_hold` (staff/comp/promoter hold), `venue.release_inventory_hold`, and
+  **`venue.sweep_expired_inventory_holds(p_limit)`** — the expiry sweep, **named and scheduled here.**
 - **SoT/PROJ:** SoT for the hold; `held` on the counter is the aggregate.
+
+#### 3.5.1 DEFECT — the expiry sweep was contracted, indexed, and created by nothing (`G-24`)
+
+**Four documents built the runway and none landed the plane.** This section's own write-authority list
+named *"the expiry sweep"*; its own immutability line promised *"flips `active→expired` and returns
+`held`"*; migration plan `081` builds the partial index `expires_at WHERE status='active'` **precisely so
+a sweep can use it**; and then `081`'s Functions row named `create_inventory_hold` and
+`release_inventory_hold` and **no sweep**, its Tests row was silent, and RLS §11 granted no such EXECUTE.
+
+**Consequence if it stays unbuilt.** A `venue.inventory_hold` row never leaves `active` on its own, so
+**every abandoned checkout removes inventory from sale permanently.** `venue.inventory_batch.held` is a
+**stored counter**, not a derived predicate — nothing recomputes it, so held capacity never returns. A
+sold-out-looking Friday with nobody in the room is not a degraded mode; it is the **guaranteed steady
+state** of a venue that sells tickets and has customers who abandon carts.
+
+**Named:** `venue.sweep_expired_inventory_holds(p_limit int DEFAULT 500)`, `EXEC: DEF`, scheduler-only,
+on the **2-minute `pg_cron` heartbeat that already runs** — it needs a *scheduler*, not the outbox
+*carrier*, so it is **not** blocked on the COND-A ruling (§13.3). Contracted at RPC §20.3.3; scheduled
+in migration plan §8 `081`. **It performs no counter arithmetic of its own** — per row it calls
+`venue.release_inventory_hold` under `FOR UPDATE SKIP LOCKED`, so `venue.inventory_batch.held` keeps its
+single-writer property (§3.3.1 point 3) and a hold mid-conversion is skipped rather than fought over.
+
+**It is LOAD-BEARING, and the model now contains three sweeps that look alike and are not.** Stated once,
+here, because the distinction decides whether skipping one is survivable:
+
+| Sweep | Load-bearing? | Because |
+|---|---|---|
+| **`venue.sweep_expired_inventory_holds`** | **YES** | `held` is a **stored counter**. Unswept capacity is permanently consumed. |
+| `kernel.sweep_expired_refund_requests` | **YES** | it releases the `refund_hold` overlay; an unswept hold is a bricked ticket on a paying customer (MONEY: *"not optional"*). |
+| `kernel.sweep_expired_door_overrides` (§17.11) · `venue.sweep_expired_door_sessions` (§3.10a.4) | **NO** | expiry is **arithmetic** inside the predicate that reads them. They keep `status` truthful for an operator console; they enforce nothing. |
 
 ### 3.6 `venue.inventory_unit` — **EXT (C42 seat/unit hedge)**
 - **Purpose:** the optional unit-row layer that IS both the C4/C22 shard mechanism *and* the future seat atom
@@ -1782,8 +1814,45 @@ because a field that looks like identity and is not is worse than no field.
 - **Unique:** none structural.
 - **Index:** PK; index on `venue_id`.
 - **RLS:** venue-scoped; writes RPC-only.
-- **Write authority:** `venue.register_scan_device`, manifest-sync RPC.
+- **Write authority:** `venue.register_scan_device`, `venue.sync_scan_device_manifest` (RPC §20.4.4 —
+  the function RLS §11 granted as the unnamed *"manifest-sync"*), and
+  **`venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)`** — **NAMED HERE
+  (§3.11.1); `retired` previously had no writer.**
 - **SoT/PROJ:** SoT for device; manifest is a rebuildable projection.
+
+#### 3.11.1 DISPOSITION — `status='retired'` had no writer. **Name the writer; do not remove the value.**
+
+`venue.scan_device.status` CHECKs `active · retired`, and at `aa78a47` the two write authorities were
+`register_scan_device` (which creates a row `active`) and the manifest-sync RPC (which touches
+`manifest_version`/`last_sync_at`). **Nothing wrote `retired`.** It was a value the schema defined and
+no code path could reach.
+
+**The disposition is *name a writer*, and the door-session fix (§3.10a) is what makes it non-negotiable.**
+`kernel.assert_door_session` clause 3 reads `venue.scan_device.status='active'` **live, on every door
+call**. So `retired` is not a tidiness label — it is **the kill switch for a lost or stolen scanner**, and
+the fastest one in the system: it is the only control that stops a physical device that already holds a
+live session, without waiting for the session TTL and without revoking the PIN every other device at the
+door is also using. **Removing the value would delete the lever; leaving it writer-less leaves the lever
+disconnected.** A dashboard that shows a *Retire device* control the database cannot honour is worse than
+no control, because a manager will believe the device is dead.
+
+- **Signature.** `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)`;
+  `p_status ∈ {active, retired}`; mandatory `reason_code`; writes `kernel.admin_audit`
+  (`device.status.change`, before/after).
+- **Authority (`PROPOSED`).** `has_venue_role(venue, ['venue_manager'])` OR
+  `has_org_role_over_venue(venue, ['org_owner','org_admin'])` OR `is_platform(['platform_admin'])` —
+  the O-4 allow-list, unchanged. **A door session may never call it** (O-4: the scanner may not change
+  the boundary it scans against, and a device that can retire itself can also un-retire itself).
+- **RV-2 (binding).** Retiring a device **revokes every `active` `venue.door_session` for it in the same
+  transaction.** Clause 3 already makes those sessions fail; RV-2 is what makes the console truthful —
+  the same reasoning as RV-1 (§3.10a.2).
+- **Un-retire is permitted** (`retired → active`), because the common real case is a device found again,
+  and a one-way transition would push operators to register a duplicate device row — which fragments the
+  scan ledger's device attribution, the exact thing X-2 exists to protect.
+- **Filed to the RPC owner** as §13.7 **S-11** (contract + EXEC row). This spec names the writer and its
+  obligations; the contract is not ours to author.
+- **Test.** `T-SCHEMA-DEV-01`: a retired device's next door call raises, **and** it holds no `active`
+  session row (RV-2) — both halves, because the first passes even if RV-2 was never implemented.
 
 ### 3.12 `venue.scan` (C41 re-entry hedge — AO) — **DEEP SECTION**
 - **Purpose:** the append-only admission-attempt ledger. **Supports multiple rows per ticket per session**
@@ -2009,15 +2078,66 @@ loop; DA §1.7's `public_ambassador` is a **tier of promoter inside the commerci
 never share the `promoter_commission` cause. Production also carries an unrelated
 `public.ambassador_applications` table — neither is this.
 - **`venue.promoter_link`:** PK `link_id` uuid; `promoter_id` uuid FK on delete restrict; `slug` text not
-  null; `created_at`. **`slug` globally unique** (tracked link). Link **IMM** once created.
+  null; **`status` text not null default `active`, CHECK ∈ (`active` · `inactive`) — ADDED (§3.17.2);**
+  **`status_changed_at` timestamptz nullable; `status_changed_by` uuid nullable FK→auth.users;**
+  `created_at`, **`updated_at`**. **`slug` globally unique** (tracked link). **`slug` and `promoter_id`
+  remain IMM once created; `status` is the ONLY mutable column** — see §3.17.2.
 - **`venue.attribution`:** PK `id` uuid; `link_id` uuid FK→venue.promoter_link on delete restrict; `order_id`
   uuid FK→venue.order on delete restrict; `credited_amount_minor` integer; `currency` default `'USD'`;
   `occurred_at` timestamptz; `created_at`. **AO** (attribution immutable once recorded, CDM §1.3);
   `UNIQUE(order_id)` (one attribution per order).
-- **Index:** promoter_link unique on `slug`; attribution index on `link_id`.
+- **Index:** promoter_link unique on `slug`, **partial index on `(promoter_id) WHERE status='active'`**
+  (the dashboard's live-links read); attribution index on `link_id`.
 - **RLS:** promoter reads own links/attributions/commission only (CDM §8 — not the back office); org-scoped
   for the org.
 - **SoT/PROJ:** SoT (attribution is a ledger).
+
+#### 3.17.2 DEFECT FIX — `venue.promoter_link` had no `status`, so a contracted RPC and a shipped
+dashboard control were expressible against nothing (RPC §20.14 **R-5**)
+
+**The defect.** `venue.set_promoter_link_status(p_link_id, p_status, …)` is contracted at RPC §20.9.4 and
+marked **BLOCKED**; the venue dashboard carries a link-deactivation control (`U-4`); RLS §9.17 grants the
+authority. And the table it writes has **no `status` column**, is declared **IMM once created**, and is
+**FK-restricted from `venue.attribution`** — so the three obvious workarounds are each closed:
+
+| Workaround | Why it is closed |
+|---|---|
+| DELETE the link | `venue.attribution.link_id` is `on delete restrict`, and attribution is **AO** — a link with one attribution can never be deleted, and a link with none is the only deletable case, which is the case nobody needs to deactivate |
+| Rename the `slug` | The link is **IMM**; and a slug already printed on a flyer or a QR code does not stop existing because the row changed |
+| Deactivate the **promoter** (`venue.promoter.status='inactive'`) | Works, but it is a **different control at a different grain** — it kills every link that promoter holds. "Retire this one QR code" and "stand this promoter down" are not the same operational act |
+
+**Fix — add the column** (`090`; the table is unbuilt, so this is a design edit to an unapplied package,
+not a schema alteration). Three columns, one CHECK, one partial index, stated above.
+
+**The immutability rule is narrowed, not abandoned, and the narrowing is the load-bearing part.**
+`promoter_link` was **IMM** for a reason: `venue.attribution` snapshots the link at freeze, and a link
+that could be re-pointed would restate past attribution. That reason applies to **`promoter_id` and
+`slug`** and to nothing else. **`status` is a lifecycle flag that no attribution row reads**, so mutating
+it restates nothing.
+
+> **PL-1 (binding).** `promoter_id` and `slug` remain immutable. `status` is the only mutable column, and
+> `set_promoter_link_status` is its only writer. **A trigger enforces this** — not a convention — because
+> "IMM except one column" is exactly the rule an implementer relaxes to "MUT" when the next column is
+> needed, and the next column will be the one that restates attribution.
+
+**Deactivation is forward-only in effect, and this must be said plainly.** Setting `status='inactive'`
+stops the link **attracting new attribution**. It does **not** touch attribution already frozen against
+it, and it must not: `venue.attribution` is an append-only ledger of commissions owed, and a
+deactivation that reached backwards would be a silent clawback. **`T-SCHEMA-PROMO-02`** asserts exactly
+that — deactivating a link leaves every existing `attribution` row untouched, including its
+`credited_amount_minor`.
+
+**Owner ruling (§13.7 S-10).** The alternative on record is *"MVP's real control is deactivating the
+promoter"*, which needs no column. **This pass adds the column**, because the alternative silently
+deletes a contracted RPC (§20.9.4) and a dashboard control (`U-4`) that RLS §9.17 already grants
+authority for — three artifacts quietly disagreeing with the schema is the condition that produced this
+defect class in the first place. **If the owner prefers the promoter-grain control, the column comes back
+out and §20.9.4 plus `U-4` are removed with it** — but that is a ruling, not a default.
+
+**Tests.** `T-SCHEMA-PROMO-01` (an UPDATE touching `promoter_id` or `slug` raises; one touching only
+`status` succeeds — PL-1, asserted in both directions) · `T-SCHEMA-PROMO-02` (above) ·
+`T-SCHEMA-PROMO-03` (an inactive link attracts no new attribution — asserted through
+`resolve_order_attribution`, not by reading the column).
 
 ---
 
@@ -2085,8 +2205,38 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
 - **Check:** `amount_minor > 0`; `status` enum.
 - **Index:** PK; index on `(listing_id, status)`; index on `(buyer_id, status)`.
 - **RLS:** owner-scoped (buyer + listing seller see the offer); writes RPC-only.
-- **Write authority:** `market.make_offer`, `market.respond_offer`.
+- **Write authority:** `market.make_offer`, `market.respond_offer`, and **the `088` sweep tick**
+  (§4.3.1) for the `expired` transition.
 - **SoT/PROJ:** SoT.
+
+#### 4.3.1 DISPOSITION — `status='expired'` had no writer. **Fold it into `088`'s tick; do NOT add a
+function, and do NOT let the sweep be the enforcement.**
+
+`expires_at` and an `expired` label existed, and the two write authorities (`make_offer`,
+`respond_offer`) wrote neither — the `G-24` shape a second time. **The disposition differs from §3.5's,
+and the difference is the whole point of recording both:**
+
+> **An offer holds nothing.** No counter is decremented, no capacity is reserved, no atom is locked, no
+> money is captured. A stale `pending` offer costs a row and a line in a list. Contrast
+> `venue.inventory_hold`, where the unswept row **is** consumed capacity on a stored counter (§3.5.1).
+> **So this transition is presentational, and the inventory one is load-bearing.**
+
+**What IS load-bearing, and it is not the sweep.** `market.respond_offer` must reject an offer whose
+`expires_at` has passed **regardless of its stored `status`** — an arithmetic check under the offer row's
+lock, the same construction §3.10a.4 uses for the door session. **An accept path that trusts
+`status='pending'` because a sweep is *supposed* to have run is an accept path that consummates an expired
+offer every time the tick is late** — and the tick being late is the ordinary condition of a cron job.
+The sweep must never be the enforcement; it makes the stored label agree with the arithmetic so that a
+buyer's list does not show live offers that are dead.
+
+**Scheduled:** folded into `088`'s existing sweep tick, alongside `market.sweep_expired_p2p_transfers`
+(recon #1) and `market.sweep_paid_pending_sales` (C25) — **no new function, no new EXEC row, no new cron
+entry.** Migration plan §8 `088` states it. Filed to the RPC owner as §13.7 **S-12** only for the
+`respond_offer` arithmetic guard, which is the half that is not ours.
+
+**Test.** `T-SCHEMA-OFFER-01`: `respond_offer` on an offer past `expires_at` whose stored `status` is
+still `pending` **raises** — asserted with the tick disabled, because with the tick running the test
+passes for the wrong reason and proves nothing.
 
 ### 4.4 `market.market_sale` (SoT; terminal state machine — C26) — **DEEP SECTION anchor**
 - **Purpose:** the immutable fact of one consummated native resale (auction win or buy-now/offer accept):
@@ -2509,6 +2659,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `079` | `kernel.is_transfer_frozen` (corrected body) | DOOR §3 | ▲ plan said `078`-or-`079` — **resolved to `079`** |
 | `079` | `kernel.lock_ticket` / `unlock_ticket` / `mark_ticket_scanned` | RPC §7.4/§7.5 | — → `079` |
 | `080` | `venue.staff_role` six labels; `has_org_role_over_venue` / `_over_event` | ROLE_MODEL §3.2/§6.2 | — → `080` |
+| `081` | **`venue.sweep_expired_inventory_holds`** (`G-24` — the index existed, the function did not) | **this remediation** | — → `081` (§3.5.1) |
 | `081` | `catalog.publish_event` (authored here, not `078`) | RPC §4.2 | — (§13.2 FR-2) |
 | `082` | `kernel.org_contact_consent` + its three RPCs | CRM §11.1-5/6/7/8 | ✓ |
 | `083` | `kernel.pass_type_cert` | WALLET §11.3 | ✓ |
@@ -2518,6 +2669,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `085` | The nine money-authority RPCs (`request_order_refund`, `approve_refund_request`, `cancel_`/`sweep_expired_refund_requests`, `list_org_payouts`/`_refunds`, `list_approval_requests`, `record_money_denial`, `set_org_payout_destination`) | MONEY §12 | — → `085` |
 | `086` | `venue.door_manifest`, `door_manifest_entry`, `door_manifest_delta` | DOOR §10.1/§10.3/§10.3a | ✓ (task proposal) |
 | `086` | **`venue.door_session`** + the token-bearing `kernel.assert_door_session` signature | **this remediation (H-3)** | — → `086` (§3.10a) |
+| `086` | **`venue.set_scan_device_status`** (`retired` had no writer) | **this remediation** | — → `086` (§3.11.1) |
 | `086` | `venue.scan.actor_identity_id` + non-anonymous CHECK | ROLE_MODEL §7.4 | — → `086` |
 | `086` | `venue.scan.manifest_id`, `venue.scan_device.manifest_id` | DOOR §10.5 | — → `086` |
 | `086` | `catalog.tg_door_open_at_is_ledger_head` trigger (on a `078` table) | DOOR §10.2 | — → `086` (§13.2 FR-6) |
@@ -2529,6 +2681,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `088` | `kernel.transfer_ticket_ownership`, `catalog.cancel_event` | RPC §7.2/§4.4 | — (§13.2 FR-3, FR-2b) |
 | `088` | `CREATE OR REPLACE` of `settlement_royalty_lines` and `market.on_atom_voided` | this integration | — |
 | `090` | `venue.promoter` `tier`/`party_kind`/`commission_kind`/`commission_flat_minor`/`currency` + XOR CHECK | PROMOTER §1.4 (defect §14.3) | ✓ |
+| `090` | **`venue.promoter_link.status` / `status_changed_at` / `status_changed_by` + the PL-1 immutability trigger** | **this remediation (R-5)** | — → `090` (§3.17.2) |
 | `090` | `venue.promoter_code`, `promoter_code_scope`, `attribution_review`, `normalize_promoter_code()` | PROMOTER §1.1/§1.2/§1.6/§1.3 | ✓ |
 | `090` | `venue.attribution` +15 columns; `link_id` becomes **nullable** | PROMOTER §1.5 | ✓ |
 | `090` | `venue.order.attribution_candidate_code_id` / `_link_id` (+ freeze trigger) | PROMOTER §1.7 | ✓ — FK targets are `090` |
@@ -2816,6 +2969,8 @@ reason it cannot wait.
 | **S-6** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4/§9.5, §20.4.4 | **`record_scan` and `reconcile_offline_scans` must take the actor device as a parameter distinct from the session token**, server-derived and never client-attested, and must assert that it equals `door_session.device_id`. Today `record_scan` reads `device_id` out of the **untrusted** `p_scan_meta`, and `reconcile_offline_scans` takes `p_device_id` as a bare parameter | On the `service_role` door path **RLS is bypassed entirely** (RPC §1.1d's own warning). The device id is therefore an unauthenticated string that selects which device's scans are written. Binding it to the session is what makes the ledger's device attribution mean anything |
 | **S-7** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Replace the `venue.set_door_open_at` (O4-3) EXEC row with `catalog.set_session_door_schedule`, same allow-list** — restating RPC §20.14 **R-1**, because this plan has now removed `set_door_open_at` from every `086` row and §11.4 is the last place it survives | §11.4 **is** the authority table. An implementer following it builds the function ruled out, and O-5's sole-writer property becomes false in practice |
 | **S-8** | `PHASE_2_ROLE_MODEL_SPEC.md` §3.1 (or an owner note) | **Confirm that `org_marketing` and `org_promoter_manager` were intended to be storable at the org grain.** This pass restores them to `kernel.org_member` / `kernel.org_invite` on the strength of §0.6's own canonical table; the role model is the document that ratified the six | The correction is mechanical **if** the six-label set is right. If the intent was venue-grain-only marketing/promoter roles, the fix is the opposite one — remove them from §0.6 — and this pass would have entrenched the wrong reading |
+| **S-11** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.4 · `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Contract `venue.set_scan_device_status(p_device_id, p_status, p_reason_code, p_command_key)` and give it an EXEC row** — the O-4 allow-list, denied to every door session. Obligation **RV-2**: retiring a device revokes its active `door_session` rows in the same transaction | `scan_device.status='retired'` had **no writer** (§3.11.1), and with §3.10a it is the kill switch for a lost or stolen scanner — the only control that stops a device already holding a live session without revoking the PIN every other device at the door is using |
+| **S-12** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §20.8.5 | **`market.respond_offer` must reject an offer past `expires_at` regardless of its stored `status`** — an arithmetic check under the offer row's lock | The `expired` label is written by the `088` tick and the tick is presentational (§4.3.1). An accept path that trusts `status='pending'` because the sweep was *supposed* to have run consummates an expired offer **every time the tick is late**, which is the ordinary condition of cron |
 | **S-9** | **Owner ruling** | **§2.4.1's `door.*` classification.** Money, `authn.*` and `crm.*` are `restricted` on arguments this spec considers settled. `door.*` is the arguable row: it states how long a door may operate on stale data | It is the one line in the ruling that could reasonably go the other way, and it is isolated — moving it changes nothing else |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
