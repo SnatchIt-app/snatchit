@@ -26,8 +26,12 @@
  *   PSEUDONYMIZATION, not anonymization: the counterparty, the Stripe payment
  *   intent and the listing's own authored text all remain re-identifying.
  *   Transfer evidence the user uploaded is deliberately RETAINED while its
- *   transfer row lives. Client copy must not claim "permanently deleted" or
- *   "all associated data".
+ *   transfer row lives -- and its storage key still begins with the deleted
+ *   user's uuid, as does transfers.transfer_evidence_path. public.transfers is
+ *   not world-readable, so the "no PUBLIC row carries the uuid" property still
+ *   holds, but the counterparty to that transfer can still recover it. That is
+ *   the deliberate trade against destroying dispute evidence.
+ *   Client copy must not claim "permanently deleted" or "all associated data".
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -165,13 +169,22 @@ serve(async (req) => {
     console.log('[delete-account] starting for user:', userId);
 
     // ── 1. Block if active transfers in progress ─────────────────────────
-    const { data: activeTransfers } = await supabase
+    // Destructure `error`. Without it a PostgREST/DB failure leaves
+    // activeTransfers undefined, the check below passes, and an account holding
+    // a LIVE transfer is deleted -- counterparty stranded mid-custody against
+    // the sentinel. This guard failed open for its whole life; the 1b block
+    // three lines down is the correct shape and this now matches it.
+    const { data: activeTransfers, error: activeTransfersErr } = await supabase
       .from('transfers')
       .select('id')
       .or(`seller_id.eq.${userId},buyer_id.eq.${userId}`)
       .in('status', ['pending', 'seller_sent'])
       .limit(1);
 
+    if (activeTransfersErr) {
+      await captureException('delete-account', activeTransfersErr, { userId, step: 'active-transfer-precheck' });
+      return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+    }
     if (activeTransfers && activeTransfers.length > 0) {
       return json({
         error: 'You have active ticket transfers in progress. Please complete or wait for them to expire before deleting your account.',
@@ -203,8 +216,14 @@ serve(async (req) => {
     }
 
     // ── 1c. Capture evidence still referenced by RETAINED rows ───────────
-    // Must run BEFORE the cleanup RPC, which nulls
-    // listings.proof_of_ownership_path. Migration 049 exists to make transfer
+    // Runs before the cleanup RPC. To be exact about why: the RPC does NOT
+    // write transfer_evidence_path or dispute_evidence_path, so this scan is
+    // order-independent TODAY. It is placed here so it stays correct if a
+    // listings-sourced path is ever added to the protected set -- the RPC does
+    // null listings.proof_of_ownership_path. Do not read the position as
+    // load-bearing for the columns actually scanned; it is not.
+    //
+    // Migration 049 exists to make transfer
     // evidence undeletable by its owner for the life of the transfer row —
     // "so dispute evidence remains immutable" (049:22-26). This function runs
     // as service_role and bypasses RLS, so 049's policy does not protect it;
@@ -221,10 +240,23 @@ serve(async (req) => {
       ['transfers', 'transfer_evidence_path'],
       ['transfers', 'dispute_evidence_path'],
     ] as const) {
+      // Explicit cap + truncation check: if db-max-rows is ever set on this
+      // project PostgREST truncates SILENTLY, a protected path is missed, and
+      // dispute evidence is destroyed -- the exact outcome this scan prevents.
+      const EVIDENCE_CAP = 10000;
       const { data, error } = await supabase
         .from(table)
         .select(column)
-        .like(column, `${userId}/%`);
+        .like(column, `${userId}/%`)
+        .limit(EVIDENCE_CAP);
+      if (!error && (data?.length ?? 0) >= EVIDENCE_CAP) {
+        await captureException(
+          'delete-account',
+          new Error(`evidence scan hit the ${EVIDENCE_CAP}-row cap on ${table}.${column}`),
+          { userId, table, column, step: 'evidence-scan-truncated' },
+        );
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
       if (error) {
         await captureException('delete-account', error, { userId, table, column, step: 'evidence-scan' });
         return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
@@ -304,7 +336,10 @@ serve(async (req) => {
           const child = `${prefix}/${entry.name}`;
           // A storage "folder" is a synthetic entry with no id and no metadata.
           if (entry.id === null || entry.metadata === null) {
-            out.push(...(await collectPaths(bucket, child)));
+            // Not `out.push(...await …)`: spreading past V8's argument limit
+            // throws RangeError, which surfaces as a stack overflow rather
+            // than "too many objects".
+            for (const nested of await collectPaths(bucket, child)) out.push(nested);
           } else {
             out.push(child);
           }

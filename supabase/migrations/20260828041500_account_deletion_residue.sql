@@ -85,8 +85,11 @@
 -- earlier draft of this migration rewrote cover_image_path only, and its own
 -- test asserted "NO public row may contain the uuid" while that was false. It
 -- is nullable, so it is nulled rather than rewritten. Assertion 18 is now
--- replaced by a catalog sweep (assertion 23) instead of a hand-written
--- column list, which is what let the omission through.
+-- replaced by TWO catalog sweeps instead of a hand-written column list, which
+-- is what let the omission through. They cover different classes and neither
+-- subsumes the other: assertion 23 reads pg_constraint and therefore sees
+-- FOREIGN KEYS ONLY; this column has none, so 25 sweeps every text column on
+-- every world-readable table instead.
 --
 -- ── DEFECT 3: deleting bids desynchronises the auction head ─────────────────
 --
@@ -164,10 +167,17 @@ begin
 
   delete from public.bids where bidder_id = p_user_id;
 
-  -- `auction_status = 'active'` matters: on a SETTLED listing the record of
-  -- what happened is winning_bid_amount and the payments row, not the derived
-  -- head. Reconciling a sold listing would publish "current bid $150" beside
-  -- "winning_bid_amount 200" with a losing bidder installed as head.
+  -- Everything EXCEPT 'sold'. On a SOLD listing the record of what happened is
+  -- winning_bid_amount and the payments row, not the derived head; reconciling
+  -- it would publish "current bid $150" beside "winning_bid_amount 200" with a
+  -- losing bidder installed as head.
+  --
+  -- 'ended' MUST be reconciled. An intermediate revision of this migration
+  -- narrowed to 'active' alone, and that reintroduced DEFECT 3 for ended
+  -- auctions: the bid DELETE below is unconditional, so skipping the reconcile
+  -- left `bid_count = 2` against one surviving bid row -- verbatim the drift
+  -- 046's header records as having already reached production. Measured, then
+  -- fixed.
   perform set_config('app.bypass_listing_guard', 'on', true);
   update public.listings l
      set bid_count         = s.real_count,
@@ -185,7 +195,7 @@ begin
         from unnest(v_touched) as t(id)
     ) s
    where l.id = s.id
-     and l.auction_status = 'active';
+     and l.auction_status <> 'sold';
 
   -- ── 4. Clear the remaining NO ACTION references to auth.users ─────────────
   -- Each of these on its own is enough to make auth.admin.deleteUser raise

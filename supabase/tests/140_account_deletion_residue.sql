@@ -9,12 +9,12 @@
 -- WHAT DISCRIMINATES AND WHAT DOES NOT. An earlier version of this header said
 -- "every assertion here FAILS against the 0563 body". That was false, and the
 -- claim is the kind a test file must not make loosely: measured by execution,
--- 0563 scores 7/23 and 20260828041500 scores 23/23, both measured by running
--- the file against each body. The seven that pass BOTH ways are 14, 15, 17,
--- 18, 19, 20 and 22 -- they are REGRESSION GUARDS for behaviour 0563 already
--- had, and they are NOT evidence for anything this migration repairs. 18/19/20
--- exist because four one-statement mutants survived the first version of this
--- file; 22 is a non-vacuity guard on 23. All are marked inline.
+-- 0563 scores 8/25 and 20260828041500 scores 25/25, both measured by running
+-- the file against each body. The eight that pass BOTH ways are 14, 15, 17,
+-- 18, 19, 20, 22 and 24 -- they are REGRESSION GUARDS for behaviour 0563
+-- already had, and they are NOT evidence for anything this migration repairs.
+-- 18/19/20 exist because four one-statement mutants survived the first version
+-- of this file; 22 and 24 are non-vacuity guards on 23 and 25. Marked inline.
 --
 -- Assertions are written against OBSERVABLE STATE -- "no row anywhere still
 -- points at the deleted user" -- rather than against the function's text,
@@ -28,23 +28,28 @@
 --   D. The function is idempotent, because the edge function may retry. 15-17.
 --   E. The anonymization statements that 0563 already had still run. 18-21.
 --
--- 23 IS THE ONE THAT MATTERS MOST (22 is its non-vacuity guard), and it is the
--- assertion two earlier drafts of this file did not have. It computes the blocking set from pg_constraint --
+-- 23 AND 25 ARE THE TWO THAT MATTER MOST (22 and 24 are their non-vacuity
+-- guards), and no earlier draft of this file had either. THEY COVER DIFFERENT
+-- CLASSES AND NEITHER SUBSUMES THE OTHER -- an earlier revision of this header
+-- claimed 23 caught both defects below, which is false: 23 reads pg_constraint,
+-- so it sees FOREIGN KEYS ONLY, and proof_of_ownership_path has none. 23 computes the blocking set from pg_constraint --
 -- the TRANSITIVE closure: every table reachable from auth.users by CASCADE,
 -- then every NO ACTION/RESTRICT reference into any of those tables -- and
 -- asserts that after cleanup none of them still names the user. Two real
 -- defects shipped green past the hand-written enumeration it replaces:
---   * listings.proof_of_ownership_path kept the uuid on a world-readable row
---     while the old assertion 18 "proved" no column did.
 --   * stripe_connect_archive.profile_id blocks the DELETE second-order, via
 --     profiles.id CASCADE, and no direct-reference census could see it.
--- An enumeration cannot fail for a column nobody remembered. This can.
+--     Caught by 23.
+--   * listings.proof_of_ownership_path kept the uuid on a world-readable row
+--     while the old assertion 18 "proved" no column did. It has no FK, so 23
+--     is blind to it. Caught by 25.
+-- An enumeration cannot fail for a column nobody remembered. These two can.
 -- ============================================================================
 
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(23);
+SELECT plan(25);
 
 SELECT tap.seed_core();
 
@@ -172,7 +177,7 @@ SELECT is((SELECT seller_id FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-
   'REGRESSION GUARD (green against 0563 too): the listing is still anonymized to the sentinel');
 
 -- ── D. Idempotent, because the edge function may retry (15-17) ────────────
-SELECT lives_ok($$ SELECT public.delete_account_cleanup('22222222-2222-2222-2222-222222222222'::uuid) $$,
+SELECT lives_ok($$ SELECT public.delete_account_cleanup(tap.buyer()) $$,
   'REGRESSION GUARD for a defect that only existed in an intermediate draft: a temp table with ON COMMIT DROP raised 42P07 here on the second call in ONE transaction. pgTAP wraps the file in BEGIN/ROLLBACK, so this really is the same transaction as line 94.');
 
 SELECT is((SELECT current_bid FROM public.listings WHERE id = tap.listing_a()), 150,
@@ -250,6 +255,48 @@ SELECT cmp_ok((SELECT count(*)::int FROM (
 
 SELECT is(pg_temp.residual_refs(tap.buyer()), 0,
   'NO table reachable from auth.users by CASCADE still holds a NO ACTION/RESTRICT reference to the deleted user (dispute_resolutions.actor_id excluded by name — see above)');
+
+
+-- ── 24-25. The OTHER population sweep, over world-readable TEXT ──────────
+-- 23 draws its columns from pg_constraint, so it sees FK blockers and nothing
+-- else. listings.proof_of_ownership_path — the leak that shipped green past the
+-- first revision — is a plain text column with NO foreign key, so 23 could
+-- never have caught it, and an earlier version of this header wrongly said it
+-- did. This is the sweep that covers that class: every text/varchar column on
+-- every table carrying a permissive `USING (true)` SELECT policy, matched on
+-- SUBSTRING rather than prefix. A Phase-2 migration that adds
+-- `listings.receipt_image_path` written as `<uid>/receipts/<ts>.jpg` fails here
+-- without anyone remembering to extend this file.
+CREATE OR REPLACE FUNCTION pg_temp.public_text_residue(p_user uuid, OUT cols int, OUT hits int)
+LANGUAGE plpgsql AS $fn$
+DECLARE r record; n int;
+BEGIN
+  cols := 0; hits := 0;
+  FOR r IN
+    SELECT DISTINCT c.relname::text AS tbl, a.attname::text AS col
+      FROM pg_policy p
+      JOIN pg_class c       ON c.oid = p.polrelid
+      JOIN pg_namespace ns  ON ns.oid = c.relnamespace
+      JOIN pg_attribute a   ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+     WHERE ns.nspname = 'public'
+       AND p.polpermissive
+       AND p.polcmd IN ('r', '*')
+       AND pg_get_expr(p.polqual, p.polrelid) = 'true'
+       AND a.atttypid IN ('text'::regtype, 'varchar'::regtype)
+  LOOP
+    cols := cols + 1;
+    EXECUTE format('SELECT count(*) FROM public.%I WHERE %I LIKE %L',
+                   r.tbl, r.col, '%' || p_user::text || '%')
+       INTO n;
+    hits := hits + n;
+  END LOOP;
+END $fn$;
+
+SELECT cmp_ok((SELECT cols FROM pg_temp.public_text_residue(tap.buyer())), '>=', 10,
+  'the world-readable text sweep actually inspects columns — if this drops to zero the next assertion passes for free');
+
+SELECT is((SELECT hits FROM pg_temp.public_text_residue(tap.buyer())), 0,
+  'NO text column on ANY world-readable table contains the deleted user''s uuid anywhere in its value — this is the class that caught proof_of_ownership_path, and 23 structurally cannot');
 
 SELECT * FROM finish();
 ROLLBACK;
