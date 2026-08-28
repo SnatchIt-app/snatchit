@@ -1051,8 +1051,18 @@ error, 429 on over-limit, both with `Retry-After`, and *"never silently disable 
 | `crm_export_download` **per actor** | **10** | 24 h | |
 | `attendee_list_page` **per actor** | **240** | 1 h | The on-screen list is paginated at 50; 240 pages/h is 12 000 rows/h — above any human reading, below a scraper. `INFERENCE:` without this, the screen is an unaudited export with extra steps. |
 | **`attendee_lookup_by_email`** **per actor** | **40** | 24 h | **The sharpest limit in this document.** See §7.2. |
+| **`attendee_lookup_by_email`** **per org** | **120** | 24 h | **Added.** The per-actor cap alone is defeated by three accounts, and this is the table that says so two rows above about exports: *"the per-actor limit alone is defeated by five accounts."* The same reasoning had not been applied to the lookup. |
+| **`attendee_lookup_by_name_prefix`** **per actor** | **20** | 24 h | **Added — there was no row at all.** See §7.2. |
+| **`attendee_lookup_by_name_prefix`** **per org** | **60** | 24 h | **Added**, same reasoning. |
 | `attendee_lookup_by_order_ref` per actor | 200 | 24 h | Order refs are opaque and possessed by the customer; the probe is not a harvest oracle. |
+| `attendee_lookup_by_order_ref` **per org** | **600** | 24 h | **Added** for uniformity — every lookup kind has both caps, so a new kind added later has an obvious shape to copy rather than a choice to make. |
 | `contact_consent_write` per identity | 60 | 24 h | Fan-side; prevents a consent-flapping loop. |
+
+**Every lookup kind is limited per actor *and* per org.** `INFERENCE:` the per-org cap is not a second-order
+refinement — the downstream RPC contract scoped the limit to `email_exact` **explicitly**, so both other
+kinds were unlimited in the contract even where the table implied otherwise, and the whole family shared one
+per-actor ceiling that three colluding or compromised accounts walk straight through. The rule is stated as a
+rule so the next kind inherits it: **no lookup kind ships without both caps and an audit-by-kind row.**
 
 All limits live in `catalog.platform_config` (seeded in package **087/I**) and are **read live**, so a limit
 can be tightened without a deploy. `INFERENCE:` they are readable-tunable in one direction by intent — a
@@ -1075,17 +1085,58 @@ for an arbitrary email list.
 
 - **Permitted:** `venue.lookup_attendee(session, query_kind ∈ {email_exact, order_ref, name_prefix}, value)`
   — **one record**, service context, for `venue_manager`, `venue_box_office`, `org_owner`, `org_admin`,
-  `platform_support`. Every call is **audited with the query kind** (never the query value for `email_exact` —
-  logging the probed address would create the harvest list inside our own audit) and rate-limited at 40/day.
+  `platform_support`. Every call is **audited with the query kind** (never the query value for `email_exact`
+  or `name_prefix` — logging the probed string would create the harvest list inside our own audit) and
+  rate-limited **per actor and per org, for every kind** (§7.1).
 - **Forbidden:** email is **not** an export filter, **not** a bulk match key, and **not** a suppression key.
   There is no "upload a list and tell me who's coming" surface, in any form, ever.
 - **Denied to marketing.** X4 marks `OMK`/`VMK` as `·`. `INFERENCE:` the probe is a *service* tool for a
   person standing at a counter with a customer in front of them. Marketing has no such moment, and marketing
   is the role with the standing incentive to run a list.
 
-**Flagged as owner decision D-5** — 40/day is a judgement, and the owner may want it lower for marketing-heavy
-orgs or higher for a large festival box office. Whatever the number, the *shape* (per-actor, fail-closed,
-audited by kind, denied to marketing) should not change.
+**Flagged as owner decision D-5** — the numbers are a judgement, and the owner may want them lower for
+marketing-heavy orgs or higher for a large festival box office. Whatever the numbers, the *shape* (per actor
+**and** per org, fail-closed, audited by kind, denied to marketing) should not change.
+
+### 7.2a `name_prefix` — the same oracle with no limit at all
+
+`INFERENCE:` §7.2 named the email probe as "the real hole" and then left the sharper one open. The limit
+table had rows for `attendee_lookup_by_email` and `attendee_lookup_by_order_ref` and **none for
+`name_prefix`**, and the RPC contract scoped its limit to `email_exact` **explicitly** — so the prefix probe
+was rate-limited by nothing, in a design whose own §3.1 states, deliberately, that *"a box office cannot
+print a paper list. That is deliberate."*
+
+`venue_box_office` holds X4. Iterating `a…z`, then `aa…zz`, then `aaa…zzz` against one session returns the
+roster **one record at a time at no rate cost** — the printed list §3.1 refuses, reassembled from the surface
+that was supposed to replace it, by the exact role that was denied it. Three rules close it, and all three
+are needed:
+
+**1. Rate limits.** `attendee_lookup_by_name_prefix` at **20 per actor per 24 h** and **60 per org per
+24 h** (§7.1). Deliberately below the email cap: an email probe needs an address the prober already has,
+while a prefix probe needs nothing but the alphabet, so the cheaper attack gets the tighter budget. The same
+fail-closed `check_rate_limit` primitive (005/021): **429 over limit, 503 on limiter error, never a silent
+pass**.
+
+**2. A minimum prefix length of 3 characters.** Shorter raises `prefix_too_short`, before any lookup and
+without consuming the rate budget — `INFERENCE:` charging for a rejected call would turn the limiter into a
+denial-of-service against the box office, and the call reached no data. Three characters means the
+26-letter sweep is 17 576 probes rather than 26, against a budget of 20, and it also matches the real service
+moment: a customer at a counter says a name, not a letter.
+
+**3. Multi-match is an explicit error carrying no rows and no count.** More than one match raises
+`ambiguous_query` — **no rows, no count, no "3 matches, please refine", no partial list, no first result.**
+`INFERENCE:` a count *is* the harvest. `"sm" → 14` and `"smi" → 9` reconstruct the roster's name distribution
+without ever returning a record, and a design that returns rows only for unique matches while returning
+counts for the rest has simply changed the units the attacker collects in. The error names the *kind* of
+failure and nothing about the data. The operator's path is to ask the customer for more of their name, which
+is what they were going to do anyway.
+
+**Audited by kind, never by value.** `crm_lookup.attendee` records `(actor, session, query_kind, outcome ∈
+{hit, no_match, ambiguous, rate_limited, prefix_too_short})` and **never the probed string** — for
+`name_prefix` for the same reason as for `email_exact`: storing the probes builds the harvest list inside
+`kernel.admin_audit`, the one table nobody can ever purge. The `ambiguous` and `rate_limited` outcomes are
+the interesting ones: **a run of them is what an alphabet sweep looks like**, and they feed the §7.4 anomaly
+signal.
 
 ### 7.3 Volume caps
 
@@ -1104,7 +1155,9 @@ audited by kind, denied to marketing) should not change.
 |---|---|
 | **Paginating a whole org through repeated narrow exports** | Per-actor 5/day and per-org 25/day. At 50 000 rows × 5 = 250 000 rows/day/actor, a large org is still weeks of work, every request audited and visible in its own activity feed. |
 | **Scraping the on-screen list instead** | `attendee_list_page` 240/h, audited. The screen is not a cheaper export. |
-| **Confirming attendance for a supplied email list** | §7.2 — 40/day, audited by kind, denied to marketing, and no bulk match surface exists. |
+| **Confirming attendance for a supplied email list** | §7.2 — 40/day per actor, 120/day per org, audited by kind, denied to marketing, and no bulk match surface exists. |
+| **Reassembling the roster by iterating name prefixes** | §7.2a — 20/day per actor and 60/day per org (there was **no limit row at all**, and the RPC scoped its limit to `email_exact` explicitly), a 3-character minimum, and multi-match as an explicit `ambiguous_query` carrying **no rows and no count**. This is the surface that would otherwise have handed `venue_box_office` the printed list §3.1 denies it, one record at a time, at no rate cost. |
+| **A run of `ambiguous` / `rate_limited` lookup outcomes** | The signature of an alphabet sweep, and the only evidence of one — the probed strings are deliberately never stored. Feeds the volume-anomaly signal below. |
 | **A revoked staff member downloading a pending job** | EX-4 live re-authorization at download (already binding). |
 | **A marketing actor downloading a colleague's *operations* export** | EX-4 re-evaluates the **request-time allow-list for the job's `template_id`**, not just the role set (§11.4). `org_marketing` holds X10 and can see the `job_id`; without the template limb the role-set re-check passed and handed it order totals, unit prices and refund state alongside the contact column it already had. |
 | **A staff member exporting on their last day** | Not preventable, and saying otherwise would be dishonest. What exists: the audit row is permanent and names them, the anomaly signal below fires, and the artifact dies in 24 h. This is a *detection* control, and it is labelled as one. |
@@ -1631,9 +1684,28 @@ two surfaces must agree or the export becomes the narrow one and the screen beco
 
 **`venue.lookup_attendee(p_session_id uuid, p_query_kind text, p_query_value text)`** — read, **one record**.
 `p_query_kind ∈ {email_exact, order_ref, name_prefix}`. Authority: `venue_manager`, `venue_box_office`, org
-owner/admin, `platform_support`; **denied to both marketing labels** (§7.2). Rate-limited at 40/day for
-`email_exact`. Audited with the **query kind only, never the value**. Returns the minimal service projection.
-EXEC: `authenticated`.
+owner/admin, `platform_support`; **denied to both marketing labels** (§7.2). Returns the minimal service
+projection. EXEC: `authenticated`.
+
+**Rate-limited per actor *and* per org, for every `query_kind`** (§7.1) — not "40/day for `email_exact`",
+which is what the previous contract said and which left `name_prefix` limited by nothing at all. Limits are
+looked up by `(action = 'attendee_lookup_by_' || p_query_kind, actor)` and `(…, org)`, so **a `query_kind`
+with no configured limit raises rather than passes** — the same fail-closed posture 021 established for the
+limiter itself, applied to the limiter's own configuration.
+
+**`name_prefix` additionally (§7.2a):**
+- `length(trim(p_query_value)) >= 3`, else `prefix_too_short` — raised **before** the lookup and **without
+  consuming the rate budget**, since the call reached no data and charging for it would make the limiter a
+  denial-of-service against the box office.
+- **More than one match raises `ambiguous_query`, returning no rows and no count.** Not a count, not a
+  truncated list, not the first result, not "3 matches — refine your search". A count is the harvest: `"sm"`
+  → 14 and `"smi"` → 9 reconstruct the roster's name distribution without ever returning a record.
+
+**Audited with the query kind and outcome, never the value.** `crm_lookup.attendee` records
+`(actor, session, query_kind, outcome ∈ {hit, no_match, ambiguous, rate_limited, prefix_too_short})`.
+`INFERENCE:` `ambiguous` and `rate_limited` are the load-bearing outcomes — a run of them is the signature of
+an alphabet sweep, and they are the only evidence of one, since the probed strings are deliberately never
+stored.
 
 **`venue.request_export(p_scope_kind text, p_scope_id uuid, p_template_id text, p_filters jsonb,
 p_command_key text)`** — write. Authorizes per §3 X5/X6; rejects `scope_kind='all'` (not a member); validates
@@ -1888,6 +1960,20 @@ logging; Sentry on unexpected 500s).
 33. No audit row's payload contains an `@` character in a value position, an `org_customer_key`, or a
     `customer_ref` *(content scan)*.
 34. A denied export attempt writes `crm_export.denied`.
+34a. **Every lookup kind is limited, per actor and per org.** For each of `email_exact`, `order_ref`,
+    `name_prefix`: the per-actor cap and the per-org cap both bind independently (the org cap fires with the
+    actor cap unspent, across three distinct actors), and both fail closed — **503 on limiter error, never a
+    pass**. A `query_kind` whose limit row is missing from `catalog.platform_config` **raises**; it does not
+    default to unlimited.
+34b. **`name_prefix` minimum length.** A 2-character prefix raises `prefix_too_short`, reaches no data,
+    **and does not consume the rate budget** (asserted by checking the remaining budget after the call).
+34c. **Multi-match returns nothing at all.** A prefix matching 2+ holders raises `ambiguous_query` with
+    **zero rows and no count field in the payload** — asserted structurally on the error's shape, not by
+    reading a value, so a later "helpfully" added match count fails the suite. A prefix matching exactly one
+    returns that one record.
+34d. **The sweep is bounded and visible.** 21 `name_prefix` calls by one actor in 24 h: the 21st is
+    `rate_limited`. The audit rows for all 21 carry `query_kind` and `outcome` and **contain none of the
+    probed strings** (content scan).
 
 **Erasure / merge**
 35. Deleting the `auth.users` row cascades both contact tables away, and neither is repointed to the
@@ -1906,7 +1992,7 @@ logging; Sentry on unexpected 500s).
 | **D-2** | **Adopt the Layer-0 privilege wall (§10.1)?** A dedicated `crm_export_builder` definer owner with zero grant on the demographic objects, making an X-6 violation a runtime error rather than a CI finding. Costs a deviation from the "`SECURITY DEFINER` owned by `postgres`" global plus a handful of policy lines. **Recommend adopt.** | Architecture (schema + RLS owners) | **Yes — before 087 / I** |
 | **D-3** | **Acknowledge the `ON DELETE CASCADE` exception** on the two contact tables against the `RESTRICT` default (§11.2), and the constraint on whoever next edits migration 020: contact rows must **never** be repointed to the anonymized sentinel (§9.5). | Architecture + account-deletion owner | **Yes — before 077 / B** |
 | **D-4** | **Acknowledge the consent-record divergence from the demographics spec:** withdrawal is a **state change**, not a hard delete, because a consent record is evidence about a relationship rather than a sensitive attribute, and it is the person's own evidence in the dispute they are most likely to have (§5.3). | Architecture + Counsel | No |
-| **D-5** | **Confirm the email-lookup limit** — 40/day per actor for `email_exact` (§7.2). The *shape* (per-actor, fail-closed, audited by kind, denied to marketing) should not change; the **number** is a judgement the owner should own, because it is the sharpest anti-harvest control in the document. | Owner | No |
+| **D-5** | **Confirm the lookup limits — all three kinds, both planes.** `email_exact` 40/actor + 120/org; `name_prefix` **20/actor + 60/org** (there was no limit at all); `order_ref` 200/actor + 600/org. Plus the `name_prefix` **3-character minimum** and **`ambiguous_query` carrying no rows and no count** (§7.2a). The *shape* (per actor **and** per org, fail-closed, audited by kind and outcome but never by value, denied to marketing) should not change; the **numbers** are a judgement the owner should own, because these are the sharpest anti-harvest controls in the document — and because a festival box office on a busy door may legitimately need the prefix number higher, which is exactly the request that should arrive as a config change with an actor on it rather than as a code change. | Owner | No |
 | **D-6** | **Artifact retention: 24 hours (recommended) or 7 days?** (§6.6.) 24 h means the bucket holds one day of exports at steady state; 7 days is an operator convenience that multiplies the standing exposure sevenfold. **Recommend 24 h.** | Owner | **Yes — the sweep constant** |
 | **D-7** | **Confirm `marketing`'s CRM ceiling.** This spec gives both marketing labels the audience template (contact + ops, no money) at their plane's grain, denies them the money template, denies them the email-lookup probe, and denies `venue_marketing` the org-grain CRM. `VERIFIED:` this is exactly role-model H2/H3, made concrete at column level — but role-model **OD-8** asked the owner to confirm the scope, and the demographics spec's **D-8** asked the same about the mix card. Both should be answered once, together. | Owner | No |
 | **D-8** | **Is a platform-plane bulk extraction path wanted at all?** This spec resolves the role-model F12 / dashboard note-13 conflict by giving platform roles **read** and **not** the venue export (§3.2), and does not build a platform path. If one is wanted it needs dual control, its own retention, and its own audit action. | Owner | No |
@@ -1946,6 +2032,7 @@ weakening it.
 | **K-14** | **This document, §1.4 · §4.1 · §4.2 · §4.3 · §4.4 · §5.1 · §11.2 · §11.4 · §12** | **H-11 remediation.** The export's tenant predicate was bound at org grain only. `catalog.venue.org_id` is **mutable** while `catalog.event.org_id` is stamped at create, and the isolation traversal is downward `org → venue → event → session → ticket → holder`, so a **venue-grain export at a new operator reached every historic session of that venue** — the previous org's customer list. Added **XO-1a**: `kernel.tickets.org_id = :job_org_id` at **every** grain, with `:job_org_id` resolved once at request time and frozen on the job row. The `customer_ref` HMAC key and the consent gate's `EXISTS` are both pinned to the **job's** org, not the atom's — the previous text left both ambiguous, and the atom binding would have given two orgs the **same** pseudonym for the same person, joining their files directly. New proof **case (e)** and assertions **18a–18c** (asserted per grain, because a single-grain test passes while three branches leak). Product consequence recorded as **D-12**. |
 | **K-15** | **This document, §3 (X8/X9 + note ᵗ) · §3.1 · §6.2 · §6.7 EX-4 · §7.4 · §11.4 · §12** | **H-12 remediation.** The download re-check read the role set and never the template — `template_id` was not mentioned in the contract at all. But the operations template's request-time allow-list is the narrowest in the matrix, so a `marketing` role could read a `job_id` from the job list (it holds X10) and download a colleague's **operations** export: order refs, order totals, unit prices, refund state. §3.1's own invariant — *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees both."* — was defeated by any org that ever ran one operations export, with no grant being wrong. Fix: `venue.authorize_export_download` re-evaluates `assert_may_request(actor, job.scope, job.template_id)` — the same predicate a fresh request would face. `◐` on X8/X9 is now defined as template-scoped. Assertions 24a/24b, the second stated as an **equality between the request and download predicates** so the two cannot drift. |
 | **K-16** | **This document, §6.2 · §6.6 · §9.2 · §11.1 · §11.2 · §11.4 · §11.5 · §12** | **H-13 remediation.** Nothing in the design could delete a Storage object. Revoke said it *"deletes the artifact, effective immediately"*; `venue.revoke_export` said it *"signals the edge to delete"*; the sweep said it *"deletes artifacts past retention"* — and the `crm-export` edge function had exactly two routes, **neither a delete**. A `SECURITY DEFINER` Postgres function cannot call the Storage API, and its only in-DB option (`DELETE FROM storage.objects`) drops the metadata row and **orphans the bytes**. So retention, sweep and revoke all had **no agent**: *"the lake is bounded by a 24-hour sweep"* was unimplementable and revoke could not remove the file it claimed to remove. Added: `POST /purge` on `crm-export`, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034 this spec already cites; `artifact_state` / `purge_lease_until` / `purge_attempts` on `venue.export_job`; three definer `service_role` RPCs; and a **daily orphan reconciliation pass** that reconciles the bucket against the job table in both directions — without which the 24-hour bound is a statement about rows, and rows are not what leaks. Revoke's honest bound restated as `min(300 s, time-to-purge)`, not zero. |
+| **K-17** | **This document, §7.1 · §7.2 · new §7.2a · §7.4 · §11.4 · §12** | **H-14 remediation.** The name-prefix lookup had **no rate limit** — the limit table carried rows for `email_exact` and `order_ref` and none for `name_prefix`, and `venue.lookup_attendee`'s contract scoped its limit to `email_exact` **explicitly**. `venue_box_office` holds X4, so iterating `a…z`, `aa…zz` against one session returned the roster one record at a time at no rate cost: the printed list §3.1 refuses (*"a box office cannot print a paper list. That is deliberate."*) reassembled from the surface meant to replace it, by the role denied it. Added: `attendee_lookup_by_name_prefix` at 20/actor + 60/org per 24 h; a **3-character minimum** raised before the lookup and without consuming budget; and **multi-match as an explicit `ambiguous_query` carrying no rows and no count** — a count is the harvest (`"sm"`→14, `"smi"`→9 reconstruct the name distribution without returning a record). **Per-org caps added for every lookup kind**, closing the medium that the export explains per-actor-alone is insufficient two rows above in the same table. Audit records kind **and outcome**, never the probed string; a run of `ambiguous`/`rate_limited` is the sweep signature and the only evidence of one. |
 
 ---
 
