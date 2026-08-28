@@ -522,7 +522,13 @@ A contract is tagged one of:
 > **Naming reconciliation:** the schema/RLS canonical names are `venue.reserve_inventory` / `venue.release_hold`;
 > the brief's `reserve_primary_inventory` / `create_inventory_hold` / `release_inventory_hold` are the contract
 > names above and map 1:1 (buyer-hold / staff-hold / release). Implementers may keep the schema names as the
-> physical function names with these as documented aliases.
+> physical function names with these as documented aliases. **This convention is extended to every divergent
+> name in the corpus by the register at §20.13, which is the canonical namer** — *"two names for one function
+> produces two functions or none"* — and `T-RPC-SET-02` asserts exactly one physical function per row of it.
+>
+> **The fourth write authority schema §3.5 names for `venue.inventory_hold` — the expiry sweep — is
+> contracted at §20.3.3**, and it was contracted nowhere before. Without it a hold never leaves `active`, so
+> `held` is never returned and an abandoned checkout removes inventory from sale permanently.
 
 ---
 
@@ -986,8 +992,12 @@ A contract is tagged one of:
   `precondition_failed` (over-refund / window), `insufficient_privilege`. **Forbidden callers:** a buyer
   refunding beyond policy cap; anyone refunding another buyer's order.
 
-> **`kernel.admin_refund`** (platform_risk/admin dispute refund) is the same DB shape as §11.4 with
-> `reason_code='dispute'`/`admin_action` and platform authority; listed here as a sibling, not re-detailed.
+> **`kernel.admin_refund`** (platform_risk/admin dispute refund) is broadly the same DB shape as §11.4 with
+> `reason_code='dispute'`/`admin_action` and platform authority. **This sentence was the whole of its
+> contract, and a sibling is not a contract — it is now written out at §20.7.1.** Three differences the
+> "same shape" reading hides: it is **payment-scoped, not order-scoped** (the only path to a native-resale or
+> fee-only reversal); it is the **sanctioned destination for this section's own `custody_moved` ruling**; and
+> it is **freeze-exempt (§12.4c)**, which binds it to the mandatory `revoke`-delta obligation.
 
 ---
 
@@ -1155,6 +1165,11 @@ The Edge spec must design these; this doc fixes the DB boundary each wraps:
 
 `kernel.provision_signing_key` / `rotate_signing_key` / `revoke_signing_key` are **DB-RPCs** (`is_platform([
 platform_admin])`, audited, active-key partial-unique per scope) whose KMS side is the edge provisioning path.
+**That sentence was their entire specification — the C33 key lifecycle, contracted in one line. Full
+contracts are at §20.7.3–§20.7.5**, including the properties this line leaves out: that no parameter can
+carry private key material, that rotation is one transaction because zero active keys stops the box office,
+that `rotating` still verifies while `revoked` invalidates every live credential, and that a revoke with no
+active successor is refused.
 
 ---
 
@@ -1183,6 +1198,15 @@ platform_admin])`, audited, active-key partial-unique per scope) whose KMS side 
 | 13 | Auction deposit-release | auction finalize sweep → `kernel.transfer_ticket_ownership` (+ deposit-auth void) | **Listing/Auction** → **Ticket Atom** → **Payment** |
 | 14 | Group-buy claim *(non-MVP; modeled only)* | future `venue.reserve_group_claim()` (A11 one legal door) | **Inventory**(hold) — single-class once inside the door |
 | 15 | Wallet checkout *(non-MVP; modeled only — wallet is later-phase)* | future wallet-debit → `create_primary_checkout` path | **Order** → **Payment/Wallet-ledger** |
+
+> **Addendum — §20.12.** The set-closure pass (§20) adds contracts for 49 previously uncontracted functions.
+> Six of them participate in a member above **as callers**: `venue.issue_comp` (#1), `market.respond_offer`
+> accept (#2 — already named in that row's cell), `kernel.admin_refund` and `market.on_atom_voided` (#3),
+> `kernel.pay_promoter_commission` (#5), `market.create_listing` (#6, already named) and
+> `market.cancel_listing` (#6 reverse). **No row above is rewritten and no member is added; the set stays
+> closed at fifteen.** §20.12 gives each one's acquisition sequence and re-proves it ascending. The one
+> ordering fact it introduces — `market.on_atom_voided` takes rank 4 inside member #3 and is therefore
+> invoked **before** the rank-5 atom lock — is consistent with §14.2's NB below.
 
 ### 14.2 Lock-order proof (no illegal inversion exists)
 The global order is a **total order** on aggregate classes: `Event/Session(1) < Inventory(2) < Order(3) <
@@ -1264,10 +1288,16 @@ never writes `market`, the market never writes custody, so there is exactly one 
    deferred to policy (mirrors RLS §15.4).
 4. **Settlement-close authority scope (§10.2).** Both `org_finance` and `venue_finance` are plausible;
    contract accepts either (mirrors RLS §15.3) — confirm org-level vs venue-level (drives payout).
-5. **Native auction bid RPC.** MVP reuses the frozen external `public.bids`/`auto-finalize-auctions` engine
-   (CONFLICTS #6); a native `market.bid` ledger + bid RPC is an **extension point**, not contracted here.
-   `market.create_auction` + finalize (→ member #2b) are contracted; the bid write path defers to the existing
-   engine.
+5. **Native auction bid RPC. — CLOSED with a name and an open decision (§20.8.4).** MVP reuses the frozen
+   external `public.bids`/`auto-finalize-auctions` engine (CONFLICTS #6); a native `market.bid` ledger is an
+   **extension point**. What this entry got wrong was concluding that the *bid RPC* therefore needed no
+   contract: **RLS §11.1 grants EXECUTE on it and plan `088` schedules it as an object**, so it is built
+   either way, and it was built from a name nobody had written. It is now named **`market.place_bid`** and
+   contracted at §20.8.4, together with `market.create_listing`, `cancel_listing`, `create_auction`,
+   `make_offer` and `respond_offer` — **the whole six-function native write surface, which no section of
+   §1–§19 contracted.** The residue is narrower and is stated as an `OPEN DECISION` rather than an omission:
+   **what happens to a native-only auction that does not mirror to `public.listings`.** §20.8.4 proposes
+   refusing it at `create_auction` in MVP; §20.14 R-9 files the ruling.
 6. **`change_org_role` vs schema `grant_org_role`/`revoke_org_role`.** Contract uses the brief's names as the
    public surface; implementers may realize them as the schema's grant/revoke primitives (documented aliases).
 7. **`kernel.close_settlement` is contracted in a package that precedes the table it reads.** It reads
@@ -1279,7 +1309,10 @@ never writes `market`, the market never writes custody, so there is exactly one 
    attribution* must also land with the promoter package, not before it. Owner: the migration-plan author.
 8. **`kernel.approval_request`'s SSCAS status is FLAGGED, not assumed** (§17.1, RLS MD-1). Argued as an intent
    record; if a reviewer judges otherwise it is a sixteenth member and C28's closure needs a formal amendment.
-   It is lock-ordered either way.
+   It is lock-ordered either way. **Unchanged by §20**, which adds two further parkers of an approval
+   (`catalog.set_platform_config` §20.2.1, `kernel.grant_platform_role` §20.1.4, and the signing-key trio
+   §20.7.3–§20.7.5) using the identical construction — so the flag's disposition covers them too, and **no
+   §20 contract required a sixteenth member** (§20.0d, §20.12).
 9. **The `notify` gate is DISPUTED and this document does not settle it** (§17.24, RLS MD-10). C7 is
    `RATIFIED · Gate P · MVP` and names `notify`; four implementation specs defer it to Gate L; the
    notifications spec explicitly declines to resolve the conflict. Its companion question — whether the event
