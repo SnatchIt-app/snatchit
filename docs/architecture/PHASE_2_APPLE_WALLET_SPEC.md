@@ -1084,6 +1084,18 @@ Stated so they are not assumed (they are the door-client half of §4's assumptio
    §5.4.3 is the required minimum set, and it includes the `resale_state ∈ {locked, refund_hold}` cases that
    the two-conjunct wording admitted.
 2. **Offline, no M2 ⇒ no admit.** Never "verify signature and let them in."
+2a. **The manifest must actually carry what the predicate reads — `SPEC CORRECTION` (`K-1`).** Item 1 is a
+   requirement on the *scanner*; it is unsatisfiable if the wire omits an input, and for a period it did.
+   Door §7.5 and RPC §20.6.1 described **two different** M2 wire shapes, and each was missing a different
+   conjunct's input — `resale_state` (3b.v) from one, `ticket_state` (3b.iv) and the delta's `signing_key_id`
+   (3c, for every atom supplemented after doors open) from the other. **This is §10.2's own failure mode
+   arriving one layer earlier than §10.2 anticipated:** a scanner that dutifully evaluates all six conjuncts
+   still admits a `paid_pending_transfer` atom if `resale_state` never reached it, and the scanner is not the
+   defective component. Door **§7.5a** now binds the projection as a superset of the predicate's read set,
+   with a structural acceptance property in both contracts (door §15 assertions 77–83, RPC
+   `T-RPC-DOOR-33`/`-34`). **A scanner build MUST fail closed if a field the predicate reads is absent from
+   the manifest it received** — an absent field is not a passed check, and treating a missing input as
+   satisfied is H-2 restored by omission.
 3. **`version_stale` must render as an unmistakable deny banner** reusing the existing operator copy
    *"This pass is out of date. Ask them to open the Snatch It app."* (door spec §11.2) — **no new vocabulary**.
    Critically, the copy must not imply the pass is fake: a stale pass is usually an honest previous owner, not
@@ -1671,6 +1683,7 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | 10a | **The OQ-5 grant's second condition is actually implemented**: `kernel.revoke_signing_key` force-closes and invalidates open door-manifest episodes in its own transaction (edge §5.6). The ruling says *"without this I would reject DL-4"* — until it exists, the session-bounded wallet profile this feature depends on rests on a condition nothing satisfies | eng | **before enabling** | a 12-hour token against a revoked key |
 | 10b | **The `exp` clamp is applied at sign time** and asserted in CI over the **computed** value with adversarial `ends_at` fixtures (§5.2a), not merely over the seeded constants | eng | before enabling | a mistyped `ends_at` mints an unbounded bearer credential |
 | 11 | **Scanner build implements every conjunct of `OFFLINE-VERIFY-v1`** (§10.2 items 1–2) — all five of 3b, 3c, applied-set evaluation, no-M2-no-admit — covered by **one failing-case regression test per conjunct** (edge §5.4.3's case table), and verified by an end-to-end stale-pass drill **and** a `paid_pending_transfer` drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored, or fetched and only partly compared (H-2) |
+| **11a** | **The manifest the scanner receives carries every field the predicate reads** (§10.2 item 2a, door §7.5a) — verified by the **structural** assertions, not by a sample scan: door §15 **77–83** and RPC **`T-RPC-DOOR-33`/`-34`**, with the compared read set derived from the fenced block rather than hard-coded. Plus the drill item 11 already requires, run against an atom that reaches M2 **only via an `op='add'` delta** (the post-open door sale) | eng | **before enabling** + per scanner release | item 11 passes and the door still admits a `paid_pending_transfer` atom, because a conjunct's input never arrived (`K-1`). **Item 11 tests the scanner; this tests the wire, and item 11 cannot detect its absence** |
 | 12 | **`wallet-pass-webservice` security review sign-off** for its `verify_jwt=false` posture (§6.1) | platform_admin | before enabling | the second unauthenticated endpoint ships unreviewed |
 | 13 | **Rate limits configured and fail-closed** on all four edge functions | eng | before enabling | abuse surface |
 | 14 | **Runbook published**: certificate rotation, certificate compromise, signer compromise, APNs key rotation, per-pass revoke, post-break-glass M2 re-sync (§10.3) | platform ops | before enabling | incident improvisation |
