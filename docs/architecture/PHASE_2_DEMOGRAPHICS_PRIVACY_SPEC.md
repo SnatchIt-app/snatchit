@@ -290,9 +290,14 @@ give materially different numbers.
 > for a given `catalog.event_session`, evaluated as of a named snapshot instant `as_of`.**
 >
 > Formally: `DISTINCT kernel.tickets.current_owner_id` over the rows where
-> `event_session_id = :session AND state <> 'voided'`, at time `as_of`.
+> `event_session_id = :session AND state <> 'voided'`, at time `as_of`, **restricted to R7-eligible custody**
+> (§5.2 — the ownership-log head cause is not `comp`, and the atom's issuance was not zero-price).
 > The counting unit is **the person, not the ticket** — a fan holding four tickets is one holder.
 > The rollup is `(event_session, dimension, bucket) → holder_count`, and nothing finer exists anywhere.
+
+`INFERENCE:` the eligibility restriction is a **privacy** qualifier, not a product one — see §5.2's
+"Why R7 exists". It is stated here rather than only in §5 so that nobody reads the canonical definition alone
+and implements the unrestricted population.
 
 The two rejected semantics keep reserved names so they can never be conflated if either is ever added:
 
@@ -340,6 +345,16 @@ Before doors, the card shows the **latest published `holder_mix` snapshot**, and
 > Added by this spec, always rendered beneath it: *"As of {as_of, e.g. 'Fri 6 Sep, 9:00 AM'}. This is who
 > holds tickets — not a door count."*
 
+**Two binding corrections to that copy (`SPEC CORRECTION` to dashboard §9.5).**
+
+1. **`N` and `M` render only when the snapshot published.** Per R6 (§5.2) a suppressed snapshot returns the
+   single boolean `suppressed: true` and carries no denominators, so the "Based on N of M" string is a
+   published-state string. The suppressed state renders the suppressed copy **and no numbers of any kind** —
+   not a total, not a response count, not a reason, not an `as_of`.
+2. **`M` is the eligible population, not the room.** Per R7 comped and zero-price custody is excluded, so `M`
+   is not "everyone holding a ticket" and must not be captioned as if it were. The subtitle's second sentence
+   gains: *"Counts people who bought a ticket to this event."*
+
 After doors, the card continues to show the last published `holder_mix` snapshot, unchanged and still
 `as_of`-stamped. **The card never becomes a door count**, and the words "attendee", "audience", and
 "demographics" remain banned from it per §9.5. `INFERENCE:` letting the card silently switch meaning at
@@ -372,38 +387,116 @@ differencing defence and it is discussed in §5.3.
 
 `dimension` is CHECK-constrained to `gender_identity` in Phase 2.
 
+**The population is not "everyone holding a ticket" — it is R7-eligible holders only (§5.2).** Every
+occurrence of "holder", `holders_total` and `holders_responded` below means the R7-eligible set.
+
 ### 5.2 Minimum cell size and suppression — enforced in the database
 
-Adopting the ratified dashboard §9.5 thresholds, and closing the two gaps that render-side rules cannot
-close:
+Adopting the ratified dashboard §9.5 thresholds, and closing the gaps that render-side rules cannot close.
+
+`INFERENCE:` **the correction that produced R7–R9.** R1–R6 as originally written floor the *cells* of a
+distribution but say nothing about *who is in the population the distribution is computed over* — and at this
+product the operator controls that population. A `venue_manager` mints sessions and mints comps, both at zero
+marginal cost. Every k-anonymity argument in this section is an argument about an adversary who observes a
+population; it is void against an adversary who **composes** one. R7 removes the free contributor, R8 makes
+the churn bound quantify over answers rather than membership, and R9 stops two near-identical populations
+from being published side by side. §5.3 states honestly what remains uncovered.
 
 | Rule | Value | Where enforced |
 |---|---|---|
 | **R1 — event minimum** | `holders_responded >= 25` (k = 25) | Rollup writer refuses to publish; snapshot persisted as `suppressed`, zero bucket rows. |
 | **R2 — per-bucket floor** | every persisted bucket `holder_count >= 5` | **A `CHECK (holder_count >= 5)` constraint on `venue.holder_mix_bucket`.** A sub-floor bucket is not merely hidden — it **cannot physically be stored.** |
-| **R3 — mandatory merge** | buckets below the floor are merged into `other`, smallest first, repeating until `other >= 5` | Rollup writer. |
-| **R4 — completeness (the complement rule)** | `SUM(bucket.holder_count) = snapshot.holders_responded`, always | Writer assertion + nightly reconciliation job (the C27 counter-vs-ledger pattern) + pgTAP assertion 16. |
-| **R5 — all-or-nothing** | if R3 cannot produce a set where *every* persisted bucket ≥ 5, the snapshot is `suppressed` and **zero** bucket rows are written | Rollup writer. |
-| **R6 — publication churn gate** | see §5.3 defence 4 | Rollup writer. |
+| **R3 — mandatory merge** | the fully determined algorithm below | Rollup writer. |
+| **R4 — completeness (the complement rule)** | `SUM(bucket.holder_count) = snapshot.holders_responded`, always | Writer assertion + read-side re-derivation (§10.4) + nightly reconciliation job (the C27 counter-vs-ledger pattern) + pgTAP assertion 16. |
+| **R5 — all-or-nothing** | if R3 cannot produce **at least two** persisted buckets each ≥ 5 summing to `holders_responded`, the snapshot is `suppressed` and **zero** bucket rows are written | Rollup writer. |
+| **R6 — denominator suppression** | a `suppressed` snapshot publishes **no `holders_total`, no `holders_responded`, and no reason** to any client | Rollup writer stores them; `venue.get_holder_mix` never emits them (§10.4). |
+| **R7 — population eligibility** | a holder is counted only if their custody of the atom was acquired **for consideration**: the ownership-log head cause is not `comp`, and the atom's issuance was not zero-price | Rollup writer. |
+| **R8 — publication churn gate, over the contributor multiset** | see §5.3 defence 4 | Rollup writer. |
+| **R9 — cross-session near-duplicate gate** | see §5.3 defence 7 | Rollup writer. |
 
-**Why R4 is not optional.** The card publishes `N` (`holders_responded`). If suppressed buckets were simply
-omitted, the residual `N − Σ(shown)` would be computable — suppressing a single small bucket would *hand
-over* its exact count. Mandatory merge into `other` means the published set always sums to `N` and there is
-no residual to compute. R5 is the corollary: when merging cannot reach the floor (e.g. 25 responses split
-23/1/1 — `other` would be 2), the whole dimension suppresses rather than leak.
+**R3, fully determined.** The previous wording ("buckets below the floor are merged into `other`, smallest
+first, repeating until `other >= 5`") is under-determined and its two worked examples contradicted it — the
+40-person example merges `man = 5`, which is *not* below the floor, while the 23/1/1 example stops before
+doing the same thing. The algorithm is therefore stated as an ordered procedure with no discretion left in it:
 
-**Worked example — the 40-person event from the brief.** 40 holders, 26 responded: 20 `woman`, 5 `man`, 1
-`non_binary`. R1 passes (26 ≥ 25). R2 fails for `non_binary` (1 < 5). R3 merges it toward `other`; `other` =
-1, still below the floor, so the next-smallest bucket (`man`, 5) merges in: `other` = 6. Persisted:
-`woman = 20`, `other = 6`, summing to 26. The single non-binary holder is inside a bucket of six and the
-venue cannot tell whether `other` contains one, six, or any mix. Had the split been 25/1 the merge could not
-reach 5 and **R5 suppresses the entire card.**
+```text
+1. Start from the raw counts of the four substantive buckets. other := 0.
+2. While some NAMED bucket has a count in [1,4]:
+       move the smallest such named bucket (ties: alphabetical) into other.
+3. If other is now in [1,4]:
+       while other < 5 and at least one NAMED bucket remains:
+           move the smallest remaining named bucket (ties: alphabetical) into other.
+4. Persist iff: at least TWO buckets remain, every one is >= 5, and they sum to
+   holders_responded. Otherwise SUPPRESS with zero bucket rows (R5).
+```
 
-**Three layers, and the database is load-bearing.** (1) The **rollup writer** applies R1–R6 before
-persisting — suppressed values never enter a readable table at all. (2) The **CHECK constraint** makes a
-sub-floor row unstorable even if the writer is wrong. (3) The **RPC** can only return what exists. (4) The
-**UI** renders the suppressed copy. Removing any one of layers 1–3 still leaves a correct floor; the UI
-alone is never the enforcement.
+Step 3 is the step the old prose omitted, and step 4's **two-bucket minimum** is what makes the two worked
+examples agree. `INFERENCE:` a single-bucket chart (`{other: 26}`) is not a privacy leak in itself, but its
+*existence* announces that the distribution was skewed enough to collapse — the same distribution-shape
+disclosure that R6 removes from the suppression reason. A card that would render one bar renders nothing.
+
+**Why R4 is not optional.** The card publishes `N` (`holders_responded`) whenever it publishes at all. If
+suppressed buckets were simply omitted, the residual `N − Σ(shown)` would be computable — suppressing a single
+small bucket would *hand over* its exact count. Mandatory merge into `other` means the published set always
+sums to `N` and there is no residual to compute. R5 is the corollary: when merging cannot reach a legal set,
+the whole dimension suppresses rather than leak.
+
+**Why R6 exists — the finding it closes.** The suppressed projection previously returned
+`{suppressed, reason, holders_total, holders_responded}` with **no floor on the denominators**. A
+`venue_manager` could create a throwaway session, comp one ticket to a target, and read `holders_responded`:
+`1` means that person gave a substantive answer, `0` means they did not. That is exactly the
+"shared demographics: yes/no" artefact X-4 bans, reachable from the read path the spec itself specifies. A
+suppressed snapshot now returns the single boolean `suppressed: true` and nothing else — no denominators, no
+reason, no `as_of`. The card's "Based on N of M" copy is a **published-snapshot-only** string (§4.3).
+
+**Why R7 exists.** A comp costs the venue nothing, and the same `venue_manager` mints both the session and the
+comps. Any bound of the form "an inferable group is at least 5 people" assumes those 5 people are not
+manufactured. R7 removes the zero-cost contributor: comped custody, and custody issued at zero price, are
+excluded from `holders_total` and `holders_responded` alike, so a contributor to the published distribution
+always cost someone real money.
+
+**Consequences of R7, stated honestly.** (a) A genuinely free event — no paid tier at all — never renders the
+card, because every holder is ineligible. That is the correct outcome (at a free event the operator can mint
+the entire population, so no anonymity bound holds at all) and it is a real product loss. **Owner decision
+D-12 (§14).** (b) `holders_total` is therefore **not** the count of everyone in the room, and the card's
+denominator is the eligible population, not attendance. §4.3's copy is amended accordingly. (c) The roster
+surface in the CRM spec counts *all* holders; the two numbers legitimately differ and the CRM spec's
+non-contradiction assertion is restated to compare like with like.
+
+**Worked example — the 40-person event from the brief.** 40 holders, of whom 38 are R7-eligible (two were
+comped); 26 of the eligible responded: 20 `woman`, 5 `man`, 1 `non_binary`. R1 passes (26 ≥ 25). R2 fails for
+`non_binary` (1 < 5). R3 step 2 moves it: `other` = 1. R3 step 3 fires because `other` ∈ [1,4]: the smallest
+remaining named bucket (`man`, 5) moves in, `other` = 6. Step 4: two buckets, both ≥ 5, summing to 26 →
+persist `woman = 20`, `other = 6`. The single non-binary holder is inside a bucket of six and the venue cannot
+tell whether `other` contains one, six, or any mix.
+
+Had the split been 25/1: step 2 gives `other` = 1; step 3 pulls `woman` (25) in, `other` = 26; step 4 finds
+**one** bucket → **R5 suppresses the entire card**, and R6 means the operator is told only that it is
+suppressed. Same for 23/1/1.
+
+**What is enforced where — corrected, because the previous claim was false.** The spec previously said
+"removing any one of layers 1–3 still leaves a correct floor". It does not, and the reason is worth stating
+because it is the kind of claim a reviewer stops checking once it is written down: layers 1 and 3 were **the
+same function** — the writer decides what to persist, and the RPC "can only return what exists" is not an
+independent check, it is a restatement of the writer's decision. Only R2 was ever a database constraint.
+The honest table, and the read-side re-derivation that makes the claim true where it can be made true:
+
+| Rule | Writer | Database constraint | Read-side re-derivation (§10.4) | Reconciliation job |
+|---|:--:|:--:|:--:|:--:|
+| R1 event minimum | ✔ | ✗ (a snapshot's own counters are not a cross-table constraint) | **✔ — `get_holder_mix` refuses to emit buckets unless `holders_responded >= 25` on the row it read** | ✔ |
+| R2 bucket floor | ✔ | **✔ `CHECK (holder_count >= 5)`** | **✔ — refuses to emit if any returned bucket < 5** | ✔ |
+| R3 merge | ✔ | ✗ | ✗ (not re-derivable without the raw counts, which are not stored) | ✗ |
+| R4 completeness | ✔ | ✗ | **✔ — refuses to emit unless `Σ holder_count = holders_responded`** | ✔ |
+| R5 all-or-nothing | ✔ | ✗ | **✔ — refuses to emit fewer than two buckets** | ✔ |
+| R6 denominator suppression | ✔ | ✗ | **✔ — the RPC's suppressed branch physically has no denominator field to fill** | n/a |
+| R7 eligibility | ✔ | ✗ | ✗ (the eligible set is not retained; see §8.4) | ✗ |
+| R8 / R9 gates | ✔ | ✗ | ✗ | ✗ |
+
+`INFERENCE:` "the read re-derives what it can from the row it is about to return, and refuses rather than
+degrades" is a genuinely independent second layer for R1/R2/R4/R5/R6 — it fails closed against a writer bug,
+a manual `INSERT`, a restored-from-backup row, and a future migration that back-fills. R3, R7, R8 and R9 are
+writer-only and this document says so rather than implying otherwise; they are covered by the reconciliation
+job where the job can see them and by pgTAP where it cannot. **The UI is never the enforcement, at any layer.**
 
 ### 5.3 Differencing defence — pre-computed fixed rollups, chosen and defended
 
@@ -425,14 +518,23 @@ the wrong tool for small-n operational reporting.
 
 **B — Pre-computed fixed rollups (CHOSEN).**
 
-> **You cannot difference aggregates that do not exist.** The only materialized demographic aggregate is
-> `(event_session, dimension, bucket) → count`. There is no per-ticket-type number, no per-promoter number,
-> no per-time-window number, and no per-scan-status number anywhere in the database, in any view, in any
-> cache, in any export, or behind any parameter. The intersections the brief warns about are not blocked at
-> a policy layer — **their operands are absent.**
+> **The axes an attacker would difference across do not exist.** The only materialized demographic aggregate
+> is `(event_session, dimension, bucket) → count`. There is no per-ticket-type number, no per-promoter
+> number, no per-time-window number, and no per-scan-status number anywhere in the database, in any view, in
+> any cache, in any export, or behind any parameter. **Those** intersections are not blocked at a policy
+> layer — their operands are absent.
 
-This defence is structural rather than procedural, which is exactly the property the constitutions favour
-(C36's "type error, not a lint finding"). It also composes with the four residual vectors:
+**Scope of that claim, stated because the previous wording overstated it.** The spec previously headlined this
+as *"you cannot difference aggregates that do not exist"* and let the sentence stand as the answer to
+differencing in general. **That claim is deleted.** It is true about **axes** and false about **populations**:
+the `(session, dimension, bucket)` aggregate very much exists, one instance of it exists per session, and an
+operator who can compose two populations — by minting a session, by minting custody, or by choosing which two
+of their own sessions to compare — differences two aggregates that both exist. Fixed rollups are a defence
+against slicing, not against an adversary who controls the input set. Vectors 4, 6 and 7 below are the
+population-side defences, and vector 7 records what is still not covered.
+
+This defence is structural rather than procedural for the axis case, which is the property the constitutions
+favour (C36's "type error, not a lint finding"). It composes with the residual vectors:
 
 1. **Ticket-type differencing** — no ticket-type rollup exists. The dashboard's one-dimension rule (§9.5)
    means there is no second axis control to build against, and there is no second axis to build.
@@ -444,35 +546,108 @@ This defence is structural rather than procedural, which is exactly the property
 4. **Temporal differencing (the one people miss).** Even with a single fixed shape, an observer who records
    Tuesday's chart and Wednesday's chart differences the two. If `holders_total` went 25 → 26, the bucket
    that moved by 1 identifies the new holder's answer.
-   **Defence R6 — the publication churn gate:** a new snapshot is published **only if at least 5 distinct
-   identities have entered or left the holder set since the last published snapshot** (adds + removes, so
-   refunds and transfers-out count). Otherwise the previous snapshot stands unchanged and the recomputation
-   is discarded.
-   **Why this is sufficient, stated as a bound:** any observable change between two published snapshots is
-   the aggregate effect of ≥ 5 distinct people entering or leaving. A bucket delta of +1 therefore
-   attributes to *one of at least five* people whose membership changed, and the observer cannot tell which
-   — an anonymity set of at least 5, matching the per-bucket floor. The bound holds for every delta of every
-   bucket, including the final snapshot, because R6 has **no exemption** (the doors-open recomputation is
-   published only if it also clears the churn gate; otherwise the prior snapshot simply stands as final).
+   **Defence R8 — the publication churn gate, over the contributor multiset.** The previous rule gated on
+   ≥ 5 changes of **membership**, which quantified over the wrong set: the buckets track **answers**, and a
+   stable member who edits their answer moves a bucket by 1 while causing zero membership churn. So a
+   `venue_manager` watching a 300-holder session sees a clean ±1 every time one person changes their mind.
+   The gate is therefore redefined over the object the buckets are actually a function of:
+   > Let `C(s)` be the **contributor multiset** of candidate/published snapshot `s`: the set of pairs
+   > `(identity_id, post-merge bucket)` for every R7-eligible holder with a substantive answer at `s.as_of`.
+   > **Churn** between two snapshots is `|C₁ △ C₂|` — the symmetric difference over *pairs*, so a member
+   > entering contributes 1, a member leaving contributes 1, and **a member changing their answer
+   > contributes 2**. A candidate publishes only if churn ≥ 5 against the last published snapshot for the
+   > same `(session, dimension)`; otherwise the previous snapshot stands and the recomputation is discarded.
+   **The bound this buys, stated exactly:** any observable change between two published snapshots is the
+   aggregate effect of ≥ 5 contributor-pair changes, so a bucket delta of +1 attributes to one of at least
+   three distinct people (5 pair-changes is at minimum 3 people, since an answer change costs 2). **The
+   anonymity set is ≥ 3 people, not ≥ 5** — the earlier text claimed 5 by conflating pairs with people, and
+   that claim is deleted. To restore 5, the gate is stated as **churn ≥ 5 pairs **and** ≥ 5 distinct
+   identities appearing in `C₁ △ C₂`**, which is the form the writer implements and pgTAP asserts.
+   `C(s)` is computed by the writer and **is not stored** (§8.4): the comparison is made against `C` of the
+   previous published snapshot, recomputed at that snapshot's `as_of` from the ownership log plus the *current*
+   answer table. The consequence — a member who both changed their answer *and* was compared against a
+   recomputed past — is stated in vector 7.
 5. **Historical time-series access** — there is none. `venue.get_holder_mix` takes no `as_of` and returns
    exactly one snapshot: the latest published one. There is no history endpoint, no "compare to last week",
    no trend line, and no export (§9). An observer must therefore poll and record by hand, which is
    rate-limited and audited (§11).
-6. **Cross-event intersection (residual, bounded, stated).** An org running many events could in principle
-   intersect the holder sets of two events it can see. Each event's chart independently obeys k = 25 and
-   floor 5, so the smallest inferable group remains ≥ 5, and no cross-event or "unique people across my
-   events" rollup exists to make the intersection convenient. This is a genuine residual, it is bounded, and
-   it is recorded here rather than hidden.
+6. **Cross-event intersection.** An org running many events can intersect the holder sets of two events it
+   can see — and, per the CRM spec's roster surface, it can see those holder sets **by name**. Each event's
+   chart independently obeys k = 25 and floor 5, so the smallest inferable group remains ≥ 5 — but they are
+   **5 people the operator can name**, not 5 unknowns. The bound is a group bound, never an anonymity bound
+   in the colloquial sense, and §11's row is corrected to say so.
+7. **Population differencing — the operator composes the input set (the vector this design does not fully
+   close).** Two sessions of the same venue whose eligible-holder sets differ by one person yield that
+   person's exact answer by subtraction, with **every bucket ≥ 5 on both sides**, so no floor binds and no
+   temporal gate fires — the two snapshots are not in the same series. R7 makes the differing member cost a
+   real ticket at a real price rather than a free comp, which raises the price of the attack without bounding
+   it.
+   **Defence R9 — the cross-session near-duplicate gate.** A candidate snapshot for session `S` does not
+   publish if the symmetric difference of its **R7-eligible holder set** and that of any other currently
+   published snapshot on a session reachable by the same venue **or** the same org is < 5 distinct identities.
+   Eligible holder sets are reconstructible at any past instant from `kernel.ticket_ownership_log` (§5.4), so
+   R9 needs no new stored object and no retained identity reference.
+   **What R9 bounds and what it does not — the acknowledged gap.** It bounds differencing driven by
+   *membership*: two near-identical rooms cannot both render. It does **not** bound differencing driven by
+   *answers* among stable members across sessions, because answers are deliberately not historied (§8.3) and
+   a responder set is therefore not reconstructible at a past instant. An operator running the same 300
+   regulars weekly, holding the roster by name, and diffing week over week retains a real inference channel
+   whose size this document cannot state as a number. **It is recorded as an open gap, not as covered.**
+   The Phase-2 mitigations are R8's ≥ 5-identity churn gate within a series, R9 across series, the 24-hour
+   recompute cadence, the audited and rate-limited read (§11), and the kill switch (§5.5). **Owner decision
+   D-13 (§14)** asks whether that is enough for the sessions-per-venue-per-week rates this product actually
+   sees, and names the two levers if it is not: raise k, or take the card off repeat-audience venues.
 
-### 5.4 Refresh cadence
+### 5.4 Refresh cadence and the writer's read set
 
 - Recompute per open `event_session` **at most once per 24 hours**, plus one recomputation at doors-open.
-- Each recomputation is published or discarded by R1–R6. A discarded recomputation leaves no row.
+- Each recomputation is published or discarded by R1–R9. A discarded recomputation leaves no row.
 - The job is a `pg_cron`-invoked `SECURITY DEFINER` RPC (§10.3), `service_role`/definer EXECUTE only.
 - **No edge function.** `INFERENCE:` keeping the entire computation inside Postgres means the demographic
   value never crosses a process boundary — no HTTP body, no function log, no error breadcrumb, no
   observability payload. That is a deliberate, checkable contribution to C34's future PII-sink inventory
   (§8.6).
+
+**The declared read set, corrected.** R8 and R9 compare against holder sets at a *past* instant, and the
+previously declared read set (`kernel.tickets` ⋈ `kernel.identity_demographic`) holds only the custody
+**head** — from which no past instant is computable, so the churn rule as written was not computable from the
+data the writer was declared to read. The writer's read set is therefore:
+
+| Relation | Why |
+|---|---|
+| `kernel.tickets` | the custody head and `state <> 'voided'` filter for the current candidate |
+| `kernel.ticket_ownership_log` | **added.** Reconstructs the eligible-holder set at a past `as_of` (R8's previous-snapshot comparison, R9's cross-session comparison) and supplies the head **cause** that R7 filters on |
+| `venue.order` / `venue.order_item` | **added, price only.** R7's zero-price test, reached through the issuance entry's `cause_ref`. No buyer identity is read, no total is retained |
+| `kernel.identity_demographic` | the answers |
+| `venue.holder_mix_snapshot` | the last published snapshot for R8, and every currently published snapshot in scope for R9 |
+| `catalog.event_session`, `catalog.event`, `catalog.venue` | the session anchor, and the venue/org reachability set R9 quantifies over |
+| `catalog.platform_config` | the §5.5 kill switch and the k/floor constants if D-5 makes them configurable |
+
+**Still not read:** `venue.scan`, `venue.attribution`, `venue.ticket_type`, `public.profiles`, any price
+beyond the zero/non-zero test, and any identity outside the session's own holders.
+
+### 5.5 Kill switch
+
+`INFERENCE:` stopping the cron is not a kill switch. It stops *new* snapshots while every venue keeps reading
+the last published card, forever — so the one lever an operator would reach for during an incident is the one
+lever that does not work, and it fails in the direction of continued disclosure.
+
+**`catalog.platform_config` key `demographics.holder_mix_enabled` (boolean, seeded `true`), read live by
+`venue.get_holder_mix` on every call.** When false, the read returns `{ suppressed: true }` for every session
+regardless of what is stored — no denominators, no buckets, no `as_of`. It is a **read-path** switch, not a
+writer switch, which is the whole point: it takes effect on the next call, needs no deploy, needs no cron, and
+does not depend on the writer running.
+
+Two companions, both definer-only:
+
+- **`venue.unpublish_holder_mix(p_event_session_id uuid)`** — un-publishes one session's snapshot, for the
+  single-event case (a venue reports a problem with one card). Audited.
+- **`venue.unpublish_all_holder_mix()`** — un-publishes every snapshot, for the case where the constant, the
+  merge, or the eligibility rule is found wrong and every stored card is suspect. Audited. `INFERENCE:` this
+  exists because the alternative during an incident is a `DELETE` typed at a psql prompt at 2 a.m.
+
+Turning the switch off does **not** delete snapshots — the numbers are needed to diagnose whatever caused the
+switch to be thrown. It makes them unreadable by every client role, which is the property an incident needs.
 
 ---
 
@@ -607,9 +782,16 @@ occurred_at)` — and **never what the value was or became.** Enforced by pgTAP 
 ### 8.4 What happens to aggregates already computed
 
 Nothing, and this is safe by construction: **`venue.holder_mix_snapshot` and `venue.holder_mix_bucket`
-contain no identity references at all** — only a session id, a dimension, an `as_of`, two totals, and bucket
+contain no identity references at all** — only a session id, a dimension, an `as_of`, the counters, and bucket
 counts. A published snapshot cannot be traced back to any contributor because the contributor set is never
 stored.
+
+**This survives R8/R9.** The contributor multiset `C(s)` those gates compare over is computed inside the
+writer's transaction and discarded with it. It is **never persisted**, in no table, no materialized view, and
+no temp object outliving the transaction — a stored `(snapshot, identity, bucket)` set would be precisely the
+timestamped per-person answer history §8.3 forbids, arrived at from the aggregation side. The previous
+published snapshot's `C` is **recomputed** from `kernel.ticket_ownership_log` (custody at that `as_of`) plus
+the *current* answer table, which is why §5.3 vector 7 states the residual it states.
 
 The effect of a removal is therefore precise and honestly statable: **from the next published snapshot
 onward, that person is not counted.** Snapshots already published are frozen numbers containing nothing that
@@ -714,7 +896,10 @@ ownership log · `080` venue staff roles + predicates · `081` venue inventory �
 | `venue.holder_mix_bucket` | `ADDITIVE SCHEMA CHANGE` | **087** |
 | `venue.refresh_holder_mix(...)` (definer/cron) | `NEW RPC` | **087** |
 | `venue.get_holder_mix(...)` | `NEW RPC` | **087** |
-| Nightly R4 reconciliation job | `NEW RPC` (definer) | **087** |
+| `venue.unpublish_holder_mix(...)` / `venue.unpublish_all_holder_mix()` (definer, §5.5) | `NEW RPC` | **087** |
+| `catalog.platform_config` seed `demographics.holder_mix_enabled` (§5.5 kill switch) | `ADDITIVE SCHEMA CHANGE` (data) | **087** |
+| Nightly R1/R2/R4/R5 reconciliation job | `NEW RPC` (definer) | **087** |
+| `kernel.ticket_ownership_log`, `venue.order`, `venue.order_item` — **read dependency added** by R7/R8/R9 (§5.4) | **`NO SCHEMA CHANGE`** — reads only | 079 / 082 must precede 087 |
 | RLS spec §6 column-scoped table — add 4 deny-all rows | `SPEC CORRECTION` | doc |
 | RLS spec §7/§9 — add 4 role matrices | `SPEC CORRECTION` | doc |
 | SPEC_FOUNDATION §6 canonical table inventory — add 4 tables | `SPEC CORRECTION` | doc |
@@ -726,12 +911,15 @@ ownership log · `080` venue staff roles + predicates · `081` venue inventory �
 | RN "About you (optional)" card + screen + remove control | `NEW RN SURFACE` | gated on **077** |
 | Dashboard "Ticket holder mix" card | `NEW DASHBOARD SURFACE` (spec exists) | gated on **087** |
 
-**Why package 087 and not 086.** The rollup reads `kernel.tickets.current_owner_id` (079) and
-`catalog.event_session` (078) and nothing else — it deliberately does **not** read `venue.scan` (086),
-because `admitted_mix` is not built (§4.1). 087 is chosen as the first package after the full custody +
-session chain is adopted, keeping the demographic objects off the critical path of every MVP gate. The
-rollup has **no dependency on 086** and could move earlier if the schedule wants it; it must not move
-earlier than 084 (the late-binding FK adopt).
+**Why package 087 and not 086.** The rollup reads `kernel.tickets` + `kernel.ticket_ownership_log` (079),
+`catalog.event_session`/`event`/`venue` + `catalog.platform_config` (078), and `venue.order`/`venue.order_item`
+(082, **price only**, for R7's zero-price test) — and nothing else. It deliberately does **not** read
+`venue.scan` (086), because `admitted_mix` is not built (§4.1). 087 is chosen as the first package after the
+full custody + session + order chain is adopted, keeping the demographic objects off the critical path of every
+MVP gate. The rollup has **no dependency on 086** and could move earlier if the schedule wants it; it must not
+move earlier than **082** (R7 needs the order price) or **084** (the late-binding FK adopt), whichever is
+later. `INFERENCE:` the 082 floor is new — R7 did not exist when 087 was chosen, and the dependency is worth
+naming rather than discovering during sequencing.
 
 **Why the fan-side objects ride in 077 and not a package of their own.** 077 is the identity package; the
 demographic row is keyed by `auth.users(id)` and depends on nothing else. Placing it there means the RN
@@ -775,10 +963,11 @@ threshold-clearing aggregate — which is the desired ordering.
 | `event_session_id` | `→ catalog.event_session` |
 | `dimension` | text, `CHECK (dimension = 'gender_identity')` in Phase 2 |
 | `as_of` | timestamptz — the instant the holder set was evaluated |
-| `holders_total` | int — distinct holders of ≥1 non-voided ticket (the `M`) |
-| `holders_responded` | int — distinct holders with a substantive answer (the `N`); `CHECK (holders_responded <= holders_total)` |
+| `holders_total` | int — distinct **R7-eligible** holders of ≥1 non-voided ticket (the `M`). **Never emitted on a suppressed snapshot** (R6) |
+| `holders_responded` | int — distinct eligible holders with a substantive answer (the `N`); `CHECK (holders_responded <= holders_total)`. **Never emitted on a suppressed snapshot** (R6) |
+| `holders_excluded_ineligible` | int — how many holders R7 removed. Diagnostic; **definer-only, never emitted to any client**, so the eligible and total populations can be reconciled without publishing either |
 | `suppressed` | boolean |
-| `suppression_reason` | text, `CHECK` ∈ `below_event_minimum` · `merge_cannot_reach_floor` · `null when not suppressed` |
+| `suppression_reason` | text, `CHECK` ∈ `below_event_minimum` · `merge_cannot_reach_legal_set` · `churn_gate` · `near_duplicate_population` · `null when not suppressed`. **Definer-only and never returned to a client** — the reason discriminates the *shape* of the distribution (a `merge_cannot_reach_legal_set` on a 25-response session says "one bucket holds almost everyone", which is a disclosure the suppression exists to prevent). It is readable by the reconciliation job and by `platform_admin` on the internal plane only |
 | `published_at`, `computed_at` | timestamptz |
 | | `UNIQUE (event_session_id, dimension, as_of)`; partial unique index enforcing **at most one published snapshot per (session, dimension)** |
 
@@ -875,17 +1064,33 @@ server-derived (C35), role tests only via the C36 predicate helpers, no client a
 - **Purpose:** compute a candidate snapshot and publish or discard it.
 - **EXEC:** **`service_role` / definer only.** `REVOKE EXECUTE FROM anon, authenticated` — no human path.
   Invoked by `pg_cron` per §5.4.
-- **Reads:** `kernel.tickets` (custody head, non-voided, for the session) ⋈ `kernel.identity_demographic`.
-  **Does not read** `venue.scan`, `venue.order`, `venue.attribution`, `venue.ticket_type`, or any price.
-- **Algorithm:** compute `holders_total`, `holders_responded`, raw bucket counts → apply **R1** → **R3**
-  merge → **R5** all-or-nothing → **R6** churn gate against the last published snapshot → persist. R2 is
-  additionally enforced by the CHECK constraint, R4 by a writer assertion.
+- **Reads:** the declared read set of §5.4 — `kernel.tickets`, `kernel.ticket_ownership_log`,
+  `venue.order`/`venue.order_item` (**zero/non-zero price test only**), `kernel.identity_demographic`,
+  `venue.holder_mix_snapshot`, `catalog.event_session`/`event`/`venue`, `catalog.platform_config`.
+  **Does not read** `venue.scan`, `venue.attribution`, `venue.ticket_type`, `public.profiles`, or any buyer
+  identity.
+- **Algorithm, in order:** resolve the eligible holder set (**R7**) → compute `holders_total`,
+  `holders_responded`, `holders_excluded_ineligible`, raw bucket counts → **R1** event minimum → **R3** merge,
+  the fully determined procedure of §5.2 → **R5** two-bucket / all-or-nothing → **R8** contributor-multiset
+  churn gate against the last published snapshot for this `(session, dimension)` → **R9** cross-session
+  near-duplicate gate over every currently published snapshot on a session reachable by the same venue or org
+  → persist. R2 is additionally enforced by the CHECK constraint; R4 by a writer assertion **and** by the
+  read-side re-derivation in `get_holder_mix`; R6 by `get_holder_mix`'s return shape.
 - **Writes:** at most one `holder_mix_snapshot` (+ its buckets). A discarded recomputation writes nothing.
   Publishing a new snapshot un-publishes the prior one (the partial unique index enforces one published
-  snapshot per session+dimension).
-- **Returns:** `{ status: 'published' | 'suppressed' | 'discarded_churn_gate' }`.
+  snapshot per session+dimension). **Writes no contributor multiset and no identity reference of any kind** —
+  `C(s)` exists only inside the transaction (§8.4).
+- **Returns:** `{ status: 'published' | 'suppressed' | 'discarded_churn_gate' | 'discarded_near_duplicate' }`
+  — to `service_role` and the job log only; no client ever sees this value.
 - **SSCAS:** n/a — reads only, then writes one derived aggregate; it is **not** a member of the closed set
   and touches no money, custody, or inventory row.
+
+---
+
+**`venue.unpublish_holder_mix(p_event_session_id uuid)`** / **`venue.unpublish_all_holder_mix()`** —
+`DB-RPC`, definer-only writers (§5.5). Set `published_at = NULL` on the targeted snapshot(s); delete nothing;
+write one `kernel.admin_audit` row per invocation naming the actor and the count affected.
+**EXEC:** `service_role` / `platform_admin` step-up only. `REVOKE EXECUTE FROM anon, authenticated`.
 
 ---
 
@@ -899,10 +1104,23 @@ server-derived (C35), role tests only via the C36 predicate helpers, no client a
   `kernel.has_org_role(org_id, ['org_owner','org_admin'])` **or** `kernel.is_platform(['platform_admin'])`.
   Everyone else: `insufficient_privilege(42501)`. Per §6, `org_finance`, `venue_finance`, `box_office`,
   `venue_door`/`door_pin`, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon` are denied.
-- **Returns:** either
-  `{ suppressed: true, reason, holders_total, holders_responded }` — with **no bucket rows** — or
-  `{ suppressed: false, as_of, holders_total, holders_responded, buckets: [{bucket, holder_count}, …] }`,
-  where the buckets always sum to `holders_responded` (R4).
+- **Returns:** exactly one of two shapes, and the suppressed shape has **no other fields to fill** (R6):
+  - `{ suppressed: true }` — nothing else. No `reason`, no `holders_total`, no `holders_responded`, no
+    `as_of`, no bucket rows. `INFERENCE:` this is the single most important line in the contract. The
+    previous shape returned the denominators on a suppressed snapshot, which let a `venue_manager` mint a
+    throwaway session, comp one ticket to a target, and read `holders_responded ∈ {0,1}` as that person's
+    "did you answer" bit — the exact proxy X-4 bans. The suppressed branch must be a constant.
+  - `{ suppressed: false, as_of, holders_total, holders_responded, buckets: [{bucket, holder_count}, …] }`,
+    where the buckets always sum to `holders_responded` (R4).
+- **Read-side re-derivation, fail-closed (the second enforcement layer of §5.2).** Before emitting the
+  published shape the function re-checks, on the row it just read: `holders_responded >= 25` (R1);
+  `min(holder_count) >= 5` (R2); `Σ holder_count = holders_responded` (R4); `count(buckets) >= 2` (R5);
+  `holders_responded <= holders_total`. **Any failure returns `{ suppressed: true }` and raises a
+  reconciliation alarm** — it never returns a partial or corrected card. This layer is what makes a
+  writer bug, a hand-written `INSERT`, or a restored-from-backup row fail closed at the read.
+- **Kill switch (§5.5).** `catalog.platform_config['demographics.holder_mix_enabled']` is read **live on
+  every call**; when false the function returns `{ suppressed: true }` for every session regardless of stored
+  state. A snapshot whose `published_at IS NULL` is likewise `{ suppressed: true }`.
 - **Side effects:** writes one audit row per call — `(actor, event_session_id, dimension, occurred_at)`
   (§11). **Rate-limited per principal** using the existing fail-closed rate-limit pattern (005/021).
 - **EXEC:** `authenticated` with the in-body predicate re-check (RPC §0.1). **SSCAS:** n/a.
@@ -922,14 +1140,16 @@ C27 counter-vs-ledger reconciliation discipline.
 | **Coercion at the door** ("tell me what you answered to get in") | Structural: **no one can verify an answer** (§7). Demanding it gains the demander nothing, so the demand has no payoff. This is the single most important abuse property in the design. |
 | **Staff entering a value on a fan's behalf** | Structural: no admin write RPC exists. `set_my_demographics` has no identity parameter and keys on `auth.uid()`. |
 | **A venue splitting one event into many sessions to shrink cells** | R1 applies **per session independently**; a 10-holder session never renders. Splitting reduces what the operator sees, never increases it. |
-| **A venue creating throwaway micro-events to isolate a person** | Same: k = 25 responses required per session. An event with one target attendee renders nothing. |
-| **Sybil accounts to skew a chart** | Only identities holding a **non-voided ticket for that session** are counted, so each fake data point costs a real ticket purchase, and refunds remove it. |
+| **A venue creating throwaway micro-events to isolate a person** | k = 25 eligible responses required per session, **and** R6 means a session that does not publish returns the constant `{suppressed: true}` — no denominators, no reason. The previous design leaked here: it returned `holders_responded` on the suppressed snapshot, so a one-person session answered "did this person share" directly. That is closed. |
+| **Sybil accounts to skew a chart** | R7: only custody **acquired for consideration** counts — comped and zero-price atoms are excluded — so a manufactured contributor costs a real ticket at a real price, and refunds remove it. **The previous rebuttal ("each fake data point costs a real ticket purchase") was false and is deleted:** a comp costs nothing and the `venue_manager` mints both the session and the comps, so before R7 the operator could compose the entire population for free. R7 makes the rebuttal true; it does not make manufacturing impossible, only priced. |
 | **Scraping via repeated reads** | Every `get_holder_mix` call is audited (actor, session, dimension, time) and rate-limited per principal, fail-closed (005/021 pattern). The export history / activity feed already surfaces staff reads (dashboard §17); demographic reads join it. |
-| **Temporal differencing by a patient observer** | R6 churn gate — §5.3 vector 4. Bounded at an anonymity set of ≥ 5 per observable delta. |
+| **Temporal differencing by a patient observer** | R8 churn gate over the contributor multiset — §5.3 vector 4. Bounded at ≥ 5 changed contributor pairs **and** ≥ 5 distinct changed identities per observable delta. |
+| **Population differencing across two sessions the operator composed** | R7 (prices the differing member) + R9 (two near-identical populations cannot both publish). **Partly open** — R9 bounds membership differencing, not answer differencing among stable members across sessions. §5.3 vector 7 states the gap; D-13 owns it. |
 | **A future engineer adding a filter parameter** | `get_holder_mix`'s two-argument shape is stated as a contract, asserted by pgTAP (arity/arg-name assertion 14), and the rollup has no finer-grained operands to filter over. |
 | **Demographic data leaking through an export or an integration** | X-1…X-9 (§9), with X-6 as a CI check. |
 | **Demographic value escaping through logs / observability** | No edge function, no external call, no log statement, no notification payload, no Sentry breadcrumb touches the value (§5.4). The value never crosses a process boundary out of Postgres. |
-| **Re-identification by an operator who also knows the guest list** | Bounded, not eliminated: floor 5 means the smallest inferable group is 5 people, and no second axis exists to narrow it. Cross-event intersection is the stated residual (§5.3 vector 6). |
+| **Re-identification by an operator who also knows the guest list** | Bounded, not eliminated — and the bound is weaker than "anonymity" suggests. Five roles hold **both** the CRM spec's by-name roster read and this card (`org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`), so the smallest inferable group is 5 people **the reader can name**, not 5 unknowns. Floor 5 and the absence of a second axis are what bound it; the roster is what makes the bound a group bound rather than an anonymity bound. Stated here, in the CRM spec, and as **D-14**. |
+| **Stopping the leak once it is found** | §5.5: a live read-path kill switch plus two un-publish RPCs. Stopping the cron is **not** a kill switch — it stops new snapshots while venues keep reading the last published card. |
 | **A compromised finance/door/promoter/support account** | Those roles hold nothing (§6). The blast radius of the most commonly-compromised accounts is zero. |
 
 ---
@@ -959,10 +1179,24 @@ export, or view where the two states differ. **The absence is therefore not a si
 about the person (nobody can attribute it) and it is not a signal about their intent (declining and
 ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_say` never appears as a bucket.
 
-**(e) The one honest residual.** A venue with 40 holders and N = 26 learns that 14 people did not share. That
-is a property of publishing any denominator at all, it identifies nobody, and it is the price of the
-"Based on N of M" transparency the ratified card copy requires. Removing the denominator would make the
-chart misleading, which is a worse trade.
+**(e) The honest residuals.**
+
+1. **The denominator on a published card.** A venue with 38 eligible holders and N = 26 learns that 12
+   eligible people did not share. That is a property of publishing any denominator at all, it identifies
+   nobody at a population of ≥ 25, and it is the price of the "Based on N of M" transparency the ratified
+   card copy requires. Removing the denominator on a published card would make the chart misleading, which is
+   a worse trade.
+2. **The denominator on a *suppressed* card is a different thing entirely, and it is gone.** At small `M` the
+   same two numbers stop being a population statistic and become a per-person bit — `M = 1, N = 1` is one
+   named person's answered/not-answered flag. Per R6 the suppressed shape carries no numbers at all (§10.4).
+   This is the correction that makes claim (d) above survive contact with an operator who controls the
+   population: without it, "declining is indistinguishable from never answering" held at the *bucket* surface
+   and failed at the *denominator* surface.
+3. **What claim (d) still does not cover.** Declining and never answering are indistinguishable on every
+   surface. Neither is distinguishable from *not being eligible* either, since R7's exclusions are folded
+   into a definer-only counter (`holders_excluded_ineligible`) that no client reads. What remains is §5.3
+   vector 7: an operator running the same audience repeatedly, holding the roster by name, retains an
+   inference channel this design bounds but does not close.
 
 ---
 
@@ -993,7 +1227,7 @@ chart misleading, which is a worse trade.
 11. The CHECK rejects a `gender_identity` outside the five-value set, including empty string and free text.
 12. The bucket CHECK rejects `prefer_not_to_say` as a bucket value.
 
-**Suppression (R1–R6)**
+**Suppression (R1–R9)**
 13. `holder_mix_bucket` CHECK rejects an insert with `holder_count = 4` and accepts `5`. *(The floor as a
     database constraint, not a render rule.)*
 14. **`venue.get_holder_mix` has exactly two parameters**, named for session and dimension, with no `as_of`,
@@ -1001,10 +1235,15 @@ chart misleading, which is a worse trade.
 15. A session with `holders_responded = 24` returns `suppressed`; the same session at 25 returns buckets.
 16. **R4 invariant scan:** for every published snapshot, `Σ holder_count = holders_responded`.
 17. **The complement case:** a 26-response session split 20/5/1 persists `{woman: 20, other: 6}` — the
-    1-count bucket is absent, `other` ≥ 5, and the sum still equals 26 so no residual is computable.
-18. **R5:** a 25-response session split 24/1 persists a `suppressed` snapshot with **zero** bucket rows.
-19. **R6 churn gate:** a recomputation whose holder-set churn since the last published snapshot is 4 returns
-    `discarded_churn_gate` and writes no snapshot; at churn 5 it publishes.
+    1-count bucket is absent, `other` ≥ 5, and the sum still equals 26 so no residual is computable. Asserts
+    R3 **step 3** specifically: `man = 5` is above the floor and is merged anyway, which is the step the
+    previous prose omitted.
+18. **R5 two-bucket minimum:** a 25-response session split 24/1 persists a `suppressed` snapshot with **zero**
+    bucket rows; so does 23/1/1; so does any split whose merge collapses to a single bucket.
+19. **R8 churn gate:** a recomputation whose contributor-multiset churn since the last published snapshot is
+    4 pairs returns `discarded_churn_gate` and writes no snapshot; at 5 pairs spread over 5 distinct
+    identities it publishes; at 5 pairs arising from **2** identities each changing their answer it does
+    **not** publish (the distinct-identity limb).
 20. At most one published snapshot exists per `(event_session_id, dimension)` (partial unique index).
 21. `holders_responded <= holders_total` on every snapshot.
 
@@ -1037,6 +1276,38 @@ chart misleading, which is a worse trade.
     any account deletion.
 31. The erasure tombstone holds no gender value column, and no human role holds any grant on it.
 
+**Population control (R6–R9, the read-side layer, and the kill switch)**
+
+*Numbering continues rather than renumbering: assertions 1–31 are referenced by number from this document
+(§5.2, §8.3, §9 X-6, §11, §12) and from the CRM spec's §10.4 and §12, and a renumber would silently break
+every one of those references.*
+
+32. **R6 — the suppressed shape is a constant.** `get_holder_mix` on a suppressed or unpublished session
+    returns a value with **exactly one key**, `suppressed`. Asserted structurally (the returned record's
+    field set), not by inspecting values, so a future engineer cannot add `holders_total` back and pass.
+    Two sessions differing only in `holders_responded` (0 vs 1) return **byte-identical** results.
+    *(This is the assertion that would have caught the throwaway-session + one-comp oracle.)*
+33. **R7 eligibility.** A session whose holders are all comped renders nothing at any response count. A
+    session of 30 paid holders + 5 comped holders has `holders_total = 30`. An atom whose issuing order line
+    has `unit_price_minor = 0` is excluded even when its cause is `primary_sale`.
+34. **R8 churn is over pairs *and* identities.** 5 pair-changes arising from 2 identities each changing their
+    answer does **not** publish; 5 pair-changes over 5 distinct identities does.
+35. **R9 near-duplicate gate.** Two sessions of the same venue whose eligible-holder sets differ by 4
+    identities: only one of them has a published snapshot. At a difference of 5, both may publish. The gate
+    also quantifies across venues of the same org.
+36. **Read-side re-derivation, fail-closed.** With a published snapshot hand-corrupted to violate R1, R2, R4
+    or R5 (bypassing the writer), `get_holder_mix` returns `{suppressed: true}` — not the corrupted card, not
+    a corrected card — and raises the reconciliation alarm.
+37. **Kill switch.** With `demographics.holder_mix_enabled = false`, `get_holder_mix` returns
+    `{suppressed: true}` for a session that has a valid published snapshot; setting it back to `true` restores
+    the card without a recompute. `venue.unpublish_all_holder_mix()` leaves every snapshot row present and
+    every `published_at` null.
+38. **The suppression reason never reaches a client.** No client-callable function returns
+    `suppression_reason`, and `anon`/`authenticated` hold no grant on the column.
+39. **No contributor multiset is persisted.** No table, view, matview or unlogged/temp object outliving a
+    transaction holds a `(snapshot_id | session_id, identity_id, bucket)` tuple. Asserted as a column-set scan
+    across the catalog, alongside assertion 25's no-history scan.
+
 ---
 
 ## 14. Open questions — owner and counsel decisions required
@@ -1054,6 +1325,9 @@ chart misleading, which is a worse trade.
 | **D-9** | **Acknowledgment of the two named global-posture exceptions** (§10.2): the definer-scoped `DELETE` on `kernel.identity_demographic`, and `ON DELETE CASCADE` from `auth.users` against the `RESTRICT` default. Both need the schema and RLS spec owners' sign-off. | Architecture | **Yes — before 077** |
 | **D-10** | **Owner for the compelled-disclosure runbook** (§7.3) — out-of-band, dual-controlled, audited, never a product feature. | Owner / counsel | No |
 | **D-11** | **Constraint handed to whoever next edits migration 020:** `delete_account_cleanup` must **not** be extended to repoint the demographic row to the anonymized sentinel (§8.2). Needs acknowledgment by the account-deletion owner. | Architecture | **Yes — before 077** |
+| **D-12** | **R7 excludes comped and zero-price custody (§5.2). Confirm the product consequence:** a genuinely free event never renders the card, and `M` on every card is the paying population rather than the room. The alternative — count everyone — restores a population the operator can mint for free, which voids every k-anonymity claim in §5. This spec recommends R7 as written and asks that any relaxation be an amendment, not a config change. | Owner | **Yes — the eligibility rule** |
+| **D-13** | **§5.3 vector 7 is an acknowledged open gap.** R9 bounds *membership* differencing across sessions; it does not bound *answer* differencing among stable members across sessions, because answers are deliberately not historied. For a venue running the same regulars weekly this is a real, unquantified channel. Decide whether Phase 2 ships with it: (a) accept and record; (b) raise k above 25 for venues above a repeat-audience threshold; (c) withhold the card from sessions whose eligible-holder set overlaps a prior session by more than a stated fraction. This spec asserts **no** coverage here and recommends (a) with the residual published in the venue-facing help text. | Owner | **Yes — before the card ships** |
+| **D-14** | **Five roles hold both the by-name roster (CRM spec §3 X1) and this card (X11):** `org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`. The floor-5 bound is therefore a bound over **5 people the reader can name**, not 5 unknowns. Decide whether that is intended. Options: accept and say so in §11 (done); or make the two grants mutually exclusive, which costs `venue_manager` one of them and is a significant product change. | Owner | No — but the claim is corrected either way |
 
 ---
 
@@ -1081,6 +1355,9 @@ chart misleading, which is a worse trade.
 | **J-5** | RPC contracts spec | Five contracts added (§10.4). |
 | **J-6** | CDM §4 / DA §8.7 (C34) | No constitution edit. This document records the Phase-2-safe interim promise (§8.5) and the C38 merge rule for demographics (§8.6), both consistent with the GATE-L status. **The frozen constitutions are not modified by this document.** |
 | **J-7** | Migration 020 / account deletion | Constraint recorded (§8.2, D-11): never repoint the demographic row to the anonymized sentinel. |
+| **J-8** | **This document, §4.1 · §4.3 · §5.1–§5.5 · §8.4 · §10.2 · §10.4 · §11 · §12(e) · §13** | **H-6 remediation.** The privacy floors were proved against a population the operator controls. Added: R6 (denominator suppression — the suppressed projection is now the constant `{suppressed: true}`), R7 (population eligibility — comped and zero-price custody excluded), R8 (churn redefined over the contributor multiset `(identity, bucket)`, with a distinct-identity limb), R9 (cross-session near-duplicate gate), a fully determined R3 merge with a two-bucket minimum in R5, a fail-closed read-side re-derivation of R1/R2/R4/R5/R6, the §5.4 declared read set the churn rule actually needs, and the §5.5 kill switch. **Two claims deleted** — see J-9. |
+| **J-9** | **Deleted claims (recorded verbatim so they cannot be cited from an older copy)** | (1) *"You cannot difference aggregates that do not exist."* — deleted as the general answer to differencing; it is true about axes and false about populations (§5.3 B). (2) *"each fake data point costs a real ticket purchase"* — deleted; comps cost nothing and the `venue_manager` mints both the session and the comps (§11). (3) *"Removing any one of layers 1–3 still leaves a correct floor"* — deleted; layers 1 and 3 were the same function and only R2 was a database constraint (§5.2). (4) The R6-era bound *"an anonymity set of at least 5, matching the per-bucket floor"* — deleted; 5 contributor-pair changes is at minimum 3 people, and the ≥ 5 bound is restored only by the added distinct-identity limb (§5.3 vector 4). |
+| **J-10** | Venue dashboard §9.5 card copy | **Correction (§4.3).** "Based on N of M" is a published-state string only — the suppressed state renders no numbers, no reason and no `as_of`. `M` is the R7-eligible paying population, not the room, and the subtitle says so. |
 
 ---
 
