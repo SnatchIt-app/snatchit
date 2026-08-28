@@ -442,10 +442,16 @@ override between episodes) it would indeed admit the pre-override owner, and tha
    #7-reverse / #6-reverse, locks Transfer(4) → Ticket Atom(5) ascending by `ticket_atom_id`.
 6. INSERT `venue.door_manifest` — `opened_at := now()`, `manifest_version := next per-session`, `status='open'`,
    `opened_by := auth.uid()`, `reason_code`, `not_after := now() + config('door.manifest_ttl_interval')`.
-7. **Snapshot** — INSERT `venue.door_manifest_entry` for every admissible atom of the session, recording
-   `(ticket_atom_id, credential_version, signing_key_id, ticket_state, serial_no)` **as read after step 1's
-   lock**.
-8. Compute and store `manifest_digest` over the ordered entry set.
+7. **Snapshot** — INSERT `venue.door_manifest_entry` for **every** atom of the session (§9.2's completeness
+   ruling), recording `(ticket_atom_id, serial_no, ticket_type_id, credential_version, signing_key_id,
+   ticket_state, resale_state)` **as read after step 1's lock**. **`SPEC CORRECTION` (`MP-1`): this step
+   previously omitted `resale_state`** — so the *writer* did not populate the column that §10.3 declares
+   `not null` and that `OFFLINE-VERIFY-v1` conjunct 3b.v reads. The column list here, §10.3's column list and
+   §7.5's projection are **the same list, deliberately**: this is the write, that is the store, and §7.5 is
+   the read, and a field dropped from any one of the three is a conjunct the door cannot evaluate.
+8. Compute and store `manifest_digest` over the ordered entry set. **The digest covers the full column list
+   in step 7**, so a projection that returns less than the digest covers is detectable, and a snapshot that
+   *writes* less is a failed INSERT rather than a quiet omission.
 9. `catalog.engage_door_freeze(p_session_id, opened_at)` — definer-only primitive that owns the
    `catalog.event_session.door_open_at` write; a no-op when already set (§10.2).
 10. INSERT `kernel.admin_audit` (`session.door_manifest_open`).
@@ -612,21 +618,100 @@ alternative — leave it listed and refuse the holder at the door — is strictl
 - **Writes:** `catalog.event_session.door_open_at` only. Never NULLs it. Never changes a non-NULL value.
 - **Result:** `{ door_open_at, newly_engaged(bool) }`.
 
-### 7.5 `venue.get_door_manifest(p_session_id, p_since_version)` — `NEW RPC` — **DB-RPC (read)**
+### 7.5 `venue.get_door_manifest(p_session_id, p_since_delta_seq)` — `NEW RPC` — **DB-RPC (read)**
 
-- **Purpose:** the scanner's manifest fetch/sync read. Returns the open episode's header + entries.
+> **`SPEC CORRECTION` — `MP-1`, the projection defect.** The shape this section previously returned —
+> `entries[{ ticket_atom_id, serial_no, credential_version, signing_key_id, ticket_state }]` — **omits
+> `resale_state`**, and RPC §20.6.1's independently-written shape for the same function omits **`ticket_state`**
+> and, on its delta row, **`signing_key_id`**. `OFFLINE-VERIFY-v1` (edge §5.4.3) reads all four. **A conjunct
+> whose input the wire never carries is not a check; it is a comment.** Conjunct 3b.v was therefore dead on
+> this projection, 3b.iv dead on RPC §20.6.1's, and 3c dead for every atom supplemented after doors open —
+> which is **H-2 reproduced at the client, failing in the admitting direction** (Wallet §10.2). The two
+> documents also described **two different wire shapes** for one function, which is the drift mechanism, not
+> just its instance. Both are reconciled below and in RPC §20.6.1 to **one** shape, and §7.5a states the
+> superset rule that makes a recurrence mechanically detectable rather than a reading exercise.
+>
+> The parameter is also renamed. This section said `p_since_version`, §7.7 and §15 assertion 69 said
+> `p_since_seq`, RPC §20.6.1 said `p_since_delta_seq` — **three names, and the first names the wrong
+> quantity.** `manifest_version` counts *episodes* and `seq` counts *deltas within an episode*; a device
+> passing its `manifest_version` where a delta cursor is expected re-downloads or skips silently. **Canonical:
+> `p_since_delta_seq`**, the spelling RPC §20.6.1 contracted under `G-15`.
+
+- **Purpose:** the scanner's manifest fetch/sync read. Returns the open episode's header + entries + deltas.
 - **Actor:** `has_venue_role(venue,[venue_door, venue_manager])` OR a valid non-expired `venue.door_pin` bound
   to the session (RLS §1.1 row 9).
 - **Preconditions:** an episode with `status='open'` and `not_after > now()` exists. Otherwise returns
-  `{ status:'no_open_manifest' }` — **not an error**, so the scanner can render the waiting state (§11.2).
-- **Returns:** `{ manifest_id, manifest_version, session_id, opened_at, not_after, manifest_digest,
-  entries[{ ticket_atom_id, serial_no, credential_version, signing_key_id, ticket_state }] }`.
+  **`{ open: false, status: 'no_open_manifest' }`** with empty `entries[]`/`deltas[]` — **not an error**, so
+  the scanner can render the waiting state (§11.2). **Both keys are returned, deliberately:** §11.2 and RN §7
+  branch on the `no_open_manifest` label, RPC §20.4.4 and §20.6.1 branch on the `open` boolean, and returning
+  one of the two would have broken whichever consumer read the other.
+- **Returns:** `{ open, manifest_id, manifest_version, session_id, opened_at, not_after, manifest_digest,
+  max_delta_seq, entries[], deltas[] }` — the shape stated identically in RPC §20.6.1, where an entry is
+
+  ```
+  entry := { ticket_atom_id, serial_no, ticket_type_id,
+             credential_version, signing_key_id, ticket_state, resale_state }
+  ```
+
+  and a delta row is **op-conditional** (§7.5a):
+
+  ```
+  delta(op='add')    := { seq, ticket_atom_id, op } ∪ entry     -- the FULL entry payload
+  delta(op='revoke') := { seq, ticket_atom_id, op }              -- membership removal needs nothing more
+  ```
+
+  `session_id` is load-bearing, not header decoration: `OFFLINE-VERIFY-v1` conjunct 3 and its
+  no-offline-authority clause both require the device to refuse *"an M2 for another session"*, which it
+  cannot determine from a manifest that does not say which session it is for. RPC §20.6.1 omitted it.
+  **`p_since_delta_seq` NULL ⇒ full snapshot + all deltas; non-NULL ⇒ deltas only** (the cheap reconnect poll).
   **No owner identity, no PII, no ticket-type price** — this is the door's only bulk read and the hard rule
   "door staff never receive a bulk attendee list" (domain §7.2, VD §5 note 11) binds: the manifest carries
-  opaque atom ids and versions, never names.
+  opaque atom ids and versions, never names. **`ticket_type_id` is a catalog reference, not an identity
+  column**, and does not weaken that rule or pgTAP assertion 6 / `T-RPC-DOOR-17`, both of which assert over
+  the *identity-bearing* column set; it is what lets the scanner show the tier on the admit banner.
 - **Writes:** none. (The device's `last_sync_at`/`manifest_version` update stays on the existing manifest-sync
   RPC, RLS §9.11 note 33.)
 - **SSCAS:** n/a (read).
+
+#### 7.5a The projection superset rule — `SPEC CORRECTION` (`MP-1`), BINDING
+
+**Every field `OFFLINE-VERIFY-v1` reads per atom MUST appear in the entry projection, and in the `op='add'`
+delta projection.** The predicate is the single normative statement (edge §5.4.3) and is not editable from
+here; this rule is its *delivery* obligation, and it is stated as a superset — not an equality — so a
+projection may carry operator-facing extras (`serial_no`, `ticket_type_id`) without drifting.
+
+Derived mechanically from the fenced block, **not transcribed from a prior list**:
+
+| Block clause | Reads | Kind | Carrier |
+|---|---|---|---|
+| applied-set line | `manifest_id`, delta `seq` ordering, device-held `last_synced_seq` | header + delta | both |
+| 1, 2 | `key_id`, `status`, `not_before`, `not_after`, `public_key` | **M1**, not M2 | edge §5.4.2 — out of scope here |
+| 3 | the manifest's **`session_id`** | header | **was missing from RPC §20.6.1** |
+| 3a | `token.exp` ± 2 time-buckets | token + a constant | **bucket size: RPC §9.3** |
+| 3b.i | `ticket_atom_id` (membership in M2) | per-atom | both |
+| 3b.ii | an applied `revoke` delta ⇒ delta `op` + `ticket_atom_id` | per-delta | both |
+| 3b.iii | `credential_version` | per-atom | both |
+| 3b.iv | **`ticket_state`** | per-atom | **was missing from RPC §20.6.1** |
+| 3b.v | **`resale_state`** | per-atom | **was missing from §7.5** |
+| 3c | **`signing_key_id`** | per-atom | **was missing from the delta row in both** |
+| no-M2 clause | header `not_after`, header `session_id` | header | `session_id` was missing from RPC §20.6.1 |
+| 4 | the device's local admitted set | device-local | no wire field |
+
+So the per-atom read set is **five** fields — `ticket_atom_id · credential_version · ticket_state ·
+resale_state · signing_key_id` — and the header read set adds **`session_id`** and **`not_after`**.
+
+**Why the delta rule is op-conditional rather than "all fields always".** A `revoke` delta only removes an
+atom from the admissible set; the device evaluates nothing against it beyond 3b.ii, so requiring a version or
+a key on it would be ceremony that a writer would eventually fill with a placeholder. An `add` delta is the
+*only* carrier for an atom that is not in the base snapshot, so every conjunct must be evaluable from it
+alone. **This is the same asymmetry §10.3a's CHECKs already encode** — `(op='add') = (credential_version IS
+NOT NULL)` and `(op='add') ⇒ signing_key_id IS NOT NULL` — and §10.3a is extended in the same shape rather
+than restated loosely here: the rule is one sentence of prose *because* the database enforces it.
+
+**The gap this closes, concretely.** §10.3a's `signing_key_id` CHECK exists because *"a supplemented atom with
+no pinned key would be structurally unadmittable offline."* The column was made mandatory and then **not
+projected** — so the value was stored, guaranteed present, and never sent. A door-sale atom minted after doors
+open was unadmittable at every offline scanner for exactly the reason the CHECK was written to prevent.
 
 ### 7.6 Freeze recheck set — `SPEC CORRECTION` to RPC §12.4
 
@@ -672,7 +757,7 @@ lockout shape as §13.5, and the reason DL-1 is HIGH.
 
   | `p_op` | Written by | Meaning | Why it is safe |
   |---|---|---|---|
-  | `add` | `kernel.issue_ticket_atoms` (door sale · comp · import) | a newly minted atom becomes admissible | the atom is **new**: `credential_version = 0`, it has never been transferred, and it cannot be transferred (the session is frozen). Its reference value cannot go stale, so it **can strand nobody** — the Wallet spec's DL-1 argument, which I have checked and accept |
+  | `add` | `kernel.issue_ticket_atoms` (door sale · comp · import) | a newly minted atom becomes admissible | the atom is **new**: `credential_version = 0`, it has never been transferred, and it cannot be transferred (the session is frozen). Its reference value cannot go stale, so it **can strand nobody** — the Wallet spec's DL-1 argument, which I have checked and accept. **It carries the full entry payload** (§7.5a), because an `add` delta is the only carrier for an atom absent from the base snapshot |
   | `revoke` | `kernel.void_ticket_atom` on any exempt path (§7.6) | an atom ceases to be admissible | strictly narrows the admissible set; a device that misses it is no worse off than today, a device that receives it is strictly safer |
 
   **Both operations are monotone in safety:** `add` can only admit an atom that is provably current, `revoke`
@@ -694,8 +779,8 @@ lockout shape as §13.5, and the reason DL-1 is HIGH.
 - **Result:** `{ status, manifest_id, delta_seq, applied }`.
 
 **Device semantics.** A device's admissible set is `base_snapshot ⊕ deltas[1 .. last_synced_seq]`. It advertises
-`last_synced_seq` on sync; `venue.get_door_manifest(p_session_id, p_since_seq)` returns only the deltas beyond
-it. **A device that has never synced deltas is exactly as safe as it was before this section existed** — it
+`last_synced_seq` on sync; `venue.get_door_manifest(p_session_id, p_since_delta_seq)` returns only the deltas
+beyond it. **A device that has never synced deltas is exactly as safe as it was before this section existed** — it
 simply refuses the new atoms (DL-1's fallback) and keeps the revoked ones (the pre-existing residual).
 
 **The honest limit, stated rather than glossed.** A door sale requires taking payment, which requires network,
@@ -1074,10 +1159,21 @@ frozen with it.
   evidence for reconciliation, and the future home of the C43 per-open-manifest-ticket narrowing.
 - **PK:** composite `(manifest_id, ticket_atom_id)`.
 - **Columns:** `manifest_id` uuid FK→`venue.door_manifest` on delete restrict; `ticket_atom_id` uuid
-  FK→`kernel.tickets` on delete restrict; `serial_no` integer not null; `credential_version` integer not null;
+  FK→`kernel.tickets` on delete restrict; `serial_no` integer not null;
+  **`ticket_type_id` uuid not null FK→`venue.ticket_type` on delete restrict** (`ADDITIVE`, `MP-1`);
+  `credential_version` integer not null;
   `signing_key_id` uuid not null FK→`kernel.signing_key` on delete restrict;
   `ticket_state` text not null (the atom's `state` at snapshot);
   **`resale_state` text not null** (the atom's `resale_state` at snapshot — §9.2); `created_at`.
+- **`ticket_type_id` — `ADDITIVE SCHEMA CHANGE` (`MP-1`).** RPC §20.6.1 contracted this column **in the entry
+  projection of `get_door_manifest`** while this table did not carry it, so the read projected a value with no
+  source and the `manifest_digest` — a hash over the ordered entry set — covered a column that did not exist.
+  Added here rather than deleted there: the scanner shows the tier on the admit banner (RN §7.3), and it is a
+  **catalog reference, not an identity column**, so §7.5's no-bulk-attendee-list rule, pgTAP 6 and
+  `T-RPC-DOOR-17` are unaffected — all three assert over identity-bearing columns, and this is not one.
+  *Alternative considered and rejected:* drop `ticket_type_id` from RPC §20.6.1's projection. Rejected because
+  it removes a genuinely useful non-identity field to resolve a contradiction that an additive column resolves
+  without loss, and because the digest would then cover strictly less than the door reads.
 - **Check:** `credential_version >= 0`; `ticket_state` ∈ the atom state enum; `resale_state` ∈ the overlay enum.
   **The snapshot is COMPLETE — every atom of the session, in every state** (§9.2 ruling on DL-5). The earlier
   restriction `ticket_state ∈ {issued, active}` is **withdrawn**: it overloaded "absent from M2" with two
@@ -1104,8 +1200,10 @@ The append-only change log applied on top of the base snapshot (§7.7). Serves W
 - **PK:** composite `(manifest_id, seq)`.
 - **Columns:** `manifest_id` uuid FK→`venue.door_manifest` on delete restrict; `seq` integer not null
   (per-manifest monotonic, starts at 1); `ticket_atom_id` uuid not null FK→`kernel.tickets` on delete restrict;
-  `op` enum(`add` · `revoke`) not null; `serial_no` integer nullable; `credential_version` integer nullable
+  `op` enum(`add` · `revoke`) not null; `serial_no` integer nullable; **`ticket_type_id` uuid nullable
+  FK→`venue.ticket_type` on delete restrict** (`ADDITIVE`, `MP-1`); `credential_version` integer nullable
   (required for `add`, null for `revoke`); `signing_key_id` uuid nullable FK→`kernel.signing_key`;
+  **`ticket_state` text nullable** (`ADDITIVE`, `MP-1`); **`resale_state` text nullable** (`ADDITIVE`, `MP-1`);
   `cause_ref` uuid nullable (the issuing order / refund driving the change); `occurred_at` timestamptz not null
   default now(); `created_at`.
 - **Unique:** PK; **`UNIQUE(manifest_id, ticket_atom_id, op)`** — a replayed mint or void appends nothing
@@ -1117,8 +1215,30 @@ The append-only change log applied on top of the base snapshot (§7.7). Serves W
   **`op='add'` requires `credential_version = 0`** — a supplemented atom is by construction newly minted and
   never transferred; anything else would mean a custody move committed after the freeze, which §5.3's theorem
   forbids. This CHECK is the theorem made structural.
+- **The `add` row carries the full entry payload — `ADDITIVE SCHEMA CHANGE` (`MP-1`), five CHECKs.** §7.5a
+  requires every field `OFFLINE-VERIFY-v1` reads to be evaluable from an `add` delta alone, because an `add`
+  delta is the **only** carrier for an atom that is not in the base snapshot. The existing CHECK set already
+  encoded that asymmetry for `credential_version` and `signing_key_id`; it is completed here in the same
+  shape rather than restated as prose:
+
+  | CHECK | Why this value and not a nullable default |
+  |---|---|
+  | `(op='add') = (ticket_state IS NOT NULL)` | conjunct 3b.iv has no input otherwise |
+  | **`(op='add') ⇒ ticket_state = 'active'`** | `kernel.issue_ticket_atoms` writes `state='issued'→'active'` in one transaction (RPC §7.1), so an `add` delta for an atom in any other state means issuance changed under the freeze — which must **fail loudly here**, not mint a row the door silently refuses or silently admits |
+  | `(op='add') = (resale_state IS NOT NULL)` | conjunct 3b.v has no input otherwise |
+  | **`(op='add') ⇒ resale_state = 'none'`** | a newly minted atom cannot be listed or locked: the session is frozen, so `create_listing`/`create_p2p_transfer`/`lock_ticket` all recheck and refuse (§7.6). Same theorem, same structural form as `credential_version = 0` |
+  | `(op='add') = (serial_no IS NOT NULL)` · `(op='add') = (ticket_type_id IS NOT NULL)` | not predicate inputs — operator-facing, and required on `add` so the delta row is **exactly** the entry projection, which is what makes §7.5a checkable by column-list comparison instead of by reading |
+
+  **On `revoke` all six stay NULL by the same CHECKs.** A `revoke` delta removes an atom from the admissible
+  set and the device evaluates nothing against it beyond conjunct 3b.ii; carrying a version, a key or a state
+  on it would be ceremony a writer eventually fills with a placeholder, and a placeholder in a field the door
+  reads is worse than a NULL in a field it does not.
+
+  *Why pin the values rather than snapshot whatever the atom holds:* both are correct at insert time and only
+  the pinned form stays correct. A snapshot column records what was true; a CHECK records what must be true,
+  and it is the second that catches a future issuance path minting something the offline door cannot classify.
 - **Immutability:** `AO`. Guard trigger rejects UPDATE and DELETE.
-- **Index:** PK (doubles as the `seq > p_since_seq` sync scan); index on `ticket_atom_id`.
+- **Index:** PK (doubles as the `seq > p_since_delta_seq` sync scan); index on `ticket_atom_id`.
 - **Volume:** door-release inventory plus late comps — tens of rows per session, not hundreds.
 - **RLS:** venue-scoped read, identical posture to `venue.door_manifest_entry` (§10A.2). No identity column.
 - **Write authority:** `venue.append_door_manifest_delta` only (definer-only, §7.7).
@@ -1232,9 +1352,13 @@ Class: **venue-scoped**, append-only. Write RPC: `venue.open_door_manifest` only
 
 **Column discipline (I-4).** The table carries **no identity column by construction** — no
 `current_owner_id`, no buyer reference, no name. The door's bulk read is `(ticket_atom_id, serial_no,
-credential_version, signing_key_id, ticket_state)` and nothing else. This is what keeps the hard rule *"door
-staff never receive a bulk attendee list"* (domain §7.2, VD §5 note 11) true even though the door now legitimately
-holds a bulk read. Manual single-record lookup stays on `venue.validate_ticket_online` (RPC §9.3, VD §12.6).
+ticket_type_id, credential_version, signing_key_id, ticket_state, resale_state)` and nothing else
+(§7.5, `SPEC CORRECTION` `MP-1` — `resale_state` was the input to conjunct 3b.v and was omitted here, and
+`ticket_type_id` is the catalog reference RPC §20.6.1 already projected). This is what keeps the hard rule
+*"door staff never receive a bulk attendee list"* (domain §7.2, VD §5 note 11) true even though the door now
+legitimately holds a bulk read: **the list grew by two non-identity columns and the identity-bearing set is
+still empty**, which is the property pgTAP 6 / 83 and `T-RPC-DOOR-17` assert — not the list's length. Manual
+single-record lookup stays on `venue.validate_ticket_online` (RPC §9.3, VD §12.6).
 
 ### 10A.3 `kernel.door_freeze_override` — audit-only (NEW MATRIX)
 
@@ -1640,7 +1764,7 @@ Grouped by the property each group defends. All are DB-level; none require the a
 67. A replayed `issue_ticket_atoms` (same command key) appends no second delta
     (`UNIQUE(manifest_id, ticket_atom_id, op)`).
 68. An exempt `void_ticket_atom` (C25 compensate branch) with an open episode appends one `op='revoke'` delta.
-69. `venue.get_door_manifest(S, p_since_seq := k)` returns exactly the deltas with `seq > k` and no base rows.
+69. `venue.get_door_manifest(S, p_since_delta_seq := k)` returns exactly the deltas with `seq > k` and no base rows.
 70. `UPDATE`/`DELETE` on `venue.door_manifest_delta` raises (AO guard).
 
 **N. Cancellation and break-glass invalidation (6) — §7.2.1 / §8.2.1 / DL-2 / DL-3**
@@ -1652,9 +1776,44 @@ Grouped by the property each group defends. All are DB-level; none require the a
     `precondition_failed('unacknowledged_live_devices')`.
 76. A platform force-void on a session with an open episode force-closes that episode before voiding.
 
-**Total: 76 assertions.** Groups **G** and **B** are the regression suites for the two defects that would
+**P. Projection completeness (7) — §7.5a / `MP-1`. This group is the acceptance property, not a sample.**
+
+The defect these defend is not a wrong value; it is a **missing column**, which every value-based test passes.
+So 77 is written **structurally** — over the projection's column list — and the rest are the behavioural
+consequences that would have been silent.
+
+77. **`T-DOOR-PROJ-01` (structural, the acceptance property).** Every field named in the `OFFLINE-VERIFY-v1`
+    predicate (edge §5.4.3) appears in `venue.get_door_manifest`'s entry projection, and every such field
+    appears in its `op='add'` delta projection. Asserted by **column-list comparison** against the fixed read
+    set `{ticket_atom_id, credential_version, ticket_state, resale_state, signing_key_id}` per atom and
+    `{session_id, not_after}` on the header — **never by scanning a returned row**, since a row proves only
+    that one atom had those columns populated. **Fails if a field is dropped from either projection**, which
+    is the exact regression `MP-1` was.
+78. **`T-DOOR-PROJ-02` (structural, the anti-vacuity half of 77).** The read set 77 compares against is
+    **derived from the fenced block, not hard-coded beside it**: the assertion parses the `OFFLINE-VERIFY-v1`
+    block for `M2[atom].<field>` references and fails if that parse yields fewer than five distinct fields.
+    Without this, editing the predicate to add a sixth conjunct leaves 77 green against a stale list — a gate
+    that checks a copy of the requirement instead of the requirement.
+79. The entry projection and the `op='add'` delta projection have **identical column lists** (§7.5a), asserted
+    as set equality in both directions, so neither can gain a field the other lacks.
+80. The `CHECK` rejects an `op='add'` delta with `ticket_state <> 'active'`, and one with
+    `resale_state <> 'none'` (§10.3a).
+81. The `CHECK` rejects an `op='add'` delta with any of `ticket_state`, `resale_state`, `serial_no`,
+    `ticket_type_id` NULL; and rejects an `op='revoke'` delta with any of them **non**-NULL.
+82. An atom supplemented by an `add` delta is admissible **offline** by the full predicate from the delta row
+    alone — evaluated with the base snapshot excluded from the fixture, so a field silently inherited from a
+    base entry cannot mask a missing delta column. This is the DL-1 door-sale case and the one
+    `signing_key_id`'s CHECK was written for.
+83. `venue.door_manifest_entry` and `venue.door_manifest_delta` still expose no identity column after the
+    `ticket_type_id` addition (re-asserts pgTAP 6 and `T-RPC-DOOR-17` against the widened row set —
+    `ticket_type_id` is a catalog reference and must not be mistaken for one).
+
+**Total: 83 assertions.** Groups **G** and **B** are the regression suites for the two defects that would
 otherwise recur silently (§13.1 and req 5). Group **F** is the machine-checkable form of the Door Safety
-Theorem; group **M** assertion 65 is the theorem enforced as a `CHECK` rather than as prose.
+Theorem; group **M** assertion 65 is the theorem enforced as a `CHECK` rather than as prose. Group **P** is
+the **acceptance property for `MP-1`**: it is the only group asserted over a *column list* rather than over
+values, because the defect it defends against — a field the predicate reads and the wire never carries — is
+invisible to every value-based test.
 
 ---
 
@@ -1836,6 +1995,13 @@ owed by any other owner on this item.
 | three `door.session_*` config seed keys (§10.6) | `ADDITIVE SCHEMA CHANGE` (rows) — H-3 |
 | `venue.door_manifest_delta` CHECK `(op='add') ⇒ signing_key_id IS NOT NULL` (§10.3a) | `ADDITIVE` (constraint) — H-2/3c |
 | Offline predicate stated once as `OFFLINE-VERIFY-v1` in edge §5.4.3; §9.2 is a verbatim mirror | `SPEC CORRECTION` (§9.2 — **H-2**) |
+| **`get_door_manifest`'s result shape reconciled with RPC §20.6.1 to one wire shape; `resale_state` added to the entry projection, `session_id` to the header, the full entry payload to the `op='add'` delta** | **`SPEC CORRECTION` (§7.5/§7.5a — `MP-1`)** |
+| **The atomic open's snapshot INSERT list gains `resale_state` + `ticket_type_id`** — the *writer* omitted a column §10.3 declares `not null` | **`SPEC CORRECTION` (§6 step 7 — `MP-1`)** |
+| **The §7.5a projection superset rule + pgTAP group **P** (assertions 77–83)** | **`SPEC CORRECTION` (§7.5a — `MP-1`)** |
+| **`p_since_version` / `p_since_seq` / `p_since_delta_seq` unified to `p_since_delta_seq`** | **`SPEC CORRECTION` (§7.5, §7.7, §15 #69 — `MP-1`)** |
+| **`no_open_manifest` and `{open:false}` reconciled — both keys returned** | **`SPEC CORRECTION` (§7.5 — `MP-1`)** |
+| **`venue.door_manifest_entry.ticket_type_id`** (RPC §20.6.1 projected a column the table did not carry) | **`ADDITIVE SCHEMA CHANGE` (§10.3 — `MP-1`)** |
+| **`venue.door_manifest_delta.ticket_state` · `.resale_state` · `.ticket_type_id` + the five `op='add'` CHECKs** | **`ADDITIVE SCHEMA CHANGE` (§10.3a — `MP-1`)** |
 | `refund_hold` reject arm + operator copy (§9.2, §11.2) | `SPEC CORRECTION` (Finding-7 residual) |
 | `exp` clamp on the **computed** value; §10.6's constants invariant demoted to necessary-not-sufficient | `SPEC CORRECTION` (§10.6 → Wallet §5.2a) |
 | `kernel.revoke_signing_key` force-closes open episodes (OQ-5 grant condition 2 — mechanism existed, caller did not) | `SPEC CORRECTION` (§16 OQ-5 → edge §5.6) |

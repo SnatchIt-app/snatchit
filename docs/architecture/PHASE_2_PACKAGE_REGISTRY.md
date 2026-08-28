@@ -298,7 +298,7 @@ Why each added edge exists:
 |---|---|
 | `079 → 083` | `kernel.wallet_pass.ticket_atom_id` FK → `kernel.tickets` |
 | `079 → 085` | `kernel.refund_primary_order` drives `void_ticket_atom` → `kernel.tickets` (previously undeclared) |
-| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` |
+| `083 → 086` | `venue.door_manifest_entry.signing_key_id` FK → `kernel.signing_key` — **and `venue.door_manifest_delta.signing_key_id`, same target** (door §10.3a) |
 | `085 → 088` | `market.sweep_paid_pending_sales` writes `kernel.refund` (previously undeclared) |
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 | `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
@@ -307,6 +307,14 @@ Why each added edge exists:
 | **‡`078 → 082`** | `venue.order.event_session_id` FK → `catalog.event_session`. Pre-existing, co-located, and named in plan §8/`082`'s own **Dependencies** prose (*"`081` (ticket_type), `078`, `077`"*) while all four declared sets said `{081}`. Corrected in the same pass because fixing one half of a two-edge under-declaration and leaving the other is worse than fixing neither. **Declaration-only.** Fourth instance of the SEAM-1 shape, after `079 → 085`, `085 → 088` and `086 → 087`. |
 | **†`086 → 087`** | `venue.list_attendees` / `venue.build_export_rows` read `venue.scan` for the check-in columns (previously undeclared — named in the migration plan's §8/`087` prose, absent from every declared set). **Declaration-only:** no package added, renamed or reordered; no object moved; no rollback changed. Third instance of the SEAM-1 shape, after `079 → 085` and `085 → 088`, and resolved identically. |
 | **†`077 → 078`** *(avoided, not declared)* | **`kernel.money_role_grant_matured` (RPC §1.1e, `AUTHZ-C1C`) is authored in `078`, not in `077` beside `has_org_role`.** It reads `kernel.org_member` (`077`) **and** `catalog.platform_config` together with the `authn.money_role_maturity_hours` seed (`078`), so SEAM-1 gives `max(077, 078) = 078`. Authoring it beside the other org-plane predicates — the intuitive placement, and the wrong one — would create a forward reference to a table and a seed row that do not exist yet, and the helper would return `false` for every caller during `077`'s own replay while looking correct. **Fourth instance of the SEAM-1 shape, after `079 → 085`, `085 → 088` and `086 → 087`; this one is *avoided at authoring time* rather than declared after the fact, which is what SEAM-1 is for.** `078` already depends on `077`, so **no edge is added, no package is added, renamed or reordered, and the canonical band stays `076`–`091`.** |
+
+> **`MP-1` adds no edge, and that is a checked result rather than an assumption.** Door §10.3/§10.3a add
+> `ticket_type_id` FK → `venue.ticket_type` to `venue.door_manifest_entry` **and** `venue.door_manifest_delta`.
+> `venue.ticket_type` is created in **`081`**, and `086` already declares `depends_on: ["079","080","081","083"]`
+> — so the edge `081 → 086` exists, and this is **not** a fourth instance of the SEAM-1 shape. Recorded
+> explicitly because an undeclared FK across packages is exactly what SEAM-1 is for, and "we checked and it was
+> already there" is worth writing down once so the next reviewer does not re-derive it. **No package is added,
+> renamed or reordered; the `076`–`091` band is untouched.**
 
 ### 2.2 The seam rule that keeps the DAG honest
 

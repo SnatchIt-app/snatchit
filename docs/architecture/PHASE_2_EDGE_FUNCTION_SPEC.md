@@ -1180,8 +1180,16 @@ diagnostics only. **No edge function may treat `manifest_version` as an authorit
   projection (schema §1.7 RLS: public_key + window are safe to distribute). The manifest itself is signed by a
   **manifest key** (also KMS) so a door can verify the bundle's integrity before trusting its public keys.
 - **Distribution:** doors pull M1 at check-in setup (online) and cache it on-device. Manifest refresh on
-  reconnect. M2 is fetched separately via `venue.get_door_manifest` (door §7.5) and re-synced by delta
-  (`last_synced_seq`, door §7.7).
+  reconnect. M2 is fetched separately via `venue.get_door_manifest(p_session_id, p_since_delta_seq)` and
+  re-synced by delta (`last_synced_seq`, door §7.7).
+- **M2's contents are contracted in door §7.5 / RPC §20.6.1, not here — and §5.4.3 depends on them.**
+  `OFFLINE-VERIFY-v1` is only evaluable if the manifest actually carries what it reads, and for a period it
+  did not (`MP-1`): the two documents that state M2's wire shape stated **two different shapes**, and each was
+  missing a different conjunct's input. Door **§7.5a** now carries the binding superset rule — *every field
+  the predicate reads appears in the entry projection and in the `op='add'` delta projection* — with the read
+  set derived from the block below rather than transcribed beside it. **An edge author wrapping this read
+  must not narrow the projection**: `door-manifest` (§3.9) and `door-session` `/manifest/sync` (§3.9a) relay
+  the RPC result, and dropping a field in the relay is the same defect one layer out.
 - **Signing M2 for parity** is the optional `door-manifest` edge function (§3.9); the TLS-only fallback is
   acceptable for MVP.
 

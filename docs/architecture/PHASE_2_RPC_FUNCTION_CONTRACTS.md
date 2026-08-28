@@ -1221,7 +1221,30 @@ A contract is tagged one of:
   version_stale|**refund_hold**), credential_version, **signing_key_id** }`. **Security:** signature
   verification of the presented token uses the **public key** (door-side / edge); the **private key is never
   in the DB** (C33). Online doors do a live per-scan verify (C37); offline doors verify against the cached
-  manifest (±2 time-bucket skew). **Forbidden callers:** non-door clients.
+  manifest (±2 time-bucket skew, defined immediately below). **Forbidden callers:** non-door clients.
+- **A time-bucket is `30 seconds`, so `± 2 time-buckets` is `± 60 seconds` — `SPEC CORRECTION` (`MP-1`).**
+  `OFFLINE-VERIFY-v1` conjunct 3a reads *"`now() <= token.exp`, ± 2 time-buckets"* and cites **this section**
+  as the definition site. **This section did not define it, and neither did anything else in the corpus** —
+  the phrase occurs in edge §5.4.3/§5.4, door §9.2/§14, Wallet §2.3/§5.2 and domain §10.4, in every case as a
+  citation, in no case as a magnitude. **A tolerance with no stated width is not implementable: two scanner
+  builds would each pick a number, and admission would differ by vendor.** The value is stated here because
+  the fenced block routes the reader here, and the block is the single normative statement and is not
+  editable from a downstream document.
+- **It is a fixed protocol constant, deliberately NOT a `catalog.platform_config` key.** Every other door
+  tolerance in this design is config-seeded (door §10.6), and this one must not be. The value has to be
+  **identical on the signer and on a verifier that has been offline for hours** — that is the entire point of
+  a skew window. A runtime-tunable key is read by the signer at sign time and by the device only at its last
+  sync, so lowering it strands passes already in wallets and raising it widens a replay window on devices
+  that will never learn the new value. It is versioned with the predicate: changing it is a change to
+  `OFFLINE-VERIFY-v1`, made in edge §5.4.3 first, and a scanner-SDK release.
+- **`INFERENCE — AUTHORED`, and filed for owner confirmation (§20.14 `R-22`).** The corpus fixes the *shape*
+  (±2 buckets) and never the width; `30 s` is chosen as the smallest window that absorbs ordinary
+  unsynchronised-device drift without materially widening replay, and it is **unrelated to
+  `credential.wallet_exp_skew`** (6 hours), which is added to `exp` at sign time by a server with a correct
+  clock and solves a different problem. Nothing else in the corpus constrains the number, so it is authored
+  rather than derived, and it is recorded as authored rather than presented as inherited. **This is a
+  numeric tolerance, not an authority change** — it is decided here, not left open — but the owner should
+  confirm the magnitude rather than inherit it.
 - **`signing_key_id` is REQUIRED in the result, and it is not decoration (edge recon #14).** The offline path
   already binds the key id: `venue.door_manifest_entry` carries `signing_key_id` (§20.6.1) and the door's
   offline check 3c refuses a credential whose key id is not the one the manifest pinned. **With no online
@@ -3402,7 +3425,7 @@ mint/revoke set and the two live counts), `T-RPC-KEY-05` (the signing-key force-
 | **Staff & devices** | `T-RPC-STAFF-01` (self-grant, superseded labels and cross-scope labels all raise; org inheritance goes **through the §1.1a helper**) · `-02` (a revoked scanner's next `record_scan` raises **on the same JWT**) · `-03` (a registered device with no live session is refused by `assert_door_session` and therefore by every door RPC) · `-04` (cross-venue sync raises; an out-of-order poll cannot lower stored sync state) · **`-05`** (a retired device's next door call raises **and** it holds no `active` `door_session` row — **both halves**, since the first passes even if RV-2 was never built) · **`-06`** (a door session calling `set_scan_device_status` raises; un-retire does not resurrect a revoked session) | §20.4 |
 | **Comps** | `T-RPC-COMP-01` (**the R-15/E6/E7 split** — `venue_box_office` refused on allocate, permitted on issue) · `-02` (above the C39 threshold a stale-`amr` token raises and moves no counter) · `-03` (a comp atom scans, transfers and refunds identically to a purchased atom; a replayed issue mints no second atom) | §20.5.1, §20.5.2 |
 | **Guest list** | `T-RPC-GUEST-01` (a checked-in entry cannot be removed or edited; the removal audit carries the removed row; **no client role holds table DELETE**) · `-02` (**structural** — `check_in_guest_entry` writes no `guest_entry` column outside `status`/`checked_in_at`) | §20.5.3–§20.5.6 |
-| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises — **held while §20.6.6 is `⛔ BLOCKED`**) · **`-25`** (an atom pinned to a **revoked** key is refused **online and offline**, asserted on both paths) · **`-26`/`-27`** (mint: a PIN for S1 cannot mint a session bound to S2 and a foreign-venue device cannot mint, both with the same error and timing as a wrong PIN; a re-mint leaves exactly one `active` row and the superseded token is refused) · **`-28`** (a `venue_scanner` and a door session are both refused `revoke_door_session`) · **`-29`** (a revoked PIN or a retired device drops out of `live_sessions` in the same transaction, while `live_devices` may still count its un-lapsed manifest — **asserted as a difference**) · **`-30`/`-31`/`-32`** (the `AUTHZ-H3` regression trio, §1.1d) | §20.6, §9.1–§9.8 |
+| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises — **held while §20.6.6 is `⛔ BLOCKED`**) · **`-25`** (an atom pinned to a **revoked** key is refused **online and offline**, asserted on both paths) · **`-26`/`-27`** (mint: a PIN for S1 cannot mint a session bound to S2 and a foreign-venue device cannot mint, both with the same error and timing as a wrong PIN; a re-mint leaves exactly one `active` row and the superseded token is refused) · **`-28`** (a `venue_scanner` and a door session are both refused `revoke_door_session`) · **`-29`** (a revoked PIN or a retired device drops out of `live_sessions` in the same transaction, while `live_devices` may still count its un-lapsed manifest — **asserted as a difference**) · **`-30`/`-31`/`-32`** (the `AUTHZ-H3` regression trio, §1.1d) · **`-33`/`-34`** (**`MP-1` — structural:** every field the `OFFLINE-VERIFY-v1` predicate reads appears in `get_door_manifest`'s entry projection **and** in its `op='add'` delta projection, by column-list comparison; with `-34` deriving the compared read set **from the fenced block** so `-33` cannot pass against a stale hard-coded list) | §20.6, §9.1–§9.8 |
 | **Money — set closure** | `T-RPC-MONEY-15` (**an `admin_refund` void on an open episode appends one `revoke` delta per atom** — the §12.4c exemption obligation) · `-16` (a resold atom's primary payment refunds money only, returning `custody_moved`) · `-17` (`platform_support` and `org_owner` both refused) · `-18` (`pay_promoter_commission`'s write set pinned; no external call) · `-19` (**a flagged unreviewed attribution yields NO settlement line**, and `release` + close pays it) · `-20` (the same attribution cannot be lined into a second settlement) | §20.7.1, §20.7.2 |
 | **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) · **`-05`** (with two `open` episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same transaction as the key row — asserted **on the episode rows**, not on the absence of admissions, which would pass on a manifest that merely lapsed) | §20.7.3–§20.7.5 |
 | **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) · **`-07`** (an offer past `expires_at` whose stored `status` is still `pending` — **the sweep suppressed** — is refused and writes no `market_sale`) | §20.8 |
@@ -4629,11 +4652,45 @@ its digest.
   append-only ledger whose head is already stamped, and taking rank 1 here would put a
   thousand-poll-per-night read in contention with the twice-a-night `FOR UPDATE` of
   `open_door_manifest`/`close_door_manifest`. **SSCAS.** `n/a`.
-- **Result shape.** `{ open bool, manifest_id, manifest_version, manifest_digest, opened_at, not_after,
-  max_delta_seq, entries[], deltas[] }`, where an entry is `{ ticket_atom_id, credential_version,
-  signing_key_id, resale_state, ticket_type_id }` and a delta is `{ seq, ticket_atom_id, op ∈ {add, revoke},
-  credential_version }`. **`p_since_delta_seq` NULL ⇒ full snapshot + all deltas; non-NULL ⇒ deltas only**,
-  which is the cheap poll a reconnecting scanner makes.
+- **Result shape — `SPEC CORRECTION` (`MP-1`).** This contract and door §7.5 described **two different wire
+  shapes for one function**, and **neither could evaluate `OFFLINE-VERIFY-v1`** (edge §5.4.3). The shape here
+  omitted `ticket_state` (conjunct 3b.iv dead), omitted `session_id` (conjunct 3 and the no-M2 clause have no
+  input), and its delta row omitted `signing_key_id` (conjunct 3c dead for **every atom supplemented after
+  doors open** — contradicting the CHECK door §10.3a added for precisely that reason). Door §7.5's shape
+  omitted `resale_state` (conjunct 3b.v dead, which is H-2 in the admitting direction). **One reconciled
+  shape, stated identically here and in door §7.5:**
+
+  ```
+  { open, manifest_id, manifest_version, session_id, opened_at, not_after,
+    manifest_digest, max_delta_seq, entries[], deltas[] }
+
+  entry              := { ticket_atom_id, serial_no, ticket_type_id,
+                          credential_version, signing_key_id, ticket_state, resale_state }
+  delta(op='add')    := { seq, ticket_atom_id, op } ∪ entry    -- the FULL entry payload
+  delta(op='revoke') := { seq, ticket_atom_id, op }             -- membership removal needs nothing more
+  ```
+
+  **The delta rule is op-conditional on purpose, and it is the database's rule, not this contract's.** Door
+  §10.3a CHECKs `(op='add') = (credential_version IS NOT NULL)`, `(op='add') ⇒ signing_key_id IS NOT NULL`,
+  `⇒ credential_version = 0`, `⇒ ticket_state = 'active'`, `⇒ resale_state = 'none'`, and requires
+  `serial_no`/`ticket_type_id` on `add` — with all six NULL on `revoke`. This projection is therefore a
+  straight column read in both branches; it synthesizes no constant, which is what stops the wire and the
+  table from drifting apart a second time. **`serial_no` and `ticket_type_id` are not predicate inputs** —
+  they are operator-facing, and they are required on `add` so the delta row is *exactly* the entry
+  projection, which is what makes door §7.5a checkable by column-list comparison rather than by reading.
+
+  **`session_id` is load-bearing.** Conjunct 3 binds the token to *"the device's bound scanning session"* and
+  the no-offline-authority clause refuses *"an M2 for another session"* — undeterminable from a manifest that
+  never says which session it is for. `T-RPC-DOOR-18` already asserts a **door session** bound to a different
+  session is refused; that is the *authority* check, and it is not the same as the device being able to tell
+  that a **cached** M2 belongs to a different session, which is what the block requires and what this field
+  supplies.
+
+  **`p_since_delta_seq` NULL ⇒ full snapshot + all deltas; non-NULL ⇒ deltas only**, which is the cheap poll
+  a reconnecting scanner makes. **The parameter is `p_since_delta_seq`** — door §7.5 said `p_since_version`
+  and door §7.7/§15 said `p_since_seq`; the first names the wrong quantity (`manifest_version` counts
+  *episodes*, `seq` counts *deltas within* an episode), so a device passing one where the other is expected
+  re-downloads or skips silently. Door §7.5 and §7.7 now carry this spelling.
 - **The manifest carries NO identity column, by construction.** Schema `086`: `door_manifest_entry` and
   `door_manifest_delta` *"carry no identity column by construction"* — **no holder id, no name, no email, no
   order reference.** A scanner needs to know *which credential is admissible*, never *who holds it*, and a
@@ -4650,11 +4707,25 @@ its digest.
   already downloaded. The bound is that downloaded TTL and nothing more. Do not describe this residual as
   closed by the re-sync requirement — it is not."* This read is where the value reaches the device, so the
   residual is restated here rather than left to be rediscovered.
-- **No open episode ⇒ `{ open: false }` with an empty entry set, not an error** — a scanner polling before
-  doors is the normal case.
+- **No open episode ⇒ `{ open: false, status: 'no_open_manifest' }` with empty `entries[]`/`deltas[]`, not an
+  error** — a scanner polling before doors is the normal case. **Both keys, `SPEC CORRECTION` (`MP-1`):** this
+  contract returned only the boolean and door §7.5 returned only `{status:'no_open_manifest'}`, while door
+  §11.2 and RN §7 branch on the **label** and §20.4.4 branches on the **boolean**. Returning either one alone
+  breaks whichever consumer reads the other, so both are returned and neither consumer changes.
 - **Errors.** `insufficient_privilege(42501)` · `not_found` (unknown session).
 - **Test.** `T-RPC-DOOR-17` (above) · `T-RPC-DOOR-18` (a `venue_box_office` and a door session bound to a
-  **different** session are both refused; a delta-only poll returns no entries and the same digest).
+  **different** session are both refused; a delta-only poll returns no entries and the same digest) ·
+  **`T-RPC-DOOR-33` (structural — the `MP-1` acceptance property).** Every field named in the
+  `OFFLINE-VERIFY-v1` predicate appears in this result's **entry** projection, and every such field appears
+  in its **`op='add'` delta** projection — asserted by **column-list comparison**, never by inspecting a
+  returned row, because the defect is a missing column and a sampled row proves only that one atom was
+  populated. Paired with **`T-RPC-DOOR-34`**, which derives the compared read set by parsing the fenced block
+  for `M2[atom].<field>` rather than hard-coding it here, and fails if that parse yields fewer than five
+  distinct per-atom fields — otherwise a sixth conjunct added to the predicate leaves `-33` green against a
+  stale list, which is a gate checking a copy of the requirement instead of the requirement. Door §15
+  assertions **77–83** are the DB-level half of the same property; these two are the contract-level half, and
+  **both are required** — the door spec's group asserts over the tables, this one over what the function
+  returns, and `MP-1` was a defect in the second with the first already correct.
 
 #### 20.6.2 `catalog.sweep_implicit_door_freezes(p_limit)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`G-21`)
 
@@ -5752,6 +5823,7 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-19** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a | **Two divergences between §3.9a and schema §3.10a, resolved here in favour of the pass that owns the table — §3.9a must be brought into line** (full reasoning: §1.1d `AUTHZ-H3a`). **(a)** The session's lookup handle is **`door_session_id`** (the uuid PK), not a `session_ref` text column — **no such column exists in §3.10a.1**. So the wire format is `DoorSession <door_session_id>.<secret>`, `token_hash = sha256(door_session_id::text \|\| ':' \|\| secret)`, and the derived limiter principal is `uuidv5(NS_DOOR_SESSION, door_session_id)`. **(b)** There is **no `/refresh` that extends a session without re-presenting the PIN**, and no `refresh_door_session` RPC is contracted; `/refresh` **re-mints** through §9.6 | §3.9a is unimplementable as written: it selects rows by a column the schema does not define, and its refresh route is the one property schema §3.10a.4 deliberately refused (*"a path that outlives the PIN"*). **The alternative for (a) is a one-column schema addition, not an edge edit** — but it must be decided in the schema, and until it is, an implementer following §3.9a writes a `session_ref` that nothing stores |
 | **R-20** | `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a · `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | **`assert_door_session` returns the bound `(device_id, event_session_id)`, and the edge MUST pass that returned device id as `p_actor_device_id`** — never a value from the request, which is now **rejected** rather than ignored (`invalid_input`) if it appears in `p_scan_meta`. Also: **`venue.reconcile_offline_scans` takes `p_session_id`** (the assert is per `(device, session)`, so a batch spanning sessions cannot be bound to one) | §3.9a already states the obligation in prose (per-relay rule 3); the **signature** it must call is now fixed, and matrix **X-5** should cite it. A batch parameter that changed shape is a compile error the edge author must see, not a runtime surprise |
 | **R-21** | **Owner ruling** (schema §13.7 `S-13`) | **`venue.set_event_security_config` is `⛔ BLOCKED`** (§20.6.6): it writes *"the per-event door-config rows"* and **no such table exists in any package.** Either schedule `catalog.event_security_config` into `078` (`restricted` visibility, AO per version) **or** rule the function out as `venue.set_door_open_at` was. **This document does not invent the table, and `086` must not schedule the function while it is BLOCKED** | A function scheduled with nowhere to write is unbuildable regardless of which keys it accepts. **This is separate from `R-11`**, which asks about the key set — answering `R-11` does not answer this |
+| **R-22** | **Owner confirmation** (`MP-1`) | **The offline clock-skew time-bucket is `30 seconds`, so conjunct 3a's `± 2 time-buckets` is `± 60 seconds`** (§9.3). The corpus cited the bucket in **eight** places and defined its width in **none**; §9.3 now states it, as a **fixed protocol constant rather than a config key** — signer and long-offline verifier must agree, which a runtime-tunable value cannot guarantee. `INFERENCE — AUTHORED`: the magnitude is authored, not derived, and the owner should confirm it | **Not a blocker and not an open decision** — a tolerance with no width is unimplementable, so a number had to be stated rather than left for two scanner builds to each guess, and it is stated. What is owed is confirmation of the magnitude. Changing it later is a change to `OFFLINE-VERIFY-v1` (edge §5.4.3 first) plus a scanner-SDK release, **not** a config edit — so it is cheaper to confirm now than after the first build ships |
 | **R-13** | `PHASE_2_ROLE_MODEL_SPEC.md` §11 R-16 + §12 row 17 · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §21.4 | **Drop `venue.decide_flagged_attribution`** (`AUTHZ-H10`, §17.18). Δ7 and Δ4 are the same control; `venue.review_attribution_flag` is the sole writer of `venue.attribution_review` and now carries the restrictive allow-list | Two functions writing one append-only ledger under opposite authority meant the deny-list stopped nothing: effective decision is `max(seq)`, so the conflicted party appends `release` at `seq+1`. **Plan `090` never named the deleted function**, so nothing is left without a writer |
 | **R-14** | `PHASE_2_ROLE_MODEL_SPEC.md` §5 (supersession clause) | **Add §11 to the list of sections §5.3 supersedes.** It currently names *"RLS §7.x/§9.x role rows and DA §7.6"* and **omits §11 — the one table that calls itself the authority model for every money and custody write** | This omission is the mechanism of `AUTHZ-H5`: ROLE_MODEL edit R-14 rewrote `venue_door → venue_scanner` lexically across §11, preserving capabilities §5 was simultaneously removing, and no clause said §5 governed. RLS §11.0 now states the rule from its own side and `T-RLS-EXEC-01` asserts it; **the role model should state it too, because a rule that only the downstream document knows is the rule that was just violated** |
 | **R-15** | `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` | `G-8b(i)` is **closed on the specification side**: the C39 threshold now has keys (`comp.per_staff_step_up_max_units`, `comp.per_staff_step_up_window_hours`), a contract (§20.5.1) and tests (`T-RPC-AUTHZ-12/15`). It stays open on the **plan** side until `086`'s Tests row names them (`R-7`) | `G-8b(i)` records comps as *"asserted by neither surface"*; half of that is now false and the matrix should not keep asserting it |
