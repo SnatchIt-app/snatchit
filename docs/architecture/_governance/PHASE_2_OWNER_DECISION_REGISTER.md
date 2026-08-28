@@ -1951,3 +1951,123 @@ total**, and none should be put in front of the founder as a choice.
 | **DF-28** | **The twelve uncontracted RPCs and the ten unbacked dashboard controls are missing contracts, not choices** | TRACE `G-3`…`G-7`, `G-13`…`G-15`, `G-20`, `G-21`, `G-24` · VD §20A.3 `U-1`…`U-10` | *"the corpus contracted the functions a **product surface** demanded. It did not contract the functions an **authority table** granted."* `G-24` (no inventory-hold expiry sweep) is a plain correctness bug: *"an abandoned checkout removes inventory from sale permanently."* **`ODR-72`…`ODR-78` are in this register anyway**, because the corpus's standing rule makes them owner-gated stop-ship guards — but the founder's act there is *"authorize the contract to be written"*, not *"choose between options"*. Say that when tabling them. |
 | **DF-29** | **Edge §9 items 12, 14, 15, 16 and RN §12 items 10 and 11** | EDGE §9 · RN §12 | A missing write path (*"or §3.3 has no write path"*), a return shape missing `signing_key_id` and a `reason` enum missing `refund_hold`, a granted ruling's condition satisfied by no code path (*"the exact 'a correct thing that nothing called' failure class"*), four config namespaces missing from the dual-control set (*"one `platform_admin` could enable Wallet before the §13 checklist was green"*), a wrong section pointer, and two banner strings for one condition. One correct answer each. |
 | **DF-30** | **RLS §16.10a `OPEN-1` and the `GP-3 NOTE`** | RLS §16.10a | `OPEN-1`: *"**No document in the corpus defines 'tonight'**"* — a dangling grant in RLS §8.3, not a fork; the fail-closed omission has already de-facto answered it. `GP-3 NOTE`: the org arm of `kernel_tickets_sel_venue` should be split under `GP-3`'s own naming rule and is deferred only because splitting it *"would fail CI in a way that reads as a regression"* — a sequencing problem, not a judgement call. |
+
+---
+
+# THE DEDUPLICATION LEDGER
+
+**How two filings were established to be the same decision.** Four kinds of evidence were accepted, in this
+order of strength. Nothing was merged on resemblance alone.
+
+1. **The corpus says so.** One document names the other's id for the same question — *"= schema §13.7 `S-13`"*,
+   *"CRM D-10 ≡ demographics D-6"*, *"Both should be answered once, together."* Strongest, and used wherever
+   available.
+2. **A single answer settles both, and the same owner could not coherently answer one yes and the other no.**
+   This is the scope amendment's own stated merge rule (§14.1) and this register reuses it verbatim.
+3. **Same object, same authority cell, same failure.** Two documents describe one column, one predicate or one
+   function, and the failure text matches.
+4. **A merge already performed upstream.** The scope amendment §14.1 collapsed 133 raised items into 81; those
+   merges are inherited and re-cited rather than re-derived.
+
+**Two filings were kept separate despite an identical id** wherever rule 2 failed — see the "same id,
+different decision" table below.
+
+## Merges performed here, beyond the scope amendment's own
+
+| ODR | Merged filings | Evidence |
+|---|---|---|
+| `ODR-1` | REGISTRY header · record `C72`/`O10` · record `C73`/`C74` (`RATIFIED-PENDING-REGISTRY-RE-RATIFICATION`) · AMEND `OD-79` · ROLE `OD-10` · PROMO §14.1 · NOTIF `O-N7` · VD §22.15 · SCHEMA §1.13 and §3.10a headers | Rule 1 + rule 2. AMEND §14.1 already merged five of them (*"Five reports of one numbering problem"*). The record's `O10` is **one of the six amendments** the registry header lists, and `C73`/`C74` are two more — all six discharge on one ratification act, so answering `OD-79` answers `O10` and vice versa. |
+| `ODR-2` | record `C51`/`O7` · `COND-A` (registry, schema, plan) · AMEND `OD-13` · NOTIF `O-N2`/`CONFLICT-2` · RLS `MD-11` · TRACE `G-1`/`D4` | Rule 1: AMEND §14.1 names *"Five statements of the same missing outbox."* `MD-11` and `G-1` are two more statements of it. |
+| `ODR-3` | record `C52`/`O8` · `COND-B` (registry, schema, plan) · AMEND `OD-14` · NOTIF `O-N1`/`CONFLICT-1` · RLS `MD-10` · VD §22.16 · TRACE `G-2` | Rule 1: *"Five statements of the same `notify` gate."* |
+| `ODR-4` | AMEND `OD-19`/`HG-8` · DEMOG `D-9`, `D-11` · CRM `D-3` · RLS `MD-9` · SCHEMA §1.15.2 `D-3` · REGISTRY `OWNER-DECISION-K2-D3` | Rules 1 and 2 for the first four (AMEND §14.1). The two later filings are the **same sign-off with a widened scope**: *"`D-3`'s outstanding sign-off now covers **SIX** relations, not four"* — a scope amendment to one decision, not a second decision. |
+| `ODR-10` | MONEY `D-1` · RLS `X-8` + `MD-1` · RPC §16 item 8 · SCHEMA §0.9 + §1.13 · AMEND `OD-01` | Rule 1: AMEND §14.1 — *"One question — is `approval_request` an aggregate class? — asked as a design question, as an RLS note, and as a C28-amendment request."* |
+| `ODR-13` | SCHEMA `S-9` · RLS `X-17` + `MD-17` | Rule 1: RLS §17 `X-17`'s To column reads *"**owner ruling** (schema §13.7 `S-9`)"* — the RLS spec names the schema id for its own row. |
+| `ODR-16` | record `O15`/`C95` · SCHEMA §5.1 `CUSTODY-DEL-1` · SCHEMA `S-19` | Rule 1: the record's `O15` row cites *"filed `S-19`"* and schema §5.1 is where the three admissible forms are stated. |
+| `ODR-19` | record `O16`/`C92` · SCHEMA §1.9.2 · SCHEMA `S-16` · EDGE §4 | Rule 1: the record's `O16` row cites *"filed `S-16`"*. |
+| `ODR-20` | SCHEMA `S-13` · RPC `R-21` · RLS `MD-18` · ROLE `OD-11` · TRACE `G-14` | Rule 1, four ways: RPC §20.14 `R-21`'s File column reads *"Owner ruling (schema §13.7 `S-13`)"*; RLS `MD-18` states the identical two-exit form; ROLE `OD-11` cites `S-13` and `R-21` by name. **One decision under four ids** — the sharpest instance in the corpus. |
+| `ODR-21` | RPC `R-19` · RLS `X-18` + `MD-19` · EDGE §3.9a | Rule 1: `X-18` cites *"RPC §20.14 `R-19`"*; `MD-19` restates the same one-column alternative. |
+| `ODR-23` | CRM `D-2` · RLS `MD-2` · AMEND `HG-4` | Rule 1: `HG-4` names *"`CRM` §13 D-2 … · `RLS` §15.7 **MD-2**"* as one gate. **This merge has no `OD-` id in the scope amendment's index**, which the amendment itself notes. |
+| `ODR-26` | ROLE `OD-4` · RLS §15 item 3 · RPC §16 item 4 · AMEND `OD-11` | Rule 3 plus rule 1 — RPC §16 item 4 says *"mirrors RLS §15.3"*. |
+| `ODR-28` | SCHEMA `S-10` · RPC `R-5` · RLS `X-13` (schema half) · VD `U-4` | Rule 1: schema §13.7 `S-10` says *"RPC §20.14 **R-5** poses it as a fork and it must be closed one way."* |
+| `ODR-33` | PROMO `OWNER DECISION 7` · RN §12 item 13 · AMEND `OD-39` | Rule 1: RN §12 item 13 states it defers to *"the promoter spec['s]"* recommendation and marks itself *"→ owner decision."* |
+| `ODR-35` | record `C85`/`O13` · MONEY `D-8` + §11.1 · VD §5.2 + §22.13 · AMEND `OD-05` | Rule 1: VD §22.13 cites *"`O13` in `PHASE_2_RATIFICATION_RECORD.md`"* and the money spec's `D-8` by name; record `C85` cites *"money §11 `D-8`"*. |
+| `ODR-36` | record `C77`/`O12` · SCHEMA §1.13.4 + `S-3` · RPC `R-22`(2nd) · RLS §11.3a · MONEY §6.7a-2 | Rule 1: RPC §20.14's second `R-22` File column reads *"Owner ruling (`…SCHEMA…` §1.13.4 · §13.7 `S-3`)"*. |
+| `ODR-37` | record `C90`/`O14` · MONEY `D-10` · RPC §10.3 `MB-1b` | Rule 1: MONEY `D-10` closes with *"Ratification `C90` / open decision `O14`"*; RPC §21 maps `MB-1b` to *"`C90` / `O14`"*. |
+| `ODR-40` | MONEY `D-6` · RLS `MD-6` **and** `MD-16` · AMEND `OD-07` | Rule 2. `MD-16` is not a second decision: its recommendation is *"Unchanged"*; it exists to tell the owner the control **was inert** before `AUTHZ-C1A` and now is not. |
+| `ODR-44` | ROLE `OD-7` · RLS `MD-12` · DOOR §8.2/§8.3/§10A.3/§10A.7 · AMEND `OD-09` | Rule 3: the door spec independently and more specifically rules the same capability (`platform_admin` grant-only, `platform_risk` may revoke). |
+| `ODR-47` | record `C56`/`O9` · DOOR `OQ-5` · WALLET `OQ-W4` + `DL-4` · EDGE §9 item 15 · AMEND `OD-25` | Rule 1: the Wallet register's `OQ-W4` heading reads *"RULED by door §16 OQ-5 — GRANTED, owner sign-off still owed"*, and door `OQ-5`'s heading reads *"RULED (Wallet DL-4 / OQ-W4)"*. **One decision under three ids in two files, plus its two conditions in a third.** |
+| `ODR-49` | WALLET `OQ-W6` · EDGE §7 members 2 and 3 · record `D9` · AMEND `OD-27` | Rule 1: `OQ-W6`'s recommendation itself widens the scope — *"The sign-off should cover the `verify_jwt=false` set as a whole, not this function alone"* — and edge §7 concurs from its side. |
+| `ODR-53` | WALLET `OQ-W5` · EDGE §9 item 2 · AMEND `OD-26` | Rule 1: WALLET `OQ-W5` says *"**Answer both together.**"* Merged **despite opposite defaults**, which is recorded in the entry rather than smoothed. |
+| `ODR-61` | CRM `D-7` · DEMOG `D-8` · ROLE §5 `H2`/`H3` · AMEND `OD-20` | Rule 1: CRM `D-7` — *"**Both should be answered once, together.**"* |
+| `ODR-62` | CRM `D-8` · RLS `MD-8` · VD §22.6 · AMEND `OD-21` | Rule 1 (AMEND §14.1: *"One question — is a platform bulk-extraction path wanted at all?"*). |
+| `ODR-66` | DEMOG `D-14` · CRM §4.5 | Rule 1: CRM §4.5 raises the identical question *"from the other side"* and has **no `D-` id of its own** for it. |
+| `ODR-67` | DEMOG `D-6` · CRM `D-10` · AMEND `OD-16` | Rule 1, explicit: CRM §9.3 — *"this document does not create a second one."* |
+| `ODR-68` | DOOR `OQ-4` · RLS `X-7` · VD §22.11 · EDGE §9 item 7 · RN §12 item 9 · SCHEMA §2.3.1 · AMEND `OD-59` | Rule 1 for the first three (AMEND §14.1); rules 1 and 3 for the rest — EDGE §9 item 7 and RN §12 item 9 are the same sentence in two files, each citing door `OQ-4`. **Six filings, one decision.** |
+| `ODR-75` | VD `U-5`/Δ11 · VD `U-6`/Δ12 · RLS `X-19` · AMEND `OD-65` | Rule 1: AMEND §14.1 — *"Two reads on one confirm dialog, same surface, same role set, one grant."* |
+| `ODR-92` | RPC `R-10` · RLS §11.1c · VD `U-7`/Δ3c · TRACE `G-18` · PLAN §8 · AMEND `OD-66` | Rule 1: RPC §20.14 `R-10` is filed as *"Owner ruling"* and RLS §11.1c refuses to write the EXEC row *"for a function whose existence is undecided"*, naming `R-10`. |
+| `ODR-111` | DEMOG `D-4` · CRM `D-9` · AMEND `OD-22` | Rule 1: AMEND §14.1 — *"'Is a demographic-based send wanted' and 'confirm X-8 stays closed' are the same question from the two ends."* |
+| `ODR-119` | VD Δ8 · DOOR `OQ-3` (open half) · ROLE §11.3 `S-6` + §12 row 25 · AMEND `OD-72` | Rule 1: door `OQ-3`'s open half names *"**VD Δ8's** per-event / expiring / per-capability grants"* as the **only** named remedy and says *"not in scope here."* |
+| `ODR-122` | ROLE `OD-1` · ROLE `OD-9` · AMEND `OD-81` | Rule 4 — inherited from AMEND §14.2-K, which already bundles them. Kept bundled because one sitting closes both and neither can be answered without the other's context (`OD-1` is entangled with `ODR-26`). |
+
+## Same id, different decision — kept separate, deliberately
+
+| Id | Meaning A | Meaning B | Meaning C |
+|---|---|---|---|
+| `D-3` | MONEY §11 — the six threshold **values** | CRM §13 / SCHEMA §1.15.2 — the `ON DELETE CASCADE` sign-off | — |
+| `D-6` | CRM §13 — export artifact retention, 24 h vs 7 d | DEMOG §14 — the backup window `{N}` | ROLE §11.7 — a rejected edit instruction, *"`D-6` here is rejected by `D6` there"* |
+| `D-8` | CRM §13 — platform bulk extraction | DEMOG §14 — marketing's mix-card ceiling | MONEY §11 — `org_admin` on the money plane (**blocking**) |
+| `D-12` | CRM §13 — operatorship change | DEMOG §14 — `R7` eligibility | — |
+| `D-13` | CRM §13 — the `display_name` export gate | DEMOG §14 — the vector-7 differencing residual | record row `D13` — the `K-2`/`K-3` edges |
+| `OD-8` | ROLE §13 — door break-glass | AMEND §14.2 `OD-08` — step-up at `aal1` | — |
+| `OD-11` | ROLE §13 — does `set_event_security_config` exist | AMEND §14.2 `OD-11` — settlement close authority | — |
+| `S-5` | SCHEMA §13.7 — the `assert_door_session` token parameter | ROLE §11.3 — the `catalog.event` marketing columns | — |
+| `S-6` | SCHEMA §13.7 — the derived device-id parameter | ROLE §11.3 — the event-scoped grant extension point | — |
+| `R-22` | RPC §20.14 — the 30-second clock-skew confirmation | RPC §20.14 — the platform-plane maturity ruling (**same table**) | — |
+| `O3` | risk register — resale-policy snapshot drift | record — `O-3`, the ratified payout-visibility ruling | — |
+| `O4` | risk register — identity-verification strength | record — `O-4`, the ratified door-manifest ruling | — |
+| `O7` / `O8` | record — the outbox and the `notify` gate | asserted by three documents to be DA §0.4 open questions (**defect DF-5**) | — |
+
+**Consequence for anyone automating over this corpus:** a dedup keyed on a normalized id string will merge the
+ratified payout ruling `O-3` with the unrelated open question `O3`, and the door break-glass question with the
+step-up question. Match on **document + section + id**, never on id alone.
+
+---
+
+# THE ID NAMESPACES THIS REGISTER HAD TO CROSS
+
+The brief said "at least eight". The scan found **twenty-two distinct series carrying open owner decisions or
+their filings**, plus three more that carry decisions raised elsewhere. Listed so the next reader knows what
+they are holding.
+
+| # | Series | Home | What it means there |
+|---|---|---|---|
+| 1 | `O6` … `O16` | record | the record's own open decisions |
+| 2 | `O-1` … `O-5` | record | ratified **owner rulings** — closed, not decisions |
+| 3 | `O1` … `O6` unhyphenated | DA §0.4 · risk register | architecture open questions; `O1` and `O5` reframed, `O2`/`O3`/`O4`/`O6` live |
+| 4 | `C26` … `C98` · `D1` … `D21` · `RET-1` … `RET-6` | record | correction, doc-fix and retraction rows |
+| 5 | `D-1` … `D-10` | MONEY §11 | *"Owner decisions still required"* |
+| 6 | `D-1` … `D-13` | CRM §13 | *"Open questions — owner, counsel, and architecture decisions"* |
+| 7 | `D-1` … `D-14` | DEMOG §14 | *"Open questions — owner and counsel decisions required"* |
+| 8 | `D-1` … `D-10` | ROLE §11.7 | edit instructions, not decisions |
+| 9 | `S-1` … `S-22` | SCHEMA §13.7 | requests to other integrators; `S-8`/`S-9`/`S-10`/`S-13` are owner rulings |
+| 10 | `S-1` … `S-6` | ROLE §11.3 | schema edits requested by the role model |
+| 11 | `R-1` … `R-27` | RPC §20.14 | requests; seven are owner rulings or confirmations |
+| 12 | `R-1` … `R-18` | ROLE §11 | RLS edit instructions |
+| 13 | `R1` … `R36` | risk register | risks |
+| 14 | `X-1` … `X-19` | RLS §17 | requests to other integrators; three are owner-facing |
+| 15 | **`MD-1` … `MD-19`** | **RLS §15.7** | ***"Owner decisions this document surfaces or inherits"* — nineteen rows, every one open, each with a Recommendation and a Blocks column. It is the single richest owner-decision register in the corpus and it is referenced by no other register's rows.** |
+| 16 | `OD-1` … `OD-11` | ROLE §13 | *"Owner decisions still required"* |
+| 17 | **`OD-01` … `OD-81`** | **AMEND §14.2** | **the corpus's own consolidated owner-decision index — 133 raised items merged to 81, of which 54 block. It collides with #16 by a leading zero and has already produced one mis-citation (`X-13`).** |
+| 18 | `OQ-1` … `OQ-8` | DOOR §16 | *"Open questions (owner decisions)"* |
+| 19 | `OQ-W1` … `OQ-W10` | WALLET §15 | *"Open questions — owner decisions"* |
+| 20 | `O-N1` … `O-N15` | NOTIF §10 | *"Open questions — owner decisions required"*, split into blocking and non-blocking tiers |
+| 21 | `OWNER DECISION 1` … `10` | PROMO §13 | bare integers, cited inline as `OWNER DECISION n` |
+| 22 | `COND-A` / `-B` / `-C` / `-D` | REGISTRY §7 | ratified-but-unscheduled conditionals; `COND-D` is the coupling rule, not a decision |
+| 23 | `Δ1` … `Δ12` and `U-1` … `U-10` | VD §21 / §20A.3 | column asks and unbacked controls |
+| 24 | `OWNER-DECISION-K2-D3` / `-READ` | REGISTRY §7.1 | two decisions the `K-2`/`K-3` repair hit and left |
+| 25 | `HG-1` … `HG-8` · `G-1` … `G-25` · `OPEN-1`/`OPEN-2` · unnumbered `#1`–`#17` (EDGE §9) · unnumbered `1`–`13` (RN §12) | AMEND §11 · TRACE · RLS §16.10a · EDGE §9 · RN §12 | hard gates, traceability gaps, and two registers with **no id prefix at all** |
+
+**Two of these carry decisions that no consolidated index reaches:** `MD-n` (#15) and the unnumbered EDGE §9 /
+RN §12 series (#25). Between them they hold `ODR-18`, `ODR-38`, `ODR-43`, `ODR-82`, `ODR-83`, `ODR-85`,
+`ODR-86` and `ODR-87` — and `ODR-87` (notification permission priming) has **no id in any register anywhere in
+the corpus**. It exists in exactly one file, in one paragraph.
