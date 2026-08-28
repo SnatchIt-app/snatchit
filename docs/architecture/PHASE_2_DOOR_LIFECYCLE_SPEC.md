@@ -44,8 +44,8 @@ Integration into the six implementation specs happens in a later pass.
 | 10 | the missing open/close RPCs; clients never UPDATE directly | §7.1 · §7.2 · §7.4 · §10A.4 |
 | 11 | RLS + trigger protections | §10.2 · §10A |
 | 12 | audit events | §12.1 |
-| 13 | pgTAP coverage (described, not authored) | §15 — 58 assertions |
-| 14 | the Wallet stale-pass guarantee is **true** | §5 theorem + corollary · §9.2 · §9.4 |
+| 13 | pgTAP coverage (described, not authored) | §15 — 76 assertions |
+| 14 | the Wallet stale-pass guarantee is **true** | §5.3 theorem + corollary · **§5.4 (its exact scope)** · §9.2 · §9.4 · §19.1 |
 
 
 ---
@@ -101,6 +101,10 @@ session created ──► [ NO EPISODE ]  door_open_at = NULL          now() >= 
 ```
 
 **Read as three orthogonal facts, not one flag:**
+
+> **Deltas (§7.7).** An open episode's admissible set is `base_snapshot ⊕ deltas`. Atoms minted after the open
+> (box-office sales, late comps) append `add`; atoms voided by an exempt path append `revoke`. Both narrow or
+> extend the set safely and neither touches the boundary.
 
 | Fact | Signal | Monotone? | Cleared by close? |
 |---|---|---|---|
@@ -282,7 +286,9 @@ sequence with it is unconditionally ascending. Every affected member re-proves t
 | #8 p2p accept (`accept_p2p_transfer`) | 4 → 5 → 6 | **1** → 4 → 5 → 6 | ✔ |
 | #3 refund-void (`void_ticket_atom`, routine path) | 2 → 5 → 6 | **1** → 2 → 5 → 6 | ✔ |
 | #12 C25 sweep (`sweep_paid_pending_sales`) | 4 → 5 → 6 / 5 → 6 | **1** → … | ✔ |
-| **open / close door manifest** (new) | — | **1** (+ bounded batch of #7-reverse: 1 → 4 → 5) | ✔ |
+| #1 primary issuance (`issue_ticket_atoms`) | (Event/Session *read*-gate at 1) → 2 → 3 → 5 → 6 | **1 (now a lock)** → 2 → 3 → 5 → 6 | ✔ |
+| **open / close door manifest** (new) | — | **1** (+ bounded batch of #6-/#7-reverse: 1 → 4 → 5) | ✔ |
+| **`append_door_manifest_delta`** (new, §7.7) | — | none of its own — runs under the caller's rank-1 `FOR SHARE` | ✔ |
 
 No back-edge is introduced anywhere. Cross-member deadlock-freedom (RPC §14.2, Coffman #4 broken by resource
 ordering) is preserved by construction.
@@ -343,25 +349,65 @@ for two different reasons, and both must hold:**
   Given both, the snapshot cannot have gone stale, because nothing that could stale it can commit while the
   episode is open. 90 seconds old and 0 seconds old are the same snapshot.
 
-**Door Safety Theorem.** *For every atom in an open manifest episode, `kernel.tickets.credential_version` at
-scan time equals the value recorded in that episode's snapshot.*
+**Door Safety Theorem (custody).** *For every atom in an open manifest episode, `current_owner_id` at scan
+time equals the owner recorded in that episode's snapshot, and `credential_version` equals the snapshot value
+for every atom that is still admissible.*
 **Proof.** The snapshot is taken under `FOR UPDATE` on the session row, in the same transaction that writes the
-boundary. Every RPC that can bump `credential_version` for an atom of that session — `transfer_ticket_ownership`
-(the sole custody engine, §9.4 of the domain architecture), `void_ticket_atom`, and their callers — first
+boundary. Every RPC that can **move custody** for an atom of that session — `kernel.transfer_ticket_ownership`
+(the sole custody engine, domain §9.4) and its callers `market.accept_p2p_transfer` / native checkout — first
 acquires `FOR SHARE` on that same session row (§5.1) and rejects when `now() >= effective_freeze_at` (§3).
-A transaction holding `FOR SHARE` before the open began commits before the open's `FOR UPDATE` is granted, and
+A transaction holding `FOR SHARE` before the open began commits before the open's `FOR UPDATE` is granted and
 is therefore *in* the snapshot (READ COMMITTED gives the post-lock statement a fresh snapshot — §6.1). A
 transaction requesting `FOR SHARE` after the open commits observes the boundary and is rejected. No third case
 exists. ∎
 
 **Corollary (req 14).** An offline door that verifies signature ∧ key-window ∧ session ∧ `exp` ∧
-`credential_version == manifest[atom].credential_version` admits exactly the current owner's credential and
-rejects every stale one. The Apple-Wallet / cached-pass safety guarantee is **true**, not claimed.
+`credential_version == manifest[atom].credential_version` ∧ `manifest[atom]` is admissible admits exactly the
+current owner's credential and rejects every stale one. **No two people are ever admitted on one atom, and the
+wrong owner is never admitted.** The Apple-Wallet / cached-pass safety guarantee is **true**, not claimed.
 
-**What the theorem does not cover (stated honestly, per C6/C37):** the `platform_admin` break-glass override
-(§8) and the platform force-void path (§7.6) are deliberate exceptions; both are audited, reason-coded, and —
-for the override — structurally forbidden while an episode is open. The residual is the C6 reconcile window,
-shrunk, not closed.
+### 5.4 The scope of the theorem — corrected, and confirmed for the Wallet proof
+
+> This subsection exists because `PHASE_2_APPLE_WALLET_SPEC.md` §4.3(a) builds its stale-manifest denial on a
+> stronger reading of the theorem than the theorem supports. **The correction below is mine, not theirs:** the
+> theorem as first written quantified over "every RPC that can bump `credential_version`", which is **false** —
+> §13.4 (also mine) exempts the C25 compensate branch, and `void_ticket_atom` bumps the version. The theorem is
+> restated above over **custody moves**, which is both true and the dimension the Wallet non-negotiable
+> actually needs.
+
+**What is guaranteed, unconditionally, from the first open onward.** `door_open_at = MIN(opened_at)` is a
+monotone, terminal head (§2) and `effective_freeze_at <= door_open_at` forever (§3). Therefore
+`is_transfer_frozen` is true at **every instant at or after the first open**, closing an episode does not clear
+it (§7.2), and re-opening does not move it (§7.1). Consequently **no custody move for any atom of the session
+can commit at any time ≥ the first open** — so every episode's snapshot, however old, records the **same owner
+and the same `credential_version` for every atom that is still admissible.** An older episode's manifest is not
+stale in the dimension the Wallet guarantee depends on. *Wallet spec §4.3(a) is **confirmed** on this point.*
+
+**What is NOT guaranteed — three exempt paths bump `credential_version` without moving custody.** All three
+void the atom (`state → voided`, D2/§7.6):
+
+| Exempt path | Elevated? | Audited? | Routine? |
+|---|:--:|:--:|:--:|
+| `catalog.cancel_event` | yes | yes | no — and DL-2 (§7.2) now closes the episode outright, so this case cannot reach an offline door that reconnects |
+| `kernel.force_void_ticket` / `kernel.admin_refund` | yes (`platform_admin`/`platform_risk`) | yes | no — break-glass |
+| **C25 compensate branch of `market.sweep_paid_pending_sales`** | **no** | no | **yes — an automatic sweep** |
+
+The third is the one neither spec had named. A compensating sweep can void an atom that the open episode's
+snapshot records as `active` at version `N`; a device holding that snapshot would then admit a **refunded**
+ticket. This is a **revocation** failure, not a custody failure: no second person is admitted, and the wrong
+owner is never admitted — the atom's own holder is admitted on a ticket that has been refunded. It is a
+revenue leak of exactly the shape C23 names and C6 has always classified as *shrunk, not closed*.
+
+**It is now bounded rather than merely conceded.** §7.7 adds an append-only **manifest delta log** carrying
+`revoke` entries; every exempt void writes one when an episode is open, and a device applies deltas up to its
+last synced sequence. A device that is online drops the atom immediately; a device that is offline carries the
+residual, bounded by the `not_after` it downloaded — which is the same bound every offline decision already
+has. **Wallet spec §4.3's residual list must be extended by this third path** (see §19, DL-3).
+
+**Net effect on the Wallet spec's four scenarios.** Scenarios 1, 2 and 4 are unaffected. Scenario 3(a) is
+confirmed as written for transfers. Scenario 3's "named residual" must gain the C25 compensate path and must
+be described as a *revocation* residual rather than a custody one — in the case it currently describes (an
+override between episodes) it would indeed admit the pre-override owner, and that part stands.
 
 ---
 
@@ -480,6 +526,29 @@ convention.
   that have not reconciled, or a lost device would pin a session open forever. Reconciliation of a closed
   episode remains legal (§9.3).
 
+#### 7.2.1 `catalog.cancel_event` must close every open episode — `SPEC CORRECTION` (Wallet **DL-2**, accepted in full)
+
+§7.6 exempts `catalog.cancel_event` from the freeze — correctly, since the session is being cancelled — but as
+first written this spec never **closed the episode**. §14 failure #11 covered only the online path
+(`record_scan` requires `status='live'`). **An offline scanner would keep admitting into a cancelled show until
+it reconnected.** Accepted as stated; the Wallet spec is right and the gap was mine.
+
+**Correction.** `catalog.cancel_event` must, inside its existing cancellation transaction and under the
+Event/Session lock it already holds (rank 1, RPC §4.4):
+
+1. call `venue.close_door_manifest(session_id, 'event_cancelled')` for **every** session of the event that has
+   an open episode — a bounded batch, same-aggregate, **no new SSCAS member**;
+2. set `not_after := now()` on those episodes, so any device that reconnects before its downloaded horizon
+   still refuses;
+3. write a `revoke` delta (§7.7) for every atom it voids, so a device that syncs once before going offline
+   again drops them;
+4. emit `DoorManifestInvalidated` (§12.2 #44) so online devices disarm immediately.
+
+**Residual, stated in §14 #20 rather than glossed:** a device that never reconnects between the cancellation
+and its manifest's downloaded `not_after` continues to admit offline. Nothing the server does reaches it. The
+bound is the TTL it already holds, and the operational control is that cancelling an event with live synced
+devices must warn the operator with the device count (§11.1). This is C6's window, named.
+
 ### 7.3 Drain semantics (part of §7.1; `SPEC CORRECTION`)
 
 Without this step, the ratified set **locks paying fans out of the show.**
@@ -559,12 +628,62 @@ RPC §12.4 names four rechecking functions. That set is **wrong in one direction
 | `kernel.force_void_ticket` / `kernel.admin_refund` | — | **exempt, audited** | platform break-glass; residual is the C6 reconcile window |
 | `market.sweep_paid_pending_sales` — **compensate** branch | — | **exempt** | §13.4 — otherwise money gets stuck |
 | `market.sweep_paid_pending_sales` — **complete** branch | — | **frozen** | it is a custody move |
+| `kernel.issue_ticket_atoms` (door sale · comp · import) | — | **exempt — never frozen** | minting from ∅ is not a custody move; door-sale inventory (`release_kind='door'`, VD §8.5) exists precisely to be sold after doors open. See §7.7 |
+
+**Every exempt path that voids an atom MUST write a `revoke` delta** when an episode is open (§7.7). This is
+the obligation that turns §5.4's revocation residual from conceded into bounded, and it applies to all three
+voiding exemptions: `catalog.cancel_event` (which also closes the episode outright, §7.2),
+`kernel.force_void_ticket`/`admin_refund`, and the C25 compensate branch. Omitting it re-opens exactly the leak
+§5.4 identifies.
 
 **Defense in depth, deliberately:** the *enforcement* point is `kernel.transfer_ticket_ownership` (and
 `kernel.lock_ticket`) — the choke-points nothing bypasses. The caller-level rechecks
 (`create_listing`, `create_p2p_transfer`, `accept_p2p_transfer`) exist for **error quality**, so the fan sees
 "Transfers are closed" rather than a generic engine failure. Both layers must hold, matching the edge spec's
 "both layers must hold" idempotency discipline (§7 of that spec).
+
+### 7.7 `venue.append_door_manifest_delta(p_session_id, p_atoms, p_op, p_cause_ref)` — `NEW RPC` — **DB-RPC, definer-only**
+
+Closes Wallet **DL-1** (post-open issuance) and §5.4's revocation residual with **one** mechanism. Without it,
+a fan who buys at the box office after doors open is refused by every offline scanner (§14 #19) — the same
+lockout shape as §13.5, and the reason DL-1 is HIGH.
+
+- **Purpose:** append to the current open episode's **delta log** so a synced device's admissible set tracks
+  changes made after the base snapshot. Two operations only:
+
+  | `p_op` | Written by | Meaning | Why it is safe |
+  |---|---|---|---|
+  | `add` | `kernel.issue_ticket_atoms` (door sale · comp · import) | a newly minted atom becomes admissible | the atom is **new**: `credential_version = 0`, it has never been transferred, and it cannot be transferred (the session is frozen). Its reference value cannot go stale, so it **can strand nobody** — the Wallet spec's DL-1 argument, which I have checked and accept |
+  | `revoke` | `kernel.void_ticket_atom` on any exempt path (§7.6) | an atom ceases to be admissible | strictly narrows the admissible set; a device that misses it is no worse off than today, a device that receives it is strictly safer |
+
+  **Both operations are monotone in safety:** `add` can only admit an atom that is provably current, `revoke`
+  can only refuse. Neither can cause an offline door to admit something it should not — which is why the delta
+  log needs no freeze of its own and no new lock.
+- **Actor:** `service_role`/definer only. `REVOKE EXECUTE FROM anon, authenticated, public`. Never in an RLS
+  EXEC row, never client-callable — same posture as `catalog.engage_door_freeze` (§7.4).
+- **Preconditions:** an episode with `status='open'` exists for the session. **If none exists, the call is a
+  silent no-op, not an error** — issuance and voiding must never fail because the door happens to be shut.
+- **Locks & order:** the caller already holds `FOR SHARE` on the session row (rank 1) — `issue_ticket_atoms`
+  acquires it as the promoted form of the "Event/Session read-gate at 1" that RPC §14.1 already models for
+  SSCAS member #1, and `void_ticket_atom` acquires it per §5.1. The delta insert takes no further lock.
+- **SSCAS:** `n/a` — writes one aggregate class (Event/Session child). Member #1 and member #3 keep their
+  existing numbers; this adds a same-aggregate write under a lock they already hold. **No sixteenth member.**
+- **Idempotency:** PK `(manifest_id, seq)` plus `UNIQUE(manifest_id, ticket_atom_id, op)` — a replayed mint or
+  void appends nothing.
+- **Writes:** `venue.door_manifest_delta` (INSERT N), `venue.door_manifest.max_delta_seq` (advance).
+- **Emits:** `DoorManifestSupplemented` (§12.2 #43) so online devices re-sync promptly.
+- **Result:** `{ status, manifest_id, delta_seq, applied }`.
+
+**Device semantics.** A device's admissible set is `base_snapshot ⊕ deltas[1 .. last_synced_seq]`. It advertises
+`last_synced_seq` on sync; `venue.get_door_manifest(p_session_id, p_since_seq)` returns only the deltas beyond
+it. **A device that has never synced deltas is exactly as safe as it was before this section existed** — it
+simply refuses the new atoms (DL-1's fallback) and keeps the revoked ones (the pre-existing residual).
+
+**The honest limit, stated rather than glossed.** A door sale requires taking payment, which requires network,
+so the *selling* device is online by construction and can admit its own sale immediately. A **different**
+scanner that is offline will refuse that ticket until it syncs. This is an operational limit, not a safety
+property: post-open issuance is **admissible online immediately, and offline only after the admitting device
+syncs**. It must be in the door runbook and in the dashboard copy for door-release inventory (§11.1).
 
 ---
 
@@ -617,9 +736,38 @@ the freeze's effect for a bounded interval without altering the boundary.**
   (`session.door_freeze_override_grant`, with `before/after` and the reason).
 - **Result:** `{ status, override_id, expires_at }`.
 - **Errors:** `insufficient_privilege(42501)` · `precondition_failed` (`manifest_open` | `ttl_too_long` |
-  `bad_reason_code`).
+  `bad_reason_code` | `unacknowledged_live_devices`).
 - **Explicitly does NOT write `catalog.event_session`.** `door_open_at` is untouched, so the historical
   boundary survives verbatim — req 6, req 9.
+
+#### 8.2.1 Break-glass forces a manifest re-sync — Wallet **DL-3**, accepted and strengthened
+
+DL-3 asks that after any override or platform force-void, every scanner for the session re-sync M2 before
+resuming offline admission. **Accepted — but re-sync alone is necessary and not sufficient, and the request as
+phrased implies a guarantee the mechanism cannot deliver.** A device that is offline cannot be made to
+re-sync, and nothing the server writes afterwards reaches it. Setting `not_after := now()` server-side does not
+shorten the `not_after` the device already downloaded. The sound form has four parts:
+
+1. **Force-close and invalidate.** `grant_door_freeze_override` already requires that no episode be open
+   (§8.2 precondition 1). Extend the same requirement to the platform force-void path when it targets a
+   session whose freeze is engaged: force-close the open episode first, and set `not_after := now()` on every
+   prior episode of that session.
+2. **Push.** Emit `DoorManifestInvalidated` (§12.2 #44). Online devices drop their cached M2 immediately and
+   render `awaiting_manifest` (§11.2) until a new episode is opened.
+3. **Acknowledge, before the act.** `grant_door_freeze_override` **counts devices whose last synced manifest
+   for this session is still within its downloaded `not_after`** and refuses with
+   `precondition_failed('unacknowledged_live_devices')` unless the caller passes `p_ack_live_devices := <that
+   exact count>`. This is a deliberate speed bump: the admin must look at the number before defeating a safety
+   property. The dashboard shows the same count (§11.1).
+4. **Bound honestly.** The residual after all of the above is a device that was offline across the break-glass
+   act, bounded by the `not_after` it downloaded — i.e. by `door.manifest_ttl_interval`, nothing more. **Say
+   this; do not describe the residual as closed by the re-sync requirement.** It is not.
+
+**Amendment to the Wallet spec's §4.3 residual list (their responsibility, flagged here):** the list names the
+override and platform force-void. It must also name the **C25 compensate branch** (§5.4) — a *routine,
+unelevated, unaudited* sweep that voids an atom and therefore leaks a *revocation* offline. It is a
+lower-severity residual than the two they name (revenue, not custody) but it is the only one that fires
+without a human.
 
 ### 8.3 `kernel.revoke_door_freeze_override(p_override_id, p_command_key)` — `NEW RPC` — **DB-RPC**
 
@@ -663,14 +811,42 @@ Edge §5.4 enumerates the offline door's checks: (1) `key_id` in the cached key 
 *cannot detect a stale credential at all* — which is why the transfer freeze had to exist, and why the freeze
 never engaging is a safety failure rather than a nuisance.
 
-Add step (3b):
+Add step (3b), evaluated against the device's applied set `M2 = base_snapshot ⊕ deltas[1 .. last_synced_seq]`
+(§7.7):
 
-> **(3b)** the token's `credential_version` equals `M2[atom].credential_version`; and `M2[atom].ticket_state`
-> is `active`. Mismatch ⇒ reject with reason `version_stale` (existing vocabulary, RPC §9.3 / VD §12.5);
-> absent from M2 ⇒ reject with `wrong_session`.
+> **(3b)** the atom is present in `M2`; `M2[atom]` is not `revoke`d; the token's `credential_version` equals
+> `M2[atom].credential_version`; `M2[atom].ticket_state = 'active'`; and `M2[atom].resale_state = 'none'`.
 
-With §5's theorem this is not merely a defence-in-depth check — it is *exact*: the manifest version is provably
-current for the whole episode, so `version_stale` offline means the same thing it means online.
+With §5.3's theorem this is not merely a defence-in-depth check — it is *exact* for the custody dimension: the
+manifest owner and version are provably current for the whole episode, so `version_stale` offline means the
+same thing it means online. §5.4 states precisely where it is not exact (revocation).
+
+**Reject-reason mapping — `SPEC CORRECTION`, and a counter-proposal to Wallet DL-5.** DL-5 observes, correctly,
+that a **voided** atom rejected as `wrong_session` misdirects door staff into re-checking the night instead of
+telling the holder their ticket was refunded, and proposes a new reason `not_admissible`. **The problem is
+real; the proposed fix treats the symptom.** `wrong_session` is misleading only because the base snapshot was
+specified to *exclude* terminal atoms (§10.3, `ticket_state ∈ {issued, active}`), so "absent from M2" was
+overloaded with two unrelated meanings.
+
+**Ruling: make M2 complete instead.** The snapshot carries **every atom of the session regardless of state**,
+with `ticket_state` and `resale_state` recorded. "Absent from M2" then means exactly one thing — this atom does
+not belong to this session — and `wrong_session` becomes accurate rather than misleading. No new vocabulary is
+introduced, and every reason maps onto the five the venue dashboard already publishes (VD §12.5):
+
+| `M2` state | Offline reject reason | Operator copy (VD §12.5, unchanged) |
+|---|---|---|
+| absent from M2 | `wrong_session` | *"Right event, wrong night."* — now literally true |
+| `revoke`d by delta, or `ticket_state='voided'` | `voided` | *"This ticket was refunded or cancelled."* |
+| `ticket_state='scanned'` at snapshot | `duplicate` | *"Already used"* |
+| `resale_state ∈ {listed, locked}` | `listed_locked` | *"This ticket is listed for resale or mid-transfer."* |
+| version mismatch | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* |
+
+**This also closes a hole neither spec flagged.** A sale in `paid_pending_transfer` leaves its atom
+`state='active', resale_state='locked'` (RPC §12.3), and §7.3 deliberately excludes it from the drain to
+protect the money. Under the original §10.3 it would have entered M2 as a plain `active` atom with no
+`resale_state`, so the **offline** door would have admitted an atom the **online** door refuses with
+`listed_locked` (RPC §7.5). Recording `resale_state` makes the two doors agree. Online and offline must reject
+for the same reasons or the offline door is not a shrunk version of the online one — it is a different one.
 
 ### 9.3 The full relationship (req 8)
 
@@ -690,7 +866,7 @@ current for the whole episode, so `version_stale` offline means the same thing i
 Today's cached-token contract (edge §5.5) is: token = `{atom_id, session_id, credential_version, key_id,
 issued_at, exp}`, cacheable, TTL-bounded, invalidated by a version bump. The hazard it names is that an
 **offline** door "admits on signature+window" and the mismatch is only caught at reconcile. §9.2 closes that
-online-offline asymmetry, and §5's theorem is what makes closing it possible: a manifest that could go stale
+online-offline asymmetry, and §5.3's theorem is what makes closing it possible: a manifest that could go stale
 would only move the problem.
 
 Concretely, the four Wallet-pass scenarios:
@@ -702,11 +878,12 @@ Concretely, the four Wallet-pass scenarios:
 | A's ticket refunded after doors open; A shows the cached pass offline | admitted; venue eats an admission | **rejected** — routine refund-void is frozen (C23, §7.6); a platform break-glass void is the audited residual |
 | A's pass cached, no transfer, offline door | admitted (correct) | admitted (correct) — the common case is unchanged |
 
-The Apple Wallet / PassKit surface itself is **not built in Phase 2** — no PassKit code exists in the repo and
-the RN spec's "wallet" is the in-app Tickets tab (§4.4) plus the cached `credential-sign` token. If a real
-`.pkpass` is added later, it is a *display layer over the same token* and inherits this guarantee unchanged,
-provided it never carries a longer TTL than the token. `NEW RN SURFACE` — not in scope; recorded so the
-guarantee is not silently broken by a later PassKit addition (§16 OQ-5).
+**Apple Wallet is now specified** — `docs/architecture/PHASE_2_APPLE_WALLET_SPEC.md` (Wallet **DL-6**,
+accepted). The paragraph that stood here said PassKit was "not built in Phase 2" and set the constraint that a
+`.pkpass` must never carry a longer TTL than the token; both statements are superseded. The Wallet spec's §4
+four-scenario proof consumes this document's M2 and step 3b; §5.4 above confirms exactly which part of the
+theorem it may lean on and which part it may not, and §16 OQ-5 now carries the **ruling** on the token profile
+rather than the open question.
 
 ---
 
@@ -727,6 +904,7 @@ guarantee is not silently broken by a later PassKit addition (§16 OQ-5).
   `not_after` timestamptz not null (offline validity horizon);
   `closed_at` timestamptz nullable; `closed_by` uuid nullable FK→`auth.users(id)`; `close_reason` text nullable;
   `entry_count` integer not null; `manifest_digest` text not null;
+  `max_delta_seq` integer not null default 0 (§10.3a — advanced by `append_door_manifest_delta`);
   `command_idempotency_key` text not null; `created_at`.
 - **Unique:** `UNIQUE(session_id, manifest_version)`;
   `UNIQUE(session_id, command_idempotency_key)`;
@@ -806,9 +984,12 @@ frozen with it.
 - **Columns:** `manifest_id` uuid FK→`venue.door_manifest` on delete restrict; `ticket_atom_id` uuid
   FK→`kernel.tickets` on delete restrict; `serial_no` integer not null; `credential_version` integer not null;
   `signing_key_id` uuid not null FK→`kernel.signing_key` on delete restrict;
-  `ticket_state` text not null (the atom's `state` at snapshot); `created_at`.
-- **Check:** `credential_version >= 0`; `ticket_state ∈ {issued, active}` (a snapshot never contains a terminal
-  atom).
+  `ticket_state` text not null (the atom's `state` at snapshot);
+  **`resale_state` text not null** (the atom's `resale_state` at snapshot — §9.2); `created_at`.
+- **Check:** `credential_version >= 0`; `ticket_state` ∈ the atom state enum; `resale_state` ∈ the overlay enum.
+  **The snapshot is COMPLETE — every atom of the session, in every state** (§9.2 ruling on DL-5). The earlier
+  restriction `ticket_state ∈ {issued, active}` is **withdrawn**: it overloaded "absent from M2" with two
+  meanings and made `wrong_session` misleading for voided tickets.
 - **Immutability:** `AO`. Guard trigger rejects UPDATE and DELETE. A re-open produces a **new** `manifest_id`
   and a fresh entry set; entries are never edited.
 - **Index:** PK; index on `ticket_atom_id` (the Gate-M narrowing lookup and the reconciliation join).
@@ -822,6 +1003,31 @@ frozen with it.
 > entries on the fly at fetch. Rejected because (a) the digest could not then be reproduced after a later
 > transfer, destroying the reconciliation evidence, and (b) the C43 narrowing would have no membership to read.
 > Recorded so the decision is not re-litigated.
+
+### 10.3a `venue.door_manifest_delta` — `ADDITIVE SCHEMA CHANGE` (new table, AO)
+
+The append-only change log applied on top of the base snapshot (§7.7). Serves Wallet **DL-1** (`add`) and
+§5.4's revocation residual (`revoke`) with one mechanism.
+
+- **PK:** composite `(manifest_id, seq)`.
+- **Columns:** `manifest_id` uuid FK→`venue.door_manifest` on delete restrict; `seq` integer not null
+  (per-manifest monotonic, starts at 1); `ticket_atom_id` uuid not null FK→`kernel.tickets` on delete restrict;
+  `op` enum(`add` · `revoke`) not null; `serial_no` integer nullable; `credential_version` integer nullable
+  (required for `add`, null for `revoke`); `signing_key_id` uuid nullable FK→`kernel.signing_key`;
+  `cause_ref` uuid nullable (the issuing order / refund driving the change); `occurred_at` timestamptz not null
+  default now(); `created_at`.
+- **Unique:** PK; **`UNIQUE(manifest_id, ticket_atom_id, op)`** — a replayed mint or void appends nothing
+  (§7.7 idempotency).
+- **Check:** `(op='add') = (credential_version IS NOT NULL)`; `credential_version >= 0`.
+  **`op='add'` requires `credential_version = 0`** — a supplemented atom is by construction newly minted and
+  never transferred; anything else would mean a custody move committed after the freeze, which §5.3's theorem
+  forbids. This CHECK is the theorem made structural.
+- **Immutability:** `AO`. Guard trigger rejects UPDATE and DELETE.
+- **Index:** PK (doubles as the `seq > p_since_seq` sync scan); index on `ticket_atom_id`.
+- **Volume:** door-release inventory plus late comps — tens of rows per session, not hundreds.
+- **RLS:** venue-scoped read, identical posture to `venue.door_manifest_entry` (§10A.2). No identity column.
+- **Write authority:** `venue.append_door_manifest_delta` only (definer-only, §7.7).
+- **SoT/PROJ:** SoT.
 
 ### 10.4 `kernel.door_freeze_override` — `ADDITIVE SCHEMA CHANGE`
 
@@ -843,6 +1049,18 @@ claimed manifest actually existed and covered the atom.
 | `door.manifest_ttl_interval` | interval | `'12 hours'` | episode `not_after` horizon |
 | `door.manifest_early_open_window` | interval | `'12 hours'` | how far before doors an episode may be opened |
 | `door.max_override_interval` | interval | `'2 hours'` | hard ceiling on an override's TTL |
+
+**Cross-config invariant (`SPEC CORRECTION`, load-bearing for §16 OQ-5).**
+
+```
+config('credential.wallet_default_span') + config('credential.wallet_exp_skew')
+        <=  config('door.manifest_ttl_interval')
+```
+
+A Wallet token may never outlive the offline window that any manifest could authorise. `catalog.set_platform_config`
+must validate this whenever either side changes and reject the write otherwise; CI asserts it over the seeded
+values. **This is the invariant that makes the §16 OQ-5 ruling safe** — without it, the Wallet spec's claim
+that a short `exp` "bounds nothing that isn't already bounded" is false for key revocation.
 
 ### 10.7 What is **not** added
 
@@ -1059,6 +1277,8 @@ upsert/set-operation (never a naked increment).
 | 40 | **DoorManifestDrained** | market | `session_id, manifest_id, cancelled_transfer_ids[], cancelled_listing_ids[]` | notify (per affected party), analytics | **Sync** (same txn as the drain) | `manifest_id + 'drain'` |
 | 41 | **DoorFreezeOverrideGranted** | kernel | `override_id, session_id, ticket_atom_id?, expires_at, reason_code, granted_by` | risk, notify (platform ops), analytics | **Sync** | `override_id` |
 | 42 | **DoorFreezeOverrideEnded** | kernel | `override_id, ended_at, ended_by ∈ {revoke, expiry}` | risk, analytics | Async | `override_id + 'ended'` |
+| 43 | **DoorManifestSupplemented** | venue | `manifest_id, session_id, delta_seq, op, ticket_atom_ids[]` | scanner push-to-sync, analytics | **Sync** (same txn as §7.7) | `manifest_id + delta_seq` |
+| 44 | **DoorManifestInvalidated** | venue | `manifest_id, session_id, reason ∈ {event_cancelled, freeze_override, force_void, key_revoked}, invalidated_at` | scanner (drop M2, disarm), dashboard alert, risk | **Sync** | `manifest_id + reason` |
 
 Numbering continues the domain-architecture §6.1 catalog (which ends at 36). None of these are money or
 custody events; none ride the transactional spine (§6.2 of that document) except as outbox rows written inside
@@ -1157,6 +1377,10 @@ Covered in full at §7.3. `mark_ticket_scanned` requires `resale_state='none'`; 
 | 16 | Override expires mid-transfer | The transfer's own `FOR SHARE` recheck under lock re-evaluates; an in-flight txn that already passed the check commits (it holds the atom lock and cannot strand — the boundary is about *new* moves). | bounded |
 | 17 | The notification sweep never runs | `is_transfer_frozen` is arithmetic and unaffected; only the pre-freeze warning push is lost. | **not load-bearing, by construction** |
 | 18 | Manifest fetched, then the episode is closed | Device's `not_after` still holds, but the dashboard shows the episode closed and the device stale. `reconcile_offline_scans` accepts the batch (it references the closed `manifest_id`). | reconcilable |
+| 19 | **Box-office sale or late comp after the manifest opened** (Wallet DL-1) | The atom is absent from the base snapshot. `append_door_manifest_delta('add')` appends it (§7.7); the **selling** device is online by construction and admits immediately; **other** devices admit only after they sync the delta. Without a sync they refuse a paying fan — an operational limit, in the runbook (§7.7). | fail-closed against the fan on un-synced devices — **named, not silent** |
+| 20 | **Event cancelled while a device is offline** (Wallet DL-2) | `cancel_event` force-closes the episode, sets `not_after := now()`, writes `revoke` deltas and emits `DoorManifestInvalidated` (§7.2.1). Online devices disarm at once. A device that never reconnects keeps admitting until its **downloaded** `not_after`. | bounded by the TTL the device holds — C6's window, named |
+| 21 | **Break-glass override or force-void between episodes** (Wallet DL-3) | Force-close + invalidate + push + live-device acknowledgement (§8.2.1). An offline device would admit the pre-override owner and refuse the post-override one. | shrunk, not closed — the only *custody* residual in the design |
+| 22 | **C25 compensate voids an atom while an episode is open** (§5.4) | `void_ticket_atom` writes a `revoke` delta (§7.6). A synced device drops the atom; an offline device admits a refunded ticket. **Revenue leak, not a double-admit** — no second person is admitted and the wrong owner is never admitted. | bounded by the device's TTL; the only residual that fires **without a human** |
 
 ### 14.5 The one operationally painful case, named
 
@@ -1278,9 +1502,40 @@ Grouped by the property each group defends. All are DB-level; none require the a
 57. A rolled-back open writes **no** audit row (same-transaction property).
 58. `kernel.admin_audit` remains unreadable by `authenticated` (audit-only class).
 
-**Total: 58 assertions.** Groups **G** and **B** are the regression suites for the two defects that would
+**L. Manifest completeness and reject mapping (5) — §9.2 / DL-5**
+59. The base snapshot contains **every** atom of the session, including `voided` and `scanned` ones
+    (`count(door_manifest_entry) = count(kernel.tickets WHERE event_session_id = S)`).
+60. A `voided` atom appears in M2 with `ticket_state='voided'` — so the offline reject maps to `voided`, not
+    `wrong_session`.
+61. An atom of a **different** session is absent from M2 — so `wrong_session` is reachable and means only that.
+62. A `paid_pending_transfer` atom appears with `resale_state='locked'` — the offline door refuses it for the
+    same reason the online door does (`listed_locked`), and the two doors agree.
+63. `venue.door_manifest_entry` still exposes no identity column after the completeness change (re-asserts
+    pgTAP 6 against the widened row set).
+
+**M. Delta log (7) — §7.7 / DL-1 / §5.4**
+64. `issue_ticket_atoms` with an open episode appends one `op='add'` delta per minted atom, each with
+    `credential_version = 0`.
+65. The `CHECK` rejects an `op='add'` delta with `credential_version <> 0` (the theorem made structural).
+66. `issue_ticket_atoms` with **no** open episode appends nothing and does **not** error (silent no-op).
+67. A replayed `issue_ticket_atoms` (same command key) appends no second delta
+    (`UNIQUE(manifest_id, ticket_atom_id, op)`).
+68. An exempt `void_ticket_atom` (C25 compensate branch) with an open episode appends one `op='revoke'` delta.
+69. `venue.get_door_manifest(S, p_since_seq := k)` returns exactly the deltas with `seq > k` and no base rows.
+70. `UPDATE`/`DELETE` on `venue.door_manifest_delta` raises (AO guard).
+
+**N. Cancellation and break-glass invalidation (6) — §7.2.1 / §8.2.1 / DL-2 / DL-3**
+71. `catalog.cancel_event` on an event with an open episode closes it with `close_reason='event_cancelled'`.
+72. …and sets that episode's `not_after <= now()`.
+73. …and emits `DoorManifestInvalidated` with `reason='event_cancelled'`.
+74. …and leaves `door_open_at` byte-identical (cancellation is not an unfreeze).
+75. `grant_door_freeze_override` without `p_ack_live_devices` matching the live synced-device count raises
+    `precondition_failed('unacknowledged_live_devices')`.
+76. A platform force-void on a session with an open episode force-closes that episode before voiding.
+
+**Total: 76 assertions.** Groups **G** and **B** are the regression suites for the two defects that would
 otherwise recur silently (§13.1 and req 5). Group **F** is the machine-checkable form of the Door Safety
-Theorem.
+Theorem; group **M** assertion 65 is the theorem enforced as a `CHECK` rather than as prose.
 
 ---
 
@@ -1321,15 +1576,62 @@ No signature change, no caller change. **Flagged because the four documents curr
 nothing implements** — the same class of claim-without-mechanism this ruling was issued to eliminate. Owner
 should confirm the MVP predicate is session-wide.
 
-**OQ-5 — PassKit (§9.4).**
-No `.pkpass` exists in Phase 2. If one is added, its TTL must not exceed the credential token's, or the
-guarantee in §5's corollary breaks for that surface. Recording it so a later PassKit ticket does not silently
-invalidate a proven property.
+**OQ-5 — PassKit token TTL. RULED (Wallet DL-4 / OQ-W4) — GRANTED, with a corrected rationale and a tighter
+bound than requested. Owner sign-off still required to ratify the relaxation itself.**
+
+*The constraint as originally recorded:* a `.pkpass` "must never carry a longer TTL than the token." That was
+circular (the pass carries *the* token) and, taken literally, makes Wallet impossible — a short-TTL barcode
+baked into `pass.json` expires on an offline phone and locks a paying fan out. That is the §13.1 failure class,
+and I ruled against it twice already in this document. **The outcome the Wallet spec asks for is right.**
+
+*Their rationale is not, and I decline to adopt it.* Wallet §5.3 argues the short TTL "was compensating for
+W-3" and that once step 3b exists it "bounds nothing that isn't already bounded." Checked against each threat,
+that is too strong in two rows of their own table:
+
+| Threat | Their claim | My finding |
+|---|---|---|
+| stale token after transfer / routine void | `exp` bounds nothing post-3b | **agreed** — this is the W-3 row and they are right |
+| screenshot resale | bounded by first-in-wins, not `exp` | **partly wrong.** First-in-wins bounds *double-admission*, not the fraud: the buyer of a screenshot can beat the legitimate owner to the door, who is then refused. A multi-hour `exp` does kill the sell-it-this-afternoon variant. The close-to-door variant is unaffected by either TTL |
+| token signed by a **revoked key** | residual is the M1 refresh window, which a shorter `exp` does not shorten | **wrong as stated.** The residual is `min(exp remaining, M1 refresh)`; a shorter `exp` shortens it directly. Edge §5.6 says so in its own words |
+
+*The ruling.* Grant the session-bounded wallet profile, and make their claim **true** rather than assuming it,
+by binding the token to the offline window instead of to a clock:
+
+1. **Adopt the cross-config invariant** `wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval`
+   (§10.6), validated in `set_platform_config` and asserted in CI. A Wallet token then **cannot outlive the
+   offline window any manifest could authorise.** Since offline admission is impossible past `not_after`, an
+   `exp` inside that bound genuinely constrains nothing extra — which is what their argument needed and did
+   not have.
+2. **Couple key revocation to episode invalidation.** Revoking a signing key for a scope with an open episode
+   MUST force-close and invalidate it (§8.2.1 mechanism, `reason='key_revoked'`, envelope #44). This collapses
+   the revocation window to the device's offline duration rather than the token's life. **Without this I would
+   reject DL-4**, because item 1 alone leaves a 12-hour token against a revoked key.
+3. Their three mitigations stand and are mandatory: the CI structural test that offline step 3b exists, the
+   `wallet.apple.enabled` kill switch, and no-manifest-no-admit. The third is consistent with §3.1 — it
+   constrains **offline** admission, which already requires a manifest by construction, and does not touch
+   online admission, which §3.1 rules must never be gated on the manifest.
+4. Screenshot resale is **not** closed by any of this and must not be described as closed. It is bounded by
+   first-in-wins plus the fraud queue (C41, RPC §9.4) — the ratified position — and the freeze makes it the
+   only remaining resale channel for a frozen session, so the fraud queue should expect it.
+
+*What is genuinely given up:* the defence-in-depth layer their §5.3 names, honestly. I accept the trade because
+item 1 converts it from "a shorter clock" into "the same clock the offline door already runs on."
+
+**Owner sign-off is still required** — this relaxes a constraint recorded in a ratified document, and the
+Wallet spec was right to refuse to settle it alone.
 
 **OQ-6 — Is `record_scan` required to take the session `FOR SHARE`?**
 Not needed for the theorem (scans do not move custody). It is *recommended* so a scan's recorded
 `manifest_id` is provably the live episode rather than a racing one. Cost: scans briefly block during
 open/close (milliseconds, twice a night). Recommend yes. **Implementer/owner preference.**
+
+**OQ-8 — Should the C25 compensate branch void the seller's atom at all? (surfaced, not resolved.)**
+§5.4's only unelevated residual exists because `sweep_paid_pending_sales`'s compensate branch calls
+`void_ticket_atom` (RPC §12.3), killing the **seller's** ticket because a **buyer's** resale failed to
+complete. Refunding the buyer and merely unlocking the seller's atom would remove the residual entirely and
+looks more correct on its face. **I have not changed it:** it is ratified behaviour in a document I do not own,
+D2 makes `voided` the only money-reversal terminal, and the change would ripple into the C26 terminal state
+machine. Flagged for whoever owns RPC §12.3. If it is changed, §5.4's third row and failure #22 disappear.
 
 **OQ-7 — Manifest signing.**
 §7.5 returns the manifest from a DB read RPC. Edge §5.4 signs the *key* manifest with a KMS manifest key. For
@@ -1349,6 +1651,7 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `venue.close_door_manifest` | `NEW RPC` |
 | `catalog.engage_door_freeze` (definer-only) | `NEW RPC` |
 | `venue.get_door_manifest` | `NEW RPC` |
+| `venue.append_door_manifest_delta` (definer-only) | `NEW RPC` (§7.7 — DL-1) |
 | `catalog.effective_freeze_at` | `NEW RPC` |
 | `kernel.grant_door_freeze_override` / `revoke_door_freeze_override` | `NEW RPC` |
 | `kernel.sweep_expired_door_overrides` | `NEW RPC` |
@@ -1356,6 +1659,9 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `door-manifest` (signed manifest distribution) | `NEW EDGE FUNCTION` (optional, OQ-7) |
 | `venue.door_manifest` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.door_manifest_entry` | `ADDITIVE SCHEMA CHANGE` |
+| `venue.door_manifest_entry.resale_state` + snapshot completeness | `SPEC CORRECTION` (§9.2 — DL-5) |
+| `venue.door_manifest_delta` | `ADDITIVE SCHEMA CHANGE` (§10.3a — DL-1) |
+| `venue.door_manifest.max_delta_seq` | `ADDITIVE SCHEMA CHANGE` |
 | `kernel.door_freeze_override` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.scan.manifest_id` · `venue.scan_device.manifest_id` | `ADDITIVE SCHEMA CHANGE` (recommended) |
 | four `catalog.platform_config` seed keys | `ADDITIVE SCHEMA CHANGE` (rows) |
@@ -1372,7 +1678,15 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `venue_door` removed from VD Δ1's proposed role set | `SPEC CORRECTION` (§4) |
 | `starts_at`/`doors_at` edits rejected once engaged | `SPEC CORRECTION` (§10.2) |
 | M1/M2 manifest disambiguation | `SPEC CORRECTION` (§9.1) |
-| Domain events 37–42 | `ADDITIVE` (envelope) |
+| Domain events 37–44 | `ADDITIVE` (envelope) |
+| Door Safety Theorem restated over **custody**, not `credential_version` | `SPEC CORRECTION` (§5.3–§5.4 — my own error) |
+| `catalog.cancel_event` force-closes open episodes | `SPEC CORRECTION` (§7.2.1 — DL-2) |
+| Break-glass forces invalidation + live-device acknowledgement | `SPEC CORRECTION` (§8.2.1 — DL-3) |
+| Exempt voids must write a `revoke` delta | `SPEC CORRECTION` (§7.6) |
+| Offline reject-reason mapping to the five VD §12.5 reasons | `SPEC CORRECTION` (§9.2 — DL-5) |
+| Wallet/manifest cross-config invariant | `SPEC CORRECTION` (§10.6 — DL-4) |
+| Key revocation force-closes an open episode | `SPEC CORRECTION` (§16 OQ-5 item 2 — DL-4) |
+| OQ-5 replaced by a ruling | `SPEC CORRECTION` (§16 — DL-4) |
 | six `kernel.admin_audit` action names | `NO SCHEMA CHANGE` |
 | RLS matrices for the three new tables (§10A.1–§10A.3) | `ADDITIVE` (new matrices) |
 | RLS §8.3 notes 19 / 19b — `door_open_at` unreachable from any EXEC row | `SPEC CORRECTION` (§10A.4) |
@@ -1397,12 +1711,12 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | **Two-rail honesty** | the freeze binds native custody only; `public.transfers` / `public.listings` are untouched — an external-rail transfer is not a custody move of an atom | ✔ preserved |
 | **Modular monolith** | `venue.*` never writes `catalog.*` directly; `catalog.engage_door_freeze` is the owning schema's definer primitive, mirroring `record_scan → mark_ticket_scanned` | ✔ preserved |
 | **Frozen Stripe core** | no `public.payments` column, no fee-application change, no new charge path | ✔ preserved |
-| **SSCAS membership + global lock ordering** | open/close are single-aggregate (Event/Session); the drain is a bounded batch of existing members #6-/#7-reverse; the session gate is rank 1, the lowest, so every prefixed sequence stays ascending (§5.1 proof table) | ✔ preserved, **no sixteenth member** |
+| **SSCAS membership + global lock ordering** | open/close are single-aggregate (Event/Session); the drain is a bounded batch of existing members #6-/#7-reverse; `cancel_event`'s episode close (§7.2.1) is a same-aggregate write under the Event/Session lock it already holds; `append_door_manifest_delta` (§7.7) takes no lock of its own and writes one aggregate class; the session gate is rank 1, the lowest, so every prefixed sequence stays ascending (§5.1 proof table) | ✔ preserved, **no sixteenth member** |
 | **Event envelope** | six new events, all carrying `sequence`/`causation_id`/`correlation_id`, all with dedup keys | ✔ preserved |
 | **Server-authoritative money/custody** | no client timestamp, no client actor, no client-writable path to `door_open_at` | ✔ preserved |
 | **C6** (offline door = reconcile window + transfer freeze) | this document is C6's missing writer | ✔ implemented |
-| **C23** (ordered offline reconciliation; freeze covers refund-voids) | routine refund-void frozen (§7.6); `manifest_id` on scan/device makes reconciliation joinable (§10.5) | ✔ implemented |
-| **C37** (live authoritative per-scan read online; offline honestly shrunk) | the manifest gates **offline only**; the online path is untouched; §5's corollary shrinks the offline window to the audited break-glass residual and says so | ✔ preserved, claim still honest |
+| **C23** (ordered offline reconciliation; freeze covers refund-voids) | routine refund-void frozen (§7.6); the three **exempt** voids now write a `revoke` delta so a synced device drops the atom (§7.7); `manifest_id` on scan/device makes reconciliation joinable (§10.5) | ✔ implemented |
+| **C37** (live authoritative per-scan read online; offline honestly shrunk) | the manifest gates **offline only**; the online path is untouched; §5.3's corollary shrinks the offline **custody** window to the audited break-glass residual, and §5.4 states the **revocation** residual the corollary does *not* cover — including the one unelevated path (C25 compensate). Four residuals are named in §14 #19–#22 rather than claimed closed | ✔ preserved, claim still honest — **and now honest in one more dimension than before** |
 | **C41** (no re-entry; `scanned` terminal; `direction` hedge) | close does not resurrect a terminal atom; the drain does not touch `state`; first-in-wins asserted under freeze (pgTAP 38) | ✔ preserved |
 | **C43** (p2p hard TTL; cancel-to-self exempt; per-open-manifest narrowing) | the drain uses **only** the ratified cancel-to-self exemption; the TTL sweep is unchanged; the narrowing is a Gate-M additive conjunct with a physical home ready (OQ-4) | ✔ preserved |
 
@@ -1412,6 +1726,44 @@ from them.
 
 ---
 
+## 19. Disposition of the Apple Wallet spec's requests (DL-1 … DL-6)
+
+`PHASE_2_APPLE_WALLET_SPEC.md` §14 raised six changes against this document. All six are answered; four are
+accepted as stated, one is accepted with a different and better fix, one is granted with a corrected rationale.
+**One further defect — mine — was found while checking their proof (§5.4).**
+
+| ID | Sev | Disposition | Where |
+|:-:|:-:|---|---|
+| **DL-1** post-open issuance invisible to offline scanners | HIGH | **ACCEPTED IN FULL.** Real, and correctly absent from my §14. Their safety argument — a newly minted atom has `credential_version = 0`, has never been transferred, and cannot be transferred while frozen, so it can strand nobody — is sound; I checked it and made it structural as a `CHECK` (pgTAP 65). Implemented as a **delta log** rather than an "append-only supplement", so the same mechanism also carries `revoke` and closes §5.4 | §7.7 · §10.3a · §14 #19 |
+| **DL-2** `cancel_event` must close open episodes | HIGH | **ACCEPTED IN FULL.** My §14 #11 covered only the online path; an offline scanner would keep admitting into a cancelled show. Their diagnosis is exactly right. Added force-close + `not_after := now()` + `revoke` deltas + `DoorManifestInvalidated`, with the never-reconnects residual stated rather than glossed | §7.2.1 · §14 #20 |
+| **DL-3** mandatory re-sync after break-glass | MED | **ACCEPTED, STRENGTHENED, AND ITS FRAMING CORRECTED.** Re-sync is necessary and **not sufficient** — an offline device cannot be made to re-sync, and setting `not_after := now()` server-side does not shorten the `not_after` the device already downloaded. Replaced with force-close + invalidate + push + a **live-device acknowledgement** the admin must pass before the override is permitted, and the residual bounded honestly | §8.2.1 · §14 #21 |
+| **DL-4** amend OQ-5 for a session-bounded wallet token | BLOCKING | **GRANTED — outcome accepted, rationale rejected, bound tightened.** Their §5.3 claim that the short TTL "bounds nothing that isn't already bounded" is too strong in two rows of their own threat table (screenshot resale; revoked-key window). Granted anyway, because a short-TTL Wallet barcode locks out fans in dead zones — the §13.1 class. Made *safe* rather than *asserted* by a cross-config invariant binding the token to the manifest TTL, plus a new requirement that key revocation force-close the episode. **Without that second item I would have rejected it.** Owner sign-off still required | §16 OQ-5 · §10.6 |
+| **DL-5** reject-reason vocabulary | LOW | **PROBLEM ACCEPTED; PROPOSED FIX DECLINED.** A new `not_admissible` reason treats the symptom. The cause was my §10.3 excluding terminal atoms from the snapshot, which overloaded "absent from M2" with two meanings. Fixed at the cause: **M2 is now complete** and every reject maps onto the five reasons VD §12.5 already publishes — zero new vocabulary. This also closed a hole neither spec had flagged: a `paid_pending_transfer` atom would have been admitted offline and refused online | §9.2 · §10.3 |
+| **DL-6** §9.4 "not built in Phase 2" is stale | LOW | **ACCEPTED IN FULL** | §9.4 · §16 OQ-5 |
+
+### 19.1 The confirmation the Wallet proof asked for — and the correction it exposed
+
+Their §4.3(a) rests on: *`door_open_at = MIN(opened_at)` is monotone and terminal, therefore no transfer can
+commit at or after the first open, therefore an older episode's manifest carries identical `credential_version`
+values.*
+
+- **The custody half is CONFIRMED, unconditionally.** `effective_freeze_at <= door_open_at` forever, close does
+  not clear it, re-open does not move it — so no custody move for any atom of the session can commit at any
+  instant ≥ the first open, and every episode's snapshot records the same owner and version for every atom
+  that remains admissible. Their stale-manifest denial for a **transfer** stands exactly as written.
+- **The `credential_version` half is NOT unconditionally true, and the error was mine.** My theorem originally
+  quantified over "every RPC that can bump `credential_version`", which my own §13.4 falsifies: the C25
+  compensate branch is exempt and `void_ticket_atom` bumps the version. The theorem is now stated over
+  **custody moves** (§5.3) and the three exempt voiding paths are enumerated (§5.4).
+- **Consequence for their document:** their §4.3 residual list names the override and platform force-void.
+  It must also name the **C25 compensate branch** — the only residual that fires with no human involved. Its
+  severity is lower than theirs (a refunded ticket admitted offline: revenue, not custody — no second person is
+  admitted and the wrong owner never is), and §7.7's `revoke` delta now bounds it for any device that syncs.
+  **Their scenarios 1, 2 and 4 are unaffected.** I have not edited their spec.
+
+---
+
 *End of `docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md`. Design-only; no SQL files, no migrations, no
-implementation code. Delta on the Phase-2 implementation specs; closes venue-dashboard Δ1 and §22.7, and gives
-`catalog.event_session.door_open_at` the writer it never had.*
+implementation code. Delta on the Phase-2 implementation specs; closes venue-dashboard Δ1 and §22.7, gives
+`catalog.event_session.door_open_at` the writer it never had, and answers `PHASE_2_APPLE_WALLET_SPEC.md`
+§14 (DL-1 … DL-6) in §19.*
