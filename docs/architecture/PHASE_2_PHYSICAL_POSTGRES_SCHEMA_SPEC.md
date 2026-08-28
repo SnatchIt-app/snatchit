@@ -4349,6 +4349,41 @@ reason it cannot wait.
 | **S-22** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §12 (sweeps) · `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Contract `kernel.sweep_expired_ticket_atoms(p_limit)` and give it an EXEC row** — `DEF`, `pg_cron` only, no human path, actor `SN-SYSTEM` (§1.16), re-entrant, appends **no** ownership-log row. And state, in the transfer/list preconditions, that **no path may trust `state <> 'expired'` because the tick was supposed to have run** (§4.3.1's rule, second instance) | `kernel.tickets.state='expired'` is in the enum, its transition is specified in §7.6, and **no function in any package writes it** — the fifth instance of this class. It is presentational rather than load-bearing (`is_transfer_frozen` already freezes every atom of a session at doors, strictly before the session ends), which is *why* it can be folded onto the existing heartbeat instead of getting its own control — but a value the schema defines and no code can reach is still a value an implementer will invent a writer for |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
+### 13.7a THE `R1` PASS — what it APPLIED from the table above, and what it now files (2026-08-28)
+
+**This pass owns `PHASE_2_RPC_FUNCTION_CONTRACTS.md`, this file and `PHASE_2_EDGE_FUNCTION_SPEC.md`** (plus
+append-only additions to the ratification record), and edited nothing else. **§13.7's table is a different
+pass's request list and its preamble is left as written.**
+
+**The finding this pass acted on, stated once: the repair landed in the document that hosted the defect, and
+not in the artifact an implementer builds from.** `S-15`…`S-22` and RPC `R-24`/`R-27` were **filed** and never
+**applied** — so each was, at `f97f6cd`, a column that could not be written or a contract that instructed the
+pre-fix behaviour. **A filing is not a column.**
+
+**DISCHARGE LEDGER.**
+
+| Filing | State at `f97f6cd` | Discharged by |
+|---|---|---|
+| **`R-27`** | `kernel.approval_request.amount_minor` in no column list and no package | **APPLIED** — §1.13 columns + CHECKs (7)/(8) + §1.13.5; `C99` |
+| **`S-15`** | `hold_payout`/`release_payout` wrote a `status` value that never existed; `probation_hold` had no writer and its row was un-INSERTable | **APPLIED** — RPC §11.2/§11.3/§17.7 control 2/§10.3 probation arm; §1.9's write-authority row corrected here; `C105` |
+| **`S-16`** | `kernel.mark_payout_transfer_state` + `venue.on_payout_settled` in schema/plan/registry and in **zero** contracts; edge §4 a placeholder | **APPLIED** — RPC §20.7.6, §20.11.5; edge §4 event mapping + §3.4 executor; `C104`. **EXEC rows remain: RPC §20.14 `R-31`** |
+| **`S-17`** | `record_money_denial` specified two mutually exclusive ways in six places | **APPLIED (this pass's two halves)** — RPC §17.9, edge §0.2 EA-2/EA-3(B-ii)/§3.4/§3.5; `C106`. **RLS §3.1 + §11 and MONEY §8.4 remain: `R-28`** |
+| **`S-18`** | `void_ticket_atom` omitted `current_owner_id`; with §1.6.2's trigger **every void aborts at COMMIT** | **APPLIED** — RPC §7.3; `C107` |
+| **`S-22`** | `sweep_expired_ticket_atoms` in schema/plan/registry and in zero contracts and zero EXEC rows | **APPLIED (contract half)** — RPC §12.5; `C109`. **EXEC row remains: `R-30`** |
+| **`S-14`** · **`S-21`** · **`S-19`** · **`S-20`** · **`R-24`** · **`R-25`** · **`R-26`** | filed against MONEY, the dashboard, CRM/demographics/door, RLS | **NOT this pass's files.** Restated as RPC §20.14 `R-32`/`R-33` where still open; the rest stand |
+
+**NEW FILINGS from this pass** — the migration plan and the package registry are owned elsewhere and **no
+package, number or dependency edge is changed by any of them**; each object is placed by SEAM-1 inside an
+already-declared edge.
+
+| # | File | Change | Why it cannot wait |
+|---|---|---|---|
+| **`S-23`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `077` | **Add `kernel.approval_request.amount_minor` and CHECKs (7)/(8)** (§1.13.5) to the Objects/Constraints text, and `T-SCHEMA-APPR-08`/`-09` to Tests | §8 is where a migration author reads what the package contains. **The column is the parked term of the refund tier operand**; while it is absent the tier degrades to settled refunds only and a parked request stops counting against the ceiling |
+| **`S-24`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `085` | **Add `kernel.mark_refund_state`, the partial unique on `kernel.refund.stripe_refund_ref`, and `CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** (§1.10.1); Tests gain `T-SCHEMA-REFUND-01`…`-04`. **SEAM-1 `max(077, 085) = 085`; `077 → 085` already declared** | Three of four `status` labels and the Stripe join key had no writer. **A refund could not be reconciled to Stripe at all** — the same defect fixed one table over on `kernel.payout` and left here |
+| **`S-25`** | `PHASE_2_PACKAGE_REGISTRY.md` `085` (prose + JSON) | Name **`kernel.mark_refund_state`** in `085`'s object set, alongside the `MB-2b` entries it already carries | **A function in no registry entry is a function the four-surface parity check cannot see.** The registry's parity is owned elsewhere, which is why this is filed rather than edited |
+| **`S-26`** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `087` | **Add the `venue.settlement` waterfall CHECK** (§3.13.1) and `T-SCHEMA-SETTLE-03`/`-04`; and carry `venue.assert_may_request`'s **five**-parameter signature (RPC §20.7.8) | The four header money columns had **zero writers** — two occurrences corpus-wide, both DDL — while `close_settlement` *returns* `net_minor` and the dashboard reads the header. A settlement could reach `paid` with a NULL net |
+| **`S-27`** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14 | The settlement panel's four figures are **straight header reads and are NULL until close** — render *"not yet closed"*, never zeroes. (§14.5's three payout pills are `S-21`, still open) | **Zero and unknown are the same pixel and only one of them is a bug**, and until this pass the four columns had no writer at all |
+
 ---
 
 *End of docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md. Design-only. Companion deliverables (migration plan, RLS

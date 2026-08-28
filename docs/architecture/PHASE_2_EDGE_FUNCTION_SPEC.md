@@ -1865,6 +1865,42 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
 
 ---
 
+## 10. Correction index — the `R1` unapplied-filings pass (2026-08-28)
+
+**Authority:** ratification rows **`C104`**, **`C106`**, **`C101`/`C102`** and **`D22`**, filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. Companion indexes:
+RPC §22, schema §13.7a.
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§0.2 `EA-2`** | `kernel.record_money_denial` listed as legitimate service-role work *"that takes no authority from the caller"* | **removed from the list.** Its entire purpose is to name the human who was just refused; on a service-role connection `auth.uid()` is NULL, `admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and **the call fails on its first attempt, in production, on the fraud path.** It is the one item on that list that was never external I/O | `C106` (`S-17`) |
+| **§0.2 `EA-3`** | `(B-ii)` read as covering it | **excluded explicitly**, and the genuine money members of `(B-ii)` are named — `mark_payout_transfer_state`, `mark_refund_state`, `sweep_expired_ticket_atoms` and the four other sweeps, which really do have no human actor | `C106` (`S-17`) |
+| **§3.4** | *"writes back the `stripe_transfer_ref` via the RPC's callback param"*; `failed` implicitly the webhook's | names **`kernel.mark_payout_transfer_state`** (RPC §20.7.6); **this function is the writer of `failed`**, because a transfer that cannot be created fails as a **synchronous API error** and Stripe emits no `transfer.failed`. Adds the EA-1 denial-log bullet and the never-clear-a-hold rule | `C104`, `C106` |
+| **§3.5** | *"records `stripe_refund_id` via a callback param"* — **naming no function, and there was none** | names **`kernel.mark_refund_state`** (RPC §20.7.7) and states the `create`-error rule: **no `re_…` ⇒ the row stays `pending`**; `failed` means Stripe accepted and could not settle. Adds the EA-1 denial-log bullet | `C101`, `C102`, `C106` |
+| **§4** | **one row** for `transfer.created` / `.reversed` / `payout.paid` / `payout.failed` → *"`mark`-style state sync RPCs"* | **three rows and a named function.** Only `transfer.created` supplies the `tr_…` **join key**; `payout.paid`/`payout.failed` are the **connected account's own bank payout**, which **aggregates many transfers** and is **not attributable to one `kernel.payout` row** — logging only, with `T-RPC-MONEY-29` asserting structurally that no branch derives a payout id from a `po_…`. **`failed` moves to the executor.** `charge.refunded`/`refund.updated`/`refund.failed` gain their own rows and the named refund writer | `C104`, `C101` |
+
+**OWNER DECISION `O16` IS RECORDED AND NOT TAKEN.** What `kernel.payout.status='paid'` asserts — (a) *the
+transfer succeeded and was not reversed*, written synchronously by the executor, or (b) *the funds reached the
+payee's bank*, requiring a `balance_transaction` fan-out from `payout.paid` — **differs in what the venue is
+being told, and one of them is a promise about a bank we do not observe.** Both are served by the same RPC;
+only the caller and the trigger change, so answering it costs no contract change. **Until it is answered the
+executor writes form (a)**, which has no unbuilt dependency, and §3.4 and §4 are the two places the choice is
+visible.
+
+**What this pass did NOT change in this file.** No `verify_jwt` value, no auth **class** (the two new calls are
+`EA-3` (B-ii) service-role calls **inside** functions that stay Class A for every human-authorized RPC), no
+route, no deployment unit, no secret name, no rate limit, no `config.toml` implication, and **no
+`OFFLINE-VERIFY-v1` fenced block** — §5.4.3's copy was not edited, and the four copies were extracted and
+hashed after every commit: **4 blocks, 1 distinct body, 2017 bytes, 34 lines,
+`sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.** §7's `verify_jwt: false`
+enumeration stays at **four** and no function moved into or out of it.
+
+**`REPORTED, NOT MADE HERE`:** RPC §20.14 `R-28` (RLS §3.1/§11 and MONEY §8.4 still say
+`record_money_denial` is `service_role`-only — the half of `S-17` this file cannot write) and `R-31` (the three
+state-sync RPCs still have no RLS EXEC row).
+
+---
+
 *End of docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md. Design-only; no TypeScript/Deno, no function bodies. Picks up every
 EDGE-FRONTED item flagged in RPC §13; companion to schema (#1), migration (#2), RLS (#3), RPC (#4), RN (#6),
 per SPEC_FOUNDATION §10.*
