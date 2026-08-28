@@ -933,7 +933,7 @@ exposes are filed as requests in §9.4.
 
 ### 9.4 The two `T-SCHEMA-*` / `T-RPC-*` register defects this enumeration exposed — filed, not fixed here
 
-Both land in documents this pass does not own. Recorded as ratification row **`C100`**.
+Both land in documents this pass does not own. Recorded as ratification row **`C130`**.
 
 1. **`T-RPC-APPR-06` is cited once and defined nowhere — it is the corpus's only cited-but-undefined test
    id.** `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13.3 cites it for *"an approval whose subject no
@@ -976,7 +976,7 @@ Also discharges **X-9**. **No policy in §16.10 is unclaimed.**
 > registers — §9 (test ids) and §10 (policy names) — and NOT the §4–§7 capability rows**, which are prose
 > about a capability and legitimately abbreviate; scoping the rule to the registers is what makes it
 > keepable, and an unkeepable rule is how the RPC spec's `G-23` came to assert closure it did not have
-> (§9.4, ratification row `C104`).
+> (§1 `G-26`, ratification row `D35`).
 
 | Policy family | Capability |
 |---|---|

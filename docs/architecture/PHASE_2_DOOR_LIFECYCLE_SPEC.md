@@ -2326,13 +2326,13 @@ none widens it.**
 
 The register-integrity pass rewrote §15 assertions **77** and **78** (`T-DOOR-PROJ-01`/`-02`). Three
 consequences land in documents this file does not own. **Nothing below is edited by this pass**; each is
-carried in ratification row **`C103`**.
+carried in ratification row **`C134`**.
 
 | # | To | What | Why it cannot be done here |
 |---|---|---|---|
 | **`DR-1`** | **RPC owner** — `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §18 (door set-closure row) and §20.6.1 | **`T-RPC-DOOR-33`/`-34` is the twin of assertions 77/78 and still carries the superseded wording.** §18 reads *"with `-34` deriving the compared read set **from the fenced block** so `-33` cannot pass against a stale hard-coded list"*, and §20.6.1 states the same. That is the half of the old pair that **contradicted** the other half: 77 compared against a hard-coded set, 78 said the set was derived, and **78's concrete rule — *"fail if that parse yields fewer than five distinct fields"* — is unsatisfiable against a correct fence, which yields four `M2[atom].<field>` references.** Bring `-33`/`-34` into line with the rewritten 77/78: one literal enumeration (**`MP1-READ-SET`**, §7.5a), 77/`-33` consuming it, 78/`-34` asserting **set equality** between it and the block across **four** extraction patterns, with the four-part non-vacuity guard. **Do not edit any `OFFLINE-VERIFY-v1` block to satisfy it** — the block is correct; the assertion was wrong | the RPC contracts are another owner's file, and a one-sided edit would leave the two twins disagreeing in a new way rather than the old one |
 | **`DR-2`** | **RPC owner** · **schema owner** · **RLS owner (this pass)** | **State each register's own cross-scheme aliases.** The `MP-1` pair carries **three** names — ordinal `77`/`78`, `T-DOOR-PROJ-01`/`-02`, `T-RPC-DOOR-33`/`-34` — and nothing declared the aliasing, so a second name is indistinguishable from a second assertion. §15's preamble now declares it **from this side only**. The sibling ids (`T-RPC-DOOR-*`, `T-SCHEMA-DOOR-30`…`-35`, `T-RLS-DOOR-11`…`-13`) should each declare theirs, with `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §9 holding the join | an alias inventory written from one side is a fourth copy of a mapping and goes stale exactly as `C84` describes |
-| **`DR-3`** | **RPC owner** — §18 `G-23` | **`G-23`'s closure claim is false and is reported in full in ratification row `C104`.** It reads *"every suffix above is written as a full id, so a harness grepping for `T-RPC-` finds all of them"*, while the row immediately above it writes `T-RPC-ROLE-02/-03/-04/-05` as bare suffixes — and those four are cited **by name 17 times across five documents** | §18 is the RPC owner's register |
+| **`DR-3`** | **RPC owner** — §18 `G-23` | **`G-23`'s closure claim is false and is reported in full in ratification row `D35`.** It reads *"every suffix above is written as a full id, so a harness grepping for `T-RPC-` finds all of them"*, while the row immediately above it writes `T-RPC-ROLE-02/-03/-04/-05` as bare suffixes — and those four are cited **by name 17 times across five documents** | §18 is the RPC owner's register |
 
 ---
 
