@@ -1175,10 +1175,13 @@ write one `kernel.admin_audit` row per invocation naming the actor and the count
   no date range, no scan status, no limit/offset, no ordering, no free-form filter. **Adding a third
   parameter to this function is a design change requiring re-review of §5.3, not a routine enhancement.**
 - **Actor:** `auth.uid()`. **Authority:** resolves the session → event → venue → org, then requires
-  `kernel.has_venue_role(venue_id, ['venue_manager','marketing','promoter_manager'])` **or**
+  `kernel.has_venue_role(venue_id, ['venue_manager','venue_marketing','venue_promoter_manager'])` **or**
   `kernel.has_org_role(org_id, ['org_owner','org_admin'])` **or** `kernel.is_platform(['platform_admin'])`.
-  Everyone else: `insufficient_privilege(42501)`. Per §6, `org_finance`, `venue_finance`, `box_office`,
-  `venue_door`/`door_pin`, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon` are denied.
+  Everyone else: `insufficient_privilege(42501)`. Per §6, `org_finance`, `venue_finance`,
+  `venue_box_office`, `venue_scanner`, any `door_pin` / door-session principal, `promoter`,
+  `platform_support`, `platform_risk`, `fan`, `anon` are denied. **(`R4-4`: `venue_door` is not a label —
+  `O-2` renamed it `venue_scanner`; the bare `marketing` / `promoter_manager` / `box_office` forms are
+  pre-`RM-1` and carry no plane token.)**
 - **Returns:** exactly one of two shapes, and the suppressed shape has **no other fields to fill** (R6):
   - `{ suppressed: true }` — nothing else. No `reason`, no `holders_total`, no `holders_responded`, no
     `as_of`, no bucket rows. `INFERENCE:` this is the single most important line in the contract. The
@@ -1225,7 +1228,7 @@ C27 counter-vs-ledger reconciliation discipline.
 | **Demographic value escaping through logs / observability** | No edge function, no external call, no log statement, no notification payload, no Sentry breadcrumb touches the value (§5.4). The value never crosses a process boundary out of Postgres. |
 | **Re-identification by an operator who also knows the guest list** | Bounded, not eliminated — and the bound is weaker than "anonymity" suggests. Five roles hold **both** the CRM spec's by-name roster read and this card (`org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`), so the smallest inferable group is 5 people **the reader can name**, not 5 unknowns. Floor 5 and the absence of a second axis are what bound it; the roster is what makes the bound a group bound rather than an anonymity bound. Stated here, in the CRM spec, and as **D-14**. |
 | **Stopping the leak once it is found** | §5.5: a live read-path kill switch plus two un-publish RPCs. Stopping the cron is **not** a kill switch — it stops new snapshots while venues keep reading the last published card. |
-| **A compromised finance/door/promoter/support account** | Those roles hold nothing (§6). The blast radius of the most commonly-compromised accounts is zero. |
+| **A compromised finance / scanner / promoter / support account** | Those roles hold nothing (§6). The blast radius of the most commonly-compromised accounts is zero. |
 
 ---
 
@@ -1326,9 +1329,10 @@ ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_sa
 21. `holders_responded <= holders_total` on every snapshot.
 
 **Visibility**
-22. `get_holder_mix` **denies**: `anon`, `fan`, `owner`, `org_finance`, `venue_finance`, `box_office`,
-    `venue_door`, a valid `door_pin` principal, `promoter`, `platform_support`, `platform_risk`.
-23. `get_holder_mix` **allows**: `venue_manager`, `marketing`, `promoter_manager` (venue scope);
+22. `get_holder_mix` **denies**: `anon`, `fan`, `owner`, `org_finance`, `venue_finance`,
+    `venue_box_office`, `venue_scanner`, a valid `door_pin` / door-session principal, `promoter`,
+    `platform_support`, `platform_risk`.
+23. `get_holder_mix` **allows**: `venue_manager`, `venue_marketing`, `venue_promoter_manager` (venue scope);
     `org_owner`, `org_admin` (org scope); `platform_admin`. And a `venue_manager` of venue X is **denied**
     on a session belonging to venue Y.
 24. Every call to `get_holder_mix` writes exactly one audit row naming actor, session, dimension, time.
