@@ -1227,6 +1227,15 @@ package, **or** the routine must carry an inline `SEAM-1 max(…) = NNN` derivat
 what makes the property auditable against the document rather than only against a database that does not
 exist yet.
 
+**A third check, one line long, that `C118` shows is not optional:** **for every hook, the edge
+`stub_package → replacement_package` must be a DECLARED edge.** It is not implied by the numbering, and the
+failure it prevents is silent rather than loud — `CREATE OR REPLACE` succeeds whether or not the routine
+exists, so a replacement that ran before its stub would be **overwritten by the stub's neutral body**, with a
+green replay and every value-based test of the stub still passing. **Verified for all eight hooks after this
+pass:** `083 → 086`, `085 → 087`, `085 → 088` (×1), `085 → 090`, `086 → 088` (×2), `087 → 088`,
+`087 → 090` — eight pairs, every one of them present in all four declared surfaces, two of them
+(`086 → 088`, `087 → 088`) added by this pass.
+
 **Reported to the schema-spec owner** (`R2B-3`): §13.2's sweep is that document's, and its method needs the
 same widening — re-derive `max()` from the contracts rather than compare objects to placements, include
 **calls** and **preconditions**, include **columns**, include **read**-only paths, and check both ends of a

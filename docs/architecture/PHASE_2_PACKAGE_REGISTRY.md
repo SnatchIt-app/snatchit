@@ -506,6 +506,14 @@ and artifact set are widened in schema §13.2. Three rules now prevent recurrenc
 > (`I-1`) for the packages it is deferred across** — which is safe, and is why deferral is preferred to any
 > reordering of the ratified band.
 
+**Third acceptance property, added by `R2B` (`C118`).** *For every SEAM-2 hook, the edge
+`stub_package → replacement_package` must be a **declared** edge.* It is not implied by the numbering,
+and the failure it prevents is silent: `CREATE OR REPLACE` succeeds whether or not the routine exists, so
+a replacement running before its stub is **overwritten by the stub's neutral body**, green replay and all.
+**Verified for all eight hooks:** `083 → 086`, `085 → 087`, `085 → 088`, `085 → 090`, `086 → 088` (×2),
+`087 → 088`, `087 → 090` — eight pairs, every one present in all four surfaces; `086 → 088` and
+`087 → 088` were added by this pass.
+
 **Acceptance property (WIDENED by `R2B` — the old form is what `V1`…`V7` walked through):** *no routine
 reads, writes, or **reaches through a call** any relation or column created in a later package.* Mechanically
 checkable from `pg_depend`/`pg_proc` after each package's replay — **and the walk must be TRANSITIVE over
