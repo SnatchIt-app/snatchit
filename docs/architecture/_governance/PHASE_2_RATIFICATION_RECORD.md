@@ -1,4 +1,4 @@
-# Phase 2 — Ratification Record (C26–C98 · O6–O16 · O-1…O-5 · D1–D21 · RET-1…RET-6)
+# Phase 2 — Ratification Record (C26–C134 (gaps: C119) · D1–D35 (gaps: D24, D25, D26, D27, D28, D29) · O6–O18 (gaps: O7, O8, O9, O10, O11) · O-1–O-5 · RET-1–RET-6 · OR-1–OR-1 · 160 rows)
 
 **Ratified 2026-08-24 by the pre-implementation consolidation session; extended 2026-08-27 by the owner-ruling integration pass (O-1 … O-5, D4–D8, C51, C52); extended again 2026-08-27 by the four-pass remediation reconciliation (C53–C72, D9–D12, RET-1…RET-5, O9, O10); extended again 2026-08-28 by the money-authority reconciliation (D13, D14, C75/O11); extended again 2026-08-28 by the **unwritable-control pass** (C91–C98, D21, O15, O16 — six controls whose physical substrate or writer did not exist).**
 **Authority:** `docs/architecture/_superseded/PHASE_2_FINAL_ARCHITECTURE_AUDIT.md` (§4 correction table) · `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md` (R1–R36) · `docs/architecture/_governance/IMPLEMENTATION_READINESS_SCORE.md` (gate composition) · `docs/architecture/_governance/CTO_DECISION_MEMO.md` (Gate P/M/L assignments).
