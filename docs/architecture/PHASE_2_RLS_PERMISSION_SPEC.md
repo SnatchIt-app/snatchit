@@ -3359,7 +3359,7 @@ Named so they can be written, run and cited. Grouped by the property each defend
 
 | ID | Assertion | Defends |
 |---|---|---|
-| `T-RLS-FORCE-01..03` | `pg_class.relforcerowsecurity = false` for `kernel.org_member`, `venue.staff_role`, `kernel.platform_role` — a **positive equality on the catalog**, not the absence of a `FORCE` statement in migration text | **I-12** |
+| `T-RLS-FORCE-01` · `T-RLS-FORCE-02` · `T-RLS-FORCE-03` | `pg_class.relforcerowsecurity = false` for `kernel.org_member` (`-01`), `venue.staff_role` (`-02`), `kernel.platform_role` (`-03`) — a **positive equality on the catalog**, not the absence of a `FORCE` statement in migration text | **I-12** |
 | `T-RLS-FORCE-04` | No **other** Phase-2 relation has a policy whose predicate calls a helper that reads that same relation (no second table depends on owner-bypass to terminate) | I-12 (allow-list, not scan) |
 | `T-RLS-DOOR-01` | `pg_get_functiondef('kernel.mark_ticket_scanned')` **does not match** `is_transfer_frozen` | **§14.3.5 — the CRITICAL regression** |
 | `T-RLS-DOOR-02` | With an episode open and `is_transfer_frozen = true`, `record_scan` on an `active`, `resale_state='none'` atom ⇒ `result='admitted'`, atom `scanned` | §14.3.5 |
