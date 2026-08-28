@@ -749,8 +749,8 @@ D-10 (§13):** this runbook needs an owner.
 
 ### 8.1 Edit
 
-Any time, unlimited, from Settings. No cooldown, no approval, no audit of the *value*. An edit overwrites in
-place and bumps `updated_at`.
+Any time, unlimited, from Settings. No cooldown, no approval, **no audit row at all** — not of the value and
+not of the fact (§8.3: the fact *is* the transition). An edit overwrites in place and bumps `updated_at`.
 
 ### 8.2 Delete
 
@@ -771,13 +771,44 @@ whoever next edits 020.**
 ### 8.3 No history, ever
 
 There is **no `demographic_history` table, no change-log, no trigger writing prior values, no soft-delete
-tombstone carrying a value, and no audit row containing a value.** `INFERENCE:` a timestamped history of a
-person's gender answers is the single worst artefact this feature could produce — it would record a
-transition, which is far more sensitive than any current state, and it would survive the person's attempt to
-remove it.
+tombstone carrying a value, and no audit row of any kind on the fan-side write path.** `INFERENCE:` a
+timestamped history of a person's gender answers is the single worst artefact this feature could produce — it
+would record a transition, which is far more sensitive than any current state, and it would survive the
+person's attempt to remove it.
 
-The audit trail records **that** a change occurred — `(identity_id, action ∈ {set, changed, cleared},
-occurred_at)` — and **never what the value was or became.** Enforced by pgTAP assertion 19 (§12).
+**The fan-side audit row is deleted. It was the artefact this section forbids.** The previous text specified
+`(identity_id, action ∈ {set, changed, cleared}, occurred_at)` and defended it as "never the value" —
+in the same paragraph that names the harm as the **transition**. "Never the value" does not cover that harm:
+a row saying *this identity changed their gender answer at 03:14 on 12 March, and cleared it on 4 April* **is
+a transition record**, and it is the more sensitive object of the two. §3.2 had already rejected the same
+object by name when it rejected a per-person consent-event ledger — *"it would accumulate a timestamped
+history of a person's engagement with a gender question, which is a worse artefact than the answer itself"* —
+so the design contained the rejection and the artefact at once.
+
+Two further reasons it could not stand, both structural:
+
+1. **No audit table is named anywhere in §10.2.** The only audit object in the corpus that fits is
+   `kernel.admin_audit` — permanent, immutable, guard-triggered, platform-readable. Writing a fan's
+   demographic edits there puts a transition record in the one table the platform can never purge, which
+   **nullifies the §8.5 tombstone's `purge_after` window** — the sole mitigation the design offered for the
+   much weaker fact that a removal happened.
+2. **A fan editing an optional field on their own profile is not a privileged action.** `kernel.admin_audit`
+   exists for actions taken *over* someone by staff or the platform. There is no admin write path here at all
+   (§7.2), so there is no privileged actor whose behaviour an audit row would constrain — only the data
+   subject, auditing themselves, in a table they cannot read.
+
+**Therefore:** `kernel.set_my_demographics` and `kernel.clear_my_demographics` write **no audit row**. Not a
+value-free one, not a counted one, not a debug one. The only surviving fan-side trace is `updated_at` on the
+current row (overwritten in place, carrying no prior state) and the value-free erasure tombstone of §8.5,
+which exists solely to make a post-restore purge possible and is itself purged.
+
+**What is kept.** The **read** audit on the aggregate stays and is unchanged: every `venue.get_holder_mix`
+call writes `(actor, event_session_id, dimension, occurred_at)` (§10.4, §11). `INFERENCE:` that row records a
+*staff* action over data about *other people* — the case an audit trail is for — and it contains no identity
+of any contributor. The `§5.5` un-publish RPCs are likewise audited. The asymmetry is the point: audit the
+principals with power, not the data subject exercising a control this spec spent §12 proving is optional.
+
+Enforced by pgTAP assertion 26 (§13).
 
 ### 8.4 What happens to aggregates already computed
 
@@ -1043,7 +1074,8 @@ server-derived (C35), role tests only via the C36 predicate helpers, no client a
   body, `p_notice_version` against the known notice-version list. **No identity parameter exists.**
 - **Actor:** `auth.uid()`; raises on NULL.
 - **Writes:** upsert one row keyed by `auth.uid()`. Sets `first_answered_at` on insert only; always bumps
-  `updated_at`. Writes an audit row recording `(identity_id, action, occurred_at)` — **never the value**.
+  `updated_at`. **Writes no audit row of any kind** (§8.3 — an `(identity, action, occurred_at)` row is a
+  transition record, which is the artefact this feature exists to not create).
 - **Idempotent:** re-calling with the same value is a no-op update.
 - **Returns:** `{ status: 'ok' }`. **EXEC:** `authenticated`. **SSCAS:** n/a.
 - **Forbidden:** there is **no** `kernel.admin_set_demographics` and no staff write path of any kind (§7.2).
@@ -1054,7 +1086,9 @@ server-derived (C35), role tests only via the C36 predicate helpers, no client a
 - **Purpose:** withdrawal.
 - **Params:** none. **Actor:** `auth.uid()`.
 - **Writes:** `DELETE` the caller's row (the §10.2 GP-2 exception, inside the definer); upsert one
-  `kernel.identity_demographic_erasure` row with `purge_after`; write the value-free audit row.
+  `kernel.identity_demographic_erasure` row with `purge_after`. **No audit row** (§8.3). The tombstone is the
+  only trace, it is value-free, it is definer-only, and it self-purges — which is precisely the property an
+  `kernel.admin_audit` row would have destroyed.
 - **Idempotent:** calling with no row present is `{ status: 'noop_replay' }`, not an error.
 - **EXEC:** `authenticated`. **SSCAS:** n/a.
 
@@ -1259,8 +1293,13 @@ ignoring are the same observation). pgTAP assertion 12 asserts `prefer_not_to_sa
 25. **No history:** zero triggers on `kernel.identity_demographic` other than the `updated_at` maintainer;
     no table anywhere has a column whose type/CHECK matches the gender value set except
     `kernel.identity_demographic` and `venue.holder_mix_bucket`.
-26. **Audit carries no value:** audit rows written by `set_/clear_my_demographics` contain no column
-    holding a gender value (assert by column set and by content scan).
+26. **No fan-side audit row exists at all** (§8.3 — stronger than the previous "carries no value"): running
+    `set_my_demographics`, changing the value, and running `clear_my_demographics` produces **zero** new rows
+    in `kernel.admin_audit` and zero rows in any other audit-shaped relation. Asserted as a before/after row
+    count over `kernel.admin_audit` plus a catalog scan for any relation holding
+    `(identity_id, action|event, occurred_at)` written by either function. *(The previous assertion permitted
+    the very object §8.3 names as the worst artefact — a transition record — by testing only that it carried
+    no value.)*
 27. **Reader enumeration (the X-6 / §12(a) check):** the set of functions, views, and matviews in the
     catalog whose definition references `kernel.identity_demographic` is exactly
     `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix}`. Any addition
@@ -1358,6 +1397,7 @@ every one of those references.*
 | **J-8** | **This document, §4.1 · §4.3 · §5.1–§5.5 · §8.4 · §10.2 · §10.4 · §11 · §12(e) · §13** | **H-6 remediation.** The privacy floors were proved against a population the operator controls. Added: R6 (denominator suppression — the suppressed projection is now the constant `{suppressed: true}`), R7 (population eligibility — comped and zero-price custody excluded), R8 (churn redefined over the contributor multiset `(identity, bucket)`, with a distinct-identity limb), R9 (cross-session near-duplicate gate), a fully determined R3 merge with a two-bucket minimum in R5, a fail-closed read-side re-derivation of R1/R2/R4/R5/R6, the §5.4 declared read set the churn rule actually needs, and the §5.5 kill switch. **Two claims deleted** — see J-9. |
 | **J-9** | **Deleted claims (recorded verbatim so they cannot be cited from an older copy)** | (1) *"You cannot difference aggregates that do not exist."* — deleted as the general answer to differencing; it is true about axes and false about populations (§5.3 B). (2) *"each fake data point costs a real ticket purchase"* — deleted; comps cost nothing and the `venue_manager` mints both the session and the comps (§11). (3) *"Removing any one of layers 1–3 still leaves a correct floor"* — deleted; layers 1 and 3 were the same function and only R2 was a database constraint (§5.2). (4) The R6-era bound *"an anonymity set of at least 5, matching the per-bucket floor"* — deleted; 5 contributor-pair changes is at minimum 3 people, and the ≥ 5 bound is restored only by the added distinct-identity limb (§5.3 vector 4). |
 | **J-10** | Venue dashboard §9.5 card copy | **Correction (§4.3).** "Based on N of M" is a published-state string only — the suppressed state renders no numbers, no reason and no `as_of`. `M` is the R7-eligible paying population, not the room, and the subtitle says so. |
+| **J-11** | **This document, §8.1 · §8.3 · §10.4 · §13 assertion 26** | **H-7 remediation.** The fan-side audit row `(identity_id, action ∈ {set, changed, cleared}, occurred_at)` is **deleted**. §8.3 specified it in the same section that names a timestamped history of a person's gender answers as *"the single worst artefact this feature could produce — it would record a **transition**"*, and §3.2 had already rejected the same object by name. "Never the value" does not cover the harm §8.3 itself names. No audit table was named in §10.2, so the only fitting object was `kernel.admin_audit` — permanent and platform-readable — which would have nullified the §8.5 tombstone's purge window, the sole mitigation offered. `set_my_demographics` and `clear_my_demographics` now write **no audit row of any kind**. The aggregate **read** audit on `venue.get_holder_mix` is unchanged and remains binding. |
 
 ---
 
