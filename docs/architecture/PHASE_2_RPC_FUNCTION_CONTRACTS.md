@@ -201,7 +201,48 @@ A contract is tagged one of:
   credential inside Postgres (those are edge/Stripe/KMS). The **kernel never writes `market` tables**; the
   `market` layer writes `market.*` then calls the kernel engine in the same txn (C8 — no dependency
   inversion). `market`/`venue` never write `kernel.ticket_ownership_log`/`kernel.tickets` directly — only via
-  the three kernel engines.
+  a **sanctioned kernel custody writer**, enumerated in §0.7a.
+
+#### 0.7a The sanctioned custody-writer set — enumerated, because *"the three kernel engines"* named a set smaller than the corpus contracts (`MB-6a`)
+
+> **The prohibition is unchanged and is not narrowed here: no `market` or `venue` function writes
+> `kernel.tickets` or `kernel.ticket_ownership_log` itself, ever.** What is corrected is the *permitted
+> delegation set*. The clause read *"only via the three kernel engines"* — `issue_ticket_atoms`,
+> `transfer_ticket_ownership`, `void_ticket_atom` (§7.1–§7.3) — while **six** kernel functions are
+> contracted as writers of `kernel.tickets`, and three of the six are the ones the door and market paths
+> actually delegate to. Under the literal rule **§9.4, §8.1, §8.3, §17.10, §20.8.1 and §20.8.2 are all
+> non-conformant**, every one of them correctly. A rule that five conforming contracts violate is not a rule
+> an implementer or an assertion can apply, and the one contract that *did* write the atom directly (§9.5)
+> was therefore indistinguishable from the five that did not. **That is the mechanism, not the typo.**
+
+| Sanctioned writer | Contract | What it writes | Delegating callers |
+|---|---|---|---|
+| `kernel.issue_ticket_atoms` | §7.1 | mint: `kernel.tickets` INSERT + ownership-log `sequence=1` | `venue.finalize_primary_order` (§6.3), `venue.issue_comp` (§20.5.2) |
+| `kernel.transfer_ticket_ownership` | §7.2 | custody move: ownership-log append + head + credential bump | `market.accept_p2p_transfer` (§8.2), `market.respond_offer` accept branch (§20.8.6) |
+| `kernel.void_ticket_atom` | §7.3 | void leg: ownership-log `refund_void` + `kernel.tickets → voided` | `kernel.refund_primary_order` (§11.4), `catalog.cancel_event` (§4.4) |
+| `kernel.lock_ticket` / `kernel.unlock_ticket` | §7.4 | `kernel.tickets.resale_state` overlay only; **no** ownership-log row | `market.create_p2p_transfer` (§8.1), `market.cancel_p2p_transfer` (§8.3), `market.create_listing` (§20.8.1), `market.cancel_listing` (§20.8.2), `venue.open_door_manifest` drain (§17.10) |
+| `kernel.mark_ticket_scanned` | §7.5 | `kernel.tickets → scanned`; **no** ownership-log row (a scan is not a custody move) | `venue.record_scan` (§9.4), **`venue.reconcile_offline_scans` (§9.5)** |
+
+**Two standing rules over that table, both structural rather than editorial:**
+
+1. **Every `market`/`venue` contract that names `kernel.tickets` or `kernel.ticket_ownership_log` in its
+   **Writes** line MUST name the sanctioned writer it delegates to, in that same line.** Naming it only in
+   the **Locks** line is not sufficient: the Writes line is what a reader takes the write set from, and
+   §20.8.2 carried the delegation in Locks and a bare `kernel.tickets.resale_state (→ none)` in Writes
+   (`MB-6a`). A Writes line that names the table and not the writer reads as a direct write and is
+   reviewed as one.
+2. **Adding a member to this table is an amendment, not an implementation detail.** Each of the five carries
+   a property that lives *only* in it — `mark_ticket_scanned`'s must-not-recheck-the-freeze property
+   (§7.5; pinned structurally over `pg_proc.prosrc` by the migration plan) is the sharpest, because a caller
+   that writes `state := 'scanned'` itself is **outside the assertion that pins it** and the assertion still
+   passes. A sixth writer added without a row here would be invisible to exactly the same assertion.
+
+**Nothing in the money plane is exempted by this table and nothing is added to it.** `kernel.request_order_refund`,
+`kernel.approve_refund_request`, `kernel.cancel_refund_request` and `kernel.sweep_expired_refund_requests`
+(§17.1–§17.4) write `kernel.tickets.resale_state` themselves; they are `kernel.*` functions, so §0.7's
+`market`/`venue` prohibition does not reach them and this pass does not re-route them. **It is flagged
+rather than changed** — see §20.14 `R-24`, because the overlay primitives §7.4 exist precisely so that
+`resale_state` has one writer pair, and four money RPCs bypassing them is the same shape one level in.
 
 ---
 
@@ -1315,8 +1356,41 @@ A contract is tagged one of:
   **Idempotency:** the scan `UNIQUE(cause,cause_ref,batch,kind)`-style + partial-unique dedupe; replay of a
   device batch is a no-op.
 - **Writes:** `venue.scan` (INSERT each attempt, `offline_pending:=false` after reconcile), `kernel.tickets`
-  (first-admit-wins → `scanned`), `venue.scan_device` (`last_sync_at`,`manifest_version`). **Result:**
+  (→ `scanned` **via `kernel.mark_ticket_scanned`**, first admit only — §9.4's rule verbatim, and see the
+  `MB-6` block below), `venue.scan_device` (`last_sync_at`,`manifest_version`). **Result:**
   `{ status, admitted, duplicates, conflicts }`. **Retry:** re-entrant. **Forbidden callers:** non-door.
+
+> **`MB-6` — THE OFFLINE PATH DECLARED A DIRECT `kernel.tickets` WRITE, AND IT IS THE BATCHED ONE.**
+> This contract's **Writes** line read *"`kernel.tickets` (first-admit-wins → `scanned`)"* with **no
+> delegation named**, while its online sibling §9.4 — the *same* admission decision, one row at a time —
+> routes through `kernel.mark_ticket_scanned`. That is a **§0.7 violation** (`market`/`venue` never write
+> `kernel.tickets` directly), and it is not tidiness:
+>
+> - **`mark_ticket_scanned` carries the must-not-recheck-the-freeze property, and it carries it *structurally*.**
+>   `PHASE_2_SUPABASE_MIGRATION_PLAN.md` pins it as an assertion over `pg_proc.prosrc` — *the body references
+>   `is_transfer_frozen` **nowhere***, *"the defect a well-meaning engineer re-introduces"*, blast radius
+>   *"100% of admissions from doors-open to end of night."* **A reconcile path that writes the atom itself is
+>   not covered by that assertion**: the assertion inspects one function's body and passes, while the
+>   admission decision runs in another function it never reads.
+> - **The batch multiplies it.** §9.4 admits one atom per call; this function admits **up to 600 rows** per
+>   call, queued while the device was offline — the exact traffic that arrives *after* doors open, which is
+>   the window in which a freeze re-check refuses a legitimate ticket.
+> - **RLS is not the backstop here.** This RPC is reached through the `door-session` edge function, where
+>   `verify_jwt=false` and there is no `auth.uid()` — the function body is the *only* place any of this is
+>   enforced.
+>
+> **Corrected form, preserving first-admit-wins and the batch semantics exactly:** the per-atom admission is
+> `kernel.mark_ticket_scanned(atom, session, scan_ctx)`, **called once per admitted row inside the batch
+> loop**, under the atom lock this contract already takes ascending `ticket_atom_id`. The ordering rule is
+> unchanged (`server_receipt_at`, then `device_boot_id` + `scan_sequence`); **the engine's own partial unique
+> is what resolves first-admit-wins across devices**, so a losing row is written `result='duplicate'` and the
+> conflict is reported, exactly as today. **No new state, no new lock, no new lock-order rank, no change to
+> the SSCAS classification** (batched atom + scan, unchanged) — and no change to `mark_ticket_scanned`
+> itself, which is what keeps the `prosrc` assertion the pin it is. **`T-RPC-DOOR-35`** asserts the routing
+> structurally (this function's body references `kernel.tickets` **nowhere**), because a value-based test
+> cannot tell the two implementations apart: they produce the same rows until the day someone adds a freeze
+> re-check to one of them. **`AUTHZ-H3b`'s per-call assert rule is untouched** and still applies per call,
+> never per batch item.
 
 ### 9.6 `venue.mint_door_session(p_venue_id, p_session_id, p_device_id_claim, p_pin, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`AUTHZ-H3`)
 
@@ -1502,6 +1576,35 @@ that door is using. Filed by edge §3.9a request #4.
   pending_platform_review, noop_replay}, payout_id, request_id?, required_approver_class? }`. **Failure:**
   `precondition_failed` (destination locked / not closed) · `sod_violation` · `step_up_required` ·
   **`step_up_unavailable`**. **Forbidden callers:** non-finance; the DB never moves money itself.
+
+> **`MB-1b` — THE PAYOUT TIER HAS THE SAME SPLITTING SHAPE AS `MB-1`, AND ITS AGGREGATE SUBJECT IS MINTED BY
+> THE CALLER. OPEN — this pass does not close it, and it is not a defect in this contract's text but in the
+> operand nobody named.**
+> `payout.request_auto_max_minor` / `payout.dual_control_min_minor` are compared against **one payout's
+> amount**. A payout is generated by `kernel.close_settlement` (§10.2) from a settlement whose **period is a
+> caller-supplied parameter** — `venue.open_settlement(p_org_id, p_venue_id, p_event_id, p_period, …)`
+> (§10.1), open to `org_owner` / `org_finance` / `venue_finance`, **the same principals the tier gates**. An
+> org that must not disburse £X in one payout may open N narrow-period settlements and disburse it in N
+> payouts, each below the ceiling.
+>
+> **It is worse than the refund case.** `MB-1` splits a **fixed** subject — the payment exists and its total
+> is not caller-chosen, which is exactly why §17.1a's aggregate is invariant under decomposition. Here the
+> caller **chooses the decomposition of the subject itself**, so no aggregate scoped to "this settlement" can
+> be invariant by construction.
+>
+> **The property a correct fix must have, so the fix is checkable rather than plausible: the tier operand
+> must be invariant under decomposition of any caller-chosen subject.**
+>
+> **Two admissible forms; the choice is the owner's — money spec `D-10`.** **(a) Undisbursed org exposure:**
+> `Σ kernel.payout.amount_minor` for the org in a non-terminal state (`pending` · `held` · `submitted`) plus
+> this payout — no new key, no window, not caller-mintable (splitting a settlement does not change the sum of
+> its parts), decays as payouts complete; **does not close the slow case**, where each payout settles before
+> the next is requested. **(b) Rolling per-org window:** Σ over a new `payout.tier_window_hours`, disbursed
+> and undisbursed alike — closes the slow case, costs a key and a width decision.
+>
+> **Why this contract does not choose.** It is *who may disburse how much without a second approver*, and
+> unlike `MB-1` there is **no subject already in the corpus** the answer can be derived from. **What is not
+> open is whether payouts are splittable today: they are.**
 
 ---
 
@@ -2008,19 +2111,21 @@ filled here and flagged in §19 as authored rather than transcribed.
   `not_found`, **never a partial success**. (4) Every named atom has `current_owner_id = order.buyer_id`, else
   `custody_moved`. (5) Every named atom has `resale_state = 'none'`, else `conflict_locked` **naming the open
   listing or transfer**, so the operator knows what to cancel. (6) `p_amount_minor ≤ expected_amount` **and**
-  `Σ(refunds for the payment) + p_amount_minor ≤ payment.total`, the latter under `FOR UPDATE` on
-  `public.payments`. (7) **Parked branch only:** `NOT kernel.is_transfer_frozen(atom)` for every atom, else
+  `refund_exposure_minor(payment) + p_amount_minor ≤ payment.total`, the latter under `FOR UPDATE` on
+  `public.payments`. **The same aggregate feeds the tier test — §17.1a; computed once, after the lock, used
+  twice.** (7) **Parked branch only:** `NOT kernel.is_transfer_frozen(atom)` for every atom, else
   `frozen` — a request may not be *parked* on a door-open session (§12.4c). Below-threshold *execution* is
   unchanged and still voids the ticket at the door.
-- **Tier decision (server-side, from config).**
+- **Tier decision (server-side, from config). Every row's operand is `cumulative`, defined in §17.1a — never
+  `p_amount_minor` alone.**
 
   | Condition | Outcome (returned) | `required_approver_class` (**stored**) | Effect |
   |---|---|---|---|
-  | buyer caller, within `refund.buyer_self_service_window_hours` and ≤ `refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
-  | org caller, ≤ `refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
-  | org caller, ≤ `refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
+  | buyer caller, within `refund.buyer_self_service_window_hours` and `cumulative ≤ refund.buyer_self_service_max_minor` | `executed` | *(none — nothing is parked)* | direct |
+  | org caller, `cumulative ≤ refund.org_auto_execute_max_minor`, no consumed atom | `executed` | *(none)* | direct |
+  | org caller, `cumulative ≤ refund.org_dual_control_max_minor` | `pending_approval` | **`org`** | park + hold |
   | any consumed (scanned) atom, `refund.scanned_atom_policy = 'platform_review'` | `pending_platform_review` | **`platform`** | park + hold |
-  | org caller, > `refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
+  | org caller, `cumulative > refund.org_dual_control_max_minor` | `pending_platform_review` | **`platform`** | park + hold |
   | any consumed atom, `refund.scanned_atom_policy = 'refuse'` | `rejected` | *(none)* | none |
 
   **The consumed-atom row takes precedence over the amount rows.** A scanned atom routes to `platform` **even
@@ -2060,10 +2165,16 @@ filled here and flagged in §19 as authored rather than transcribed.
 - **Idempotency.** `p_command_key` unique per `(actor, key)` on `kernel.approval_request`; the executed branch
   inherits `kernel.refund.idempotency_key`. **A replay returns the original outcome, never a second refund.**
   A *second, different* partial refund on the same order mints a new `refund_id` and therefore a new,
-  non-colliding key — so successive partials compose correctly.
+  non-colliding key — so successive partials compose correctly **as keys**. **`MB-1`: key composition is not
+  authority composition.** That sentence is true of idempotency keys and was false of the tier, and it read
+  as though one implied the other. Partials still compose as keys; **their authority is decided on the
+  cumulative operand of §17.1a**, so the N-th partial is tiered on the sum of all N, not on its own size.
 - **Result.** `{ status ∈ {executed, pending_approval, pending_platform_review, rejected, noop_replay},
-  refund_id?, request_id?, amount_minor, atoms_voided[], atoms_not_voided[{atom_id, reason}], tier,
-  required_approver_class? }` — **`approval_required_role` is renamed to `required_approver_class` so the
+  refund_id?, request_id?, amount_minor, **cumulative_minor**, atoms_voided[], atoms_not_voided[{atom_id,
+  reason}], tier, required_approver_class? }` — **`cumulative_minor` is returned (`MB-1`) so an operator sent
+  to dual control on a small refund can see that it was the payment's accumulated exposure and not their own
+  amount that tiered it**; a tier the surface cannot explain is a tier the surface will be asked to work
+  around. **`approval_required_role` is renamed to `required_approver_class` so the
   returned value and the stored column are the same word.** Two names for the same fact is how the tier went
   missing in the first place.
 - **Errors.** `insufficient_privilege(42501)` · `sod_violation` · `precondition_failed` · `custody_moved` ·
@@ -2081,8 +2192,103 @@ filled here and flagged in §19 as authored rather than transcribed.
 - **Tests.** `T-RPC-MONEY-01` (tier table, one case per row) · `T-RPC-MONEY-02` (`custody_moved` on a resold
   atom) · `T-RPC-MONEY-03` (a scanned atom is reported in `atoms_not_voided[]`, is not voided, returns no
   inventory, and the money leg still completes) · `T-RPC-MONEY-04` (parked on a frozen session ⇒ `frozen`) ·
-  `T-RPC-MONEY-05` (replay returns the original outcome, exactly one refund row).
+  `T-RPC-MONEY-05` (replay returns the original outcome, exactly one refund row) · **`T-RPC-MONEY-21`
+  (`MB-1` — the splitting regression: N calls each at or below `refund.org_auto_execute_max_minor` against
+  one payment; the call at which `cumulative` crosses the ceiling returns `pending_approval`, and **no
+  sequence of calls moves more than the ceiling without an approval**)** · **`T-RPC-MONEY-22`** (the same for
+  the buyer arm: a second self-service refund on the same payment tiers on the sum, not on its own amount).
 - **Policy:** none, and none is possible — see §0.8.
+
+#### 17.1a The tier operand is CUMULATIVE, and the aggregate is the PAYMENT (`MB-1`)
+
+> **Predicate-identical to `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.1a by construction** — the two tier tables
+> were corrected in the same pass, for the reason `C75` records: there is no precedence rule between delta
+> specifications, so two copies of one predicate must be made to agree at the moment they are changed, never
+> reconciled afterwards.
+
+> **THE DEFECT THIS REPLACES.** Every row of §17.1's tier table compared **the single call's
+> `p_amount_minor`** against its threshold. The only aggregate anywhere was the over-refund ceiling
+> (precondition 6), which bounds the **total to the order value** and says **nothing about the tier**.
+> **Consequence: one `org_owner` or `org_finance` refunds an arbitrarily large order to zero without ever
+> reaching `pending_approval`, by issuing ⌈total / `refund.org_auto_execute_max_minor`⌉ calls each at or below
+> the auto-execute ceiling.** SoD-2 on refunds was unenforceable against the exact insider it names — not
+> because the control was weak, but because the control was never reached. The idempotency bullet made it
+> worse by blessing the shape: *"successive partials compose correctly"* is **true of the keys and false of
+> the authority**, and nothing said so. **The edge spec's `check_rate_limit(user, 'refund-execute', 10, 60)`
+> is not the missing control:** 600 calls an hour is a throughput limit, not a value limit. It is named here
+> because it is the control a reviewer reaches for, and reaching for it is how this survives review twice.
+
+**Definition (one aggregate, stated once, used by every refund tier row in the corpus).**
+
+> `refund_exposure_minor(payment)` :=
+> **Σ `kernel.refund.amount_minor`** for that `payment_id` whose `status ∈ {pending, submitted, succeeded}`
+> — every refund that is not `failed` (schema §1.10)
+> **+ Σ `kernel.approval_request.amount_minor`** of every request against that payment whose
+> `state = 'pending'` — parked, holds live, money not yet moved.
+>
+> **`cumulative` := `refund_exposure_minor(payment)` + `p_amount_minor`.** Every threshold in §17.1's table,
+> and the `refund.platform_support_max_minor` cap at §17.2, is compared against `cumulative`. **No refund
+> threshold anywhere in this corpus is compared against a single call's amount.**
+
+Parked requests resolve to the payment through `venue.order` → `kernel.payment_native` → `public.payments` —
+the same link `venue.finalize_primary_order` (§6.3) writes and `kernel.refund_primary_order` (§11.4) reads.
+Refunds from other causes count: an `event_cancelled` refund from `catalog.cancel_event` (§4.4), an
+`admin_refund`, or a C25 auto-compensation (§12.3) each raise the exposure and tighten the tier of the next
+org refund on that payment. **More money already returned means more scrutiny, not less** — stated because it
+will otherwise be read as a bug the first time an org hits it.
+
+**Why the payment, and why no time window.** Derived, not chosen:
+
+1. **It is the subject the over-refund ceiling already sums** (precondition 6). One aggregate serves both
+   guards; a second subject for the tier would be a second aggregate that can disagree with the first.
+2. **The lock already exists.** Precondition 6 takes `public.payments` `FOR UPDATE`, and `kernel.refund`
+   carries `payment_id` NOT NULL with an index on it (schema §1.10). The cumulative test adds **no lock, no
+   lock-order rank, no SSCAS member, no index** — this contract's rank-6 Payment acquisition is unchanged and
+   `RLS MD-1` / D-1 are not reopened.
+3. **It is the subject the money rail aggregates against** — a refund is `refunds.create` on the original
+   charge — so the database's aggregate and Stripe's are the same set and cannot drift.
+4. **Invariance under decomposition, which only this subject has.** A rolling *time* window is defeated by
+   waiting; an *actor*-scoped window is defeated by the second money principal — **the collusion counterparty
+   SoD-2 is named after** — so an actor-scoped aggregate is the one shape that fails against precisely the
+   attacker the control exists for. Σ over the payment is invariant: the parts of an order sum to the whole,
+   so splitting a refund into N calls changes **no** tier decision.
+5. **The corpus already uses a cumulative operand wherever an authority is per-act** —
+   `comp.per_staff_step_up_max_units` / `comp.per_staff_step_up_window_hours` count *"this actor's
+   `comp.allocate` and `comp.issue` units within the window"* (§20.5.1). **The pattern was in the corpus and
+   the refund table did not use it.**
+
+**The sum is computed AFTER the payment lock, in the same transaction, or it is a per-call test with extra
+steps.** Two concurrent sub-ceiling calls must serialize on the row the over-refund guard already locks, so
+the second observes the first. A cumulative test evaluated before that `FOR UPDATE` reproduces the defect in
+the form hardest to see in review.
+
+**The parked term needs a COLUMN and may not be read from `payload`.** No authority predicate in the approval
+functions reads `payload` (`T-RPC-AUTHZ-01` asserts it structurally), and the cumulative operand is an
+authority input, not evidence. `kernel.approval_request` therefore requires **`amount_minor integer`**,
+server-set at request time, **pinned exactly as `required_approver_class` and `config_versions` are**, never a
+parameter, NULL only for `action = 'config.set_money_key'`. **`C57`'s lesson repeated: a tier decided from a
+value the row does not store is a control that does not run.** Additive, package `077`; filed as §20.14
+`R-27`.
+
+**The buyer arm — the ambiguity is settled here, and the operand is stated.** The buyer row said only
+*"≤ `refund.buyer_self_service_max_minor`"*, and **no document said whether that cap bounded the refund
+amount or the order's eligibility.** The readings have opposite security properties: under the *amount*
+reading a buyer drained an arbitrarily large order in ⌈total / cap⌉ calls; under the *eligibility* reading the
+key silently meant *"which orders may be self-serviced at all"*, which no document states and no surface
+shows. **Settled: the operand is `cumulative`, the same as every other row** — one operand for the whole
+table, because a table in which one row means *this call* and another means *this order* gets implemented as
+whichever the reader assumed. **Consequence, stated rather than left to be discovered: a buyer may self-serve
+part of an arbitrarily large order, up to `refund.buyer_self_service_max_minor` in total on that payment** —
+bounded absolutely, every atom voided their own, recency still bounded by
+`refund.buyer_self_service_window_hours`. **An additional order-value exclusion, if the owner wants one, is a
+second independent conjunct with its own key — money spec `D-9`, not decided here.**
+
+**What this does NOT decide.** The **numbers** remain owner decision `D-3` and none is chosen here — but they
+now denominate a **cumulative ceiling per payment**, so `D-3` must be answered against that reading.
+
+**Adjacent tiered money actions, checked rather than assumed.** `payout.*` has the same shape and is worse —
+§10.3 `MB-1b`. Payout **destination change** (§17.7) carries no value tier and is not splittable by value.
+**Comps** (§20.5.1) were already cumulative-over-window and are the precedent above.
 
 ### 17.2 `kernel.approve_refund_request(p_request_id, p_decision, p_reason_code, p_command_key)` — **EDGE-FRONTED** · `NEW RPC`
 
@@ -2106,7 +2312,7 @@ filled here and flagged in §19 as authored rather than transcribed.
   | `action` | `required_approver_class` | May approve |
   |---|---|---|
   | `refund.issue` | `org` | `has_org_role(request.org_id, ['org_owner','org_finance'])` **AND** `auth.uid() <> request.requested_by` **AND** `kernel.money_role_grant_matured(request.org_id)` |
-  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated per `AUTHZ-M3` below** |
+  | `refund.issue` | `platform` | `is_platform(['platform_support','platform_risk','platform_admin'])`, **`platform_support` bounded by the cap re-evaluated per `AUTHZ-M3` below — against `cumulative` (§17.1a), never this request's amount alone (`MB-1`)** |
   | `payout.request` | `org` | as `refund.issue`/`org`, **plus the §17.7 destination-setter exclusion applied to the APPROVER** — otherwise the destination-setter simply approves instead of requesting |
   | `payout.request` | `platform` | `is_platform(['platform_risk','platform_admin'])`. **`platform_support` is denied** — it holds no payout authority anywhere else, and the generic approval object must not become the place it acquires one |
   | `config.set_money_key` | `platform_admin` | **`is_platform(['platform_admin'])` ONLY**, AND `auth.uid() <> request.requested_by` — see the note below. **NO maturity floor: `kernel.money_role_grant_matured` is org-scoped and cannot be applied here — `AUTHZ-C1C`, filed as §20.14 `R-22` / ratification `C77`. This arm is the C58 attack one plane up and it is deliberately, visibly open pending an owner ruling** |
@@ -2149,11 +2355,21 @@ filled here and flagged in §19 as authored rather than transcribed.
   **`stale`**, never a re-route. In particular **an atom that became `scanned` while the request was parked
   re-tiers it to `platform`** — and because a re-tier is `stale` rather than a silent escalation, the org
   approver is told to re-request rather than finding their approval quietly ineffective. `T-RPC-AUTHZ-02`.
+- **The re-derivation uses the CUMULATIVE operand, and EXCLUDES this request from the parked term (`MB-1`).**
+  `cumulative := refund_exposure_minor(payment) − this_request.amount_minor + recomputed_amount` (§17.1a).
+  Without the exclusion **every parked request double-counts itself and re-tiers upward on its own approval**,
+  so a correctly-tiered `org` request goes `stale` the moment its approver touches it. The error fails in the
+  **safe** direction, which is exactly why it survives a value-based suite; `T-RPC-MONEY-23` names it.
+  A **genuine** rise in exposure while parked (another refund executed meanwhile) re-tiers upward and is
+  `stale` — the same disposition `AUTHZ-C1A` already specifies, and no new one is introduced.
 - **`AUTHZ-M3` — the support cap binds HERE, under lock, and an unset key is ZERO.**
   `refund.platform_support_max_minor` was applied at **request** (§17.1's tier table) and appeared at approval
   only as the prose *"subject to the support cap."* **Prose is not a predicate, and approval is the act that
   moves the money** — on the `platform` arm it is reachable by `platform_support` directly, with no org
-  approver in the loop. The cap is therefore re-evaluated against the **recomputed** amount, against the
+  approver in the loop. The cap is therefore re-evaluated against **`cumulative` as §17.1a defines it**
+  (**`MB-1`** — the recomputed amount **plus** the payment's existing exposure, this request excluded from the
+  parked term; a cap applied to the recomputed amount **alone** is defeated by N parked sub-cap refunds on one
+  payment, which is §17.1's split one arm over — `T-RPC-MONEY-24`), against the
   version **pinned in `config_versions`** (so the cap a request was tiered under is the cap it is approved
   under), exactly as every other precondition in this list is. Over the cap ⇒ `insufficient_privilege` naming
   the cap, and the request stays `pending` for `platform_risk`/`platform_admin` — **it is not denied**, since
@@ -2194,7 +2410,14 @@ filled here and flagged in §19 as authored rather than transcribed.
   **deleted**, `platform_support` approves nothing at any amount; `platform_risk` on the same row succeeds) ·
   **`T-RPC-AUTHZ-05`** (`AUTHZ-C1B`: an `org_owner` who mints a second `org_finance` **through the real
   `invite_org_member` / `accept_org_invite` path** cannot approve their own request while the grant is
-  immature — the fixture must perform the mint, because **the mint is the attack**).
+  immature — the fixture must perform the mint, because **the mint is the attack**) ·
+  **`T-RPC-MONEY-23`** (`MB-1` — **the self-exclusion**: a single parked request approved with no other
+  activity on the payment does **not** go `stale`, i.e. the cumulative recomputation excludes the request
+  under approval from the parked term; and a request parked while a *second* refund executed meanwhile
+  **does** go `stale`, so the test distinguishes the two rather than asserting only the happy path) ·
+  **`T-RPC-MONEY-24`** (`MB-1` — `platform_support` cannot approve N parked refunds on one payment, each
+  under `refund.platform_support_max_minor`, whose **sum** exceeds it; the approval at which `cumulative`
+  crosses raises `insufficient_privilege` naming the cap and the request stays `pending`).
 
 ### 17.3 `kernel.cancel_refund_request(p_request_id, p_reason_code, p_command_key)` — **DB-RPC** · `NEW RPC`
 
@@ -3389,7 +3612,7 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Door — admission** | `T-RPC-DOOR-01` (structural: `mark_ticket_scanned` does not reference `is_transfer_frozen`) · `T-RPC-DOOR-02` (admit succeeds with the freeze engaged) · `T-RPC-DOOR-03` (second scan ⇒ `duplicate`, atom stays `scanned`) · `T-RPC-DOOR-04` (`status='completed'` ⇒ `precondition_failed` — admission is gated by session status, not manifest state) | **§7.5 — the CRITICAL defect. `T-RPC-DOOR-01` is what stops it recurring** |
 | **Door — freeze set** | `T-RPC-DOOR-05` (`transfer_ticket_ownership` and `accept_p2p_transfer` ⇒ `frozen`) · `T-RPC-DOOR-06` (routine void ⇒ `frozen`; `cancel_event` succeeds) · `T-RPC-DOOR-07` (compensate succeeds, complete refused) · `T-RPC-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination) | §12.4 |
 | **Door — lifecycle** | `T-RPC-DOOR-09` (drained atom scans) · `T-RPC-DOOR-10` (denied principals ⇒ `42501`, `door_open_at` unchanged) · `T-RPC-DOOR-11` (re-open leaves `door_open_at` byte-identical) · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) · `T-RPC-DOOR-13` (override expires with no sweep having run) · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RPC-DOOR-15` / `T-RPC-DOOR-16` (delta log) | §17.10–§17.13 |
-| **Money** | `T-RPC-MONEY-01..14` | §17.1–§17.7 |
+| **Money** | `T-RPC-MONEY-01..14` **+ `-21..-24` (`MB-1`, the cumulative operand — appended rather than inserted, so `-15..-20` in §18.1 keep their numbers)** | §17.1–§17.7, §17.1a |
 | **Approval integrity** | `T-RPC-AUTHZ-15` (the set of functions inserting `kernel.approval_request` is **exactly** three — the enumeration the accepted no-FK residual rests on) · `T-RPC-AUTHZ-16` (a vanished `subject_id` resolves to **`stale`** on approval, holds released, no money row, on all three `subject_kind` values) | **§17.0a** `APPR-SUBJ-1/2` |
 | **Role model** | `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin`) · `-02` (no re-inlined inheritance join) · `-03` (`is_org_affiliate` never a sole gate) · `-04` (no grant RPC accepts a promoter artifact) · `-05` (`assert_door_session` in no `pg_policy`) · **`T-RPC-AUTHZ-17`** (the helper set is **exactly** the ten of §1.1–§1.1e, by name — see RLS `T-RLS-ROLE-06`) | §1.1–§1.1e |
 | **Attribution** | `T-RPC-ATTR-01..04` | §6.1, §17.14 |
@@ -3425,7 +3648,7 @@ mint/revoke set and the two live counts), `T-RPC-KEY-05` (the signing-key force-
 | **Staff & devices** | `T-RPC-STAFF-01` (self-grant, superseded labels and cross-scope labels all raise; org inheritance goes **through the §1.1a helper**) · `-02` (a revoked scanner's next `record_scan` raises **on the same JWT**) · `-03` (a registered device with no live session is refused by `assert_door_session` and therefore by every door RPC) · `-04` (cross-venue sync raises; an out-of-order poll cannot lower stored sync state) · **`-05`** (a retired device's next door call raises **and** it holds no `active` `door_session` row — **both halves**, since the first passes even if RV-2 was never built) · **`-06`** (a door session calling `set_scan_device_status` raises; un-retire does not resurrect a revoked session) | §20.4 |
 | **Comps** | `T-RPC-COMP-01` (**the R-15/E6/E7 split** — `venue_box_office` refused on allocate, permitted on issue) · `-02` (above the C39 threshold a stale-`amr` token raises and moves no counter) · `-03` (a comp atom scans, transfers and refunds identically to a purchased atom; a replayed issue mints no second atom) | §20.5.1, §20.5.2 |
 | **Guest list** | `T-RPC-GUEST-01` (a checked-in entry cannot be removed or edited; the removal audit carries the removed row; **no client role holds table DELETE**) · `-02` (**structural** — `check_in_guest_entry` writes no `guest_entry` column outside `status`/`checked_in_at`) | §20.5.3–§20.5.6 |
-| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises — **held while §20.6.6 is `⛔ BLOCKED`**) · **`-25`** (an atom pinned to a **revoked** key is refused **online and offline**, asserted on both paths) · **`-26`/`-27`** (mint: a PIN for S1 cannot mint a session bound to S2 and a foreign-venue device cannot mint, both with the same error and timing as a wrong PIN; a re-mint leaves exactly one `active` row and the superseded token is refused) · **`-28`** (a `venue_scanner` and a door session are both refused `revoke_door_session`) · **`-29`** (a revoked PIN or a retired device drops out of `live_sessions` in the same transaction, while `live_devices` may still count its un-lapsed manifest — **asserted as a difference**) · **`-30`/`-31`/`-32`** (the `AUTHZ-H3` regression trio, §1.1d) · **`-33`/`-34`** (**`MP-1` — structural:** every field the `OFFLINE-VERIFY-v1` predicate reads appears in `get_door_manifest`'s entry projection **and** in its `op='add'` delta projection, by column-list comparison; with `-34` deriving the compared read set **from the fenced block** so `-33` cannot pass against a stale hard-coded list) | §20.6, §9.1–§9.8 |
+| **Door — set closure** | `T-RPC-DOOR-17` (**the manifest result carries no identity column**, by column-list comparison) · `-18` (box office and a foreign door session refused; delta-only poll returns the same digest) · `-19` (**structural** — `sweep_implicit_door_freezes` references neither `engage_door_freeze` nor `door_open_at`) · `-20` (the implicit freeze engages **with no sweep having run**) · `-21` (preview counts reconcile to the open's drained counts; `paid_pending_transfer` in neither) · `-22` (**the live-device predicate equals the override guard's expression**) · `-23` (**structural** — `set_session_door_schedule` never references `door_open_at`) · `-24` (a loosening security override raises for every role; a Wallet-span violation raises — **held while §20.6.6 is `⛔ BLOCKED`**) · **`-25`** (an atom pinned to a **revoked** key is refused **online and offline**, asserted on both paths) · **`-26`/`-27`** (mint: a PIN for S1 cannot mint a session bound to S2 and a foreign-venue device cannot mint, both with the same error and timing as a wrong PIN; a re-mint leaves exactly one `active` row and the superseded token is refused) · **`-28`** (a `venue_scanner` and a door session are both refused `revoke_door_session`) · **`-29`** (a revoked PIN or a retired device drops out of `live_sessions` in the same transaction, while `live_devices` may still count its un-lapsed manifest — **asserted as a difference**) · **`-30`/`-31`/`-32`** (the `AUTHZ-H3` regression trio, §1.1d) · **`-33`/`-34`** (**`MP-1` — structural:** every field the `OFFLINE-VERIFY-v1` predicate reads appears in `get_door_manifest`'s entry projection **and** in its `op='add'` delta projection, by column-list comparison; with `-34` deriving the compared read set **from the fenced block** so `-33` cannot pass against a stale hard-coded list) · **`-35`** (**`MB-6` — structural:** `venue.reconcile_offline_scans`'s body references `kernel.tickets` **nowhere**, so the offline admit is provably routed through `kernel.mark_ticket_scanned` and is inside the `prosrc` assertion that pins the must-not-recheck-the-freeze property; a value-based test cannot distinguish the two implementations) | §20.6, §9.1–§9.8 |
 | **Money — set closure** | `T-RPC-MONEY-15` (**an `admin_refund` void on an open episode appends one `revoke` delta per atom** — the §12.4c exemption obligation) · `-16` (a resold atom's primary payment refunds money only, returning `custody_moved`) · `-17` (`platform_support` and `org_owner` both refused) · `-18` (`pay_promoter_commission`'s write set pinned; no external call) · `-19` (**a flagged unreviewed attribution yields NO settlement line**, and `release` + close pays it) · `-20` (the same attribution cannot be lined into a second settlement) | §20.7.1, §20.7.2 |
 | **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) · **`-05`** (with two `open` episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same transaction as the key row — asserted **on the episode rows**, not on the absence of admissions, which would pass on a manifest that merely lapsed) | §20.7.3–§20.7.5 |
 | **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) · **`-07`** (an offer past `expires_at` whose stored `status` is still `pending` — **the sweep suppressed** — is refused and writes no `market_sale`) | §20.8 |
@@ -5296,7 +5519,10 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   reverse — the same classification §8.3 carries for #7 reverse.
 - **Idempotency.** Terminal state + `p_command_key`; a re-cancel is `noop_replay`.
 - **Writes.** `market.listing_native` (→ `cancelled`, `reason_code`), `kernel.tickets.resale_state` (→
-  `none`). Where an auction or open offers hang off the listing, **`market.auction` → `cancelled` and every
+  `none`, **via `kernel.unlock_ticket` only** — §0.7/§0.7a; the delegation was named in this contract's
+  **Locks** line and not in its **Writes** line, which is `MB-6a`: its sibling §20.8.1 names it in both, and
+  a Writes line that names the table and not the writer reads as a direct write). Where an auction or open
+  offers hang off the listing, **`market.auction` → `cancelled` and every
   `pending` `market.offer` → `withdrawn` in the same transaction** — an offer against a cancelled listing
   that stayed `pending` would be a live commitment against nothing, and a buyer would see it in their app.
 - **Result.** `{ status, listing_id, offers_withdrawn int }`.
@@ -5840,6 +6066,47 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-12** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `088` | **Fold `market.offer` expiry into the `088` sweep tick** (§20.8.5) | `market.offer` has `expires_at` and an `expired` label that nothing writes — the `G-24` shape a second time. **Not** load-bearing (an offer holds nothing), so it needs a statement, not a new function |
 | **R-22** | **Owner ruling** (`PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13.4 · §13.7 `S-3`) | **THE PLATFORM-PLANE HALF OF THE GRANT-MATURITY CONTROL IS UNBOUND, AND THE RATIFIED SIGNATURE CANNOT EXPRESS IT.** Schema §1.13.4 defines the money roles as `{org_owner, org_finance}` (org plane) **and `{platform_admin, platform_support, platform_risk}` (platform plane)**, states that `kernel.platform_role.created_at` **already is** the platform grant time, and `S-3` accordingly asks that **the money arm of `set_platform_config`** carry the precondition. **C58's ratified form names only `kernel.org_member.granted_at`, and the ratified helper takes one argument — an `org_id` — which the platform plane does not have.** So `config.set_money_key` (§17.2, `required_approver_class='platform_admin'`) is gated by `auth.uid() <> requested_by` and a second distinct `platform_admin` (`AUTHZ-C1A2`) **and by no maturity floor at all** — which is the C58 attack one plane up: `kernel.grant_platform_role` is held by `platform_admin`, so a `platform_admin` can mint the second `platform_admin` that approves the raise of a money ceiling. **Two admissible forms, and the choice is the owner's:** (a) a **second helper**, `kernel.platform_money_role_grant_matured()` (no scope argument; reads `kernel.platform_role.created_at` against the same key), bound on the `config.set_money_key` arm of §17.2 and on §20.2.1's money arm — **a new control and therefore a new ratification, not a clarification**; or (b) **rule the platform plane out of scope** and retract schema §1.13.4's platform-plane sentence and `S-3`'s `set_platform_config` clause, so the corpus stops describing a control it does not have. **This document does not choose**: (a) extends a ratified control to a plane C58 did not ratify it on, and (b) deletes ratified schema text | The gap is invisible from either side on its own. Schema §1.13.4 reads as though both planes are covered; C58 and §1.1e read as though only the org plane was ever in scope; and the one function that spans them — `set_platform_config`'s money arm — is named by `S-3` and by no call site. **An implementer reading §1.1e alone will not know the platform arm is deliberately unbound, and an implementer reading §1.13.4 alone will try to pass an `org_id` that does not exist.** Recorded as ratification row **C77 / OPEN-GATED(O12)** |
 | **R-23** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §13.6 (global lock order) · `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §6.2 | **Confirm the accepted residual on `kernel.money_role_grant_matured` (§1.1e), or amend the lock order.** The helper reads `kernel.org_member` **unlocked**, so a `change_org_role` committing between the caller's snapshot and its commit is not observed. **Three of the four race directions fail closed** (a promotion into a money role, and a revoke, are both invisible to an older snapshot, which sees the pre-change row and returns `false`). **One is open for the duration of one transaction:** a money→money re-grant (`org_finance` → `org_owner`) resets `granted_at`, and a caller on the pre-reset snapshot passes. **§1.1e records this as an accepted residual and does not close it**, because closing it means putting `kernel.org_member` into the global lock order — an amendment to a ratified invariant (C28/§0.4), not a contract edit | The residual is small and bounded and the re-grant is itself an audited act by an already-authorized principal — but it is **exactly the direction the control exists to stop** (a freshly-authorized money principal acting), so it must be an accepted residual on the record rather than an unstated one. **A reviewer who later finds it should find this row, not discover it** |
+
+| **R-24** | `PHASE_2_RLS_PERMISSION_SPEC.md` **§7.5** (and its **§5** quick-reference row) | **THE DOCUMENT THAT CALLS ITSELF *"the complete statement of Phase-2 write authority"* NAMES FOUR WRITERS OF `kernel.tickets`; THIS DOCUMENT CONTRACTS TEN.** §7.5 reads *"Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom`, `record_scan` (state→scanned)"* and §5's table reads *"same three + scan RPC"*. **Six are missing, and one of the four listed is the wrong function.** Missing: **`kernel.mark_ticket_scanned`** (§7.5 here — the admission writer, i.e. 100% of admissions), **`kernel.lock_ticket` / `kernel.unlock_ticket`** (§7.4 — the `resale_state` overlay pair), and the **four money RPCs that write `resale_state` themselves** — `kernel.request_order_refund` (§17.1, `→ 'refund_hold'`), `kernel.approve_refund_request` (§17.2), `kernel.cancel_refund_request` (§17.3), `kernel.sweep_expired_refund_requests` (§17.4). Wrong function: the fourth entry is **`record_scan`**, a `venue.*` wrapper — so **the authority statement's own list asserts a §0.7 violation as the design** (`venue` writing `kernel.tickets`), which is precisely the `G-20` *"two names for one function"* collision the traceability matrix already flags, here in the one table where the difference decides whether the `prosrc` freeze assertion covers the writer. **A writer absent from the authority list is a writer nothing reviews and no assertion counts** — the `C60` shape (§11 drifting from the role model with nothing able to see it), one table down. **Requested:** complete the list, replace `record_scan` with `mark_ticket_scanned`, and give it a structural assertion in the shape of `T-RLS-EXEC-01` — *every function that writes `kernel.tickets` appears in the authority statement*, derived from `pg_proc` rather than hand-maintained | Filed by `MB-6`. §0.7a now enumerates the sanctioned **delegation** set from the RPC side, which is the callee half; the RLS spec owns the **authority** half, and while the two disagree the corpus states two different write sets for its most security-critical table |
+| **R-25** | **Owner ruling** (this document §7.4 · §17.1–§17.4 · `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.1–§6.3) | **FOUR MONEY RPCs WRITE `kernel.tickets.resale_state` WITHOUT GOING THROUGH THE `lock_ticket`/`unlock_ticket` OVERLAY PAIR, WHICH EXISTS SO THAT COLUMN HAS ONE WRITER PAIR.** They are `kernel.*` functions, so §0.7's `market`/`venue` prohibition does not reach them and **this pass changed nothing** — but §7.4 is the choke-point where the overlay's preconditions and the freeze re-check live (§12.4c: *"correct — a choke-point"*), and four functions setting the column beside it means the choke-point is one of five. **Two admissible forms and the choice is the owner's:** (a) **extend `lock_ticket`/`unlock_ticket` to carry `refund_hold`** (`p_reason` gains the label; §7.4's contract says `none→listed` / `none→locked` *"and back"* and would need the third pair) so `resale_state` has exactly two writers and the freeze re-check is unbypassable by construction; or (b) **keep the direct writes and say so explicitly** in §7.4 and in the RLS authority statement, with `T-RPC-MONEY-*` pinning that the money RPCs perform **no** freeze re-check on the release paths — a hold release must never be refused because doors opened, which is why (a) is not obviously right. **This document does not choose:** (a) changes a custody-engine contract, (b) ratifies a second writer set | Filed by `MB-6`. Not a defect in either direction today — §17.1 precondition 7 does check the freeze on the parked branch, and the release paths are correct to skip it. What is wrong is that **nothing states which of the two the design is**, so an implementer picks one per function |
+| **R-27** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13 / plan `077` | **`kernel.approval_request` gains `amount_minor integer`** — NULL only for `action = 'config.set_money_key'`, with `CHECK (action = 'config.set_money_key' OR amount_minor IS NOT NULL)` and `CHECK (amount_minor IS NULL OR amount_minor > 0)`. Server-set at request time by the requesting function, **pinned exactly as `required_approver_class` and `config_versions` are** — never a parameter, never derived from `payload`. **Additive to a table already scheduled in `077`; no new table, no new package, no DAG edge, and `C72`'s pending second amendment is untouched** | **`MB-1`:** the cumulative tier operand (§17.1a) needs the **parked** exposure as an *authority* input, and no authority predicate may read `payload` (`T-RPC-AUTHZ-01`, structural). Without the column the parked term is unreadable, so the tier falls back to settled refunds only and **a parked request stops counting against the ceiling — reopening the split through the approval queue instead of the execute path.** This is `C57` one column over: **a tier decided from a value the row does not store is a control that does not run** |
+| **R-26** | **Whoever owns the corpus-wide id scheme** (the hazard this record already documents for `R-`, `K-`, `O`/`O-` and `S-`/`D-`) | **`R-22` IS USED TWICE IN THIS TABLE, FOR TWO UNRELATED ITEMS.** One `R-22` is `MP-1`'s offline clock-skew time-bucket confirmation; the other is the platform-plane grant-maturity owner ruling (`C77`/`O12`), which schema §13.7 `S-3` and RLS §11.3a both cite **by that id**. Two rows with one id is the `O3`/`O-3` mistake inside a single table, and the second one is load-bearing in three documents. **Requested:** renumber one of them — **not** the `C77`/`O12` row, which is cited externally — and state the rule that `R-` ids are allocated by reading the table's current maximum, the same discipline the ratification record states for its own rows | Found by `MB-1`/`MB-6` while allocating this pass's ids. **Not fixed here**, because renumbering a row two sibling documents cite is exactly the change that must not be made unilaterally by a pass that owns neither |
+
+---
+
+## 21. Correction index — the `MB-1` / `MB-6` cumulative-authority and custody-routing pass (2026-08-28)
+
+**Authority:** ratification rows **`C88`** (cumulative refund tier operand), **`C89`** (`MB-6` — offline scan
+routing + the §0.7a enumeration), **`C90` / open decision `O14`** (payout tier operand, recorded open) and
+**`D20`** (documentation + integrator requests), filed in
+`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` by this pass. The `MB-1` half is
+**predicate-identical** to `PHASE_2_MONEY_AUTHORITY_SPEC.md` §6.1a/§14 by construction: both tier tables were
+corrected in the same edit, which is the only discipline available while `C75`/`O11` (no precedence rule
+between delta specs) stands open.
+
+| § | Before | After | Ratified by |
+|---|---|---|---|
+| **§0.7** | *"only via the three kernel engines"* | *"only via a sanctioned kernel custody writer, enumerated in §0.7a"* — **the prohibition is unchanged; the delegation set is stated** | `C89` |
+| **§0.7a** | *did not exist* | **NEW** — five sanctioned writers with their callers, plus the two standing rules: **the Writes line must name the writer**, and **adding a member is an amendment** | `C89` |
+| **§9.5** | **Writes:** `kernel.tickets` (first-admit-wins → `scanned`) — a declared direct write, in the **batched** path, behind `verify_jwt=false` | routed **via `kernel.mark_ticket_scanned`**, once per admitted row inside the batch loop, under the existing ascending atom lock; `T-RPC-DOOR-35` asserts it structurally | `C89` |
+| **§17.1** | tier table keyed on `p_amount_minor`; buyer row's operand unstated; precondition 6 the only aggregate | every row keyed on `cumulative`; buyer operand settled; precondition 6 names the shared aggregate; `cumulative_minor` returned | `C88` |
+| **§17.1a** | *did not exist* | **NEW** — the definition, the derivation of the payment as subject, the after-the-lock rule, the `amount_minor` obligation, the buyer resolution | `C88` |
+| **§17.2** | support cap and re-derivation keyed on the recomputed single amount | both keyed on `cumulative`, **excluding this request from the parked term**; `T-RPC-MONEY-23`/`-24` | `C88` |
+| **§10.3** | above-threshold payout parks; operand unstated | **`MB-1b`** block — the shape, the invariance property a fix needs, two admissible forms, **no choice made** | `C90` / `O14` |
+| **§20.8.2** | `kernel.tickets.resale_state (→ none)` in **Writes**, delegation only in **Locks** | delegation named in **Writes** (`MB-6a`) | `C89` |
+| **§18 / §18.1** | Money `-01..14`; Door set closure `-17`…`-34` | `T-RPC-MONEY-21..24` and `T-RPC-DOOR-35` **appended**, so no existing id moves | `C88`, `C89` |
+| **§20.14** | `R-1`…`R-23` | **`R-24`** (RLS names 4 writers of `kernel.tickets`, 10 are contracted, and the 4th is `record_scan`) · **`R-25`** (four money RPCs bypass the `lock_ticket`/`unlock_ticket` overlay — owner ruling, unchanged here) · **`R-26`** (`R-22` is used twice in this table) · **`R-27`** (`kernel.approval_request.amount_minor`) | `D20` |
+
+**What this pass deliberately did NOT do.** It chose **no threshold value** (`D-3` untouched). It closed
+**no** open decision — `O6`…`O13` stand and **`O14` is added, not closed**. It changed **no** role set and
+**no** authority cell: every predicate keeps the principals `O-1`/`O-3`/`C57`/`C58` gave it. It touched
+**nothing** in the frozen Stripe money core, no `public.*` table, and no ratified ownership invariant — the
+`MB-1` change is to the **operand an authority threshold is compared against**, and the `MB-6` change is to
+**which function performs a write that already happens**. It **weakened no CI gate, ratchet or floor** and
+changed no workflow file. It renumbered **no** package (`076`–`091`), **no** migration (`071`–`075`), no
+ratification row and no test id. It touched **no `OFFLINE-VERIFY-v1` fenced block** — none appears in either
+file it edited, and the four copies were extracted and hashed after the last edit to confirm they remain
+byte-identical, one distinct body, `sha256 afb5184d58b62da5cb03cb8c4c7923953b4206c52f8afa23dee6403069fe6344`.
 
 ---
 
