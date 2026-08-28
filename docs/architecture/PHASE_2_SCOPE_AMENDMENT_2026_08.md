@@ -204,3 +204,95 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 13 | **Feature flag** | **NONE NAMED.** `PLAN` §4 defines exactly three boolean flags and none guards the promoter engine; the enumeration thresholds are config *values*, not a kill switch. **Gap against this amendment's flag rule — §12.2, decision OD-27** | — | `PLAN` §4 · `PROMO` §9.4, §13-10 | — |
 | 14 | **Rollout gate** | `090` applies last, gated on the **promoter phase** (`PLAN` §3 seq 15). Commission cannot be real before `087` exists, because a commission line **is** a settlement line | — | `PLAN` §3 · `PROMO` §6.3 | — |
 | 15 | **Open decisions** | The ten in `PROMO` §13 → §14 as **OD-29…OD-38**; the §14.x contradictions are recorded in §15, not resolved | — | `PROMO` §13, §14 | — |
+
+---
+
+## 7. Feature 4 — Venue CRM / attendee export
+
+**One sentence.** A **holder-keyed** roster (not purchaser-keyed), a three-layer contact-consent model, and an asynchronous export job that produces a signed, expiring artifact — with the demographics spec's X-1…X-9 as a hard wall the export builder may not cross.
+
+**Why it is shaped this way:** `CRM` §1.2 (the roster-grain decision), §4 (cross-organization isolation and its four proofs), §5.3 (the three opt-out layers), §10 (the four-layer X-6 enforcement).
+
+| # | Layer | What changes | Class | Owning spec § | Pkg |
+|---|---|---|---|---|---|
+| 1 | **Canonical data model** | A per-org pseudonym (`customer_ref`) and a consent relationship between Identity and Organization. **No new roster object** — the roster is a *read* over existing objects | `ADDITIVE SCHEMA CHANGE` | `CRM` §1.4 (join path), §4.3 | — |
+| 2 | **Physical schema** | `kernel.identity_contact_pref` (MUT) · `kernel.org_customer_key` | `ADDITIVE SCHEMA CHANGE` | `SCHEMA` §13.1 (`077` rows) · `CRM` §11.2 | `077` |
+| 2b | | `kernel.org_contact_consent` — carries `source_order_id → venue.order`, which is why it lands in `082` and not earlier | `ADDITIVE SCHEMA CHANGE` | `SCHEMA` §13.1, §13.5-E · `CRM` §11.1-5 | `082` |
+| 2c | | `venue.export_job` · the private `crm-exports` bucket (zero client policies) · the `crm_export_builder` definer role | `ADDITIVE SCHEMA CHANGE` | `SCHEMA` §13.1 (`087` rows) · `CRM` §11.2, §10.1 | `087` |
+| 2d | | Config seeds — limits, caps, retention, `crm_export.constraint_set_version` | `ADDITIVE SCHEMA CHANGE` (rows) | `CRM` §11.1-20, §7.1 · **moved** by `SCHEMA` §13.5-D | `078` |
+| 3 | **Migration package** | `077` · `082` · `087` (+ seeds in `078`, + the `audience_v2` template bump at `090`). The seed move is the only disagreement with `CRM`'s own map | `SPEC CORRECTION` (seeds only) | `REGISTRY` §2 · `SCHEMA` §13.5-D, §13.5-E | `077`,`082`,`087` |
+| 4 | **RLS** | Matrices for the four new tables; the `_sel_svc_export` policies that make the `crm_export_builder` owner work; **`T-RLS-CRM-01`: no platform role can call `venue.request_export`** | `ADDITIVE SCHEMA CHANGE` (policies) | `RLS` §16.6, §16.10 · EXEC authority `RLS` §11.6 | `077`,`082`,`087` |
+| 5 | **RPC** | **14 new**: `get_my_contact_prefs` · `set_my_contact_prefs` (`077`); `grant_`/`withdraw_org_contact_consent` · `list_my_org_contact_consents` (`082`); `request_export` · `build_export_rows` · `finalize_export` · `authorize_export_download` · `revoke_export` · `list_export_jobs` · `sweep_expired_exports` · `list_attendees` · `lookup_attendee` (`087`). **No `p_identity_id` parameter exists on any consent RPC** — a venue can never record consent on a fan's behalf | `NEW RPC` ×14 | `RPC` §17.21, §17.22 · EXEC authority `RLS` §11.7, §11.6 | `077`,`082`,`087` |
+| 5b | | `build_export_rows` / `list_attendees` read `venue.attribution → promoter_link → promoter` (`090`). **Not a forward-reference defect**: the promoter columns are *absent from the file, not blank*, until `090`, and the template version carries it (`audience_v1` → `audience_v2`) | `NO SCHEMA CHANGE` | `SCHEMA` §13.2 **FR-8** · `CRM` §6.4 | `090` |
+| 6 | **Edge Function** | `crm-export` — build + signed `/download` route | `NEW EDGE FUNCTION` | `EDGE` §3.7 · `CRM` §11.5 | deploy, gated on `087` |
+| 7 | **Event envelope** | **none.** The export pipeline runs on `pg_cron` + `pg_net` with a claim-lease and is named in `REGISTRY` §7 as **unaffected** by the outbox ruling | — | `REGISTRY` §7 COND-A (`unaffected`) · `CRM` §6.1 | — |
+| 8 | **RN UI** | Checkout contact opt-in (unchecked by default) · Settings → "Venues you've allowed to email you" + master switch · the pre-deletion "which venues exported a list with you" screen | `NEW RN SURFACE` ×3 | `RN` §4.8 · `CRM` §5.3, §9.2, §11.1-25/26/27 | client, gated on `082`/`087` |
+| 9 | **Venue dashboard** | Attendees tab → **holder-grain** list + suppression legend · export request/history/revoke panel · CRM controls in Settings | `NEW DASHBOARD SURFACE` | `VD` §9.1, §9.6, §16.6 · `CRM` §11.1-29/30 | client, gated on `087` |
+| 9b | | `VD` §9.1's attendee list was **purchaser-keyed**; it is holder-keyed | `SPEC CORRECTION` (**K-1**) | `CRM` §11.7 K-1 · `VD` §9.1 | doc |
+| 10 | **Audit** | Export audit lives on the **platform** plane, not with the venue; every row stamps `constraint_set_version`, so an auditor can prove which X-1…X-9 text was in force. `venue.request_export` writes it in the same transaction as the job row | `NO SCHEMA CHANGE` | `CRM` §8.1–§8.4, §2.4 X-9 | `087` |
+| 11 | **Privacy** | Cross-org isolation XO-1/XO-2 with four proofs; per-org pseudonym so two orgs cannot join rosters; opt-out survives transfer; the **email-lookup oracle** is named as the real hole and rate-limited fail-closed; **read ≠ export** — `platform_support` may look, never extract | — | `CRM` §4, §4.3, §5.4, §7.2, §3.2 (**K-3**) | `087` |
+| 12 | **Tests** | `T-RPC-CRM-01..07` · `T-RLS-CRM-01` (no platform role may `request_export`) · `T-RLS-CRM-02` (venue-grain vs org-grain marketing) · the pgTAP list in `CRM` §12 · the four X-6 layers in `CRM` §10, including the **non-vacuity guard** (a grep over a not-yet-existing file set passes vacuously — this repo shipped that exact failure once) | — | `RPC` §18 · `RLS` §16.11 · `CRM` §10, §12 | — |
+| 13 | **Feature flag** | **NONE NAMED as a boolean kill switch.** `087` seeds limits/caps/retention, all read live so a change takes effect without a deploy — but there is no `crm.export.enabled`. **Gap against this amendment's flag rule — §12.2, decision OD-27** | — | `CRM` §7.1 · `PLAN` §4 | — |
+| 14 | **Rollout gate** | `077`/`082` early; `087` after settlement (`PLAN` §3 seq 12). The **Layer-0 privilege wall (D-2) must be decided before `087`**, because it changes who owns the builder function | — | `PLAN` §3 · `CRM` §13 D-2 | — |
+| 15 | **Open decisions** | D-1…D-11 → §14 as **OD-06, OD-09, OD-16, OD-19, OD-39…OD-43**. D-7 (marketing's CRM ceiling) is **one decision asked by three specs** and D-10 (backup window) is **the demographics D-6**; both are carried once | — | `CRM` §13 | — |
+
+---
+
+## 8. Feature 5 — Notifications
+
+**One sentence.** A versioned type registry, a sparse-override preference model with a structurally undisableable mandatory class, and a five-hop delivery pipeline that **extends** the production notifier — and which **has no migration package**, because its schema's gate is an unresolved contradiction between the constitution and every implementation spec.
+
+**Why it is shaped this way:** `NOTIF` §1.1 (two parallel notification systems that share nothing, today), §3.3 (the mandatory class made structurally impossible to disable), §4.1–§4.3 (the five hops and the C12 envelope).
+
+> **Read §13 before this table.** Rows 3, 5, 6, 7 and 14 are all conditional on the same unresolved ruling. Nothing here is a recommendation on that ruling.
+
+| # | Layer | What changes | Class | Owning spec § | Pkg |
+|---|---|---|---|---|---|
+| 1 | **Canonical data model** | CDM §1.6 already gives Notification a canonical object and a `NotificationID`; C7 already names `notify` as one of the seven contexts. **The model is not the problem — the schedule is** | `NO SCHEMA CHANGE` | CDM §1.6, §15 C7 · `RATIFY` **C52** | — |
+| 2 | **Physical schema** | New schema `notify`, **9 tables**: `notification_type` (C18 registry) · `notification` · `delivery` · `preference` · `identity_channel_state` · `outbox` · `schedule` · `announcement` · `template` | `ADDITIVE SCHEMA CHANGE` | `NOTIF` §6.1 · `SCHEMA` §13.4 | **unscheduled** |
+| 2b | | Additive columns on existing tables: `public.push_tokens` +4 (`revoked_at` becomes the authoritative predicate; `is_active` untouched, no backfill) | `ADDITIVE SCHEMA CHANGE` | `NOTIF` §6.1 · defect D-3 `NOTIF` §1.6 | with the schema |
+| 2c | | `catalog.event_session.session_version` (**Δ-N1**) — a **correctness** requirement: without it a second door-time change collides with the first notification's dedupe key and is silently swallowed | `ADDITIVE SCHEMA CHANGE` | `SCHEMA` §13.1 · `NOTIF` §2.2 Group E | **`078`** |
+| 2d | | `kernel.identity_ext.locale` (**Δ-N2**) | `ADDITIVE SCHEMA CHANGE` | `SCHEMA` §13.1 · `NOTIF` §5.4 | **`077`** |
+| 3 | **Migration package** | **NONE.** If `notify` is ruled Gate P it is package **`092`** — not `091` (a droppable writer-less stub, registry rule §6.7) and not earlier, because `notify.drain_outbox` reads `venue.promoter_link` (`090`) and SEAM-1 floors it there. **Count becomes 17 and the registry's own "no gaps, no duplicates" assertion is falsified** | **BLOCKED — §13** | `REGISTRY` §7 **COND-B** · `SCHEMA` §13.4 · `PLAN` §8 COND-B | `092`? |
+| 4 | **RLS** | Nine matrices, written **conditionally**: `notification`/`preference` owner-scoped, `announcement` venue-scoped read, the rest deny-all. Carries the **single named exception** to the "no INSERT/UPDATE/DELETE policy" rule in the whole model — `notify_notification_upd_owner` | `ADDITIVE` (conditional) | `RLS` §16.9, §16.10 · assertion `T-RLS-POL-03` | with `092` |
+| 5 | **RPC** | **23 new `notify.*`**: 9 fan-facing (`get_inbox`, `get_unread_count`, `mark_read`, `mark_all_read`, `dismiss`, `get_preference_matrix`, `set_preference`, `register_push_token`, `revoke_push_token`) · 5 announcement (`draft`, `approve`, `cancel`, `revoke`, `preview_announcement_audience` — **count only, never an enumeration**) · `report_announcement` · 8 `DEF` pipeline functions (`emit_event`, `enqueue`, `channel_enabled`, `drain_outbox`, `sweep_scheduled`, `claim_deliveries`, `record_delivery_result`, `resolve_web_link`) | `NEW RPC` ×23 | `RPC` §17.24, §17.25 · EXEC authority `RLS` §11.7 | with `092` |
+| 5b | | `claim_deliveries` and `record_delivery_result` are **wholly authored** by the RPC integrator — the source spec names them and supplies no contract body. Marked `INFERENCE`, to be reviewed as design, not absorbed as citation | `NEW RPC` (authored) | `RPC` §17.25, §19-1 | — |
+| 6 | **Edge Function** | `notify-dispatch` (the delivery pipeline) · `notify-receipts` (provider receipt poll + dead-token revocation) | `NEW EDGE FUNCTION` ×2 | `EDGE` §3.14, §3.15 · `NOTIF` §4.6 | deploy |
+| 7 | **Event envelope** | **This feature *is* the envelope pipeline.** `notify.outbox` carries the C12 envelope (per-aggregate monotonic `sequence` allocated under the aggregate's existing row lock, `causation_id`, `correlation_id`, at-least-once + idempotent consumers). Payload rule: **ids and scalars only — never a recipient list, never rendered copy** | `ADDITIVE SCHEMA CHANGE` | `NOTIF` §4.3 · CDM §15 C12 · `SCHEMA` §13.3 | COND-A/B |
+| 8 | **RN UI** | Notification centre · preference screen · deep-link handling · the eight binding requirements · door-drain notifications | `NEW RN SURFACE` | `RN` §6.1–§6.4 · `NOTIF` §6.5, §3.7 | client |
+| 9 | **Venue dashboard** | Notification preferences (§16.5, **binding delegation** to `NOTIF`) · "Send an update" announcement composer (§16.5a) | `NEW DASHBOARD SURFACE` ×2 | `VD` §16.5, §16.5a · `NOTIF` §7 | client |
+| 9b | | **The load-bearing consequence:** `VD` §16.5 is a *binding* dependency on `notify`, **and no Gate-L object may have one**. This is the strongest argument on the record for the Gate-P reading, and it is recorded, not acted on | — | `RLS` §15.7 **MD-10** · `NOTIF` §10 O-N1 | — |
+| 10 | **Audit** | Announcements carry a hold window, a dual-control threshold above a blast radius, and a revocation record; **drafting and releasing are distinct acts (SoD) — never a marketing label for release** | `NO SCHEMA CHANGE` | `NOTIF` §7.3, §7.5 · `RLS` §11.7 | with `092` |
+| 11 | **Privacy** | The account-existence oracle is named and closed; lock-screen exposure to a third-party reader is bounded; a payload may never carry PII or rendered money amounts; staff notifications never leak attendee identity | — | `NOTIF` §8.3, §8.4, §8.5, §8.6 | — |
+| 12 | **Tests** | `T-RPC-NOTIFY-01..04` (**conditional on MD-10**) — recipient derivation; a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`; a claimed delivery inside its lease is not re-claimable; `emit_event`/`enqueue` never raise, so an injected constraint violation leaves the caller's transaction committed. Plus the pgTAP groups A–I in `NOTIF` §9 | — | `RPC` §18 · `NOTIF` §9 | — |
+| 13 | **Feature flag** | `notify.announcements_enabled` + four announcement tuning keys, seeded by `078`. **The pipeline itself has no kill switch** because it has no package | `ADDITIVE SCHEMA CHANGE` (seeds) | `NOTIF` §6.1, §7 · `SCHEMA` §13.1 | `078` |
+| 14 | **Rollout gate** | **Cannot be scheduled at all until §13 is ruled.** Δ-N1/Δ-N2 are already scheduled independently (`078`/`077`) and are safe to ship regardless of the ruling | **BLOCKED — §13** | `REGISTRY` §7 COND-A/COND-B | — |
+| 15 | **Open decisions** | O-N1…O-N15 → §14 as **OD-13, OD-14, OD-44…OD-52**. O-N1 and O-N2 are the two coupled scope questions and are stated in §13 rather than buried in the index | — | `NOTIF` §10 | — |
+
+---
+
+## 9. Feature 6 — Venue dashboard
+
+**One sentence.** The operator web surface — twelve areas, a role × surface matrix **derived** from `RLS` §9.x rather than extending it, and the standing rule that **a control with no named backend capability is read-only or does not render.**
+
+**Why it is shaped this way:** `VD` §4.4 (cross-organization access impossible by construction), §20A (the acceptance rule that every control names a backend capability), §5.1 (the four new labels are an amendment, not an extension).
+
+| # | Layer | What changes | Class | Owning spec § | Pkg |
+|---|---|---|---|---|---|
+| 1 | **Canonical data model** | **none.** The dashboard introduces no canonical object. It consumes them | `NO SCHEMA CHANGE` | `VD` §20 (read index) | — |
+| 2 | **Physical schema** | **none of its own.** Its outstanding asks are Δ5–Δ10 (columns on existing tables) and Δ11–Δ12 (reads); **no new table is proposed by this spec** | — (all **OPEN**) | `VD` §21 | — |
+| 3 | **Migration package** | **none.** The dashboard is a client of `077`–`090`. Its Δ asks, if granted, would attach to the package owning each table (`078` for the `catalog.event` marketing columns, already landed via `ROLE` S-5) | — | `REGISTRY` §2 · `SCHEMA` §13.1 (`078` row) | — |
+| 4 | **RLS** | The §5 role × surface matrix is **derived from** `RLS` §9.x and the role model, and extends neither. Six venue labels + six org labels + three platform labels = the fifteen of C36 | `NO SCHEMA CHANGE` | `VD` §5, §5.1, §5.2 · `RLS` §2.1 · `RATIFY` **O-2** | — |
+| 5 | **RPC** | Consumes the whole surface. Its own asks: **Δ2 `venue.list_activity` SATISFIED** as `venue.read_operational_audit`; **Δ3 satisfied ×3** (`list_attendees` holder-keyed per K-1, `list_org_payouts` naming `org_owner` per O-3, and `get_dashboard_summary` **still only an ask**); **Δ4 satisfied** as `review_attribution_flag` | `NEW RPC` (via siblings) | `VD` §21.0 · `RPC` §17.26, §17.22, §17.5, §17.18 | `087`, `085`, `090` |
+| 5b | | **Ten controls map to nothing: U-1…U-10.** Guest-list CRUD (3 writes, 0 signatures) · **mark a guest arrived** (the most-used control at a door, no contract) · promoter record/link CRUD · door-open blast-radius dry run · live-device count · one-round-trip home summary · batch capacity change · draft-event edit · `kernel.update_organization`. **The pattern is create-but-never-update / authorize-but-never-name** | **UNBACKED** | `VD` §20A.3 | — |
+| 6 | **Edge Function** | Consumes `door-session`/`door-manifest`, `crm-export`, `promoter-code-preview`, `payout-execute`, `refund-execute`. Adds none | `NO SCHEMA CHANGE` | `EDGE` §3.7–§3.9, §3.4, §3.5 | — |
+| 7 | **Event envelope** | Emits none. **Requests none** — the four emitters its notification rules imply (low-inventory threshold crossed, daily digest window closed, payout failed, door anomaly) belong to `NOTIF`, and if that spec did not request them they are deltas on it, not on the dashboard | — | `VD` §21 (closing note) · DA §6.1 | — |
+| 8 | **RN UI** | **none.** The surface split is settled: consumer RN, operator web, scanner as its own mode | `NO CHANGE` | `VD` §3.1 (adopted from `RN` §2) | — |
+| 9 | **Venue dashboard** | Twelve areas A–L. **Four new surfaces arrive from sibling specs**: refund approval queue (money §10.1) · re-authenticate for a money action (money §8.3) · announcement composer (`NOTIF` §7) · holder-mix card (`DEMOG`) and CRM export panel (`CRM`) | `NEW DASHBOARD SURFACE` | `VD` §13.7, §16.9, §16.5a, §9.5, §9.6 | client |
+| 9b | | Door surface §12.4: the manifest and the transfer freeze — **the freeze is monotone and terminal; closing an episode does not clear it**, and the door principal may not open it (O-4) | `SPEC CORRECTION` (applied) | `VD` §12.4, §22.7 · `RATIFY` **O-4** | — |
+| 10 | **Audit** | Reads `kernel.admin_audit` **only** through `venue.read_operational_audit`, which excludes the security plane, returns plain verbs with no before/after payloads, and scopes the finance subset | `NEW RPC` (satisfied) | `VD` §17, §21 Δ2 · `RPC` §17.26 · `RLS` §11.7 | `087` |
+| 11 | **Privacy** | Cross-organization access impossible **by construction**, not by policy; column-scoping by role on every roster read; `platform_support` reads and does not extract | — | `VD` §4.4, §9.3 · `CRM` §3.2 | — |
+| 12 | **Tests** | `T-RLS-ROLE-01..04` (the fifteen labels; no bare role-string or display name in any policy or RPC body) · `T-RLS-DOOR-10` (denied principals cannot open the manifest and `door_open_at` is unchanged) · `T-RLS-MONEY-01..04` · `T-RLS-CRM-02` | — | `RLS` §16.11 | — |
+| 13 | **Feature flag** | **none of its own.** Each surface renders on the flag of the capability it consumes; a surface whose capability is OFF must state that honestly rather than render a dead control | — | `PLAN` §4 · `VD` §20A (the standing rule) | — |
+| 14 | **Rollout gate** | Area-by-area, following its packages: A/B/C after `081`; D after `087`; E after `090`; G after `086`; H/I after `085`/`087`; §16.5 **blocked on §13** | — | `PLAN` §3 · `VD` §20 | — |
+| 15 | **Open decisions** | Δ5–Δ12 and U-1…U-10 → §14 as **OD-53…OD-70**; §22.5, §22.8, §22.10–§22.16 → §14 and §15 | — | `VD` §21, §20A.3, §22 | — |
