@@ -139,17 +139,20 @@ Each is a build-time or CI check, not a code-review convention:
 | Fn | § | Sub-class | What actually authorizes it |
 |---|---|---|---|
 | `stripe-webhook` | §4 | B-i + B-iii | Stripe HMAC-SHA256 `v1` signature, `timingSafeEqual`, ±300s replay window, `claim_stripe_webhook_event` lease. `verify_jwt=false` (frozen, I-10) |
-| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — the **second and last** such surface in the system |
+| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — **one of five such surfaces; see §7's enumeration, which is the only place that count is stated** |
 | `wallet-pass-push` | §3.12 | B-i | outbox drain / scheduler; wraps `record_wallet_push_result`, a definer-only writer. Its `is_platform` *manual* re-drive route is **Class A** (§3.12) |
 | `notify-dispatch` | §3.14 | B-i | scheduler/outbox drain; no human caller exists |
 | `notify-receipts` | §3.15 | B-i | provider (Expo/APNs) receipt poll; no human caller exists |
-| `door-session` | §3.9 | B-iii | a `venue.door_pin` — a **loginless device credential with no `auth.uid()`** (role model §7.2). `kernel.assert_door_session(device, session)` is the authority; RM-5 forbids a door session from ever being an RLS predicate |
+| `door-session` | §3.9a | B-iii | **two credentials in sequence.** A `venue.door_pin` — a loginless device credential with no `auth.uid()` (role model §7.2) — **provisions**; the **door session token** (§3.9a: `session_ref` + 256-bit secret, stored as a hash, presented on every subsequent call) **authorizes**. `kernel.assert_door_session(device, session, session_ref, token)` is the authority and is called on **every relay call**; the device id comes from its **return value**, never the request. RM-5 forbids a door session from ever being an RLS predicate |
 
 **Consequence for the door plane (role model §7.2/§7.3, RM-5):** a door session carries no `auth.uid()`, so
 **no** door-session route may invoke a caller-identity RPC. Everything the door does reaches the DB through
 definer RPCs whose authority is `kernel.assert_door_session`. This is not an EA-2 exemption — it is EA-3
-(B-iii): the door PIN *is* the credential, and it is deliberately weaker than a JWT, which is why O-4 denies the
-door principal the manifest-open authority (§3.9).
+(B-iii): the door PIN provisions and the **door session token** is the credential, deliberately weaker than a
+JWT, which is why O-4 denies the door principal the manifest-open authority (§3.9). **`assert_door_session` is
+the only gate on this plane — RLS is bypassed entirely behind it — which is why §3.9a specifies what the device
+actually holds and what every relay call must re-check. A predicate that verifies provisioning rather than
+possession is not a gate (H-3).**
 
 ### 0.5 What this does NOT change
 
@@ -214,7 +217,7 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | Candidate | Verdict | Why | Source spec |
 |---|---|---|---|
 | Build + sign the `.pkpass` | **NEW EDGE** `wallet-pass-issue` (§3.10) | KMS sign with the Apple Pass Type ID key; object-storage write | Wallet §11.8 |
-| Apple PassKit device web service | **NEW EDGE** `wallet-pass-webservice` (§3.11) | iOS presents `Authorization: ApplePass`, not a JWT; **second and last `verify_jwt=false` surface** | Wallet §6.1 |
+| Apple PassKit device web service | **NEW EDGE** `wallet-pass-webservice` (§3.11) | iOS presents `Authorization: ApplePass`, not a JWT; a `verify_jwt=false` surface — **§7 holds the enumeration** | Wallet §6.1 |
 | APNs pass-update push | **NEW EDGE** `wallet-pass-push` (§3.12) | APNs is external I/O; outbox-driven | Wallet §6.3 |
 | Apple pass-type certificate provisioning / rotation | **NEW EDGE** `pass-cert-provision` (§3.13) | KMS import/keygen, out-of-band Apple step | Wallet §8.4 |
 | Sign the **ticket** manifest (M2) for parity with M1 | **NEW EDGE (optional)** `door-manifest` (§3.9) | KMS sign; deterministic over the digest, so re-signing is free | Door §16 OQ-7 |
@@ -498,18 +501,102 @@ specified against that fact, and it is why §0.4 puts them on opposite sides of 
 
 #### 3.9a `door-session` — mint + validate the loginless door session — **NEW EDGE** (role model §12 rows 21–22)
 
-- **Method:** `POST`. **verify_jwt:** `false`. **Auth model: Class B (B-iii)** — the credential is a
-  `venue.door_pin`, a deliberately weak, expiring, revocable, **loginless device credential**. There is no JWT
-  and no `auth.uid()` to preserve, so EA-1 has nothing to attach to; the function's own PIN check **is** the
-  authority, and `kernel.assert_door_session(p_device_id, p_session_id)` is the DB-side predicate.
-- **Routes (same function, separate paths):** mint a session from a PIN + device; validate/refresh it; and
-  relay scan / manifest-sync / offline-batch calls to the definer RPCs (`venue.get_door_manifest`,
-  `venue.record_scan`, `venue.reconcile_offline_scans`).
-- **EA-5 obligations, all mandatory:** PIN compared **constant-time** (`timingSafeEqual`, I-9); the session
-  authorizes **one device bound to one session** — never an account, never another session, never a venue;
-  `check_rate_limit` on the PIN attempt keyed by device, fail-closed; **an unknown device and a wrong PIN
-  return the same status with the same timing budget**; a revoked PIN fails on the **next** call (this is the
-  property a JWT would destroy — role model §7.3 rejects a door JWT for exactly this reason).
+> **`SPEC CORRECTION` — H-3. The door session proved provisioning, not possession.** As specified, the session
+> "credential" was **nothing the device held**. `kernel.assert_door_session(p_device_id, p_session_id)` read
+> `venue.scan_device` and `venue.door_pin` and took **no PIN, no token, no nonce**; the role model posits a
+> *"door session token — the bearer artifact the device actually holds"* and **no `door_session` object existed
+> anywhere** in the schema spec, the migration plan or the package registry. So the device id arrived as an
+> **untrusted parameter** on a `verify_jwt: false` function holding the service-role key, and every
+> anti-enumeration obligation was attached to the **PIN attempt** — none to a relay call. Consequences:
+> **anyone knowing one live `(device_id, event_session_id)` pair reached admission unauthenticated**, and a
+> session could not be revoked independently of the PIN because nothing consulted a token. This is the path the
+> RPC spec itself describes as *"RLS is bypassed entirely and this function is the only gate."*
+> **§3.9a below is that gate, specified.**
+
+- **Method:** `POST`. **verify_jwt:** `false`. **Auth model: Class B (B-iii)** — two credentials, in sequence,
+  and they are not interchangeable. The `venue.door_pin` is a deliberately weak, expiring, revocable,
+  **loginless provisioning credential**: it is presented **once**, to mint. Everything afterwards is
+  authorized by the **door session token** — the bearer artifact the device actually holds. There is no JWT
+  and no `auth.uid()` to preserve, so EA-1 has nothing to attach to; the DB-side predicate is
+  `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` and **it is the only gate**.
+- **Routes (same function, separate paths):** `/mint` (PIN + device → token); `/refresh` (token → extended
+  token); and the relay routes `/manifest/sync`, `/scan`, `/offline-batch` to the definer RPCs
+  (`venue.get_door_manifest`, `venue.record_scan`, `venue.reconcile_offline_scans`).
+
+##### The door session token — bearer format, issuance, verification
+
+- **Format.** `Authorization: DoorSession <session_ref>.<secret>`.
+  - `session_ref` — 128 bits of CSPRNG, base64url. A **lookup handle, not a secret**; unique-indexed; may
+    appear in logs and traces.
+  - `secret` — **256 bits of CSPRNG**, base64url. Returned **once**, at mint, and never re-returned by any
+    route.
+  - **Stored:** `token_hash = sha256(session_ref || ':' || secret)` only — never the plaintext, never
+    reversibly encrypted. Binding `session_ref` into the digest means a secret harvested from one row cannot be
+    replayed against another ref.
+  - **Never in a URL, query string, or redirect.** Never logged, never in Sentry context, never in a scan
+    payload. On the device it lives in the OS secure store (Keychain / Keystore — RN `SecureStore`, the H-5
+    posture), never in `AsyncStorage`.
+- **Issuance (`/mint`).** Body `{ venue_id, event_session_id, device_id_claim, pin }` — **all untrusted**.
+  The function rate-limits the attempt (below), compares the PIN **constant-time** (`timingSafeEqual`, I-9),
+  and calls the definer RPC `venue.mint_door_session(...)`, which re-validates PIN ↔ device ↔ session
+  **server-side** and returns `{ session_ref, secret, expires_at, bound_device_id, bound_session_id }`. The
+  edge asserts nothing on its own and derives no authority from the body.
+- **Verification (every other route).** Split the header on the last `.`, look the row up by `session_ref`,
+  and compare digests **constant-time**. When the ref does not resolve, the function performs a **dummy
+  compare against a fixed decoy digest** so the absent-ref and wrong-secret paths cost the same. Verification
+  happens **inside `kernel.assert_door_session`**, not in the edge, so no second implementation can drift from
+  it and no plaintext leaves the DB boundary.
+- **Binding.** One token ⇔ **one `(device_id, event_session_id)` pair**. Never an account, never a venue,
+  never a second session, never a role. Presenting a valid token with a different `p_session_id` is a hard
+  refusal, not a fallback.
+- **TTL.** `expires_at := LEAST( now() + config('door.session_ttl_interval'), pin.expires_at,
+  session_end + config('door.session_post_session_grace') )`. `/refresh` extends from `now()` under the same
+  `LEAST`, **without rotating the secret** (rotating it would strand a device that is about to go offline),
+  and is itself capped: no session may live past `issued_at + config('door.session_absolute_max_interval')`.
+  Past the absolute cap the device must re-enter a PIN. A refresh is not an extension of authority — it is a
+  re-assertion that the PIN and the session are both still live, re-read at that moment.
+- **Revocation — three paths, all effective on the *next* call.**
+  1. `venue.revoke_door_pin` **MUST cascade**: every `door_session` minted from that PIN is revoked in the
+     same transaction. **Without the cascade, revoking a PIN leaves live bearer tokens behind** — which is
+     H-3 reproduced one level up, and it is the single most important line in this subsection.
+  2. `venue.revoke_door_session(p_session_ref, p_reason_code)` — a lost or stolen device, without disturbing
+     the PIN every other door is using.
+  3. `venue.close_door_manifest(..., 'device_recall')` **should** revoke the session's tokens (recommended).
+  Revocation lands on the next relay call because **every** relay call re-reads the row (below). This is the
+  property a JWT would destroy — role model §7.3 rejects a door JWT for exactly this reason, and it is only
+  actually true once something the device holds is checked on every call.
+
+##### Per-relay-call obligations (BINDING — a relay call is not a lesser call than a PIN attempt)
+
+Every call to `/manifest/sync`, `/scan` and `/offline-batch` MUST:
+
+1. **Present the token.** No `Authorization: DoorSession` header ⇒ refuse before any DB work beyond the
+   limiter. There is no unauthenticated relay route.
+2. **Call `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` on every call** —
+   never cache the result across calls, never across the items of an offline batch. Caching is what converts
+   "revoked on the next call" into "revoked eventually".
+3. **Take the device id from the assert's return value, never from the request.** `assert_door_session`
+   returns the **bound** `device_id` and `event_session_id`; the edge passes that returned device id to
+   `venue.record_scan` / `venue.reconcile_offline_scans` as **`p_actor_device_id`**. A `device_id` in the
+   request body is **ignored**; if it is present and disagrees with the bound value, the call is refused and a
+   Sentry event raised — that shape is an attack, not a client bug. **(EA-6: no function passes an actor, a
+   role, or an authority assertion as an RPC parameter — the device id was exactly such an assertion.)**
+4. **Match the session.** `p_session_id` must equal the token's bound session; otherwise refuse.
+5. **Be rate-limited fail-closed, per route**, on the derived principal (§7's derived-principal rule):
+   `check_rate_limit(uuidv5(NS_DOOR_SESSION, session_ref), '<route>', …)`. The PIN attempt uses a **different**
+   principal, `uuidv5(NS_DOOR_PIN, venue_id || ':' || device_id_claim)`, so PIN grinding and relay abuse have
+   separate budgets and neither can exhaust the other.
+6. **Leak nothing by shape or by clock.** Unknown ref · wrong secret · expired · revoked · session mismatch ·
+   unknown device return the **same status, the same body, and the same timing budget**. The obligation that
+   previously sat only on the PIN attempt now sits on every route.
+7. **Touch `last_seen_at`**, and emit a per-`session_ref` and per-device 401 counter to Sentry — a device
+   whose token starts failing is either recalled or being replayed, and both are worth seeing.
+8. **Never log the token.** The `session_ref` may be logged (it is a handle); the secret and the full header
+   may not, in any stage line, error path, or Sentry context.
+
+**Structural gate.** Every relay handler's **first** DB call is `assert_door_session`. Asserted the way §0.3's
+T-1…T-6 are asserted — a handler that reaches `record_scan` without it fails CI, because on this function
+there is no RLS behind the mistake.
 - **RM-5 (binding, role model §6.6): a door session is never an RLS predicate.** Everything the door reaches,
   it reaches through a definer RPC gated on `assert_door_session`.
 - **What the door session may NOT do (O-4, role model §5 F1–F4, §8.2):** open or close the door manifest, move
@@ -517,6 +604,25 @@ specified against that fact, and it is why §0.4 puts them on opposite sides of 
   create the security boundary it scans against.** There is **no Open control in the scanner** — absent, not
   disabled (door §11.2). It also holds **no** consumer capability of any kind: no `auth.uid()` ⇒ no owned rows.
 - **Secrets:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`. **Package:** `086` (scan package).
+  **No token material in env** — the token is minted per device, per session, and lives only in
+  `venue.door_session.token_hash`.
+
+##### What §3.9a needs from the schema / RLS / RPC specs — `REPORTED, NOT MADE HERE`
+
+This spec owns the edge contract; it does not own the tables or the RPC signatures. The design above is
+**unimplementable without all five** of the following, and they are reported to their owners:
+
+| # | Owner document | Change |
+|:-:|---|---|
+| 1 | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` (+ migration plan pkg **`086`**, package registry) | **NEW TABLE `venue.door_session`** — `door_session_id` uuid PK; `session_ref` text **UNIQUE** not null; **`token_hash` text not null**; `device_id` uuid not null FK→`venue.scan_device`; `event_session_id` uuid not null FK→`catalog.event_session`; `venue_id` uuid not null; `pin_id` uuid not null FK→`venue.door_pin` (the cascade key); `issued_at`, `expires_at`, `last_seen_at`, `revoked_at` nullable, `revoke_reason_code` nullable. Partial index on `(device_id, event_session_id) WHERE revoked_at IS NULL AND expires_at > now()`. **`token_hash` and `session_ref` granted to `service_role` only; no client role reads this table at all.** AO-with-forward-transitions (revoke is the only UPDATE). |
+| 2 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1d | **Signature change:** `kernel.assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)`, and it **returns the bound `(device_id, event_session_id)`** rather than a boolean. `p_device_id` is retained only as a cross-check that must match the bound value — **never** as the source of the device identity. Constant-time digest compare inside the function, with a dummy compare on an unresolved ref. |
+| 3 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.4 / §9.5 | **`venue.record_scan` and `venue.reconcile_offline_scans` gain a distinct `p_actor_device_id`**, supplied from `assert_door_session`'s return value, so the device id stops being a client-supplied claim. (The traceability matrix already names this as **X-5** for `door-session`: *"it must derive `p_actor_device_id` server-side"*.) |
+| 4 | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` (new) | **`venue.mint_door_session(p_venue_id, p_session_id, p_device_id_claim, p_pin, p_command_key)`** and **`venue.revoke_door_session(p_session_ref, p_reason_code)`**, both `DEF`; and **`venue.revoke_door_pin` MUST cascade** to every session minted from that PIN, in the same transaction. |
+| 5 | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | EXEC rows for `mint_door_session` / `revoke_door_session` (`service_role` / `venue_manager` respectively), and **`venue.door_session` as an audit-only matrix** — RLS on, zero policies, `REVOKE ALL FROM anon, authenticated`. **RM-5 still holds: `assert_door_session` appears in no `pg_policy`.** |
+
+**Not requested, deliberately:** no change to the ticket atom, the ownership log, the transfer engine, the
+payment core, SSCAS membership, or the lock order. `venue.door_session` is a new leaf table on the door plane
+and joins no custody sequence.
 
 #### 3.9b `door-manifest` — sign the M2 ticket manifest — **NEW EDGE (OPTIONAL)** (Door §16 OQ-7)
 
@@ -566,17 +672,38 @@ specified against that fact, and it is why §0.4 puts them on opposite sides of 
 ### 3.11 `wallet-pass-webservice` — Apple PassKit device web service — **NEW EDGE** (Wallet §6.1)
 
 - **Method:** `GET`/`POST`/`DELETE` on Apple's five fixed paths. **verify_jwt:** **`false`** — iOS presents
-  `Authorization: ApplePass <token>`, not a Supabase JWT. **This is the second function in the entire system
-  with `verify_jwt=false`, after `stripe-webhook`, and it is the last one this spec admits.**
+  `Authorization: ApplePass <token>`, not a Supabase JWT.
+  > **`SPEC CORRECTION` — the count was wrong and had been copied.** This section, §0.4, §2 and Wallet §6.1 all
+  > called this *"the second and last"* `verify_jwt=false` surface. **It is not.** §7 enumerates **five**:
+  > `stripe-webhook`, `wallet-pass-webservice`, **`door-session`**, `crm-export /build`, and
+  > `promoter-code-preview`. `door-session` is the one that matters here — it relays scan and offline-batch
+  > calls holding the service-role key (§3.9a) — and three documents asserting "second and last" is how a
+  > third unauthenticated surface arrives without anyone counting it. **The count is stated in exactly one
+  > place, §7. No other section states a count; they cite §7.** A `verify_jwt=false` posture must be argued in
+  > its own section and enumerated in §7, in the same change.
 - **Auth model: Class B (B-i + B-iii).** The caller is an Apple device. The per-pass `authenticationToken`
   is the credential. All DB access is through definer RPCs using `service_role`; **the function never issues
   raw SQL and never reads a table directly.** This is a correct EA-3 classification, not an EA-1 exemption:
   no RPC on this path takes authority from `auth.uid()`.
 - **EA-5 obligations, all mandatory (Wallet §6.1, compensating controls):** constant-time compare against
   `auth_token_hash` (I-9); **the token authorizes one serial only — never a session, never an account, never
-  another pass**; `check_rate_limit` keyed on `(serial_no_opaque, deviceLibraryIdentifier)`, fail-closed;
+  another pass**; `check_rate_limit` on the **derived principal** `uuidv5(NS_WALLET_PASS, serial_no_opaque ||
+  ':' || deviceLibraryIdentifier)` (§7 — the limiter's first parameter is a `uuid`), fail-closed;
   **no enumeration — an unknown serial and a wrong token return the same status with the same timing budget**;
   no PII beyond what is already inside the pass the caller authenticated for.
+- **Liveness preconditions — `SPEC CORRECTION` (H-4).** The auth-token compare is **not** the whole authority.
+  `kernel.get_wallet_pass_build_context` additionally requires **`status='issued'`** and
+  **`holder_identity_id = kernel.tickets.current_owner_id`, read live** (Wallet §11.6a), and returns the
+  identical shape/status/timing when either fails. Without them a **former owner** unzips their own `.pkpass`,
+  reads `serialNumber` + `authenticationToken`, and polls this `verify_jwt=false` endpoint with no device for
+  the live state of a ticket they no longer own — supersession was the only guard and it runs **outside the
+  custody transaction**. **A rebuild re-signs at `credential_version_at_build`, never at the live
+  `credential_version`** — otherwise this function is a credential-refresh endpoint for whoever holds the auth
+  token.
+- **`list_updated_wallet_passes` is the one route that returns *multiple* serials** and must therefore be the
+  most tightly bound, not the least: see Wallet §11.6b. It takes the auth token, verifies it constant-time
+  against a pass **registered to the presenting device**, and returns serials **only** from that device's live
+  registrations.
 - **Wraps:** `get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` ·
   `list_updated_wallet_passes`. Honours `If-Modified-Since` → 304; 201 new / 200 already registered.
 - **Requires a security review sign-off for its `verify_jwt=false` posture** (Wallet §13 item 12, OQ-W6). This
@@ -780,24 +907,81 @@ diagnostics only. **No edge function may treat `manifest_version` as an authorit
 - **Signing M2 for parity** is the optional `door-manifest` edge function (§3.9); the TLS-only fallback is
   acceptable for MVP.
 
-#### 5.4.3 Offline door verify — the corrected algorithm (BINDING)
+#### 5.4.3 Offline door verify — the corrected algorithm (BINDING · NORMATIVE · SINGLE SOURCE)
 
-> **Offline door verify (no server round-trip):** the door verifies a presented token by
-> (1) checking the token's `key_id` is in the cached **key manifest (M1)** and within
-> `[not_before, not_after]` and `status ≠ revoked`; (2) verifying the signature with that **public key**;
-> (3) checking `session_id` matches and `exp` is within the offline skew window (±2 time-buckets, RPC §9.3);
-> **(3b) checking that the token's `credential_version` equals `M2[atom].credential_version` and that
-> `M2[atom].ticket_state = 'active'`, where M2 is the session's open door manifest
-> (`venue.door_manifest_entry`, door-lifecycle spec §10.3) — mismatch ⇒ reject `version_stale`; the atom
-> absent from M2 ⇒ reject (not admissible for this session);** *(3c, recommended)* checking
-> `token.key_id == M2[atom].signing_key_id`; (4) enforcing first-in-wins locally from its offline scan log.
-> **With no M2, the door has no offline authority and must not admit** (door-lifecycle §3.1).
-> **No private key, no network, no DB.**
+> **`SPEC CORRECTION` — H-2, a regression this section introduced.** The text that previously stood here
+> carried **two** conjuncts at step 3b — `credential_version` equality and `ticket_state = 'active'`. The
+> door-lifecycle spec §9.2 had **already** corrected the predicate to **five**, and states why: a
+> `paid_pending_transfer` atom is `state='active', resale_state='locked'` (RPC §12.3) and is deliberately
+> excluded from the door-open drain (door §7.3), so without the `resale_state` conjunct *"the offline door
+> would have admitted an atom the online door refuses with `listed_locked`."* The same gap admitted a
+> `refund_hold` atom. This section adopted the older Wallet §11.9 wording **after** the door spec had corrected
+> it — inside the very section that claims the two cannot drift. Consequence while it stood: **the offline door
+> was strictly more permissive than the online one.** A seller already paid under `paid_pending_transfer` was
+> admitted offline and the buyer then refused `duplicate`. Restated below at full strength; the drift mechanism
+> itself is closed by the single-source rule that follows.
+
+**The block below is the single normative statement of the offline admission predicate for the entire
+specification set.** It is tagged `OFFLINE-VERIFY-v1`. The scanner SDK implements *this* text.
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
+
+> **Single-source rule — `OFFLINE-VERIFY-v1` (BINDING). This is the fix for the *mechanism* of H-2, not just
+> its instance.** Four documents each held their own copy of this predicate (this §5.4.3, Wallet §2.3, Wallet
+> §11.9, door §9.2). One of them was corrected and the others were not, and the one that stayed wrong was the
+> one labelled BINDING. From this point:
+>
+> 1. **Normative home:** the block above. A change to the predicate is made **here first**. A change made
+>    anywhere else is not a change to the predicate — it is a defect in that document.
+> 2. **Mirrors are reproduced verbatim, never paraphrased.** A document that needs its reader to see the checks
+>    reproduces the block **byte-for-byte** inside a fence whose first line is the `OFFLINE-VERIFY-v1` tag.
+>    The three sanctioned mirrors are **door §9.2**, **Wallet §2.3** and **Wallet §11.9**.
+> 3. **CI gate (`SPEC CORRECTION` to the gate set):** a docs job extracts every fenced block under
+>    `docs/architecture/**` whose first line begins `OFFLINE-VERIFY-v1` and **fails the build unless every one
+>    is byte-identical** to this one. The gate can be added green today. A prose restatement of the predicate
+>    outside a tagged block is a review reject.
+> 4. **Presentation forms are non-normative.** The row-form check table below and Wallet §2.3's table are
+>    reading aids. Where a table and the block disagree, **the block governs and the table is the defect**.
 
 The authoritative admit is reconciled later via `venue.reconcile_offline_scans` (RPC §9.5).
 
-**Normative check table** (Wallet §2.3 — the row form of the same algorithm, reproduced so the door SDK and
-this spec cannot drift):
+**Check table — NON-NORMATIVE presentation of `OFFLINE-VERIFY-v1`** (the row form, kept as a reading aid;
+Wallet §2.3 carries the same table. **The fenced block governs; a disagreement is a defect in this table.**):
 
 | # | Check | Reference value | Online | Offline |
 |:-:|---|---|:-:|:-:|
@@ -805,24 +989,42 @@ this spec cannot drift):
 | 2 | `Verify(pub_key[token.key_id], claims, sig)` | M1 public key | ✔ | ✔ |
 | 3 | `token.session_id == scanning_session_id` | device's session binding | ✔ | ✔ |
 | 3a | `now() <= token.exp` ± 2 time-buckets | device clock | ✔ | ✔ |
-| **3b** | **`token.credential_version == M2[atom].credential_version`** ∧ **`M2[atom].ticket_state = 'active'`** | **M2 entry** | n/a | **✔ — the W-3 fix** |
-| 3c | `token.key_id == M2[atom].signing_key_id` *(recommended)* | M2 entry | n/a | ✔ |
-| 4 | `venue.validate_ticket_online(atom, session)` → `admittable` **and** returned `credential_version == token.credential_version` | `kernel.tickets`, live (C37) | **✔** | n/a |
+| **3b** | **all five conjuncts of `OFFLINE-VERIFY-v1` 3b:** atom ∈ M2 · no applied `revoke` delta · `token.credential_version == M2[atom].credential_version` · `M2[atom].ticket_state = 'active'` · **`M2[atom].resale_state = 'none'`** | **M2, applied set** | n/a | **✔ — the W-3 fix** |
+| **3c** | `token.key_id == M2[atom].signing_key_id` — **REQUIRED** (was *"recommended"*; promoted with an online counterpart in row 4 and a structural guard, Wallet §8.3) | M2 entry | n/a | **✔** |
+| 4 | `venue.validate_ticket_online(atom, session)` → `admittable` **and** returned `credential_version == token.credential_version` **and** returned `signing_key_id == token.key_id` *(the online counterpart of 3c)* | `kernel.tickets`, live (C37) | **✔** | n/a |
 | 5 | first-in-wins | local admitted set (offline) / `venue.record_scan` partial unique (online) | ✔ | ✔ |
 | 6 | authoritative admit | `venue.record_scan` → `kernel.mark_ticket_scanned` | ✔ | deferred to `reconcile_offline_scans` |
 
 **Obtaining a reference value and not comparing it is the whole of defect W-3 reproduced at the client**
-(Wallet §10.2). The scanner build MUST carry a unit/integration test asserting that the offline verifier
-compares `token.credential_version` against `M2[atom].credential_version` and **refuses to admit when M2 is
-absent** (Wallet §12, W-14). A door that admits with no M2 is not degraded — it is unauthenticated.
+(Wallet §10.2). The scanner build MUST carry a unit/integration regression test covering **every conjunct
+separately** — one failing case per conjunct, each asserting a refusal:
+
+| Case | Fixture | Required outcome |
+|---|---|---|
+| 3b.i | atom not in M2 | reject `wrong_session` |
+| 3b.ii | atom in the base snapshot, `revoke` delta applied | reject `voided` |
+| 3b.iii | `token.credential_version = M2[atom].credential_version − 1` | reject `version_stale` |
+| 3b.iv | `M2[atom].ticket_state = 'scanned'` | reject `duplicate` |
+| **3b.v (a)** | `M2[atom].resale_state = 'locked'` (the `paid_pending_transfer` shape) | reject `listed_locked` |
+| **3b.v (b)** | `M2[atom].resale_state = 'refund_hold'` | reject `refund_hold` (door §9.2) |
+| 3c | `token.key_id ≠ M2[atom].signing_key_id`, both in M1 and in-window | reject `version_stale` |
+| applied-set | a `revoke` delta present in `deltas[1..last_synced_seq]` but **not applied** by the verifier | **test fails** — evaluating the base snapshot alone is the defect |
+| no-M2 | M2 absent / past its downloaded `not_after` / for another session | **refuse to admit** (Wallet §12 W-14) |
+
+A door that admits with no M2 is not degraded — it is unauthenticated. **Two conjuncts short of the online
+door is not a degraded door either: it is a more permissive one, which is the H-2 failure shape.**
 
 - **Online door verify:** door still verifies the signature against M1, THEN calls
   `venue.validate_ticket_online` (RPC §9.3) for liveness — and **compares the returned `credential_version`
   to the token's** (row 4 above; the live read is the online substitute for M2). `record_scan` (§9.4) is the
   authoritative admit. **This is why `scan-validate` is NOT an edge function** — no secret and no third-party
   is involved; the crypto is public-key + door-side, the liveness is a DB read.
-- **Reject vocabulary:** a 3b mismatch surfaces as `version_stale`, reusing the existing operator copy
-  *"This pass is out of date. Ask them to open the Snatch It app."* (door §11.2). **No new vocabulary.**
+- **Reject vocabulary:** door §9.2's map is normative for reasons. A **3b.iii** or **3c** mismatch surfaces as
+  `version_stale`, reusing the existing operator copy *"This pass is out of date. Ask them to open the Snatch
+  It app."* (door §11.2). **3b.v** splits by label: `{listed, locked}` → `listed_locked`, and
+  **`refund_hold` → `refund_hold`**, the one reason added by this correction — because it is the one refusal
+  with a remedy the holder can act on (`kernel.cancel_refund_request`, RPC §17.3), and folding it into
+  `listed_locked` tells a paying customer something false.
 
 ### 5.5 Offline token behavior + version-bump invalidation (recon #4)
 - `credential-sign` returns a **cacheable token + `credential_version` + `not_after` + `ttl_seconds`**. The
@@ -834,13 +1036,34 @@ absent** (Wallet §12, W-14). A door that admits with no M2 is not degraded — 
   3b in place the TTL is chosen for operational reasons only: long enough to survive a dead-zone at the door,
   short enough to bound a verifier running an M2 older than its `not_after`. The token's `exp` claim is
   enforced door-side within the ±2-bucket offline skew.
-- **Invalidation by version bump:** every custody move (`transfer_ticket_ownership`, `void_ticket_atom`) **bumps
-  `kernel.tickets.credential_version` (+1)** in the RPC layer. A cached token carries the *old* version;
-  (a) an **online** door sees `version_stale` from `validate_ticket_online` and rejects; (b) an **offline** door
-  admits on signature+window but the later `reconcile_offline_scans` flags the mismatch, and the **new owner's**
-  re-signed token (bumped version) is the one that admits on any online door. On reconnect the client
-  re-fetches from `credential-sign` and discards the stale cached token (recon #4). **The credential IS the
-  delivery** — bumping the version is what makes a sold/transferred ticket's old QR fail closed.
+- **Two token profiles — `SPEC CORRECTION` (Wallet §5.2, §11.9).** `credential-sign` takes an **`aud`
+  (audience) claim** selecting a TTL profile. `NO SCHEMA CHANGE`; the door **ignores `aud` entirely** and must
+  never branch on it (Wallet §10.1 — a branch on delivery surface is a security bug, because the camera cannot
+  verify the branch condition).
+
+  | Profile | `aud` | `exp` | Consumer | Refresh path |
+  |---|---|---|---|---|
+  | **app** (default) | `app` | `now() + config('credential.app_ttl_interval')` | RN in-app Entry Pass | client re-calls `credential-sign` on foreground/reconnect |
+  | **wallet** | `wallet` | the clamped session-bounded value — **Wallet §5.2a**, not a raw `LEAST` over constants | the `.pkpass` barcode | pass update web service + APNs, best-effort |
+
+- **Invalidation by version bump — `SPEC CORRECTION`, this bullet narrated the pre-fix world.** Every custody
+  move (`transfer_ticket_ownership`, `void_ticket_atom`) **bumps `kernel.tickets.credential_version` (+1)** in
+  the RPC layer, and a cached token carries the *old* version. **What each door does with that, as of §5.4.3:**
+  - **online** — `validate_ticket_online` returns the live version, the door compares, rejects `version_stale`;
+  - **offline** — the door rejects it too, at conjunct **3b.iii**, against `M2[atom].credential_version`.
+    The sentence that stood here — *"an offline door admits on signature+window but the later
+    `reconcile_offline_scans` flags the mismatch"* — **described the behaviour this document's own §5.4.3
+    fixes**, in the same document as the fix, and it is exactly the text an implementer would have coded to.
+    Reconciliation is now the **evidence trail**, not the control: the control is 3b, at the door, before the
+    person walks in. Whether the door was online or offline, the stale token does not admit.
+  - **the residual, stated honestly:** a device holding an M2 from before a **break-glass** custody move still
+    carries the old reference value and will admit the pre-override owner — door §8.2.1's residual, bounded by
+    the manifest `not_after` the device already downloaded. That is the only case in which the old narration is
+    still true, and it is not a routine path.
+
+  On reconnect the client re-fetches from `credential-sign` and discards the stale cached token (recon #4).
+  **The credential IS the delivery** — bumping the version is what makes a sold/transferred ticket's old QR
+  fail closed, **at both doors**.
 
 ### 5.6 Rotation · validity overlap · revocation · compromise runbook
 - **Rotation (`kernel.rotate_signing_key`, wrapped by `signing-key-provision`):** in one DB txn, old key
@@ -851,6 +1074,35 @@ absent** (Wallet §12, W-14). A door that admits with no M2 is not degraded — 
   `key_id` is revoked once **M1** refreshes; **offline doors within the skew window are the residual gap** —
   mitigated by the offline `credential_version` check against M2 (§5.4.3 step 3b), by bounded token TTL, and by
   the door freeze (below).
+- **Revocation MUST force-close open door-manifest episodes — `SPEC CORRECTION`, and it is a condition of a
+  granted ruling that nothing implemented.** Door §16 OQ-5's ruling granted the session-bounded Wallet token
+  profile on **two** conditions, and stated of the second: *"Revoking a signing key for a scope with an open
+  episode MUST force-close and invalidate it… **Without this I would reject DL-4**, because item 1 alone leaves
+  a 12-hour token against a revoked key."* **The mechanism it points at (door §8.2.1, `reason='key_revoked'`,
+  envelope #44) existed; the caller did not.** `kernel.revoke_signing_key` was specified here and in RPC §13 as
+  a key-table update and nothing else, so the condition the grant rested on was satisfied by no code path — the
+  exact "a correct thing that nothing called" failure class door §8.4 names.
+
+  **Normative.** In the **same transaction** as the revocation, `kernel.revoke_signing_key(p_key_id, …)` MUST,
+  for every session in the revoked key's scope (event or venue) that has an episode with `status='open'`:
+  1. `venue.close_door_manifest(session_id, 'key_revoked')`;
+  2. set `not_after := now()` on every episode of that session, so a device that reconnects before its
+     downloaded horizon still refuses;
+  3. emit `DoorManifestInvalidated` (door §12.2 #44) with `reason='key_revoked'` — the enum already carries
+     the label;
+  4. write the `kernel.admin_audit` row naming the key and the sessions closed.
+
+  This collapses the revocation window from *the token's remaining life* to *the device's offline duration*,
+  which is what makes the OQ-5 grant's arithmetic true. **The residual is unchanged and still honest:** a
+  device offline across the revocation keeps admitting until its downloaded `not_after`, bounded by
+  `door.manifest_ttl_interval` (door §8.2.1 clause 4).
+
+  **Reported, not made here** — `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §13's `kernel.revoke_signing_key` contract
+  needs the write set, the lock order (`catalog.event_session` **FOR UPDATE**, rank 1, before the key row, per
+  door §7.2) and the audit row above. **This is a batch over sessions in one transaction: the scope's session
+  count is the blast radius, and the contract owner should say so.** Until it lands, the OQ-5 grant's second
+  condition is unmet and Wallet's session-bounded profile is not safe to enable — **§13 item 10 in the Wallet
+  spec is extended to cover it.**
 - **The door freeze — say what the mechanism does (`SPEC CORRECTION`).** This section previously described a
   *"per-open-manifest door-freeze (recon #3)"*. Two errors: the cross-reference was wrong (the door freeze is
   §9 recon **#6**, not #3), and **the narrowing it names does not exist.** The specified predicate is
@@ -970,12 +1222,23 @@ flowchart TB
   (EA-2). No function passes an actor, a role, or an authority assertion as an RPC parameter (EA-6). Tests
   T-1…T-6 (§0.3) are CI gates, not review conventions.
 - **verify_jwt:** `true` for every user-facing edge (JWT actor re-derived via `auth.getUser`, C35).
-  **`false` for exactly four surfaces, each argued rather than inherited:** `stripe-webhook` (Stripe-signed,
-  frozen I-10), `wallet-pass-webservice` (Apple presents `ApplePass`, not a JWT — §3.11, requires a security
-  sign-off), `door-session` (the PIN is the credential; there is no `auth.uid()` to verify — §3.9a), and
-  `crm-export`'s `/build` route (cron-invoked with a constant-time bearer — §3.7). `promoter-code-preview`
-  runs `false` because an unauthenticated buyer may type a code, and grants nothing (§3.8).
-  **`verify_jwt: false` is never a default and never inherited from a neighbouring function.**
+  **`false` for exactly FIVE surfaces — this list is the single authoritative enumeration, and no other
+  section may state a count** (`SPEC CORRECTION`: §0.4, §2, §3.11 and Wallet §6.1 each said *"second and
+  last"*, which was wrong and had been copied between them; a third unauthenticated surface arrived while
+  three documents asserted there could not be one). Each is argued rather than inherited:
+  1. `stripe-webhook` — Stripe-signed, frozen I-10.
+  2. `wallet-pass-webservice` — Apple presents `ApplePass`, not a JWT (§3.11); **requires a security
+     sign-off**, and carries §11.6a's liveness preconditions.
+  3. **`door-session`** — no `auth.uid()` exists at a door. The PIN is the **provisioning** credential; the
+     **door session token** is what every subsequent call presents (§3.9a). **This is the highest-risk member
+     of the set**: it relays admission while holding the service-role key, and RLS is bypassed entirely behind
+     it. Its security sign-off is owed alongside `wallet-pass-webservice`'s, not after it.
+  4. `crm-export` `/build` — cron-invoked with a constant-time bearer (§3.7).
+  5. `promoter-code-preview` — an unauthenticated buyer may type a code; grants nothing (§3.8).
+
+  **`verify_jwt: false` is never a default and never inherited from a neighbouring function.** Adding a sixth
+  requires an argued section **and** an edit to this list in the same change; a function whose section claims
+  the posture but is absent here is a defect, not a sixth surface.
 - **CORS + security headers:** copy the whitelist (`snatchitapp.com`, `www.`) + `getSecurityHeaders()` from the
   existing functions on every response, including error and OPTIONS.
 - **Secrets (names only, never values):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`,
@@ -983,6 +1246,31 @@ flowchart TB
   Constant-time compare (`timingSafeEqual`) for any secret/signature check (I-9).
 - **Rate limiting:** `check_rate_limit(user, action, max, window)` per function, **fail-closed** (503 on
   limiter error, 429 on over-limit, both with `Retry-After`). Never silently disable abuse protection.
+- **Derived principals — `SPEC CORRECTION`, stated once, binding for every surface.**
+  `public.check_rate_limit`'s first parameter is a **`uuid`**. Every `verify_jwt=false` surface has **no
+  `auth.uid()`**, and its natural principal is not a uuid — a `(serial, deviceLibraryIdentifier)` pair, a door
+  `session_ref`, an ip + user-agent. **A mandatory limiter that cannot be called as written is not a
+  mitigation, it is a comment**, and this spec wrote the adaptation for exactly one surface
+  (`promoter-code-preview`, §3.8) while predicting the recurrence and not writing it. It is written here now,
+  once:
+
+  > **Rule.** A surface without an `auth.uid()` maps its principal into the limiter's uuid domain as
+  > `uuidv5(<per-surface namespace uuid>, <stable principal string>)`. The namespace is a compile-time constant
+  > per surface — never shared, so budgets cannot collide or be exhausted across surfaces — and the principal
+  > string is built **only** from values the surface has already authenticated or that the caller cannot choose
+  > freely. **A surface whose spec names a limiter MUST name its namespace and its principal string, or the
+  > limiter is unspecified.**
+
+  | Surface | Namespace | Principal string |
+  |---|---|---|
+  | `wallet-pass-webservice` | `NS_WALLET_PASS` | `serial_no_opaque \|\| ':' \|\| deviceLibraryIdentifier` |
+  | `door-session` `/mint` (PIN attempt) | `NS_DOOR_PIN` | `venue_id \|\| ':' \|\| device_id_claim` |
+  | `door-session` relay routes | `NS_DOOR_SESSION` | `session_ref` (authenticated; **not** the claimed device id) |
+  | `promoter-code-preview` (anon) | `NS_PROMOCODE` | `ip \|\| ':' \|\| sha256(user_agent)` (§3.8, already written) |
+  | `crm-export` `/build` | `NS_EXPORT_JOB` | the job row's `export_job_id` |
+
+  **The PIN attempt and the relay routes must use different namespaces**, so PIN grinding cannot consume the
+  scanning budget of a legitimately provisioned door, and a busy door cannot mask a PIN-grinding attack.
 - **Idempotency:** every money/KMS side-effect uses a **deterministic, reconstructible-from-audit** key
   (`buildPayoutIdempotencyKey`, `refund_${refund_id}`, `pi_native_${order_id}_...`, credential tokens are
   version-deterministic). The wrapped RPC additionally dedupes on its `command_key` / cause key. **Both layers
@@ -1018,7 +1306,7 @@ flowchart TB
 | `crm-export` `/download` | POST | true | **A** | live re-check of the export allow-list at download time (EX-4) | `venue.authorize_export_download` | Storage signed URL (300s) | n/a | `087` |
 | `crm-export` `/build` | POST | **false** | **B-i/B-iii** | `service_role` only; authority re-derived from the **job row's** actor + scope | `venue.build_export_rows` → `venue.finalize_export` | Storage upload | claim lease + `UNIQUE(requested_by, command_key)` | `087` |
 | `promoter-code-preview` | POST | **false** | **A** *(when a JWT is present)* | none — read-only advisory; grants nothing | `venue.preview_promoter_code` | — | n/a (idempotent read) | `090` |
-| `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session)`; **no `auth.uid()` exists** | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
+| `door-session` | POST | **false** | **B-iii** | `kernel.assert_door_session(device, session, **session_ref, token**)` on **every** relay call; **no `auth.uid()` exists**; device id **derived from the assert**, never from the request (`p_actor_device_id`) | `get_door_manifest`/`record_scan`/`reconcile_offline_scans` | — | scan dedup key | `086` |
 | `door-manifest` *(optional)* | POST | true / **false** | **A** *(staff JWT route)* · **B-iii** *(PIN route)* | `has_venue_role([venue_scanner,venue_manager])` **or** a valid `door_pin` | `venue.get_door_manifest` | KMS sign | deterministic over the digest | `086` |
 | `wallet-pass-issue` | POST | true | **A** | atom current owner (`auth.uid()`, C35) | `kernel.mint_wallet_pass` | KMS sign + storage | RPC `command_key`; re-issue returns the same serial | `084` |
 | `wallet-pass-webservice` | GET/POST/DELETE | **false** | **B-i/B-iii** | per-pass `authenticationToken`, constant-time, **one serial only** | `get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` · `list_updated_wallet_passes` | KMS sign (rebuild) | natural (reads/upserts) | `084` |
@@ -1089,6 +1377,25 @@ posture and none is extended.** Any future work on them inherits §0 the moment 
 12. **`kernel.set_org_connect_ref` is not in the RPC contracts.** §3.3 wraps it; it appears in neither
     `PHASE_2_RPC_FUNCTION_CONTRACTS.md` nor RLS §11's EXEC table. **RPC-spec owner to contract it** (role:
     `has_org_role([org_owner, org_finance])`), or §3.3 has no write path.
+13. **`venue.door_session` does not exist — H-3's blocking dependency.** §3.9a's token design needs a table
+    (`token_hash`, `session_ref`, device/session binding, `pin_id` for the revoke cascade), the
+    `assert_door_session(p_device_id, p_session_id, p_session_ref, p_token)` signature returning the **bound**
+    device and session, `p_actor_device_id` on `record_scan`/`reconcile_offline_scans`,
+    `mint_door_session`/`revoke_door_session`, the `revoke_door_pin` cascade, and an audit-only RLS matrix.
+    Full table in §3.9a. **Schema / migration-plan / RPC / RLS owners.** **Until these land, the door plane
+    authenticates provisioning, not possession** — the gate is specified and unimplementable.
+14. **`venue.validate_ticket_online` must return `signing_key_id`** (RPC §9.3 result shape) and its `reason`
+    enum must gain **`refund_hold`** (door §9.2's new arm). Without the first, offline check 3c has no online
+    counterpart and the "blast radius = the atoms pinned to that key" claim is unachieved; without the second,
+    the **online** door refuses a `refund_hold` atom with no reason to render. **RPC-spec owner.**
+15. **`kernel.revoke_signing_key` must force-close open door-manifest episodes** in its own transaction
+    (§5.6, door §16 OQ-5 grant condition 2). Its RPC §13 contract needs the write set, the lock order
+    (`catalog.event_session` FOR UPDATE, rank 1, before the key row) and the audit row. **RPC-spec owner.
+    Until it lands, a granted ruling rests on a condition nothing satisfies.**
+16. **Dual-control namespaces.** RLS §11's `catalog.set_platform_config` row makes dual control mandatory for
+    `refund.*` / `payout.*` / `authn.*` only. **`wallet.*`, `credential.*` and `door.session_*` must be added**
+    (Wallet §11.5b) — they gate a feature-enable and the lifetime of bearer credentials. Direction asymmetry
+    applies: two approvers to loosen, one to tighten. **RLS-spec owner.**
 
 ---
 

@@ -176,22 +176,71 @@ certificate as an admission control is wrong.
 
 ### 2.3 Exactly what the scanner verifies, and against what
 
+> **`SPEC CORRECTION` — H-2.** This section previously carried **two** conjuncts at 3b. The door-lifecycle spec
+> §9.2 requires **five**; the missing `resale_state` conjunct let the offline door admit a
+> `paid_pending_transfer` or `refund_hold` atom that the online door refuses. This document's older wording was
+> the copy that edge §5.4.3 adopted, which is how the regression travelled. **The predicate is now stated once,
+> in edge §5.4.3, and reproduced here verbatim as a sanctioned mirror.**
+
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
+
+**The table below is a NON-NORMATIVE presentation of that block.** Where they disagree, the block governs and
+this table is the defect (edge §5.4.3 single-source rule, clause 4).
+
 | # | Check | Input | Reference value | Online | Offline |
 |:-:|---|---|---|:-:|:-:|
 | 1 | `token.key_id` present, `status ≠ revoked`, `now() ∈ [not_before, not_after]` | token | **M1** key manifest (edge §5.4) | ✔ | ✔ |
 | 2 | `Verify(pub_key[token.key_id], claims, sig)` | token | M1 public key | ✔ | ✔ |
 | 3 | `token.session_id == scanning_session_id` | token | device's session binding | ✔ | ✔ |
 | 3a | `now() <= token.exp` ± 2 time-buckets | token | device clock | ✔ | ✔ |
-| **3b** | **`token.credential_version == M2[atom].credential_version`** ∧ **`M2[atom].ticket_state = 'active'`** | token | **M2** door manifest entry | n/a | **✔ — this is the W-3 fix** |
-| **3c** | `token.key_id == M2[atom].signing_key_id` *(recommended, §8.3)* | token | M2 entry | n/a | ✔ |
-| 4 | live authoritative read: `venue.validate_ticket_online(atom, session)` → require `admittable` ∧ returned `credential_version == token.credential_version` | token | **`kernel.tickets`, live (C37)** | **✔** | n/a |
+| **3b** | **all five conjuncts:** atom ∈ M2 ∧ no applied `revoke` delta ∧ `token.credential_version == M2[atom].credential_version` ∧ `M2[atom].ticket_state = 'active'` ∧ **`M2[atom].resale_state = 'none'`** | token | **M2** applied set (entry ⊕ deltas) | n/a | **✔ — this is the W-3 fix** |
+| **3c** | `token.key_id == M2[atom].signing_key_id` — **REQUIRED** (§8.3; promoted from *recommended*, with the online counterpart in row 4) | token | M2 entry | n/a | **✔** |
+| 4 | live authoritative read: `venue.validate_ticket_online(atom, session)` → require `admittable` ∧ returned `credential_version == token.credential_version` ∧ returned `signing_key_id == token.key_id` | token | **`kernel.tickets`, live (C37)** | **✔** | n/a |
 | 5 | first-in-wins | — | local admitted set (offline) / `venue.record_scan` partial unique (online) | ✔ | ✔ |
 | 6 | authoritative admit | — | `venue.record_scan` → `kernel.mark_ticket_scanned` | ✔ | deferred to `venue.reconcile_offline_scans` |
 | — | **the `.pkpass` file, its PKCS#7 signature, `serialNumber`, `authenticationToken`, `passTypeIdentifier`** | — | — | **never** | **never** |
 
-Checks 1–3a are already the frozen edge §5.4 contract. **3b is the door-lifecycle spec's step 3b and is the
-half of the guarantee that does not exist today.** 3c is this document's recommended addition (§8.3). Check 4
-is C37 verbatim and is untouched.
+Checks 1–3a are already the frozen edge §5.4 contract. **3b is the door-lifecycle spec's step 3b — all five
+conjuncts — and is the half of the guarantee that does not exist today.** 3c originated here as a
+recommendation (§8.3) and is now **required**, with an online counterpart in row 4. Check 4 is C37 plus the
+`signing_key_id` comparison that gives 3c its online half.
 
 ### 2.4 Which half of the stale-pass guarantee comes from where
 
@@ -469,10 +518,53 @@ reason.
 | Profile | `aud` | `exp` | Consumer | Refresh path |
 |---|---|---|---|---|
 | **app** (existing, default) | `app` | `now() + config('credential.app_ttl_interval')` (a few hours; edge §5.5 unchanged) | RN in-app Entry Pass (RN §4.4.2) | client re-calls `credential-sign` on foreground/reconnect |
-| **wallet** (new) | `wallet` | `LEAST( COALESCE(session.ends_at, session.starts_at + config('credential.wallet_default_span')) + config('credential.wallet_exp_skew'), signing_key.not_after )` | the `.pkpass` barcode | pass update web service + APNs, **best-effort** |
+| **wallet** (new) | `wallet` | the clamped value of **§5.2a** — session-bounded, then bounded again by the offline window | the `.pkpass` barcode | pass update web service + APNs, **best-effort** |
 
 The wallet profile's `exp` is **session-bounded, not hours-bounded**. `LEAST` with `signing_key.not_after`
 ensures a token never outlives its own key's planned window.
+
+### 5.2a The `exp` clamp — bound the computed value, not the constants (`SPEC CORRECTION`)
+
+> **The defect.** The cross-config invariant ratified with OQ-5
+> (`wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval`, door §10.6) constrains
+> **`wallet_default_span`** — which is used **only when `session.ends_at IS NULL`**. On the far more common
+> branch, `ends_at` is present and the invariant constrains nothing at all: **a long or mistyped `ends_at`
+> produces an unbounded `exp`**, and a fat-fingered year makes a multi-month bearer credential. The invariant
+> was checked against the constants an operator sets and never against the number the signer actually emits.
+> Door §16 OQ-5's item 1 says the token *"cannot outlive the offline window any manifest could authorise"* —
+> as written, it could.
+
+**Normative.** `credential-sign` computes the wallet-profile `exp` as:
+
+```text
+session_ref_start := COALESCE(session.doors_at, session.starts_at)
+session_ref_end   := COALESCE(session.ends_at, session.starts_at + config('credential.wallet_default_span'))
+
+exp := LEAST(
+         session_ref_end   + config('credential.wallet_exp_skew'),      -- session-bounded
+         session_ref_start + config('door.manifest_ttl_interval')
+                           + config('credential.wallet_exp_skew'),      -- the OFFLINE-WINDOW clamp  ← the fix
+         signing_key.not_after                                          -- never outlive its own key
+       )
+```
+
+The middle term is the whole correction: it is expressed over the **computed** instant, so it binds on **both**
+branches of the `COALESCE` and is immune to a bad `ends_at`. A session whose `ends_at` is mistyped by a year
+still yields a token that dies one offline window after doors could open. **No new config key is introduced** —
+the clamp reuses `door.manifest_ttl_interval` and `credential.wallet_exp_skew`, both already seeded.
+
+**Enforcement, in three places, because one is where this defect came from:**
+1. **At sign time** in `credential-sign` — the clamp is applied, not merely asserted. A signer that *validates*
+   an out-of-range `exp` and refuses would deny a paying fan a barcode over an operator's typo; a signer that
+   **clamps** issues a correct, shorter one. Clamp, then log the clamping at `warn` with the session id.
+2. **In `catalog.set_platform_config`** — door §10.6's constants invariant stays, as a cheap early warning. It
+   is now explicitly **necessary and not sufficient**, and it is not the control.
+3. **In CI/pgTAP** — over the **computed** value, with adversarial fixtures: `ends_at` NULL, `ends_at` a year
+   out, `ends_at` before `starts_at`, and `signing_key.not_after` inside the session. Asserting only over the
+   seeded constants is what let this through.
+
+**Door §10.6's invariant is amended in place by this section** and its "load-bearing for §16 OQ-5" note now
+points here: the clamp is the load-bearing half, the constants invariant is the guardrail on the operator.
 
 **Door-side impact: none.** The door's check 3a is `now() <= exp ± 2 buckets`; a longer `exp` simply passes it.
 No door code branches on `aud`; `aud` is a claim the signer sets and the door ignores. The door must **not**
@@ -546,14 +638,24 @@ the pass for updates and calls the service. *(Documented Apple platform behaviou
 | `POST /v1/log` | device diagnostic log | none | |
 
 **Security posture — called out explicitly.** This function must run **`verify_jwt: false`**, because iOS
-presents `Authorization: ApplePass <token>`, not a Supabase JWT. **It is the second function in the entire
-system with `verify_jwt=false`, after `stripe-webhook`** (edge §7 permits exactly that one). Compensating
-controls, all mandatory:
+presents `Authorization: ApplePass <token>`, not a Supabase JWT. **`SPEC CORRECTION`: this section said it was
+*"the second function in the entire system with `verify_jwt=false`, after `stripe-webhook`"*. That count is
+wrong and is not this document's to state — edge §7 enumerates **five**, including **`door-session`**, which
+relays scan and offline-batch calls while holding the service-role key. **The count lives in edge §7 and
+nowhere else**; this document cites it. Compensating controls, all mandatory:
 - the `authenticationToken` is compared **constant-time** against `auth_token_hash` (edge §7 invariant I-9,
   `timingSafeEqual`);
 - the token authorizes **one serial only** — never a session, never an account, never another pass;
-- `check_rate_limit` keyed on `(serial_no_opaque, deviceLibraryIdentifier)`, **fail-closed** (429/503 with
-  `Retry-After`);
+- **the token authorizes one serial only *while that pass is live and its holder still owns the atom*** — the
+  auth-token compare is **not** the whole authority. Every route that returns or rebuilds pass content goes
+  through `get_wallet_pass_build_context`, which additionally requires `status='issued'` **and**
+  `holder_identity_id = kernel.tickets.current_owner_id`, read live (**§11.6a — the H-4 fix**). Without it a
+  former owner reads `serialNumber` and `authenticationToken` out of their own `.pkpass` — it is a zip — and
+  polls this endpoint for the current state of a ticket they sold. **A pass file is not a bearer credential
+  for its atom's *current* state, and the auth token must never be treated as one;**
+- `check_rate_limit` keyed on the derived principal `uuidv5(NS_WALLET_PASS, serial_no_opaque || ':' ||
+  deviceLibraryIdentifier)` — see edge §7's derived-principal rule; `check_rate_limit`'s first parameter is a
+  `uuid`, so the pair cannot be passed as-is — **fail-closed** (429/503 with `Retry-After`);
 - **no enumeration:** an unknown serial and a wrong token return the **same** status with the same timing
   budget;
 - responses carry no PII beyond what is already inside the pass the caller authenticated for;
@@ -762,9 +864,26 @@ file matching `*.p12`, `*.p8`, `*.cer`, `*.pkpass`, `*.mobileprovision`, or any 
 `-----BEGIN … PRIVATE KEY-----`. **Today the repo is clean on all of these — VERIFIED (§0.1) — so this gate
 can be added green and can only ever go red on a regression.**
 
-### 8.3 Recommended offline strengthening — step 3c
+### 8.3 Offline strengthening — step 3c — **REQUIRED** (`SPEC CORRECTION`)
 
-Add to the offline verify (§2.3): `token.key_id == M2[atom].signing_key_id`. **Recommended, not required.**
+Add to the offline verify (§2.3): `token.key_id == M2[atom].signing_key_id`.
+
+> **`SPEC CORRECTION`.** This was *"recommended, not required"* and had **no online counterpart** — so the
+> claimed blast radius of a key compromise ("one event") was **not achieved**: any key in a door's M1 manifest,
+> in-window and un-revoked, forged admission for any atom of any session that door could scan, and the one
+> check that would have caught it was optional offline and absent online. A control that is optional on one
+> path and missing on the other bounds nothing. **3c is now required, on both paths:**
+>
+> - **Offline:** `token.key_id == M2[atom].signing_key_id` — mandatory conjunct 3c of `OFFLINE-VERIFY-v1`.
+> - **Online:** `venue.validate_ticket_online` MUST return `signing_key_id` and the door MUST compare it to
+>   `token.key_id`, refusing on mismatch. **This is a result-shape change to RPC §9.3 — reported to the RPC
+>   contract owner, not made here.**
+> - **Delta-supplemented atoms** must carry a pinned key: door §10.3a's CHECK is tightened to
+>   `(op='add') ⇒ signing_key_id IS NOT NULL`.
+>
+> With both paths carrying it, a compromised key from another scope is refused at every door for every atom it
+> was not pinned to, and "blast radius = the atoms actually pinned to that key" becomes a fact rather than a
+> claim.
 
 **Why it is sound:** `kernel.tickets.signing_key_id` changes only at issuance and at transfer (edge §5.2: a
 mid-event rotation deliberately does **not** re-pin already-issued credentials, so they keep verifying against
@@ -773,6 +892,11 @@ equals the live pin equals what the current owner's token carries.
 **Assumption, named, in the same sentence as the guarantee:** step 3c is safe **only while
 `kernel.tickets.signing_key_id` is re-pinned exclusively at issuance and transfer.** An implementer who adds a
 bulk re-pin (e.g. a rotation sweep that re-pins live atoms) breaks 3c and must remove it in the same change.
+
+**Now that 3c is mandatory, that assumption gets a guard rather than a sentence** (`SPEC CORRECTION` to §12):
+a pgTAP structural assertion that **no function other than the issuance and transfer RPCs writes
+`kernel.tickets.signing_key_id`** — asserted over `pg_get_functiondef`, the same technique §12 W-F 31 already
+uses. A bulk re-pin then fails CI at the moment it is written, instead of failing at a door.
 
 **What it buys:** an independent staleness signal that does not depend on the version counter, and a defence
 against a compromised key from a *different* scope being used to mint tokens for this session's atoms — check
@@ -807,7 +931,11 @@ This is a real benefit of the pinning design and should not be undone.
 doors of the scope → force client re-sign → for the offline-skew residual, tighten the affected event to
 online-only scanning until manifests are confirmed refreshed → audit + Sentry.
 **Wallet addition:** because wallet-profile tokens are session-bounded (§5.2), a signer compromise **must**
-trigger the M1 refresh — it is the only bound on a forged token, and `exp` will not help. Wallet passes for
+trigger the M1 refresh — it is the only bound on a forged token, and `exp` will not help. **And
+`revoke_signing_key` must force-close every open door-manifest episode in the key's scope in the same
+transaction** (edge §5.6, door §8.2.1, `reason='key_revoked'`) — this is door OQ-5's second grant condition,
+and it is what collapses the exposure from the token's remaining life to the device's offline duration. **Do
+not treat the M1 refresh as sufficient on its own:** an offline door does not see M1 refresh either. Wallet passes for
 the affected scope are rebuilt and re-pushed with tokens signed by the new key; devices that never reconnect
 keep a token signed by a revoked key, which check 1 rejects at every door that has refreshed M1.
 
@@ -947,10 +1075,14 @@ Consequences:
 
 Stated so they are not assumed (they are the door-client half of §4's assumptions A3 and A4):
 
-1. **The door must compare the token's claimed `credential_version` to the reference value it obtains** —
-   online from `venue.validate_ticket_online`'s returned `credential_version`, offline from
-   `M2[atom].credential_version`. Obtaining a reference value and not comparing it is the whole of defect W-3
-   reproduced at the client.
+1. **The door must evaluate every conjunct of `OFFLINE-VERIFY-v1` — all five of 3b, plus 3c** — against the
+   **applied** set `M2 = base_snapshot ⊕ deltas[1 .. last_synced_seq]`, never the base snapshot alone. Online,
+   it must compare both the returned `credential_version` **and** the returned `signing_key_id` to the token's.
+   Obtaining a reference value and not comparing it is the whole of defect W-3 reproduced at the client;
+   **comparing three of five is H-2 reproduced at the client**, and it fails in the direction that admits.
+   The scanner build MUST carry **one failing-case regression test per conjunct** — the case table in edge
+   §5.4.3 is the required minimum set, and it includes the `resale_state ∈ {locked, refund_hold}` cases that
+   the two-conjunct wording admitted.
 2. **Offline, no M2 ⇒ no admit.** Never "verify signature and let them in."
 3. **`version_stale` must render as an unmistakable deny banner** reusing the existing operator copy
    *"This pass is out of date. Ask them to open the Snatch It app."* (door spec §11.2) — **no new vocabulary**.
@@ -1083,7 +1215,7 @@ in the door runbook, in door-staff training, and in the scanner's offline banner
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `wallet.apple.enabled` | boolean | **`false`** | **kill switch.** Ships off; turned on by a dual-controlled config write (`catalog.set_platform_config`, RLS §8.4) after the §13 checklist is green. |
+| `wallet.apple.enabled` | boolean | **`false`** | **kill switch — gates the whole Wallet plane, not just minting (§11.5a).** Ships off; turned on only by a **mandatory-dual-control** config write after the §13 checklist is green; **turned off by a single `platform_admin`, directly** (§11.5b). |
 | `credential.wallet_exp_skew` | interval | `'6 hours'` | added past session end for the wallet token profile (§5.2) |
 | `credential.wallet_default_span` | interval | `'12 hours'` | used when `session.ends_at IS NULL` |
 | `credential.app_ttl_interval` | interval | `'4 hours'` | names the existing app-profile TTL (edge §5.5 left it as prose) |
@@ -1093,6 +1225,58 @@ in the door runbook, in door-staff training, and in the scanner's offline banner
 These are **operational thresholds, not secrets** — public-read like every other config value (door spec
 §10A.6's reasoning applies verbatim).
 
+### 11.5a What `wallet.apple.enabled = false` must actually stop — `SPEC CORRECTION`
+
+> **The defect.** The kill switch gated **minting only** (`kernel.mint_wallet_pass`'s precondition, §11.6).
+> Flipping it stopped *new* passes while **the installed fleet kept being served, rebuilt and pushed** — the
+> population it is named to protect and the only population that can be harmed by a Wallet defect. A switch
+> that protects the people who do not have the feature yet is not a kill switch.
+
+With `wallet.apple.enabled = false`, **all four** of the following hold:
+
+| Plane | Behaviour when disabled |
+|---|---|
+| **Mint** (`wallet-pass-issue` → `mint_wallet_pass`) | `precondition_failed('wallet_disabled')` for every caller **including `platform_admin`** — unchanged, and still not role-bypassable (§12 W-E 27). |
+| **Serve / rebuild** (`wallet-pass-webservice`) | **every route returns `503` with `Retry-After`, uniformly** — the same response for every serial, every device, and every token, valid or not. Uniform **by route, never by pass**: a per-pass branch would be an enumeration oracle (§11.6a) wearing the kill switch's clothes. `get_wallet_pass_build_context` builds nothing. |
+| **Register** (`register_wallet_pass_device`) | refuses; no new registration rows. Existing rows are **left intact**, so re-enabling does not require the fleet to re-add. |
+| **Push** (`wallet-pass-push`) | stops draining Wallet triggers from the outbox. The rows are **not discarded** — they age normally and are re-drained on re-enable, because a skipped `credential_version` push is a stale face, and §6.4's ruling is *"push on every bump, unconditionally, forever."* |
+
+**What the kill switch does NOT do, stated plainly so nobody plans around it.** It does **not** invalidate the
+barcodes already installed on phones. That barcode is a C33 credential token; the door evaluates it under
+`OFFLINE-VERIFY-v1` exactly as it evaluates the in-app Entry Pass, and it will keep admitting the current owner
+of a live atom. **Admission safety never rested on this switch and must not be described as if it did** — it
+rests on step 3b. What the switch buys is the ability to stop the *Wallet delivery plane* — the one part of the
+feature that talks to devices we do not control — in one config write, without a client release. That is worth
+having; it is not a revocation, and the incident runbook (§8.5) must not treat it as one. **Per-pass
+revocation is `kernel.revoke_wallet_pass`; fleet-wide credential revocation is a signer rotation.**
+
+### 11.5b Config namespace and dual control — `SPEC CORRECTION`
+
+> **The defect.** `wallet.*` and `credential.*` sat **outside** the namespaces for which RLS §11 makes dual
+> control **mandatory** (`refund.*`, `payout.*`, `authn.*`). Dual control was described as a *seam* for these
+> keys, which is the default `set_platform_config` posture — so **one `platform_admin` could enable Wallet
+> before the §13 checklist was green**, and one `platform_admin` could widen `credential.wallet_exp_skew`,
+> which lengthens the life of a bearer credential.
+
+**Required (reported to the RLS-spec owner, not made here):**
+`PHASE_2_RLS_PERMISSION_SPEC.md` §11's `catalog.set_platform_config` row — the one that reads *"for keys in the
+`refund.*` / `payout.*` / `authn.*` namespaces dual control is MANDATORY, not a seam"* — must add
+**`wallet.*`** and **`credential.*`**. The row's own **direction asymmetry** then applies and is exactly right
+for a kill switch:
+
+- **Loosening executes with two approvers.** Setting `wallet.apple.enabled := true`, or *raising* any
+  `credential.wallet_*` interval, creates a `kernel.approval_request` that a **second distinct
+  `platform_admin`** must approve. Enabling a feature whose §13 checklist has eighteen items is exactly as
+  consequential as raising a money threshold — and the checklist is the thing the second approver is there to
+  have looked at.
+- **Tightening executes directly.** Setting `wallet.apple.enabled := false`, or *lowering* any interval, needs
+  **one** admin and no approval round. **A kill switch that needs a quorum is not a kill switch**, and the
+  asymmetry is already the ratified pattern (RLS §11: *"a security control that is hard to tighten in an
+  incident is a liability"*).
+
+Door §10.6's three `door.session_*` keys take the same treatment for the same reason: they bound a bearer
+credential.
+
 ### 11.6 RPC contracts — all `NEW RPC`, all **DB-RPC**
 
 | RPC | Actor / EXEC authority | Purpose · notes |
@@ -1100,14 +1284,97 @@ These are **operational thresholds, not secrets** — public-read like every oth
 | `kernel.mint_wallet_pass(p_atom_id, p_command_key)` | `authenticated`; **authorizes `current_owner_id = auth.uid()` internally, live-read (C35, I-5)** | Supersedes any prior `issued` generation for the atom, inserts generation *g+1*, returns build context to the **edge** (`serial`, `generation`, `credential_version`, `signing_key_id`, `pass_type_cert_id`, plaintext auth token **once, never stored in plaintext, never re-returned**). Preconditions: atom `state='active'`; `resale_state='none'` (§15 OQ-W5); `config('wallet.apple.enabled')`. Locks: `kernel.tickets` PK `FOR SHARE` (rank 5). **SSCAS: n/a** — no custody moves, no ownership-log row, **no `credential_version` bump.** Idempotency: `UNIQUE(holder_identity_id, command_idempotency_key)` + state guard (an existing `issued` generation for the same owner returns `noop_replay` with the same serial). Errors: `insufficient_privilege(42501)` · `precondition_failed(atom_not_active\|atom_listed_locked\|wallet_disabled)` · `not_found`. |
 | `kernel.supersede_wallet_passes_for_atom(p_atom_id, p_reason_code)` | **`service_role`/definer only**; `REVOKE EXECUTE FROM anon, authenticated, public` | Marks every `issued` pass for the atom `superseded`/`invalidated`/`consumed`/`expired` per reason. Called from the **outbox consumer, not inside the custody transaction** — a Wallet failure must never be able to roll back or block a transfer. |
 | `kernel.touch_wallet_pass(p_wallet_pass_id)` | `service_role`/definer | Bumps `last_updated_at` (drives `passesUpdatedSince` / `Last-Modified`). |
-| `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` | `service_role`/definer | Web-service authentication + build inputs. **Constant-time comparison against `auth_token_hash` inside the function.** Returns identical shape for "not found" and "bad token". |
+| `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` | `service_role`/definer | Web-service authentication + build inputs. **Constant-time comparison against `auth_token_hash` inside the function**, **plus the two liveness preconditions of §11.6a — `status='issued'` AND holder = live current owner.** Returns identical shape, status and timing for not-found, bad token, superseded pass and stale holder. |
 | `kernel.register_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier, p_push_token)` | `service_role`/definer | Constant-time auth; upserts the registration; encrypts the push token. |
 | `kernel.unregister_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier)` | `service_role`/definer | Terminal-state idempotent. |
-| `kernel.list_updated_wallet_passes(p_device_library_identifier, p_since)` | `service_role`/definer | Serials with `last_updated_at > p_since` for that device. |
+| `kernel.list_updated_wallet_passes(p_device_library_identifier, **p_auth_token**, p_since)` | `service_role`/definer | **Signature corrected — §11.6b.** Constant-time auth against a pass **registered to that device**; serials drawn **only** from that device's live registrations, filtered by §11.6a's liveness rule; `serial_no_opaque` only. It previously took **no token** — the one multi-serial route was unauthenticated by contract. |
 | `kernel.record_wallet_push_result(...)` | `service_role`/definer | Appends `wallet_pass_push_log`; increments `push_failure_count`; unregisters on a permanent APNs rejection. |
 | `kernel.revoke_wallet_pass(p_wallet_pass_id, p_reason_code, p_command_key)` | `is_platform([platform_admin, platform_support])` | Support path (leaked pass file, lost device). Audited. |
 | `kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert` | **`is_platform([platform_admin])` only** | Mirrors `provision/rotate/revoke_signing_key`. Dual-controlled (DA §12.4). Audited. |
 | `kernel.sweep_wallet_pass_lifecycle()` | `service_role`/definer (cron) | Reconciles pass status to atom state (`scanned`→`consumed`, `voided`→`invalidated`, post-event→`expired`) and enqueues pushes. **Explicitly NOT load-bearing:** every safety property in §4 holds whether or not this ever runs. Stated because "a correct thing that nothing called" is the exact failure class the door-lifecycle ruling was issued to eliminate. |
+
+### 11.6a `get_wallet_pass_build_context` preconditions — the H-4 fix (`SPEC CORRECTION`, NORMATIVE)
+
+> **The defect.** As contracted, this function's entire authority was the auth-token compare. It had **no
+> `status='issued'` precondition** and **no comparison of `wallet_pass.holder_identity_id` against
+> `kernel.tickets.current_owner_id`** — even though §11.1 documents `holder_identity_id` as a snapshot at mint
+> *"so a divergence is detectable"*. **It was detected by nothing.** A former owner unzips their own `.pkpass`
+> (it is a zip), reads `serialNumber` and `authenticationToken`, and polls the `verify_jwt=false` web service
+> **with no device, no app, and no account** — a live oracle on a ticket they no longer own, and, if the
+> service rebuilds at the live version, a credential *refresh* endpoint for someone else's ticket.
+> Supersession was the only guard, and it runs **outside the custody transaction** (§11.6,
+> `supersede_wallet_passes_for_atom`, deliberately, so Wallet can never block a transfer) — so between the
+> custody commit and the outbox consumer draining, the only remaining check was one this function did not make.
+
+**Normative.** `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` MUST return a build context
+**only if all three hold**, evaluated in one statement, under one live read of `kernel.tickets`:
+
+1. the presented token matches `wallet_pass.auth_token_hash` under a **constant-time** comparison (I-9);
+2. **`wallet_pass.status = 'issued'`**;
+3. **`wallet_pass.holder_identity_id = kernel.tickets.current_owner_id`** for the pass's `ticket_atom_id`,
+   read **live, at this call** — not from a cached projection, not from the pass row.
+
+Any of the three failing — and a serial that does not exist — returns the **identical result shape, the
+identical status, and the same timing budget**. There is no discriminating error, no "pass superseded" hint,
+no `wallet_disabled` branch visible to the caller: a distinguishable failure is the enumeration oracle in a
+different costume.
+
+**Precondition 3 is not redundant with precondition 2.** 2 depends on the outbox consumer having run; 3 does
+not depend on anything having run. 3 is what makes the window between the custody commit and supersession
+**zero-width**, and it is the reason `holder_identity_id` is stored as a snapshot at all.
+
+**Rebuild rule (NORMATIVE).** A rebuild re-signs the barcode at **`wallet_pass.credential_version_at_build`** —
+the version the pass was minted at — and **never** at the live `kernel.tickets.credential_version`. Rebuilding
+at the live version would make the web service a credential-refresh endpoint for whoever holds the auth token,
+which is exactly the authority §2.1 says a pass must never carry. **A pass whose version is behind the live one
+is not brought up to date — it is superseded, and its holder re-adds** (§7.1). The only things a legitimate
+rebuild changes are pass *presentation* fields (event time, venue, status face) and the certificate it is
+signed with; the credential claim inside the barcode is immutable for the life of the generation.
+
+**Two pgTAP assertions (added to §12 W-F):**
+
+- `get_wallet_pass_build_context` with a **correct** token on a pass whose `holder_identity_id ≠` the live
+  `kernel.tickets.current_owner_id` returns the **same** shape and status as an unknown serial.
+- The same, with `status='superseded'` and a correct token.
+
+### 11.6b `list_updated_wallet_passes` — the multi-serial route must be the most bound, not the least (`SPEC CORRECTION`)
+
+> **The defect.** `kernel.list_updated_wallet_passes(p_device_library_identifier, p_since)` took **no auth
+> token**. **The one endpoint in the design that returns *many* serials was unauthenticated by contract** — a
+> direct contradiction of §6.1's own rule that *"the token authorizes one serial only."* Its only input was a
+> `deviceLibraryIdentifier`, a value that arrives in the request path.
+
+**Corrected signature and contract:**
+
+`kernel.list_updated_wallet_passes(p_device_library_identifier, p_auth_token, p_since)` — `service_role`/definer.
+
+1. **Authenticate first.** Constant-time compare `p_auth_token` against the `auth_token_hash` of the passes
+   **registered to `p_device_library_identifier`**. At least one must match, or the call returns the
+   **empty/204 shape** — the same shape an unknown device gets.
+2. **Answer from registrations only.** Return serials **exclusively** from that device's live
+   `kernel.wallet_pass_device` rows — never a scan over `kernel.wallet_pass` by `last_updated_at`. A
+   registration exists only because an **authenticated** `register` call created it, so the device's reachable
+   set is bounded by what it has already proved it holds.
+3. **Apply §11.6a's liveness filter.** A pass that is not `status='issued'`, or whose `holder_identity_id` is
+   no longer the live `current_owner_id`, is **omitted** — not reported as changed. A former owner's device
+   must stop being told anything about a ticket that moved, and the omission must be indistinguishable from
+   "nothing changed".
+4. **Return `serial_no_opaque` only.** No `wallet_pass_id`, no `ticket_atom_id`, no counts, no timestamps
+   beyond the `lastUpdated` tag Apple requires.
+5. **Fail-closed rate limit** on `uuidv5(NS_WALLET_PASS, …)` (edge §7).
+
+> **`UNVERIFIED — confirm against Apple documentation before implementation.`** Whether iOS sends
+> `Authorization: ApplePass <token>` on the *list* path (`GET /v1/devices/{id}/registrations/{passTypeId}`) —
+> §6.1's table asserts it does, and that row is already labelled `UNVERIFIED`. **This must be resolved before
+> implementation, and the resolution changes only step 1, never steps 2–5.** If Apple does **not** send a token
+> on this path, step 1 cannot be performed and the endpoint's whole authority becomes steps 2–5 plus the
+> entropy of the `deviceLibraryIdentifier`. **That residual must then be written down and signed off in the
+> §13 item 12 security review** — as a named, bounded exposure — rather than discovered by an implementer and
+> quietly accepted, which is how it reached this spec unauthenticated in the first place.
+
+**Unregistration must be real.** `supersede_wallet_passes_for_atom` and `revoke_wallet_pass` MUST mark the
+pass's registrations `unregistered` (§8.5 already says so for the revoke path). Steps 2–3 are only as strong as
+that severing.
 
 ### 11.7 RLS delta
 
@@ -1164,19 +1431,52 @@ owner-mismatch spikes, and deny-by-default failure mapping (400/403/409/429/503)
 
 ### 11.9 The defect W-3 fix — `SPEC CORRECTION` to `PHASE_2_EDGE_FUNCTION_SPEC.md` §5.4
 
+> **`SPEC CORRECTION` — H-2.** The two-conjunct wording that stood here **is the text edge §5.4.3 adopted**,
+> after door §9.2 had already corrected the predicate to five. This section is therefore the origin of the
+> regression and is corrected first. **The predicate is now stated once — in edge §5.4.3 — and this section is
+> a sanctioned verbatim mirror, not an independent statement.** Do not edit the block below; edit edge §5.4.3
+> and re-mirror.
+
 Replace §5.4's offline-verify enumeration with:
 
-> **Offline door verify (no server round-trip):** the door verifies a presented token by
-> (1) checking the token's `key_id` is in the cached **key manifest (M1)** and within
-> `[not_before, not_after]` and `status ≠ revoked`; (2) verifying the signature with that **public key**;
-> (3) checking `session_id` matches and `exp` is within the offline skew window (±2 time-buckets, RPC §9.3);
-> **(3b) checking that the token's `credential_version` equals `M2[atom].credential_version` and that
-> `M2[atom].ticket_state = 'active'`, where M2 is the session's open door manifest
-> (`venue.door_manifest_entry`, door-lifecycle spec §10.3) — mismatch ⇒ reject `version_stale`; the atom
-> absent from M2 ⇒ reject (not admissible for this session);** *(3c, recommended)* checking
-> `token.key_id == M2[atom].signing_key_id`; (4) enforcing first-in-wins locally from its offline scan log.
-> **With no M2, the door has no offline authority and must not admit** (door-lifecycle §3.1).
-> **No private key, no network, no DB.**
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
 
 And add to §5.4's manifest paragraph: *"§5.4's manifest is **M1**, the public-key manifest. It is a distinct
 artifact from **M2**, the per-session door/ticket manifest (door-lifecycle §9.1). Both are required for offline
@@ -1188,6 +1488,12 @@ the `credential_version` check (online C37, offline step 3b), not by the TTL; th
 of a verifier that cannot check currency."*
 
 **All three are `SPEC CORRECTION`. None requires a schema change. All three are prerequisites for Wallet.**
+
+**Fourth correction — the single-source rule (H-2).** Edge §5.4.3 now carries the predicate as
+`OFFLINE-VERIFY-v1`, the one normative statement; §2.3 and this section are **verbatim mirrors** under a CI
+byte-identity gate. This is `SPEC CORRECTION` to the CI gate set and is the fix for the *mechanism* — four
+documents each holding an independently editable copy — rather than for the instance. It requires no schema
+change and can be added green today.
 
 ### 11.10 Change-class index
 
@@ -1211,6 +1517,16 @@ of a verifier that cannot check currency."*
 | Two token profiles + `aud` claim (edge §5.5, §3.2) | `SPEC CORRECTION` | — |
 | Screenshot/TTL claim in edge §5.5 | `SPEC CORRECTION` | — |
 | CI private-key/certificate scan gate | `SPEC CORRECTION` | — |
+| Offline predicate stated once as `OFFLINE-VERIFY-v1` (edge §5.4.3); §2.3 and §11.9 become verbatim mirrors + CI byte-identity gate | `SPEC CORRECTION` (**H-2**) | — |
+| Step 3c promoted to **required**, with an online counterpart (`validate_ticket_online` returns `signing_key_id`) and a `signing_key_id` re-pin guard (§8.3) | `SPEC CORRECTION` | — |
+| `get_wallet_pass_build_context` liveness preconditions — `status='issued'` ∧ holder = live current owner; rebuild at `credential_version_at_build` (§11.6a) | `SPEC CORRECTION` (**H-4**) | — |
+| `list_updated_wallet_passes` gains `p_auth_token`; registration-scoped, liveness-filtered (§11.6b) | `SPEC CORRECTION` (signature) | **084** |
+| Kill switch gates serve/rebuild/register/push, not minting alone (§11.5a) | `SPEC CORRECTION` | — |
+| `wallet.*` / `credential.*` added to the dual-control-mandatory namespaces (§11.5b) | `SPEC CORRECTION` — **RLS-spec owner** | — |
+| Wallet `exp` clamped on the **computed** value (§5.2a) | `SPEC CORRECTION` | — |
+| `kernel.revoke_signing_key` force-closes open door episodes (OQ-5 grant condition 2) | `SPEC CORRECTION` — **RPC-spec owner** | — |
+| `verify_jwt=false` count: five surfaces, enumerated only in edge §7 | `SPEC CORRECTION` | — |
+| pgTAP W-F 30a/30b, W-I 42/43 | `ADDITIVE` (assertions) | — |
 | RLS matrices for the four new tables | `ADDITIVE` (new matrices) | — |
 | RLS §11 EXECUTE rows for the new RPCs | `ADDITIVE` | — |
 | "Add to Apple Wallet" control · re-add · transfer-in add · failure copy | `NEW RN SURFACE` | — |
@@ -1280,9 +1596,14 @@ Grouped by the property each defends. All DB-level; none require the app.
 29. `mint_wallet_pass` is not a member of any SSCAS lock sequence — asserted via `pg_get_functiondef` not
     referencing `market.*` or `kernel.ticket_ownership_log`.
 
-**W-F. Web-service authentication (4)**
+**W-F. Web-service authentication (6)**
 30. `get_wallet_pass_build_context` with a **wrong** token returns the same shape and error as with an
     **unknown serial** (no enumeration oracle).
+30a. **(H-4)** `get_wallet_pass_build_context` with a **correct** token, on a pass whose `holder_identity_id`
+    differs from the live `kernel.tickets.current_owner_id`, returns the **same shape and status** as an
+    unknown serial — asserted **without** running the supersession consumer, so the test proves precondition 3
+    and not the outbox.
+30b. **(H-4)** The same with `status='superseded'` and a correct token.
 31. `pg_get_functiondef(get_wallet_pass_build_context)` contains a constant-time comparison and does **not**
     contain a bare `=` comparison against `auth_token_hash` (structural test for I-9).
 32. `register_wallet_pass_device` with a wrong token writes **no** row.
@@ -1310,13 +1631,24 @@ Grouped by the property each defends. All DB-level; none require the app.
 40. A rolled-back mint writes **no** audit row and **no** `wallet_pass` row.
 41. `kernel.admin_audit` remains unreadable by `authenticated`.
 
-**Total: 41 assertions.** Groups **W-B** and **W-G** are the regression suites for the non-negotiable;
+**Subtotal: 41 assertions** (plus two added below, W-I). Groups **W-B** and **W-G** are the regression suites for the non-negotiable;
 **W-A**/**W-C** defend the secret-custody rule; **W-F** defends the `verify_jwt=false` surface.
 
 **Client-side structural gate (not pgTAP — named here because §4 depends on it).** The scanner build must carry
-a unit/integration test asserting that the offline verifier compares `token.credential_version` against
-`M2[atom].credential_version` and refuses to admit when M2 is absent. This is the W-3 fix's regression test at
-the only layer where it can be tested, and it is item 11 of §13.
+a unit/integration test **per conjunct of `OFFLINE-VERIFY-v1`** — the case table in edge §5.4.3 is the required
+minimum: 3b.i–v (including both `resale_state` cases, `locked` and `refund_hold`), 3c, applied-set evaluation,
+and refuse-when-M2-absent. This is the W-3 **and H-2** regression test at the only layer where either can be
+tested, and it is item 11 of §13. A test that covers only `credential_version` passes while the door is two
+conjuncts more permissive than the online one — that is precisely how H-2 survived review.
+
+**W-I. Two additions to the pgTAP set (`SPEC CORRECTION`), both structural (2):**
+
+42. **No function other than the issuance and transfer RPCs writes `kernel.tickets.signing_key_id`** — asserted
+    over `pg_get_functiondef`. This is the guard for §8.3's named assumption, now that 3c is mandatory.
+43. `venue.door_manifest_delta` rejects an `op='add'` row with a NULL `signing_key_id` (door §10.3a CHECK) —
+    an atom supplemented into M2 with no pinned key is unadmittable offline under 3c.
+
+**Total: 43 assertions.**
 
 ---
 
@@ -1335,8 +1667,10 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | 7 | **Apple WWDR intermediate certificate** current in `kernel.pass_type_cert.wwdr_cert_pem` | platform_admin | on Apple rotation | passes fail to install on iOS |
 | 8 | **Private object-storage bucket** for built `.pkpass` bytes; no public read; signed URLs only, short TTL | platform_admin | once | pass files enumerable |
 | 9 | **CI gate**: no `*.p12`/`*.p8`/`*.cer`/`*.pkpass`/`*.mobileprovision`/`PRIVATE KEY` in tracked files (§8.2) — **can be added green today (§0.1)** | eng | every build | key material in git |
-| 10 | **Door-lifecycle prerequisites shipped**: M2 tables (`venue.door_manifest`, `venue.door_manifest_entry`) + offline-verify step 3b | eng | **before enabling** | §4's proof is false; W-3 deployed at scale |
-| 11 | **Scanner build implements the version comparison** (§10.2 items 1–2), covered by a client-side regression test, and verified by an end-to-end stale-pass drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored |
+| 10 | **Door-lifecycle prerequisites shipped**: M2 tables (`venue.door_manifest`, `venue.door_manifest_entry`, `door_manifest_delta`) + offline-verify **all five conjuncts of step 3b** + **3c** | eng | **before enabling** | §4's proof is false; W-3 deployed at scale; H-2's more-permissive-offline-door deployed at scale |
+| 10a | **The OQ-5 grant's second condition is actually implemented**: `kernel.revoke_signing_key` force-closes and invalidates open door-manifest episodes in its own transaction (edge §5.6). The ruling says *"without this I would reject DL-4"* — until it exists, the session-bounded wallet profile this feature depends on rests on a condition nothing satisfies | eng | **before enabling** | a 12-hour token against a revoked key |
+| 10b | **The `exp` clamp is applied at sign time** and asserted in CI over the **computed** value with adversarial `ends_at` fixtures (§5.2a), not merely over the seeded constants | eng | before enabling | a mistyped `ends_at` mints an unbounded bearer credential |
+| 11 | **Scanner build implements every conjunct of `OFFLINE-VERIFY-v1`** (§10.2 items 1–2) — all five of 3b, 3c, applied-set evaluation, no-M2-no-admit — covered by **one failing-case regression test per conjunct** (edge §5.4.3's case table), and verified by an end-to-end stale-pass drill **and** a `paid_pending_transfer` drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored, or fetched and only partly compared (H-2) |
 | 12 | **`wallet-pass-webservice` security review sign-off** for its `verify_jwt=false` posture (§6.1) | platform_admin | before enabling | the second unauthenticated endpoint ships unreviewed |
 | 13 | **Rate limits configured and fail-closed** on all four edge functions | eng | before enabling | abuse surface |
 | 14 | **Runbook published**: certificate rotation, certificate compromise, signer compromise, APNs key rotation, per-pass revoke, post-break-glass M2 re-sync (§10.3) | platform ops | before enabling | incident improvisation |
@@ -1349,7 +1683,12 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 
 ## 14. Changes required in the door-lifecycle spec
 
-**I have changed nothing in `PHASE_2_DOOR_LIFECYCLE_SPEC.md`.** These are requests.
+**These were requests** at the time this section was written, and DL-1…DL-6 were dispositioned by the door
+spec's §19. **Since then the security remediation has edited the door spec directly** (H-2's mirror and
+single-source pointer in door §9.2, the `refund_hold` reject arm, the `door.session_*` config seeds, the
+`door_manifest_delta` CHECK, the OQ-5 grant-condition correction, and the demotion of §10.6's constants
+invariant). Those are recorded in door §17's change-class index, not here. **The table below is preserved as
+the original request record.**
 
 | ID | Change | Why | Severity |
 |:-:|---|---|:-:|
@@ -1369,9 +1708,9 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | **OQ-W1** | **Holder name on the pass?** §9.1 rules **no name**, on lock-screen physical-safety grounds for a nightlife product. Venues sometimes ask for name-on-ticket. | **No name.** If a venue needs ID matching, put it behind the scanner's authenticated single-record lookup, never on a lock screen. **Owner/product call.** |
 | **OQ-W2** | **Who owns the Apple Developer account, and who can renew the Pass Type ID certificate?** This is an organizational single point of failure with an annual calendar trigger (§13 items 1, 3, 5). | Name a primary and a **backup** with portal access and KMS import authority; put the renewal in a shared calendar independent of the alerting. **Owner call — organizational, not technical.** |
 | **OQ-W3** | **Sequencing.** Wallet's entire guarantee rests on offline-verify step 3b and the M2 tables, neither of which exists (defect W-3, §0.2). | **Hard gate: Wallet may not ship before the door-lifecycle spec's M2 tables and step 3b are implemented and drilled.** Shipping first deploys W-3 at scale onto devices we do not control. **Owner acknowledgement required.** |
-| **OQ-W4** | **The two token profiles (§5.2) conflict with door-lifecycle OQ-5 as written (DL-4).** | Amend OQ-5 per DL-4 and accept the session-bounded wallet profile, with the three mitigations in §5.3 mandatory. **Owner call — this is the one place this document asks to relax a recorded constraint, and it must not be treated as settled by this document alone.** |
+| **OQ-W4** | **The two token profiles (§5.2) conflict with door-lifecycle OQ-5 as written (DL-4).** **RULED by door §16 OQ-5 — GRANTED, owner sign-off still owed.** | Accept the session-bounded wallet profile with the three §5.3 mitigations **and both of the ruling's own conditions, neither of which was implemented when granted**: (1) the offline-window bound — now a **clamp on the computed `exp`** (§5.2a), because the ratified constants invariant bound only the `ends_at IS NULL` branch; (2) **key revocation force-closes open door episodes** (edge §5.6) — the mechanism existed, the caller did not. **The owner is signing off on a relaxation whose safety rests on these two; §13 items 10a/10b gate the enable on them.** |
 | **OQ-W5** | **Offer a Wallet pass while `resale_state ∈ {listed, locked}`?** §9.2 hides the control. Edge §3.2 flags the *same* question for `credential-sign` on a listed atom and leaves it open (its §12.2). | Answer both together. Recommend **hide/refuse while listed or locked** — it reduces screenshot-resale confusion at zero product cost, since the holder can add after delisting. **Product call.** |
-| **OQ-W6** | **`wallet-pass-webservice` runs `verify_jwt=false`** — the second such function in the system after `stripe-webhook`. | Accept with the §6.1 compensating controls, subject to an explicit security sign-off (§13 item 12). **Security call.** |
+| **OQ-W6** | **`wallet-pass-webservice` runs `verify_jwt=false`** — **one of five such surfaces (edge §7), not the second of two** as this row previously said. | Accept with the §6.1 compensating controls **and §11.6a's liveness preconditions (H-4)**, subject to an explicit security sign-off (§13 item 12). **The sign-off should cover the `verify_jwt=false` set as a whole, not this function alone** — `door-session` (edge §3.9a) is the higher-risk member, since it relays admission. **Security call.** |
 | **OQ-W7** | **DL-1 — post-open issuance.** Should the manifest supplement be built, or is "door sales after manifest open are online-only" acceptable for MVP? | Build the supplement; it is small, provably safe, and the alternative silently refuses paying fans. **Owner call.** |
 | **OQ-W8** | **Budget** for KMS sign operations, APNs, and object storage at expected volume (§13 item 18). | — |
 | **OQ-W9** | **Rotating barcodes (SafeTix-class), later?** §1.2 declines them because the version check already defeats screenshots. | Revisit only if a venue contractually requires it. Note it would add device-clock coupling and a new offline failure mode. **Deferred.** |

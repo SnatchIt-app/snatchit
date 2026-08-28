@@ -817,6 +817,54 @@ Add step (3b), evaluated against the device's applied set `M2 = base_snapshot �
 > **(3b)** the atom is present in `M2`; `M2[atom]` is not `revoke`d; the token's `credential_version` equals
 > `M2[atom].credential_version`; `M2[atom].ticket_state = 'active'`; and `M2[atom].resale_state = 'none'`.
 
+**Where this predicate now lives — `SPEC CORRECTION` (H-2).** These five conjuncts were correct here and
+**two** of them were missing from edge §5.4.3, the section labelled BINDING and the text a scanner SDK
+implements: the integration adopted the older Wallet §11.9 wording *after* this section had corrected it. For
+the interval that stood, **the offline door was strictly more permissive than the online one** — exactly the
+asymmetry the paragraph below says must not exist. The predicate is therefore now stated **once**, in
+**edge §5.4.3**, tagged `OFFLINE-VERIFY-v1` and CI-gated for byte-identity across its mirrors. This section
+keeps the derivation above and the reject map below (both door-owned and normative), and reproduces the
+predicate as a sanctioned mirror:
+
+<!-- SANCTIONED MIRROR of OFFLINE-VERIFY-v1. Byte-identical to PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. CI-gated. -->
+
+```text
+OFFLINE-VERIFY-v1 — offline door admission predicate (NORMATIVE)
+Single source: PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3. Mirrors must be byte-identical.
+
+Applied set:  M2 := base_snapshot(manifest_id) ⊕ deltas[1 .. last_synced_seq]   (door §7.7)
+              The device MUST evaluate against the APPLIED set. Evaluating the base
+              snapshot alone silently ignores every revocation and every supplement
+              the device has already downloaded.
+
+ADMIT(token) requires ALL of:
+
+  1    token.key_id ∈ M1  ∧  M1[token.key_id].status ≠ 'revoked'
+                         ∧  now() ∈ [M1[token.key_id].not_before, not_after]
+  2    Verify(M1[token.key_id].public_key, token.claims, token.sig)
+  3    token.session_id == the device's bound scanning session
+  3a   now() <= token.exp, ± 2 time-buckets                                     (RPC §9.3)
+  3b   FIVE conjuncts, ALL required — this is the W-3 fix:
+         i    atom ∈ M2
+         ii   M2[atom] carries no applied `revoke` delta
+         iii  token.credential_version == M2[atom].credential_version
+         iv   M2[atom].ticket_state  == 'active'
+         v    M2[atom].resale_state  == 'none'
+  3c   token.key_id == M2[atom].signing_key_id                                  (Wallet §8.3)
+  4    first-in-wins against the device's local admitted set
+
+  No M2, an M2 past its downloaded not_after, or an M2 for another session
+  ⇒ the door has NO offline authority and MUST NOT admit.                       (door §3.1)
+
+Conjunct 3b.v is load-bearing, not defence in depth: a `paid_pending_transfer` atom is
+`state='active', resale_state='locked'` and is excluded from the door-open drain, and a
+`refund_hold` atom is `state='active'` too. Without 3b.v the offline door admits both —
+atoms the ONLINE door refuses. Online and offline must reject for the same reasons, or the
+offline door is not a shrunk version of the online one; it is a different one.
+
+Reject reasons: door §9.2's map. No private key, no network, no DB.
+```
+
 With §5.3's theorem this is not merely a defence-in-depth check — it is *exact* for the custody dimension: the
 manifest owner and version are provably current for the whole episode, so `version_stale` offline means the
 same thing it means online. §5.4 states precisely where it is not exact (revocation).
@@ -839,7 +887,32 @@ introduced, and every reason maps onto the five the venue dashboard already publ
 | `revoke`d by delta, or `ticket_state='voided'` | `voided` | *"This ticket was refunded or cancelled."* |
 | `ticket_state='scanned'` at snapshot | `duplicate` | *"Already used"* |
 | `resale_state ∈ {listed, locked}` | `listed_locked` | *"This ticket is listed for resale or mid-transfer."* |
+| **`resale_state = 'refund_hold'`** | **`refund_hold`** | ***"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has to be cancelled in the Snatch It app — then this ticket works again."*** |
 | version mismatch | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* |
+| `key_id` ≠ `M2[atom].signing_key_id` (3c) | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* — reuses the copy deliberately; from the holder's side it is the same situation |
+
+**The `refund_hold` arm — `SPEC CORRECTION`, and the one place this ruling adds vocabulary.** The map above
+originally enumerated only `{listed, locked}`. MONEY §12 ADDITIVE-2 added a **fourth** overlay label,
+`refund_hold` (schema §1.5), and §10.3's CHECK already admits all four — so under the five-conjunct predicate a
+`refund_hold` atom is correctly **rejected**, but it was rejected with **no reason arm at all**. Door staff saw
+an unmapped refusal of a paying customer and had nothing to say and nothing to offer.
+
+**Why a sixth reason rather than reuse.** §9.2's ruling on DL-5 refused new vocabulary because the existing
+five already carried every *meaning* — that argument does not hold here. Folding `refund_hold` into
+`listed_locked` tells the holder their ticket is *"listed for resale or mid-transfer"*, which is false, and
+sends door staff hunting a listing that does not exist. **The remedy is what makes the reason worth having:**
+the holder (or org finance, or platform) can cancel the parked request — `kernel.cancel_refund_request`
+(RPC §17.3) releases the overlay to `none` and the ticket admits — and if nobody acts,
+`kernel.sweep_expired_refund_requests` (RPC §17.4) releases it at `expires_at`. A reason with a remedy behind
+it is worth a word; a reason without one is not, which is why the other four were reused.
+
+**Two sibling-owned changes this arm requires — reported, not made here:**
+- **`PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §12.5** — the *"five reasons"* table becomes **six**, with the
+  row and copy above. The surrounding prose that says "five" changes with it.
+- **`PHASE_2_RPC_FUNCTION_CONTRACTS.md` §9.3** — `venue.validate_ticket_online`'s `reason` enum
+  (`active|already_scanned|listed_locked|voided|wrong_session|version_stale`) gains **`refund_hold`**. Without
+  it the **online** door has the same unmapped-refusal problem the offline door had: `mark_ticket_scanned`
+  requires `resale_state='none'`, so a `refund_hold` atom is refused online today with no reason to render.
 
 **This also closes a hole neither spec flagged.** A sale in `paid_pending_transfer` leaves its atom
 `state='active', resale_state='locked'` (RPC §12.3), and §7.3 deliberately excludes it from the drain to
@@ -1018,7 +1091,10 @@ The append-only change log applied on top of the base snapshot (§7.7). Serves W
   default now(); `created_at`.
 - **Unique:** PK; **`UNIQUE(manifest_id, ticket_atom_id, op)`** — a replayed mint or void appends nothing
   (§7.7 idempotency).
-- **Check:** `(op='add') = (credential_version IS NOT NULL)`; `credential_version >= 0`.
+- **Check:** `(op='add') = (credential_version IS NOT NULL)`; `credential_version >= 0`;
+  **`(op='add') ⇒ signing_key_id IS NOT NULL`** (`ADDITIVE`, tightened) — offline check 3c is now **required**
+  (edge §5.4.3), so a supplemented atom with no pinned key would be structurally unadmittable offline. A
+  nullable `signing_key_id` on an `add` delta is a lockout waiting to happen, not a permissive default.
   **`op='add'` requires `credential_version = 0`** — a supplemented atom is by construction newly minted and
   never transferred; anything else would mean a custody move committed after the freeze, which §5.3's theorem
   forbids. This CHECK is the theorem made structural.
@@ -1049,6 +1125,14 @@ claimed manifest actually existed and covered the atom.
 | `door.manifest_ttl_interval` | interval | `'12 hours'` | episode `not_after` horizon |
 | `door.manifest_early_open_window` | interval | `'12 hours'` | how far before doors an episode may be opened |
 | `door.max_override_interval` | interval | `'2 hours'` | hard ceiling on an override's TTL |
+| **`door.session_ttl_interval`** | interval | `'12 hours'` | door-session token lifetime, extended by `/refresh` (edge §3.9a). One door shift |
+| **`door.session_absolute_max_interval`** | interval | `'24 hours'` | hard cap from `issued_at`; past it the device re-enters a PIN. A refresh loop may not turn a shift credential into a permanent one |
+| **`door.session_post_session_grace`** | interval | `'4 hours'` | a token may not outlive the session it is bound to by more than this — covers late reconciliation of an offline batch without leaving a live credential for a finished show |
+
+The three `door.session_*` keys are the H-3 fix's operational surface (edge §3.9a). They bound a **bearer
+credential**, so they are tightening-only in the same sense as the money namespaces: **lowering any of them may
+execute directly; raising one requires the second approver** (RLS §11's direction asymmetry). A security
+control that is hard to tighten in an incident is a liability; one that is easy to loosen quietly is worse.
 
 **Cross-config invariant (`SPEC CORRECTION`, load-bearing for §16 OQ-5).**
 
@@ -1059,8 +1143,18 @@ config('credential.wallet_default_span') + config('credential.wallet_exp_skew')
 
 A Wallet token may never outlive the offline window that any manifest could authorise. `catalog.set_platform_config`
 must validate this whenever either side changes and reject the write otherwise; CI asserts it over the seeded
-values. **This is the invariant that makes the §16 OQ-5 ruling safe** — without it, the Wallet spec's claim
-that a short `exp` "bounds nothing that isn't already bounded" is false for key revocation.
+values.
+
+> **`SPEC CORRECTION` — this invariant constrains the wrong thing on its own.** `wallet_default_span` applies
+> **only when `session.ends_at IS NULL`**. On every session that *has* an `ends_at`, the invariant above binds
+> nothing, and a long or mistyped `ends_at` produces an **unbounded `exp`** — so the OQ-5 item 1 guarantee
+> (*"cannot outlive the offline window any manifest could authorise"*) did not hold on the common branch.
+> **The binding control is a clamp on the computed value**, specified in Wallet **§5.2a**:
+> `exp := LEAST( session_ref_end + wallet_exp_skew, session_ref_start + door.manifest_ttl_interval +
+> wallet_exp_skew, signing_key.not_after )`, applied by `credential-sign` at sign time and asserted in CI over
+> the **computed** value with adversarial `ends_at` fixtures. The constants invariant above **stays as an early
+> warning on the operator and is explicitly necessary-but-not-sufficient.** OQ-5 item 1 is discharged by the
+> clamp, not by this line.
 
 ### 10.7 What is **not** added
 
@@ -1230,6 +1324,12 @@ Closes VD §12.4's "Gap" and VD Δ1; the surface's copy is already written there
   a role cannot use are absent rather than disabled, so a door operator never learns the control exists.
 - **New reject reason surfacing:** `version_stale` offline (§9.2) reuses the existing operator copy
   *"This pass is out of date. Ask them to open the Snatch It app."* — no new vocabulary.
+- **One new reject reason, `refund_hold`** (§9.2), online and offline, with its own copy:
+  > *"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has
+  > to be cancelled in the Snatch It app — then this ticket works again."*
+  It must render as a deny banner in the same weight as `listed_locked`, and **must not** be worded to imply
+  fraud: the holder in front of the door is a paying customer whose own refund request is parked, and the
+  action available to them is a real one (RPC §17.3).
 
 ### 11.3 Consumer RN — `NO CHANGE`
 
@@ -1606,6 +1706,14 @@ by binding the token to the offline window instead of to a clock:
    MUST force-close and invalidate it (§8.2.1 mechanism, `reason='key_revoked'`, envelope #44). This collapses
    the revocation window to the device's offline duration rather than the token's life. **Without this I would
    reject DL-4**, because item 1 alone leaves a 12-hour token against a revoked key.
+   > **`SPEC CORRECTION` — this condition had a mechanism and no caller.** §8.2.1 defines the force-close, and
+   > envelope #44's enum already carries `key_revoked`, but **`kernel.revoke_signing_key` was specified nowhere
+   > as invoking either** — it was a key-table update and nothing more (edge §5.6, RPC §13). A granted ruling
+   > whose condition nothing satisfies is the "correct thing that nothing called" failure class §8.4 exists to
+   > refuse. The normative obligation is now written into **edge §5.6** (same-transaction force-close, episode
+   > `not_after := now()`, `DoorManifestInvalidated`, audit row) and reported to the RPC-contract owner for
+   > `kernel.revoke_signing_key`'s write set and lock order. **Until that lands, this ruling's item 2 is
+   > unmet.**
 3. Their three mitigations stand and are mandatory: the CI structural test that offline step 3b exists, the
    `wallet.apple.enabled` kill switch, and no-manifest-no-admit. The third is consistent with §3.1 — it
    constrains **offline** admission, which already requires a manifest by construction, and does not touch
@@ -1665,6 +1773,13 @@ TLS-only fallback is acceptable for MVP if KMS budget is constrained. Marked `NE
 | `kernel.door_freeze_override` | `ADDITIVE SCHEMA CHANGE` |
 | `venue.scan.manifest_id` · `venue.scan_device.manifest_id` | `ADDITIVE SCHEMA CHANGE` (recommended) |
 | four `catalog.platform_config` seed keys | `ADDITIVE SCHEMA CHANGE` (rows) |
+| three `door.session_*` config seed keys (§10.6) | `ADDITIVE SCHEMA CHANGE` (rows) — H-3 |
+| `venue.door_manifest_delta` CHECK `(op='add') ⇒ signing_key_id IS NOT NULL` (§10.3a) | `ADDITIVE` (constraint) — H-2/3c |
+| Offline predicate stated once as `OFFLINE-VERIFY-v1` in edge §5.4.3; §9.2 is a verbatim mirror | `SPEC CORRECTION` (§9.2 — **H-2**) |
+| `refund_hold` reject arm + operator copy (§9.2, §11.2) | `SPEC CORRECTION` (Finding-7 residual) |
+| `exp` clamp on the **computed** value; §10.6's constants invariant demoted to necessary-not-sufficient | `SPEC CORRECTION` (§10.6 → Wallet §5.2a) |
+| `kernel.revoke_signing_key` force-closes open episodes (OQ-5 grant condition 2 — mechanism existed, caller did not) | `SPEC CORRECTION` (§16 OQ-5 → edge §5.6) |
+| **`venue.door_session`** (H-3 — the bearer artifact the door actually holds) | **`ADDITIVE SCHEMA CHANGE` — reported to the schema/plan owners, specified in edge §3.9a** |
 | `catalog.event_session.door_open_at` triggers + CHECK | `ADDITIVE SCHEMA CHANGE` (constraints only) |
 | `catalog.event_session.door_open_at` column itself | `NO SCHEMA CHANGE` |
 | `kernel.is_transfer_frozen` signature + all call sites | `NO SCHEMA CHANGE` |
