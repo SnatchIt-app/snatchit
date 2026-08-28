@@ -746,21 +746,86 @@ Rather than a refund-specific table, a **single generic approval object** serves
 (b) the money-namespace `platform_config` dual control (§7.3), and (c) the payout-above-threshold dual control
 (§9.2). One state machine, one SoD rule, one expiry sweep, one audit vocabulary.
 
+**The physical definition is `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.13 (package `077`), and this
+section agrees with it rather than restating it loosely.** The columns this document's authority model depends
+on, named exactly as the schema names them:
+
+| Column | What this document depends on |
+|---|---|
+| **`required_approver_class`** text — **not null**, `CHECK IN ('org','platform','platform_admin')` | **ADDED by `AUTHZ-C1A` / ratification row `C57`; it did not exist in this document's original §6.6 or §12, and that omission IS the defect §6.2 now records.** The **stored** discriminator that decides which authority arm may approve the row. Written server-side **at request time** by the requesting function from the tier it computed (§6.1, §9.2, §7.3), **pinned exactly like `config_versions`** — never recomputed at approval time, never supplied by a caller, never derived from `state` or from `payload`. **Three labels, not two:** `platform` admits `platform_support`/`platform_risk`/`platform_admin`, while **`platform_admin` admits only a second distinct `platform_admin`** — §7.3's money-key rule, which a two-label set would have collapsed (`AUTHZ-C1A2`). |
+| `action` text — not null, `CHECK IN ('refund.issue','payout.request','config.set_money_key')` | The other half of §6.2's dispatch key. A closed label set, not an FK. |
+| `subject_kind` text — not null, `CHECK IN ('order','settlement','config_key')`; `subject_id` uuid — not null | Deliberately **soft** (no FK — three subjects in three packages), constrained instead by the `action ↔ subject_kind` pairing CHECK and by the RPC-side existence assertions `APPR-SUBJ-1`/`APPR-SUBJ-2` (schema §1.13.3, RPC §17.0a). |
+| `org_id` uuid — **nullable**, FK→`kernel.organization` | NULL for platform-scope actions (`config.set_money_key`). §6.2's org arm scopes `has_org_role` to it, which is why `CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)` exists. |
+| `payload`, `config_versions` jsonb | Server-computed evidence and the pinned `(key, version)` set (§7.2). **Never authority** — see the footgun below. |
+| `requested_by`, `approved_by` uuid | SoD-2's two identities; both server-derived (C35). |
+| `state` text — `pending · approved · denied · cancelled · expired · stale` | **Actionability only, never authority.** |
+| `reason_code`, `expires_at`, `command_idempotency_key`, `created_at`, `updated_at` | Expiry sweep (§6.3) and C16 replay guard. |
+
+**The SoD CHECK is a pair, not a single constraint (`AUTHZ-M1`).** This document originally specified only
+`CHECK (approved_by IS NULL OR approved_by <> requested_by)` — which **every row nobody has approved satisfies
+trivially**, including a row an implementation moved to `approved` while leaving `approved_by` NULL. The
+constraint that is the entire structural expression of §12 ADDITIVE-1 could therefore be green on a database
+in which **no approval was ever attributed to a second human**. Schema §1.13 adds the companions:
+`CHECK (state <> 'approved' OR approved_by IS NOT NULL)`, the same on `'denied'`, the `action ↔ subject_kind`
+pairing, `CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_admin')` and
+`CHECK (required_approver_class <> 'org' OR org_id IS NOT NULL)`.
+
 **The footgun, named.** A generic `payload jsonb` invites the approval to become a client-supplied authority
 vector ("approve this, amount = X"). **Mitigation, contractual and mandatory:** the payload is
 **server-computed at request time** and **re-derived and re-compared at approval time** (§6.2). The stored
 payload is evidence for the approver's UI; the executing code trusts nothing in it. A mismatch is `stale`, not
-an override.
+an override. **And the reason that matters is `AUTHZ-C1A`:** with the tier absent from the row, `payload` was
+the *only* place a diligent implementer could have found it — so the missing column was actively pushing the
+authority branch into the one structure this paragraph forbids it to read.
 
 ### 6.7 Contract changes to existing RPCs — `SPEC CORRECTION`
 
 | RPC | Change |
 |---|---|
 | `kernel.refund_primary_order` (§11.4) | **Role narrows** to `definer` + `is_platform([platform_support (capped), platform_admin])`. Buyer, `org_finance`, and the new `org_owner` reach it only via `request_order_refund`. Adds the **voidable/consumed partition** (§5.4 Race 3): a `scanned` atom is reported in `atoms_not_voided[]`, is **not** voided, and returns **no** inventory; the refund's money leg still completes. Adds `custody_moved` to the failure taxonomy. |
-| `kernel.request_org_payout` (§10.3) | **Role unchanged** (`[org_finance, org_owner]` — now consistent with §7.9). **Adds three preconditions:** the destination-probation hold (§8.4), the SoD-1 destination-setter exclusion (§8.2), and the step-up predicate (§8.3). Adds the above-threshold approval branch (§9.2). |
-| `kernel.set_org_payout_destination` | **Full contract written for the first time** (§8) — it is referenced by RLS §7.2/§11, schema §1.2, and dashboard §5 note 26/§14.5, but was never contracted in the RPC spec. |
+| `kernel.request_org_payout` (§10.3) | **Role unchanged** (`[org_finance, org_owner]` — now consistent with §7.9). **Adds FOUR preconditions — this row said three, and the fourth is what makes the other three mean what they claim (`AUTHZ-C1B`, ratification row `C58`):** the destination-probation hold (§8.4), the SoD-1 destination-setter exclusion (§8.2), the step-up predicate (§8.3) **and `kernel.money_role_grant_matured(p_org_id)` (§6.7a)**. Failure of the maturity conjunct is **`sod_violation`**, never `insufficient_privilege`. **None of the four is ever applied to a deny or a cancel** (schema §13.7 `S-3`): a control that blocks *stopping* a payout is a control pointed the wrong way. Adds the above-threshold approval branch (§9.2), which **writes `required_approver_class`** on the parked arm exactly as §6.1 does. |
+| `kernel.set_org_payout_destination` | **Full contract written for the first time** (§8) — it is referenced by RLS §7.2/§11, schema §1.2, and dashboard §5 note 26/§14.5, but was never contracted in the RPC spec. **Role: `has_org_role(p_org_id,['org_owner'])` ONLY, with step-up, AND `kernel.money_role_grant_matured(p_org_id)`** (`AUTHZ-C1B`; RPC §17.7, which states that maturity *"binds the SETTER and not only the requester"*). `org_finance` is excluded entirely (§8.2). |
 | `kernel.close_settlement` (§10.2) | Unchanged. `org_owner` still cannot close. Reconciliation item RLS §15.3 / RPC §16.4 (org- vs venue-level close) is **untouched and still open** — O-1/O-3 do not reach it. |
 | `catalog.set_platform_config` | Money-namespace keys become genuinely dual-controlled (§7.3). |
+
+### 6.7a `kernel.money_role_grant_matured(p_org_id)` — REFERENCED HERE, DEFINED ELSEWHERE (`AUTHZ-C1B`)
+
+**This document does not define this helper and must not.** Its defining contract belongs to the predicate-helper
+substrate of `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1 (§1.1 … §1.1d today), it is declared in the canonical helper
+list of `PHASE_2_SPEC_FOUNDATION.md` §4 (C36) and stated in full in `PHASE_2_RLS_PERMISSION_SPEC.md` §11.3a, and
+it was ratified as row **C58**. What follows is a **reference**, deliberately written so that a drift between
+that definition and this document's dependence on it is **visible rather than silent** — if any of the four
+properties below stops holding at the defining site, every use in §6.1, §6.2, §6.7, §8.2 and §9.2 is wrong and
+this section is where a reader finds that out.
+
+**Why it exists at all.** Both money SoD primitives compare `auth.uid()` against a stored identity — SoD-1
+compares the payout requester against `payout_destination_set_by` (§8.2), SoD-2 compares the approver against
+`requested_by` (§6.2). **An `org_owner` holds the grant authority to mint the second identity** through the
+ordinary invite/accept flow. Without a maturity conjunct, both primitives are satisfied by any two distinct
+`auth.uid()` values, one of which the attacker creates. **This is the control that makes O-3's ratified SoD-1
+collapse survivable in practice rather than only on paper.**
+
+**The four properties this document depends on:**
+
+1. **Shape.** `kernel.money_role_grant_matured(org_id) → boolean`, true **iff** the caller holds a **money
+   role** (`org_owner` · `org_finance`) in `org_id` whose live `kernel.org_member.granted_at` is at least
+   `authn.money_role_maturity_hours` old. It is a function of **time as well as role** — the only predicate in
+   the helper set that is.
+2. **Absent config fails CLOSED.** An absent or NULL `authn.money_role_maturity_hours` means **no grant is
+   mature** — the helper returns **false**, never true (the standing rule of ratification row `C61`). The
+   value itself is an open number (RLS `MD-14`), and it is **not** decided here.
+3. **It is a CONJUNCT, never a gate on its own.** It is added beside the role test, never in place of it, and
+   it is **never** applied to a deny, a cancel, or a sweep — a control that blocks *stopping* a money movement
+   is pointed the wrong way (schema §13.7 `S-3`).
+4. **It binds BOTH halves of BOTH pairs.** Requester **and** approver on SoD-2 (§6.1, §6.2); destination
+   **setter** (§8.2, RPC §17.7) **and** payout requester (§6.7) on SoD-1. **Applied to one half of a pair it
+   is applied to neither** — an `org_owner` who mints a fresh `org_finance` defeats a requester-only check
+   simply by moving the fresh account to the other side of the pair.
+
+**Its failure mode is `sod_violation`, never `insufficient_privilege`,** everywhere this document names it: the
+role is genuinely held, and a permission error would send an operator to re-check a grant that is correct.
+Storage (`kernel.org_member.granted_at`, written by `accept_org_invite` and re-set by `change_org_role` on
+promotion **into** a money role) is schema §1.3/§1.13.4, package `077`; the config key is package `078`.
 
 ---
 
@@ -806,9 +871,13 @@ permit.
 - **Authority:** `is_platform(['platform_admin'])` — unchanged.
 - **Dual control:** for keys in the `refund.*`, `payout.*`, and `authn.*` namespaces, **mandatory, not a
   seam.** `catalog.set_platform_config` on such a key does not insert a new version directly; it creates a
-  `kernel.approval_request` (`action = 'config.set_money_key'`) which a **second distinct `platform_admin`**
-  approves, and only the approval inserts the new `(key, version+1)` row. Non-money keys keep today's direct
-  path.
+  `kernel.approval_request` (`action = 'config.set_money_key'`, `subject_kind='config_key'`,
+  **`required_approver_class := 'platform_admin'`**, `org_id IS NULL`) which a **second distinct
+  `platform_admin`** approves, and only the approval inserts the new `(key, version+1)` row. Non-money keys
+  keep today's direct path. **`platform_admin` is a distinct stored class from `platform` precisely so this
+  arm cannot be satisfied by `platform_support`** — the role capped by `refund.platform_support_max_minor`
+  must not be able to approve a raise of that cap (`AUTHZ-C1A2`, §6.2; schema §1.13.2 carries it as
+  `CHECK (action <> 'config.set_money_key' OR required_approver_class = 'platform_admin')`).
 - **Direction asymmetry (recommended):** *lowering* a limit (more restrictive) may execute directly; only
   *raising* one requires the second approver. Fail-safe changes should never be friction-gated — a security
   control that is hard to tighten in an incident is a liability.
@@ -915,6 +984,24 @@ it.
 
 `org_finance` is **excluded from destination changes entirely** (§2.4, §3.3) for the same reason: it too holds
 payout-request authority under O-3.
+
+**The caller predicate, stated as a contract line — it was not, and that is how the maturity conjunct went
+missing here (`AUTHZ-C1B`, ratification row `C58`).**
+
+> `kernel.set_org_payout_destination(p_org_id, p_connect_account_ref, p_reason_code, p_command_key)` —
+> **`has_org_role(p_org_id, ['org_owner'])` ONLY**, **AND** step-up per §8.3 (`AUTHZ-M4`: an absent
+> `aal`/`amr` claim **raises `step_up_unavailable`** and never evaluates), **AND**
+> **`kernel.money_role_grant_matured(p_org_id)`** (§6.7a). **Bound by EDGE-CALLER-JWT** (§8.3c) — and this is
+> the RPC where that rule bites hardest, because the step-up predicate reads `auth.jwt()`, which on a
+> service-role client carries no `aal` and no `amr` at all. Errors: `insufficient_privilege` ·
+> **`sod_violation`** (grant immature) · `step_up_required` · **`step_up_unavailable`** ·
+> `precondition_failed` · `not_found`. Identical to RPC §17.7.
+
+**Why maturity binds the SETTER and not only the requester.** SoD-1's whole content is *"the identity that set
+the destination may not request the payout to it."* An `org_owner` who mints a second money account satisfies
+that by **setting as A and requesting as B** — so a maturity check applied only to the requester is defeated by
+moving the fresh account to the other side of the pair. **Both halves of both primitives carry it, or neither
+does** (RPC §17.7, in those words).
 
 ### 8.3 Control 2 — "recent authentication": the honest answer
 
@@ -1034,6 +1121,7 @@ Stripe account ids, `reason_code` mandatory. Plus, and this is the part that doe
 | # | Control | Stops | Cost |
 |---|---|---|---|
 | 1 | **SoD-1 identity split** (§8.2) | the named fraud primitive, structurally | single-principal orgs must escalate |
+| 1b | **Grant maturity on BOTH halves** (§6.7a, §8.2) — **ADDED, `AUTHZ-C1B`** | **the identity split being satisfied with an identity the attacker MINTED** — without it control 1 compares two `auth.uid()` values an `org_owner` can create at will, and ranks first while stopping nothing | a genuinely new money principal waits out `authn.money_role_maturity_hours` |
 | 2 | **Destination probation hold** (§8.4) | money leaving to a fresh destination unreviewed | a support touch on the first payout |
 | 3 | **Out-of-band notification** (§8.4) | a silent takeover | none |
 | 4 | **Step-up freshness** (§8.3) | session-riding, stolen refresh tokens | a re-auth flow + retry |
@@ -1043,6 +1131,12 @@ Stripe account ids, `reason_code` mandatory. Plus, and this is the part that doe
 Note the ordering: the existing, already-specified control (cool-down) is the **weakest** in the set. O-3's
 requirement that destination change be "strictly stronger than payout request" is met by controls 1–4, not by
 the timer that exists today.
+
+**Control 1b is placed immediately below control 1 deliberately.** It is not an additional control so much as
+the **precondition of control 1 being a control at all**: SoD-1 compares the payout requester against a stored
+`auth.uid()`, and the role that changes the destination is the role that can mint the counterparty. Ranked
+separately rather than folded into control 1 because the two fail independently — control 1 can be correctly
+implemented and still stop nobody.
 
 ---
 
@@ -1060,11 +1154,21 @@ the timer that exists today.
 
 Domain §7.6 distinguishes *Initiate payout (≤ threshold)* `✔✱` from *Initiate/approve payout (> threshold)*
 `✔ᴰ✱`. Realized on the same generic object: above `payout.dual_control_min_minor`, `request_org_payout` does
-not advance `pending → submitted`; it creates `kernel.approval_request` (`action = 'payout.request'`) and
-returns `pending_approval`. `approve_refund_request`'s sibling branch (same function, `action`-dispatched)
-performs the advance, subject to the same `approver ≠ requester` SoD **and** the §8.2 destination-setter
-exclusion applied to the *approver* as well — otherwise the destination-setter could simply approve instead of
-request. **No custody hold** is involved: a payout holds no tickets.
+not advance `pending → submitted`; it creates `kernel.approval_request` (`action = 'payout.request'`,
+`subject_kind='settlement'`, `subject_id := p_settlement_id`) and returns `pending_approval`.
+`approve_refund_request`'s sibling branch (same function, dispatched on **`(action, required_approver_class)`**
+— §6.2, not on `action` alone) performs the advance, subject to the same `approver ≠ requester` SoD, the §6.7a
+grant-maturity conjunct, **and** the §8.2 destination-setter exclusion applied to the *approver* as well —
+otherwise the destination-setter could simply approve instead of request. **No custody hold** is involved:
+a payout holds no tickets.
+
+**This is the third writer of `required_approver_class` (`AUTHZ-C1A`)**, with §6.1 and §7.3. Set server-side
+from the same evaluation that decided to park and pinned exactly as `config_versions` is, **never a
+parameter**: `'org'` for an org-approvable payout, `'platform'` where the amount or a risk condition sends it
+to platform review — **at which point `platform_support` is DENIED on the payout arm** (§6.2), because it
+holds no payout authority anywhere else and must not acquire one through the generic approval object. Result:
+`{ status ∈ {submitted, pending_approval, pending_platform_review, noop_replay}, payout_id, request_id?,
+required_approver_class? }`.
 
 ### 9.3 `close_settlement` stays put
 
@@ -1193,9 +1297,10 @@ and must be documented as such rather than described as "recent authentication."
 12. RN spec §7 state matrix — `refund_pending` column on My Ticket detail + Entry Pass (§10.2).
 
 ### `ADDITIVE SCHEMA CHANGE` (all on Phase-2 tables; nothing in `public.*`)
-1. **`kernel.approval_request`** — new table. `request_id` PK · `action` (`refund.issue` · `payout.request` · `config.set_money_key`) · `subject_kind`/`subject_id` · `org_id` (nullable, FK) · `payload` jsonb (server-computed evidence, never authority) · `config_versions` jsonb (§7.2 pinning) · `requested_by` · `approved_by` (nullable) · `state` (`pending` · `approved` · `denied` · `cancelled` · `expired` · `stale`) · `reason_code` · `expires_at` · `command_idempotency_key` · timestamps. **Unique** `(requested_by, command_idempotency_key)`. **Check** `approved_by IS NULL OR approved_by <> requested_by` — SoD as a table constraint, not a convention. RLS: RPC-only, org-scoped read via the approval-queue RPC. Append-only-ish state machine; no DELETE.
+1. **`kernel.approval_request`** — new table, **placed in package `077`** by schema §1.13 (which is the physical definition; this list is the classification, not the DDL). `request_id` PK · `action` (`refund.issue` · `payout.request` · `config.set_money_key`) · **`required_approver_class` (`org` · `platform` · `platform_admin`) — NOT NULL, `AUTHZ-C1A` / row `C57`; this item originally omitted it, and §6.2 records what that omission did** · `subject_kind` (`order` · `settlement` · `config_key`, CHECKed) / `subject_id` · `org_id` (nullable, FK) · `payload` jsonb (server-computed evidence, never authority) · `config_versions` jsonb (§7.2 pinning) · `requested_by` · `approved_by` (nullable) · `state` (`pending` · `approved` · `denied` · `cancelled` · `expired` · `stale`) · `reason_code` · `expires_at` · `command_idempotency_key` · timestamps. **Unique** `(requested_by, command_idempotency_key)`. **Checks — SoD as a table constraint is a PAIR, not one line (`AUTHZ-M1`):** `approved_by IS NULL OR approved_by <> requested_by` **and** `state <> 'approved' OR approved_by IS NOT NULL` (the first is vacuously satisfiable without the second), the same on `'denied'`, the `action ↔ subject_kind` pairing, `action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'`, and `required_approver_class <> 'org' OR org_id IS NOT NULL`. **Indexes** include `(action, required_approver_class, state)` — §6.2's actual predicate — and a partial `(required_approver_class, created_at) WHERE state='pending'`, because the platform-review queue carries `org_id IS NULL` and is invisible to the `(org_id, state)` index. RLS: RPC-only, org-scoped read via the approval-queue RPC. Append-only-ish state machine; no DELETE.
 2. **`kernel.tickets.resale_state` gains the label `refund_hold`** (`ALTER TYPE … ADD VALUE`). Guard sets in RPC §7.2 (transfer preconditions), §7.4 (lock preconditions), §7.5 (scan preconditions) update accordingly — each is a `SPEC CORRECTION` riding this change.
 3. **`kernel.organization.payout_destination_set_by uuid`** — nullable, FK→`auth.users`, on delete restrict. Column-scoped exactly like `payout_destination_locked_until` (`org_owner`/`org_finance`/platform). Enables SoD-1 (§8.2).
+3a. **`kernel.org_member.granted_at timestamptz`** — NOT NULL, default `now()`, **ADDED by `AUTHZ-C1B` / ratification row `C58`; package `077`, schema §1.3/§1.13.4.** Written on grant by `accept_org_invite` and **re-set by `change_org_role` on promotion INTO a money role**. It is the clock `kernel.money_role_grant_matured` reads (§6.7a), and **without it SoD-1 and SoD-2 both compare two `auth.uid()` values that one `org_owner` can mint.** The companion config key `authn.money_role_maturity_hours` is package `078`; its **value** is an open number (RLS `MD-14`) and is not decided here, but an **absent** key means no grant is mature (row `C61`).
 4. *(Conditional on D-2, NOT proposed for MVP)* `kernel.org_money_policy` — per-org threshold overrides in a non-public home (§7.4).
 
 ### `NEW RPC`
