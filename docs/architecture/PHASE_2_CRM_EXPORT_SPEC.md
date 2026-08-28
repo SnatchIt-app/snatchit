@@ -155,6 +155,10 @@ Read only. The builder is a `SECURITY DEFINER` function; none of these tables is
 ```text
 catalog.event_session (:session_id)          -- the scope anchor, and the admission grain
   └─ kernel.tickets                          -- WHERE event_session_id = :session AND state <> 'voided'
+       │                                     --   AND org_id = :job_org_id   <-- XO-1a, MANDATORY AT EVERY
+       │                                     --   GRAIN (§4.1). Not an optimisation, not an org-grain
+       │                                     --   special case: catalog.venue.org_id is MUTABLE, so the
+       │                                     --   traversal alone reaches a prior operator's sessions.
        ├─ current_owner_id  → auth.users     -- THE HOLDER (the roster key)
        ├─ ticket_type_id    → venue.ticket_type          -- ticket type name
        ├─ org_id            → kernel.organization        -- the tenant; carried on the atom itself
@@ -168,16 +172,21 @@ catalog.event_session (:session_id)          -- the scope anchor, and the admiss
        │                                          └─ promoter_link → promoter   -- promoter name / code
        └─ venue.scan          -- WHERE event_session_id = :session, latest per atom → checked_in
   └─ public.profiles (display_name only, for holder and purchaser)
-  └─ kernel.org_contact_consent (identity_id, org_id)   -- the email gate (§5)
+  └─ kernel.org_contact_consent (identity_id, org_id = :job_org_id)  -- the email gate (§5); the JOB's org
   └─ kernel.identity_contact_pref (identity_id)         -- the master kill switch (§5)
+  └─ kernel.org_customer_key (org_id = :job_org_id)     -- the pseudonym key; the JOB's org (§4.3)
 ```
 
 **Three properties of this path that are load-bearing and easy to lose:**
 
-1. **`kernel.tickets.org_id` is on the atom itself.** `VERIFIED:` schema §1.5 — `org_id uuid not null
-   FK→kernel.organization(org_id)`. The tenant of a roster row is therefore established without traversing
-   session → event → venue → org, which means the org-grain query in §4 is a direct predicate, not a
-   four-hop join whose middle can be tampered with.
+1. **`kernel.tickets.org_id` is on the atom itself — and must actually be compared.** `VERIFIED:` schema
+   §1.5 — `org_id uuid not null FK→kernel.organization(org_id)`. The tenant of a roster row is therefore
+   established without traversing session → event → venue → org, which means the tenancy check is a direct
+   predicate rather than a four-hop join whose middle can be tampered with. **XO-1a (§4.1) makes that
+   predicate mandatory at every grain**, and the two org-parameterized lookups above — the consent `EXISTS`
+   and the pseudonym key — bind to `:job_org_id`, the org frozen on the job row. `INFERENCE:` the original
+   text presented the column's existence as the defence and invoked the comparison only for the org-grain
+   aggregate; a column that exists and is never compared defends nothing.
 2. **The purchaser is reached through the ownership log's issuance entry, not through a column on the atom.**
    There is no `purchased_by` column on `kernel.tickets` and this document does not ask for one. `INFERENCE:`
    adding one would duplicate a fact whose home is the ledger, violating CDM §10.6 ("one fact, one home"), and
@@ -412,15 +421,38 @@ four required cases.
 > hold" is not an expressible question at this surface — the same structural move `get_my_profile()` (042) and
 > `get_my_demographics()` make by having no identity argument at all.
 
-> **XO-2 — The pseudonym rule.** No export or roster read emits a global identity id. It emits
-> `customer_ref = HMAC(org_customer_key, identity_id)` — **stable within one org, unlinkable across orgs**
-> (§4.3).
+> **XO-1a — The atom-tenancy rule.** The downward traversal is **necessary, never sufficient**. Every roster
+> and export query additionally ANDs `kernel.tickets.org_id = :job_org_id` — **the job's org, at every
+> grain**, not only at org grain. `:job_org_id` is resolved once at request time from the scope object and
+> frozen on the job row; the builder reads it from the job row, never re-derives it from the scope, and never
+> takes it from the atom.
 
-`INFERENCE:` XO-1 stops a caller *reaching* another tenant's rows. XO-2 stops two tenants *combining* rows
-they each legitimately hold. They defend different attacks and neither substitutes for the other. The frozen
-corpus specifies XO-1 in several places (dashboard §4.4; CDM §8) and specifies nothing like XO-2 — the
-cross-tenant union of two legitimately-obtained CSVs is an attack the corpus does not currently address, and
-§4.4 case (a) is why it needs to.
+> **XO-2 — The pseudonym rule.** No export or roster read emits a global identity id. It emits
+> `customer_ref = HMAC(org_customer_key(:job_org_id), identity_id)` — **stable within one org, unlinkable
+> across orgs** (§4.3). The key's org and the consent gate's org are both the **job's** org, never the atom's
+> and never the venue's current one.
+
+`INFERENCE:` XO-1 stops a caller *reaching* another tenant's rows **through the graph**. XO-1a stops them
+reaching another tenant's rows **because the graph moved**. XO-2 stops two tenants *combining* rows they each
+legitimately hold. They defend three different attacks and none substitutes for another. The frozen corpus
+specifies XO-1 in several places (dashboard §4.4; CDM §8) and specifies nothing like XO-1a or XO-2.
+
+**Why XO-1a is a rule and not a detail — the finding it closes.** `VERIFIED:` `catalog.event.org_id` is
+stamped at create, while **`catalog.venue.org_id` is mutable**: an operatorship change is *logged*, not
+overwritten-and-forgotten, which means the same venue row can name Org 1 today and Org 2 tomorrow. The
+isolation traversal is `org → venue → event → session → ticket → holder`, and the atom-level `org_id`
+equality was invoked **only for the org-grain aggregate** (§4.4 case (c)). So a **venue-grain** export
+requested at the new operator traversed `venue → event → session → ticket` and reached **every historic
+session of that venue** — the previous operator's entire customer list, handed over by a legitimate request
+from a legitimate role over a scope they legitimately hold. None of the four original proofs covered it:
+(a) is about two orgs' *separate* atoms, (b) about a venue role not inheriting up, (c) about the org grain
+where the predicate already ran, (d) about a promoter holding two grants.
+
+Compounding it: with the HMAC key and the consent `EXISTS` both written as "org" without saying *whose*, an
+implementer reading the atom's `org_id` would produce, for the two orgs' files, **the same pseudonym for the
+same person** — the two files then join directly and the cross-tenant defence is gone outright, not
+weakened. XO-1a and XO-2's "the job's org" clause remove the ambiguity by naming the operand, and §4.4 case
+(e) proves the case.
 
 ### 4.2 Why XO-1 holds — the mechanics
 
@@ -433,8 +465,13 @@ cross-tenant union of two legitimately-obtained CSVs is an attack the corpus doe
    is `(venue_id, identity_id, role)`; **there is no wildcard row, no `venue_id IS NULL` grant, and no
    "all venues of org X" row.** The caller's venue list is never materialized; the question asked is always
    "does *this* venue grant me *this* role", never "which venues grant me roles".
-4. **The tenant is on the atom.** `kernel.tickets.org_id` is `not null`, so every roster row's tenancy is a
-   column comparison, not an inference from a join chain.
+4. **The tenant is on the atom, and the comparison is made — at every grain.** `kernel.tickets.org_id` is
+   `not null`, so every roster row's tenancy is a column comparison rather than an inference from a join
+   chain. **XO-1a requires that comparison to actually run**, against the job's frozen `org_id`, on the
+   session grain and the event grain and the venue grain as well as the org grain. `INFERENCE:` the property
+   "the tenant is on the atom" was stated as if it were self-executing. It is not: a column that exists and
+   is never compared defends nothing, and the venue-grain query was exactly the query that did not compare
+   it.
 5. **Denials leak nothing.** `VERIFIED:` dashboard §4.4.5 — a deep link to another org's event renders the
    standard permission-denied state with no partial content, **no title, no count**. An export request for a
    scope the caller cannot reach fails identically whether the scope exists or not.
@@ -442,9 +479,18 @@ cross-tenant union of two legitimately-obtained CSVs is an attack the corpus doe
 
 ### 4.3 `customer_ref` — the per-org pseudonym
 
-- `customer_ref = base32( HMAC-SHA256( org_customer_key(org_id), identity_id )[0..9] )` — 80 bits, rendered as
-  16 characters. Collision probability across a 10⁶-customer org is ~10⁻¹²; a collision produces two customers
-  merged in a CSV, not a security failure.
+- `customer_ref = base32( HMAC-SHA256( org_customer_key(:job_org_id), identity_id )[0..9] )` — 80 bits,
+  rendered as 16 characters. Collision probability across a 10⁶-customer org is ~10⁻¹²; a collision produces
+  two customers merged in a CSV, not a security failure.
+- **`:job_org_id` is the job's org, frozen at request — never the atom's `org_id`, never the venue's current
+  `org_id` (XO-1a).** `INFERENCE:` this was written as `org_customer_key(org_id)` with no statement of which
+  `org_id`, and the ambiguity is not cosmetic: because `catalog.venue.org_id` is mutable, "the atom's org" and
+  "the job's org" are the same value in the common case and **different values in exactly the case the
+  pseudonym exists to defend**. Keying on the atom's org would give two orgs the same `customer_ref` for the
+  same person, so their two files would join on the pseudonym directly — a defence that inverts into an
+  attack. XO-1a makes the two operands equal by construction (a row whose atom org differs from the job org is
+  not in the result set at all), and this clause makes the code say so anyway, because "they are equal
+  anyway" is how the next refactor reintroduces it.
 - `org_customer_key` is a random per-org secret held in **`kernel.org_customer_key`** (§11.2), definer-only,
   **zero grants to every client role**, never returned by any RPC, never logged, never in an error message,
   never in the export.
@@ -465,7 +511,7 @@ person's own two deliberate acts, and no design short of never exporting email p
 buys is that the **non-consenting majority — every transferee, every comp, every purchaser who left the box
 unticked — is unjoinable**, which is exactly the population with no relationship to either venue.
 
-### 4.4 The four proofs
+### 4.4 The five proofs
 
 **Case (a) — a shared attendee holding tickets at Venue A (Org 1) and Venue B (Org 2).**
 
@@ -493,11 +539,15 @@ roles never inherit up** (RM-4), so `venue_marketing` at V1 never becomes org-gr
 **Case (c) — an org-level CRM view.**
 
 Fields 13–15 aggregate across the org's own venues and sessions. Their `FROM` is anchored on `org_id` and the
-aggregation predicate is `kernel.tickets.org_id = :org_id` — a column equality on the atom, so no row from
+aggregation predicate is `kernel.tickets.org_id = :job_org_id` — a column equality on the atom, so no row from
 another tenant can enter the aggregate even if a join were wrong. Within the org, all of a customer's rows
 collapse onto one `customer_ref`, which is what makes the CRM a CRM. Across orgs they do not collapse, because
 the refs are different strings. **The org CRM view is offered only to org-plane roles** (`org_owner`,
 `org_admin`, `org_marketing`) — a venue-plane role has no org-grain read anywhere in this document. ∎
+
+*Note, because this proof was the load-bearing one and was over-read:* this is the **only** case in which the
+original design invoked the atom-level equality. Case (e) is the case where the same predicate had to run and
+did not.
 
 **Case (d) — a promoter working with two orgs.**
 
@@ -515,6 +565,42 @@ accepted residual bounded by "the CRM export's live re-authorization at download
 exclusion". `INFERENCE:` those two controls bound the *authority*; the per-org pseudonym is what bounds the
 *correlation*, and without it the residual is larger than that paragraph implies. This is the strongest
 argument for XO-2 and the reason it is a rule rather than a nicety. ∎
+
+**Case (e) — a venue whose operator changed. (The case none of (a)–(d) covered.)**
+
+Venue V is operated by Org 1 through August and by Org 2 from September. `VERIFIED:` `catalog.event.org_id` is
+stamped at create, so August's events keep `org_id = Org1`; `catalog.venue.org_id` is **mutable** — the change
+of operatorship is logged rather than overwritten-and-lost — so `catalog.venue(V).org_id = Org2` from
+September.
+
+*Without XO-1a.* A `venue_manager` at V under Org 2 requests a **venue-grain** export with a 180-day window.
+The traversal is `venue V → its events → their sessions → their tickets → their holders`, every hop
+legitimate, every id inside a scope the caller holds a role over. August's sessions hang off V, so August's
+atoms — carrying `org_id = Org1` — enter the result set. **Org 2 receives Org 1's customer list**, complete
+with consent-gated email for everyone who consented *to Org 1*, and with `first_seen_at` and
+`sessions_held_count` computed over a period Org 2 did not operate. The four original proofs are all silent:
+this is one venue, one traversal, one legitimately-held scope, and no cross-org union of files.
+
+*With XO-1a.* The builder ANDs `kernel.tickets.org_id = :job_org_id` at **venue grain** as well as org grain.
+`:job_org_id = Org2`, August's atoms carry `Org1`, and the equality fails on the atom itself — before any
+join, any filter, or any template. August's rows are not in the result set, so they are not in the file, not
+in `row_count`, and not in fields 13–15's aggregates.
+
+*The consent limb.* The gate's `EXISTS kernel.org_contact_consent(identity, org)` binds `org := :job_org_id`
+(§5.1). Consent granted to Org 1 therefore does not emit under a job whose org is Org 2 — which is the
+correct answer independently of XO-1a, because consent is a fact about a person and **an organization**
+(§5.2), and Org 2 is a different organization that this person has never met. A venue changing hands does not
+transfer the audience's permission along with the lease.
+
+*The pseudonym limb.* `customer_ref` keys on `org_customer_key(:job_org_id)`, so a person who genuinely
+attended under both operators gets two unlinkable refs. Had the key been taken from the atom, the two orgs'
+files would have carried **identical** refs for that person and would have joined on the pseudonym — the
+defence inverted. ∎
+
+*Residual, stated:* Org 2 loses the venue's history for its own venue. A new operator sees an empty CRM on
+day one and will ask why. That is the correct answer — the prior audience is the prior operator's, not the
+building's — and it is a real product consequence someone should say out loud before a venue changes hands.
+**Owner decision D-12.**
 
 ### 4.5 What these proofs do not cover
 
@@ -543,12 +629,21 @@ argument for XO-2 and the reason it is a rule rather than a nicety. ∎
 anything unknown, missing, stale or erroring suppresses:
 
 ```text
-emit_email(identity, org) :=
+emit_email(identity, :job_org_id) :=
       kernel.identity_contact_pref(identity).venue_email_contact = 'allow'      -- the master switch
-  AND EXISTS kernel.org_contact_consent(identity, org) WHERE state = 'granted'  -- this org, specifically
+  AND EXISTS kernel.org_contact_consent(identity, :job_org_id)
+        WHERE state = 'granted'                          -- THE JOB'S org, specifically (XO-1a / §4.4 case e)
   AND identity is live (not deactivated, not erased, not the anonymized sentinel)
   AND the reading role holds the CONTACT class for this scope                   -- §3
 ```
+
+**The org in conjunct 2 is the job's org — never the atom's, never the venue's current one.** `INFERENCE:`
+the previous wording said "this org, specifically" without saying which `org` the free variable bound to,
+and because `catalog.venue.org_id` is mutable the two candidate bindings differ in exactly the case that
+matters: a venue that changed operator. Consent is a fact about a person and **an organization** (§5.2), so
+consent granted to the prior operator must not emit under the new one — the audience's permission does not
+transfer with the lease. Pinning the binding here makes that true by construction rather than by the
+happy accident that the two values usually coincide.
 
 Suppression is **visible, not silent**. `VERIFIED:` dashboard §9.6 already requires this: an inline legend
 *"Email is blank when the buyer didn't agree to share it with this organization."* plus a count of suppressed
@@ -1361,7 +1456,7 @@ well as its number** so it survives the renumber.
 | `job_id` | PK |
 | `scope_kind` | text, `CHECK IN ('session','event','venue','org')` — **no `'all'` member** (EX-1) |
 | `scope_id` | uuid |
-| `org_id` | uuid `→ kernel.organization` — denormalized for the bucket path and for the per-org rate limit |
+| `org_id` | uuid `→ kernel.organization` — **the job's org, resolved once at request time from the scope object and frozen here.** This is `:job_org_id`: the operand of XO-1a's atom-level equality, of the `customer_ref` HMAC key (§4.3), and of the consent gate's `EXISTS` (§5.1) — at **every** grain, not only org grain. It is also used for the bucket path and the per-org rate limit. The builder reads it from this row and never re-derives it from the scope object, because `catalog.venue.org_id` is mutable and a re-derivation at build time could differ from the one the request was authorized against |
 | `template_id`, `template_version` | text / int |
 | `filters` | jsonb, **normalized and sorted at write** (§8.3) |
 | `as_of` | timestamptz NOT NULL — frozen at request (§6.3) |
@@ -1453,6 +1548,12 @@ denied classes are **absent from the result shape, not null** (`VERIFIED:` dashb
 are absent rather than blank"*). `p_filters` validated against the §6.5 grammar; anything outside it raises.
 Rate-limited (`attendee_list_page`). Audited on every page. EXEC: `authenticated` with the in-body re-check.
 
+**XO-1a applies here too.** The org resolved during authorization is the operand of
+`kernel.tickets.org_id = :org_id`, of the `customer_ref` key, and of the consent gate — resolved **once**, in
+the same statement that authorized, and used for all three. A roster read at a re-operated venue therefore
+shows the current operator's own sessions and none of the prior operator's, exactly as the export does; the
+two surfaces must agree or the export becomes the narrow one and the screen becomes the leak.
+
 **`venue.lookup_attendee(p_session_id uuid, p_query_kind text, p_query_value text)`** — read, **one record**.
 `p_query_kind ∈ {email_exact, order_ref, name_prefix}`. Authority: `venue_manager`, `venue_box_office`, org
 owner/admin, `platform_support`; **denied to both marketing labels** (§7.2). Rate-limited at 40/day for
@@ -1462,15 +1563,30 @@ EXEC: `authenticated`.
 **`venue.request_export(p_scope_kind text, p_scope_id uuid, p_template_id text, p_filters jsonb,
 p_command_key text)`** — write. Authorizes per §3 X5/X6; rejects `scope_kind='all'` (not a member); validates
 filters against §6.5 and template against §6.4; enforces §7.3 caps at request (so a too-large job fails
-immediately, not after a five-minute build); rate-limits fail-closed; **freezes `as_of = now()`**; writes the
-job row `queued` and the `crm_export.request` audit row **with `constraint_set_version`** in the same txn.
-Idempotent on `(auth.uid(), p_command_key)`. Returns `{ job_id, state, as_of }`. EXEC: `authenticated`.
+immediately, not after a five-minute build); rate-limits fail-closed; **freezes `as_of = now()`**;
+**resolves and freezes `org_id` — the job's org — from the scope object, in the same transaction that
+authorized against it (XO-1a)**; writes the job row `queued` and the `crm_export.request` audit row **with
+`constraint_set_version`** in the same txn. Idempotent on `(auth.uid(), p_command_key)`. Returns
+`{ job_id, state, as_of }`. EXEC: `authenticated`.
+
+`INFERENCE:` freezing `org_id` here rather than resolving it at build time is not tidiness. Authorization
+resolved the scope's org at request; a build-time re-resolution could read a **different** org for the same
+venue, because `catalog.venue.org_id` is mutable. A job must be built against the org it was authorized
+against, or the authorization proved something about a tenancy that no longer holds.
 
 **`venue.build_export_rows(p_job_id uuid, p_cursor text, p_limit int)`** — read, **definer / `service_role`
 only**. `REVOKE EXECUTE FROM anon, authenticated` — no human path. Re-derives authority **from the job row's
 recorded actor and scope**, not from the caller. Returns one bounded page of rows for the job's template, at
 the job's `as_of`, in the deterministic order (§2.4 X-4). **This function is the entire SQL surface that
 touches customer data**, contains **no dynamic SQL** (§10.2 rule 4), and is the object §10.3 asserts on.
+
+**XO-1a is this function's first predicate, on every branch.** Every grain — `session`, `event`, `venue`,
+`org` — ANDs `kernel.tickets.org_id = job.org_id`, read from the job row, never re-derived. The
+`customer_ref` HMAC key is `org_customer_key(job.org_id)` and the consent gate's `EXISTS` binds
+`org_id = job.org_id`. `INFERENCE:` these three are stated together because they must move together: if a
+future refactor takes any one of them from the atom instead of the job, the venue-grain export at a
+re-operated venue leaks the prior operator's list (§4.4 case (e)) and — for the HMAC — the two orgs' files
+join on the pseudonym. Asserted as assertions 18a–18c.
 
 **`venue.finalize_export(p_job_id, p_row_count, p_byte_count, p_sha256, p_object_path,
 p_cells_emitted, p_cells_suppressed)`** — write, **`service_role` only**. `running → ready`; writes
@@ -1560,6 +1676,18 @@ logging; Sentry on unexpected 500s).
 17. `org_marketing` at Org 1 reaches all of Org 1's venues and none of Org 2's.
 18. **The pseudonym assertion:** the same identity in two orgs yields two different `customer_ref` values, and
     the same identity in the same org yields the same value across two sessions and two exports.
+18a. **XO-1a, the operatorship-change fixture (§4.4 case (e)).** Venue V has August sessions whose atoms carry
+    `org_id = Org1` and September sessions whose atoms carry `Org2`; `catalog.venue(V).org_id` is updated to
+    `Org2`. A `venue_manager` at V under Org 2 requesting a **venue-grain** export with a 180-day window
+    receives **zero August rows** — asserted at session, event and venue grain independently, because the
+    predicate has to be present on each branch and a single-grain test passes while three branches leak.
+    `row_count` and fields 13–15 exclude them too.
+18b. **The HMAC operand.** In the same fixture, an identity who held atoms under both operators receives
+    **two different** `customer_ref` values across the two orgs' exports. *(Asserted as an inequality: keying
+    on the atom's org rather than the job's would make them equal, and the two files would join on the
+    pseudonym — the defence inverted.)*
+18c. **The consent operand.** In the same fixture, an identity who granted consent to Org 1 and not to Org 2
+    gets a **blank** email cell in Org 2's export and a populated one in Org 1's, at every grain.
 19. `promoter`, `venue_scanner`, a valid door session, `venue_box_office`, `org_finance`, `venue_finance`,
     `org_member`, `fan` and `anon` are each denied `request_export` and `list_attendees`.
 
@@ -1621,6 +1749,7 @@ logging; Sentry on unexpected 500s).
 | **D-9** | **Confirm X-8 stays closed:** no demographic-based send, and no send of any kind from this surface. This spec builds none and recommends it stay that way; recording it so the absence is a decision, not a gap. | Owner | No |
 | **D-10** | **`{N}` — the backup-retention window** in the §9.3 erasure copy. This is the demographics spec's **D-6**, not a second decision; it is listed only because the copy in §9.3 cannot ship with a placeholder either. | Owner / ops | **Yes — before the copy ships** |
 | **D-11** | **Does an operator ever need a printed door list?** §3.1 denies `venue_box_office` the roster on purpose, so the answer today is "no, box office looks people up one at a time." If the answer is yes, it needs its own template, its own retention, and an honest acknowledgment that a printed list has none of §6's controls. | Owner | No |
+| **D-12** | **Operatorship change: the new operator's CRM starts empty (§4.4 case (e)).** XO-1a pins tenancy to the atom's `org_id` at every grain, so a venue that changes hands does not hand the prior operator's customer list, consent, or `first_seen_at` history to the new one. That is the correct answer — the audience belongs to the organization the person transacted with, not to the building — and it is a real product consequence the incoming operator will contest. Confirm, and decide who tells them. A "the prior operator may share its own list with you, out of band, under its own terms" answer is a commercial arrangement between two orgs, **not** a platform feature, and this spec builds nothing for it. | Owner + **Counsel** | **Yes — before 087 / I** |
 
 **Where I would push back on an inherited constraint — one place, and it is not a disagreement.** X-6 as
 written ("the export builder's SQL contains zero references") is correct and I have implemented it, but its
@@ -1650,6 +1779,7 @@ weakening it.
 | **K-11** | CDM §4 / DA §8.7 (C34), C38, C40 | **No constitution edit.** This document records the Phase-2-safe interim erasure promise (§9.3), the C38 contact-merge rule (§9.4), and the C40-class posture toward any future egress destination (EX-6) — all consistent with their GATE-L status. **The frozen constitutions are not modified by this document.** |
 | **K-12** | Demographics spec | **No edit requested**, except the optional strengthening of X-6's stated method noted in §13. Its X-1…X-9 are satisfied as written (§2.4). |
 | **K-13** | Role-model spec | **No edit requested.** Its labels, predicates and H2/H3 split are used verbatim; §3.2 resolves a conflict *between* it and the dashboard spec rather than within it. |
+| **K-14** | **This document, §1.4 · §4.1 · §4.2 · §4.3 · §4.4 · §5.1 · §11.2 · §11.4 · §12** | **H-11 remediation.** The export's tenant predicate was bound at org grain only. `catalog.venue.org_id` is **mutable** while `catalog.event.org_id` is stamped at create, and the isolation traversal is downward `org → venue → event → session → ticket → holder`, so a **venue-grain export at a new operator reached every historic session of that venue** — the previous org's customer list. Added **XO-1a**: `kernel.tickets.org_id = :job_org_id` at **every** grain, with `:job_org_id` resolved once at request time and frozen on the job row. The `customer_ref` HMAC key and the consent gate's `EXISTS` are both pinned to the **job's** org, not the atom's — the previous text left both ambiguous, and the atom binding would have given two orgs the **same** pseudonym for the same person, joining their files directly. New proof **case (e)** and assertions **18a–18c** (asserted per grain, because a single-grain test passes while three branches leak). Product consequence recorded as **D-12**. |
 
 ---
 
