@@ -367,6 +367,32 @@ jobs:
 
           echo "OFFLINE-VERIFY-v1 gate OK: ${found} tagged block(s) (floor ${OFFLINE_VERIFY_MIN_BLOCKS}), 1 distinct body, ${body_bytes} bytes (floor ${OFFLINE_VERIFY_MIN_BODY_BYTES}), ${anchors_n} clause anchors present, ${loose} unfenced tags, ${unterm} unterminated fences; sha256=${canonical}"
 
+      # ---------------------------------------------------------------------
+      # Precedence gate — owner ruling OR-6 (ODR-7 / O11: HYBRID PRECEDENCE).
+      #
+      # OR-6 rule 4 is not advice: "an unresolved same-tier contradiction must
+      # FAIL CI / readiness, be registered, and be resolved explicitly. The
+      # implementer does not choose." A rule that only lives in prose is the
+      # defect class this corpus keeps re-discovering (C53: four editable copies
+      # of one predicate, one corrected, three not). So the rule gets a gate.
+      #
+      # Deliberately small: one parseable map, one script, this existing
+      # required job. It checks six mechanical properties and refuses to guess
+      # about anything else.
+      #
+      # --selftest runs FIRST and is the anti-vacuity control. It drives seven
+      # deliberately-broken fixtures through the checkers and fails the build if
+      # any of them PASSES. A parser that silently matches nothing therefore
+      # cannot go green — which is exactly how a gate like this dies quietly.
+      #
+      # Runs before `npm ci`, alongside the OFFLINE-VERIFY gate, so a broken
+      # lockfile cannot take the governance gates down with it.
+      - name: Precedence gate (OR-6 / ODR-7)
+        run: |
+          set -euo pipefail
+          python3 scripts/precedence_gate.py --selftest
+          python3 scripts/precedence_gate.py
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

@@ -32,7 +32,10 @@ until it is answered.
 >
 > # 2. no open decision exists that this file does not carry
 > grep -oE 'OPEN-GATED\(O[0-9]+\)' docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md \
->   | sort -u | wc -l                   # must be 13 (O6 … O18). It was 11 at 32249f2.
+>   | sort -u | wc -l                   # must be 9 as of 2026-08-28: O6 O9 O10 O12 O13 O14 O15 O16 O18.
+>                                       # Was 13; O7, O8, O11 and O17 were CLOSED by owner rulings
+>                                       # OR-4, OR-5, OR-6 and OR-1. Was 11 at 32249f2. COUNT IT, do
+>                                       # not carry it — this number has gone stale four times.
 >
 > # 3. the corpus has not grown a document this file did not read
 > find docs/architecture -name '*.md' | wc -l    # must be 39
@@ -41,12 +44,12 @@ until it is answered.
 > grep -cE '^#{2,3} ODR-[0-9]+ —' docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
 >                                       # must be 128
 >
-> # 5. the status split still equals its own enumeration (117 + 3 + 3 + 1 + 3 + 1 = 128)
+> # 5. the status split still equals its own enumeration (116 + 4 + 3 + 1 + 3 + 1 = 128)
 > REG=docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
 > for T in 'OPEN — OWNER' 'CLOSED — OWNER RULING' 'MECHANICAL / ENGINEERING' \
 >          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION' 'SPLIT'; do
 >   printf '%4d  %s\n' "$(grep -cF "**Status.** $T" "$REG")" "$T"
-> done                                  # must print 117, 3, 3, 1, 3, 1
+> done                                  # must print 116, 4, 3, 1, 3, 1
 > ```
 >
 > **Check 2 is the one that matters.** Every previous staleness in this corpus was a count that moved while
@@ -85,15 +88,15 @@ dispositioned rows in this file. Nothing found in the sweep is left undispositio
 
 | Status | Count | Ids |
 |---|:-:|---|
-| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **117** | every entry not named in the five rows below |
-| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **3** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) |
+| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **116** | every entry not named in the five rows below |
+| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **4** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) |
 | **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **3** | `ODR-15` · `ODR-126` · `ODR-127` |
 | **SUPERSEDED** — overtaken by a later ratified row or ruling | **1** | `ODR-52` |
-| **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **3** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) · `ODR-128` (by `ODR-7`) |
+| **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **3** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) · `ODR-128` (by `ODR-7` — **`ODR-7` is now RULED; the decision half is discharged and 3 of 9 rows fail closed pending an ownership act. The row keeps this status until those three are resolved**) |
 | **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` BLOCKED BY `ODR-16` · `4c` ENGINEERING · `4d` MECHANICAL) |
 | | **128** | |
 
-**117 = 128 − 3 − 3 − 1 − 3 − 1.** The eleven non-open entries are enumerated above in full.
+**116 = 128 − 4 − 3 − 1 − 3 − 1.** The twelve non-open entries are enumerated above in full.
 
 > **THERE ARE SIX STATUS VALUES, NOT FIVE — corrected 2026-08-28.** The previous text asserted *"there is no
 > sixth status"* while `OR-2` had already given `ODR-4` a sixth (`SPLIT`), and the header claimed `120` open
@@ -110,7 +113,7 @@ not follow; one had been banded above its own `Blocks` line. Both are recorded a
 
 | Band | Count | Ids |
 |---|:-:|---|
-| **Band 1 — blocks the start of implementation** | **7 entries, 4 still open** | `ODR-1` · ~~`ODR-2`~~ **CLOSED — OWNER RULING `[A]` BUILD** · ~~`ODR-3`~~ **CLOSED — OWNER RULING `[C]` GATE P REDUCED** · **`ODR-4` (SPLIT: `4a` RULED, `4b` BLOCKED BY `ODR-16`, `4c` ENGINEERING, `4d` MECHANICAL, placement PENDING PROOF)** · `ODR-5` · `ODR-7` · ~~`ODR-23`~~ **CLOSED — OWNER RULING B** |
+| **Band 1 — blocks the start of implementation** | **7 register entries, 3 still open — but the TRUE Band-1 set is 4, because `ODR-16` belongs here and the register bands it 2 (see its entry)** | `ODR-1` · ~~`ODR-2`~~ **CLOSED `[A]` BUILD** · ~~`ODR-3`~~ **CLOSED `[C]` GATE P REDUCED** · **`ODR-4` (SPLIT: only `4b` open, BLOCKED BY `ODR-16`)** · `ODR-5` · ~~`ODR-7`~~ **CLOSED — OWNER RULING HYBRID** · ~~`ODR-23`~~ **CLOSED — OWNER RULING B** |
 | **Band 2 — blocks a named migration package** | **30** | `ODR-8` … `ODR-22` · `ODR-24` … `ODR-34` · **`ODR-125`** · **`ODR-126`** · **`ODR-127`** · **`ODR-128`** *(four new)* |
 | **Band 3 — blocks a named surface, contract, control or feature flag** | **58** | `ODR-35` … `ODR-92` |
 | **Band 4 — blocks nothing in the current scope** | **33** | **`ODR-6`** *(re-banded down from Band 1)* · `ODR-93` … `ODR-123` · **`ODR-124`** *(new)* |
@@ -129,7 +132,7 @@ four new. Band 4's 33: `ODR-93`–`ODR-123` is thirty-one, plus `ODR-6` and `ODR
 - **ODR-3** — What gate is the `notify` schema at? · **CLOSED — OWNER RULING, corpus `[C]` GATE P REDUCED** (`OR-5`)
 - **ODR-4** — Acknowledge the two global-posture exceptions, and bind whoever next edits migration `020`
 - **ODR-5** — Execute the migration-history repair, and authorize it
-- **ODR-7** — Precedence between delta specifications
+- **ODR-7** — Precedence between delta specifications · **CLOSED — OWNER RULING HYBRID** (`OR-6`)
 - **ODR-23** — Adopt the Layer-0 privilege wall for the export builder? · **CLOSED — OWNER RULING B**
 
 **Band 2 — blocks a named migration package** — 30 entries
@@ -431,7 +434,7 @@ exists to solve, so the search could not assume any single marker. Every file li
 following independent sweeps were run across `docs/architecture/**` and `ARCHITECTURE_FREEZE.md`:
 
 1. **The ratification record's own status table and every `OPEN-GATED(On)` token.** At `269e473`,
-   `grep -oE 'OPEN-GATED\(O[0-9]+\)' | sort -u` returns **13 distinct ids — `O6` … `O18`.** It returned 11
+   `grep -oE 'OPEN-GATED\(O[0-9]+\)' | sort -u` returns **9 distinct ids as of 2026-08-28 — `O6` `O9` `O10` `O12` `O13` `O14` `O15` `O16` `O18`** (it returned 13 before the owner closed `O7`, `O8`, `O11` and `O17` via `OR-4`/`OR-5`/`OR-6`/`OR-1`). It returned 11
    at `32249f2`. **This is the sweep the previous edition did not have to re-run and this one does.**
 2. **The register tables**, each under its own local id scheme — money §11 (`D-1`…`D-10`), CRM §13
    (`D-1`…`D-13`), demographics §14 (`D-1`…`D-14`), schema §13.7 + **new** §13.7a (`S-1`…`S-27`), RPC §20.14
@@ -819,9 +822,52 @@ and its execution as requiring owner authorization; no document argues for defer
 
 ---
 
-## ODR-7 — Precedence between delta specifications
+## ODR-7 — Precedence between delta specifications · **CLOSED — OWNER RULING**
 
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING, **HYBRID PRECEDENCE** — ruled 2026-08-28. Ratification row **`OR-6`**.
+
+**The ruling, in the owner's own terms.** Of the three forms record row `C75` put on the table —
+**(a) recency**, **(b) subject-matter ownership**, **(c) remediation-tag precedence** — the owner ruled a
+**deterministic hybrid**:
+
+1. **SUBJECT-MATTER OWNERSHIP IS AUTHORITATIVE.** For every disputed architecture statement, first resolve
+   the subject to its designated normative owner: money authority → the money spec · custody → the
+   custody/kernel authority · RPC signature → the designated RPC authority · physical DDL placement → the
+   package registry / migration-plan authority · RLS and grants → the designated authorization authority ·
+   door lifecycle → the door authority · notification delivery → the notification authority · CRM/export →
+   the CRM authority. **Ownership is NEVER inferred from which document was edited most recently.**
+2. **RATIFIED REMEDIATION / CORRECTION PRECEDENCE IS A FALLBACK ONLY.** Where the owner map is genuinely
+   silent, a directly applicable ratified correction row may resolve the conflict. **It does NOT override an
+   explicitly assigned subject owner merely because it is newer or carries a tag.** Form (c) is therefore
+   demoted from a rule to a tie-breaker.
+3. **RECENCY HAS NO AUTHORITY.** Never *newest commit wins*, *newest markdown wins*, *latest edited document
+   wins*, or *higher correction number wins* — unless a ratified authority explicitly says so for that exact
+   subject. **Form (a) is rejected outright.**
+4. **FAIL CLOSED ON UNRESOLVED SAME-TIER CONTRADICTIONS.** If two same-authority sources conflict, or subject
+   ownership is ambiguous, or both sides carry valid ratified tags, or the owner map and the correction
+   hierarchy cannot deterministically select one — **the implementer does not choose**. The contradiction must
+   fail CI / readiness, be registered, and be resolved explicitly. **This is part of the ruling, not an
+   implementation detail of it.**
+
+**What the ruling supplies that the corpus lacked.** `C75` recorded that form (b) was *"correct but requiring
+an owner map the corpus does not yet have."* That map now exists:
+`PHASE_2_SUBJECT_MATTER_OWNER_MAP.md`. Rule 4 is enforced mechanically by
+`_governance/PRECEDENCE_CI_GATE_SPEC.md` and `scripts/precedence_gate.py`, wired into a required CI check.
+
+**What it does NOT do.** It does not resolve **intra-document** conflicts — two sections of the SAME normative
+document contradicting each other remains a mechanical defect, not a precedence question, and `ODR-7` must not
+be cited to settle one. It does not retroactively re-decide anything already ruled. And it does not rewrite
+the history below: the `D14` pass's use of form (c) on one instance stands as recorded, including its own
+caveat that it *"is not ratified as a general rule and must not be cited as one"* — the ruling now supplies the
+general rule that pass declined to invent, and does so with form (c) subordinate rather than primary.
+
+**Consequences, recorded not yet applied.** `ODR-128`'s cross-document contradictions convert from decisions
+into transcription — enumerated in `_governance/ODR128_CONTRADICTION_RESOLUTION.md`. `_governance/ODR7_PRECEDENCE_CONSEQUENCE_MAP.md`
+carries the full site list.
+
+<details><summary>Original open-decision text, retained for audit — do not delete</summary>
+
+**Status (superseded).** OPEN — OWNER.
 
 **The question.** When two documents in the **same tier** — two delta specs, or a delta spec and an
 implementation spec — state contradictory authority for the same object, which governs: **(a) recency**,
@@ -996,6 +1042,8 @@ this band, `ODR-15`, is now **MECHANICAL**; it keeps its band because its *sched
 
 Each entry states: the question as a choice · what breaks under each option · **which way silence falls, and
 whether that direction is safe** · the package · every filing site · the corpus recommendation, quoted.
+
+</details>
 
 ---
 
@@ -1550,6 +1598,30 @@ the inventory write … **Nothing warns the engineer.**"* Registered here so tha
 resolve from the sibling statements rather than by granting anything new, and split a row rather than tick it.
 
 ### ODR-128 — The six cross-document contradictions that `ODR-7` converts into transcription
+
+> ## UNBLOCKED BY `OR-6`, AND LARGER THAN FILED — 2026-08-28
+>
+> `ODR-7` is ruled, so this entry is no longer `BLOCKED BY ANOTHER DECISION`. Re-enumerated from HEAD:
+> **it is NINE contradictions, not six.** One named item was two distinct contradictions folded under
+> one label; two more of the same class were missing from this entry entirely (one of them carried
+> only as defect `DF-15`).
+>
+> | | |
+> |---|---|
+> | resolved by the owner map (rule 1) | **6** — `X-2 X-3 X-4 X-5 X-7 X-9` |
+> | resolved by the rule-2 fallback | **0** — the map covered every subject that resolved |
+> | **FAIL CLOSED (rule 4)** | **3** — `X-1` `X-6` (`WRITER` is AMBIGUOUS) · `X-8` |
+>
+> **The three that fail closed are not a shortfall of the ruling; they are the ruling working.** Two
+> independent reviewers disagreed about `X-1`/`X-6`, and that disagreement IS the ambiguity: write
+> authority has three declared owners and none defers, with ratified tags on both sides. `X-8` splits
+> one indivisible call contract across two owners. **The CI gate is red until an owner act resolves
+> them**, which is what rule 4 requires.
+>
+> **Status.** The decision half is discharged. **28 transcription sites across 8 files remain** — 17
+> pure, 7 needing a `C`-row or discharge, 4 blocked. Full detail:
+> `_governance/ODR128_CONTRADICTION_RESOLUTION.md`.
+
 **Status.** BLOCKED BY ANOTHER DECISION — **`ODR-7`** (`O11`, precedence between same-tier specifications).
 **Why it is one entry and not six.** `_governance/PHASE_2_FINAL_OWNER_DECISION_BRIEF.md` §0.3 states the
 mechanism: *"`O11` first, because **six of the seven "cross-document contradictions" in the work plan are**
