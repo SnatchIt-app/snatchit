@@ -806,8 +806,9 @@ Lifecycle, exactly as the dashboard ratified it: `queued → running → ready �
 | **build** | `crm-export` — **NEW EDGE FUNCTION**, `service_role` | Claims the job (`queued → running` with a lease, the 064 `webhook_event` claim-lease pattern), calls `venue.build_export_rows(job_id, cursor)` in bounded pages, serialises CSV, streams to the private bucket, computes SHA-256 as it writes. Never logs a row. |
 | **finalize** | `venue.finalize_export` — **DB-RPC, definer, `service_role` only** | Records `row_count`, `byte_count`, `sha256`, `object_path`, `contact_cells_emitted/suppressed`; sets `ready`; writes the `crm_export.generate` audit row. |
 | **download** | `venue.authorize_export_download` — **DB-RPC** + `crm-export` `/download` route | **Re-authorizes live, against the job's `template_id`**: re-evaluates the **request-time allow-list for that template** (§6.4) — not merely "does the caller still hold a role over the job's scope". Writes the `crm_export.download` audit row. Returns the object path; the edge mints a **300-second** signed URL. |
-| **revoke** | `venue.revoke_export` — **DB-RPC, definer** | `ready → revoked`, deletes the artifact, writes the audit row. Effective immediately. |
-| **expire / purge** | `venue.sweep_expired_exports` — **DB-RPC, definer, `pg_cron`** | Deletes artifacts past retention, `ready → expired`, then `expired → purged` when the job row's own retention lapses. Each writes an audit row. |
+| **revoke** | `venue.revoke_export` — **DB-RPC, definer** | `ready → revoked` **immediately** (no further download is authorized from this instant), and sets `artifact_state = 'delete_pending'`. Writes the audit row. **It does not delete the object — a Postgres function cannot.** The object is removed by the purge route within one purge cycle (§6.6). |
+| **expire / purge** | `venue.sweep_expired_exports` — **DB-RPC, definer, `pg_cron`** | Marks artifacts past retention `delete_pending` and `ready → expired`, then `expired → purged` once the purge route confirms the object is gone and the job row's own retention lapses. Each writes an audit row. **Marks; does not delete.** |
+| **purge** | `crm-export` **`POST /purge` route** — `service_role`, driven by `pg_cron` + `pg_net` | **The agent that actually deletes.** Claims `delete_pending` rows, calls the Storage API `remove()`, and calls `venue.confirm_artifact_purged` on success. Also runs the orphan reconciliation pass (§6.6). |
 
 **Why the build is an edge function and the rows are a DB-RPC.** `VERIFIED:` the edge spec's placement rule —
 external I/O and secrets are edge work; pure atomic DB transitions stay in Postgres, and *"rejections are the
@@ -938,7 +939,10 @@ What the short expiry **does** buy, precisely — three real things, worth havin
    `venue_manager` and downloaded after revocation must fail."* That guarantee only holds if the check and the
    byte transfer are close together in time; a one-hour URL would let a revoked staff member redeem a
    pre-authorized link for an hour.
-3. **It bounds the revocation race** to five minutes.
+3. **It bounds the revocation race** to five minutes — and to `min(300 s, time-to-purge)` once the purge
+   route exists, since revoke authorizes no further download from its own instant. **It does not reduce that
+   race to zero**, and the earlier text implied otherwise by pairing "revoke deletes the artifact, effective
+   immediately" with the correct observation that a signed URL cannot be invalidated.
 
 What it does not buy: confidentiality of the file, deletion of the file, revocation of the file, or any
 control over redistribution. **Therefore the controls that matter are all upstream of the click** — §3 (who),
@@ -956,6 +960,53 @@ The three-line answer to "how is this not a PII lake": **the lake is bounded by 
 per-object cap, and a per-actor daily export cap (§7.1). No CSV older than a day exists. No table anywhere
 in this design materializes a customer email.** The artifact is named as a PII sink for C34's future
 inventory (§9.3), and it is deliberately the shortest-lived one on that list.
+
+**The agent that performs the delete — because until now there was none.** `INFERENCE:` revoke said it
+*"deletes the artifact, effective immediately"*, the sweep said it *"deletes artifacts past retention"*, and
+`venue.revoke_export` said it *"signals the edge to delete"* — three sentences describing a mechanism that
+did not exist. Both are `SECURITY DEFINER` **Postgres** functions, and a Postgres function cannot call the
+Storage API. Its only in-database option is `DELETE FROM storage.objects`, which removes the metadata row and
+**orphans the bytes in the backing store** — strictly worse than doing nothing, because the object survives
+while every accounting says it is gone. And the `crm-export` edge function had exactly two routes, `/build`
+and `/download`, **neither of which is a delete**. So retention, sweep and revoke all had **no agent**: the
+"bounded by a 24-hour sweep" defence was unimplementable as specified, and revoke could not remove the file
+it claimed to remove.
+
+**The purge route.** `crm-export` gains a third route, **`POST /purge`**, `service_role`, driven the way the
+build is and the way `VERIFIED:` migrations 014/032/034 already drive edge work —
+`cron.schedule(... net.http_post(...))`. It is the only thing in this design that deletes bytes.
+
+| | `POST /purge` |
+|---|---|
+| **Trigger** | `pg_cron`, every 15 minutes, via `pg_net` — the same in-database HTTP pattern the build uses |
+| **Claims** | `venue.claim_artifacts_for_purge(p_limit int)` — definer, `service_role` only. Returns a bounded page of `(job_id, object_path)` for jobs in `artifact_state = 'delete_pending'`, taking the 064 claim lease so two overlapping runs cannot double-work |
+| **Acts** | Storage API `remove([object_path])` per claimed row. **A 404 from Storage is success**, not an error — the object is gone, which is the goal |
+| **Confirms** | `venue.confirm_artifact_purged(p_job_id, p_outcome)` — definer, `service_role` only. Sets `artifact_state = 'deleted'`, advances `ready → expired → purged` where retention allows, writes `crm_export.purge` |
+| **Fails** | leaves the row `delete_pending` with the lease expired, so the next cycle retries. **A delete that never succeeds is an alarm, not a silent gap** — a job `delete_pending` for more than 3 cycles raises a `platform_risk` signal |
+| **Logging** | job ids, counts, durations. Never a path with a customer's data in it — the path is `{org_id}/{job_id}.csv` by design (§6.6), which is why it is loggable at all |
+
+**The orphan reconciliation pass**, run by the same route once per day. `INFERENCE:` a mark-then-delete design
+has exactly one new failure mode — the mark is lost while the object is not — and it is the failure mode
+whose symptom is *a customer list nobody knows about*. The pass lists `crm-exports` objects under each
+`{org_id}/` prefix and compares them against `venue.export_job`:
+
+| Condition | Action |
+|---|---|
+| Object exists, no job row (job purged, or the row was never written) | **Delete the object.** Write `crm_export.purge` with `reason_code = 'orphan_no_job'` |
+| Object exists, job row says `artifact_state ∈ {deleted, absent}` | **Delete the object.** `reason_code = 'orphan_state_mismatch'` — the accounting said gone and it was not |
+| Object exists, job row is `ready` and inside retention | Leave it. This is the normal case |
+| Job row says the artifact is present, no object | Set `artifact_state = 'deleted'`; alarm if the job is `ready` (a `ready` job with no bytes will fail a download) |
+
+The pass is **the only reason the 24-hour bound is a statement about the bucket rather than about the job
+table.** Without it the retention claim is a claim about rows, and rows are not what leaks.
+
+**What revoke can and cannot do, restated honestly.** Revoke is `ready → revoked` **in the same transaction**,
+so **no further download is authorized from that instant** — that part is immediate and is the part that
+matters. The **object** is removed within one purge cycle (≤ 15 minutes), not instantly. And a signed URL
+already minted **remains redeemable until the object is actually deleted**, for at most its 300-second life:
+§6.6 says correctly that a signed URL cannot be invalidated, then relied on a delete the design could not
+perform. So the honest bound on the revocation race is **min(300 s, time-to-purge)**, not zero, and the
+operator-facing copy must not say "effective immediately" about the file.
 
 ### 6.7 EX-rules (standing rules for this surface)
 
@@ -1158,7 +1209,8 @@ GDPR/CCPA erasure claim is made before C34 is implemented."*
 | Remove the person's contact rows and preferences (cascade from `auth.users`) | Reach a CSV on someone's laptop |
 | Stop emitting them in anything built from now on | Prove a venue deleted them from a file |
 | Say **which venues exported a list they were on, and when** — reconstructed from the audit row + the retained ledger, **without ever having stored per-export membership** (§6.3) | Answer that question **after** erasure — see below |
-| Delete the artifact from our own bucket immediately (24 h anyway) | Undo a redistribution |
+| Delete the artifact from our own bucket **within one purge cycle** — ≤ 15 min on revoke, ≤ 24 h + one cycle otherwise (§6.6) | Undo a redistribution |
+| Prove the artifact is gone from **our** bucket, via the orphan reconciliation pass (§6.6) | Delete it *instantly* — a Postgres function cannot call Storage, so the delete is a route, not a transaction |
 
 **Why membership is not stored, and what that costs.** The obvious design is
 `export_job_member(job_id, identity_id)` — a precise answer to "which exports contained me". It is rejected.
@@ -1418,6 +1470,8 @@ well as its number** so it survives the renumber.
 | 17 | `venue.revoke_export(...)` | `NEW RPC` | **087 / I** |
 | 18 | `venue.list_export_jobs(...)` | `NEW RPC` | **087 / I** |
 | 19 | `venue.sweep_expired_exports()` | `NEW RPC` (definer, `pg_cron`) | **087 / I** |
+| 19a | `venue.claim_artifacts_for_purge(...)` · `venue.confirm_artifact_purged(...)` · `venue.reconcile_export_orphans(...)` (definer, `service_role`) | `NEW RPC` | **087 / I** |
+| 19b | `crm-export` **`POST /purge`** route + its 15-min `pg_cron`/`pg_net` schedule and the daily orphan pass | part of element 21 — **the only Storage delete agent in this design** | gated on **087 / I** |
 | 20 | `catalog.platform_config` seeds (limits, caps, retention, `constraint_set_version`) | `ADDITIVE SCHEMA CHANGE` (data) | **087 / I** |
 | 21 | `crm-export` (build + `/download` route) | `NEW EDGE FUNCTION` | gated on **087 / I** |
 | 22 | X-6 CI check (§10.2) + constants module | `NO SCHEMA CHANGE` | CI, lands with **087 / I** |
@@ -1486,9 +1540,12 @@ well as its number** so it survives the renumber.
 | `artifact_sha256` | text nullable |
 | `object_path` | text nullable |
 | `contact_cells_emitted`, `contact_cells_suppressed` | int nullable |
+| `artifact_state` | text NOT NULL, `CHECK IN ('absent','present','delete_pending','deleted')`, DEFAULT `'absent'` — **the object's lifecycle, tracked separately from the job's**, because the two genuinely diverge: a job is `revoked` the instant the RPC commits while its object survives until the purge route runs. Without this column "is the file gone" was unanswerable and the retention claim was a claim about rows |
+| `purge_lease_until` | timestamptz nullable — the 064 claim lease for the purge route, distinct from `lease_until` (the build's) |
+| `purge_attempts` | int NOT NULL DEFAULT 0 — > 3 raises a `platform_risk` signal (§6.6) |
 | `failure_code` | text nullable — `too_large` · `scope_unreachable` · `build_error` · `limit_exceeded` |
 | `requested_at`, `ready_at`, `expires_at`, `purge_after` | timestamptz |
-| | index on `(state, requested_at)` for the cron drain; index on `(org_id, requested_at)` for the history panel |
+| | index on `(state, requested_at)` for the cron drain; index on `(artifact_state, expires_at)` for the purge claim; index on `(org_id, requested_at)` for the history panel |
 
 **Named exception requiring acknowledgment.** `ON DELETE CASCADE` from `auth.users` on the two contact tables
 departs from the corpus's `ON DELETE RESTRICT` default. Justification: an orphaned contact permission
@@ -1650,37 +1707,64 @@ Two supporting rules, so the fix cannot be undone from the side:
   transparency (X10) and is deliberate; downloading it is not.
 
 **`venue.revoke_export(p_job_id uuid, p_reason_code text)`** — write. Authority: the requester, plus
-`venue_manager` / org owner/admin over the job's scope, plus `platform_admin`. `ready → revoked`; signals the
-edge to delete the artifact; audited. Idempotent. EXEC: `authenticated`.
+`venue_manager` / org owner/admin over the job's scope, plus `platform_admin` — and, per H-12, template-scoped
+for both marketing labels. `ready → revoked` **in the same transaction**, so no further download is authorized
+from that instant; sets `artifact_state = 'delete_pending'`; audited. Idempotent. EXEC: `authenticated`.
+**It does not delete the object** — see `POST /purge` (§6.6, §11.5). The previous contract said it *"signals
+the edge to delete"*, which named no mechanism; there was no delete route to signal.
+
+---
+
+**`venue.claim_artifacts_for_purge(p_limit int)`** — write, **definer / `service_role` only**.
+`REVOKE EXECUTE FROM anon, authenticated`. Takes the 064 claim lease over a bounded page of jobs in
+`artifact_state = 'delete_pending'` and returns `(job_id, object_path)` for the purge route. Returns nothing
+else — no scope, no counts, no actor.
+
+**`venue.confirm_artifact_purged(p_job_id uuid, p_outcome text)`** — write, **definer / `service_role` only**.
+`p_outcome ∈ {deleted, not_found}` — **both are success**; a 404 from Storage means the object is gone, which
+is the goal. Sets `artifact_state = 'deleted'`, advances `ready → expired → purged` where retention allows,
+writes `crm_export.purge`. Idempotent.
+
+**`venue.reconcile_export_orphans(p_org_id uuid, p_object_paths text[])`** — write, **definer /
+`service_role` only**. Given the paths the purge route listed under one `{org_id}/` prefix, returns the ones
+with no live job row or with a job row claiming the artifact is already gone (the route deletes those), and
+marks `artifact_state = 'deleted'` for job rows whose object is absent — alarming when such a job is still
+`ready`, because a `ready` job with no bytes fails at download. §6.6 gives the full table.
 
 **`venue.list_export_jobs(p_scope_kind, p_scope_id, p_cursor)`** — read. Scope-checked per X10. Returns job
 metadata only — never a row, never an object path, never a signed URL — **including `template_id` and a
 `downloadable` boolean computed with `authorize_export_download`'s own predicate**, so the panel never
 renders a download control the RPC will refuse. EXEC: `authenticated`.
 
-**`venue.sweep_expired_exports()`** — write, **definer / `service_role` only**, `pg_cron` (hourly). Deletes
-artifacts past `expires_at`, `ready → expired`; `expired → purged` past `purge_after`. Writes one audit row
-per transition. **SSCAS: n/a** — no money, custody or inventory row is touched by anything in this document,
-so **no RPC here is a member of the closed set**, and none takes an SSCAS lock.
+**`venue.sweep_expired_exports()`** — write, **definer / `service_role` only**, `pg_cron` (hourly). **Marks**
+artifacts past `expires_at` as `artifact_state = 'delete_pending'` and moves `ready → expired`;
+`expired → purged` once `artifact_state = 'deleted'` and `purge_after` has passed. Writes one audit row per
+transition. **It deletes no bytes** — the purge route does (§6.6). The previous contract said "deletes
+artifacts", which a Postgres function cannot do; its only in-DB option, `DELETE FROM storage.objects`, removes
+the metadata row and leaves the bytes orphaned in the backing store — worse than doing nothing, because the
+object survives while every accounting says it is gone. **SSCAS: n/a** — no money, custody or inventory row is
+touched by anything in this document, so **no RPC here is a member of the closed set**, and none takes an
+SSCAS lock.
 
 ### 11.5 Edge function contracts
 
-**`crm-export`** — `NEW EDGE FUNCTION`. Two routes, one function, per the edge spec's §7 cross-cutting rules
-(CORS whitelist + `getSecurityHeaders()` on every response including errors and OPTIONS; structured JSON
+**`crm-export`** — `NEW EDGE FUNCTION`. **Three** routes, one function, per the edge spec's §7 cross-cutting
+rules (CORS whitelist + `getSecurityHeaders()` on every response including errors and OPTIONS; structured JSON
 logging; Sentry on unexpected 500s).
 
-| | `POST /build` (worker) | `POST /download` (actor) |
-|---|---|---|
-| **verify_jwt** | `false` — invoked by `pg_cron` via `net.http_post` with a service-role bearer, constant-time compared (I-9) | **`true`** — actor re-derived via `auth.getUser` (C35) |
-| **Authz** | in the wrapped RPC (`service_role` only) | in the wrapped RPC (`venue.authorize_export_download`, live re-check) |
-| **Wraps** | `venue.build_export_rows` (paged) → `venue.finalize_export` | `venue.authorize_export_download` |
-| **External I/O** | Storage upload to `crm-exports` | Storage `createSignedUrl(path, 300)` |
-| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRM_EXPORT_WORKER_SECRET`, `SENTRY_DSN` | same |
-| **Rate limit** | n/a (cron-paced, plus the per-org concurrency cap) | `check_rate_limit`, fail-closed: 429 over-limit, **503 on limiter error** |
-| **Idempotency** | the job's claim lease + `UNIQUE (requested_by, command_key)`; a re-driven build overwrites the same `{org_id}/{job_id}.csv` | none needed — a signed URL is not a side effect |
-| **Logging** | **counts, ids and durations only.** Never a row, never a cell, never an email, never a `customer_ref`, never a signed URL | same |
-| **Failure** | validation 400 · authz 403 · state 409 · limiter 429/503 · storage 500/503 with the job left reclaimable by the lease | same |
-| **Timeout** | 15 s per page-batch; the lease is longer than the timeout so a crashed worker is reclaimed, never double-run to a second artifact | 3 s |
+| | `POST /build` (worker) | `POST /download` (actor) | `POST /purge` (worker) |
+|---|---|---|---|
+| **verify_jwt** | `false` — invoked by `pg_cron` via `net.http_post` with a service-role bearer, constant-time compared (I-9) | **`true`** — actor re-derived via `auth.getUser` (C35) | `false` — same cron + shared-secret path as `/build` |
+| **Authz** | in the wrapped RPC (`service_role` only) | in the wrapped RPC (`venue.authorize_export_download`, live re-check **including the job's `template_id`**) | in the wrapped RPCs (`service_role` only) |
+| **Wraps** | `venue.build_export_rows` (paged) → `venue.finalize_export` | `venue.authorize_export_download` | `venue.claim_artifacts_for_purge` → `venue.confirm_artifact_purged`; daily, `venue.reconcile_export_orphans` |
+| **External I/O** | Storage upload to `crm-exports` | Storage `createSignedUrl(path, 300)` | **Storage `remove()` and `list()`** — the only delete agent in this design |
+| **Secrets (names only)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRM_EXPORT_WORKER_SECRET`, `SENTRY_DSN` | same | same |
+| **Rate limit** | n/a (cron-paced, plus the per-org concurrency cap) | `check_rate_limit`, fail-closed: 429 over-limit, **503 on limiter error** | n/a (cron-paced) |
+| **Idempotency** | the job's claim lease + `UNIQUE (requested_by, command_key)`; a re-driven build overwrites the same `{org_id}/{job_id}.csv` | none needed — a signed URL is not a side effect | the claim lease; **a 404 from `remove()` is success**, so a repeat is a no-op |
+| **Logging** | **counts, ids and durations only.** Never a row, never a cell, never an email, never a `customer_ref`, never a signed URL | same | same — the path is `{org_id}/{job_id}.csv` by design, which is why it is loggable |
+| **Failure** | validation 400 · authz 403 · state 409 · limiter 429/503 · storage 500/503 with the job left reclaimable by the lease | same | leaves the row `delete_pending` with the lease expired; the next cycle retries; **> 3 failed cycles raises a `platform_risk` signal** — a delete that never succeeds is an alarm, not a silent gap |
+| **Timeout** | 15 s per page-batch; the lease is longer than the timeout so a crashed worker is reclaimed, never double-run to a second artifact | 3 s | 15 s per claimed page; lease longer than the timeout |
+| **Cadence** | one-minute cron drain of `queued` | on demand | **15-minute cron**; orphan reconciliation once per day |
 
 **Rejected placements, recorded because the edge spec says rejections are the high-value output:**
 
@@ -1690,7 +1774,8 @@ logging; Sentry on unexpected 500s).
 | A `crm-export-deliver` function emailing the CSV | **REJECTED — never build it** | EX-6. It is a third-party destination with extra steps, and it puts the file in an inbox that outlives every control here. |
 | A webhook/CDP sync route | **REJECTED — never build it** | X-5 / EX-6 / C40. |
 | A synchronous `GET /attendees.csv` | **REJECTED** | EX-2, and §6.1's reasoning. |
-| Sweep/expiry as an edge function | **REJECTED → RPC via `pg_cron`** | Pure DB batch plus one Storage delete; the delete rides the existing worker route rather than justifying a function. |
+| Sweep/expiry **state transitions** as an edge function | **REJECTED → RPC via `pg_cron`** | Pure DB batch. But **the Storage delete cannot ride an RPC**, which is what the original phrasing obscured — see the row below. |
+| Sweep/expiry/revoke performing the Storage delete **in Postgres** | **REJECTED — it is not possible** | A `SECURITY DEFINER` Postgres function cannot call the Storage API. Its only in-DB option is `DELETE FROM storage.objects`, which drops the metadata row and **orphans the bytes**. The delete is therefore its own route (`POST /purge`), driven by the `pg_cron` + `pg_net` pattern migrations 014/032/034 already use. `INFERENCE:` this is recorded as a rejected placement because the previous design's revoke, sweep and retention text all described a delete with **no agent at all**, and the missing agent is exactly the kind of thing a placement table exists to make visible. |
 
 ---
 
@@ -1779,7 +1864,23 @@ logging; Sentry on unexpected 500s).
 29. The `crm-exports` bucket exists with `public = false`, `file_size_limit = 33554432`,
     `allowed_mime_types = {text/csv}` — asserted as **values**, not existence (the 073 lesson).
 30. **Zero `storage.objects` policies** name `crm-exports` for `anon` or `authenticated`.
-31. An artifact past `expires_at` is absent from the bucket and its job is `expired`.
+31. An artifact past `expires_at` is absent from the bucket and its job is `expired` **with
+    `artifact_state = 'deleted'`** — asserted after running the purge route, **and asserted against
+    `storage.objects`, not against the job row**, because the job row is the accounting and the object is the
+    exposure.
+31a. **Revoke does not delete, and says so.** `venue.revoke_export` leaves the object **present** and the job
+    `revoked` / `delete_pending`; `authorize_export_download` refuses from that instant; after one purge
+    cycle the object is absent and `artifact_state = 'deleted'`. *(Asserted as a sequence, because the
+    previous design claimed the delete was immediate and had no agent to perform it at all.)*
+31b. **A 404 is success.** `confirm_artifact_purged(job, 'not_found')` reaches `deleted` and writes
+    `crm_export.purge`; a second call is a no-op.
+31c. **Orphan reconciliation.** An object placed in `crm-exports` with no job row is deleted by the daily
+    pass and audited with `reason_code = 'orphan_no_job'`; an object whose job row says
+    `artifact_state = 'deleted'` is deleted with `'orphan_state_mismatch'`; an object whose job is `ready`
+    and inside retention is **not** touched.
+31d. **The purge route is the only delete agent.** No `pg_proc` in `venue` or `kernel` contains
+    `DELETE FROM storage.objects` (the metadata-only delete that orphans bytes), and the `crm-export`
+    function's route table has exactly three members.
 
 **Audit**
 32. Every state transition of `venue.export_job` has a corresponding `kernel.admin_audit` row in the same
@@ -1844,6 +1945,7 @@ weakening it.
 | **K-13** | Role-model spec | **No edit requested.** Its labels, predicates and H2/H3 split are used verbatim; §3.2 resolves a conflict *between* it and the dashboard spec rather than within it. |
 | **K-14** | **This document, §1.4 · §4.1 · §4.2 · §4.3 · §4.4 · §5.1 · §11.2 · §11.4 · §12** | **H-11 remediation.** The export's tenant predicate was bound at org grain only. `catalog.venue.org_id` is **mutable** while `catalog.event.org_id` is stamped at create, and the isolation traversal is downward `org → venue → event → session → ticket → holder`, so a **venue-grain export at a new operator reached every historic session of that venue** — the previous org's customer list. Added **XO-1a**: `kernel.tickets.org_id = :job_org_id` at **every** grain, with `:job_org_id` resolved once at request time and frozen on the job row. The `customer_ref` HMAC key and the consent gate's `EXISTS` are both pinned to the **job's** org, not the atom's — the previous text left both ambiguous, and the atom binding would have given two orgs the **same** pseudonym for the same person, joining their files directly. New proof **case (e)** and assertions **18a–18c** (asserted per grain, because a single-grain test passes while three branches leak). Product consequence recorded as **D-12**. |
 | **K-15** | **This document, §3 (X8/X9 + note ᵗ) · §3.1 · §6.2 · §6.7 EX-4 · §7.4 · §11.4 · §12** | **H-12 remediation.** The download re-check read the role set and never the template — `template_id` was not mentioned in the contract at all. But the operations template's request-time allow-list is the narrowest in the matrix, so a `marketing` role could read a `job_id` from the job list (it holds X10) and download a colleague's **operations** export: order refs, order totals, unit prices, refund state. §3.1's own invariant — *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees both."* — was defeated by any org that ever ran one operations export, with no grant being wrong. Fix: `venue.authorize_export_download` re-evaluates `assert_may_request(actor, job.scope, job.template_id)` — the same predicate a fresh request would face. `◐` on X8/X9 is now defined as template-scoped. Assertions 24a/24b, the second stated as an **equality between the request and download predicates** so the two cannot drift. |
+| **K-16** | **This document, §6.2 · §6.6 · §9.2 · §11.1 · §11.2 · §11.4 · §11.5 · §12** | **H-13 remediation.** Nothing in the design could delete a Storage object. Revoke said it *"deletes the artifact, effective immediately"*; `venue.revoke_export` said it *"signals the edge to delete"*; the sweep said it *"deletes artifacts past retention"* — and the `crm-export` edge function had exactly two routes, **neither a delete**. A `SECURITY DEFINER` Postgres function cannot call the Storage API, and its only in-DB option (`DELETE FROM storage.objects`) drops the metadata row and **orphans the bytes**. So retention, sweep and revoke all had **no agent**: *"the lake is bounded by a 24-hour sweep"* was unimplementable and revoke could not remove the file it claimed to remove. Added: `POST /purge` on `crm-export`, driven by the `pg_cron` + `pg_net` pattern of migrations 014/032/034 this spec already cites; `artifact_state` / `purge_lease_until` / `purge_attempts` on `venue.export_job`; three definer `service_role` RPCs; and a **daily orphan reconciliation pass** that reconciles the bucket against the job table in both directions — without which the 24-hour bound is a statement about rows, and rows are not what leaks. Revoke's honest bound restated as `min(300 s, time-to-purge)`, not zero. |
 
 ---
 
