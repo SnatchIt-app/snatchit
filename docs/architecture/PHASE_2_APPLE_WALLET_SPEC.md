@@ -518,10 +518,53 @@ reason.
 | Profile | `aud` | `exp` | Consumer | Refresh path |
 |---|---|---|---|---|
 | **app** (existing, default) | `app` | `now() + config('credential.app_ttl_interval')` (a few hours; edge §5.5 unchanged) | RN in-app Entry Pass (RN §4.4.2) | client re-calls `credential-sign` on foreground/reconnect |
-| **wallet** (new) | `wallet` | `LEAST( COALESCE(session.ends_at, session.starts_at + config('credential.wallet_default_span')) + config('credential.wallet_exp_skew'), signing_key.not_after )` | the `.pkpass` barcode | pass update web service + APNs, **best-effort** |
+| **wallet** (new) | `wallet` | the clamped value of **§5.2a** — session-bounded, then bounded again by the offline window | the `.pkpass` barcode | pass update web service + APNs, **best-effort** |
 
 The wallet profile's `exp` is **session-bounded, not hours-bounded**. `LEAST` with `signing_key.not_after`
 ensures a token never outlives its own key's planned window.
+
+### 5.2a The `exp` clamp — bound the computed value, not the constants (`SPEC CORRECTION`)
+
+> **The defect.** The cross-config invariant ratified with OQ-5
+> (`wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval`, door §10.6) constrains
+> **`wallet_default_span`** — which is used **only when `session.ends_at IS NULL`**. On the far more common
+> branch, `ends_at` is present and the invariant constrains nothing at all: **a long or mistyped `ends_at`
+> produces an unbounded `exp`**, and a fat-fingered year makes a multi-month bearer credential. The invariant
+> was checked against the constants an operator sets and never against the number the signer actually emits.
+> Door §16 OQ-5's item 1 says the token *"cannot outlive the offline window any manifest could authorise"* —
+> as written, it could.
+
+**Normative.** `credential-sign` computes the wallet-profile `exp` as:
+
+```text
+session_ref_start := COALESCE(session.doors_at, session.starts_at)
+session_ref_end   := COALESCE(session.ends_at, session.starts_at + config('credential.wallet_default_span'))
+
+exp := LEAST(
+         session_ref_end   + config('credential.wallet_exp_skew'),      -- session-bounded
+         session_ref_start + config('door.manifest_ttl_interval')
+                           + config('credential.wallet_exp_skew'),      -- the OFFLINE-WINDOW clamp  ← the fix
+         signing_key.not_after                                          -- never outlive its own key
+       )
+```
+
+The middle term is the whole correction: it is expressed over the **computed** instant, so it binds on **both**
+branches of the `COALESCE` and is immune to a bad `ends_at`. A session whose `ends_at` is mistyped by a year
+still yields a token that dies one offline window after doors could open. **No new config key is introduced** —
+the clamp reuses `door.manifest_ttl_interval` and `credential.wallet_exp_skew`, both already seeded.
+
+**Enforcement, in three places, because one is where this defect came from:**
+1. **At sign time** in `credential-sign` — the clamp is applied, not merely asserted. A signer that *validates*
+   an out-of-range `exp` and refuses would deny a paying fan a barcode over an operator's typo; a signer that
+   **clamps** issues a correct, shorter one. Clamp, then log the clamping at `warn` with the session id.
+2. **In `catalog.set_platform_config`** — door §10.6's constants invariant stays, as a cheap early warning. It
+   is now explicitly **necessary and not sufficient**, and it is not the control.
+3. **In CI/pgTAP** — over the **computed** value, with adversarial fixtures: `ends_at` NULL, `ends_at` a year
+   out, `ends_at` before `starts_at`, and `signing_key.not_after` inside the session. Asserting only over the
+   seeded constants is what let this through.
+
+**Door §10.6's invariant is amended in place by this section** and its "load-bearing for §16 OQ-5" note now
+points here: the clamp is the load-bearing half, the constants invariant is the guardrail on the operator.
 
 **Door-side impact: none.** The door's check 3a is `now() <= exp ± 2 buckets`; a longer `exp` simply passes it.
 No door code branches on `aud`; `aud` is a claim the signer sets and the door ignores. The door must **not**
@@ -888,7 +931,11 @@ This is a real benefit of the pinning design and should not be undone.
 doors of the scope → force client re-sign → for the offline-skew residual, tighten the affected event to
 online-only scanning until manifests are confirmed refreshed → audit + Sentry.
 **Wallet addition:** because wallet-profile tokens are session-bounded (§5.2), a signer compromise **must**
-trigger the M1 refresh — it is the only bound on a forged token, and `exp` will not help. Wallet passes for
+trigger the M1 refresh — it is the only bound on a forged token, and `exp` will not help. **And
+`revoke_signing_key` must force-close every open door-manifest episode in the key's scope in the same
+transaction** (edge §5.6, door §8.2.1, `reason='key_revoked'`) — this is door OQ-5's second grant condition,
+and it is what collapses the exposure from the token's remaining life to the device's offline duration. **Do
+not treat the M1 refresh as sufficient on its own:** an offline door does not see M1 refresh either. Wallet passes for
 the affected scope are rebuilt and re-pushed with tokens signed by the new key; devices that never reconnect
 keep a token signed by a revoked key, which check 1 rejects at every door that has refreshed M1.
 
@@ -1168,7 +1215,7 @@ in the door runbook, in door-staff training, and in the scanner's offline banner
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `wallet.apple.enabled` | boolean | **`false`** | **kill switch.** Ships off; turned on by a dual-controlled config write (`catalog.set_platform_config`, RLS §8.4) after the §13 checklist is green. |
+| `wallet.apple.enabled` | boolean | **`false`** | **kill switch — gates the whole Wallet plane, not just minting (§11.5a).** Ships off; turned on only by a **mandatory-dual-control** config write after the §13 checklist is green; **turned off by a single `platform_admin`, directly** (§11.5b). |
 | `credential.wallet_exp_skew` | interval | `'6 hours'` | added past session end for the wallet token profile (§5.2) |
 | `credential.wallet_default_span` | interval | `'12 hours'` | used when `session.ends_at IS NULL` |
 | `credential.app_ttl_interval` | interval | `'4 hours'` | names the existing app-profile TTL (edge §5.5 left it as prose) |
@@ -1177,6 +1224,58 @@ in the door runbook, in door-staff training, and in the scanner's offline banner
 
 These are **operational thresholds, not secrets** — public-read like every other config value (door spec
 §10A.6's reasoning applies verbatim).
+
+### 11.5a What `wallet.apple.enabled = false` must actually stop — `SPEC CORRECTION`
+
+> **The defect.** The kill switch gated **minting only** (`kernel.mint_wallet_pass`'s precondition, §11.6).
+> Flipping it stopped *new* passes while **the installed fleet kept being served, rebuilt and pushed** — the
+> population it is named to protect and the only population that can be harmed by a Wallet defect. A switch
+> that protects the people who do not have the feature yet is not a kill switch.
+
+With `wallet.apple.enabled = false`, **all four** of the following hold:
+
+| Plane | Behaviour when disabled |
+|---|---|
+| **Mint** (`wallet-pass-issue` → `mint_wallet_pass`) | `precondition_failed('wallet_disabled')` for every caller **including `platform_admin`** — unchanged, and still not role-bypassable (§12 W-E 27). |
+| **Serve / rebuild** (`wallet-pass-webservice`) | **every route returns `503` with `Retry-After`, uniformly** — the same response for every serial, every device, and every token, valid or not. Uniform **by route, never by pass**: a per-pass branch would be an enumeration oracle (§11.6a) wearing the kill switch's clothes. `get_wallet_pass_build_context` builds nothing. |
+| **Register** (`register_wallet_pass_device`) | refuses; no new registration rows. Existing rows are **left intact**, so re-enabling does not require the fleet to re-add. |
+| **Push** (`wallet-pass-push`) | stops draining Wallet triggers from the outbox. The rows are **not discarded** — they age normally and are re-drained on re-enable, because a skipped `credential_version` push is a stale face, and §6.4's ruling is *"push on every bump, unconditionally, forever."* |
+
+**What the kill switch does NOT do, stated plainly so nobody plans around it.** It does **not** invalidate the
+barcodes already installed on phones. That barcode is a C33 credential token; the door evaluates it under
+`OFFLINE-VERIFY-v1` exactly as it evaluates the in-app Entry Pass, and it will keep admitting the current owner
+of a live atom. **Admission safety never rested on this switch and must not be described as if it did** — it
+rests on step 3b. What the switch buys is the ability to stop the *Wallet delivery plane* — the one part of the
+feature that talks to devices we do not control — in one config write, without a client release. That is worth
+having; it is not a revocation, and the incident runbook (§8.5) must not treat it as one. **Per-pass
+revocation is `kernel.revoke_wallet_pass`; fleet-wide credential revocation is a signer rotation.**
+
+### 11.5b Config namespace and dual control — `SPEC CORRECTION`
+
+> **The defect.** `wallet.*` and `credential.*` sat **outside** the namespaces for which RLS §11 makes dual
+> control **mandatory** (`refund.*`, `payout.*`, `authn.*`). Dual control was described as a *seam* for these
+> keys, which is the default `set_platform_config` posture — so **one `platform_admin` could enable Wallet
+> before the §13 checklist was green**, and one `platform_admin` could widen `credential.wallet_exp_skew`,
+> which lengthens the life of a bearer credential.
+
+**Required (reported to the RLS-spec owner, not made here):**
+`PHASE_2_RLS_PERMISSION_SPEC.md` §11's `catalog.set_platform_config` row — the one that reads *"for keys in the
+`refund.*` / `payout.*` / `authn.*` namespaces dual control is MANDATORY, not a seam"* — must add
+**`wallet.*`** and **`credential.*`**. The row's own **direction asymmetry** then applies and is exactly right
+for a kill switch:
+
+- **Loosening executes with two approvers.** Setting `wallet.apple.enabled := true`, or *raising* any
+  `credential.wallet_*` interval, creates a `kernel.approval_request` that a **second distinct
+  `platform_admin`** must approve. Enabling a feature whose §13 checklist has eighteen items is exactly as
+  consequential as raising a money threshold — and the checklist is the thing the second approver is there to
+  have looked at.
+- **Tightening executes directly.** Setting `wallet.apple.enabled := false`, or *lowering* any interval, needs
+  **one** admin and no approval round. **A kill switch that needs a quorum is not a kill switch**, and the
+  asymmetry is already the ratified pattern (RLS §11: *"a security control that is hard to tighten in an
+  incident is a liability"*).
+
+Door §10.6's three `door.session_*` keys take the same treatment for the same reason: they bound a bearer
+credential.
 
 ### 11.6 RPC contracts — all `NEW RPC`, all **DB-RPC**
 
@@ -1188,7 +1287,7 @@ These are **operational thresholds, not secrets** — public-read like every oth
 | `kernel.get_wallet_pass_build_context(p_serial, p_auth_token)` | `service_role`/definer | Web-service authentication + build inputs. **Constant-time comparison against `auth_token_hash` inside the function**, **plus the two liveness preconditions of §11.6a — `status='issued'` AND holder = live current owner.** Returns identical shape, status and timing for not-found, bad token, superseded pass and stale holder. |
 | `kernel.register_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier, p_push_token)` | `service_role`/definer | Constant-time auth; upserts the registration; encrypts the push token. |
 | `kernel.unregister_wallet_pass_device(p_serial, p_auth_token, p_device_library_identifier)` | `service_role`/definer | Terminal-state idempotent. |
-| `kernel.list_updated_wallet_passes(p_device_library_identifier, p_since)` | `service_role`/definer | Serials with `last_updated_at > p_since` for that device. |
+| `kernel.list_updated_wallet_passes(p_device_library_identifier, **p_auth_token**, p_since)` | `service_role`/definer | **Signature corrected — §11.6b.** Constant-time auth against a pass **registered to that device**; serials drawn **only** from that device's live registrations, filtered by §11.6a's liveness rule; `serial_no_opaque` only. It previously took **no token** — the one multi-serial route was unauthenticated by contract. |
 | `kernel.record_wallet_push_result(...)` | `service_role`/definer | Appends `wallet_pass_push_log`; increments `push_failure_count`; unregisters on a permanent APNs rejection. |
 | `kernel.revoke_wallet_pass(p_wallet_pass_id, p_reason_code, p_command_key)` | `is_platform([platform_admin, platform_support])` | Support path (leaked pass file, lost device). Audited. |
 | `kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert` | **`is_platform([platform_admin])` only** | Mirrors `provision/rotate/revoke_signing_key`. Dual-controlled (DA §12.4). Audited. |
@@ -1237,6 +1336,45 @@ signed with; the credential claim inside the barcode is immutable for the life o
 - `get_wallet_pass_build_context` with a **correct** token on a pass whose `holder_identity_id ≠` the live
   `kernel.tickets.current_owner_id` returns the **same** shape and status as an unknown serial.
 - The same, with `status='superseded'` and a correct token.
+
+### 11.6b `list_updated_wallet_passes` — the multi-serial route must be the most bound, not the least (`SPEC CORRECTION`)
+
+> **The defect.** `kernel.list_updated_wallet_passes(p_device_library_identifier, p_since)` took **no auth
+> token**. **The one endpoint in the design that returns *many* serials was unauthenticated by contract** — a
+> direct contradiction of §6.1's own rule that *"the token authorizes one serial only."* Its only input was a
+> `deviceLibraryIdentifier`, a value that arrives in the request path.
+
+**Corrected signature and contract:**
+
+`kernel.list_updated_wallet_passes(p_device_library_identifier, p_auth_token, p_since)` — `service_role`/definer.
+
+1. **Authenticate first.** Constant-time compare `p_auth_token` against the `auth_token_hash` of the passes
+   **registered to `p_device_library_identifier`**. At least one must match, or the call returns the
+   **empty/204 shape** — the same shape an unknown device gets.
+2. **Answer from registrations only.** Return serials **exclusively** from that device's live
+   `kernel.wallet_pass_device` rows — never a scan over `kernel.wallet_pass` by `last_updated_at`. A
+   registration exists only because an **authenticated** `register` call created it, so the device's reachable
+   set is bounded by what it has already proved it holds.
+3. **Apply §11.6a's liveness filter.** A pass that is not `status='issued'`, or whose `holder_identity_id` is
+   no longer the live `current_owner_id`, is **omitted** — not reported as changed. A former owner's device
+   must stop being told anything about a ticket that moved, and the omission must be indistinguishable from
+   "nothing changed".
+4. **Return `serial_no_opaque` only.** No `wallet_pass_id`, no `ticket_atom_id`, no counts, no timestamps
+   beyond the `lastUpdated` tag Apple requires.
+5. **Fail-closed rate limit** on `uuidv5(NS_WALLET_PASS, …)` (edge §7).
+
+> **`UNVERIFIED — confirm against Apple documentation before implementation.`** Whether iOS sends
+> `Authorization: ApplePass <token>` on the *list* path (`GET /v1/devices/{id}/registrations/{passTypeId}`) —
+> §6.1's table asserts it does, and that row is already labelled `UNVERIFIED`. **This must be resolved before
+> implementation, and the resolution changes only step 1, never steps 2–5.** If Apple does **not** send a token
+> on this path, step 1 cannot be performed and the endpoint's whole authority becomes steps 2–5 plus the
+> entropy of the `deviceLibraryIdentifier`. **That residual must then be written down and signed off in the
+> §13 item 12 security review** — as a named, bounded exposure — rather than discovered by an implementer and
+> quietly accepted, which is how it reached this spec unauthenticated in the first place.
+
+**Unregistration must be real.** `supersede_wallet_passes_for_atom` and `revoke_wallet_pass` MUST mark the
+pass's registrations `unregistered` (§8.5 already says so for the revoke path). Steps 2–3 are only as strong as
+that severing.
 
 ### 11.7 RLS delta
 
@@ -1519,7 +1657,9 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | 7 | **Apple WWDR intermediate certificate** current in `kernel.pass_type_cert.wwdr_cert_pem` | platform_admin | on Apple rotation | passes fail to install on iOS |
 | 8 | **Private object-storage bucket** for built `.pkpass` bytes; no public read; signed URLs only, short TTL | platform_admin | once | pass files enumerable |
 | 9 | **CI gate**: no `*.p12`/`*.p8`/`*.cer`/`*.pkpass`/`*.mobileprovision`/`PRIVATE KEY` in tracked files (§8.2) — **can be added green today (§0.1)** | eng | every build | key material in git |
-| 10 | **Door-lifecycle prerequisites shipped**: M2 tables (`venue.door_manifest`, `venue.door_manifest_entry`) + offline-verify step 3b | eng | **before enabling** | §4's proof is false; W-3 deployed at scale |
+| 10 | **Door-lifecycle prerequisites shipped**: M2 tables (`venue.door_manifest`, `venue.door_manifest_entry`, `door_manifest_delta`) + offline-verify **all five conjuncts of step 3b** + **3c** | eng | **before enabling** | §4's proof is false; W-3 deployed at scale; H-2's more-permissive-offline-door deployed at scale |
+| 10a | **The OQ-5 grant's second condition is actually implemented**: `kernel.revoke_signing_key` force-closes and invalidates open door-manifest episodes in its own transaction (edge §5.6). The ruling says *"without this I would reject DL-4"* — until it exists, the session-bounded wallet profile this feature depends on rests on a condition nothing satisfies | eng | **before enabling** | a 12-hour token against a revoked key |
+| 10b | **The `exp` clamp is applied at sign time** and asserted in CI over the **computed** value with adversarial `ends_at` fixtures (§5.2a), not merely over the seeded constants | eng | before enabling | a mistyped `ends_at` mints an unbounded bearer credential |
 | 11 | **Scanner build implements every conjunct of `OFFLINE-VERIFY-v1`** (§10.2 items 1–2) — all five of 3b, 3c, applied-set evaluation, no-M2-no-admit — covered by **one failing-case regression test per conjunct** (edge §5.4.3's case table), and verified by an end-to-end stale-pass drill **and** a `paid_pending_transfer` drill at a real door | eng + venue ops | before enabling + per scanner release | the reference value is fetched and ignored, or fetched and only partly compared (H-2) |
 | 12 | **`wallet-pass-webservice` security review sign-off** for its `verify_jwt=false` posture (§6.1) | platform_admin | before enabling | the second unauthenticated endpoint ships unreviewed |
 | 13 | **Rate limits configured and fail-closed** on all four edge functions | eng | before enabling | abuse surface |

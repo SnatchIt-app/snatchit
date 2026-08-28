@@ -1071,6 +1071,35 @@ door is not a degraded door either: it is a more permissive one, which is the H-
   `key_id` is revoked once **M1** refreshes; **offline doors within the skew window are the residual gap** —
   mitigated by the offline `credential_version` check against M2 (§5.4.3 step 3b), by bounded token TTL, and by
   the door freeze (below).
+- **Revocation MUST force-close open door-manifest episodes — `SPEC CORRECTION`, and it is a condition of a
+  granted ruling that nothing implemented.** Door §16 OQ-5's ruling granted the session-bounded Wallet token
+  profile on **two** conditions, and stated of the second: *"Revoking a signing key for a scope with an open
+  episode MUST force-close and invalidate it… **Without this I would reject DL-4**, because item 1 alone leaves
+  a 12-hour token against a revoked key."* **The mechanism it points at (door §8.2.1, `reason='key_revoked'`,
+  envelope #44) existed; the caller did not.** `kernel.revoke_signing_key` was specified here and in RPC §13 as
+  a key-table update and nothing else, so the condition the grant rested on was satisfied by no code path — the
+  exact "a correct thing that nothing called" failure class door §8.4 names.
+
+  **Normative.** In the **same transaction** as the revocation, `kernel.revoke_signing_key(p_key_id, …)` MUST,
+  for every session in the revoked key's scope (event or venue) that has an episode with `status='open'`:
+  1. `venue.close_door_manifest(session_id, 'key_revoked')`;
+  2. set `not_after := now()` on every episode of that session, so a device that reconnects before its
+     downloaded horizon still refuses;
+  3. emit `DoorManifestInvalidated` (door §12.2 #44) with `reason='key_revoked'` — the enum already carries
+     the label;
+  4. write the `kernel.admin_audit` row naming the key and the sessions closed.
+
+  This collapses the revocation window from *the token's remaining life* to *the device's offline duration*,
+  which is what makes the OQ-5 grant's arithmetic true. **The residual is unchanged and still honest:** a
+  device offline across the revocation keeps admitting until its downloaded `not_after`, bounded by
+  `door.manifest_ttl_interval` (door §8.2.1 clause 4).
+
+  **Reported, not made here** — `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §13's `kernel.revoke_signing_key` contract
+  needs the write set, the lock order (`catalog.event_session` **FOR UPDATE**, rank 1, before the key row, per
+  door §7.2) and the audit row above. **This is a batch over sessions in one transaction: the scope's session
+  count is the blast radius, and the contract owner should say so.** Until it lands, the OQ-5 grant's second
+  condition is unmet and Wallet's session-bounded profile is not safe to enable — **§13 item 10 in the Wallet
+  spec is extended to cover it.**
 - **The door freeze — say what the mechanism does (`SPEC CORRECTION`).** This section previously described a
   *"per-open-manifest door-freeze (recon #3)"*. Two errors: the cross-reference was wrong (the door freeze is
   §9 recon **#6**, not #3), and **the narrowing it names does not exist.** The specified predicate is

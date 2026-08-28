@@ -1143,8 +1143,18 @@ config('credential.wallet_default_span') + config('credential.wallet_exp_skew')
 
 A Wallet token may never outlive the offline window that any manifest could authorise. `catalog.set_platform_config`
 must validate this whenever either side changes and reject the write otherwise; CI asserts it over the seeded
-values. **This is the invariant that makes the §16 OQ-5 ruling safe** — without it, the Wallet spec's claim
-that a short `exp` "bounds nothing that isn't already bounded" is false for key revocation.
+values.
+
+> **`SPEC CORRECTION` — this invariant constrains the wrong thing on its own.** `wallet_default_span` applies
+> **only when `session.ends_at IS NULL`**. On every session that *has* an `ends_at`, the invariant above binds
+> nothing, and a long or mistyped `ends_at` produces an **unbounded `exp`** — so the OQ-5 item 1 guarantee
+> (*"cannot outlive the offline window any manifest could authorise"*) did not hold on the common branch.
+> **The binding control is a clamp on the computed value**, specified in Wallet **§5.2a**:
+> `exp := LEAST( session_ref_end + wallet_exp_skew, session_ref_start + door.manifest_ttl_interval +
+> wallet_exp_skew, signing_key.not_after )`, applied by `credential-sign` at sign time and asserted in CI over
+> the **computed** value with adversarial `ends_at` fixtures. The constants invariant above **stays as an early
+> warning on the operator and is explicitly necessary-but-not-sufficient.** OQ-5 item 1 is discharged by the
+> clamp, not by this line.
 
 ### 10.7 What is **not** added
 
@@ -1696,6 +1706,14 @@ by binding the token to the offline window instead of to a clock:
    MUST force-close and invalidate it (§8.2.1 mechanism, `reason='key_revoked'`, envelope #44). This collapses
    the revocation window to the device's offline duration rather than the token's life. **Without this I would
    reject DL-4**, because item 1 alone leaves a 12-hour token against a revoked key.
+   > **`SPEC CORRECTION` — this condition had a mechanism and no caller.** §8.2.1 defines the force-close, and
+   > envelope #44's enum already carries `key_revoked`, but **`kernel.revoke_signing_key` was specified nowhere
+   > as invoking either** — it was a key-table update and nothing more (edge §5.6, RPC §13). A granted ruling
+   > whose condition nothing satisfies is the "correct thing that nothing called" failure class §8.4 exists to
+   > refuse. The normative obligation is now written into **edge §5.6** (same-transaction force-close, episode
+   > `not_after := now()`, `DoorManifestInvalidated`, audit row) and reported to the RPC-contract owner for
+   > `kernel.revoke_signing_key`'s write set and lock order. **Until that lands, this ruling's item 2 is
+   > unmet.**
 3. Their three mitigations stand and are mandatory: the CI structural test that offline step 3b exists, the
    `wallet.apple.enabled` kill switch, and no-manifest-no-admit. The third is consistent with §3.1 — it
    constrains **offline** admission, which already requires a manifest by construction, and does not touch
