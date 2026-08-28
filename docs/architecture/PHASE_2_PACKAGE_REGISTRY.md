@@ -332,15 +332,26 @@ in the corpus.
 > the two prose enumerations reopened `C92` in exactly the documents an implementer reads to know what to
 > build. Plan §0.4b now enumerates four; schema §13.2's two occurrences are reported to its owner.
 >
-> **No dependency edge is added by this amendment block; `declared_edge_count` stays 39** and all four
-> surfaces were re-verified identical after the edit.
+> **Edge tally for this amendment: `declared_edge_count` 39 → 45, six added, enumerated** —
+> `081 → 083` (`C103`), `078 → 085`, `081 → 085`, `083 → 085` (`C100`, the first of the three already
+> owed), `086 → 088` (`C99`), `087 → 088` (`C107`, already owed). **`C101`, `C104`, `C105` and `C106` add
+> none.** Every added edge strictly increases the package number, so the DAG stays acyclic and
+> topologically ordered by number; **all four surfaces were re-verified by parser after every commit of
+> this pass**, not by reading. **Objects moved between packages: three** — `kernel.issue_ticket_atoms`
+> (`081 → 083`), `venue.finalize_primary_order` (`082 → 085`), and the pair
+> `venue.order.attribution_candidate_code_id`/`_link_id` with their freeze guard (`090 → 082`, FKs
+> adopted back in `090`) — **plus the role `crm_export_builder` (`087 → 076`)**. **Objects added: four
+> SEAM-2 hooks and one composite type**, enumerated in §3. **No package number changed.**
 >
-> **Owner ratification required**, per rule §6.5. **No change here is an owner decision** — the type's
-> placement is `SEAM-1`, the arity is RPC §20's contracted signature under §8's own precedence rule, and
-> the hook count is a transcription of `C92`. **One question IS an owner decision and is NOT taken:
-> `p_cause`'s admissible values and effect are contracted nowhere** (filed to the RPC owner as `R2B-1`);
-> because `SEAM-2a` freezes the parameter list, a ruling that drops it must be taken **before `085` is
-> authored**.
+> **Owner ratification required**, per rule §6.5. **No change here is an owner decision** — every
+> placement is `SEAM-1`, `SEAM-2` or the new `SEAM-4` applied to a fact already in the corpus; the arity
+> is RPC §20's contracted signature under §8's own precedence rule; and the hook count is a transcription
+> of `C92`. **Three questions ARE owner decisions and NONE is taken here:** (1) **`p_cause`'s admissible
+> values and effect** are contracted nowhere (filed to the RPC owner as `R2B-1`) — and because `SEAM-2a`
+> freezes the parameter list, a ruling that drops it must land **before `085` is authored**; (2) the whole
+> `crm_export_builder` grant set is contingent on RLS **`MD-2`**, which stays open under its existing id;
+> (3) `090`'s *"reverts as one unit"* property with the two order columns now born in `082` is filed to
+> the promoter-spec owner. **None is re-numbered into a new `O` row** — each already has a home.
 
 Consult this file **before quoting, authoring, or reviewing any Phase-2 migration
 number.** If another document disagrees with this table, this table wins and the
@@ -495,8 +506,15 @@ and artifact set are widened in schema §13.2. Three rules now prevent recurrenc
 > (`I-1`) for the packages it is deferred across** — which is safe, and is why deferral is preferred to any
 > reordering of the ratified band.
 
-**Acceptance property:** *no function reads or writes a table created in a later package* — mechanically
-checkable from `pg_depend`/`pg_proc` after each package's replay.
+**Acceptance property (WIDENED by `R2B` — the old form is what `V1`…`V7` walked through):** *no routine
+reads, writes, or **reaches through a call** any relation or column created in a later package.* Mechanically
+checkable from `pg_depend`/`pg_proc` after each package's replay — **and the walk must be TRANSITIVE over
+routine→routine edges.** A walk over a routine's direct table dependencies alone cannot see a forward
+reference that is one call away, and four of `R2B`'s seven findings (`V1`, `V2`, `V4`, `V6`) were exactly
+that. **Placement is therefore a DERIVED set, re-derived from each routine's contract — its Reads line, its
+Writes line, its Preconditions line, and every routine named in its prose — and never inherited from where
+the object list happens to sit.** The full statement, its three admissible repairs, and the two forms of the
+check are `PHASE_2_SUPABASE_MIGRATION_PLAN.md` **§8 acceptance property**.
 
 **Second acceptance property — the four declared edge sets are identical.** The dependency graph is written
 down in **four** places: `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §2's mermaid DAG, that plan's §3 rollout
@@ -699,9 +717,23 @@ are **pgTAP test-file ordinals**, unrelated to migration versions. A number in
    competing scales in §4.
 4. **One package, one version.** Verify against §2 before authoring.
 5. This registry is updated **only** by ratified amendment.
-6. **Function placement is derived, not chosen** (§2.2 SEAM-1/SEAM-2). A package
-   that contains a function reading a table created in a later package is
-   malformed, regardless of how the object list looks.
+6. **Function placement is derived, not chosen** (§2.2 SEAM-1/SEAM-2/SEAM-2a,
+   SEAM-3, SEAM-4). A package that contains a routine reading, writing, **or
+   reaching through a call** a relation or column created in a later package is
+   malformed, regardless of how the object list looks. **The `max()` is over the
+   REACHABLE set, not the named set** — that distinction is `R2B`'s whole
+   finding, and the derivation must be re-run from each routine's **contract**
+   (Reads · Writes · Preconditions · every routine named in its prose), never
+   inherited from where the object list already sits. Full statement and the two
+   forms of the mechanical check:
+   `PHASE_2_SUPABASE_MIGRATION_PLAN.md` **§8 acceptance property**.
+6b. **A hook's signature is frozen at its stub** (`SEAM-2a`). `CREATE OR REPLACE`
+   may change only the body. The replacing package asserts `COUNT(*) = 1` over
+   `pg_proc` for the hook name — an **overload count**, because the failure mode
+   of adding a parameter is a second routine and a live stub, not an error.
+6c. **A role with grants owed from package `N` is created at or before `N`**
+   (`SEAM-4`). A `GRANT` resolves its grantee immediately, so a late role is a
+   hard `42704` at replay rather than a runtime surprise.
 7. **`084` and `091` are protected shapes.** `084` creates zero relations and
    zero routines; `091` is always empty and referenced by no routine. Those
    properties are what make their rollbacks unconditionally reversible. Adding
