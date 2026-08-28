@@ -1479,6 +1479,22 @@ DEFINER, `search_path` pinned, `REVOKE EXECUTE FROM anon,authenticated,public` t
 `authenticated` **with an in-body predicate re-check** (the GRANT lets the call in; the predicate decides
 authority — a demoted user's call fails inside the function via live-table recheck). `svc` = the definer path.
 
+**Two grant classes, and the distinction is load-bearing.**
+
+- **Caller-authorized** — `GRANT EXECUTE TO authenticated`, authority decided in-body from `auth.uid()`.
+  **Every one of these is bound by EDGE-CALLER-JWT (§3.1):** an edge function fronting it MUST build its
+  client from the caller's `Authorization` header. Invoking it with a service-role client makes `auth.uid()`
+  NULL and silently degrades every predicate in the row.
+- **Definer-only** — marked **`DEF`** below. `REVOKE EXECUTE FROM anon, authenticated, public`, `GRANT
+  EXECUTE TO service_role` **only**. Never in a UI path, never reachable from PostgREST. These have **no
+  human actor by construction** and are the only sanctioned use of a service-role client against this schema.
+  A `DEF` row appearing with an `authenticated` grant in a migration is a defect.
+
+**GP-3a reminder:** this table *is* the authority model for every money and custody write. There is no table
+policy behind it — see §1.3.
+
+### 11.1 Core (pre-existing surface, reconciled)
+
 | RPC | May invoke (predicate, live-rechecked) |
 |---|---|
 | `kernel.upsert_identity_ext` | owner (benign) · `is_platform([platform_admin])` (region/kyc) |
@@ -1490,9 +1506,9 @@ authority — a demoted user's call fails inside the function via live-table rec
 | `kernel.issue_ticket_atoms` | `svc`/definer (called by paid-order flow); actor = `auth.uid()` server-derived |
 | `kernel.transfer_ticket_ownership` | `svc`/definer (market/venue checkout); buyer **server-verified** vs `public.payments` (C35) |
 | `kernel.void_ticket_atom` | `is_platform([platform_admin,platform_risk])` · refund flow (definer) |
-| `kernel.refund_primary_order` | owner(buyer-request, capped) · `has_org_role([org_finance])` · `is_platform([platform_support,platform_admin])` |
-| `kernel.admin_refund` | `is_platform([platform_risk,platform_admin])` |
-| `kernel.close_settlement` | `has_org_role([org_finance])` · `has_venue_role([venue_finance])` · platform |
+| `kernel.refund_primary_order` | **`DEF`** (from `request_order_refund` / `approve_refund_request` / `catalog.cancel_event` / C25 sweep) · `is_platform([platform_support (capped), platform_admin])` — **role NARROWED**; buyer, `org_finance` and `org_owner` reach it only via `request_order_refund` |
+| `kernel.admin_refund` | `is_platform([platform_risk, platform_admin])` |
+| `kernel.close_settlement` | `has_org_role([org_finance])` · `has_venue_role([venue_finance])` · platform — *unchanged; `org_owner` still cannot close (it opens and reads). §15.3 remains open.* |
 | `kernel.pay_promoter_commission` | definer (settlement path) |
 | `kernel.provision/rotate/revoke_signing_key` | `is_platform([platform_admin])` |
 | `catalog.create_venue` | `has_org_role([org_owner,org_admin])` |
@@ -1507,15 +1523,142 @@ authority — a demoted user's call fails inside the function via live-table rec
 | `venue.grant_staff_role`/`revoke_staff_role` | `has_venue_role([venue_manager])` OR org_owner/admin inheritance; no self-grant |
 | `venue.issue_door_pin`/`revoke_door_pin` | `has_venue_role([venue_manager])` OR org_owner/admin |
 | `venue.register_scan_device` / manifest-sync | `has_venue_role([venue_manager])`; sync also `venue_scanner` (own device) |
-| `venue.record_scan` | `has_venue_role([venue_scanner,venue_manager])` OR valid `door_pin` device principal |
+| `venue.record_scan` | **two entry paths, both landing in the same definer function:** (a) `has_venue_role(venue,[venue_scanner, venue_manager])` — an authenticated, individually attributable staff principal; (b) the `service_role` edge path with `kernel.assert_door_session(device_id, session_id)` asserted in-body. **Never a `door_pin` tested by `has_venue_role`** (R-8) |
 | `venue.open_settlement`/`close_settlement` | `has_venue_role([venue_finance])` OR `has_org_role([org_finance])` · platform |
-| `venue.allocate_comp`/`issue_comp` | `has_venue_role([venue_manager])` OR org_owner/admin (step-up seam C39) |
-| `venue.record_offline_scans` | `has_venue_role([venue_scanner,venue_manager])` |
+| **`venue.allocate_comp`** *(capacity — SPLIT per R-15/E6)* | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner,org_admin])`. **C39-gated** (step-up + live-grant re-check above the per-staff threshold). **`venue_box_office` is DENIED** — allocating comp *capacity* is an inventory decision |
+| **`venue.issue_comp`** *(issuance — SPLIT per R-15/E7)* | `has_venue_role(venue,[venue_manager, venue_box_office])` OR `has_org_role_over_venue(venue,[org_owner,org_admin])`. **C39-gated.** Issuing **one** comp against an already-allocated batch is an issuance operation, which is exactly what O-2 grants box office (*"ticket issuance / permitted inventory-sale operations only"*) and nothing more. Per-staff comp totals stay visible to `venue_manager` and above — this is the insider-fraud control surface and hiding it defeats it |
+| `venue.record_offline_scans` | as `venue.record_scan` — `has_venue_role([venue_scanner, venue_manager])` OR the `service_role` edge path with `assert_door_session` (own device only) |
 | `market.create_listing`/`cancel_listing` | owner of the atom · platform (cancel) |
 | `market.create_auction` / bid RPC | listing seller (create) · any `authenticated` (bid) |
 | `market.make_offer`/`respond_offer` | any `authenticated` (offer) · listing seller (respond) |
 | `market.create_p2p_transfer`/`accept_p2p_transfer` | atom owner (create) · resolved recipient (accept) |
 | **read RPCs** `get_ticket_custody_chain` · `get_ticket_history` · `get_market_sale_status` | scoped as §14 |
+
+### 11.2 Predicate helpers and the door session
+
+| RPC | May invoke |
+|---|---|
+| `kernel.has_org_role` · `has_venue_role` · `has_event_role` · `is_platform` | `authenticated` (pure predicates; `STABLE`, live reads) |
+| `kernel.has_org_role_over_venue` · `has_org_role_over_event` · `is_org_affiliate` | `authenticated` |
+| `kernel.is_promoter_for_event` | `authenticated` |
+| **`kernel.assert_door_session(device_id, session_id)`** | **`DEF`** — `service_role` only. Security-critical: it is the *entire* authorization surface of the door path. Covered by the package's adversarial verification |
+
+### 11.3 Money authority (money spec §2.3 — replaces the corresponding §11.1 rows)
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| **`kernel.request_order_refund`** *(NEW)* | owner-of-order (`venue.order.buyer_id = auth.uid()`, capped + windowed) · `has_org_role(order.org_id,[org_owner, org_finance])` · `is_platform([platform_support, platform_risk, platform_admin])`. **`org_admin` and every venue role are forbidden callers.** |
+| **`kernel.approve_refund_request`** *(NEW)* | `has_org_role([org_owner, org_finance])` **AND `auth.uid() <> request.requested_by`** — SoD-2 enforced structurally, and **self-approval is its own named failure** so the UI can say *"a different person must approve this"* rather than a bare 403 · `is_platform([platform_support, platform_risk, platform_admin])` for the platform-review tier |
+| **`kernel.cancel_refund_request`** *(NEW)* | the requester · `has_org_role([org_owner, org_finance])` · platform |
+| **`kernel.sweep_expired_refund_requests`** *(NEW)* | **`DEF`** — scheduler only. **Not optional:** without it a parked request is an unbounded denial-of-admission on a paying customer's ticket |
+| **`kernel.list_org_payouts`** *(NEW read)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (settlement-cause rows, own venue only) · `is_platform` |
+| **`kernel.list_org_refunds`** *(NEW read)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (own venue) · `is_platform` |
+| **`kernel.list_approval_requests`** *(NEW read)* | `has_org_role([org_owner, org_finance])` (own org) · platform — the approval queue |
+| **`kernel.record_money_denial`** *(NEW)* | **`DEF`** — service_role only, **no human path**. Exists because a failed predicate `RAISE`s, which rolls back the transaction **and takes the audit row with it** (§0.3 writes audit in-txn; Postgres has no autonomous transactions). Repeated failed attempts to change a payout destination or fire a payout are the highest-value fraud signal in the system and are otherwise **invisible**. The edge catches `insufficient_privilege`/`sod_violation`/`step_up_required` and calls this **in a separate transaction** |
+| `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])` — *unchanged, now consistent with §7.9*. **Adds three preconditions:** the destination-probation hold, the **SoD-1 destination-setter exclusion** (rejects when `auth.uid() = organization.payout_destination_set_by`, **permanently for that destination**, with `sod_violation` — not merely during the cool-down), and the step-up predicate. Above `payout.dual_control_min_minor` it parks an approval instead of advancing |
+| `kernel.set_org_payout_destination` | `has_org_role([org_owner])` **only** · **step-up + SoD + probation**. `org_finance` is **excluded entirely** — under O-3 it holds payout-request authority, and one identity may not hold both halves of the SoD-1 fraud primitive (*redirect the account, then release funds to it*) |
+| `kernel.hold_payout` / `kernel.release_payout` | `is_platform([platform_risk, platform_admin])` — *unchanged; SoD-3, **no org role, ever***. (Domain §7.6 previously marked Org Finance ✔ on *Release held funds*; a risk-placed hold released by the org it was placed on is the control inverted. Corrected to blank.) |
+| `catalog.set_platform_config` | `is_platform([platform_admin])`; **for keys in the `refund.*` / `payout.*` / `authn.*` namespaces dual control is MANDATORY, not a seam** — the call creates a `kernel.approval_request` a **second distinct `platform_admin`** must approve, and only the approval inserts the new `(key, version+1)` row. A threshold that gates money authority is exactly as money-consequential as the action it gates. **Direction asymmetry:** *lowering* a limit may execute directly; only *raising* one needs the second approver — a security control that is hard to tighten in an incident is a liability |
+
+### 11.4 Door lifecycle (door spec §10A.7 — O-4 authority)
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| `venue.open_door_manifest` · `venue.close_door_manifest` | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` OR `is_platform([platform_admin])`. **`venue_scanner`, the door session, `venue_box_office`, every finance / marketing / promoter role, `platform_support` and `platform_risk` are explicitly excluded (O-4).** Opening the manifest freezes custody for the whole session — a scanner may not create the security boundary it works inside |
+| `venue.set_door_open_at` (O4-3) · `venue.set_event_security_config` (O4-4) | as above |
+| `venue.get_door_manifest` | `has_venue_role(venue,[venue_scanner, venue_manager])` OR the `service_role` edge path with `assert_door_session` bound to that session |
+| **`catalog.engage_door_freeze`** | **`DEF`** — the **sole writer** of `catalog.event_session.door_open_at`. Never granted to `authenticated`, never a UI path, and **appears in no other EXEC row**. A trigger enforces this independently of grants |
+| **`venue.append_door_manifest_delta`** | **`DEF`** — appends `add`/`revoke` deltas to the open episode |
+| `catalog.effective_freeze_at` · `kernel.is_transfer_frozen` | `authenticated` (`STABLE` reads; `is_transfer_frozen` is already the RN eligibility boolean, §14.3) |
+| `kernel.grant_door_freeze_override` | `is_platform([platform_admin])` **only** — an override defeats a safety property, so it requires authority strictly above the authority that engaged the freeze. Refused while any episode is `open` |
+| `kernel.revoke_door_freeze_override` | `is_platform([platform_admin, platform_risk])` — risk may **tighten**, never **loosen** |
+| `kernel.sweep_expired_door_overrides` · `catalog.sweep_implicit_door_freezes` | **`DEF`** — cron. **Neither is load-bearing for correctness**; the helper computes the boundary arithmetically whether or not either ever runs |
+
+### 11.5 Promoter engine and codes (Phase 2D)
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| `venue.create_promoter_code` · `create_promoter_codes_bulk` · `set_promoter_code_status` · `set_promoter_code_scope` · `set_promoter_code_window` | `has_venue_role(venue,[venue_manager, venue_promoter_manager])` OR `has_org_role([org_owner, org_admin, org_promoter_manager])`, scoped to the promoter's org. **A promoter is explicitly forbidden from minting their own codes** — a self-minted code is a self-minted *distribution surface* over the org's global namespace, and codes are immutable, so a grab of `CLUBSPACE` or a rival's brand is permanent |
+| `venue.preview_promoter_code` | `authenticated`; **also reachable unauthenticated only through the `promoter-code-preview` edge wrapper** — see §11.8 |
+| `venue.bind_order_attribution` | the order's buyer (`auth.uid() = order.buyer_id`) OR a door/box-office principal for an on-behalf order. Rejects with `attribution_frozen` once `order.status <> 'pending'` |
+| `venue.review_attribution_flag` | `has_venue_role(venue,[venue_manager, venue_promoter_manager])` OR `has_org_role([org_owner, org_admin])` · `is_platform([platform_risk])`. **`platform_admin` holds no EXEC here.** Rejects `attribution_settled` once a `promoter_commission` settlement line exists — the money and the decision freeze together |
+| **`venue.resolve_order_attribution`** | **`DEF`** — the precedence engine, called only from `venue.finalize_primary_order` inside the paid transaction. **`REVOKE EXECUTE FROM anon, authenticated`.** It **never raises for an attribution problem**: a raise here would roll back the money and the tickets. A missing commission is a support ticket; a failed checkout on a sold-out Friday is a business incident |
+| `venue.get_my_promoter_summary` · `venue.list_my_attributions` | authority derived from **`venue.promoter.identity_id = auth.uid()` on a live row** (C9), never from `has_venue_role`. The promoter id set is derived from `auth.uid()` and **is not accepted as input**, so the filter cannot be widened by a parameter |
+| `venue.list_promoter_attributions` | `has_venue_role([venue_manager, venue_finance, venue_promoter_manager])` OR `has_org_role([org_owner, org_admin, org_finance, org_promoter_manager])`. **`venue_scanner`, the door session, `org_member` and `promoter` denied outright.** Returns an order *reference*, never an attendee — the promoter dimension is not a back door into the attendee list |
+| **`venue.decide_flagged_attribution`** (G5, dashboard Δ7) | `has_venue_role(venue,[venue_manager])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` · `is_platform([platform_risk])`. **Both promoter-manager labels are DENIED** — a promoter manager adjudicating a flag against a promoter they recruited and are measured on is the fox at the henhouse (SoD; same principle as propose-vs-approve) |
+
+### 11.6 CRM export and attendee reads
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| `venue.list_attendees` (F11/F12, dashboard Δ3) | `has_venue_role(venue,[venue_manager, venue_marketing])` OR `has_org_role_over_event(event,[org_owner, org_admin, org_marketing])` OR `has_venue_role([venue_finance])` / `has_org_role([org_finance])` **for the money-only projection** OR `is_platform([platform_support, platform_risk, platform_admin])`. **Column-scoped by role: denied classes are ABSENT from the result shape, not null.** Denied: `venue_box_office`, `venue_scanner`, the door session, `promoter`, both promoter-manager labels, `org_member`, `fan`, `anon` |
+| `venue.lookup_attendee` (single record, service context) | `has_venue_role(venue,[venue_manager, venue_box_office])` OR `has_org_role_over_venue(venue,[org_owner, org_admin])` · `is_platform([platform_support])`. **Denied to both marketing labels.** Audited with the **query kind only, never the value** — logging a probed address would build the harvest list inside our own audit |
+| `venue.request_export` — **audience** template | `has_org_role([org_owner, org_admin, org_marketing])` (org grain) · `has_venue_role([venue_manager, venue_marketing])` (venue grain). **The plane of the grant is the export scope.** `scope_kind='all'` is not a member of the CHECK set |
+| `venue.request_export` — **operations** template (adds money columns) | `has_org_role([org_owner, org_admin])` · `has_venue_role([venue_manager])` **only** — the narrowest allow-list in this document. Finance sees money and no contact; marketing sees contact and no money; **only these three hold the union** |
+| **`venue.build_export_rows`** | **`DEF`** — `REVOKE EXECUTE FROM anon, authenticated`, **no human path**. Re-derives authority from **the job row's recorded actor and scope**, not from the caller. Contains **no dynamic SQL** |
+| **`venue.finalize_export`** | **`DEF`** |
+| `venue.authorize_export_download` | the X8 set (`org_owner`, `org_admin`, `org_marketing`, `venue_manager`, `venue_marketing`), **re-checked live against the grant tables at this instant** — an export prepared before a revocation fails after it. 300-second signed URL |
+| `venue.revoke_export` | the requester · `has_venue_role([venue_manager])` / `has_org_role([org_owner, org_admin])` over the job's scope · `is_platform([platform_admin])` (**the one export-lifecycle write a platform role holds — revoking is not extraction**) |
+| `venue.list_export_jobs` | `has_org_role([org_owner, org_admin, org_marketing])` · `has_venue_role([venue_manager, venue_marketing])` · `is_platform([platform_support, platform_risk, platform_admin])`. **Job metadata only — never a row, never an object path, never a signed URL** |
+| **`venue.sweep_expired_exports`** | **`DEF`** — `pg_cron` hourly |
+
+> **PLATFORM ROLES READ THE ROSTER; THEY DO NOT USE THE VENUE CRM EXPORT.** This closes a live conflict:
+> the role-model matrix (F12) marks `platform_risk`/`platform_admin` `A` on bulk attendee list/export, while
+> the venue dashboard's allow-list omits them. **Both are right about different things.** Platform roles may
+> **read** the roster (they hold `V`/`A` on the read rows, and F12's grant is a read grant). They may **not
+> request a venue CRM export**. The venue export is scoped, templated and audited *as a venue action*: its
+> audit row names a venue actor and lands in that venue's activity feed. A platform bulk extraction has a
+> different justification, a different retention, and needs dual control; running it through the venue's own
+> surface would file a platform action in a venue's history and would hand a compromised platform account the
+> venue export's rate limits rather than a platform-grade one. **Platform bulk extraction is not built in
+> Phase 2** (owner decision **MD-8**, §15.7).
+>
+> **Dashboard §9.6's export allow-list predates the `marketing` role.** It gains `org_marketing` (org grain)
+> and `venue_marketing` (venue grain), **audience template only**; its deny-list gains `venue_box_office`,
+> `venue_scanner`, `venue_promoter_manager`, `org_promoter_manager`, and `venue_door` → `venue_scanner`.
+
+### 11.7 Demographics, wallet, notifications, and the remaining new surfaces
+
+| RPC | May invoke (predicate, live-rechecked) |
+|---|---|
+| `kernel.get_my_demographics` · `set_my_demographics` · `clear_my_demographics` | `authenticated`, **own row only**. All three are **parameterless or carry no identity parameter of any type** — "read someone else's row" must be *inexpressible*, not merely denied. There is **no staff write path and no `admin_set_demographics`** |
+| `venue.get_holder_mix` | `has_venue_role(venue,[venue_manager, venue_marketing, venue_promoter_manager])` OR `has_org_role_over_event(event,[org_owner, org_admin])` OR `is_platform([platform_admin])`. Denied: `org_finance`, `venue_finance`, `venue_box_office`, `venue_scanner`, the door session, `promoter`, `platform_support`, `platform_risk`, `fan`, `anon`. **Exactly two parameters — adding a third is a design change requiring privacy re-review, not a routine enhancement** (it is the differencing-attack contract) |
+| **`venue.refresh_holder_mix`** · the nightly rollup-reconciliation job | **`DEF`** — `pg_cron`; `REVOKE EXECUTE FROM anon, authenticated` |
+| `kernel.get_my_contact_prefs` · `set_my_contact_prefs` · `list_my_org_contact_consents` · `grant_org_contact_consent` · `withdraw_org_contact_consent` | `authenticated`, **own rows only**. **No `p_identity_id` parameter exists anywhere** — a venue can never record a contact consent on a fan's behalf |
+| `kernel.mint_wallet_pass` | `authenticated`; authorizes `kernel.tickets.current_owner_id = auth.uid()` **in-body, live-read** (C35/I-5). Gated on `config('wallet.apple.enabled')`, and **the kill switch is not role-bypassable** — `platform_admin` also gets `wallet_disabled` |
+| `kernel.revoke_wallet_pass` | `is_platform([platform_admin, platform_support])` |
+| `kernel.provision_pass_type_cert` · `rotate_pass_type_cert` · `revoke_pass_type_cert` | `is_platform([platform_admin])` **only**, dual-controlled, audited |
+| **`kernel.supersede_wallet_passes_for_atom`** · `touch_wallet_pass` · `get_wallet_pass_build_context` · `register_wallet_pass_device` · `unregister_wallet_pass_device` · `list_updated_wallet_passes` · `record_wallet_push_result` · `sweep_wallet_pass_lifecycle` | **`DEF`** — `REVOKE EXECUTE FROM anon, authenticated, public`. `supersede_…` is called **from the outbox consumer, not inside the custody transaction**, so a Wallet outage can never roll back or block a transfer |
+| `notify.get_inbox` · `get_unread_count` · `mark_read` · `mark_all_read` · `dismiss` · `get_preference_matrix` · `set_preference` · `register_push_token` · `revoke_push_token` | `authenticated`, `auth.uid()`-scoped |
+| `notify.draft_announcement` | `has_venue_role([venue_manager, venue_marketing])` OR `has_org_role([org_owner, org_admin])` |
+| `notify.approve_announcement` · `cancel_announcement` · `revoke_announcement` | `has_venue_role([venue_manager])` OR `has_org_role([org_owner, org_admin])`. **Never a marketing label** — drafting and releasing are distinct acts (SoD). Above the blast-radius threshold, release requires a **second distinct approve-authorized principal**, so one compromised credential cannot blast a stadium |
+| `notify.preview_announcement_audience` | as `draft_announcement`. **Returns a COUNT only, never an enumeration** — there is no parameter through which an audience can be widened, which denies an audience-harvesting primitive |
+| `notify.report_announcement` | `authenticated` (any recipient) |
+| **`notify.emit_event` · `enqueue` · `channel_enabled` · `drain_outbox` · `sweep_scheduled` · `claim_deliveries` · `record_delivery_result` · `resolve_web_link`** | **`DEF`** — `REVOKE ... FROM PUBLIC, anon, authenticated`, `GRANT ... TO service_role` |
+| `venue.read_operational_audit` (A6, dashboard Δ2) | `has_org_role([org_owner, org_admin, org_finance])` OR `has_venue_role([venue_manager, venue_finance])`, **restricted to the caller's own org/venue subject and EXCLUDING the security plane**; plain verbs, no before/after payloads. Platform reads the security plane via the existing `is_platform` path |
+
+### 11.8 The one rate-limit adaptation, recorded as an adaptation
+
+`public.check_rate_limit(p_user_id **uuid**, p_action text, p_limit int, p_window int)` is a **frozen Phase-0
+function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two consequences bind this document:
+
+1. **A rate-limited RPC cannot be a plain PostgREST call** — the limiter is unreachable from `authenticated`.
+   That is why `venue.preview_promoter_code` is fronted by the `promoter-code-preview` edge function rather
+   than being called directly.
+2. **Its first parameter is a `uuid`, so it cannot rate-limit an unauthenticated principal at all.** A buyer
+   may type a promoter code before signing in, and that path has no user uuid to key on.
+
+> **Recorded as an adaptation of a frozen function's contract, not a change to it.** The edge wrapper
+> **derives** a principal — `uuidv5(NS_PROMOCODE, ip || ':' || sha256(user_agent))` — and passes it as
+> `p_user_id`. The function is unmodified; a synthetic uuid is supplied where a real one does not exist.
+> Limits: 10/min authenticated, **5/min anonymous per derived principal**, **fail-closed** (503 on limiter
+> error, 429 over-limit). This is flagged so it is a reviewed decision rather than a clever workaround, and
+> because **it will recur for every future anonymous-callable edge function.** Owner: the edge-spec author.
+>
+> `INFERENCE:` the derived principal is a *rate-limiting* key only. It is never persisted as an identity,
+> never joined to a real `auth.users` row, and never used in an authorization predicate. An IP+UA hash is a
+> weak, spoofable key; it is proportionate for an advisory preview whose every failure mode returns the same
+> `not_applicable` payload, and it would **not** be proportionate for anything that writes.
 
 ---
 
