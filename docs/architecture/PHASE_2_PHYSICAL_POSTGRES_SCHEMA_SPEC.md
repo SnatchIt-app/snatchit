@@ -581,6 +581,155 @@ second refund object cannot re-void it. (C26 note in SPEC_FOUNDATION §4.)
 - **Write authority:** every privileged RPC writes its own audit row in-txn.
 - **SoT/PROJ:** SoT (audit backbone).
 
+### 1.13 `kernel.approval_request` — the generic dual-control object (MONEY §6.6, §12 ADDITIVE-1)
+
+> **INTEGRATION RULING — structural change, requires re-ratification.** `PHASE_2_MONEY_AUTHORITY_SPEC.md`
+> §6.6/§12 introduced this table and gave it **no package**. It was absent from this spec, from
+> `PHASE_2_SUPABASE_MIGRATION_PLAN.md`, and from `PHASE_2_PACKAGE_REGISTRY.md` (whose §2 asserts
+> "16 packages, `076`–`091` inclusive, no gaps, no duplicates"). It is placed here in **package `077`**.
+> Registry rule §6.5 ("this registry is updated only by ratified amendment") therefore applies: see
+> §13.1 for the full statement of what changed and why. **Owner ratification required.**
+
+- **Purpose:** the **single generic dual-control intent record** serving all three approval flows —
+  (a) org refund dual control (MONEY §6.1/§6.2), (b) money-namespace `catalog.platform_config` dual
+  control (MONEY §7.3), (c) above-threshold payout dual control (MONEY §9.2). One state machine, one
+  separation-of-duties rule, one expiry sweep, one audit vocabulary (MONEY §6.6 "one object, not three").
+- **Owner:** kernel. Written only by the approval RPCs; never by a client.
+- **PK:** `request_id` uuid.
+- **Columns:**
+  - `request_id` uuid — PK.
+  - `action` text — not null; CHECK ∈ (`refund.issue` · `payout.request` · `config.set_money_key`).
+    **A closed label set, not an FK** — the three actions name flows, not rows.
+  - `subject_kind` text — not null; `subject_id` uuid — not null. The affected object
+    (order_id / settlement_id / config key-hash). **Deliberately soft (no FK)** — the same
+    audit-subject pattern `kernel.admin_audit` (§1.12) already uses, permitted by CDM §10.7. This is
+    what lets one table serve three domains **without** an FK to a table in a later package.
+  - `org_id` uuid — **nullable**, FK→`kernel.organization(org_id)` on delete restrict. NULL for
+    platform-scope actions (`config.set_money_key`). **The only hard FK on this table besides the two
+    identity columns.**
+  - `payload` jsonb-concept — not null. **Server-computed evidence at request time, never authority.**
+  - `config_versions` jsonb-concept — not null. The `(key, version)` pair of **every** threshold the
+    request was evaluated against (MONEY §7.2 version pinning), so a mid-flight config change cannot
+    silently re-tier a parked request and an auditor can reconstruct the tier decision.
+  - `requested_by` uuid — not null, FK→auth.users(id) on delete restrict (server-derived, C35).
+  - `approved_by` uuid — nullable, FK→auth.users(id) on delete restrict.
+  - `state` text — not null default `pending`; CHECK ∈ (`pending` · `approved` · `denied` ·
+    `cancelled` · `expired` · `stale`).
+  - `reason_code` text — nullable.
+  - `expires_at` timestamptz — not null (feeds `kernel.sweep_expired_refund_requests`, MONEY §6.3).
+  - `command_idempotency_key` text — not null (C16).
+  - `created_at`, `updated_at`.
+- **Unique:** `UNIQUE(requested_by, command_idempotency_key)` (C16 replay guard).
+- **Check — SoD as a table constraint, not a convention (MONEY §12 ADDITIVE-1):**
+  ```sql
+  CHECK (approved_by IS NULL OR approved_by <> requested_by)
+  ```
+  Plus: `action` label set; `state` label set; `expires_at > created_at`; `org_id IS NOT NULL` when
+  `action IN ('refund.issue','payout.request')` and `org_id IS NULL` when `action='config.set_money_key'`.
+- **The named footgun and its mandatory mitigation (MONEY §6.6):** a generic `payload jsonb` invites the
+  approval to become a client-supplied authority vector. The payload is **server-computed at request time
+  and re-derived and re-compared at approval time**; the executing code trusts nothing in it. A mismatch
+  moves the row to `stale`, never an override. This is contractual and mandatory, not advisory.
+- **Immutability:** append-only-ish state machine (`pending → approved|denied|cancelled|expired|stale`),
+  one-way, under `FOR UPDATE`. **No DELETE.**
+- **Index:** PK; the C16 unique; index on `(org_id, state)` (the org approval queue,
+  `kernel.list_approval_requests`); partial index on `expires_at WHERE state='pending'` (the expiry
+  sweep hot-path); index on `(subject_kind, subject_id)`.
+- **Archival:** permanent (audit class — a dual-control record is evidence).
+- **RLS:** money-custody-RPC-only (deny-all + `REVOKE ALL`); org-scoped read **via**
+  `kernel.list_approval_requests` only.
+- **Write authority:** `kernel.request_order_refund`, `kernel.approve_refund_request` (action-dispatched
+  — also serves payout and config approvals), `kernel.cancel_refund_request`,
+  `kernel.sweep_expired_refund_requests`, and the dual-controlled arm of `catalog.set_platform_config`.
+- **Read authority:** the org's approvers (`has_org_role([org_owner, org_finance])`) + platform.
+- **Lock order (MONEY §7.5):** **`Approval/Request` is placed between Ticket Atom and the money plane** —
+  always acquired after the custody rows it holds and before the money rows it authorizes, so no
+  inversion is introducible. See §0.9 (amended).
+- **SoT/PROJ:** SoT (the intent + its adjudication).
+- **OPEN — owner decision D-1 (MONEY §11):** is this an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a
+  C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? The money spec argues **intent record** and
+  places it in the global lock order either way, so an amendment — if the board wants one — is a
+  one-line ratification, not a redesign. **This integration does not decide it.**
+
+#### 1.13.1 Why `077`, and why one table rather than three
+
+**One table, not three (CONFIRMED, not merely adopted).** The money spec's own argument (one state
+machine / one SoD rule / one expiry sweep / one audit vocabulary) is sound, but the decisive reason is
+**packaging**, and it only becomes visible once the table is given a home:
+
+- A per-domain split puts the config-approval table with `catalog.platform_config` (`078`) and the
+  refund/payout approval tables with `kernel.refund`/`kernel.payout` (`085`). That is **two different
+  physical implementations of the same SoD CHECK, in two packages, with two expiry sweeps** — and the
+  SoD CHECK is the whole control. Duplicating a security control across packages is how one copy drifts.
+- The three flows share exactly one FK (`org_id`) and otherwise address their subject **polymorphically**
+  (`subject_kind`/`subject_id`). There is nothing per-domain to specialise: the columns that would
+  differ are already inside `payload`.
+- `state`, `expires_at`, `approved_by <> requested_by`, and `config_versions` are identical in all three
+  flows. A split buys type safety on a column set that has no per-domain shape.
+
+**Package `077`, not `085` (the placement, and the argument that decides it).**
+
+| Consumer flow | Function | Package the function must be authored in | Needs `approval_request` at |
+|---|---|---|---|
+| money-key config dual control | `catalog.set_platform_config` (money-namespace arm) | **`078`** — it writes `catalog.platform_config`, created in `078`, and `078` seeds the three feature flags | ≤ `078` |
+| org refund dual control | `kernel.request_order_refund` / `approve_refund_request` | `085` (writes `kernel.refund`) | ≤ `085` |
+| above-threshold payout | `kernel.request_org_payout` | `087` (reads `venue.settlement`) | ≤ `087` |
+
+The binding constraint is the **config** flow, not the money flows. `catalog.set_platform_config` is the
+audited runtime operation that flips every feature flag (migration plan §4: "flag flips are runtime ops,
+not migrations"), and `078` is the package that seeds those flags. Placing `approval_request` in `085`
+would mean the function that governs the flags cannot be authored until the money package exists — a
+**forward reference from `078` to `085`**, which is exactly the defect class §13.2 exists to eliminate.
+
+`085` was the tempting answer because that is where the table's *money* consumers live. It is wrong for
+one reason: the table has **three** consumers, and the earliest is not a money table.
+
+**`077` is affirmatively right, not merely early:**
+1. Its only hard FKs — `org_id` → `kernel.organization`, `requested_by`/`approved_by` → `auth.users` —
+   are **all satisfied by `077` itself**. Nothing about the table needs `078`, `085` or `087` to exist.
+2. Its nearest structural sibling is `kernel.admin_audit` (§1.12), which is in `077`, uses the identical
+   `subject_kind`/`subject_id` soft-subject pattern, and is written in-txn by the same privileged RPCs.
+   Approval and audit are the two halves of one control: *who asked* and *what was recorded*.
+3. The predicates every approval RPC calls — `kernel.has_org_role`, `kernel.is_platform` — are created in
+   `077`. Placing the table anywhere else separates the control from its authority test.
+4. `077` is the **authz/dual-control substrate** package by its own stated purpose (migration plan §5,
+   `077`: "the tenant + identity-extension + scope-qualified role substrate (C36) and the privileged
+   audit backbone"). A generic approval object is that substrate, not a money object.
+
+**Cost of the choice, stated honestly:** `077` now carries a table whose only consumers appear in `078`,
+`085` and `087`. It ships inert (no writer exists until `078`), which is the same posture as
+`kernel.platform_role` and `kernel.admin_audit` in the same package. That is a smaller cost than a
+forward reference, and it is the same cost the registry already accepts for `091` (`kernel.reserve`
+stub, no writers at all).
+
+### 1.14 `kernel.org_money_policy` — **CONDITIONAL (owner decision D-2). NOT IN THE MVP CHAIN.**
+
+> **CONDITIONAL PACKAGE ELEMENT — DO NOT BUILD WITHOUT AN OWNER RULING.**
+> Status: specified, **not scheduled**. No package number is assigned. If D-2 resolves YES it becomes an
+> additive element of **`077`** (same reasoning as §1.13.1 — its consumers are the threshold reads in
+> `085`/`087`, all later). If D-2 resolves NO (the money spec's own recommendation) it is never built.
+
+- **Why it exists as a question (MONEY §7.4):** `catalog.platform_config` is **world-readable** (RLS
+  §8.4: values are not secret; every non-admin principal including `anon` holds SELECT). A per-org refund
+  ceiling or payout limit is **not** public information — it discloses an organization's financial
+  posture, and the *set of keys* would disclose the platform's whole customer list. So a per-org override
+  cannot live in `platform_config`; it needs a non-public home.
+- **MVP position (money spec's recommendation, adopted here as the default):** **one platform-wide
+  threshold set, no per-org override.** Nothing in owner rulings O-1/O-3 asks for per-org limits, and a
+  per-org table doubles the resolution logic (per-org → fall back to platform) at **every** money
+  decision point.
+- **Shape if built:** `org_id` uuid PK, FK→`kernel.organization` on delete restrict; the override
+  columns mirroring the `refund.*`/`payout.*` keys of MONEY §7.2 (integer minor units, nullable = "no
+  override, use platform"); `version` integer not null; `effective_from` timestamptz; `created_at`,
+  `updated_at`. **AO per version**, same discipline as `catalog.platform_config`.
+- **RLS:** org-scoped read via `has_org_role([org_owner, org_finance])`; **platform-only write**;
+  audited. Never public-read — that is the entire reason it is a separate table.
+- **Owner decision D-2 (MONEY §11):** *does launch need per-org refund/payout limits?* Recommendation on
+  record: **No.**
+- **If D-2 is YES**, three things follow and must be re-ratified together: (a) `077` gains the table;
+  (b) every threshold read in MONEY §7.2 becomes a two-step resolution; (c) `kernel.approval_request`
+  `config_versions` must pin the **org** policy version as well as the platform `(key, version)` pair.
+
 ---
 
 ## 2. Schema `catalog` — kernel-owned reference data (A7/C7)
