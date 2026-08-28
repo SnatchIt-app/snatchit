@@ -595,9 +595,11 @@ the pass for updates and calls the service. *(Documented Apple platform behaviou
 | `POST /v1/log` | device diagnostic log | none | |
 
 **Security posture — called out explicitly.** This function must run **`verify_jwt: false`**, because iOS
-presents `Authorization: ApplePass <token>`, not a Supabase JWT. **It is the second function in the entire
-system with `verify_jwt=false`, after `stripe-webhook`** (edge §7 permits exactly that one). Compensating
-controls, all mandatory:
+presents `Authorization: ApplePass <token>`, not a Supabase JWT. **`SPEC CORRECTION`: this section said it was
+*"the second function in the entire system with `verify_jwt=false`, after `stripe-webhook`"*. That count is
+wrong and is not this document's to state — edge §7 enumerates **five**, including **`door-session`**, which
+relays scan and offline-batch calls while holding the service-role key. **The count lives in edge §7 and
+nowhere else**; this document cites it. Compensating controls, all mandatory:
 - the `authenticationToken` is compared **constant-time** against `auth_token_hash` (edge §7 invariant I-9,
   `timingSafeEqual`);
 - the token authorizes **one serial only** — never a session, never an account, never another pass;
@@ -1553,7 +1555,7 @@ Nothing below is optional, and **every item must be green before `wallet.apple.e
 | **OQ-W3** | **Sequencing.** Wallet's entire guarantee rests on offline-verify step 3b and the M2 tables, neither of which exists (defect W-3, §0.2). | **Hard gate: Wallet may not ship before the door-lifecycle spec's M2 tables and step 3b are implemented and drilled.** Shipping first deploys W-3 at scale onto devices we do not control. **Owner acknowledgement required.** |
 | **OQ-W4** | **The two token profiles (§5.2) conflict with door-lifecycle OQ-5 as written (DL-4).** | Amend OQ-5 per DL-4 and accept the session-bounded wallet profile, with the three mitigations in §5.3 mandatory. **Owner call — this is the one place this document asks to relax a recorded constraint, and it must not be treated as settled by this document alone.** |
 | **OQ-W5** | **Offer a Wallet pass while `resale_state ∈ {listed, locked}`?** §9.2 hides the control. Edge §3.2 flags the *same* question for `credential-sign` on a listed atom and leaves it open (its §12.2). | Answer both together. Recommend **hide/refuse while listed or locked** — it reduces screenshot-resale confusion at zero product cost, since the holder can add after delisting. **Product call.** |
-| **OQ-W6** | **`wallet-pass-webservice` runs `verify_jwt=false`** — the second such function in the system after `stripe-webhook`. | Accept with the §6.1 compensating controls, subject to an explicit security sign-off (§13 item 12). **Security call.** |
+| **OQ-W6** | **`wallet-pass-webservice` runs `verify_jwt=false`** — **one of five such surfaces (edge §7), not the second of two** as this row previously said. | Accept with the §6.1 compensating controls **and §11.6a's liveness preconditions (H-4)**, subject to an explicit security sign-off (§13 item 12). **The sign-off should cover the `verify_jwt=false` set as a whole, not this function alone** — `door-session` (edge §3.9a) is the higher-risk member, since it relays admission. **Security call.** |
 | **OQ-W7** | **DL-1 — post-open issuance.** Should the manifest supplement be built, or is "door sales after manifest open are online-only" acceptable for MVP? | Build the supplement; it is small, provably safe, and the alternative silently refuses paying fans. **Owner call.** |
 | **OQ-W8** | **Budget** for KMS sign operations, APNs, and object storage at expected volume (§13 item 18). | — |
 | **OQ-W9** | **Rotating barcodes (SafeTix-class), later?** §1.2 declines them because the version check already defeats screenshots. | Revisit only if a venue contractually requires it. Note it would add device-clock coupling and a new offline failure mode. **Deferred.** |

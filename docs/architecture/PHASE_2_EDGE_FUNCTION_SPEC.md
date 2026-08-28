@@ -139,7 +139,7 @@ Each is a build-time or CI check, not a code-review convention:
 | Fn | § | Sub-class | What actually authorizes it |
 |---|---|---|---|
 | `stripe-webhook` | §4 | B-i + B-iii | Stripe HMAC-SHA256 `v1` signature, `timingSafeEqual`, ±300s replay window, `claim_stripe_webhook_event` lease. `verify_jwt=false` (frozen, I-10) |
-| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — the **second and last** such surface in the system |
+| `wallet-pass-webservice` | §3.11 | B-i + B-iii | Apple devices present `Authorization: ApplePass <token>`; per-pass `authenticationToken` compared constant-time against `auth_token_hash`; authorizes **one serial only**. `verify_jwt=false` — **one of five such surfaces; see §7's enumeration, which is the only place that count is stated** |
 | `wallet-pass-push` | §3.12 | B-i | outbox drain / scheduler; wraps `record_wallet_push_result`, a definer-only writer. Its `is_platform` *manual* re-drive route is **Class A** (§3.12) |
 | `notify-dispatch` | §3.14 | B-i | scheduler/outbox drain; no human caller exists |
 | `notify-receipts` | §3.15 | B-i | provider (Expo/APNs) receipt poll; no human caller exists |
@@ -214,7 +214,7 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | Candidate | Verdict | Why | Source spec |
 |---|---|---|---|
 | Build + sign the `.pkpass` | **NEW EDGE** `wallet-pass-issue` (§3.10) | KMS sign with the Apple Pass Type ID key; object-storage write | Wallet §11.8 |
-| Apple PassKit device web service | **NEW EDGE** `wallet-pass-webservice` (§3.11) | iOS presents `Authorization: ApplePass`, not a JWT; **second and last `verify_jwt=false` surface** | Wallet §6.1 |
+| Apple PassKit device web service | **NEW EDGE** `wallet-pass-webservice` (§3.11) | iOS presents `Authorization: ApplePass`, not a JWT; a `verify_jwt=false` surface — **§7 holds the enumeration** | Wallet §6.1 |
 | APNs pass-update push | **NEW EDGE** `wallet-pass-push` (§3.12) | APNs is external I/O; outbox-driven | Wallet §6.3 |
 | Apple pass-type certificate provisioning / rotation | **NEW EDGE** `pass-cert-provision` (§3.13) | KMS import/keygen, out-of-band Apple step | Wallet §8.4 |
 | Sign the **ticket** manifest (M2) for parity with M1 | **NEW EDGE (optional)** `door-manifest` (§3.9) | KMS sign; deterministic over the digest, so re-signing is free | Door §16 OQ-7 |
@@ -669,8 +669,15 @@ and joins no custody sequence.
 ### 3.11 `wallet-pass-webservice` — Apple PassKit device web service — **NEW EDGE** (Wallet §6.1)
 
 - **Method:** `GET`/`POST`/`DELETE` on Apple's five fixed paths. **verify_jwt:** **`false`** — iOS presents
-  `Authorization: ApplePass <token>`, not a Supabase JWT. **This is the second function in the entire system
-  with `verify_jwt=false`, after `stripe-webhook`, and it is the last one this spec admits.**
+  `Authorization: ApplePass <token>`, not a Supabase JWT.
+  > **`SPEC CORRECTION` — the count was wrong and had been copied.** This section, §0.4, §2 and Wallet §6.1 all
+  > called this *"the second and last"* `verify_jwt=false` surface. **It is not.** §7 enumerates **five**:
+  > `stripe-webhook`, `wallet-pass-webservice`, **`door-session`**, `crm-export /build`, and
+  > `promoter-code-preview`. `door-session` is the one that matters here — it relays scan and offline-batch
+  > calls holding the service-role key (§3.9a) — and three documents asserting "second and last" is how a
+  > third unauthenticated surface arrives without anyone counting it. **The count is stated in exactly one
+  > place, §7. No other section states a count; they cite §7.** A `verify_jwt=false` posture must be argued in
+  > its own section and enumerated in §7, in the same change.
 - **Auth model: Class B (B-i + B-iii).** The caller is an Apple device. The per-pass `authenticationToken`
   is the credential. All DB access is through definer RPCs using `service_role`; **the function never issues
   raw SQL and never reads a table directly.** This is a correct EA-3 classification, not an EA-1 exemption:
@@ -1026,13 +1033,34 @@ door is not a degraded door either: it is a more permissive one, which is the H-
   3b in place the TTL is chosen for operational reasons only: long enough to survive a dead-zone at the door,
   short enough to bound a verifier running an M2 older than its `not_after`. The token's `exp` claim is
   enforced door-side within the ±2-bucket offline skew.
-- **Invalidation by version bump:** every custody move (`transfer_ticket_ownership`, `void_ticket_atom`) **bumps
-  `kernel.tickets.credential_version` (+1)** in the RPC layer. A cached token carries the *old* version;
-  (a) an **online** door sees `version_stale` from `validate_ticket_online` and rejects; (b) an **offline** door
-  admits on signature+window but the later `reconcile_offline_scans` flags the mismatch, and the **new owner's**
-  re-signed token (bumped version) is the one that admits on any online door. On reconnect the client
-  re-fetches from `credential-sign` and discards the stale cached token (recon #4). **The credential IS the
-  delivery** — bumping the version is what makes a sold/transferred ticket's old QR fail closed.
+- **Two token profiles — `SPEC CORRECTION` (Wallet §5.2, §11.9).** `credential-sign` takes an **`aud`
+  (audience) claim** selecting a TTL profile. `NO SCHEMA CHANGE`; the door **ignores `aud` entirely** and must
+  never branch on it (Wallet §10.1 — a branch on delivery surface is a security bug, because the camera cannot
+  verify the branch condition).
+
+  | Profile | `aud` | `exp` | Consumer | Refresh path |
+  |---|---|---|---|---|
+  | **app** (default) | `app` | `now() + config('credential.app_ttl_interval')` | RN in-app Entry Pass | client re-calls `credential-sign` on foreground/reconnect |
+  | **wallet** | `wallet` | the clamped session-bounded value — **Wallet §5.2a**, not a raw `LEAST` over constants | the `.pkpass` barcode | pass update web service + APNs, best-effort |
+
+- **Invalidation by version bump — `SPEC CORRECTION`, this bullet narrated the pre-fix world.** Every custody
+  move (`transfer_ticket_ownership`, `void_ticket_atom`) **bumps `kernel.tickets.credential_version` (+1)** in
+  the RPC layer, and a cached token carries the *old* version. **What each door does with that, as of §5.4.3:**
+  - **online** — `validate_ticket_online` returns the live version, the door compares, rejects `version_stale`;
+  - **offline** — the door rejects it too, at conjunct **3b.iii**, against `M2[atom].credential_version`.
+    The sentence that stood here — *"an offline door admits on signature+window but the later
+    `reconcile_offline_scans` flags the mismatch"* — **described the behaviour this document's own §5.4.3
+    fixes**, in the same document as the fix, and it is exactly the text an implementer would have coded to.
+    Reconciliation is now the **evidence trail**, not the control: the control is 3b, at the door, before the
+    person walks in. Whether the door was online or offline, the stale token does not admit.
+  - **the residual, stated honestly:** a device holding an M2 from before a **break-glass** custody move still
+    carries the old reference value and will admit the pre-override owner — door §8.2.1's residual, bounded by
+    the manifest `not_after` the device already downloaded. That is the only case in which the old narration is
+    still true, and it is not a routine path.
+
+  On reconnect the client re-fetches from `credential-sign` and discards the stale cached token (recon #4).
+  **The credential IS the delivery** — bumping the version is what makes a sold/transferred ticket's old QR
+  fail closed, **at both doors**.
 
 ### 5.6 Rotation · validity overlap · revocation · compromise runbook
 - **Rotation (`kernel.rotate_signing_key`, wrapped by `signing-key-provision`):** in one DB txn, old key
@@ -1162,12 +1190,23 @@ flowchart TB
   (EA-2). No function passes an actor, a role, or an authority assertion as an RPC parameter (EA-6). Tests
   T-1…T-6 (§0.3) are CI gates, not review conventions.
 - **verify_jwt:** `true` for every user-facing edge (JWT actor re-derived via `auth.getUser`, C35).
-  **`false` for exactly four surfaces, each argued rather than inherited:** `stripe-webhook` (Stripe-signed,
-  frozen I-10), `wallet-pass-webservice` (Apple presents `ApplePass`, not a JWT — §3.11, requires a security
-  sign-off), `door-session` (the PIN is the credential; there is no `auth.uid()` to verify — §3.9a), and
-  `crm-export`'s `/build` route (cron-invoked with a constant-time bearer — §3.7). `promoter-code-preview`
-  runs `false` because an unauthenticated buyer may type a code, and grants nothing (§3.8).
-  **`verify_jwt: false` is never a default and never inherited from a neighbouring function.**
+  **`false` for exactly FIVE surfaces — this list is the single authoritative enumeration, and no other
+  section may state a count** (`SPEC CORRECTION`: §0.4, §2, §3.11 and Wallet §6.1 each said *"second and
+  last"*, which was wrong and had been copied between them; a third unauthenticated surface arrived while
+  three documents asserted there could not be one). Each is argued rather than inherited:
+  1. `stripe-webhook` — Stripe-signed, frozen I-10.
+  2. `wallet-pass-webservice` — Apple presents `ApplePass`, not a JWT (§3.11); **requires a security
+     sign-off**, and carries §11.6a's liveness preconditions.
+  3. **`door-session`** — no `auth.uid()` exists at a door. The PIN is the **provisioning** credential; the
+     **door session token** is what every subsequent call presents (§3.9a). **This is the highest-risk member
+     of the set**: it relays admission while holding the service-role key, and RLS is bypassed entirely behind
+     it. Its security sign-off is owed alongside `wallet-pass-webservice`'s, not after it.
+  4. `crm-export` `/build` — cron-invoked with a constant-time bearer (§3.7).
+  5. `promoter-code-preview` — an unauthenticated buyer may type a code; grants nothing (§3.8).
+
+  **`verify_jwt: false` is never a default and never inherited from a neighbouring function.** Adding a sixth
+  requires an argued section **and** an edit to this list in the same change; a function whose section claims
+  the posture but is absent here is a defect, not a sixth surface.
 - **CORS + security headers:** copy the whitelist (`snatchitapp.com`, `www.`) + `getSecurityHeaders()` from the
   existing functions on every response, including error and OPTIONS.
 - **Secrets (names only, never values):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`,
@@ -1175,6 +1214,31 @@ flowchart TB
   Constant-time compare (`timingSafeEqual`) for any secret/signature check (I-9).
 - **Rate limiting:** `check_rate_limit(user, action, max, window)` per function, **fail-closed** (503 on
   limiter error, 429 on over-limit, both with `Retry-After`). Never silently disable abuse protection.
+- **Derived principals — `SPEC CORRECTION`, stated once, binding for every surface.**
+  `public.check_rate_limit`'s first parameter is a **`uuid`**. Every `verify_jwt=false` surface has **no
+  `auth.uid()`**, and its natural principal is not a uuid — a `(serial, deviceLibraryIdentifier)` pair, a door
+  `session_ref`, an ip + user-agent. **A mandatory limiter that cannot be called as written is not a
+  mitigation, it is a comment**, and this spec wrote the adaptation for exactly one surface
+  (`promoter-code-preview`, §3.8) while predicting the recurrence and not writing it. It is written here now,
+  once:
+
+  > **Rule.** A surface without an `auth.uid()` maps its principal into the limiter's uuid domain as
+  > `uuidv5(<per-surface namespace uuid>, <stable principal string>)`. The namespace is a compile-time constant
+  > per surface — never shared, so budgets cannot collide or be exhausted across surfaces — and the principal
+  > string is built **only** from values the surface has already authenticated or that the caller cannot choose
+  > freely. **A surface whose spec names a limiter MUST name its namespace and its principal string, or the
+  > limiter is unspecified.**
+
+  | Surface | Namespace | Principal string |
+  |---|---|---|
+  | `wallet-pass-webservice` | `NS_WALLET_PASS` | `serial_no_opaque \|\| ':' \|\| deviceLibraryIdentifier` |
+  | `door-session` `/mint` (PIN attempt) | `NS_DOOR_PIN` | `venue_id \|\| ':' \|\| device_id_claim` |
+  | `door-session` relay routes | `NS_DOOR_SESSION` | `session_ref` (authenticated; **not** the claimed device id) |
+  | `promoter-code-preview` (anon) | `NS_PROMOCODE` | `ip \|\| ':' \|\| sha256(user_agent)` (§3.8, already written) |
+  | `crm-export` `/build` | `NS_EXPORT_JOB` | the job row's `export_job_id` |
+
+  **The PIN attempt and the relay routes must use different namespaces**, so PIN grinding cannot consume the
+  scanning budget of a legitimately provisioned door, and a busy door cannot mask a PIN-grinding attack.
 - **Idempotency:** every money/KMS side-effect uses a **deterministic, reconstructible-from-audit** key
   (`buildPayoutIdempotencyKey`, `refund_${refund_id}`, `pi_native_${order_id}_...`, credential tokens are
   version-deterministic). The wrapped RPC additionally dedupes on its `command_key` / cause key. **Both layers
