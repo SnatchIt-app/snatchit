@@ -507,13 +507,19 @@ assertion was right; the table it was written against was not.
   - `from_identity` uuid — **nullable** (NULL only for the issuance entry, `sequence=1`, "minted from ∅");
     FK→auth.users(id) on delete restrict otherwise.
   - `to_identity` uuid — not null, FK→auth.users(id) on delete restrict (the new holder; for `refund_void`
-    this is the platform void-sentinel / issuer, not a live owner).
+    this is the **platform void sentinel** — a single, seeded, platform-level identity, **`SN-VOID`**, §1.16.
+    **Not "the issuer":** the slash in the previous wording *"void-sentinel / issuer"* was the ambiguity, and
+    it is resolved against `issuer` — this column FKs `auth.users`, and an issuer is a `kernel.organization`,
+    which is not an `auth.users` row. A per-issuer void sink would additionally make
+    `kernel.create_organization` a writer of `auth.users`, §1.16.)
   - `cause` enum — not null, from the **D3 closed set** only.
   - `cause_ref` uuid — not null; the id of the causing aggregate (order_id, market_sale sale_id,
     p2p_transfer transfer_id, refund_id, comp_allocation id, attribution id, import batch id, etc.). This is
     the "one cause" grouping key.
   - `actor_identity` uuid — not null, FK→auth.users(id); the **server-derived** acting principal
-    (`auth.uid()`, C35), NEVER a client-passed id. For system sweeps this is a named system sentinel identity.
+    (`auth.uid()`, C35), NEVER a client-passed id. For **scheduler-initiated** writes this is the seeded
+    system-actor sentinel **`SN-SYSTEM`** (§1.16) — a *different* identity from `SN-VOID`, and neither is the
+    production anonymization sentinel.
   - `command_idempotency_key` text — not null (C16 first-class command idempotency; the client/edge command
     key that produced this write; a replayed command with the same key is a no-op).
   - `occurred_at` timestamptz — not null default now() (business event time).
@@ -1647,6 +1653,142 @@ already under-declared; the edge is therefore a **declaration-only** correction 
 > make an account deletion **fail** on the log of a permission the account already withdrew. **The
 > outstanding sign-off D-3 already requires from the schema and RLS spec owners now covers six relations
 > rather than four.** No decision is taken here.
+
+---
+
+### 1.16 The two platform sentinel identities (ADDED — defect `MB-5`)
+
+**The defect (CONFIRMED).** §1.6 declares `to_identity` **not null**, FK→`auth.users(id)` on delete restrict
+(*"for `refund_void` this is the platform void-sentinel"*) and `actor_identity` **not null**, FK→`auth.users(id)`
+(*"for system sweeps this is a named system sentinel identity"*). Both are relied on by
+`kernel.void_ticket_atom`, `market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales` and every
+other scheduler-initiated custody write. **A corpus-wide search finds only those two schema lines, the RPC
+uses, and — everywhere else — the *anonymized-deletion* sentinel inherited from production migrations
+`019`/`020`, a different object with a different meaning. Package `077` seeds no `auth.users` row. No package
+does.**
+
+**Consequence: the first refund fails on the `to_identity` FK, and every cron-driven custody sweep fails on
+`actor_identity`.** Not degraded — `23503`, on the first attempt, in production.
+
+#### How many sentinels: **two.** Not one, and not three.
+
+**They answer different questions and are read by different surfaces.**
+
+- **`SN-VOID` is a custody destination** — it answers *"who holds this atom now"*. Its accumulation is
+  correct and intended: it is the terminal sink of the custody graph, the mirror image of the `NULL`
+  `from_identity` at issuance (*minted from ∅, burned to ∅*). **The corpus's objection to accumulating
+  sentinels does not transfer, and the reason must be stated rather than assumed:** CRM §9.5 refuses a
+  sentinel *"holding 'consent granted to 40 orgs'"* because that sentinel would accumulate **grants** — live
+  authority belonging to nobody, which the consent gate would then evaluate. `SN-VOID` accumulates
+  **terminal custody**, which grants nothing: a `voided` atom is terminal (§7.6) and can be neither
+  transferred, listed, locked nor scanned. **An accumulating sink of dead objects is a different shape from
+  an accumulating grant.**
+- **`SN-SYSTEM` is an actor** — it answers *"who did this"* for scheduler-initiated writes. Merging the two
+  would make *"the platform voided this"* and *"the ticket now belongs to the platform"* the same stored
+  fact, and would make an `actor_identity` filter over the audit surface return **every void ever performed,
+  including every human-initiated refund**. Distinct questions, distinct identities.
+
+**Not three.** A sentinel *per sweep* (`SN-SWEEP-P2P`, `SN-SWEEP-C25`, …) adds no queryable fact: the sweeps
+are already distinguished by `cause`, `cause_ref` and `command_idempotency_key`, and by the audit `action`
+name. It would multiply identities to re-encode something already encoded.
+
+#### May the production anonymization sentinel be reused? **No.** Four reasons, any one sufficient.
+
+`019_anonymized_sentinel_user.sql` (applied) seeds `00000000-0000-0000-0000-000000000000`, email
+`deleted@snatchit.internal`, `role='authenticated'`, **plus a `public.profiles` row named `'Deleted User'`**.
+It is the obvious shortcut, and it is wrong:
+
+1. **It means something else.** *"A person who was here and asked to be forgotten."* Reusing it as the void
+   destination makes the platform's terminal custody sink **indistinguishable from a deleted person's
+   residue**, and every *"was this atom ever held by a deleted user"* query returns **every voided ticket ever
+   issued**.
+2. **It renders.** It carries a `profiles` row displaying `'Deleted User'`. Every RN and dashboard surface
+   that resolves a holder name would show voided tickets as held by **"Deleted User"** — a user-visible
+   falsehood on the Transfer View, the surface that exists to settle custody disputes.
+3. **It is owned by someone else.** It is written and given meaning by `public.delete_account_cleanup`, a
+   `public`-schema deletion path outside the kernel's write authority (§5.1). Binding a kernel custody
+   invariant to it means a future edit to migration `020` silently changes what the custody ledger asserts.
+4. **It is person-shaped.** `role='authenticated'`, a real `profiles` row, an email address. A custody sink
+   and a machine actor must be **non-authenticable by construction**; an identity that could in principle
+   receive a magic link is the wrong object to make the permanent owner of every voided ticket.
+
+**This is the answer the shortcut-taker needs to find, so it is stated as a prohibition and not only as a
+preference: `00000000-0000-0000-0000-000000000000` MUST NOT appear in `kernel.tickets.current_owner_id` or in
+any `kernel.ticket_ownership_log` identity column, ever.** `CUSTODY-DEL-1` (§5.1) is the other half of the
+same rule.
+
+#### Shape, and where they are seeded
+
+| | `SN-VOID` | `SN-SYSTEM` |
+|---|---|---|
+| **uuid** | `00000000-0000-0000-0000-0000000000f0` | `00000000-0000-0000-0000-0000000000f1` |
+| **email** | `void@snatchit.internal` (non-routable) | `system@snatchit.internal` (non-routable) |
+| **Means** | terminal custody sink — the holder of a voided atom | the acting principal for scheduler-initiated writes |
+| **Appears in** | `ticket_ownership_log.to_identity`, `kernel.tickets.current_owner_id` (voided atoms only) | `ticket_ownership_log.actor_identity`, `kernel.admin_audit.actor_identity` |
+| **Display label** | `Voided — returned to issuer` | `Snatch It (automated)` |
+
+**The literals are the contract.** An implementer who has to invent them will invent two different ones in
+two packages — which is the defect class this whole pass is about. *The owner may substitute different
+literals; what is not optional is that they are **seeded, distinct from each other, distinct from
+`00000000-…-000000000000`, and stable**.*
+
+**Package: `078`.** Not by preference — `078`'s stated purpose is *"kernel-owned reference data, versioned
+config, **and every seed row in the chain** — the single auditable answer to *is every gate seeded and every
+flag OFF?*"*. **SEAM: the seed touches `auth.users` (a precondition relation), `public.profiles` (frozen,
+precondition) and `kernel.identity_ext` (`077`), so `max(precondition, 077, 078) = 078`. `078 → 077` is
+already declared; no edge is added, and no package is added, renamed or renumbered.** They must exist before
+any `079` function can write a log row, and `078 → 079` is likewise already declared.
+
+**Required properties of the seed, each with the failure it prevents.**
+
+- `ON CONFLICT DO NOTHING`, exactly as `019` does — the package must be replay-safe (§0.5).
+- **Non-authenticable:** no password, `email_confirmed_at` NULL, a non-routable `.internal` address. A
+  custody sink that can receive a magic link is an account.
+- **A `kernel.identity_ext` row for each**, so every kernel-side identity join is total and no reader has to
+  special-case a missing extension row.
+- **A `public.profiles` row for each carrying the display label above.** Production's `handle_new_user`
+  trigger may or may not fire on the `auth.users` INSERT (`019`'s own comment says exactly this), so the
+  seed inserts it explicitly — otherwise the label is whatever the trigger's default happens to be, and the
+  Transfer View renders a blank or a NULL where it must render *"Voided — returned to issuer"*.
+- **Neither sentinel is ever granted a `kernel.platform_role` or a `kernel.org_member` row**, and
+  `is_platform`/`has_org_role`/`has_venue_role` return **false** for both. Asserted positively, because an
+  identity that appears in the audit ledger as an actor is exactly the one someone later "fixes" by giving it
+  a role so a query stops erroring.
+- **Both are excluded from every identity projection** — CRM export rows, holder-mix buckets, notification
+  fan-out, attendee lists, demographics. Filed as `S-20`.
+
+**`import` does NOT use `SN-SYSTEM`.** RPC §7.1 says `actor_identity := auth.uid()` *"(or system sentinel for
+import/sweep)"*. A bulk import is **initiated by a human operator through the edge**, which under
+EDGE-CALLER-JWT holds that operator's JWT — so the import must carry the **real operator**, and attributing
+it to `SN-SYSTEM` discards the one fact an import audit is for. `SN-SYSTEM` is for **scheduler**-initiated
+writes only. Same reasoning as §1.12.1, one table over. Filed as `S-20`.
+
+#### The rejected alternative, because it is cheaper and someone will propose it
+
+**Make `to_identity` nullable for `refund_void`, symmetric with the `NULL` `from_identity` at issuance —
+*minted from ∅, burned to ∅* — and seed nothing.** It is genuinely more elegant. It is rejected because with
+`kernel.tg_custody_head_is_ledger_tail` (§1.6.2) the head must equal the tail, so **`kernel.tickets.current_owner_id`
+would have to become nullable too** — and that column is `NOT NULL` today, carries an index that serves the
+*"my tickets"* projection, and is read by the RN app, the dashboard, the door manifest builder and the CRM
+export. Making it nullable pushes a NULL case into every one of those readers to avoid seeding two rows.
+**Two seeded identities is the smaller change and the one that keeps every existing reader total.** Recorded
+here so the trade is visible rather than re-litigated; it is a schema-mechanics call, not an owner decision,
+and it is **not** left open.
+
+**Tests** (plan §8 `078`).
+- `T-SCHEMA-SENTINEL-01`: after `078` replays, **both** `auth.users` rows exist, with their
+  `kernel.identity_ext` and `public.profiles` rows — asserted by `to_regclass`-style existence on each of the
+  six rows, not by re-reading the migration file.
+- `-02`: the seed is idempotent — a second replay of `078` leaves exactly two sentinel rows.
+- `-03`: `is_platform`, `has_org_role` and `has_venue_role` all return **false** for both sentinels, and
+  neither holds a `platform_role` or `org_member` row.
+- `-04`: neither sentinel can authenticate — no password hash, `email_confirmed_at` NULL, `.internal` email.
+- `-05` (**the anti-shortcut assertion**): `00000000-0000-0000-0000-000000000000` appears in **zero** rows of
+  `kernel.tickets.current_owner_id` and of every `kernel.ticket_ownership_log` identity column. Written as a
+  standing invariant over the custody tables rather than as a test of one function, because the shortcut is
+  taken at whatever call site the implementer is looking at.
+- `-06`: `SN-VOID` ≠ `SN-SYSTEM` ≠ the anonymization sentinel — three distinct uuids, asserted, because two
+  of the three are supplied by this spec and one is inherited.
 
 ---
 
@@ -3830,6 +3972,7 @@ reason it cannot wait.
 | **S-17** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §17.9 · `PHASE_2_RLS_PERMISSION_SPEC.md` §3.1 + §11 · `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.4/§3.5 | **`kernel.record_money_denial` must be bound by EDGE-CALLER-JWT and removed from §3.1's definer-only exclusion list.** It becomes `SECURITY DEFINER` with `EXECUTE` to **`authenticated` only** (never `anon`, never `service_role`), derives `actor_identity := auth.uid()`, **RAISES when `auth.uid()` IS NULL**, validates `p_action` against a closed money-`*.denied` allow-list and the `(subject_kind, subject_id)` pairing, and is rate-limited per actor via the applied `public.check_rate_limit` (`005`). **The signature is unchanged — no actor parameter is added.** The edge builds the client for this call from the caller's own `Authorization` header, which is the client it already built for the call that was denied | **The function as contracted cannot execute once.** `service_role` ⇒ `auth.uid()` NULL ⇒ the INSERT violates `actor_identity NOT NULL`, and the FK forbids a sentinel. **§3.1 lists it among RPCs with *"no human actor by construction"* while its entire purpose is to name the human actor** — the genuine members of that list are the cron sweeps, which §1.16's system sentinel serves. This **extends** a security rule to one more function; it weakens nothing |
 | **S-18** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.3 | **`kernel.void_ticket_atom` must add `current_owner_id := ` the void sentinel to its `kernel.tickets` write set.** It already sets `to_identity := ` void-sentinel on the log row; the head write names only *"→ `voided`, credential bump"* | As contracted, after **every** refund-void the log tail says sentinel and the cached head says the buyer — **permanently**, on the surface that exists to settle custody disputes. With `kernel.tg_custody_head_is_ledger_tail` (§1.6.2) the same code aborts at COMMIT instead, which is better but is still a build that does not run |
 | **S-19** | `PHASE_2_CRM_EXPORT_SPEC.md` §9.2/§9.5 · `PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` §8.2 · `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §7.6 | **Carry `CUSTODY-DEL-1` (§5.1) and correct the `VERIFIED:` clause.** CRM §9.2's *"once `current_owner_id` is the sentinel"* is **not** verified against production: `020` touches `public.listings`/`payments`/`transfers` and **no `kernel.*` relation** — the clause describes a future extension that `CUSTODY-DEL-1` forbids. Door §7.6's *"structurally impossible"* may now cite the trigger, which exists as of `079` | A `VERIFIED:` tag means *checked against production*. This one carries a forward-looking claim, and it is the sentence an implementer reads immediately before extending `020` to the Phase-2 tables — which is the failure. Door §7.6's claim was true of the intent and false of the chain |
+| **S-20** | `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §7.1, §7.3, §12.2, §12.3 · `PHASE_2_CRM_EXPORT_SPEC.md` §5/§11 · `PHASE_2_NOTIFICATIONS_SPEC.md` · `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §8 · `PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md` | **Name the two sentinels of §1.16 where each is used, and exclude both from every identity projection** — CRM export rows, holder-mix buckets, notification fan-out, attendee lists, demographics, and any *"tickets owned by X"* read. **Two specific corrections:** §7.3's void must write `current_owner_id := SN-VOID` (see `S-18`), and §7.1's *"`actor_identity := auth.uid()` (or system sentinel for **import**/sweep)"* must drop `import` — **a bulk import is initiated by a human operator through the edge, which under EDGE-CALLER-JWT holds that operator's JWT**, so attributing it to `SN-SYSTEM` discards the one fact an import audit exists for. `SN-SYSTEM` is for **scheduler**-initiated writes only | Two `NOT NULL FK→auth.users` columns were satisfied by identities no package created; naming them without saying which surfaces must skip them just moves the defect. **The void sentinel becomes the recorded `current_owner_id` of every voided ticket** — an export or a fan-out that does not exclude it emails a sentinel and counts it as an attendee |
 | **S-10** | **Owner ruling** | **`venue.promoter_link.status` vs. deactivating the promoter** (§3.17.2). This pass adds the column, because the alternative silently deletes a contracted RPC and a shipped dashboard control | RPC §20.14 **R-5** poses it as a fork and it must be closed one way. If the owner prefers the promoter-level control, §20.9.4 and the dashboard `U-4` control are what get removed |
 
 ---
