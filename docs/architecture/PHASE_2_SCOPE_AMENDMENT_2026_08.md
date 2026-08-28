@@ -147,7 +147,7 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 12 | **Tests** | `T-RPC-WALLET-01..03` (structural: references neither `market.*` nor the ownership log; the kill switch is not role-bypassable; constant-time compare with no bare `=` on `auth_token_hash`) · `T-RLS-COL-03` · the pgTAP list in `WALLET` §12 | — | `RPC` §18 · `RLS` §16.11 · `WALLET` §12 | — |
 | 13 | **Feature flag** | **`wallet.apple.enabled` — boolean, seeded `false` by `078`.** Kill switch, **not role-bypassable**: `platform_admin` also receives `wallet_disabled`. Flipped only by an audited `catalog.set_platform_config` — never by a migration | `ADDITIVE SCHEMA CHANGE` (seed) | `WALLET` §11.5 · `PLAN` §4 · `RPC` §17.23 | `078` |
 | 14 | **Rollout gate** | `083` may apply while the flag is OFF (`PLAN` §3 seq 8). The flag may not be flipped until **§11 HG-1** is satisfied and the `WALLET` §13 operational checklist is green | — | `PLAN` §3, §4 · `WALLET` §13 · **§11 HG-1** | — |
-| 15 | **Open decisions** | OQ-W1…OQ-W10 → deduplicated into §14 as **OD-20…OD-26**. OQ-W3 (sequencing) is promoted to a **hard gate**, not a decision | — | `WALLET` §15 | — |
+| 15 | **Open decisions** | OQ-W1…OQ-W10 → deduplicated into §14 as **OD-23…OD-29** (OQ-W4 merges with `DOOR` OQ-5 → OD-25; OQ-W5 merges with `EDGE` §12.2 → OD-26). OQ-W3 (sequencing) is promoted to a **hard gate**, not a decision | — | `WALLET` §15 | — |
 
 ---
 
@@ -173,9 +173,9 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 10 | **Audit** | Aggregate reads by `platform_admin` are audited. There is no staff individual read to audit, because none exists | `NO SCHEMA CHANGE` | `DEMOG` §7.1, §14 D-7 | — |
 | 11 | **Privacy** | The feature *is* its privacy layer: pre-computed fixed rollups at k = 25 / floor = 5 (differencing defence), `prefer_not_to_say` stored but never published, erasure tombstone, and X-1…X-9 handed to CRM as **binding** export constraints | — | `DEMOG` §5.2, §5.3, §1.3, §8.2, **§9** | `077`, `086` |
 | 12 | **Tests** | `T-RPC-DEMO-01` (**exactly two writer functions exist**) · `-02` (`get_holder_mix` arity is 2) · the pgTAP list in `DEMOG` §13 · the four X-6 CI layers in `CRM` §10 | — | `RPC` §18 · `DEMOG` §13 · `CRM` §10 | — |
-| 13 | **Feature flag** | **NONE NAMED.** Capture is user-opt-in; the rollup is gated only by package application. The k/floor constants are recommended as **CHECK constants, not config** — deliberately not tunable ("a tunable privacy floor is a floor that gets tuned"). **Gap against this amendment's own flag rule — §12.2, decision OD-27** | — | `DEMOG` §14 D-5 · `PLAN` §4 (three flags only) | — |
+| 13 | **Feature flag** | **NONE NAMED.** Capture is user-opt-in; the rollup is gated only by package application. The k/floor constants are recommended as **CHECK constants, not config** — deliberately not tunable ("a tunable privacy floor is a floor that gets tuned"). **Gap against this amendment's own flag rule — §12.2, decision OD-78** | — | `DEMOG` §14 D-5 · `PLAN` §4 (three flags only) | — |
 | 14 | **Rollout gate** | `077` may apply immediately (`PLAN` §3 seq 2). The rollup is inert until answers exist; the card must not render below threshold | — | `PLAN` §3 · `DEMOG` §4.3 | — |
-| 15 | **Open decisions** | D-1…D-11 → §14 as **OD-05, OD-15…OD-19, OD-28**. D-6 (backup-retention window) is **the same decision** as `CRM` D-10 and is carried once | — | `DEMOG` §14 | — |
+| 15 | **Open decisions** | D-1…D-11 → §14 as **OD-15…OD-20, OD-22, OD-30…OD-32**. D-6 (backup-retention window) is **the same decision** as `CRM` D-10 and D-8 (marketing's ceiling) the same as `CRM` D-7; each is carried once | — | `DEMOG` §14 | — |
 
 ---
 
@@ -201,9 +201,9 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 10 | **Audit** | Code create/status/scope/window changes and every attribution decision are audited; the review ledger is itself append-only (`UNIQUE(attribution_id, seq)`, effective decision = highest `seq`), so a denial is resolved rather than removed | `NO SCHEMA CHANGE` | `PROMO` §1.6, §7.7 · `VD` §22.4 | `090` |
 | 11 | **Privacy** | `instrument_fingerprint` is a self-deal signal, not a payment credential, and never touches `public.payments`; a promoter reads **only their own** attributions; anti-enumeration is quantified (entropy floor + failure thresholds) | — | `PROMO` §1.8, §8.5, §9.3, §9.4 | `090` |
 | 12 | **Tests** | `T-RPC-PROMO-01..11` · `T-RPC-ATTR-01..04` · `T-RLS-ATTR-01` (no attribution row while the order is `pending`) · `T-RLS-ATTR-02` (code-sourced attribution visible to its promoter) · the pgTAP list in `PROMO` §12 | — | `RPC` §18 · `RLS` §16.11 · `PROMO` §12 | — |
-| 13 | **Feature flag** | **NONE NAMED.** `PLAN` §4 defines exactly three boolean flags and none guards the promoter engine; the enumeration thresholds are config *values*, not a kill switch. **Gap against this amendment's flag rule — §12.2, decision OD-27** | — | `PLAN` §4 · `PROMO` §9.4, §13-10 | — |
+| 13 | **Feature flag** | **NONE NAMED.** `PLAN` §4 defines exactly three boolean flags and none guards the promoter engine; the enumeration thresholds are config *values*, not a kill switch. **Gap against this amendment's flag rule — §12.2, decision OD-78** | — | `PLAN` §4 · `PROMO` §9.4, §13-10 | — |
 | 14 | **Rollout gate** | `090` applies last, gated on the **promoter phase** (`PLAN` §3 seq 15). Commission cannot be real before `087` exists, because a commission line **is** a settlement line | — | `PLAN` §3 · `PROMO` §6.3 | — |
-| 15 | **Open decisions** | The ten in `PROMO` §13 → §14 as **OD-29…OD-38**; the §14.x contradictions are recorded in §15, not resolved | — | `PROMO` §13, §14 | — |
+| 15 | **Open decisions** | The ten in `PROMO` §13 → §14 as **OD-33…OD-42**; the §14.x contradictions are recorded in §15, not resolved | — | `PROMO` §13, §14 | — |
 
 ---
 
@@ -232,9 +232,9 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 10 | **Audit** | Export audit lives on the **platform** plane, not with the venue; every row stamps `constraint_set_version`, so an auditor can prove which X-1…X-9 text was in force. `venue.request_export` writes it in the same transaction as the job row | `NO SCHEMA CHANGE` | `CRM` §8.1–§8.4, §2.4 X-9 | `087` |
 | 11 | **Privacy** | Cross-org isolation XO-1/XO-2 with four proofs; per-org pseudonym so two orgs cannot join rosters; opt-out survives transfer; the **email-lookup oracle** is named as the real hole and rate-limited fail-closed; **read ≠ export** — `platform_support` may look, never extract | — | `CRM` §4, §4.3, §5.4, §7.2, §3.2 (**K-3**) | `087` |
 | 12 | **Tests** | `T-RPC-CRM-01..07` · `T-RLS-CRM-01` (no platform role may `request_export`) · `T-RLS-CRM-02` (venue-grain vs org-grain marketing) · the pgTAP list in `CRM` §12 · the four X-6 layers in `CRM` §10, including the **non-vacuity guard** (a grep over a not-yet-existing file set passes vacuously — this repo shipped that exact failure once) | — | `RPC` §18 · `RLS` §16.11 · `CRM` §10, §12 | — |
-| 13 | **Feature flag** | **NONE NAMED as a boolean kill switch.** `087` seeds limits/caps/retention, all read live so a change takes effect without a deploy — but there is no `crm.export.enabled`. **Gap against this amendment's flag rule — §12.2, decision OD-27** | — | `CRM` §7.1 · `PLAN` §4 | — |
+| 13 | **Feature flag** | **NONE NAMED as a boolean kill switch.** `087` seeds limits/caps/retention, all read live so a change takes effect without a deploy — but there is no `crm.export.enabled`. **Gap against this amendment's flag rule — §12.2, decision OD-78** | — | `CRM` §7.1 · `PLAN` §4 | — |
 | 14 | **Rollout gate** | `077`/`082` early; `087` after settlement (`PLAN` §3 seq 12). The **Layer-0 privilege wall (D-2) must be decided before `087`**, because it changes who owns the builder function | — | `PLAN` §3 · `CRM` §13 D-2 | — |
-| 15 | **Open decisions** | D-1…D-11 → §14 as **OD-06, OD-09, OD-16, OD-19, OD-39…OD-43**. D-7 (marketing's CRM ceiling) is **one decision asked by three specs** and D-10 (backup window) is **the demographics D-6**; both are carried once | — | `CRM` §13 | — |
+| 15 | **Open decisions** | D-1…D-11 → §14 as **OD-09, OD-16, OD-19…OD-22, OD-43…OD-47**. D-7 (marketing's CRM ceiling) is **one decision asked by three specs** and D-10 (backup window) is **the demographics D-6**; both are carried once | — | `CRM` §13 | — |
 
 ---
 
@@ -267,7 +267,7 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 12 | **Tests** | `T-RPC-NOTIFY-01..04` (**conditional on MD-10**) — recipient derivation; a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`; a claimed delivery inside its lease is not re-claimable; `emit_event`/`enqueue` never raise, so an injected constraint violation leaves the caller's transaction committed. Plus the pgTAP groups A–I in `NOTIF` §9 | — | `RPC` §18 · `NOTIF` §9 | — |
 | 13 | **Feature flag** | `notify.announcements_enabled` + four announcement tuning keys, seeded by `078`. **The pipeline itself has no kill switch** because it has no package | `ADDITIVE SCHEMA CHANGE` (seeds) | `NOTIF` §6.1, §7 · `SCHEMA` §13.1 | `078` |
 | 14 | **Rollout gate** | **Cannot be scheduled at all until §13 is ruled.** Δ-N1/Δ-N2 are already scheduled independently (`078`/`077`) and are safe to ship regardless of the ruling | **BLOCKED — §13** | `REGISTRY` §7 COND-A/COND-B | — |
-| 15 | **Open decisions** | O-N1…O-N15 → §14 as **OD-13, OD-14, OD-44…OD-52**. O-N1 and O-N2 are the two coupled scope questions and are stated in §13 rather than buried in the index | — | `NOTIF` §10 | — |
+| 15 | **Open decisions** | O-N1…O-N15 → §14 as **OD-13, OD-14, OD-48…OD-56**, plus O-N7 (numbering) into **OD-79**. O-N1 and O-N2 are the two coupled scope questions and are stated in §13 rather than buried in the index | — | `NOTIF` §10 | — |
 
 ---
 
@@ -295,7 +295,7 @@ Every feature is placed inside `076`–`091`. Nothing else is claimed.
 | 12 | **Tests** | `T-RLS-ROLE-01..04` (the fifteen labels; no bare role-string or display name in any policy or RPC body) · `T-RLS-DOOR-10` (denied principals cannot open the manifest and `door_open_at` is unchanged) · `T-RLS-MONEY-01..04` · `T-RLS-CRM-02` | — | `RLS` §16.11 | — |
 | 13 | **Feature flag** | **none of its own.** Each surface renders on the flag of the capability it consumes; a surface whose capability is OFF must state that honestly rather than render a dead control | — | `PLAN` §4 · `VD` §20A (the standing rule) | — |
 | 14 | **Rollout gate** | Area-by-area, following its packages: A/B/C after `081`; D after `087`; E after `090`; G after `086`; H/I after `085`/`087`; §16.5 **blocked on §13** | — | `PLAN` §3 · `VD` §20 | — |
-| 15 | **Open decisions** | Δ5–Δ12 and U-1…U-10 → §14 as **OD-53…OD-70**; §22.5, §22.8, §22.10–§22.16 → §14 and §15 | — | `VD` §21, §20A.3, §22 | — |
+| 15 | **Open decisions** | Δ6–Δ12 and U-1…U-10 → §14 as **OD-62…OD-77** (Δ5 is satisfied; U-3+U-4 and U-5+U-6 each merge to one); §22.13 → **OD-05**; §22.5/§22.8/§22.10/§22.12 → OD-76, OD-77, OD-75; §22.11/§22.15/§22.16 → OD-59, OD-79, OD-14 | — | `VD` §21, §20A.3, §22 | — |
 
 ---
 
@@ -378,7 +378,7 @@ A hard gate is stronger than a dependency: it is an ordering whose violation dep
 | **Venue dashboard** | none of its own | — | each surface renders on the flag of the capability it consumes | — | **BY DESIGN** (`VD` §20A) |
 | *(chain-wide, pre-existing)* | `feature.native_issuance_enabled` · `feature.native_scanning_enabled` · `feature.native_resale_enabled` | **`false`** ×3 | issuance, scanning, native resale | same | `PLAN` §4 |
 
-> **Recorded, not decided — OD-27.** The amendment brief asks for a flag **per feature**, defaulting off, flipped by audited runtime config. **Three of the six have none.** `PLAN` §4 defines exactly three boolean flags and none of them guards demographics, promoter codes or CRM export; those three are gated only by *package application*, which is a deploy, not a runtime control — and which cannot be reversed without a rollback. Adding three keys is small and additive (they are rows in a table `078` already creates), but **naming a new flag is a scope decision and this document does not make one.** See §14 OD-27.
+> **Recorded, not decided — OD-78.** The amendment brief asks for a flag **per feature**, defaulting off, flipped by audited runtime config. **Three of the six have none.** `PLAN` §4 defines exactly three boolean flags and none of them guards demographics, promoter codes or CRM export; those three are gated only by *package application*, which is a deploy, not a runtime control — and which cannot be reversed without a rollback. Adding three keys is small and additive (they are rows in a table `078` already creates), but **naming a new flag is a scope decision and this document does not make one.** See §14 OD-78.
 
 ### 12.3 Rollout gate per feature
 
@@ -618,3 +618,51 @@ The merge rule: two items are **one decision** when a single answer settles both
 | Decisions with a recommendation on record | **71 of 81**. The ten with none: OD-05, OD-11, OD-12, OD-13, OD-14, OD-60, OD-62, OD-63, OD-64, OD-69 |
 
 **The four to answer first**, because each unblocks the most downstream work per answer: **OD-13** and **OD-14** (five features' schedules), **OD-19** (blocks `077`, the second package in the chain), **OD-79** (blocks authoring any package at all).
+
+---
+
+## 15. Contradictions between specs — recorded, not resolved
+
+**This document resolves none of these.** Each is a place where two documents in the corpus say different things about the same object. The `Owns the reconciliation` column names who must fix it; where that is an owner decision it points at §14.
+
+| # | The contradiction | Side A | Side B | Owns the reconciliation |
+|---|---|---|---|---|
+| **X-01** | **Wallet registry package.** The Wallet spec assigns `kernel.wallet_pass`, `wallet_pass_device`, `wallet_pass_push_log`, the `.pkpass` bucket and ten of its RPCs to **`084`**, and still does so in its own §11.1/§11.2/§11.4/§6.1 headers and its §11.10 change-class index | `WALLET` §11.10 (`084`) | `SCHEMA` §13.5-C + `REGISTRY` §2 (`083`) | `SCHEMA` §13 is the binding placement record. **The Wallet spec's own numbers are stale and should cite the registry.** Owner: `WALLET` |
+| **X-02** | **Holder-mix package.** | `DEMOG` §10.1 (`087`) | `SCHEMA` §13.5-A + `REGISTRY` §2 (`086`) | Same. Owner: `DEMOG` |
+| **X-03** | **CRM config-seed package.** | `CRM` §11.1-20 (`087`) | `SCHEMA` §13.5-D + `REGISTRY` §2 (`078`) | Same. Owner: `CRM` |
+| **X-04** | **Settlement package.** The promoter spec maps `venue.settlement`/`settlement_line` to `086`; the demographics and CRM specs map it to `087` | `PROMO` §0.3 (`086`) | `REGISTRY` §2 + `DEMOG`/`CRM` (`087`) | The registry wins; `PROMO` is stale. Already reported as `VD` §22.15. Owner: `PROMO` · closes with **OD-79** |
+| **X-05** | **`refund_hold` has no offline reject mapping.** `MONEY` §12-2 adds `refund_hold` to the atom's overlay set. `DOOR` §9.2's offline reject map enumerates only `{listed, locked}`, and `venue.door_manifest_entry.resale_state` CHECKs the overlay set. **A `refund_hold` atom would snapshot into the manifest with no reject mapping and no defined offline behaviour** | `MONEY` §12-2 | `DOOR` §9.2, §10.3 | `SCHEMA` §13.1 reports it to the RLS/RPC integrator — *"the reject vocabulary is theirs."* `086`'s CHECK must admit all four labels. **Still open** |
+| **X-06** | **A freeze narrowing four documents describe and nothing implements.** `SCHEMA` §643, `RPC` §748, `RLS` §1150 and `PLAN` §414 all say the freeze is *"narrowed per-open-manifest-ticket per C43"*. It is not — the predicate is session-wide, and C43 is `RATIFIED-MODELED-ONLY(GATE-M)` | four implementation specs | `DOOR` §16 OQ-4 · `VD` §22.11 · `RLS` §17 X-7 | **OD-59.** If the board wants the narrowing in MVP it is a **new ratification, not a clarification** |
+| **X-07** | **`org_admin` on the money plane.** `VD` §5.2 row 35 shows `org_admin` at `●` on the refunds order list; the corrected money matrix denies `org_admin` the refund read | `VD` §5.2 row 35 | `MONEY` §2/§3 corrected matrix | **OD-05.** O-1/O-3 are silent on `org_admin`; the denial is an inference and the two cannot both hold |
+| **X-08** | **The `notify` gate.** C7 is `RATIFIED · Gate P · MVP` and names `notify` | CDM/DA (**C7**) | `SPEC_FOUNDATION`, `RLS`, `SCHEMA`, `PLAN` (Gate L / do-not-build) | **OD-14** (§13). Ratified as `OPEN-GATED(O8)` |
+| **X-09** | **The event outbox.** DA §6.3 promises one outbox table and a drainer as *the only* new infrastructure Phase 2 introduces | DA §6.2/§6.3 · CDM C12 | every implementation spec (no package, one Gate-L mention) | **OD-13** (§13). Ratified as `OPEN-GATED(O7)` |
+| **X-10** | **`has_venue_role`'s door-PIN branch.** `RPC` §1.1 gives the predicate a caller-dependent door-PIN branch; `ROLE` §7.5 deletes it and moves door authority to `kernel.assert_door_session` | `RPC` §1.1 | `ROLE` §7.5 · `SCHEMA` §13.2 FR-1 | `SCHEMA` §13.2 states plainly: **"RPC §1.1 is now stale."** Owner: `RPC`. Asserted by `T-RPC-ROLE-01` / `T-RLS-ROLE-04` |
+| **X-11** | **Attribution write point.** `RPC` §6.1 writes `venue.attribution` inside `create_order`; the constitutions say it is written when the order is **paid**, and ratified row **D7** rules the constitutions right | `RPC` §6.1 | DA §1.7 · CDM §1.3 · `RATIFY` **D7** | `RLS` §9.17 is already corrected to `finalize_primary_order`. **The `RPC` §6.1 correction is still owed** — named by `RATIFY` D7 and `PROMO` §14.4 |
+| **X-12** | **The registry's own count assertion.** `REGISTRY` §2 asserts *"16 packages, no gaps, no duplicates"*; §7 COND-B states that a Gate-P `notify` makes it 17 and **falsifies that assertion** | `REGISTRY` §2 | `REGISTRY` §7 COND-B | Self-flagged by design — *"which is precisely why the ruling belongs to the owner."* Closes with **OD-14** + **OD-79** |
+| **X-13** | **A mis-citation that sends the reader to the wrong decision.** `CRM` §13 D-7 says *"role-model **OD-8** asked the owner to confirm the scope"* of marketing. `ROLE` §13 **OD-8 is door break-glass**; the marketing ceiling in the role model is §5 rows **H2/H3** | `CRM` §13 D-7 | `ROLE` §13 OD-8 vs `ROLE` §5 H2/H3 | Citation defect. Owner: `CRM`. Does not change **OD-20**'s substance |
+| **X-14** | **Two spec inventories are missing eight tables.** Both `DEMOG` §10.1 and `CRM` §11.1 record a `SPEC CORRECTION` adding four tables each to `SPEC_FOUNDATION` §6's canonical inventory and four deny-all rows each to `RLS` §6. **Neither correction is applied** | `SPEC_FOUNDATION` §6 · `RLS` §6 | `DEMOG` §10.1 · `CRM` §11.1-34/35 | Owner: `SPEC_FOUNDATION` and `RLS` |
+| **X-15** | **A trap rather than a contradiction, recorded because it will bite.** `PLAN` §5 is the **pre-delta** package record and is deliberately not updated in place; `PLAN` §8 is canonical. A reader quoting §5's object list gets a package that is missing up to a dozen objects | `PLAN` §5 | `PLAN` §8 | Stated by `PLAN` §5's own preamble. No fix owed — but no reader may quote §5 |
+
+**Two things this list is not.** It is not a defect backlog for this document to work — every row belongs to another owner. And it is not evidence that the corpus is inconsistent in a way that blocks work: **eleven of the fifteen are already named by the document that would have to change**, which is the property that makes them cheap to close.
+
+---
+
+## 16. Requests to other integrators (recorded, not applied here)
+
+This document edits no file but its own. Each item is a change another owner must make.
+
+| # | To | Request |
+|---|---|---|
+| **R-1** | **traceability integrator** (concurrent) | Every `OD-*` id in §14 needs a matrix row, keyed to the source ids in the `Raised by` column so a reader arriving from any of the eight delta specs lands on the same row. This is the same ask `RLS` §17 X-9 makes for `T-RLS-*` and the §16.10 policy names |
+| **R-2** | **amendment / registry owner** | **OD-79**: the registry is `PENDING_RE_RATIFICATION`. Record in the same amendment that **the six features add no package** — five are placed inside `076`–`091` and the sixth is unscheduled pending OD-14 |
+| **R-3** | **RLS + RPC integrator** | **X-05**: `DOOR` §9.2's offline reject map needs a `refund_hold` arm and `086`'s `door_manifest_entry.resale_state` CHECK must admit all four labels. `SCHEMA` §13.1 already routed this to you; it is still open |
+| **R-4** | **RPC integrator** | **X-10**: `RPC` §1.1's door-PIN branch is stale (`SCHEMA` §13.2 FR-1 says so). **X-11**: `RPC` §6.1's attribution write point is owed a correction under ratified **D7** |
+| **R-5** | **`WALLET` · `DEMOG` · `CRM` · `PROMO` owners** | **X-01…X-04**: each spec still cites its own package number. Replace every number with a citation to `PHASE_2_PACKAGE_REGISTRY.md` §2 — *"several delta specs re-derive a numbering shift rather than citing the registry, which is exactly how four competing scales were produced last time"* (`VD` §22.15) |
+| **R-6** | **`SPEC_FOUNDATION` + `RLS` owners** | **X-14**: eight tables are missing from `SPEC_FOUNDATION` §6's canonical inventory and eight deny-all rows from `RLS` §6 |
+| **R-7** | **edge integrator** | **OD-26**: `EDGE` §12.2 (credential-sign on a listed atom) and `WALLET` OQ-W5 (Wallet pass on a listed atom) are **one question**. Answer them together or they will diverge |
+| **R-8** | **dashboard / RN integrator** | **OD-62…OD-69**: U-1…U-10 remain unbacked. Until each is closed the standing rule holds — **the control is read-only or it does not render.** Do not soften it to "hidden behind a flag" |
+| **R-9** | **`CRM` owner** | **X-13**: the D-7 citation points at `ROLE` OD-8 (door break-glass) rather than `ROLE` §5 H2/H3 |
+
+---
+
+*End of `docs/architecture/PHASE_2_SCOPE_AMENDMENT_2026_08.md`. Integration layer — design-only; no SQL, no migrations, no code, no production access. This document creates no new specification: every row cites the spec that owns it, and where a row and its cited spec disagree, **the cited spec wins and the row is a defect.** It decides nothing reserved to the owner: §14's 81 entries are an index, and §15's fifteen contradictions are recorded for the owners named in each row, not resolved here.*
