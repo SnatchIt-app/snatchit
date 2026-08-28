@@ -67,7 +67,9 @@ missing. `S2` = a surface has authority but no signature (an implementer has per
 | **G-5** | **S1** | **The entire native-marketplace write surface is authorized and uncontracted.** RLS §11.1 carries EXEC rows for `market.create_listing`, `cancel_listing`, `create_auction`, **"bid RPC"** (literally unnamed), `make_offer` and `respond_offer`. The RPC contracts document contracts **none** of the six; its §8 covers p2p only. Package `088` creates `market.listing_native`, `auction` and `offer` — tables whose only writers are these uncontracted functions. | RPC contracts (a new section beside §8) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
 | **G-6** | **S1** | **`catalog.set_platform_config` is uncontracted** — while RLS §11.3 makes it the *mandatory dual-control* writer for every `refund.*` / `payout.*` / `authn.*` key, creating a `kernel.approval_request` a second `platform_admin` must approve, with a direction asymmetry (lowering executes, raising needs the approver). **Every money threshold in the system is set through a function with no signature.** | RPC contracts §11 (admin) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
 | **G-7** | **S1** | **`kernel.admin_refund`, `kernel.pay_promoter_commission` and `kernel.provision/rotate/revoke_signing_key` are uncontracted.** All have EXEC rows (RLS §11.1); `refund-execute` (edge §3.5) and `signing-key-provision` (edge §3.6) wrap them. The signing-key trio is the **C33 key-lifecycle surface — the security linchpin of the credential design.** | RPC contracts §11 (admin) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
-| **G-8** | **S1** | **No named behavioural test exists for the custody and money spine.** RPC §18's twelve groups are Door, Money, Role, Attribution, Promoter, Demographics, CRM, Wallet, Notify and Global. There is **no group** for `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom`, `lock/unlock_ticket`, `create_primary_checkout`, `finalize_primary_order`, the three p2p RPCs, `open_settlement`, `close_settlement`, `cancel_event`, `force_void_ticket`, `hold/release_payout`, or either sweep. `T-RPC-GLOBAL-01..04` are **structural** assertions over `pg_proc` and prove nothing about behaviour. **The SSCAS members — the flows C26/C28 exist to protect — have no named test.** | RPC contracts §18 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `TEST` |
+| **G-8** | **S2** | **The corpus has two disjoint test surfaces and the spine sits only in the weaker one.** (a) The **named, citable** registers — RPC §18 (70 `T-RPC-*` ids) and RLS §16.11 (35 `T-RLS-*` ids) — cover the *delta-spec* surfaces (door, money, role, attribution, promoter, demographics, CRM, wallet, notify) plus global posture, and **nothing else**. (b) The migration plan §8 carries **per-package prose acceptance criteria**, and these are substantial — the C26 proof rig (`079`), the oversell proof rig (`081`), the `market_sale` terminal XOR (`088`), the C41 partial unique and the three `door_open_at` raises (`086`), the commercial-terms XOR and the cross-settlement commission unique (`090`). **The spine is tested; its assertions just cannot be cited.** RLS §16.11's own header says ids exist *"so they can be written, run and cited"* — the spine's cannot be named in a review, a CI job name, or a regression ticket. **Correction of record:** an earlier reading of this matrix asserted the spine had *no* test. That was wrong, and the error is left visible rather than silently repaired. | RPC §18 should absorb the plan §8 assertions as ids, or §16.11's citability rationale should state why the spine is exempt | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** §18 | `TEST` |
+| **G-8b** | **S2** | **Four things are asserted by neither surface.** (i) **Comps and guest lists** — `086`'s Tests row covers scans, PINs, manifests and holder mix and is **silent on comps and guest lists entirely**, and no `T-*` group exists; the C39 threshold and the box-office allocate/issue asymmetry are *named insider-fraud controls* with no assertion anywhere. (ii) **`venue.read_operational_audit`'s security-plane exclusion** — the entire security property of the read. (iii) **OBS-1** — no assertion anywhere states that no migration adds a column to `public.payments`; `§0.5`'s "additive-only" global is adjacent but not the property. (iv) The **six uncontracted `market.*` writers** (G-5) — `088` tests the tables' constraints, not the functions. | plan §8 rows `082`, `086`, `088`; RPC §18 | **`PHASE_2_SUPABASE_MIGRATION_PLAN.md`** §8 + **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** §18 | `TEST` |
+| **G-24** | **S1** | **The inventory-hold expiry sweep is referenced, indexed for, and named nowhere.** Schema §1116 lists *"the expiry sweep"* among package `081`'s objects; the plan builds a partial index `expires_at WHERE status='active'` **precisely so the sweep can use it**; and `081`'s own **Functions** row lists `create_inventory_hold` and `release_inventory_hold` and **no sweep**, its **Tests** row is silent, RPC §12's sweeps are the two `market.*` ones only, and RLS §11 grants no such EXEC. **Consequence:** a `venue.inventory_hold` row never leaves `active` on its own, so held capacity is never returned to the counter — an abandoned checkout removes inventory from sale permanently. It is the exact shape of `sweep_expired_refund_requests`, which the money spec calls *"not optional"* and which **is** contracted. | RPC contracts §12 (sweeps); plan §8 `081` Functions | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC`, `TEST` |
 | **G-9** | **S2** | **`U-2` — "mark a guest arrived" has no RPC.** RLS §9.16 note 39 grants the door principal exactly this narrow update (`status` + `checked_in_at`); no function is named anywhere. **This is hit a thousand times a night by a door.** | RPC contracts (venue, door) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** (dashboard §20A.3 U-2 filed it) | `RPC` |
 | **G-10** | **S2** | **`U-1` — guest-list CRUD has no RPC.** RLS §9.16 says only *"guest-list CRUD RPCs"*. Three distinct writes (create list · add guest · remove entry), zero signatures. | RPC contracts (venue) | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** | `RPC` |
 | **G-11** | **S2** | **`U-3`/`U-4` — promoter-record and promoter-link writes have no RPC.** RLS §9.17 says only *"promoter CRUD"*. The promoter spec contracts *code* RPCs and not promoter-record RPCs. `U-4` additionally needs a **live slug-availability read that does not exist** — the UI is required to check a global namespace against nothing. | RPC contracts §17.15–§17.19 | **`PHASE_2_RPC_FUNCTION_CONTRACTS.md`** / `PHASE_2_PROMOTER_CODES_SPEC.md` | `RPC` |
@@ -123,21 +125,26 @@ One row per capability, one column per cell kind. **Read the `GAP` and `COND` ma
 point.** `✓` = at least one named artifact exists. `—` = not applicable, justified in the capability's block
 in §4/§5/§6. `GAP` = registered in §1. `COND` = registered in §2.
 
+**A fourth `TEST` value is needed and is load-bearing:** `✓ᵖ` = **prose-only** — the assertion exists in the
+migration plan §8's per-package Tests row and has **no citable id** in RPC §18 or RLS §16.11. It is not a
+`GAP` (the property *is* asserted) and it is not `✓` (it cannot be named in a review, a CI job name or a
+regression ticket). See **G-8**.
+
 | # | Capability | TBL | RPC | RLS | EDGE | SURFACE | EVENT | TEST | PKG |
 |---|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| **A1** | Schemas + GRANT boundary | — | ✓ | ✓ | — | — | — | ✓ | `076` |
-| **A2** | Organizations + permissions | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | **GAP** | `077` |
-| **A3** | Catalog (venue · event · session · config) | ✓ | **GAP** | ✓ | — | ✓ | **COND-A** | **GAP** | `078` |
-| **A4** | Ticket kernel (custody atom + ownership log) | ✓ | ✓ | ✓ | — | ✓ | **COND-A** | **GAP** | `079` |
-| **A5** | Inventory (roles + capacity) | ✓ | **GAP** | ✓ | — | ✓ | **COND-A** | **GAP** | `080`·`081` |
-| **A6** | Orders (primary purchase) | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | **GAP** | `082` |
-| **A7** | Credential infrastructure (C33) | ✓ | **GAP** | ✓ | ✓ | ✓ | ✓ | `083`·`084` |
+| **A1** | Schemas + GRANT boundary | — | ✓ | ✓ | — | — | — | ✓ᵖ | `076` |
+| **A2** | Organizations + permissions | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ | `077` |
+| **A3** | Catalog (venue · event · session · config) | ✓ | **GAP** | ✓ | — | ✓ | **COND-A** | ✓ᵖ | `078` |
+| **A4** | Ticket kernel (custody atom + ownership log) | ✓ | ✓ | ✓ | — | ✓ | **COND-A** | ✓ᵖ | `079` |
+| **A5** | Inventory (roles + capacity) | ✓ | **GAP** | ✓ | — | ✓ | **COND-A** | ✓ᵖ | `080`·`081` |
+| **A6** | Orders (primary purchase) | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | ✓ᵖ | `082` |
+| **A7** | Credential infrastructure (C33) | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ | `083`·`084` |
 | **A8** | Kernel money-native + money authority | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ | `085` |
 | **A9** | Scan infrastructure + door | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ | `086` |
-| **A10** | Settlement | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | **GAP** | `087` |
-| **A11** | Native marketplace bridge | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | **GAP** | `088`·`089` |
+| **A10** | Settlement | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | ✓ᵖ | `087` |
+| **A11** | Native marketplace bridge | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ᵖ | `088`·`089` |
 | **A12** | Promoter engine | ✓ | **GAP** | ✓ | ✓ | ✓ | **COND-A** | ✓ | `090` |
-| **A13** | Money-ledger stub (`kernel.reserve`) | ✓ | — | ✓ | — | — | — | ✓ | `091` |
+| **A13** | Money-ledger stub (`kernel.reserve`) | ✓ | — | ✓ | — | — | — | ✓ᵖ | `091` |
 | **B1** | Apple Wallet | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | ✓ | `083`·`084` |
 | **B2** | Notifications | ✓ | ✓ | ✓ | ✓ | ✓ | **COND-A** | ✓ | **GAP** |
 | **B3** | CRM export | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | `087` |
@@ -154,16 +161,24 @@ in §4/§5/§6. `GAP` = registered in §1. `COND` = registered in §2.
 | **D3** | Stripe Connect onboarding | ✓ | **GAP** | **GAP** | ✓ | ✓ | **COND-A** | **GAP** | `077` |
 | **D4** | Event outbox (the carrier itself) | **GAP** | **GAP** | — | — | — | **GAP** | **GAP** | **GAP** |
 
-**Column totals — `GAP` count by cell kind:** `TBL` 1 · `RPC` 12 · `RLS` 2 · `EDGE` 0 · `SURFACE` 0 ·
-`EVENT` 1 (plus 19 `COND-A`) · `TEST` 9 · `PKG` 2.
+**Column totals.** `GAP` by cell kind: `TBL` 1 · `RPC` 12 · `RLS` 2 · `EDGE` 0 · `SURFACE` 0 ·
+`EVENT` 1 (plus **20** `COND-A`) · `TEST` 4 · `PKG` 2. Additionally `TEST` carries **8 `✓ᵖ`**.
+`—` by cell kind: `TBL` 1 · `RPC` 1 · `RLS` 1 · `EDGE` 8 · `SURFACE` 3 · `EVENT` 6 · `TEST` 0 · `PKG` 0
+— **28 in total, each justified in its capability block.**
 
 **The shape of the corpus, read off that row:** the **EDGE** and **SURFACE** columns are complete — every
 edge function is specified and classified (edge §0.4), and every RN/dashboard surface has a spec. The
-**RPC** column has twelve holes and the **TEST** column has nine. This is the signature of a corpus written
-**outside-in**: the product surface and the service boundary are finished, the authority table is finished,
-and the layer between them — the function contracts — is a proper subset of what the other two demand.
-`INFERENCE:` an implementer working package-by-package from the migration plan will not notice, because the
-migration plan lists *objects*, and a missing function contract is not a missing object.
+**RPC** column has twelve holes. This is the signature of a corpus written **outside-in**: the product
+surface and the service boundary are finished, the authority table is finished, and the layer between them —
+the function contracts — is a proper subset of what the other two demand.
+
+**Why an implementer will not notice.** The migration plan §8 lists **objects**, and a missing function
+*contract* is not a missing object. Nine of the twelve `RPC` gaps name functions the plan **does** schedule:
+`086`'s Functions row lists `allocate_comp`, `issue_comp`, `register_scan_device`, `get_door_manifest` and
+`sweep_implicit_door_freezes`; `081`'s lists `set_ticket_type_price`. An engineer working package-by-package
+sees the object, finds no signature, and writes one — which is exactly how two functions with one purpose,
+or one function with the wrong predicate, gets built. **This is the single most actionable finding in the
+document**, and it is invisible from any one spec.
 
 ---
 
@@ -202,7 +217,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | `connect-onboarding` (Class **A**, `has_org_role([org_owner,org_finance])`) — **but see D3/G-3: it wraps an uncontracted RPC** |
 | **RN / dashboard surface** | Dashboard **J** §15.1 (org members) · **K** §16.1 (org profile — `U-10`/G-12) · **H** §13.7 (refund approval queue, reading `approval_request`) |
 | **Event** | **COND-A** — DA §6.1 #1 `OrganizationCreated` (consumers `analytics`, `social`) and #2 `ConnectOnboardingCompleted` (consumers `venue`, `market`, `analytics`). **Both have no carrier**, and #2 additionally has **no producer** (G-3). |
-| **Test id** | `T-RLS-FORCE-01..03` (the I-12 catalog equality) · `T-RLS-FORCE-04` · `T-RLS-ROLE-01` (exactly fifteen labels, cross-plane rejected) · `T-RLS-ROLE-02` (no bare role string, no display name) · `T-RPC-ROLE-01..05` · `T-RLS-POL-01/02` — **`GAP` G-8:** no behavioural test for `create_organization`, `invite_org_member`, `accept_org_invite`, the ≥1-owner rule, or the no-self-grant rule. |
+| **Test id** | `T-RLS-FORCE-01..03` (the I-12 catalog equality) · `T-RLS-FORCE-04` · `T-RLS-ROLE-01` · `T-RLS-ROLE-02` · `T-RPC-ROLE-01..05` · `T-RLS-POL-01/02`. Plan §8 `077` adds: adversarial RLS (anon and non-member cannot read an org row, a member can), **self-grant rejected**, the disjoint-role CHECK asserting the full 15-label enumeration, **INV-NOFORCE asserted positively for `org_member` and `platform_role`**, the `approval_request` SoD CHECK rejecting `approved_by = requested_by`, and `set_my_demographics` writing no value into any audit row. **`GAP` G-8b (narrow):** the *keep-≥1-owner* rule lives in the EXEC row and is asserted nowhere. |
 | **Package** | **`077_kernel_identity_orgs_and_roles`** — CLEAN-WHILE-EMPTY |
 
 ---
@@ -219,7 +234,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | **`—`** *why:* every catalog write is a plain DB-RPC; none touches an external provider, and edge §2's placement table admits a function only where a secret, a provider or a non-JWT credential is involved. |
 | **RN / dashboard surface** | RN §4.1 Home/Discovery · §4.2 Event Page · Dashboard **B** §7 (events, wizard, publish, cancel) · **K** §16.2 (venue profile) · §16.7 (venue-scope resale default) |
 | **Event** | **COND-A** — #3 `VenueApproved` · #4 `EventPublished`. Consumers named (`venue`, `market`, `social`, `analytics`); **`social` and `analytics` are deferred schemas under C11**, so even with the outbox two of the four named consumers do not exist in Phase 2. |
-| **Test id** | `T-RLS-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination — the totality property) · `T-RPC-DOOR-08` · `T-RPC-DOOR-14` (direct writes to `door_open_at` raise) · `T-RLS-POL-01` — **`GAP` G-8:** no test for `create_event`, `publish_event`'s "no empty on-sale" precondition, or `cancel_event`'s bounded SSCAS-#3 batch. |
+| **Test id** | `T-RLS-DOOR-08` / `T-RPC-DOOR-08` (`effective_freeze_at` NOT NULL over every status × nullability combination — the totality property) · `T-RPC-DOOR-14` · `T-RLS-POL-01`. **`✓ᵖ` (G-8):** plan §8 `078` asserts anon can read an approved venue/event but **not** a draft, all flags present and `false`, `resale_policy` default `off`, and **a cross-config invariant over the seeded values — `credential.wallet_default_span + credential.wallet_exp_skew <= door.manifest_ttl_interval`, so a Wallet token may never outlive the offline window any manifest could authorise**. `081` asserts `publish_event` refuses an event with no ticket type or no batch. **`GAP` G-8b (narrow):** `cancel_event`'s bounded SSCAS-#3 batch is asserted nowhere. |
 | **Package** | **`078_catalog_reference_data_and_flags`** — CLEAN-WHILE-EMPTY |
 
 ---
@@ -236,7 +251,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | **`—`** *why:* custody writes are the one surface edge §0.5 forbids from holding authority. `credential-sign` (A7) *reads* `kernel.tickets`; it writes nothing here. |
 | **RN / dashboard surface** | RN §4.4 My Tickets · §4.5 Transfer · §4.10 refund states (`resale_state = refund_hold`) · RN §11 state index (`issued → active → scanned`, `voided`, `expired`; overlay `none/listed/locked`) |
 | **Event** | **COND-A** — #10 `TicketIssued` · #17 `OwnershipTransferred` (**Sync**, the transfer itself) · #21 `CredentialInvalidated` (rides on #17) · #28 `TicketVoided`. The three `Sync` members are same-transaction and therefore **survive COND-A**; their *notification* and *analytics* consumers do not. |
-| **Test id** | `T-RPC-DOOR-01` / `T-RLS-DOOR-01` — **the structural assertion that `mark_ticket_scanned` does not reference `is_transfer_frozen`** (the CRITICAL defect; admission must never be gated on the transfer freeze) · `T-RLS-DOOR-05` · `T-RPC-DOOR-05` — **`GAP` G-8:** **C26's idempotency key and its terminal state machine — the single most load-bearing invariant in Phase 2 — have no named test.** |
+| **Test id** | `T-RPC-DOOR-01` / `T-RLS-DOOR-01` — **the structural assertion that `mark_ticket_scanned` does not reference `is_transfer_frozen`** (the CRITICAL defect; admission must never be gated on the transfer freeze) · `T-RLS-DOOR-05` · `T-RPC-DOOR-05`. **`✓ᵖ` (G-8)** for C26 itself: plan §8 `079` runs **the C26 proof rig against the real constraints** — (a) a second `(market_sale, sale_id, atom)` rejected; (b) N `(issue, order_id, atom_k)` all succeed; (c) N `(refund_void, refund_id, atom_k)` all succeed; (d) a replayed `command_idempotency_key` rejected — plus **`is_transfer_frozen` returns TRUE for an unknown atom id** (the fail-open escape hatch asserted *absent*). **The single most load-bearing invariant in Phase 2 is asserted and cannot be cited by id.** |
 | **Package** | **`079_kernel_ticket_atom_and_ownership_log`** — **FORWARD-FIX ONLY from the first row** |
 
 ---
@@ -248,12 +263,12 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Product requirement** | Six kinds of venue staff, and a capacity counter that cannot oversell. |
 | **Architecture invariant** | **C36** + **O-2** (six canonical venue labels; `venue_door` → `venue_scanner`; `venue_promoter` **removed** — a promoter is a `promoter_link` row-ownership relationship, never a staff-role label) · **C27** (`remaining` single truth: the **locked counter is authoritative**, the movement ledger is the audit stream, a reconciliation job asserts equality) · **C28** (global lock order includes ascending-batch-id) · **RM-1** · **I-12** (`venue.staff_role`) |
 | **Table(s)** | `venue.staff_role` (text + CHECK per OD-6/X-3, six labels) · `venue.ticket_type` · `venue.inventory_batch` · `venue.inventory_batch_shard` · `venue.inventory_movement` · `venue.inventory_hold` · `venue.inventory_unit` (C42 hedge — **DO NOT BUILD/POPULATE in MVP**) |
-| **RPC(s)** | `has_venue_role` · `has_event_role` · `has_org_role_over_venue`/`_over_event` · `create_ticket_type` · `create_inventory_batch` · `reserve_primary_inventory` · `create_inventory_hold` · `release_inventory_hold` · `catalog.publish_event` (authored here, FR-2) — **`GAP` G-12** (`U-8`: no capacity-change RPC on an existing batch, though dashboard §8.4 specifies the guarded behaviour and the refusal floor **in detail**), **G-20** (`set_ticket_type_price` has an EXEC row and no contract) |
+| **RPC(s)** | `has_venue_role` · `has_event_role` · `has_org_role_over_venue`/`_over_event` · `create_ticket_type` · `create_inventory_batch` · `reserve_primary_inventory` · `create_inventory_hold` · `release_inventory_hold` · `catalog.publish_event` (authored here, FR-2) — **`GAP` G-24** (**the hold-expiry sweep: named in the schema spec's object list, given a dedicated partial index, and contracted, scheduled and tested nowhere. Held capacity never returns to the counter**), **G-12** (`U-8`: no capacity-change RPC on an existing batch, though dashboard §8.4 specifies the guarded behaviour and the refusal floor **in detail**), **G-20** (`set_ticket_type_price` is in `081`'s Functions row and has no contract) |
 | **RLS / EXEC** | `venue_staff_role_sel_venue`/`_sel_org`/`_sel_platform` (**I-12**) · `venue_ticket_type_sel_public`/`_sel_venue` · `venue_inventory_batch_sel_public` (the `remaining` projection) / `_sel_venue` (full counters) · `venue_inventory_hold_sel_owner`/`_sel_venue`. Zero policies by design on `inventory_batch_shard`, `inventory_movement`, `inventory_unit` |
 | **Edge function** | **`—`** *why:* the hold is taken inside `create_primary_checkout`, which `primary-checkout` (A6) fronts. No inventory function needs a secret or a provider. |
 | **RN / dashboard surface** | RN §4.2 Event Page (available / low / sold-out from `remaining`) · §4.3 Checkout hold timer · Dashboard **C** §8 (types, batches, door-vs-public, windows, holds, sold-out vs held-out) · **J** §15.2 venue staff |
-| **Event** | **COND-A** — #5 `TicketTypeOpened/TierUnlocked` · #6 `InventoryHeldExpired` · #11 `TicketReserved`. **#5 additionally has no producer**: no tier concept exists in `venue.ticket_type` in any package. |
-| **Test id** | `T-RLS-FORCE-01..03` (`venue.staff_role`) · `T-RLS-ROLE-01` · `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin` — FR-1's closure) · `T-RPC-ROLE-04` (no grant RPC accepts a promoter artifact) · `T-RLS-ROLE-04` — **`GAP` G-8:** **no test asserts the oversell-safe counter.** C27 is the reason the counter exists and nothing named checks it under concurrency. |
+| **Event** | **COND-A** — #5 `TicketTypeOpened/TierUnlocked` · #6 `InventoryHeldExpired` · #11 `TicketReserved`. **#5 has no producer**: no tier concept exists in `venue.ticket_type` in any package. **#6 has no producer either — G-24.** |
+| **Test id** | `T-RLS-FORCE-01..03` (`venue.staff_role`) · `T-RLS-ROLE-01` · `T-RPC-ROLE-01` (`has_venue_role` does not reference `door_pin` — FR-1's closure) · `T-RPC-ROLE-04` · `T-RLS-ROLE-04`. **`✓ᵖ` (G-8)** for C27 itself: plan §8 `081` runs **the oversell proof rig** — concurrent decrements cannot drive `remaining < 0`; the sharded draw plus single-shard last-unit fallback sells the final unit **exactly once**; the movement ledger reconciles to the counter (`Σ shards == batch`). Substantial, and un-citable. **`GAP` G-24:** nothing asserts that held capacity is ever returned. |
 | **Package** | **`080_venue_staff_roles_and_predicates`** + **`081_venue_inventory`** — both CLEAN-WHILE-EMPTY |
 
 ---
@@ -270,7 +285,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | **`primary-checkout`** (Class **A** — `create_primary_checkout` binds the hold and the order to `auth.uid()`; the on-behalf door path resolves the buyer from the *principal*, not the body). Idempotency `pi_native_${order_id}_${total}_c${cust}[_r${n}]`. Also **`stripe-webhook`** (extended, Class B-i/B-iii, HMAC + `claim_stripe_webhook_event` lease) |
 | **RN / dashboard surface** | RN §4.3 Checkout (three variants) · §4.7 promoter code · §4.8 contact opt-in · Dashboard **H** §13.1 orders list |
 | **Event** | **COND-A** — #7 `OrderPlaced` (**Sync**, order+intent same tx) · #8 `PaymentAuthorized` · #9 `PaymentCaptured` · #31 `AttributionRecorded` (**Sync**, same tx as OrderPaid — the D7 timing). The `Sync` set survives; the async consumers do not. |
-| **Test id** | `T-RLS-ATTR-01` (**no `venue.attribution` row exists while the order is `pending`, even with both candidates set** — the D7 property) · `T-RPC-ATTR-01..04` · `T-RPC-GLOBAL-03` (no RPC accepts a client-supplied `buyer_id` as authority) — **`GAP` G-8:** no test for the SSCAS-#1 capture/issuance same-transaction property, nor for the OBS-1 frozen-boundary rule (that no migration adds a column to `public.payments`). |
+| **Test id** | `T-RLS-ATTR-01` (**no `venue.attribution` row exists while the order is `pending`, even with both candidates set** — the D7 property) · `T-RPC-ATTR-01..04` · `T-RPC-GLOBAL-03` (no RPC accepts a client-supplied `buyer_id` as authority). **`✓ᵖ`** for the rest: plan §8 `082` asserts the C16 replay rejection, that `order_item` UPDATE after `paid` raises, that a non-buyer cannot read, and the full consent property (*withdrawal is a state change, never a row deletion; the FK cascades from `auth.users` and `delete_account_cleanup` (020) does not repoint it to the anonymized sentinel — a sentinel row holding "consent granted to 40 orgs" would be an accumulating grant belonging to nobody*). **`GAP` G-8b:** nothing asserts the SSCAS-#1 capture/issuance same-transaction property, and nothing anywhere asserts **OBS-1** — that no migration adds a column to `public.payments`. |
 | **Package** | **`082_venue_orders`** — CLEAN-WHILE-EMPTY |
 
 ---
@@ -338,7 +353,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | **`payout-execute`** (settlement-close disbursement leg) · **`crm-export`** `/build` + `/download` |
 | **RN / dashboard surface** | Dashboard **I** §14 (settlement list, open, detail, close, payouts) · **D** §9.6 CRM export |
 | **Event** | **COND-A** — #24 `SettlementClosed` (**Sync**: close → request payouts, same tx) · #32 `PromoterCommissionAccrued` (Async). **The C8 royalty fact survives COND-A** — C8 admits *"a named function **or** an outbox event"*, and the §13.2 hook satisfies the named-function arm. This is the **only** cross-context channel in the corpus that is not outbox-dependent. |
-| **Test id** | **`GAP` G-8** — `close_settlement` is SSCAS #4, it had **two** forward references (`088` royalty and `090` commission), it is the single point where money leaves the platform, and **RPC §18 names no test for it.** `T-RLS-MONEY-04` covers `venue_finance`'s read narrowing only. |
+| **Test id** | `T-RLS-MONEY-04` (`venue_finance` reads only `cause='settlement'` payouts for its own venue and **zero rows of every other cause**) · `T-RPC-CRM-01..07` for the export half. **`✓ᵖ` (G-8)** for the settlement half: plan §8 `087` asserts `settlement_line` unique per `(settlement, cause, cause_ref)`, the AO guard, that a close writes a `kernel.payout` row, and that **both hook stubs exist and return zero rows — so a close at `087` is arithmetically complete without them**; `090` adds that **the cross-settlement commission unique rejects lining the same attribution into a second settlement — the constraint whose absence made double-payment possible.** `close_settlement` is SSCAS #4 and the single point where money leaves the platform, and **not one of those assertions has an id.** |
 | **Package** | **`087_venue_settlement_and_export`** — CLEAN-WHILE-EMPTY (renamed from `087_venue_settlement`) |
 
 ---
@@ -355,7 +370,7 @@ Each block is one matrix row rendered vertically so that no cell can be omitted 
 | **Edge function** | **`stripe-webhook`** native branches. **`—`** for the listing/auction/offer writes themselves *why:* they touch no provider and hold no secret; edge §2's placement table admits none of them. |
 | **RN / dashboard surface** | RN §4.5 Transfer UX · §4.6 Sell · §4.2 Event Page resale block · RN §11 (`market_sale`: `pending → completed \| compensated`, bounded transient `paid_pending_transfer`; `p2p_transfer`: `initiated → accepted → completed \| declined \| cancelled \| expired`) |
 | **Event** | **COND-A** — #12 `ListingCreated` (**Sync** for native, it locks the ticket) · #13 `BidPlaced` · #14 `OfferMade/Accepted` · #15 `AuctionWon` · #16 `ListingSold` · #18 `TransferStarted` · #19 `TransferAccepted` · #20 `TransferExpired` (Async, cron-swept). The `Sync` arms survive COND-A; #20's cron sweep does too (`sweep_expired_p2p_transfers` is a DB function, not an outbox consumer). |
-| **Test id** | `T-RLS-DOOR-05` (transfer and p2p-accept ⇒ `frozen` on a frozen session) · `T-RLS-DOOR-07` (`sweep_paid_pending_sales` **compensate** succeeds on a frozen session; **complete** is refused) · `T-RPC-DOOR-07` · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained) — **`GAP` G-8:** no test for **C26's terminal XOR**, none for the C8 same-transaction pin, none for the six uncontracted market writers. |
+| **Test id** | `T-RLS-DOOR-05` (transfer and p2p-accept ⇒ `frozen` on a frozen session) · `T-RLS-DOOR-07` (`sweep_paid_pending_sales` **compensate** succeeds on a frozen session; **complete** is refused) · `T-RPC-DOOR-07` · `T-RPC-DOOR-12` (a `paid_pending_transfer` listing is not drained). **`✓ᵖ` (G-8)**: plan §8 `088` asserts the two partial uniques (one active listing / one open p2p per atom), the C16 uniques, **the `market_sale` terminal state machine — a sale reaches exactly one of `completed`/`compensated`, never both** — that discovery RLS surfaces native listings to anon **only when the flag is ON**, that `settlement_royalty_lines` **now returns rows** (the stub was replaced, not merely present), that `on_atom_voided` flips a seeded sale to `compensated`, and that **no write path into `public.*` custody exists**. **`GAP` G-8b:** nothing asserts the C8 same-transaction pin, and nothing tests the six uncontracted writers (G-5) — `088` tests the tables, not the functions. |
 | **Package** | **`088_market_native_rail`** (CLEAN-WHILE-EMPTY) + **`089_market_bridge_view_and_late_fk`** (REVERSIBLE) |
 
 ---
@@ -609,7 +624,7 @@ ignored.
 | **Edge function** | **`—`** *why:* the door reaches these through `door-session`; no separate function is needed and edge §2 proposes none. |
 | **RN / dashboard surface** | Dashboard **F** §11 in full (§11.1 the distinction that must be on screen, §11.2 lists, §11.3 comp allocation, §11.4 comp accountability, §11.5 door state) |
 | **Event** | **`—`** *why:* DA §6.1's 36-event catalog names no comp or guest-list event, and C11 trimmed the catalog deliberately. A guest arriving is a `ScanAdmitted` (#22) when it is a ticket; a guest-list check-in is not a custody fact. Genuine `—`. |
-| **Test id** | **`GAP` G-8** — no test group covers comps or guest lists, including the C39 threshold and the box-office allocate/issue asymmetry, which is a *named insider-fraud control* |
+| **Test id** | **`GAP` G-8b(i)** — **asserted by neither surface.** No `T-*` group covers comps or guest lists, and plan §8 `086`'s Tests row — which is long and detailed on scans, PINs, manifests and holder mix — **does not mention them at all**. The C39 threshold and the box-office allocate/issue asymmetry are *named insider-fraud controls* with no assertion anywhere in the corpus. |
 | **Package** | **`086`** |
 
 **This is the worst single row in the matrix**: three `GAP`s in `RPC`, one in `TEST`, against a surface the
@@ -630,7 +645,7 @@ instance of the corpus's outside-in shape.
 | **Edge function** | **`—`** *why:* a scoped read with no provider and no secret. |
 | **RN / dashboard surface** | Dashboard **L** §17 in full, including §17.2 *"what this is explicitly NOT"* |
 | **Event** | **`—`** *why:* DA §6.1 #36 `AdminActionPerformed` exists, but its own payload note says **"audit is the source"** — the audit table is the system of record and the event is a derived analytics copy. Reading it emits nothing. Genuine `—`. |
-| **Test id** | **`GAP` G-8** — no test asserts the security-plane exclusion, and that exclusion is the entire security property of the read. |
+| **Test id** | **`GAP` G-8b(ii)** — no test in either surface asserts the security-plane exclusion, and **that exclusion is the entire security property of the read**. A `read_operational_audit` that leaks key rotations, platform overrides, risk actions or RLS denials into a venue's activity feed would look correct to every other assertion in the corpus. |
 | **Package** | **`077`** (`kernel.admin_audit`) |
 
 ---
@@ -647,7 +662,7 @@ instance of the corpus's outside-in shape.
 | **Edge function** | **`connect-onboarding`** (Class **A**, `has_org_role([org_owner,org_finance])`, idempotency `connect_org_${org_id}`) — **specified in full, wrapping a function that does not exist** |
 | **RN / dashboard surface** | Dashboard **K** §16.3 payout account |
 | **Event** | **COND-A**, and **additionally has no producer**: DA §6.1 #2 `ConnectOnboardingCompleted` (consumers `venue`, `market`, `analytics`; idempotency key `connect_account_id + capabilities_hash`). The fact it publishes is written by the missing RPC. |
-| **Test id** | **`GAP` G-8** |
+| **Test id** | **`GAP`** — there is nothing to test. `077`'s Tests row asserts the org tables' RLS and the role predicates; **no assertion anywhere names a connect reference, a capability flag, or the write that sets them.** |
 | **Package** | **`077`** for the table; the RPC has no package because it has no contract |
 
 **Severity note:** this is the only capability in the matrix where the **edge function is fully specified and
