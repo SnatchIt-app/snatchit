@@ -131,17 +131,29 @@ The demographics spec chose `holder_mix` as its canonical population:
 > `catalog.event_session`, evaluated as of a named snapshot instant `as_of` … `DISTINCT
 > kernel.tickets.current_owner_id` over the rows where `event_session_id = :session AND state <> 'voided'`."*
 
-**Proof of identity of populations.** The holder view is defined as `DISTINCT current_owner_id` over
-`kernel.tickets WHERE event_session_id = :session AND state <> 'voided'` at `as_of`. That is the same set
-expression, over the same table, with the same filter, at the same kind of instant. Therefore:
+**Proof of identity of populations — restated, because the demographics spec's R7 changed one side of it.**
+The holder view is defined as `DISTINCT current_owner_id` over
+`kernel.tickets WHERE event_session_id = :session AND state <> 'voided'` at `as_of`. `holder_mix.holders_total`
+is now that same set expression **restricted to R7-eligible custody** — the demographics spec excludes
+comp-caused and zero-price custody from its population, because a `venue_manager` mints comps at zero cost
+and every k-anonymity claim in that spec assumes contributors it did not manufacture. So:
 
-> **`COUNT(holder view rows) ≡ holder_mix.holders_total`, always, for the same `(session, as_of)`.**
+> **`COUNT(holder view rows) ≡ holder_mix.holders_total + holder_mix.holders_excluded_ineligible`, always,
+> for the same `(session, as_of)`.**
+>
+> Equivalently: **the roster is the demographics population plus exactly the comped and zero-price
+> holders.** One set expression, one filter difference, and the difference is a stored number.
 
-`INFERENCE:` this is worth more than tidiness. The demographics card renders *"Based on N of M ticket
-holders"*, and `M` is now the same number the operator counts in the list above the card. Had the roster been
-purchaser-keyed, the card would sit under a list whose length disagreed with its own denominator, and the
-first operator to notice would conclude one of them was broken. **Assertion 3 of §12 pins this equality as a
-test.**
+`INFERENCE:` the equality is worth more than tidiness, and the corrected form still delivers what the original
+was for. The demographics card renders *"Based on N of M ticket holders"*, `M` is the eligible population, and
+the roster above it is longer by a number the platform can state exactly. The two surfaces do not silently
+disagree; they differ by a named, countable set, and §1.5 already says comped atoms are on the roster.
+Had the roster been purchaser-keyed instead, the card would sit under a list whose length disagreed with its
+own denominator for reasons nobody could enumerate, and the first operator to notice would conclude one of
+them was broken. The dashboard copy carries the demographics spec's own amendment — *"Counts people who
+bought a ticket to this event"* — so the difference is visible where it is felt. **Assertion 3 of §12 pins
+the corrected equality as a test**, and it is a stronger test than the old one: it fails both if the roster
+drifts and if the eligibility filter drifts.
 
 The two rejected demographics semantics keep their reserved status here unchanged: `purchaser_mix` is **NOT
 BUILT** and this document creates no demographic aggregate of any kind; `admitted_mix` is **NOT BUILT**. The
@@ -2069,8 +2081,13 @@ logging; Sentry on unexpected 500s).
    would have caught the pre-068 `public.profiles` exposure.)*
 
 **Roster semantics**
-3. **The non-contradiction assertion:** for a fixture session, `COUNT(DISTINCT holder)` from
-   `venue.list_attendees` equals `holder_mix.holders_total` from the demographics rollup at the same `as_of`.
+3. **The non-contradiction assertion (§1.3):** for a fixture session containing paid, comped **and**
+   zero-price holders, `COUNT(DISTINCT holder)` from `venue.list_attendees` equals
+   `holder_mix.holders_total + holder_mix.holders_excluded_ineligible` at the same `as_of` — and
+   `holders_total` alone is **strictly less**, so a fixture with no comps cannot pass it vacuously. *(The
+   previous form asserted plain equality with `holders_total`, which the demographics spec's R7 eligibility
+   filter made false; asserting the corrected identity fails both if the roster drifts and if the
+   eligibility filter drifts.)*
 4. Six atoms from one order, five transferred: the holder view returns **six** rows; the purchaser view
    returns **one**; and the purchaser's holder row shows `tickets_held = 1`, `is_purchaser = true`.
 5. A `voided` atom appears in neither view.
@@ -2287,7 +2304,7 @@ weakening it.
 | **K-9** | RPC contracts spec | **Eighteen** contracts added (§11.4) — the original fifteen plus `claim_artifacts_for_purge`, `confirm_artifact_purged` and `reconcile_export_orphans` (K-16). Three of the originals changed signature: `finalize_export` **loses** the gate-counter parameters (K-19), `list_attendees` **gains** `p_reason_code` (K-19), and `authorize_export_download` re-evaluates the template allow-list (K-15). |
 | **K-10** | Edge function spec §2 placement table + §8 summary matrix | One function added (`crm-export`), four candidate placements rejected on the record (§11.5). |
 | **K-11** | CDM §4 / DA §8.7 (C34), C38, C40 | **No constitution edit.** This document records the Phase-2-safe interim erasure promise (§9.3), the C38 contact-merge rule (§9.4), and the C40-class posture toward any future egress destination (EX-6) — all consistent with their GATE-L status. **The frozen constitutions are not modified by this document.** |
-| **K-12** | Demographics spec | **No edit requested**, except the optional strengthening of X-6's stated method noted in §13. Its X-1…X-9 are satisfied as written (§2.4). |
+| **K-12** | Demographics spec | **No edit requested**, except the optional strengthening of X-6's stated method noted in §13. Its X-1…X-9 are satisfied as written (§2.4). **Amended by K-20:** that spec's own H-6 remediation added an eligibility filter (R7) to `holder_mix`'s population, so §1.3's non-contradiction identity and assertion 3 are restated here to match. No demographic object is touched, referenced or created by this document; the change is to an equality this document asserts *about* that spec's number. |
 | **K-13** | Role-model spec | **No edit requested.** Its labels, predicates and H2/H3 split are used verbatim; §3.2 resolves a conflict *between* it and the dashboard spec rather than within it. |
 | **K-14** | **This document, §1.4 · §4.1 · §4.2 · §4.3 · §4.4 · §5.1 · §11.2 · §11.4 · §12** | **H-11 remediation.** The export's tenant predicate was bound at org grain only. `catalog.venue.org_id` is **mutable** while `catalog.event.org_id` is stamped at create, and the isolation traversal is downward `org → venue → event → session → ticket → holder`, so a **venue-grain export at a new operator reached every historic session of that venue** — the previous org's customer list. Added **XO-1a**: `kernel.tickets.org_id = :job_org_id` at **every** grain, with `:job_org_id` resolved once at request time and frozen on the job row. The `customer_ref` HMAC key and the consent gate's `EXISTS` are both pinned to the **job's** org, not the atom's — the previous text left both ambiguous, and the atom binding would have given two orgs the **same** pseudonym for the same person, joining their files directly. New proof **case (e)** and assertions **18a–18c** (asserted per grain, because a single-grain test passes while three branches leak). Product consequence recorded as **D-12**. |
 | **K-15** | **This document, §3 (X8/X9 + note ᵗ) · §3.1 · §6.2 · §6.7 EX-4 · §7.4 · §11.4 · §12** | **H-12 remediation.** The download re-check read the role set and never the template — `template_id` was not mentioned in the contract at all. But the operations template's request-time allow-list is the narrowest in the matrix, so a `marketing` role could read a `job_id` from the job list (it holds X10) and download a colleague's **operations** export: order refs, order totals, unit prices, refund state. §3.1's own invariant — *"Finance sees money and no contact. Marketing sees contact and no money. Neither sees both."* — was defeated by any org that ever ran one operations export, with no grant being wrong. Fix: `venue.authorize_export_download` re-evaluates `assert_may_request(actor, job.scope, job.template_id)` — the same predicate a fresh request would face. `◐` on X8/X9 is now defined as template-scoped. Assertions 24a/24b, the second stated as an **equality between the request and download predicates** so the two cannot drift. |
@@ -2295,6 +2312,7 @@ weakening it.
 | **K-17** | **This document, §7.1 · §7.2 · new §7.2a · §7.4 · §11.4 · §12** | **H-14 remediation.** The name-prefix lookup had **no rate limit** — the limit table carried rows for `email_exact` and `order_ref` and none for `name_prefix`, and `venue.lookup_attendee`'s contract scoped its limit to `email_exact` **explicitly**. `venue_box_office` holds X4, so iterating `a…z`, `aa…zz` against one session returned the roster one record at a time at no rate cost: the printed list §3.1 refuses (*"a box office cannot print a paper list. That is deliberate."*) reassembled from the surface meant to replace it, by the role denied it. Added: `attendee_lookup_by_name_prefix` at 20/actor + 60/org per 24 h; a **3-character minimum** raised before the lookup and without consuming budget; and **multi-match as an explicit `ambiguous_query` carrying no rows and no count** — a count is the harvest (`"sm"`→14, `"smi"`→9 reconstruct the name distribution without returning a record). **Per-org caps added for every lookup kind**, closing the medium that the export explains per-actor-alone is insufficient two rows above in the same table. Audit records kind **and outcome**, never the probed string; a run of `ambiguous`/`rate_limited` is the sweep signature and the only evidence of one. |
 | **K-18** | **This document, §2.2 field 2 · §4.3 · §4.4 (a) and (d) · §5.1 · §8.3 · §11.2 · §12** | **Known finding 6 — the cross-tenant defence works, the claim did not.** The per-org HMAC pseudonym is genuinely per-org and unreadable by any principal; that part holds. But `display_name` was emitted **on every row of every export at every org, ungated by consent**, from the one global `public.profiles.display_name` string, so two orgs union their files on it directly and corroborate with admission time, `first_seen_at`, ticket types and acquisition route. **Claim deleted verbatim:** *"the **non-consenting majority — every transferee, every comp, every purchaser who left the box unticked — is unjoinable**, which is exactly the population with no relationship to either venue."* The proof resting on it (case (d)'s sub-case) was void as written. **The pseudonym removes the platform-supplied *stable* join key and nothing else** — that is the corrected claim. Fix: `emit_name := emit_email`, one predicate driving both cells in the **export**; `display_name` stays **ungated on screen**, in the single-record lookup and in the door projection, where §5.6 already establishes it is readable and where a surface cannot be unioned with another org's. `name_cells_emitted/suppressed` join the audit pair; the legend covers both columns. Assertion **13c** tests unjoinability itself — the intersection of two orgs' non-blank cell values for a doubly-non-consenting identity must be empty — rather than testing the mechanism the proof credited. **D-13.** |
 | **K-19** | **This document, §4.5 · §5.1 · §6.3 · §7.1 · §10.1 · §11.1 · §11.2 · §11.4 · §12** | **CRM mediums.** (1) **The consent gate's evaluation instant was unspecified** and `identity_contact_pref` had no history, so a paged build necessarily evaluated the four conjuncts at inconsistent instants — falsifying §6.3's byte-identical determinism, assertion 22, and the replay property that is the entire reason per-export membership is not stored. Added `gate_as_of` (stamped at **claim**, re-stamped on re-claim, one instant per build) and two append-only event logs so both mutable conjuncts are as-of evaluable. (2) **The Layer-0 builder grant as written returns zero rows** — `auth.users(id, email)` was not in the enumerated set and non-owner definers are subject to RLS with no permissive policy, so every export would have shipped a blank contact column reading as *"nobody consented"*. Grant set enumerated completely, plus a **blank-column canary** and a positive builder fixture. (3) **`finalize_export` accepted the gate counters as worker-supplied parameters** for numbers §5.1 calls *"the only evidence the consent gate ran"* — evidence the caller hands you is not evidence about the caller. The counters are now accumulated on the job row by `build_export_rows`, inside the definer, by the code that evaluates each cell; `finalize_export` cannot be told them and cross-checks `row_count`. (4) **The platform branch of `list_attendees` had no scope constraint** at 12 000 rows/hour across every session on the platform, in a document whose §3.2 says platform bulk extraction needs dual control and is not built — added a separate limit, a 20-distinct-session cap, a required enum `p_reason_code`, and its own audit action. (5) **Per-org caps** for every lookup kind (with K-17). (6) **Five roles hold both the roster read and the mix card**, so the demographics floor of 5 is a bound over five people the reader can **name** — recorded in §4.5 and as that spec's **D-14**. |
+| **K-20** | **This document, §1.3 · §12 assertion 3** | **Cross-spec consistency.** The demographics spec's R7 excludes comp-caused and zero-price custody from `holder_mix.holders_total`, while §1.5 of this document keeps comped atoms **on** the roster — both deliberately. The identity `COUNT(holder view) ≡ holders_total` was therefore false. Restated as `COUNT(holder view) ≡ holders_total + holders_excluded_ineligible`: the roster is the demographics population plus exactly the comped and zero-price holders, and the difference is a stored number rather than an unexplained discrepancy an operator has to guess at. The assertion is strengthened — its fixture must contain comps, so it cannot pass vacuously, and it now fails if **either** side drifts. |
 
 ---
 

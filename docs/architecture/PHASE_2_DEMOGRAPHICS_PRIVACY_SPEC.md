@@ -460,8 +460,12 @@ card, because every holder is ineligible. That is the correct outcome (at a free
 the entire population, so no anonymity bound holds at all) and it is a real product loss. **Owner decision
 D-12 (§14).** (b) `holders_total` is therefore **not** the count of everyone in the room, and the card's
 denominator is the eligible population, not attendance. §4.3's copy is amended accordingly. (c) The roster
-surface in the CRM spec counts *all* holders; the two numbers legitimately differ and the CRM spec's
-non-contradiction assertion is restated to compare like with like.
+surface in the CRM spec counts *all* holders — comped atoms are deliberately on its roster (that spec's §1.5)
+— so the two numbers legitimately differ. Its non-contradiction identity is restated to
+`COUNT(roster holder view) ≡ holders_total + holders_excluded_ineligible` (its §1.3 and assertion 3). **That
+is why `holders_excluded_ineligible` is stored at all:** the gap between the list an operator counts and the
+denominator on the card beneath it has to be a *stated number*, not a discrepancy they are left to guess at
+and conclude one surface is broken.
 
 **Worked example — the 40-person event from the brief.** 40 holders, of whom 38 are R7-eligible (two were
 comped); 26 of the eligible responded: 20 `woman`, 5 `man`, 1 `non_binary`. R1 passes (26 ≥ 25). R2 fails for
