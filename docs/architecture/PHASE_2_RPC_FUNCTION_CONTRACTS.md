@@ -3937,6 +3937,337 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   other pending offer and marks the listing `sold`; a replayed accept returns the original sale and appends
   no second ownership-log row).
 
+### 20.9 PROMOTER RECORDS AND LINKS — the `090` gap (`U-3`, `U-4`, `G-11`)
+
+> **§17.15–§17.19 contract the promoter *code* RPCs and the promoter *read* RPCs. Nothing contracts the
+> promoter *record* or the promoter *link*.** RLS §9.17 says only *"promoter CRUD"*; §11.5's block covers
+> codes, attribution and reads and carries **no row for any function below**. `U-4` additionally requires a
+> **live slug-availability read that does not exist** — *"the UI is required to check a global namespace
+> against nothing."*
+
+#### 20.9.1 `venue.create_promoter(p_org_id, p_identity_ref, p_terms, p_command_key)` — **DB-RPC**
+
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 has no row. Proposed: **the §11.5 promoter-code allow-list,
+  unchanged** — `has_venue_role(venue, ['venue_manager','venue_promoter_manager'])` OR
+  `has_org_role(['org_owner','org_admin','org_promoter_manager'])`, scoped to the promoter's org. Creating
+  the promoter a code is minted for cannot require less authority than minting the code.
+- **A promoter is not a role, and this function must not become a grant path.** Creating a
+  `venue.promoter` row confers **no `venue.staff_role`, no `kernel.org_member` row and no platform role** — a
+  promoter *"holds no row in any of the three authz tables, so every administrative predicate returns false
+  for them and deny-by-default denies the capability without a policy having to say so"* (§1.1c). Their
+  authority is **row ownership** (`venue.promoter.identity_id = auth.uid()`), tested live by
+  `kernel.is_promoter_for_event` and by §17.19's reads. **`T-RPC-PROMO-12` (structural):** this function's
+  definition writes none of `venue.staff_role`, `kernel.org_member`, `kernel.platform_role`.
+- **Params.** `p_org_id`; `p_identity_ref` (email/handle/uid — **untrusted, resolved server-side**, and
+  **nullable**: schema §3.17 permits an off-platform party, and `party_kind='affiliate'` is *"attributed by
+  API key or link instead of a personal account"*); `p_terms` = `{ tier, party_kind, commission_kind,
+  commission_bps | commission_flat_minor, currency, terms_version }`.
+- **Preconditions — the commercial-terms XOR, enforced here and by the `090` CHECK.**
+  `commission_kind='bps' ⇒ commission_bps` present (0–10000) and `commission_flat_minor` NULL; `'flat_per_
+  ticket' ⇒` the converse. **A promoter with no terms at all is rejected** (plan `090` Tests). `tier ∈
+  {professional_invited, public_ambassador}` and `party_kind ∈ {promoter, affiliate}` — the ratified label
+  sets, re-validated in-body. `terms_version` is **server-assigned**, never client-supplied.
+- **Locks.** None cross-aggregate (INSERT). **Admin plane. SSCAS.** `n/a`. **Idempotency.** `p_command_key`.
+- **Writes.** `venue.promoter` (INSERT `active`), `kernel.admin_audit` (`promoter.create`, with the terms).
+- **Result.** `{ status, promoter_id, terms_version }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `precondition_failed(terms_xor_violation | bad_tier | bad_party_kind)` · `idempotency_replay`.
+- **Forbidden callers.** **A promoter creating another promoter**, `org_finance`, `venue_finance`,
+  `venue_box_office`, `venue_scanner`, the door session, both marketing labels, `org_member`, fans, `anon`.
+
+#### 20.9.2 `venue.update_promoter(p_promoter_id, p_patch, p_reason_code, p_command_key)` — **DB-RPC**
+
+- **Authority.** As §20.9.1 (`PROPOSED`).
+- **Terms changes are VERSIONED, never overwritten, and this is the contract's central property.**
+  `venue.attribution` records `terms_version` per attributed sale, and §20.7.2 pays commission from **the
+  version recorded on the attribution row**, not the promoter's current terms. So a terms change **writes a
+  new `terms_version`** and **binds only sales attributed after it**. *"The terms in force at settlement
+  rather than at sale would govern the commission"* is the failure §6.3 rules out; an in-place terms
+  overwrite reintroduces it silently, changing the commission owed on sales that already happened.
+  **`T-RPC-PROMO-13`:** a terms change leaves every existing attribution's `terms_version`, and the
+  commission a subsequent close pays for those sales, **byte-identical**.
+- **Patch set.** `tier`, `party_kind`, `commission_kind` + its amount, `currency`, `status ∈ {active,
+  inactive}`. **Never writable:** `org_id`, `identity_id` (re-pointing a promoter record at a different
+  person would silently reassign their earnings — the same no-reassignment property §17.15 enforces on codes,
+  where *"changing `promoter_id` … is explicitly impossible"*), `promoter_id`.
+- **`status='inactive'` is the deactivation control the product actually has** — see §20.9.4. It takes effect
+  at the next `venue.resolve_order_attribution` (§17.14), which reads the promoter live; **it is not
+  retroactive** and no recorded attribution is affected.
+- **Locks.** The `venue.promoter` row `FOR UPDATE` (admin plane). **SSCAS.** `n/a`. **Idempotency.**
+  `p_command_key`; a no-change patch is `noop_replay` and **issues no new `terms_version`** (version churn
+  would make the attribution snapshots unreadable).
+- **Writes.** `venue.promoter`; `kernel.admin_audit` (`promoter.update`, before/after terms, `reason_code`
+  mandatory on a terms change).
+- **Result.** `{ status, promoter_id, terms_version }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `invalid_input(unwritable_key)` · `precondition_failed(terms_xor_violation | reason_required)`.
+
+#### 20.9.3 `venue.create_promoter_link(p_promoter_id, p_event_id, p_slug, p_command_key)` — **DB-RPC**
+
+- **Authority.** As §20.9.1 (`PROPOSED`). **A promoter may not mint their own link**, on exactly §17.15's
+  reasoning for codes: `venue.promoter_link.slug` is **globally unique** (schema §3.17) and the link is
+  **IMM once created**, so a self-minted slug is *"a self-minted distribution surface over a global
+  namespace"* and the grab is **permanent**.
+- **Preconditions.** Promoter exists, `status='active'`, in the caller's org; `p_slug` passes the format
+  CHECK; **`p_slug` is globally free** — enforced by `UNIQUE(slug)`, so a race surfaces as `slug_taken` from
+  the index rather than from a check-then-insert.
+- **The link is immutable once created** (schema §3.17). There is no `update_promoter_link`; correcting a
+  slug means creating a new link and deactivating the promoter or the link (§20.9.4). **Stated because a
+  well-meaning `update` RPC would break the `attribution.link_id` FK's meaning**: an attribution names the
+  link that produced it, and re-slugging a link retroactively rewrites how a past sale was attributed.
+- **Locks.** None cross-aggregate (INSERT). **Admin plane. SSCAS.** `n/a`. **Idempotency.** `p_command_key`;
+  a replay returns the same `link_id`, while a **different** command key with the same slug returns
+  `slug_taken` — **never a silent second link**, the same rule §17.15 states for codes.
+- **Writes.** `venue.promoter_link` (INSERT), `kernel.admin_audit` (`promoter_link.create`).
+- **Result.** `{ status, link_id, slug }`. **Errors.** `insufficient_privilege` · `not_found` ·
+  `slug_taken` · `precondition_failed(promoter_inactive | invalid_slug_format | event_out_of_org)` ·
+  `idempotency_replay`.
+
+#### 20.9.4 `venue.set_promoter_link_status(p_link_id, p_status, p_reason_code, p_command_key)` — **DB-RPC** — **BLOCKED on an additive schema column**
+
+- **The conflict, stated rather than worked around.** Dashboard `U-4` requires *"change link status."*
+  **`venue.promoter_link` has no `status` column** — schema §3.17 defines exactly `link_id`, `promoter_id`,
+  `slug`, `created_at` and marks the row **IMM once created**. And it **cannot be deleted**:
+  `venue.attribution.link_id` is `FK … on delete restrict`, so any link that ever produced a sale is
+  permanent by construction. **A control the dashboard requires is expressible against no column.**
+- **What the product actually has in MVP, and it is sufficient.** Deactivating a promoter
+  (`venue.update_promoter`, `status='inactive'`, §20.9.2) makes **every one of their links inert at the next
+  `resolve_order_attribution`**, because §17.14 reads `venue.promoter` live. **Per-link deactivation is a
+  finer-grained control than the corpus has a column for, not a missing capability.** A venue that needs one
+  link dead today has: deactivate the promoter, or let the link resolve and adjudicate the attributions.
+- **Contracted, and conditional.** If the owner schedules the column, this is its writer, and it must carry
+  these properties: authority as §20.9.1; `p_status ∈ {active, inactive}`; **never retroactive** (no recorded
+  attribution is affected, matching §17.15's rule for code status/scope/window); the `venue.promoter_link`
+  row `FOR UPDATE` (admin plane); `SSCAS: n/a`; idempotent on `p_command_key` + terminal state; writes the
+  status and `kernel.admin_audit('promoter_link.status')`; errors `insufficient_privilege` · `not_found` ·
+  `precondition_failed(reason_required)`.
+- **Filed for the schema owner (§20.14).** Either **add `venue.promoter_link.status text NOT NULL DEFAULT
+  'active' CHECK (status IN ('active','inactive'))` to package `090`** — additive, on an unbuilt table, so
+  it is a design edit and not a schema alteration — **or** the dashboard's `U-4` status control must be
+  removed from the surface. **This document cannot make either change**, and until one is made the control
+  renders against nothing.
+
+#### 20.9.5 `venue.check_promoter_slug_available(p_slug)` — **DB-RPC (read)** · `NEW RPC` (`U-4`, `G-11`)
+
+- **The read the UI is required to run and that does not exist.** Dashboard `U-4`: *"no availability-check
+  read exists — the UI is required to run a live global-namespace check before enabling create, against
+  nothing."*
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed: **the §20.9.3 allow-list, and no
+  wider.** **This must not be `authenticated`.** `venue.promoter_link.slug` is a **global** namespace: an
+  open availability check is a **cross-tenant enumeration oracle** — anyone could map every promoter slug on
+  the platform, which is competitive intelligence about who is selling for whom. The same reasoning makes
+  `venue.preview_promoter_code` (§17.16) return a single `not_applicable` payload for every failure.
+- **Returns.** `{ available bool }` — **and nothing else.** **No owner, no org, no promoter name, no
+  created_at, no "taken by another org" distinction.** A caller learns only whether *they* may create it.
+- **Advisory, and it says so.** The check is unlocked and **may lose to a concurrent create**;
+  `UNIQUE(slug)` is the authority and `create_promoter_link` returns `slug_taken`. **The client must never
+  persist the check as the answer** — same caveat as §17.16 and §20.6.3.
+- **Rate-limited per principal, fail-closed** — an availability check called in a loop *is* the enumeration
+  primitive the authority narrowing was chosen to prevent, so the narrowing alone is not sufficient.
+- **Writes: none. Locks: none. SSCAS: n/a.** **Errors.** `insufficient_privilege(42501)` ·
+  `invalid_input(bad_slug_format)`.
+- **Test.** `T-RPC-PROMO-14` (an `authenticated` fan and an `org_owner` of a **different** org are both
+  refused; the result payload is `{available}` and nothing else, asserted by field-list comparison so an
+  oracle cannot creep back in through an added field).
+
+### 20.10 `venue.get_dashboard_summary(p_scope_kind, p_scope_id)` — **DB-RPC (read)** · `NEW RPC` (`U-7`, `G-18`)
+
+- **The least severe of the ten, and it is contracted rather than dropped so the decision is the owner's.**
+  Dashboard §6.1 asks for every home tile in one round trip; **no delta spec adopted it**; home degrades to
+  N queries rather than failing (`G-18`).
+- **Authority.** `PROPOSED AUTHORITY` — RLS §11 is silent. Proposed: **the union of the authorities of the
+  reads it aggregates, evaluated per tile, with denied tiles ABSENT from the result rather than null** —
+  the identical construction §17.22 mandates for `venue.list_attendees` (*"column-scoped by role — and
+  denied classes are ABSENT from the result shape, not null"*). A `venue_marketing` caller gets the audience
+  tiles and **no money tile key at all**; a `venue_finance` caller gets the money tiles and **no contact
+  tile key**. `has_org_role` / `has_venue_role` / `has_org_role_over_venue` decide, per tile, live.
+- **This is the contract's whole risk, and it is why the construction is not negotiable.** An aggregate read
+  is the classic place where a permission model quietly widens: one function, one grant, N projections, and
+  the narrowest caller ends up seeing a number derived from data they may not read. **Absent-not-null is what
+  makes over-exposure detectable by a key-set comparison in a test** rather than by reading the body.
+- **Returns (per tile, each present only if authorized).** `{ sessions_today[], on_sale_count,
+  tickets_sold_today, gross_today_minor, holds_active, comps_issued, door_open bool, scans_admitted,
+  pending_refund_requests, pending_approvals, export_jobs_ready }`. **Counts and scalars only — no row
+  lists, no attendee names, no order references.**
+- **It aggregates; it must not re-implement.** Every number is derived from the same predicate its owning
+  read uses (`venue.list_attendees` for audience counts, `kernel.list_org_payouts`/`list_org_refunds` for
+  money, `venue.get_door_manifest`'s episode for `door_open`). **`T-RPC-DASH-01`:** for every tile and every
+  role, the summary's value equals the value the owning read returns, or the key is absent — asserted across
+  the full role × tile matrix, because a summary that computes its own answer is a second authority model.
+- **Writes: none. Locks: none. SSCAS: n/a.** Rate-limited per principal (it is a home screen; it is polled).
+- **Errors.** `insufficient_privilege(42501)` (only when **no** tile is authorized — a caller authorized for
+  one tile gets that tile, not a 403) · `not_found`.
+- **The owner's actual decision (`G-18`), stated so it can be taken rather than drifted into.** Accept N
+  queries on home, or schedule this RPC. **Nothing else in the corpus depends on it**, so it may be deferred
+  without blocking a package — which is precisely why it will be deferred by default unless named.
+
+### 20.11 SEAM AND HOOK FUNCTIONS — plan objects with no contract
+
+These four are **named as objects in migration plan §8** and contracted nowhere. Three of them are
+**`CREATE OR REPLACE` seams**: a stub lands in one package and a later package replaces its body. An
+implementer who does not know a function is a seam will either write the full body too early (and reference a
+table that does not exist yet — the SEAM-1 failure the plan's §13 exists to prevent) or forget the
+replacement (and ship a stub that silently returns nothing).
+
+#### 20.11.1 `kernel.settlement_royalty_lines(p_settlement_id)` — **DB-RPC** · `EXEC: DEF` · SEAM-2
+
+- **Signature.** `RETURNS SETOF settlement_line_candidate` — `{ cause, cause_ref, amount_minor, currency,
+  payee_kind, payee_id }`. **A pure read that returns candidate rows; it inserts nothing.**
+  `kernel.close_settlement` (§10.2) writes them.
+- **Authority.** **`EXEC: DEF`** — `REVOKE EXECUTE FROM anon, authenticated, public`; called only by
+  `close_settlement` inside the closing transaction. `PROPOSED` — plan §8 names the object and states no
+  grant.
+- **The seam, and both bodies.** Created in **`087`** as a stub returning **zero rows** — *"so a close at
+  `087` is arithmetically complete without it"* (plan `087` Tests). Replaced in **`088`** by
+  `CREATE OR REPLACE` adding the **`market_sale` royalty arm**, because `market.market_sale` does not exist
+  until `088`. **A rollback of `088` must restore the `087` stub body** (plan `088` Rollback) — *"a rollback
+  of `088` must not leave `settlement_royalty_lines` reading a dropped table."*
+- **Locks: none** (it reads under the caller's Settlement lock). **SSCAS:** `n/a` — it writes nothing.
+- **Idempotency.** Pure; `STABLE`. Determinism is required: **two calls in one transaction must return the
+  same set**, or the settlement's arithmetic is not reproducible from its inputs.
+- **Errors.** None — **it must not raise.** A raise here rolls back a settlement close.
+- **Test.** Plan `088`'s own assertion, cited rather than renumbered: *"`settlement_royalty_lines` now
+  returns rows for a seeded native sale (the stub was replaced, not merely present)"* — filed as
+  `T-RPC-SEAM-01`.
+
+#### 20.11.2 `kernel.settlement_commission_lines(p_settlement_id)` — **DB-RPC** · `EXEC: DEF` · SEAM-2
+
+- **Signature / authority / posture.** As §20.11.1. Created in **`087`** as a zero-row stub; replaced in
+  **`090`** adding the **`venue.attribution` arm**; the `090` rollback restores the `087` body.
+- **Why the seam exists at all, which §16.7 already flags.** `kernel.close_settlement` is contracted in a
+  package that **precedes the table it reads**: it reads `venue.attribution` and writes
+  `promoter_commission` payouts, and the promoter package that *creates* `venue.attribution` lands later. The
+  seam is the resolution — *"the settlement package defines `close_settlement` promoter-agnostic, and the
+  promoter package issues a `CREATE OR REPLACE` adding the commission leg."*
+- **It must honour the hold semantics of §17.18 / §20.7.2** — a flagged, unadjudicated attribution yields
+  **no candidate row at all**, not a zero-amount one, because *"a zero line would consume the one slot"*
+  under `090`'s cross-settlement `UNIQUE(cause_ref) WHERE cause='promoter_commission'`.
+- **Test.** Plan `090`'s assertion, cited: *"`settlement_commission_lines` now returns a row for a seeded
+  attribution"* — filed as `T-RPC-SEAM-02`, **plus** the negative: a flagged unreviewed attribution yields
+  none (`T-RPC-MONEY-19`).
+
+#### 20.11.3 `market.on_atom_voided(p_atom_id, p_refund_id, p_cause)` — **DB-RPC** · `EXEC: DEF` · SEAM-2
+
+- **This function exists to preserve C8 in the one direction that is easy to violate.** §7.3 says
+  `kernel.void_ticket_atom` writes *"`market.market_sale.terminal_state := 'compensated'` when driven by
+  C25"* — **and §0.7 says the kernel never writes `market` tables.** The seam is how both are true: the
+  kernel calls **`market.on_atom_voided`**, a `market`-owned definer primitive, in the same transaction.
+  **This mirrors `venue.record_scan → kernel.mark_ticket_scanned` and `venue.open_door_manifest →
+  catalog.engage_door_freeze` exactly** — *"the owning schema exposes a definer primitive and the calling
+  schema invokes it in the same transaction"* (§17.12). **An implementer who writes
+  `UPDATE market.market_sale` inside `kernel.void_ticket_atom` breaks the modular-monolith boundary and the
+  `085`-before-`088` package order at once.**
+- **Authority.** **`EXEC: DEF`**, `service_role` only. `PROPOSED` — plan §8 names it and states no grant.
+- **The seam.** Created in **`085`** as a **no-op stub** (`market.market_sale` does not exist yet); replaced
+  in **`088`** by `CREATE OR REPLACE` setting `terminal_state := 'compensated'`. A rollback of `088` restores
+  the stub.
+- **Preconditions & idempotency.** The sale row is located by `ticket_atom_id`; **if no sale exists the call
+  is a silent no-op, not an error** — most voided atoms were never resold, and a void must never fail because
+  the market layer has nothing to say. **Compensate-XOR-complete** is enforced under the sale's row lock: a
+  `completed` sale **cannot** be flipped to `compensated` (`conflict_locked`), which is the C26 terminal
+  state machine and the reason this is a function rather than an `UPDATE`.
+- **Locks & order.** `market.market_sale` row `FOR UPDATE` — **rank 4 (Listing class)**. **The caller
+  (`void_ticket_atom`, member #3) already holds Inventory(2) and is about to take Ticket Atom(5)**, so this
+  acquisition sits **between** them and the sequence stays ascending: 2 → 4 → 5 → 6. **This is the one
+  ordering fact the seam introduces and it must be honoured: `on_atom_voided` is called BEFORE the atom lock,
+  not after.** `T-RPC-SEAM-03` asserts the call order structurally.
+- **SSCAS.** `n/a` — it participates in member #3, adding no member.
+- **Test.** Plan `088`'s assertion, cited: *"`on_atom_voided` flips a seeded sale to `compensated`"* —
+  filed as `T-RPC-SEAM-03`, plus the XOR negative (a `completed` sale raises).
+
+#### 20.11.4 `venue.normalize_promoter_code(p_code text) RETURNS text` — **IMMUTABLE STRICT** · not an RPC in the authority sense
+
+- **The one function in §20 with no actor, no authority and no grant question.** It is `IMMUTABLE STRICT`,
+  pure, and used inside a **unique index** — `UNIQUE(code_normalized)`, *"global — the only index on the
+  checkout hot path"* (plan `090`). It is contracted here because **plan `090` names it and nothing states
+  its contract**, and because its one operational property is severe.
+- **`FROZEN ONCE `090` APPLIES WITH LIVE CODES`** — plan `090` states this and this document restates it as a
+  contract term: **the function's output is baked into a unique index.** Changing its body silently
+  invalidates every index entry computed under the old definition, so two codes that collided yesterday may
+  not collide today and a lookup may miss a live code. **There is no migration that "just" changes it** — it
+  requires a full index rebuild and a collision audit, and it must be treated as a data migration on the
+  checkout hot path, not a function edit.
+- **Behaviour.** Case-fold, trim, and collapse the Crockford-confusable classes (`O`/`0`, `I`/`L`/`1`) —
+  which is what makes plan `090`'s assertion true: *"`UNIQUE(code_normalized)` rejects a second code
+  differing only by Crockford-confusable characters after normalization."*
+- **`STRICT` matters:** `NULL` in ⇒ `NULL` out, so a null code cannot normalize to the empty string and
+  collide with another null. **`IMMUTABLE` matters:** without it Postgres refuses the expression index.
+- **It reads no table and takes no lock.** Any future version that consulted a table would cease to be
+  `IMMUTABLE` and the index would be invalid — **which is a second, independent reason the body is frozen.**
+
+### 20.12 §14.1 ADDENDUM — new RPCs mapped to EXISTING SSCAS members
+
+**No row of §14.1 is rewritten and no member is added.** This table records which of §20's contracts
+participate in a member that already exists, so §14.2's proof covers them without amendment.
+
+| C12 # | Member | RPC(s) §20 adds as a **caller** | Acquisition sequence | Ascending? |
+|---|---|---|---|---|
+| 1 | Primary issuance | **`venue.issue_comp`** (§20.5.2) → `kernel.issue_ticket_atoms` | Inventory(2) → Ticket Atom(5, new) | ✔ |
+| 2 | Native sale / resale (C8) | **`market.respond_offer`** accept (§20.8.6) → `kernel.transfer_ticket_ownership` — *already named in §14.1's cell; now contracted* | Event/Session(1, `FOR SHARE`) → Listing(4) → Ticket Atom(5) → Payment(6) | ✔ |
+| 3 | Refund-void | **`kernel.admin_refund`** (§20.7.1); **`market.on_atom_voided`** (§20.11.3) inside it | Inventory(2) → **Sale(4)** → Ticket Atom(5, asc id) → Refund/Payment(6) | ✔ |
+| 5 | Attribution → commission | **`kernel.pay_promoter_commission`** (§20.7.2) — the payout leg of §14.1's *"commission line"* | (Attribution **read**, unlocked) → Settlement(6) → Payout(6, fixed sub-rank) | ✔ |
+| 6 | Native listing create | **`market.create_listing`** (§20.8.1) → `kernel.lock_ticket` — *already named; now contracted* | Listing(4) → Ticket Atom(5) | ✔ |
+| 6-rev | Listing unlock overlay | **`market.cancel_listing`** (§20.8.2) → `kernel.unlock_ticket` | Listing(4) → Ticket Atom(5) | ✔ |
+
+**Bounded batches of a single-aggregate operation, which are not members** (the construction §17.10 uses for
+its drain): `venue.sweep_expired_inventory_holds` (§20.3.3) — Inventory(2) per row, rows ordered ascending
+`batch_id` then `hold_id`, each row its own transaction.
+
+**Everything else in §20 is `SSCAS: n/a (single-aggregate)`.** **The set stays closed at fifteen. No contract
+in this section required a sixteenth member, and none was added.**
+
+**One ordering fact §20 introduces**, recorded here because it is the only one: **`market.on_atom_voided`
+takes rank 4 inside member #3, and must therefore be invoked BEFORE the rank-5 atom lock, not after**
+(§20.11.3). This is consistent with §14.2's NB, which already pins **Inventory-before-Atom** in every void
+path for the same reason — the void path is the one place in the corpus where a lower rank is naturally
+reached for late.
+
+### 20.13 NAMING REGISTER — the canonical name for every function with two (`G-20`)
+
+**Two names for one function produces two functions or none.** Six divergences exist between RLS §11 /
+dashboard §20A and this document's §2–§9. **This document is the canonical namer** (traceability `G-20`), and
+§5's existing *"Naming reconciliation"* note establishes the convention: the schema/RLS name may remain the
+**physical** function name, with the contract name as a documented alias. That convention is extended to all
+six and to the three names §20 assigns.
+
+| RLS §11 / schema name | Contract name (§) | Ruling |
+|---|---|---|
+| `kernel.grant_org_role` / `revoke_org_role` | `kernel.change_org_role` (§2.4) / `remove_org_member` (§2.5) | **Alias.** One function per pair; §16.6 already records it |
+| `catalog.set_venue_approval` | `catalog.approve_venue` (§3.2) | **Alias** |
+| `catalog.set_event_status` | `catalog.publish_event` (§4.2) | **Alias** |
+| `venue.reserve_inventory` | `venue.reserve_primary_inventory` (§5.3) | **Alias** (§5's note) |
+| `venue.release_hold` | `venue.release_inventory_hold` (§5.5) | **Alias** (§5's note) |
+| `venue.create_order` | `venue.create_primary_checkout` (§6.1) | **Alias** |
+| `venue.issue_door_pin` | `venue.create_door_pin` (§9.1) | **Alias** |
+| `venue.record_offline_scans` | `venue.reconcile_offline_scans` (§9.5) | **Alias** |
+| `venue.set_ticket_type_price` | *(unchanged)* — §20.3.1 | **Not a divergence**; it had no contract, now it has one |
+| `catalog.set_resale_policy` | *(unchanged)* — §20.2.2 | **Not a divergence**; same |
+| *"manifest-sync"* (unnamed) | **`venue.sync_scan_device_manifest`** (§20.4.4) | **NAMED HERE** |
+| *"bid RPC"* (unnamed) | **`market.place_bid`** (§20.8.4) | **NAMED HERE** |
+| the nightly holder-mix reconciliation (unnamed) | `venue.reconcile_holder_mix` (§17.20) | Named in §17.20; recorded here for completeness |
+| `venue.set_door_open_at` | **— does not exist —** | **RULED OUT** (§20.6.5); the capability is re-homed as `catalog.set_session_door_schedule` |
+
+> **`T-RPC-SET-02`:** exactly one physical function exists per row of this table. An alias that becomes a
+> second `CREATE FUNCTION` is the failure `G-20` predicts, and it is invisible until two call sites disagree.
+
+### 20.14 REQUESTS TO OTHER INTEGRATORS — what §20 cannot fix in its own file
+
+**This document owns `PHASE_2_RPC_FUNCTION_CONTRACTS.md` and edited nothing else.** Each item below is a
+change another spec's owner must make; each names the file, the section and the reason.
+
+| # | File | Change | Why it cannot wait |
+|---|---|---|---|
+| **R-1** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11.4 | **Replace** the `venue.set_door_open_at` (O4-3) row with `catalog.set_session_door_schedule`, same allow-list | §11.4 **is** the authority table. Until it changes, an implementer following it builds the function §20.6.5 rules out, and O-5's sole-writer property becomes false in practice |
+| **R-2** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add the fourteen missing EXEC rows of §20.0c**, with the grant class §20.0c states for each | Six are `EXEC: DEF` custody/sweep primitives (`finalize_primary_order`, `lock_/unlock_ticket`, `mark_ticket_scanned`, both `market.sweep_*`). A migration author with no row guesses, and the guess that fails open hands the mint to `authenticated` |
+| **R-3** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add rows for the functions §20 contracts under `PROPOSED AUTHORITY`** — §20.1.1, §20.1.5, §20.2.3, §20.2.4, §20.3.2, §20.3.3, §20.6.3, §20.6.4, §20.9.1–§20.9.5, §20.10, §20.11.1–§20.11.3 — **or reject the proposal** | A proposal recorded only in a contract document is not authority. §20 says so at each site; the row is what makes it real |
+| **R-4** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 | **Add §11 rows for the guest-list RPCs** (§20.5.3–§20.5.6). Their authority is real and lives in **§9.16's matrix**, which §11 does not roll up | §11 claims to be the consolidated authority table; four functions whose authority exists only in a per-table matrix falsify that claim |
+| **R-5** | `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §3.17 / plan `090` | **Add `venue.promoter_link.status`** (additive, on an unbuilt table), **or** the dashboard's `U-4` status control must be removed | §20.9.4 is contracted against a column that does not exist. The link is IMM and FK-restricted, so there is no other expression of the control |
+| **R-6** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `081` | **Add `venue.sweep_expired_inventory_holds` to the Functions row and its assertion to the Tests row** | `G-24`. The index is built for a sweep the package does not create; without it held capacity never returns and every abandoned checkout removes inventory from sale permanently |
+| **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_event_security_config`, `set_session_door_schedule`; `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available` | A contracted function with no package is a function nobody builds. §8 is where an implementer looks |
+| **R-8** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §20A.1 → §20A.2 | **Move the `venue.allocate_comp` / `venue.issue_comp` rows** out of *"mapped — write controls with a named RPC"* | `G-4`. §20A.1 asserts a contract that did not exist; the name existed and the contract did not. §20.5 now supplies it, so the rows may move to *"mapped"* only once §20 is merged — **and the earlier listing must not be cited as evidence that they were mapped** |
+| **R-9** | **Owner ruling** | **The bid ledger's home** (§20.8.4 `OPEN DECISION`): accept "native-only auctions are not offered in MVP", or schedule the EXT `market.bid` ledger into `088` | §16.5, schema §4.2 and schema §4.9 leave it open in three different words. An implementer facing that silence creates a table no package specifies — and a bid ledger invented at build time is a money surface with no review |
+| **R-10** | **Owner ruling** | **`venue.get_dashboard_summary`** (`G-18`): accept N queries on home, or schedule it | Nothing depends on it, which is exactly why it drifts. §20.10 makes it decidable |
+| **R-11** | **Owner confirmation** | **`venue.set_event_security_config`'s key set** (§20.6.6) and **`kernel.revoke_signing_key`'s acknowledgement parameter** (§20.7.5) are `INFERENCE — AUTHORED`. Both narrow or extend a granted row | RLS §11.4 grants a function no document defines; §20.6.6 supplies a definition so it is not invented at build time, but the owner should confirm it rather than inherit it |
+| **R-12** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `088` | **Fold `market.offer` expiry into the `088` sweep tick** (§20.8.5) | `market.offer` has `expires_at` and an `expired` label that nothing writes — the `G-24` shape a second time. **Not** load-bearing (an offer holds nothing), so it needs a statement, not a new function |
+
 ---
 
 *End of docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md. Design-only; no SQL, no function bodies. Companion to the physical
