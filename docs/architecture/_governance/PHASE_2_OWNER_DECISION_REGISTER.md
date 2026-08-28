@@ -1614,3 +1614,270 @@ scheduled, `SEAM-1` floors it at `090`.
 preamble · AMEND §14.2-J `OD-66`.
 **Recommendation — split.** AMEND `OD-66`: *"Home works at N queries."* RPC declines: *"it is contracted rather
 than dropped so the decision is the owner's."*
+
+---
+
+# BAND 4 — blocks nothing in the current scope
+
+Thirty-one decisions. Real, unanswered, and nothing in the Phase-2 scope waits on them. Four need counsel
+rather than the owner; four are commercial or platform questions outside the design corpus entirely. Kept in
+the same instrument so that "we never decided that" is never the answer.
+
+Format: **choice** · *what breaks* · **silence** · blocks · filed at · recommendation.
+
+---
+
+### ODR-93 — Cross-region native resale: saga/escrow, or intra-region-only?
+Saga/escrow over the `paid_pending_transfer` money-safety window, **or** explicit intra-region-only scoping of
+native resale. *`C8` (single-DB sale) and `C14` (home-region log) are mutually exclusive, so cross-region
+native resale is undefined; the two admissible forms are ratified constitution text and the **choice** is
+this.* **Silence → SAFE:** the Miami single-region MVP builds neither.
+Blocks: Gate M / multi-region. No package.
+Filed at: record rows `C50` / **`O6`** · DA §0.4 + §6.2 · CDM §12 + §15 `C50` · risk register `R10` · AMEND
+§14.2-K `OD-80`.
+Recommendation: **none of substance** — AMEND `OD-80`: *"Miami single-region builds neither; carried so it is
+not lost."*
+
+### ODR-94 — Offline first-admit-wins consensus under clock skew and partition
+Design the arbitration and fraud-queue mechanism, or continue on `C23`'s total order as the interim. *Without
+it, offline scanning at scale has no defined arbitration for two doors that each admit first.* **Silence →
+SAFE at current scale**, unsafe at offline scale.
+Blocks: *"offline scanning at scale."* No package.
+Filed at: DA §0.4 · `_governance/ARCHITECTURAL_RISK_REGISTER.md` (*"**Still OPEN**"*) · SCHEMA §12.
+Recommendation: **none.**
+
+### ODR-95 — Resale-policy snapshot drift
+Define the runtime capture rule for a native listing that outlives a mid-sale policy change, or leave it. *A
+listing can carry a policy the org has since changed; storage is versioned (schema §2.5) and the runtime
+capture rule at listing time is open.* **Silence → SAFE until native resale.**
+Blocks: Gate M / native resale. No package.
+Filed at: DA §0.4 · risk register (*"decide before native resale"*) · SCHEMA §2.5 + §11 + §12 · CTO memo Gate M
+item 15.
+Recommendation: **none.**
+
+### ODR-96 — Per-event identity-verification strength
+Name-match-required versus custody-follows-credential, and how strong verification must be per ticket and per
+event. *"where exactly identity binds, how strong the verification must be per ticket/event, and what happens
+when a verified name legitimately differs (marriage, legal change, corporate holder) remain open."* **Silence →
+SAFE:** custody is primary and name-match layers on.
+Blocks: nothing named; high-risk events.
+Filed at: DA §0.4 + the "three hardest open questions" appendix item 2 · risk register · SCHEMA §3.12 + §12.
+Recommendation: **none.**
+
+### ODR-97 — Which privacy regimes apply? *(counsel)*
+*"(a) treat US-only, (b) treat GDPR as applying to visitor traffic, (c) build to the strictest and stop
+asking."* **Silence → SAFE:** the design already satisfies the strictest reading.
+Blocks: nothing. Filed at: DEMOG §14 `D-1` + §3.1 · AMEND §14.2-C `OD-15`.
+Recommendation: *"Counsel. The design survives the strictest answer with no redesign."*
+
+### ODR-98 — Is gender identity special-category / sensitive personal information? *(counsel)*
+Yes or no. *A "yes" would normally force redesign; here it does not — the capture is already explicit-consent
+shaped.* **Silence → SAFE.** Blocks: nothing.
+Filed at: DEMOG §14 `D-2` + §3.1 · AMEND §14.2-C `OD-18`.
+Recommendation: *"Counsel. A 'yes' requires no change."* The demographics spec asserts **no** legal conclusion
+of its own, deliberately.
+
+### ODR-99 — Which mandatory notification types are legally compulsory, and where? *(counsel)*
+Treat the 24-type mandatory class as a product-ethics choice, or as a compliance control. *Consumer-protection
+receipt rules, payment-reversal disclosure, card-network dispute notices and app-store guidance all bear on
+it.* **Silence → the ethics judgement stands as if it were the legal answer** — harmless as product posture,
+unsafe as compliance posture.
+Blocks: *"whether the class is policy or compliance."* Nothing structural — *"the answer changes one registry
+column."*
+Filed at: NOTIF §10 `O-N4` + §3.4 + Appendix A2 · AMEND §14.2-H `OD-49`.
+Recommendation: *"Counsel. The design is built so the answer changes one registry column."*
+
+### ODR-100 — The confidential-IP document in repository history *(counsel)*
+Accept the exposure, or rewrite history. *Tied to `ODR-101`: if the repository stays public, the IP agreement's
+presence in history becomes a decision that cannot be undone by a visibility change alone.*
+**Silence → exposure stands.**
+Blocks: nothing in the design corpus.
+Filed at: `_governance/SNATCHIT_GITHUB_REPOSITORY_STABILIZATION_ROADMAP.md` §6 / §19.7.
+Recommendation: **none** — it is posed as a counsel question.
+
+### ODR-101 — Repository visibility: private now, or stay public?
+Make the repository private, or keep it public. *Staying public makes the Class-C removals and demo-credential
+rotation immediate, and turns `ODR-100` into a history-rewrite decision.* **Silence → stays public.**
+Blocks: nothing in the design corpus; it gates that roadmap's PR sequence.
+Filed at: roadmap §8 / §19. **Note:** the whole roadmap is marked *AWAITING OWNER APPROVAL*.
+Recommendation — yes: *"unless being public serves a deliberate goal *today*, **make the repository PRIVATE
+now**."*
+
+### ODR-102 — Buy the Supabase Pro plan?
+Buy Pro (~$25/mo) or stay on the current plan. *Pro is what enables Supabase **branching**, and branching is
+what a Development → Staging → Production chain needs; it also enables **PITR**, **network restrictions** and
+**log drains**, all recommended by the security audit. Without it there is no production-like environment in
+which to rehearse the sixteen-package chain.* **Silence → no staging environment**, and every Phase-2 migration
+is rehearsed only against a local database.
+Blocks: nothing in the corpus by name; it is the *"biggest structural gap before Phase 2"* in that document's
+own words.
+Filed at: `docs/architecture/PHASE_1_FOUNDATION.md` §6 (*"**Owner decision.**"*).
+Recommendation: **none stated as such** — the section argues the need and stops.
+
+### ODR-103 — GitHub Copilot?
+Purchase now, or not. **Silence → not purchased.** Blocks: nothing.
+Filed at: roadmap §18.
+Recommendation — yes: *"**NO — not now.** … Decision: no purchase; re-evaluate at team ≥2."*
+
+### ODR-104 — Add `age_band` in a later wave?
+Add the field (`18_20 · 21_24 · 25_34 · 35_44 · 45_plus · prefer_not_to_say`, *"**Bands only. Never a date of
+birth, never a year, never a derived integer age**"*), or not. *Adding without a fresh `notice_version` and its
+own opt-in silently enrols someone in a new dimension; a DOB adds minor-data and identity-theft liability; it
+may never be crossed with gender.* **Silence → SAFE:** not in Phase 2.
+Blocks: nothing. Filed at: DEMOG §14 `D-3` + §1.5 · AMEND §14.2-E `OD-30`.
+Recommendation: *"Value set pre-specified; needs a new `notice_version` and a separate opt-in. **Not Phase
+2**."*
+
+### ODR-105 — Does `platform_admin` get aggregate demographic access at all?
+Yes, any session, audited — or zero platform access. *Yes means a platform-wide demographic read exists at all;
+no means platform cannot diagnose a card.* **Silence → yes.** Blocks: nothing.
+Filed at: DEMOG §14 `D-7` + §6 · AMEND §14.2-E `OD-31`.
+Recommendation — and it leans against its own default: *"This spec defaults to yes, any session, audited. The
+alternative (zero platform access) is also coherent and slightly stronger."*
+
+### ODR-106 — Who owns the compelled-disclosure runbook?
+Name an owner for the out-of-band, dual-controlled, audited direct-database procedure — *"never as a product
+feature, never a self-service admin screen, never a role."* **Silence → nobody owns it; there is no product
+default at all**, so when process arrives someone improvises or builds the screen §7.1 forbids.
+Blocks: nothing. Filed at: DEMOG §14 `D-10` + §7.3 · AMEND §14.2-E `OD-32`.
+Recommendation: *"Out-of-band, dual-controlled, audited; never a product feature."* — the shape, not the owner.
+
+### ODR-107 — Does a native-rail resale purchase create a contact relationship?
+No consent by default with the same unchecked opt-in at resale checkout; treat the settlement flow as a
+customer relationship; or a flat "resale grants nothing" with no opt-in offered. *The third *"leaves a venue
+permanently unable to contact a growing share of its actual audience, which is a real product loss that will be
+relitigated"*; the second makes consent arrive *"by a legal inference from a money flow"* rather than the
+person's own act.* **Silence → SAFE:** no consent for resale buyers.
+Blocks: nothing — *"the recommended design ships either way"*; it gates CRM §11.1 element 28 only.
+Filed at: CRM §13 `D-1` + §5.5 · AMEND §14.2-G `OD-43`. Owner **and counsel**.
+Recommendation — yes: *"**Recommended answer: no consent by default, and put the same unchecked opt-in on the
+native resale checkout, naming the org whose event it is.**"*
+
+### ODR-108 — Acknowledge that consent withdrawal is a state change, not a hard delete
+Accept the divergence from the demographics spec (which hard-deletes a withdrawn answer), or align them.
+*Hard-deleting the consent record *"destroys the person's own evidence along with the platform's"* in the
+dispute *"this venue emailed me and I never agreed"*, and removes the as-of evaluability the `gate_as_of` fix
+and the replay property depend on.* **Silence → SAFE:** as designed.
+Blocks: nothing. Filed at: CRM §13 `D-4` + §5.3 · AMEND §14.2-G `OD-44`. Owner and counsel.
+Recommendation — yes: *"Adopt — a consent record is evidence about a relationship, and it is the person's own
+evidence in the dispute they are most likely to have."*
+
+### ODR-109 — Confirm the attendee-lookup limit numbers
+Confirm `email_exact` 40/actor + 120/org per 24 h, `name_prefix` 20 + 60, `order_ref` 200 + 600, the
+`attendee_list_page` limits, the 3-character minimum and `ambiguous_query` carrying no rows and no count — or
+change the numbers. *Too loose and *"Iterating `a…z`, then `aa…zz` … returns the roster **one record at a time
+at no rate cost** — the printed list §3.1 refuses, reassembled from the surface that was supposed to replace
+it, by the exact role that was denied it."* Too tight and *"charging for a rejected call would turn the limiter
+into a denial-of-service against the box office."** **Silence → SAFE:** the stated numbers ship, seeded in
+`087` and read live so a limit can be tightened without a deploy.
+Blocks: nothing. Filed at: CRM §13 `D-5` + §7.1/§7.2/§7.2a · AMEND §14.2-G `OD-45`.
+Recommendation — yes, on the shape and not the numbers: *"The *shape* … should not change; the **numbers** are
+a judgement the owner should own, because these are the sharpest anti-harvest controls in the document."*
+
+### ODR-110 — Does an operator ever need a printed door list?
+No (today's answer: one-at-a-time lookup), or yes with its own template and retention. *Yes → *"a printed list
+is an unaudited export with none of §6's controls and a longer life than any of them."* No → *"**a box office
+cannot print a paper list.** That is deliberate"* — a real 9 p.m. operational loss.* **Silence → SAFE:** the
+denial stands.
+Blocks: nothing. Filed at: CRM §13 `D-11` + §3.1 · AMEND §14.2-G `OD-47`.
+Recommendation — yes: *"Today 'no' … A yes needs its own template, retention, and an honest note that print has
+none of §6's controls."*
+
+### ODR-111 — Confirm that no demographic-based send exists, in any form
+Confirm the absence, or build one. *Any send is a new egress and contradicts `C40`; *"a `crm-export-deliver`
+function emailing the CSV … puts the file in an inbox that outlives every control here."* The only admissible
+future form is a **platform-side send** — *"the segment resolves inside Snatch It, the message goes out, and
+the membership list never leaves."** **Silence → SAFE:** *"Not built, not designed, not stubbed."*
+Blocks: nothing. Filed at: DEMOG §14 `D-4` + §9 `X-8` · CRM §13 `D-9` + §2.4 · AMEND §14.2-C `OD-22`.
+Recommendation — yes: *"Stays closed; recorded so the absence is a decision, not a gap."*
+
+### ODR-112 — Sub-promoters or sub-codes with a split commission?
+Build a hierarchy, or not in Phase 2. *A split is a money change — two payees per attribution — which *"breaks
+the one-payee-per-attribution shape in §4.3 step 2"*, the proof step that derives "at most one payout per
+attribution."* **Silence → SAFE:** not built. Note DA §7.2 does mention promoter sub-links *"where allowed."*
+Blocks: nothing. Filed at: PROMO §13 `OWNER DECISION 8` + §1.10 · AMEND §14.2-F `OD-40`.
+Recommendation — yes: *"Not in Phase 2 — two payees per attribution breaks the one-payee shape."*
+
+### ODR-113 — Code-enumeration thresholds
+Confirm 30 `not_applicable` results from one principal in 5 minutes as the burst-audit trigger, or change it.
+*Too tight *"locks out legitimate buyers who mistype"*; too loose widens the enumeration budget the §9.3
+arithmetic depends on.* **Silence → SAFE:** the seeded value ships, tunable via config.
+Blocks: nothing. Filed at: PROMO §13 `OWNER DECISION 10` + §9.4 · AMEND §14.2-F `OD-42`.
+Recommendation — yes: *"Starting value, tunable via config; needs a real traffic baseline."*
+
+### ODR-114 — Migrate the 12 legacy inbox types into the registry, or leave them alongside?
+**Silence → SAFE:** left alongside. Blocks: nothing.
+Filed at: NOTIF §10 `O-N10` + §2.6/§3.7 · AMEND §14.2-H `OD-54`.
+Recommendation — yes: *"Leave them; register as `legacy=true`; do not touch working producers."*
+
+### ODR-115 — Quiet hours · the `security_email_changed` mirror sweep · the promoter digest
+Three deferrals bundled by the scope amendment. *Quiet hours are additive later via
+`notify.delivery.next_attempt_at`; the mirror sweep was refused on evidence and *"the sound path is named there
+and should be built deliberately, not assumed"*; the promoter digest matters because *"a working promoter
+generates hundreds of these, and default-on per-order pings are a self-inflicted spam incident."** **Silence →
+SAFE:** none in MVP.
+Blocks: nothing. Filed at: NOTIF §10 `O-N12`, `O-N13`, `O-N14` · AMEND §14.2-H `OD-56` (first three limbs).
+Recommendation — yes: *"First three: not in MVP."*
+
+### ODR-116 — Rotating barcodes later? Google Wallet?
+Adopt SafeTix-class rotating barcodes, or decline; add Google Wallet, or leave it out of scope. *Rotating
+barcodes *"would add device-clock coupling and a new offline failure mode"* in exchange for *"a property
+already held"* — currency is checked by `credential_version` plus M2, online **and** offline. Google Wallet
+*"needs its own key custody, format, and review."** **Silence → SAFE:** neither is built.
+Blocks: nothing. Filed at: WALLET §15 `OQ-W9`, `OQ-W10` + §1.2 · AMEND §14.2-D `OD-29`.
+Recommendation — yes: *"Deferred; Google Wallet revisited after Apple ships and is measured."*
+
+### ODR-117 — Δ6: `catalog.event.announce_at` / `on_sale_at` for a scheduled on-sale
+Add the two nullable timestamps plus a sweep, or not. **Silence → SAFE:** VD §7.4 degrades.
+Blocks: nothing. Filed at: VD §21 Δ6 · AMEND §14.2-J `OD-70`.
+Recommendation — yes, with a boundary: *"Two nullable timestamps plus a sweep. **Explicitly not a virtual queue
+or bot defence (C44)**."*
+
+### ODR-118 — Δ7: `venue.ticket_type` sale windows and per-order min/max
+Add them, or not. *Without them *"'Tables sell 1 per order' is currently unexpressible."** **Silence → SAFE:**
+VD §8.6 degrades. Blocks: nothing.
+Filed at: VD Δ7 · AMEND §14.2-J `OD-71`. Recommendation — yes, implicitly, on that argument.
+
+### ODR-119 — Δ8: event-scoped, auto-expiring staff grants
+Add `venue.staff_role.event_id` and `expires_at` with a sweep, or not. *This is also the **open half** of door
+`OQ-3`: *"'box_office does not inherit' is true of the label and of the enum, and can still be false of the
+human, through a `venue_manager` grant issued for an unrelated reason."* `O-2` raised the urgency — a one-night
+box-office lead gets a permanent venue-wide grant that carries `O-4` manifest authority.* **Silence → the
+over-provisioning stands**, partially mitigated by the `AUTHZ-M7` tier guard at `ODR-43`.
+Blocks: nothing; VD §15.3 degrades. Pre-cleared as additive.
+Filed at: VD Δ8 · DOOR §16 `OQ-3` (open half; the enum half is closed — see the settled section) · ROLE_MODEL
+§11.3 `S-6` + §12 row 25 · AMEND §14.2-J `OD-72`.
+Recommendation — yes: *"**Urgency raised by O-2**: a one-night `venue_box_office` lead now gets a permanent
+venue-wide grant."*
+
+### ODR-120 — Δ9: `venue.guest_list.promoter_id`
+Add it, or keep string matching. **Silence → SAFE.** Blocks: nothing.
+Filed at: VD Δ9 · AMEND §14.2-J `OD-73`. Recommendation: *"Low priority; today it is string matching."*
+
+### ODR-121 — Δ10: org and venue `brand_logo_ref`
+Add them, or drop the delta. **Silence → SAFE:** VD §16.4's honest *"not available yet"* stands.
+Blocks: nothing. Filed at: VD Δ10 · AMEND §14.2-J `OD-74`.
+Recommendation — yes, conditionally: *"Only if venue branding is a product commitment; otherwise drop the
+delta."*
+
+### ODR-122 — Retain `venue_finance`, and do not rename `org_member` → `org_affiliate`
+Two role-model questions the scope amendment merges. *Deleting `venue_finance` — a label `O-2` does not list —
+would break RLS §9.13 and §11, which depend on it, and would **silently close** the separate open question at
+`ODR-26`. Renaming `org_member` ripples through six specs to fix a cosmetic collision already resolved by
+naming the other concept (`kernel.is_org_affiliate`).* **Silence → SAFE:** retain and do not rename — both
+already applied downstream.
+Blocks: nothing today; the enums freeze when the venue-staff-roles package ships.
+Filed at: ROLE_MODEL §13 `OD-1` and `OD-9` + §3.2 + §10 · AMEND §14.2-K `OD-81`.
+Recommendation — yes: *"Retain (`RLS` §9.13/§11 both depend on it, and deleting it would silently close `RLS`
+§15 item 3); do not rename."*
+
+### ODR-123 — Break-glass for the door
+Ship without a time-boxed audited break-glass grant, or add one. *Without: *"if `door_open_at` was mis-set and
+no `venue_manager` is reachable, the door cannot open."* With: a new privilege-escalation path into an
+`O-4`-restricted capability.* **Silence → SAFE, and safer than the row implies** — the door spec rules that
+admission is **never** gated on manifest state, so the real cost is loss of *offline* scanning, not loss of
+admission.
+Blocks: nothing; operational risk only.
+Filed at: ROLE_MODEL §13 `OD-8` + §8.2 · RLS §15.7 `MD-13` · DOOR §3.1 + §14 #10 + §14.5 · AMEND §14.2-A
+`OD-10`.
+Recommendation — yes: *"Ship without it — but the risk is real and should be seen here, not at 11 p.m."*
