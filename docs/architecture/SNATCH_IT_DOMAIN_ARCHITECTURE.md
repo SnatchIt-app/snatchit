@@ -153,7 +153,7 @@ The single most opinionated decision in this part is **event vs. event_session**
 | **inventory_batch** | A distinct *release* of a ticket_type — public on-sale, promoter hold, comp block, door allocation, presale. | quantity, released_at, reason, counters (sold/held/reserved/remaining). | Child of ticket_type; drawn down by orders/holds/comps/door. | Capacity is allocated in tranches with different rules and audiences. The batch's **locked counter is the authoritative operational truth**: oversell is prevented by `remaining ≥ 0` on a locked read-modify-write (C4); the accounting identity `sold + held + reserved + remaining = quantity` is a **reconciliation check** against the audit movement ledger, not the guard (C27). |
 | **inventory_hold** | A time-boxed reservation of units before purchase — checkout hold, promoter set-aside, box-office pull. | holder (user/staff/promoter), quantity, expiry, release-on-expiry, **server-enforced max duration**. | Draws from a batch; may convert to an order. | Generalizes today's `reserve_buy_now`. The server-max-duration is a first-class attribute because unbounded holds are the classic capacity leak. |
 | **order / order_item** | The **primary-purchase container** and its lines. The order is the buyer's transaction; each paid item *issues tickets atomically*. | buyer, event, totals (face/fees/tax/total), status, source (app/web/door/promoter_link), attribution, idempotency key; item snapshots unit price + qty per type. | Placed by a user; draws inventory; issues tickets; paid by payment; rolled into settlement. | The order is the money/commercial event; the ticket is the asset. Refunds, receipts, and attribution attach to the order; custody attaches to the ticket. Keeping them separate is what lets a partial refund void one ticket without disturbing the rest of the order. |
-| **staff_role** | A user's operational authority at a venue or a single event. | role (owner/manager/finance/marketing/door/promoter_manager), per-event scan scopes. | user ↔ venue/event. | Door and back-office authority is scoped and revocable per event; it is neither org membership nor platform admin. |
+| **staff_role** | A user's operational authority at a venue or a single event. | role ∈ the venue-plane label set `venue_manager` / `venue_finance` / `venue_box_office` / `venue_marketing` / `venue_promoter_manager` / `venue_scanner` (C36/O-2 — stored labels are plane-prefixed and disjoint; §7.2's catalogue names are display names, never stored values), per-event scan scopes (deferred extension point). | user ↔ venue/event. | Door and back-office authority is scoped and revocable per event; it is neither org membership nor platform admin. |
 | **door_pin** | A **loginless, event-scoped, expiring** scanner credential for a device, not a person. | event scope, expiry, revocable, device label ("Main door iPad"). | Belongs to an event; authors scans. | Doors are staffed by transient workers on shared hardware at 1 a.m. A device identity that needs no account, expires automatically, and revokes instantly is a genuinely different thing from a staff_role. |
 | **scan** | An **append-only admission attempt** at a door. | result (admitted/duplicate/void/wrong_gate/offline_pending), direction (`in`/`out`, default `in` — the C41 re-entry hedge), device, gate, session, offline_batch, timestamp. | References a ticket + session; authored by staff_role or door_pin. | The door's ledger. First-admit-wins arbitration, duplicate detection, and offline reconciliation all read this immutable stream. MVP admits are `in`-only (no re-entry, C41); `direction` is the reserved extension point for future re-entry. |
 | **settlement** | A **money rollup** for an org over an event or period that generates payouts. | gross, fees, refunds, chargebacks, resale royalties, adjustments, net; state (open→closed→paid); line-item source refs. | Belongs to an org; aggregates orders/sales/refunds; emits payouts. | The reconcilable boundary between many money events and one disbursement. It never touches ticket custody — a hard firewall (Invariant 3). |
@@ -757,13 +757,13 @@ Ownership statements below reference a fixed vocabulary of principals. Capabilit
 | Principal | Backing relationship | What it authorizes |
 |---|---|---|
 | **platform_admin / support / risk_ops** | `core.roles` allowlist | Force-cancel, force-refund, delist, void, freeze — every action writes `core.admin_audit_log` |
-| **org_owner / org_admin / org_finance / org_member** | `core.org_members` | Control the organization, its venues, events, settlements, payouts-in |
-| **venue staff** (`manager` / `finance` / `marketing` / `door` / `promoter_manager`) | `venue.staff_roles` (venue- or event-scoped) | Operate events, inventory, scans within `scan_scopes` |
-| **door device** | `venue.door_pins` (loginless, expiring) | Append scans only; no user identity, carries a device label |
+| **org_owner / org_admin / org_finance / org_marketing / org_promoter_manager / org_member** | `core.org_members` | Control the organization, its venues, events, settlements, payouts-in |
+| **venue staff** (`venue_manager` / `venue_finance` / `venue_box_office` / `venue_marketing` / `venue_promoter_manager` / `venue_scanner`) | `venue.staff_role` (venue- or event-scoped) | Operate events, inventory, scans within `scan_scopes` |
+| **door device** | `venue.door_pins` (loginless, expiring) | Append scans only; no user identity, carries a device label. **Not a role**: a door session satisfies no `has_venue_role` test (O-2/O-4) |
 | **current_owner** | head of `core.ticket_ownership_log` | The one principal a ticket credential admits; the sellable/transferable party |
 | **buyer** | `venue.orders.buyer_id` / `market_sales.buyer_id` | Places order, becomes current_owner on issuance/settlement |
 | **seller** | `market.listings.seller_id` | Lists a ticket (native) or a claim (external); receives resale payout |
-| **promoter / affiliate** | `venue.promoters` / `promoter_links` / `affiliates` | Owns the link; earns attributed commission |
+| **promoter / affiliate** | `venue.promoters` / `promoter_links` / `affiliates` | Owns the link; earns attributed commission. **A relationship, never a role label** — no promoter holds a row in any of the three role enums (O-2); authority is link/attribution row ownership |
 | **system / transfer-engine** | `core.transfer_ticket_ownership()` and sibling single-writer fns | The only writer of derived heads and ownership log |
 
 ### Data ownership vs. custody/entry control — the load-bearing distinction
@@ -1543,8 +1543,8 @@ erDiagram
         uuid user_id FK
         uuid venue_id "OR"
         uuid event_id "event-scoped temp staff"
-        text role "owner|manager|finance|marketing|door|promoter_manager"
-        array scan_scopes "which ticket_types a door role may validate"
+        text role "venue_manager|venue_finance|venue_box_office|venue_marketing|venue_promoter_manager|venue_scanner"
+        array scan_scopes "which ticket_types a scanner grant may validate (deferred extension point)"
     }
     DOOR_PINS {
         uuid id PK
@@ -2232,7 +2232,7 @@ no reason to make one.** Two objects answer this:
 
 | Object | Definition |
 |---|---|
-| **staff_role** | user ↔ venue (or ↔ *event*, for temp staff) with role ∈ `owner`/`manager`/`finance`/`marketing`/`door`/`promoter_manager`, plus per-event `scan_scopes` (which ticket_types this door role may validate — e.g., "VIP door only"). Event-scoped roles auto-expire, so temp staff access evaporates when the night ends. |
+| **staff_role** | user ↔ venue (or ↔ *event*, for temp staff) with role ∈ the venue-plane label set `venue_manager`/`venue_finance`/`venue_box_office`/`venue_marketing`/`venue_promoter_manager`/`venue_scanner` (C36/O-2 — three disjoint plane-prefixed enums; these are the **stored** labels, and §7.2's catalogue names are the display names above them), plus per-event `scan_scopes` (which ticket_types a scanner grant may validate — e.g., "VIP door only"; a deferred extension point). Event-scoped roles auto-expire, so temp staff access evaporates when the night ends. |
 | **door_pin** | A **loginless, event-scoped, expiring, revocable** scanner credential (Posh mechanic). Carries a device `label` ("Main door iPad") so scans attribute to a device identity with no user account behind them. Two taps to generate, one tap to revoke. |
 | **scan_device** | The registered device a PIN or staff scanner runs on; anchors the offline manifest and the scan attribution. |
 
@@ -2246,6 +2246,28 @@ not offer pass-outs. **(2) A door_pin can never authorize a refund (C46).** Refu
 requiring an authenticated staff principal with refund authority (org/finance plane, §7); the loginless device
 principal appends scans and nothing else. Any "door refund" product flow routes to an authenticated role —
 resolving the refund-authz-vs-loginless contradiction in favor of the money rule.
+
+**(3) The scanner may not create the security boundary (O-4).** A door session — the loginless `door_pin` +
+device principal — and the authenticated `venue_scanner` staff grant may sync an already-open manifest, scan,
+admit, and queue offline scans. Neither may **open** or **close** the door manifest, **move** the door-freeze
+time (`door_open_at`), or **change event security configuration**: those are `org_owner` / `org_admin` /
+`venue_manager` only, and disabling a transfer freeze is `platform_admin` under step-up. Opening the manifest
+freezes custody platform-wide for the session, which is a security act, not a door act. The operational
+objection is real and is answered by scheduling (`door_open_at` is set in advance) plus remote org-plane action
+(the dashboard is online), never by a weaker credential at the door. **Admission itself is never gated on
+manifest state** — the manifest gates *offline* scanning only; gating admission on it would fail closed
+against paying fans at the door, which the online live-read (C37) already makes unnecessary.
+
+**(4) `door_open_at` is a monotone head, not a mutable flag (O-5).** It is the cached head of an append-only
+door-episode ledger — `MIN(opened_at)` over the session's manifest opens — written only by the authorized open
+RPC, the same head-of-ledger pattern C27 already ratified for `current_owner_id`/`credential_version`. It is
+never written by a client, never cleared by a close, and never moved backwards; a re-open starts a new episode
+without moving it. Monotonicity is therefore arithmetic, not a rule someone must remember. The **effective**
+freeze boundary is total and fail-closed — `LEAST(door_open_at, COALESCE(doors_at, starts_at) + configured
+offset)` — so a NULL `door_open_at` can never mean "never frozen"; before O-5 the column was read in four
+places and written by nothing, which made the C6/C23/C43 freeze, and the stale-pass safety property that rests
+on it, false. Overrides are explicit, `platform_admin`-only, TTL-bounded, reason-coded, audited, and never move
+the boundary.
 
 ### 1.9 Resale policy & settlements (the venue-governance surface)
 
