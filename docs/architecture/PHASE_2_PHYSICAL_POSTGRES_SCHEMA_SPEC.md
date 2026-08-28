@@ -77,19 +77,81 @@ New causes are added **only by amendment** (C18). No spec compares against a cau
 **D1:** the language is **"SSCAS" / "closed set"** — never "the one cross-aggregate transaction".
 **D2:** there is **NO `refunded` ticket terminal** — money reversal is state `voided` with cause `refund_void`.
 
-### 0.6 Scope-qualified role enums (C36 — structural, DISJOINT label sets)
-Roles are scope-typed, never bare strings. The three enums are **disjoint** so cross-scope confusion is
-structurally impossible (no RLS/RPC may ever compare a bare `role='finance'`):
+### 0.6 Scope-qualified role labels (C36 — structural, DISJOINT, plane-prefixed)
 
-| Scope | Table | enum labels |
+> **CORRECTED — this section previously stated the OLD 4/4/3 sets** (`venue_door`, `venue_promoter`, and
+> no marketing / box-office / promoter-manager labels). Two documents stated different "canonical" C36
+> sets. **`PHASE_2_ROLE_MODEL_SPEC.md` §3.1–§3.4 is canonical and is reproduced below verbatim.**
+
+Roles are scope-typed, never bare strings. The three label sets are **disjoint** so cross-scope confusion is
+structurally impossible (no RLS/RPC may ever compare a bare `role='finance'`). **Fifteen labels total.**
+
+| Plane | Column | Labels (canonical — ROLE_MODEL §3.1–§3.3) | n |
+|---|---|---|---|
+| org | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · **`org_marketing`** · **`org_promoter_manager`** · `org_member` | 6 |
+| venue | `venue.staff_role.role` | `venue_manager` · `venue_finance` · **`venue_box_office`** · **`venue_marketing`** · **`venue_promoter_manager`** · **`venue_scanner`** | 6 |
+| platform | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` | 3 |
+
+**Changes against the superseded set, stated so no reader carries the old one forward:**
+- `venue_door` → **renamed `venue_scanner`** (ROLE_MODEL §4.5).
+- `venue_promoter` → **REMOVED** (ROLE_MODEL §9.1). A promoter is a **relationship** (`venue.promoter`),
+  not a staff grant. The internal counterpart is `venue_promoter_manager` / `org_promoter_manager`.
+- Added: `org_marketing`, `org_promoter_manager`, `venue_box_office`, `venue_marketing`,
+  `venue_promoter_manager`.
+
+**RM-1 (binding):** every role label begins with its plane token (`org_` / `platform_` / `venue_`). A
+proposed label that does not is rejected at review. A bare label (`box_office`, `marketing`,
+`promoter_manager`) is **never** a stored value and is **never** legal in a predicate argument.
+
+**RM-6:** affiliation (`kernel.is_org_affiliate`) is a **scoping** input, never an **authorizing** one.
+
+Predicate helpers (contracted in the RPC/RLS specs; the only sanctioned way to test a role — ROLE_MODEL
+§6.2). The package column is this integration's placement, derived from the tables each helper reads:
+
+| Helper | Reads | Package |
 |---|---|---|
-| org | `kernel.org_member.role` | `org_owner` · `org_admin` · `org_finance` · `org_member` |
-| venue | `venue.staff_role.role` | `venue_manager` · `venue_finance` · `venue_door` · `venue_promoter` |
-| platform | `kernel.platform_role.role` | `platform_admin` · `platform_support` · `platform_risk` |
+| `kernel.has_org_role(org_id, role[])` | `kernel.org_member` | `077` |
+| `kernel.is_platform(role[])` | `kernel.platform_role` + `public.admin_users` | `077` |
+| `kernel.has_venue_role(venue_id, role[])` | `venue.staff_role` **only** (the door-PIN branch is REMOVED — ROLE_MODEL §7.5) | `080` |
+| `kernel.has_event_role(event_id, role[])` | `catalog.event` → `venue.staff_role` | `080` |
+| `kernel.has_org_role_over_venue(venue_id, role[])` **NEW** | `catalog.venue` → `kernel.org_member` | `080` |
+| `kernel.has_org_role_over_event(event_id, role[])` **NEW** | `catalog.event` → `kernel.org_member` | `080` |
+| `kernel.is_org_affiliate(org_id)` **NEW** | `kernel.org_member` | `077` |
+| `kernel.assert_door_session(device_id, session_id)` **NEW** | `venue.scan_device`, `venue.door_pin` | **`086`** |
+| `kernel.is_promoter_for_event(event_id)` **NEW** | `venue.promoter_link` | **`090`** |
 
-Predicate helpers (defined in the RPC/RLS specs, referenced here as the only sanctioned way to test a
-role): `kernel.has_org_role(org_id, role[])`, `kernel.has_venue_role(venue_id, role[])`,
-`kernel.has_event_role(event_id, role[])` (event→venue via catalog), `kernel.is_platform(role[])`.
+**Why `has_venue_role` losing its door-PIN branch matters to packaging.** As contracted in RPC §1.1 the
+helper also read `venue.door_pin` — a table created in `086` — while the helper itself ships in `080`.
+That was a **forward reference `080 → 086`** (§13.2, FR-1). ROLE_MODEL §7.5 removes the branch and
+replaces it with the separate `kernel.assert_door_session`, which is **never an RLS predicate** (RM-5) and
+lands in `086` with the tables it reads. The forward reference is closed by the role-model delta, not by
+this integration; RPC §1.1's text is now **stale** and must be corrected by the RLS/RPC integrator.
+
+**INV-NOFORCE (binding invariant — ROLE_MODEL §6.5).** `kernel.org_member`, `venue.staff_role` and
+`kernel.platform_role` **MUST NOT** carry `FORCE ROW LEVEL SECURITY`. The predicate helpers depend on
+owner-bypass to terminate; a naive policy on `venue.staff_role` that calls `has_venue_role` re-enters the
+policy — **infinite recursion, reported by Postgres at query time, not at migration time.** These three
+tables are the only ones in the model with this exemption. It must be **asserted positively** in the
+staging verification of each package that creates them — `pg_class.relforcerowsecurity = false` — because
+a documented rule nothing checks lasts until the first hardening sprint. The three tables span **two**
+packages (`077` for `org_member`/`platform_role`, `080` for `staff_role`), so the assertion is split
+across both, not written once.
+
+### 0.6.1 Physical form of the three role columns — `text` + `CHECK`, never a native enum
+
+**RESOLVED (ROLE_MODEL §3.5 / OD-6).** All three role columns are `text NOT NULL` with a per-column
+`CHECK (role IN (...))`. This is not merely consistent with §12.3's global decision — for these columns it
+is the point: the stated risk in the ruling request was *"an applied-migration commitment that cannot be
+edited afterwards."* **A CHECK constraint makes that statement false.** A label can be added, renamed or
+removed by `DROP CONSTRAINT` + `ADD CONSTRAINT` while the tables are empty, and corrected while nearly
+empty; `ALTER TYPE … ADD VALUE` is permanent and removing an enum value requires recreating the type and
+rewriting every dependent column and function. At fifteen labels on three tiny tables the performance
+argument for a native enum is nil.
+
+**Two frozen specs currently contradict each other on this exact column:** this spec's §3.9 said `role`
+**enum**(…); `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §5 said `role` **CHECK** in (…). The CHECK reading wins
+and both are now aligned. Disjointness is achieved by **three separate CHECK sets**, which is stronger
+than a shared type would be — there is no shared type to confuse.
 
 ### 0.7 RLS classification vocabulary (every table is tagged one of these)
 - **public-read** — world-readable reference data (discovery); writes RPC-only.
@@ -152,6 +214,11 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     anonymization per CDM §4, not cascade).
   - `residency_region` text/enum-like — not null, **default `'us-east'`** (C14 single current region).
   - `kyc_ref` text — nullable (opaque handle to an out-of-band KYC record; no PII stored here).
+  - `locale` text — **nullable** (**ADDED — NOTIFICATIONS Δ-N2 / §5.4**). The identity's preferred
+    render locale. Resolution chain: `kernel.identity_ext.locale` → device locale captured at
+    push-token registration → `'en-US'`. Nullable is correct: NULL means "not stated", which is the
+    third link, not a default written into every row. `notify.notification.locale_resolved` stores the
+    resolved answer at fan-out so a re-render is reproducible. **Package `077`.**
   - `created_at` timestamptz, `updated_at` timestamptz.
 - **FKs:** `identity_id`→auth.users on delete restrict.
 - **Unique:** PK only (1:1 with identity).
@@ -780,6 +847,21 @@ outward-kernel dependency, A7/C7).
   hot-path, kept consistent by the create RPC); `title` text not null;
   `status` enum(`draft` · `announced` · `on_sale` · `live` · `completed` · `cancelled`) not null default
   `draft` (CDM §1.2); `created_at`, `updated_at`.
+- **Marketing columns (ADDED — ROLE_MODEL edit S-5, capabilities D3 + H4, venue dashboard Δ5).** The role
+  model grants `org_marketing`/`venue_marketing` the capability *"Edit event marketing fields
+  (description, hero, media, tags)"* against a table that carried **only `title` and `status`** — a
+  capability with nothing to write. **The role-model spec assigns these no types and no package**; both
+  are decided here:
+  - `description` text — nullable.
+  - `hero_image_ref` text — nullable. An **opaque storage object reference**, never a URL and never
+    bytes — matching the `_ref` convention already used by `stripe_connect_account_ref`, `kyc_ref` and
+    `kms_handle_ref`. A URL column would be an unvalidated egress vector on a world-readable table.
+  - `category` text — nullable, CHECK against a closed set (Miami MVP; the set is a config value, not a
+    new lookup table — same disposition as CONFLICTS #7).
+  - `genre_tags` text[] — not null **default `'{}'`**. Array, not a join table: tags are a display facet
+    with no identity, no lifecycle and no authority; a `catalog.event_genre` table would add a package
+    for a decoration. `CHECK (array_length(genre_tags,1) IS NULL OR array_length(genre_tags,1) <= 10)`.
+  - **Package `078`** (the package that creates the table). No later dependency; no reason to defer.
 - **FKs:** `venue_id`, `org_id` on delete restrict.
 - **Unique:** none structural.
 - **Check:** `status` enum. Invariant "event has ≥1 session" enforced by the create flow (auto-creates the
@@ -802,7 +884,20 @@ outward-kernel dependency, A7/C7).
   deliverable #7 R3: the **canonical door-freeze signal**; set when the offline door manifest opens for this
   session; distinct from the informational `doors_at`); `status` enum(`scheduled` · `live` · `completed` ·
   `cancelled`) not null default `scheduled`; `home_region` text not null default `'us-east'`;
-  `created_at`, `updated_at`.
+  **`session_version` integer not null default 1** (**ADDED — NOTIFICATIONS Δ-N1, §2.2 Group E;
+  CORRECTNESS-BLOCKING**); `created_at`, `updated_at`.
+- **`session_version` — why it is correctness-blocking, not a nicety (NOTIFICATIONS §2.2 Group E).**
+  A monotonic counter bumped by `catalog.update_event_session` on every change to `starts_at`,
+  `doors_at`, `ends_at`, venue or status. Three notification dedupe keys embed it:
+  `event_time_changed:<session_id>:<session_version>:<ticket_id>`, and the `event_venue_changed` and
+  `event_postponed` analogues. The dedupe key is enforced by a partial `UNIQUE(dedupe_key)` with
+  `ON CONFLICT DO NOTHING`. **Without `session_version`, a venue that moves the door time twice cannot
+  notify twice** — the second change produces the identical dedupe key and is *silently swallowed*. The
+  failure is silent by construction (a conflict is a no-op, not an error), so it would never surface in
+  testing. **Package `078`** (the package that creates the table).
+- **Bump discipline:** `session_version` is advanced **only** by the session-update RPC, inside the same
+  transaction as the change it describes, under the session row's `FOR UPDATE`. It is not a general
+  optimistic-concurrency token and no other writer touches it.
 - **Door-freeze (RECONCILED — R3, canonical for RLS/RPC/edge/RN):** transfer-freeze is **derived**, not a
   stored per-ticket flag. A helper `kernel.is_transfer_frozen(p_atom_id)` returns true iff the atom's session
   has `door_open_at IS NOT NULL AND now() >= door_open_at` (narrowed per-open-manifest-ticket per C43). The RPC
@@ -1064,10 +1159,19 @@ a detection mechanism, not the enforcement.
 - **Purpose:** a user's scope-qualified capability at a venue (C36 venue enum, disjoint from org/platform).
 - **PK:** composite `(venue_id, identity_id, role)`.
 - **Columns:** `venue_id` uuid FK→catalog.venue on delete restrict; `identity_id` uuid FK→auth.users on
-  delete restrict; `role` enum(`venue_manager` · `venue_finance` · `venue_door` · `venue_promoter`) part of
-  PK; `granted_by` uuid FK→auth.users; `created_at`.
+  delete restrict; **`role` text + CHECK** (`venue_manager` · `venue_finance` · `venue_box_office` ·
+  `venue_marketing` · `venue_promoter_manager` · `venue_scanner`) part of PK — **CORRECTED to the canonical
+  six (ROLE_MODEL §3.2 / edit S-1); `venue_door` is renamed `venue_scanner` and `venue_promoter` is
+  removed**; `granted_by` uuid FK→auth.users; `created_at`.
 - **Unique:** PK `(venue_id, identity_id, role)` (a person may hold several venue roles).
-- **Check:** `role` ∈ venue enum only (disjoint labels → cross-scope confusion structurally impossible, C36).
+- **Check:** `role` ∈ the venue set only (disjoint labels → cross-scope confusion structurally impossible,
+  C36). **`text` + `CHECK`, never a native enum** (§0.6.1 / ROLE_MODEL OD-6) — this is what keeps the label
+  set correctable after the package applies.
+- **INV-NOFORCE:** this table must **not** carry `FORCE ROW LEVEL SECURITY` (§0.6) — `080`'s staging
+  verification asserts `relforcerowsecurity = false` positively.
+- **Event-grain grants — EXT, pre-cleared as additive (ROLE_MODEL S-6, venue dashboard Δ8):** the PK
+  extends to `(venue_id, identity_id, role, event_id)` with nullable `event_id`, plus `expires_at` and a
+  sweep. **Not built in MVP.** Documented so the later change is additive.
 - **Immutability:** MUT (grant/revoke), audited; live-table recheck for authz (C9).
 - **Index:** PK; index on `identity_id` ("my venues"); index on `(venue_id, role)`.
 - **RLS:** venue-scoped read; writes RPC-only via `venue.grant_staff_role` (require `has_venue_role(venue_id,
@@ -1266,8 +1370,68 @@ settlement may legitimately reference from a period boundary. Making the general
 - **Purpose:** the commissioned-selling engine (CDM §1.3). Commissions flow through `kernel.payout` cause
   `promoter_commission` (SSCAS member #5). **Phase 2D** — modeled now, built in the promoter phase.
 - **`venue.promoter`:** PK `promoter_id` uuid; `identity_id` uuid FK→auth.users; `org_id` uuid FK; `event_id`
-  uuid nullable FK; `commission_bps` integer not null; `terms_version` integer not null; `status`
-  enum(`active` · `inactive`); `created_at`, `updated_at`. Terms Operational (versioned).
+  uuid nullable FK; `terms_version` integer not null; `status` enum(`active` · `inactive`); `created_at`,
+  `updated_at`. Terms Operational (versioned). **Plus the four commercial-terms columns below.**
+
+#### 3.17.1 DEFECT FIX — `venue.promoter` cannot express DA §1.7's ratified commercial terms
+
+**The defect (CONFIRMED against DA §1.7, verbatim).** The ratified domain architecture defines a promoter
+as *"A user (or off-platform party) engaged by an org/event with commission terms: flat-per-ticket or %,
+`tier ∈ {professional_invited, public_ambassador}`"*, and defines **`affiliate`** as the same machinery
+for non-user channels *"attributed by API key or link instead of a personal account. Same `attribution`
+ledger, a `party_kind` discriminator (`promoter` | `affiliate`)."*
+
+This spec modelled **`commission_bps` alone**. So:
+- **there is no `tier`** — an ambassador programme and a professional promoter carry different terms and a
+  materially different fraud posture, and the model could not tell them apart;
+- **there is no flat-per-ticket** — and flat-per-head is the **dominant nightlife term**, so the physical
+  model could not express the *common* case, only the rarer percentage case;
+- **there is no `party_kind`** — so an affiliate could not reuse the one attribution ledger DA §1.7
+  requires it to reuse, and a later affiliate feature would have forked the ledger.
+
+**Fix — four additive columns plus one XOR CHECK** (package `090`; the table is unbuilt, so this is a
+design edit to an unapplied package, not a schema alteration):
+
+```sql
+tier                  text    NOT NULL DEFAULT 'professional_invited'
+                              CHECK (tier IN ('professional_invited','public_ambassador')),
+party_kind            text    NOT NULL DEFAULT 'promoter'
+                              CHECK (party_kind IN ('promoter','affiliate')),
+commission_kind       text    NOT NULL DEFAULT 'bps'
+                              CHECK (commission_kind IN ('bps','flat_per_ticket')),
+commission_bps        integer NULL,                -- was NOT NULL; now the 'bps' arm of the XOR
+commission_flat_minor integer NULL,                -- the 'flat_per_ticket' arm
+currency              text    NOT NULL DEFAULT 'USD',
+
+CHECK (
+  (commission_kind = 'bps'
+     AND commission_bps IS NOT NULL AND commission_bps BETWEEN 0 AND 10000
+     AND commission_flat_minor IS NULL)
+  OR
+  (commission_kind = 'flat_per_ticket'
+     AND commission_flat_minor IS NOT NULL AND commission_flat_minor > 0
+     AND commission_bps IS NULL)
+)
+```
+
+`commission_bps` becomes **nullable** — the XOR CHECK, not `NOT NULL`, is what guarantees exactly one
+term is present. Making both columns nullable without the XOR would allow a promoter with no terms at all;
+the CHECK is load-bearing and must not be relaxed to "at least one".
+
+**Commission math (PROMOTER_CODES §6.2), stated here because it is what the columns must support:**
+```
+commission_kind = 'bps'             : credited = floor(basis_minor * commission_bps_applied / 10000)
+commission_kind = 'flat_per_ticket' : credited = commission_flat_minor_applied * Σ(order_item.quantity)
+```
+Rounding is `floor`, always; the residual stays with the org. **`venue.attribution` snapshots
+`commission_kind`, `commission_bps_applied`, `commission_flat_minor_applied` and `basis_minor`** at
+freeze — the terms *as applied*, frozen with the row, so a later terms change cannot restate a past
+accrual (§13.1 table).
+
+**Ambassador is a tier, not a table.** DA §11.1 defines a separate social *referral/ambassador* growth
+loop; DA §1.7's `public_ambassador` is a **tier of promoter inside the commercial engine**. They must
+never share the `promoter_commission` cause. Production also carries an unrelated
+`public.ambassador_applications` table — neither is this.
 - **`venue.promoter_link`:** PK `link_id` uuid; `promoter_id` uuid FK on delete restrict; `slug` text not
   null; `created_at`. **`slug` globally unique** (tracked link). Link **IMM** once created.
 - **`venue.attribution`:** PK `id` uuid; `link_id` uuid FK→venue.promoter_link on delete restrict; `order_id`
