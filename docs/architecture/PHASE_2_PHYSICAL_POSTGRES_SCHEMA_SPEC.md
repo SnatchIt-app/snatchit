@@ -797,6 +797,15 @@ sentinel (§1.16) to its write set.
   - `amount_minor` integer — not null (mirror of the charged cents, for reconciliation).
   - `currency` text — not null default `'USD'` (C13).
   - `linked_at` timestamptz — not null default now().
+  - **`instrument_fingerprint` text — nullable** (Stripe `PaymentMethod.card.fingerprint` or non-card
+    equivalent; a stable pseudonymous instrument identifier, NOT a payment credential — scope-amendment
+    row 11). **Written only at INSERT by the two `R-34` writers: `venue.finalize_primary_order` populates it
+    on the primary link from the webhook-supplied parameter (RPC §6.3); `kernel.transfer_ticket_ownership`
+    births the resale link NULL** (no webhook context at transfer time; NULL = no-signal, PROMO §1.8). Read
+    by `venue.resolve_order_attribution` (§17.14) — the self-deal detector's only input. **Column moved
+    `090 → 085` 2026-08-29 under the `C112` discipline (column follows its writer — finalize is authored in
+    `085`); the detector that reads it remains `090`.** Never exposed to any client, promoter or venue role
+    (plan `090` RLS row; RLS §7.8).
   - `created_at`.
 - **FKs:** as above (all on delete restrict).
 - **Unique:** `payment_id` unique (one native link per Stripe charge); CHECK that **exactly one** of
@@ -805,7 +814,7 @@ sentinel (§1.16) to its write set.
 - **Immutability:** effectively AO (a link is a fact; corrections are new refund objects, not edits).
 - **Index:** PK; unique on `payment_id`; index on `order_id`, `sale_id`.
 - **RLS:** money-custody-RPC-only; reads via scoped RPC (buyer sees own).
-- **Write authority:** `kernel.issue_ticket_atoms` / `kernel.transfer_ticket_ownership` only.
+- **Write authority:** the `R-34` pair — `venue.finalize_primary_order` (primary link) / `kernel.transfer_ticket_ownership` (resale link) — **only**. *(Corrected 2026-08-29: this line still carried the pre-`R-34` `issue_ticket_atoms` claim four lines below the corrected Writers line in the same section — the competing-definition defect `OR-7` exists to end.)*
 - **Read authority:** buyer/seller of the linked payment + platform.
 - **SoT/PROJ:** SoT for the native↔frozen link; `public.payments` remains SoT for the charge itself.
 
@@ -2118,7 +2127,7 @@ outward-kernel dependency, A7/C7).
   CORRECTNESS-BLOCKING**); `created_at`, `updated_at`.
 - **`session_version` — why it is correctness-blocking, not a nicety (NOTIFICATIONS §2.2 Group E).**
   A monotonic counter bumped by `catalog.update_event_session` on every change to `starts_at`,
-  `doors_at`, `ends_at`, venue or status. Three notification dedupe keys embed it:
+  `doors_at`, `ends_at` or `status` *("venue" removed 2026-08-29 — a session's venue is not an editable column under §20.2.3/§20.2.4)*. Three notification dedupe keys embed it:
   `event_time_changed:<session_id>:<session_version>:<ticket_id>`, and the `event_venue_changed` and
   `event_postponed` analogues. The dedupe key is enforced by a partial `UNIQUE(dedupe_key)` with
   `ON CONFLICT DO NOTHING`. **Without `session_version`, a venue that moves the door time twice cannot
@@ -2525,8 +2534,10 @@ here, because the distinction decides whether skipping one is survivable:
 - **Index:** PK; index on `buyer_id` (Buyer Dashboard); index on `event_session_id` (venue "Tonight");
   index on `(org_id, status)`.
 - **RLS:** owner-scoped (buyer) + venue/org-scoped (issuing org) + platform; money writes RPC-only.
-- **Write authority (canonical — A4):** `venue.create_primary_checkout` (alias `create_order`),
-  `kernel.issue_ticket_atoms` (on paid), refund RPCs.
+- **Write authority (canonical registry — `OR-7`, corrected 2026-08-29):** `venue.create_primary_checkout`
+  (alias `create_order`), `venue.finalize_primary_order` (→ `paid` — the writer this line previously credited
+  to `kernel.issue_ticket_atoms`, whose Writes line does not name this table), `venue.bind_order_attribution`
+  (§17.18), `kernel.refund_primary_order`. *(`admin_refund` is NOT a writer — §20.7.1 is not order-scoped.)*
 - **SoT/PROJ:** SoT.
 
 ### 3.8 `venue.order_item`
@@ -3401,7 +3412,8 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
 - **Check:** `amount_minor > 0`; `status` enum.
 - **Index:** PK; index on `(listing_id, status)`; index on `(buyer_id, status)`.
 - **RLS:** owner-scoped (buyer + listing seller see the offer); writes RPC-only.
-- **Write authority:** `market.make_offer`, `market.respond_offer`, and **the `088` sweep tick**
+- **Write authority:** `market.make_offer`, `market.respond_offer`, and **`market.sweep_expired_p2p_transfers`
+  — the `088` sweep tick's second statement (RPC §12.2/§20.8.5, named 2026-08-29; formerly a phrase)** —
   (§4.3.1) for the `expired` transition.
 - **SoT/PROJ:** SoT.
 
@@ -3953,7 +3965,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `090` | `venue.promoter_code`, `promoter_code_scope`, `attribution_review`, `normalize_promoter_code()` | PROMOTER §1.1/§1.2/§1.6/§1.3 | ✓ |
 | `090` | `venue.attribution` +15 columns; `link_id` becomes **nullable** | PROMOTER §1.5 | ✓ |
 | `090` | `venue.order.attribution_candidate_code_id` / `_link_id` (+ freeze trigger) | PROMOTER §1.7 | ✓ — FK targets are `090` |
-| `090` | `kernel.payment_native.instrument_fingerprint` | PROMOTER §1.8 | ✓ |
+| **`085`** | `kernel.payment_native.instrument_fingerprint` *(moved from `090` 2026-08-29 — `C112` discipline: `venue.finalize_primary_order` (`085`) writes it; PROMOTER §1.8's detector reads it from `090`)* | PROMOTER §1.8 · RPC §6.3 | ✓ |
 | `090` | **`UNIQUE INDEX ON venue.settlement_line (cause_ref) WHERE cause='promoter_commission'`** | PROMOTER §4.2-(2) | ✓ (§3.14.1) |
 | `090` | `CREATE OR REPLACE` of `settlement_commission_lines`; `kernel.is_promoter_for_event` | this integration / ROLE_MODEL §6.2 | — |
 | **cond.** | `kernel.org_money_policy` | MONEY §7.4 | **CONDITIONAL — D-2** (§1.14) |
@@ -4062,7 +4074,7 @@ same blind spot. **The corpus's own guard could not see them**: RLS §13.2's swe
 > result, and the later package `CREATE OR REPLACE`s **only that hook**. The caller is authored once and
 > is never rewritten by another package.
 
-SEAM-2 is used exactly three times, and each stub's neutral result is chosen to **fail safe**:
+SEAM-2 is used **eight times** *(this line said "exactly three" through four amendments — the registry's `hook_count: 8` and its seventh-amendment note reported the two stale occurrences to this owner; corrected 2026-08-29)*, and each stub's neutral result is chosen to **fail safe**:
 
 | Hook | Stub in | Neutral result | Replaced in | Fails |
 |---|---|---|---|---|
@@ -4262,7 +4274,7 @@ Added edges (each preceding its dependent — the DAG stays acyclic and topologi
 | `079 → 085` | `kernel.refund_primary_order` drives `void_ticket_atom` → `kernel.tickets` (DAG-2) |
 | `085 → 088` | `market.sweep_paid_pending_sales` writes `kernel.refund` (DAG-1) |
 | `087 → 090` | `090` adds the partial unique on `venue.settlement_line` and replaces `settlement_commission_lines` |
-| `085 → 090` | `090` adds `kernel.payment_native.instrument_fingerprint` |
+| `085 → 090` | `090`'s resolver body reads `kernel.payment_native.instrument_fingerprint` *(the COLUMN moved to `085` 2026-08-29, `C112` discipline; the edge stands for the read and the resolver-stub replacement)* |
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 
 No edge is removed. No package changes number. The count stays **16** unless CONDITIONAL B is ruled
@@ -4312,8 +4324,11 @@ because `086`'s edge set is outside the K-2/K-3 remit and a package's declared s
 `venue.door_session`, `promoter_link.status`, the org-label correction) sits in a package whose existing
 dependency set already contains every table it references. Checked explicitly for `venue.door_session`,
 the only new **table**: its FKs reach `catalog.event_session` (`078`), `catalog.venue` (`078`),
-`venue.scan_device` (`086`, same package) and `venue.door_pin` (`086`, same package) — and `086` already
-declares `078`. **DAG unchanged, 16 packages unchanged, topological order by number unchanged.**
+`venue.scan_device` (`086`, same package) and `venue.door_pin` (`086`, same package) — **and `086` must
+declare `078`. The previous sentence here read "`086` already declares `078`" — FALSE at its writing:
+`086`'s declared set was `{079,080,081,083}` in all four surfaces. Corrected 2026-08-29 when the owed edge
+was applied to all four (B-4); `077 → 090`, the same recorded-but-undeclared shape, was applied in the same
+pass.** Topological order by number unchanged.
 
 ---
 

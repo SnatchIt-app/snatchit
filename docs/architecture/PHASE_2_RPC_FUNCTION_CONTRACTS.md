@@ -987,7 +987,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 - **Forbidden:** the DB never charges; the edge never writes `kernel`/`venue` custody tables except through the
   finalize RPC.
 
-### 6.3 `venue.finalize_primary_order(p_order_id, p_payment_id, p_command_key)` — **DB-RPC (SSCAS member #1)**
+### 6.3 `venue.finalize_primary_order(p_order_id, p_payment_id, p_command_key, p_instrument_fingerprint text DEFAULT NULL)` — **DB-RPC (SSCAS member #1)**
 - **Purpose:** on a **verified paid** order, atomically draw inventory and **mint N ticket atoms** via the
   kernel engine (primary issuance). **Actor:** `service_role`/definer (called by the confirm edge fn / paid
   webhook). Authority is the **verified payment**, not a client.
@@ -1000,7 +1000,19 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 - **Reads:** `venue.order`/`order_item`,`public.payments`,`venue.inventory_batch(_shard)`. **Writes (one txn):**
   `venue.inventory_batch(_shard)` (`held -= q; sold += q`), `venue.inventory_movement` (`issue`),
   `venue.order` (→ `paid`), **`kernel.issue_ticket_atoms` (mints N atoms + N ownership-log `issue` rows)**,
-  `kernel.payment_native` (link order↔`public.payments`). `venue.order_item` becomes IMM.
+  `kernel.payment_native` (link order↔`public.payments`, **including `instrument_fingerprint :=
+  p_instrument_fingerprint`** — the promoter self-deal detector's only input; PROMO §1.8). `venue.order_item`
+  becomes IMM. **`p_instrument_fingerprint`** is the Stripe instrument fingerprint of the SUCCEEDING charge,
+  supplied by the webhook edge (edge §4 `native_primary`); **untrusted, opaque, never validated, never
+  logged; NULL when unavailable** — NULL is "no signal", never "no match" (PROMO §1.8), and a NULL never
+  delays or fails issuance. **Ordering, load-bearing: the `kernel.payment_native` INSERT precedes the
+  `resolve_order_attribution` call below**, so §17.14's read sees the current order's fingerprint
+  in-snapshot — the resolver's signature is SEAM-2a-frozen at `(p_order_id)` and can never take it as a
+  parameter. *(Added 2026-08-29 — the column had ZERO contracted writers while being read by §17.14 and
+  scheduled by three documents; every alternative dataflow is closed by a named ruling: OBS-1 forbids the
+  `public.payments` stash, `R-34` closes the writer pair at two, the AO posture forbids post-hoc UPDATE,
+  SEAM-2a forbids the resolver parameter. Contract omission repaired, not new behavior; `C112` discipline
+  moves the column to `085` with this writer.)*
 - **Emitted facts:** ownership-log `cause='issue'` (N rows, one per atom, `UNIQUE(cause,cause_ref,atom)` —
   **C26 multiplicity**); `inventory_movement` `issue`. **Result:** `{ status, atom_ids[], order_status }`.
 - **Retry/idempotency:** re-entrant — replay hits `UNIQUE(buyer_id, command_key)` on the order + the
@@ -1076,7 +1088,9 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 - **Reads:** `kernel.tickets`,`market.listing_native`,`public.payments`,`kernel.signing_key`. **Writes (one
   txn):** `kernel.ticket_ownership_log` (INSERT `cause`, `credential_version_after = old+1`), `kernel.tickets`
   (`current_owner_id := p_to_identity`, `credential_version += 1`, `resale_state := 'none'`,
-  `signing_key_id` re-pinned), `kernel.payment_native` (link, native sale), and the **market layer already
+  `signing_key_id` re-pinned), `kernel.payment_native` (link, native sale — **born with
+  `instrument_fingerprint NULL`: there is no webhook context at transfer time, and NULL = no-signal per
+  PROMO §1.8; recorded 2026-08-29, not an oversight**), and the **market layer already
   wrote `market.market_sale`** before calling this (C8; this fn sets `terminal_state`).
 - **Idempotency / C26:** the ownership-log `UNIQUE(cause, cause_ref, ticket_atom_id)` makes a **double-transfer
   of the same atom under the same sale physically impossible** (second insert conflicts → no-op). The atom
@@ -1834,7 +1848,11 @@ that door is using. Filed by edge §3.9a request #4.
   batch bound). **Preconditions:** `status='initiated' AND expires_at < now()`. **Locks & order:** per row
   **Transfer** → **Ticket Atom** (`FOR UPDATE`, ascending). **SSCAS:** member #7 reverse (unlock).
 - **Writes:** calls `market.cancel_p2p_transfer(..., reason='expired')` per row → `market.p2p_transfer` (→
-  `expired`), `kernel.unlock_ticket`. **Result:** `{ swept_count }`. **Retry:** idempotent/re-entrant (only
+  `expired`), `kernel.unlock_ticket`; **and, as the tick's SECOND STATEMENT, `market.offer` (`pending →
+  expired WHERE expires_at < now()`)** — §20.8.5 folded the offer expiry tick into this sweep *"rather than
+  given its own function"*, and this Writes line was the one place that never said so (declaration omission,
+  repaired 2026-08-29; presentational only — enforcement is `respond_offer`'s arithmetic, `S-12`/§4.3.1, and
+  `T-SCHEMA-OFFER-01` tests with this sweep DISABLED for exactly that reason). **Result:** `{ swept_count }`. **Retry:** idempotent/re-entrant (only
   acts on still-`initiated` rows). **Forbidden callers:** clients (definer-only).
 
 ### 12.3 `market.sweep_paid_pending_sales()` — **DB-RPC (definer batch; C25 auto-compensation)**
@@ -4610,7 +4628,16 @@ does, in any document.
   `ends_at`, `doors_at` — **subject to the guard below**. **Never writable here:**
   - **`door_open_at`** — `catalog.engage_door_freeze` (§17.12) is its **sole writer** under ruling O-5, and
     a trigger enforces that independently of grants. See §20.6.5.
-  - **`session_version`** — a monotone counter owned by the notification plane.
+  - **`session_version`** — never a **patch key** (a client-named write raises `invalid_input`, `T-RPC-CAT-02`) —
+    **but the BODY auto-increments it, in this transaction, under the row's `FOR UPDATE`, whenever
+    `starts_at`/`doors_at`/`ends_at`/`status` change.** *(Corrected 2026-08-29, E-1 DISSOLVED: this line
+    previously read "a monotone counter owned by the notification plane" — an ownership attribution with an
+    EMPTY REFERENT: the notification plane's own catalog names THIS function as the bumper (NOTIF Group E,
+    "`session_version`. A monotonic counter bumped by `catalog.update_event_session`"), the schema spec says
+    "advanced only by the session-update RPC, inside the same transaction … no other writer touches it", and
+    the ratified dedupe property is satisfiable ONLY by the in-txn bump — a bump performed at drain time reads
+    the same live value for two queued changes and reproduces the exact swallowed-second-notification failure
+    the column exists to prevent. Three sites to four words; one admissible value; no owner bit exercised.)*
   - **`event_id`** — re-parenting a session moves its atoms' event scope.
 - **The time guard, which is a custody property and not a validation nicety.** `starts_at` and `doors_at`
   are the **inputs to `catalog.effective_freeze_at`** (§12.4a), and that function is what decides when
@@ -6681,6 +6708,7 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-18** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `078` (config seeds) | Three keys: **`authn.money_role_maturity_hours`**, **`comp.per_staff_step_up_max_units`**, **`comp.per_staff_step_up_window_hours`**; and **`comp.*` joins the money dual-control namespace**. All four of these plus `refund.platform_support_max_minor` must be documented **fail-to-safe** — an absent key means *no grant is mature* / *every comp needs step-up* / *support approves nothing*. RLS §17 **X-12** | A threshold that gates an authority and does not exist is not a gate. The `comp.*` pair is C39, cited in five documents with **no key anywhere**; `authn.money_role_maturity_hours` is new with `AUTHZ-C1B` |
 | **R-6** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `081` | **Add `venue.sweep_expired_inventory_holds` to the Functions row and its assertion to the Tests row** | `G-24`. The index is built for a sweep the package does not create; without it held capacity never returns and every abandoned checkout removes inventory from sale permanently |
 | **R-7** | `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `080`, `086`, `087`, `088`, `090` | **Add the §20 functions missing from the Functions rows** — `080`: `grant_/revoke_staff_role`; `086`: `sync_scan_device_manifest`, `check_in_guest_entry`, guest-list CRUD, `preview_door_open_impact`, `get_live_device_count`, `set_session_door_schedule`, **`mint_door_session`, `revoke_door_session`, `sweep_expired_door_sessions`, `set_scan_device_status`** (`AUTHZ-H3`), and **NOT `set_event_security_config`, which is `⛔ BLOCKED` (`R-21`)**; **`087`: `claim_artifacts_for_purge`, `confirm_artifact_purged`, `reconcile_export_orphans`, `assert_may_request`** (`AUTHZ-CRM2`) and **`077`/`082`: the two contact `_event` logs' writers** (`AUTHZ-CRM1`); `088`: nothing (all six are already listed); `090`: `create_/update_promoter`, `create_promoter_link`, `check_promoter_slug_available`. **Also `unpublish_holder_mix` / `unpublish_all_holder_mix`** in the demographics package | A contracted function with no package is a function nobody builds. §8 is where an implementer looks. **`venue.retire_scan_device` must NOT be scheduled** — it is superseded (§20.13), and scheduling both builds two writers for one column |
+| **R-7a** | *(annotation to `R-7`, 2026-08-29)* | `R-7`'s "the demographics package" | **resolves to `086`** — schema §13.5-A moved the holder-mix pair there, and SEAM-1 places all three functions at `max(...)=086` (the unpublish pair writes `venue.holder_mix_snapshot` `086` + `kernel.admin_audit` `077`; reconcile reads only `086` relations). **And `R-7` omitted `venue.reconcile_holder_mix`** — contracted at §17.20 (authored name, flagged in §19), built by nothing, silently re-lost by every list that copied `R-7`. All three are now scheduled in plan/registry `086` | Writer-parity sprint |
 | **R-8** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §20A.1 → §20A.2 | **Move the `venue.allocate_comp` / `venue.issue_comp` rows** out of *"mapped — write controls with a named RPC"* | `G-4`. §20A.1 asserts a contract that did not exist; the name existed and the contract did not. §20.5 now supplies it, so the rows may move to *"mapped"* only once §20 is merged — **and the earlier listing must not be cited as evidence that they were mapped** |
 | **R-9** | **Owner ruling** | **The bid ledger's home** (§20.8.4 `OPEN DECISION`): accept "native-only auctions are not offered in MVP", or schedule the EXT `market.bid` ledger into `088` | §16.5, schema §4.2 and schema §4.9 leave it open in three different words. An implementer facing that silence creates a table no package specifies — and a bid ledger invented at build time is a money surface with no review |
 | **R-10** | **Owner ruling** | **`venue.get_dashboard_summary`** (`G-18`): accept N queries on home, or schedule it | Nothing depends on it, which is exactly why it drifts. §20.10 makes it decidable |
@@ -6698,11 +6726,56 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-31** | `PHASE_2_RLS_PERMISSION_SPEC.md` §11 · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `085` · `PHASE_2_PACKAGE_REGISTRY.md` `085` | **Three money state-sync functions need EXEC rows and two need plan/registry object entries.** EXEC rows (all `DEF`, `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`, **no human path**): `kernel.mark_payout_transfer_state` (§20.7.6), `venue.on_payout_settled` (§20.11.5), **`kernel.mark_refund_state`** (§20.7.7). Plan/registry `085` must additionally gain **`kernel.mark_refund_state`**, the **partial unique on `kernel.refund.stripe_refund_ref`** and the **`CHECK (status = 'pending' OR stripe_refund_ref IS NOT NULL)`** (schema §1.10.1) | The first two are the `S-16` pair — in the schema, the plan and the registry, and in **zero** contracts and **zero** EXEC rows. The third is the same defect one table over, found by this pass: `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT, so three of four `status` labels were unreachable and `stripe_refund_ref` had **zero writers and zero readers corpus-wide**. **SEAM-1 places all three where they already are (`max(077, 085) = 085`; the hook body at `087`); no package and no edge changes** |
 | **R-32** | `PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md` §14.5 · §14 (settlement panel) | **(a)** `S-21`, restated because it is still open: the three payout pills are three straight column reads — *held* = `hold_state='held'`, *on probation* = `hold_state='probation_hold'`, *failed* = `status='failed'`; **`status` never carries a hold** and `status='held'` never existed. **(b)** The settlement panel's four figures are straight header reads and are **NULL until close** (schema §3.13.1) — render *"not yet closed"*, never zeroes | (a) §14.5 states *"They must never render as one pill"* as a working requirement; naming the column is what stops the implementer deriving the probation pill from the **absence** of a `payout.hold` audit row, the construction `AUTHZ-M1` refuses. (b) **Zero and unknown are the same pixel and only one of them is a bug** — and until this pass the four columns had no writer at all |
 | **R-33** | `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 4 · §12 | **Restating `S-14`, which is still open:** Control 4's *"created at status `held` rather than `submitted`"* must become *"created `pending` by `close_settlement` and **not advanced** to `submitted`, carrying `hold_state='probation_hold'`"*, and §12's `NO SCHEMA CHANGE` must become **`SCHEMA CHANGE` — four additive columns on `kernel.payout`**. RPC §17.7 control 2 and §10.3's probation arm are fixed in this pass | **`kernel.payout.status='held'` does not exist and is not being created.** While §8.4 still says it, the two documents disagree about the physical representation of the one control that stops money reaching a freshly-changed destination — and §12's classification is what a migration author reads to decide the package needs no DDL |
-| **R-34** | `PHASE_2_RLS_PERMISSION_SPEC.md` §7.8 + §5 · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.8 | **`kernel.payment_native`'s writer set is `venue.finalize_primary_order` (§6.3) + `kernel.transfer_ticket_ownership` (§7.2) — TWO, with `market.accept_p2p_transfer` (§8.2) and `market.respond_offer` (§20.8.6) as delegating callers through the engine.** Both derived documents named `kernel.issue_ticket_atoms` (whose Writes line does not name the table) and omitted the actual writer of every primary-purchase link; schema §1.8's *"written by issuance / native-sale engines"* and its *"only"* are competing definitions, not restatements. Filed under `OR-7`: the registry governs, derived lists agree exactly or point. **The §8.2 ambiguity (X-1's "2 or 3") is closed in this document — §8.2's Writes line now carries the delegation form, 2026-08-29.** `instrument_fingerprint`'s ZERO contracted writers remains a **separate MISSING CONTRACT** (fails open on the self-deal detector) and is NOT discharged by this filing | Writer-parity pass, 2026-08-29 |
+| **R-34** | `PHASE_2_RLS_PERMISSION_SPEC.md` §7.8 + §5 · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.8 | **`kernel.payment_native`'s writer set is `venue.finalize_primary_order` (§6.3) + `kernel.transfer_ticket_ownership` (§7.2) — TWO, with `market.accept_p2p_transfer` (§8.2) and `market.respond_offer` (§20.8.6) as delegating callers through the engine.** Both derived documents named `kernel.issue_ticket_atoms` (whose Writes line does not name the table) and omitted the actual writer of every primary-purchase link; schema §1.8's *"written by issuance / native-sale engines"* and its *"only"* are competing definitions, not restatements. Filed under `OR-7`: the registry governs, derived lists agree exactly or point. **The §8.2 ambiguity (X-1's "2 or 3") is closed in this document — §8.2's Writes line now carries the delegation form, 2026-08-29.** `instrument_fingerprint`'s writer is **DISCHARGED 2026-08-29**: `venue.finalize_primary_order` (§6.3) writes it from the webhook-supplied parameter; the resale link is born NULL (§7.2); membership unchanged at two — the X-1 `R-` filing the consequence map demanded is this row | Writer-parity pass, 2026-08-29 |
 | **R-35** | this document §20.0e (registry) · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `079` Triggers row · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.5 | **`kernel.set_updated_at` is a WRITER (kind `trigger`) under `OR-7` and has no contract and no complete attachment map; and `079` attaches NO `updated_at` maintainer to `kernel.tickets` while schema §"Global conventions" states mutable rows' `updated_at` is *"maintained by the existing `set_updated_at` helper trigger pattern"* and the column exists on the atom.** The schema's own rule uniquely determines the answer — the attachment is required — so this is a MECHANICAL CONTRACT/PLACEMENT omission, not an owner decision; but scheduling the trigger is the plan owner's build edit and creating it is Phase-2 implementation, so **this row FILES it and this pass builds nothing**. The registry carries it as MISSING_CONTRACT until contracted | Writer-parity pass, 2026-08-29 |
 | **R-26** | **Whoever owns the corpus-wide id scheme** (the hazard this record already documents for `R-`, `K-`, `O`/`O-` and `S-`/`D-`) | **`R-22` IS USED TWICE IN THIS TABLE, FOR TWO UNRELATED ITEMS.** One `R-22` is `MP-1`'s offline clock-skew time-bucket confirmation; the other is the platform-plane grant-maturity owner ruling (`C77`/`O12`), which schema §13.7 `S-3` and RLS §11.3a both cite **by that id**. Two rows with one id is the `O3`/`O-3` mistake inside a single table, and the second one is load-bearing in three documents. **Requested:** renumber one of them — **not** the `C77`/`O12` row, which is cited externally — and state the rule that `R-` ids are allocated by reading the table's current maximum, the same discipline the ratification record states for its own rows | Found by `MB-1`/`MB-6` while allocating this pass's ids. **Not fixed here**, because renumbering a row two sibling documents cite is exactly the change that must not be made unilaterally by a pass that owns neither |
 
 ---
+
+### 20.15 `public.delete_account_cleanup(p_user_id uuid)` — **LIVE `public.*` WRITER — FROZEN, not a Phase-2 RPC** (declared 2026-08-29)
+
+> **Why this section exists.** The function is live in production and *"appears in no write-authority row of
+> any spec"* (schema §5.1's own words). Under `OR-7` a live writer with no canonical declaration is a
+> MISSING CONTRACT; this section is the declaration. **It is a transcription of the PRODUCTION body**
+> (migrations `020` → `0551` → `0563`; write set enumerated from the SQL, not from prose) — chosen by the
+> schema spec's own method, *"read from the applied migrations."* **It confers no new authority and this
+> document does not own its behavior** — the frozen Stripe/public core does.
+
+- **Write set (production, exact):** `public.listings` — UPDATE: own-live-auction cancel
+  (`auction_status→'cancelled'`, `status→'active'`, `reserved_by/reserved_until→NULL`, `ended_at`) and
+  `seller_id → sentinel` (identity-guard trigger disabled/re-enabled around it) · `public.payments` —
+  UPDATE `buyer_id`/`seller_id → sentinel` · `public.transfers` — UPDATE `buyer_id`/`seller_id → sentinel`.
+  **Nothing else** — no profiles (auth CASCADE), no storage (the edge function's job), no favorites, no
+  notifications, no bids.
+- **Binding constraints, restated not invented:** `CUSTODY-DEL-1` (schema §5.1 — this function must never
+  be extended to touch Phase-2 custody) and demographics `D-11` (it must never be pointed at
+  `kernel.identity_demographic` — the tombstone trigger, not sentinel repointing, is that table's removal
+  discipline).
+- **⚠ DECLARED FOLLOW-UP OBLIGATION — PR #28.** The open, unmerged hotfix (`fix/account-deletion-residue`,
+  migration `20260828041500`) **extends the write set to SIX tables**: + `public.bids` (DELETE),
+  + `public.seller_flags` (`reviewed_by → NULL`), + `public.stripe_connect_archive` (`profile_id →
+  sentinel`), plus listing-head reconciliation, reservation release, `dispute_resolved_by → NULL`, and the
+  two image-path rewrites. **On merge, this section and the writer registry MUST be re-derived to the
+  merged body** — three new registry rows are required at that point. Declaring the unmerged body today
+  would declare authority that does not exist in production.
+
+### 20.16 `kernel.set_updated_at()` — **TRIGGER WRITER — the `updated_at` maintainer** (contracted 2026-08-29, `R-35`)
+
+- **Kind:** `trigger` (`BEFORE UPDATE FOR EACH ROW`; sets `NEW.updated_at := now()`). Created in package
+  `076` (plan §8); **attached per table by each package's Triggers row**. Never `EXECUTE`d by a principal;
+  holds no grant class (§20.0a) — but under `OR-7` it IS a writer and this is its registry identity.
+- **Attachment map (the schema census, complete):** `077` `078` `081` `082` `085` `087` `088` `091` attach
+  it to their MUT tables (per-package Triggers rows), and — **added 2026-08-29, the R-35 census
+  correction** — `079` (`kernel.tickets`), `083` (`kernel.signing_key`, `kernel.wallet_pass`,
+  `kernel.pass_type_cert`), `086` (`venue.scan_device`, `venue.comp_allocation`, `venue.guest_list`,
+  `venue.guest_entry`), `090` (`venue.promoter`, `venue.promoter_link`). **The prior record claimed
+  `kernel.tickets` was the only required-but-not-attached site; the census refutes that — TEN tables across
+  FOUR packages lacked the maintainer** the schema's own global convention requires (*"Mutable rows carry
+  `updated_at` (maintained by the existing `set_updated_at` helper trigger pattern)"*). One rule, one
+  admissible map, no owner decision.
+- **What it never does:** no write to any column but `updated_at`; no raise; no read. `wallet_pass.last_updated_at`
+  is a distinct business column (`touch_wallet_pass`'s) and is NOT this trigger's.
+- **Registry treatment:** CATEGORY writer — carried once here rather than repeated on ~40 fence rows.
 
 ## 21. Correction index — the `MB-1` / `MB-6` cumulative-authority and custody-routing pass (2026-08-28)
 

@@ -910,6 +910,11 @@ Write RPCs *(restates the canonical registry — `OR-7`/`R-34`)*: `venue.finaliz
 | platform_admin | A | D | D | D | — |
 | service_role | A(machine) | R(def) | R(def) | D | definer |
 
+> **`instrument_fingerprint` is column-scoped OUT of every scoped read on this table, including the buyer's
+> own-link `V` read** — no client, promoter, or venue role ever receives it (restates plan `090`→`085` RLS
+> posture and PROMO §1.8; added 2026-08-29 with the column's writer, RPC §6.3, so the never-any-client rule
+> has an RLS-doc home).
+
 ### 7.9 `kernel.payout` — money-custody-RPC-only
 
 > **REPLACED WHOLESALE** by `PHASE_2_MONEY_AUTHORITY_SPEC.md` §2.1 under ratified owner ruling **O-3**. The

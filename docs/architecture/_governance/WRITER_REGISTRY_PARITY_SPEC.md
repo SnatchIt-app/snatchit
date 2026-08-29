@@ -8,12 +8,25 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > ## STATE AFTER CONVERGENCE — divergence is CLOSED; missing contracts and build gaps are NOT.
 >
 > ```
-> TABLES IN THIS REGISTRY    82    the true scope — kernel.tickets and kernel.payment_native now IN
+> TABLES IN THIS REGISTRY    82
 > DISTINCT WRITERS          156    schema-qualified names in the fence (one a named placeholder)
-> WRITER ENTRIES            235
-> PARITY   OK 66 · DIVERGENT 0 · MISSING_CONTRACT 16          = 82
-> NOT-BUILT WRITERS           3    gate-visible via the BUILT field (RC-5); was 4 — S-24 applied 2026-08-29
-> GATE ERRORS                19    16 missing-contract rows + 3 not-built writers · 0 divergent
+> WRITER ENTRIES            236
+> PARITY   OK 72 · DIVERGENT 0 · MISSING_CONTRACT 10          = 82
+> NOT-BUILT WRITERS           1    the unnamed erasure trigger (was 3 — holder-mix pair scheduled to 086)
+> GATE ERRORS                11    10 missing-contract rows + 1 not-built writer · 0 divergent
+>
+> **Parallel convergence sprint, 2026-08-29 — six missing contracts DISCHARGED mechanically:**
+> `public.payments`/`listings`/`transfers` (one root — `delete_account_cleanup` declared at RPC §20.15,
+> transcribed from the PRODUCTION SQL body; the PR #28 follow-up obligation is stated there) ·
+> `market.offer` (the "088 expiry tick" was never nameless — §20.8.5 folds it into
+> `market.sweep_expired_p2p_transfers`, now on §12.2's own Writes line) · `kernel.payment_native`
+> (`instrument_fingerprint` writer = `venue.finalize_primary_order` §6.3, webhook-supplied parameter —
+> every alternative closed by a named ruling; column moved `090 → 085` under `C112`) ·
+> `catalog.event_session` (`session_version` — E-1 DISSOLVED: the bumper is
+> `catalog.update_event_session`; three sites to four words, and the ratified dedupe property is
+> satisfiable no other way). **`kernel.set_updated_at` contracted at §20.16 (`R-35` closed) — the census
+> found TEN unattached tables across FOUR packages, not one.** Holder-mix trio scheduled to `086`
+> (`R-7a`); the BUILT flags flip with that edit.
 > ```
 >
 > **Every one of the 21 transcription divergences (RC-2) was repaired at its site** — RLS §5 ×13 rows,
@@ -118,9 +131,11 @@ Kinds: `rpc` · `trigger` · `cron` · `helper` · `webhook`. **`kernel.tickets`
 document, which is how their parity never reached the gate (`RC-1`); check `H2` now makes their absence a
 hard error. `venue.order` no longer lists `kernel.admin_refund` (`F-3` resolved against §20.7.1's own
 Writes line: it refunds a payment, possibly with no order behind it). **`kernel.set_updated_at` is a
-registry-level CATEGORY writer** — kind `trigger`, `updated_at` on every MUT table per the plan's
-per-package Triggers rows — carried in the missing-contract list (`R-35`) rather than repeated on ~40
-rows; its one REQUIRED-BUT-NOT-ATTACHED site is `kernel.tickets` (`079`).
+registry-level CATEGORY writer** — contracted at RPC **§20.16** (2026-08-29, `R-35` CLOSED), kind
+`trigger`, attachment map = the schema census, carried once rather than repeated on ~40 rows. *(This
+sentence previously claimed `kernel.tickets` was the ONLY required-but-not-attached site — the census
+refuted that: TEN tables across `079`/`083`/`086`/`090` lacked the maintainer the schema's own global
+convention requires; all ten attachments are now scheduled in the plan's Triggers rows.)*
 
 ```writer-registry
 kernel.identity_ext|kernel.upsert_identity_ext|rpc|20.1.3|y|OK
@@ -129,7 +144,7 @@ kernel.org_member|kernel.create_organization;kernel.accept_org_invite;kernel.cha
 kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite|rpc;rpc|2.2;2.3|y|MISSING_CONTRACT
 kernel.platform_role|kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc|20.1.4|y|OK
 kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5|y|OK
-kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|MISSING_CONTRACT
+kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|OK
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|7.1;7.2;7.3|y|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key|rpc;rpc;rpc|20.7.3;20.7.4;20.7.5|y|OK
 kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state|rpc;helper;rpc;rpc;rpc;webhook|10.2;20.7.2;10.3;11.2;11.3;20.7.6|y|MISSING_CONTRACT
@@ -152,7 +167,7 @@ kernel.wallet_pass_push_log|kernel.record_wallet_push_result|helper|17.23|y|OK
 kernel.org_money_policy|-|-|CONDITIONAL-D-2|-|OK
 catalog.venue|catalog.create_venue;catalog.approve_venue;catalog.update_venue|rpc;rpc;rpc|3.1;3.2;3.3|y|OK
 catalog.event|catalog.create_event;catalog.publish_event;catalog.cancel_event;catalog.update_event|rpc;rpc;rpc;rpc|4.1;4.2;4.4;20.2.3|y|OK
-catalog.event_session|catalog.create_event_session;catalog.create_event;catalog.update_event_session;catalog.cancel_event;catalog.engage_door_freeze;catalog.set_session_door_schedule|rpc;rpc;rpc;rpc;helper;rpc|4.3;4.1;20.2.4;4.4;17.12;20.6.5|y|MISSING_CONTRACT
+catalog.event_session|catalog.create_event_session;catalog.create_event;catalog.update_event_session;catalog.cancel_event;catalog.engage_door_freeze;catalog.set_session_door_schedule|rpc;rpc;rpc;rpc;helper;rpc|4.3;4.1;20.2.4;4.4;17.12;20.6.5|y|OK
 catalog.platform_config|catalog.set_platform_config|rpc|20.2.1|y|OK
 catalog.resale_policy|catalog.set_resale_policy|rpc|20.2.2|y|OK
 venue.ticket_type|venue.create_ticket_type;venue.set_ticket_type_price|rpc;rpc|5.1;20.3.1|y|OK
@@ -187,7 +202,7 @@ venue.holder_mix_bucket|venue.refresh_holder_mix|cron|17.20|y|OK
 venue.export_job|venue.request_export;venue.build_export_rows;venue.finalize_export;venue.revoke_export;venue.sweep_expired_exports;venue.claim_artifacts_for_purge;venue.confirm_artifact_purged;venue.reconcile_export_orphans|rpc;helper;helper;rpc;cron;helper;helper;helper|17.22|y|OK
 market.listing_native|market.create_listing;market.cancel_listing;market.respond_offer;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;helper;rpc|20.8.1;20.8.2;20.8.6;17.10;4.4|y|OK
 market.auction|market.create_auction;market.place_bid;market.cancel_listing;catalog.cancel_event|rpc;rpc;rpc;rpc|20.8.3;20.8.4;20.8.2;4.4|y|MISSING_CONTRACT
-market.offer|market.make_offer;market.respond_offer;market.cancel_listing|rpc;rpc;rpc|20.8.5;20.8.6;20.8.2|y|MISSING_CONTRACT
+market.offer|market.make_offer;market.respond_offer;market.cancel_listing;market.sweep_expired_p2p_transfers|rpc;rpc;rpc;cron|20.8.5;20.8.6;20.8.2;12.2|y|OK
 market.market_sale|kernel.transfer_ticket_ownership;market.respond_offer;market.sweep_paid_pending_sales;market.on_atom_voided|rpc;rpc;cron;helper|7.2;20.8.6;12.3;20.11.3|y|MISSING_CONTRACT
 market.p2p_transfer|market.create_p2p_transfer;market.accept_p2p_transfer;market.cancel_p2p_transfer;market.sweep_expired_p2p_transfers;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;cron;helper;rpc|8.1;8.2;8.3;12.2;17.10;4.4|y|OK
 market.bid|market.place_bid|rpc|20.8.4|y|MISSING_CONTRACT
@@ -200,9 +215,9 @@ notify.delivery|notify.drain_outbox;notify.claim_deliveries;notify.record_delive
 notify.outbox|notify.emit_event;notify.drain_outbox|helper;cron|17.24|c|OK
 notify.schedule|notify.sweep_scheduled|cron|17.24|c|MISSING_CONTRACT
 notify.identity_channel_state|-|-|NONE-no-writer-anywhere|-|MISSING_CONTRACT
-public.payments|public.delete_account_cleanup;CATEGORY:frozen-stripe-webhook|helper;webhook|NONE-uncontracted|y|MISSING_CONTRACT
-public.listings|public.delete_account_cleanup|helper|NONE-uncontracted|y|MISSING_CONTRACT
-public.transfers|public.delete_account_cleanup|helper|NONE-uncontracted|y|MISSING_CONTRACT
+public.payments|public.delete_account_cleanup;CATEGORY:frozen-stripe-webhook|helper;webhook|20.15;20.15|y|OK
+public.listings|public.delete_account_cleanup|helper|20.15|y|OK
+public.transfers|public.delete_account_cleanup|helper|20.15|y|OK
 public.push_tokens|notify.register_push_token;notify.revoke_push_token;notify.record_delivery_result|rpc;rpc;helper|17.24;17.24;17.25|c|OK
 public.rate_limits|public.check_rate_limit|helper|17.17|y|OK
 ```
