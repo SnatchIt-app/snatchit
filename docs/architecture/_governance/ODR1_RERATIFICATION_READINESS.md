@@ -101,6 +101,28 @@ stays 16"*. Parity is not broken by it, but **any reader treating it as the DAG 
 
 ## The seven blockers
 
+> ### SPRINT UPDATE 2026-08-29 (parallel convergence) — TWO CLOSED, ONE SHARPENED, ONE CORRECTED
+>
+> **`B-4` CLOSED — MECHANICAL.** Both owed edges applied to all four surfaces (`078 → 086`,
+> `077 → 090`); `declared_edge_count` 45 → **47**, count follows enumeration. **Correction to this
+> document:** B-4's claim that `077 → 090` was *"recorded nowhere in the three DDL-authoritative
+> documents"* was FALSE at its writing — plan §8 `090`'s own Dependencies cell recorded it; its true state
+> was the same recorded-but-undeclared shape as `078 → 086`.
+> **`B-5` CLOSED — MECHANICAL.** All five "unaffected/no-async" promoter sites struck per `OR-3`
+> (ODR-2 §6 listed four; the sweep found a fifth in plan §8 COND-A).
+> **`B-6` PART-CLOSED.** The false *"`086` already declares `078`"* sentence and the stale *"SEAM-2 is
+> used exactly three times"* are corrected; the full §13.6 edge-table refresh is DEFERRED INTO the
+> re-ratification amendment (a fresh table now would be re-stale the day `092` lands).
+> **`B-3` fully enumerated** (~45 sites across 6 docs, exact map in the sprint record; two named
+> residues). **`B-1`/`B-2` are mechanical on five limbs; the sixth — numbering `092` — IS the owner's
+> ratification act** (registry §6.5) and was deliberately not taken.
+> **`B-7` SHARPENED:** `092`'s derivable in-edges = **six** (`077 078 079 082 085 090`); `076` pending a
+> declaration-convention call; `080` pending CONFLICT-4; underivable until placed/ruled:
+> **`notify.emit_event`'s home** (own SEAM-1 = `076`; 19 call sites across six packages forbid `092`; no
+> document places it), the R1–R5 emit-semantics choice, N3's re-keying. **Post-092 floor: 45+2+6 = 53
+> edges. A floor, not an answer.**
+
+
 > **Corrected 2026-08-29 — this heading said *"six"* while the section enumerated seven.** `B-7` was
 > added 2026-08-28 and the heading was not recounted; `B-6` also sits **after** `B-7` in reading order.
 > Enumerated at HEAD: `B-1` `B-2` `B-3` `B-4` `B-5` `B-7` `B-6` — **seven.** This is the

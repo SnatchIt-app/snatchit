@@ -110,3 +110,37 @@ self-deal detector; it fails OPEN, silently, on the fraud path. The writer pair 
 The 16 missing contracts (engineering) · the 3 remaining not-built writers (holder-mix pair + the tombstone
 trigger) · `E-1` session_version and `E-2` `market.bid` (owner) · `ID-6` (owner — see its analysis) ·
 `R-25`/`ODR-38` (resale_state one-writer-pair question, open owner decision, untouched).
+
+
+---
+
+## PARALLEL CONVERGENCE SPRINT — 2026-08-29 (seven read-only agents, one lead writer)
+
+**Closed mechanically this sprint** (each six-limb-verified by the lead against the agent derivation):
+`D1`/`D2`/`D3` (delete_account_cleanup declared, RPC §20.15, PRODUCTION body, one root) · `D8`
+(market.offer tick → §12.2 Writes + fence) · `instrument_fingerprint` (writer §6.3 + edge §4 payload path
++ `C112` column move `090→085` + RLS §7.8 fence; reclassified MISSING BEHAVIOR → contract omission by
+agent C's constraint-web proof) · `E-1` (DISSOLVED — one admissible value) · schema §3.7 venue.order
+residual · `R-35` (contract §20.16 + TEN attachments across four packages — the one-site claim refuted) ·
+holder-mix trio → `086` (`R-7a`; `RC-5` unconditional set now EMPTY but for the erasure trigger) ·
+ODR-1 `B-4` + `B-5` + two `B-6` items · registry↔plan object parity now mechanically witnessed
+(`scripts/registry_plan_parity.py` + `PACKAGE_OBJECT_PARITY_SPEC.md`, BOOTSTRAP closed world, 14+4
+fixtures, mutation-proven on the S-24 and S-25 shapes).
+
+**Gate: 19 → 11** (10 MC + 1 NB + 0 divergent). **Root defects remaining: 10** — org_invite label
+writers (revoke + declined/expired, class B) · payout native-sale path (B+D) · org_customer_key
+mint+rotation (B) · order cancel-on-payment-failed (B) · market_sale webhook writer (B) ·
+notify.schedule producer (B, MD-10) · notify.identity_channel_state (B, O-N3) · erasure tombstone
+(J-12 — UPSERT-vs-AO standing owner blocker, ODR-4 family) · R-9 family (owner — bid + auction row +
+finalize sweep) · ID-6 (owner, one bit).
+
+**NEW FILINGS surfaced by the sprint, recorded so none is lost:** the "market checkout" phrase (RPC
+§16/§20.8.6 names a caller that would INSERT the `initiated` sale on the non-offer rail — no contract; a
+candidate twelfth omission) · `notify.claim_deliveries` reads `config('notify.delivery_lease_interval')`
+which NO package seeds (the announcement keys are OUT under OR-5) · the
+`demographics.holder_mix_enabled` seed was orphaned by the `087→086` move (assigned "087 (data)" by
+DEMOG; seeded nowhere; `get_holder_mix` reads it live and no document states the unseeded default) ·
+`notify.emit_event` has NO placed home (own SEAM-1 = `076`; 19 call sites across six packages forbid
+`092`) · PR #28's merged body will extend delete_account_cleanup's write set to SIX tables (three new
+fence rows owed at merge — §20.15 carries the obligation) · the fingerprint resale-history residual
+(resale links born NULL — recorded beside the accepted T4 gap, PROMO §1.8 semantics unchanged).
