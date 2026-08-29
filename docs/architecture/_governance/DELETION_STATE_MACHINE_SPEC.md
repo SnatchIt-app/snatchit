@@ -26,8 +26,7 @@ is named **OPEN** — nothing is filled by invention.
 ## 0. The substrate (ruled with 16b; restated once)
 
 The state lives in **three columns on `kernel.identity_ext`** — `deletion_state`,
-`deletion_requested_at`, `deletion_block_reason` — plus a partial index over open requests and **one sweep
-on the existing 2-minute production heartbeat** (BRIEF-B B3 :58–66; BRIEF-A §5 :130–141). Not a new table:
+`deletion_requested_at`, `deletion_block_reason` — plus a partial index over open requests and **one sweep with its own explicit `cron.schedule` entry created by `077` (2-minute cadence — the P0-1 per-job discipline; the "existing heartbeat" phrasing predated the cron register's finding that no shared heartbeat remains)** (BRIEF-B B3 :58–66; BRIEF-A §5 :130–141). Not a new table:
 a queue table must choose RESTRICT (a third cliff blocking the deletion it schedules) or CASCADE (deleting
 the record of the request in the statement that completes it) (BRIEF-A :134). The sweep is idempotent and
 re-evaluates the full predicate set from scratch on every pass (BRIEF-B B4 :71–72); it is also **the only

@@ -738,7 +738,7 @@ are **pgTAP test-file ordinals**, unrelated to migration versions. A number in
    number in that band without a ratified amendment recorded in
    `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md` and an update to
    this registry.
-3. **New security hotfixes go above `091`**, or — if authored before Phase 2
+3. **New security hotfixes go above `092`** *(was "091" — band extended by `OR-12`; F-13)*, or — if authored before Phase 2
    starts — require this registry to be re-ratified with a new shift. Do not
    silently consume a reserved number; that is precisely what produced the four
    competing scales in §4.

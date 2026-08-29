@@ -1709,7 +1709,7 @@ Write *(restates the canonical registry — `OR-7`)*: `checkout_buy_now` (INSERT
 | platform_admin | A | R | R | D | override |
 | service_role | A(machine) | R(def) | R(def) | D | definer (transfer engine + C25 sweep) |
 
-⁴⁸ buyer/seller read own sale via `market.get_market_sale_status` (state pending|completed|compensated, **no
+⁴⁸ buyer/seller read own sale via `market.get_market_sale_status` (state pending|completed|compensated|cancelled *(R-37/`OR-22`, red-team F-7)*, **no
 cause-codes** — recon #2, §14.2); fee split/counterpart PII col-scoped. ⁴⁹ the sale row is written only inside
 the kernel transfer engine; the buyer "drives" it by completing native checkout, buyer id server-verified
 against `public.payments`.

@@ -1187,7 +1187,10 @@ surface.
   ratification row.
 - `origin_ref` uuid — not null. Soft reference, **deliberately no hard FK** (the `kernel.payout.cause_ref`
   discipline: it points across schemas/rails without an ordering cycle). Native origins existence-verified by
-  the writer; live-rail origins attested by the audited caller.
+  the writer; live-rail origins attested by the audited caller. **Window note (red-team F-10, documented
+  2026-08-29): a live-rail chargeback closing lost in the `077`→`085` window (before this table exists) is
+  recorded when `085` lands — Q2 makes post-tombstone recording legal by design, so the debt is late, never
+  lost; recovery is impossible in Phase 2 on either timing.**
 - `stripe_dispute_ref` text — nullable, **write-once**, partial UNIQUE where non-null (the
   `stripe_refund_ref`/`stripe_transfer_ref` external-join-key discipline).
 - `amount_minor` integer — not null, CHECK > 0. **Fixed at origin, immutable forever.** No partial recovery

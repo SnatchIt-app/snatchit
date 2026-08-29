@@ -655,7 +655,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 - **DB-RPC** (read). **Role:** `auth.uid() ∈ {buyer_id, seller_id}` of the sale (owner-scoped).
 - **Reads:** `market.market_sale`. **Writes:** none. **SSCAS:** n/a.
 - **Result:** `{ terminal_state(pending|completed|compensated), sale_state(initiated|paid_pending_transfer|
-  settled), paid_pending_since }` **only** — **no cause-codes, no fee split, no counterpart PII.** Drives the
+  settled|cancelled *(R-37/`OR-22` — a released/failed checkout is representable; red-team F-7)*), paid_pending_since }` **only** — **no cause-codes, no fee split, no counterpart PII.** Drives the
   RN "Finalizing…" → success / compensated-refund flip. **SLO:** the bounded `paid_pending_transfer` dwell is
   named in the Edge spec; this read is cause-code-free by contract.
 - **Forbidden callers:** anyone not buyer/seller (org finance royalty read is a separate scoped path).
@@ -1997,7 +1997,7 @@ transfer's atom stays `locked` until its TTL expires — possibly hours. A fan m
 door and be refused with **no action available to them and none to the door**. `venue.open_door_manifest`
 (§17.10) therefore drains the session's in-flight overlays *before* taking the snapshot: `initiated` p2p
 transfers → `cancelled` (`reason_code='door_freeze'`, atom unlocked back to the **sender** — which C43 exempts
-because owner and `credential_version` do not change) and `active` listings → `cancelled`, atom unlocked.
+because owner and `credential_version` do not change) and `active` **or `reserved`** listings → `cancelled` *(drain-domain harmonized 2026-08-29, red-team F-6: §17.10a's "everything except `paid_pending_transfer`" is the normative domain — a `reserved` never-paid listing drains exactly like an `active` one; its sale is released by the PI-death worker)*, atom unlocked.
 **Excluded:** any listing whose sale is `paid_pending_transfer` — money is already taken and the C25 sweep
 owns that row (§12.3). The drain **moves no custody, appends no ownership-log row, and bumps no
 `credential_version`**, so the Door Safety Theorem is unaffected.
@@ -6695,7 +6695,7 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 - **Consequences while `reserved`** (existing contract text, no edits needed): `make_offer` refused
   (`listing_not_active`, §20.8.5); `respond_offer` accept refused (§20.8.6); seller `cancel_listing`
   refused (`not_active`, §20.8.2) — **the seller cannot break a live reservation**; the door-freeze drain
-  and `catalog.cancel_event` MAY cancel a `reserved` listing (they never touch the sale — a late payment
+  and `catalog.cancel_event` DO cancel a `reserved` listing (§17.10a's domain — harmonized, red-team F-6; they never touch the sale — a late payment
   resolves through §20.8.7 → C25).
 - **Tests:** `T-RPC-MARKET-11`/`-12`/`-13` (§18.1).
 
@@ -6999,7 +6999,7 @@ replacement (and ship a stub that silently returns nothing).
 - **The seam.** Created in **`085`** as a **no-op stub** (`market.market_sale` does not exist yet); replaced
   in **`088`** by `CREATE OR REPLACE` setting `terminal_state := 'compensated'`. A rollback of `088` restores
   the stub.
-- **Preconditions & idempotency.** The sale row is located by `ticket_atom_id`; **if no sale exists the call
+- **Preconditions & idempotency.** The sale row is located by `ticket_atom_id` **with `sale_state <> 'cancelled'` and `terminal_state = 'pending'` (red-team F-8: cancelled never-paid rows accumulate per atom under `OR-22` and must never be flipped; the pairing CHECK — `compensated` ⇒ a `refund_void` log entry — is the invariant this filter protects)**; **if no such sale exists the call
   is a silent no-op, not an error** — most voided atoms were never resold, and a void must never fail because
   the market layer has nothing to say. **Compensate-XOR-complete** is enforced under the sale's row lock: a
   `completed` sale **cannot** be flipped to `compensated` (`conflict_locked`), which is the C26 terminal
@@ -7319,6 +7319,14 @@ change another spec's owner must make; each names the file, the section and the 
 
 - The single freeze operand every F-clause calls (the `has_org_role`/`is_transfer_frozen` house pattern;
   one implementation). `EXEC: DEF` — no client grant; callers are the F-clause hosts and the sweep.
+- **Serialization vs terminal entry (red-team F-11, 2026-08-29):** an F-clause host calls this predicate
+  **holding `FOR SHARE` on the caller's `kernel.identity_ext` row** (taken by the predicate itself; the
+  lazy-create path takes the insert lock), and the sweep's terminal-entry arm takes the same row
+  **`FOR UPDATE`** before evaluating BP-1…BP-12 — so an acquisition transaction that read ACTIVE commits
+  before the tombstone write can begin, and its new matter is seen by the sweep's re-evaluation. No
+  three-transaction interleave can leave an `initiated` sale or `pending` order owned by an ERASED
+  identity. Rank: `identity_ext` sits below every custody rank (it is read first, consistent with the
+  ascending order).
 
 #### 20.17.4 `kernel.sweep_deletion_pending(p_limit int DEFAULT 100)` — **cron definer (EXEC: DEF)**
 
@@ -7358,7 +7366,7 @@ Each stub's neutral result is **the true value over an empty world** (its operan
 before the replacing package — the C113/§0.4b argument); each replacing package asserts the stub body is no
 longer live (`pg_get_functiondef` ≠ stub — the §0.4b discipline). Freeze clauses F-1…F-7 are authored as
 preconditions inside their host RPCs' own sections (riders at §2.1, §2.3, §5.3, §6.1, §6.3, §8.2, §20.8.5,
-§20.8.6, §20.9.1); F-5 and the delete-account edge switch are deploy artifacts on the `077` release train
+§20.8.6, §20.8.8, §20.9.1); F-5 and the delete-account edge switch are deploy artifacts on the `077` release train
 (FR-9; §20.15 cutover note).
 
 ## 21. Correction index — the `MB-1` / `MB-6` cumulative-authority and custody-routing pass (2026-08-28)

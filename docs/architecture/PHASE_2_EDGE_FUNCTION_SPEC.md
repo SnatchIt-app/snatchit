@@ -339,7 +339,8 @@ web server). **Rejections are the high-value output — they keep atomic transit
 `signing-key-provision`, `refund-execute`, `payout-execute`, `connect-onboarding`) **+ 11 from the delta specs**
 (`crm-export`, **`crm-export-worker`**, `promoter-code-preview`, `door-session`, `door-manifest` *(optional)*,
 `wallet-pass-issue`, `wallet-pass-webservice`, `wallet-pass-push`, `pass-cert-provision`, `notify-dispatch`,
-`notify-receipts`) **+ 1 extended** (`stripe-webhook`). Every one is classified under §0.4.
+`notify-receipts`) **+ `resale-checkout` (R-37/`OR-22`, §3.16)**. `stripe-webhook` is EXTENDED, not new —
+it never counted (enumeration corrected 2026-08-29, red-team F-13). Every one is classified under §0.4.
 **16 → 17 by `EDGE-2`; 17 → 18 by `R-37`/`OR-22`** (`resale-checkout`, §3.16 — one deployment, one `verify_jwt` value, mixed A + B-i routes on the `wallet-pass-push` precedent): `crm-export` split into an actor function and a worker function, because one
 deployed function cannot carry two `verify_jwt` values (EA-8). **A count of deployed functions is a count of
 `verify_jwt` settings** — that is the whole reason this total moved.
@@ -1173,7 +1174,7 @@ EDGE-2's own criterion; mixed A + B-i in one deployment has the `wallet-pass-pus
   clientSecret implies a stored ref). **PI idempotency key
   `pi_resale_${sale_id}_${total}_c${customerId}[_r${n}]`** (§3.1's salting — a canceled PI must not
   replay); rate limit `check_rate_limit(user,'resale-checkout',5,60)` fail-closed; on RPC failure → 409; on
-  Stripe failure → 500 + orphan-PI cancel; on 23505 race → return the winner's clientSecret. Response
+  Stripe failure → 500 + orphan-PI cancel; on a 23505 race, re-read **the caller's own sale** (`buyer_id = auth.uid()` — the C16 same-buyer replay is the only reachable collision under the RPC's lock-first discipline) and return THAT clientSecret; never another buyer's (red-team F-10). Response
   `{ sale_id, clientSecret, paymentIntentId, amount, total, reservation_expires_at, customerId,
   customerEphemeralKeySecret }`. Confirmation is NOT synchronous — the webhook is authoritative (§3.1's
   closing rule).
