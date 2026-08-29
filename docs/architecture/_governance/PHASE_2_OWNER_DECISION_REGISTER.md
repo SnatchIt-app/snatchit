@@ -54,7 +54,9 @@ until it is answered.
 > for T in 'OPEN — OWNER' 'CLOSED — OWNER RULING' 'MECHANICAL / ENGINEERING' \
 >          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION' 'SPLIT'; do
 >   printf '%4d  %s\n' "$(grep -cF "**Status.** $T" "$REG")" "$T"
-> done                                  # must print 116, 4, 3, 1, 3, 1
+> done                                  # must print 116, 4, 4, 1, 2, 1 as of 2026-08-29
+>                                       # (was 116, 4, 3, 1, 3, 1 — ODR-128 moved BLOCKED → MECHANICAL
+>                                       # when X-8 resolved. COUNT IT, do not carry it.)
 > ```
 >
 > **Check 2 is the one that matters.** Every previous staleness in this corpus was a count that moved while
@@ -95,13 +97,16 @@ dispositioned rows in this file. Nothing found in the sweep is left undispositio
 |---|:-:|---|
 | **OPEN — OWNER** — awaiting the owner; nobody else may close it | **116** | every entry not named in the five rows below |
 | **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **4** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) |
-| **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **3** | `ODR-15` · `ODR-126` · `ODR-127` |
+| **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **4** | `ODR-15` · `ODR-126` · `ODR-127` · **`ODR-128`** *(moved 2026-08-29: its blocking decision and all three fail-closed contradictions are resolved; 28 transcription sites remain)* |
 | **SUPERSEDED** — overtaken by a later ratified row or ruling | **1** | `ODR-52` |
-| **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **3** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) · `ODR-128` (by `ODR-7` — **`ODR-7` is now RULED; the decision half is discharged and 3 of 9 rows fail closed pending an ownership act. The row keeps this status until those three are resolved**) |
+| **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **2** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) — *`ODR-128` left this row 2026-08-29 when its own retention condition was met; see the MECHANICAL row* |
 | **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` BLOCKED BY `ODR-16` · `4c` ENGINEERING · `4d` MECHANICAL) |
 | | **128** | |
 
-**116 = 128 − 4 − 3 − 1 − 3 − 1.** The twelve non-open entries are enumerated above in full.
+**116 = 128 − 4 − 4 − 1 − 2 − 1.** The twelve non-open entries are enumerated above in full.
+*(2026-08-29: `ODR-128` moved BLOCKED → MECHANICAL; the twelve-member non-open set is unchanged in
+membership, redistributed across statuses. The previous arithmetic, − 4 − 3 − 1 − 3 − 1, was correct for
+its date.)*
 
 > **THERE ARE SIX STATUS VALUES, NOT FIVE — corrected 2026-08-28.** The previous text asserted *"there is no
 > sixth status"* while `OR-2` had already given `ODR-4` a sixth (`SPLIT`), and the header claimed `120` open
@@ -1646,6 +1651,18 @@ resolve from the sibling statements rather than by granting anything new, and sp
 > **This entry's status is unchanged** — `ODR-128` stays `BLOCKED BY ANOTHER DECISION` until `X-8`
 > actually resolves, and no count in this register moves.
 >
+> **`X-8` update 2026-08-29, later the same day — `P-6` LANDED; `X-8` IS RESOLVED; this entry moved.**
+> The RPC owner deleted the two `EXEC: DEF` residues (RPC §0.1a, §17.9 heading), invented nothing, and
+> `ROLE_MODEL` §5.4's `A7 → kernel.record_money_denial` entry went live. Verified post-repair: hash-match
+> on the thirteen transcribed rows, both join directions unique, exclusion rule byte-unedited, security
+> posture unchanged (INDIRECT · two edge callers re-enumerated from HEAD · zero client routes · `SVC`
+> denied), gate's `X-8` failure cleared with the gate script byte-unchanged. **All three fail-closed
+> contradictions are now resolved** (`X-1`/`X-6` by `OR-7`; `X-8` by `OR-8`+`OR-9`+`P-6`), which is this
+> entry's own stated condition for leaving `BLOCKED` — status is now **MECHANICAL / ENGINEERING** and the
+> split table is recounted. **Found while verifying, NOT `X-8`: `ID-6`** (`venue.assert_may_request`,
+> RPC §20.7.8 — second pre-existing instance of `ID-5`'s class; `T-RPC-GLOBAL-02` still fails corpus-wide
+> on it; RPC owner's; registered in the contradiction resolution's intra-document list).
+>
 > **Updated 2026-08-28:** `X-1` and `X-6` closed when owner ruling `OR-7` named the writer-registry
 > owner. The derived answer was **11 writers of `kernel.tickets`, not the 10 either side argued** —
 > the eleventh a cron/sweep writer that the earlier count omitted.
@@ -1660,7 +1677,12 @@ resolve from the sibling statements rather than by granting anything new, and sp
 > pure, 7 needing a `C`-row or discharge, 4 blocked. Full detail:
 > `_governance/ODR128_CONTRADICTION_RESOLUTION.md`.
 
-**Status.** BLOCKED BY ANOTHER DECISION — **`ODR-7`** (`O11`, precedence between same-tier specifications).
+**Status.** MECHANICAL / ENGINEERING — **since 2026-08-29**, when the last fail-closed contradiction
+(`X-8`) resolved. Originally BLOCKED BY ANOTHER DECISION (`ODR-7`, ruled `OR-6` 2026-08-28); the prior
+edition's own condition — *"the row keeps this status until those three are resolved"* — is now met:
+`X-1`/`X-6` closed by `OR-7`, `X-8` closed by `OR-8` + `OR-9` + the mechanical `P-6`. **What remains is
+transcription** (the 28-site work list, 4 sites newly unblocked and still unedited), which is exactly what
+this status means. No owner decision remains in this entry.
 **Why it is one entry and not six.** `_governance/PHASE_2_FINAL_OWNER_DECISION_BRIEF.md` §0.3 states the
 mechanism: *"`O11` first, because **six of the seven "cross-document contradictions" in the work plan are**
 delta-vs-delta conflicts; ruling `O11` **converts them from design decisions into transcription**."* They are

@@ -502,10 +502,14 @@ named in the Notes column.
 > **narrowing**, not a widening; it is flagged here so no later reader repairs it as a gap. Its enforcement
 > is `T-SCHEMA-AUDIT-01`, which asserts the raise **on the service-role path deliberately**.
 >
-> **The capability → function entry for `A7` is NOT yet written in §5.4 — see `⛔ A7` there.** `ID-5` blocks
-> it: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` still labels this function `EXEC: DEF` at §0.1a and in the §17.9
-> heading while §17.9's own body contracts `EXECUTE` to `authenticated` only. **`X-8` therefore remains
-> UNRESOLVED after this row**, and this note must not be read as closing it.
+> **The capability → function entry for `A7` was blocked at first writing, and is now live.** When this row
+> was written (2026-08-28), `ID-5` blocked the §5.4 entry: RPC §0.1a and the §17.9 heading still labelled
+> the function `EXEC: DEF` while §17.9's own body contracted `EXECUTE` to `authenticated` only, so `X-8`
+> remained UNRESOLVED. **2026-08-29: the RPC owner landed `P-6`** — both residues deleted, no replacement
+> value invented (the surviving class is §0.1a's untagged default, ratified by `C93`/`C106`) — and the §5.4
+> entry was written. Three acts, three authorities, in order: `OR-9` named the capability (owner),
+> §5.4 housed the map (mechanical, under `OR-8`), `P-6` removed the residue (mechanical, RPC owner). **No
+> single decision did this**, and none of the three changed a grant.
 
 #### B. Money, custody & settlement
 
@@ -738,7 +742,7 @@ the same direction of travel for the EXEC rows themselves.
 | G1/G2/G3 · G5 | `venue.create_promoter` / `update_promoter` / `create_promoter_link` / `set_promoter_link_status` · **`venue.review_attribution_flag`** |
 | H2/H3 · H4 | `venue.request_export` (audience / operations templates) · `catalog.update_event` *(media columns)* |
 | I2 · I3 | `market.create_p2p_transfer` / `accept_p2p_transfer` / `make_offer` / `place_bid` · `market.create_listing` / `cancel_listing` / `create_auction` |
-| **⛔ `A7`** | **`kernel.record_money_denial` — BLOCKED, NOT WRITTEN.** The entry is derived, agreed and security-cleared (§5.3 `A7` footnote), and it is **the only entry `T-RLS-EXEC-01`'s join lacks in *both* directions**. It is withheld because **`ID-5`** is unrepaired: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` still labels the function `EXEC: DEF` at **§0.1a** and in the **§17.9 heading**, while §17.9's own body contracts `EXECUTE` to `authenticated` only — so the exclusion rule below fires on a **stale label**, not on the function's ratified grant class. Writing the entry over a live `DEF` label would put this document in contradiction with the exclusion rule on the day the entry is written. **`X-8` remains UNRESOLVED until the RPC owner repairs `ID-5`** (§11.4 `P-6`). |
+| **`A7`** | **`kernel.record_money_denial`** — this document's own entry (2026-08-29), the fourteenth row and the only one not transcribed from RLS §16.11a; RLS owes the restatement via `R-19`. Written the day `ID-5` was repaired (`P-6` landed: the `EXEC: DEF` residue at RPC §0.1a and the §17.9 heading is deleted), so the exclusion rule below no longer reaches the function. **The entry maps a capability; it grants nothing** — call posture INDIRECT, callers `payout-execute`/`refund-execute` only, `EXECUTE` to `authenticated` ratified twice before this row existed (`C93`, `C106`). |
 
 **Exclusion rule — carried unchanged from §16.11a, and it is not weakened here.** *Every `DEF` RPC is
 deliberately absent from this map: a definer-only primitive implements no principal's capability, and
@@ -751,12 +755,19 @@ merits — that function is **not** definer-only under its own ratified contract
 through `ID-5`'s two stale labels. **Repairing the labels is the remedy; rewriting this rule is not, and
 this section declines to.**
 
-> **Transcription proof, not a claim.** The thirteen mapping rows above are **byte-identical** to
-> `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a's thirteen rows at the commit that created this section:
-> `sha256 = dbfe30694c7ad8201c066c17df0cfcaf909d8058d57639f2acdfce11ef968bc8` over the thirteen rows
-> joined by `\n`, excluding the `⛔ A7` row, which is this document's own and is **not** a mapping.
-> Recompute it before believing this sentence; if it differs, the two documents have drifted and
-> **`R-19`** was applied wrongly or one side was edited alone.
+> **Disposition 2026-08-29 — the labels are repaired (`P-6` APPLIED).** RPC §0.1a and the §17.9 heading no
+> longer carry `EXEC: DEF` for this function; the rule above — **unedited throughout** — no longer reaches
+> it on any reading, and the `A7` entry above is a mapping, not a blocked row. The rule's remaining
+> members are the genuine definer-only surface (`T-RLS-EDGE-02`'s), exactly as before.
+
+> **Transcription proof, not a claim.** The **thirteen** mapping rows transcribed from
+> `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a remain **byte-identical** to their source:
+> `sha256 = dbfe30694c7ad8201c066c17df0cfcaf909d8058d57639f2acdfce11ef968bc8` over those thirteen rows
+> joined by `\n`, **excluding the `A7` row, which is this document's own** — first written as `⛔ BLOCKED`
+> (2026-08-28, `ID-5` open), converted to a mapping 2026-08-29 when `P-6` landed, and **not yet present in
+> §16.11a**: until `R-19` is applied the two documents deliberately differ by exactly this one row.
+> Recompute the hash before believing this sentence; if the thirteen differ, the two documents have
+> drifted and **`R-19`** was applied wrongly or one side was edited alone.
 
 **Bold entries above are the ones `AUTHZ-H5` and `AUTHZ-R1` corrected** — `E2`, `E4`, `E5` (the
 `venue_scanner` over-grant) and `F2` (the schedule-vs-ledger-head conflation).
@@ -1519,7 +1530,7 @@ recurs.
 | P-3 | every `venue_door` occurrence (8 sites: the scan, manifest-sync and door-read contracts) | every `venue_door` occurrence (8 lines) | `venue_scanner`; and for `record_scan` / `record_offline_scans` / manifest-sync, state the two entry paths (authenticated `venue_scanner` **or** `service_role` edge with `assert_door_session`). | ✅ **APPLIED** — `venue_scanner` throughout, with **both** entry paths stated on `record_scan` / `reconcile_offline_scans` / manifest sync. |
 | P-4 | §comp | `venue.allocate_comp` / `issue_comp` shared authority | split per R-15. | ✅ **APPLIED** — RPC §20.5. |
 | P-5 | new § | — | contracts for O4-1…O4-4 (door lifecycle **authority** rows only — the state machine belongs to `design/o5-door-lifecycle`), G5, A6, F11/F12. | 🔁 **CORRECTED BY THIS PASS — the same three functions as `R-16`.** A6 (`read_operational_audit`) and F11/F12 (`list_attendees`) are contracted. **G5’s contract is `venue.review_attribution_flag`** (§17.18); **O4-3’s is `catalog.set_session_door_schedule`** (§20.6.5); **O4-4’s is `⛔ BLOCKED`** (§20.6.6 / `OD-11`). O4-1/O4-2 are contracted as ratified. |
-| **P-6** | **§0.1a** (closing sentence) · **§17.9** (heading) | ``(§17.9) — `EXEC: DEF`, no human path.`` and ``### 17.9 kernel.record_money_denial(…) — **DB-RPC** · `EXEC: DEF` · `NEW RPC``` | **delete the `EXEC: DEF` classification from both sites.** §0.1a defines exactly two grant classes and the other one — *caller-authorized (default)* — **carries no tag**, so the repair adds no vocabulary and makes no choice: §17.9's own body already contracts ``SECURITY DEFINER, EXECUTE to `authenticated` ONLY — never `anon`, never `service_role```, marked `SPEC CORRECTION (S-17)` and ratified by `C93` + `C106`. §0.1a's *"no human path"* clause goes with it. | ⏳ **OWED — this is `ID-5`, and it is the last thing blocking `X-8`.** **MECHANICAL, not an owner decision:** `C93` proved the `DEF` configuration **unbuildable** (on `service_role`, `auth.uid()` is NULL, `kernel.admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and the FK forbids a sentinel — *the INSERT cannot satisfy its own constraint*), so only one value is admissible. The document currently **fails its own global assertion `T-RPC-GLOBAL-02`** (*every `EXEC: DEF` function has no grant to `anon`/`authenticated`*). `OR-6`'s scope limit is binding — this is **intra-document**, so no precedence rule reaches it and it may not be settled by citing `OR-6`; it belongs to the RPC owner. **`PHASE_2_RPC_FUNCTION_CONTRACTS.md` was NOT edited by this pass.** |
+| **P-6** | **§0.1a** (closing sentence) · **§17.9** (heading) | ``(§17.9) — `EXEC: DEF`, no human path.`` and ``### 17.9 kernel.record_money_denial(…) — **DB-RPC** · `EXEC: DEF` · `NEW RPC``` | **delete the `EXEC: DEF` classification from both sites.** §0.1a defines exactly two grant classes and the other one — *caller-authorized (default)* — **carries no tag**, so the repair adds no vocabulary and makes no choice: §17.9's own body already contracts ``SECURITY DEFINER, EXECUTE to `authenticated` ONLY — never `anon`, never `service_role```, marked `SPEC CORRECTION (S-17)` and ratified by `C93` + `C106`. §0.1a's *"no human path"* clause goes with it. | ✅ **APPLIED 2026-08-29 — this was `ID-5`, and it was the last thing blocking `X-8`.** **MECHANICAL, not an owner decision:** `C93` proved the `DEF` configuration **unbuildable** (on `service_role`, `auth.uid()` is NULL, `kernel.admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and the FK forbids a sentinel — *the INSERT cannot satisfy its own constraint*), so only one value was admissible and only a deletion was performed. Both residues removed; a dated history note stands in §17.9's body; §0.1a now states the ratified caller-authorized classification transcribed from §17.9. **`T-RPC-GLOBAL-02`'s `record_money_denial` failure is cleared** — note the assertion still fails corpus-wide on a *distinct, pre-existing* second instance of the same class, `venue.assert_may_request` (§20.7.8: heading + authority say `EXEC: DEF`, the same authority line grants `EXECUTE` to `authenticated`) — registered as **`ID-6`**, RPC owner's, **not** an `X-8` blocker (a predicate helper implements no capability and has no §5.4 row). `OR-6` was not cited; the repair was intra-document and mechanical. |
 
 ### 11.5 `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`
 

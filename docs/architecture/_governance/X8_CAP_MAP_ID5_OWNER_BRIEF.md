@@ -1,5 +1,20 @@
 # `X-8` — the minimum owner brief, after `A7`
 
+> ## DISCHARGED 2026-08-29, later the same day — `P-6` LANDED AND `X-8` IS **RESOLVED**.
+>
+> This brief predicted zero remaining owner bits and one mechanical remediation; both held. The RPC
+> owner deleted the two `EXEC: DEF` residues (§0.1a, §17.9 heading), invented no replacement value, and
+> the `A7 → kernel.record_money_denial` entry in `ROLE_MODEL` §5.4 went live. Post-repair verification:
+> thirteen transcribed §5.4 rows still hash-match §16.11a · both join directions resolve uniquely · the
+> exclusion rule is byte-unedited · security posture unchanged (INDIRECT, two edge callers re-enumerated
+> from HEAD, zero client routes, `SVC` denied) · the precedence gate's `X-8` failure cleared with the
+> gate script byte-unchanged. **The declined option in §2 was not taken** — the rule was never rewritten.
+> **`ID-6`** (`venue.assert_may_request`, §20.7.8 — the same defect class, second pre-existing instance,
+> `T-RPC-GLOBAL-02` still fails on it corpus-wide) was found during verification, registered in
+> `ODR128_CONTRADICTION_RESOLUTION.md`, and is **not** an `X-8` member. The appendix's `CM-1`/`CM-2`
+> owner choices remain open and remain non-blocking. **The body below is preserved as written before
+> `P-6` landed.**
+
 **2026-08-29.** Written after owner ruling **`OR-9`** (`A7`). `A7` is closed and is not re-opened here.
 Writer ownership is closed (`OR-7`) and is not re-opened here. `GRANTS` ownership is not re-opened,
 because `ID-5` turns out not to be a `GRANTS` dispute.

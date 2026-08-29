@@ -118,7 +118,12 @@ transaction back and takes the audit row with it. Postgres has no autonomous tra
 attempts to change a payout destination or fire a payout are the single highest-value fraud signal in the
 system, and they are invisible.** The edge therefore catches `insufficient_privilege` / `sod_violation` /
 `step_up_required` from a money RPC and, **in a separate transaction**, calls `kernel.record_money_denial`
-(§17.9) — `EXEC: DEF`, no human path.
+(§17.9) — **caller-authorized**, bound by EDGE-CALLER-JWT like every other money RPC: the edge makes this
+call on the **caller's own `Authorization` client** — the same client it built for the call that was just
+denied — so `actor_identity := auth.uid()`, and the function RAISES when `auth.uid()` IS NULL (`S-17`;
+`C93`/`C106`). *This sentence previously read "`EXEC: DEF`, no human path" — superseded residue of the
+pre-`S-17` contract, removed 2026-08-29 under `ID-5`/`P-6`; the classification above is the already-ratified
+one, transcribed from §17.9's own body, not invented here.*
 
 ### 0.2 Idempotency (C16 + C26)
 - Any state-creating RPC accepts `p_command_key text` (**untrusted**) and enforces the schema's per-table
@@ -2770,7 +2775,7 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   as an authorization input.
 - **Errors.** `insufficient_privilege` · `not_found`.
 
-### 17.9 `kernel.record_money_denial(p_action, p_subject_kind, p_subject_id, p_error_code)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
+### 17.9 `kernel.record_money_denial(p_action, p_subject_kind, p_subject_id, p_error_code)` — **DB-RPC** · `NEW RPC`
 
 - **Purpose.** Append a `*.denied` audit row **for an action that failed**. Exists because §0.3 writes audit
   **in the same transaction** as the action, and a failed predicate `RAISE`s — which rolls the transaction
@@ -2790,6 +2795,13 @@ Referenced by RLS §7.2/§11, schema §1.2 and the dashboard, **and contracted n
   > of writing a wrong row — the same fail-closed shape `T-RLS-EDGE-01` asserts for every human-predicate
   > RPC. **The signature keeps its four parameters and NO actor parameter is added**, so this is not the
   > `p_user_id`-trust pattern (C35/`S-6`) in a new place.
+
+  **Residue removal, 2026-08-29 (`ID-5` / `ROLE_MODEL` §11.4 `P-6`).** After `S-17` landed in this body,
+  this section's own **heading** and §0.1a's closing sentence still carried the superseded `EXEC: DEF`
+  label — which made this document fail its own `T-RPC-GLOBAL-02` and made the capability map's
+  `DEF`-exclusion rule fire on a stale tag. Both labels are now removed. The function's grant class is the
+  §0.1a **default** (caller-authorized), which carries no heading tag by this document's own convention;
+  nothing about the grants, the signature, or the semantics changed with the labels.
 
   **Definer because `kernel.admin_audit` is audit-only/deny-all.** Not granted to `anon` because a denial
   before authentication has no principal to record and belongs to rate-limiting, not to audit.

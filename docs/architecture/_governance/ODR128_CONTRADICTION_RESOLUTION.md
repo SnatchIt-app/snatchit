@@ -244,6 +244,31 @@ list as `ID-5`.**
 > working, not failing.** Remaining owner bits for `X-8`: **zero**. Minimum brief:
 > `_governance/X8_CAP_MAP_ID5_OWNER_BRIEF.md`.
 
+> #### UPDATE 2026-08-29, later the same day — `P-6` LANDED. `X-8` IS **RESOLVED**.
+>
+> The RPC owner deleted the two `EXEC: DEF` residues (§0.1a closing sentence; §17.9 heading), replaced
+> nothing (the surviving class is §0.1a's **untagged default**, ratified `C93`/`C106`), and left a dated
+> history note in §17.9's body. The `A7 → kernel.record_money_denial` entry in `ROLE_MODEL` §5.4 was then
+> converted from `⛔ BLOCKED` to a live mapping. **Verified after the edit, not assumed:** the thirteen
+> transcribed §5.4 rows still hash-match §16.11a exactly; the forward and reverse joins both resolve to
+> exactly one entry; the exclusion rule is byte-unedited and no longer reaches the function on any reading;
+> the security posture is unchanged (INDIRECT · two edge callers only, re-enumerated from HEAD · zero
+> client routes · `SVC` denied). **The fenced block below now carries `X-8` as `OWNER`-resolved** — winner
+> `ROLE_MODEL` (owner of all three subjects), transcription sites the RPC contract (landed, `P-6`) and the
+> RLS spec (owed, `R-19`).
+>
+> **Four decisions, four authorities, in order — recorded so no one reads this as one act:** `OR-8` ruled
+> ownership (owner, 2026-08-28) → the naming bit failed closed (pass, same day) → `OR-9` chose `A7`
+> (owner, 2026-08-29) → `CAP-MAP` housing and `P-6` (mechanical, same day, two different document owners).
+>
+> **Found while verifying, and NOT `X-8`: `ID-6`.** `T-RPC-GLOBAL-02` corpus-wide **still fails** — on
+> `venue.assert_may_request` (RPC §20.7.8), a *distinct, pre-existing* second instance of `ID-5`'s class:
+> the heading and the Authority line both say `EXEC: DEF` while the same Authority line grants `EXECUTE`
+> to `authenticated`, and `R-29` restates the contradiction verbatim in its proposed RLS row. It does not
+> touch `X-8` — a predicate helper implements no capability, has no §5.4 row, and the exclusion rule never
+> consulted it. Holding `X-8` open on it would be the subject substitution the gate exists to forbid.
+> **Registered below as `ID-6`; RPC owner's; unrepaired by this pass** (*"do not edit unrelated RPCs"*).
+
 #### What closes the row — stated, not chosen
 
 The first edition's proposed remedy was *"refine the owner map for the case where a single RPC's grant
@@ -316,6 +341,17 @@ established the class at ratified `C121` (*"Same document, so `O11` cannot help.
 - **ID-4** — CRM §9.5 (scope split in two) vs §12 `K-15` (scope collapsed to one). Distinct from X-5:
   X-5 settles the arity, this is the CRM spec disagreeing with **itself** on scope decomposition.
   → **CRM owner**, and `K-15` needs a `C`-row because it is a ratified correction row.
+- **ID-5** — **REPAIRED 2026-08-29 (`P-6`).** RPC §0.1a + §17.9 heading (`EXEC: DEF`) vs §17.9 body
+  (`EXECUTE` to `authenticated` only, `S-17`/`C93`/`C106`). Both residues deleted; history note left in
+  the body. → **was RPC owner's; discharged.**
+- **ID-6** — **NEW 2026-08-29, found while verifying `P-6`.** RPC §20.7.8 `venue.assert_may_request`: the
+  heading and the Authority line say **`EXEC: DEF`** while the *same* Authority line grants `REVOKE … FROM
+  anon; EXECUTE to authenticated` — §0.1a's `DEF` class is `service_role` **only**, so the section
+  contradicts the class definition it cites, `T-RPC-GLOBAL-02` fails on it, and `R-29`'s proposed RLS row
+  carries the same contradiction (*"`EXECUTE` to `authenticated`, … `EXEC: DEF`"*). Same class as `ID-5`,
+  second instance; likely the same mechanical shape (the label should be the untagged caller-authorized
+  default — it is a definer-*read* helper, grants nothing, writes nothing), **but that is the RPC owner's
+  to confirm, not this file's to assert.** → **RPC owner.** NOT an `X-8` member.
 
 *(`ODR-127` — RPC §6.3 vs §7.1 on the inventory write — is the fifth member of this class and is
 already correctly filed as its own entry.)*
@@ -325,8 +361,10 @@ already correctly filed as its own entry.)*
 **28 edit sites across 8 files.** **17 are pure transcription** needing no new correction id.
 **7 require a new `C`-row or an explicit discharge** — RLS §11 EXEC row · RLS structural assertion ·
 RPC §20.11.5 ×2 · CRM `K-15` · MONEY §8.4 Control 4 · MONEY §12. **4 are intra-document** and belong to
-their own document's owner. **4 sites are BLOCKED pending the X-8 escalation and must not be edited**:
-RLS §3.1, RLS §11 (`record_money_denial` row), MONEY §8.4 ×2.
+their own document's owner. **4 sites were BLOCKED pending the X-8 escalation** —
+RLS §3.1, RLS §11 (`record_money_denial` row), MONEY §8.4 ×2 — **and are UNBLOCKED as of 2026-08-29
+(`X-8` resolved). All four remain UNEDITED**: they are `R-28`'s, owed by the RLS and MONEY owners, and
+this pass touched neither document.
 
 | file | sites | `C`-row needed |
 |---|:--:|---|
@@ -359,7 +397,7 @@ X-4|SEAM-RULE|OWNER|docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md|docs/ar
 X-5|RPC-SIG|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_PACKAGE_REGISTRY.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
 X-6|WRITER|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md
 X-7|PKG-PLACE|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
-X-8|CAPABILITY,CAP-MAP,GRANTS|UNRESOLVED||
+X-8|CAPABILITY,CAP-MAP,GRANTS|OWNER|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md
 X-9|SCHEMA-PHYS|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md
 ```
 
