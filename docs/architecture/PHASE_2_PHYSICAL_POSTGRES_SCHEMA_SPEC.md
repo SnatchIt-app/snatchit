@@ -3410,7 +3410,7 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
 - **Index:** PK; unique on `listing_id`; index on `(status, ends_at)` (auto-finalize sweep, reusing the
   existing `auto-finalize-auctions` pattern).
 - **RLS:** public-read; writes RPC-only.
-- **Write authority:** `market.create_auction`, the bid RPC, the finalize sweep.
+- **Write authority (MVP-DORMANT — `OR-11`, 2026-08-29: no native-rail auctions in MVP; the table can hold no rows; the sweep is vacuous and POST-MVP):** `market.create_auction` (rejects native listings), the bid RPC, the finalize sweep.
 - **SoT/PROJ:** SoT (auction); `current_highest_bid_minor` = PROJ head.
 
 ### 4.3 `market.offer`

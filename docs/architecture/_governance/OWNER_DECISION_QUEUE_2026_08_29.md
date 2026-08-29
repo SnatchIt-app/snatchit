@@ -49,7 +49,7 @@ sweep" residues are marked vacuous, under B `088` gains table+finalizer+matrix; 
 sweep is a pure function of this ruling in every branch — folded, no separate decision.** The prior
 sharpening stands: Option A's true breadth is "no native-rail auctions AT ALL" (the mirror precondition
 is FK-unsatisfiable and no mirror writer exists) — stated so the signature accepts what it accepts.
-READY FOR OWNER: **YES — one bit.**
+**RULED 2026-08-29: OPTION A (`OR-11`) — applied, off the queue.** An MVP scope decision only; Option B preserved as the post-MVP path.
 
 ## Q-3 — `ODR-16`: account deletion — **READY FOR OWNER RULING (2026-08-29, sprint 2)**
 

@@ -98,7 +98,7 @@ MENTION-OK|list_org_refunds
 MENTION-OK|list_promoter_attributions
 MENTION-OK|list_updated_wallet_passes
 MENTION-OK|lookup_attendee
-# R-9-gated: market.bid is EXT-not-created; this MENTION-OK hole closes with the R-9 ruling (red-team P2-11)
+# RULED OR-11 (2026-08-29, Option A): market.bid does NOT exist in the MVP native rail; these mentions are the preserved historical/POST-MVP references. The MENTION-OK hole is now a ruled fact, not a pending one.
 MENTION-OK|market.bid
 MENTION-OK|public.listings
 MENTION-OK|public.profiles

@@ -588,7 +588,7 @@ Every backend state the UI references, and where it lives (for reviewer cross-ch
 | `venue.inventory_batch.remaining` (C27 counter) | available / low / sold-out (derived from capacity−held−sold) | Event Page, Primary Checkout partially-unavailable |
 | `venue.inventory_hold` | `active → converted \| expired \| released` | Primary Checkout hold timer/expiry |
 | `catalog.event.status` | `draft → announced → on_sale → live → completed \| cancelled` | Event Page (on_sale/live=buyable; completed=ended), Entry Pass |
-| `catalog.resale_policy.mode` | `off / transfers_only / fixed_cap / face_value_queue / buy_now / auction / offer` | Event Page resale block, Sell |
+| `catalog.resale_policy.mode` | `off / transfers_only / fixed_cap / face_value_queue / buy_now / auction / offer` — **`auction` mode is NOT offered on native listings in MVP (`OR-11`, 2026-08-29); legacy external-rail auctions unchanged** | Event Page resale block, Sell |
 | `venue.scan` | admitted (`direction=in`) / `offline_pending` / `fraud_flag` | Scanner |
 | `venue.door_pin` | valid / expired (TTL) | Scanner PIN |
 | `venue.scan_device` | manifest fresh / stale | Scanner device status |

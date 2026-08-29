@@ -54,7 +54,7 @@ until it is answered.
 > for T in 'OPEN — OWNER' 'CLOSED — OWNER RULING' 'MECHANICAL / ENGINEERING' \
 >          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION' 'SPLIT'; do
 >   printf '%4d  %s\n' "$(grep -cF "**Status.** $T" "$REG")" "$T"
-> done                                  # must print 116, 4, 4, 1, 2, 1 as of 2026-08-29
+> done                                  # must print 115, 5, 4, 1, 2, 1 as of 2026-08-29 late (OR-11 closed ODR-27;
 >                                       # (was 116, 4, 3, 1, 3, 1 — ODR-128 moved BLOCKED → MECHANICAL
 >                                       # when X-8 resolved. COUNT IT, do not carry it.)
 > ```
@@ -95,15 +95,15 @@ dispositioned rows in this file. Nothing found in the sweep is left undispositio
 
 | Status | Count | Ids |
 |---|:-:|---|
-| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **116** | every entry not named in the five rows below |
-| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **4** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) |
+| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **115** | every entry not named in the five rows below |
+| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **5** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) · **`ODR-27`** (`OR-11`, Option A — no native MVP auctions) |
 | **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **4** | `ODR-15` · `ODR-126` · `ODR-127` · **`ODR-128`** *(moved 2026-08-29: its blocking decision and all three fail-closed contradictions are resolved; 28 transcription sites remain)* |
 | **SUPERSEDED** — overtaken by a later ratified row or ruling | **1** | `ODR-52` |
 | **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **2** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) — *`ODR-128` left this row 2026-08-29 when its own retention condition was met; see the MECHANICAL row* |
 | **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` BLOCKED BY `ODR-16` · `4c` ENGINEERING · `4d` MECHANICAL) |
 | | **128** | |
 
-**116 = 128 − 4 − 4 − 1 − 2 − 1.** The twelve non-open entries are enumerated above in full.
+**115 = 128 − 5 − 4 − 1 − 2 − 1.** *(2026-08-29 late: `ODR-27` moved OPEN → CLOSED under `OR-11`.)* Previously: The twelve non-open entries are enumerated above in full.
 *(2026-08-29: `ODR-128` moved BLOCKED → MECHANICAL; the twelve-member non-open set is unchanged in
 membership, redistributed across statuses. The previous arithmetic, − 4 − 3 − 1 − 3 − 1, was correct for
 its date.)*
@@ -1375,7 +1375,7 @@ O-1/O-3 do not reach it."*
 > `089` VIEW; no document specifies a mirror-row writer). The **auction finalize sweep is proven
 > downstream in every branch** — vacuous under Meaning 1, R-9-shaped under Meaning 2 — and is FOLDED into
 > this decision, not a separate bit. Consolidated brief: `_governance/OWNER_DECISION_QUEUE_2026_08_29.md` Q-2.
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING (`OR-11`, 2026-08-29: OPTION A — no native-rail auctions in MVP; an MVP scope decision, not a permanent prohibition; the finalize sweep folded and vacuous; `market.bid` leaves MVP true scope).
 **Choice.** Accept *"native-only auctions are not offered in MVP"* — `create_auction` requires a listing that
 mirrors to `public.listings`, and a native-only attempt raises
 `precondition_failed('native_only_auction_unsupported')` **at create time, not at bid time** — **or** schedule

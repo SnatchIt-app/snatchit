@@ -2096,7 +2096,7 @@ active successor is refused.
 | 10 | Event-cancellation cascade | `catalog.cancel_event` (bounded batch of member #3 per atom) | **Event/Session** → **Inventory** → per **Ticket Atom(asc id)** → **Refund** |
 | 11 | Dispute-resolution reversal | `kernel.admin_resolve_dispute`-native path (`force_void_ticket` + refund/clawback executors) | **Dispute** → **Ticket Atom** → **Refund/Payment** → **Payout**(clawback/release) |
 | 12 | C25 auto-compensation | `market.sweep_paid_pending_sales` | **Listing** → **Ticket Atom** → **Payment**(complete) XOR **Ticket Atom** → **Refund**(compensate) |
-| 13 | Auction deposit-release | auction finalize sweep → `kernel.transfer_ticket_ownership` (+ deposit-auth void) | **Listing/Auction** → **Ticket Atom** → **Payment** |
+| 13 | Auction deposit-release | auction finalize sweep → `kernel.transfer_ticket_ownership` (+ deposit-auth void) | **Listing/Auction** → **Ticket Atom** → **Payment** | **(MVP-dormant — `OR-11`; modeled lock row preserved for the post-MVP surface)**
 | 14 | Group-buy claim *(non-MVP; modeled only)* | future `venue.reserve_group_claim()` (A11 one legal door) | **Inventory**(hold) — single-class once inside the door |
 | 15 | Wallet checkout *(non-MVP; modeled only — wallet is later-phase)* | future wallet-debit → `create_primary_checkout` path | **Order** → **Payment/Wallet-ledger** |
 
@@ -6311,6 +6311,15 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 
 #### 20.8.3 `market.create_auction(p_listing_id, p_reserve_minor, p_min_increment_minor, p_anti_snipe_seconds, p_ends_at, p_command_key)` — **DB-RPC**
 
+> **OWNER RULING `OR-11` (`Q-2`/`R-9`, 2026-08-29) — OPTION A: no native-rail auctions in MVP.**
+> `create_auction` **MUST reject every native-rail listing** (`native_auction_not_offered`) — the mirror
+> precondition below was FK-unsatisfiable anyway (no mirror writer exists), and the owner accepted that
+> consequence knowingly. `market.auction` ships in `088` as **dormant substrate that can hold no rows**;
+> this contract and §20.8.4 are **contracted-but-dormant**. `market.bid` does not exist in the MVP native
+> rail; the finalize sweep is **vacuous in MVP** (proven a pure function of this ruling). Legacy
+> external-rail auctions are unchanged. **An MVP scope decision only — not a permanent prohibition**; the
+> post-MVP path is Option B's enumerated surface.
+
 - **Authority.** the **listing seller** — RLS §11.1 (*"listing seller (create)"*), re-checked live against
   `market.listing_native.seller_id`.
 - **Preconditions.** Listing exists, `status='active'`, `listing_mode='auction'`, and **has no auction**
@@ -6339,7 +6348,7 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 > **Naming, stated plainly: `market.place_bid` is a name this document assigns.** RLS §11.1 grants EXECUTE
 > to *"any `authenticated` (bid)"* on a row literally reading **`market.create_auction` / bid RPC**; plan
 > `088`'s Functions row reads *"`create_auction`, **the bid RPC**, `make_offer`"*; schema §4.2's write
-> authority reads *"`create_auction`, **the bid RPC**, the finalize sweep."* Three documents grant, schedule
+> authority reads *"`create_auction`, **the bid RPC**, the finalize sweep."* **(All three are MVP-dormant under `OR-11` — the sweep is vacuous, the bid ledger absent, `create_auction` rejects native listings.)** Three documents grant, schedule
 > and assign write authority to a function none of them names. **Chosen to match the file's verb-first
 > convention** (`make_offer`, `respond_offer`, `create_auction`, `create_listing`) and to avoid colliding
 > with the EXT relation name `market.bid`.

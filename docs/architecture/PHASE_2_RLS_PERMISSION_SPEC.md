@@ -1646,7 +1646,7 @@ col-scoped. ⁴³ seller must own the atom (`kernel.tickets.current_owner_id = a
 `locked`/terminal; enforced under lock in the create RPC.
 
 ### 10.2 `market.auction` — public-read; writes RPC-only
-Write RPCs: `create_auction`, bid RPC, finalize sweep. (Bids on external `public.bids` where mirrored — CONFLICTS #6.)
+Write RPCs *(MVP-DORMANT — `OR-11` 2026-08-29: `create_auction` rejects native listings; no native bid ledger, no finalize sweep in MVP; POST-MVP surface preserved as Option B)*: `create_auction`, bid RPC, finalize sweep. (Bids on external `public.bids` where mirrored — CONFLICTS #6.)
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1659,7 +1659,7 @@ Write RPCs: `create_auction`, bid RPC, finalize sweep. (Bids on external `public
 | platform_support | A | D | R | D | cancel (audited) |
 | platform_risk | A | D | R | D | fraud freeze/cancel |
 | platform_admin | A | R | R | D | override |
-| service_role | A(machine) | R(def) | R(def) | D | definer (finalize sweep) |
+| service_role | A(machine) | R(def) | R(def) | D | definer (finalize sweep — **MVP-vacuous, `OR-11`; POST-MVP**) |
 
 ⁴⁴ only the listing seller creates its auction. ⁴⁵ bids drive `current_highest_bid_minor` (derived head) via
 the bid RPC; the auction row itself is not client-writable.
