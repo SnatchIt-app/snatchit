@@ -4,17 +4,27 @@
 capability existence, identifiers, semantics, and capability → RPC/function mapping.** Ratification
 row **`OR-8`**.
 
-> ## STATUS: `X-8` REMAINS **UNRESOLVED**, and the row was NOT written.
+> ## STATUS AT 2026-08-29 — the owner ruled, the row is written, and `X-8` is **STILL UNRESOLVED**.
 >
 > ```
-> CAPABILITY FORM      DETERMINISTIC      <BLOCK LETTER><next free ordinal>, no separator
-> CAPABILITY BLOCK     NOT DETERMINISTIC  two rule-consistent options: A7 or B13
+> OWNER NAMING DECISION   A7  vs  B13        (posed 2026-08-28, OR-8)
+> OWNER SELECTED          A7                 (ruled  2026-08-29, OR-9)
+>
+> CAPABILITY ROW          PRESENT   ROLE_MODEL §5.3 block A — 70 rows, A1…A7
+> CAP-MAP HOME            PRESENT   ROLE_MODEL §5.4 — created this pass
+> A7 MAPPING ENTRY        ABSENT    ⛔ BLOCKED BY ID-5
+> X-8                     UNRESOLVED
+> REMAINING OWNER BITS    0         — what is left is mechanical
 > ```
 >
-> The naming convention was induced mechanically from **69 existing capability ids with zero
-> exceptions**. It fixes everything about the identifier **except the block letter**, and the corpus
-> contains no tiebreaker. Per the instruction — *"if multiple names are equally valid, STOP … do not
-> proceed by preference"* — **no row was added and `PHASE_2_ROLE_MODEL_SPEC.md` was not edited.**
+> **The identifier was chosen by the owner, and this document does not pretend otherwise.** The
+> convention below was induced mechanically from **69 existing ids with zero exceptions** and fixes
+> everything about the identifier **except the block letter**, for which the corpus contained no
+> tiebreaker. Two options were rule-consistent. **The owner selected `A7`**, adopting the consequence
+> this document had stated as fact: §5.3's money block **B** is transcribed from `SNATCH_IT_DOMAIN_
+> ARCHITECTURE.md` §7.6, so a `B13` row would have created a §5.3 cell with **no upstream row** —
+> reproducing the two-owners-one-cell shape `X-8` *is*. **The §5.3 §5.4 sections that follow are written
+> against `A7`; everything below the fold is preserved as it stood when the decision was open.**
 
 ## The security question, answered first and from the contract
 
@@ -92,7 +102,10 @@ adds nothing, which is the proof that no role possesses it.
 matrix**. That is forced by the contract, but it is first-of-kind and must be annotated so no reader
 reads it as an omission.
 
-## TWO BLOCKERS THAT SURVIVE THE NAMING DECISION
+## TWO BLOCKERS THAT SURVIVED THE NAMING DECISION — as written 2026-08-28
+
+> **Disposition 2026-08-29:** blocker **1 is CLOSED** (`ROLE_MODEL` §5.4 created). Blocker **2 is OPEN**
+> and is now the *only* thing between `X-8` and RESOLVED. See the closing section of this document.
 
 **1. The mapping has no home that exists.** The ruling gives `ROLE_MODEL` the capability→RPC mapping.
 **`ROLE_MODEL` carries no such map in any form** — §5.3 has two column groups, Capability and the 20
@@ -127,3 +140,70 @@ tell an intentional split from drift.**
 `grant_platform_role` (all mapped, never contracted — gaps `G-7`, `G-12`, `G-20`), and
 **`venue.record_scan`, which `X-6` established is a delegating wrapper, not the writer.** `X-6` was
 ruled to RPC by `OR-7` and **the map row was never re-derived.**
+
+
+---
+
+## CLOSING RECORD — 2026-08-29, `OR-9`
+
+**This section was added after the owner ruled. Nothing above it was rewritten to look decided.**
+
+### The ruling
+
+| | |
+|---|---|
+| **Question** | which §5.3 block letter carries the denial-audit capability |
+| **Options put to the owner** | **`A7`** · **`B13`** — the provably complete set (block `I` rejected on the heading's domain word; a new block `J` has no precedent) |
+| **Owner selected** | **`A7`** |
+| **Owner's stated ground** | `B13` would sit in the money block, which is **transcribed** from DA §7.6 and not decided in §5.3; a `B13` row would therefore have no upstream row and would **recreate the two-owner / one-cell ambiguity**. `A7` lies wholly inside subject `ROLE-CAP`, where `ROLE_MODEL` is sole owner, so `A7` **preserves the `OR-7` ownership boundary**. |
+| **Scope of the ruling** | **the capability identifier only.** No authorization change, no product route, no new grant. |
+| **Ratified at** | `PHASE_2_RATIFICATION_RECORD.md` **`OR-9`** |
+
+### What was written
+
+- **`ROLE_MODEL` §5.3 block A — row `A7`**, plus a footnote carrying the ruling's provenance, the forced
+  cell derivation, the `INDIRECT` call posture, the *no new human `EXECUTE` authority* finding, and the
+  first-of-kind `SVC` `·` flag. §5.3 is now **70 rows**: `A`7 `B`12 `C`7 `D`9 `E`8 `F`14 `G`5 `H`4 `I`4.
+- **`ROLE_MODEL` §5.4 — the normative home of `CAP-MAP`**, thirteen rows transcribed **unchanged** from
+  RLS §16.11a, the exclusion rule carried **verbatim**, and §5.4.1 enumerating what the map does not cover.
+- **`ROLE_MODEL` §11.2 `R-19`** — RLS §16.11a restated as the roll-up. **Filed, not applied.**
+- **`ROLE_MODEL` §11.4 `P-6`** — repair `ID-5`. **Filed, not applied.**
+
+**Two documents were deliberately NOT edited:** `PHASE_2_RLS_PERMISSION_SPEC.md` and
+`PHASE_2_RPC_FUNCTION_CONTRACTS.md`. Both edits are owed by their own owners and are recorded as
+required edits in the owner's document, which is this corpus's established idiom (§11 *"Required edits to
+every other spec"*).
+
+### The security posture is unchanged — re-verified from the contract, not carried forward on trust
+
+```
+CALL POSTURE                    INDIRECT
+NEW HUMAN EXECUTE AUTHORITY     NO
+NEW PRODUCT ROUTE               NO
+SERVICE_ROLE                    NARROWED  (SVC = ·, first in the matrix)
+```
+
+Callers in the whole corpus: **two edge functions**, `payout-execute` and `refund-execute`, each invoking
+it *in a separate transaction* on the **caller's own `Authorization` client** after catching a money-RPC
+denial. **EA-1**, explicitly removed from the service-role list by `C106`. Zero occurrences in the RN and
+dashboard specs. **No role predicate of any kind** in its contract — which is why `A7`'s cell is
+**identical for `FAN` and `PAD`**, and why holding a role adds nothing. The `authenticated` grant it
+reflects was ratified **twice before this pass** (`C93`, `C106`).
+
+### Why `X-8` is still open
+
+`ID-5`. The `A7 → kernel.record_money_denial` entry is written into §5.4 as **`⛔ BLOCKED`**, not as a
+mapping, because RPC §0.1a and the §17.9 heading still classify the function `EXEC: DEF` while §17.9's own
+body contracts `EXECUTE` to `authenticated` only. §5.4 carries the `DEF`-exclusion rule **verbatim and
+unweakened**, so the rule fires — on a **stale label**, not on the function's ratified grant class.
+
+**The repair is mechanical and belongs to the RPC owner** (`P-6`): §0.1a defines exactly two grant classes
+and the other one carries **no tag**, so the fix is a deletion at two sites. `C93` proved the `DEF`
+configuration unbuildable, so no alternative value is admissible. **`OR-6` cannot be cited** — the defect
+is intra-document and `OR-6`'s scope limit is binding.
+
+**Nothing here weakens `ID-5` or the exclusion rule to close `X-8`.** That option existed — restate the
+rule substantively (*exclude functions with no human `EXECUTE` grant*) rather than lexically, which would
+release the entry immediately — and it was **declined**: it is a rule edit made to unblock the editor's
+own row. It is recorded as an option, with its consequence, in
+`_governance/X8_CAP_MAP_ID5_OWNER_BRIEF.md`.

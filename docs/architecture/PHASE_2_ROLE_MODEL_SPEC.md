@@ -456,9 +456,56 @@ named in the Notes column.
 | A4 Grant/revoke platform role | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | R✱ᴰ | R |
 | A5 Read `kernel.admin_audit` (security plane) | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | V | V | A | A |
 | A6 Read own venue/org operational audit | · | · | · | R◐ | R◐ | R◐ | · | · | R◐ | R◐ | · | · | · | · | · | · | V | V | A | A |
+| A7 Record own money-action denial (`kernel.admin_audit`) | · | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | R◐ | · | R◐ | R◐ | R◐ | R◐ | · |
 
 > A6 is venue dashboard Δ2 (`:1123`) — a definer read restricted to the caller's org/venue subject, **excluding
 > the security plane**, plain verbs, no before/after payloads. `NEW RPC`.
+
+> **A7 — OWNER RULING `OR-9`, 2026-08-29. The identifier was chosen by the owner, not derived by this
+> document.** The capability-id grammar (`<BLOCK LETTER><next free ordinal>`, no separator, block letter =
+> the §5.3 subject block) is deterministic and was induced from the 69 pre-existing ids with zero
+> exceptions — but it fixes everything *except* the block letter, and the corpus contained no tiebreaker.
+> Two options were rule-consistent, `A7` and `B13`; the owner selected **`A7`**, on the ground that §5.3's
+> money block **B** is transcribed from `SNATCH_IT_DOMAIN_ARCHITECTURE.md` §7.6 (§15) and a `B13` row would
+> therefore have created a §5.3 cell with no upstream row — reproducing the two-owners-one-cell shape that
+> `X-8` is. Block **A** lies wholly inside subject `ROLE-CAP`, where this document is sole owner, and it is
+> where the written object already lives (`A5`). Recorded at `_governance/PHASE_2_RATIFICATION_RECORD.md`
+> `OR-9` and derived in full at `_governance/ROLE_MODEL_DENIAL_AUDIT_CAPABILITY_RULING.md`.
+>
+> **Governed function:** `kernel.record_money_denial(p_action, p_subject_kind, p_subject_id, p_error_code)`
+> — RPC §17.9, schema §1.12.1, package `085`. **Call posture: INDIRECT.** Its only callers in the entire
+> corpus are the `payout-execute` and `refund-execute` edge functions, each invoking it **in a separate
+> transaction** on the **caller's own `Authorization` client** after catching a money-RPC denial (edge §3.4 /
+> §3.5; an **EA-1** call, explicitly removed from the service-role list by `C106`). **No product spec
+> exposes a client route to it, and its contract carries no role predicate of any kind.**
+>
+> **NO NEW HUMAN `EXECUTE` AUTHORITY IS CREATED BY THIS ROW.** The `GRANT EXECUTE … TO authenticated` it
+> reflects is already ratified **twice** — `C93` (schema §1.12.1) and `C106` (`S-17`) — and is already
+> written into the canonical contract. This row **transcribes a ratified grant into the document that was
+> silent about it**; it does not confer one. Per `OR-8`, a capability → function mapping does not by itself
+> grant any principal direct `EXECUTE`.
+>
+> **The cells are forced by the contract, not chosen.** `ANO` `·` — a denial before authentication has no
+> principal to record and belongs to rate-limiting, not audit. `DOO` `·` — a door session has no
+> `auth.uid()` and the function **RAISES** when `auth.uid()` IS NULL. **`SVC` `·`** — never `service_role`:
+> on that connection `auth.uid()` is NULL, so the function raises and writes no row (`T-SCHEMA-AUDIT-01`).
+> The seventeen authenticated principals are **`R◐`** and **identical to one another**: `R` means
+> *permitted exclusively inside a `SECURITY DEFINER` RPC* (§5.2 — the matrix has **no direct-write grant
+> vocabulary at all**), and `◐` is **self, always**, because `actor_identity := auth.uid()` is
+> server-derived and `T-SCHEMA-AUDIT-02` asserts **structurally over the signature** that no parameter can
+> change it. **The cell is the same for `FAN` as for `PAD`** — holding a role adds nothing, which is the
+> proof that **no product or platform role possesses this capability**. What the row records is that a
+> caller may write **its own** denial, and nothing else.
+>
+> **⚠ FIRST-OF-KIND, and not an omission.** `SVC` `·` is the **first denial of `service_role` anywhere in
+> the 69-row matrix** — every other row is `R` or `A` in that column. It is forced by the contract and is a
+> **narrowing**, not a widening; it is flagged here so no later reader repairs it as a gap. Its enforcement
+> is `T-SCHEMA-AUDIT-01`, which asserts the raise **on the service-role path deliberately**.
+>
+> **The capability → function entry for `A7` is NOT yet written in §5.4 — see `⛔ A7` there.** `ID-5` blocks
+> it: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` still labels this function `EXEC: DEF` at §0.1a and in the §17.9
+> heading while §17.9's own body contracts `EXECUTE` to `authenticated` only. **`X-8` therefore remains
+> UNRESOLVED after this row**, and this note must not be read as closing it.
 
 #### B. Money, custody & settlement
 
@@ -649,6 +696,99 @@ named in the Notes column.
 > therefore no consumer capability. That is not a policy choice; it falls out of §7's credential model.
 
 ---
+
+### 5.4 Capability → function map — **NORMATIVE HOME, created by `OR-8`**
+
+> **This section exists because a ruling created an owner with nowhere to write.** `OR-8`
+> (2026-08-28) made this document the single normative owner of *the capability → RPC/function
+> mapping* (subject `CAP-MAP`). **This document carried no such map in any form** — §5.3 has two column
+> groups, Capability and the twenty principals, and the only function names in the file before this
+> section were in footnotes. The map lived, and had only ever lived, in
+> `PHASE_2_RLS_PERMISSION_SPEC.md` **§16.11a**, which `OR-8` makes **derived**. The owner map recorded
+> the state honestly as `OWNED BUT UNHOUSED`. **This section is the house.** It is a housing act, not a
+> re-derivation: every row below is transcribed from §16.11a unchanged, and **no mapping is added,
+> removed or altered here.**
+>
+> **Why a section and not a column on §5.3 — mechanical, not preference.** A 22nd column on §5.3 cannot
+> hold this map. The map's rows are **grouped and many-to-many** (`A1 · A2 · A3 · A4` → four functions;
+> `B2/B3` → one function; `venue.review_attribution_flag` appears under **both** `F14` and `G5`), and
+> flattening them to one function-list per capability requires **decomposing groupings the corpus does
+> not decompose anywhere** — inventing data. A separate table preserves the map exactly as ratified and
+> is the only form that carries the reverse direction (`function → capability`) the join needs. `B13` vs
+> `A7` was a genuine choice and went to the owner; this is not one.
+
+**Consumer.** `T-RLS-EXEC-01` — *"the §11 EXEC set equals `ROLE_MODEL` §5.3's `R` cells per principal,
+in both directions"* (RLS §16.11, §3392; traceability §8). It is the **only** validation that joins on
+this map. `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a is now the **roll-up** of this section — required
+edit **`R-19`**, §11.2 — and `PHASE_2_RLS_PERMISSION_SPEC.md` §11.0's `EXEC-DERIVED` rule already states
+the same direction of travel for the EXEC rows themselves.
+
+| §5.3 cell | function(s) |
+|---|---|
+| A1 · A2 · A3 · A4 | `catalog.set_venue_approval` · `catalog.set_platform_config` · `kernel.set_org_status` · `kernel.grant_platform_role` / `revoke_platform_role` |
+| A5 · A6 | *(reads — `venue.read_operational_audit` for A6; A5 is a policy, not an EXEC row)* |
+| B1 · B2/B3 · B4 · B5 | `kernel.set_org_payout_destination` · `kernel.request_org_payout` (+ `approve_refund_request` at `action='payout.request'`) · `kernel.hold_payout` · `kernel.release_payout` |
+| B6 | `kernel.request_order_refund` · `kernel.approve_refund_request` · `kernel.refund_primary_order` · `kernel.admin_refund` |
+| B8 · B9 · B10 | `kernel.force_void_ticket` · `venue.open_settlement` · `kernel.close_settlement` |
+| C2 · C3 · C4 · C5 · C7 | `kernel.change_org_role` · `kernel.invite_org_member` · `kernel.accept_org_invite` · `kernel.update_organization` · `catalog.create_venue` |
+| D1/D2 · D3 · D4 · D5 · D6 · D7 · D9 | `catalog.create_event` / `create_event_session` / `update_event` / `update_event_session` / `set_event_status` / `cancel_event` · *(marketing columns of the same)* · `venue.create_ticket_type` · `venue.set_ticket_type_price` · `catalog.set_resale_policy` · `venue.grant_staff_role` / `revoke_staff_role` · the five `venue.*_promoter_code*` RPCs |
+| E1 · E2 · E3 · E4 · E5 · E6 · E7 | `venue.create_inventory_batch` / `set_batch_capacity` · **`venue.reserve_inventory`** · `venue.create_inventory_hold` · **`venue.release_hold`** · **`venue.create_order`** · `venue.allocate_comp` · `venue.issue_comp` |
+| F1 · F2 · F4 · F5 · F6 · F7 · F8 · F9 · F10 · F14 | `venue.open_door_manifest` / `close_door_manifest` · **`catalog.set_session_door_schedule`** · `venue.set_event_security_config` · `venue.issue_door_pin` / `revoke_door_pin` · `venue.register_scan_device` · `venue.sync_scan_device_manifest` · `venue.record_scan` · `venue.record_offline_scans` · `venue.check_in_guest_entry` · `venue.review_attribution_flag` *(scan arm)* |
+| F3 | `kernel.grant_door_freeze_override` / `revoke_door_freeze_override` |
+| G1/G2/G3 · G5 | `venue.create_promoter` / `update_promoter` / `create_promoter_link` / `set_promoter_link_status` · **`venue.review_attribution_flag`** |
+| H2/H3 · H4 | `venue.request_export` (audience / operations templates) · `catalog.update_event` *(media columns)* |
+| I2 · I3 | `market.create_p2p_transfer` / `accept_p2p_transfer` / `make_offer` / `place_bid` · `market.create_listing` / `cancel_listing` / `create_auction` |
+| **⛔ `A7`** | **`kernel.record_money_denial` — BLOCKED, NOT WRITTEN.** The entry is derived, agreed and security-cleared (§5.3 `A7` footnote), and it is **the only entry `T-RLS-EXEC-01`'s join lacks in *both* directions**. It is withheld because **`ID-5`** is unrepaired: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` still labels the function `EXEC: DEF` at **§0.1a** and in the **§17.9 heading**, while §17.9's own body contracts `EXECUTE` to `authenticated` only — so the exclusion rule below fires on a **stale label**, not on the function's ratified grant class. Writing the entry over a live `DEF` label would put this document in contradiction with the exclusion rule on the day the entry is written. **`X-8` remains UNRESOLVED until the RPC owner repairs `ID-5`** (§11.4 `P-6`). |
+
+**Exclusion rule — carried unchanged from §16.11a, and it is not weakened here.** *Every `DEF` RPC is
+deliberately absent from this map: a definer-only primitive implements no principal's capability, and
+mapping one to a §5.3 cell would reintroduce the human grant the `DEF` class exists to deny.*
+`T-RLS-EXEC-01` therefore runs over the **caller-authorized surface only**, and `T-RLS-EDGE-02` covers
+the rest. **The rule stands exactly as written.** It does not reach `kernel.record_money_denial` on the
+merits — that function is **not** definer-only under its own ratified contract (`C93`, `C106`/`S-17`:
+`EXECUTE` to `authenticated` only, **never** `service_role`), and there is no human grant to
+*reintroduce* because the grant already exists and is ratified twice. It reaches it **only lexically**,
+through `ID-5`'s two stale labels. **Repairing the labels is the remedy; rewriting this rule is not, and
+this section declines to.**
+
+> **Transcription proof, not a claim.** The thirteen mapping rows above are **byte-identical** to
+> `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a's thirteen rows at the commit that created this section:
+> `sha256 = dbfe30694c7ad8201c066c17df0cfcaf909d8058d57639f2acdfce11ef968bc8` over the thirteen rows
+> joined by `\n`, excluding the `⛔ A7` row, which is this document's own and is **not** a mapping.
+> Recompute it before believing this sentence; if it differs, the two documents have drifted and
+> **`R-19`** was applied wrongly or one side was edited alone.
+
+**Bold entries above are the ones `AUTHZ-H5` and `AUTHZ-R1` corrected** — `E2`, `E4`, `E5` (the
+`venue_scanner` over-grant) and `F2` (the schedule-vs-ledger-head conflation).
+
+#### 5.4.1 What the map does not cover — enumerated, because an implicit gap is how it drifted before
+
+**Fourteen of the seventy §5.3 capabilities have no row above.** Twelve are correct and one class is a
+defect; the split is mechanical — **does the capability carry an `R` cell?**
+
+| | capabilities | status |
+|---|---|---|
+| **No `R` cell — correctly absent** (12) | `B11` `B12` `C1` `C6` `D8` `E8` `F11` `F12` `F13` `G4` `H1` `I1` | Read-only capabilities. §16.11a's scope is EXEC rows, and a read is an `A`/`V` cell satisfied by a policy or a read RPC, not an `EXECUTE` grant. |
+| **Has an `R` cell, no function anywhere** (2) | **`B7` Resolve dispute (escrow)** · **`I4` Referral / ambassador program** | **DEFECT — `CM-1`, `CM-2`.** `B7` carries **dual control and step-up** (`R✱ᴰ`) for `platform_admin` plus propose-only for `platform_support`/`platform_risk`, and **no RPC in the corpus implements it**; the money rows jump `B6 → B8`. A ratified capability with real security machinery and no implementation. `I4` is the same shape without the machinery. **Neither is created or resolved here** — capability existence is this document's subject and the corpus supplies no derivation either way, so both are registered, not decided. |
+
+**Three further defects are carried, not fixed** — each is transcription-visible only once the map is
+normative, and none is `X-8`:
+
+- **`CM-3` — duplicate semantic mappings.** `approve_refund_request` appears in two cells,
+  `update_event` in **three**, `review_attribution_flag` in two. Each is annotated elsewhere as a
+  deliberate arm-split, but **none is expressed as a distinct mapping key**, so a mechanical join cannot
+  tell an intentional split from drift.
+- **`CM-4` — uncontracted or aliased targets.** `admin_refund`, `update_organization`, `set_org_status`
+  and `grant_platform_role` are mapped and never contracted (gaps `G-7`, `G-12`, `G-20`); and
+  **`venue.record_scan`, which `X-6` established is a delegating wrapper rather than the writer** — `X-6`
+  was ruled to the RPC owner by `OR-7` and **this map row was never re-derived.**
+- **`CM-5` — the read boundary is inconsistent.** The scope is stated as EXEC rows, yet the `A5 · A6` row
+  maps a **read** RPC (`venue.read_operational_audit`) while the other contracted read RPCs
+  (`venue.list_attendees` for `F11`/`F12`, `kernel.list_org_payouts` / `list_org_refunds` for `B11`) have
+  no row. Either the map covers reads or it does not; today it does both.
+
+**No entry above may be added, removed or re-grouped except by this document.** A new RPC declares the
+capability it implements **here**; `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a restates it.
 
 ## 6. Scope objects and predicate shapes
 
@@ -1307,6 +1447,7 @@ recurs.
 | R-15 | §11 — the `venue.allocate_comp`/`issue_comp` row | `` \| `venue.allocate_comp`/`issue_comp` \| `has_venue_role([venue_manager])` OR org_owner/admin (step-up seam C39) \| `` | **split into two rows**: `venue.allocate_comp` → `has_venue_role([venue_manager])` OR org_owner/admin; `venue.issue_comp` → `has_venue_role([venue_manager, venue_box_office])` OR org_owner/admin. Both C39-gated. | ✅ **APPLIED** — RLS §11 splits the two, with `venue_box_office` **denied** on `allocate_comp` and admitted on `issue_comp`; both C39-gated on `comp.per_staff_step_up_max_units`. |
 | R-16 | §11 | **add rows** | **CORRECTED — see the ruling immediately below; the original wording ordered three functions built that later rulings deleted, re-homed or blocked.** `venue.open_door_manifest` / `venue.close_door_manifest` (O4-1/O4-2 authority); **`catalog.set_session_door_schedule`** (O4-3 — **NOT `venue.set_door_open_at`**, which does not exist: `AUTHZ-R1` / `S-7`); **`venue.set_event_security_config`** (O4-4) **only if owner ruling `S-13`/`R-21` schedules `catalog.event_security_config`** — while that ruling stands open the function is **`⛔ BLOCKED`** and no EXEC row may be written for it; **`venue.review_attribution_flag`** (G5 — **NOT `venue.decide_flagged_attribution`**, which is deleted: `AUTHZ-H10` / `R-13` / `X-14`); `venue.read_operational_audit` (A6); `venue.list_attendees` (F11/F12); the CRM-export authorization (H2/H3). | 🔁 **CORRECTED BY THIS PASS — it ordered three abolished functions built.** See the ruling immediately below this table. Everything else it asks for is ✅ **APPLIED**: RLS §11.4 `open_/close_door_manifest`, §11.5 `review_attribution_flag`, §11.6 `read_operational_audit` and `list_attendees`, and the CRM-export authorization (now template-scoped in `PHASE_2_CRM_EXPORT_SPEC.md`). |
 | R-17 | §15 | **add** | items resolved by this spec (role-set, scanner credential, door authority) with a pointer; retain items 1, 3, 4 (still open — OD-3/OD-4). | ✅ **APPLIED** — RLS §15.7 *"Status after the delta-spec integration."* |
+| **R-19** | **§16.11a** (the capability → RPC map) | the map is stated here as normative, and the `T-RLS-EXEC-01` join is defined against it | **restate §16.11a as the roll-up of `ROLE_MODEL` §5.4**, which `OR-8` makes the normative home of subject `CAP-MAP`. The thirteen rows are transcribed there **unchanged** — this is a housing change, not a content change, and **no mapping is added, removed or altered**. §16.11a keeps the `T-RLS-EXEC-01` join definition, which is RLS's own (`GRANTS` roll-up per §11.0 `EXEC-DERIVED`); what moves is *which document a new RPC declares its capability in*. The exclusion rule is carried into §5.4 **verbatim and unweakened**. | ⏳ **OWED — filed by this pass, not applied.** `OR-8` created the ownership; §5.4 created the home; this row is the derived document's half. **`PHASE_2_RLS_PERMISSION_SPEC.md` was NOT edited by this pass.** Until it is, §16.11a and §5.4 are byte-identical in their thirteen rows, so nothing is ambiguous in the interim. |
 | **R-18** | §2.2 | **NEW — reported, not instructed** | §2.2's heading says *"the eleven predicate helpers"*, its body lists **nine**, its §2.2b **RM-2** says **nine**, and `T-RLS-ROLE-02` enumerates *"the eleven helpers"* structurally. **One number must win before that test can be written.** This document registers nine (§6.2) and is not the source of the eleven. **The RLS owner's call**, not mine; recorded so it is not lost between the two files. | ✅ **DISCHARGED 2026-08-28** (`R4`; rows `C122`/`D31`). **The RLS owner did not pick a number — the corpus stopped using one.** RLS §2.2 is headed *"The **TEN** predicate helpers"*, SPEC_FOUNDATION §4 says *"the canonical **TEN**, enumerated and never counted"*, §6.6 `RM-2` says **ten, enumerated by name**, and `T-RLS-ROLE-02` was rewritten to consume the **literal ten-name enumeration** and **assert no count** — because a count assertion passes on the wrong set of the right size, which is how `money_role_grant_matured` reached four money call sites undefined. Settled **mechanically** under `AUTHZ-C1C` / rows `C76`/`D16`: union = **ten**, intersection of the enumerating statements = **nine**, difference = `kernel.money_role_grant_matured`, contract RPC **§1.1e**. **`HELPER-DERIVED` clause 4 now forbids a bare count of this set anywhere.** Nothing remains for the RLS owner. |
 
 > ### `R-16` RULING — THE ORIGINAL WORDING ORDERED THREE ABOLISHED FUNCTIONS BUILT (`R-13`/`X-14`, `S-7`, `S-13`/`R-21`)
@@ -1378,6 +1519,7 @@ recurs.
 | P-3 | every `venue_door` occurrence (8 sites: the scan, manifest-sync and door-read contracts) | every `venue_door` occurrence (8 lines) | `venue_scanner`; and for `record_scan` / `record_offline_scans` / manifest-sync, state the two entry paths (authenticated `venue_scanner` **or** `service_role` edge with `assert_door_session`). | ✅ **APPLIED** — `venue_scanner` throughout, with **both** entry paths stated on `record_scan` / `reconcile_offline_scans` / manifest sync. |
 | P-4 | §comp | `venue.allocate_comp` / `issue_comp` shared authority | split per R-15. | ✅ **APPLIED** — RPC §20.5. |
 | P-5 | new § | — | contracts for O4-1…O4-4 (door lifecycle **authority** rows only — the state machine belongs to `design/o5-door-lifecycle`), G5, A6, F11/F12. | 🔁 **CORRECTED BY THIS PASS — the same three functions as `R-16`.** A6 (`read_operational_audit`) and F11/F12 (`list_attendees`) are contracted. **G5’s contract is `venue.review_attribution_flag`** (§17.18); **O4-3’s is `catalog.set_session_door_schedule`** (§20.6.5); **O4-4’s is `⛔ BLOCKED`** (§20.6.6 / `OD-11`). O4-1/O4-2 are contracted as ratified. |
+| **P-6** | **§0.1a** (closing sentence) · **§17.9** (heading) | ``(§17.9) — `EXEC: DEF`, no human path.`` and ``### 17.9 kernel.record_money_denial(…) — **DB-RPC** · `EXEC: DEF` · `NEW RPC``` | **delete the `EXEC: DEF` classification from both sites.** §0.1a defines exactly two grant classes and the other one — *caller-authorized (default)* — **carries no tag**, so the repair adds no vocabulary and makes no choice: §17.9's own body already contracts ``SECURITY DEFINER, EXECUTE to `authenticated` ONLY — never `anon`, never `service_role```, marked `SPEC CORRECTION (S-17)` and ratified by `C93` + `C106`. §0.1a's *"no human path"* clause goes with it. | ⏳ **OWED — this is `ID-5`, and it is the last thing blocking `X-8`.** **MECHANICAL, not an owner decision:** `C93` proved the `DEF` configuration **unbuildable** (on `service_role`, `auth.uid()` is NULL, `kernel.admin_audit.actor_identity` is `NOT NULL FK→auth.users`, and the FK forbids a sentinel — *the INSERT cannot satisfy its own constraint*), so only one value is admissible. The document currently **fails its own global assertion `T-RPC-GLOBAL-02`** (*every `EXEC: DEF` function has no grant to `anon`/`authenticated`*). `OR-6`'s scope limit is binding — this is **intra-document**, so no precedence rule reaches it and it may not be settled by citing `OR-6`; it belongs to the RPC owner. **`PHASE_2_RPC_FUNCTION_CONTRACTS.md` was NOT edited by this pass.** |
 
 ### 11.5 `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md`
 
@@ -1420,7 +1562,13 @@ and §5.0.
 > are the same defect and are not yet documented anywhere.** `INFERENCE:` the fix is a per-document prefix
 > (`RM-F-1`, `RM-R-1`, `RM-S-1` …), which is cheap now and expensive after implementers start citing ids in
 > commit messages. **Renumbering this document's own edit ids is a corpus-wide rename and therefore not mine
-> to do unilaterally — it is filed, not performed.**
+> to do unilaterally — it is filed, not performed.
+>
+> **Widened by this pass, 2026-08-29 (`OR-9`).** This document's `R-` series now runs to **`R-19`** and its
+> `P-` series to **`P-6`**, so the overlap with RPC §20.14's `R-1`…`R-33` is larger, not smaller. **Both new
+> ids were checked against this document's own series before being issued** — `R-18` was already taken by a
+> later pass and the first draft of `R-19` collided with it. Cite either as **`ROLE_MODEL R-19`** /
+> **`ROLE_MODEL P-6`** until the per-document prefix lands.**
 
 | # | File · Section | Old | New | Disposition @ `cbf8926` |
 |---|---|---|---|---|

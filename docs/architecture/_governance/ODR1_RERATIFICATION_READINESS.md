@@ -99,7 +99,17 @@ fifth, partial, five-amendments-stale surface still stating *"Edge count 36 → 
 stays 16"*. Parity is not broken by it, but **any reader treating it as the DAG of record reads a
 38-edge, 16-package graph.**
 
-## The six blockers
+## The seven blockers
+
+> **Corrected 2026-08-29 — this heading said *"six"* while the section enumerated seven.** `B-7` was
+> added 2026-08-28 and the heading was not recounted; `B-6` also sits **after** `B-7` in reading order.
+> Enumerated at HEAD: `B-1` `B-2` `B-3` `B-4` `B-5` `B-7` `B-6` — **seven.** This is the
+> count-without-enumeration drift the register warns about, in the document that carries the readiness
+> verdict. Recounted, not carried.
+>
+> **`ODR-1` was NOT touched by the `OR-9` / `A7` pass (2026-08-29) beyond this heading correction.** All
+> seven blockers stand exactly as written, `B-7` included: **`092`'s dependency set is derived nowhere,
+> so the required final edge count remains NOT DERIVABLE and `47` is a floor, not an answer.**
 
 **B-1 — `OR-5` is unrepresented, and the sentence `ODR-1` would sign is the one it falsifies.**
 The registry states *"Count: 16 packages, 076–091 inclusive, no gaps, no duplicates"*. `092` is

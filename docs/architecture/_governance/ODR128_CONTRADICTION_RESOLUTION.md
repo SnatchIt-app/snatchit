@@ -203,6 +203,47 @@ list as `ID-5`.**
 > Full derivation, including the forced cell values and the proof that no role possesses the
 > capability: `_governance/ROLE_MODEL_DENIAL_AUDIT_CAPABILITY_RULING.md`.
 
+> #### UPDATE 2026-08-29 — the owner chose `A7` (`OR-9`). `X-8` is **still UNRESOLVED**, and one blocker of two is gone.
+>
+> **What closed.** The naming bit and the housing gap.
+>
+> - **`A7` is written.** `ROLE_MODEL` §5.3 block **A** now carries `A7 Record own money-action denial
+>   (kernel.admin_audit)`, 70 rows. Cells forced by the contract, not chosen: `ANO` `·`, `DOO` `·`,
+>   **`SVC` `·`** (first denial of `service_role` in the matrix — a **narrowing**, flagged first-of-kind),
+>   seventeen authenticated principals **identical** at `R◐`. **NEW HUMAN `EXECUTE` AUTHORITY CREATED:
+>   NO** — the `authenticated` grant was already ratified twice (`C93`, `C106`).
+> - **`CAP-MAP` is housed.** New `ROLE_MODEL` **§5.4**, thirteen rows transcribed **unchanged** from RLS
+>   §16.11a, plus an enumerated gap list (§5.4.1). RLS §16.11a becomes the roll-up — filed as
+>   `ROLE_MODEL` §11.2 **`R-19`**, **not applied** (the RLS spec was not edited). The housing *form* was
+>   mechanical: a §5.3 column cannot carry a grouped many-to-many map without inventing decompositions.
+>
+> **What did not close: `ID-5`, and it is now the only thing between `X-8` and RESOLVED.**
+>
+> The `A7 → kernel.record_money_denial` entry sits in §5.4 as **`⛔ BLOCKED`**, not as a mapping. The
+> map's exclusion rule — *every `DEF` RPC is deliberately absent* — is carried into §5.4 **verbatim and
+> unweakened**, and it fires on the two stale `EXEC: DEF` labels at RPC §0.1a and the §17.9 heading.
+>
+> **Classification of the collision: `C` — a later ratified correction supersedes the relevant portion**,
+> where *the relevant portion* is **the `EXEC: DEF` classification of this one function, not the exclusion
+> rule**, which stands. `C93` proved the `DEF` configuration **unbuildable** and `C106`/`S-17` re-contracted
+> the function as `EXECUTE` to `authenticated` only; the two surviving labels are **unpropagated residue**
+> of a correction the document itself announces in the same subsection. Not `A` — the rule's own rationale
+> (*"would reintroduce the human grant the `DEF` class exists to deny"*) is false here: the grant already
+> exists and the row's `SVC` `·` is a narrowing. Not `B` in the strict sense — the labels do make the rule
+> fire lexically, so it is not merely over-cited. Not `D` — `OR-8` already performed that decomposition.
+> Not `E`.
+>
+> **And therefore `ID-5` is a MECHANICAL REMEDIATION, not an owner decision.** §0.1a defines exactly two
+> grant classes and the other one — *caller-authorized (default)* — **carries no tag**, so the repair is
+> `delete "EXEC: DEF" at two sites` and adds no vocabulary and makes no choice. Filed as `ROLE_MODEL`
+> §11.4 **`P-6`**. **`OR-6`'s scope limit is binding: this is intra-document, so no precedence rule
+> reaches it and `OR-6` may not be cited to settle it** — it belongs to the RPC owner.
+> `PHASE_2_RPC_FUNCTION_CONTRACTS.md` was **not** edited by this pass.
+>
+> **`X-8` therefore stays `UNRESOLVED` in the fenced block below and the gate stays RED. That is the gate
+> working, not failing.** Remaining owner bits for `X-8`: **zero**. Minimum brief:
+> `_governance/X8_CAP_MAP_ID5_OWNER_BRIEF.md`.
+
 #### What closes the row — stated, not chosen
 
 The first edition's proposed remedy was *"refine the owner map for the case where a single RPC's grant

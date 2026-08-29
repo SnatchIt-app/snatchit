@@ -38,7 +38,12 @@ until it is answered.
 >                                       # not carry it — this number has gone stale four times.
 >
 > # 3. the corpus has not grown a document this file did not read
-> find docs/architecture -name '*.md' | wc -l    # must be 39
+> find docs/architecture -name '*.md' | wc -l    # must be 62 as of 2026-08-29 (recursive: 24 top-level
+>                                       # + _governance + _superseded). Was written as "39", which was
+>                                       # never reproducible against this recipe — the number counted
+>                                       # top-level only while the command counts recursively. Recounted
+>                                       # mechanically 2026-08-29: 61 before this pass, 62 after
+>                                       # _governance/X8_CAP_MAP_ID5_OWNER_BRIEF.md. COUNT IT.
 >
 > # 4. the count below still equals its own enumeration
 > grep -cE '^#{2,3} ODR-[0-9]+ —' docs/architecture/_governance/PHASE_2_OWNER_DECISION_REGISTER.md
@@ -1617,6 +1622,29 @@ resolve from the sibling statements rather than by granting anything new, and sp
 > is deterministic in form but not in block letter (`A7` / `B13`), so **`OWNER NAMING DECISION
 > REQUIRED`** and no row was written. Two further blockers survive that decision — the mapping has no
 > normative home (`CAP-MAP` is owned-but-unhoused), and `ID-5` bars it.
+>
+> **`X-8` update 2026-08-29 (`OR-9`) — the owner supplied the bit; `X-8` STILL does not close.** The
+> owner ruled **`A7`**, on the ground that `B13` would sit in a §5.3 block **transcribed** from DA §7.6
+> and so would create a cell with no upstream row — recreating the ambiguity `X-8` is. **Applied:**
+> `ROLE_MODEL` §5.3 block A carries `A7`, 70 rows; cells forced by the contract; **`SVC` `·` is the
+> first denial of `service_role` in the matrix** and is a narrowing; **NEW HUMAN `EXECUTE` AUTHORITY
+> CREATED: NO** (the `authenticated` grant was already ratified twice, `C93`/`C106`).
+>
+> **One of the two surviving blockers closed; the other did not, and it is not a decision.**
+> **`CAP-MAP` is housed** — new `ROLE_MODEL` §5.4, thirteen rows transcribed unchanged from RLS §16.11a
+> plus an enumerated gap list; RLS §16.11a becomes the roll-up (`ROLE_MODEL` §11.2 `R-19`, **filed not
+> applied**). The housing *form* was mechanical, not chosen. **`ID-5` remains**, so the
+> `A7 → kernel.record_money_denial` entry is written as **`⛔ BLOCKED`**, not as a mapping: RPC §0.1a
+> and the §17.9 heading still say `EXEC: DEF` while §17.9's body contracts `authenticated` only, and
+> §5.4 carries the `DEF`-exclusion rule **verbatim and unweakened**.
+>
+> **`ID-5`'s repair is a MECHANICAL REMEDIATION owed by the RPC owner (`ROLE_MODEL` §11.4 `P-6`), not
+> an owner decision** — `C93` proved the `DEF` configuration unbuildable, and §0.1a's other grant class
+> carries no tag, so the fix is a deletion at two sites with no value to choose. **`OR-6` may not be
+> cited: the defect is intra-document and the scope limit is binding.**
+> **REMAINING OWNER BITS FOR `X-8`: ZERO.** Brief: `_governance/X8_CAP_MAP_ID5_OWNER_BRIEF.md`.
+> **This entry's status is unchanged** — `ODR-128` stays `BLOCKED BY ANOTHER DECISION` until `X-8`
+> actually resolves, and no count in this register moves.
 >
 > **Updated 2026-08-28:** `X-1` and `X-6` closed when owner ruling `OR-7` named the writer-registry
 > owner. The derived answer was **11 writers of `kernel.tickets`, not the 10 either side argued** —
