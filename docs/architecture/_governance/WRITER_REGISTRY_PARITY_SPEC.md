@@ -12,8 +12,8 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > DISTINCT WRITERS          156    schema-qualified names in the fence (one a named placeholder)
 > WRITER ENTRIES            235
 > PARITY   OK 66 · DIVERGENT 0 · MISSING_CONTRACT 16          = 82
-> NOT-BUILT WRITERS           4    gate-visible via the new BUILT field (RC-5 closed as a blind spot)
-> GATE ERRORS                20    16 missing-contract rows + 4 not-built writers · 0 divergent
+> NOT-BUILT WRITERS           3    gate-visible via the BUILT field (RC-5); was 4 — S-24 applied 2026-08-29
+> GATE ERRORS                19    16 missing-contract rows + 3 not-built writers · 0 divergent
 > ```
 >
 > **Every one of the 21 transcription divergences (RC-2) was repaired at its site** — RLS §5 ×13 rows,
@@ -27,8 +27,10 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > **What did NOT converge, and must not be papered over:** **16 MISSING CONTRACTS** (each a real absent
 > function contract — the placeholders of `RC-4`, the webhook-facing writers, the erasure-tombstone
 > trigger `J-12`, `kernel.set_updated_at` under `R-35`, `payment_native.instrument_fingerprint` failing
-> OPEN on the self-deal detector) and **4 CONTRACTED-NEVER-BUILT writers** (`kernel.mark_refund_state`
-> `S-24` · `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · the unnamed erasure trigger).
+> OPEN on the self-deal detector) and **3 CONTRACTED-NEVER-BUILT writers** (`venue.unpublish_holder_mix`
+> · `venue.unpublish_all_holder_mix` · the unnamed erasure trigger — **`kernel.mark_refund_state` left
+> this list 2026-08-29: `S-24` applied**, plan `085` schedules the function + partial unique + pairing
+> CHECK; **the registry naming half, `S-25`, is still owed**).
 > **Readiness still FAILS. That is the registry telling the truth.**
 >
 > *(The 2026-08-28 header block, its corrected-counts note and the 80/82 scope defect it recorded are
@@ -67,9 +69,11 @@ spec; its Writes line does not name `venue.order`, and `→ paid` belongs to
 `venue.finalize_primary_order`. And RLS adds *"+ door_pin path"* to `venue.scan`'s writer set — which
 is not a function at all.
 
-**`kernel.mark_refund_state` is contracted, assigned to `085` by the schema spec, and built by no
+**`kernel.mark_refund_state` was contracted, assigned to `085` by the schema spec, and built by no
 package.** Without it, **three of `kernel.refund.status`'s four labels and the `stripe_refund_ref`
-join key have no writer in the shipped chain.** The fix is already filed as `S-24` and unapplied.
+join key had no writer in the shipped chain.** **`S-24` APPLIED 2026-08-29** — plan `085` now schedules
+the function, the partial unique and the pairing CHECK, and `T-SCHEMA-REFUND-01`…`-04`. `S-25` (the
+package registry's naming half) remains owed.
 
 **Four webhook-facing writers exist only as prose in the edge spec** — an unnamed *"org connect
 capability writer RPC"* (for columns the schema spec does not define), an *"order cancel RPC"* on
@@ -128,7 +132,7 @@ kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_owners
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|7.1;7.2;7.3|y|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key|rpc;rpc;rpc|20.7.3;20.7.4;20.7.5|y|OK
 kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state|rpc;helper;rpc;rpc;rpc;webhook|10.2;20.7.2;10.3;11.2;11.3;20.7.6|y|MISSING_CONTRACT
-kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state|rpc;rpc;cron;webhook|11.4;20.7.1;12.3;20.7.7|y;y;y;n|OK
+kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state|rpc;rpc;cron;webhook|11.4;20.7.1;12.3;20.7.7|y|OK
 kernel.reserve|-|-|NONE-wired-in-MVP|-|OK
 kernel.admin_audit|kernel.record_money_denial;CATEGORY:every-privileged-RPC-in-txn|rpc;rpc|17.9;0.3|y|OK
 kernel.approval_request|kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.request_org_payout;catalog.set_platform_config;kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc;rpc;cron;rpc;rpc;rpc;rpc|17.1;17.2;17.3;17.4;10.3;20.2.1;20.1.4;20.1.4|y|OK
@@ -218,8 +222,8 @@ paid_pending_transfer` · the `market.bid` ledger (table **and** writer, owner r
 Adjacent: `venue.set_event_security_config` is scheduled and marked **⛔ BLOCKED** — it writes
 per-event door-config rows and no such table exists in any package.
 
-## CONTRACTED BUT NEVER BUILT — 4 unconditional
+## CONTRACTED BUT NEVER BUILT — 3 unconditional *(was 4 — `S-24` applied 2026-08-29)*
 
-`kernel.mark_refund_state` (`085` per the schema spec; the plan omits it; `S-24` filed and unapplied) ·
+~~`kernel.mark_refund_state`~~ (**closed** — plan `085` schedules it; `S-25` registry naming owed) ·
 `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · `venue.reconcile_holder_mix`.
 Plus **17 conditional** `notify.*` writers, deliberately deferred by `COND-B`.

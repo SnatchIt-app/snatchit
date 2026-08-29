@@ -91,8 +91,15 @@ a fence row, so its parity never reached check `H`. **Gate coverage defect: CLOS
 self-deal detector; it fails OPEN, silently, on the fraud path. The writer pair itself is settled at 2
 (`R-34`). **No behavior added.**
 
-## Filed, deliberately NOT repaired
+## Filed, deliberately NOT repaired *(S-24 CLOSED by the follow-up pass, 2026-08-29)*
 
-The 16 missing contracts (engineering) · the 4 not-built writers (`S-24` + holder-mix pair + the tombstone
+> **`S-24` — CLOSED — MECHANICAL REMEDIATION, 2026-08-29.** Plan `085` now schedules
+> `kernel.mark_refund_state`, the `stripe_refund_ref` partial unique, the pairing CHECK and
+> `T-SCHEMA-REFUND-01`…`-04` — transcription of the placement the schema spec had already settled
+> (`§1.10.1`, `§13` `085` row; ratifications `C101`/`C102`). The defect existed (three of four `status`
+> labels + the Stripe join key writerless in the shipped chain), no owner decision occurred, and **no
+> implementation migration was created**. `S-25` (registry naming) remains the open sibling.
+
+The 16 missing contracts (engineering) · the 3 remaining not-built writers (holder-mix pair + the tombstone
 trigger) · `E-1` session_version and `E-2` `market.bid` (owner) · `ID-6` (owner — see its analysis) ·
 `R-25`/`ODR-38` (resale_state one-writer-pair question, open owner decision, untouched).

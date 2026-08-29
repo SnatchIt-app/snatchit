@@ -622,7 +622,7 @@ applied to every money/custody ledger — the exact set the prompt requires be R
 | `kernel.tickets` (atom head) | money-custody-RPC-only | the ELEVEN of §7.5's corrected list (`R-24`): the three engines + `lock`/`unlock_ticket` + `mark_ticket_scanned` + the four §17.1–§17.4 `resale_state` writers + `sweep_expired_ticket_atoms` | custody head |
 | `kernel.payment_native` | money-custody-RPC-only | `venue.finalize_primary_order` · `transfer_ticket_ownership` (`R-34`; accept/respond delegate via the engine) | money-in link |
 | `kernel.payout` | money-custody-RPC-only | `close_settlement` · `pay_promoter_commission` · `request_org_payout` · `hold_payout` · `release_payout` · `mark_payout_transfer_state` *(the native-sale payout path writer remains an uncontracted MISSING CONTRACT — a phrase, not a function)* | payout ledger |
-| `kernel.refund` | money-custody-RPC-only | `refund_primary_order` · `admin_refund` · `market.sweep_paid_pending_sales` · `mark_refund_state` *(contracted, built by no package — `S-24`)* | refund ledger |
+| `kernel.refund` | money-custody-RPC-only | `refund_primary_order` · `admin_refund` · `market.sweep_paid_pending_sales` · `mark_refund_state` *(scheduled `085` — `S-24` applied 2026-08-29)* | refund ledger |
 | `kernel.reserve` (EXT stub) | money-custody-RPC-only | none wired in MVP | reserve (Gate M) |
 | `kernel.signing_key` (`kms_handle_ref`) | money-custody-RPC-only (col) | `provision/rotate/revoke_signing_key` | credential custody |
 | `venue.inventory_batch` (counter) | money-custody-RPC-only (counter cols) | the twelve of §16-era registry: create/reserve/hold/release/capacity/sweep/comp pair + `issue_ticket_atoms` · `void_ticket_atom` · `refund_primary_order` · `admin_refund` | oversell guard (SoT) |
@@ -970,7 +970,7 @@ cause. Enforced **inside `kernel.list_org_payouts`, never as a table policy.**
 > **no `org_owner` row can ever satisfy `has_org_role(org,[org_finance])`.** Inheritance is prose, not a
 > predicate. O-1 moves the *authority*; the *inheritance mechanism* is deleted.
 
-Write RPCs *(restates the canonical registry — `OR-7`)*: `refund_primary_order`, `admin_refund`, `market.sweep_paid_pending_sales` (§12.3 — the C25 auto-compensation sweep, named), `mark_refund_state` (§20.7.7, webhook state-sync — **contracted, built by NO package; `S-24` filed**). **Org and buyer authority
+Write RPCs *(restates the canonical registry — `OR-7`)*: `refund_primary_order`, `admin_refund`, `market.sweep_paid_pending_sales` (§12.3 — the C25 auto-compensation sweep, named), `mark_refund_state` (§20.7.7, webhook state-sync — scheduled in `085` by `S-24`, applied 2026-08-29; registry naming `S-25` still owed). **Org and buyer authority
 enters exclusively through `kernel.request_order_refund` (§16.1), which calls `refund_primary_order` as
 definer** — the org never invokes the money writer directly.
 
