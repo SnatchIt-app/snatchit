@@ -297,7 +297,7 @@ This is an **authority** question — *who may stop money* — and it is named a
 >
 > **THE ONE OWNER BIT, surfaced and not invented: the ninth candidate** — `kernel.cancel_refund_request`
 > names no emitter; a buyer whose non-scanning `refund_hold` ticket silently reverts is told nothing.
-> Add `refund_request_cancelled` or rule the silence deliberate. Nothing else in N3 remains.
+> Add `refund_request_cancelled` or rule the silence deliberate — **RULED `OR-15` (2026-08-29): ADDED**. Nothing else in N3 remains.
 
 **The count is wrong at two sites. It is EIGHT, not seven.** The money spec names eight emitter names;
 two independent sites say *"seven money emitters"*. The mechanism is visible in the source:

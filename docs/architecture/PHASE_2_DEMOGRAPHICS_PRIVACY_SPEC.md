@@ -833,7 +833,13 @@ Two further reasons it could not stand, both structural:
 > reaper is an explicitly authorized NARROW DELETE class (`ODR-4a` amendment, same ruling):** the
 > append-only guard on `kernel.identity_demographic_erasure` permits DELETE **iff** `old.purge_after <
 > now()` AND the caller is the named reaper function (structural pin at build time) — no other caller
-> obtains DELETE authority, and this is NOT a general append-only exception. Reaper unimplemented.
+> obtains DELETE authority, and this is NOT a general append-only exception. Reaper unimplemented. **Operand carrier (F-P1-3, 2026-08-29 — the containment sentence needed narrowing:
+> the trigger COMPUTES `purge_after` at every erasure from `077` onward, so the unverified operand is
+> consumed in-band, not reaper-only):** the window rides a **`retention.backup_window_days`** config key
+> (`078` seed namespace, `restricted` visibility), **FAIL-SAFE: key absent ⇒ the trigger writes
+> `purge_after = NULL`, and the reaper guard treats NULL as never-purgeable** — no invented number, no
+> raise on the deletion path; ops verification sets the key and a one-shot backfill computes NULL rows by
+> the ratified formula.
    much weaker fact that a removal happened.
 2. **A fan editing an optional field on their own profile is not a privileged action.** `kernel.admin_audit`
    exists for actions taken *over* someone by staff or the platform. There is no admin write path here at all

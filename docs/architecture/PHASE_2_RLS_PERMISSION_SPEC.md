@@ -19,7 +19,7 @@ open it is flagged under §15 RECONCILIATION.
 **Coverage:** all **43** original MVP objects (kernel 12 · catalog 5 · venue 20 · market 6-incl.-bridge-view). EXT
 tables (`kernel.reserve`, `venue.inventory_unit`) are specified with their MVP deny-all posture and marked
 DO-NOT-BUILD. Deferred schemas (`social`/`analytics`/`adapter`, money-ledger) are out of scope. **`notify` is
-DISPUTED, not settled** — C7 is `RATIFIED · Gate P · MVP` and names it, while this spec and three others
+DISPUTED, not settled** — C7 is `RATIFIED · Gate P · MVP` and names it, while this spec and three others *(annotated 2026-08-29: settled — `OR-5` ruled Gate P REDUCED and `OR-12` ratified `092`)*
 defer it to Gate L. §16.9 records its authority model **conditionally**; see **MD-10**, §15.7. §16 adds the
 matrices for the objects the eight Phase-2 delta specs introduce.
 

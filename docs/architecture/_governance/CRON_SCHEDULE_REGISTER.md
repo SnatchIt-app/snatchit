@@ -32,3 +32,9 @@ register the packages build against.
 LEGACY auction engine, untouched by `OR-11`) · `enforce-transfer-expiry` http_post (2 min) · the `014`
 schedule file is their home. **Every "rides the existing heartbeat" phrase in the corpus is corrected;
 none remains load-bearing.**
+
+**OPS-CRITICALITY (red-team F-P2-7, 2026-08-29):** under `OR-14`, six REQUIRED producers put custody
+transfer, the whole refund transaction, event cancellation, session edits, cert rotation and key
+revocation inside `notify.outbox`'s write-failure domain — **outbox insert failures and drain lag are
+money-path alerts, not notification alerts**; monitoring obligation filed with the ops runbook. The
+`076` rollback posture is CLEAN-WHILE-EMPTY once envelopes exist (F-P1-7 applied).

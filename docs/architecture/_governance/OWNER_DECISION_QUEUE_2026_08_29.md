@@ -123,3 +123,40 @@ rotation notice needs an OR-5 scope amendment — and OR-14 adds a mandatory emi
 event the spec itself calls "not a routine". A: build the disclosure path (new carrier object + type +
 class). B: defer, naming the runbook as the owed artifact. **RECOMMEND B.** PROVEN SEPARATE from R-39a
 (either answer composes with either). Owns the rotation half of the same fence row.
+
+
+---
+
+# POST-SIGNING RED TEAM — the ONE new owner blocker + the stamped-count items (2026-08-29, final)
+
+## ⚠ F-P0-1 — THE TWO SIGNATURES COLLIDE: the frozen 17/62 DAG cannot carry OR-13's own delivery deadline
+The deletion state machine's cutover is "no later than the `077` apply" (its §5 — from `077` the
+AO-cascade wall breaks the LIVE App-Store-compliance delete path), yet the just-ratified band contains
+**zero deletion objects**: no `deletion_state` columns, no accept/withdraw RPCs, no completion sweep, no
+F-1…F-7 refusal clauses in the checkout/offer/transfer/invite contracts. **ONE OWNER BIT:** (a) amend the
+band — fold the deletion machine into `077`(+the F-clauses into their host packages) or add a
+`077`-adjacent package, and re-ratify the DAG constants; or (b) rule an explicit DEPLOYMENT GATE — `077`
+does not reach production until the deletion machine ships out-of-band. Silence ships a compliance outage.
+RECOMMENDATION: (a) — the machine's objects are small (3 columns + 2 RPCs + 1 sweep + refusal clauses),
+they belong in-band, and (b) leaves the band's own tests un-runnable against production.
+
+## F-P1-2 — the deletion machine's two mandatory notices vs the owner-stamped "29"
+`account_deletion_pending` + `account_deletion_completed` need type keys, seeds and classification rows
+(both BEST-EFFORT); content mechanical, **the 29→31 count is owner-stamped (OR-15)** — one corrigendum
+line to sign with F-P0-1's resolution.
+
+## F-P2-1 — post-tombstone chargeback debt has no ledger object (money-policy bit, small)
+Q2 allows the chargeback; BP-10 has no storable operand; the platform eats the loss with no row and no
+write-off act. Options: accept-and-eat (status quo, recorded) vs an additive per-identity obligation
+record + ops write-off (also gives Q4/BP-10 its operand). RECOMMENDATION: the obligation record — one
+additive table, closes two findings.
+
+## `wallet_pass_available` classification — one yes/no
+The classification (adopted) has it BEST-EFFORT by OR-14's own test; the drafting example had suggested
+REQUIRED. Confirm BE (recommended) or override.
+
+## FILED, engineering (no owner bit): F-P1-5 — the fraud/block-retention interim: PR #28's migration
+should copy `seller_flags`/`seller_risk_scores`/`user_blocks` to a retention side-table before
+`deleteUser` (one rider on the open PR; today every flagged seller who deletes clears their record).
+F-P2-2 operand pinning (rides F-P2-1's object) · F-P1-4's grant-topology reaper pin (dedicated trigger fn,
+never the shared guard; catalog assertion) · the ops-criticality monitoring row (cron register, added).

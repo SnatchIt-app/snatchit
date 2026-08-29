@@ -3798,6 +3798,10 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
 (C7 says `Gate P · MVP`; four implementation specs say Gate L), and that the notifications spec **explicitly
 declines to resolve it**. **The contracts below are conditional** — recorded so nothing is invented under time
 pressure if the owner ratifies, and **they are not authority to build.** Owner decision RLS **MD-10**.
+> **SUPERSEDED (`OR-5`→`OR-12`, annotated 2026-08-29 per choice 10):** `MD-10` was CLOSED by `OR-5`
+> (Gate P REDUCED) and `OR-12` ratified `092` as the reduced package — the sentence above is preserved as
+> history; **the reduced 16-RPC surface IS authority to build**, under the `OR-14` two-behavior emit block
+> below.
 
 - **Consumer (`EXEC: authenticated`, `auth.uid()`-scoped):** `notify.get_inbox(p_cursor, p_limit ≤ 50)`
   (own rows, newest first, **keyset-paginated** — the current web inbox truncates at 50 with no pagination) ·
@@ -3999,7 +4003,7 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **Demographics** | `T-RPC-DEMO-01` (exactly two writer functions) · `T-RPC-DEMO-02` (`get_holder_mix` arity is 2) · **`T-RPC-DEMO-03`** (`AUTHZ-DEM1`(1): `set_my_demographics` and `clear_my_demographics` write **zero** rows to `kernel.admin_audit` — asserted over the audit table, not over the function text) · **`T-RPC-DEMO-04`** (`AUTHZ-DEM1`(2): the suppressed branch returns `{suppressed:true}` and **no other key** — asserted over the result's key set, because a NULL denominator is still a denominator) · **`T-RPC-DEMO-05`** (the read-side re-derivation fails closed on a hand-written sub-floor row) | §17.20 |
 | **CRM** | `T-RPC-CRM-01..13` | §17.21–§17.22 |
 | **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
-| **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
+| **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 | **RETIRED `OR-14` (2026-08-29): replaced by `T-RPC-NOTIFY-04A/-04B/-04C`, `-08`, `-09` (`_governance/R2_EMITTER_CLASSIFICATION.md`) — the universal never-raise claim is false for the six REQUIRED producers.**
 | **Money (S-24 additions, 2026-08-29 — red-team P2-10: these four existed only at §20.7.7 and were absent from this register and the matrix)** | `T-RPC-MONEY-25` · `-26` · `-27` · `-28` — the refund state-machine set (label reachability incl. the pre-fix failure; forward-only both directions; second-different-`stripe_refund_ref` raises / equal is `noop_replay`; `refund_exposure_minor` boundary) |
 | **Order/market state-sync (authored 2026-08-29)** | `T-RPC-ORG-04..06` (§20.1.6/§20.1.7) · `T-RPC-ORDER-01..04` (§20.7.9) · `T-RPC-MARKET-08..10` (§20.8.7) |
 | **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `T-RPC-GLOBAL-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `T-RPC-GLOBAL-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `T-RPC-GLOBAL-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
