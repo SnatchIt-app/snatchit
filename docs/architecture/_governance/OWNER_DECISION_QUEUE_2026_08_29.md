@@ -86,3 +86,40 @@ band `076–092/17`, the outbox split (OR-4), the B-3 revert authorization, and 
 | **N3-9th** | Is a buyer told when their refund request is cancelled (`cancel_refund_request` names no emitter)? | add the type / silence | add — the silent reversion of a `refund_hold` is the queue's own "told nothing" defect |
 | **ODR-3 §1.1** | Do the five door-carrier notification types ride the resale-rail deferral (the stated default) or get keys now? | defer / key now | defer |
 | **D-6** | The tombstone retention window `{N}` (counsel). | — | — |
+
+
+---
+
+# THE FINAL FOUR — exact briefs for the last owner sitting (2026-08-29, post-signing; full derivations in the sprint record)
+
+## R-36 — invite decline: **does an invitee get a decline verb, or does an unwanted invite lapse?**
+A: grant `decline_org_invite` (invitee-only) — a second verb in a closed authority set; dashboard-only
+(no RN invite surface exists); enables immediate re-invite nagging. B: strike `declined` from the enum
+(3 sites) — refusal indistinguishable from silence, which is the dashboard's own ratified principle
+(DASH :690). **RECOMMEND B.** Blocks `077`'s status CHECK finality; owns the label-without-writer class
+(the org_invite fence row reopens as MISSING_CONTRACT if unruled at authoring).
+
+## R-37 — market checkout: **descope direct buy-now from MVP, or commission the checkout design?**
+POST-OR-11 VERIFIED: buy-now is untouched by the auction ruling — a separate decision. A: descope —
+native resale consummation becomes offer-rail two-sided; RN §4.3b's instant-buy copy dies; **residual
+either way: the offer rail's own payment mint still needs design** (§20.8.6 verifies a payments row
+nothing creates); zero new money surface; the §20.8.7/edge-§4 dormant pair stays ready. B: commission —
+an 18th edge (amending the ratified closed 17-edge inventory) + the INSERT-at-initiated RPC + the
+`reserved`-state ruling (RN :590 expects a label the enum lacks) + RLS + fence + 088 growth. C: none
+(both third shapes closed by name). **RECOMMEND A + commission only the offer-rail mint.** Owns 2 of the
+4 writer-gate errors (the market_sale MC row + the NOT-BUILT placeholder).
+
+## R-39a — org_customer_key MINT site: **create_organization in-txn, lazy at first request_export, or (REOPENED) at first build?**
+**Option C reopened by OR-1 itself** — the revert removed the SELECT-only wall; postgres owns the table
+and can INSERT. A: widest secret population (every org, incl. never-approved, minted from an
+any-authenticated RPC). B: lazy — strictly smaller blast radius, benign race, rides an audited
+rate-limited RPC. C: narrowest population but grows the X-6-audited builder's write surface — the exact
+drift direction the substitute assurance exists to prevent. **RECOMMEND B.** Owns the mint half of the
+org_customer_key MC fence row.
+
+## R-39b — rotation carrier: **rule the carrier now, or defer rotation to the incident-response runbook?**
+POST-N3/OR-14 VERIFIED: ruling a carrier now got strictly COSTLIER (the 29-type set is closed — a
+rotation notice needs an OR-5 scope amendment — and OR-14 adds a mandatory emit classification), for an
+event the spec itself calls "not a routine". A: build the disclosure path (new carrier object + type +
+class). B: defer, naming the runbook as the owed artifact. **RECOMMEND B.** PROVEN SEPARATE from R-39a
+(either answer composes with either). Owns the rotation half of the same fence row.
