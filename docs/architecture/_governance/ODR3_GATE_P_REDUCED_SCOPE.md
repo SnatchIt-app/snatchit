@@ -284,6 +284,21 @@ This is an **authority** question — *who may stop money* — and it is named a
 
 ## 8. `N3` — MONEY EMITTER → NOTIFICATION CATALOGUE MAP
 
+> ### N3 MECHANICAL PASS EXECUTED — 2026-08-29 (final convergence pass)
+>
+> All seven engineering-mechanical rows are APPLIED in the catalogue: `refund_requested` re-keyed to the
+> **request id** · `payout_on_hold` re-keyed to `<payout_id>:<hold_cause_ref>` and re-triggered for the
+> probation arm · `refund_approved` SPLIT (`refund_submitted` keeps the Stripe fact; `refund_request_approved`
+> is the request-granted fact) · the FOUR orphans added (`refund_request_parked` / `_denied` / `_expired`,
+> `payout_request_pending_approval`) · the seven→eight count corrected at both sites (schema Gate-L row;
+> the register's no-carrier sentence). **The reduced IN set is now 28 types** (23 + 4 orphans + 1 split-new
+> — counted, not carried; all five new rows are money-family, IN by definition). The `notification_type`
+> seed rows are now writable with keys that will not need a post-seed data migration.
+>
+> **THE ONE OWNER BIT, surfaced and not invented: the ninth candidate** — `kernel.cancel_refund_request`
+> names no emitter; a buyer whose non-scanning `refund_hold` ticket silently reverts is told nothing.
+> Add `refund_request_cancelled` or rule the silence deliberate. Nothing else in N3 remains.
+
 **The count is wrong at two sites. It is EIGHT, not seven.** The money spec names eight emitter names;
 two independent sites say *"seven money emitters"*. The mechanism is visible in the source:
 `_approved / _denied / _expired` are slash-compressed into one bullet, so the list reads as six

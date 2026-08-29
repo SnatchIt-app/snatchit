@@ -703,7 +703,7 @@ do-not-build**, as all four implementation specs say?
 **What breaks under each.** *Gate L* — the venue dashboard's §16.5 carries a **binding** dependency on the
 notification plane, and RLS `MD-10` rules that no Gate-L object may carry one; every notification stays on the
 frozen `public.notifications` path, which the schema spec describes as having *"**no preference matrix, no
-mandatory-type guard, no delivery-state ledger, no dedupe key and no locale**"*, leaving the money spec's seven
+mandatory-type guard, no delivery-state ledger, no dedupe key and no locale**"*, leaving the money spec's **eight** *(N3 SPEC CORRECTION 2026-08-29)*
 money emitters, the door's events #37–#44 and Wallet's holder-facing updates with **no carrier**; and the
 traceability matrix records `G-19` — preference toggles *"that gate nothing"*, which replicates a named live
 production defect. *Gate P* — nine `notify.*` tables land as package **`092`** (floored there by `SEAM-1`
