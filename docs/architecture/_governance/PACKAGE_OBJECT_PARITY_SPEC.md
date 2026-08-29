@@ -352,6 +352,13 @@ MENTION-OK|sweep_scheduled
 088|market.market_sale|table
 088|market.respond_offer|function
 088|market.sweep_expired_p2p_transfers|function
+088|market.checkout_buy_now|function
+088|market.bind_checkout_payment_ref|function
+088|market.finalize_market_sale|function
+088|market.cancel_buy_now_sale|function
+088|market.list_lapsed_checkouts|function
+MENTION-OK|reservation_expires_at
+MENTION-OK|payment_intent_ref
 089|market.listing_unified|table
 090|venue.attribution_review|table
 090|venue.bind_order_attribution|function

@@ -3428,7 +3428,7 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
   (denormalized for discovery); `inventory_kind` enum(`native`) not null default `native` (discriminator vs
   the external rail's `external`/`external_verified`, C10); `price_minor` integer not null; `currency` text
   not null default `'USD'`; `resale_policy_id` uuid FK→catalog.resale_policy; `resale_policy_version` integer
-  not null (**snapshot** at listing creation, O3/C11); `status` enum(`draft` · `active` · `sold` · `cancelled`
+  not null (**snapshot** at listing creation, O3/C11); `status` enum(`draft` · `active` · `reserved` · `sold` · `cancelled`
   · `expired`) not null default `draft`; `command_idempotency_key` text not null (C16); `created_at`,
   `updated_at`.
 - **FKs:** `ticket_atom_id`, `seller_id` on delete restrict.
@@ -3440,8 +3440,8 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
   atom lock → listing).
 - **Index:** PK; the partial unique; index on `event_session_id` (discovery); index on `(seller_id, status)`
   (Seller Dashboard).
-- **RLS:** public-read (active listings, discovery) + owner-scoped (seller full); writes RPC-only.
-- **Write authority:** `market.create_listing` (native), `market.cancel_listing`.
+- **RLS:** public-read (active + reserved listings, discovery) + owner-scoped (seller full); writes RPC-only.
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `market.create_listing` (native), `market.cancel_listing`, `market.checkout_buy_now` (→ `reserved` — R-37/`OR-22`; the reservation record is the unique `initiated` `market.market_sale`, §4.4), `market.finalize_market_sale` (→ `sold`), `market.cancel_buy_now_sale` (`reserved` → `active`), `market.respond_offer` (→ `sold`), `market.on_door_freeze_engaged`, `catalog.cancel_event`.
 - **SoT/PROJ:** SoT for the native offer.
 
 ### 4.2 `market.auction`
@@ -3478,7 +3478,7 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
 - **Check:** `amount_minor > 0`; `status` enum.
 - **Index:** PK; index on `(listing_id, status)`; index on `(buyer_id, status)`.
 - **RLS:** owner-scoped (buyer + listing seller see the offer); writes RPC-only.
-- **Write authority:** `market.make_offer`, `market.respond_offer`, and **`market.sweep_expired_p2p_transfers`; **`market.mark_sale_paid_state` (→ `paid_pending_transfer` + `paid_pending_since` + `payment_id` — §20.8.7, authored 2026-08-29)**.
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `market.make_offer`, `market.respond_offer`, `market.cancel_listing`, `market.finalize_market_sale` (losing offers → `withdrawn` on a buy-now completion — §20.8.10, R-37/`OR-22`), and **`market.sweep_expired_p2p_transfers`** *(the `mark_sale_paid_state` fragment carried here was §4.4's — moved to its table, pre-existing transcription slip repaired in passing)*.
   — the `088` sweep tick's second statement (RPC §12.2/§20.8.5, named 2026-08-29; formerly a phrase)** —
   (§4.3.1) for the `expired` transition.
 - **SoT/PROJ:** SoT.
@@ -3530,9 +3530,11 @@ passes for the wrong reason and proves nothing.
   - `payment_id` uuid — nullable, FK→public.payments(id) (linked via `kernel.payment_native`; the frozen
     money-in event).
   - `terminal_state` enum(`pending` · `completed` · `compensated`) — not null default `pending` (**C26**).
-  - `sale_state` enum(`initiated` · `paid_pending_transfer` · `settled`) — not null default `initiated`
+  - `sale_state` enum(`initiated` · `paid_pending_transfer` · `settled` · `cancelled`) — not null default `initiated` (`cancelled` reachable from `initiated` ONLY — a never-paid buy-now checkout, released under the PI-death protocol §20.8.11; R-37/`OR-22`)
     (C6/C25 — `paid_pending_transfer` is the explicit bounded intermediate; C25 auto-compensates after max-age).
   - `paid_pending_since` timestamptz — nullable (dwell-clock for the C25 bound).
+  - `reservation_expires_at` timestamptz — nullable (the buy-now reservation clock; server-set from `resale.buy_now_reservation_ttl_minutes`, R-37/`OR-22`).
+  - `payment_intent_ref` text — nullable, write-once (the `pi_…` join key the `/begin` edge stores via `market.bind_checkout_payment_ref` — the `stripe_transfer_ref`/`stripe_refund_ref` sibling discipline).
   - `command_idempotency_key` text — not null (C16).
   - `created_at`, `updated_at`.
 - **FKs:** as above (on delete restrict).
@@ -3548,10 +3550,10 @@ passes for the wrong reason and proves nothing.
 - **Immutability:** the sale **fact** is AO (buyer/seller/price/atom immutable once written); only
   `terminal_state`/`sale_state` transition forward under the state machine.
 - **Index:** PK; unique C16 key; index on `listing_id`; index on `ticket_atom_id`; index on `(seller_id)`
-  and `(buyer_id)` (dashboards); partial index on `sale_state='paid_pending_transfer'` (the C25 sweep hot-path).
+  and `(buyer_id)` (dashboards); partial index on `sale_state='paid_pending_transfer'` (the C25 sweep hot-path); **partial `UNIQUE(listing_id) WHERE sale_state='initiated'`** (at most one live checkout per listing — the index, not a `NOT EXISTS`); partial `(reservation_expires_at) WHERE sale_state='initiated'` (the lapse worker's hot-path).
 - **Archival:** permanent (Immutable Ledger).
 - **RLS:** owner-scoped (buyer + seller) + org (royalty) + platform; money-custody-RPC-only writes.
-- **Write authority:** `kernel.transfer_ticket_ownership` (via market, SSCAS member #2) writes the sale +
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `market.checkout_buy_now` (INSERT at `initiated`, R-37/`OR-22`); `market.bind_checkout_payment_ref` (`payment_intent_ref`, write-once); `market.mark_sale_paid_state` (→ `paid_pending_transfer` + `paid_pending_since` + `payment_id` — §20.8.7); `market.cancel_buy_now_sale` (`initiated` → `cancelled` only); `market.finalize_market_sale`/`market.respond_offer` → `kernel.transfer_ticket_ownership` (via market, SSCAS member #2) writes the sale +
   appends the log in one txn (C8); the C25 auto-compensation sweep flips to `compensated`.
 - **Read authority:** buyer + seller + owning org finance + platform.
 - **SoT/PROJ:** **SoT** (the consummation fact).

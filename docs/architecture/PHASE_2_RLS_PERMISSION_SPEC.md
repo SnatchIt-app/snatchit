@@ -1633,12 +1633,12 @@ back office, other promoters, or buyer PII. ⁴¹ **AO**: attribution recorded o
 ## 10. Schema `market` — matrices (native rail)
 
 ### 10.1 `market.listing_native` — public-read (active discovery) + owner-scoped (seller)
-Write RPCs *(restates the canonical registry — `OR-7`)*: `create_listing` (native), `cancel_listing`, `respond_offer` (→ `sold`, §20.8.6), `market.on_door_freeze_engaged` (§17.10a drain hook, `C110`), `catalog.cancel_event` (§4.4). Creating sets atom `resale_state='listed'` (SSCAS #6).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_listing` (native), `cancel_listing`, `checkout_buy_now` (→ `reserved`, §20.8.8 — R-37/`OR-22`), `finalize_market_sale` (→ `sold`, §20.8.10), `cancel_buy_now_sale` (`reserved` → `active`, §20.8.11), `respond_offer` (→ `sold`, §20.8.6), `market.on_door_freeze_engaged` (§17.10a drain hook, `C110`), `catalog.cancel_event` (§4.4). Creating sets atom `resale_state='listed'` (SSCAS #6). Discovery reads cover `active` AND `reserved` (RN §11 renders `reserved`); a reserved listing's buyer identity and clock live on the sale row (§10.4), never in discovery cols.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
-| anon | A(active listings, discovery cols⁴²) | D | D | D | — |
-| fan | A(active) | D | D | D | — |
+| anon | A(active + reserved listings, discovery cols⁴²) | D | D | D | — |
+| fan | A(active + reserved) | D | D | D | — |
 | owner (seller) | A(own listing full) | R⁴³ | R | D | `create_listing`/`cancel_listing` (own atom) |
 | org_member | A(active) | D | D | D | — |
 | org_owner/admin | A(active + own-venue events) | D | D | D | — |
@@ -1691,7 +1691,7 @@ Write RPCs: `make_offer`, `respond_offer`.
 ⁴⁶ buyer may withdraw own pending offer. ⁴⁷ seller accepts/declines (accept→`market_sale` via kernel engine).
 
 ### 10.4 `market.market_sale` — money-custody-RPC-only (buyer+seller read); C26 terminal SM
-Write: `transfer_ticket_ownership` (via market, SSCAS #2) + C25 auto-compensation sweep. Buyer id **server-verified** (C35).
+Write *(restates the canonical registry — `OR-7`)*: `checkout_buy_now` (INSERT at `initiated` — R-37/`OR-22`) · `bind_checkout_payment_ref` (write-once `pi_…` ref) · `mark_sale_paid_state` (§20.8.7) · `finalize_market_sale`/`respond_offer` → `transfer_ticket_ownership` (via market, SSCAS #2) · `cancel_buy_now_sale` (`initiated` → `cancelled` only) · `on_atom_voided` · C25 auto-compensation sweep. Buyer id **server-verified** (C35).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1852,6 +1852,7 @@ policy behind it — see §1.3.
 | `market.create_listing`/`cancel_listing` | owner of the atom · platform (cancel) |
 | `market.create_auction` / bid RPC | listing seller (create) · any `authenticated` (bid) |
 | `market.make_offer`/`respond_offer` | any `authenticated` (offer) · listing seller (respond) |
+| `market.checkout_buy_now` (§20.8.8, R-37/`OR-22`) | any `authenticated` — buyer := `auth.uid()`, never a body field (C35); the listing's own seller refused (`self_purchase`); fronted by the `resale-checkout` edge (Class A, EA-1); direct PostgREST invocation is harmless (a PI-less reservation the lapse worker's NULL-ref arm releases) |
 | `market.create_p2p_transfer`/`accept_p2p_transfer` | atom owner (create) · resolved recipient (accept) |
 | **read RPCs** `get_ticket_custody_chain` · `get_ticket_history` · `get_market_sale_status` | scoped as §14 |
 
@@ -1910,7 +1911,11 @@ These fourteen were identified by the set-closure pass (RPC contracts §20.0c) a
 | `kernel.revoke_org_invite` (§20.1.6, 2026-08-29) | caller-authorized — `has_org_role(invite.org_id,[org_owner, org_admin])` OR `is_platform([platform_admin])`; an `org_admin` may not revoke an `org_owner`-tier invite; `org_id` from the invite row, never a parameter |
 | `kernel.sweep_expired_org_invites` (§20.1.7) | `DEF` — scheduler only; the §7.3b service_role grant, named; explicit `cron.schedule` in `077` (P0-1: no shared heartbeat exists) |
 | `venue.cancel_pending_order` (§20.7.9) | `DEF` — `service_role` only; `stripe-webhook` on a TERMINAL payment failure only; `REVOKE FROM anon, authenticated, public` |
-| `market.mark_sale_paid_state` (§20.8.7) | `DEF` — `service_role` only; `stripe-webhook` (`rail='native_resale'`); dormant pair with edge §4 until `R-37` |
+| `market.mark_sale_paid_state` (§20.8.7) | `DEF` — `service_role` only; `stripe-webhook` (`rail='native_resale'`); LIVE under R-37/`OR-22` — its caller population is `market.checkout_buy_now`'s INSERT-at-`initiated` |
+| `market.bind_checkout_payment_ref` (§20.8.9) | `DEF` — `service_role` only; the `resale-checkout` `/begin` route, after PI mint, before the client response; write-once, equal-ref replay `noop_replay` |
+| `market.finalize_market_sale` (§20.8.10) | `DEF` — `service_role` only; `stripe-webhook` (post-mark) and the §12.3 complete branch. **An `authenticated` grant here is a custody move on someone else's payment — the §11.1a severity class.** `REVOKE EXECUTE FROM anon, authenticated, public` |
+| `market.cancel_buy_now_sale` (§20.8.11) | `DEF` — `service_role` only; `stripe-webhook` (`payment_intent.canceled` / TERMINAL `payment_failed`, resale arm) and the `resale-checkout` release/sweep routes — **only after PI death**; never a client (a client-severable sale with a live PI is the orphan-money defect) |
+| `market.list_lapsed_checkouts` (§20.8.12) | `DEF` — `service_role` only; the `/sweep-lapsed` worker's read |
 
 ### 11.1b Guest-list EXEC rows — authority that lived only in §9.16's matrix (`AUTHZ-R4`)
 

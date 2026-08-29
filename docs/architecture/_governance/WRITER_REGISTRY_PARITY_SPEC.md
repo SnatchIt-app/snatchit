@@ -214,10 +214,10 @@ venue.door_manifest_delta|venue.append_door_manifest_delta|helper|17.13|y|OK
 venue.holder_mix_snapshot|venue.refresh_holder_mix;venue.unpublish_holder_mix;venue.unpublish_all_holder_mix|cron;rpc;rpc|17.20|y|OK
 venue.holder_mix_bucket|venue.refresh_holder_mix|cron|17.20|y|OK
 venue.export_job|venue.request_export;venue.build_export_rows;venue.finalize_export;venue.revoke_export;venue.sweep_expired_exports;venue.claim_artifacts_for_purge;venue.confirm_artifact_purged;venue.reconcile_export_orphans|rpc;helper;helper;rpc;cron;helper;helper;helper|17.22|y|OK
-market.listing_native|market.create_listing;market.cancel_listing;market.respond_offer;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;helper;rpc|20.8.1;20.8.2;20.8.6;17.10;4.4|y|OK
+market.listing_native|market.create_listing;market.cancel_listing;market.respond_offer;market.on_door_freeze_engaged;catalog.cancel_event;market.checkout_buy_now;market.finalize_market_sale;market.cancel_buy_now_sale|rpc;rpc;rpc;helper;rpc;rpc;webhook;webhook|20.8.1;20.8.2;20.8.6;17.10;4.4;20.8.8;20.8.10;20.8.11|y|OK
 market.auction|market.create_auction;market.place_bid;market.cancel_listing;catalog.cancel_event|rpc;rpc;rpc;rpc|20.8.3;20.8.4;20.8.2;4.4|y|OK
-market.offer|market.make_offer;market.respond_offer;market.cancel_listing;market.sweep_expired_p2p_transfers|rpc;rpc;rpc;cron|20.8.5;20.8.6;20.8.2;12.2|y|OK
-market.market_sale|kernel.transfer_ticket_ownership;market.respond_offer;market.sweep_paid_pending_sales;market.on_atom_voided;market.mark_sale_paid_state;market.UNNAMED_MARKET_CHECKOUT|rpc;rpc;cron;helper;webhook;rpc|7.2;20.8.6;12.3;20.11.3;20.8.7;R-37|y;y;y;y;y;n|MISSING_CONTRACT
+market.offer|market.make_offer;market.respond_offer;market.cancel_listing;market.sweep_expired_p2p_transfers;market.finalize_market_sale|rpc;rpc;rpc;cron;webhook|20.8.5;20.8.6;20.8.2;12.2;20.8.10|y|OK
+market.market_sale|kernel.transfer_ticket_ownership;market.respond_offer;market.sweep_paid_pending_sales;market.on_atom_voided;market.mark_sale_paid_state;market.checkout_buy_now;market.bind_checkout_payment_ref;market.finalize_market_sale;market.cancel_buy_now_sale|rpc;rpc;cron;helper;webhook;rpc;helper;webhook;webhook|7.2;20.8.6;12.3;20.11.3;20.8.7;20.8.8;20.8.9;20.8.10;20.8.11|y|OK
 market.p2p_transfer|market.create_p2p_transfer;market.accept_p2p_transfer;market.cancel_p2p_transfer;market.sweep_expired_p2p_transfers;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;cron;helper;rpc|8.1;8.2;8.3;12.2;17.10;4.4|y|OK
 notify.notification|notify.enqueue;notify.drain_outbox;notify.mark_read;notify.mark_all_read;notify.dismiss|helper;cron;rpc;rpc;rpc|17.24|c|OK
 notify.preference|notify.set_preference|rpc|17.24|c|OK

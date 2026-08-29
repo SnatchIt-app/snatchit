@@ -25,6 +25,7 @@ register the packages build against.
 | export purge tick | `crm-export-worker POST /purge` | 087 | 15 min | `cron.schedule`+`pg_net` (exists) | claim lease + attempts | lease | CRM set |
 | p2p expiry + offer tick | `market.sweep_expired_p2p_transfers` (2nd stmt: `market.offer`) | 088 | 2 min | `cron.schedule` in 088 (row corrected) | re-entrant | per-row Transfer→Atom `FOR UPDATE` | `T-SCHEMA-OFFER-01` (tick DISABLED) |
 | C25 compensation | `market.sweep_paid_pending_sales` | 088 | 2 min | `cron.schedule` in 088 | XOR terminal-state | compensate-XOR-complete | §12.3 tests |
+| buy-now reservation release (R-37/`OR-22`) | `resale-checkout POST /sweep-lapsed` (edge; wraps `market.list_lapsed_checkouts` → PI-cancel → `market.cancel_buy_now_sale`) | 088 | 2 min | `cron.schedule`+`pg_net` in 088, `INTERNAL_CRON_SECRET` header | idempotent (PI-cancel + forward-only cancel; no lease) | `SKIP LOCKED` read; PI-death gates every release | `T-RPC-MARKET-18` |
 | outbox drain | `notify.drain_outbox` | 092 | 2 min | `cron.schedule` in 092 | `UNIQUE(dedupe_key)` + envelope state | `pg_try_advisory_xact_lock` + `SKIP LOCKED`; bounded expansion | N-A7 family |
 | notify dispatch | `notify-dispatch` edge | 092 | 1 min | `cron.schedule`+`pg_net` in 092 | delivery claim lease | `claim_deliveries` lease | §17.25 set |
 | notify receipts | `notify-receipts` edge | 092 | 15 min | `cron.schedule`+`pg_net` in 092 | terminal-state guard | lease | §17.25 set |

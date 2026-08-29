@@ -284,6 +284,7 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | **Online scan validate** (`scan-validate`) | **REJECTED → RPC + DOOR-SIDE** | no secret, no third-party. Liveness is a pure read; signature check uses the *public* key the door already caches | `venue.validate_ticket_online` (RPC §9.3) + door-side verify (§5.4) |
 | **Offline scan reconcile** (`scan-reconcile`) | **REJECTED → RPC** | pure atomic batch DB write, no external I/O | `venue.reconcile_offline_scans` (RPC §9.5) — device calls it directly with its JWT/door principal |
 | All custody transitions (issue/transfer/void/lock/scan) | **REJECTED → RPC** | atomic single-writer state machine; §5 SSCAS; no external I/O | the three kernel engines (RPC §7) |
+| Create PaymentIntent for a native **resale buy-now** + reservation release (R-37/`OR-22`) | **NEW EDGE** `resale-checkout` | needs `STRIPE_SECRET_KEY` (PI mint AND the PI-death cancel that gates every release), customer/ephemeral key, server price authority | calls `market.checkout_buy_now` (RPC §20.8.8) for the total; mints PI; `/release` + `/sweep-lapsed` run PI-cancel-then-`cancel_buy_now_sale` |
 | P2P start/accept/cancel, listing create, offer, order create | **REJECTED → RPC** | atomic DB transitions | `market.*` / `venue.*` RPCs |
 | TTL & C25 **sweeps** (`sweep_expired_p2p_transfers`, `sweep_paid_pending_sales`) | **REJECTED → RPC via scheduler** | pure DB batch; invoked by `pg_cron`/scheduler, not an edge | RPC §12.2/§12.3 |
 | Settlement-open, role grants, config edits, door-PIN issue | **REJECTED → RPC** | single-aggregate DB writes | `venue.*`/`kernel.*` RPCs |
@@ -312,12 +313,12 @@ web server). **Rejections are the high-value output — they keep atomic transit
 | Row selection for the export in TypeScript | **REJECTED → RPC** | a query assembled in the edge is invisible to catalog assertions and pgTAP; the SQL must be one named catalog object | CRM §11.5 |
 | A second push function for the 40 new notification types | **REJECTED → `notify-dispatch`, NOT `send-push`** | §2's original *"reuse `send-push`"* verdict is right about **transport** and wrong about **pipeline**: `send-push` has no batching, no receipt loop, no retry, no idempotency and no preference check. `send-push` stays for the 15 legacy types and is **not extended** | Notifications §6.4 (`SPEC CORRECTION` to this table) |
 
-**Net new edge functions: 17** — the original 6 (`primary-checkout`, `credential-sign`,
+**Net new edge functions: 18** — the original 6 (`primary-checkout`, `credential-sign`,
 `signing-key-provision`, `refund-execute`, `payout-execute`, `connect-onboarding`) **+ 11 from the delta specs**
 (`crm-export`, **`crm-export-worker`**, `promoter-code-preview`, `door-session`, `door-manifest` *(optional)*,
 `wallet-pass-issue`, `wallet-pass-webservice`, `wallet-pass-push`, `pass-cert-provision`, `notify-dispatch`,
 `notify-receipts`) **+ 1 extended** (`stripe-webhook`). Every one is classified under §0.4.
-**16 → 17 by `EDGE-2`**: `crm-export` split into an actor function and a worker function, because one
+**16 → 17 by `EDGE-2`; 17 → 18 by `R-37`/`OR-22`** (`resale-checkout`, §3.16 — one deployment, one `verify_jwt` value, mixed A + B-i routes on the `wallet-pass-push` precedent): `crm-export` split into an actor function and a worker function, because one
 deployed function cannot carry two `verify_jwt` values (EA-8). **A count of deployed functions is a count of
 `verify_jwt` settings** — that is the whole reason this total moved.
 
@@ -1136,6 +1137,39 @@ and joins no custody sequence.
 
 ---
 
+### 3.16 `resale-checkout` — buy-now reservation, PI mint, and the PI-death release protocol — **NEW EDGE** (R-37/`OR-22`, package `088`, `verify_jwt: true`)
+
+Mirrors `primary-checkout` §3.1 clause-for-clause; three routes, one deployment (one `verify_jwt` value —
+EDGE-2's own criterion; mixed A + B-i in one deployment has the `wallet-pass-push` precedent, §8 matrix).
+
+- **`POST /begin` — Class A.** Auth `auth.getUser(token)`; calls `market.checkout_buy_now` (§20.8.8) with
+  the **caller client** (EA-1); server-authoritative total from the RPC; optional `expected_total_cents` →
+  409 on mismatch (copy `totalMismatch`); Stripe Customer + ephemeral key (reuse
+  `ensureStripeCustomerAndEphemeralKey`); PI for `total_minor`, metadata `{rail:'native_resale', sale_id,
+  buyer_id, listing_id}`; records `public.payments` `pending` on the frozen path; then
+  `market.bind_checkout_payment_ref` (§20.8.9, service client) **before** the client response (a delivered
+  clientSecret implies a stored ref). **PI idempotency key
+  `pi_resale_${sale_id}_${total}_c${customerId}[_r${n}]`** (§3.1's salting — a canceled PI must not
+  replay); rate limit `check_rate_limit(user,'resale-checkout',5,60)` fail-closed; on RPC failure → 409; on
+  Stripe failure → 500 + orphan-PI cancel; on 23505 race → return the winner's clientSecret. Response
+  `{ sale_id, clientSecret, paymentIntentId, amount, total, reservation_expires_at, customerId,
+  customerEphemeralKeySecret }`. Confirmation is NOT synchronous — the webhook is authoritative (§3.1's
+  closing rule).
+- **`POST /release` — Class A** (buyer abandon). Caller must be the sale's buyer (read via caller client);
+  then **cancel the PI at Stripe first**; only on PI-terminal (canceled / never-confirmable / no ref bound)
+  call `market.cancel_buy_now_sale(sale_id,'buyer_released',key)` (service client). If Stripe refuses the
+  cancel because the PI is `processing`/`succeeded` → **do not release**; return
+  `release_refused_payment_in_flight` — the succeeded webhook will finalize (money wins).
+- **`POST /sweep-lapsed` — Class B-i** (the TTL release agent, cron-invoked — register row).
+  `INTERNAL_CRON_SECRET` in a dedicated header, constant-time compare, not the service-role key (EDGE-3,
+  copy `notify-dispatch`). Body: `market.list_lapsed_checkouts(limit)` (§20.8.12) → per row: ref bound ⇒
+  the same PI-cancel-then-cancel protocol as `/release`; ref NULL ⇒ direct `cancel_buy_now_sale`
+  (`'reservation_expired'`) — safe because bind-before-respond means no clientSecret was ever delivered, so
+  no PI can ever succeed. All ops idempotent (Stripe PI-cancel idempotent; the cancel RPC forward-only) —
+  **no claim lease**; concurrent ticks converge. Effective listing-wedge bound: TTL + one tick.
+- **Secrets (names only):** `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `INTERNAL_CRON_SECRET`. Not a `verify_jwt=false` surface — §7's enumeration unchanged.
+
 ## 4. `stripe-webhook` — extensions for native / primary events (EXTEND, do not fork)
 
 **Decision: extend the existing endpoint, do NOT create a second webhook.** One signed endpoint = one
@@ -1152,8 +1186,9 @@ new). External-rail branches are **byte-for-byte untouched.**
 | Event | `metadata.rail` | New handler action | DB-RPC |
 |---|---|---|---|
 | `payment_intent.succeeded` | `native_primary` | claim payment row (`.neq('status','succeeded')` idempotent claim), then finalize the order | `venue.finalize_primary_order(order_id, payment_id, command_key, instrument_fingerprint)` (§6.3) — **before calling finalize, retrieve the succeeded PI's `latest_charge` (one authenticated GET; the pinned post-2022 Stripe API version means the event payload carries only the charge ID, not the expanded charge) and extract `payment_method_details[<type>].fingerprint ?? null`, passed as the fourth argument. A fetch failure passes NULL and STILL finalizes — per RPC §17.14's cross-cutting rule no attribution input may delay or fail issuance. Never log the fingerprint.** *(Added 2026-08-29 — the only admissible dataflow for the self-deal detector's input; RPC §6.3.)* — re-verifies buyer==payment owner (C35) |
-| `payment_intent.succeeded` | `native_resale` | mark `market_sale` `paid_pending_transfer` via **`market.mark_sale_paid_state(sale_id, payment_id, key)` (RPC §20.8.7, named 2026-08-29)**; the transfer is driven by `market.accept`/the C25 sweep, not the webhook | records `public.payments`; `market.get_market_sale_status` becomes pollable (recon #2) |
-| `payment_intent.payment_failed` | `native_*` | cancel the pending order — **ONLY on a TERMINAL PaymentIntent** (a per-attempt decline cancels nothing: §3.1's retry contract; capacity returns via the §20.3.3 sweep at hold TTL — no order→hold linkage exists to release directly; S-16-style correction 2026-08-29) | **`venue.cancel_pending_order` (RPC §20.7.9)** |
+| `payment_intent.succeeded` | `native_resale` | mark `market_sale` `paid_pending_transfer` via **`market.mark_sale_paid_state(sale_id, payment_id, key)` (RPC §20.8.7, named 2026-08-29)**; the transfer is driven by `market.accept`/the C25 sweep, not the webhook | records `public.payments`; then calls **`market.finalize_market_sale` (§20.8.10)** in its own txn — prompt completion whose failure does NOT fail the webhook (the mark is the branch's authoritative work; §12.3 is the bounded backstop); a `sale_state_backwards` from the mark on this rail → 2xx + money-path alert (resolution: `kernel.admin_refund`); `market.get_market_sale_status` becomes pollable (recon #2) |
+| `payment_intent.payment_failed` | `native_*` | cancel the pending order — **ONLY on a TERMINAL PaymentIntent** (a per-attempt decline cancels nothing: §3.1's retry contract; capacity returns via the §20.3.3 sweep at hold TTL — no order→hold linkage exists to release directly; S-16-style correction 2026-08-29) | **`venue.cancel_pending_order` (RPC §20.7.9)** for `native_primary`; **`market.cancel_buy_now_sale` (RPC §20.8.11)** for `native_resale` (R-37/`OR-22`) |
+| `payment_intent.canceled` | `native_resale` | release the reservation — the crash-recovery duplicate of `resale-checkout`'s own PI-cancel-then-release (idempotent, `noop_replay`) | **`market.cancel_buy_now_sale` (RPC §20.8.11)** |
 | `charge.refunded` · `refund.updated` | any | already handled; extend to reconcile `kernel.refund` when the PI is a native order — **joined on the `re_…` the executor stored, never on the PI**, and `→ succeeded` | **`kernel.mark_refund_state(refund_id, 'succeeded', re_…, null, key)`** (RPC §20.7.7). `SPEC CORRECTION` (`R1-1`): this row said *"state sync only"* and named no function — **there was none**; `submitted`/`succeeded`/`failed` were unreachable |
 | `refund.failed` · `charge.refund.updated → failed` | any | a refund Stripe **accepted and then could not settle** → `failed` with a cause | **`kernel.mark_refund_state(refund_id, 'failed', re_…, failure_code, key)`**. **A `refunds.create` that errors synchronously is NOT this row** — no `re_…` exists, nothing left for Stripe, and the row stays `pending` for the executor's retry (§3.5) |
 | `charge.dispute.created` / `.closed` | native | freeze the affected atom (native equivalent of transfer-freeze) + upsert dispute; on `.closed`(lost) where the debited proceeds were already disbursed/retained by an identity, record the loss — **`kernel.record_identity_obligation` (§20.7.10, `F-P2-1`/`OR-21`)** — independent of the still-unbuilt dispute-freeze RPC/table | native dispute freeze RPC (mirrors `freeze_transfer_for_dispute`) |
@@ -1716,6 +1751,7 @@ flowchart TB
 |---|---|---|:--:|---|---|---|---|:--:|
 | `primary-checkout` | POST | true | **A** | authenticated buyer / on-behalf door | `venue.create_primary_checkout` | Stripe PI | `pi_native_${order_id}_${total}_c${cust}[_r${n}]` | `082` |
 | `credential-sign` | POST | true | **A** | atom current owner (`auth.uid()`) | reads `kernel.tickets`/`signing_key` | KMS sign | version-deterministic (no dedup row) | `083` |
+| **`resale-checkout`** `/begin` `/release` (A) · `/sweep-lapsed` (B-i, `INTERNAL_CRON_SECRET` header) | POST | true | **A + B-i** | buyer self (C35); sweep: cron only | `market.checkout_buy_now` → `bind_checkout_payment_ref`; release/sweep: `cancel_buy_now_sale` after PI death | Stripe PI mint + cancel | `pi_resale_${sale_id}_${total}_c${cust}[_r${n}]`; releases idempotent (no lease) | `088` |
 | `connect-onboarding` | POST | true | **A** | `has_org_role([org_owner,org_finance])` | `kernel.set_org_connect_ref` | Stripe Connect | `connect_org_${org_id}` | `077` |
 | `payout-execute` | POST | true | **A** | `has_org_role([org_finance,org_owner])` / `is_platform`; SoD; step-up | `close_settlement`/`request_org_payout`/`release_payout` | Stripe transfer | `payout_${payout_id}_${dest}_src` | `085` |
 | `refund-execute` | POST | true | **A** | buyer(capped)/`org_owner`/`org_finance`/`is_platform`; second-approver SoD | `request_order_refund`/`approve_refund_request`/`refund_primary_order`/`admin_refund`/`cancel_event` | Stripe refund | `refund_${refund_id}` | `085` |

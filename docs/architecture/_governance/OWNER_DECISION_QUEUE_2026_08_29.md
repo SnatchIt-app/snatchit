@@ -107,7 +107,7 @@ either way: the offer rail's own payment mint still needs design** (§20.8.6 ver
 nothing creates); zero new money surface; the §20.8.7/edge-§4 dormant pair stays ready. B: commission —
 an 18th edge (amending the ratified closed 17-edge inventory) + the INSERT-at-initiated RPC + the
 `reserved`-state ruling (RN :590 expects a label the enum lacks) + RLS + fence + 088 growth. C: none
-(both third shapes closed by name). **RECOMMEND A + commission only the offer-rail mint.** Owns 2 of the
+(both third shapes closed by name). **RECOMMEND A + commission only the offer-rail mint.** *(RULED 2026-08-29: **OPTION B** — `OR-22`; both writer-gate errors discharged; the offer-rail mint residual survives and is re-filed under `OR-22`.)* Owns 2 of the
 4 writer-gate errors (the market_sale MC row + the NOT-BUILT placeholder).
 
 ## R-39a — org_customer_key MINT site: **create_organization in-txn, lazy at first request_export, or (REOPENED) at first build?**

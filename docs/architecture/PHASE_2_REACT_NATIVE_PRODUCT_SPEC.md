@@ -182,7 +182,7 @@ All three share the existing checkout chrome (price breakdown via `PriceDisplay`
 
 #### 4.3b Native Resale Checkout (NEW) — buying a Resale Ticket on the native rail
 - **Purpose:** buy a resale Official Ticket from another holder, venue-governed.
-- **Key elements:** tier, seller price + fees (all-in), venue royalty is invisible to the buyer (built into price), pay button. A short trust line: "This is a verified ticket. It transfers to you instantly when you pay."
+- **Key elements:** tier, seller price + fees (all-in), venue royalty is invisible to the buyer (built into price), reservation countdown ("We're holding this ticket for N:NN" — from `reservation_expires_at`, RPC §20.8.8; the same pattern as §4.3a's hold timer), pay button. A short trust line: "This is a verified ticket. It transfers to you instantly when you pay."
 - **Delivery copy:** "Transfers to you instantly." (atomic `transfer_ticket_ownership`, C8.)
 - **Actions:** pay → ownership transfers → My Ticket. On the rare `paid_pending_transfer` window, show a brief "Finalizing your ticket…" state (C25 auto-compensation guarantees resolution — see §10).
 - **Backend:** `market.listing_native` (active) → `public.payments` link → `market.market_sale` (pending→completed) + `kernel.transfer_ticket_ownership` (SSCAS #2). Kernel authorizes the buyer itself (C35) — UI passes no buyer id.
