@@ -1786,12 +1786,16 @@ Ratification **C99**.
 >
 > **Placement respects `PHASE_2_SPEC_FOUNDATION.md` §6 exactly — `077` and `082` — and the dependency
 > graph permits both** (the SEAM-1 arithmetic is stated per table below). No deviation was required.
+>
+> *(`OR-1`, 2026-08-28: `MD-2` has since resolved `postgres`-owned — the `crm_export_builder` role is
+> not created and the zero-rows narrative above is historical rationale; `K-2`'s placement of the two
+> tables is unaffected.)*
 
 Both tables are **AO** (§0.8): INSERT-only, `REVOKE UPDATE, DELETE`, and the `kernel.raise_append_only()`
 guard trigger created in `076`. Both are **deny-all with an EMPTY grant set — not a reduced one** (RLS §6
-tier 2/3), and both join the §16.10 zero-policy register, carrying **exactly one** policy each: the
-`_sel_svc_export` role gate of §16.10 clause 2, `USING (current_user = 'crm_export_builder')` and nothing
-else. Neither carries a sensitive attribute; neither is reachable by any client role at any verb.
+tier 2/3), and both join the §16.10 zero-policy register — **zero policies** (`OR-1`; the former
+`_sel_svc_export` role gate is not built). Neither carries a sensitive attribute; neither is reachable by
+any client role at any verb.
 
 #### 1.15.1 `kernel.identity_contact_pref_event` — package `077`
 
@@ -1820,8 +1824,7 @@ else. Neither carries a sensitive attribute; neither is reachable by any client 
 - **Index:** PK; **`(identity_id, occurred_at DESC)`** — this is the gate's whole access path
   (*"latest row for this identity at or before `gate_as_of`"*) and it is on the hot path of every page of
   every export build.
-- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero client policies (§6, §16.6). One
-  `kernel_identity_contact_pref_event_sel_svc_export` policy per §16.10 clause 2. **`INFERENCE:` it
+- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero policies (§6, §16.6; `OR-1`). **`INFERENCE:` it
   inherits the current-state table's posture rather than a relaxed one on the grounds that it is "just a
   log": a column grant here to `authenticated` would publish a timestamped history of when a person
   changed their mind about being emailed** — strictly worse than the row it derives from (RLS §6, verbatim
@@ -1829,7 +1832,7 @@ else. Neither carries a sensitive attribute; neither is reachable by any client 
 - **Write authority (canonical — A4):** `kernel.set_my_contact_prefs` **only**, appending one row in the
   **same transaction** as the current-state upsert (RPC §20; CRM §11.1 element 4 / §5.1 change 2). No
   other routine, no `service_role` path, no backfill.
-- **Read authority:** the §5.1 gate inside `venue.build_export_rows`, running as `crm_export_builder`.
+- **Read authority:** the §5.1 gate inside `venue.build_export_rows` (`postgres`-owned `SECURITY DEFINER` — `OR-1`).
 - **SoT/PROJ:** SoT for *"what was the switch at instant T"*; `kernel.identity_contact_pref` remains the
   read path for everything else.
 
@@ -1881,12 +1884,11 @@ is a precondition relation, not a Phase-2 package (§0.1 — the frozen core ref
   `:job_org_id` and sweeps many identities, so `org_id` leads; **`(identity_id, occurred_at DESC)`** —
   the fan-side *"which venues exported a list with you"* pre-deletion screen (§9.2, CRM §11.1 element 27)
   and `kernel.list_my_org_contact_consents`.
-- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero client policies. One
-  `kernel_org_contact_consent_event_sel_svc_export` policy per §16.10 clause 2.
+- **RLS:** deny-all, **EMPTY grant set**, RLS enabled, zero policies (`OR-1`).
 - **Write authority (canonical — A4):** `kernel.grant_org_contact_consent` (appends
   `event='granted'`) and `kernel.withdraw_org_contact_consent` (appends `event='withdrawn'`), each in the
   **same transaction** as its current-state write. Nothing else writes it.
-- **Read authority:** the §5.1 gate inside `venue.build_export_rows` (as `crm_export_builder`), and
+- **Read authority:** the §5.1 gate inside `venue.build_export_rows` (`postgres`-owned — `OR-1`), and
   `kernel.list_my_org_contact_consents` for the row's own subject.
 - **SoT/PROJ:** SoT for *"what was consent at instant T"*.
 
@@ -3306,8 +3308,8 @@ out and §20.9.4 plus `U-4` are removed with it** — but that is a ruling, not 
   `claim_artifacts_for_purge`'s only access path and it was absent from plan §8/`087`;** `(org_id,
   requested_at)` — the venue's export-history panel.
 - **RLS:** deny-all with an **EMPTY grant set**, RLS enabled, zero client policies (§6, §16.6 — the sixth
-  member of the CRM deny-all set). It carries the one `venue_export_job_sel_svc_export` policy of §16.10
-  clause 2, because `build_export_rows` reads its own job row as `crm_export_builder`.
+  member of the CRM deny-all set). **Zero policies** (`OR-1` — the former `_sel_svc_export` role gate is
+  not built; `build_export_rows` is `postgres`-owned and reads its own job row as table owner).
 - **Write authority (canonical — A4):** `venue.request_export` (insert, `queued`) · `venue.build_export_rows`
   (claim, `gate_as_of`, the four cell counters) · `venue.finalize_export` (`ready`, `artifact_state :=
   'present'`, sha/bytes/path) · `venue.authorize_export_download` (read-only re-authorization) ·
@@ -3953,7 +3955,7 @@ the reason is in §13.5. `—` = the delta spec assigned none.
 | `086` | `catalog.tg_door_open_at_is_ledger_head` trigger (on a `078` table) | DOOR §10.2 | — → `086` (§13.2 FR-6) |
 | `086` | `catalog.engage_door_freeze`, `kernel.assert_door_session`, `venue.open_/close_door_manifest`, `get_door_manifest`, `append_door_manifest_delta`, `kernel.grant_/revoke_door_freeze_override` | DOOR §7/§8 | — → `086` |
 | `086` | **`venue.holder_mix_snapshot`, `venue.holder_mix_bucket`, `refresh_holder_mix`, `get_holder_mix`** | DEMOGRAPHICS §10.1 | ▲ spec said `087` (§13.5-A) |
-| `087` | `venue.export_job`, the `crm-exports` bucket, the eight export RPCs, `crm_export_builder` role | CRM §11.1-9…19/23 | ✓ |
+| `087` | `venue.export_job`, the `crm-exports` bucket, the eight export RPCs | CRM §11.1-9…19 | ✓ |
 | `087` | **`venue.export_job.artifact_state` / `purge_lease_until` / `purge_attempts`, the `(artifact_state, expires_at)` purge-claim index, and the three purge definers `venue.claim_artifacts_for_purge` / `confirm_artifact_purged` / `reconcile_export_orphans`** — **the physical substrate of the only agent in the design that deletes bytes (`K-3`)** | CRM §11.1-**19a** / §11.4 · RPC §20.14 **`R-7`** | ✓ → `087` (§3.18) |
 | `087` | **`venue.assert_may_request(p_actor, p_scope_kind, p_scope_id, p_template_id, p_raise boolean DEFAULT true) RETURNS boolean`** — the shared request/download predicate (RPC §17.22). **It got a package number and nothing else: no contract, no return type, no parameter types, no security context, no grant, no RLS EXEC row. Contracted at RPC §20.7.8 and the return shape settled there (`R1-4`/`C108`) — raising by default, `p_raise := false` for `list_export_jobs`'s `downloadable` boolean, ONE body. This row previously read "contracted and scheduled nowhere"; the plan schedules it, and it is now contracted** | RPC §20.14 **`R-7`** (`AUTHZ-CRM2`) · RPC §20.7.8 | — → `087` |
 | `087` | `kernel.close_settlement` + the two hook **stubs** (`settlement_royalty_lines`, `settlement_commission_lines`) | RPC §10.2 | — (§13.2 FR-5) |

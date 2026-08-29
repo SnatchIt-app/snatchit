@@ -34,9 +34,6 @@ matrices for the objects the eight Phase-2 delta specs introduce.
 >    (§16.4a, `AUTHZ-H3`). `kernel.assert_door_session` still appears in **no** `pg_policy` (RM-5 intact).
 > 3. **The CRM deny-all set is SIX tables, not four** — `kernel.org_contact_consent_event` and
 >    `kernel.identity_contact_pref_event` join it (§6, §16.6, `AUTHZ-CRM1`). **Demographics stays at four.**
->    And the `crm_export_builder` relation set is **twelve, not ten** (§16.10, `AUTHZ-M11`), plus a
->    column-scoped `auth.users` grant — **without the per-relation policy the builder reads zero rows
->    silently and every export ships a blank contact column that reads as "nobody consented."**
 
 ---
 
@@ -2690,7 +2687,7 @@ implementation of the item named.
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | **MD-1** | Is `kernel.approval_request` an *aggregate class* (⇒ a sixteenth SSCAS member ⇒ a C28 amendment) or an *intent record* (⇒ `SSCAS: n/a`)? | Intent record — the parked branch takes `FOR UPDATE` on exactly one pre-existing class (Ticket Atom); the approval row is a fresh INSERT that contends on nothing. It is lock-ordered either way, so an amendment would be a one-line ratification | the parked refund branch |
-| **MD-2** | A second definer owner (`crm_export_builder`) for the export builder, deviating from the RPC spec's `postgres`-owned global | **OPEN — recorded as owner decision `O17` (`R3-4`), NOT decided.** This column is headed *Recommendation* and the recommendation is **adopt**: the alternative is a `postgres`-owned function with reach over everything, and `BYPASSRLS` is not an acceptable substitute. **The word "Adopt" alone read as a ruling and was cited as one** — three other sites (§16.10 clause 5, RPC §17.22's Layer-0 note, `PHASE_2_SCOPE_AMENDMENT_2026_08.md` `HG-4`) correctly treat it as open, so the status is now stated beside the recommendation rather than inferred from the column heading. **Adopting requires the twelve `_sel_svc_export` policies of §16.10 clause 1 AND the `T-RLS-POL-02` amendment of clause 3 AND the column-scoped `GRANT SELECT (id, email) ON auth.users`; resolving the other way requires none of them. Shipping the role without the policies is the one combination that is silently wrong** — it emits a syntactically valid export whose contact column is uniformly blank, and `finalize_export`'s own invariant balances perfectly at `cells_emitted = 0` | the export package — **`HG-4`: must be decided before `087` is authored** |
+| **MD-2** | A second definer owner (`crm_export_builder`) for the export builder, deviating from the RPC spec's `postgres`-owned global | **CLOSED — OWNER RULING B (`OR-1`, 2026-08-28): the builder stays `postgres`-owned; the role is NOT created; ZERO `_sel_svc_export` policies exist.** Owner's reason, verbatim: *"the proposed privilege wall has failed to converge across repeated independent reviews and introduces silent fail-closed data-integrity failure modes into CRM exports."* The substitute `X-6` assurance is `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md`; the ruling and its consequence map are `_governance/PHASE_2_RATIFICATION_RECORD.md` row `OR-1` and `_governance/O17_RULING_IMPACT_MAP.md`. `BYPASSRLS` remains refused in any future revisiting | **discharged** — `087` is unblocked (`HG-4` served) |
 | **MD-3** | The actual numbers: `refund.org_auto_execute_max_minor`, `refund.org_dual_control_max_minor`, `refund.platform_support_max_minor`, `payout.request_auto_max_minor`, `payout.dual_control_min_minor`, `refund.request_ttl_hours` | commercial + risk call; the keys ship, the values are set by an audited `set_platform_config` | tier behaviour |
 | **MD-4** | `org_admin` reads `venue.settlement` (§9.13) while denied the payout and refund ledgers | Keep — settlement is operational reconciliation, payout is money-out. **The inconsistency is real and is named rather than smoothed** | consistency only |
 | **MD-5** | A single-money-principal org is **blocked** from payouts after a destination change by SoD-1 | **Escalate** via the existing `release_payout` — the second human in the SoD pair becomes a platform operator. Relaxing reintroduces the exact named fraud primitive | §11.3 |
@@ -3112,7 +3109,8 @@ SELECT` only; deny-all tables carry **zero** policies.
 > **`R3-4` — SIX OF THOSE RELATIONS ARE ALSO IN THE ONE-POLICY SET FOUR LINES BELOW, AND THE DOCUMENT NAMES
 > THE COLLISION ITSELF WITHOUT RESOLVING IT. RESOLVED 2026-08-28.**
 >
-> Clause 1 below closes a twelve-relation set that each carries **exactly one** `_sel_svc_export` policy.
+> The former clause 1 below (retired under `OR-1`) closed a twelve-relation set, each relation to carry
+> **exactly one** `_sel_svc_export` policy.
 > **Six of the twelve are in the zero-policy list above** — `kernel.identity_contact_pref` ·
 > `kernel.identity_contact_pref_event` · `kernel.org_contact_consent` · `kernel.org_contact_consent_event` ·
 > `kernel.org_customer_key` · `venue.export_job`. The other six are **not** zero-policy relations and their
@@ -3120,20 +3118,18 @@ SELECT` only; deny-all tables carry **zero** policies.
 > `kernel.tickets` (3 → 4), `venue.order` (3 → 4), `venue.order_item` (3 → 4), `catalog.event` (3 → 4),
 > `catalog.event_session` (3 → 4). **6 + 6 = 12.**
 >
-> **The resolution is conditional, and the condition is the whole point.** Clause 5 already states it: if
+> **The resolution was conditional, and the condition has since resolved.** Clause 5 stated it: if
 > **`MD-2`** resolves `postgres`-owned, **none of clauses 1–4 is built and this list stands unamended at
-> zero**. So the six relations are **zero-policy today and one-policy only under `MD-2` = adopt** — they are
-> not in two states at once; they are in one state that has not been chosen yet. **`MD-2` is OPEN** — see
-> §15.7, where the *"Adopt"* beside it sits in a column headed **Recommendation**, in a table whose preamble
-> says each row *"blocks implementation of the item named"*. It is recorded as open decision **`O17`** and is
-> **not decided here**.
+> zero**. **`MD-2` is CLOSED — owner ruling `OR-1` (2026-08-28) ruled `postgres`-owned** (§15.7;
+> `_governance/PHASE_2_RATIFICATION_RECORD.md` row `OR-1`), so the six relations are **zero-policy, finally
+> and unconditionally** — the one-policy state was never entered.
 >
 > **What was actually broken.** Clause 3 says *"`T-RLS-POL-02` **is amended** to exclude exactly this policy
 > name pattern"* — **and the `T-RLS-POL-02` row in §16.11 was never touched.** The amendment was ordered in
 > prose and left unmade, so the register kept asserting *zero policies* over relations the same section
 > requires to have one. **Adding the policies would have failed the test; not adding them empties every
-> export.** §16.11's `T-RLS-POL-02` row now carries the amendment, its four converse assertions, and the
-> `MD-2` gate. **The prose ordering an amendment is not the amendment**; that is the class of defect, and it
+> export.** §16.11's `T-RLS-POL-02` row then carried the amendment, its four converse assertions, and the
+> `MD-2` gate — since collapsed under `OR-1` to the plain zero-policy assertion. **The prose ordering an amendment is not the amendment**; that is the class of defect, and it
 > is why the fix is in the register row rather than in another paragraph here.
 >
 > **Three sibling documents state this set differently and none of them is conditional — reported, not fixed
@@ -3144,67 +3140,46 @@ SELECT` only; deny-all tables carry **zero** policies.
 > `kernel.identity_contact_pref_event`, §1.15.2 `kernel.org_contact_consent_event`, §3.18
 > `venue.export_job`), and its §1.15 preamble states it for **both** `_event` tables generically; `PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md` §10 carries it as a **pattern**, and
 > is `MD-2`-gated. **Four registers, three counts, two modalities, one set.** **This section is the
-> authority**: twelve relations, conditional on `MD-2`.
+> authority**: `MD-2` ruled `postgres`-owned (`OR-1`, 2026-08-28) — **zero `_sel_svc_export` policies
+> exist**, and the sibling documents' unconditional statements are removed by the `OR-1` remediation.
 
-**Layer-0 exception — `AUTHZ-M11`: as previously written it granted the export builder access to tables this
-very register lists under ZERO policies, and it would have shipped every export with a blank contact
-column.**
+**Layer-0 exception — `AUTHZ-M11` — RESOLVED by owner ruling `OR-1` (`O17`/`MD-2`, 2026-08-28): the
+builder stays `postgres`-owned and NO Layer-0 role exists.**
 
-The recommended least-privilege shape runs `venue.build_export_rows` as a narrow owner role
-(`crm_export_builder`) rather than `postgres`. That role is **not** the table owner and holds no `BYPASSRLS`,
-so **it is subject to RLS on every relation it reads** — and the two relations that decide whether a contact
-cell may be emitted at all, **`kernel.identity_contact_pref` and `kernel.org_contact_consent`**, are in the
-zero-policy list three lines above, as is `kernel.org_customer_key`. **A role subject to RLS reading a table
-with RLS enabled and no policy reads zero rows.** The builder would therefore find **no consent row for
-anybody**, suppress **every** contact cell, and emit a syntactically valid export whose contact column is
-uniformly blank — which does not read as *"the query was denied"*, it reads as **"nobody consented."**
-`finalize_export`'s own invariant (`cells_emitted + cells_suppressed = holder row count`) balances perfectly
-with `cells_emitted = 0`, so **nothing in the pipeline detects it**; the first signal is a venue asking why
-their audience list is empty.
+The recommended least-privilege shape ran `venue.build_export_rows` as a narrow owner role
+(`crm_export_builder`) rather than `postgres`. Such a role is not the table owner, holds no `BYPASSRLS`,
+and is therefore **subject to RLS on every relation it reads** — and the consent-gate sources are
+zero-policy relations, so the role-without-policies combination reads **zero rows**, suppresses every
+contact cell, and emits a syntactically valid export whose contact column is uniformly blank. That reads
+as **"nobody consented"**, not as *"denied"*, and `finalize_export`'s own invariant (`cells_emitted +
+cells_suppressed = holder row count`) balances perfectly at `cells_emitted = 0`, so nothing in the
+pipeline detects it. This hazard analysis is retained as the reason the owner ruled the other way:
+*"the proposed privilege wall has failed to converge across repeated independent reviews and introduces
+silent fail-closed data-integrity failure modes into CRM exports"* (`OR-1`, verbatim).
 
-**The two halves of the contradiction, so neither is resolved by accident:** the exception said *"that role
-… needs an explicit permissive policy … named `<schema>_<table>_sel_svc_export`"*, while **`T-RLS-POL-02`
-asserts the zero-policy list has zero policies.** Adding those policies fails the test; not adding them
-empties the export. Both statements are in this document, four lines apart.
+**The ruling — the former clause 5's self-executing branch, now operative:** the builder stays
+`postgres`-owned per RPC §0.1; **none of the former clauses 1–4 is built** — no `crm_export_builder` role,
+no thirteen-grant set, no column-scoped `GRANT SELECT (id, email) ON auth.users`, and **ZERO
+`_sel_svc_export` policies on any relation** — and **the zero-policy list of this section stands unamended
+at zero.** The two shapes were mutually exclusive and the role-without-policies combination was the one
+that is silently wrong; neither ships. **`BYPASSRLS` remains refused** in any future revisiting of a
+narrow-owner design — it would restore access to everything and delete the entire benefit.
 
-**Ruling — the exception is made precise rather than deleted, because `BYPASSRLS` remains unacceptable (it
-would restore access to everything and delete the entire benefit).**
+**Two properties of the retired clauses are rescued, not deleted:**
 
-1. **The relation set is closed and named here**, not left as *"exactly those relations"*: `kernel.identity_ext`,
-   `kernel.identity_contact_pref`, **`kernel.identity_contact_pref_event`**, `kernel.org_contact_consent`,
-   **`kernel.org_contact_consent_event`**, `kernel.org_customer_key`, `kernel.tickets`,
-   `venue.order`, `venue.order_item`, `venue.export_job`, `catalog.event`, `catalog.event_session` — **twelve,
-   not ten.** The two event logs are added because the `gate_as_of` fix (`AUTHZ-CRM1`) makes them the source
-   the consent gate actually evaluates; **omitting them reproduces the zero-rows failure this ruling exists to
-   close, in the two relations the gate depends on most.** **No demographic relation appears, and none may be
-   added** — that is the property `T-RPC-CRM-06`'s reader enumeration asserts.
+1. **The demographic-exclusion property (formerly clause 1):** *no demographic relation appears in the
+   export read set, and none may be added.* Under `OR-1` this is no longer a property of a grant set; it
+   is a property of the **function bodies**, asserted structurally over `pg_proc` — `T-RPC-CRM-06`'s
+   reader enumeration (RPC §17.22) plus the transitive-closure, view and dynamic-SQL assertions of
+   `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md` (`T-VERIFY-X6-01`/`-02`, `T-RPC-CRM-15`/`-19`).
+2. **`T-RLS-CRM-04` (formerly clause 4 — positive, and load-bearing):** an export job run end-to-end
+   under the `postgres`-owned definer over a fixture with **one granted and one withdrawn** consent emits
+   **exactly one** contact cell and suppresses exactly one. **A test asserting only that the export
+   succeeds would pass on the all-blank output.** This is the behavioural fixture the owner's reason
+   names, extended by the twelve-holder consent matrix of `X6` plan §R4 (`T-RPC-CRM-17`).
 
-   **Plus one GRANT that is not a policy and was missing entirely:
-   `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — column-scoped.** The export reads the
-   email *"inside the definer"*; with `postgres` as owner that is free, and **with a narrow owner it is a
-   grant that has to exist** — and `auth.users` appeared in no enumerated list. Column-scoped so the builder
-   cannot reach `encrypted_password`, `raw_user_meta_data` or the recovery tokens. Without it the builder
-   raises rather than returning blanks, which is the better failure — but it is a failure, and it is not the
-   one the policies fix.
-2. **Each of those relations carries exactly one additional policy, `<schema>_<table>_sel_svc_export`, whose
-   `USING` clause is `current_user = 'crm_export_builder'` and nothing else** — no `auth.uid()`, no role
-   helper, no `true`. It is a role gate, not a row filter; the row filter is the job's frozen scope inside
-   `build_export_rows`.
-3. **`T-RLS-POL-02` is amended to exclude exactly this policy name pattern on exactly this relation set**, and
-   gains the converse assertion: **no `_sel_svc_export` policy exists on any relation outside the set**, and
-   **no such policy names `anon`, `authenticated`, or `public`.** The zero-policy property those relations
-   still hold — *no client role reads them* — is preserved and is now the thing actually asserted.
-4. **`T-RLS-CRM-04` (positive, and load-bearing):** an export job run end-to-end as `crm_export_builder`
-   over a fixture with **one granted and one withdrawn** consent emits **exactly one** contact cell and
-   suppresses exactly one. **A test asserting only that the export succeeds would pass on the all-blank
-   output**, which is precisely how this defect would have reached production.
-5. **If `MD-2` resolves the other way** and the builder stays `postgres`-owned, **none of 1–4 is built** and
-   the zero-policy list stands unamended. The two shapes are mutually exclusive; **shipping the role without
-   the policies is the one combination that is silently wrong**, and it is the combination the previous text
-   described.
-
-This remains a deviation from the RPC spec's *"definer owned by `postgres`"* global and is **owner decision
-MD-2**, §15.7.
+The deviation from the RPC spec's *"definer owned by `postgres`"* global is **withdrawn**; **owner
+decision MD-2 (§15.7) is CLOSED.**
 
 ### 16.10a The four venue-plane read policies, WRITTEN OUT — and the package they are created in (`AUTHZ-PKG1`)
 
@@ -3384,7 +3359,7 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-EDGE-01` | Every RPC in §11 whose authority names a human predicate raises when invoked with `auth.uid()` NULL — i.e. a service-role invocation **fails loudly instead of degrading** | **§3.1 EDGE-CALLER-JWT** |
 | `T-RLS-EDGE-02` | Every RPC marked `DEF` in §11 has **no** EXECUTE grant to `anon` or `authenticated` | §11 grant classes |
 | `T-RLS-POL-01` | `policies_are(schema, table, ARRAY[...])` for every object in §16.10 — an added, renamed or dropped policy fails CI | **GP-3** |
-| `T-RLS-POL-02` | **AMENDED 2026-08-28 (`R3-4`) — this row is where §16.10 clause 3's amendment lands; it had been ordered and never made.** Every relation in the zero-policy list of §16.10 has RLS **enabled** and holds **zero policies**, **with one exception whose shape is asserted rather than waived**: a relation may additionally hold **exactly one** policy named `<schema>_<table>_sel_svc_export`, and only if it is one of the **six** zero-policy relations in §16.10 clause 1's twelve-relation set — `kernel.identity_contact_pref` · `kernel.identity_contact_pref_event` · `kernel.org_contact_consent` · `kernel.org_contact_consent_event` · `kernel.org_customer_key` · `venue.export_job`. **Four converse assertions, all required, because the carve-out is otherwise a hole:** (a) **no `_sel_svc_export` policy exists on any relation outside those six** — including the other six of the twelve, which are not zero-policy relations and whose export policy is additive to their existing ones; (b) **no `_sel_svc_export` policy names `anon`, `authenticated` or `public`** as its role; (c) each such policy's `USING` is **exactly** `current_user = 'crm_export_builder'` — no `auth.uid()`, no role helper, no `true`; (d) **no other zero-policy relation holds any policy at all.** **`MD-2`-GATED (`O17`): if `MD-2` resolves `postgres`-owned, ZERO `_sel_svc_export` policies exist and clauses (a)–(d) collapse to the original assertion** — the test reads the resolution, it does not assume it, and **the one combination that is silently wrong is the role without the policies**. Plus, unconditionally: no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2, **§16.10 clause 3** |
+| `T-RLS-POL-02` | **AMENDED 2026-08-28 (`R3-4`); COLLAPSED under `OR-1` (`O17`/`MD-2` ruled `postgres`-owned, 2026-08-28) — the `MD-2` gate this row carried has resolved and the carve-out is gone.** Every relation in the zero-policy list of §16.10 has RLS **enabled** and holds **zero policies** — no exception: **ZERO `_sel_svc_export` policies exist on any relation, under any name, for any role** (the former six-relation carve-out and its four converse assertions collapse to this original assertion, exactly as the gated text specified). Plus, unconditionally: no `USING (true)` exists anywhere in the Phase-2 schemas | GP-3a, I-1, I-2, **§16.10** |
 | `T-RLS-POL-03` | **`AUTHZ-PKG1` — the four deferred venue-plane policies exist AND WORK after `080` applies.** Existence by name (`policies_are()` on `catalog.venue`, `catalog.event`, `catalog.event_session`, `kernel.tickets`) **plus a positive read**: a `venue_manager` granted on venue V reads V's own row on all four objects, and a `venue_manager` of a different venue reads **zero** rows on all four. **Existence alone is not the assertion** — a policy present with a wrong predicate passes it, and the failure mode being guarded is an operator plane that reads zero rows and presents as broken accounts rather than as a bad migration | **§16.10a**, `SEAM-3`, `I-1` |
 | `T-RLS-POL-04` | **`SEAM-3` mechanical — no policy is created in a package earlier than the package creating any function its predicate calls.** Build the map `policy → { helpers called }` from §16.10a and §16.10, map each helper to its package via schema §0.6, and assert `package(policy) >= max(package(helper))` for every policy in the register. **Non-vacuity: the check must resolve at least one helper for at least one policy per venue-plane table, or an empty map passes trivially** — which is exactly how the function-scoped §13.2 sweep returned clean over `FR-10`…`FR-13` | **§16.10a**, `SEAM-3`, schema §13.2 |
 | `T-RLS-POL-05` | **No Phase-2 table carries an INSERT, UPDATE or DELETE policy**, with the single named exception `notify_notification_upd_owner`. **RENUMBERED from `T-RLS-POL-03` — see the collision note below** | GP-1, GP-3 rule 2 |
@@ -3415,7 +3390,7 @@ Named so they can be written, run and cited. Grouped by the property each defend
 | `T-RLS-ATTR-05` | No policy or RPC body contains the token `promoter_id = auth.uid()` | **§9.17 `AUTHZ-M10`** |
 | `T-RLS-ATTR-06` | `authenticated` holds **zero** `role_column_grants` rows on `venue.attribution` and `venue.attribution_review` | **§9.17 `AUTHZ-M9`** |
 | `T-RLS-CRM-03` | A platform actor calling `venue.list_attendees` without `p_reason_code` is refused; the reason reaches `kernel.admin_audit` with the session id; the platform limiter trips before the venue limiter would | **§11.6 `AUTHZ-M12`** |
-| `T-RLS-CRM-04` | An export run as `crm_export_builder` over a one-granted / one-withdrawn consent fixture emits **exactly one** contact cell and suppresses exactly one — **not merely "the job succeeded"** | **§16.10 `AUTHZ-M11`** |
+| `T-RLS-CRM-04` | An export run under the `postgres`-owned definer (`OR-1`) over a one-granted / one-withdrawn consent fixture emits **exactly one** contact cell and suppresses exactly one — **not merely "the job succeeded"** | **§16.10 `AUTHZ-M11`** |
 | `T-RLS-ATTR-01` | No `venue.attribution` row exists while the order is `pending`, even with both candidates set | §9.17 |
 | `T-RLS-ATTR-02` | A **code-sourced** attribution (`link_id IS NULL`) **is** visible to its own promoter | §9.17 predicate correction |
 | `T-RLS-MONEY-01` | `org_admin` is denied SELECT and EXECUTE on every `kernel.payout` / `kernel.refund` path | §7.9/§7.10 |
@@ -3467,8 +3442,8 @@ Named so they can be written, run and cited. Grouped by the property each defend
 >
 > **`T-RLS-POL-*` is now exactly five ids, and here they are** — stated as an enumeration and not as a count,
 > because a count is what let a sixth row wear a fifth name: **`T-RLS-POL-01`** (`policies_are()` per object
-> in §16.10) · **`-02`** (the zero-policy list is zero, plus the `_sel_svc_export` carve-out of §16.10 clause
-> 3) · **`-03`** (`AUTHZ-PKG1` — the four venue-plane policies exist **and work** after `080`) · **`-04`**
+> in §16.10) · **`-02`** (the zero-policy list is zero — the former `_sel_svc_export` carve-out collapsed
+> under `OR-1`) · **`-03`** (`AUTHZ-PKG1` — the four venue-plane policies exist **and work** after `080`) · **`-04`**
 > (`SEAM-3` mechanical — no policy precedes a helper its predicate calls) · **`-05`** (no INSERT/UPDATE/DELETE
 > policy, one named exception). **No `T-RLS-*` id in this register is defined twice**; that is now a property
 > a reader can check against this list rather than a hope.

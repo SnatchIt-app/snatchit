@@ -3663,24 +3663,19 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   built in Phase 2.** (2) **Finance sees money and no contact; marketing sees contact and no money; neither
   sees both.** Only `venue_manager`, `org_owner` and `org_admin` hold the union, which is why the operations
   template's allow-list is the narrowest in the document.
-- **Layer-0 note (owner decision, RLS MD-2) — and the grant set as previously sketched RETURNS ZERO ROWS.**
-  The least-privilege shape gives `build_export_rows` a **narrow owner role** (`crm_export_builder`) with
-  **zero grant on any demographic object** — a deviation from §0.1's `postgres`-owned global. That role is
-  **not** the table owner and holds no `BYPASSRLS`, so **it is subject to RLS on every relation it reads**,
-  and the two relations that decide whether a contact cell may be emitted at all carry **zero policies by
-  design**. Three things must therefore ship together, and the full ruling is RLS §16.10 `AUTHZ-M11`:
-  (a) `SELECT` on the ten enumerated roster/contact relations **plus `kernel.org_contact_consent_event` and
-  `kernel.identity_contact_pref_event`** (the `gate_as_of` reads); (b) a **column-scoped**
-  `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — free under a `postgres` owner, a grant that
-  must exist under a narrow one, and column-scoped so the builder cannot read `encrypted_password`,
-  `raw_user_meta_data` or the recovery tokens; (c) one permissive `<schema>_<table>_sel_svc_export` policy per
-  relation.
-  **Without (c) the builder reads zero rows — silently, because RLS filters rather than raising — and every
-  export ships a blank contact column that reads as *"nobody consented."*** The blank-column canary above is
-  what tells the two apart. **`BYPASSRLS` is not an acceptable shortcut — it would restore access to
-  everything and delete the entire benefit.** **If `MD-2` resolves the other way and the builder stays
-  `postgres`-owned, none of (a)–(c) is built** — the two shapes are mutually exclusive, and **shipping the
-  role without the policies is the one combination that is silently wrong.**
+- **Layer-0 note — RESOLVED by owner ruling `OR-1` (RLS `MD-2`/`O17`, 2026-08-28): the builder is
+  `postgres`-owned and §0.1's global applies unamended.** The previously recommended narrow owner role
+  (`crm_export_builder`) required three things to ship together — (a) a thirteen-grant `SELECT` set over
+  the roster/consent relations, (b) a column-scoped `GRANT SELECT (id, email) ON auth.users`, and (c) one
+  permissive `<schema>_<table>_sel_svc_export` policy per relation — and its role-without-(c) combination
+  read zero rows **silently** (RLS filters rather than raising), shipping a blank contact column that
+  reads as *"nobody consented."* Per the ruling, **none of (a)–(c) is built**; the deviation from §0.1 is
+  withdrawn and no second definer owner exists. The `X-6` demographic prohibition is enforced instead by
+  the structural/catalog assertions and behavioural fixtures of
+  `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md` (catalog-closure, source-scan, consent-matrix and
+  canary tests), with the blank-column canary above unchanged. **`BYPASSRLS` remains refused** in any
+  future revisiting of a narrow-owner design — it would restore access to everything and delete the
+  entire benefit.
 - **Tests.** `T-RPC-CRM-03` (a `venue_marketing` at V1 of Org 1 is denied at V2 of the same org;
   `org_marketing` at Org 1 reaches all Org 1 venues and no Org 2 venue) · `T-RPC-CRM-04` (a job exceeding the
   row cap ends `failed` and **writes no artifact — it never truncates**) · `T-RPC-CRM-05` (two builds of the
@@ -4076,8 +4071,8 @@ their site as well as here.
 **RPCs still lacking a named RLS policy after this pass: all of them — and that is correct, not a gap.**
 Every contract in this document is a `SECURITY DEFINER` function, so a table policy on the objects it writes
 never runs (§0.8, RLS GP-3a). Authority is `REVOKE EXECUTE` + a narrow `GRANT EXECUTE` + the in-body
-predicate. The **only** policies in the Phase-2 model are **read** policies, registered by name in RLS §16.10,
-plus the one Layer-0 exception (`crm_export_builder`) named there. An implementer who writes policies for the
+predicate. The **only** policies in the Phase-2 model are **read** policies, registered by name in RLS §16.10
+— no exception (`OR-1` retired the former Layer-0 carve-out). An implementer who writes policies for the
 money or custody tables will produce policies that are never evaluated **and believe they are protected** —
 which is the single most likely way to build this wrong.
 

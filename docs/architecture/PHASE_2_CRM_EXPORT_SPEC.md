@@ -304,7 +304,7 @@ implementability, not about whether the constraint is right.
 | **X-3** | The aggregate mix is not an exportable object — no CSV, PDF, print view, image render, API, scheduled report, or email digest. | No template in §6.4 contains an aggregate. There is no print view, no scheduled export, and no email delivery of any export in this design (§6.2, §6.7). The only egress is a signed download to the requesting operator (§6.6). |
 | **X-4** | No proxy fields — no "shared demographics: yes/no", no response-completeness score, no derived sort or row order. | The row order of every export is **deterministic and demographic-free**: `ORDER BY customer_ref` (a keyed hash of an identity id, which is uncorrelated with any demographic value). Stated as a contract and asserted (pgTAP 22). No completeness score exists anywhere in the field catalogue. |
 | **X-5** | No third-party destination ever receives a demographic field. | Stronger, and stated as a rule of this document: **there is no third-party destination for a CRM export at all** (§6.7 / rule **EX-6**). No webhook, no CDP, no ESP property, no ad audience upload, no pixel, no warehouse sync, no scheduled email. Connected to **C40** in §6.7: a venue-configurable egress destination would be a C40-class change requiring a static platform-controlled allowlist and a CI-asserted REVOKE, and it is not built. |
-| **X-6** | The export builder's SQL contains zero references to the four demographic objects. **CI-checkable and must be a CI check.** | §10, specified in four layers with the failure modes of each named, including the one that matters most: a check that scans an empty file set passes vacuously. |
+| **X-6** | The export builder's SQL contains zero references to the four demographic objects. **CI-checkable and must be a CI check.** | §10, specified in **three layers** (`OR-1` retired Layer 0) plus the `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md` assurance set, with the failure modes of each named, including the one that matters most: a check that scans an empty file set passes vacuously. |
 | **X-7** | If a campaign needs audience composition, the answer is the on-screen aggregate, not data movement. | The dashboard §9.5 card is unchanged and remains a read on screen. This document adds nothing to it and takes nothing from it. `marketing` reads the card and exports the audience; the two never meet in a file. |
 | **X-8** | A demographic-based send is not Phase 2. | Not built, not designed, not stubbed. There is no send of any kind in this design — the export produces a file for an operator, never a message to an attendee. Recorded as owner decision **D-9** so it is a decision and not a drift. |
 | **X-9** | Every export authorization check is unaffected, but the export **audit record must record that the demographic constraint set applied.** | Every export audit row (§8.3) carries `constraint_set_version` — a monotonic identifier of the X-1…X-9 text in force, seeded in `catalog.platform_config` as `crm_export.constraint_set_version` and stamped by `venue.request_export` in the same transaction as the job row. §8.4 shows the auditor's query. |
@@ -1529,50 +1529,25 @@ D-11. Recorded as **D-3** and as edit **K-6** in §11.7.
 `venue.holder_mix_bucket`. This is CI-checkable and must be a CI check (grep the export builder + a catalog
 assertion, pgTAP assertion 27)."*
 
-Specified in four layers. **Each layer catches something the others miss, and each is named with its own
-failure mode** — `INFERENCE:` a check whose blind spot is undocumented is a check people trust past its edge.
+Specified in **three layers** — Layer 0 was retired by owner ruling `OR-1` (§10.1) and its replacement
+assurance is `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md`. **Each layer catches something the others
+miss, and each is named with its own failure mode** — `INFERENCE:` a check whose blind spot is undocumented is a check people trust past its edge.
 
-### 10.1 Layer 0 (structural, recommended) — a privilege wall
+### 10.1 Layer 0 (structural) — a privilege wall — RETIRED by owner ruling `OR-1` (2026-08-28)
 
-Make the reference **impossible**, not merely detectable.
-
-`venue.build_export_rows` is `SECURITY DEFINER` owned by a narrow role **`crm_export_builder`** rather than by
-`postgres`. That role holds **zero grant of any kind on the four demographic objects**, so a reference to them
-is a **runtime permission error**, discovered by the first test that runs the builder — no CI check required
-to find it, and no future engineer can add one that works.
-
-**The grant set, enumerated completely — because the sketch as written returns zero rows.** `INFERENCE:` the
-previous text said "granted `SELECT` on exactly the enumerated roster relations and on the three
-contact/key tables", and that grant set produces a builder that runs, raises nothing, and emits a **blank
-contact column on every row** — which reads, to the operator and to the audit counters alike, as *"nobody
-consented"*. A silent wrong answer, in the one column the whole document is about. Two omissions caused it,
-and both must be written down or the next person reconstructs the same set:
-
-| Needed | Why it was missing from the sketch |
-|---|---|
-| `GRANT SELECT (id, email) ON auth.users TO crm_export_builder` — **column-scoped** | §5.1 says the email is read "inside the definer". With `postgres` as owner that is free; with a narrow owner it is a grant that has to exist, and `auth.users` was not in the enumerated list at all. Column-scoped so the builder cannot read `encrypted_password`, `raw_user_meta_data`, or the recovery tokens |
-| An explicit **permissive RLS policy naming `crm_export_builder`** on every relation in §1.4 **and** on the contact/consent/key/event tables | The relations are owned by `postgres` with RLS enabled and, per §0, **no policy admits any role but the owner's bypass**. A non-owner definer is subject to RLS, so without a policy each relation returns **zero rows** — silently, because RLS filters rather than raising |
-| `SELECT` on `kernel.org_contact_consent_event` and `kernel.identity_contact_pref_event` (§5.1) | Added by the `gate_as_of` fix; named here so the two land together |
-
-**The canary, because "zero rows" and "nobody consented" are indistinguishable in the output.** A `ready` job
-whose `contact_cells_emitted = 0` **and** `contact_cells_suppressed = row_count` raises a `platform_risk`
-signal, and the CI fixture for the builder asserts a **non-zero** `contact_cells_emitted` over a fixture with
-at least one consenting holder. `INFERENCE:` this is the same non-vacuity discipline §10.2 rule 1 and §10.3
-(c) apply to the checks themselves, applied to the thing being checked: a gate that never emits and a gate
-that never ran produce the same file, and only a positive assertion tells them apart.
-
-**Cost, stated honestly, because it is a real deviation.** `VERIFIED:` the RPC spec's §0 global is
-`SECURITY DEFINER` owned by `postgres`. A second definer owner is a deviation, and the plumbing above is its
-price: a column-scoped grant on `auth.users`, one permissive policy per relation, and a second owner to keep
-track of. `BYPASSRLS` on the role is **not** an acceptable shortcut — it would restore access to everything
-and delete the entire benefit. **This cost is part of D-2**, and the zero-rows failure mode is the reason
-D-2 cannot be answered "adopt it" without also adopting the enumeration and the canary.
-
-**Recommendation: adopt Layer 0.** `INFERENCE:` it converts X-6 from a rule that is checked into a rule that
-cannot be broken, which is the same upgrade C36 made for role scoping ("a type error, not a lint finding") and
-which the demographics spec made for its bucket floor (a CHECK constraint rather than a render rule).
-Flagged as **D-2** because it edits a frozen global. If rejected, layers 1–3 stand alone and §10.2's
-empty-file-set guard becomes load-bearing rather than merely important.
+> **`OR-1` (`O17` / RLS `MD-2` / `ODR-23`, ruled B):** the dedicated `crm_export_builder` definer owner is
+> **NOT created**; `venue.build_export_rows` stays `postgres`-owned per RPC §0.1. Owner's reason, verbatim:
+> *"the proposed privilege wall has failed to converge across repeated independent reviews and introduces
+> silent fail-closed data-integrity failure modes into CRM exports."* This subsection previously specified
+> the wall — the role, the column-scoped `auth.users (id, email)` grant, one permissive `_sel_svc_export`
+> policy per relation, and the zero-rows/blank-column hazard analysis — and it is retired **wholly and
+> deliberately: do not re-derive it.** The substitute `X-6` assurance (structural/catalog assertions and
+> behavioural fixtures) is `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md`. **The old closing sentence's
+> rejection branch is now taken: layers 1–3 stand alone and §10.2's empty-file-set (non-vacuity) guard is
+> load-bearing rather than merely important.** Two artifacts of this subsection survive it: the
+> **blank-column canary** (§12 assertion 34f; `X6` plan §R5) and the positive consent fixture
+> (`T-RLS-CRM-04`, RLS §16.11, retargeted to the `postgres`-owned definer; extended by `X6` plan §R4's
+> twelve-holder matrix `T-RPC-CRM-17`).
 
 ### 10.2 Layer 1 — the source grep (CI, every PR)
 
@@ -1664,7 +1639,7 @@ the mirror for the rollup objects: the set referencing `venue.holder_mix_snapsho
 `{refresh_holder_mix, get_holder_mix, <the nightly reconciliation job>}`. **Any export function appearing in
 either set fails the suite.** Listed as assertions 25–27 in §12.
 
-### 10.5 What the four layers do and do not guarantee
+### 10.5 What the layers do and do not guarantee
 
 **Do:** no export function reads a demographic object, by any route the catalog or the source can see; a
 rename cannot silently defeat the check; an empty scan cannot pass.
@@ -1734,7 +1709,7 @@ well as its number** so it survives the renumber.
 | 21 | `crm-export` — **actor deployment, `/download` only**, `verify_jwt: true`, no worker secret in its env | `NEW EDGE FUNCTION` | gated on **087 / I** |
 | 21a | `crm-export-worker` — **worker deployment, `/build` + `/purge`**, `verify_jwt: true` + `CRM_EXPORT_WORKER_SECRET` in `X-Crm-Export-Worker`; no download handler, no `createSignedUrl` | `NEW EDGE FUNCTION` (§11.5, edge `EDGE-2`) | gated on **087 / I** |
 | 22 | X-6 CI check (§10.2) + constants module | `NO SCHEMA CHANGE` | CI, lands with **087 / I** |
-| 23 | `crm_export_builder` role + policies (Layer 0) | `ADDITIVE SCHEMA CHANGE` — **D-2** | **087 / I** |
+| 23 | *(vacant — the `crm_export_builder` role + Layer-0 policies were retired by owner ruling `OR-1`; id left vacant, not renumbered, per the corpus's vacancy precedent)* | — | — |
 | 24 | `promoter_name` / `promoter_code` columns → `audience_v2` | `NO SCHEMA CHANGE` (template version bump) | **090 / 2D** |
 | 25 | Checkout contact opt-in control | `NEW RN SURFACE` | gated on **082 / F** |
 | 26 | Settings → "Venues you've allowed to email you" + master switch | `NEW RN SURFACE` | gated on **082 / F** |
@@ -1827,8 +1802,8 @@ REVOKE ALL ON kernel.org_customer_key             FROM PUBLIC, anon, authenticat
 REVOKE ALL ON venue.export_job                    FROM PUBLIC, anon, authenticated;
 -- and NO re-GRANT of any column to any client role. The grant set is EMPTY, not reduced.
 ENABLE ROW LEVEL SECURITY on all six, with no policy admitting anon or authenticated.
--- If D-2 is adopted, each of these additionally carries ONE permissive policy naming
--- crm_export_builder (§10.1) — without it the non-owner definer reads zero rows, silently.
+-- OR-1: zero policies of any kind on these six -- the formerly-conditional _sel_svc_export
+-- policies were NOT adopted (the builder is postgres-owned; D-2 CLOSED, ruled B).
 ```
 
 `INFERENCE:` per 062's rule, any column grant on `kernel.org_contact_consent` to `authenticated` would make
@@ -2321,11 +2296,10 @@ response including errors and OPTIONS; structured JSON logging; Sentry on unexpe
     a session with at least one consenting holder, asserts `contact_cells_emitted > 0`. *(A gate that never
     emits and a gate that never ran produce the same file; only a positive assertion tells them apart —
     the same non-vacuity discipline §10.2 rule 1 applies to the checks.)*
-34g. **The Layer-0 builder role actually returns rows.** With `crm_export_builder` as definer owner, a build
-    over a fixture with consenting and non-consenting holders returns the expected row count and a non-zero
-    `contact_cells_emitted`. *(Asserted because the enumerated grant set without the column-scoped
-    `auth.users` grant and the per-relation permissive policies returns **zero rows, silently** — RLS filters
-    rather than raising — which reads in the output as "nobody consented".)*
+34g. *(RETIRED — `OR-1`: the Layer-0 builder role is not created, so this assertion's premise is the
+    rejected design. Positive coverage of the same failure shape: 34e/34f above, `T-RLS-CRM-04`
+    (RLS §16.11, retargeted to the `postgres`-owned definer), and the twelve-holder consent matrix
+    `T-RPC-CRM-17` of `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md`.)*
 34h. **The platform branch is scoped and throttled.** A `platform_support` actor hits
     `attendee_list_page_platform` at 41 calls/hour, is refused a 21st distinct session in 24 h, and is
     refused entirely when `p_reason_code` is absent or outside the enum. Each call writes
@@ -2345,7 +2319,7 @@ response including errors and OPTIONS; structured JSON logging; Sentry on unexpe
 | ID | Decision | Owner | Blocking? |
 |---|---|---|---|
 | **D-1** | **Does a native-rail resale purchase create a contact relationship with the event's org?** This spec says **no by default** and recommends offering the same unchecked opt-in at resale checkout so consent arrives by the buyer's own act (§5.5). The alternative — treating settlement flow as a customer relationship — is a legal characterisation, not a product one. | Owner + **Counsel** | No — the recommended design ships either way |
-| **D-2** | **Adopt the Layer-0 privilege wall (§10.1)?** A dedicated `crm_export_builder` definer owner with zero grant on the demographic objects, making an X-6 violation a runtime error rather than a CI finding. Costs a deviation from the "`SECURITY DEFINER` owned by `postgres`" global plus a handful of policy lines. **Recommend adopt.** | Architecture (schema + RLS owners) | **Yes — before 087 / I** |
+| **D-2** | **Adopt the Layer-0 privilege wall (§10.1)? — CLOSED: ruled B by owner ruling `OR-1` (2026-08-28). NOT adopted.** The builder stays `postgres`-owned per RPC §0.1; the substitute assurance is `_governance/X6_POSTGRES_OWNED_ASSURANCE_PLAN.md` (see the §10.1 tombstone). | Architecture (schema + RLS owners) | **Discharged** |
 | **D-3** | **Acknowledge the `ON DELETE CASCADE` exception** on the two contact tables against the `RESTRICT` default (§11.2), and the constraint on whoever next edits migration 020: contact rows must **never** be repointed to the anonymized sentinel (§9.5). | Architecture + account-deletion owner | **Yes — before 077 / B** |
 | **D-4** | **Acknowledge the consent-record divergence from the demographics spec:** withdrawal is a **state change**, not a hard delete, because a consent record is evidence about a relationship rather than a sensitive attribute, and it is the person's own evidence in the dispute they are most likely to have (§5.3). | Architecture + Counsel | No |
 | **D-5** | **Confirm the lookup limits — all three kinds, both planes.** `email_exact` 40/actor + 120/org; `name_prefix` **20/actor + 60/org** (there was no limit at all); `order_ref` 200/actor + 600/org. Plus the `name_prefix` **3-character minimum** and **`ambiguous_query` carrying no rows and no count** (§7.2a). The *shape* (per actor **and** per org, fail-closed, audited by kind and outcome but never by value, denied to marketing) should not change; the **numbers** are a judgement the owner should own, because these are the sharpest anti-harvest controls in the document — and because a festival box office on a busy door may legitimately need the prefix number higher, which is exactly the request that should arrive as a config change with an actor on it rather than as a code change. | Owner | No |
@@ -2360,7 +2334,7 @@ response including errors and OPTIONS; structured JSON logging; Sentry on unexpe
 
 **Where I would push back on an inherited constraint — one place, and it is not a disagreement.** X-6 as
 written ("the export builder's SQL contains zero references") is correct and I have implemented it, but its
-stated method — *"grep the export builder"* — is the weakest of the four layers on its own, for a reason the
+stated method — *"grep the export builder"* — is the weakest of §10's layers on its own, for a reason the
 demographics spec could not have known: a grep over a file set that does not exist yet passes vacuously, and
 this repository has already shipped that exact failure once (073). **I am not relaxing X-6; §10 makes it
 stricter.** If the demographics spec's owner wants one sentence changed, it is to require the non-vacuity
