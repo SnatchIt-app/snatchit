@@ -2,7 +2,7 @@
 
 > ## Numbering ratification (consolidated, FINAL) — 2026-08-27
 >
-> **The 16 MVP packages are numbered `076`–`091`. Phase 2 implementation begins
+> **The 17 MVP packages are numbered `076`–`092` (`OR-12`, 2026-08-29). Phase 2 implementation begins
 > at `076_create_phase2_schemas_and_grants`.**
 >
 > **`071`–`075` are APPLIED PRODUCTION SECURITY MIGRATIONS, not Phase-2
@@ -323,6 +323,7 @@ graph TD
     J089["089 J · market.listing_unified VIEW + ADOPT payment_native.sale_id FK"]
     D090["090 2D · promoter engine"]
     K091["091 K · kernel.reserve STUB (EXT boundary)"]
+    N092["092 N · reduced notify plane + drainer (OR-12)"]
 
     P0 --> A076 --> B077 --> C078
     B077 --> D079
@@ -369,6 +370,21 @@ graph TD
     C078 --> D090
     M085 --> D090
     I087 --> D090
+    A076 --> D079
+    A076 --> E080
+    A076 --> G083
+    A076 --> M085
+    A076 --> H086
+    A076 --> J088
+    A076 --> D090
+    A076 --> N092
+    B077 --> N092
+    C078 --> N092
+    D079 --> N092
+    E080 --> N092
+    F082 --> N092
+    M085 --> N092
+    D090 --> N092
     B077 --> K091
     classDef pre fill:#fee,stroke:#c00,stroke-width:2px;
 ```
@@ -426,19 +442,20 @@ Apply strictly in this order. "Gate" = a product/security gate that must clear b
 | 1 | 076 | A | precond | Y | N | none (schema/grant) | none | s | — |
 | 2 | 077 | B | 076 | Y | N | new-table only | lazy `identity_ext` | s | — |
 | 3 | 078 | C | 077 | Y | N | new-table only | seeds config+flags | s | seeds all flags **OFF** |
-| 4 | 079 | D | 077,078 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 5 | 080 | E | 077,078,**079** | Y | N | new-table only + 4 deferred RLS policies (`AUTHZ-PKG1`) | none | s | — |
+| 4 | 079 | D | **076** *(OR-12)*, 077,078 | Y | N | new-table only | none | s | issuance gated by 15.A |
+| 5 | 080 | E | **076** *(OR-12)*, 077,078,**079** | Y | N | new-table only + 4 deferred RLS policies (`AUTHZ-PKG1`) | none | s | — |
 | 6 | 081 | E | 078,080 | Y | N | new-table only | none | s | — |
 | 7 | 082 | F | **077**,**078**,081 | Y | N | new-table only | none | s | issuance gated by 15.A |
-| 8 | 083 | G | 078,**079**,**§081** | Y | N | new-table only | none | s | wallet gated (`wallet.apple.enabled=false`) |
+| 8 | 083 | G | **076** *(OR-12)*, 078,**079**,**§081** | Y | N | new-table only | none | s | wallet gated (`wallet.apple.enabled=false`) |
 | 9 | 084 | G(adopt) | 079,081,083 | Y | N | ADD CONSTRAINT NOT VALID+VALIDATE (empty) | none | s | — |
-| 10 | 085 | F/I | 077,**§078**,**079**,**§081**,082,**§083** | Y | N | new-table only | none | s | — |
-| 11 | 086 | H | **078**,079,080,081,**083** | Y | N | new-table only | none | s | scanning gated (2B door gate) — `078` applied 2026-08-29 (`B-4`: `door_session` FKs → `event_session`/`venue`, both `078`; was recorded-not-declared) |
+| 10 | 085 | F/I | **076** *(OR-12)*, 077,**§078**,**079**,**§081**,082,**§083** | Y | N | new-table only | none | s | — |
+| 11 | 086 | H | **076** *(OR-12)*, **078**,079,080,081,**083** | Y | N | new-table only | none | s | scanning gated (2B door gate) — `078` applied 2026-08-29 (`B-4`: `door_session` FKs → `event_session`/`venue`, both `078`; was recorded-not-declared) |
 | 12 | 087 | I | 077,081,085,**086** | Y | N | new-table only + 1 storage bucket | none | s | — |
-| 13 | 088 | J | 078,079,081,**085**,**§086**,**§087** | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
+| 13 | 088 | J | **076** *(OR-12)*, 078,079,081,**085**,**§086**,**§087** | Y | N | new-table only | none | s | **native resale gated** (Gate-M+2C) |
 | 14 | 089 | J | 085,088 | Y | N | VIEW create + ADD CONSTRAINT (empty) | none | s | resale gated; VIEW inert until flag |
-| 15 | 090 | 2D | **077**,082,**078**,**085**,**087** | Y | N | new-table + ADD COLUMN on 3 empty tables | none | s | promoter phase — `077` applied 2026-08-29 (`B-4`: this row's own Dependencies cell in §8 recorded it; declared in none of the four surfaces) |
+| 15 | 090 | 2D | **076** *(OR-12)*, **077**,082,**078**,**085**,**087** | Y | N | new-table + ADD COLUMN on 3 empty tables | none | s | promoter phase — `077` applied 2026-08-29 (`B-4`: this row's own Dependencies cell in §8 recorded it; declared in none of the four surfaces) |
 | 16 | 091 | K | 077 | Y | N | new-table only | none | s | **stub — no writers wired** |
+| 17 | 092 | N | **076,077,078,079,080,082,085,090** *(OR-12 — B-7 derived)* | Y | N | new-table only | none | s | reduced notify plane (Gate P reduced) |
 
 **Per-package "does marketplace behavior change?" = NO for all 16.** **Additive-only = YES for all 16.**
 
@@ -1262,8 +1279,8 @@ here and in `PHASE_2_PACKAGE_REGISTRY.md` §2.2 because those are the two docume
 | Field | Value |
 |---|---|
 | **Purpose** | Stand up the four MVP schemas and the modular-monolith GRANT boundary, plus the shared helper functions every later package attaches. No product tables. |
-| **Tables** | none. *(COND-A: the event outbox lands here if ratified — §8-COND-A.)* |
-| **Functions** | `kernel.set_updated_at()`; `kernel.raise_append_only()` (the AO guard trigger function). |
+| **Tables** | **`notify.outbox`** (`OR-12`/`OR-4` — the COND-A conditional is RULED: the outbox lands here; C12 envelope columns, zero FK dependencies). *(Previous text: "none. (COND-A: the event outbox lands here if ratified …)")* |
+| **Functions** | `kernel.set_updated_at()`; `kernel.raise_append_only()` (the AO guard trigger function). **Plus (`OR-12`/`OR-4`): `CREATE SCHEMA notify` (a fifth schema); `notify.outbox` (C12 envelope, zero FK deps — the transactional foundation); `notify.emit_event` — placed HERE (own SEAM-1 + the `C76` forward-reference test); under `OR-14` (R2) the BEST-EFFORT emit, the REQUIRED/raising variant contracted beside it (RPC §17.24a).** |
 | **RLS** | n/a (no tables). `ALTER DEFAULT PRIVILEGES` in `kernel`/`venue`/`market` revokes table rights from `anon`/`authenticated` so future tables are deny-by-default **before** their own RLS lands. |
 | **Triggers** | none created; the two trigger *functions* above are created here and attached by later packages. |
 | **Indexes** | none. |
@@ -1272,7 +1289,7 @@ here and in `PHASE_2_PACKAGE_REGISTRY.md` §2.2 because those are the two docume
 | **Feature flags** | none. |
 | **Dependencies** | precondition only (phase0 chain `000` + `046`–`070`, plus applied `071`–`075`). |
 | **Rollback** | **REVERSIBLE** — `DROP SCHEMA … CASCADE` ×3 + drop helpers. *(The former `DROP ROLE crm_export_builder` limb was removed by `OR-1` — the role is never created.)* |
-| **Tests** | Replay `000→076` green. `\dn` shows four schemas. `has_schema_privilege('anon','kernel','USAGE') = false`; `catalog` USAGE `= true`. Helpers owned by `postgres` with pinned `search_path`. No default table privilege for `anon`/`authenticated` in the three private schemas. **`T-SCHEMA-GRANT-01` (`C115`, `R2B`): the role `crm_export_builder` exists after THIS package's replay** — `pg_roles`, not a grep — **and is `NOLOGIN` with no membership**, so the twelve grants it will accumulate are unusable by anyone until `MD-2` wires it to `build_export_rows`. **`-02`: it holds `SELECT` on exactly `(id, email)` of `auth.users` and on no other column of it** — asserted column-by-column, because a whole-table grant here reaches `encrypted_password` and the recovery tokens. **`-03` (the assertion that fails against the pre-fix chain): replay `000 → 077` and every `GRANT … TO crm_export_builder` in `077` succeeds** — run against a chain that creates the role in `087`, `077` aborts at `42704`. |
+| **Tests** | Replay `000→076` green. `\dn` shows four schemas. `has_schema_privilege('anon','kernel','USAGE') = false`; `catalog` USAGE `= true`. Helpers owned by `postgres` with pinned `search_path`. No default table privilege for `anon`/`authenticated` in the three private schemas. **`T-SCHEMA-GRANT-01` (`C115`, `R2B`): the role `crm_export_builder` exists after THIS package's replay** — `pg_roles`, not a grep — **and is `NOLOGIN` with no membership**, so the twelve grants it will accumulate are unusable by anyone until `MD-2` wires it to `build_export_rows`. **`-02`: it holds `SELECT` on exactly `(id, email)` of `auth.users` and on no other column of it** — asserted column-by-column, because a whole-table grant here reaches `encrypted_password` and the recovery tokens. **`-03` (the assertion that fails against the pre-fix chain): replay `000 → 077` and every `GRANT … TO crm_export_builder` in `077` succeeds** — run against a chain that creates the role in `087`, `077` aborts at `42704`. **`OR-12` choice 9: the retired `T-SCHEMA-GRANT-01/-02/-03` are replaced by the inverted `D-1` structural assertion — `pg_roles` contains NO `crm_export_builder` after `076`, re-asserted chain-final after `092`.** |
 
 ### `077_kernel_identity_orgs_and_roles`
 
@@ -1570,3 +1587,19 @@ not: NOTIFICATIONS §4 *is* the outbox pipeline. **Owner ruling required, on bot
 *End of docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md. Design-only — no SQL, no migration files. Companion deliverables
 per SPEC_FOUNDATION §10: schema spec (#1, authored), RLS/permission spec (#3), RPC contracts (#4), edge
 spec (#5), RN product spec (#6), implementation review (#7).*
+
+
+### `092_notify_reduced` — **NEW (`OR-12`, 2026-08-29)** — the reduced notification plane + outbox drainer
+
+| | |
+|---|---|
+| **Purpose** | The `OR-5` GATE-P-REDUCED notify plane and the `OR-4` outbox's drainer. |
+| **Tables** | `notify.notification_type` · `notification` · `delivery` · `preference` · `template` · `identity_channel_state` (six — `notify.outbox` lives in `076`); `public.push_tokens` +4 additive columns. |
+| **Functions** | the 16 reduced RPCs, named (§17.24/§17.25 — announcements + `sweep_scheduled` OUT): `notify.get_inbox`, `get_unread_count`, `mark_read`, `mark_all_read`, `dismiss`, `get_preference_matrix`, `set_preference`, `register_push_token`, `revoke_push_token`, `channel_enabled`, `enqueue`, `resolve_web_link`, `claim_deliveries`, `record_delivery_result`, plus `notify.drain_outbox` (bounded expansion per §17.24's obligation) and the consumer read pair as contracted. Producer emit clauses are classified per `OR-14` (R2). |
+| **Seeds** | **29 `notify.notification_type` rows** (N3 closed + `OR-15` `refund_request_cancelled`). |
+| **Scheduled ticks** | `notify.drain_outbox` — explicit `cron.schedule`, 2-minute cadence; `notify-dispatch` (1 min) + `notify-receipts` (15 min) via `cron.schedule`+`pg_net` (`P0-1` discipline: each entry created by THIS package). |
+| **RLS** | deny-all + the reduced consumer grants per RLS §16.9. |
+| **Grants** | `REVOKE ALL` from `anon`/`authenticated` on the plane; consumer RPC EXECUTEs per §11.7. |
+| **Dependencies** | `076`, `077`, `078`, `079`, `080`, `082`, `085`, `090` (`OR-12` — the B-7 derived eight; invariant across R1–R5). |
+| **Rollback** | **CLEAN-WHILE-EMPTY.** |
+| **Tests** | Replay green; seed-count = 29 asserted by enumeration; dedupe-key uniqueness; the R2 class split (best-effort never raises · required raises and aborts); `pg_roles` contains no `crm_export_builder` (chain-final re-assertion, `OR-12` choice 9). |

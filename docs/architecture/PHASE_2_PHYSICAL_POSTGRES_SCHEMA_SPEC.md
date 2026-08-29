@@ -4290,7 +4290,7 @@ Added edges (each preceding its dependent — the DAG stays acyclic and topologi
 | `085 → 090` | `090`'s resolver body reads `kernel.payment_native.instrument_fingerprint` *(the COLUMN moved to `085` 2026-08-29, `C112` discipline; the edge stands for the read and the resolver-stub replacement)* |
 | `078 → 090` | `venue.promoter_code_scope.event_id` FK → `catalog.event` |
 
-No edge is removed. No package changes number. The count stays **16** unless CONDITIONAL B is ruled
+No edge is removed. No package changes number. **The count is 17 (`076`–`092`) — `OR-12`, 2026-08-29.** *(Previously: "The count stays 16 unless CONDITIONAL B "*)is ruled
 Gate P, in which case it becomes 17.
 
 **One further undeclared edge, observed while re-verifying and recorded rather than silently added —
@@ -4316,7 +4316,7 @@ the rollout, the rollback posture or the package contents changes**; what change
 graph agrees with the prose that was already in plan §8. This is the **fourth** instance of the shape SEAM-1
 exists to catch — after `079 → 085`, `085 → 088` and `086 → 087` — and it is resolved the same way, for the
 same reason. Edge count `36 → 38`. **No package is added, renumbered or removed; the DAG stays acyclic and
-topologically ordered by package number; the count stays 16 (`076`–`091`).**
+topologically ordered by package number; the count is **17 (`076`–`092`)** (`OR-12`; previously "stays 16").**
 
 **`DAG-5` — the K-3 repair adds no edge, verified rather than assumed.** The three purge definers touch
 `venue.export_job` (`087`), `kernel.admin_audit` (`077`) and `storage.objects` (a precondition relation).
