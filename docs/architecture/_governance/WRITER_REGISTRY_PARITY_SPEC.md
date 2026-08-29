@@ -197,7 +197,7 @@ venue.attribution_review|venue.review_attribution_flag|rpc|17.18|y|OK
 venue.door_manifest|venue.open_door_manifest;venue.close_door_manifest;venue.append_door_manifest_delta|rpc;rpc;helper|17.10;17.11;17.13|y|OK
 venue.door_manifest_entry|venue.open_door_manifest|rpc|17.10|y|OK
 venue.door_manifest_delta|venue.append_door_manifest_delta|helper|17.13|y|OK
-venue.holder_mix_snapshot|venue.refresh_holder_mix;venue.unpublish_holder_mix;venue.unpublish_all_holder_mix|cron;rpc;rpc|17.20|y;n;n|OK
+venue.holder_mix_snapshot|venue.refresh_holder_mix;venue.unpublish_holder_mix;venue.unpublish_all_holder_mix|cron;rpc;rpc|17.20|y|OK
 venue.holder_mix_bucket|venue.refresh_holder_mix|cron|17.20|y|OK
 venue.export_job|venue.request_export;venue.build_export_rows;venue.finalize_export;venue.revoke_export;venue.sweep_expired_exports;venue.claim_artifacts_for_purge;venue.confirm_artifact_purged;venue.reconcile_export_orphans|rpc;helper;helper;rpc;cron;helper;helper;helper|17.22|y|OK
 market.listing_native|market.create_listing;market.cancel_listing;market.respond_offer;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;helper;rpc|20.8.1;20.8.2;20.8.6;17.10;4.4|y|OK

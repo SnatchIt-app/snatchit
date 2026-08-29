@@ -279,6 +279,9 @@ MENTION-OK|venue.inventory_unit
 086|venue.open_door_manifest|function
 086|venue.preview_door_open_impact|function
 086|venue.refresh_holder_mix|function
+086|venue.unpublish_holder_mix|function
+086|venue.unpublish_all_holder_mix|function
+086|venue.reconcile_holder_mix|function
 086|venue.revoke_door_session|function
 086|venue.sweep_expired_door_sessions|function
 087|venue.build_export_rows|function
