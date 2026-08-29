@@ -394,6 +394,7 @@ MENTION-OK|payment_intent_ref
 077|kernel.on_identity_erased_market|function
 077|kernel.on_identity_erased_promoter|function
 077|kernel.has_outstanding_obligations|function
+077|kernel.on_deletion_q5_release|function
 MENTION-OK|platform_admin
 MENTION-OK|deletion_state
 MENTION-OK|deletion_requested_at

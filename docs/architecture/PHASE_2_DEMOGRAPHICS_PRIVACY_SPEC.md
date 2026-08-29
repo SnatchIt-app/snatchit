@@ -839,7 +839,11 @@ Two further reasons it could not stand, both structural:
 > (`078` seed namespace, `restricted` visibility), **FAIL-SAFE: key absent ⇒ the trigger writes
 > `purge_after = NULL`, and the reaper guard treats NULL as never-purgeable** — no invented number, no
 > raise on the deletion path; ops verification sets the key and a one-shot backfill computes NULL rows by
-> the ratified formula.
+> the ratified formula. **SEAM-clean read (freeze red-team F-8, 2026-08-29): the `077` trigger body's read
+> of `catalog.platform_config` (`078`) is GUARDED — table-or-key absent (including `42P01` pre-`078`) ⇒ the
+> same `purge_after = NULL` failsafe, never a raise; the guard is the failsafe clause itself extended to
+> relation absence, not a new behavior. The seed row is carried in plan §8 `078`'s Feature-flags cell
+> (ABSENT-BY-DESIGN: row seeded with NULL value, `restricted` namespace — the auditable carrier).**
    much weaker fact that a removal happened.
 2. **A fan editing an optional field on their own profile is not a privileged action.** `kernel.admin_audit`
    exists for actions taken *over* someone by staff or the platform. There is no admin write path here at all

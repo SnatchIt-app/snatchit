@@ -243,7 +243,7 @@ rather than re-describe them.
 | `_shared/payout-logic.ts` | — | **reuse as-is** | `buildPayoutIdempotencyKey(transferId, destination)` (deterministic, destination-salted); Stripe error classifier |
 | `_shared/payouts.ts` | — | **reuse/extend** | `source_transaction` funding + deterministic idempotency payout shell |
 | `_shared/sentry.ts` | — | **reuse as-is** | `captureException(fn, err, ctx)` |
-| `send-push`, `notify-transfer`, `notify-report`, `delete-account`, `auto-finalize-auctions`, `enforce-transfer-expiry` | mixed | untouched | native rail reuses `send-push`; native auction MVP reuses `auto-finalize-auctions` (RPC §16.5) |
+| `send-push`, `notify-transfer`, `notify-report`, `delete-account`, `auto-finalize-auctions`, `enforce-transfer-expiry` | mixed | **`delete-account` SWITCHED AT THE `077` CUTOVER (`OR-17` — see §1.8a); the other two untouched** | native rail reuses `send-push`; native auction MVP reuses `auto-finalize-auctions` (RPC §16.5) |
 
 **Note on `config.toml`:** this tree carries no `supabase/config.toml`; `verify_jwt` is set per-function at
 deploy time. Every new function's required `verify_jwt` value is stated in its spec. **Every user-facing edge
@@ -263,6 +263,28 @@ runs `verify_jwt=true` and re-derives the actor (C35).** The `verify_jwt=false` 
 > is the same defect one layer up.)
 
 ---
+
+
+### 1.8a `delete-account` — the `OR-17` cutover (F-P0-1 Option A; deploy artifact on the `077` release train)
+
+**From the `077` apply — same release train — the physical-delete flow retires** (RPC §20.15 cutover note;
+`_governance/DELETION_STATE_MACHINE_SPEC.md` §5):
+
+- The edge function's body switches from the physical-delete orchestration to a thin caller of
+  **`kernel.request_account_deletion`** (RPC §20.17.1 — always-accepts into DELETION_PENDING; caller-JWT
+  client, Class A). The request-time 409s retire (active-transfer 409 → BP-7; `dispute_resolutions` 409
+  lifts per 16d). `auth.admin.deleteUser` is called by **nothing**.
+- A second route (or sibling call) exposes **`kernel.withdraw_account_deletion`** (§20.17.2).
+- **The F-5 live-rail acquisition guards ride the same train** (machine §3.2 F-5): the RN/edge purchase
+  paths — live bid placement, live buy-now reservation/purchase, accepting an inbound transfer initiated
+  after `deletion_requested_at` — refuse a DELETION_PENDING caller at the edge/RN layer (FR-9: an edge
+  caller is not a DDL forward reference; a `public.*` trigger reading `kernel.*` would invert the frozen
+  core, which is why this surface is edge-layer by construction).
+- Deploying `077` without this switch ships a compliance outage (the AO-cascade wall breaks the physical
+  path) — the deployment gate is the release train itself, per `OR-17`.
+
+*(Added 2026-08-29, freeze red-team F-7 — this document previously listed `delete-account` as "untouched",
+which was true until `OR-17` and deploy-fatal after it.)*
 
 ## 2. Placement decision table — challenge each candidate
 

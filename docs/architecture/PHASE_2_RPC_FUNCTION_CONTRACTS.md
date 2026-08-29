@@ -997,7 +997,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 
 ### 6.3 `venue.finalize_primary_order(p_order_id, p_payment_id, p_command_key, p_instrument_fingerprint text DEFAULT NULL)` — **DB-RPC (SSCAS member #1)**
 
-> **Freeze clause (`OR-17`, F-1):** refuses when the order's buyer's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
+> **Freeze surface note (`OR-17`, F-1 — corrected to the ruled caller semantics, red-team F-3, 2026-08-29):** the F-1 refusal tests THE CALLER (machine §3.2 principle). This function's caller is `service_role` (the paid-order webhook path), so no refusal fires here: a mid-flight PAID order **completes** for a DELETION_PENDING buyer (16b: money processing preserved), and BP-12/BP-1 block the tombstone until custody lands and is disposed of. The buyer-tested refusals live at the two entry verbs (§5.3, §6.1).
 - **Purpose:** on a **verified paid** order, atomically draw inventory and **mint N ticket atoms** via the
   kernel engine (primary issuance). **Actor:** `service_role`/definer (called by the confirm edge fn / paid
   webhook). Authority is the **verified payment**, not a client.
@@ -1872,11 +1872,15 @@ that door is using. Filed by edge §3.9a request #4.
   `sale_state='paid_pending_transfer'` past the **bounded dwell SLO**: either complete the transfer (if the
   payment is verified and the atom is still transferable) or **auto-compensate** (refund-void → `terminal_state
   ='compensated'`), driving the RN "Finalizing…" flip (recon #2). **Actor:** `service_role`/system sentinel.
-- **Preconditions:** `sale_state='paid_pending_transfer' AND paid_pending_since < now() - dwell_slo`. **Locks
+- **Preconditions:** `sale_state='paid_pending_transfer' AND terminal_state='pending' AND paid_pending_since < now() - dwell_slo` *(the terminal conjunct was implied by the C26 XOR machinery and is now stated — a completed/compensated row is never re-selected; red-team F-2b, 2026-08-29)*. **Locks
   & order:** **Listing** → **Ticket Atom** → **Payment** (complete branch) OR **Ticket Atom** → **Refund**
   (compensate branch). **SSCAS:** member #2 (complete) XOR member #9 (`paid_pending_transfer` compensation).
 - **Writes (XOR):** complete → `kernel.transfer_ticket_ownership` (`market_sale`, `terminal_state:=completed`; for a buy-now sale the complete branch is `market.finalize_market_sale` §20.8.10 — one completer body, webhook-prompt or sweep-late);
-  compensate → `kernel.void_ticket_atom` + `kernel.refund` (`terminal_state:=compensated`). **Compensate-XOR-
+  compensate → `kernel.void_ticket_atom` + `kernel.refund` (`terminal_state:=compensated`); **when the atom
+  is ALREADY terminal (voided by `catalog.cancel_event` or a prior act), the void step is an idempotent
+  skip and the refund + mandatory `revoke` manifest delta proceed — money-only, the O-1 shape** *(the only
+  reading preserving C25's ratified bounded-dwell guarantee; a raise-forever tick is the state C25
+  forbids — red-team F-4, 2026-08-29)*. **Compensate-XOR-
   complete** guaranteed by the `market_sale` terminal state machine under its row lock (C26). **Result:**
   `{ completed, compensated }`. **Retry:** re-entrant. **Forbidden callers:** clients. **SLO:** the dwell bound
   is named in the Edge/ops spec; the sweep raises a max-age alarm (Invariant 3 A6).
@@ -5751,7 +5755,12 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   money-single-path holds because no request/approve object writes a money row on either**),
   `kernel.void_ticket_atom` per voidable atom, `venue.inventory_batch` (return), `market.market_sale`
   (→ `terminal_state='compensated'` via `market.on_atom_voided`, §20.11.3, where the payment is a native
-  sale), `venue.door_manifest_delta` (`revoke`), `kernel.admin_audit` (`refund.admin`, before/after,
+  sale **whose sale is still `paid_pending_transfer`** — the C25 seam §7.3 scopes. **On a COMPLETED native
+  sale the refund is MONEY-ONLY (red-team F-3, derived 2026-08-29): the terminal XOR (C26) + §20.11.3's
+  mandated `conflict_locked` (`T-RPC-SEAM-03`) forbid flipping `completed`, and §7.3 scopes the seam to
+  C25-driven voids — so the sale row and the atom stand, the `kernel.refund` row alone records the
+  reversal, and the prior flip-promise here is corrected as the contradicting text. Ticket clawback on a
+  completed resale is NOT this function's act**), `venue.door_manifest_delta` (`revoke`), `kernel.admin_audit` (`refund.admin`, before/after,
   consumed-atom list, mandatory `reason_code`).
 - **Result.** `{ status, refund_id, atoms_voided[], atoms_not_voided[] }`.
 - **Errors.** `insufficient_privilege(42501)` · `payment_unverified` · `custody_moved` ·
@@ -7286,8 +7295,13 @@ change another spec's owner must make; each names the file, the section and the 
   row lazily if absent; sets `deletion_state := 'DELETION_PENDING'`, `deletion_requested_at := now()`,
   `deletion_block_reason := NULL`.
 - **In the same transaction:** Q5 auto-expiry — every **pending** `kernel.approval_request` naming the
-  caller flips `pending → expired`; **decided rows are immutable** (§3.1.2 of the machine: the expiry routes
-  through §17.3/§17.4 release semantics; the caller's own-order-refund exemption stands).
+  caller flips `pending → expired`; **decided rows are immutable**. The release side-effects the machine's
+  §3.1.2 owes (the §17.4 semantics: `refund_hold` overlay release on the expired request's atoms + the
+  `refund_request_expired` BE notice, R2 row 18) ride **`kernel.on_deletion_q5_release(p_identity)`** —
+  SEAM-2 stub in `077` (no-op: no refund/hold objects exist before `085`, so the neutral result is true),
+  body `CREATE OR REPLACE`d in `085` (`077 → 085` pre-declared; freeze red team F-2). A `077` body never
+  reaches §17.3/§17.4's `079`/`085` relations directly — the V1–V7 class this hook exists to avoid. The
+  caller's own-order-refund exemption stands.
 - Re-request while pending → `noop_replay`. Request while ERASED is unreachable (no session exists).
 - **Emissions:** BE-emits `account_deletion_pending` (`notify.emit_event`, `OR-14`) — same-txn, last write;
   a failed emit warns and commits (R2 row 31).
@@ -7324,7 +7338,7 @@ change another spec's owner must make; each names the file, the section and the 
 - **Tests:** `T-RPC-DEL-04` (tombstone only when all predicates false), `T-RPC-DEL-05` (half-completion
   re-detected next pass), `T-RPC-NOTIFY-11` (failed emit re-emitted next pass, deduped).
 
-#### 20.17.5 The ten deletion SEAM-2 hooks — signatures frozen here (SEAM-2a)
+#### 20.17.5 The eleven deletion SEAM-2 hooks — signatures frozen here (SEAM-2a)
 
 | Hook | Stub (`077`) returns | Replaced in | Covers |
 |---|---|---|---|
@@ -7338,6 +7352,7 @@ change another spec's owner must make; each names the file, the section and the 
 | `kernel.on_identity_erased_market(p_identity uuid) RETURNS void` | no-op | `088` | 16d hard-delete allowance ONLY (draft/cancelled listings, non-accepted offers) |
 | `kernel.on_identity_erased_promoter(p_identity uuid) RETURNS void` | no-op | `090` | INV #36 (`venue.promoter` row SURVIVES) |
 | `kernel.has_outstanding_obligations(p_identity_id uuid) RETURNS boolean` | `false` | `085` | BP-10 (`OR-21`, §20.7.12) |
+| `kernel.on_deletion_q5_release(p_identity uuid) RETURNS void` | no-op | `085` | the Q5 auto-expiry's release side-effects (§17.4 semantics: `refund_hold` release + `refund_request_expired` BE notice) — freeze red team F-2 |
 
 Each stub's neutral result is **the true value over an empty world** (its operand table does not exist
 before the replacing package — the C113/§0.4b argument); each replacing package asserts the stub body is no

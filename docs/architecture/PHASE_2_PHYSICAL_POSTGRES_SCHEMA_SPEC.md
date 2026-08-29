@@ -263,14 +263,22 @@ depends on nothing downstream; it references only `auth.users` and the frozen `p
     push-token registration → `'en-US'`. Nullable is correct: NULL means "not stated", which is the
     third link, not a default written into every row. `notify.notification.locale_resolved` stores the
     resolved answer at fan-out so a re-render is reproducible. **Package `077`.**
+  - `deletion_state` text — not null default `'ACTIVE'`, CHECK in (`ACTIVE` · `DELETION_PENDING` + the
+    OPEN-3 erased-marker literal cell) (**`OR-17`** — the deletion-machine substrate,
+    `_governance/DELETION_STATE_MACHINE_SPEC.md`; package `077`).
+  - `deletion_requested_at` timestamptz — nullable (`OR-17`; the dated durable record that the person
+    asked; RETAINED at terminal).
+  - `deletion_block_reason` text — nullable (`OR-17`; the operator-legible first-failing predicate,
+    written at entry and by every sweep pass; the user-visible trace of BP-1…BP-12).
   - `created_at` timestamptz, `updated_at` timestamptz.
 - **FKs:** `identity_id`→auth.users on delete restrict.
 - **Unique:** PK only (1:1 with identity).
 - **Check:** `residency_region` ∈ allowed-region set (MVP: single value; enum stays open for C14).
 - **Immutability:** MUT (region/kyc change is audited via `kernel.admin_audit`).
-- **Index:** PK suffices (point-lookup by identity).
+- **Index:** PK (point-lookup by identity); **`OR-17`: partial index over open deletion requests
+  (`WHERE deletion_state = 'DELETION_PENDING'`) — the sweep's access path.**
 - **RLS:** owner-scoped read of own row; region/kyc writes RPC-only + `is_platform`.
-- **Write authority:** `kernel.upsert_identity_ext(...)` (self for benign fields; `is_platform` for region/kyc).
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `kernel.upsert_identity_ext(...)` (self for benign fields; `is_platform` for region/kyc); **`OR-17` deletion columns:** `kernel.request_account_deletion` (§20.17.1 — entry), `kernel.withdraw_account_deletion` (§20.17.2 — PENDING→ACTIVE), `kernel.sweep_deletion_pending` (§20.17.4 — block-reason writes + terminal marker). The three columns are RPC-only; the user reads own state via the owner-scoped row policy.
 - **Read authority:** owner + `is_platform`.
 - **SoT/PROJ:** SoT for region/kyc. Additive to `profiles` (SPEC_FOUNDATION §2).
 
@@ -3530,7 +3538,7 @@ passes for the wrong reason and proves nothing.
   - `payment_id` uuid — nullable, FK→public.payments(id) (linked via `kernel.payment_native`; the frozen
     money-in event).
   - `terminal_state` enum(`pending` · `completed` · `compensated`) — not null default `pending` (**C26**).
-  - `sale_state` enum(`initiated` · `paid_pending_transfer` · `settled` · `cancelled`) — not null default `initiated` (`cancelled` reachable from `initiated` ONLY — a never-paid buy-now checkout, released under the PI-death protocol §20.8.11; R-37/`OR-22`)
+  - `sale_state` enum(`initiated` · `paid_pending_transfer` · `settled` · `cancelled`) — not null default `initiated` (`cancelled` reachable from `initiated` ONLY — a never-paid buy-now checkout, released under the PI-death protocol §20.8.11; R-37/`OR-22`). **`settled` is a Gate-M-deferred label (the `C135` class): its writer is the Gate-M settlement amendment, never build-time invention; `T-RPC-MARKET-08`'s label-completeness arm exempts ratified-gate-deferred labels exactly as the fence's `c` encoding does — MVP terminality is carried by `terminal_state` (C26 XOR), not by `settled`.**
     (C6/C25 — `paid_pending_transfer` is the explicit bounded intermediate; C25 auto-compensates after max-age).
   - `paid_pending_since` timestamptz — nullable (dwell-clock for the C25 bound).
   - `reservation_expires_at` timestamptz — nullable (the buy-now reservation clock; server-set from `resale.buy_now_reservation_ttl_minutes`, R-37/`OR-22`).
@@ -3550,7 +3558,7 @@ passes for the wrong reason and proves nothing.
 - **Immutability:** the sale **fact** is AO (buyer/seller/price/atom immutable once written); only
   `terminal_state`/`sale_state` transition forward under the state machine.
 - **Index:** PK; unique C16 key; index on `listing_id`; index on `ticket_atom_id`; index on `(seller_id)`
-  and `(buyer_id)` (dashboards); partial index on `sale_state='paid_pending_transfer'` (the C25 sweep hot-path); **partial `UNIQUE(listing_id) WHERE sale_state='initiated'`** (at most one live checkout per listing — the index, not a `NOT EXISTS`); partial `(reservation_expires_at) WHERE sale_state='initiated'` (the lapse worker's hot-path).
+  and `(buyer_id)` (dashboards); partial index on `sale_state='paid_pending_transfer' AND terminal_state='pending'` (the C25 sweep hot-path — the terminal conjunct keeps completed/compensated rows out of the sweep's read and the index, red-team F-2b); **partial `UNIQUE(listing_id) WHERE sale_state='initiated'`** (at most one live checkout per listing — the index, not a `NOT EXISTS`); partial `(reservation_expires_at) WHERE sale_state='initiated'` (the lapse worker's hot-path).
 - **Archival:** permanent (Immutable Ledger).
 - **RLS:** owner-scoped (buyer + seller) + org (royalty) + platform; money-custody-RPC-only writes.
 - **Write authority** *(restates the canonical registry — `OR-7`)*: `market.checkout_buy_now` (INSERT at `initiated`, R-37/`OR-22`); `market.bind_checkout_payment_ref` (`payment_intent_ref`, write-once); `market.mark_sale_paid_state` (→ `paid_pending_transfer` + `paid_pending_since` + `payment_id` — §20.8.7); `market.cancel_buy_now_sale` (`initiated` → `cancelled` only); `market.finalize_market_sale`/`market.respond_offer` → `kernel.transfer_ticket_ownership` (via market, SSCAS member #2) writes the sale +
@@ -4143,13 +4151,18 @@ same blind spot. **The corpus's own guard could not see them**: RLS §13.2's swe
 > result, and the later package `CREATE OR REPLACE`s **only that hook**. The caller is authored once and
 > is never rewritten by another package.
 
-SEAM-2 is used **eight times** *(this line said "exactly three" through four amendments — the registry's `hook_count: 8` and its seventh-amendment note reported the two stale occurrences to this owner; corrected 2026-08-29)*, and each stub's neutral result is chosen to **fail safe**:
+SEAM-2 is used **nineteen times** *(this line said "exactly three" through four amendments and "eight" until the final sitting — the registry's `hook_count` is the derived source; re-derived 2026-08-29 after `OR-17` (nine deletion hooks) + `OR-21` (the BP-10 predicate) + the Q5-release hook (freeze red team F-2))*, and each stub's neutral result is chosen to **fail safe**:
 
 | Hook | Stub in | Neutral result | Replaced in | Fails |
 |---|---|---|---|---|
 | `kernel.settlement_royalty_lines(settlement_id)` | `087` (zero rows) | no royalty lines — correct at `087`, when no native sale can exist | `088` | safe |
 | `kernel.settlement_commission_lines(settlement_id)` | `087` (zero rows) | no commission lines — correct at `087`, when no promoter exists | `090` | safe |
-| `market.on_atom_voided(atom_id, refund_id)` | `085` (no-op) | no `market_sale` terminal flip — correct at `085`, when no sale exists | `088` | safe |
+| `market.on_atom_voided(p_atom_id, p_refund_id, p_cause)` *(three-parameter — the C117 canonical signature; the two-parameter form carried here was the S2-B stale summary)* | `085` (no-op) | no `market_sale` terminal flip — correct at `085`, when no sale exists | `088` | safe |
+| `venue.append_door_manifest_delta(...)` | `083` (no-op) | no delta rows pre-manifest — correct at `083` | `086` | safe |
+| `market.on_door_freeze_engaged(...)` · `market.door_freeze_drain_preview(...)` | `086` (zero rows) | nothing to drain pre-market | `088` | safe |
+| `venue.on_payout_settled(...)` | `085` (no-op) | no settlement side-effects pre-settlement | `087` | safe |
+| **The ten `OR-17`/`OR-21` deletion hooks** — `kernel.deletion_blockers_custody/orders/wallet/money/market` (BP evaluators, NULL = no blocker), `kernel.on_identity_erased_staff/door/market/promoter` (terminal cleaners, no-op), `kernel.has_outstanding_obligations` (BP-10, `false`) | `077` | each neutral result is the TRUE value over an empty world — the operand table does not exist before the replacing package (C113 class) | `079`/`082`/`083`/`085`/`088`/`080`/`086`/`088`/`090`/`085` respectively | safe |
+| **`kernel.on_deletion_q5_release(p_identity uuid)`** *(freeze red team F-2, 2026-08-29)* — the Q5 auto-expiry's release side-effects: the §17.4 semantics (release `refund_hold` overlays on the expired request's atoms + the `refund_request_expired` BE notice, R2 row 18) | `077` (no-op) | no `kernel.refund`/hold objects exist before `085`, so nothing can need release — true, not approximate | `085` | safe |
 
 **Why hooks and not "`087` writes `close_settlement`, `090` rewrites it".** The instruction on record was
 to make `087` promoter-agnostic and have `090` `CREATE OR REPLACE` it. That closes FR-5's promoter arm,
