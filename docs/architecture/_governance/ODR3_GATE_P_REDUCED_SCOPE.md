@@ -291,7 +291,7 @@ This is an **authority** question — *who may stop money* — and it is named a
 > probation arm · `refund_approved` SPLIT (`refund_submitted` keeps the Stripe fact; `refund_request_approved`
 > is the request-granted fact) · the FOUR orphans added (`refund_request_parked` / `_denied` / `_expired`,
 > `payout_request_pending_approval`) · the seven→eight count corrected at both sites (schema Gate-L row;
-> the register's no-carrier sentence). **The reduced IN set is now 28 types** (23 + 4 orphans + 1 split-new
+> the register's no-carrier sentence). **The reduced IN set is now 29 types** *(28 + `refund_request_cancelled`, `OR-15`)* — previously stated 28 (23 + 4 orphans + 1 split-new
 > — counted, not carried; all five new rows are money-family, IN by definition). The `notification_type`
 > seed rows are now writable with keys that will not need a post-seed data migration.
 >

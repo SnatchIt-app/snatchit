@@ -54,7 +54,7 @@ until it is answered.
 > for T in 'OPEN — OWNER' 'CLOSED — OWNER RULING' 'MECHANICAL / ENGINEERING' \
 >          'SUPERSEDED' 'BLOCKED BY ANOTHER DECISION' 'SPLIT'; do
 >   printf '%4d  %s\n' "$(grep -cF "**Status.** $T" "$REG")" "$T"
-> done                                  # must print 115, 5, 4, 1, 2, 1 as of 2026-08-29 late (OR-11 closed ODR-27;
+> done                                  # must print 113, 7, 4, 1, 2, 1 as of the 2026-08-29 signing (OR-11/OR-12/OR-13;
 >                                       # (was 116, 4, 3, 1, 3, 1 — ODR-128 moved BLOCKED → MECHANICAL
 >                                       # when X-8 resolved. COUNT IT, do not carry it.)
 > ```
@@ -95,15 +95,15 @@ dispositioned rows in this file. Nothing found in the sweep is left undispositio
 
 | Status | Count | Ids |
 |---|:-:|---|
-| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **115** | every entry not named in the five rows below |
-| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **5** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) · **`ODR-27`** (`OR-11`, Option A — no native MVP auctions) |
+| **OPEN — OWNER** — awaiting the owner; nobody else may close it | **113** | every entry not named in the five rows below |
+| **CLOSED — OWNER RULING** — the owner ruled; the ruling, its date and its reason are recorded | **7** | `ODR-23` (`OR-1`, `B`) · `ODR-2` (`OR-4`, corpus `[A]` BUILD) · `ODR-3` (`OR-5`, corpus `[C]` GATE P REDUCED) · **`ODR-7`** (`OR-6`, HYBRID PRECEDENCE) · **`ODR-27`** (`OR-11`) · **`ODR-1`** (`OR-12`) · **`ODR-16`** (`OR-13`) |
 | **MECHANICAL / ENGINEERING** — determined by the corpus or by engineering; should never have been in the owner's set | **4** | `ODR-15` · `ODR-126` · `ODR-127` · **`ODR-128`** *(moved 2026-08-29: its blocking decision and all three fail-closed contradictions are resolved; 28 transcription sites remain)* |
 | **SUPERSEDED** — overtaken by a later ratified row or ruling | **1** | `ODR-52` |
 | **BLOCKED BY ANOTHER DECISION** — cannot be ruled until a named decision closes first | **2** | `ODR-81` (by `ODR-20`) · `ODR-100` (by `ODR-101`) — *`ODR-128` left this row 2026-08-29 when its own retention condition was met; see the MECHANICAL row* |
-| **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` BLOCKED BY `ODR-16` · `4c` ENGINEERING · `4d` MECHANICAL) |
+| **SPLIT** — the original question was rejected as misframed; the limbs carry their own statuses and the family is not closed | **1** | `ODR-4` (`OR-2`: `4a` RULED · `4b` UNBLOCKED-AND-COLLAPSED (2026-08-29: `OR-13` tombstone-terminal → the documentation choice the split map predicted; the reaper's narrow DELETE class ratified `OR-16`) · `4c` ENGINEERING · `4d` MECHANICAL) |
 | | **128** | |
 
-**115 = 128 − 5 − 4 − 1 − 2 − 1.** *(2026-08-29 late: `ODR-27` moved OPEN → CLOSED under `OR-11`.)* Previously: The twelve non-open entries are enumerated above in full.
+**113 = 128 − 7 − 4 − 1 − 2 − 1.** *(2026-08-29 signing: ODR-1 + ODR-16 CLOSED, OR-12/OR-13.)* Previously: *(2026-08-29 late: `ODR-27` moved OPEN → CLOSED under `OR-11`.)* Previously: The twelve non-open entries are enumerated above in full.
 *(2026-08-29: `ODR-128` moved BLOCKED → MECHANICAL; the twelve-member non-open set is unchanged in
 membership, redistributed across statuses. The previous arithmetic, − 4 − 3 − 1 − 3 − 1, was correct for
 its date.)*
@@ -501,7 +501,7 @@ moment they will ever be answered at.
 
 ## ODR-1 — Re-ratify the amended package registry
 
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING (`OR-12`, 2026-08-29: the amendment ratified AS DRAFTED — band `076`–`092`, 17 packages, 62 edges four-surface-verified; choices 9 and 10 ruled; applied same day).
 
 **The question.** Does the owner ratify the **six amendments the package registry has already written into
 itself**, or send one or more of them back?
@@ -1202,7 +1202,7 @@ satisfied either way. Flagged because C7 literally says 'into their own schema'.
 > artifact lives, not of what its filing sites claim"*), that makes it **Band 1**: it now gates the same
 > package as `ODR-4`, and `ODR-4b` is additionally BLOCKED BY it. The `079` in the sentence below is left
 > as-written because it is a quotation; read `077`.
-**Status.** OPEN — OWNER.
+**Status.** CLOSED — OWNER RULING (`OR-13`, 2026-08-29: 16a tombstone-terminal · 16b OPTION B pending-deletion · the six 16c and ten-plus 16d answers — full terms in the ratification row; the deletion-state-machine spec is the normative product).
 **Choice.** **(a) tombstone** — retain the `auth.users` row marked erased, revoke credentials, crypto-shred
 PII, keep an opaque dereferenceable uuid; **(b) refuse while custody is live** — deletion is refused, with a
 named reason, until every held atom is terminal or transferred; **(c) forced hand-off** — deletion voids or

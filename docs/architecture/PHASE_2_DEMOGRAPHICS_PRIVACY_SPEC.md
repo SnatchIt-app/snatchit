@@ -826,6 +826,14 @@ Two further reasons it could not stand, both structural:
    `kernel.admin_audit` — permanent, immutable, guard-triggered, platform-readable. Writing a fan's
    demographic edits there puts a transition record in the one table the platform can never purge, which
    **nullifies the §8.5 tombstone's `purge_after` window** — the sole mitigation the design offered for the
+
+> **`D-6` RATIFIED (`OR-16`, 2026-08-29):** `purge_after = erased_at + ACTUAL DOCUMENTED BACKUP/PITR
+> RETENTION WINDOW + 30 days`. **`BACKUP_RETENTION_VALUE = OPS VERIFICATION REQUIRED`** — the numeric
+> window is deliberately NOT invented; it blocks reaper build/go-live only, never the architecture. **The
+> reaper is an explicitly authorized NARROW DELETE class (`ODR-4a` amendment, same ruling):** the
+> append-only guard on `kernel.identity_demographic_erasure` permits DELETE **iff** `old.purge_after <
+> now()` AND the caller is the named reaper function (structural pin at build time) — no other caller
+> obtains DELETE authority, and this is NOT a general append-only exception. Reaper unimplemented.
    much weaker fact that a removal happened.
 2. **A fan editing an optional field on their own profile is not a privileged action.** `kernel.admin_audit`
    exists for actions taken *over* someone by staff or the platform. There is no admin write path here at all

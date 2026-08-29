@@ -2642,6 +2642,8 @@ now denominate a **cumulative ceiling per payment**, so `D-3` must be answered a
   atom, `kernel.admin_audit` (`refund.request_cancelled`). **Idempotency:** terminal state + `p_command_key`.
 - **Result.** `{ status, request_id }`. **Errors.** `not_found` · `precondition_failed` ·
   `insufficient_privilege`.
+- **Notification (`OR-15`, 2026-08-29):** emits `refund_request_cancelled` (best-effort class per `OR-14`) — a buyer whose refund request/hold is cancelled or reverted is told; the silent reversion was the N3 ninth-candidate defect.
+
 
 ### 17.4 `kernel.sweep_expired_refund_requests()` — **DB-RPC** · `EXEC: DEF` · `NEW RPC`
 
@@ -3814,6 +3816,18 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
   other is the DDL guard, and `set_preference` raises `mandatory_type_not_configurable` before touching the
   table. **Both layers must hold.**
 - **`notify.emit_event(...)`** — **`EXEC: DEF`**, **non-raising**. A producer that cannot emit its envelope
+  **`OR-14` (R2, 2026-08-29) — TWO emission behaviors, owner-ratified; every producer explicitly
+  classified, no implicit default, no third behavior:**
+  - **`notify.emit_event(...)` — BEST-EFFORT, non-raising** (this contract as written): pure notification
+    delivery; a failed envelope logs a warning and the producer's money/custody work commits regardless.
+  - **`notify.emit_event_required(...)` — REQUIRED, RAISING (§17.24a, authored name):** identical envelope
+    semantics, but a failed envelope write RAISES and the producer transaction FAILS. Used ONLY where a
+    required system invariant depends on the envelope — the credential/Wallet-critical facts where
+    committing without it leaves stale authority live (`#17` ownership_changed, `wallet_pass_available`,
+    void/revoke-driven supersession, cert/key rotation). Both are `076` objects (same SEAM-1).
+  - The per-producer classification table (§17.24b / the R2 classification register) is NORMATIVE; a
+    producer without a class is a defect. Delivery remains best-effort for BOTH classes — the class governs
+    the ENVELOPE write, never the drain.
   logs a warning and **commits its money/custody work regardless**. **Lock order:** the outbox row is written
   **last within its transaction, after every money/custody row**, and `sequence` is allocated per
   `(aggregate_kind, aggregate_id)` **under the aggregate's existing row lock**, which every SSCAS member
