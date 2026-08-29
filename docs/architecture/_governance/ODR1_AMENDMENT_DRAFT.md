@@ -440,3 +440,14 @@ own tuple list (sprint record). The two residues stand for this amendment's sign
 - **Remaining genuinely-underivable:** the `is_sensitive` role-registry home (CONFLICT-4's substrate —
   wherever it lands, its reader gains one edge) — it does not affect the eight; and the stale "19 call
   sites" count (the `077`/`080` producers make it 21) — a count correction, not an edge question.
+
+
+## FINAL ARITHMETIC — 2026-08-29 (post-OR-11, post-N3; signature-exact)
+
+`OR-11` removed nothing scheduled (no dependency existed solely for bids) and `N3` moved no package.
+**Parsed at HEAD: 16 packages, 47 declared edges (JSON `depends_on`, identical on all four surfaces).**
+At signature: **17 packages · 62 edges** = 47 + 8 (`092` in-edges: `076 077 078 079 080 082 085 090`)
++ 7 new caller→`076` declaration edges (`079 080 083 085 086 088 090` — the `emit_event` callers not
+already declaring `076`; `077` already does). Every edge is named; the four-surface parser verifies the
+scalar the moment the amendment applies. The `notification_type` seeds are now writable (N3 closed;
+28 IN types); authoring `092` still waits on the one R1–R5 contract choice and nothing else.
