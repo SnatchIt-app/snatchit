@@ -160,6 +160,26 @@ The classification (adopted) has it BEST-EFFORT by OR-14's own test; the draftin
 REQUIRED. Confirm BE (recommended) or override.
 **CONFIRMED 2026-08-29 (`OR-23`): BEST-EFFORT — applied, off the queue.** The credential-critical REQUIRED set (rows 1–6, incl. `rotate_pass_type_cert`/`revoke_signing_key`) is unchanged.
 
+## R-40 — the native dispute-freeze surface (THE ONE FREEZE BLOCKER; mechanical + one owner scope line)
+Edge §4's ratified `charge.dispute.created/.closed` native branch requires "freeze the affected atom +
+upsert dispute" via a **native dispute freeze RPC and a dispute table that exist in no package, no §20
+contract, no schema section, no EXEC row** (SSCAS §14.1 rows 9/11 are ratified placeholders; recorded in
+the writer parity spec; pre-existing, re-exposed by `OR-22` — disputes on MVP-live native-primary payments
+reach this branch). The contract authoring is MECHANICAL (mirror of the frozen live-rail
+`freeze_transfer_for_dispute` + the §7.2 freeze machinery), but the new table needs **one owner line
+ratifying its package-objects scope** (the F-P0-1 authorization covered only the deletion fold).
+OPTIONS: (a) sign the scope line; the authoring pass lands and freeze follows — RECOMMENDED; (b) one
+ratified-deferral line gating the dispute-freeze surface (NOT recommended: native_primary disputes are
+MVP-reachable). **The freeze cannot be signed with R-40 unresolved.**
+
+## user_blocks × marketplace — non-blocking owner flag (red-team RRT-F9)
+`public.user_blocks` gates nothing on the native rail (no buy-now/offer/p2p precondition anywhere); the
+only ruled block text is deletion-retention (16d, "no block evasion by deletion"). A blocked buyer can
+buy the blocker's listing. The silence is a GAP, not a ruled position — one owner sentence either rules
+the gate (refuse buyer-side acquisition across a block, mirroring the p2p social surface) or ratifies
+marketplace-anonymity (discovery is anonymous; a fixed-price sale is not a social interaction). NOT
+freeze-blocking; filed for the sitting after the R-40 signature.
+
 ## R-38 — reconciled 2026-08-29 (`C135`): NO owner bit existed; the fence code was the defect
 The prior report listed `kernel.payout`/R-38 as a writer failure while R-38 was absent from this queue — resolved **A: RESOLVED BY EXISTING OWNER RULING** (C29/C30/C31 GATE-M · MONEY §9.4 · the A-GATEM flag binding · OR-11). The fence row now rides the ratified-gate `c` encoding; the contract is owed by — and only by — the Gate-M amendment. F-P2-1 does not close it (books debt, not disbursement); R-37/`OR-22` commissions only the money-in leg (the rail stays feature-dark until Gate-M + 2C, so no seller disbursement is reachable in MVP).
 
