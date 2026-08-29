@@ -1463,7 +1463,7 @@ list an implementing engineer writes tests from.
 | N-A27 | Every internal `notify.*` function has `EXECUTE` revoked from `PUBLIC`, `anon`, `authenticated` and granted only to `service_role` (`057:90-91`, `067`) | privilege leak |
 | N-A28 | Consumer RPCs are granted to `authenticated` and **not** to `anon` | `0552`-class regressions |
 | N-A29 | `notify.enqueue` and `notify.emit_event` **never raise**: injecting a constraint violation leaves the caller's transaction committed and the parent row present | §0.3 rule 1, the `057:80-86` contract **AMENDED `OR-14` (R2, 2026-08-29): this assertion now binds `notify.enqueue` and the BEST-EFFORT `notify.emit_event` only; its counterpart for `notify.emit_event_required` asserts the OPPOSITE — a failed envelope RAISES and the producer transaction aborts.** |
-| N-A30 | Every producer trigger body contains its own `EXCEPTION WHEN OTHERS` (the second layer, `058:95-97`) | single-layer regressions |
+| N-A30 | Every producer trigger body contains its own `EXCEPTION WHEN OTHERS` (the second layer, `058:95-97`) | single-layer regressions **RE-SCOPED `OR-14` (2026-08-29): binds BEST-EFFORT producers only — a universal swallow would defeat `emit_event_required`'s raise; `T-RPC-NOTIFY-08` asserts the six REQUIRED bodies contain no `EXCEPTION WHEN OTHERS` around their emit.** |
 
 ### F. The event envelope (C12) — 4
 

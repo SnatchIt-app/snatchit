@@ -3825,8 +3825,15 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
     required system invariant depends on the envelope — the credential/Wallet-critical facts where
     committing without it leaves stale authority live (`#17` ownership_changed, `wallet_pass_available`,
     void/revoke-driven supersession, cert/key rotation). Both are `076` objects (same SEAM-1).
-  - The per-producer classification table (§17.24b / the R2 classification register) is NORMATIVE; a
-    producer without a class is a defect. Delivery remains best-effort for BOTH classes — the class governs
+  - The per-producer classification table is NORMATIVE and lives at
+    **`_governance/R2_EMITTER_CLASSIFICATION.md`** (adopted 2026-08-29: **6 REQUIRED · 24 BEST-EFFORT ·
+    0 unclassified**, cross-checked both directions); a producer without a class is a defect
+    (`T-RPC-NOTIFY-09` asserts the closure both ways). **One flag for the owner:** `wallet_pass_available`
+    is classified BEST-EFFORT by OR-14's own test (it drives no supersession; REQUIRED would let a notice
+    failure block pass issuance) — override only by explicit ruling. Tests: `T-RPC-NOTIFY-04A/-04B/-04C`,
+    `-08`, `-09`, `T-EDGE-NOTIFY-01/-02`; `N-A29` split BE/REQ; **`N-A30` re-scoped to best-effort
+    producers only** — its universal `EXCEPTION WHEN OTHERS` wrap would swallow the REQUIRED raise, and
+    `-08` asserts the six REQUIRED bodies contain no swallow. Delivery remains best-effort for BOTH classes — the class governs
     the ENVELOPE write, never the drain.
   logs a warning and **commits its money/custody work regardless**. **Lock order:** the outbox row is written
   **last within its transaction, after every money/custody row**, and `sequence` is allocated per
