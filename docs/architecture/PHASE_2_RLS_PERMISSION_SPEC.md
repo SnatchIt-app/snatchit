@@ -970,7 +970,7 @@ cause. Enforced **inside `kernel.list_org_payouts`, never as a table policy.**
 > **no `org_owner` row can ever satisfy `has_org_role(org,[org_finance])`.** Inheritance is prose, not a
 > predicate. O-1 moves the *authority*; the *inheritance mechanism* is deleted.
 
-Write RPCs *(restates the canonical registry — `OR-7`)*: `refund_primary_order`, `admin_refund`, `market.sweep_paid_pending_sales` (§12.3 — the C25 auto-compensation sweep, named), `mark_refund_state` (§20.7.7, webhook state-sync — scheduled in `085` by `S-24`, applied 2026-08-29; registry naming `S-25` still owed). **Org and buyer authority
+Write RPCs *(restates the canonical registry — `OR-7`)*: `refund_primary_order`, `admin_refund`, `market.sweep_paid_pending_sales` (§12.3 — the C25 auto-compensation sweep, named), `mark_refund_state` (§20.7.7, webhook state-sync — scheduled in `085` — `S-24` + `S-25` both applied 2026-08-29; all four surfaces agree). **Org and buyer authority
 enters exclusively through `kernel.request_order_refund` (§16.1), which calls `refund_primary_order` as
 definer** — the org never invokes the money writer directly.
 

@@ -30,7 +30,8 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > OPEN on the self-deal detector) and **3 CONTRACTED-NEVER-BUILT writers** (`venue.unpublish_holder_mix`
 > · `venue.unpublish_all_holder_mix` · the unnamed erasure trigger — **`kernel.mark_refund_state` left
 > this list 2026-08-29: `S-24` applied**, plan `085` schedules the function + partial unique + pairing
-> CHECK; **the registry naming half, `S-25`, is still owed**).
+> CHECK; **`S-25` CLOSED same day** — the registry's `085` prose row and JSON entry both name the
+> function and its two constraints, `depends_on` untouched).
 > **Readiness still FAILS. That is the registry telling the truth.**
 >
 > *(The 2026-08-28 header block, its corrected-counts note and the 80/82 scope defect it recorded are
@@ -72,8 +73,8 @@ is not a function at all.
 **`kernel.mark_refund_state` was contracted, assigned to `085` by the schema spec, and built by no
 package.** Without it, **three of `kernel.refund.status`'s four labels and the `stripe_refund_ref`
 join key had no writer in the shipped chain.** **`S-24` APPLIED 2026-08-29** — plan `085` now schedules
-the function, the partial unique and the pairing CHECK, and `T-SCHEMA-REFUND-01`…`-04`. `S-25` (the
-package registry's naming half) remains owed.
+the function, the partial unique and the pairing CHECK, and `T-SCHEMA-REFUND-01`…`-04`. **`S-25` APPLIED
+later the same day** — registry `085` prose + JSON both name it; all four surfaces now agree.
 
 **Four webhook-facing writers exist only as prose in the edge spec** — an unnamed *"org connect
 capability writer RPC"* (for columns the schema spec does not define), an *"order cancel RPC"* on
@@ -224,6 +225,6 @@ per-event door-config rows and no such table exists in any package.
 
 ## CONTRACTED BUT NEVER BUILT — 3 unconditional *(was 4 — `S-24` applied 2026-08-29)*
 
-~~`kernel.mark_refund_state`~~ (**closed** — plan `085` schedules it; `S-25` registry naming owed) ·
+~~`kernel.mark_refund_state`~~ (**closed** — `S-24` plan + `S-25` registry, both 2026-08-29) ·
 `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · `venue.reconcile_holder_mix`.
 Plus **17 conditional** `notify.*` writers, deliberately deferred by `COND-B`.

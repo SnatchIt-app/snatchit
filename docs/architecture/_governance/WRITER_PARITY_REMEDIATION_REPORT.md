@@ -98,7 +98,14 @@ self-deal detector; it fails OPEN, silently, on the fraud path. The writer pair 
 > `T-SCHEMA-REFUND-01`…`-04` — transcription of the placement the schema spec had already settled
 > (`§1.10.1`, `§13` `085` row; ratifications `C101`/`C102`). The defect existed (three of four `status`
 > labels + the Stripe join key writerless in the shipped chain), no owner decision occurred, and **no
-> implementation migration was created**. `S-25` (registry naming) remains the open sibling.
+> implementation migration was created**.
+>
+> **`S-25` — CLOSED — MECHANICAL REMEDIATION, 2026-08-29 (separate event, later the same day).** The
+> package registry's `085` prose row and JSON entry (`scope` + a dedicated `s24_added`/`s24_note` field,
+> the `mb2_added` idiom) now name `kernel.mark_refund_state` and its two constraints. `depends_on`
+> byte-unchanged — SEAM-1 `max(077,085)=085` and `077` was already declared, so no edge was added and the
+> four-surface edge parity is untouched. JSON re-validated as parseable after the edit. All four
+> traceability surfaces now agree: RPC §20.7.7 · schema §1.10.1/§13 · plan §8 `085` · registry `085`.
 
 The 16 missing contracts (engineering) · the 3 remaining not-built writers (holder-mix pair + the tombstone
 trigger) · `E-1` session_version and `E-2` `market.bid` (owner) · `ID-6` (owner — see its analysis) ·

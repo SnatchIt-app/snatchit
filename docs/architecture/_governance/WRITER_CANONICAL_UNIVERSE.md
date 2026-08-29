@@ -89,7 +89,7 @@ all repaired to agreement 2026-08-29; the registry is canonical and derived list
 | `kernel.refund` | `kernel.refund_primary_order` | MULTIPLE | rpc | §11.4 | plan §8 (per-entry package resolution owed — see limits) | built/scheduled · OK |
 | `kernel.refund` | `kernel.admin_refund` | MULTIPLE | rpc | §20.7.1 | plan §8 (per-entry package resolution owed — see limits) | built/scheduled · OK |
 | `kernel.refund` | `market.sweep_paid_pending_sales` | TRANSITION | cron | §12.3 | plan §8 (per-entry package resolution owed — see limits) | built/scheduled · OK |
-| `kernel.refund` | `kernel.mark_refund_state` | TRANSITION | webhook | §20.7.7 | 085 (S-24 applied 2026-08-29; registry half S-25 owed) | built/scheduled · OK |
+| `kernel.refund` | `kernel.mark_refund_state` | TRANSITION | webhook | §20.7.7 | 085 (S-24 plan + S-25 registry, both applied 2026-08-29) | built/scheduled · OK |
 | `kernel.reserve` | *(no writer — NONE-wired-in-MVP)* | — | — | — | — | OK |
 | `kernel.admin_audit` | `kernel.record_money_denial` | INSERT | rpc | §17.9 | 085 | built/scheduled · OK |
 | `kernel.admin_audit` | `CATEGORY:every-privileged-RPC-in-txn` | — | rpc | §0.3 | plan §8 (per-entry package resolution owed — see limits) | built/scheduled · OK |
@@ -294,5 +294,5 @@ all repaired to agreement 2026-08-29; the registry is canonical and derived list
 
 - **16 MISSING_CONTRACT rows** — the gate errors; enumerated in `WRITER_REGISTRY_PARITY_SPEC.md`.
 - **3 NOT-BUILT writers** — `venue.unpublish_holder_mix` · `venue.unpublish_all_holder_mix` · the unnamed
-  erasure trigger. *(`kernel.mark_refund_state` closed 2026-08-29 — `S-24` applied to plan `085`; `S-25` owed.)*
+  erasure trigger. *(`kernel.mark_refund_state` closed 2026-08-29 — `S-24` plan + `S-25` registry, separate remediation events, same placement.)*
 - **0 DIVERGENT rows** — the transcription debt of `RC-2` is repaid in full.
