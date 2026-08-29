@@ -668,6 +668,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 ## 2. ORGANIZATION
 
 ### 2.1 `kernel.create_organization(p_legal_name, p_display_name, p_command_key)` — **DB-RPC**
+
+> **Freeze clause (`OR-17`, F-6):** refuses when the caller's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** apply to create an org; caller becomes its first `org_owner`. **Actor:** any `authenticated`.
   **Role:** none beyond authentication.
 - **Params:** `p_legal_name`,`p_display_name`,`p_command_key` (all **untrusted**). **Server-derived:**
@@ -729,6 +731,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   tier). **Forbidden callers:** org_member/finance; anyone outside the org.
 
 ### 2.3 `kernel.accept_org_invite(p_invite_id, p_command_key)` — **DB-RPC**
+
+> **Freeze clause (`OR-17`, F-6):** refuses when the caller's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** invitee accepts → becomes an `org_member` at the invited role. **Actor:** the **invitee**
   (`auth.uid()` must match the resolved invitee). **Role:** none beyond being the invitee.
 - **Params:** `p_invite_id`,`p_command_key` (untrusted). **Server-derived:** `auth.uid()`.
@@ -883,6 +887,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   **Forbidden callers:** fans; door/promoter/finance.
 
 ### 5.3 `venue.reserve_primary_inventory(p_batch_id, p_quantity, p_command_key)` — **DB-RPC** *(schema `reserve_inventory`; the buyer-checkout hold)*
+
+> **Freeze clause (`OR-17`, F-1):** refuses when the caller's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** the **buyer/door hold** — decrement `held` under lock, create a time-boxed
   `venue.inventory_hold` (server-max TTL). **This is the C27 oversell choke-point for holds.** **Actor:**
   `auth.uid()` (fan self-hold) or door/staff-on-behalf via `has_venue_role([venue_scanner, venue_manager])`.
@@ -936,6 +942,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 ## 6. PRIMARY ORDER
 
 ### 6.1 `venue.create_primary_checkout(p_session_id, p_items, p_hold_ids, p_command_key)` — **DB-RPC** *(schema `create_order`)*
+
+> **Freeze clause (`OR-17`, F-1):** refuses when the caller's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** create a `pending` order + immutable order_items from held inventory, returning the amount to
   charge. **No money moves here** (money-in is Stripe → `public.payments`). **Actor:** `auth.uid()` (fan self)
   or door/staff-on-behalf (`has_venue_role([venue_scanner, venue_manager])`; buyer id **server-set**, never
@@ -988,6 +996,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   finalize RPC.
 
 ### 6.3 `venue.finalize_primary_order(p_order_id, p_payment_id, p_command_key, p_instrument_fingerprint text DEFAULT NULL)` — **DB-RPC (SSCAS member #1)**
+
+> **Freeze clause (`OR-17`, F-1):** refuses when the order's buyer's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** on a **verified paid** order, atomically draw inventory and **mint N ticket atoms** via the
   kernel engine (primary issuance). **Actor:** `service_role`/definer (called by the confirm edge fn / paid
   webhook). Authority is the **verified payment**, not a client.
@@ -1235,6 +1245,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   (already listed/locked → blocks double-sell), `policy_violation`, `frozen`. **Forbidden callers:** non-owner.
 
 ### 8.2 `market.accept_p2p_transfer(p_transfer_id, p_command_key)` — **DB-RPC (SSCAS #8 accept → custody move)**
+
+> **Freeze clause (`OR-17`, F-4):** refuses when `to_identity`'s `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 - **Purpose:** recipient accepts → **custody moves via the kernel engine** (`cause='p2p_transfer'`),
   credential bumps. **Actor:** the resolved recipient (`auth.uid() = to_identity`, or resolves `to_handle`).
 - **Params:** `p_transfer_id`,`p_command_key` — untrusted. **Preconditions:** transfer `initiated`, not
@@ -3830,7 +3842,7 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
     committing without it leaves stale authority live (`#17` ownership_changed, `wallet_pass_available`,
     void/revoke-driven supersession, cert/key rotation). Both are `076` objects (same SEAM-1).
   - The per-producer classification table is NORMATIVE and lives at
-    **`_governance/R2_EMITTER_CLASSIFICATION.md`** (adopted 2026-08-29: **6 REQUIRED · 24 BEST-EFFORT ·
+    **`_governance/R2_EMITTER_CLASSIFICATION.md`** (adopted 2026-08-29: **6 REQUIRED · 26 BEST-EFFORT ·
     0 unclassified**, cross-checked both directions); a producer without a class is a defect
     (`T-RPC-NOTIFY-09` asserts the closure both ways). **One flag for the owner:** `wallet_pass_available`
     is classified BEST-EFFORT by OR-14's own test (it drives no supersession; REQUIRED would let a notice
@@ -6242,6 +6254,50 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   `T-RPC-ORDER-04` (cancel-then-finalize race: after cancel, `finalize_primary_order` raises and **mints
   nothing — asserted on `kernel.tickets`**, not on the error).
 
+#### 20.7.10 `kernel.record_identity_obligation(p_debtor_identity_id, p_origin_kind, p_origin_ref, p_stripe_dispute_ref, p_amount_minor, p_reason_code, p_command_key)` — **DB-RPC** (`OR-21`, F-P2-1)
+
+- **EXEC: DEF** — `service_role` only, **no human path** (the §20.7.7 posture). Callers: the native
+  `charge.dispute.closed`(lost) webhook branch (edge §4) and platform ops tooling for live-rail chargebacks;
+  the frozen external-rail webhook branches remain byte-for-byte untouched.
+- **Table:** `kernel.identity_obligation` (schema §1.10a — origin-immutable; `origin_kind` CHECK in
+  `chargeback`/`refund_clawback`; `amount_minor > 0`; `UNIQUE(origin_kind, origin_ref)`;
+  `stripe_dispute_ref` write-once partial UNIQUE; `status` `outstanding → recovered | written_off`
+  forward-only; `REVOKE DELETE` outright; deny-all RLS).
+- **Validations:** ① debtor FK resolves — **no state precondition**: recording against ACTIVE,
+  DELETION_PENDING or ERASED is legal by design (recording against the tombstone is the Q2 path working);
+  ② `origin_kind` in the closed set; a native `refund_clawback` requires the `kernel.refund` row
+  `status='succeeded'` with a non-`buyer_request` reason; ③ `amount_minor > 0`, currency `'USD'` (C13);
+  ④ duplicate `(origin_kind, origin_ref)` → `noop_replay` returning the existing id, no second audit row.
+- **Writes (one txn — and nothing else):** INSERT `kernel.identity_obligation` (`outstanding`) +
+  `kernel.admin_audit` (`obligation.record`, before/after). Moves no money; touches no `public.*` table;
+  no external I/O. **SEAM-1:** writes `identity_obligation` (`085`) + `admin_audit` (`077`) →
+  `max(077,085) = 085`; the `077 → 085` edge is pre-declared — **no edge added**. Locks: own row only —
+  no SSCAS membership; C28's closed fifteen stand.
+- **Emissions:** none (`OR-14`: not a producer). **Errors:** §0.5.
+
+#### 20.7.11 `kernel.resolve_identity_obligation(p_obligation_id, p_resolution, p_reason_code, p_command_key)` — **EDGE-FRONTED DB-RPC** (`OR-21`)
+
+- **Authority:** `platform_risk` · `platform_admin` (the `hold_payout`/`release_payout` seam,
+  EDGE-CALLER-JWT §3.1; `is_platform`, C36); actor server-derived (C35).
+- `p_resolution ∈ {recovered, written_off}` — `recovered` records an externally-completed recovery;
+  `written_off` is the ops write-off act the F-P2-1 filing names. `FOR UPDATE`; only `outstanding`
+  transitions; same-resolution replay → `noop_replay`; different terminal → `state_conflict`.
+- **Writes:** status + resolution triple (`resolution_reason_code`, `resolved_by`, `resolved_at`) +
+  `kernel.admin_audit` (`obligation.resolve`) in-txn. Moves no money. Does **not** touch the deletion
+  machine — the sweep re-evaluates BP-10 on its next pass. Dual-control deliberately not added (single
+  audited platform act; recorded as out of scope, not an open bit). **Package `085`** (same SEAM-1).
+
+#### 20.7.12 `kernel.has_outstanding_obligations(p_identity_id uuid) RETURNS boolean` — **STABLE definer predicate** (`OR-21`)
+
+- **The BP-10 / ODR-16 Q4 operand read:** TRUE iff any `kernel.identity_obligation` row has
+  `debtor_identity_id = p_identity_id` AND `status = 'outstanding'` (EXISTS over the partial index).
+  `EXEC: DEF` — no client grant; caller: `kernel.sweep_deletion_pending` (§20.17.4).
+- **SEAM-2 (`OR-17` fold):** stub in `077` returning `false` — true-not-inert (no origin object exists
+  before `085`); `CREATE OR REPLACE`d in `085`, signature frozen (SEAM-2a); `077 → 085` pre-declared.
+- **Tests:** `T-SCHEMA-OBLIG-01`…`-07` (label completeness by named writers; forward-only; pairing CHECK;
+  `noop_replay`; the operand flip false→true→false; the Q2 ERASED-identity witness — recording against a
+  tombstone commits and raises nothing; deny-all/REVOKE incl. DELETE impossible for every principal).
+
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
 > **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**
@@ -6424,6 +6480,8 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 
 #### 20.8.5 `market.make_offer(p_listing_id, p_amount_minor, p_expires_at, p_command_key)` — **DB-RPC**
 
+> **Freeze clause (`OR-17`, F-3):** refuses when the caller's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
+
 - **Authority.** **any `authenticated`** — RLS §11.1 (*"any authenticated (offer)"*) — **except the listing's
   seller**, refused with `policy_violation('self_offer')` on the same reasoning as §20.8.4 and flagged the
   same way.
@@ -6455,6 +6513,8 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   tick as a second statement rather than given its own function. **Filed in §20.14 for the plan owner.**
 
 #### 20.8.6 `market.respond_offer(p_offer_id, p_decision, p_payment_id, p_command_key)` — **DB-RPC (SSCAS member #2 on accept)**
+
+> **Freeze clause (`OR-17`, F-2):** refuses when **the offer's buyer**'s `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 
 - **Authority.** the **listing seller** — RLS §11.1 (*"listing seller (respond)"*), live-rechecked.
   `p_decision ∈ {accept, decline, counter}`.
@@ -6578,6 +6638,8 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
 > against nothing."*
 
 #### 20.9.1 `venue.create_promoter(p_org_id, p_identity_ref, p_terms, p_command_key)` — **DB-RPC**
+
+> **Freeze clause (`OR-17`, F-7):** refuses when the enrolled identity's `deletion_state = 'DELETION_PENDING'` (`kernel.is_deletion_pending`; error per §0.5).
 
 - **Authority.** `PROPOSED AUTHORITY` — RLS §11 has no row. Proposed: **the §11.5 promoter-code allow-list,
   unchanged** — `has_venue_role(venue, ['venue_manager','venue_promoter_manager'])` OR
@@ -7015,7 +7077,7 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-35** | this document §20.0e (registry) · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `079` Triggers row · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.5 | **`kernel.set_updated_at` is a WRITER (kind `trigger`) under `OR-7` and has no contract and no complete attachment map; and `079` attaches NO `updated_at` maintainer to `kernel.tickets` while schema §"Global conventions" states mutable rows' `updated_at` is *"maintained by the existing `set_updated_at` helper trigger pattern"* and the column exists on the atom.** The schema's own rule uniquely determines the answer — the attachment is required — so this is a MECHANICAL CONTRACT/PLACEMENT omission, not an owner decision; but scheduling the trigger is the plan owner's build edit and creating it is Phase-2 implementation, so **this row FILES it and this pass builds nothing**. The registry carries it as MISSING_CONTRACT until contracted | Writer-parity pass, 2026-08-29 |
 | **R-36** | this document §20.1.6-adjacent · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.3b · dashboard :1125 | **`org_invite.status='declined'` has no writer and no granted verb — OWNER.** RLS §7.3b gives the invitee exactly one EXEC (accept); adding a decline verb extends a closed authority set (`R-11` class). Two dispositions: (i) grant `kernel.decline_org_invite` (invitee-only, `pending → declined`) — then transcription-grade; (ii) strike `declined` from the enum (three sites) — an unwanted invite lapses; the smaller surface, and the dashboard's own §687 house principle is that declining is indistinguishable from silence | Sprint agent 2, 2026-08-29 |
 | **R-37** | RN §4.3b · this document §14.1/§20.8.6/§20.8.7 · edge spec §4 | **The native-resale money-in leg has NO designed write path and the surface is RATIFIED** — "market checkout" is a phrase, not residue: RN §4.3b contracts buy-now purchase, and §20.8.7's writer is a dormant pair with edge §4 until the INSERT-at-`initiated` checkout exists. OWNER: (i) descope direct buy-now from MVP (RN §4.3b reduces to the offer rail — whose own payment mint STILL needs a smaller design); or (ii) commission the design (one edge + one DB-RPC + the `reserved`-state ruling — RN :590 expects a listing state the schema enum lacks — + RLS row + fence + `088`). Triple-gated dark in MVP, which is why no gate tripped | Sprint agent 2, 2026-08-29 |
-| **R-38** | `kernel.payout` "native-sale payout path" · MONEY §2.1/§10.5 · DA C29-C31 | **BOUND TO GATE M — may not be closed by build-time invention.** The identity-payee payout's INSERT trigger and disbursement timing are ratified as Gate-M policy no Phase-2 document states; every payout-advance control in the corpus is org-shaped. The fence row stays MISSING_CONTRACT deliberately — the gate failing here is the registry telling the truth | Sprint agent 2, 2026-08-29 |
+| **R-38** | `kernel.payout` "native-sale payout path" · MONEY §2.1/§10.5 · DA C29-C31 | **CLOSED-AS-GATED 2026-08-29 (`C135`) — BOUND TO GATE M; no owner bit exists.** The identity-payee `cause='market_sale'` INSERT and its disbursement timing are Gate-M policy by ratified text (C29/C30/C31 RATIFIED-MODELED-ONLY(GATE-M) · MONEY §9.4 · the A-GATEM `feature.native_resale_enabled` binding · OR-11), and the rail is unreachable in MVP — so by OR-7's own definition the writer is NOT "structurally required" and MISSING_CONTRACT was the wrong fence code. Fence row reclassified to the ratified-gate `c` encoding (`kernel.GATEM_NATIVE_SALE_PAYOUT`); the contract is owed by the Gate-M amendment and may not be closed by build-time invention. F-P2-1's obligation record does NOT close this (it books debt, not disbursement); R-37 commissions only the money-in leg and leaves this untouched | Sprint agent 2, 2026-08-29 · reconciled 2026-08-29 |
 | **R-39** | CRM §4.3/§11.2 · this document §2.1/§17.22 | **`org_customer_key`: (a) MINT site is a genuine 2-way choice** — at `create_organization` (in-txn, literal reading) vs lazily at first `request_export` (`ON CONFLICT DO NOTHING`; strictly smaller blast radius — no secret for orgs that never export). Both satisfy every stated property; once ruled, transcription-grade. **(b) ROTATION has no physical carrier** for its own coupled side-effect (the template-version bump + venue notice ride an object no document defines, and the notice carrier is the gated notify plane) — rule the carrier (and whether rotation is Phase-2 at all; CRM frames it as incident response) before any contract | Sprint agent 2, 2026-08-29 |
 | **P0-1** | plan §8 Scheduled-ticks rows ×4 · production `014_frequent_cron_schedules.sql` | **THE SHARED 2-MINUTE HEARTBEAT DOES NOT EXIST** (red-team, 2026-08-29): production's only 2-minute jobs are two single-purpose entries; no dispatcher function exists in any band package; five load-bearing sweeps ride the phrase and `sweep_expired_refund_requests` had no Scheduled-ticks row at all. **The false premise is corrected at every plan site; each sweep now names an explicit per-package `cron.schedule` obligation. ENGINEERING CHOICE FILED, not taken: one dispatcher function vs per-job entries** — two admissible forms; the per-job form is the written default until ruled | Red team, 2026-08-29 |
 | **R-26** | **Whoever owns the corpus-wide id scheme** (the hazard this record already documents for `R-`, `K-`, `O`/`O-` and `S-`/`D-`) | **`R-22` IS USED TWICE IN THIS TABLE, FOR TWO UNRELATED ITEMS.** One `R-22` is `MP-1`'s offline clock-skew time-bucket confirmation; the other is the platform-plane grant-maturity owner ruling (`C77`/`O12`), which schema §13.7 `S-3` and RLS §11.3a both cite **by that id**. Two rows with one id is the `O3`/`O-3` mistake inside a single table, and the second one is load-bearing in three documents. **Requested:** renumber one of them — **not** the `C77`/`O12` row, which is cited externally — and state the rule that `R-` ids are allocated by reading the table's current maximum, the same discipline the ratification record states for its own rows | Found by `MB-1`/`MB-6` while allocating this pass's ids. **Not fixed here**, because renumbering a row two sibling documents cite is exactly the change that must not be made unilaterally by a pass that owns neither |
@@ -7048,6 +7110,12 @@ change another spec's owner must make; each names the file, the section and the 
   two image-path rewrites. **On merge, this section and the writer registry MUST be re-derived to the
   merged body** — three new registry rows are required at that point. Declaring the unmerged body today
   would declare authority that does not exist in production.
+- **⚠ CUTOVER (`OR-17`, F-P0-1/A):** from the `077` apply — same release train — the deletion request
+  surface switches to `kernel.request_account_deletion` (accept-into-DELETION_PENDING, §20.17). PR #28's
+  request-time 409s retire (transfer 409 → BP-7; `dispute_resolutions` 409 lifts per 16d);
+  `auth.admin.deleteUser` is called by nothing; this function is invoked by the terminal live-clear arm's
+  residue only as the §4.5/§5 policy fold determines, is never extended to any `kernel.*` relation
+  (CUSTODY-DEL-1), and F-P1-5's retention side-table rider governs the pre-cutover interim.
 
 ### 20.16 `kernel.set_updated_at()` — **TRIGGER WRITER — the `updated_at` maintainer** (contracted 2026-08-29, `R-35`)
 
@@ -7066,6 +7134,80 @@ change another spec's owner must make; each names the file, the section and the 
 - **What it never does:** no write to any column but `updated_at`; no raise; no read. `wallet_pass.last_updated_at`
   is a distinct business column (`touch_wallet_pass`'s) and is NOT this trigger's.
 - **Registry treatment:** CATEGORY writer — carried once here rather than repeated on ~40 fence rows.
+
+### 20.17 THE DELETION STATE MACHINE — the `OR-17` fold (F-P0-1 Option A, 2026-08-29)
+
+> Normative machine: `_governance/DELETION_STATE_MACHINE_SPEC.md` (OR-13). Everything here ships in `077`
+> (cutover ≤ the `077` apply, same release train) except the hook bodies, which land in their operand's
+> birth packages (`079`/`080`/`082`/`083`/`085`/`086`/`088`/`090` — registry hooks array).
+
+#### 20.17.1 `kernel.request_account_deletion(p_command_key)` — **DB-RPC**
+
+- **EXEC:** `authenticated` — own identity only; **no identity parameter** (the §17.21 discipline; the
+  subject is `auth.uid()`, always).
+- **ALWAYS ACCEPTS** (§1.1 of the machine): no request-time refusal exists. Creates the `kernel.identity_ext`
+  row lazily if absent; sets `deletion_state := 'DELETION_PENDING'`, `deletion_requested_at := now()`,
+  `deletion_block_reason := NULL`.
+- **In the same transaction:** Q5 auto-expiry — every **pending** `kernel.approval_request` naming the
+  caller flips `pending → expired`; **decided rows are immutable** (§3.1.2 of the machine: the expiry routes
+  through §17.3/§17.4 release semantics; the caller's own-order-refund exemption stands).
+- Re-request while pending → `noop_replay`. Request while ERASED is unreachable (no session exists).
+- **Emissions:** BE-emits `account_deletion_pending` (`notify.emit_event`, `OR-14`) — same-txn, last write;
+  a failed emit warns and commits (R2 row 31).
+- **Errors:** §0.5 taxonomy. **Tests:** `T-RPC-DEL-01` (accept + re-request idempotent), `T-RPC-DEL-02`
+  (Q5: pending expire, decided immutable), `T-RPC-NOTIFY-10` (injected emit failure: state write commits).
+
+#### 20.17.2 `kernel.withdraw_account_deletion(p_command_key)` — **DB-RPC**
+
+- **EXEC:** `authenticated`, own identity, no identity parameter. `DELETION_PENDING → ACTIVE`; clears
+  `deletion_requested_at`/`deletion_block_reason`. Withdraw while ACTIVE → `noop_replay`; while ERASED —
+  unreachable. Expired Q5 approvals are NOT resurrected (§3.1.2: expiry is a release, not a suspension).
+- **Tests:** `T-RPC-DEL-03`.
+
+#### 20.17.3 `kernel.is_deletion_pending(p_identity uuid) RETURNS boolean` — **STABLE definer predicate**
+
+- The single freeze operand every F-clause calls (the `has_org_role`/`is_transfer_frozen` house pattern;
+  one implementation). `EXEC: DEF` — no client grant; callers are the F-clause hosts and the sweep.
+
+#### 20.17.4 `kernel.sweep_deletion_pending(p_limit int DEFAULT 100)` — **cron definer (EXEC: DEF)**
+
+- Its own `cron.schedule` (2 min) is created **by `077`** (P0-1 discipline); register row in
+  `_governance/CRON_SCHEDULE_REGISTER.md`. `SKIP LOCKED` over the pending partial index; re-entrant; full
+  predicate re-evaluation every pass (the half-completion detector).
+- **Per identity, evaluates BP-1…BP-12 in order:** BP-11 and Q5 direct (`077` tables); BP-6-live/BP-7/BP-8/
+  BP-9 direct over the live `public.*` rail (precondition baseline — no DAG edge); BP-10 via
+  `kernel.has_outstanding_obligations` (§20.7.12, `OR-21`); BP-1/2/3/4/5/12 via the SEAM-2 evaluator hooks
+  (§20.17.5). First true predicate → recorded in `deletion_block_reason`, pass moves on.
+- **At all-false, terminal entry (idempotent):** erased marker write (OPEN-3 literal); retained request
+  metadata (`deletion_requested_at` survives); `077`-plane role/invite clears; PR#28-minus-repointing live
+  clears (the §4.5/§5 named engineering fold; never touches `kernel.*` custody — CUSTODY-DEL-1; never
+  `auth.admin.deleteUser`); the four `on_identity_erased_*` cleanup hooks (§20.17.5); OPEN-6a demographic
+  slot (recorded, not implemented); BE-emit `account_deletion_completed` (R2 row 32; copy constraint §4.7 —
+  never "permanently deleted").
+- **Tests:** `T-RPC-DEL-04` (tombstone only when all predicates false), `T-RPC-DEL-05` (half-completion
+  re-detected next pass), `T-RPC-NOTIFY-11` (failed emit re-emitted next pass, deduped).
+
+#### 20.17.5 The ten deletion SEAM-2 hooks — signatures frozen here (SEAM-2a)
+
+| Hook | Stub (`077`) returns | Replaced in | Covers |
+|---|---|---|---|
+| `kernel.deletion_blockers_custody(p_identity uuid) RETURNS text` | `NULL` | `079` | BP-1 |
+| `kernel.deletion_blockers_orders(p_identity uuid) RETURNS text` | `NULL` | `082` | BP-12 pending-order arm |
+| `kernel.deletion_blockers_wallet(p_identity uuid) RETURNS text` | `NULL` | `083` | BP-2 |
+| `kernel.deletion_blockers_money(p_identity uuid) RETURNS text` | `NULL` | `085` | BP-5 · BP-6 kernel arm · BP-12 refund/paid-window arm |
+| `kernel.deletion_blockers_market(p_identity uuid) RETURNS text` | `NULL` | `088` | BP-3 · BP-4 |
+| `kernel.on_identity_erased_staff(p_identity uuid) RETURNS void` | no-op | `080` | INV #23/#24 |
+| `kernel.on_identity_erased_door(p_identity uuid) RETURNS void` | no-op | `086` | INV #29–#31 |
+| `kernel.on_identity_erased_market(p_identity uuid) RETURNS void` | no-op | `088` | 16d hard-delete allowance ONLY (draft/cancelled listings, non-accepted offers) |
+| `kernel.on_identity_erased_promoter(p_identity uuid) RETURNS void` | no-op | `090` | INV #36 (`venue.promoter` row SURVIVES) |
+| `kernel.has_outstanding_obligations(p_identity_id uuid) RETURNS boolean` | `false` | `085` | BP-10 (`OR-21`, §20.7.12) |
+
+Each stub's neutral result is **the true value over an empty world** (its operand table does not exist
+before the replacing package — the C113/§0.4b argument); each replacing package asserts the stub body is no
+longer live (`pg_get_functiondef` ≠ stub — the §0.4b discipline). Freeze clauses F-1…F-7 are authored as
+preconditions inside their host RPCs' own sections (riders at §2.1, §2.3, §5.3, §6.1, §6.3, §8.2, §20.8.5,
+§20.8.6, §20.9.1); F-5 and the delete-account edge switch are deploy artifacts on the `077` release train
+(FR-9; §20.15 cutover note).
 
 ## 21. Correction index — the `MB-1` / `MB-6` cumulative-authority and custody-routing pass (2026-08-28)
 
@@ -7129,7 +7271,7 @@ written or a contract that instructed the pre-fix behaviour.
 | **§20.7.7** | *did not exist* | **NEW** — `kernel.mark_refund_state`. `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT: three of four labels unreachable, **`stripe_refund_ref` with zero writers and zero readers**, and `MB-1`'s cumulative operand permanently `pending`-only | `C101`, `C102` |
 | **§20.7.8** | *did not exist* | **NEW** — `venue.assert_may_request`, which **got a package number and nothing else**. Return shape settled: one function, `RETURNS boolean`, `p_raise DEFAULT true`; two rejected shapes recorded | `C108` |
 | **§20.11** | *"These four"* | **five** — `venue.on_payout_settled` (§20.11.5), the SEAM-2 hook that is the only writer of `venue.settlement.status='paid'`, and the §0.7 boundary answer | `C104` (`S-16`) |
-| **§20.14** | `R-1`…`R-27` | **`R-28`** (record_money_denial: RLS + MONEY) · **`R-29`** (assert_may_request: EXEC row + the five-parameter signature) · **`R-30`** (sweep EXEC row) · **`R-31`** (three state-sync EXEC rows + the `085` objects) · **`R-32`** (dashboard pills + settlement header) · **`R-33`** (MONEY §8.4 *"created `held`"*) · **`R-34`** (payment_native writer pair; X-1 transcription) · **`R-35`** (set_updated_at — CLOSED 2026-08-29) · **`R-36`** (invite `declined`: owner) · **`R-37`** (market checkout: owner) · **`R-38`** (native-sale payout ↔ Gate M) · **`R-39`** (org_customer_key mint/rotation: owner) · **`P0-1`** (the heartbeat that did not exist) | `D22` |
+| **§20.14** | `R-1`…`R-27` | **`R-28`** (record_money_denial: RLS + MONEY) · **`R-29`** (assert_may_request: EXEC row + the five-parameter signature) · **`R-30`** (sweep EXEC row) · **`R-31`** (three state-sync EXEC rows + the `085` objects) · **`R-32`** (dashboard pills + settlement header) · **`R-33`** (MONEY §8.4 *"created `held`"*) · **`R-34`** (payment_native writer pair; X-1 transcription) · **`R-35`** (set_updated_at — CLOSED 2026-08-29) · **`R-36`** (invite `declined`: owner) · **`R-37`** (market checkout: owner) · **`R-38`** (native-sale payout ↔ Gate M — CLOSED-AS-GATED 2026-08-29, `C135`) · **`R-39`** (org_customer_key mint/rotation: owner) · **`P0-1`** (the heartbeat that did not exist) | `D22` |
 
 **What this pass deliberately did NOT do.** It **decided no open decision**: `O16` (what `payout.status='paid'`
 asserts) is **recorded in two documents and left open**, and `O6`…`O15`, `D-3`, `D-9`, `D-10` and `MB-1b`'s

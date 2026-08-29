@@ -156,7 +156,7 @@ path.**
 ### 2.1 Replacement for RLS §7.9 — `kernel.payout`
 
 > ### 7.9 `kernel.payout` — money-custody-RPC-only
-> Write RPCs: `close_settlement`, native-sale payout path, `pay_promoter_commission`, `request_org_payout`
+> Write RPCs *(restates the canonical registry — `OR-7`)*: `close_settlement`, `pay_promoter_commission`, `request_org_payout` *(the native-sale payout writer is Gate-M-deferred — R-38 CLOSED-AS-GATED, `C135`; contracted by the Gate-M amendment)*
 > (state advance), `hold_payout`/`release_payout` (state advance). Idempotency-keyed (Phase-0 discipline).
 >
 > | Role | SEL | INS | UPD | DEL | EXEC |
@@ -1490,6 +1490,11 @@ in O-1/O-3 requires them: refunds are funded from the Stripe balance via `refund
 charge, and payouts remain settlement-cadenced. **No surface may imply an instant-payout capability**, and the
 refund tiers above must never be described to an operator as "instant."
 
+**One additive record IS built in MVP (`F-P2-1` / `OR-21`): `kernel.identity_obligation` (schema §1.10a)** —
+the ledger home for a realized identity-scoped chargeback/clawback loss and the BP-10 deletion operand. It
+records debt and resolves it by an audited platform act (`recovered`/`written_off`); it funds nothing, nets
+nothing, gates no payout, and does not weaken this section: recovery execution remains Gate-M.
+
 ---
 
 ## 10. Surface implications
@@ -1648,6 +1653,8 @@ and must be documented as such rather than described as "recent authentication."
 14. **Edge spec §3.4/§3.5 — a note, not a change: `check_rate_limit(user, 'refund-execute', 10, 60)` is a THROUGHPUT limit and bounds no value** (600 calls/hour). It must not be cited as the splitting control, which is what it was implicitly doing while §6.1's operand was per-call (`MB-1`).
 
 ### `ADDITIVE SCHEMA CHANGE` (all on Phase-2 tables; nothing in `public.*`)
+
+- `kernel.identity_obligation` (one table, two verbs, one read predicate — package `085`; `F-P2-1`/`OR-21`).
 1. **`kernel.approval_request`** — new table, **placed in package `077`** by schema §1.13 (which is the physical definition; this list is the classification, not the DDL). `request_id` PK · `action` (`refund.issue` · `payout.request` · `config.set_money_key`) · **`required_approver_class` (`org` · `platform` · `platform_admin`) — NOT NULL, `AUTHZ-C1A` / row `C57`; this item originally omitted it, and §6.2 records what that omission did** · `subject_kind` (`order` · `settlement` · `config_key`, CHECKed) / `subject_id` · `org_id` (nullable, FK) · `payload` jsonb (server-computed evidence, never authority) · `config_versions` jsonb (§7.2 pinning) · `requested_by` · `approved_by` (nullable) · `state` (`pending` · `approved` · `denied` · `cancelled` · `expired` · `stale`) · `reason_code` · `expires_at` · `command_idempotency_key` · timestamps. **Unique** `(requested_by, command_idempotency_key)`. **Checks — SoD as a table constraint is a PAIR, not one line (`AUTHZ-M1`):** `approved_by IS NULL OR approved_by <> requested_by` **and** `state <> 'approved' OR approved_by IS NOT NULL` (the first is vacuously satisfiable without the second), the same on `'denied'`, the `action ↔ subject_kind` pairing, `action <> 'config.set_money_key' OR required_approver_class = 'platform_admin'`, and `required_approver_class <> 'org' OR org_id IS NOT NULL`. **Indexes** include `(action, required_approver_class, state)` — §6.2's actual predicate — and a partial `(required_approver_class, created_at) WHERE state='pending'`, because the platform-review queue carries `org_id IS NULL` and is invisible to the `(org_id, state)` index. RLS: RPC-only, org-scoped read via the approval-queue RPC. Append-only-ish state machine; no DELETE.
 2. **`kernel.tickets.resale_state` gains the label `refund_hold`** (`ALTER TYPE … ADD VALUE`). Guard sets in RPC §7.2 (transfer preconditions), §7.4 (lock preconditions), §7.5 (scan preconditions) update accordingly — each is a `SPEC CORRECTION` riding this change.
 3. **`kernel.organization.payout_destination_set_by uuid`** — nullable, FK→`auth.users`, on delete restrict. Column-scoped exactly like `payout_destination_locked_until` (`org_owner`/`org_finance`/platform). Enables SoD-1 (§8.2).

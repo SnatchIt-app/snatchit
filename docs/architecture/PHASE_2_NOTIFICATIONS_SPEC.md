@@ -251,7 +251,7 @@ the dedupe-key mechanism generalises from one partial unique index to a three-la
 The `notify` schema (9 tables) · a type registry (C18) · a resolved preference model with a **DDL-enforced**
 mandatory class · the C12 event envelope as a physical outbox · per-channel delivery rows with retry and
 dead-letter · a template/localization structure · organizer announcements with abuse controls · a mobile
-notification centre · a venue-staff notification surface · 40 Phase-2 type keys (§2).
+notification centre · a venue-staff notification surface · 48 Phase-2 type keys (§2) *(F-P1-2)*.
 
 ### 1.8 Conflicts found — reported, not resolved
 
@@ -327,7 +327,7 @@ authority question stays open.
 Every row is an `ADDITIVE SCHEMA CHANGE` (a registry row), except the four marked *extends*, which are
 `NO SCHEMA CHANGE` on the type key itself.
 
-### 2.2 The catalogue — 40 Phase-2 types
+### 2.2 The catalogue — 48 Phase-2 types *(40 at first ratification; +6 N3 2026-08-29; +2 F-P1-2/`OR-17` deletion-lifecycle, Group D)*
 
 #### Group P — Purchase (4)
 
@@ -400,7 +400,7 @@ so it must be one the user can switch off. Time / venue / cancellation changes a
 platform-authored** types, so that a venue can neither smuggle an operational notice through the free-text path
 nor have one silenced by a user's announcement opt-out.
 
-#### Group F — Refund (4)
+#### Group F — Refund (10) *(4 at first ratification; N3 2026-08-29)*
 
 | Key | Trigger event | Ch. | Class | Dedupe key | Target | Params | Recipient derivation | Authority to emit |
 |---|---|---|---|---|---|---|---|---|
@@ -472,16 +472,27 @@ door anomaly reaches on-duty door staff **only while a session is live** (`:939`
 MVP ships **one global preference per user, not per `(user, venue)`** — the dashboard copy already commits to
 saying so (`:935`). `NEW DASHBOARD SURFACE`.
 
+#### Group D — Account deletion (2) — **binding delegation from `_governance/DELETION_STATE_MACHINE_SPEC.md` §3.1.4/§4.7 (`OR-13`; keys stamped F-P1-2/`OR-17`, 2026-08-29)**
+
+| Key | Trigger event | Ch. | Class | Dedupe key | Target | Params | Recipient derivation |
+|---|---|---|---|---|---|---|---|
+| `account_deletion_pending` | ACTIVE → DELETION_PENDING accepted (OR-13 §3.1 entry effect 4) | I P E | **MANDATORY** | `account_deletion_pending:<identity_id>:<deletion_requested_at>` *(re-request after withdrawal re-notifies; the timestamp is rewritten at each entry)* | `account_security` | `deletion_requested_at, deletion_block_reason` | self (§2.4 form 1 — the deleting identity); producer `kernel.request_account_deletion` (§20.17.1), best-effort class (`OR-14`) |
+| `account_deletion_completed` | DELETION_PENDING → ERASED terminal sweep pass (OR-13 §4.7) | E | **MANDATORY** | `account_deletion_completed:<identity_id>` *(terminal is once-ever)* | `account_security` | `deletion_requested_at` | self — email only (the account can no longer sign in); producer `kernel.sweep_deletion_pending` (§20.17.4), best-effort class; copy MUST NOT say "permanently deleted"/"all associated data" (DEMOG §8.5 / OR-13 §4.7 prohibition) |
+
+Both are MANDATORY **delivery** class and BEST-EFFORT **emit** class (`OR-14`; F-P1-2) — the §3.3 DDL guard
+applies; the emit never aborts the deletion machine. At terminal the in-app row would be unreadable
+(sign-in revoked): push/email are the live transports, sharpening O-N3.
+
 ### 2.3 Class totals
 
 | Class | Count | Types |
 |---|---|---|
-| **MANDATORY** | **24** | P: `purchase_confirmed`, `ticket_ready`, `purchase_failed` · T: `transfer_received`, `transfer_accepted` · R: `listing_sold`, `ownership_changed`, `payout_released`, `payout_failed`, `payout_on_hold` · E: `event_time_changed`, `event_venue_changed`, `event_cancelled`, `event_postponed` · F: all 4 · S: all 5 · V: `staff_payout_failed` |
+| **MANDATORY** | **32** | P: `purchase_confirmed`, `ticket_ready`, `purchase_failed` · T: `transfer_received`, `transfer_accepted` · R: `listing_sold`, `ownership_changed`, `payout_released`, `payout_failed`, `payout_on_hold` · E: `event_time_changed`, `event_venue_changed`, `event_cancelled`, `event_postponed` · F: all 10 · S: all 5 · V: `staff_payout_failed` · D: both |
 | `ON` | 14 | `wallet_pass_available`, `transfer_sent`, `transfer_declined`, `transfer_cancelled`, `transfer_expired`, `listing_bid_received`, `listing_outbid`, `event_reminder_24h`, `event_door_open`, `organizer_announcement`, `promoter_commission_accrued`, `staff_low_inventory`, `staff_sales_digest`, `staff_door_anomaly` |
 | `OFF` | 2 | `listing_created`, `promoter_attribution_recorded` |
-| **Total new** | **40** | |
+| **Total new** | **48** | *(count corrigendum F-P1-2/`OR-17`, 2026-08-29 — derived by enumeration)* |
 
-**Registry total after Phase 2: 40 new + 12 legacy inbox (§1.3a) + 15 legacy push (§1.3b) = 67 rows.**
+**Registry total after Phase 2: 48 new + 12 legacy inbox (§1.3a) + 15 legacy push (§1.3b) = 75 rows.**
 
 ### 2.4 Recipient derivation — the four legal forms, and the one that is illegal
 
@@ -540,7 +551,7 @@ consequences, all `VERIFIED`:
 1. **Every new type costs a migration and a client release.** `PrefKey` on the client is
    `keyof Omit<NotificationPreferences,'user_id'|'updated_at'>` (`src/types/index.ts:174-183`,
    `app/settings/notifications.tsx:39`), so a 7th column changes a generated type and requires an explicit
-   `TOGGLES` entry to render. 40 new types would mean 40 columns.
+   `TOGGLES` entry to render. 48 new types would mean 48 columns *(F-P1-2)*.
 2. **There is no channel dimension.** A user who wants email but not push cannot express it.
 3. **Nothing reads it (D-1).** The toggles are inert.
 
@@ -615,11 +626,11 @@ otherwise, that suppresses the durable record — so a user who has muted everyt
 auditable history in the app. This is what makes `ON`/`OFF` safe: turning a type off degrades *interruption*,
 never *record*.
 
-### 3.4 Why these 24 are mandatory
+### 3.4 Why these 32 are mandatory *(F-P1-2 recount)*
 
 | Family | Types | Reason |
 |---|---|---|
-| **Money leaving or returning to the user's own funds** | all 4 refund types, `payout_released`, `payout_failed`, `payout_on_hold`, `staff_payout_failed`, `listing_sold` | A person must be told when their money moves. A silenced "refund failed" leaves someone waiting for funds that will never arrive, with no way to know. |
+| **Money leaving or returning to the user's own funds** | all 10 refund/approval types, `payout_released`, `payout_failed`, `payout_on_hold`, `staff_payout_failed`, `listing_sold` | A person must be told when their money moves. A silenced "refund failed" leaves someone waiting for funds that will never arrive, with no way to know. |
 | **Account-security state change** | all 5 `security_*` | The entire value of a security alert is that an attacker cannot switch it off. A disableable security alert is worse than none, because it creates false confidence. |
 | **Custody change on an asset the user holds** | `ownership_changed`, `transfer_received`, `transfer_accepted` | Losing or gaining a ticket without being told is indistinguishable from theft. |
 | **Entitlement viability** | `event_cancelled`, `event_postponed`, `event_time_changed`, `event_venue_changed` | The user paid for admission at a time and place. If either changes, silence causes a missed event — a concrete, uncompensable loss. |
@@ -1112,7 +1123,7 @@ structured logging with no PII; deny-by-default failure mapping.
 `SPEC CORRECTION` to `PHASE_2_EDGE_FUNCTION_SPEC.md:75`: the placement table rejects a new push function with
 *"REJECTED → reuse `send-push` — already exists."* That verdict is correct about *transport* and wrong about
 *pipeline*: `send-push` has no batching (D-10), no receipt loop (D-2), no retry, no idempotency, no preference
-check (D-1), and rejects the very secret its own callers use (D-7). **Reusing it for 40 new types would propagate
+check (D-1), and rejects the very secret its own callers use (D-7). **Reusing it for 48 new types would propagate
 seven verified defects.** `notify-dispatch` is a new function; `send-push` stays for the legacy paths.
 
 ### 6.5 Client surfaces
@@ -1414,7 +1425,7 @@ list an implementing engineer writes tests from.
 
 | ID | Assertion | Catches |
 |---|---|---|
-| N-A1 | Inserting a `notify.preference` row for **any** type whose registry `delivery_class = 'mandatory'` **fails**, for every one of the 24 mandatory keys, as `service_role` | the whole §3.3 mechanism |
+| N-A1 | Inserting a `notify.preference` row for **any** type whose registry `delivery_class = 'mandatory'` **fails**, for every one of the 32 mandatory keys, as `service_role` | the whole §3.3 mechanism |
 | N-A2 | The same insert fails as `postgres` (superuser) — a CHECK binds every role | a "just use service_role" workaround |
 | N-A3 | `UPDATE notify.notification_type SET delivery_class='mandatory'` **fails** while any preference row exists for that key | silent reclassification |
 | N-A4 | After deleting those preference rows the same `UPDATE` **succeeds**, and no orphan rows remain | the cascade path is usable |
@@ -1509,8 +1520,8 @@ list an implementing engineer writes tests from.
 |---|---|---|---|
 | **O-N1** | **What gate is the `notify` schema at?** `CONFLICT-1`: C7 is `Ratified · Gate P · MVP` and names `notify`; all four implementation specs put it at Gate L / DO-NOT-BUILD. | Everything in §6 depends on the answer | Ratify the reading that C7's *eviction* is satisfied vacuously (the leaves were never in the kernel), **and separately** authorise `notify` at Gate P on its own merits — because the venue dashboard already has a binding dependency on it (`§16.5`), which no Gate-L object may have |
 | **O-N2** | **Is the outbox in Phase 2 or not?** `CONFLICT-2`: `SNATCH_IT_DOMAIN_ARCHITECTURE.md:1253` promises exactly one outbox table and a drainer on the existing cron; no implementation spec schedules one. | §4 is unbuildable without it; so is every "Async" row in the §6.1 event catalog | Build it. It is one table plus one RPC on a cron that already runs — the constitution's own anti-over-engineering budget |
-| **O-N3** | **Does transactional email exist in Phase 2?** D-16: one flag-gated Resend `fetch`, default off, no SDK, no shared helper, auth mail on a personal Gmail relay. Requires a provider account and SPF/DKIM/DMARC on `snatchitapp.com` (audit finding N6). | 19 of the 24 mandatory types name `E` | Decide before build. The design degrades safely (email rows go `suppressed`), but a mandatory money notice with **push as its only channel** is one revoked permission away from unreachable |
-| **O-N4** | **Which of the 24 mandatory types are *legally* compulsory, in which jurisdictions?** §3.4 is a product-and-ethics judgement, not a legal opinion. | Determines whether the class is a policy choice or a compliance control | Counsel review. The design is built so the answer changes one registry column |
+| **O-N3** | **Does transactional email exist in Phase 2?** D-16: one flag-gated Resend `fetch`, default off, no SDK, no shared helper, auth mail on a personal Gmail relay. Requires a provider account and SPF/DKIM/DMARC on `snatchitapp.com` (audit finding N6). | 24 of the 32 *(F-P1-2 recount)* mandatory types name `E` | Decide before build. The design degrades safely (email rows go `suppressed`), but a mandatory money notice with **push as its only channel** is one revoked permission away from unreachable |
+| **O-N4** | **Which of the 32 mandatory types are *legally* compulsory, in which jurisdictions?** §3.4 is a product-and-ethics judgement, not a legal opinion. | Determines whether the class is a policy choice or a compliance control | Counsel review. The design is built so the answer changes one registry column |
 | **O-N7** | **Migration numbering.** `CONFLICT-3`: specs say 071/071/073; 071–075 are applied. | The first migration cannot be written | **076+.** Also fix the plan's internal 087-vs-088 inconsistency (`:199` vs `:830`) |
 
 **Design decisions with a recommendation, needed before the relevant package:**
@@ -1545,7 +1556,7 @@ list an implementing engineer writes tests from.
 | # | Question | Answer | Full treatment |
 |---|---|---|---|
 | A1 | Organizer announcement as an injection vector | The audience is derived from custody and never supplied; the title is generated, not authored; the body is plain text with **no URLs at all** and is a bound parameter at every hop; `marketing` may draft but not release; dual control above 500 recipients; 3 per session, 30 min apart, per-**subject** not per-user. **A delivered push cannot be recalled** — so a mandatory 5-minute hold window converts "cannot recall" into "can cancel", and post-delivery revocation is honestly described as partial (in-app text replaced, undelivered rows suppressed, delivered pushes permanent). | §7 |
-| A2 | Mandatory vs preference | 24 of 40 types are MANDATORY: money moving to/from the user, account-security state, custody change, entitlement viability, the transaction record. Enforcement is **declarative DDL** — a composite FK `(type_key, delivery_class)` plus `CHECK (delivery_class <> 'mandatory')` makes the preference row *unrepresentable*, binds superusers and `service_role` alike, and turns reclassification into a forced, failing migration. The resolver's mandatory branch returns before the preference table is read. **Legal compulsion is O-N4** — §3.4 is an ethics judgement, not counsel. | §3.3, §3.4 |
+| A2 | Mandatory vs preference | 32 of 48 types are MANDATORY *(F-P1-2)*: money moving to/from the user, account-security state, custody change, entitlement viability, the transaction record. Enforcement is **declarative DDL** — a composite FK `(type_key, delivery_class)` plus `CHECK (delivery_class <> 'mandatory')` makes the preference row *unrepresentable*, binds superusers and `service_role` alike, and turns reclassification into a forced, failing migration. The resolver's mandatory branch returns before the preference table is read. **Legal compulsion is O-N4** — §3.4 is an ethics judgement, not counsel. | §3.3, §3.4 |
 | A3 | Duplicate financial notifications | Three keys, three layers. **The boundary is hop 3 — the notification row — keyed `refund_completed:<kernel_refund_id>`**, absorbed by a partial `UNIQUE(dedupe_key)` + `ON CONFLICT DO NOTHING` (the `057:50-52` construction). Not the envelope: C12 promises at-least-once and refuses exactly-once. Not the delivery attempt: a retry after a 5xx is a duplicate *attempt*, not a duplicate *fact*. Honest limit: a dispatcher dying between Expo's 200 and the `sent_at` write can re-buzz the device — both banners open the same single row, and for mandatory money types a rare duplicate beats a rare miss. | §4.2 |
 | A4 | Ownership change and privacy | The sender learns **nothing new** — they chose the recipient by exact-match lookup and confirmed a card, so `transfer_accepted` echoes only that display name; declines carry no reason text. The recipient learns the sender's display name (necessary and unavoidable) and nothing about price, provenance or contact details. The leak that is easy to miss is the **account-existence oracle**: `transfer_sent` copy and timing must be identical whether or not the address resolves. Lock-screen rule N-P1: no counterparty name and no amount in any custody/money push body. | §8.1–§8.4 |
 | A5 | Event reminder / door time at scale | A **sweep**, not a trigger — there is no per-ticket state change. `notify.schedule` + `notify.sweep_scheduled()` on the 5-minute cron, using the traced `0600` shape: `pg_try_advisory_xact_lock` early-return, `FOR UPDATE SKIP LOCKED` batch claim, a **set-based cursor-bounded `INSERT…SELECT…ON CONFLICT DO NOTHING`** capped at 5 000 per tick, and a watermark that advances only on success. **If it runs twice**, three guards catch it and only the third is load-bearing: `UNIQUE(dedupe_key)` on `event_reminder_24h:<session_id>:<ticket_id>` — the same argument `0600:27-29` makes about its own lock, *"correctness does not depend on the advisory lock."* Every failure mode collapses to the same no-op. | §4.5 |
@@ -1558,7 +1569,7 @@ list an implementing engineer writes tests from.
 | Classification | Elements |
 |---|---|
 | `NO SCHEMA CHANGE` | `public.notifications` + its RLS/grant posture · `public.enqueue_notification` · `public.notification_preferences` · `public.transfer_notifications` · `public.rate_limits` / `check_rate_limit` · the `pg_net`+Vault trigger transport · the `pg_cron` heartbeat · `send-push`, `notify-transfer`, `notify-report` · `safeInternalPath` · all 12 legacy inbox types and 15 legacy push types · the 4 *extends* rows in §2.2 |
-| `ADDITIVE SCHEMA CHANGE` | the `notify` schema (9 tables) · 67 registry rows · `public.push_tokens` +4 columns · `catalog.event_session.session_version` (Δ-N1) · `kernel.identity_ext.locale` (Δ-N2) · 5 `catalog.platform_config` seeds · 2 new pg_cron jobs |
+| `ADDITIVE SCHEMA CHANGE` | the `notify` schema (9 tables) · 75 registry rows *(F-P1-2)* · `public.push_tokens` +4 columns · `catalog.event_session.session_version` (Δ-N1) · `kernel.identity_ext.locale` (Δ-N2) · 5 `catalog.platform_config` seeds · 2 new pg_cron jobs |
 | `SPEC CORRECTION` | `CONFLICT-1` `notify` gate · `CONFLICT-2` the missing outbox · `CONFLICT-3` migration numbering (076+, and 087-vs-088) · `CONFLICT-4` role vocabulary · `CONFLICT-5` org-role inheritance · Edge spec `:75` "reuse `send-push`" · `send-push`'s single-secret auth (D-7) · the `058` `link`-by-concatenation pattern |
 | `NEW RPC` | `notify.emit_event` · `enqueue` · `channel_enabled` · `drain_outbox` · `sweep_scheduled` · `claim_deliveries` · `record_delivery_result` · `get_inbox` · `get_unread_count` · `mark_read` · `mark_all_read` · `dismiss` · `get_preference_matrix` · `set_preference` · `register_push_token` · `revoke_push_token` · `resolve_web_link` · `report_announcement` · `draft_announcement` · `preview_announcement_audience` · `approve_announcement` · `cancel_announcement` · `revoke_announcement` — **23** |
 | `NEW EDGE FUNCTION` | `notify-dispatch` · `notify-receipts` (+ shared modules `_shared/notify-auth.ts`, `_shared/email.ts`) |

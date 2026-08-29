@@ -878,7 +878,7 @@ sentinel (§1.16) to its write set.
   `cause_ref`; **partial `(hold_state, created_at) WHERE hold_state <> 'none'`** — the platform risk queue,
   which is a small slice of a large table and is invisible to the two `(payee, status)` indexes.
 - **RLS:** money-custody-RPC-only; payee reads own via scoped RPC.
-- **Write authority:** `kernel.close_settlement` (INSERT `pending`) / *the native-sale payout path — still a PHRASE naming no function; an open MISSING CONTRACT in the canonical registry (`RC-4`), not a writer* /
+- **Write authority:** `kernel.close_settlement` (INSERT `pending`) / *the native-sale payout path — a Gate-M-deferred writer (R-38 CLOSED-AS-GATED 2026-08-29, `C135`; fence `c` encoding): contracted by the Gate-M amendment, never invented at build time* /
   `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, **or —
   probation arm — `hold_state := 'probation_hold'` + `hold_reason_code` + `held_at` on the EXISTING `pending`
   row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
@@ -1153,6 +1153,59 @@ the function. Both surfaces are owned elsewhere and the placement is settled her
 - `T-SCHEMA-REFUND-04`: **the operand test.** `refund_exposure_minor(payment)` **excludes** a `failed`
   refund and **includes** a `submitted` one — asserted on the aggregate, not on the row, because the label
   set exists to feed that aggregate and a writer that ignores §17.1a's predicate is invisible from the row.
+
+### 1.10a `kernel.identity_obligation` — money-custody-RPC-only (`F-P2-1` / `OR-21`)
+
+**The ledger home for a realized, identity-scoped platform loss** — a chargeback or clawback whose recovery
+from the debtor cannot be executed in Phase 2 — so a post-tombstone (or pre-tombstone) debt is a **row with a
+resolution act**, never a silent absorption; and the storable operand of deletion predicate **BP-10**
+(ODR-16 16c Q4; `_governance/DELETION_STATE_MACHINE_SPEC.md`). **NOT** a balance, receivable ledger, reserve,
+netting or clawback-execution instrument — MONEY §9.4 stands unamended; the full Fan-Liability home remains
+Gate-M (§11). One table, two verbs, one read predicate; no cron, no notification producer, no RN/dashboard
+surface.
+
+- **PK:** `obligation_id` uuid.
+- `debtor_identity_id` uuid — not null, FK→`auth.users(id)` ON DELETE RESTRICT. **Tombstone-safe by
+  construction:** under 16a the `auth.users` row is never deleted, so this references a possibly-ERASED
+  identity as an opaque uuid and nothing else; the row carries **zero** profile/erased data
+  (`CUSTODY-DEL-1` untouched).
+- `origin_kind` text — not null, CHECK in (`chargeback` · `refund_clawback`). **Closed enum, derived not
+  invented:** `chargeback` = a card dispute lost against a payment whose proceeds the debtor already holds
+  (native: edge §4 `charge.dispute.closed`; live rail: `public.disputes` lost / `transfers.status='reversed'`,
+  MIG 024). `refund_clawback` = a platform-funded refund (`kernel.refund.reason_code` in the
+  non-`buyer_request` half of §1.10's ratified set) issued after the debtor's proceeds were
+  disbursed/retained, with no recovery instrument in Phase 2. Org-side negative-settlement carry is
+  **deliberately excluded** — org debt is BP-11's org's (C31, Gate-M). Extending the enum requires a
+  ratification row.
+- `origin_ref` uuid — not null. Soft reference, **deliberately no hard FK** (the `kernel.payout.cause_ref`
+  discipline: it points across schemas/rails without an ordering cycle). Native origins existence-verified by
+  the writer; live-rail origins attested by the audited caller.
+- `stripe_dispute_ref` text — nullable, **write-once**, partial UNIQUE where non-null (the
+  `stripe_refund_ref`/`stripe_transfer_ref` external-join-key discipline).
+- `amount_minor` integer — not null, CHECK > 0. **Fixed at origin, immutable forever.** No partial recovery
+  (partial/netted recovery is double-entry business — Gate-M).
+- `currency` text — not null default `'USD'` (C13).
+- `status` text — not null default `'outstanding'`, CHECK in (`outstanding` · `recovered` · `written_off`).
+  Forward-only, single transition, terminal XOR — the `kernel.refund`/`kernel.payout` machine pattern; guarded
+  single-writer under `FOR UPDATE`.
+- `resolution_reason_code` text · `resolved_by` uuid FK→`auth.users` (server-derived, C35) · `resolved_at`
+  timestamptz — nullable, with the pairing CHECK (§1.9/§1.10 discipline): `status='outstanding'` ⇔
+  (`resolution_reason_code` IS NULL AND `resolved_at` IS NULL).
+- `created_at`, `updated_at` (`CATEGORY:set_updated_at`).
+- **Uniques:** `UNIQUE(origin_kind, origin_ref)` (one obligation per origin fact — mirrors the payout
+  idempotency triple); partial UNIQUE on `stripe_dispute_ref`.
+- **Indexes:** PK; the two uniques; **partial `(debtor_identity_id) WHERE status='outstanding'` — this index
+  IS the BP-10 operand read** (`kernel.has_outstanding_obligations`, RPC §20.7.12).
+- **Immutability:** origin fields write-once (INSERT-only); no UPDATE except the guarded transition +
+  resolution triple; **no DELETE ever** (GP-2; `REVOKE DELETE` outright).
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `kernel.record_identity_obligation`
+  (§20.7.10, service_role/webhook) · `kernel.resolve_identity_obligation` (§20.7.11, edge-fronted
+  `platform_risk`/`platform_admin`).
+- **RLS:** money-custody-RPC-only — deny-all to every client role, `REVOKE ALL` from `anon`/`authenticated`;
+  `service_role` A(machine). No debtor read surface in MVP; the user-visible trace is
+  `deletion_block_reason = 'outstanding_obligation'` on the deletion machine.
+- **Locks:** own row only — no SSCAS membership; C28's closed fifteen and the global lock order stand.
+- **Tests:** `T-SCHEMA-OBLIG-01`…`-07` (RPC §20.7.12).
 
 ### 1.11 `kernel.reserve` — **EXT (Gate M stub only)**
 - **Purpose:** funding source for instant payout / cancellation refunds / C25 auto-refund (R4/C29). In MVP
@@ -3843,6 +3896,7 @@ These are documented so they slot in additively; **do not create them in the MVP
 only kernel/catalog/venue/market MVP tables above).
 
 ### Gate M (before native resale + instant payout)
+- **The Gate-M amendment must reconcile with `kernel.identity_obligation` (§1.10a — built in MVP under `OR-21`): outstanding rows seed the receivable/Fan-Liability home; the two verbs upgrade body-only (SEAM-2a); no row is rewritten or deleted.**
 - **`kernel.reserve` (full) + `kernel.clawback` + `kernel.receivable` + `kernel.ledger_entry`** — the
   **double-entry money-ledger** beside the frozen Stripe core (C29/C30/C31/R4/R5/R25). Funds instant payout,
   cancellation refunds, C25 auto-refund; represents fan-side chargeback/clawback liability; balances the

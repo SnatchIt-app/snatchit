@@ -10,6 +10,7 @@ register the packages build against.
 | JOB | FUNCTION | PKG | CADENCE | MECHANISM | IDEMPOTENCY KEY | LOCKING / CONCURRENCY | TEST WITNESS |
 |---|---|---|---|---|---|---|---|
 | invite expiry | `kernel.sweep_expired_org_invites` | 077 | 2 min | `cron.schedule` in 077 | re-entrant (status predicate) | `FOR UPDATE SKIP LOCKED`, per-row txn | `T-RPC-ORG-06` |
+| deletion completion sweep | `kernel.sweep_deletion_pending` | 077 | 2 min | `cron.schedule` in 077 (`OR-17`) | re-entrant; full predicate re-evaluation every pass (the half-completion detector) | `SKIP LOCKED` over the pending partial index; terminal entry idempotent | §20.17 test set |
 | atom expiry | `kernel.sweep_expired_ticket_atoms` | 079 | 2 min | `cron.schedule` in 079 | re-entrant | terminal-states-untouched; batch `p_limit` | `T-SCHEMA-EXPIRY-01` |
 | inventory-hold expiry | `venue.sweep_expired_inventory_holds` | 081 | 2 min | `cron.schedule` in 081 | re-entrant | `SKIP LOCKED`; poison-quarantine per row | §20.3.3's tests |
 | wallet pass lifecycle | `kernel.sweep_wallet_pass_lifecycle` | 083 | 15 min | `cron.schedule` in 083 | re-entrant | per-pass; supersede idempotent | WALLET §12 set |

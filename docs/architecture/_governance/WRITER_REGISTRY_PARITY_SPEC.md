@@ -160,8 +160,9 @@ kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel
 kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|OK
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|7.1;7.2;7.3|y|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.7.3;20.7.4;20.7.5;20.16|y|OK
-kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state|rpc;helper;rpc;rpc;rpc;webhook|10.2;20.7.2;10.3;11.2;11.3;20.7.6|y|MISSING_CONTRACT
+kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state;kernel.GATEM_NATIVE_SALE_PAYOUT|rpc;helper;rpc;rpc;rpc;webhook;rpc|10.2;20.7.2;10.3;11.2;11.3;20.7.6;R-38|y;y;y;y;y;y;c|OK
 kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state|rpc;rpc;cron;webhook|11.4;20.7.1;12.3;20.7.7|y|OK
+kernel.identity_obligation|kernel.record_identity_obligation;kernel.resolve_identity_obligation|webhook;rpc|20.7.10;20.7.11|y|OK
 kernel.reserve|-|-|NONE-wired-in-MVP|-|OK
 kernel.admin_audit|kernel.record_money_denial;CATEGORY:every-privileged-RPC-in-txn|rpc;rpc|17.9;0.3|y|OK
 kernel.approval_request|kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.request_org_payout;catalog.set_platform_config;kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc;rpc;cron;rpc;rpc;rpc;rpc|17.1;17.2;17.3;17.4;10.3;20.2.1;20.1.4;20.1.4|y|OK
