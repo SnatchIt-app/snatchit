@@ -144,3 +144,14 @@ DEMOG; seeded nowhere; `get_holder_mix` reads it live and no document states the
 `092`) · PR #28's merged body will extend delete_account_cleanup's write set to SIX tables (three new
 fence rows owed at merge — §20.15 carries the obligation) · the fingerprint resale-history residual
 (resale links born NULL — recorded beside the accepted T4 gap, PROMO §1.8 semantics unchanged).
+
+
+## SPRINT 2 — 2026-08-29 (owner ruling OR-10 + eight agents, one lead)
+
+**Gate 11 → 6.** Authored: §20.1.6/§20.1.7 (invites), §20.7.9 (order cancel), §20.8.7 (sale-paid),
+§17.20a (the J-12 tombstone — shape derived, names authored). Removed under OR-5 reduction:
+notify.schedule + notify.announcement rows. identity_channel_state contracted (push arm). B-3 executed
+(65 sites). ODR-16 → READY (packet). ODR-1 → READY (amendment slot-complete; 092.depends_on = 8,
+emit_event = 076, derived floor 61). Red-team: 1×P0 (the nonexistent heartbeat — premise corrected
+everywhere, mechanism filed), 5×P1 + 9×P2 swept. **The five remaining missing contracts are ALL
+owner-gated (R-37, R-38, R-39, R-9×2) — zero mechanically-fixable writer defects remain.**

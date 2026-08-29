@@ -4167,7 +4167,7 @@ strictly below the money plane in the lock order (§0.9) and can never invert it
 
 **NOT dependent on the outbox** (verified, so the blast radius is not overstated): CRM export
 (`pg_cron` + `pg_net` + the `064` claim-lease on `venue.export_job.lease_until`), demographics
-(`pg_cron` only), promoter codes (no async at all), money authority (its own
+(`pg_cron` only), ~~promoter codes (no async at all)~~ *(struck 2026-08-29, `B-5`/`OR-3`: `#31` KEEP and `#32` CARRIER-RELEVANT — two promoter events are outbox-relevant; ODR-2 §6's "sharpest error")*, money authority (its own
 `kernel.sweep_expired_refund_requests`, which is separately marked *not optional*).
 
 **Owner ruling required:** *build the outbox in Phase 2, per DA:1253 — or amend DA:1253 to withdraw the

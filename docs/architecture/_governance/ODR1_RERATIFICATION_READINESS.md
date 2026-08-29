@@ -101,6 +101,17 @@ stays 16"*. Parity is not broken by it, but **any reader treating it as the DAG 
 
 ## The seven blockers
 
+> ### SPRINT-2 UPDATE 2026-08-29 — B-3 EXECUTED; B-7 DERIVED. READY = the signature itself.
+>
+> **`B-3` CLOSED** (commit `0188766` — the OR-1 revert unit, 65 sites, X-6 preserved; two residues ride
+> the amendment). **`B-7` DERIVED**: `emit_event` = `076` (mechanical — the `C76` forward-reference test
+> + the contract's own negative space); **`092.depends_on` = `{076,077,078,079,080,082,085,090}`,
+> invariant across R1–R5**; the caller packages owe declaration-only `→076` edges; derived floor **61**;
+> the only underivable edge left is the unplaced `is_sensitive` registry's reader. **B-1/B-2/B-6-band
+> remain what they were: the owner's signature act.** The amendment is drafted and slot-complete:
+> `_governance/ODR1_AMENDMENT_DRAFT.md`. **READY FOR OWNER RATIFICATION: YES — nothing mechanical
+> remains between this document and the signature.**
+
 > ### SPRINT UPDATE 2026-08-29 (parallel convergence) — TWO CLOSED, ONE SHARPENED, ONE CORRECTED
 >
 > **`B-4` CLOSED — MECHANICAL.** Both owed edges applied to all four surfaces (`078 → 086`,
