@@ -1,5 +1,29 @@
 # `ODR-1` — Re-ratification Readiness
 
+> ## RECOMPUTED 2026-08-28 AFTER THE `WRITER` OWNER RULING — **VERDICT UNCHANGED: NOT READY**
+>
+> The `WRITER` ruling and the `X-1`/`X-6` repairs are **writer-membership** changes. They touch no
+> package number, no dependency edge, no `CREATE ROLE`, and no band statement — so **none of the six
+> blockers below moves**, and I re-derived the structural facts rather than assuming that.
+>
+> Independently re-derived from the registry JSON at HEAD, this pass:
+> ```
+> PACKAGES     076 077 078 079 080 081 082 083 084 085 086 087 088 089 090 091
+> COUNT 16 · BAND 076-091 · EDGES 45 · GAPS none · DUPLICATES none
+> ALL FORWARD true · ACYCLIC yes (every edge source<target, so a cycle needs a<a)
+> 092 in packages[] : FALSE  (it appears only as `package_if_gate_p` in a conditional)
+> ```
+> And the four items the ruling set specifically requires be checked, all still failing:
+> ```
+> crm_export_builder in registry        12 occurrences, incl. 2 x CREATE ROLE   REJECTED BY OR-1
+> "CONTINGENT ON RLS MD-2 ... NOT taken"  still present                          STALE CONDITIONAL
+> 16-package / 076-091 claims             12 sites in the registry alone          FALSIFIED BY OR-5
+> COND-A owner_ruling_required: true      3 sites                                 FALSIFIED BY OR-4
+> ```
+> **No migration file `092` was created, and none should be** — `092` is a *design-registry* placement,
+> not an implementation artifact, and authoring it is separately blocked by `OR-5`'s three
+> pre-authoring blockers.
+
 **2026-08-28.** Every number below is derived by a parser over the artifacts, not read from a stated
 figure. **Nothing was ratified.**
 

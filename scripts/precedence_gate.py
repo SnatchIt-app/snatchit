@@ -13,6 +13,7 @@ about anything else.
   E  recency is never used as a resolver, anywhere in the corpus
   F  ambiguous or unresolved contradictions fail closed
   G  a ratified correction that declares N propagation sites is detectable in all N
+  H  the canonical writer registry is well-formed and every derived list agrees with it
 
 Anti-vacuity: `--selftest` runs the checkers against embedded fixtures that MUST
 fail. If a fixture passes, the gate itself is broken and exits non-zero. CI runs
@@ -28,6 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GOV  = "docs/architecture/_governance"
 MAP  = "docs/architecture/PHASE_2_SUBJECT_MATTER_OWNER_MAP.md"
 CONT = f"{GOV}/ODR128_CONTRADICTION_RESOLUTION.md"
+WREG = f"{GOV}/WRITER_REGISTRY_PARITY_SPEC.md"
 RATIF= f"{GOV}/PHASE_2_RATIFICATION_RECORD.md"
 
 # Rule 3 of OR-6: recency has no authority. These phrases, used as a RESOLVER,
@@ -44,6 +46,8 @@ RECENCY_ALLOWLIST = {
     f"{GOV}/PHASE_2_OWNER_DECISION_REGISTER.md",
     f"{GOV}/ODR7_PRECEDENCE_CONSEQUENCE_MAP.md",
     f"{GOV}/PRECEDENCE_CI_GATE_SPEC.md",
+    f"{GOV}/WRITER_OWNER_RULING_CONSEQUENCE_MAP.md",
+    WREG,
 }
 
 def read(rel):
@@ -86,9 +90,77 @@ def parse_contradictions(text):
         cid, sid, res, winner, sites = f
         if res not in ("OWNER", "FALLBACK", "UNRESOLVED"):
             raise ValueError(f"contradictions line {n}: resolution must be OWNER|FALLBACK|UNRESOLVED")
-        rows.append(dict(id=cid, subject=sid, res=res, winner=winner,
+        # A decomposed contradiction (one call contract, several subjects with different
+        # owners) is expressed as a comma-separated subject list. Found necessary by the X-8
+        # analysis: a single-subject field cannot express a contract whose parts have
+        # different owners, and silently collapsing it to one subject is a subject
+        # substitution — the error the gate caught on X-4.
+        subs = [x.strip() for x in sid.split(",") if x.strip()]
+        rows.append(dict(id=cid, subject=sid, subjects=subs, res=res, winner=winner,
                          sites=[s.strip() for s in sites.split(";") if s.strip()], line=n))
     return rows
+
+KINDS = {"rpc", "trigger", "cron", "helper", "webhook"}
+
+def parse_writer_registry(text):
+    """TABLE|WRITERS(;)|KINDS(;)|RPC_SECTION|PARITY(OK|DIVERGENT|MISSING_CONTRACT)"""
+    block = fenced(text, "writer-registry")
+    if block is None: raise ValueError("no ```writer-registry fenced block")
+    rows = []
+    for n, line in enumerate(block.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"): continue
+        f = [c.strip() for c in line.split("|")]
+        if len(f) != 5: raise ValueError(f"writer-registry line {n}: expected 5 fields, got {len(f)}")
+        tbl, writers, kinds, sec, parity = f
+        w = [x.strip() for x in writers.split(";") if x.strip()]
+        k = [x.strip() for x in kinds.split(";") if x.strip()]
+        if parity not in ("OK", "DIVERGENT", "MISSING_CONTRACT"):
+            raise ValueError(f"writer-registry line {n}: parity must be OK|DIVERGENT|MISSING_CONTRACT")
+        rows.append(dict(table=tbl, writers=w, kinds=k, section=sec, parity=parity, line=n))
+    return rows
+
+def check_H(rows, err):
+    """The writer registry is the artifact the WRITER owner ruling created. It is checked
+    structurally: the gate cannot read prose, but it CAN refuse a registry that is
+    self-inconsistent, that omits the writer kinds the ruling requires be included, or that
+    admits a table whose canonical writer has no contract."""
+    seen = set()
+    for r in rows:
+        if r["table"] in seen:
+            err(f"H: table {r['table']} appears twice in the writer registry (line {r['line']})")
+        seen.add(r["table"])
+        if "." not in r["table"]:
+            err(f"H: writer-registry table {r['table']!r} is not schema-qualified (line {r['line']})")
+        if r["writers"] == ["-"] and r["kinds"] == ["-"]:
+            pass
+        elif len(r["writers"]) != len(r["kinds"]):
+            err(f"H: table {r['table']} has {len(r['writers'])} writers but {len(r['kinds'])} kinds — "
+                f"every writer needs a kind, or a trigger/cron writer can be dropped silently")
+        for k in ([] if r["kinds"] == ["-"] else r["kinds"]):
+            if k not in KINDS:
+                err(f"H: table {r['table']} has unknown writer kind {k!r} (allowed: {sorted(KINDS)})")
+        for w in ([] if r["writers"] == ["-"] else r["writers"]):
+            # `CATEGORY:` is the compliant way to say "every privileged RPC, in-txn" without
+            # maintaining a list the ruling would then require to be exact.
+            if w.startswith("CATEGORY:"): continue
+            if "." not in w:
+                err(f"H: table {r['table']} writer {w!r} is not schema-qualified")
+        if r["parity"] == "MISSING_CONTRACT":
+            err(f"H: table {r['table']} has a structurally required writer with NO function contract. "
+                f"The WRITER ruling: that is a MISSING CONTRACT and readiness fails. It may not be "
+                f"fixed by adding the function to a derived schema or RLS document.")
+        if r["parity"] == "DIVERGENT":
+            err(f"H: table {r['table']} — a derived document's writer list does not match the canonical "
+                f"registry. Derived lists must agree EXACTLY or point at the registry.")
+        if not r["writers"] or r["writers"] == ["-"]:
+            # A table with no writer is admissible ONLY with a stated reason, so an
+            # accidentally-empty row cannot pass as a deliberate one.
+            if not any(t in r["section"].upper()
+                       for t in ("NONE", "SEED-ONLY", "EXT-", "CONDITIONAL", "NOT-BUILT")):
+                err(f"H: table {r['table']} is registered with no canonical writer and no stated "
+                    f"reason. Say why (NONE / SEED-ONLY / EXT- / CONDITIONAL / NOT-BUILT) or name "
+                    f"the writer.")
 
 # ── checks ──────────────────────────────────────────────────────────────────
 def check_A(rows, err):
@@ -106,8 +178,9 @@ def check_A(rows, err):
 def check_B(cons, rows, err):
     ids = {r["id"] for r in rows}
     for c in cons:
-        if c["subject"] not in ids:
-            err(f"B: contradiction {c['id']} names subject {c['subject']} which is not in the owner map")
+        for sub in c.get("subjects", [c["subject"]]):
+            if sub not in ids:
+                err(f"B: contradiction {c['id']} names subject {sub} which is not in the owner map")
 
 def check_C(rows, err):
     for r in rows:
@@ -117,10 +190,12 @@ def check_C(rows, err):
 def check_D(cons, rows, err):
     fb = {r["id"]: r["fallback"] for r in rows}
     for c in cons:
-        if c["res"] == "FALLBACK" and fb.get(c["subject"]) != "YES":
-            err(f"D: contradiction {c['id']} resolves by ratified-correction FALLBACK, but the owner map "
-                f"says subject {c['subject']} has an owner (CORRECTION_FALLBACK=NO). OR-6 rule 2: a "
-                f"correction may not override an assigned owner.")
+        if c["res"] == "FALLBACK":
+            for sub in c.get("subjects", [c["subject"]]):
+                if fb.get(sub) != "YES":
+                    err(f"D: contradiction {c['id']} resolves by ratified-correction FALLBACK, but the "
+                        f"owner map says subject {sub} has an owner (CORRECTION_FALLBACK=NO). OR-6 rule "
+                        f"2: a correction may not override an assigned owner.")
 
 def check_E(err):
     pats = [re.compile(p, re.I) for p in RECENCY_RESOLVERS]
@@ -143,9 +218,11 @@ def check_F(cons, rows, err):
         if c["res"] == "UNRESOLVED":
             err(f"F: contradiction {c['id']} is UNRESOLVED. OR-6 rule 4 requires it to fail closed until "
                 f"it is resolved explicitly — the implementer does not choose.")
-        elif c["res"] == "OWNER" and c["subject"] in amb:
-            err(f"F: contradiction {c['id']} claims OWNER resolution but subject {c['subject']} is "
-                f"AMBIGUOUS in the owner map.")
+        elif c["res"] == "OWNER":
+            for sub in c.get("subjects", [c["subject"]]):
+                if sub in amb:
+                    err(f"F: contradiction {c['id']} claims OWNER resolution but subject {sub} is "
+                        f"AMBIGUOUS in the owner map.")
         if c["res"] != "UNRESOLVED" and not c["sites"]:
             err(f"F: contradiction {c['id']} is resolved but names no transcription site.")
         for s in c["sites"]:
@@ -195,6 +272,24 @@ FIXTURES = [
         [dict(id="X", subject="s", owner="AMBIGUOUS", section="", derived=[], fallback="NO", line=1)], e)),
     ("G: correction not detectable at a declared site", lambda e: check_G(
         "```propagation\nC999 -> docs/architecture/PHASE_2_SUBJECT_MATTER_OWNER_MAP.md\n```", e)),
+    ("B: decomposed row with one unregistered subject", lambda e: check_B(
+        [dict(id="K1", subject="A,NOPE", subjects=["A","NOPE"], res="UNRESOLVED", winner="", sites=[], line=1)],
+        [dict(id="A", subject="s", owner="a.md", section="", derived=[], fallback="NO", line=1)], e)),
+    ("H: writer count != kind count (a trigger writer could vanish)", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b","c.d"], kinds=["rpc"], section="", parity="OK", line=1)], e)),
+    ("H: unknown writer kind", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b"], kinds=["magic"], section="", parity="OK", line=1)], e)),
+    ("H: MISSING_CONTRACT must fail readiness", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="MISSING_CONTRACT", line=1)], e)),
+    ("H: DIVERGENT derived list must fail", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="DIVERGENT", line=1)], e)),
+    ("H: empty writer list with no stated reason", lambda e: check_H(
+        [dict(table="k.t", writers=["-"], kinds=["-"], section="17.9", parity="OK", line=1)], e)),
+    ("H: duplicate table row", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="OK", line=1),
+         dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="OK", line=2)], e)),
+    ("H: unqualified writer name", lambda e: check_H(
+        [dict(table="k.t", writers=["bare"], kinds=["rpc"], section="", parity="OK", line=1)], e)),
 ]
 
 def selftest():
@@ -234,15 +329,30 @@ def main():
     check_A(rows, err); check_B(cons, rows, err); check_C(rows, err)
     check_D(cons, rows, err); check_E(err); check_F(cons, rows, err)
     check_G(read(RATIF), err)
+    wreg_text = read(WREG)
+    wrows = []
+    if wreg_text is not None:
+        try:
+            wrows = parse_writer_registry(wreg_text)
+        except ValueError as e:
+            print(f"::error::precedence gate: {WREG}: {e}"); sys.exit(2)
+        check_H(wrows, err)
     amb = [r["id"] for r in rows if r["owner"] == "AMBIGUOUS"]
     print(f"subjects registered : {len(rows)}")
     print(f"ambiguous subjects  : {len(amb)}" + (f"  ({', '.join(amb)})" if amb else ""))
     print(f"contradiction rows  : {len(cons)}")
+    if wrows:
+        print(f"writer tables       : {len(wrows)}")
+        entries = sum(len([w for w in r["writers"] if w != "-"]) for r in wrows)
+        distinct = {w for r in wrows for w in r["writers"]
+                    if w != "-" and not w.startswith("CATEGORY:")}
+        print(f"writer entries      : {entries}  (a function writing N tables counts N times)")
+        print(f"distinct writers    : {len(distinct)}")
     if errors:
         print(f"\nPRECEDENCE GATE FAILED — {len(errors)} violation(s) of owner ruling OR-6:")
         for e in errors: print(f"::error::{e}")
         sys.exit(1)
-    print("\nprecedence gate OK — A/B/C/D/E/F/G all hold")
+    print("\nprecedence gate OK — A/B/C/D/E/F/G/H all hold")
     sys.exit(0)
 
 if __name__ == "__main__":

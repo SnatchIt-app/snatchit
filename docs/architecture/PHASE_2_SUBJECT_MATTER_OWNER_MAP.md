@@ -24,28 +24,60 @@ corpus does not yet have."* This is that map.
 
 ```
 TOTAL SUBJECTS : 39
-AMBIGUOUS      :  4   (WRITER · PAY-STATE · RESALE-WRITER · EDGE-PKG)
+AMBIGUOUS      :  2   (PAY-STATE · EDGE-PKG)
 FALLBACK=YES   :  2   (HELPER-SET · OUTBOX)
 ```
 
-## The four AMBIGUOUS subjects — and why each is not an oversight
+> ### `WRITER` WAS AMBIGUOUS AND IS NOW RULED — 2026-08-28
+>
+> This entry could not be derived from the corpus. It required an **owner act**, and got one.
+>
+> The map's first edition recorded `WRITER` as **AMBIGUOUS** because write authority had **three
+> declared owners and none deferred**: RLS claimed it in the first person, RLS's own binding-inputs
+> section assigned it to the schema spec, and RLS §11.0 assigned its EXEC rows to `ROLE_MODEL` §5.3 —
+> with ratified tags on both sides of the content dispute. Two independent reviewers reached opposite
+> conclusions, and under rule 4 that disagreement failed closed rather than being decided quietly.
+>
+> **The owner has now ruled: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` owns the canonical writer registry.**
+> Structure → schema. Authorization → RLS. Placement → the migration plan. Function-contracts own
+> **membership**.
+>
+> **The registry is not "the client-callable RPCs".** It must include `SECURITY DEFINER` RPCs,
+> internal helpers that write authoritative state, **trigger functions**, **cron/sweep functions**,
+> webhook-facing DB functions, and contracted server-only writers. **A writer is not omitted because
+> it is invisible to PostgREST.** And a writer that is structurally required but carries **no function
+> contract** is a **MISSING CONTRACT** that fails readiness — it may not be quietly added to a derived
+> schema or RLS document instead.
+>
+> **Why this and not something else:** the architecture already assigns function behaviour and
+> canonical function names to the function-contract deliverable, and the migration plan already treats
+> the physical package as DDL substrate while placing engine function bodies in that deliverable.
+> Letting three documents define membership independently is what produced the 4-vs-10 dispute.
 
-**`WRITER` — write authority. THREE candidate owners, all declared, none deferring.**
-This is the most consequential entry in the map, and it is the one my two independent reviewers
-disagreed about — which is itself the evidence.
-1. **RLS claims it in the first person:** *"this table **is** the authority model for every money and
-   custody write."*
-2. **RLS's own binding-inputs section assigns it to the schema spec:** *"the authoritative table set,
-   each table's stated RLS classification, **write authority**, and read authority."*
-3. **RLS §11.0 assigns its own EXEC rows to `ROLE_MODEL` §5.3:** *"where the two disagree, §5.3
-   governs and §11 is the defect."*
-And the content is in dispute: RLS names **four** writers of `kernel.tickets`; RPC contracts **ten**
-and says so in capitals. **Both sides carry ratified tags** (`GP-3a` vs `C89`). `OR-6` rule 4 names
-this case exactly — *"two same-authority sources conflict … or both sides carry valid ratified tags"*
-— so it **fails closed**, and contradictions `X-1` and `X-6` fail with it.
-*Settled by:* one owner clause naming a single owner for "which functions write table T", or an
-explicit statement that the schema spec's write-authority column governs and RLS §5/§7.x are its
-roll-up (the shape `EXEC-DERIVED` already uses for grants).
+## `RESALE-WRITER` COLLAPSED INTO `WRITER` — the proof
+
+The `WRITER` ruling **mechanically collapses** this subject, and it is worth showing why rather than
+asserting it. `RESALE-WRITER` is the question *"which functions may write
+`kernel.tickets.resale_state`"* — that is **the subject `WRITER`, applied to one column**. It is not a
+different kind of question, so it cannot have a different owner. **Ownership is therefore no longer
+ambiguous: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` owns it.**
+
+**But its openness does not collapse, and the distinction matters.** The owner document says outright
+*"This document does not choose"*, and `ODR-38` asks the owner to pick between **(a)** extending the
+`lock_ticket`/`unlock_ticket` overlay to carry `refund_hold` so the column has exactly one writer
+pair, or **(b)** keeping the four money RPCs' direct writes and saying so explicitly. **That is a
+design decision, not an ownership dispute** — and it changes the subject's character completely:
+
+| before | after |
+|---|---|
+| ownership ambiguous → **rule 4, fails closed** | ownership settled → **not a rule-4 case** |
+| unresolvable until an owner map clause exists | resolvable the moment `ODR-38` is ruled |
+
+**`CORRECTION_FALLBACK` stays `NO`, and that is deliberate.** The owner document is silent *on
+purpose*, awaiting a decision. Allowing a ratified correction to fill that silence would decide
+`ODR-38` through the back door — precisely the substitution `OR-6` rule 2 exists to prevent.
+
+## The two remaining AMBIGUOUS subjects
 
 **`PAY-STATE` — payment/refund/payout state machines.** Two label sets coexist with nothing ranking
 them (`scheduled → processing → paid` in the domain architecture vs `pending · submitted · paid` in
@@ -53,10 +85,6 @@ the schema spec, and the same split for refunds). `OR-6`'s eight-subject list do
 *Settled by:* the template already exists one section over — the schema spec reconciles the
 `p2p_transfer` vocabulary explicitly (*"resolved in favor of the schema/RPC term"*). One equivalent
 row for `kernel.payout.status` / `kernel.refund.status`, plus a ratified row, closes it.
-
-**`RESALE-WRITER` — writers of `kernel.tickets.resale_state`.** RPC states outright *"This document
-does not choose"*, and `ODR-38` is `OPEN — OWNER` with recommendation **None**.
-*Settled by:* an owner ruling on `ODR-38`.
 
 **`EDGE-PKG` — which package each edge function and cron ships with.** The edge spec *"states only
 'these land at `076`+' and assigns no package."*
@@ -117,7 +145,7 @@ SEAM-RULE|Where a routine, policy or grant is authored - the placement derivatio
 SCHEMA-PHYS|Physical table and column definition: columns, PKs, FKs, CHECKs, indexes, AO and RLS posture|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|§0 global conventions; §1-§4 per-table sections|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md|NO
 RPC-SIG|RPC signature, arity, parameter and return types, volatility, and the canonical function name|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§0 conventions; §1-§19 contracts; §17 delta RPCs; §20.13 naming register|docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_PACKAGE_REGISTRY.md|NO
 HELPER-SET|Membership of the kernel predicate-helper set|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§1.1-§1.1e defining contracts (RLS §2.2 HELPER-DERIVED clause 1)|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md;docs/architecture/PHASE_2_SPEC_FOUNDATION.md|YES
-WRITER|Write authority: which principal or RPC may write each table and column|AMBIGUOUS|THREE-WAY CONTESTED - see the AMBIGUOUS section||NO
+WRITER|Which functions write table T - the canonical writer registry|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§0.7 delegation rule; §0.7a sanctioned writer table; the per-function Writes lines of §1-§19; §17 delta RPCs; §20.14 filed writer-set requests|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md|NO
 RLS|Row-level security policies and their USING / WITH CHECK predicates|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md|§4 global write posture; §7-§10 per-table matrices; §16 delta-object matrices; §16.10 policy register|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md|NO
 GRANTS|EXECUTE authority: which principal may execute which function|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§5.3 capability matrix (RLS §11 is its roll-up per RLS §11.0 EXEC-DERIVED)|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md;docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md|NO
 ORG-ROLE|The canonical stored role labels and the three disjoint plane enums|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§3 canonical enum membership; §4 concept-to-label map; §5.1 twenty principals|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_SPEC_FOUNDATION.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md|NO
@@ -129,7 +157,7 @@ PAY-STATE|Payment, refund and payout state machines and their status label sets|
 CUSTODY|Ticket custody: the atom, the append-only ownership log, and who holds the admission right|docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md|§0 principle 1; §1.1 Ticket Atom and Ownership Log; §11 naming constitution|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SPEC_FOUNDATION.md|NO
 INVENTORY|Inventory counters: capacity, held, sold, remaining, and counter-versus-ledger authority|docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md|§15 C27; §1.3 operational counters; §5 storage categories|docs/architecture/PHASE_2_SPEC_FOUNDATION.md;docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|NO
 RESALE|The two-rail resale model and the native-external listing bridge|docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md|Part 10 two-rail resale; §0.5 C8 native-sale boundary|docs/architecture/PHASE_2_SPEC_FOUNDATION.md;docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|NO
-RESALE-WRITER|Which functions may write kernel.tickets.resale_state|AMBIGUOUS|no designated owner; open owner decision ODR-38||NO
+RESALE-WRITER|Which functions may write kernel.tickets.resale_state - a sub-case of WRITER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§7.4 lock/unlock overlay; §17.1-§17.4 money RPCs; §20.14 R-25. THE OWNER IS DELIBERATELY SILENT pending owner decision ODR-38 - silence here is a registered open DESIGN choice, not an ownership gap|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md|NO
 DOOR|Door lifecycle: episode ledger, freeze boundary, manifest open and close, door session, PINs|docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md|§4-§10A (owner rulings O-5 lifecycle and O-4 authority)|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md;docs/architecture/PHASE_2_APPLE_WALLET_SPEC.md;docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md|NO
 DOOR-AUTH|Door authority: who may open or close a manifest, move door_open_at, hold security config|docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md|§7.6 door rows plus §1.8 (owner rulings O-4/O-5), per the §7.6 D6 precedence table|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md|NO
 SCAN|Online scan and admission contract|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§7.5 mark_ticket_scanned; §9.4/§9.5 scan and offline reconcile contracts|docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md;docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md;docs/architecture/PHASE_2_REACT_NATIVE_PRODUCT_SPEC.md|NO

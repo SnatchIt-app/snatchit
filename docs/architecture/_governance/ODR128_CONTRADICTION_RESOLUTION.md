@@ -9,15 +9,24 @@ Resolution and transcription mapping only — **no contract was edited to produc
 > contradictions folded under a single label**, and **two more of the same class are missing from the
 > register entirely**. `6 → 9`.
 >
-> | | resolved by `OR-6` | how |
+> | | resolved | how |
 > |---|:--:|---|
-> | by the owner map alone (rule 1) | **6** | `X-2 X-3 X-4 X-5 X-7 X-9` |
-> | by the ratified-correction fallback (rule 2) | **0** | the map turned out to cover every subject that resolved |
-> | **FAIL CLOSED (rule 4)** | **3** | `X-1 X-6` (subject `WRITER` is AMBIGUOUS) · `X-8` |
+> | by the owner map (rule 1) | **8** | `X-1 X-2 X-3 X-4 X-5 X-6 X-7 X-9` |
+> | by the ratified-correction fallback (rule 2) | **0** | the map covers every subject that resolved |
+> | **FAIL CLOSED (rule 4)** | **1** | `X-8` |
 >
 > ```
-> TOTAL: 9   RESOLVED BY ODR-7: 6   STILL UNRESOLVED: 3
+> TOTAL: 9   RESOLVED: 8   STILL UNRESOLVED: 1
 > ```
+>
+> **`X-1` and `X-6` closed on 2026-08-28**, when the owner ruled that
+> `PHASE_2_RPC_FUNCTION_CONTRACTS.md` owns the canonical writer registry (`OR-7`). They had failed
+> closed because `WRITER` had three declared owners and none deferred — which is what rule 4 is for,
+> and the ruling is what rule 4 was waiting on.
+>
+> **And the answer was not the one either reviewer had: it is 11 writers, not 10.** The eleventh is a
+> **cron/sweep** function the earlier enumeration omitted — precisely the class the ruling says must
+> be counted. Full derivation: `WRITER_OWNER_RULING_CONSEQUENCE_MAP.md`.
 >
 > **THREE FAIL CLOSED, NOT ONE — and the reason is a finding, not a shortfall.** Two independent
 > reviewers were run over this: one built the subject-matter owner map, one resolved the
@@ -33,12 +42,12 @@ Resolution and transcription mapping only — **no contract was edited to produc
 
 | id | subject | in `ODR-128`? | resolution |
 |---|---|:--:|---|
-| **X-1** | writer of `kernel.payment_native` | yes | **UNRESOLVED — FAIL CLOSED** (`WRITER` is AMBIGUOUS) |
+| **X-1** | writer of `kernel.payment_native` | yes | **RESOLVED** → RPC (`OR-7`) — 2 unambiguous writers |
 | **X-2** | `cause_ref` grain on `kernel.payout` (`settlement`) | yes | OWNER → schema |
 | **X-3** | `cause_ref` grain on the ownership log (`issue`) | **folded under X-2's label; the Blocks line never reached it** | OWNER → schema |
 | **X-4** | `append_door_manifest_delta` return type | yes | OWNER → `SEAM-RULE` (the plan) |
 | **X-5** | `assert_may_request` arity — **three live forms** | yes | OWNER → RPC |
-| **X-6** | `kernel.tickets` writer set (4 vs 10) | yes | **UNRESOLVED — FAIL CLOSED** (`WRITER` is AMBIGUOUS) |
+| **X-6** | `kernel.tickets` writer set (4 vs 10) | yes | **RESOLVED** → RPC (`OR-7`) — and the answer is **11**, not 10 |
 | **X-7** | `078` seed semantics | yes | OWNER → schema §13 |
 | **X-8** | `record_money_denial` grant class / actor | **MISSED** | **UNRESOLVED — FAIL CLOSED** |
 | **X-9** | `kernel.payout.status='held'` | **MISSED** — carried only as defect `DF-15` | OWNER → schema |
@@ -77,43 +86,119 @@ point: **RLS's fourth entry, `venue.record_scan`, is a `venue.*` wrapper — so 
 design the exact thing RPC §0.7 forbids, and §0.7 is a rule RPC unambiguously owns.** One side is
 internally inconsistent with a rule the other side owns.
 
-**The argument for ten is strong — and it is not enough.** `OR-6` rule 1 asks who OWNS the subject,
-not which reading is better. `WRITER` has **three declared owners and none defers**, and both sides
-carry ratified tags. **Rule 4 therefore applies and this fails closed**, together with `X-1`. The
-ten-writer reading is recorded here as the likely outcome once ownership is settled; **it is not
-adopted, because adopting it would be the silent pick the ruling exists to prevent.**
+**RESOLVED 2026-08-28 by owner ruling `OR-7`: the RPC contracts own writer membership.** And the
+derived answer is **eleven**, not the ten either side had argued — the eleventh being
+`kernel.sweep_expired_ticket_atoms`, a cron/sweep writer that expires ticket atoms on a two-minute
+heartbeat. The earlier "ten" was written by one pass; §12.5, which creates the eleventh writer, was
+authored into the **same document** by a later pass and the count was never re-derived.
+
+**This is the case for having refused to pick earlier.** Had `X-6` been closed by preferring the more
+confident reviewer, the transcription would have written a ten-writer authority statement into the RLS
+spec — **still wrong by one, and wrong about the function that silently expires tickets.** `venue.record_scan`
+is confirmed a delegating caller, not a writer, on three independent grounds.
 
 > **A confound worth naming, because `OR-6` was written to prevent it.** `R-24` is the newer text. Had
 > we resolved by recency we would have reached the **same answer for the wrong reason** — and would
 > have learned nothing about whether the rule works. Rule 3 was not consulted.
 
-### X-8 — the one that fails closed
+### X-8 — the one that still fails closed, **for a corrected reason**
 
 `kernel.record_money_denial`'s `EXECUTE` grant class and acting principal. RLS §3.1/§11 and MONEY §8.4
 say **`service_role` only, no human path**. Schema §1.12.1 and RPC §17.9 (`S-17`/`C106`) say
-**`EXECUTE` to `authenticated` only, bound by EDGE-CALLER-JWT, and it RAISES when `auth.uid()` IS NULL**.
+**`EXECUTE` to `authenticated` only, bound by EDGE-CALLER-JWT, RAISING when `auth.uid()` IS NULL**.
 
-**`OR-6` cannot settle it, and that is the correct outcome rather than a gap.** The owner map is **not
-silent — it is self-splitting.** `OM-1` assigns the `EXECUTE` grant to RLS (*predicates/grants → RLS*)
-and the actor derivation to RPC (*authority branches → RPC*), and the two owners state contradictory
-halves of **one indivisible call contract**. Rule 1 yields two answers. Rule 2 explicitly bars breaking
-the tie with the ratified-correction fallback *"just because it is newer or tagged"* — and **both sides
-are tagged**. Rule 3 bars recency. **→ Rule 4: the implementer does not choose.**
+> #### CORRECTION — the reason recorded in this document's first edition was WRONG
+>
+> It said the owner map *"is not silent — it is self-splitting"*, with `OM-1` assigning the `EXECUTE`
+> grant to RLS and the actor derivation to RPC. **RLS is not an owner of `GRANTS`.** The map assigns
+> `GRANTS` to `PHASE_2_ROLE_MODEL_SPEC.md` §5.3 and lists RLS as a **derived** document — and RLS's own
+> `EXEC-DERIVED` rule agrees: *"§5.3 governs and §11 is the defect."* The first edition was quoting
+> `OM-1`, which is ratified `C75`'s **pre-map** phrasing — superseded by the very map `C75` demanded.
+>
+> **So the "two owners disagree" framing collapses, and the real configuration is narrower and worse.**
 
-> **Silence here is unsafe, not untidy.** Ratified `C93` already proved the RLS/MONEY form is
-> **unbuildable**: on a `service_role` connection `auth.uid()` is NULL, `kernel.admin_audit.actor_identity`
-> is `NOT NULL FK→auth.users`, and the FK forbids a sentinel — *"the INSERT cannot satisfy its own
-> constraint."* **An implementer who follows RLS §11 ships a fraud-signal audit function that fails on
-> its first call, on the fraud path, silently, in production.**
->
-> And it cannot be transcribed away in either direction: the `S-17` repair **already landed in four of
-> six sites**, so choosing the RLS side means **reverting four applied ratified edits**, while choosing
-> the schema/RPC side means overriding an explicitly assigned owner, which rule 2 forbids. **Both
-> directions create a new contradiction.**
->
-> **What the owner must do (stated, not chosen):** either (a) refine the owner map with one clause for
-> the case where a single RPC's grant class and actor derivation are inseparable, or (b) record that
-> `C106` binds the RLS and MONEY sites as a discharge. Both are owner acts.
+**The actual reason it fails closed: the owner is SILENT, and the fallback is barred.**
+
+**`PHASE_2_ROLE_MODEL_SPEC.md` contains ZERO occurrences of `record_money_denial`** — verified by
+grep over the whole file. RLS's capability→RPC map, which `T-RLS-EXEC-01` joins on, has no entry for
+it either. So:
+
+- **Rule 1** yields nothing — the owner does not cover the function.
+- **Rule 2** is barred — the map declares `GRANTS` `CORRECTION_FALLBACK = NO`.
+- **Rule 3** is barred.
+- **→ Rule 4.**
+
+> **THE SILENCE IS NOT NEUTRAL, AND THAT IS EXACTLY WHY IT CANNOT BE READ.** Under `EXEC-DERIVED`, a
+> §11 row granting a capability §5.3 marks `·` is an over-grant — and §5.3 marks every principal `·`
+> on every capability it does not list, which mechanically forbids the `authenticated` grant. But §5.3
+> equally carries **no `SVC`-only row**, so the mirror reading — that definer-only RPCs are simply
+> outside §5.3's frame — is just as available. **Two readings of one owner's silence, pointing
+> opposite ways, is not an owner statement.**
+
+**A MAP DEFECT, recorded and deliberately NOT fixed here.** `GRANTS` is declared
+`CORRECTION_FALLBACK = NO`, which the map defines as *"the owner covers the subject."* **The text
+falsifies that declaration** — the owner does not cover this function. Flipping it to `YES` would make
+`C93`/`C106` directly applicable and resolve the row **by the back door**. That is an owner act, and
+it is not taken here.
+
+#### The decomposition, registered as required
+
+| part | disputed property | subject | owner |
+|:--|---|---|---|
+| **A** | who may EXECUTE | **`GRANTS`** | `PHASE_2_ROLE_MODEL_SPEC.md` §5.3 — **SILENT on this function** |
+| **B1** | whether the call is bound by EDGE-CALLER-JWT | `EDGE` | edge spec — but no subject registers the *rule's scope* |
+| **B2** | run-time actor derivation, RAISE on NULL | `AUTHZ-BRANCH` *by subject text only* | RPC — **but §17.9 is not among the map's enumerated normative sections**, and assigning it would be inference, which the map forbids |
+| **B3** | signature unchanged, no actor parameter | `RPC-SIG` | RPC — **undisputed; every side agrees** |
+
+**The decomposition does not resolve it**, because the component the dispute turns on (**A**) has a
+silent owner and a closed fallback. It is registered anyway because it **changes which owner act closes
+the row**.
+
+#### Mutual satisfiability — a finding sharper than ambiguity
+
+The parts are jointly satisfiable in **exactly one** configuration, and **it is not the one currently
+transcribed at four sites**:
+
+| A | B | satisfiable? |
+|---|---|---|
+| `service_role` only | `auth.uid()`, RAISE on NULL | **NO — provably unbuildable.** Ratified `C93`: every call is on a service-role connection, so `auth.uid()` is NULL and it RAISES; drop the RAISE and `actor_identity` violates `NOT NULL FK→auth.users` with no sentinel permitted. *"The INSERT cannot satisfy its own constraint."* |
+| `authenticated` only | caller-JWT derivation | **YES** |
+| both grantees | — | **barred by construction** — the RPC class table admits two classes and no union |
+
+**This is not two defensible readings. It is one reading that cannot execute even once** — and that
+reading is the one written at RLS §3.1, RLS §11, MONEY §8.4 and MONEY §12. **Stating this is not
+choosing it:** buildability is not an authority under `OR-6`, and rule 4 bars the implementer from
+picking even when one side is unbuildable.
+
+#### A second correction: the repair landed in THREE of six, not four
+
+The first edition said four. Verified at HEAD: **three landed** (RPC §17.9 *body*, edge `EA-2`, edge
+`EA-3(B-ii)`), and the RPC §17.9 **heading still reads `EXEC: DEF`** — so even the landed site is only
+half-landed. **Three further sites are missing from `C106`'s enumeration entirely** (RPC §0.1a, MONEY
+§2.3, MONEY §12). The blocked-edit set therefore grows from four sites to **seven**.
+
+#### A NEW intra-document defect — the owner document fails its own test
+
+**RPC §0.1a and the §17.9 heading say `EXEC: DEF`; the §17.9 body says `EXECUTE` to `authenticated`
+only.** The document therefore fails its own global assertion `T-RPC-GLOBAL-02` — *"every `EXEC: DEF`
+function has no grant to `anon`/`authenticated`."* `OR-6` cannot reach this (ratified `C121`: same
+document, so precedence cannot help). **It belongs to the RPC owner and is added to the intra-document
+list as `ID-5`.**
+
+#### What closes the row — stated, not chosen
+
+The first edition's proposed remedy was *"refine the owner map for the case where a single RPC's grant
+class and actor derivation are inseparable."* **That aims at a split which does not exist at HEAD.**
+Any **one** of these suffices:
+
+1. **Fill the `GRANTS` owner's silence** — one capability row in `ROLE_MODEL` §5.3 for denial audit,
+   plus the matching capability→RPC entry. **Smallest act, and the only one that also unblocks
+   `T-RLS-EXEC-01`**, whose join currently has no entry for this function *in either direction*.
+2. **Or correct the map** — flip `GRANTS` to `CORRECTION_FALLBACK = YES`, or state that this function
+   is outside `GRANTS`' frame and name its owner.
+3. **Or record that `C106` discharges the RLS and MONEY sites** — still available, but it must now be
+   written as a **discharge of derived text**, not as an override of an owner.
+4. **Independently required either way:** the RPC owner must repair `ID-5`.
 
 ### The other seven, in one line each
 
@@ -203,15 +288,19 @@ gap must be filed before the transcription pass runs.
 
 `ID|SUBJECT_ID|RESOLUTION|WINNER_DOC|TRANSCRIPTION_SITES`
 
+A **decomposed** contradiction — one call contract whose parts have different owners — carries a
+comma-separated subject list. `X-8` is the first, and the field was widened to express it: collapsing
+it to a single subject would be the subject substitution the gate caught on `X-4`.
+
 ```contradictions
-X-1|WRITER|UNRESOLVED||
+X-1|WRITER|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md
 X-2|SCHEMA-PHYS|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md
 X-3|SCHEMA-PHYS|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md
 X-4|SEAM-RULE|OWNER|docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md|docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md
 X-5|RPC-SIG|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_PACKAGE_REGISTRY.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
-X-6|WRITER|UNRESOLVED||
+X-6|WRITER|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md
 X-7|PKG-PLACE|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
-X-8|GRANTS|UNRESOLVED||
+X-8|GRANTS,AUTHZ-BRANCH,RPC-SIG|UNRESOLVED||
 X-9|SCHEMA-PHYS|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md
 ```
 

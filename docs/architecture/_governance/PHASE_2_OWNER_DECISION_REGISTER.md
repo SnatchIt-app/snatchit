@@ -1608,9 +1608,13 @@ resolve from the sibling statements rather than by granting anything new, and sp
 >
 > | | |
 > |---|---|
-> | resolved by the owner map (rule 1) | **6** — `X-2 X-3 X-4 X-5 X-7 X-9` |
+> | resolved by the owner map (rule 1) | **8** — `X-1 X-2 X-3 X-4 X-5 X-6 X-7 X-9` |
 > | resolved by the rule-2 fallback | **0** — the map covered every subject that resolved |
-> | **FAIL CLOSED (rule 4)** | **3** — `X-1` `X-6` (`WRITER` is AMBIGUOUS) · `X-8` |
+> | **FAIL CLOSED (rule 4)** | **1** — `X-8` |
+>
+> **Updated 2026-08-28:** `X-1` and `X-6` closed when owner ruling `OR-7` named the writer-registry
+> owner. The derived answer was **11 writers of `kernel.tickets`, not the 10 either side argued** —
+> the eleventh a cron/sweep writer that the earlier count omitted.
 >
 > **The three that fail closed are not a shortfall of the ruling; they are the ruling working.** Two
 > independent reviewers disagreed about `X-1`/`X-6`, and that disagreement IS the ambiguity: write
@@ -1737,6 +1741,18 @@ approver*, and unlike the refund case there is **no subject already in the corpu
 from."*
 
 ### ODR-38 — Does `kernel.tickets.resale_state` have one writer pair, or two writer sets?
+
+> **OWNERSHIP CLOSED, DESIGN STILL OPEN — 2026-08-28.** Owner ruling `OR-7` names
+> `PHASE_2_RPC_FUNCTION_CONTRACTS.md` the owner of *"which functions write table T"*, and
+> `kernel.tickets.resale_state` is that subject applied to one column. **So the map subject
+> `RESALE-WRITER` collapses onto `WRITER` and is no longer AMBIGUOUS.**
+>
+> **This entry does not close with it.** The owner document says outright *"This document does not
+> choose"*, and the choice between (a) one writer pair and (b) two writer sets is a **design**
+> decision, not an ownership dispute. What changed is its character: it is no longer a rule-4
+> fail-closed ambiguity that nothing could resolve, but a registered open decision that closes the
+> moment it is ruled. `CORRECTION_FALLBACK` stays `NO` on purpose — letting a ratified correction fill
+> the owner's deliberate silence would decide this entry through the back door.
 **Status.** OPEN — OWNER.
 **Choice.** **(a)** extend `lock_ticket`/`unlock_ticket` to carry `refund_hold`, so `resale_state` has exactly
 two writers and the freeze re-check is unbypassable by construction; **or (b)** keep the four money RPCs'
