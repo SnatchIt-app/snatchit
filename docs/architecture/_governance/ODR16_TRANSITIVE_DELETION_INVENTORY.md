@@ -238,7 +238,7 @@ Two other specs call `RESTRICT` "the corpus default" (`CRM:1810`, `DEMOG:1019`) 
 the document that would make it binding. Postgres's real default is `NO ACTION` — which blocks
 identically but is a different `confdeltype` and is not deferrable-equivalent. Ten of the
 sixteen are in the schema spec; **six are in DOOR and PROMOTER**, which is exactly the blind
-spot that produced 36. **Eight of the sixteen also state no nullability**, so whether `SET NULL`
+spot that produced 36. ****Seven** of the sixteen-plus-one *(corrected 2026-08-29 — the table carries exactly seven `not stated` rows; "eight" was an internal off-by-one)* also state no nullability**, so whether `SET NULL`
 — the cheapest cleanup available — is even possible is undetermined by the corpus.
 
 Fix: a one-line amendment to schema spec §0.
@@ -301,7 +301,7 @@ from `079`. No spec says so, and no spec says whether that is intended.
 | Undetermined | What would settle it | Status |
 |---|---|---|
 | The real `ON DELETE` for the 16 SPEC-SILENT columns | a global FK-default clause in schema spec **§0** | **does not exist** — §0 covers ids, money, time, causes, roles, RLS, immutability, lock order, baseline, and never states one |
-| Nullability of 8 columns — i.e. whether `SET NULL` cleanup is even available | per-column DDL | **no DDL exists anywhere in the corpus**; §8 gives prose rows, not `CREATE TABLE` |
+| Nullability of 7 columns *(corrected 2026-08-29)* — i.e. whether `SET NULL` cleanup is even available | per-column DDL | **no DDL exists anywhere in the corpus**; §8 gives prose rows, not `CREATE TABLE` |
 | Whether `identity_ext` becomes total (making the `077` block universal) | whether `handle_new_user` is extended, or RN first-run writes `locale` | **unspecified** |
 | Lawful basis + retention for `identity_demographic_erasure` surviving the account | `DEMOG` `D-6` | **`{N}` is literally unfilled** |
 | Whether `SN-VOID`/`SN-SYSTEM` are intended to be undeletable | any spec | **silent** |

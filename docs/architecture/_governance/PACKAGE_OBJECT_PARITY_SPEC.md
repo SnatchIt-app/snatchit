@@ -98,6 +98,7 @@ MENTION-OK|list_org_refunds
 MENTION-OK|list_promoter_attributions
 MENTION-OK|list_updated_wallet_passes
 MENTION-OK|lookup_attendee
+# R-9-gated: market.bid is EXT-not-created; this MENTION-OK hole closes with the R-9 ruling (red-team P2-11)
 MENTION-OK|market.bid
 MENTION-OK|public.listings
 MENTION-OK|public.profiles
@@ -139,6 +140,10 @@ MENTION-OK|venue.inventory_unit
 077|kernel.identity_demographic|table
 077|kernel.identity_demographic_erasure|table
 077|kernel.invite_org_member|function
+077|kernel.revoke_org_invite|function
+077|kernel.sweep_expired_org_invites|function
+077|kernel.write_demographic_erasure_tombstone|function
+077|kernel.tg_identity_demographic_erasure|trigger
 077|kernel.create_organization|function
 077|kernel.identity_contact_pref_event|function
 077|kernel.identity_ext|table
@@ -198,6 +203,7 @@ MENTION-OK|venue.inventory_unit
 082|kernel.org_contact_consent_event|table
 082|kernel.payment_native|function
 082|venue.create_primary_checkout|function
+082|venue.cancel_pending_order|function
 082|venue.inventory_hold|function
 082|venue.order|table
 082|venue.order_item|table
@@ -307,6 +313,7 @@ MENTION-OK|venue.inventory_unit
 088|catalog.cancel_event|function
 088|market.create_auction|function
 088|kernel.transfer_ticket_ownership|function
+088|market.mark_sale_paid_state|function
 088|kernel.unlock_ticket|function
 088|market.make_offer|function
 088|market.create_listing|function

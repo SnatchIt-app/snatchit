@@ -774,7 +774,7 @@ tell the purge it should go. The weaker case (a fan removing one answer) was cov
 not.
 
 **Fix:** a `BEFORE DELETE FOR EACH ROW` trigger on `kernel.identity_demographic` — `SECURITY DEFINER`,
-`search_path` pinned — that upserts the value-free `kernel.identity_demographic_erasure` row. It fires on
+`search_path` pinned — that **INSERTs** the value-free `kernel.identity_demographic_erasure` row (one immutable row per erasure — *"upserts" corrected 2026-08-29: DO-UPDATE is invalid against the table's ratified AO class and DO-NOTHING was the corpus's own "silently wrong"; append-many is the unique surviving shape, RPC §17.20a*). It fires on
 **every** path that removes the row: the `clear_my_demographics` delete, the `auth.users` cascade, a manual
 definer delete, and a future merge (§8.6). The RPCs therefore no longer write the tombstone themselves;
 there is one writer, and it is the one thing every removal path must go through.
@@ -1025,7 +1025,7 @@ threshold-clearing aggregate — which is the desired ordering.
 
 | Column | Notes |
 |---|---|
-| `identity_id` | PK, **bare uuid — deliberately NO foreign key to `auth.users`.** A `CASCADE` FK would delete the tombstone in the same statement that creates the need for it (account deletion); a `RESTRICT` FK would make account deletion fail. This is the one identity-keyed column in the design that is intentionally unreferenced, and §8.2 explains why |
+| `identity_id` | **indexed, NOT the PK — the PK is a surrogate `id` (append-many, one row per erasure; reconciled 2026-08-29 to SPEC_FOUNDATION's definition, §17.20a — the single-row `identity_id`-PK form was the UPSERT incompatibility's root).** **Bare uuid — deliberately NO foreign key to `auth.users`.** A `CASCADE` FK would delete the tombstone in the same statement that creates the need for it (account deletion); a `RESTRICT` FK would make account deletion fail. This is the one identity-keyed column in the design that is intentionally unreferenced, and §8.2 explains why |
 | `erased_at` | timestamptz NOT NULL |
 | `purge_after` | timestamptz NOT NULL — `erased_at + {N} + margin` (D-6) |
 
@@ -1133,8 +1133,9 @@ server-derived (C35), role tests only via the C36 predicate helpers, no client a
 **`kernel.clear_my_demographics()`** — `DB-RPC`, write.
 - **Purpose:** withdrawal.
 - **Params:** none. **Actor:** `auth.uid()`.
-- **Writes:** `DELETE` the caller's row (the §10.2 GP-2 exception, inside the definer); upsert one
-  `kernel.identity_demographic_erasure` row with `purge_after`. **No audit row** (§8.3). The tombstone is the
+- **Writes:** `DELETE` the caller's row (the §10.2 GP-2 exception, inside the definer); **the trigger
+  appends one** `kernel.identity_demographic_erasure` row with `purge_after` (*"upsert one" corrected
+  2026-08-29 — append-many, §17.20a; the RPC itself writes no tombstone, the trigger does*). **No audit row** (§8.3). The tombstone is the
   only trace, it is value-free, it is definer-only, and it self-purges — which is precisely the property an
   `kernel.admin_audit` row would have destroyed.
 - **Idempotent:** calling with no row present is `{ status: 'noop_replay' }`, not an error.

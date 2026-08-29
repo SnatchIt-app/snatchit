@@ -57,7 +57,7 @@ pass drops into `PHASE_2_RLS_PERMISSION_SPEC.md` §7.9/§7.10/§11 and `SNATCH_I
 
 | Invariant | Status under this design |
 |---|---|
-| **R7 money-single-path** | **PRESERVED.** `kernel.refund` is still written only by `kernel.refund_primary_order` / `kernel.admin_refund` / the C25 sweep. `kernel.payout` is still written only by `kernel.close_settlement` / native-sale path / `kernel.pay_promoter_commission` / `request_org_payout`+`hold`/`release` state advances. Every new object in §6 **requests**; none writes a money row. |
+| **R7 money-single-path** | **PRESERVED.** `kernel.refund` is still written only by `kernel.refund_primary_order` / `kernel.admin_refund` / the C25 sweep. `kernel.payout` is still written only by `kernel.close_settlement` / native-sale path / `kernel.pay_promoter_commission` / `request_org_payout`+`hold`/`release` state advances. Every new object in §6 **requests**; none writes a money row. | *(P1-4 correction 2026-08-29: this row's enumerations predate `S-24` — the canonical writer sets are FOUR on `kernel.refund` (+ `mark_refund_state` §20.7.7) and SIX on `kernel.payout` (+ `mark_payout_transfer_state` §20.7.6); this line restates the canonical registry and any structural assertion derives from the registry, never from this sentence)*
 | **OBS-1 — no column ever added to `public.payments`** | **HONORED.** Zero changes to `public.*`. |
 | **Frozen Stripe core** | **UNTOUCHED.** No new Stripe API surface; `refund-execute` / `payout-execute` gain actions, not integrations. `_shared/payouts.ts`, `payout-logic.ts`, `buildPayoutIdempotencyKey` reused verbatim. |
 | **GP-1 / GP-2** (no direct client DML; no DELETE) | **HONORED.** Every new write is `R` (RPC-only); no new DELETE path. |

@@ -8,12 +8,25 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > ## STATE AFTER CONVERGENCE — divergence is CLOSED; missing contracts and build gaps are NOT.
 >
 > ```
-> TABLES IN THIS REGISTRY    82
-> DISTINCT WRITERS          156    schema-qualified names in the fence (one a named placeholder)
-> WRITER ENTRIES            236
-> PARITY   OK 72 · DIVERGENT 0 · MISSING_CONTRACT 10          = 82
-> NOT-BUILT WRITERS           1    the unnamed erasure trigger (was 3 — holder-mix pair scheduled to 086)
-> GATE ERRORS                11    10 missing-contract rows + 1 not-built writer · 0 divergent
+> TABLES IN THIS REGISTRY    80    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5
+>                                   reduction, 2026-08-29: the schedule's kind CHECK was exactly the three
+>                                   OUT types; sprint agent 3)
+> DISTINCT WRITERS          156    schema-qualified names (one named placeholder: the R-37 market checkout)
+> WRITER ENTRIES            248
+> PARITY   OK 75 · DIVERGENT 0 · MISSING_CONTRACT 5           = 80
+> NOT-BUILT WRITERS           1    the R-37 market-checkout placeholder (owner-gated)
+> GATE ERRORS                 6    5 missing-contract rows + 1 not-built · 0 divergent
+>
+> **Sprint 2, 2026-08-29 — five more discharged:** org_invite (revoke §20.1.6 + expiry sweep §20.1.7
+> authored; `declined` filed R-36) · venue.order (`cancel_pending_order` §20.7.9, with the terminal-failure
+> S-16-style edge correction) · the erasure tombstone (named + contracted §17.20a after the shape derivation
+> closed the UPSERT-vs-AO blocker; scheduled in 077) · notify.identity_channel_state (push arm mechanical on
+> §17.25/§17.24 extensions; email arm CONDITIONAL(N1)) · notify.schedule + announcement rows REMOVED
+> (OR-5 residue, not missing contracts). market.market_sale gains `mark_sale_paid_state` §20.8.7 but stays
+> MISSING_CONTRACT on the R-37 checkout placeholder. **The five that remain are ALL owner-gated:** payout
+> native-sale (R-38/Gate-M) · org_customer_key (R-39) · market_sale (R-37) · auction + bid (R-9 family).
+> **`CATEGORY:set_updated_at` now rides the ten R-35 fence rows** (red-team P2-13 — check H witnesses the
+> attachments).
 >
 > **Parallel convergence sprint, 2026-08-29 — six missing contracts DISCHARGED mechanically:**
 > `public.payments`/`listings`/`transfers` (one root — `delete_account_cleanup` declared at RPC §20.15,
@@ -141,12 +154,12 @@ convention requires; all ten attachments are now scheduled in the plan's Trigger
 kernel.identity_ext|kernel.upsert_identity_ext|rpc|20.1.3|y|OK
 kernel.organization|kernel.create_organization;kernel.set_org_status;kernel.update_organization;kernel.set_org_payout_destination;kernel.set_org_connect_ref|rpc;rpc;rpc;rpc;rpc|2.1;20.1.2;20.1.5;17.7;20.1.1|y|OK
 kernel.org_member|kernel.create_organization;kernel.accept_org_invite;kernel.change_org_role;kernel.remove_org_member|rpc;rpc;rpc;rpc|2.1;2.3;2.4;2.5|y|OK
-kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite|rpc;rpc|2.2;2.3|y|MISSING_CONTRACT
+kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite;kernel.revoke_org_invite;kernel.sweep_expired_org_invites|rpc;rpc;rpc;cron|2.2;2.3;20.1.6;20.1.7|y|OK
 kernel.platform_role|kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc|20.1.4|y|OK
-kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5|y|OK
+kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms;CATEGORY:set_updated_at|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron;trigger|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5;20.16|y|OK
 kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|OK
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|7.1;7.2;7.3|y|OK
-kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key|rpc;rpc;rpc|20.7.3;20.7.4;20.7.5|y|OK
+kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.7.3;20.7.4;20.7.5;20.16|y|OK
 kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state|rpc;helper;rpc;rpc;rpc;webhook|10.2;20.7.2;10.3;11.2;11.3;20.7.6|y|MISSING_CONTRACT
 kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state|rpc;rpc;cron;webhook|11.4;20.7.1;12.3;20.7.7|y|OK
 kernel.reserve|-|-|NONE-wired-in-MVP|-|OK
@@ -158,11 +171,11 @@ kernel.org_contact_consent|kernel.grant_org_contact_consent;kernel.withdraw_org_
 kernel.org_contact_consent_event|kernel.grant_org_contact_consent;kernel.withdraw_org_contact_consent|rpc;rpc|17.21|y|OK
 kernel.org_customer_key|-|-|NONE-no-writer-anywhere|-|MISSING_CONTRACT
 kernel.identity_demographic|kernel.set_my_demographics;kernel.clear_my_demographics|rpc;rpc|17.20|y|OK
-kernel.identity_demographic_erasure|kernel.UNNAMED_BEFORE_DELETE_TRIGGER|trigger|17.20|n|MISSING_CONTRACT
+kernel.identity_demographic_erasure|kernel.write_demographic_erasure_tombstone|trigger|17.20a|y|OK
 kernel.door_freeze_override|kernel.grant_door_freeze_override;kernel.revoke_door_freeze_override|rpc;rpc|17.11|y|OK
-kernel.wallet_pass|kernel.mint_wallet_pass;kernel.revoke_wallet_pass;kernel.supersede_wallet_passes_for_atom;kernel.touch_wallet_pass;kernel.sweep_wallet_pass_lifecycle|rpc;rpc;helper;helper;cron|17.23|y|OK
+kernel.wallet_pass|kernel.mint_wallet_pass;kernel.revoke_wallet_pass;kernel.supersede_wallet_passes_for_atom;kernel.touch_wallet_pass;kernel.sweep_wallet_pass_lifecycle;CATEGORY:set_updated_at|rpc;rpc;helper;helper;cron;trigger|17.23;17.23;17.23;17.23;17.23;20.16|y|OK
 kernel.wallet_pass_device|kernel.register_wallet_pass_device;kernel.unregister_wallet_pass_device;kernel.revoke_wallet_pass;kernel.record_wallet_push_result|helper;helper;rpc;helper|17.23|y|OK
-kernel.pass_type_cert|kernel.provision_pass_type_cert;kernel.rotate_pass_type_cert;kernel.revoke_pass_type_cert|rpc;rpc;rpc|17.23|y|OK
+kernel.pass_type_cert|kernel.provision_pass_type_cert;kernel.rotate_pass_type_cert;kernel.revoke_pass_type_cert;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|17.23;17.23;17.23;20.16|y|OK
 kernel.wallet_pass_push_log|kernel.record_wallet_push_result|helper|17.23|y|OK
 kernel.org_money_policy|-|-|CONDITIONAL-D-2|-|OK
 catalog.venue|catalog.create_venue;catalog.approve_venue;catalog.update_venue|rpc;rpc;rpc|3.1;3.2;3.3|y|OK
@@ -176,20 +189,20 @@ venue.inventory_batch_shard|venue.create_inventory_batch;venue.reserve_primary_i
 venue.inventory_movement|venue.reserve_primary_inventory;venue.release_inventory_hold;venue.set_batch_capacity;venue.allocate_comp;venue.issue_comp;venue.finalize_primary_order;kernel.issue_ticket_atoms;kernel.void_ticket_atom|rpc;rpc;rpc;rpc;rpc;rpc;rpc;rpc|5.3;5.5;20.3.2;20.5.1;20.5.2;6.3;7.1;7.3|y|OK
 venue.inventory_hold|venue.reserve_primary_inventory;venue.create_inventory_hold;venue.release_inventory_hold;venue.sweep_expired_inventory_holds|rpc;rpc;rpc;cron|5.3;5.4;5.5;20.3.3|y|OK
 venue.inventory_unit|-|-|EXT-C42-DO-NOT-BUILD|-|OK
-venue.order|venue.create_primary_checkout;venue.finalize_primary_order;venue.bind_order_attribution;kernel.refund_primary_order|rpc;rpc;rpc;rpc|6.1;6.3;17.18;11.4|y|MISSING_CONTRACT
+venue.order|venue.create_primary_checkout;venue.finalize_primary_order;venue.bind_order_attribution;kernel.refund_primary_order;venue.cancel_pending_order|rpc;rpc;rpc;rpc;webhook|6.1;6.3;17.18;11.4;20.7.9|y|OK
 venue.order_item|venue.create_primary_checkout|rpc|6.1|y|OK
 venue.staff_role|venue.grant_staff_role;venue.revoke_staff_role|rpc;rpc|20.4.1;20.4.2|y|OK
 venue.door_pin|venue.create_door_pin;venue.revoke_door_pin|rpc;rpc|9.1;9.2|y|OK
 venue.door_session|venue.mint_door_session;venue.revoke_door_session;venue.sweep_expired_door_sessions;venue.revoke_door_pin;venue.set_scan_device_status;kernel.assert_door_session|rpc;rpc;cron;rpc;rpc;helper|9.6;9.7;9.8;9.2;20.4.3;1.1d|y|OK
-venue.scan_device|venue.register_scan_device;venue.sync_scan_device_manifest;venue.set_scan_device_status|rpc;rpc;rpc|20.4.3;20.4.4;20.4.3|y|OK
+venue.scan_device|venue.register_scan_device;venue.sync_scan_device_manifest;venue.set_scan_device_status;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.4.3;20.4.4;20.4.3;20.16|y|OK
 venue.scan|venue.record_scan;venue.reconcile_offline_scans|rpc;rpc|9.4;9.5|y|OK
 venue.settlement|venue.open_settlement;kernel.close_settlement;venue.on_payout_settled|rpc;rpc;helper|10.1;10.2;20.11.5|y|OK
 venue.settlement_line|kernel.close_settlement;kernel.pay_promoter_commission|rpc;helper|10.2;20.7.2|y|OK
-venue.comp_allocation|venue.allocate_comp;venue.issue_comp|rpc;rpc|20.5.1;20.5.2|y|OK
-venue.guest_list|venue.create_guest_list|rpc|20.5.3|y|OK
-venue.guest_entry|venue.upsert_guest_entry;venue.remove_guest_entry;venue.check_in_guest_entry|rpc;rpc;rpc|20.5.4;20.5.5;20.5.6|y|OK
-venue.promoter|venue.create_promoter;venue.update_promoter|rpc;rpc|20.9.1;20.9.2|y|OK
-venue.promoter_link|venue.create_promoter_link;venue.set_promoter_link_status|rpc;rpc|20.9.3;20.9.4|y|OK
+venue.comp_allocation|venue.allocate_comp;venue.issue_comp;CATEGORY:set_updated_at|rpc;rpc;trigger|20.5.1;20.5.2;20.16|y|OK
+venue.guest_list|venue.create_guest_list;CATEGORY:set_updated_at|rpc;trigger|20.5.3;20.16|y|OK
+venue.guest_entry|venue.upsert_guest_entry;venue.remove_guest_entry;venue.check_in_guest_entry;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.5.4;20.5.5;20.5.6;20.16|y|OK
+venue.promoter|venue.create_promoter;venue.update_promoter;CATEGORY:set_updated_at|rpc;rpc;trigger|20.9.1;20.9.2;20.16|y|OK
+venue.promoter_link|venue.create_promoter_link;venue.set_promoter_link_status;CATEGORY:set_updated_at|rpc;rpc;trigger|20.9.3;20.9.4;20.16|y|OK
 venue.attribution|venue.resolve_order_attribution|helper|17.14|y|OK
 venue.promoter_code|venue.create_promoter_code;venue.create_promoter_codes_bulk;venue.set_promoter_code_status;venue.set_promoter_code_window|rpc;rpc;rpc;rpc|17.15|y|OK
 venue.promoter_code_scope|venue.create_promoter_code;venue.create_promoter_codes_bulk;venue.set_promoter_code_scope|rpc;rpc;rpc|17.15|y|OK
@@ -203,18 +216,16 @@ venue.export_job|venue.request_export;venue.build_export_rows;venue.finalize_exp
 market.listing_native|market.create_listing;market.cancel_listing;market.respond_offer;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;helper;rpc|20.8.1;20.8.2;20.8.6;17.10;4.4|y|OK
 market.auction|market.create_auction;market.place_bid;market.cancel_listing;catalog.cancel_event|rpc;rpc;rpc;rpc|20.8.3;20.8.4;20.8.2;4.4|y|MISSING_CONTRACT
 market.offer|market.make_offer;market.respond_offer;market.cancel_listing;market.sweep_expired_p2p_transfers|rpc;rpc;rpc;cron|20.8.5;20.8.6;20.8.2;12.2|y|OK
-market.market_sale|kernel.transfer_ticket_ownership;market.respond_offer;market.sweep_paid_pending_sales;market.on_atom_voided|rpc;rpc;cron;helper|7.2;20.8.6;12.3;20.11.3|y|MISSING_CONTRACT
+market.market_sale|kernel.transfer_ticket_ownership;market.respond_offer;market.sweep_paid_pending_sales;market.on_atom_voided;market.mark_sale_paid_state;market.UNNAMED_MARKET_CHECKOUT|rpc;rpc;cron;helper;webhook;rpc|7.2;20.8.6;12.3;20.11.3;20.8.7;R-37|y;y;y;y;y;n|MISSING_CONTRACT
 market.p2p_transfer|market.create_p2p_transfer;market.accept_p2p_transfer;market.cancel_p2p_transfer;market.sweep_expired_p2p_transfers;market.on_door_freeze_engaged;catalog.cancel_event|rpc;rpc;rpc;cron;helper;rpc|8.1;8.2;8.3;12.2;17.10;4.4|y|OK
-market.bid|market.place_bid|rpc|20.8.4|y|MISSING_CONTRACT
+market.bid|market.place_bid|rpc|20.8.4|c|MISSING_CONTRACT
 notify.notification|notify.enqueue;notify.drain_outbox;notify.mark_read;notify.mark_all_read;notify.dismiss|helper;cron;rpc;rpc;rpc|17.24|c|OK
 notify.preference|notify.set_preference|rpc|17.24|c|OK
-notify.announcement|notify.draft_announcement;notify.approve_announcement;notify.cancel_announcement;notify.revoke_announcement|rpc;rpc;rpc;rpc|17.24|c|OK
 notify.notification_type|-|-|SEED-ONLY|-|OK
 notify.template|-|-|SEED-ONLY|-|OK
 notify.delivery|notify.drain_outbox;notify.claim_deliveries;notify.record_delivery_result|cron;helper;helper|17.24;17.25;17.25|c|OK
 notify.outbox|notify.emit_event;notify.drain_outbox|helper;cron|17.24|c|OK
-notify.schedule|notify.sweep_scheduled|cron|17.24|c|MISSING_CONTRACT
-notify.identity_channel_state|-|-|NONE-no-writer-anywhere|-|MISSING_CONTRACT
+notify.identity_channel_state|notify.record_delivery_result;notify.register_push_token|helper;rpc|17.25;17.24|c|OK
 public.payments|public.delete_account_cleanup;CATEGORY:frozen-stripe-webhook|helper;webhook|20.15;20.15|y|OK
 public.listings|public.delete_account_cleanup|helper|20.15|y|OK
 public.transfers|public.delete_account_cleanup|helper|20.15|y|OK
@@ -222,7 +233,11 @@ public.push_tokens|notify.register_push_token;notify.revoke_push_token;notify.re
 public.rate_limits|public.check_rate_limit|helper|17.17|y|OK
 ```
 
-## THE 18 MISSING CONTRACTS — the list that fails readiness
+## THE MISSING CONTRACTS — re-derived 2026-08-29 (red-team P2-8: this list had gone stale in both directions)
+
+**Current (5, all owner-gated):** the `kernel.payout` native-sale path (`R-38`, Gate-M) · `kernel.org_customer_key` mint+rotation (`R-39`) · the `market.market_sale` checkout INSERT writer (`R-37`) · `market.auction` finalize + `market.bid` (`R-9` family). **Everything below this line is the HISTORICAL 2026-08-28 list, preserved as the record of what the ruling first surfaced:**
+
+### THE 18 MISSING CONTRACTS — as first enumerated (historical)
 
 `kernel.organization` Stripe capability-flag writer (for columns the schema spec does not define) ·
 `kernel.org_invite` invite-revoke (a phrase appearing **once corpus-wide**) · `kernel.payout`

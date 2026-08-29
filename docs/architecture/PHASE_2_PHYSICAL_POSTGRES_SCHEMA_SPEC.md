@@ -60,6 +60,17 @@ USD) for money-in; they never re-charge and never redefine the cents math.
 ### 0.4 Time
 All timestamps are `timestamptz`, UTC. Creation columns are `created_at` (default `now()`, not null).
 Mutable rows carry `updated_at` (maintained by the existing `set_updated_at` helper trigger pattern).
+- **Referential-action default (ODR-16 precondition #5; added 2026-08-29):** every foreign key in the
+  Phase-2 physical design — this spec and the physical-schema sections of the DOOR, PROMOTER, WALLET and
+  CRM specs — whose table or column row does not state an `ON DELETE` action carries **`ON DELETE
+  RESTRICT`**, written explicitly in DDL (never left to Postgres's implicit `NO ACTION`, which blocks
+  identically but is a different `confdeltype` and is not deferrable-equivalent). This binds the 16
+  SPEC-SILENT columns enumerated in `_governance/ODR16_TRANSITIVE_DELETION_INVENTORY.md`. **The value is
+  derived, not chosen** — CRM and DEMOG both name `RESTRICT` "the corpus default" when filing their own
+  CASCADE exceptions, and all 28 stated identity-FK rows are `RESTRICT` with zero `SET NULL` anywhere.
+  Departures remain named exceptions requiring the schema owner's sign-off (the CRM `D-3` / DEMOG `D-9`
+  pattern). Flow-performed SET-NULL cleanup (the live `020` pattern) is an UPDATE by the deletion path,
+  not a referential action, and is unaffected.
 Ledger/append-only rows carry `occurred_at` (the business event time) distinct from `created_at`
 (the row-insert time) where reconciliation needs both.
 
@@ -406,7 +417,7 @@ assertion was right; the table it was written against was not.
 - **Immutability:** MUT (status transitions only; accept creates the `kernel.org_member` row in the same txn).
 - **Index:** PK; the partial unique; index on `(invitee_identity_id, status)` ("my invites").
 - **RLS:** org-scoped read (org owners/admins see their org's invites) + the addressed invitee reads own;
-  writes RPC-only via `kernel.invite_org_member` / `kernel.accept_org_invite` / a revoke RPC.
+  writes RPC-only via `kernel.invite_org_member` / `kernel.accept_org_invite` / **`kernel.revoke_org_invite` (RPC §20.1.6)**; `expired` by **`kernel.sweep_expired_org_invites` (§20.1.7)** — *both authored 2026-08-29; restates the canonical registry (`OR-7`)*.
 - **Write authority:** those RPCs only (never a client write; never a self-invite to a higher tier, C9/I-11).
 - **Read authority:** org owners/admins + the addressed invitee + platform.
 - **SoT/PROJ:** SoT (the pending-invite fact). **Migration:** Phase B (package `077`, with org/role tables).
@@ -662,7 +673,7 @@ times** in the frozen constitution `SNATCH_IT_DOMAIN_ARCHITECTURE.md` — *"head
 table), and invariant #1 *"Ownership head = ownership_log tail; head writable only by the engine | …
 + verify trigger + `FOR UPDATE`"*.
 
-**No such trigger existed in any of the sixteen packages.** Enumerate every Triggers row in plan §8:
+**No such trigger existed in any of the sixteen packages.** Enumerate every Triggers row in plan §8 **as they stood PRE-`R-35` (2026-08-28 snapshot — the 2026-08-29 census added `set_updated_at` to the `079`/`083`/`086`/`090` rows; this enumeration is the historical premise of the MB-4 finding, deliberately NOT updated):**
 `076` none · `077` `raise_append_only`+`set_updated_at` · `078` `set_updated_at` · **`079`
 `raise_append_only` on the ownership log and `door_freeze_override`, and nothing else** · `080` none ·
 `081` `raise_append_only`+`set_updated_at` · `082` order-item IMM guard + `set_updated_at` +
@@ -2539,7 +2550,7 @@ here, because the distinction decides whether skipping one is survivable:
 - **Write authority (canonical registry — `OR-7`, corrected 2026-08-29):** `venue.create_primary_checkout`
   (alias `create_order`), `venue.finalize_primary_order` (→ `paid` — the writer this line previously credited
   to `kernel.issue_ticket_atoms`, whose Writes line does not name this table), `venue.bind_order_attribution`
-  (§17.18), `kernel.refund_primary_order`. *(`admin_refund` is NOT a writer — §20.7.1 is not order-scoped.)*
+  (§17.18), `kernel.refund_primary_order`, **`venue.cancel_pending_order` (→ `cancelled`, webhook terminal-failure writer — §20.7.9, authored 2026-08-29)**. *(`admin_refund` is NOT a writer — §20.7.1 is not order-scoped.)*
 - **SoT/PROJ:** SoT.
 
 ### 3.8 `venue.order_item`
@@ -3101,7 +3112,7 @@ settlement may legitimately reference from a period boundary. Making the general
 ### 3.17 `venue.promoter` / `venue.promoter_link` / `venue.attribution` (Phase 2D)
 - **Purpose:** the commissioned-selling engine (CDM §1.3). Commissions flow through `kernel.payout` cause
   `promoter_commission` (SSCAS member #5). **Phase 2D** — modeled now, built in the promoter phase.
-- **`venue.promoter`:** PK `promoter_id` uuid; `identity_id` uuid FK→auth.users; `org_id` uuid FK; `event_id`
+- **`venue.promoter`:** PK `promoter_id` uuid; `identity_id` uuid **nullable** FK→auth.users (NULL admissible ONLY for `party_kind='affiliate'` — DA §1.7's off-platform party; `CHECK (party_kind <> 'promoter' OR identity_id IS NOT NULL)`; nullability derived 2026-08-29, ODR-16 item 1.5); `org_id` uuid FK; `event_id`
   uuid nullable FK; `terms_version` integer not null; `status` enum(`active` · `inactive`); `created_at`,
   `updated_at`. Terms Operational (versioned). **Plus the four commercial-terms columns below.**
 
@@ -3414,7 +3425,7 @@ the live external-rail marketplace, does not replace it** (SPEC_FOUNDATION §1/�
 - **Check:** `amount_minor > 0`; `status` enum.
 - **Index:** PK; index on `(listing_id, status)`; index on `(buyer_id, status)`.
 - **RLS:** owner-scoped (buyer + listing seller see the offer); writes RPC-only.
-- **Write authority:** `market.make_offer`, `market.respond_offer`, and **`market.sweep_expired_p2p_transfers`
+- **Write authority:** `market.make_offer`, `market.respond_offer`, and **`market.sweep_expired_p2p_transfers`; **`market.mark_sale_paid_state` (→ `paid_pending_transfer` + `paid_pending_since` + `payment_id` — §20.8.7, authored 2026-08-29)**.
   — the `088` sweep tick's second statement (RPC §12.2/§20.8.5, named 2026-08-29; formerly a phrase)** —
   (§4.3.1) for the `expired` transition.
 - **SoT/PROJ:** SoT.
@@ -3598,7 +3609,7 @@ sufficient:
    uuid (crypto-shred via the PII vault, C15/Gate L)"*. The mechanism for erasure here is **already named**,
    and it is not repointing.
 3. With `kernel.tg_custody_head_is_ledger_tail` (§1.6.2), repointing the **head** alone aborts at COMMIT.
-   *"Either the trigger does not exist, or account deletion breaks the day `079` lands"* — the trigger now
+   *"Either the trigger does not exist, or account deletion breaks the day `079` lands"* (read `077` — deadline corrected 2026-08-28, register ODR-16) — the trigger now
    exists, so the second horn is the live one, and it is better: it breaks in staging, on a test, with a
    named constraint, rather than silently.
 
@@ -3606,7 +3617,7 @@ sufficient:
 deletion proceed: `current_owner_id` and all three log identity columns are **`ON DELETE RESTRICT`** FKs to
 `auth.users`, so **the `auth.users` DELETE itself fails** while any custody row references the identity.
 `delete_account_cleanup` therefore does not merely need to leave custody alone — **account deletion as a
-whole stops working for anyone who has ever held a ticket, the day `079` lands.** That is a product
+whole stops working for anyone who has ever held a ticket, the day `079` lands.** *(Deadline corrected `079` → `077` 2026-08-28 — register ODR-16; read `077`.)* That is a product
 consequence, not a schema one.
 
 **The product handling is an OWNER DECISION (`O15`), recorded and not taken.** Three admissible forms, each

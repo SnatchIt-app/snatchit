@@ -626,9 +626,9 @@ applied to every money/custody ledger — the exact set the prompt requires be R
 | `venue.inventory_batch_shard` | money-custody-RPC-only | the batch writers minus the expiry sweep and the refund pair — nine (registry) | oversell guard |
 | `venue.inventory_movement` | money-custody-RPC-only (AO) | `reserve_primary_inventory` · `release_inventory_hold` · `set_batch_capacity` · `allocate_comp` · `issue_comp` · `finalize_primary_order` · `issue_ticket_atoms` · `void_ticket_atom` (same txn — eight, registry) | inventory audit ledger |
 | `venue.inventory_hold` | owner+venue read; **counter effect** RPC-only | `reserve_primary_inventory` · `create_inventory_hold` · `release_inventory_hold` · `sweep_expired_inventory_holds` | held-counter driver |
-| `venue.order` (money cols) | owner/org read; money RPC-only | `create_primary_checkout` · `finalize_primary_order` · `bind_order_attribution` · `refund_primary_order` *(`issue_ticket_atoms` removed — not a writer; `admin_refund` removed — not order-scoped)* | order money state |
+| `venue.order` (money cols) | owner/org read; money RPC-only | `create_primary_checkout` · `finalize_primary_order` · `bind_order_attribution` · `refund_primary_order` · `cancel_pending_order` (§20.7.9) *(`issue_ticket_atoms` removed — not a writer; `admin_refund` removed — not order-scoped)* | order money state |
 | `venue.settlement` / `settlement_line` | org-scoped read; RPC-only | `open_settlement` · `close_settlement` · `on_payout_settled` (hook) · `pay_promoter_commission` (lines) | settlement ledger |
-| `market.market_sale` | money-custody-RPC-only | `transfer_ticket_ownership` · `respond_offer` · `sweep_paid_pending_sales` · `on_atom_voided` (hook) | resale consummation (SoT) |
+| `market.market_sale` | money-custody-RPC-only | `transfer_ticket_ownership` · `respond_offer` · `sweep_paid_pending_sales` · `on_atom_voided` (hook) · `mark_sale_paid_state` (§20.8.7, webhook) | resale consummation (SoT) |
 | `market.p2p_transfer` (custody effect) | owner read; RPC-only | `create/accept/cancel_p2p_transfer` · `sweep_expired_p2p_transfers` · `on_door_freeze_engaged` (hook) · `catalog.cancel_event` | native custody move |
 | `kernel.admin_audit` | audit-only | every privileged RPC writes its own row in-txn | privileged-action ledger |
 | `venue.scan` | venue read; RPC-only (AO) | `record_scan` · `reconcile_offline_scans` | admission ledger (custody-adjacent) |
@@ -781,7 +781,7 @@ role tier they do not already have authority over.
 ### 7.3b `kernel.org_invite` — org-scoped + addressed-invitee (ADDENDUM A1 — schema §1.3b, migration 077)
 Write RPCs: `invite_org_member` (require `has_org_role(org_id,[org_owner,org_admin])`; `org_admin` cannot
 invite at `org_owner`; **no self-invite to a higher tier**, I-11), `accept_org_invite` (only the addressed
-invitee), invite-revoke (inviter-tier or platform). Mirrors `org_member`'s posture; the invite is the
+invitee), `kernel.revoke_org_invite` (inviter-tier or platform — §20.1.6, authored 2026-08-29). Mirrors `org_member`'s posture; the invite is the
 capability *offer*, never the capability itself — membership exists only when accept creates the
 `kernel.org_member` row in the same txn.
 
@@ -791,13 +791,13 @@ capability *offer*, never the capability itself — membership exists only when 
 | fan (not addressed) | D | D | D | D | — |
 | addressed invitee | A(own invite) | D | D | D | `accept_org_invite` (own, pending, unexpired) |
 | org_member / org_finance | D | D | D | D | — |
-| org_owner | A(own-org invites) | R | R | D | `invite_org_member` / revoke |
-| org_admin | A(own-org invites) | R | R | D | `invite_org_member` (≤ own tier) / revoke |
+| org_owner | A(own-org invites) | R | R | D | `invite_org_member` / `revoke_org_invite` |
+| org_admin | A(own-org invites) | R | R | D | `invite_org_member` (≤ own tier) / `revoke_org_invite` (≤ own tier) |
 | venue_* / promoter | D | D | D | D | — |
 | platform_support | A | D | D | D | — |
 | platform_risk | A | D | D | D | — |
 | platform_admin | A | R | R | D | override (audited) |
-| service_role | A(machine) | R(def) | R(def) | D | definer (expiry sweep → `expired`) |
+| service_role | A(machine) | R(def) | R(def) | D | definer (`kernel.sweep_expired_org_invites` → `expired`, §20.1.7 — the granted-unnamed sweep, named 2026-08-29) |
 
 No self-escalation: the invited `role` is CHECK-bound to the org enum and tier-guarded in the RPC; a pending
 invite grants nothing until accepted; `expires_at` bounds the window; GP-2 (no client DELETE) holds.
@@ -1896,6 +1896,10 @@ These fourteen were identified by the set-closure pass (RPC contracts §20.0c) a
 | `market.cancel_p2p_transfer` | **dual-class.** Caller-authorized — the sender (`auth.uid() = from_identity`) — **and `DEF`** for the `expired` transition it owns, invoked by the TTL sweep. The two arms are one function with two entry conditions; the `expired` arm must be unreachable from `authenticated` |
 | `venue.validate_ticket_online` | caller-authorized — `has_venue_role([venue_scanner, venue_manager])` — **OR** the `service_role` door path with `kernel.assert_door_session(device_id, session_id, door_session_id, token)` asserted in-body. The same dual-path shape §11.1 spells out for `record_scan`, and the C37 live-verify read. **Returns `signing_key_id`** so the key-id binding check runs on the **online** path too, not only offline (RPC §9.3) |
 | `kernel.force_void_ticket` | caller-authorized — `is_platform([platform_admin, platform_risk])` **only**. A platform **break-glass** void, exempt from the door freeze (§14.3.3), with no authority row until now. `platform_support` is denied |
+| `kernel.revoke_org_invite` (§20.1.6, 2026-08-29) | caller-authorized — `has_org_role(invite.org_id,[org_owner, org_admin])` OR `is_platform([platform_admin])`; an `org_admin` may not revoke an `org_owner`-tier invite; `org_id` from the invite row, never a parameter |
+| `kernel.sweep_expired_org_invites` (§20.1.7) | `DEF` — scheduler only; the §7.3b service_role grant, named; explicit `cron.schedule` in `077` (P0-1: no shared heartbeat exists) |
+| `venue.cancel_pending_order` (§20.7.9) | `DEF` — `service_role` only; `stripe-webhook` on a TERMINAL payment failure only; `REVOKE FROM anon, authenticated, public` |
+| `market.mark_sale_paid_state` (§20.8.7) | `DEF` — `service_role` only; `stripe-webhook` (`rail='native_resale'`); dormant pair with edge §4 until `R-37` |
 
 ### 11.1b Guest-list EXEC rows — authority that lived only in §9.16's matrix (`AUTHZ-R4`)
 

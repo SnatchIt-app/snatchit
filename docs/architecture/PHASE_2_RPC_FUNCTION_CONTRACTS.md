@@ -1058,8 +1058,8 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   `UNIQUE(cause, cause_ref, ticket_atom_id)` — replay is a no-op per atom; command key on the caller.
 - **Writes:** `kernel.tickets` (INSERT N, `state='issued'→'active'`, `credential_version:=0`,
   `signing_key_id`, `current_owner_id:=owner`), `kernel.ticket_ownership_log` (INSERT N, `sequence=1`,
-  `from_identity=NULL`, `cause`, `credential_version_after=0`, `state_transition`), `venue.inventory_batch`
-  (`sold += N`), `venue.inventory_movement` (`issue`). **No secret written** (C33 — only `signing_key_id`).
+  `from_identity=NULL`, `cause`, `credential_version_after=0`, `state_transition`), `venue.inventory_batch`**`(_shard)`**
+  (`sold += N` — *the shard conversion was absent from this line while §5.3/§5.5/§20.5.x all carry it; added 2026-08-29, red-team P1-2: a mint that converts only the batch drifts the sharded draw into permanent phantom holds*), `venue.inventory_movement` (`issue`). **No secret written** (C33 — only `signing_key_id`).
 - **Emitted facts:** ownership-log `cause` (N rows). **Result:** `{ status, atom_ids[] }`. **Failure:**
   `oversell_rejected`, `precondition_failed`. **Forbidden callers:** any client directly; anything writing
   `kernel.tickets` outside this fn.
@@ -1119,7 +1119,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
 - **Writes:** `kernel.ticket_ownership_log` (`refund_void`, `to_identity := SN-VOID`,
   `credential_version_after` bumped),
   **`kernel.tickets` (`state → 'voided'`, **`current_owner_id := SN-VOID`** — the platform void sentinel of
-  schema §1.16 — and the credential bump so any live QR dies)**, `venue.inventory_batch` (`sold -= 1`),
+  schema §1.16 — and the credential bump so any live QR dies)**, `venue.inventory_batch`**`(_shard)`** (`sold -= 1` — *shard added 2026-08-29, P1-2, same basis as §7.1*),
   `venue.inventory_movement` (`void_return`), **`market.on_atom_voided`** (the `market`-owned definer
   primitive of §20.11.3 — **never a direct `UPDATE market.market_sale`**, per §0.7) when driven by C25.
   **Result:** `{ status, atom_id }`. **Forbidden callers:** any client directly.
@@ -1790,7 +1790,7 @@ that door is using. Filed by edge §3.9a request #4.
 - **`SPEC CORRECTION` — Role NARROWS to `EXEC: DEF` + `is_platform([platform_support (capped),
   platform_admin])`.** Buyer, `org_finance` and the new `org_owner` authority reach this function **only via
   `kernel.request_order_refund` (§17.1)**, which calls it definer→definer in the same transaction. **This
-  remains the sole writer of `kernel.refund`** on every tier, which is what preserves R7 money-single-path:
+  remains the sole ORDER-SCOPED writer of `kernel.refund`** on every tier — the complete writer set is four (§20.7.7: this function, `admin_refund` payment-scoped, the C25 sweep's compensate arm, `mark_refund_state` state-sync; *"sole writer" corrected to the per-path form 2026-08-29, red-team P2-7*) — which is what preserves R7 money-single-path per path:
   the request/approve objects *request*; none of them writes a money row.
 - **`SPEC CORRECTION` — the voidable/consumed partition.** `kernel.void_ticket_atom` requires the atom not to
   be terminal, and `scanned` **is** terminal with **no `scanned → voided` edge in the frozen state machine**.
@@ -3382,6 +3382,41 @@ function** (migration `005`), `GRANT EXECUTE … TO service_role` **only**. Two 
   answered.** Adding a role to `get_holder_mix`'s authority predicate is therefore an RLS/RPC change **with a
   product-side obligation attached**, and must not be treated as a routine matrix edit.
 
+### 17.20a `kernel.write_demographic_erasure_tombstone()` / trigger `tg_identity_demographic_erasure` — **TRIGGER WRITER** · `NEW` (J-12; authored 2026-08-29 — name authored, shape DERIVED)
+
+> **Four documents required this trigger; none named it; the plan's `077` row actively denied it; and its
+> specified operation ("upserts") was incompatible with its own table's ratified append-only class.** The
+> shape question is now CLOSED BY DERIVATION (sprint agent 6, 2026-08-29): DO-UPDATE is invalid by ratified
+> invariant (the AO class is inside `C64`'s ratified set and `raise_append_only` is attached with no
+> exemption text anywhere), and ON-CONFLICT-DO-NOTHING is eliminated by §8.5's own ratified purpose — the
+> corpus itself already called it *"silently wrong… the second erasure is dated by the first."* **The
+> unique surviving form is APPEND-MANY: pure INSERT, one immutable row per erasure, PK `id`** — which is
+> also the only form under which the corpus's two physical definitions (DEMOG §10.2 vs SPEC_FOUNDATION)
+> reconcile, and is the house event-log discipline (`identity_contact_pref_event` /
+> `org_contact_consent_event`, `C70`/`K-19`). The names are authored (the §17.20 `reconcile_holder_mix`
+> convention; flagged in §19). **Two of the register's six standing OR-2 blockers discharge with this
+> contract** (the missing-from-package trigger; the UPSERT incompatibility); four stand (cascade-vs-AO on
+> the contact/consent tables → ODR-16/4b · the `{N}` window → D-6 · the reaper + its ODR-4a class
+> amendment · non-transactional deletion).
+
+- **Form.** `BEFORE DELETE FOR EACH ROW` on `kernel.identity_demographic`; function `SECURITY DEFINER`,
+  `search_path` pinned; **body references no gender column** (DEMOG §13 assertion 25 — asserted over
+  `pg_get_functiondef`, the Wallet-31 construction).
+- **Write.** Pure **INSERT** into `kernel.identity_demographic_erasure`
+  `(identity_id, erased_at := now(), purge_after := now() + {N} + margin)` — value-free, **one row per
+  removal, never an update of a prior row**. `{N}` is symbolic pending **D-6**; the contract is closed over
+  it. Fires on EVERY removal path: `clear_my_demographics`'s definer DELETE (§17.20 — the path that exists
+  under every ODR-16 ruling), the `auth.users` CASCADE (fires only under ODR-16 B/C), and any future
+  definer delete (C38 merge).
+- **Package.** Ships **in the same package as its table** (ratified, ODR-4 analysis) — `077` at HEAD; both
+  move together if the ODR-4 Option-5 placement action executes.
+- **Never:** raises on the happy path beyond the INSERT's own constraints; reads any other table; carries
+  any demographic value.
+- **Tests.** DEMOG §13 assertions **25** (no-gender-column, structural), **29** (**restated one-per-removal**
+  per the split map's own instruction: clear → re-answer → clear yields TWO tombstone rows with distinct
+  `erased_at`), **30** (cascade path yields its own row; tombstone FK-free so it survives the deletion that
+  caused it).
+
 ### 17.21 Contact preferences and consent — `kernel.get_my_contact_prefs` · `set_my_contact_prefs` · `list_my_org_contact_consents` · `grant_org_contact_consent` · `withdraw_org_contact_consent` — `NEW RPC` ×5
 
 - All five are **DB-RPC**, `EXEC: authenticated`, **own-row only**, and **none takes an identity parameter of
@@ -3784,7 +3819,14 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
   `(aggregate_kind, aggregate_id)` **under the aggregate's existing row lock**, which every SSCAS member
   already holds — so **no new lock and no new deadlock class**. Idempotency: `UNIQUE(event_type, event_key)`.
   **The payload never contains a recipient list and never contains rendered copy** — only ids and scalars.
-- **`notify.drain_outbox(p_limit)`** — **`EXEC: DEF`**, cron. `pg_try_advisory_xact_lock` + `FOR UPDATE SKIP
+- **`notify.drain_outbox(p_limit)`** — **`EXEC: DEF`**, cron. **BOUNDED-EXPANSION OBLIGATION (ODR-3
+  §3.2, carried 2026-08-29 — binding; the machinery that held it, `notify.schedule.expand_cursor`, left
+  with the dropped table):** a custody-expansion envelope (the four event-viability types fan out over
+  every active atom) may NOT be drained as one unbounded set-based INSERT. Two admissible mechanisms, the
+  choice ENGINEERING (assigned to the `092` author, not ruled here): (i) a cursor pair on `notify.outbox`
+  (`ADDITIVE: expand_cursor uuid, expanded_count int`) advancing per tick, envelope `done` only at
+  exhaustion; or (ii) internal chunking re-run to completion under `UNIQUE(dedupe_key)` idempotency. Either
+  way a 50,000-holder cancellation drains over multiple ticks instead of one long-lock transaction. `pg_try_advisory_xact_lock` + `FOR UPDATE SKIP
   LOCKED LIMIT p_limit`, then **one set-based `INSERT … SELECT … ON CONFLICT (dedupe_key) DO NOTHING`** per
   envelope — no row loop. **Poison quarantine:** a handler that raises marks **that envelope** `dead` and
   continues; **one bad row can never block the batch.**
@@ -3795,6 +3837,11 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
   than dropping events. **Three guards catch a double run, and only the third is load-bearing:** the advisory
   lock prevents overlap, the lease prevents a crashed run wedging a row, and **`UNIQUE(dedupe_key)` is what
   correctness depends on** — every failure mode collapses to the same no-op.
+- **`notify.register_push_token` — extended 2026-08-29 (sprint agent 3, mechanical):** after the insert,
+  UPSERT `notify.identity_channel_state (identity_id,'push','ok', now(),'token_registered')` iff a row
+  exists in state `unreachable` — a live registration is the fact that ends unreachability (the enum's `ok`
+  exists for exactly this; without the reset, `unreachable` is permanent and a re-registered device's
+  mandatory pushes stay suppressed, contradicting §3.5's transport-facts-track-transport structure).
 - **`notify.enqueue(recipient, type_key, subject_kind, subject_id, params, dedupe_key)`** — **`EXEC: DEF`**,
   non-raising. **Supersedes by extension:** the legacy `public.enqueue_notification` stays unmodified serving
   its existing types; this one derives channels, template and target from the registry.
@@ -3866,6 +3913,17 @@ state machine, the lease predicate, the retry schedule and the dispatcher descri
 **`notify.record_delivery_result(p_delivery_id, p_outcome, p_provider_message_id, p_provider_receipt_id,
 p_apns_status, p_error text)` — `EXEC: DEF`**
 
+> **`device_not_registered` arm — EXTENDED 2026-08-29 (sprint agent 3; every joint forced by §3.2/§3.5's
+> own text):** ⇒ `state='failed'` **and** `public.push_tokens.revoked_at = now()`,
+> `revoked_reason='device_not_registered'`; **then, iff no row remains for the recipient identity with
+> `revoked_at IS NULL`**, UPSERT `notify.identity_channel_state (identity_id, channel='push',
+> state='unreachable', since=now(), reason='device_not_registered')` — the only outcome that is an
+> identity-level transport fact, the only value the closed enum admits for push, and the §3.5 all-tokens-
+> revoked condition verbatim. Lock order delivery → token → channel-state. **A transport fact, never
+> `notify.preference`** — it suppresses nothing by itself; `channel_enabled` unchanged. The EMAIL arm
+> (`bounced_hard`/`complained` transitioning a `sent` delivery) is **CONDITIONAL(N1)** — signature
+> reserved, body not authored: no provider exists and the current terminal-state guard forbids it.
+
 - **Purpose.** The single terminal-state writer for a delivery, and the only place a push token is ever
   marked inactive.
 - **Actor.** `service_role` only; called by `notify-dispatch` after the provider call and by
@@ -3921,6 +3979,8 @@ named test for any of their 23 RPCs**; those rows are authored here (§19).
 | **CRM** | `T-RPC-CRM-01..13` | §17.21–§17.22 |
 | **Wallet** | `T-RPC-WALLET-01..03` | §17.23 |
 | **Notify** *(conditional on MD-10)* | `T-RPC-NOTIFY-01` (recipient derivation) · `T-RPC-NOTIFY-02` (a mandatory type cannot be suppressed, asserted as `service_role` **and** as `postgres`) · `T-RPC-NOTIFY-03` (a claimed delivery inside its lease is not re-claimable) · `T-RPC-NOTIFY-04` (`emit_event`/`enqueue` never raise: an injected constraint violation leaves the caller's transaction committed) | §17.24–§17.25 |
+| **Money (S-24 additions, 2026-08-29 — red-team P2-10: these four existed only at §20.7.7 and were absent from this register and the matrix)** | `T-RPC-MONEY-25` · `-26` · `-27` · `-28` — the refund state-machine set (label reachability incl. the pre-fix failure; forward-only both directions; second-different-`stripe_refund_ref` raises / equal is `noop_replay`; `refund_exposure_minor` boundary) |
+| **Order/market state-sync (authored 2026-08-29)** | `T-RPC-ORG-04..06` (§20.1.6/§20.1.7) · `T-RPC-ORDER-01..04` (§20.7.9) · `T-RPC-MARKET-08..10` (§20.8.7) |
 | **Global posture** | `T-RPC-GLOBAL-01` (every function `postgres`-owned, `SECURITY DEFINER`, pinned `search_path`) · `T-RPC-GLOBAL-02` (every `EXEC: DEF` function has no grant to `anon`/`authenticated`) · `T-RPC-GLOBAL-03` (**no RPC accepts a client-supplied actor/`buyer_id`/`user_id` as authority** — signature inspection over `pg_proc`) · `T-RPC-GLOBAL-04` (every human-authorized RPC **raises** when `auth.uid()` is NULL, so a service-role invocation fails loudly rather than degrading — **the enforceable form of §0.1a**) | §0.1, §0.1a |
 
 **Ids, not rows (`G-22`).** The thirteen group rows above enumerate **83 distinct ids**
@@ -4479,6 +4539,72 @@ the table these two write.
 - **Test.** `T-RPC-ORG-03` (**structural**: the function's definition references none of
   `stripe_connect_account_ref`, `payout_destination_set_by`, `payout_destination_locked_until`, `status`,
   `legal_name`, `home_region`; a patch naming any of them raises `invalid_input`).
+
+#### 20.1.6 `kernel.revoke_org_invite(p_invite_id, p_command_key)` — **DB-RPC** · `NEW RPC` (fence `kernel.org_invite` row; `RC-4` "a revoke RPC"; authored 2026-08-29, sprint agent 2)
+
+> **Three of `kernel.org_invite.status`'s five labels had no writer** (triage `F-4`). Schema §1.3b's
+> write-authority line names *"a revoke RPC"*, RLS §7.3b grants EXECUTE on *"revoke"* to two org tiers and
+> platform, the plan's `077` Functions row scheduled neither name — the `RC-4` shape verbatim.
+
+- **Purpose.** Withdraw a `pending` invite before acceptance. The invite is the capability *offer*, never the
+  capability itself (RLS §7.3b) — revoking it removes the offer and releases the partial
+  `UNIQUE(org_id, invitee_ref) WHERE status='pending'` so the same person can be re-invited without waiting
+  out `expires_at`.
+- **Authority.** Caller-authorized — `has_org_role(invite.org_id, [org_owner, org_admin])` OR
+  `is_platform([platform_admin])` (RLS §7.3b: *"invite-revoke (inviter-tier or platform)"*). **Tier guard:**
+  an `org_admin` may not revoke an `org_owner`-tier invite — the reading consistent with §2.2's invite guard
+  and §2.5's *"cannot remove a higher tier than caller"*, this function's own family. `INFERENCE — flagged
+  (R-11 standard):` the venue plane rules role *revocation* the opposite way (§20.4.2); the org-plane sibling
+  is the nearer precedent and is followed; the owner may relax the guard — a one-line change here and nowhere
+  else.
+- **Scope binding.** `org_id` is **read from the invite row under its lock, never a parameter** (`AUTHZ-C1C`).
+- **Params.** `p_invite_id`, `p_command_key` — untrusted. **Server-derived:** `auth.uid()`, `now()`.
+- **Preconditions.** Invite exists; `status='pending'` — including a pending row past `expires_at` (revoking
+  a lapsed offer is the immediate form of the sweep's unique-release). An **accepted** invite raises
+  `precondition_failed('invite_not_pending')`: membership is removed only by `kernel.remove_org_member`
+  (§2.5) — reaching an accepted invite here would bypass the "≥1 `org_owner`" invariant.
+- **Locks.** The invite row `FOR UPDATE`. Nothing else. **SSCAS:** n/a. Race with `accept_org_invite`: both
+  take the row lock; exactly one commits, the loser raises on the now-terminal status.
+- **Writes.** `kernel.org_invite` (→ `revoked`), `kernel.admin_audit` (`org.invite.revoke`, before/after,
+  **carrying the invited role's money-role class** — §2.2's `AUTHZ-C1B` legibility rule applies to the
+  withdrawal: invite → revoke → re-invite-lower is a pattern, not three rows).
+- **Result.** `{ status }`. **Idempotency.** `p_command_key` + terminal state — replay on `revoked` revokes
+  nothing twice (§9.2 posture).
+- **Errors.** `not_found` · `insufficient_privilege` · `precondition_failed('invite_not_pending' | 'tier')` ·
+  `idempotency_replay`.
+- **Forbidden callers.** The addressed invitee (they hold accept, only — §7.3b); org_member/org_finance;
+  every venue role; `platform_support`/`platform_risk`; anon.
+- **Tests.** `T-RPC-ORG-04` (an `org_admin` revoking an `org_owner`-tier invite raises; an `org_owner`
+  succeeds; **after revoke a re-invite of the same `invitee_ref` succeeds, and while `pending` it fails on
+  the partial unique** — the release is the load-bearing half) · `T-RPC-ORG-05` (concurrent accept/revoke:
+  exactly one wins; a revoked-then-accepted invite raises and writes **no `kernel.org_member` row —
+  asserted on the roster, not on the error**).
+
+#### 20.1.7 `kernel.sweep_expired_org_invites(p_limit int DEFAULT 500)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (RLS §7.3b service_role row; authored 2026-08-29)
+
+> **RLS §7.3b's service_role row grants *"definer (expiry sweep → `expired`)"* — an EXECUTE for a function
+> no document contracted**, the `R-29` shape on the invite table. Unlike the offer tick (§4.3.1 — *"an
+> offer holds nothing"*), this transition is load-bearing at exactly one point: the partial
+> `UNIQUE(org_id, invitee_ref) WHERE status='pending'` means a lapsed invite that never leaves `pending`
+> **blocks re-inviting that person permanently**. Name authored here so it can be granted, tested and cited
+> (the §17.20 `reconcile_holder_mix` convention); flagged in §19.
+
+- **Authority.** **`EXEC: DEF`** — `REVOKE EXECUTE FROM anon, authenticated, public`, `GRANT EXECUTE TO
+  service_role` only. **Scheduling: an explicit `cron.schedule` entry in its package (`077`), 2-minute
+  cadence** — *NOT "the heartbeat that already runs": red-team `P0-1` (2026-08-29) proved no shared
+  heartbeat dispatcher exists in production or in any band package; every sweep names its own entry until
+  the dispatcher question (`P0-1`, filed) is settled.* No human path; `auth.uid()` NULL by construction.
+- **Preconditions.** `status='pending' AND expires_at < now()`, ordered by `expires_at`, `LIMIT p_limit`,
+  **`FOR UPDATE SKIP LOCKED`** — a row mid-accept is skipped, not fought over (§20.3.3 construction).
+- **The sweep is never the enforcement** (§4.3.1's rule): `accept_org_invite` already refuses an
+  over-`expires_at` invite on the row, regardless of stored status. The tick makes the stored label agree
+  with the arithmetic **and releases the partial unique**, which the arithmetic cannot do.
+- **Writes.** `kernel.org_invite` (→ `expired`) only. No audit rows — a TTL lapse is not an administrative
+  action (§12.2 posture). **Each row its own transaction** (poison-quarantine, §20.3.3).
+- **Result.** `{ swept }`. **Idempotency.** Re-entrant; overlapping ticks harmless.
+- **Tests.** `T-RPC-ORG-06` (with the tick **disabled**, accept of a past-`expires_at` `pending` invite
+  raises — the `T-SCHEMA-OFFER-01` construction; after one tick the same `invitee_ref` can be re-invited —
+  the unique-release half, asserted because it is the reason this sweep exists).
 
 ### 20.2 CATALOG AND CONFIG — the `078` gap
 
@@ -6038,6 +6164,59 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   and must carry the defaulted fifth; `PHASE_2_CRM_EXPORT_SPEC.md` §9.5 should cite the return shape rather
   than restating it.
 
+#### 20.7.9 `venue.cancel_pending_order(p_order_id, p_reason_code, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (fence `venue.order` row; edge §4 "order cancel RPC"; authored 2026-08-29)
+
+> **`venue.order.status` has five labels and its complete writer set reached four.** `create_primary_checkout`
+> INSERTs `pending`, `finalize_primary_order` writes `paid`, `refund_primary_order` writes
+> `partially_refunded`/`refunded` — **`cancelled` was written by nothing.** Edge §4 routed
+> `payment_intent.payment_failed` at *"venue.release_inventory_hold / order cancel RPC"* — a placeholder
+> naming no function, the `MB-2b`/`R1-1` shape on the order table.
+
+- **Purpose.** Record that a pending order's payment path has terminally failed: the container closes without
+  money ever having moved. **It moves no money, calls nothing external, touches no `public.*` table.**
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`.
+  Class B (`EA-3` B-ii) from the edge. **No human path in this contract** — a human who can cancel a pending
+  order can strand a buyer mid-retry.
+- **Params.** `p_order_id`; `p_reason_code` — **required**, ∈ `('payment_failed')` (closed set, extended only
+  by contract change); `p_command_key`.
+- **Preconditions.**
+  1. **Forward-only.** `pending → cancelled` only. `paid`/`partially_refunded`/`refunded` raise
+     `precondition_failed('order_not_pending')`; already-`cancelled` returns `noop_replay`.
+  2. **THE CASE AN IMPLEMENTER WILL GET WRONG — the terminal-failure rule (`SPEC CORRECTION` to edge §4's
+     row).** `payment_intent.payment_failed` fires per **attempt**, and edge §3.1 contracts in-session retry
+     **against the same order** (*"a canceled PI is retired and a fresh salted PI minted"*; checkout replay
+     returns the same `order_id` — which requires the order still `pending`). §6.3's own precondition is
+     `order 'pending'`, so cancel-on-first-decline followed by a late success finalizes nothing: **money
+     captured, no tickets, webhook non-2xx, Stripe retries forever.** The webhook therefore calls this
+     function **only when the PaymentIntent is TERMINAL** (`payment_intent.canceled`, or a `payment_failed`
+     whose intent status is `canceled`) — a mere failed attempt cancels nothing and releases nothing.
+- **Locks.** `venue.order` row `FOR UPDATE` — **rank 3 (Order)**. Nothing else. **SSCAS:** n/a (C28's closed
+  fifteen stands).
+- **Writes.** `venue.order` (→ `cancelled`), `kernel.admin_audit` (`order.cancel`, before/after +
+  `reason_code`) in the same txn. **Nothing else — in particular it touches no inventory.** No order→hold
+  linkage exists to reach (schema §3.7 carries no hold ids; §3.5 no `order_id`; the PI metadata none) — the
+  failure path's capacity return is owned by `venue.sweep_expired_inventory_holds` (§20.3.3) at hold TTL,
+  the same bound the checkout's hold timer displayed. **Edge §4's "release the inventory hold" arm has no
+  order-derivable implementation and is corrected to "(capacity returns via the §20.3.3 sweep at hold
+  TTL)"** — prompt release would need an additive `order_id` column on `venue.inventory_hold`: a schema
+  change, not this contract.
+- **Result.** `{ status ∈ {cancelled, noop_replay}, order_id }`. **Idempotency.** `p_command_key` +
+  forward-only; a redelivered terminal-failure event on a cancelled row returns `noop_replay` and never
+  raises — **a webhook that raises is a webhook Stripe retries forever.**
+- **Errors.** `not_found` · `precondition_failed('order_not_pending')` · `invalid_input`.
+- **Callers.** `stripe-webhook` (edge §4) under the terminal-failure rule — nothing else. (An abandoned
+  order with no payment attempt receives no Stripe event and stays `pending`; its holds return via §20.3.3
+  so no capacity is lost; sweeping stale `pending` orders is presentational — the §4.3.1 disposition —
+  and deliberately unscheduled.)
+- **Forbidden.** Every human role; any caller on a non-terminal failure; any client.
+- **Tests.** `T-RPC-ORDER-01` (**label-completeness sweep** over schema §3.7's five labels — for each, a
+  named function in the chain writes it; fails against the pre-fix corpus) · `T-RPC-ORDER-02` (cancel of a
+  `paid` order raises and leaves `status` untouched; replay on `cancelled` returns `noop_replay`, no second
+  audit row — both halves) · `T-RPC-ORDER-03` (**structural** — no webhook branch keyed on
+  `payment_intent.payment_failed` calls this function without asserting the intent's terminal status) ·
+  `T-RPC-ORDER-04` (cancel-then-finalize race: after cancel, `finalize_primary_order` raises and **mints
+  nothing — asserted on `kernel.tickets`**, not on the error).
+
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
 > **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**
@@ -6297,6 +6476,64 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   `payment_unverified` and moves no custody — the C35 regression) · `T-RPC-MARKET-06` (accept withdraws every
   other pending offer and marks the listing `sold`; a replayed accept returns the original sale and appends
   no second ownership-log row).
+
+#### 20.8.7 `market.mark_sale_paid_state(p_sale_id, p_payment_id, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (fence `market.market_sale` row; authored 2026-08-29)
+
+> **The C25 clock had no writer.** `sale_state='initiated'` is the INSERT default; §12.3's sweep selects on
+> `sale_state='paid_pending_transfer' AND paid_pending_since < now() - dwell_slo`; the RN "Finalizing…"
+> poll (recon #2) resolves off the same state — and edge §4's `native_resale` row said *"mark `market_sale`
+> `paid_pending_transfer`"* while naming **no function**. `paid_pending_since` occurred as a written column
+> nowhere. Without this contract a paid buyer's sale never enters the sweep's predicate — **the exact
+> unbounded dwell C25 exists to forbid.**
+
+- **Purpose.** Record that Stripe reported the buyer's payment for an `initiated` native resale. **It moves
+  no custody and calls nothing external** — the transfer is driven by the accept path or the C25 sweep,
+  never by the webhook (edge §4).
+- **Authority.** **`EXEC: DEF`** — `service_role` only, `REVOKE EXECUTE FROM anon, authenticated, public`,
+  **no human path**: a principal who can mark a sale paid starts a custody-completion clock with no money
+  behind it. Class B (`EA-3` B-ii).
+- **Params.** `p_sale_id`; `p_payment_id` (uuid → `public.payments` — the frozen money-in row the webhook
+  just recorded); `p_command_key`. **No `p_new_status`:** exactly one transition is webhook-drivable
+  (`initiated → paid_pending_transfer`) — the `terminal_state` machine belongs to the engine and the C25
+  sweep (C26), and `settled` is not a Stripe-reportable fact. A status parameter with one legal value is a
+  second door (§20.7.6's reasoning).
+- **Preconditions.**
+  1. **Forward-only.** `initiated → paid_pending_transfer`. A row already there — or terminal — with an
+     **equal** `p_payment_id` returns `noop_replay`; any other pair raises
+     `precondition_failed('sale_state_backwards')`.
+  2. **`p_payment_id` mandatory and write-once** — equal on replay, else `conflict_locked`. It is the value
+     §7.2's C35 check verifies at transfer; a second value silently re-points which charge a custody move
+     settles against.
+  3. **C35 at the earliest moment:** `public.payments(p_payment_id)` must belong to
+     `market_sale.buyer_id`, live-verified — a mis-joined payment fails **at the mark**, before it starts a
+     completion clock → `payment_unverified`.
+- **Locks.** `market.market_sale` row `FOR UPDATE` — **rank 4** (the rank `on_atom_voided` writes it at).
+  Nothing else. **SSCAS:** n/a.
+- **Writes.** `market.market_sale` (`sale_state := 'paid_pending_transfer'`, `paid_pending_since := now()`,
+  `payment_id := p_payment_id`), `kernel.admin_audit` (`market_sale.state_sync`, before/after) in-txn.
+  **Nothing else** — no listing, no atom, no `kernel.payment_native` (the resale link is born at transfer
+  by the engine — `R-34`).
+- **Result.** `{ status ∈ {updated, noop_replay}, sale_id, paid_pending_since }`.
+- **Idempotency.** `p_command_key` + forward-only + equal-ref; a redelivered `payment_intent.succeeded`
+  never raises.
+- **Errors.** `not_found` · `precondition_failed('sale_state_backwards')` · `conflict_locked` ·
+  `payment_unverified`.
+- **Callers.** `stripe-webhook` (edge §4), keyed `metadata.rail='native_resale'` — the ONLY caller. **NOT
+  the offer rail:** §20.8.6's accept verifies an existing payment and runs
+  `initiated → paid_pending_transfer → completed` in one transaction; it never dwells and never calls this.
+- **CONSEQUENCE, STATED BECAUSE IT BOUNDS THE CALLER SET.** This function updates a row that must already
+  exist, so its live-caller population is the checkout that INSERTs `market.market_sale` at `initiated`
+  **before** payment — §14.1 member #2's *"market checkout"*, which remains a MISSING CONTRACT (owner
+  filing `R-37`). The ordering is pinned: `market.get_market_sale_status` (§1.4) polls by `p_sale_id`, so
+  the row precedes the payment **by contract**; a webhook-INSERT variant is closed by recon #2, not merely
+  disfavored. **Until `R-37` is ruled, this contract and edge §4's `native_resale` branch are a dormant
+  pair** — correct, granted, and reached by nothing.
+- **Forbidden.** Every human role; any client; the offer-accept path; any caller supplying a status.
+- **Tests.** `T-RPC-MARKET-08` (**completeness**: for each `sale_state` label a named writer exists; fails
+  against the pre-fix corpus) · `T-RPC-MARKET-09` (foreign payment raises `payment_unverified`, no clock;
+  equal-ref replay `noop_replay`, no second audit row; different ref `conflict_locked` — all three arms) ·
+  `T-RPC-MARKET-10` (after the mark, a §12.3 tick past `dwell_slo` selects the row — the integration half
+  proving the clock started).
 
 ### 20.9 PROMOTER RECORDS AND LINKS — the `090` gap (`U-3`, `U-4`, `G-11`)
 
@@ -6681,6 +6918,13 @@ six and to the three names §20 assigns.
 > **`T-RPC-SET-02`:** exactly one physical function exists per row of this table. An alias that becomes a
 > second `CREATE FUNCTION` is the failure `G-20` predicts, and it is invisible until two call sites disagree.
 
+**Authored-not-transcribed names (the §17.20 `reconcile_holder_mix` convention; added 2026-08-29):**
+`kernel.revoke_org_invite` (§20.1.6) · `kernel.sweep_expired_org_invites` (§20.1.7) ·
+`venue.cancel_pending_order` (§20.7.9) · `market.mark_sale_paid_state` (§20.8.7) ·
+`kernel.write_demographic_erasure_tombstone` / `tg_identity_demographic_erasure` (§17.20a).
+Each is the unique function three-plus documents pointed at by phrase or grant; only the NAME is authored —
+authority, shape and package were derived, per each contract's own header.
+
 ### 20.14 REQUESTS TO OTHER INTEGRATORS — what §20 cannot fix in its own file
 
 **This document owns `PHASE_2_RPC_FUNCTION_CONTRACTS.md` and edited nothing else.** Each item below is a
@@ -6735,6 +6979,11 @@ change another spec's owner must make; each names the file, the section and the 
 | **R-33** | `PHASE_2_MONEY_AUTHORITY_SPEC.md` §8.4 Control 4 · §12 | **Restating `S-14`, which is still open:** Control 4's *"created at status `held` rather than `submitted`"* must become *"created `pending` by `close_settlement` and **not advanced** to `submitted`, carrying `hold_state='probation_hold'`"*, and §12's `NO SCHEMA CHANGE` must become **`SCHEMA CHANGE` — four additive columns on `kernel.payout`**. RPC §17.7 control 2 and §10.3's probation arm are fixed in this pass | **`kernel.payout.status='held'` does not exist and is not being created.** While §8.4 still says it, the two documents disagree about the physical representation of the one control that stops money reaching a freshly-changed destination — and §12's classification is what a migration author reads to decide the package needs no DDL |
 | **R-34** | `PHASE_2_RLS_PERMISSION_SPEC.md` §7.8 + §5 · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.8 | **`kernel.payment_native`'s writer set is `venue.finalize_primary_order` (§6.3) + `kernel.transfer_ticket_ownership` (§7.2) — TWO, with `market.accept_p2p_transfer` (§8.2) and `market.respond_offer` (§20.8.6) as delegating callers through the engine.** Both derived documents named `kernel.issue_ticket_atoms` (whose Writes line does not name the table) and omitted the actual writer of every primary-purchase link; schema §1.8's *"written by issuance / native-sale engines"* and its *"only"* are competing definitions, not restatements. Filed under `OR-7`: the registry governs, derived lists agree exactly or point. **The §8.2 ambiguity (X-1's "2 or 3") is closed in this document — §8.2's Writes line now carries the delegation form, 2026-08-29.** `instrument_fingerprint`'s writer is **DISCHARGED 2026-08-29**: `venue.finalize_primary_order` (§6.3) writes it from the webhook-supplied parameter; the resale link is born NULL (§7.2); membership unchanged at two — the X-1 `R-` filing the consequence map demanded is this row | Writer-parity pass, 2026-08-29 |
 | **R-35** | this document §20.0e (registry) · `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §8 `079` Triggers row · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.5 | **`kernel.set_updated_at` is a WRITER (kind `trigger`) under `OR-7` and has no contract and no complete attachment map; and `079` attaches NO `updated_at` maintainer to `kernel.tickets` while schema §"Global conventions" states mutable rows' `updated_at` is *"maintained by the existing `set_updated_at` helper trigger pattern"* and the column exists on the atom.** The schema's own rule uniquely determines the answer — the attachment is required — so this is a MECHANICAL CONTRACT/PLACEMENT omission, not an owner decision; but scheduling the trigger is the plan owner's build edit and creating it is Phase-2 implementation, so **this row FILES it and this pass builds nothing**. The registry carries it as MISSING_CONTRACT until contracted | Writer-parity pass, 2026-08-29 |
+| **R-36** | this document §20.1.6-adjacent · `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §1.3b · dashboard :1125 | **`org_invite.status='declined'` has no writer and no granted verb — OWNER.** RLS §7.3b gives the invitee exactly one EXEC (accept); adding a decline verb extends a closed authority set (`R-11` class). Two dispositions: (i) grant `kernel.decline_org_invite` (invitee-only, `pending → declined`) — then transcription-grade; (ii) strike `declined` from the enum (three sites) — an unwanted invite lapses; the smaller surface, and the dashboard's own §687 house principle is that declining is indistinguishable from silence | Sprint agent 2, 2026-08-29 |
+| **R-37** | RN §4.3b · this document §14.1/§20.8.6/§20.8.7 · edge spec §4 | **The native-resale money-in leg has NO designed write path and the surface is RATIFIED** — "market checkout" is a phrase, not residue: RN §4.3b contracts buy-now purchase, and §20.8.7's writer is a dormant pair with edge §4 until the INSERT-at-`initiated` checkout exists. OWNER: (i) descope direct buy-now from MVP (RN §4.3b reduces to the offer rail — whose own payment mint STILL needs a smaller design); or (ii) commission the design (one edge + one DB-RPC + the `reserved`-state ruling — RN :590 expects a listing state the schema enum lacks — + RLS row + fence + `088`). Triple-gated dark in MVP, which is why no gate tripped | Sprint agent 2, 2026-08-29 |
+| **R-38** | `kernel.payout` "native-sale payout path" · MONEY §2.1/§10.5 · DA C29-C31 | **BOUND TO GATE M — may not be closed by build-time invention.** The identity-payee payout's INSERT trigger and disbursement timing are ratified as Gate-M policy no Phase-2 document states; every payout-advance control in the corpus is org-shaped. The fence row stays MISSING_CONTRACT deliberately — the gate failing here is the registry telling the truth | Sprint agent 2, 2026-08-29 |
+| **R-39** | CRM §4.3/§11.2 · this document §2.1/§17.22 | **`org_customer_key`: (a) MINT site is a genuine 2-way choice** — at `create_organization` (in-txn, literal reading) vs lazily at first `request_export` (`ON CONFLICT DO NOTHING`; strictly smaller blast radius — no secret for orgs that never export). Both satisfy every stated property; once ruled, transcription-grade. **(b) ROTATION has no physical carrier** for its own coupled side-effect (the template-version bump + venue notice ride an object no document defines, and the notice carrier is the gated notify plane) — rule the carrier (and whether rotation is Phase-2 at all; CRM frames it as incident response) before any contract | Sprint agent 2, 2026-08-29 |
+| **P0-1** | plan §8 Scheduled-ticks rows ×4 · production `014_frequent_cron_schedules.sql` | **THE SHARED 2-MINUTE HEARTBEAT DOES NOT EXIST** (red-team, 2026-08-29): production's only 2-minute jobs are two single-purpose entries; no dispatcher function exists in any band package; five load-bearing sweeps ride the phrase and `sweep_expired_refund_requests` had no Scheduled-ticks row at all. **The false premise is corrected at every plan site; each sweep now names an explicit per-package `cron.schedule` obligation. ENGINEERING CHOICE FILED, not taken: one dispatcher function vs per-job entries** — two admissible forms; the per-job form is the written default until ruled | Red team, 2026-08-29 |
 | **R-26** | **Whoever owns the corpus-wide id scheme** (the hazard this record already documents for `R-`, `K-`, `O`/`O-` and `S-`/`D-`) | **`R-22` IS USED TWICE IN THIS TABLE, FOR TWO UNRELATED ITEMS.** One `R-22` is `MP-1`'s offline clock-skew time-bucket confirmation; the other is the platform-plane grant-maturity owner ruling (`C77`/`O12`), which schema §13.7 `S-3` and RLS §11.3a both cite **by that id**. Two rows with one id is the `O3`/`O-3` mistake inside a single table, and the second one is load-bearing in three documents. **Requested:** renumber one of them — **not** the `C77`/`O12` row, which is cited externally — and state the rule that `R-` ids are allocated by reading the table's current maximum, the same discipline the ratification record states for its own rows | Found by `MB-1`/`MB-6` while allocating this pass's ids. **Not fixed here**, because renumbering a row two sibling documents cite is exactly the change that must not be made unilaterally by a pass that owns neither |
 
 ---
@@ -6846,7 +7095,7 @@ written or a contract that instructed the pre-fix behaviour.
 | **§20.7.7** | *did not exist* | **NEW** — `kernel.mark_refund_state`. `kernel.refund`'s only writers all INSERT at the `pending` DEFAULT: three of four labels unreachable, **`stripe_refund_ref` with zero writers and zero readers**, and `MB-1`'s cumulative operand permanently `pending`-only | `C101`, `C102` |
 | **§20.7.8** | *did not exist* | **NEW** — `venue.assert_may_request`, which **got a package number and nothing else**. Return shape settled: one function, `RETURNS boolean`, `p_raise DEFAULT true`; two rejected shapes recorded | `C108` |
 | **§20.11** | *"These four"* | **five** — `venue.on_payout_settled` (§20.11.5), the SEAM-2 hook that is the only writer of `venue.settlement.status='paid'`, and the §0.7 boundary answer | `C104` (`S-16`) |
-| **§20.14** | `R-1`…`R-27` | **`R-28`** (record_money_denial: RLS + MONEY) · **`R-29`** (assert_may_request: EXEC row + the five-parameter signature) · **`R-30`** (sweep EXEC row) · **`R-31`** (three state-sync EXEC rows + the `085` objects) · **`R-32`** (dashboard pills + settlement header) · **`R-33`** (MONEY §8.4 *"created `held`"*) · **`R-34`** (payment_native writer pair; X-1 transcription) · **`R-35`** (set_updated_at: contract + 079 attachment, mechanical) | `D22` |
+| **§20.14** | `R-1`…`R-27` | **`R-28`** (record_money_denial: RLS + MONEY) · **`R-29`** (assert_may_request: EXEC row + the five-parameter signature) · **`R-30`** (sweep EXEC row) · **`R-31`** (three state-sync EXEC rows + the `085` objects) · **`R-32`** (dashboard pills + settlement header) · **`R-33`** (MONEY §8.4 *"created `held`"*) · **`R-34`** (payment_native writer pair; X-1 transcription) · **`R-35`** (set_updated_at — CLOSED 2026-08-29) · **`R-36`** (invite `declined`: owner) · **`R-37`** (market checkout: owner) · **`R-38`** (native-sale payout ↔ Gate M) · **`R-39`** (org_customer_key mint/rotation: owner) · **`P0-1`** (the heartbeat that did not exist) | `D22` |
 
 **What this pass deliberately did NOT do.** It **decided no open decision**: `O16` (what `payout.status='paid'`
 asserts) is **recorded in two documents and left open**, and `O6`…`O15`, `D-3`, `D-9`, `D-10` and `MB-1b`'s

@@ -764,8 +764,9 @@ this section declines to.**
 > `PHASE_2_RLS_PERMISSION_SPEC.md` §16.11a remain **byte-identical** to their source:
 > `sha256 = dbfe30694c7ad8201c066c17df0cfcaf909d8058d57639f2acdfce11ef968bc8` over those thirteen rows
 > joined by `\n`, **excluding the `A7` row, which is this document's own** — first written as `⛔ BLOCKED`
-> (2026-08-28, `ID-5` open), converted to a mapping 2026-08-29 when `P-6` landed, and **not yet present in
-> §16.11a**: until `R-19` is applied the two documents deliberately differ by exactly this one row.
+> (2026-08-28, `ID-5` open), converted to a mapping 2026-08-29 when `P-6` landed, **and NOW ALSO PRESENT in
+> §16.11a — `R-19` WAS APPLIED later that day** (red-team P2-9 caught the three-state drift): the two
+> documents now agree on all FOURTEEN rows, and a delta between them is a DEFECT, not a deliberate state.
 > Recompute the hash before believing this sentence; if the thirteen differ, the two documents have
 > drifted and **`R-19`** was applied wrongly or one side was edited alone.
 

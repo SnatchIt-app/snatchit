@@ -1512,17 +1512,17 @@ change and can be added green today.
 | Element | Class | Package |
 |---|---|:-:|
 | `kernel.pass_type_cert` | `ADDITIVE SCHEMA CHANGE` | **083** |
-| `kernel.wallet_pass` | `ADDITIVE SCHEMA CHANGE` | **084** |
-| `kernel.wallet_pass_device` | `ADDITIVE SCHEMA CHANGE` | **084** |
-| `kernel.wallet_pass_push_log` | `ADDITIVE SCHEMA CHANGE` (recommended) | **084** |
-| private `.pkpass` storage bucket + policies | `ADDITIVE SCHEMA CHANGE` | **084** |
+| `kernel.wallet_pass` | `ADDITIVE SCHEMA CHANGE` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| `kernel.wallet_pass_device` | `ADDITIVE SCHEMA CHANGE` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| `kernel.wallet_pass_push_log` | `ADDITIVE SCHEMA CHANGE` (recommended) | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| private `.pkpass` storage bucket + policies | `ADDITIVE SCHEMA CHANGE` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
 | six `catalog.platform_config` seed keys | `ADDITIVE SCHEMA CHANGE` (rows) | **078** |
-| `kernel.mint_wallet_pass` | `NEW RPC` | **084** |
-| `kernel.supersede_wallet_passes_for_atom` · `touch_wallet_pass` · `revoke_wallet_pass` | `NEW RPC` | **084** |
-| `kernel.get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` · `list_updated_wallet_passes` · `record_wallet_push_result` | `NEW RPC` | **084** |
-| `kernel.sweep_wallet_pass_lifecycle` | `NEW RPC` | **084** |
+| `kernel.mint_wallet_pass` | `NEW RPC` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| `kernel.supersede_wallet_passes_for_atom` · `touch_wallet_pass` · `revoke_wallet_pass` | `NEW RPC` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| `kernel.get_wallet_pass_build_context` · `register/unregister_wallet_pass_device` · `list_updated_wallet_passes` · `record_wallet_push_result` | `NEW RPC` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
+| `kernel.sweep_wallet_pass_lifecycle` | `NEW RPC` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
 | `kernel.provision/rotate/revoke_pass_type_cert` | `NEW RPC` | **083** |
-| `wallet-pass-issue` · `wallet-pass-webservice` · `wallet-pass-push` | `NEW EDGE FUNCTION` | **084** |
+| `wallet-pass-issue` · `wallet-pass-webservice` · `wallet-pass-push` | `NEW EDGE FUNCTION` | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
 | `pass-cert-provision` | `NEW EDGE FUNCTION` | **083** |
 | Offline verify steps 3b/3c (edge §5.4) — **the W-3 fix** | `SPEC CORRECTION` | — |
 | M1/M2 naming in edge §5.4 | `SPEC CORRECTION` | — |
@@ -1532,7 +1532,7 @@ change and can be added green today.
 | Offline predicate stated once as `OFFLINE-VERIFY-v1` (edge §5.4.3); §2.3 and §11.9 become verbatim mirrors + CI byte-identity gate | `SPEC CORRECTION` (**H-2**) | — |
 | Step 3c promoted to **required**, with an online counterpart (`validate_ticket_online` returns `signing_key_id`) and a `signing_key_id` re-pin guard (§8.3) | `SPEC CORRECTION` | — |
 | `get_wallet_pass_build_context` liveness preconditions — `status='issued'` ∧ holder = live current owner; rebuild at `credential_version_at_build` (§11.6a) | `SPEC CORRECTION` (**H-4**) | — |
-| `list_updated_wallet_passes` gains `p_auth_token`; registration-scoped, liveness-filtered (§11.6b) | `SPEC CORRECTION` (signature) | **084** |
+| `list_updated_wallet_passes` gains `p_auth_token`; registration-scoped, liveness-filtered (§11.6b) | `SPEC CORRECTION` (signature) | **083** *(was `084` — red-team `P1-6`, corrected 2026-08-29: `084` is the ratified zero-relations/zero-routines ADOPT step and nothing may be added to it; the wallet family is built by `083`)* |
 | Kill switch gates serve/rebuild/register/push, not minting alone (§11.5a) | `SPEC CORRECTION` | — |
 | `wallet.*` / `credential.*` added to the dual-control-mandatory namespaces (§11.5b) | `SPEC CORRECTION` — **RLS-spec owner** | — |
 | Wallet `exp` clamped on the **computed** value (§5.2a) | `SPEC CORRECTION` | — |
@@ -1548,7 +1548,6 @@ change and can be added green today.
 | SSCAS membership | **`NO CHANGE`** — nothing here moves custody or money | — |
 
 ---
-
 ## 12. pgTAP assertion list (described — no SQL authored)
 
 Grouped by the property each defends. All DB-level; none require the app.

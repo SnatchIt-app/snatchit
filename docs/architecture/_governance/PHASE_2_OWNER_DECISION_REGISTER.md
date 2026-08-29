@@ -281,7 +281,7 @@ In blocking order: `ODR-2` (no outbox is built) · `ODR-3` (`notify` is never sc
 dashboard dependency dangles) · `ODR-4` (irreversible posture exceptions ship inside `077`, and one routine
 edit to migration `020` reintroduces the sentinel defect) · `ODR-15` (four push-token fixes have no home —
 the *answer* is now mechanical, the *scheduling* still is not) · `ODR-16` (account deletion stops working for
-anyone who has ever held a ticket, the day `079` lands) · `ODR-18` (a money-out path with an ambiguous auth
+anyone who has ever held a ticket, the day `077` lands — corrected from `079` 2026-08-28, see the entry) · `ODR-18` (a money-out path with an ambiguous auth
 model) · `ODR-19` (a failed transfer reads `submitted` forever) · `ODR-21` (edge §3.9a is unimplementable as
 written) · `ODR-26` (silence ratifies the permissive reading of an explicitly open settlement authority) ·
 `ODR-27` (an implementer invents a `market.bid` money surface at build time) · `ODR-35` (`org_admin` gets the
@@ -755,9 +755,9 @@ the `ODR-4` family CLOSED until every row below is terminal.**
 | **`ODR-4` package placement** | SCHEDULING ACTION | **PENDING DEPENDENCY PROOF.** Option 5 accepted in principle: defer the demographic objects from `077` to the `086`/`087` boundary **provided the dependency proof holds**. A package-placement action — **not** approval to build the demographic subsystem. |
 
 **Standing blockers to shipping the affected objects, kept open by the owner and not waived by `ODR-4a`:**
-the cascade is blocked by append-only row triggers · the `BEFORE DELETE` tombstone trigger is missing from the
-package · the tombstone UPSERT is incompatible with its append-only/PK design · the tombstone retention window
-is unresolved · there is no tombstone reaper · account deletion is non-transactional and half-completes.
+the cascade is blocked by append-only row triggers · ~~the `BEFORE DELETE` tombstone trigger is missing from the
+package~~ **(DISCHARGED 2026-08-29 — §17.20a authored, scheduled in plan `077`)** · ~~the tombstone UPSERT is incompatible with its append-only/PK design~~ **(DISCHARGED 2026-08-29 BY DERIVATION — append-many INSERT is the unique surviving shape: DO-UPDATE invalid against the ratified AO class, DO-NOTHING was the corpus's own "silently wrong"; sprint agent 6. The owner may reinstate either blocker; the derivation is on record at §17.20a)** · the tombstone retention window
+is unresolved (`D-6`) · there is no tombstone reaper (its GP-2 class amendment is owner-level) · account deletion is non-transactional and half-completes.
 
 **Consequence map:** `_governance/ODR4_SPLIT_CONSEQUENCE_MAP.md`.
 

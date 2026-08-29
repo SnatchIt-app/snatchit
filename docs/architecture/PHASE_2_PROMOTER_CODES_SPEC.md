@@ -1628,7 +1628,7 @@ Recorded so a later reviewer does not re-litigate them:
 | `venue.promoter` +`tier`/`commission_kind`/`commission_flat_minor`/`party_kind` | `ADDITIVE SCHEMA CHANGE` (+ `SPEC CORRECTION` to schema §3.17) | **090** | same package creates the table |
 | `venue.attribution` +11 columns, `link_id` → nullable | `ADDITIVE SCHEMA CHANGE` (+ `SPEC CORRECTION`) | **090** | same package creates the table |
 | `venue.order` + 2 candidate columns + freeze trigger | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on **`082`**'s table (`082_venue_orders` — was `081`, corrected `X-04`); kept in 090 so the feature reverts as a unit |
-| `kernel.payment_native.instrument_fingerprint` | `ADDITIVE SCHEMA CHANGE` | **090** | `ALTER` on **`085`**'s table (`085_kernel_money_native` — was `084`, corrected `X-04`); only the self-deal detector reads it |
+| `kernel.payment_native.instrument_fingerprint` | `ADDITIVE SCHEMA CHANGE` | **085** *(moved from `090` 2026-08-29 — `C112` column-follows-writer, red-team `P1-5`: `venue.finalize_primary_order` (`085`) writes it; a `090` ALTER would be a duplicate `42701`)* | `ALTER` on **`085`**'s table (`085_kernel_money_native` — was `084`, corrected `X-04`); only the self-deal detector reads it |
 | `settlement_line (cause_ref) WHERE cause='promoter_commission'` | `ADDITIVE SCHEMA CHANGE` | **090** | must land with the writer that emits the cause — see §14.7 |
 | Attribution / code indexes (§10.3, §10.4, §10.5) | `ADDITIVE SCHEMA CHANGE` | **090** | with their tables |
 | Attribution written at **paid**, not at order-create | **`SPEC CORRECTION`** (RPC §6.1, RLS §9.17) | **090** | §14.4 |
