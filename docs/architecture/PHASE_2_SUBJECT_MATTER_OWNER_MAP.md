@@ -23,10 +23,26 @@ corpus does not yet have."* This is that map.
 > marked `AMBIGUOUS` rather than assigned.
 
 ```
-TOTAL SUBJECTS : 39
+TOTAL SUBJECTS : 41
 AMBIGUOUS      :  2   (PAY-STATE · EDGE-PKG)
 FALLBACK=YES   :  2   (HELPER-SET · OUTBOX)
 ```
+
+> ### `CAPABILITY` AND `CAP-MAP` ADDED BY OWNER RULING — 2026-08-28 (`OR-8`)
+>
+> The owner ruled `PHASE_2_ROLE_MODEL_SPEC.md` the single normative owner of **capability existence,
+> capability identifiers, capability semantics, and the capability → RPC/function mapping.**
+>
+> **These are registered as two subjects on purpose, because they are in different states.**
+> `CAPABILITY` has a real home — §5.3's matrix, 69 rows. **`CAP-MAP` does not.** `ROLE_MODEL` carries
+> no capability→RPC map in any form; the map lives in the RLS spec, which this ruling makes
+> **derived**. So the ruling assigns an owner to a subject whose normative home **does not yet exist**,
+> and that is recorded here rather than papered over — see `ROLE_MODEL_DENIAL_AUDIT_CAPABILITY_RULING.md`.
+>
+> **The layers are NOT collapsed.** `CAPABILITY`/`CAP-MAP` (role model) · `GRANTS` and the RLS posture
+> (authorization) · `RPC-SIG`/`AUTHZ-BRANCH` (function contract) · `WRITER` (membership) remain four
+> distinct subjects with distinct owners. A capability→RPC mapping **does not by itself grant any
+> principal direct EXECUTE authority.**
 
 > ### `WRITER` WAS AMBIGUOUS AND IS NOW RULED — 2026-08-28
 >
@@ -147,6 +163,8 @@ RPC-SIG|RPC signature, arity, parameter and return types, volatility, and the ca
 HELPER-SET|Membership of the kernel predicate-helper set|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§1.1-§1.1e defining contracts (RLS §2.2 HELPER-DERIVED clause 1)|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md;docs/architecture/PHASE_2_SPEC_FOUNDATION.md|YES
 WRITER|Which functions write table T - the canonical writer registry|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|§0.7 delegation rule; §0.7a sanctioned writer table; the per-function Writes lines of §1-§19; §17 delta RPCs; §20.14 filed writer-set requests|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_IMPLEMENTATION_TRACEABILITY_MATRIX.md|NO
 RLS|Row-level security policies and their USING / WITH CHECK predicates|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md|§4 global write posture; §7-§10 per-table matrices; §16 delta-object matrices; §16.10 policy register|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_VENUE_DASHBOARD_PRODUCT_SPEC.md|NO
+CAPABILITY|Capability existence, identifiers and semantics|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§5.3 the capability matrix, nine subject blocks A-I; §5.1 the twenty principals; §5.2 the cell vocabulary|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md|NO
+CAP-MAP|The capability to RPC/function mapping|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|OWNED BUT UNHOUSED - the owner carries no capability-to-RPC map in any form; the map lives in RLS §16.11a, which this ruling makes DERIVED. A normative home must be created|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md|NO
 GRANTS|EXECUTE authority: which principal may execute which function|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§5.3 capability matrix (RLS §11 is its roll-up per RLS §11.0 EXEC-DERIVED)|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md;docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md|NO
 ORG-ROLE|The canonical stored role labels and the three disjoint plane enums|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§3 canonical enum membership; §4 concept-to-label map; §5.1 twenty principals|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md;docs/architecture/PHASE_2_SPEC_FOUNDATION.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md|NO
 ROLE-CAP|Non-money role-by-capability detail at twenty-principal grain|docs/architecture/PHASE_2_ROLE_MODEL_SPEC.md|§5.3 sections A and C-I|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md|NO

@@ -185,6 +185,24 @@ function has no grant to `anon`/`authenticated`."* `OR-6` cannot reach this (rat
 document, so precedence cannot help). **It belongs to the RPC owner and is added to the intra-document
 list as `ID-5`.**
 
+> #### UPDATE 2026-08-28 — the owner ruled capability ownership (`OR-8`), and `X-8` still does not close.
+>
+> Remedy 1 below was taken: **`PHASE_2_ROLE_MODEL_SPEC.md` now owns capability existence, identifiers,
+> semantics and the capability→RPC mapping.** The subject is no longer silent-with-no-owner.
+>
+> **It closes on one bit the corpus cannot supply.** The naming convention was induced from 69 ids
+> with zero exceptions and fixes the identifier's form completely — **except the block letter**, where
+> two options are equally rule-consistent (`A7` / `B13`). Per the instruction not to proceed by
+> preference, **no row was written.**
+>
+> **And two blockers survive the naming decision:** the mapping has **no normative home** (the owner
+> carries no capability→RPC map at all — subject `CAP-MAP` is owned-but-unhoused), and **`ID-5` bars
+> it** — the RLS map explicitly excludes every `DEF` RPC, and this function is still labelled `DEF` in
+> two RPC sites while its own body contracts `authenticated`.
+>
+> Full derivation, including the forced cell values and the proof that no role possesses the
+> capability: `_governance/ROLE_MODEL_DENIAL_AUDIT_CAPABILITY_RULING.md`.
+
 #### What closes the row — stated, not chosen
 
 The first edition's proposed remedy was *"refine the owner map for the case where a single RPC's grant
@@ -300,7 +318,7 @@ X-4|SEAM-RULE|OWNER|docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md|docs/ar
 X-5|RPC-SIG|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md;docs/architecture/PHASE_2_PACKAGE_REGISTRY.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
 X-6|WRITER|OWNER|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md|docs/architecture/PHASE_2_RLS_PERMISSION_SPEC.md;docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md
 X-7|PKG-PLACE|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md
-X-8|GRANTS,AUTHZ-BRANCH,RPC-SIG|UNRESOLVED||
+X-8|CAPABILITY,CAP-MAP,GRANTS|UNRESOLVED||
 X-9|SCHEMA-PHYS|OWNER|docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md|docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md
 ```
 

@@ -1612,6 +1612,12 @@ resolve from the sibling statements rather than by granting anything new, and sp
 > | resolved by the rule-2 fallback | **0** — the map covered every subject that resolved |
 > | **FAIL CLOSED (rule 4)** | **1** — `X-8` |
 >
+> **`X-8` update 2026-08-28 (`OR-8`).** The owner ruled capability ownership, closing the subject's
+> silence. **`X-8` still does not close**, on one bit the corpus cannot supply: the naming convention
+> is deterministic in form but not in block letter (`A7` / `B13`), so **`OWNER NAMING DECISION
+> REQUIRED`** and no row was written. Two further blockers survive that decision — the mapping has no
+> normative home (`CAP-MAP` is owned-but-unhoused), and `ID-5` bars it.
+>
 > **Updated 2026-08-28:** `X-1` and `X-6` closed when owner ruling `OR-7` named the writer-registry
 > owner. The derived answer was **11 writers of `kernel.tickets`, not the 10 either side argued** —
 > the eleventh a cron/sweep writer that the earlier count omitted.

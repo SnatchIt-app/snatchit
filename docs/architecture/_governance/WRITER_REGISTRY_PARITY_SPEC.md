@@ -7,14 +7,27 @@ aspiration. Parsed by `scripts/precedence_gate.py` (check **H**).
 > ## THE PARITY CHECK FAILS. THAT IS THE FINDING.
 >
 > ```
-> TABLES IN SCOPE            80    venue 30 · kernel 25 · notify 9 · market 6 · catalog 5 · public 5
-> CANONICAL WRITERS         151    distinct schema-qualified functions
-> PARITY   OK 43 · DIVERGENT 22 · MISSING_CONTRACT 15          = 80
-> DIVERGENCE RECORDS         48
-> MISSING CONTRACTS          18    (one spans three tables)
-> CONTRACTED, NEVER BUILT    21    4 unconditional + 17 conditional
-> CATEGORY REFERENCES        12    compliant — a derived doc pointing at the registry
+> TABLES IN THIS REGISTRY    80    venue 30 · kernel 25 · notify 9 · market 6 · catalog 5 · public 5
+> TABLES IN TRUE SCOPE       82    + kernel.tickets and kernel.payment_native (derived separately)
+> DISTINCT WRITERS          152    schema-qualified names in the fence
+> PARITY   OK 44 · DIVERGENT 21 · MISSING_CONTRACT 15          = 80
+> TRUE-SCOPE PARITY         OK 44 · DIVERGENT 22 · MISSING_CONTRACT 16   = 82
+> CONTRACTED, NEVER BUILT    21    4 unconditional (verified) + 17 conditional (asserted)
 > ```
+>
+> ### COUNTS CORRECTED 2026-08-28 — this block was computing over three different table sets
+>
+> A triage pass recomputed every figure. **The scope line said 80 while the record count was
+> computed over 82** — `kernel.tickets` and `kernel.payment_native` are in scope and are derived in
+> `WRITER_OWNER_RULING_CONSEQUENCE_MAP.md` instead, so their parity never reached this column.
+> `kernel.tickets` is DIVERGENT and **`kernel.payment_native` is MISSING_CONTRACT** —
+> `instrument_fingerprint` has zero contracted writers and fails **open** on the self-deal detector.
+>
+> Also corrected: the missing-contract bullet count was reachable only by splitting one bullet
+> (*"mint **and** rotation"*) while not splitting another (*"the freeze RPC **and** the dispute
+> table"*) in the same list — the counting rule was applied inconsistently. **Four rows were false
+> positives** (see the triage), and **four rows failed a check the gate did not yet have**: writer
+> count versus contract-section count. That check now exists.
 >
 > **Readiness FAILS.** The ruling is explicit: a structurally required writer with no function contract
 > is a MISSING CONTRACT and readiness fails. There are **18**, and **4 contracted writers that no
@@ -100,13 +113,13 @@ kernel.organization|kernel.create_organization;kernel.set_org_status;kernel.upda
 kernel.org_member|kernel.create_organization;kernel.accept_org_invite;kernel.change_org_role;kernel.remove_org_member|rpc;rpc;rpc;rpc|2.1;2.3;2.4;2.5|DIVERGENT
 kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite|rpc;rpc|2.2;2.3|MISSING_CONTRACT
 kernel.platform_role|kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc|20.1.4|OK
-kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|0.7a;7.1;7.2;7.3|OK
+kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|rpc;rpc;rpc|7.1;7.2;7.3|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key|rpc;rpc;rpc|20.7.3;20.7.4;20.7.5|OK
 kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state|rpc;helper;rpc;rpc;rpc;webhook|10.2;20.7.2;10.3;11.2;11.3;20.7.6|MISSING_CONTRACT
 kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state|rpc;rpc;cron;webhook|11.4;20.7.1;12.3;20.7.7|DIVERGENT
 kernel.reserve|-|-|NONE-wired-in-MVP|OK
 kernel.admin_audit|kernel.record_money_denial;CATEGORY:every-privileged-RPC-in-txn|rpc;rpc|17.9;0.3|DIVERGENT
-kernel.approval_request|kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.request_org_payout;catalog.set_platform_config;kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc;rpc;cron;rpc;rpc;rpc;rpc|17.1;17.2;17.3;17.4;10.3;20.2.1;20.1.4|DIVERGENT
+kernel.approval_request|kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.request_org_payout;catalog.set_platform_config;kernel.grant_platform_role;kernel.revoke_platform_role|rpc;rpc;rpc;cron;rpc;rpc;rpc;rpc|17.1;17.2;17.3;17.4;10.3;20.2.1;20.1.4;20.1.4|DIVERGENT
 kernel.identity_contact_pref|kernel.set_my_contact_prefs|rpc|17.21|OK
 kernel.identity_contact_pref_event|kernel.set_my_contact_prefs|rpc|17.21|OK
 kernel.org_contact_consent|kernel.grant_org_contact_consent;kernel.withdraw_org_contact_consent|rpc;rpc|17.21|OK
@@ -150,7 +163,7 @@ venue.promoter_code|venue.create_promoter_code;venue.create_promoter_codes_bulk;
 venue.promoter_code_scope|venue.create_promoter_code;venue.create_promoter_codes_bulk;venue.set_promoter_code_scope|rpc;rpc;rpc|17.15|OK
 venue.attribution_review|venue.review_attribution_flag|rpc|17.18|OK
 venue.door_manifest|venue.open_door_manifest;venue.close_door_manifest;venue.append_door_manifest_delta|rpc;rpc;helper|17.10;17.11;17.13|DIVERGENT
-venue.door_manifest_entry|venue.open_door_manifest|rpc|17.10|DIVERGENT
+venue.door_manifest_entry|venue.open_door_manifest|rpc|17.10|OK
 venue.door_manifest_delta|venue.append_door_manifest_delta|helper|17.13|OK
 venue.holder_mix_snapshot|venue.refresh_holder_mix;venue.unpublish_holder_mix;venue.unpublish_all_holder_mix|cron;rpc;rpc|17.20|DIVERGENT
 venue.holder_mix_bucket|venue.refresh_holder_mix|cron|17.20|OK
@@ -166,14 +179,14 @@ notify.preference|notify.set_preference|rpc|17.24|OK
 notify.announcement|notify.draft_announcement;notify.approve_announcement;notify.cancel_announcement;notify.revoke_announcement|rpc;rpc;rpc;rpc|17.24|OK
 notify.notification_type|-|-|SEED-ONLY|OK
 notify.template|-|-|SEED-ONLY|OK
-notify.delivery|notify.drain_outbox;notify.claim_deliveries;notify.record_delivery_result|cron;helper;helper|17.24;17.25|OK
+notify.delivery|notify.drain_outbox;notify.claim_deliveries;notify.record_delivery_result|cron;helper;helper|17.24;17.25;17.25|OK
 notify.outbox|notify.emit_event;notify.drain_outbox|helper;cron|17.24|OK
 notify.schedule|notify.sweep_scheduled|cron|17.24|MISSING_CONTRACT
 notify.identity_channel_state|-|-|NONE-no-writer-anywhere|MISSING_CONTRACT
 public.payments|public.delete_account_cleanup;CATEGORY:frozen-stripe-webhook|helper;webhook|NONE-uncontracted|MISSING_CONTRACT
 public.listings|public.delete_account_cleanup|helper|NONE-uncontracted|MISSING_CONTRACT
 public.transfers|public.delete_account_cleanup|helper|NONE-uncontracted|MISSING_CONTRACT
-public.push_tokens|notify.register_push_token;notify.revoke_push_token;notify.record_delivery_result|rpc;rpc;helper|17.24;17.25|OK
+public.push_tokens|notify.register_push_token;notify.revoke_push_token;notify.record_delivery_result|rpc;rpc;helper|17.24;17.24;17.25|OK
 public.rate_limits|public.check_rate_limit|helper|17.17|OK
 ```
 

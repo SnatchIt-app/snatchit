@@ -115,9 +115,11 @@ def parse_writer_registry(text):
         tbl, writers, kinds, sec, parity = f
         w = [x.strip() for x in writers.split(";") if x.strip()]
         k = [x.strip() for x in kinds.split(";") if x.strip()]
+        sx = [x.strip() for x in sec.split(";") if x.strip()]
         if parity not in ("OK", "DIVERGENT", "MISSING_CONTRACT"):
             raise ValueError(f"writer-registry line {n}: parity must be OK|DIVERGENT|MISSING_CONTRACT")
-        rows.append(dict(table=tbl, writers=w, kinds=k, section=sec, parity=parity, line=n))
+        rows.append(dict(table=tbl, writers=w, kinds=k, section=sec, sections=sx,
+                         parity=parity, line=n))
     return rows
 
 def check_H(rows, err):
@@ -137,6 +139,15 @@ def check_H(rows, err):
         elif len(r["writers"]) != len(r["kinds"]):
             err(f"H: table {r['table']} has {len(r['writers'])} writers but {len(r['kinds'])} kinds — "
                 f"every writer needs a kind, or a trigger/cron writer can be dropped silently")
+        # The KIND column was added so a trigger or cron writer cannot vanish. It only
+        # catches a writer dropped from ONE column. The SECTION column is the second
+        # witness: every writer must cite where it is contracted, so a writer dropped from
+        # writers AND kinds still leaves a section behind, and a section dropped alone is
+        # caught here. Found by the triage pass — the gate shipped without it.
+        if r["writers"] != ["-"] and len(r["sections"]) not in (len(r["writers"]), 1):
+            err(f"H: table {r['table']} has {len(r['writers'])} writers but "
+                f"{len(r['sections'])} contract sections. Cite one section per writer, or a "
+                f"single section covering all of them — an unmatched count hides a dropped writer.")
         for k in ([] if r["kinds"] == ["-"] else r["kinds"]):
             if k not in KINDS:
                 err(f"H: table {r['table']} has unknown writer kind {k!r} (allowed: {sorted(KINDS)})")
@@ -276,20 +287,23 @@ FIXTURES = [
         [dict(id="K1", subject="A,NOPE", subjects=["A","NOPE"], res="UNRESOLVED", winner="", sites=[], line=1)],
         [dict(id="A", subject="s", owner="a.md", section="", derived=[], fallback="NO", line=1)], e)),
     ("H: writer count != kind count (a trigger writer could vanish)", lambda e: check_H(
-        [dict(table="k.t", writers=["a.b","c.d"], kinds=["rpc"], section="", parity="OK", line=1)], e)),
+        [dict(table="k.t", writers=["a.b","c.d"], kinds=["rpc"], section="", sections=[], parity="OK", line=1)], e)),
     ("H: unknown writer kind", lambda e: check_H(
-        [dict(table="k.t", writers=["a.b"], kinds=["magic"], section="", parity="OK", line=1)], e)),
+        [dict(table="k.t", writers=["a.b"], kinds=["magic"], section="", sections=[], parity="OK", line=1)], e)),
     ("H: MISSING_CONTRACT must fail readiness", lambda e: check_H(
-        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="MISSING_CONTRACT", line=1)], e)),
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", sections=[], parity="MISSING_CONTRACT", line=1)], e)),
     ("H: DIVERGENT derived list must fail", lambda e: check_H(
-        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="DIVERGENT", line=1)], e)),
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", sections=[], parity="DIVERGENT", line=1)], e)),
+    ("H: writer count != section count (second witness)", lambda e: check_H(
+        [dict(table="k.t", writers=["a.b","c.d"], kinds=["rpc","rpc"], section="1;2;3",
+              sections=["1","2","3"], parity="OK", line=1)], e)),
     ("H: empty writer list with no stated reason", lambda e: check_H(
-        [dict(table="k.t", writers=["-"], kinds=["-"], section="17.9", parity="OK", line=1)], e)),
+        [dict(table="k.t", writers=["-"], kinds=["-"], section="17.9", sections=["17.9"], parity="OK", line=1)], e)),
     ("H: duplicate table row", lambda e: check_H(
-        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="OK", line=1),
-         dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", parity="OK", line=2)], e)),
+        [dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", sections=[], parity="OK", line=1),
+         dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", sections=[], parity="OK", line=2)], e)),
     ("H: unqualified writer name", lambda e: check_H(
-        [dict(table="k.t", writers=["bare"], kinds=["rpc"], section="", parity="OK", line=1)], e)),
+        [dict(table="k.t", writers=["bare"], kinds=["rpc"], section="", sections=[], parity="OK", line=1)], e)),
 ]
 
 def selftest():

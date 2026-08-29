@@ -135,6 +135,22 @@ promoter codes"* line and the JSON array element, plus the schema spec's *"promo
 all)"*. Note this contradicts the registry's own line **sixteen lines above**, which classifies
 commission accrual as Async/outbox.
 
+**B-7 — THE REQUIRED FINAL EDGE COUNT IS NOT DERIVABLE FROM THE CORPUS. (New, 2026-08-28.)**
+The required band and count ARE derivable: the drainer and the `notify` plane land in the **same**
+package `092` — both consequence maps reach it independently, and the reduced scope holds the
+`SEAM-1` floor at `090` because `#32`'s notice is IN — so it is **one** new package: **`076`–`092`,
+17 packages**. That much is settled.
+
+**The edge count is not.** It is 45 today, plus the two declaration-only edges owed (`078 → 086`,
+`077 → 090`), plus `092`'s in-edges — **and no document anywhere derives `092`'s dependency set.**
+Under `OR-5`'s *reduced* scope four of the drainer's reads drop away, so the set cannot simply be
+copied from the full platform's read list either. A grep for a derived edge set for `092` across
+`docs/architecture/**` returns nothing.
+
+**So a specific number must not be asserted.** `47` (45 + 2) is the floor, not the answer, and any
+figure quoted for the post-`092` DAG today is manufactured. Deriving `092`'s edge set is a
+prerequisite to `ODR-1`, and it is work no pass has done.
+
 **B-6 — the schema spec's DAG section is five amendments stale.** Not one of the four ratified
 surfaces, so parity holds — but it is the placement record `ODR-1` cites.
 
