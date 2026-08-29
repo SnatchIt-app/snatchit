@@ -550,7 +550,8 @@ job.
 all `request_*` / `approve_*` / `cancel_*` money RPCs, every refund and payout RPC, every custody RPC reachable
 from a user action, every role-grant RPC, `set_org_payout_destination`, and the CRM-export authorization. It
 does **not** bind the six **definer-only** RPCs (`catalog.engage_door_freeze`,
-`venue.append_door_manifest_delta`, `kernel.record_money_denial`, `kernel.sweep_expired_refund_requests`,
+`venue.append_door_manifest_delta`, `kernel.sweep_expired_refund_requests`,
+*(`kernel.record_money_denial` was removed from this definer-only list 2026-08-29 under `R-28`/`S-17` — `C93`/`C106`: it is caller-authorized, `EXECUTE` to `authenticated` only, EDGE-CALLER-JWT-bound; its entire purpose is to name the human actor.)*
 `market.sweep_expired_p2p_transfers`, `market.sweep_paid_pending_sales`, `kernel.sweep_expired_door_overrides`,
 `catalog.sweep_implicit_door_freezes`) — those have **no human actor by construction**, are `GRANT
 EXECUTE`ed to `service_role` only, and are the *only* sanctioned use of a service-role client against this
@@ -612,28 +613,28 @@ then refines reads and EXEC.
 ## 5. Quick-reference — SENSITIVE "RPC-only-write" tables (money / custody)
 
 Deny-all RLS + `REVOKE ALL FROM anon,authenticated` + writers are `postgres`-owned SECURITY DEFINER RPCs ONLY.
-**No client (of any app-role) ever writes these directly.** This is the Phase-0 deny-all pattern (Standards §7)
+**No client (of any app-role) ever writes these directly.** *The "Sole write path(s)" column RESTATES the canonical writer registry (`OR-7`, `PHASE_2_RPC_FUNCTION_CONTRACTS.md` / `WRITER_REGISTRY_PARITY_SPEC.md`) — it must agree exactly or point; corrected to the registry 2026-08-29.* This is the Phase-0 deny-all pattern (Standards §7)
 applied to every money/custody ledger — the exact set the prompt requires be RPC-ONLY for clients.
 
 | Table | Class | Sole write path(s) (RPC) | Custody/money role |
 |---|---|---|---|
 | `kernel.ticket_ownership_log` | money-custody-RPC-only (AO) | `issue_ticket_atoms` · `transfer_ticket_ownership` · `void_ticket_atom` | **custody ledger (SoT)** |
-| `kernel.tickets` (atom head) | money-custody-RPC-only | same three + scan RPC (state→scanned) | custody head |
-| `kernel.payment_native` | money-custody-RPC-only | `issue_ticket_atoms` · `transfer_ticket_ownership` | money-in link |
-| `kernel.payout` | money-custody-RPC-only | `close_settlement` · native-sale payout path · `pay_promoter_commission` | payout ledger |
-| `kernel.refund` | money-custody-RPC-only | `refund_primary_order` · `admin_refund` · C25 sweep | refund ledger |
+| `kernel.tickets` (atom head) | money-custody-RPC-only | the ELEVEN of §7.5's corrected list (`R-24`): the three engines + `lock`/`unlock_ticket` + `mark_ticket_scanned` + the four §17.1–§17.4 `resale_state` writers + `sweep_expired_ticket_atoms` | custody head |
+| `kernel.payment_native` | money-custody-RPC-only | `venue.finalize_primary_order` · `transfer_ticket_ownership` (`R-34`; accept/respond delegate via the engine) | money-in link |
+| `kernel.payout` | money-custody-RPC-only | `close_settlement` · `pay_promoter_commission` · `request_org_payout` · `hold_payout` · `release_payout` · `mark_payout_transfer_state` *(the native-sale payout path writer remains an uncontracted MISSING CONTRACT — a phrase, not a function)* | payout ledger |
+| `kernel.refund` | money-custody-RPC-only | `refund_primary_order` · `admin_refund` · `market.sweep_paid_pending_sales` · `mark_refund_state` *(contracted, built by no package — `S-24`)* | refund ledger |
 | `kernel.reserve` (EXT stub) | money-custody-RPC-only | none wired in MVP | reserve (Gate M) |
 | `kernel.signing_key` (`kms_handle_ref`) | money-custody-RPC-only (col) | `provision/rotate/revoke_signing_key` | credential custody |
-| `venue.inventory_batch` (counter) | money-custody-RPC-only (counter cols) | `reserve_inventory` · `release_hold` · `issue_ticket_atoms` · `void_ticket_atom` | oversell guard (SoT) |
-| `venue.inventory_batch_shard` | money-custody-RPC-only | same as batch (ordered shard draw) | oversell guard |
-| `venue.inventory_movement` | money-custody-RPC-only (AO) | the reserve/issue/void functions (same txn) | inventory audit ledger |
-| `venue.inventory_hold` | owner+venue read; **counter effect** RPC-only | `reserve_inventory` · `release_hold` · expiry sweep | held-counter driver |
-| `venue.order` (money cols) | owner/org read; money RPC-only | `create_order` · `issue_ticket_atoms` · refund RPCs | order money state |
-| `venue.settlement` / `settlement_line` | org-scoped read; RPC-only | `open_settlement` · `close_settlement` | settlement ledger |
-| `market.market_sale` | money-custody-RPC-only | `transfer_ticket_ownership` (via market) · C25 sweep | resale consummation (SoT) |
-| `market.p2p_transfer` (custody effect) | owner read; RPC-only | `create/accept_p2p_transfer` · expiry sweep | native custody move |
+| `venue.inventory_batch` (counter) | money-custody-RPC-only (counter cols) | the twelve of §16-era registry: create/reserve/hold/release/capacity/sweep/comp pair + `issue_ticket_atoms` · `void_ticket_atom` · `refund_primary_order` · `admin_refund` | oversell guard (SoT) |
+| `venue.inventory_batch_shard` | money-custody-RPC-only | the batch writers minus the expiry sweep and the refund pair — nine (registry) | oversell guard |
+| `venue.inventory_movement` | money-custody-RPC-only (AO) | `reserve_primary_inventory` · `release_inventory_hold` · `set_batch_capacity` · `allocate_comp` · `issue_comp` · `finalize_primary_order` · `issue_ticket_atoms` · `void_ticket_atom` (same txn — eight, registry) | inventory audit ledger |
+| `venue.inventory_hold` | owner+venue read; **counter effect** RPC-only | `reserve_primary_inventory` · `create_inventory_hold` · `release_inventory_hold` · `sweep_expired_inventory_holds` | held-counter driver |
+| `venue.order` (money cols) | owner/org read; money RPC-only | `create_primary_checkout` · `finalize_primary_order` · `bind_order_attribution` · `refund_primary_order` *(`issue_ticket_atoms` removed — not a writer; `admin_refund` removed — not order-scoped)* | order money state |
+| `venue.settlement` / `settlement_line` | org-scoped read; RPC-only | `open_settlement` · `close_settlement` · `on_payout_settled` (hook) · `pay_promoter_commission` (lines) | settlement ledger |
+| `market.market_sale` | money-custody-RPC-only | `transfer_ticket_ownership` · `respond_offer` · `sweep_paid_pending_sales` · `on_atom_voided` (hook) | resale consummation (SoT) |
+| `market.p2p_transfer` (custody effect) | owner read; RPC-only | `create/accept/cancel_p2p_transfer` · `sweep_expired_p2p_transfers` · `on_door_freeze_engaged` (hook) · `catalog.cancel_event` | native custody move |
 | `kernel.admin_audit` | audit-only | every privileged RPC writes its own row in-txn | privileged-action ledger |
-| `venue.scan` | venue read; RPC-only (AO) | `record_scan` · offline-reconciliation batch | admission ledger (custody-adjacent) |
+| `venue.scan` | venue read; RPC-only (AO) | `record_scan` · `reconcile_offline_scans` | admission ledger (custody-adjacent) |
 | `venue.comp_allocation` | venue read; RPC-only | `allocate_comp` · `issue_comp` | capacity-drawing (money-adjacent) |
 | `venue.attribution` | promoter/org read; RPC-only (AO) | `venue.resolve_order_attribution`, in `finalize_primary_order` (§9.17) | commission basis |
 
@@ -735,7 +736,7 @@ Write RPC: `kernel.upsert_identity_ext` (self for benign fields; `is_platform` f
 (region for support/risk decisions), never raw kyc PII unless `platform_admin`.
 
 ### 7.2 `kernel.organization` — org-scoped (col-scoped: payout ref/legal_name)
-Write RPCs: `create_organization`, `set_org_status` (platform), `set_org_payout_destination` (org_owner, dual-control seam).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_organization`, `set_org_status` (platform), `update_organization` (§20.1.5), `set_org_payout_destination` (org_owner, dual-control seam), `set_org_connect_ref` (§20.1.1, server-only).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -758,7 +759,7 @@ Write RPCs: `create_organization`, `set_org_status` (platform), `set_org_payout_
 `org_member`/`org_admin` see `display_name`/`status` only.
 
 ### 7.3 `kernel.org_member` — org-scoped
-Write RPCs: `grant_org_role`, `revoke_org_role` (require `has_org_role(org_id,[org_owner,org_admin])`; **no self-grant**; cannot remove last `org_owner`).
+Write RPCs *(restates the canonical registry — `OR-7`; the `grant_org_role`/`revoke_org_role` names were the `G-20` collision)*: `create_organization` (seed member row), `accept_org_invite`, `change_org_role`, `remove_org_member` (require `has_org_role(org_id,[org_owner,org_admin])`; **no self-grant**; cannot remove last `org_owner`).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -819,7 +820,7 @@ Write RPC: `grant_platform_role`/`revoke_platform_role` (gated on existing `publ
 | service_role | A(machine) | R(def) | R(def) | D | definer (bootstrap only) |
 
 ### 7.5 `kernel.tickets` — money-custody-RPC-only (owner + issuing-venue read)
-Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom`, `record_scan` (state→scanned). **No client write path.**
+Write RPCs *(restates the canonical registry — `OR-7`/`R-24`; ELEVEN, not four)*: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom` (§7.1–§7.3), `lock_ticket`/`unlock_ticket` (§7.4), `mark_ticket_scanned` (§7.5 — the admission writer; `record_scan` is its `venue.*` DELEGATING CALLER, not a writer), `request_order_refund`/`approve_refund_request`/`cancel_refund_request`/`sweep_expired_refund_requests` (§17.1–§17.4, `resale_state`), `sweep_expired_ticket_atoms` (§12.5, `state → expired`). **No client write path.**
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -841,7 +842,7 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership`, `void_ticket_atom
 ⁶ owner reads own atom in full; **never** another owner's atom. ⁷ owner cannot mutate the atom directly; the
 custody change is driven by invoking `market`/`venue` RPCs that call the kernel transfer engine (buyer id is
 **server-verified**, C35). ⁸ issuing-venue/org staff read atoms of their own events (ops/manifest) —
-current_owner PII col-scoped. ⁹ door writes only the `scanned` state transition via `record_scan`, under the
+current_owner PII col-scoped. ⁹ door writes only the `scanned` state transition via `record_scan` → `kernel.mark_ticket_scanned` (the kernel writer, §0.7a), under the
 atom lock, and only for its session (door_pin/venue_scanner scope).
 
 ### 7.6 `kernel.ticket_ownership_log` — money-custody-RPC-only, AO (deny-all direct)
@@ -892,7 +893,7 @@ needs them). ¹⁴ `kms_handle_ref` is col-scoped to `platform_admin`/`svc` — 
 NEVER in the DB** (C33); the signed token is produced by the `credential-sign` edge fn calling KMS.
 
 ### 7.8 `kernel.payment_native` — money-custody-RPC-only
-Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership` (link only; never re-charge — I-10).
+Write RPCs *(restates the canonical registry — `OR-7`/`R-34`)*: `venue.finalize_primary_order` (§6.3 — the primary-purchase link) and `kernel.transfer_ticket_ownership` (§7.2 — the resale/transfer link; `accept_p2p_transfer` and `respond_offer` delegate through it). *`issue_ticket_atoms` is NOT a writer — its Writes line does not name this table.* (link only; never re-charge — I-10).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -917,8 +918,8 @@ Write RPCs: `issue_ticket_atoms`, `transfer_ticket_ownership` (link only; never 
 > it in favour of §11: `org_owner` reads the org payout ledger and requests payouts. **The old SELECT row was
 > the text that was wrong.**
 
-Write RPCs: `close_settlement`, native-sale payout path, `pay_promoter_commission`, `request_org_payout`
-(state advance), `hold_payout`/`release_payout` (state advance). Idempotency-keyed (Phase-0 discipline).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `close_settlement`, `pay_promoter_commission`, `request_org_payout`
+(state advance), `hold_payout`/`release_payout` (state advance), `mark_payout_transfer_state` (§20.7.6, webhook state-sync). *The former "native-sale payout path" entry is a PHRASE, not a function — that writer remains an open MISSING CONTRACT in the registry (`RC-4`) and no function is invented here.* Idempotency-keyed (Phase-0 discipline).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -969,7 +970,7 @@ cause. Enforced **inside `kernel.list_org_payouts`, never as a table policy.**
 > **no `org_owner` row can ever satisfy `has_org_role(org,[org_finance])`.** Inheritance is prose, not a
 > predicate. O-1 moves the *authority*; the *inheritance mechanism* is deleted.
 
-Write RPCs: `refund_primary_order`, `admin_refund`, C25 auto-compensation sweep. **Org and buyer authority
+Write RPCs *(restates the canonical registry — `OR-7`)*: `refund_primary_order`, `admin_refund`, `market.sweep_paid_pending_sales` (§12.3 — the C25 auto-compensation sweep, named), `mark_refund_state` (§20.7.7, webhook state-sync — **contracted, built by NO package; `S-24` filed**). **Org and buyer authority
 enters exclusively through `kernel.request_order_refund` (§16.1), which calls `refund_primary_order` as
 definer** — the org never invokes the money writer directly.
 
@@ -1044,7 +1045,7 @@ Catalog is world-readable **reference data** with a **narrow** predicate (never 
 `approved`/`announced`/`on_sale`/`live` rows are anon-visible; drafts are org/platform-scoped.
 
 ### 8.1 `catalog.venue` — public-read (approved); draft org-scoped
-Write RPCs: `create_venue`, `set_venue_approval` (platform).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_venue`, `set_venue_approval` (platform; = `approve_venue` §3.2, a mapped alias pair), `update_venue` (§3.3).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1064,7 +1065,7 @@ Write RPCs: `create_venue`, `set_venue_approval` (platform).
 ¹⁸ operatorship (`org_id`) change is an audited RPC, not a silent overwrite (CDM §1.2).
 
 ### 8.2 `catalog.event` — public-read (announced+); draft org/venue-scoped
-Write RPCs: `create_event`, `set_event_status`, `cancel_event`.
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_event`, `set_event_status` (= `publish_event` §4.2, a mapped alias pair), `cancel_event`, `update_event` (§20.2.3 — the D3/H4 marketing/media columns).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1207,7 +1208,7 @@ Write RPCs: `create_ticket_type`, `set_ticket_type_price` (C9 live-recheck).
 ²² price/visibility write is money-consequential → live-table recheck (C9), never from JWT.
 
 ### 9.2 `venue.inventory_batch` — `remaining` public-read; counters money-custody-RPC-only
-Write RPCs: `reserve_inventory`, `release_hold`, `issue_ticket_atoms`, `void_ticket_atom` (single-writer, `FOR UPDATE`).
+Write RPCs *(restates the canonical registry — `OR-7`; twelve on the batch)*: `create_inventory_batch`, `reserve_primary_inventory` (= `reserve_inventory`), `create_inventory_hold`, `release_inventory_hold` (= `release_hold`), `set_batch_capacity`, `sweep_expired_inventory_holds` (cron), `allocate_comp`, `issue_comp`, `kernel.issue_ticket_atoms`, `kernel.void_ticket_atom`, `kernel.refund_primary_order`, `kernel.admin_refund` (single-writer discipline, `FOR UPDATE`; shard writers are the same minus the sweep and refund pair).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1267,7 +1268,7 @@ Write: the reserve/issue/void functions (same txn as the counter move).
 ²⁶ **AO**: written only as an in-txn side-effect of the counter functions; no direct INSERT/UPDATE/DELETE.
 
 ### 9.5 `venue.inventory_hold` — owner + venue-scoped read; counter effect RPC-only
-Write RPCs: `reserve_inventory`, `release_hold`, expiry sweep. Per-user caps via advisory lock/SERIALIZABLE (never COUNT trigger, C5).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `reserve_primary_inventory`, `create_inventory_hold`, `release_inventory_hold`, `sweep_expired_inventory_holds` (cron). Per-user caps via advisory lock/SERIALIZABLE (never COUNT trigger, C5).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1293,7 +1294,7 @@ money-custody-RPC-only when built (unit-rows == seats == shard mechanism). MVP: 
 | service_role | A(machine) | R(def, future) | R(def, future) | D | Gate: reserved seating |
 
 ### 9.7 `venue.order` — owner + org-scoped; money cols RPC-only
-Write RPCs: `create_order`, `issue_ticket_atoms` (on paid), refund RPCs.
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_primary_checkout` (= `create_order`), `finalize_primary_order` (→ `paid` — the writer the old list credited to `issue_ticket_atoms`, **whose Writes line does not name this table**: extra-writer error, removed), `bind_order_attribution` (§17.18), `refund_primary_order`. *(`admin_refund` is NOT a writer — §20.7.1 refunds a payment, possibly with no `venue.order` behind it, and its Writes line does not name this table.)*
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1374,7 +1375,7 @@ Write RPCs: `issue_door_pin`, `revoke_door_pin`. Constant-time hash compare insi
 RPC for constant-time comparison; never returned to any client.
 
 ### 9.11 `venue.scan_device` — venue-scoped
-Write RPCs: `register_scan_device`, manifest-sync RPC.
+Write RPCs *(restates the canonical registry — `OR-7`)*: `register_scan_device`, `sync_scan_device_manifest` (§20.4.4), `set_scan_device_status` (§20.4.3).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1392,7 +1393,7 @@ Write RPCs: `register_scan_device`, manifest-sync RPC.
 ³³ door updates only its own device's `last_sync_at`/`manifest_version` via the sync RPC.
 
 ### 9.12 `venue.scan` — venue-scoped, AO (custody-adjacent admission ledger)
-Write RPCs: `record_scan` (online) + door_pin path, offline-reconciliation batch RPC. C41 first-in-wins partial unique.
+Write RPCs *(restates the canonical registry — `OR-7`)*: `record_scan` (online), `reconcile_offline_scans` (§9.5). *The former "+ door_pin path" entry is removed — a PIN is a credential, not a writer.* C41 first-in-wins partial unique.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1413,7 +1414,7 @@ Write RPCs: `record_scan` (online) + door_pin path, offline-reconciliation batch
 ³⁵ **AO**: every attempt recorded (incl. duplicate/invalid); no UPDATE/DELETE.
 
 ### 9.13 `venue.settlement` — org-scoped (finance); RPC-only writes
-Write RPCs: `open_settlement`, `close_settlement` (→ payout, SSCAS #4).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `open_settlement`, `close_settlement` (→ payout, SSCAS #4), `venue.on_payout_settled` (§20.11.5 hook, `closed → paid`); on `settlement_line` additionally `pay_promoter_commission` (§20.7.2).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1621,7 +1622,7 @@ back office, other promoters, or buyer PII. ⁴¹ **AO**: attribution recorded o
 ## 10. Schema `market` — matrices (native rail)
 
 ### 10.1 `market.listing_native` — public-read (active discovery) + owner-scoped (seller)
-Write RPCs: `create_listing` (native), `cancel_listing`. Creating sets atom `resale_state='listed'` (SSCAS #6).
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_listing` (native), `cancel_listing`, `respond_offer` (→ `sold`, §20.8.6), `market.on_door_freeze_engaged` (§17.10a drain hook, `C110`), `catalog.cancel_event` (§4.4). Creating sets atom `resale_state='listed'` (SSCAS #6).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1703,7 +1704,7 @@ the kernel transfer engine; the buyer "drives" it by completing native checkout,
 against `public.payments`.
 
 ### 10.5 `market.p2p_transfer` — owner-scoped (from + to); custody effect RPC-only
-Write RPCs: `create_p2p_transfer`, `accept_p2p_transfer` (→ kernel engine), expiry/unlock sweep. Distinct from external `public.transfers`.
+Write RPCs *(restates the canonical registry — `OR-7`)*: `create_p2p_transfer`, `accept_p2p_transfer` (→ kernel engine), `cancel_p2p_transfer` (§8.3), `sweep_expired_p2p_transfers` (§12.2), `market.on_door_freeze_engaged` (§17.10a drain hook, `C110`), `catalog.cancel_event` (§4.4). Distinct from external `public.transfers`.
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|
@@ -1999,7 +2000,7 @@ Each is ruled here; the ruling is the row.
 | **`kernel.list_org_payouts`** *(NEW read)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (settlement-cause rows, own venue only) · `is_platform` |
 | **`kernel.list_org_refunds`** *(NEW read)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (own venue) · `is_platform` |
 | **`kernel.list_approval_requests`** *(NEW read)* | `has_org_role([org_owner, org_finance])` (own org) · platform — the approval queue |
-| **`kernel.record_money_denial`** *(NEW)* | **`DEF`** — service_role only, **no human path**. Exists because a failed predicate `RAISE`s, which rolls back the transaction **and takes the audit row with it** (§0.3 writes audit in-txn; Postgres has no autonomous transactions). Repeated failed attempts to change a payout destination or fire a payout are the highest-value fraud signal in the system and are otherwise **invisible**. The edge catches `insufficient_privilege`/`sod_violation`/`step_up_required` and calls this **in a separate transaction** |
+| **`kernel.record_money_denial`** *(NEW)* | **`EXECUTE` to `authenticated` only — never `anon`, never `service_role` — BOUND BY EDGE-CALLER-JWT** (`R-28` applied 2026-08-29; `S-17`, `C93`/`C106` — the previous cell read `DEF`/service_role-only/*no human path*, the configuration `C93` proved unbuildable: on `service_role`, `auth.uid()` is NULL and `admin_audit.actor_identity` is `NOT NULL FK`). Exists because a failed predicate `RAISE`s, which rolls back the transaction **and takes the audit row with it** (§0.3 writes audit in-txn; Postgres has no autonomous transactions). Repeated failed attempts to change a payout destination or fire a payout are the highest-value fraud signal in the system and are otherwise **invisible**. The edge catches `insufficient_privilege`/`sod_violation`/`step_up_required`/`step_up_unavailable` and calls this **in a separate transaction, on the caller's own `Authorization` client**; `actor_identity := auth.uid()`, RAISES when NULL |
 | `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])` — *unchanged, now consistent with §7.9*. **Adds three preconditions:** the destination-probation hold, the **SoD-1 destination-setter exclusion** (rejects when `auth.uid() = organization.payout_destination_set_by`, **permanently for that destination**, with `sod_violation` — not merely during the cool-down), and the step-up predicate. Above `payout.dual_control_min_minor` it parks an approval instead of advancing |
 | `kernel.set_org_payout_destination` | `has_org_role([org_owner])` **only** · **step-up + SoD + probation**. `org_finance` is **excluded entirely** — under O-3 it holds payout-request authority, and one identity may not hold both halves of the SoD-1 fraud primitive (*redirect the account, then release funds to it*) |
 | `kernel.hold_payout` / `kernel.release_payout` | `is_platform([platform_risk, platform_admin])` — *unchanged; SoD-3, **no org role, ever***. (Domain §7.6 previously marked Org Finance ✔ on *Release held funds*; a risk-placed hold released by the org it was placed on is the control inverted. Corrected to blank.) |
@@ -2892,7 +2893,10 @@ repointed to the anonymized sentinel.**
 > **The reader-enumeration rule this matrix depends on.** The set of functions, views and matviews whose
 > definition references `kernel.identity_demographic` must be **exactly**
 > `{get_my_demographics, set_my_demographics, clear_my_demographics, refresh_holder_mix}`, and the set
-> referencing the holder-mix tables exactly `{refresh_holder_mix, get_holder_mix, <reconciliation job>}`.
+> referencing the holder-mix tables exactly `{refresh_holder_mix, get_holder_mix, unpublish_holder_mix,
+> unpublish_all_holder_mix, reconcile_holder_mix}` *(closure corrected 2026-08-29 from the canonical
+> registry — the former text carried a `<reconciliation job>` placeholder and omitted the two unpublish
+> writers, which are contracted and BUILT BY NO PACKAGE, `RC-5`)*.
 > Any addition fails the suite. This is what makes "no export function can reach demographics" checkable
 > rather than asserted — and the assertion must carry a **non-vacuity guard** (it must be able to see all
 > nine export functions), or an empty match set would pass trivially.
@@ -3510,9 +3514,14 @@ Named so they can be written, run and cited. Grouped by the property each defend
 ### 16.11a Capability → RPC map (the join `T-RLS-EXEC-01` runs on)
 
 `T-RLS-EXEC-01` compares a **capability** matrix (ROLE_MODEL §5.3) against an **RPC** table (§11). The join
-between them was implicit, which is precisely why the two could drift for four integration passes. It is
-stated here so the assertion is reproducible rather than editorial, and so a new RPC has an obvious place to
-declare which capability it implements.
+between them was implicit, which is precisely why the two could drift for four integration passes.
+
+> **`R-19` APPLIED 2026-08-29 — this map is now the ROLL-UP of `PHASE_2_ROLE_MODEL_SPEC.md` §5.4**, which
+> owner ruling `OR-8` made the normative home of the capability → function mapping (subject `CAP-MAP`). A
+> new RPC declares which capability it implements **in ROLE_MODEL §5.4**; this section restates it for the
+> `T-RLS-EXEC-01` join, and the two must agree exactly — the thirteen original rows are byte-identical by
+> construction, hash-anchored in §5.4 itself. One row is restated from §5.4 into this map by this
+> application: **`A7` (below)**.
 
 | §5.3 cell | RPC(s) in §11 |
 |---|---|
@@ -3529,6 +3538,7 @@ declare which capability it implements.
 | G1/G2/G3 · G5 | `venue.create_promoter` / `update_promoter` / `create_promoter_link` / `set_promoter_link_status` · **`venue.review_attribution_flag`** |
 | H2/H3 · H4 | `venue.request_export` (audience / operations templates) · `catalog.update_event` *(media columns)* |
 | I2 · I3 | `market.create_p2p_transfer` / `accept_p2p_transfer` / `make_offer` / `place_bid` · `market.create_listing` / `cancel_listing` / `create_auction` |
+| A7 | `kernel.record_money_denial` (§17.9 — capability id ruled `OR-9`; call posture INDIRECT, callers `payout-execute`/`refund-execute` only; the `EXECUTE` to `authenticated` grant was ratified `C93`/`C106` and this row grants nothing) |
 
 **Bold rows are the ones `AUTHZ-H5` and `AUTHZ-R1` corrected** — E2, E4, E5 (the `venue_scanner` over-grant)
 and F2 (the schedule-vs-ledger-head conflation). **Every `DEF` RPC is deliberately absent from this map:** a

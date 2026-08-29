@@ -437,7 +437,7 @@ assertion was right; the table it was written against was not.
 - **Purpose:** one row of custody truth per admission right (CDM §1.1 Ticket Atom). Everything references
   the atom; the atom references only catalog + identity (never downstream).
 - **Owner:** `current_owner_id` is a **derived head** of the ownership log (a projection cached on the row,
-  written only by the transfer engine — NOT a client-writable FK). The venue is issuer, never owner.
+  written only by kernel custody writers — the mint engine sets it at issuance, the transfer engine moves it, and the void leg re-points it to `SN-VOID` (§7.1–§7.3; the previous *"only by the transfer engine"* was false on the mint and void paths — corrected to the registry 2026-08-29, `OR-7`). NOT a client-writable FK. The venue is issuer, never owner.
 - **PK:** `ticket_atom_id` uuid.
 - **Columns:**
   - `ticket_atom_id` uuid — PK.
@@ -500,8 +500,7 @@ assertion was right; the table it was written against was not.
 
 `kernel.tickets.state` CHECKs `issued · active · scanned · voided · expired`, §7.6 specifies the transition
 (*"`active → expired` (terminal, session passed)"*), and **no function in any of the sixteen packages writes
-it.** The write authorities on `kernel.tickets` are the issuance/transfer/void engines and the scan RPC; none
-of them observes a session ending. **A fifth instance of the `MB-2b` class**, after `door_open_at`,
+it.** The write authorities on `kernel.tickets` are the ELEVEN of the canonical registry (`OR-7`; RPC §0.7a + §17.1–§17.4 + §12.5 — the previous premise here named only *"the issuance/transfer/void engines and the scan RPC"*, the same four-writer undercount `R-24` corrects); none of the pre-`MN-4` ten observes a session ending. **A fifth instance of the `MB-2b` class**, after `door_open_at`,
 `scan_device.retired`, `market.offer.expired` and `required_approver_class`.
 
 **How load-bearing is it? — the question §4.3.1 makes the corpus ask, and the answer here is *not very*, which
@@ -788,7 +787,7 @@ sentinel (§1.16) to its write set.
 ### 1.8 `kernel.payment_native`
 - **Purpose:** the additive **bridge row** linking a native `venue.order` or `market.market_sale` to a
   frozen `public.payments` row. Native flows **link**, never re-charge (SPEC_FOUNDATION §2, C8).
-- **Owner:** kernel (written by issuance / native-sale engines).
+- **Owner:** kernel. **Writers (canonical registry, `R-34`): `venue.finalize_primary_order` (primary-purchase link) + `kernel.transfer_ticket_ownership` (resale/transfer link)** — the previous *"issuance / native-sale engines"* was wrong on both halves: `issue_ticket_atoms` does not write this table, and the primary link is written by a `venue.*` function.
 - **PK:** `id` uuid.
 - **Columns:**
   - `id` uuid — PK.
@@ -859,7 +858,7 @@ sentinel (§1.16) to its write set.
   `cause_ref`; **partial `(hold_state, created_at) WHERE hold_state <> 'none'`** — the platform risk queue,
   which is a small slice of a large table and is invisible to the two `(payee, status)` indexes.
 - **RLS:** money-custody-RPC-only; payee reads own via scoped RPC.
-- **Write authority:** `kernel.close_settlement` (INSERT `pending`) / native-sale payout path /
+- **Write authority:** `kernel.close_settlement` (INSERT `pending`) / *the native-sale payout path — still a PHRASE naming no function; an open MISSING CONTRACT in the canonical registry (`RC-4`), not a writer* /
   `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, **or —
   probation arm — `hold_state := 'probation_hold'` + `hold_reason_code` + `held_at` on the EXISTING `pending`
   row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
@@ -2896,8 +2895,8 @@ no control, because a manager will believe the device is dead.
 - **Index:** PK; the partial unique doubles as the duplicate-check index; index on `(event_session_id,
   server_receipt_at)` (live door count + reconciliation); index on `ticket_atom_id`.
 - **Archival:** permanent (Immutable Ledger); time-partitioned by session.
-- **RLS:** venue-scoped (door/manager read); writes RPC-only (`venue.record_scan`) + door_pin path.
-- **Write authority:** `venue.record_scan` (online), the offline-reconciliation batch RPC.
+- **RLS:** venue-scoped (door/manager read); writes RPC-only. *(The former "+ door_pin path" is removed — a PIN is a credential, not a writer; `OR-7`.)*
+- **Write authority (canonical registry):** `venue.record_scan` (online), `venue.reconcile_offline_scans` (§9.5).
 - **SoT/PROJ:** SoT (Scan ledger).
 
 #### 3.12.1 Re-entry extension point (C41 — explicit)

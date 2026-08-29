@@ -107,6 +107,13 @@ stays 16"*. Parity is not broken by it, but **any reader treating it as the DAG 
 > count-without-enumeration drift the register warns about, in the document that carries the readiness
 > verdict. Recounted, not carried.
 >
+> **Recomputed 2026-08-29 (writer-parity convergence pass): ALL SEVEN BLOCKERS STAND UNCHANGED.** Writer
+> convergence touched none of the 26 band-restating sites, `CREATE ROLE crm_export_builder` still appears
+> ×3 in the registry/plan (`B-3` verified at HEAD), and **`B-7` is unchanged: `092`'s dependency set is
+> derived nowhere, so no final edge count is reported and none may be guessed.** The convergence pass adds
+> NO new blocker — `S-24` (`mark_refund_state` build) and `R-35` (`set_updated_at`/`079`) gate packages,
+> not the `ODR-1` signature.
+>
 > **`ODR-1` was NOT touched by the `OR-9` / `A7` pass (2026-08-29) beyond this heading correction.** All
 > seven blockers stand exactly as written, `B-7` included: **`092`'s dependency set is derived nowhere,
 > so the required final edge count remains NOT DERIVABLE and `47` is a floor, not an answer.**

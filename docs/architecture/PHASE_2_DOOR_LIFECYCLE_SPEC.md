@@ -1361,7 +1361,7 @@ role on every table). Cell vocabulary is RLS §1.2: `A` allow · `D` deny · `R`
 
 ### 10A.1 `venue.door_manifest` — venue-scoped (NEW MATRIX)
 
-Class: **venue-scoped** (schema §0.7). Write RPCs: `venue.open_door_manifest`, `venue.close_door_manifest`.
+Class: **venue-scoped** (schema §0.7). Write RPCs *(restates the canonical registry — `OR-7`)*: `venue.open_door_manifest`, `venue.close_door_manifest`, `venue.append_door_manifest_delta` (§17.13 — the head-version bump on every delta append).
 
 | Role | SEL | INS | UPD | DEL | EXEC |
 |---|---|---|---|---|---|

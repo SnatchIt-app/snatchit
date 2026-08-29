@@ -243,7 +243,7 @@ path.**
 | **`kernel.cancel_refund_request`** *(NEW)* | the requester · `has_org_role([org_owner, org_finance])` · platform. **No maturity conjunct** — it is never applied to a deny or a cancel (§6.7a) |
 | **`kernel.sweep_expired_refund_requests`** *(NEW)* | **`DEF`** — scheduler only. **Not optional:** without it a parked request is an unbounded denial-of-admission on a paying customer's ticket |
 | **`kernel.list_approval_requests`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` (own org) · `is_platform` — the approval queue |
-| **`kernel.record_money_denial`** *(NEW)* | **`DEF`** — `service_role` only, **no human path**. A failed predicate `RAISE`s, which rolls the transaction back and takes the audit row with it; the edge catches `insufficient_privilege` / `sod_violation` / `step_up_required` and calls this **in a separate transaction**. See `C93` — the contract's actor problem is repaired at RPC §17.9, not here |
+| **`kernel.record_money_denial`** *(NEW)* | **`EXECUTE` to `authenticated` only — never `anon`, never `service_role` — EDGE-CALLER-JWT-bound** (`R-28` applied 2026-08-29; `S-17`/`C93`/`C106` — the prior `DEF`/*no human path* cell was the configuration `C93` proved unbuildable). A failed predicate `RAISE`s, which rolls the transaction back and takes the audit row with it; the edge catches `insufficient_privilege` / `sod_violation` / `step_up_required` and calls this **in a separate transaction**. See `C93` — the contract's actor problem is repaired at RPC §17.9, not here |
 | `kernel.request_org_payout` | `has_org_role([org_finance, org_owner])`. **Four preconditions** (§6.7): the destination-probation hold; the **SoD-1 destination-setter exclusion** (rejects `auth.uid() = organization.payout_destination_set_by`, **permanently for that destination**, `sod_violation`); step-up; and `kernel.money_role_grant_matured(p_org_id)`. Above `payout.dual_control_min_minor` it parks an approval instead of advancing |
 | **`kernel.list_org_payouts`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (settlement-cause rows for own venue only) · `is_platform` |
 | **`kernel.list_org_refunds`** *(NEW read RPC)* | `has_org_role([org_owner, org_finance])` · `has_venue_role([venue_finance])` (own-venue) · `is_platform` |
@@ -1383,8 +1383,10 @@ Stripe account ids, `reason_code` mandatory. Plus, and this is the part that doe
 >
 > **Fix:** the EDGE function catches `insufficient_privilege` / `sod_violation` / `step_up_required` from a
 > money RPC and, *in a separate transaction*, calls a definer-only `kernel.record_money_denial(p_action,
-> p_subject_kind, p_subject_id, p_error_code)` which appends a `*.denied` audit row. Definer-only, service_role
-> EXECUTE, no human path. Applies to `refund-execute` and `payout-execute`.
+> p_subject_kind, p_subject_id, p_error_code)` which appends a `*.denied` audit row. `SECURITY DEFINER`;
+> **`EXECUTE` to `authenticated` only, on the caller's own `Authorization` client — `actor_identity :=
+> auth.uid()`, RAISES when NULL** (`R-28` applied 2026-08-29; the prior *"service_role EXECUTE, no human
+> path"* was `C93`'s unbuildable half). Applies to `refund-execute` and `payout-execute`.
 
 ### 8.5 The control set, ranked by what it actually stops
 
@@ -1661,7 +1663,7 @@ and must be documented as such rather than described as "recent authentication."
 5. `kernel.list_org_payouts` (§6.4) — DB-RPC read. Closes dashboard Δ3.
 6. `kernel.list_org_refunds` (§6.5) — DB-RPC read.
 7. `kernel.list_approval_requests(p_org_id, p_filters)` — DB-RPC read; the approval queue (§10.1).
-8. `kernel.record_money_denial` (§8.4) — DB-RPC, definer/service_role only.
+8. `kernel.record_money_denial` (§8.4) — DB-RPC, `SECURITY DEFINER`, `EXECUTE` to `authenticated` only (EDGE-CALLER-JWT; `R-28`).
 9. `kernel.set_org_payout_destination` — **contract written for the first time** (§8); referenced by four frozen documents, contracted in none.
 
 ### `NEW EDGE FUNCTION`

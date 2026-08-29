@@ -103,7 +103,11 @@ def parse_contradictions(text):
 KINDS = {"rpc", "trigger", "cron", "helper", "webhook"}
 
 def parse_writer_registry(text):
-    """TABLE|WRITERS(;)|KINDS(;)|RPC_SECTION|PARITY(OK|DIVERGENT|MISSING_CONTRACT)"""
+    """TABLE|WRITERS(;)|KINDS(;)|RPC_SECTION|BUILT(;)|PARITY(OK|DIVERGENT|MISSING_CONTRACT)
+
+    BUILT is per-writer: y (scheduled/built) · n (contracted, built by NO package — a gate error)
+    · c (conditional/deferred by a ratified gate, e.g. COND-B) · - (no-writer row). Added by the
+    writer-parity convergence pass so a contracted-never-built writer is gate-visible (RC-5)."""
     block = fenced(text, "writer-registry")
     if block is None: raise ValueError("no ```writer-registry fenced block")
     rows = []
@@ -111,16 +115,34 @@ def parse_writer_registry(text):
         line = line.strip()
         if not line or line.startswith("#"): continue
         f = [c.strip() for c in line.split("|")]
-        if len(f) != 5: raise ValueError(f"writer-registry line {n}: expected 5 fields, got {len(f)}")
-        tbl, writers, kinds, sec, parity = f
+        if len(f) == 5:
+            tbl, writers, kinds, sec, parity = f; built = ""
+        elif len(f) == 6:
+            tbl, writers, kinds, sec, built, parity = f
+        else:
+            raise ValueError(f"writer-registry line {n}: expected 5 or 6 fields, got {len(f)}")
         w = [x.strip() for x in writers.split(";") if x.strip()]
         k = [x.strip() for x in kinds.split(";") if x.strip()]
         sx = [x.strip() for x in sec.split(";") if x.strip()]
+        bx = [x.strip() for x in built.split(";") if x.strip()]
         if parity not in ("OK", "DIVERGENT", "MISSING_CONTRACT"):
             raise ValueError(f"writer-registry line {n}: parity must be OK|DIVERGENT|MISSING_CONTRACT")
         rows.append(dict(table=tbl, writers=w, kinds=k, section=sec, sections=sx,
-                         parity=parity, line=n))
+                         built=bx, parity=parity, line=n))
     return rows
+
+# Tables the WRITER ruling's true scope requires the registry to enumerate. kernel.tickets and
+# kernel.payment_native were IN SCOPE and derived in a side document, so their parity never reached
+# the gate (RC-1) — the closed-set check exists so that cannot recur.
+REQUIRED_WRITER_TABLES = {"kernel.tickets", "kernel.payment_native"}
+
+def check_H2(rows, err):
+    """True-scope closure: a table the ruling requires may not be absent from the enumeration."""
+    have = {r["table"] for r in rows}
+    for t in sorted(REQUIRED_WRITER_TABLES - have):
+        err(f"H2: true-scope table {t} is ABSENT from the writer registry. Its parity was previously "
+            f"computed in a side document and never reached the gate (RC-1); the registry must "
+            f"enumerate it.")
 
 def check_H(rows, err):
     """The writer registry is the artifact the WRITER owner ruling created. It is checked
@@ -148,6 +170,29 @@ def check_H(rows, err):
             err(f"H: table {r['table']} has {len(r['writers'])} writers but "
                 f"{len(r['sections'])} contract sections. Cite one section per writer, or a "
                 f"single section covering all of them — an unmatched count hides a dropped writer.")
+        # BUILT is the third witness (RC-5): a contracted writer no package builds was invisible —
+        # kernel.mark_refund_state was in the schema spec x5 and the edge spec x2 and ZERO lines of
+        # the plan, and nothing failed. One flag per writer, or one flag covering all.
+        bx = r.get("built") or []
+        if r["writers"] != ["-"] and bx:
+            if len(bx) not in (len(r["writers"]), 1):
+                err(f"H: table {r['table']} has {len(r['writers'])} writers but {len(bx)} BUILT flags — "
+                    f"a not-built writer could vanish behind a neighbour's flag.")
+            for b in bx:
+                if b not in ("y", "n", "c", "-"):
+                    err(f"H: table {r['table']} has unknown BUILT flag {b!r} (allowed: y/n/c/-)")
+                if b == "n":
+                    err(f"H: table {r['table']} has a contracted writer that NO package builds "
+                        f"(BUILT=n). Contracted-but-never-built is a readiness failure (RC-5), not a "
+                        f"footnote.")
+        # A renamed writer left beside its old name, or a plain duplicate, silently inflates the set.
+        seen_w = set()
+        for w in ([] if r["writers"] == ["-"] else r["writers"]):
+            if w.startswith("CATEGORY:"): continue
+            if w in seen_w:
+                err(f"H: table {r['table']} lists writer {w!r} twice — a rename that kept the old "
+                    f"name, or a duplicate; either way the count lies.")
+            seen_w.add(w)
         for k in ([] if r["kinds"] == ["-"] else r["kinds"]):
             if k not in KINDS:
                 err(f"H: table {r['table']} has unknown writer kind {k!r} (allowed: {sorted(KINDS)})")
@@ -304,6 +349,31 @@ FIXTURES = [
          dict(table="k.t", writers=["a.b"], kinds=["rpc"], section="", sections=[], parity="OK", line=2)], e)),
     ("H: unqualified writer name", lambda e: check_H(
         [dict(table="k.t", writers=["bare"], kinds=["rpc"], section="", sections=[], parity="OK", line=1)], e)),
+    # ── writer-parity convergence pass fixtures (Phase E audit) ─────────────
+    ("H: TRIGGER writer dropped from writers+kinds leaves its section behind", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["rpc"], section="1;2", sections=["1","2"],
+              parity="OK", line=1)], e)),
+    ("H: SWEEP/cron writer dropped from writers+kinds leaves its section behind", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["cron"], section="12.5;17.4", sections=["12.5","17.4"],
+              parity="OK", line=1)], e)),
+    ("H: canonical contract section missing entirely", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["rpc"], section="", sections=[], parity="OK", line=1)], e)),
+    ("H: writer missing from BOTH writer and kind columns (second witness)", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["rpc"], section="1;2;3", sections=["1","2","3"],
+              parity="OK", line=1)], e)),
+    ("H: BUILT flag count mismatch (a not-built writer could vanish)", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f","k.g"], kinds=["rpc","rpc"], section="1;2", sections=["1","2"],
+              built=["y","y","n"], parity="OK", line=1)], e)),
+    ("H: unknown BUILT flag", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["rpc"], section="1", sections=["1"],
+              built=["x"], parity="OK", line=1)], e)),
+    ("H: contracted writer built by NO package (BUILT=n)", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f"], kinds=["webhook"], section="20.7.7", sections=["20.7.7"],
+              built=["n"], parity="OK", line=1)], e)),
+    ("H: renamed writer left beside its old name (duplicate writer)", lambda e: check_H(
+        [dict(table="k.t", writers=["k.f","k.f"], kinds=["rpc","rpc"], section="1;1", sections=["1","1"],
+              parity="OK", line=1)], e)),
+    ("H2: true-scope table absent from the registry enumeration", lambda e: check_H2([], e)),
 ]
 
 def selftest():
@@ -351,6 +421,7 @@ def main():
         except ValueError as e:
             print(f"::error::precedence gate: {WREG}: {e}"); sys.exit(2)
         check_H(wrows, err)
+        check_H2(wrows, err)
     amb = [r["id"] for r in rows if r["owner"] == "AMBIGUOUS"]
     print(f"subjects registered : {len(rows)}")
     print(f"ambiguous subjects  : {len(amb)}" + (f"  ({', '.join(amb)})" if amb else ""))
