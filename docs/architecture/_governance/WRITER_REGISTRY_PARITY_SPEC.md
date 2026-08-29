@@ -11,20 +11,24 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > TABLES IN THIS REGISTRY    80    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5
 >                                   reduction, 2026-08-29: the schedule's kind CHECK was exactly the three
 >                                   OUT types; sprint agent 3)
-> DISTINCT WRITERS          156    schema-qualified names (one named placeholder: the R-37 market checkout)
-> WRITER ENTRIES            248
-> PARITY   OK 75 · DIVERGENT 0 · MISSING_CONTRACT 5           = 80
-> NOT-BUILT WRITERS           1    the R-37 market-checkout placeholder (owner-gated)
-> GATE ERRORS                 6    5 missing-contract rows + 1 not-built · 0 divergent
+> DISTINCT WRITERS          162    schema-qualified names (no placeholders — the R-37 checkout is named, `OR-22`;
+>                                  the Gate-M payout writer rides the ratified-gate `c` encoding, `C135`)
+> WRITER ENTRIES            258
+> PARITY   OK 80 · DIVERGENT 0 · MISSING_CONTRACT 0           = 80
+> NOT-BUILT WRITERS           0    (the R-37 placeholder discharged by `OR-22`)
+> GATE ERRORS                 0    0 missing-contract · 0 not-built · 0 divergent — gate A–H GREEN
+>                                  (2026-08-29, the final owner sitting: OR-17–OR-23 + C135 applied)
 >
 > **Sprint 2, 2026-08-29 — five more discharged:** org_invite (revoke §20.1.6 + expiry sweep §20.1.7
 > authored; `declined` STRUCK — R-36 ruled B, `OR-18`, 2026-08-29) · venue.order (`cancel_pending_order` §20.7.9, with the terminal-failure
 > S-16-style edge correction) · the erasure tombstone (named + contracted §17.20a after the shape derivation
 > closed the UPSERT-vs-AO blocker; scheduled in 077) · notify.identity_channel_state (push arm mechanical on
 > §17.25/§17.24 extensions; email arm CONDITIONAL(N1)) · notify.schedule + announcement rows REMOVED
-> (OR-5 residue, not missing contracts). market.market_sale gains `mark_sale_paid_state` §20.8.7 but stays
-> MISSING_CONTRACT on the R-37 checkout placeholder. **The five that remain are ALL owner-gated:** payout
-> native-sale (R-38/Gate-M) · org_customer_key (R-39) · market_sale (R-37) · auction + bid (R-9 family).
+> (OR-5 residue, not missing contracts). market.market_sale was CLOSED by `OR-22`
+> (R-37 Option B: checkout §20.8.8 + bind §20.8.9 + finalize §20.8.10 + cancel §20.8.11). **ZERO owner-gated
+> failures remain (final sitting, 2026-08-29):** payout native-sale reclassified to the ratified-gate `c`
+> encoding (R-38 CLOSED-AS-GATED, `C135`) · org_customer_key contracted at §17.22 (`OR-19`) ·
+> market_sale closed (`OR-22`) · the auction/bid family left the fence under `OR-11` (R-9 = A).
 > **`CATEGORY:set_updated_at` now rides the ten R-35 fence rows** (red-team P2-13 — check H witnesses the
 > attachments).
 >
@@ -235,7 +239,7 @@ public.rate_limits|public.check_rate_limit|helper|17.17|y|OK
 
 ## THE MISSING CONTRACTS — re-derived 2026-08-29 (red-team P2-8: this list had gone stale in both directions)
 
-**Current (5, all owner-gated):** the `kernel.payout` native-sale path (`R-38`, Gate-M) · `kernel.org_customer_key` mint+rotation (`R-39`) · the `market.market_sale` checkout INSERT writer (`R-37`) · `market.auction` finalize + `market.bid` (`R-9` family). **Everything below this line is the HISTORICAL 2026-08-28 list, preserved as the record of what the ruling first surfaced:**
+**Current (0): the missing-contract class is EMPTY — 2026-08-29 final sitting.** `kernel.payout` native-sale → ratified-gate `c` (`C135`, Gate-M amendment owes the contract) · `kernel.org_customer_key` → §17.22 (`OR-19`) · `market.market_sale` → §20.8.8–§20.8.11 (`OR-22`) · auction/bid → `OR-11`. **Everything below this line is the HISTORICAL 2026-08-28 list, preserved as the record of what the ruling first surfaced:**
 
 ### THE 18 MISSING CONTRACTS — as first enumerated (historical)
 

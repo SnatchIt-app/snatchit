@@ -140,21 +140,28 @@ band — fold the deletion machine into `077`(+the F-clauses into their host pac
 does not reach production until the deletion machine ships out-of-band. Silence ships a compliance outage.
 RECOMMENDATION: (a) — the machine's objects are small (3 columns + 2 RPCs + 1 sweep + refusal clauses),
 they belong in-band, and (b) leaves the band's own tests un-runnable against production.
+**RULED 2026-08-29: OPTION (a) (`OR-17`) — applied, off the queue.** The machine folded into the band: substrate + RPCs + sweep + TEN SEAM-2 stubs in `077`, bodies in operand-birth packages, F-clauses in host packages, notice seeds in `092` (composes — BE emit + durable FK-free `076` outbox); DAG re-ratified **17 packages / 66 edges**; band and count unchanged.
 
 ## F-P1-2 — the deletion machine's two mandatory notices vs the owner-stamped "29"
 `account_deletion_pending` + `account_deletion_completed` need type keys, seeds and classification rows
 (both BEST-EFFORT); content mechanical, **the 29→31 count is owner-stamped (OR-15)** — one corrigendum
 line to sign with F-P0-1's resolution.
+**SIGNED with `OR-17` (2026-08-29): the reduced IN set is 31 — applied end-to-end (catalogue Group D · 092 seeds · producers §20.17 · R2 rows 31/32 · tests), off the queue.**
 
 ## F-P2-1 — post-tombstone chargeback debt has no ledger object (money-policy bit, small)
 Q2 allows the chargeback; BP-10 has no storable operand; the platform eats the loss with no row and no
 write-off act. Options: accept-and-eat (status quo, recorded) vs an additive per-identity obligation
 record + ops write-off (also gives Q4/BP-10 its operand). RECOMMENDATION: the obligation record — one
 additive table, closes two findings.
+**RULED 2026-08-29 (`OR-21`): the SMALL OBLIGATION-RECORD MODEL — applied, off the queue.** `kernel.identity_obligation` + `record_/resolve_identity_obligation` + `has_outstanding_obligations` in `085`; BP-10/Q4 operand pinned (deletion-spec OPEN-1 CLOSED; F-P2-2 applied); zero DAG delta.
 
 ## `wallet_pass_available` classification — one yes/no
 The classification (adopted) has it BEST-EFFORT by OR-14's own test; the drafting example had suggested
 REQUIRED. Confirm BE (recommended) or override.
+**CONFIRMED 2026-08-29 (`OR-23`): BEST-EFFORT — applied, off the queue.** The credential-critical REQUIRED set (rows 1–6, incl. `rotate_pass_type_cert`/`revoke_signing_key`) is unchanged.
+
+## R-38 — reconciled 2026-08-29 (`C135`): NO owner bit existed; the fence code was the defect
+The prior report listed `kernel.payout`/R-38 as a writer failure while R-38 was absent from this queue — resolved **A: RESOLVED BY EXISTING OWNER RULING** (C29/C30/C31 GATE-M · MONEY §9.4 · the A-GATEM flag binding · OR-11). The fence row now rides the ratified-gate `c` encoding; the contract is owed by — and only by — the Gate-M amendment. F-P2-1 does not close it (books debt, not disbursement); R-37/`OR-22` commissions only the money-in leg (the rail stays feature-dark until Gate-M + 2C, so no seller disbursement is reachable in MVP).
 
 ## FILED, engineering (no owner bit): F-P1-5 — the fraud/block-retention interim: PR #28's migration
 should copy `seller_flags`/`seller_risk_scores`/`user_blocks` to a retention side-table before
