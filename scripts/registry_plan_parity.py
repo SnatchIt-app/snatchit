@@ -25,7 +25,7 @@ everything passes. Instead, a NEW machine-readable fenced block is the closed wo
 
 Both prose surfaces are then checked AGAINST the block, never against each other:
 
-  O0  the block is well-formed and closed-world: every package 076–091 appears
+  O0  the block is well-formed and closed-world: every package 076–092 appears
       (objects or an explicit NONE row), no duplicate object, schema-qualified names,
       known kinds, well-formed ALIAS/MENTION-OK rows
   O1  declared → plan: every declared object is detectable in ITS package's §8 slice
@@ -73,7 +73,7 @@ SPEC = f"{GOV}/PACKAGE_OBJECT_PARITY_SPEC.md"          # the closed world (NEW d
 PLAN = "docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md"
 PREG = "docs/architecture/PHASE_2_PACKAGE_REGISTRY.md"
 
-PACKAGES = [f"{n:03d}" for n in range(76, 92)]          # 076–091, the ratified band
+PACKAGES = [f"{n:03d}" for n in range(76, 93)]          # 076–092, the ratified band
 SCHEMAS  = ("kernel", "catalog", "venue", "market", "notify", "public", "storage")
 KINDS    = {"table", "function", "view", "type", "trigger", "bucket", "role", "seed"}
 QUAL_RE  = re.compile(r"\b(?:%s)\.[a-z][a-z0-9_]*\b" % "|".join(SCHEMAS))
@@ -147,7 +147,7 @@ def check_O0(rows, aliases, err):
     for r in rows:
         declared_pkgs.add(r["pkg"])
         if r["pkg"] not in PACKAGES:
-            err(f"O0: line {r['line']}: package {r['pkg']!r} is outside the ratified band 076–091. "
+            err(f"O0: line {r['line']}: package {r['pkg']!r} is outside the ratified band 076–092. "
                 f"A new package is a registry amendment first, a parity row second.")
         if r["obj"] == "NONE":
             if r["kind"] != "-":

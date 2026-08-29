@@ -1280,7 +1280,7 @@ here and in `PHASE_2_PACKAGE_REGISTRY.md` §2.2 because those are the two docume
 |---|---|
 | **Purpose** | Stand up the four MVP schemas and the modular-monolith GRANT boundary, plus the shared helper functions every later package attaches. No product tables. |
 | **Tables** | **`notify.outbox`** (`OR-12`/`OR-4` — the COND-A conditional is RULED: the outbox lands here; C12 envelope columns, zero FK dependencies). *(Previous text: "none. (COND-A: the event outbox lands here if ratified …)")* |
-| **Functions** | `kernel.set_updated_at()`; `kernel.raise_append_only()` (the AO guard trigger function). **Plus (`OR-12`/`OR-4`): `CREATE SCHEMA notify` (a fifth schema); `notify.outbox` (C12 envelope, zero FK deps — the transactional foundation); `notify.emit_event` — placed HERE (own SEAM-1 + the `C76` forward-reference test); under `OR-14` (R2) the BEST-EFFORT emit, the REQUIRED/raising variant contracted beside it (RPC §17.24a).** |
+| **Functions** | `kernel.set_updated_at()`; `kernel.raise_append_only()` (the AO guard trigger function). **Plus (`OR-12`/`OR-4`): `CREATE SCHEMA notify` (a fifth schema); `notify.outbox` (C12 envelope, zero FK deps — the transactional foundation); `notify.emit_event` — placed HERE (own SEAM-1 + the `C76` forward-reference test); under `OR-14` (R2) the BEST-EFFORT emit, the REQUIRED/raising variant **`notify.emit_event_required`** contracted beside it (RPC §17.24a).** |
 | **RLS** | n/a (no tables). `ALTER DEFAULT PRIVILEGES` in `kernel`/`venue`/`market` revokes table rights from `anon`/`authenticated` so future tables are deny-by-default **before** their own RLS lands. |
 | **Triggers** | none created; the two trigger *functions* above are created here and attached by later packages. |
 | **Indexes** | none. |
