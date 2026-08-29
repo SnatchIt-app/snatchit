@@ -98,6 +98,7 @@ A: grant `decline_org_invite` (invitee-only) — a second verb in a closed autho
 (3 sites) — refusal indistinguishable from silence, which is the dashboard's own ratified principle
 (DASH :690). **RECOMMEND B.** Blocks `077`'s status CHECK finality; owns the label-without-writer class
 (the org_invite fence row reopens as MISSING_CONTRACT if unruled at authoring).
+**RULED 2026-08-29: OPTION B (`OR-18`) — applied, off the queue.** `declined` struck at the three sites; no decline RPC; refusal indistinguishable from silence.
 
 ## R-37 — market checkout: **descope direct buy-now from MVP, or commission the checkout design?**
 POST-OR-11 VERIFIED: buy-now is untouched by the auction ruling — a separate decision. A: descope —
@@ -115,14 +116,14 @@ and can INSERT. A: widest secret population (every org, incl. never-approved, mi
 any-authenticated RPC). B: lazy — strictly smaller blast radius, benign race, rides an audited
 rate-limited RPC. C: narrowest population but grows the X-6-audited builder's write surface — the exact
 drift direction the substitute assurance exists to prevent. **RECOMMEND B.** Owns the mint half of the
-org_customer_key MC fence row.
+org_customer_key MC fence row. **RULED 2026-08-29: OPTION B (`OR-19`) — applied, off the queue.** Mint clause authored in §17.22's `request_export`; fence row OK; builder unchanged (X-6/O17 intact).
 
 ## R-39b — rotation carrier: **rule the carrier now, or defer rotation to the incident-response runbook?**
 POST-N3/OR-14 VERIFIED: ruling a carrier now got strictly COSTLIER (the 29-type set is closed — a
 rotation notice needs an OR-5 scope amendment — and OR-14 adds a mandatory emit classification), for an
 event the spec itself calls "not a routine". A: build the disclosure path (new carrier object + type +
 class). B: defer, naming the runbook as the owed artifact. **RECOMMEND B.** PROVEN SEPARATE from R-39a
-(either answer composes with either). Owns the rotation half of the same fence row.
+(either answer composes with either). Owns the rotation half of the same fence row. **RULED 2026-08-29: OPTION B (`OR-20`) — applied, off the queue.** Rotation deferred to the incident-response runbook (owed artifact filed below); no carrier authored; the ratified type set untouched.
 
 
 ---
@@ -159,4 +160,4 @@ REQUIRED. Confirm BE (recommended) or override.
 should copy `seller_flags`/`seller_risk_scores`/`user_blocks` to a retention side-table before
 `deleteUser` (one rider on the open PR; today every flagged seller who deletes clears their record).
 F-P2-2 operand pinning (rides F-P2-1's object) · F-P1-4's grant-topology reaper pin (dedicated trigger fn,
-never the shared guard; catalog assertion) · the ops-criticality monitoring row (cron register, added).
+never the shared guard; catalog assertion) · the ops-criticality monitoring row (cron register, added) · **the `ORG_CUSTOMER_KEY_ROTATION_RUNBOOK` (owed artifact, `OR-20`/R-39b):** the incident-response/security runbook entry for exceptional `org_customer_key` rotation — `platform_admin` + step-up + audited; defines the "customer references changed" disclosure carrier when invoked; writes `rotated_at`; NOT a Phase-2 product object, and any automated rotation requires a new reviewed contract.

@@ -18,7 +18,7 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > GATE ERRORS                 6    5 missing-contract rows + 1 not-built · 0 divergent
 >
 > **Sprint 2, 2026-08-29 — five more discharged:** org_invite (revoke §20.1.6 + expiry sweep §20.1.7
-> authored; `declined` filed R-36) · venue.order (`cancel_pending_order` §20.7.9, with the terminal-failure
+> authored; `declined` STRUCK — R-36 ruled B, `OR-18`, 2026-08-29) · venue.order (`cancel_pending_order` §20.7.9, with the terminal-failure
 > S-16-style edge correction) · the erasure tombstone (named + contracted §17.20a after the shape derivation
 > closed the UPSERT-vs-AO blocker; scheduled in 077) · notify.identity_channel_state (push arm mechanical on
 > §17.25/§17.24 extensions; email arm CONDITIONAL(N1)) · notify.schedule + announcement rows REMOVED
@@ -170,7 +170,7 @@ kernel.identity_contact_pref|kernel.set_my_contact_prefs|rpc|17.21|y|OK
 kernel.identity_contact_pref_event|kernel.set_my_contact_prefs|rpc|17.21|y|OK
 kernel.org_contact_consent|kernel.grant_org_contact_consent;kernel.withdraw_org_contact_consent|rpc;rpc|17.21|y|OK
 kernel.org_contact_consent_event|kernel.grant_org_contact_consent;kernel.withdraw_org_contact_consent|rpc;rpc|17.21|y|OK
-kernel.org_customer_key|-|-|NONE-no-writer-anywhere|-|MISSING_CONTRACT
+kernel.org_customer_key|venue.request_export|rpc|17.22|y|OK
 kernel.identity_demographic|kernel.set_my_demographics;kernel.clear_my_demographics|rpc;rpc|17.20|y|OK
 kernel.identity_demographic_erasure|kernel.write_demographic_erasure_tombstone|trigger|17.20a|y|OK
 kernel.door_freeze_override|kernel.grant_door_freeze_override;kernel.revoke_door_freeze_override|rpc;rpc|17.11|y|OK

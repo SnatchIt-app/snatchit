@@ -518,12 +518,23 @@ weakened. XO-1a and XO-2's "the job's org" clause remove the ambiguity by naming
   anyway" is how the next refactor reintroduces it.
 - `org_customer_key` is a random per-org secret held in **`kernel.org_customer_key`** (§11.2), definer-only,
   **zero grants to every client role**, never returned by any RPC, never logged, never in an error message,
-  never in the export.
+  never in the export. **Minted lazily by `venue.request_export` at the org's first export (`OR-19` —
+R-39a = B): insert-if-absent, one deterministic key per org under concurrency; no key exists for an org
+that never exports; the builder only reads it.**
 - **It never rotates.** Rotation would silently break every CRM continuity claim a venue has built
   (`first_seen_at`, `events_attended_count`, their own downstream notes keyed on the ref). If it ever must
   rotate — a suspected key disclosure — the export template version bumps and the venue is told, in the export
   history panel, that their customer references changed on a date. Rotation is a `platform_admin`, step-up,
   audited action; it is not a routine.
+
+> **SUPERSEDED IN PART (`OR-20`, annotated 2026-08-29):** R-39b = Option B — routine rotation is
+> DEFERRED from Phase-2 product architecture to the incident-response/security runbook (owed artifact
+> `ORG_CUSTOMER_KEY_ROTATION_RUNBOOK`, filed in the owner decision queue's engineering register).
+> Rotation is exceptional, never routine. **No Phase-2 object carries the "customer references changed"
+> disclosure** — the template-version bump and the history-panel notice above are preserved as history,
+> not as contract; their carrier is defined by the runbook when (and only when) an incident invokes it.
+> Any future automated or routine rotation requires a new reviewed contract; the ratified notification
+> type set is not amended.
 - **It is not a C33/KMS-class key.** `INFERENCE:` its compromise re-links pseudonyms *within data the platform
   already holds*, which the platform can already do; it does not forge a credential or move custody. It is
   handled as a secret (no grant, no log, no return) but it does not need HSM custody, and saying otherwise
@@ -935,7 +946,7 @@ Lifecycle, exactly as the dashboard ratified it: `queued → running → ready �
 
 | Stage | Where it runs | What it does |
 |---|---|---|
-| **request** | `venue.request_export` — **DB-RPC, definer** | Authorizes (in-body predicate re-check), rate-limits (fail-closed), validates the filter set against the closed grammar, resolves and **freezes `as_of` = `now()`**, writes the `venue.export_job` row as `queued`, writes the `crm_export.request` audit row **in the same transaction**. Returns `job_id`. **Builds no data.** |
+| **request** | `venue.request_export` — **DB-RPC, definer** | Authorizes (in-body predicate re-check), rate-limits (fail-closed), validates the filter set against the closed grammar, resolves and **freezes `as_of` = `now()`**, mints the org's `kernel.org_customer_key` row insert-if-absent when absent (`OR-19` — lazy first-export mint, §4.3/§11.4), writes the `venue.export_job` row as `queued`, writes the `crm_export.request` audit row **in the same transaction**. Returns `job_id`. **Builds no data.** |
 | **build** | `crm-export-worker` `POST /build` — **NEW EDGE FUNCTION**, `service_role` | Claims the job (`queued → running` with a lease, the 064 `webhook_event` claim-lease pattern), calls `venue.build_export_rows(job_id, cursor)` in bounded pages, serialises CSV, streams to the private bucket, computes SHA-256 as it writes. Never logs a row. |
 | **finalize** | `venue.finalize_export` — **DB-RPC, definer, `service_role` only** | Records `row_count`, `byte_count`, `sha256`, `object_path`, `contact_cells_emitted/suppressed`; sets `ready`; writes the `crm_export.generate` audit row. |
 | **download** | `venue.authorize_export_download` — **DB-RPC** + `crm-export` `POST /download` (the actor deployment's only route) | **Re-authorizes live, against the job's `template_id`**: re-evaluates the **request-time allow-list for that template** (§6.4) — not merely "does the caller still hold a role over the job's scope". Writes the `crm_export.download` audit row. Returns the object path; the edge mints a **300-second** signed URL. |
@@ -1753,7 +1764,7 @@ well as its number** so it survives the renumber.
 |---|---|
 | `org_id` | PK `→ kernel.organization` |
 | `key_material` | bytea, random 32 B, **never returned by any RPC, never logged, never exported** |
-| `created_at`, `rotated_at` | timestamptz; rotation is `platform_admin` + step-up + audited, and is not a routine (§4.3) |
+| `created_at`, `rotated_at` | timestamptz; rotation is `platform_admin` + step-up + audited, and is not a routine (§4.3). **Rotation DEFERRED to the incident-response runbook (`OR-20`, R-39b = B): no Phase-2 writer of `rotated_at` exists or is owed — the runbook's manual, audited act is its only writer; automated rotation requires a new reviewed contract** |
 
 **`venue.export_job`** — MUT lifecycle; **contains no customer rows**.
 
@@ -1936,7 +1947,10 @@ p_command_key text)`** — write. Authorizes per §3 X5/X6; rejects `scope_kind=
 filters against §6.5 and template against §6.4; enforces §7.3 caps at request (so a too-large job fails
 immediately, not after a five-minute build); rate-limits fail-closed; **freezes `as_of = now()`**;
 **resolves and freezes `org_id` — the job's org — from the scope object, in the same transaction that
-authorized against it (XO-1a)**; writes the job row `queued` and the `crm_export.request` audit row **with
+authorized against it (XO-1a)**; **mints the org's `kernel.org_customer_key` row lazily — insert-if-absent
+on the frozen `org_id` (`OR-19` — R-39a = B; §4.3/§11.2: server-generated 32 B, never returned or logged;
+concurrent first requests converge to the one surviving row; the table's ONLY writer — the builder only
+reads it)**; writes the job row `queued`, the key row when absent, and the `crm_export.request` audit row **with
 `constraint_set_version`** in the same txn. Idempotent on `(auth.uid(), p_command_key)`. Returns
 `{ job_id, state, as_of }`. EXEC: `authenticated`.
 

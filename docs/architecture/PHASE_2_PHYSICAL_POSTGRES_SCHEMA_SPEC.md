@@ -405,7 +405,7 @@ assertion was right; the table it was written against was not.
     **`org_promoter_manager`** · `org_member`) — not null. **CORRECTED to the canonical six — defect
     M-5 (§1.3.1); this column enumerated the superseded four.** Tier-guarded in the RPC so an
     `org_admin` cannot invite at `org_owner`. **`text` + `CHECK`, never a native enum** (§0.6.1).
-  - `status` enum(`pending` · `accepted` · `declined` · `expired` · `revoked`) — not null default `pending`.
+  - `status` enum(`pending` · `accepted` · `expired` · `revoked`) — not null default `pending`. **`declined` STRUCK by owner ruling `OR-18` (R-36 = Option B, 2026-08-29): no decline verb exists in MVP — an unwanted invite is ignored or expires; refusal is indistinguishable from silence (the dashboard's own ratified principle). Any future decline verb is a new reviewed contract (`R-11` class).**
   - `invited_by` uuid — not null, FK→auth.users(id) (audit of the inviter).
   - `expires_at` timestamptz — not null (bounded invite window).
   - `command_idempotency_key` text — not null (C16).

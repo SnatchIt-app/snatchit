@@ -1122,7 +1122,7 @@ Close generates the payout(s), including the promoter-commission payout line. It
 
 `kernel.org_member` (schema §1.3): role ∈ `org_owner` · `org_admin` · `org_finance` · `org_member`; `granted_by`.
 - **Read:** any org member sees the roster (RLS §7.3).
-- **Invite** → `kernel.invite_org_member` → `kernel.org_invite` (schema §1.3b): `invitee_ref`, role, `expires_at`. Statuses: `pending` · `accepted` · `declined` · `expired` · `revoked`. One open invite per invitee per org.
+- **Invite** → `kernel.invite_org_member` → `kernel.org_invite` (schema §1.3b): `invitee_ref`, role, `expires_at`. Statuses: `pending` · `accepted` · `expired` · `revoked` (*`declined` STRUCK — `OR-18`, R-36 = B: no decline verb in MVP; an unwanted invite is ignored or expires*). One open invite per invitee per org.
   - `org_admin` **cannot invite at `org_owner` tier** (RLS §7.3b) — the role selector omits it, and the server enforces it.
 - **Change role** / **Remove** → `kernel.grant_org_role` / `kernel.revoke_org_role`.
 - **Guards the UI must render, not just obey:**
