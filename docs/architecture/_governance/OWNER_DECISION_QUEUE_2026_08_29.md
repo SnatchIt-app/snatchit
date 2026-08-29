@@ -6,7 +6,7 @@ repaired mechanically this sprint and is NOT here. **E-1 left this queue** — i
 — proven downstream of R-9 in every branch. Full derivations: the seven agent reports (sprint record) and
 the per-decision files cited below.
 
-## Q-1 — `ID-6`: `venue.assert_may_request` grant class — **ONE BIT**
+## Q-1 — `ID-6`: `venue.assert_may_request` grant class — **RULED 2026-08-29: (a) TRUE `EXEC: DEF` (`OR-10`) — applied, off the queue**
 
 | | |
 |---|---|

@@ -1,6 +1,11 @@
 # `ID-6` — `venue.assert_may_request`: the grant-class contradiction, analyzed (Phase D6, 2026-08-29)
 
-**Verdict: OWNER DECISION REQUIRED — one bit. This is NOT `record_money_denial`'s class, and `X-8`
+> ## RULED 2026-08-29 — the owner selected **(a) TRUE `EXEC: DEF`** (`Q-1`, ratified `OR-10`).
+> Applied same day: §20.7.8 Authority (history preserved), `R-29` corrected, RLS §11.6 `DEF` row added,
+> `T-RPC-GLOBAL-02` passes corpus-wide. The body below is preserved as the pre-ruling analysis and is the
+> ruling's rationale record.
+
+**Verdict as written pre-ruling: OWNER DECISION REQUIRED — one bit. This is NOT `record_money_denial`'s class, and `X-8`
 remains RESOLVED and untouched by this file.**
 
 ## The contradiction, quoted from one Authority line
