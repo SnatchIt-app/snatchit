@@ -92,8 +92,8 @@ SELECT is(
   'C12 envelope: exactly the fifteen frozen columns, no more, no fewer');
 
 SELECT throws_ok(
-  $q$ INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, state)
-      VALUES ('tap_bad_state','tap_agg', gen_random_uuid(), 1, 'tap_bad_state:1', '{}'::jsonb, 'bogus') $q$,
+  $q$ INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, occurred_at, state)
+      VALUES ('tap_bad_state','tap_agg', gen_random_uuid(), 1, 'tap_bad_state:1', '{}'::jsonb, now(), 'bogus') $q$,
   '23514', NULL,
   'state CHECK admits only pending/claimed/done/dead');
 
@@ -150,8 +150,8 @@ SELECT is(
 
 SELECT tap.login('11111111-1111-1111-1111-111111111111');
 SELECT throws_ok(
-  $q$ INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload)
-      VALUES ('tap_evil','tap_agg', gen_random_uuid(), 1, 'tap_evil:1', '{}'::jsonb) $q$,
+  $q$ INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, occurred_at, state)
+      VALUES ('tap_evil','tap_agg', gen_random_uuid(), 1, 'tap_evil:1', '{}'::jsonb, now(), 'pending') $q$,
   '42501', NULL, 'authenticated direct outbox INSERT is refused (42501)');
 SELECT throws_ok(
   $q$ UPDATE notify.outbox SET state='done' $q$,
@@ -301,8 +301,8 @@ SELECT throws_ok(
 --    the aggregate's existing row lock; an emitter violating that collides on
 --    the per-aggregate UNIQUE — warning for BE, raise for REQUIRED).
 -- ---------------------------------------------------------------------------
-INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload)
-VALUES ('tap_forged','tap_agg_d','dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'tap_forged:1', '{}'::jsonb);
+INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, occurred_at, state)
+VALUES ('tap_forged','tap_agg_d','dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'tap_forged:1', '{}'::jsonb, now(), 'pending');
 
 SELECT throws_ok(
   $q$ DO $body$
@@ -310,8 +310,8 @@ SELECT throws_ok(
         -- simulate a second emitter that did NOT serialize on the aggregate
         -- lock: it computed the same next sequence (1) before the forged row
         -- above was visible to it — here reproduced by forcing sequence 1.
-        INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload)
-        VALUES ('tap_collide','tap_agg_d','dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'tap_collide:1', '{}'::jsonb);
+        INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, occurred_at, state)
+        VALUES ('tap_collide','tap_agg_d','dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'tap_collide:1', '{}'::jsonb, now(), 'pending');
       END $body$ $q$,
   '23505', NULL,
   'per-aggregate UNIQUE is the contracted backstop against unserialized emitters');
