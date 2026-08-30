@@ -1231,10 +1231,11 @@ money policy — it records, freezes, and releases; money moves only through the
   external-join-key discipline; the key `kernel.identity_obligation.stripe_dispute_ref`'s partial UNIQUE
   already anticipates, §1.10a).
 - `stripe_charge_ref` text — not null; `stripe_pi_ref` text — nullable.
-- `payment_id` uuid — **not null**, FK→`public.payments(id)` ON DELETE RESTRICT (NOT NULL where MIG 024 is
-  nullable: the native branch fires only when the PI resolves through `kernel.payment_native`'s
-  `UNIQUE(payment_id)`; the order-XOR-sale linkage lives THERE — no duplicate FK here, the `cause_ref`
-  soft-reference discipline).
+- `payment_id` uuid — **not null**, FK→`public.payments(id)` ON DELETE RESTRICT — **the FK is to the
+  frozen payments row DIRECTLY, so a dispute is recordable even when no `kernel.payment_native` link
+  exists yet (the dwell/compensated window — red-team A-F1; §20.7.13's no-link arm)**; the order-XOR-sale
+  linkage lives on `kernel.payment_native` — no duplicate FK here, the `cause_ref` soft-reference
+  discipline.
 - `amount_minor` int — not null, CHECK `>= 0` (MIG 024 mirror — admits 0; deliberately different from
   `identity_obligation`'s `> 0`).
 - `currency` text — not null default `'USD'` (C13); `reason` text — not null;
@@ -3952,7 +3953,7 @@ Per the anti-drift contract, conflicts between source docs are surfaced, not sil
 
 ## 11. EXTENSION POINTS (Gate M / Gate L — modeled, NOT built in MVP)
 
-These are documented so they slot in additively; **do not create them in the MVP migrations** (076–091 build
+These are documented so they slot in additively; **do not create them in the MVP migrations** (076–092 build
 only kernel/catalog/venue/market MVP tables above).
 
 ### Gate M (before native resale + instant payout)

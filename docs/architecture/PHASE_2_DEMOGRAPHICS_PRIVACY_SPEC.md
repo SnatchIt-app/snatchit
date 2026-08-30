@@ -968,7 +968,7 @@ requirements on that agent's design, not as suggestions.
 
 ### 10.1 Classification and package map
 
-`VERIFIED:` the current MVP chain is packages **076–091** (SPEC_FOUNDATION §3 numbering scheme, migration
+`VERIFIED:` the current MVP chain is packages **076–092** *(re-verified 2026-08-30 — `092` added by `OR-12`)* (SPEC_FOUNDATION §3 numbering scheme, migration
 plan §5 headings shifted +3 after production hotfixes consumed 073/074/075 on `main`). Mapping used here:
 `076` schemas+grants · `077` kernel identity/orgs/roles · `078` catalog · `079` kernel ticket atom +
 ownership log · `080` venue staff roles + predicates · `081` venue inventory · `082` venue orders ·

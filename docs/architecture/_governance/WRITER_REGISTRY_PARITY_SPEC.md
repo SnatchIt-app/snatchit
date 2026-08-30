@@ -8,14 +8,14 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > ## STATE AFTER CONVERGENCE — divergence is CLOSED; missing contracts and build gaps are NOT.
 >
 > ```
-> TABLES IN THIS REGISTRY    81    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5
+> TABLES IN THIS REGISTRY    81    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5, +1 `R-40` kernel.dispute_native
 >                                   reduction, 2026-08-29: the schedule's kind CHECK was exactly the three
 >                                   OUT types; sprint agent 3)
-> DISTINCT WRITERS          174    schema-qualified names (no placeholders — the R-37 checkout is named, `OR-22`;
+> DISTINCT WRITERS          175    schema-qualified names (no placeholders — the R-37 checkout is named, `OR-22`;
 >                                  the Gate-M payout writer rides the ratified-gate `c` encoding, `C135`;
 >                                  +9 on 2026-08-29: the OR-17 deletion machine, the dual-control parks,
 >                                  emit_event_required — the writer-recompute semantic pass D1–D9)
-> WRITER ENTRIES            289
+> WRITER ENTRIES            290
 > PARITY   OK 81 · DIVERGENT 0 · MISSING_CONTRACT 0           = 81
 > NOT-BUILT WRITERS           0    (the R-37 placeholder discharged by `OR-22`)
 > GATE ERRORS                 0    0 missing-contract · 0 not-built · 0 divergent — gate A–H GREEN
@@ -111,7 +111,7 @@ later the same day** — registry `085` prose + JSON both name it; all four surf
 **Four webhook-facing writers exist only as prose in the edge spec** — an unnamed *"org connect
 capability writer RPC"* (for columns the schema spec does not define), an *"order cancel RPC"* on
 payment-failed, the `market_sale → paid_pending_transfer` transition, and a *"native dispute freeze
-RPC"* that upserts a dispute table **which exists in no package**.
+RPC"* that upserts a dispute table **which exists in no package**. *(HISTORICAL — closed by `OR-24`/`R-40`, 2026-08-30: `kernel.dispute_native` in `088`, §20.7.13–§20.7.15.)*
 
 **`public.delete_account_cleanup` is live in production and appears in no write-authority row of any
 spec.** It repoints `listings.seller_id`, `payments.buyer_id/seller_id` and
@@ -162,7 +162,7 @@ kernel.organization|kernel.create_organization;kernel.set_org_status;kernel.upda
 kernel.org_member|kernel.create_organization;kernel.accept_org_invite;kernel.change_org_role;kernel.remove_org_member;kernel.sweep_deletion_pending|rpc;rpc;rpc;rpc;cron|2.1;2.3;2.4;2.5;20.17.4|y|OK
 kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite;kernel.revoke_org_invite;kernel.sweep_expired_org_invites;kernel.sweep_deletion_pending|rpc;rpc;rpc;cron;cron|2.2;2.3;20.1.6;20.1.7;20.17.4|y|OK
 kernel.platform_role|kernel.grant_platform_role;kernel.revoke_platform_role;kernel.sweep_deletion_pending|rpc;rpc;cron|20.1.4;20.1.4;20.17.4|y|OK
-kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms;kernel.record_dispute_native;kernel.resolve_dispute_native;CATEGORY:set_updated_at|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron;webhook;rpc;trigger|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5;20.7.13;20.7.15;20.16|y|OK
+kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms;kernel.record_dispute_native;kernel.resolve_dispute_native;kernel.on_deletion_q5_release;CATEGORY:set_updated_at|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron;webhook;rpc;helper;trigger|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5;20.7.13;20.7.15;20.17.5;20.16|y|OK
 kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|OK
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|helper;helper;helper|7.1;7.2;7.3|y|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.7.3;20.7.4;20.7.5;20.16|y|OK

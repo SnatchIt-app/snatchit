@@ -307,7 +307,7 @@ device when." A new custody tenure produces a **new generation with a new serial
 | `issued` (pre-delivery window) | 0 | **no pass offered** (§1.2) | — |
 | `issued → active` | unchanged | "Add to Apple Wallet" becomes available | — |
 | owner adds to Wallet | N | mint generation *g* | `issued` |
-| `resale_state: none → listed` / `→ locked` | unchanged | pass **content** updated ("Listed for sale" / "Transfer pending"); **barcode unchanged** — the door already rejects `listed_locked` (RPC §9.3) and the pass must not pre-empt the door | `issued` |
+| `resale_state: none → listed` / `→ locked` / `→ refund_hold` / `→ dispute_hold` *(the hold labels added 2026-08-30, red-team F-7a: no pass-face update is CARRIED for them — the hold writers emit nothing and the face-refresh rides the next content push; the door refusal, not the face, is the control — recorded, not deferred)* | unchanged | pass **content** updated ("Listed for sale" / "Transfer pending"); **barcode unchanged** — the door already rejects `listed_locked` (RPC §9.3) and the pass must not pre-empt the door | `issued` |
 | `resale_state → none` (delist / drain / TTL) | unchanged | content updated back | `issued` |
 | **custody move** (`transfer_ticket_ownership`: p2p accept, native resale, admin) | **N → N+1** | old holder's pass → `superseded`, content replaced with a non-admitting "no longer valid" face; **new holder must add a new pass** (§7.1) | `superseded` + new `issued` |
 | `active → scanned` (`mark_ticket_scanned`) | unchanged | content updated to "Used — <time>" | `consumed` |

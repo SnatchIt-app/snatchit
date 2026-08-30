@@ -1040,7 +1040,7 @@ introduced, and every reason maps onto the five the venue dashboard already publ
 | `ticket_state='scanned'` at snapshot | `duplicate` | *"Already used"* |
 | `resale_state ∈ {listed, locked}` | `listed_locked` | *"This ticket is listed for resale or mid-transfer."* |
 | **`resale_state = 'refund_hold'`** | **`refund_hold`** | ***"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has to be cancelled in the Snatch It app — then this ticket works again."*** |
-| **`resale_state = 'dispute_hold'`** (`R-40`) | **`dispute_hold`** | ***"A payment dispute is open on this ticket, so it can't be used yet."*** *(the `refund_hold` arm's copy shape, mirrored; the overlay is set/released by RPC §20.7.13/§20.7.15)* |
+| **`resale_state = 'dispute_hold'`** (`R-40`) | **`dispute_hold`** | ***"A payment dispute is open on this ticket, so it can't be used yet."*** *(the `refund_hold` arm's copy shape, mirrored; the overlay is set/released by RPC §20.7.13/§20.7.15. **Accepted residual, red-team B-F4: a dispute landing MID-EPISODE writes no manifest delta, so the offline door admits until the episode closes — the online recheck and the payout hold are the controls; a `revoke` delta would be irreversible for the episode and render the wrong copy.**)* |
 | version mismatch | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* |
 | `key_id` ≠ `M2[atom].signing_key_id` (3c) | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* — reuses the copy deliberately; from the holder's side it is the same situation |
 

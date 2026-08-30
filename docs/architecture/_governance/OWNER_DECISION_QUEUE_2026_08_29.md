@@ -175,6 +175,10 @@ MVP-reachable). **The freeze cannot be signed with R-40 unresolved.**
 `kernel.dispute_native` + `record_/mark_/resolve` verbs authored in `088` (schema §1.10b; RPC
 §20.7.13–§20.7.15; SSCAS rows 9/11 real; edge §4 closed; BP-7 native twin; `dispute_hold` overlay). The
 mirror derivation proved complete — nothing invented; zero hooks, zero edges.
+**Five-lens red team (2026-08-30, `C137`): all P0/P1 findings repaired mechanically — none required an
+owner bit. Accepted residuals on record: the mid-episode offline-door window (door §9.2); the exit-less
+`pending` refund on a lost dispute (schema §1.10.1); void-path overlay residue (stated non-goal, §20.7.13
+preamble); the direct-PostgREST reservation cap (filed engineering, §20.8.8).**
 
 ## user_blocks × marketplace — non-blocking owner flag (red-team RRT-F9)
 `public.user_blocks` gates nothing on the native rail (no buy-now/offer/p2p precondition anywhere); the

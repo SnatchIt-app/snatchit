@@ -30,7 +30,7 @@ register the packages build against.
 | notify dispatch | `notify-dispatch` edge | 092 | 1 min | `cron.schedule`+`pg_net` in 092 | delivery claim lease | `claim_deliveries` lease | §17.25 set |
 | notify receipts | `notify-receipts` edge | 092 | 15 min | `cron.schedule`+`pg_net` in 092 | terminal-state guard | lease | §17.25 set |
 
-**Live production jobs (unchanged, outside the band):** `auto_finalize_expired_auctions` (2 min — the
+**Live production jobs (unchanged, outside the band):** `sweep-auth-password-changes` (*/5 — scheduled by `075`; the retained producer of IN-31 MANDATORY `security_password_changed`, R2 row 25; red-team E-F6) · `auto_finalize_expired_auctions` (2 min — the
 LEGACY auction engine, untouched by `OR-11`) · `enforce-transfer-expiry` http_post (2 min) · the `014`
 schedule file is their home. **Every "rides the existing heartbeat" phrase in the corpus is corrected;
 none remains load-bearing.**
