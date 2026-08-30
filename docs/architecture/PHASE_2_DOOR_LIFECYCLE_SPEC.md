@@ -1040,12 +1040,13 @@ introduced, and every reason maps onto the five the venue dashboard already publ
 | `ticket_state='scanned'` at snapshot | `duplicate` | *"Already used"* |
 | `resale_state ∈ {listed, locked}` | `listed_locked` | *"This ticket is listed for resale or mid-transfer."* |
 | **`resale_state = 'refund_hold'`** | **`refund_hold`** | ***"A refund is being reviewed on this ticket, so it can't be used yet. If they don't want the refund, it has to be cancelled in the Snatch It app — then this ticket works again."*** |
+| **`resale_state = 'dispute_hold'`** (`R-40`) | **`dispute_hold`** | ***"A payment dispute is open on this ticket, so it can't be used yet."*** *(the `refund_hold` arm's copy shape, mirrored; the overlay is set/released by RPC §20.7.13/§20.7.15)* |
 | version mismatch | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* |
 | `key_id` ≠ `M2[atom].signing_key_id` (3c) | `version_stale` | *"This pass is out of date. Ask them to open the Snatch It app."* — reuses the copy deliberately; from the holder's side it is the same situation |
 
 **The `refund_hold` arm — `SPEC CORRECTION`, and the one place this ruling adds vocabulary.** The map above
 originally enumerated only `{listed, locked}`. MONEY §12 ADDITIVE-2 added a **fourth** overlay label,
-`refund_hold` (schema §1.5), and §10.3's CHECK already admits all four — so under the five-conjunct predicate a
+`refund_hold` (schema §1.5), and §10.3's CHECK already admits all five since `R-40` added `dispute_hold` (`088`'s CHECK amendment) — so under the five-conjunct predicate a
 `refund_hold` atom is correctly **rejected**, but it was rejected with **no reason arm at all**. Door staff saw
 an unmapped refusal of a paying customer and had nothing to say and nothing to offer.
 

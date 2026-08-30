@@ -8,15 +8,15 @@ derived list agrees exactly" a mechanical fact rather than an aspiration. Parsed
 > ## STATE AFTER CONVERGENCE — divergence is CLOSED; missing contracts and build gaps are NOT.
 >
 > ```
-> TABLES IN THIS REGISTRY    80    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5
+> TABLES IN THIS REGISTRY    81    (was 82 — notify.schedule + notify.announcement REMOVED under OR-5
 >                                   reduction, 2026-08-29: the schedule's kind CHECK was exactly the three
 >                                   OUT types; sprint agent 3)
-> DISTINCT WRITERS          171    schema-qualified names (no placeholders — the R-37 checkout is named, `OR-22`;
+> DISTINCT WRITERS          174    schema-qualified names (no placeholders — the R-37 checkout is named, `OR-22`;
 >                                  the Gate-M payout writer rides the ratified-gate `c` encoding, `C135`;
 >                                  +9 on 2026-08-29: the OR-17 deletion machine, the dual-control parks,
 >                                  emit_event_required — the writer-recompute semantic pass D1–D9)
-> WRITER ENTRIES            281
-> PARITY   OK 80 · DIVERGENT 0 · MISSING_CONTRACT 0           = 80
+> WRITER ENTRIES            289
+> PARITY   OK 81 · DIVERGENT 0 · MISSING_CONTRACT 0           = 81
 > NOT-BUILT WRITERS           0    (the R-37 placeholder discharged by `OR-22`)
 > GATE ERRORS                 0    0 missing-contract · 0 not-built · 0 divergent — gate A–H GREEN
 >                                  (2026-08-29, the final owner sitting: OR-17–OR-23 + C135 applied)
@@ -162,13 +162,14 @@ kernel.organization|kernel.create_organization;kernel.set_org_status;kernel.upda
 kernel.org_member|kernel.create_organization;kernel.accept_org_invite;kernel.change_org_role;kernel.remove_org_member;kernel.sweep_deletion_pending|rpc;rpc;rpc;rpc;cron|2.1;2.3;2.4;2.5;20.17.4|y|OK
 kernel.org_invite|kernel.invite_org_member;kernel.accept_org_invite;kernel.revoke_org_invite;kernel.sweep_expired_org_invites;kernel.sweep_deletion_pending|rpc;rpc;rpc;cron;cron|2.2;2.3;20.1.6;20.1.7;20.17.4|y|OK
 kernel.platform_role|kernel.grant_platform_role;kernel.revoke_platform_role;kernel.sweep_deletion_pending|rpc;rpc;cron|20.1.4;20.1.4;20.17.4|y|OK
-kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms;CATEGORY:set_updated_at|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron;trigger|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5;20.16|y|OK
+kernel.tickets|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom;kernel.lock_ticket;kernel.unlock_ticket;kernel.mark_ticket_scanned;kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.sweep_expired_ticket_atoms;kernel.record_dispute_native;kernel.resolve_dispute_native;CATEGORY:set_updated_at|helper;helper;helper;helper;helper;helper;rpc;rpc;rpc;cron;cron;webhook;rpc;trigger|7.1;7.2;7.3;7.4;7.4;7.5;17.1;17.2;17.3;17.4;12.5;20.7.13;20.7.15;20.16|y|OK
 kernel.payment_native|venue.finalize_primary_order;kernel.transfer_ticket_ownership|webhook;helper|6.3;7.2|y|OK
 kernel.ticket_ownership_log|kernel.issue_ticket_atoms;kernel.transfer_ticket_ownership;kernel.void_ticket_atom|helper;helper;helper|7.1;7.2;7.3|y|OK
 kernel.signing_key|kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key;CATEGORY:set_updated_at|rpc;rpc;rpc;trigger|20.7.3;20.7.4;20.7.5;20.16|y|OK
-kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state;kernel.GATEM_NATIVE_SALE_PAYOUT|rpc;helper;rpc;rpc;rpc;webhook;rpc|10.2;20.7.2;10.3;11.2;11.3;20.7.6;R-38|y;y;y;y;y;y;c|OK
+kernel.payout|kernel.close_settlement;kernel.pay_promoter_commission;kernel.request_org_payout;kernel.hold_payout;kernel.release_payout;kernel.mark_payout_transfer_state;kernel.record_dispute_native;kernel.resolve_dispute_native;kernel.GATEM_NATIVE_SALE_PAYOUT|rpc;helper;rpc;rpc;rpc;webhook;webhook;rpc;rpc|10.2;20.7.2;10.3;11.2;11.3;20.7.6;20.7.13;20.7.15;R-38|y;y;y;y;y;y;y;y;c|OK
 kernel.refund|kernel.refund_primary_order;kernel.admin_refund;market.sweep_paid_pending_sales;kernel.mark_refund_state;kernel.force_void_ticket;catalog.cancel_event|rpc;rpc;cron;webhook;rpc;rpc|11.4;20.7.1;12.3;20.7.7;11.1;4.4|y|OK
 kernel.identity_obligation|kernel.record_identity_obligation;kernel.resolve_identity_obligation|webhook;rpc|20.7.10;20.7.11|y|OK
+kernel.dispute_native|kernel.record_dispute_native;kernel.mark_dispute_state;kernel.resolve_dispute_native;CATEGORY:set_updated_at|webhook;webhook;rpc;trigger|20.7.13;20.7.14;20.7.15;20.16|y|OK
 kernel.reserve|-|-|NONE-wired-in-MVP|-|OK
 kernel.admin_audit|kernel.record_money_denial;CATEGORY:every-privileged-RPC-in-txn|rpc;rpc|17.9;0.3|y|OK
 kernel.approval_request|kernel.request_order_refund;kernel.approve_refund_request;kernel.cancel_refund_request;kernel.sweep_expired_refund_requests;kernel.request_org_payout;catalog.set_platform_config;kernel.grant_platform_role;kernel.revoke_platform_role;kernel.request_account_deletion;kernel.provision_signing_key;kernel.rotate_signing_key;kernel.revoke_signing_key|rpc;rpc;rpc;cron;rpc;rpc;rpc;rpc;rpc;rpc;rpc;rpc|17.1;17.2;17.3;17.4;10.3;20.2.1;20.1.4;20.1.4;20.17.1;20.7.3;20.7.4;20.7.5|y|OK
@@ -241,7 +242,7 @@ public.rate_limits|public.check_rate_limit|helper|17.17|y|OK
 
 ## THE MISSING CONTRACTS — re-derived 2026-08-29 (red-team P2-8: this list had gone stale in both directions)
 
-**Current (0): the missing-contract class is EMPTY — 2026-08-29 final sitting.** `kernel.payout` native-sale → ratified-gate `c` (`C135`, Gate-M amendment owes the contract) · `kernel.org_customer_key` → §17.22 (`OR-19`) · `market.market_sale` → §20.8.8–§20.8.11 (`OR-22`) · auction/bid → `OR-11`. **Everything below this line is the HISTORICAL 2026-08-28 list, preserved as the record of what the ruling first surfaced:**
+**Current (0): the missing-contract class is EMPTY — 2026-08-29 final sitting.** `kernel.payout` native-sale → ratified-gate `c` (`C135`, Gate-M amendment owes the contract) · `kernel.org_customer_key` → §17.22 (`OR-19`) · `market.market_sale` → §20.8.8–§20.8.11 (`OR-22`) · auction/bid → `OR-11` · the `charge.dispute` freeze RPC + table → §20.7.13–§20.7.15 / schema §1.10b (`R-40`, 2026-08-30). **Everything below this line is the HISTORICAL 2026-08-28 list, preserved as the record of what the ruling first surfaced:**
 
 ### THE 18 MISSING CONTRACTS — as first enumerated (historical)
 

@@ -616,11 +616,12 @@ applied to every money/custody ledger — the exact set the prompt requires be R
 | Table | Class | Sole write path(s) (RPC) | Custody/money role |
 |---|---|---|---|
 | `kernel.ticket_ownership_log` | money-custody-RPC-only (AO) | `issue_ticket_atoms` · `transfer_ticket_ownership` · `void_ticket_atom` | **custody ledger (SoT)** |
-| `kernel.tickets` (atom head) | money-custody-RPC-only | the ELEVEN of §7.5's corrected list (`R-24`): the three engines + `lock`/`unlock_ticket` + `mark_ticket_scanned` + the four §17.1–§17.4 `resale_state` writers + `sweep_expired_ticket_atoms` | custody head |
+| `kernel.tickets` (atom head) | money-custody-RPC-only | the THIRTEEN of §7.5's corrected list (`R-24`; +2 `R-40` dispute overlay pair): the three engines + `lock`/`unlock_ticket` + `mark_ticket_scanned` + the four §17.1–§17.4 `resale_state` writers + `sweep_expired_ticket_atoms` | custody head |
 | `kernel.payment_native` | money-custody-RPC-only | `venue.finalize_primary_order` · `transfer_ticket_ownership` (`R-34`; accept/respond delegate via the engine) | money-in link |
 | `kernel.payout` | money-custody-RPC-only | `close_settlement` · `pay_promoter_commission` · `request_org_payout` · `hold_payout` · `release_payout` · `mark_payout_transfer_state` *(the native-sale payout writer is Gate-M-deferred — R-38 CLOSED-AS-GATED, `C135`; fence `c` row)* | payout ledger |
 | `kernel.refund` | money-custody-RPC-only | `refund_primary_order` · `admin_refund` · `market.sweep_paid_pending_sales` · `mark_refund_state` *(scheduled `085` — `S-24` applied 2026-08-29)* | refund ledger |
 | `kernel.identity_obligation` | money-custody-RPC-only | `record_identity_obligation` · `resolve_identity_obligation` (`F-P2-1`/`OR-21`, §7.10a) | debt record (BP-10 operand) |
+| `kernel.dispute_native` | money-custody-RPC-only | `record_dispute_native` · `mark_dispute_state` · `resolve_dispute_native` (`R-40`, §7.10b) | chargeback record + freeze operand |
 | `kernel.reserve` (EXT stub) | money-custody-RPC-only | none wired in MVP | reserve (Gate M) |
 | `kernel.signing_key` (`kms_handle_ref`) | money-custody-RPC-only (col) | `provision/rotate/revoke_signing_key` | credential custody |
 | `venue.inventory_batch` (counter) | money-custody-RPC-only (counter cols) | the twelve of §16-era registry: create/reserve/hold/release/capacity/sweep/comp pair + `issue_ticket_atoms` · `void_ticket_atom` · `refund_primary_order` · `admin_refund` | oversell guard (SoT) |
@@ -1018,6 +1019,14 @@ No debtor read surface in MVP (the debtor may be tombstoned). EXEC classes: `ker
 (§20.7.10) — `DEF`, `service_role` only (webhook/ops, no human path); `kernel.resolve_identity_obligation`
 (§20.7.11) — edge-fronted, `platform_risk` · `platform_admin` (EDGE-CALLER-JWT §3.1, `is_platform` C36);
 `kernel.has_outstanding_obligations` (§20.7.12) — `DEF`, no client grant (sweep-only caller).
+
+### 7.10b `kernel.dispute_native` — money-custody-RPC-only, DENY-ALL (`R-40`)
+
+Deny-all to every client role; `REVOKE ALL` from `anon`/`authenticated`; `service_role` A(machine)/R(def).
+No buyer/seller read surface in MVP (MIG 024's own posture: "disputes are server-only"). EXEC classes:
+`kernel.record_dispute_native` (§20.7.13) and `kernel.mark_dispute_state` (§20.7.14) — `DEF`, `service_role`
+only (webhook; no human path); `kernel.resolve_dispute_native` (§20.7.15) — edge-fronted, `platform_risk` ·
+`platform_admin` (EDGE-CALLER-JWT §3.1, C36), the MIG-065-mirror resolution act, audited.
 
 ### 7.11 `kernel.reserve` — EXT (Gate M stub) — money-custody-RPC-only, DENY-ALL
 **DO NOT BUILD writers in MVP.** Deny-all to every client; no read/write policy. Present only as an empty stub.
@@ -1896,6 +1905,8 @@ These fourteen were identified by the set-closure pass (RPC contracts §20.0c) a
 | **`kernel.lock_ticket`** | **`DEF`** — the resale-overlay choke point and a freeze **enforcement** point (§14.3.3). Callers are `market.create_listing`, `market.create_p2p_transfer` and the refund hold, all definer→definer |
 | **`kernel.record_identity_obligation`** (`OR-21`) | **`DEF`** — `service_role` only (webhook/ops; no human path). `REVOKE EXECUTE FROM anon, authenticated, public` |
 | **`kernel.resolve_identity_obligation`** (`OR-21`) | edge-fronted — `platform_risk` · `platform_admin` (EDGE-CALLER-JWT §3.1); the ops write-off act, audited |
+| **`kernel.record_dispute_native`** / **`kernel.mark_dispute_state`** (`R-40`) | **`DEF`** — `service_role` only (webhook; no human path). `REVOKE EXECUTE FROM anon, authenticated, public` |
+| **`kernel.resolve_dispute_native`** (`R-40`) | edge-fronted — `platform_risk` · `platform_admin` (EDGE-CALLER-JWT §3.1); the 065-mirror resolution act, audited |
 | **`kernel.unlock_ticket`** | **`DEF`** — the reverse overlay; callers are `cancel_listing`, `cancel_p2p_transfer`, the C43 TTL sweep and `sweep_expired_refund_requests` |
 | **`kernel.mark_ticket_scanned`** | **`DEF`** — the custody-side `active → scanned` terminal transition, called only by `venue.record_scan`. **Never client-callable**: a caller-authorized grant here is an admission-state write with no scan ledger row behind it. Also the function `T-RLS-DOOR-01` asserts does **not** reference `is_transfer_frozen` |
 | **`market.sweep_expired_p2p_transfers`** | **`DEF`** — `pg_cron` / scheduler only (recon #1's TTL sweep) |

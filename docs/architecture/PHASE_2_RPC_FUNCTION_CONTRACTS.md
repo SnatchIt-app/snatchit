@@ -243,7 +243,7 @@ A contract is tagged one of:
    that writes `state := 'scanned'` itself is **outside the assertion that pins it** and the assertion still
    passes. A sixth writer added without a row here would be invisible to exactly the same assertion.
 
-**Nothing in the money plane is exempted by this table, and the table above is the CLOSED custody-writer set — seven functions.** *(The previous sentence read "nothing is added to it", which §12.5 had already falsified when a later pass contracted the expiry sweep without a row here; the row now exists above and the closure claim is re-stated over the corrected enumeration.)* **The complete `kernel.tickets` writer set is ELEVEN**: the seven above plus the four money RPCs next. `kernel.request_order_refund`,
+**Nothing in the money plane is exempted by this table, and the table above is the CLOSED custody-writer set — seven functions.** *(The previous sentence read "nothing is added to it", which §12.5 had already falsified when a later pass contracted the expiry sweep without a row here; the row now exists above and the closure claim is re-stated over the corrected enumeration.)* **The complete `kernel.tickets` writer set is THIRTEEN** *(was ELEVEN; +2 `R-40`: `kernel.record_dispute_native` §20.7.13 — `resale_state → 'dispute_hold'` — and `kernel.resolve_dispute_native` §20.7.15, the release; joined to the `R-25` filing so the owner's (a)/(b) choice covers all six overlay writers)*: the seven above plus the four money RPCs next. `kernel.request_order_refund`,
 `kernel.approve_refund_request`, `kernel.cancel_refund_request` and `kernel.sweep_expired_refund_requests`
 (§17.1–§17.4) write `kernel.tickets.resale_state` themselves; they are `kernel.*` functions, so §0.7's
 `market`/`venue` prohibition does not reach them and this pass does not re-route them. **It is flagged
@@ -1325,7 +1325,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   (`state`,`resale_state`,`credential_version`,`current_owner_id`), `kernel.signing_key.public_key`,
   `venue.scan` (prior admit). **Writes:** none. **SSCAS:** n/a.
 - **Result:** `{ admittable(bool), reason(active|already_scanned|listed_locked|voided|wrong_session|
-  version_stale|**refund_hold**), credential_version, **signing_key_id** }`. **Security:** signature
+  version_stale|**refund_hold**|**dispute_hold** *(`R-40`)*), credential_version, **signing_key_id** }`. **Security:** signature
   verification of the presented token uses the **public key** (door-side / edge); the **private key is never
   in the DB** (C33). Online doors do a live per-scan verify (C37); offline doors verify against the cached
   manifest (±2 time-bucket skew, defined immediately below). **Forbidden callers:** non-door clients.
@@ -1610,7 +1610,11 @@ that door is using. Filed by edge §3.9a request #4.
   with any of the four NULL raises, and the stored header equals the sum of its own lines — asserted against
   the lines, never against a literal, because a literal passes on a function that stores a constant.
 
-### 10.3 `kernel.request_org_payout(p_org_id, p_settlement_id, p_command_key)` — **EDGE-FRONTED (DB-RPC records intent)**
+### 10.3 `kernel.request_org_payout(p_org_id, p_settlement_id, p_command_key)`
+
+> **Open-dispute gate (`R-40`, mirror of `0564`'s `record_transfer_payout` disputed-refusal):** refuses the
+> `submitted` advance with `precondition_failed('open_dispute')` while any `kernel.dispute_native` row in
+> the open set joins the settlement's lines (`T-RPC-DISP-07`). — **EDGE-FRONTED (DB-RPC records intent)**
 - **Purpose:** org finance requests disbursement of a closed settlement's payout to the org's Stripe Connect
   destination. **DB-RPC side** records/advances `kernel.payout` `pending → submitted` and enforces the
   payout-destination cool-down (`payout_destination_locked_until`); **the edge fn executes the Stripe transfer**
@@ -1908,7 +1912,7 @@ that door is using. Filed by edge §3.9a request #4.
 ### 12.4 Door-freeze signal (recon #3) — read + recheck contract — **CORRECTED**
 
 The stored signal is **`catalog.event_session.door_open_at`**; the ONLY authorization read is the derived
-helper **`kernel.is_transfer_frozen(p_ticket_atom_id)`**. There is **no stored
+helper **`kernel.is_transfer_frozen(p_ticket_atom_id)`**. **The dispute freeze (`R-40`, §20.7.13) is NOT this signal — it rides the `resale_state` overlay and never touches `is_transfer_frozen` or the §12.4c recheck set; `T-RPC-DOOR-01` is unaffected.** There is **no stored
 `kernel.tickets.transfer_frozen` column** — edge, client, and RPC all target the same helper. **`NO SCHEMA
 CHANGE` to the helper's signature or to any call site**; only its body and its recheck set change.
 
@@ -2108,9 +2112,9 @@ active successor is refused.
 | 6 | Native listing create | `market.create_listing` → `kernel.lock_ticket` | **Listing** → **Ticket Atom** |
 | 7 | Native transfer start | `market.create_p2p_transfer` → `kernel.lock_ticket` | **Transfer(Listing slot)** → **Ticket Atom** |
 | 8 | Native P2P accept | `market.accept_p2p_transfer` → `kernel.transfer_ticket_ownership` | **Transfer** → **Ticket Atom** → **Payment** |
-| 9 | Dispute open → freeze | native dispute-freeze RPC (webhook `charge.dispute.created` branch) + `kernel.hold_payout` | **Dispute** → **Ticket**(freeze overlay) → **Payout**(hold) |
+| 9 | Dispute open → freeze | `kernel.record_dispute_native` (§20.7.13; webhook `charge.dispute.created` branch, edge §4) — dispute upsert + `dispute_hold` overlay + `kernel.payout` hold columns (`hold_reason_code='dispute'`, `held_by` NULL, `status` untouched — the §11.2/S-15 discipline) | **Dispute** → **Ticket**(freeze overlay) → **Payout**(hold) |
 | 10 | Event-cancellation cascade | `catalog.cancel_event` (bounded batch of member #3 per atom) | **Event/Session** → **Inventory** → per **Ticket Atom(asc id)** → **Refund** |
-| 11 | Dispute-resolution reversal | `kernel.admin_resolve_dispute`-native path (`force_void_ticket` + refund/clawback executors) | **Dispute** → **Ticket Atom** → **Refund/Payment** → **Payout**(clawback/release) |
+| 11 | Dispute-resolution reversal | `kernel.resolve_dispute_native` (§20.7.15; state + release only — the 065 no-autonomous-money discipline) with money via the existing member-#3 instruments `kernel.admin_refund` (§20.7.1) / `kernel.force_void_ticket` (§11.1) and the `OR-21` obligation leg (§20.7.10) | **Dispute** → **Ticket Atom** → **Refund/Payment** → **Payout**(clawback/release) |
 | 12 | C25 auto-compensation | `market.sweep_paid_pending_sales` | **Listing** → **Ticket Atom** → **Payment**(complete) XOR **Ticket Atom** → **Refund**(compensate) |
 | 13 | Auction deposit-release | auction finalize sweep → `kernel.transfer_ticket_ownership` (+ deposit-auth void) | **Listing/Auction** → **Ticket Atom** → **Payment** | **(MVP-dormant — `OR-11`; modeled lock row preserved for the post-MVP surface)**
 | 14 | Group-buy claim *(non-MVP; modeled only)* | future `venue.reserve_group_claim()` (A11 one legal door) | **Inventory**(hold) — single-class once inside the door |
@@ -4068,6 +4072,7 @@ mint/revoke set and the two live counts), `T-RPC-KEY-05` (the signing-key force-
 | **Money — set closure** | `T-RPC-MONEY-15` (**an `admin_refund` void on an open episode appends one `revoke` delta per atom** — the §12.4c exemption obligation) · `-16` (a resold atom's primary payment refunds money only, returning `custody_moved`) · `-17` (`platform_support` and `org_owner` both refused) · `-18` (`pay_promoter_commission`'s write set pinned; no external call) · `-19` (**a flagged unreviewed attribution yields NO settlement line**, and `release` + close pays it) · `-20` (the same attribution cannot be lined into a second settlement) | §20.7.1, §20.7.2 |
 | **Credential keys (C33)** | `T-RPC-KEY-01` (**no parameter and no written column accepts key material**) · `-02` (**structural** — `rotate_signing_key` references neither the ownership log nor `kernel.tickets`) · `-03` (exactly one `active` key per scope at every observable instant during a rotation; a pre-rotation atom still verifies) · `-04` (revoking the only active key raises; a wrong acknowledgement count raises; the revoked row and its `public_key` survive) · **`-05`** (with two `open` episodes in the key's scope and one outside it, an approved revoke closes **exactly the two**, in the same transaction as the key row — asserted **on the episode rows**, not on the absence of admissions, which would pass on a manifest that merely lapsed) | §20.7.3–§20.7.5 |
 | **Native marketplace** | `T-RPC-MARKET-01` (non-owner, issuing `venue_manager` and `platform_admin` all refused a listing; double-list raises; frozen session raises) · `-02` (cancel withdraws pending offers and cancels the auction; `paid_pending_transfer` raises on the direct path **and** is excluded from the drain) · `-03` (**two concurrent equal bids: exactly one clears**, under real concurrency) · `-04` (anti-snipe extends `ends_at`; a seller's own bid raises `self_bid`) · `-05` (**accept with another identity's payment raises `payment_unverified` and moves no custody** — the C35 regression) · `-06` (accept withdraws every other pending offer, marks the listing `sold`, and a replay appends no second ownership-log row) · **`-07`** (an offer past `expires_at` whose stored `status` is still `pending` — **the sweep suppressed** — is refused and writes no `market_sale`) · **`-11`…`-18`** (the R-37 buy-now set: one-winner reservation under real concurrency; `self_purchase`; seller-unbreakable reservation; mark→finalize completion + replay; frozen finalize → C25 compensate; cancel three-arm forward-only; mark-vs-cancel determinism; the lapse worker's PI-death protocol both arms) | §20.8 |
+| **`T-SCHEMA-DISP-01`…`-05` · `T-RPC-DISP-01`…`-07` · `T-RLS-DISP-01`** (`R-40`: label completeness by named writers; forward-only + terminal-absorbing; pairing CHECK both halves; upsert replay no-op; deny-all incl. DELETE; overlay freeze refused by existing `resale_state='none'` preconditions with NO new check; custody-moved and occupied-overlay skip-and-alert arms; payout hold columns with `status` unchanged; conditional seller-win release under a second open dispute; stale `.closed`-before-`.created` ordering; the `open_dispute` payout gate) | §20.7.13–§20.7.15 |
 | **Promoter — records** | `T-RPC-PROMO-12` (**structural** — `create_promoter` writes none of the three authz tables) · `-13` (a terms change leaves every existing attribution's `terms_version` and the commission it pays byte-identical) · `-14` (slug check refused to a fan and to a foreign org; result payload is `{available}` and nothing else) | §20.9 |
 | **Dashboard** | `T-RPC-DASH-01` (for every tile × role, the summary equals the owning read's value **or the key is absent** — never null, never a computed second answer) | §20.10 |
 | **Seams** | `T-RPC-SEAM-01` (`settlement_royalty_lines` returns rows after `088` — the stub was **replaced**, not merely present) · `-02` (`settlement_commission_lines` returns a row after `090`) · `-03` (`on_atom_voided` flips a seeded sale to `compensated`, a `completed` sale raises, **and the call sits before the rank-5 atom lock**) | §20.11 |
@@ -6322,6 +6327,77 @@ own delta obligation, and `refund-execute` (edge §3.5) wraps it. Written out he
   `noop_replay`; the operand flip false→true→false; the Q2 ERASED-identity witness — recording against a
   tombstone commits and raises nothing; deny-all/REVOKE incl. DELETE impossible for every principal).
 
+#### 20.7.13 `kernel.record_dispute_native(p_stripe_dispute_ref, p_stripe_charge_ref, p_stripe_pi_ref, p_amount_minor, p_currency, p_reason, p_status, p_evidence_due_at, p_command_key)` — **DB-RPC (SSCAS member #9)** · `NEW RPC` (`R-40`, authored 2026-08-30)
+
+- **EXEC: DEF** — `service_role` only, **no human path** (the §20.7.10 posture). Caller: the `stripe-webhook`
+  `charge.dispute.created` native branch (edge §4). Mirror source: `freeze_transfer_for_dispute`
+  (MIG `0561`) + the `public.disputes` upsert (MIG `024`) — every leg cited below.
+- **Rail discriminant (item-4 join):** `dispute.payment_intent` → `public.payments.stripe_payment_intent_id`
+  (UNIQUE, frozen shape) → the `kernel.payment_native` row (`UNIQUE(payment_id)`); its `order_id` XOR
+  `sale_id` names the object — order arm: atoms via `kernel.ticket_ownership_log` (`cause='issue'`,
+  `cause_ref = order_id`, §7.1); sale arm: `market.market_sale.ticket_atom_id`. No metadata fetch; every
+  hop is an existing UNIQUE/FK.
+- **Writes (one txn — SSCAS #9: Dispute row first, outside the six-rank order §14.2, then Session
+  `FOR SHARE` (1) → Atom (5, ascending) → Payout (6)):**
+  1. UPSERT `kernel.dispute_native` on `UNIQUE(stripe_dispute_ref)` (replay → `noop_replay`, no second
+     audit row — the §20.7.10 validation-④ shape).
+  2. **Atom leg (the `freeze_transfer_for_dispute` mirror):** each atom of the disputed payment where
+     `current_owner_id` = the disputed payment's buyer AND `state ∈ {issued, active}` AND
+     `resale_state = 'none'` → `resale_state := 'dispute_hold'` (the fifth overlay label, schema §1.5
+     ADDITIVE-2 mechanics). Custody moved on (`custody_moved` class, §20.7.1) or overlay occupied
+     (`listed`/`locked`/`refund_hold`) → **skip that atom, record the dispute, raise a money-path
+     alert** — the live handler's own non-fatal skip-and-record posture; `kernel` never mutates a live
+     `market` machine (§0.7).
+  3. **Payout leg:** every `kernel.payout` row `status ∈ {pending, submitted} AND hold_state='none'`
+     reachable from the disputed payment (sale arm: `cause_ref = sale_id`; settlement arm: the settlement
+     whose `venue.settlement_line` `(cause, cause_ref)` names the disputed order/sale) →
+     `hold_state := 'held'`, `hold_reason_code := 'dispute'`, `held_at := now()`, `held_by` NULL (machine
+     act — the §1.9 probation-arm precedent); **`status` NOT touched** (S-15/`C105`). Already-held →
+     idempotent skip, reason not overwritten.
+  4. `kernel.admin_audit` (`dispute.record`, before/after) in-txn.
+- **SEAM-1:** reads `public.payments` (frozen) · `kernel.payment_native` (`085`) ·
+  `kernel.ticket_ownership_log` (`079`) · `market.market_sale` (`088`) · `venue.settlement_line` (`087`);
+  writes `kernel.dispute_native` (`088`) · `kernel.tickets.resale_state` (`079`) · `kernel.payout` hold
+  columns (`085`) · `kernel.admin_audit` (`077`) → **max = `088`**; every operand package already in
+  `088.depends_on` — **zero hooks, zero edges**.
+- **Emissions:** none (`OR-14` non-producer; G25 rows #29/#30 stay REMOVE until the Gate-M catalog
+  amendment). **Errors:** §0.5. **Tests:** `T-RPC-DISP-01`…`-04`, `T-SCHEMA-DISP-04`.
+
+#### 20.7.14 `kernel.mark_dispute_state(p_stripe_dispute_ref, p_new_status, p_command_key)` — **DB-RPC** · `EXEC: DEF` · `NEW RPC` (`R-40`)
+
+- The `mark_payout_transfer_state`/`mark_refund_state` sibling (§20.7.6/§20.7.7): `service_role` only,
+  caller = the `charge.dispute.closed`/updated native branch. **State only — moves no money** (the live
+  `.closed` handler's own rule: *"Don't make autonomous money moves here. Just sync state."*).
+- Forward-only under `FOR UPDATE`: open↔open free (Stripe-reported); open→terminal once; **terminal
+  absorbing** — same-terminal replay → `noop_replay`, different terminal → `state_conflict` (the §20.7.11
+  discipline). Terminal set = `{won, lost, warning_closed, charge_refunded}` (MIG 024's own open-set
+  index predicate, canonized by BP-7). Unknown ref → `not_found` (the handler then records at terminal
+  status via §20.7.13 with **no freeze leg** — stale-ordering closure; a late `.created` replay cannot
+  reopen, forward-only). Writes the row + `kernel.admin_audit` (`dispute.state_sync`) in-txn.
+- **Lost + proceeds disbursed/retained by an identity → the edge calls `kernel.record_identity_obligation`
+  (§20.7.10, `OR-21`) in its own txn** — org-held proceeds excluded (org debt is BP-11's org's, C31
+  Gate-M; §1.10a precedence over the live rail's undifferentiated loss). **SEAM-1:** own row (`088`) +
+  audit (`077`) → `088`. **Emissions:** none. **Tests:** `T-SCHEMA-DISP-02`, `T-RPC-DISP-06`.
+
+#### 20.7.15 `kernel.resolve_dispute_native(p_dispute_id, p_outcome, p_reason_code, p_command_key)` — **EDGE-FRONTED DB-RPC (SSCAS member #11)** · `NEW RPC` (`R-40`)
+
+- **Authority:** `platform_risk` · `platform_admin` (EDGE-CALLER-JWT §3.1; actor server-derived, C35) —
+  the MIG `065` `resolve_transfer_dispute` mirror: a distinct, human-authorized, **state-and-release-only**
+  verb. `p_outcome ∈ {seller_win, buyer_win, partial_refund}` (065's exact set).
+- **`seller_win`:** writes the resolution quadruple; releases every `dispute_hold` this dispute's join set
+  placed (only if still `dispute_hold`); releases the `hold_reason_code='dispute'` payout holds **iff no
+  other open `kernel.dispute_native` row joins the same payout** (065's conditional unfreeze,
+  `v_unfreeze := (v_paid IS NULL)` mirror); `status` stays `won`.
+- **`buyer_win` / `partial_refund`:** quadruple only — **the freeze stays; money moves exclusively via the
+  existing member-#3 instruments** `kernel.admin_refund` (§20.7.1 — the ratified uncapped dispute
+  instrument, `p_reason_code='dispute'`) and `kernel.force_void_ticket` (§11.1), plus the `OR-21`
+  obligation leg — never autonomously (065: *"the seller does not get paid… every payout gate stays
+  shut… issuing the actual refund stays a separate, explicitly authorised action"*).
+- Locks: SSCAS #11 orchestration — Dispute row first, then Atom (5, asc) → Payout (6); re-enters no lower
+  rank. Writes + `kernel.admin_audit` (`dispute.resolve`) in-txn. Replay: same-outcome → `noop_replay`;
+  different → `state_conflict`. **SEAM-1:** `max(077,079,085,088) = 088`. **Emissions:** none.
+- **Tests:** `T-RPC-DISP-05`, `T-SCHEMA-DISP-02`/`-03`, `T-RLS-DISP-01`.
+
 ### 20.8 THE NATIVE MARKETPLACE WRITE SURFACE — the `088` gap (`G-5`)
 
 > **RLS §11.1 carries EXEC rows for six `market.*` writers and this document contracts none of them.**
@@ -7162,7 +7238,7 @@ six and to the three names §20 assigns.
 
 **Authored-not-transcribed names (the §17.20 `reconcile_holder_mix` convention; added 2026-08-29):**
 `kernel.revoke_org_invite` (§20.1.6) · `kernel.sweep_expired_org_invites` (§20.1.7) ·
-`venue.cancel_pending_order` (§20.7.9) · `market.mark_sale_paid_state` (§20.8.7) · `market.checkout_buy_now` / `bind_checkout_payment_ref` / `finalize_market_sale` / `cancel_buy_now_sale` / `list_lapsed_checkouts` (§20.8.8–§20.8.12, R-37/`OR-22`) ·
+`venue.cancel_pending_order` (§20.7.9) · `market.mark_sale_paid_state` (§20.8.7) · `market.checkout_buy_now` / `bind_checkout_payment_ref` / `finalize_market_sale` / `cancel_buy_now_sale` / `list_lapsed_checkouts` (§20.8.8–§20.8.12, R-37/`OR-22`) · `kernel.record_dispute_native` / `mark_dispute_state` / `resolve_dispute_native` (§20.7.13–§20.7.15, `R-40` — the edge-spec phrase "native dispute freeze RPC" resolves to `record_dispute_native`; placeholder retired) ·
 `kernel.write_demographic_erasure_tombstone` / `tg_identity_demographic_erasure` (§17.20a).
 Each is the unique function three-plus documents pointed at by phrase or grant; only the NAME is authored —
 authority, shape and package were derived, per each contract's own header.

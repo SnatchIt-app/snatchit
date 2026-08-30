@@ -171,6 +171,10 @@ ratifying its package-objects scope** (the F-P0-1 authorization covered only the
 OPTIONS: (a) sign the scope line; the authoring pass lands and freeze follows — RECOMMENDED; (b) one
 ratified-deferral line gating the dispute-freeze surface (NOT recommended: native_primary disputes are
 MVP-reachable). **The freeze cannot be signed with R-40 unresolved.**
+**RULED 2026-08-30 (`OR-24`): scope signed — native dispute-freeze IS Phase-2 MVP; applied, off the queue.**
+`kernel.dispute_native` + `record_/mark_/resolve` verbs authored in `088` (schema §1.10b; RPC
+§20.7.13–§20.7.15; SSCAS rows 9/11 real; edge §4 closed; BP-7 native twin; `dispute_hold` overlay). The
+mirror derivation proved complete — nothing invented; zero hooks, zero edges.
 
 ## user_blocks × marketplace — non-blocking owner flag (red-team RRT-F9)
 `public.user_blocks` gates nothing on the native rail (no buy-now/offer/p2p precondition anywhere); the
@@ -179,6 +183,11 @@ buy the blocker's listing. The silence is a GAP, not a ruled position — one ow
 the gate (refuse buyer-side acquisition across a block, mirroring the p2p social surface) or ratifies
 marketplace-anonymity (discovery is anonymous; a fixed-price sale is not a social interaction). NOT
 freeze-blocking; filed for the sitting after the R-40 signature.
+**OWNER DISPOSITION 2026-08-30 (`OR-25`): DEFERRED — NON-BLOCKING.** The Phase-2 architecture freeze makes
+NO new promise that `user_blocks` changes marketplace visibility, eligibility, checkout, offers, resale,
+transfer, or discovery. No block-filtering semantics are invented. Any future marketplace enforcement of
+`user_blocks` requires a dedicated owner amendment specifying the exact surfaces affected. This deferment
+is NOT a ruling that blocks are ignored forever — it is the absence of a promise, recorded.
 
 ## R-38 — reconciled 2026-08-29 (`C135`): NO owner bit existed; the fence code was the defect
 The prior report listed `kernel.payout`/R-38 as a writer failure while R-38 was absent from this queue — resolved **A: RESOLVED BY EXISTING OWNER RULING** (C29/C30/C31 GATE-M · MONEY §9.4 · the A-GATEM flag binding · OR-11). The fence row now rides the ratified-gate `c` encoding; the contract is owed by — and only by — the Gate-M amendment. F-P2-1 does not close it (books debt, not disbursement); R-37/`OR-22` commissions only the money-in leg (the rail stays feature-dark until Gate-M + 2C, so no seller disbursement is reachable in MVP).

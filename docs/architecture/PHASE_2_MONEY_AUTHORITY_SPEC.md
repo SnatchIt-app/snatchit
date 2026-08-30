@@ -1495,6 +1495,12 @@ the ledger home for a realized identity-scoped chargeback/clawback loss and the 
 records debt and resolves it by an audited platform act (`recovered`/`written_off`); it funds nothing, nets
 nothing, gates no payout, and does not weaken this section: recovery execution remains Gate-M.
 
+**A second additive record is built under `R-40`: `kernel.dispute_native` (schema §1.10b)** — the native
+chargeback record and freeze operand, the mechanical mirror of the frozen live-rail dispute machinery. It
+records and freezes (`dispute_hold` overlay + payout hold columns); it funds nothing, nets nothing, moves
+no money — resolution money rides the existing instruments (`kernel.admin_refund`/`force_void_ticket` +
+the `OR-21` obligation leg), and recovery execution remains Gate-M here too.
+
 ---
 
 ## 10. Surface implications

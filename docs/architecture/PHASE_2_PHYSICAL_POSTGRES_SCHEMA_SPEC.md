@@ -469,7 +469,7 @@ assertion was right; the table it was written against was not.
     ownership log).** Written ONLY inside the transfer engine, same txn as the log append.
   - `state` enum(`issued` · `active` · `scanned`(terminal) · `voided`(terminal) · `expired`(terminal))
     — not null default `issued`. **NO `refunded` terminal** (A5/D2): refund → `voided` cause `refund_void`.
-  - `resale_state` enum(`none` · `listed` · `locked` · `refund_hold`) — not null default `none` (CDM §1.1;
+  - `resale_state` enum(`none` · `listed` · `locked` · `refund_hold` · `dispute_hold`) — not null default `none` (CDM §1.1;
     R34 notes this is a market fact physically on the kernel atom — accepted with dependency-smell flag, see
     CONFLICTS). **`refund_hold` ADDED — MONEY §12 ADDITIVE-2:** the parked-refund overlay set by
     `kernel.request_order_refund`'s parked branch so an atom under a pending refund approval cannot be
@@ -889,7 +889,7 @@ sentinel (§1.16) to its write set.
 - **Write authority:** `kernel.close_settlement` (INSERT `pending`) / *the native-sale payout path — a Gate-M-deferred writer (R-38 CLOSED-AS-GATED 2026-08-29, `C135`; fence `c` encoding): contracted by the Gate-M amendment, never invented at build time* /
   `kernel.pay_promoter_commission` (INSERT `pending`) / `kernel.request_org_payout` (→ `submitted`, **or —
   probation arm — `hold_state := 'probation_hold'` + `hold_reason_code` + `held_at` on the EXISTING `pending`
-  row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
+  row, `held_by` NULL, `status` UNTOUCHED**) / **`kernel.record_dispute_native` · `kernel.resolve_dispute_native` (`hold_state` columns only, `hold_reason_code='dispute'`, `held_by` NULL — the probation-arm shape; `R-40`) · `kernel.hold_payout` · `kernel.release_payout` (`hold_state` ONLY — they
   never touch `status`)** / **`kernel.mark_payout_transfer_state` (`status` terminal advance +
   `stripe_transfer_ref`; §1.9.2)**.
 - **Read authority:** payee + org finance + platform.
@@ -1179,7 +1179,7 @@ surface.
   (`CUSTODY-DEL-1` untouched).
 - `origin_kind` text — not null, CHECK in (`chargeback` · `refund_clawback`). **Closed enum, derived not
   invented:** `chargeback` = a card dispute lost against a payment whose proceeds the debtor already holds
-  (native: edge §4 `charge.dispute.closed`; live rail: `public.disputes` lost / `transfers.status='reversed'`,
+  (native: edge §4 `charge.dispute.closed`, recorded in `kernel.dispute_native` §1.10b; live rail: `public.disputes` lost / `transfers.status='reversed'`,
   MIG 024). `refund_clawback` = a platform-funded refund (`kernel.refund.reason_code` in the
   non-`buyer_request` half of §1.10's ratified set) issued after the debtor's proceeds were
   disbursed/retained, with no recovery instrument in Phase 2. Org-side negative-settlement carry is
@@ -1217,6 +1217,53 @@ surface.
   `deletion_block_reason = 'outstanding_obligation'` on the deletion machine.
 - **Locks:** own row only — no SSCAS membership; C28's closed fifteen and the global lock order stand.
 - **Tests:** `T-SCHEMA-OBLIG-01`…`-07` (RPC §20.7.12).
+
+### 1.10b `kernel.dispute_native` — money-custody-RPC-only (`R-40`)
+
+**The native chargeback record and freeze operand** — the mechanical mirror of the frozen live-rail dispute
+machinery (`public.disputes` MIG `024` + `freeze_transfer_for_dispute` MIG `0561` + `resolve_transfer_dispute`
+MIG `065`), adapted to the band's ratified disciplines. NOT a dispute product, NOT customer-facing, NOT new
+money policy — it records, freezes, and releases; money moves only through the existing instruments
+(RPC §20.7.15). Named `_native` on the `kernel.payment_native`-vs-`public.payments` precedent.
+
+- **PK:** `dispute_id` uuid (canonical-identifier convention, §0.2).
+- `stripe_dispute_ref` text — not null, **write-once, UNIQUE** (the `stripe_refund_ref`/`stripe_transfer_ref`
+  external-join-key discipline; the key `kernel.identity_obligation.stripe_dispute_ref`'s partial UNIQUE
+  already anticipates, §1.10a).
+- `stripe_charge_ref` text — not null; `stripe_pi_ref` text — nullable.
+- `payment_id` uuid — **not null**, FK→`public.payments(id)` ON DELETE RESTRICT (NOT NULL where MIG 024 is
+  nullable: the native branch fires only when the PI resolves through `kernel.payment_native`'s
+  `UNIQUE(payment_id)`; the order-XOR-sale linkage lives THERE — no duplicate FK here, the `cause_ref`
+  soft-reference discipline).
+- `amount_minor` int — not null, CHECK `>= 0` (MIG 024 mirror — admits 0; deliberately different from
+  `identity_obligation`'s `> 0`).
+- `currency` text — not null default `'USD'` (C13); `reason` text — not null;
+  `evidence_due_at` timestamptz — nullable (Stripe's clock, not ours — no sweep exists or is owed).
+- `status` text — not null, CHECK in (`warning_needs_response` · `warning_under_review` · `warning_closed` ·
+  `needs_response` · `under_review` · `won` · `lost` · `charge_refunded`) — MIG 024's eight, now CHECKed
+  (the corpus ships no uncheckable status). Machine: open↔open free (Stripe-reported); open→terminal once;
+  **terminal absorbing** (same-terminal `noop_replay`, different `state_conflict`). Terminal set
+  `{won, lost, warning_closed, charge_refunded}` = 024's own open-set index predicate (canonized by BP-7).
+- Resolution quadruple: `resolution_outcome` CHECK in (`seller_win` · `buyer_win` · `partial_refund`)
+  (MIG 065's exact set) · `resolution_reason_code` · `resolved_by` uuid FK→auth.users (server-derived,
+  C35) · `resolved_at` — with the pairing CHECK (§1.9/§1.10a discipline): all four NULL ⇔ none set.
+- `created_at`, `updated_at` (`CATEGORY:set_updated_at`).
+- **Indexes:** PK; `UNIQUE(stripe_dispute_ref)`; **the open-set partial index `(created_at DESC) WHERE
+  status NOT IN ('won','lost','warning_closed','charge_refunded')` — this index IS the BP-7 native-twin
+  operand read** (the §1.10a sentence shape).
+- **Immutability:** identity/origin columns write-once; status MUT under `FOR UPDATE` (guarded
+  single-writer); resolution quadruple written once by §20.7.15; **no DELETE ever** (GP-2; `REVOKE DELETE`
+  outright). No resolutions side-table: the quadruple + the in-txn `kernel.admin_audit` rows carry MIG
+  065's audit history — the §1.10a construction.
+- **Write authority** *(restates the canonical registry — `OR-7`)*: `kernel.record_dispute_native`
+  (§20.7.13, webhook upsert + freeze legs) · `kernel.mark_dispute_state` (§20.7.14, forward-only state
+  sync) · `kernel.resolve_dispute_native` (§20.7.15, edge-fronted `platform_risk`/`platform_admin` — state
+  and release only).
+- **RLS:** money-custody-RPC-only, DENY-ALL — `REVOKE ALL` from `anon`/`authenticated`; `service_role`
+  A(machine). No buyer/seller read surface in MVP (the live rail has none either — MIG 024: "No client
+  policies — disputes are server-only").
+- **Package `088`** (SEAM-1 over the writers' reachable sets — §20.7.13; zero hooks, zero edges).
+- **Tests:** `T-SCHEMA-DISP-01`…`-05` (RPC §18.1).
 
 ### 1.11 `kernel.reserve` — **EXT (Gate M stub only)**
 - **Purpose:** funding source for instant payout / cancellation refunds / C25 auto-refund (R4/C29). In MVP

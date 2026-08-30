@@ -570,7 +570,10 @@ Stated so no reader takes silence for confirmation.
    member **#9** (dispute → payout freeze) is part of `C12`, which is **Gate P · Ratified·MVP** (CDM `:690`),
    while `C30` (the chargeback liability the dispute plane needs) is **Gate M** and **no dispute table exists
    in any of the sixteen packages**. I classified on the latter two. **A Gate-P SSCAS member with no Gate-P
-   substrate is a defect in its own right and is not `G-25`'s to file.**
+   substrate is a defect in its own right and is not `G-25`'s to file.** *(Resolved 2026-08-30 by `R-40`:
+   the substrate now exists — `kernel.dispute_native` + §20.7.13–§20.7.15 in `088`; rows #29/#30 remain
+   REMOVE — the dispute writers emit nothing (`OR-14` non-producers) until the Gate-M catalog amendment
+   restores them.)*
 
 ---
 

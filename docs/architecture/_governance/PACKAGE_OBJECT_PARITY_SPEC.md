@@ -357,6 +357,12 @@ MENTION-OK|sweep_scheduled
 088|market.finalize_market_sale|function
 088|market.cancel_buy_now_sale|function
 088|market.list_lapsed_checkouts|function
+088|kernel.dispute_native|table
+088|kernel.record_dispute_native|function
+088|kernel.mark_dispute_state|function
+088|kernel.resolve_dispute_native|function
+MENTION-OK|dispute_hold
+MENTION-OK|depends_on
 MENTION-OK|reservation_expires_at
 MENTION-OK|payment_intent_ref
 089|market.listing_unified|table
