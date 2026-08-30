@@ -215,6 +215,7 @@ ROLLBACK-RULE|The standing rule that every migration ships a rollback script and
 PROTECTED-SHAPES|The protected shapes of packages 084 and 091|docs/architecture/PHASE_2_PACKAGE_REGISTRY.md|§6 rule 7|docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md|NO
 EDGE|Edge function contracts: routes, auth model, verify_jwt posture, secrets, boundary shape|docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md|§2-§8 (self-declared: this spec owns the edge contract)|docs/architecture/PHASE_2_RPC_FUNCTION_CONTRACTS.md;docs/architecture/PHASE_2_DOOR_LIFECYCLE_SPEC.md;docs/architecture/PHASE_2_APPLE_WALLET_SPEC.md;docs/architecture/PHASE_2_CRM_EXPORT_SPEC.md|NO
 EDGE-PKG|Which migration package each edge function and its cron schedule is deployed alongside|AMBIGUOUS|no designated owner; the edge spec assigns no package||NO```
+```
 
 ## Two secondary defects surfaced while building this map
 

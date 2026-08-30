@@ -83,12 +83,11 @@ SELECT is(
 -- ---------------------------------------------------------------------------
 SELECT has_table('notify','outbox','notify.outbox exists (OR-12/OR-4 — COND-A RULED)');
 
-SELECT results_eq(
-  $q$ SELECT column_name::text FROM information_schema.columns
-       WHERE table_schema='notify' AND table_name='outbox' ORDER BY column_name $q$,
-  ARRAY['aggregate_id','aggregate_kind','attempt','causation_id','claimed_until',
-        'correlation_id','created_at','event_key','event_type','last_error',
-        'occurred_at','outbox_id','payload','sequence','state'],
+SELECT is(
+  (SELECT string_agg(column_name::text, ',' ORDER BY column_name::text COLLATE "C")
+     FROM information_schema.columns
+    WHERE table_schema='notify' AND table_name='outbox'),
+  'aggregate_id,aggregate_kind,attempt,causation_id,claimed_until,correlation_id,created_at,event_key,event_type,last_error,occurred_at,outbox_id,payload,sequence,state',
   'C12 envelope: exactly the fifteen frozen columns, no more, no fewer');
 
 SELECT throws_ok(
