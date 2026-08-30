@@ -27,10 +27,22 @@ do $$
 declare
   v_envelopes bigint;
 begin
-  select count(*) into v_envelopes from notify.outbox;
+  -- A-F3: a partial plain-psql apply can leave schemas without the outbox;
+  -- let the rollback clean that state instead of aborting on 42P01.
+  if to_regclass('notify.outbox') is null then
+    raise notice '076 rollback: notify.outbox absent (partial apply) — proceeding with schema drops.';
+    return;
+  end if;
+  -- A-F2: close the TOCTOU between the count and the drops — no emit can
+  -- commit between this lock and the end of this transaction.
+  lock table notify.outbox in access exclusive mode;
+  -- A-F1: only UNDRAINED carriers block (pending/claimed); drained rows
+  -- (done/dead) are history whose destruction the drain already survived.
+  select count(*) into v_envelopes
+    from notify.outbox where state in ('pending','claimed');
   if v_envelopes > 0 then
     raise exception
-      'REFUSED: notify.outbox holds % envelope(s). The frozen rollback posture is CLEAN-WHILE-EMPTY once envelopes exist — a cascade drop would destroy undrained mandatory-notice carriers. Drain (092) or resolve the envelopes first.',
+      'REFUSED: notify.outbox holds % UNDRAINED envelope(s) (pending/claimed). The frozen rollback posture is CLEAN-WHILE-EMPTY once envelopes exist — a cascade drop would destroy undrained mandatory-notice carriers. Drain them (092) first; drained (done/dead) rows do not block.',
       v_envelopes;
   end if;
 end;

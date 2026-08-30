@@ -14,7 +14,7 @@
 -- ============================================================================
 
 BEGIN;
-SELECT plan(53);
+SELECT plan(59);
 
 -- ---------------------------------------------------------------------------
 -- A. The five schemas + the GRANT boundary (frozen §8/076 Tests: "\dn shows
@@ -57,10 +57,11 @@ SELECT is(
     WHERE n.nspname = 'kernel'
       AND p.proname IN ('set_updated_at','raise_append_only')
       AND pg_get_userbyid(p.proowner) = 'postgres'
+      AND p.prosecdef
       AND EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig,'{}'::text[])) c
-                   WHERE c LIKE 'search_path=%')),
+                   WHERE c = 'search_path=""')),
   2,
-  'both kernel helper trigger functions exist, owned by postgres, search_path pinned');
+  'both kernel helpers: SECURITY DEFINER (frozen plan :531), owned by postgres, search_path pinned to EMPTY');
 
 -- ---------------------------------------------------------------------------
 -- D. The ALTER DEFAULT PRIVILEGES belt: no default table grant for
@@ -113,10 +114,11 @@ SELECT ok(
   'partial drain index (state, occurred_at) WHERE state IN (pending, claimed)');
 
 SELECT ok(
-  (SELECT relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  (SELECT relrowsecurity AND NOT relforcerowsecurity
+     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='notify' AND c.relname='outbox')
   AND (SELECT count(*) FROM pg_policies WHERE schemaname='notify' AND tablename='outbox') = 0,
-  'outbox: RLS enabled with ZERO policies — deny-all, RPC-only');
+  'outbox: RLS enabled, NOT forced (the sanctioned owner-definer path), ZERO policies — deny-all, RPC-only');
 
 -- ---------------------------------------------------------------------------
 -- F. Hostile-role catalog + direct-mutation attacks (mission §7/§8: prove
@@ -128,6 +130,23 @@ SELECT is(
       AND grantee IN ('anon','authenticated','PUBLIC')),
   0,
   'catalog: zero outbox table grants for anon/authenticated/PUBLIC');
+
+SELECT is(
+  (SELECT count(*)::int FROM information_schema.role_table_grants
+    WHERE table_schema='notify' AND table_name='outbox' AND grantee <> 'postgres'),
+  0,
+  'outbox: postgres is the SOLE grantee — service_role (BYPASSRLS) holds zero table grants; the grant wall is its only wall and it is watched (review C-F8/E-F3)');
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    WHERE n.nspname IN ('kernel','venue','market','notify')
+      AND (a.grantee = 0
+           OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated')))
+      AND a.privilege_type = 'EXECUTE'),
+  0,
+  'PFA-1 witness: EVERY function in the walled schemas carries zero PUBLIC/anon/authenticated EXECUTE — the per-object sweep replacing the impossible per-schema functions belt (schema-scoped ADP REVOKE cannot subtract the built-in PUBLIC default; each package suite keeps this sweep green over its own functions)');
 
 SELECT tap.login('11111111-1111-1111-1111-111111111111');
 SELECT throws_ok(
@@ -167,9 +186,15 @@ SELECT is(
       AND p.prosecdef
       AND pg_get_userbyid(p.proowner)='postgres'
       AND EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig,'{}'::text[])) c
-                   WHERE c LIKE 'search_path=%')),
+                   WHERE c = 'search_path=""')),
   2,
-  'emit pair: SECURITY DEFINER, owned by postgres, search_path pinned');
+  'emit pair: SECURITY DEFINER, owned by postgres, search_path pinned to EMPTY');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE n.nspname='notify' AND p.proname='emit_event'
+             AND 'lock_timeout=2s' = ANY (coalesce(p.proconfig,'{}'::text[]))),
+  'PFA-2: emit_event carries lock_timeout=2s — a blocked envelope becomes 55P03 (caught) instead of consuming the producer statement-timeout budget (57014 pierces WHEN OTHERS)');
 
 -- ---------------------------------------------------------------------------
 -- G. Envelope behavior (as the trusted definer/service path — tap.logout()
@@ -252,6 +277,24 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM notify.outbox WHERE event_type='tap_be_fail'),
   0, 'BE-1: the envelope was lost (logged), never half-written');
+
+-- C-F5: a rolled-back producer consumed NO sequence — tap_agg_c saw two
+-- failed emits (REQ-1 rolled back, BE-1 lost); the next successful emit on it
+-- must allocate sequence 1, witnessing the gaplessness max()+1 was chosen for.
+SELECT lives_ok(
+  $q$ SELECT notify.emit_event('tap_gapless','tap_agg_c','cccccccc-cccc-cccc-cccc-cccccccccccc','tap_gapless:1') $q$,
+  'post-rollback emit on the aggregate succeeds');
+SELECT is(
+  (SELECT sequence::int FROM notify.outbox WHERE event_type='tap_gapless'),
+  1, 'C-F5 PROOF: rolled-back producers consume no sequence — the aggregate starts at 1');
+
+-- PFA-2 (E-F1): same (event_type, event_key) reused for a DIFFERENT aggregate
+-- violates NOTIF §4.2 (the key IS the business event); REQUIRED must raise
+-- rather than silently lose the envelope.
+SELECT throws_ok(
+  $q$ SELECT notify.emit_event_required('tap_happy','tap_agg_OTHER','99999999-9999-9999-9999-999999999999','tap_happy:1') $q$,
+  'P0001', NULL,
+  'PFA-2 PROOF: a key collision with a DIFFERENT aggregate RAISES in the REQUIRED class — never a silent loss');
 
 -- ---------------------------------------------------------------------------
 -- I. The unlocked-concurrency backstop (§17.24: sequence is allocated under
