@@ -204,6 +204,51 @@ OWNER SIGNATURE REQUIRED:    NO — a platform impossibility resolved in the onl
                              the stated purpose (the PFA-1/PFA-2 class).
 ```
 
+### PFA-4 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      APPROVED
+OWNER SIGNATURE REQUIRED:    SATISFIED
+FAIL-CLOSED UNTIL IMPLEMENTED: YES
+OWNER RULING (verbatim):     "PFA-4 APPROVED — preserve the ratified dual-control requirement for
+                             platform authority. Amend the approval_request closed sets only as narrowly
+                             as necessary to represent and execute that platform-grant approval path. No
+                             platform role may be minted through a direct, single-actor, client-authored,
+                             or bypass path. Until the approved dual-control path is implemented,
+                             platform-role minting remains fail-closed."
+INTERPRETATION CONSTRAINTS (owner-stated): does NOT authorize a generalized approval framework · direct
+                             platform-role insertion · single-actor platform grants · client-authored
+                             platform authority · any weakening of dual control · platform-role minting
+                             before the approved implementation exists.
+SCOPE OPENED:                exactly the narrow amendment space PFA-4 option (a) described — the
+                             approval_request closed sets (action label · pairing arm · writer fence ·
+                             approver arm) may be extended by the platform-grant approval path ONLY,
+                             when the package that owns that path implements it. No frozen package
+                             ownership places that implementation in 077; 077's grant arm therefore
+                             REMAINS FAIL-CLOSED as shipped (the raise precedes any INSERT; no
+                             platform_role writer exists), and the future implementation must arrive
+                             dual-controlled under this ruling.
+```
+
+## STANDING RECORD — 077 RELEASE-TRAIN GATE (owner ruling, recorded 2026-08-31)
+
+```
+OWNER RULING (verbatim):     "077 RELEASE-TRAIN GATE — migration 077 must not be applied to production
+                             unless the delete-account edge switch and the frozen F-5 live-rail guards
+                             ship in the same authorized release train. Merge of PR #30 does not satisfy
+                             or waive this production gate."
+MERGE BLOCKER:               NO
+PRODUCTION APPLY BLOCKER UNTIL SATISFIED: YES
+ARTIFACTS REQUIRED ON THE TRAIN: supabase/migrations/077_kernel_identity_orgs_and_roles.sql · the
+                             delete-account edge switch (edge §1.8a; retires the PR #28-era 409s;
+                             auth.admin.deleteUser called by nothing) · the F-5 live-rail guards
+                             (edge/RN — FR-9), with their PR #28 / FR-9 coupling as already frozen and
+                             recorded. Deploying 077 without the switch is a compliance outage (the
+                             AO/RESTRICT walls break the physical delete path).
+AUTHORIZATION:               production apply of 077 is a SEPARATE owner authorization event; neither
+                             the PR #30 merge nor this record grants it.
+```
+
 ## PFA-6 — `set_org_connect_ref`'s EXEC class: the corpus carries two readings; the DEF reading is unbuildable (the C93 shape); the caller-authorized reading is implemented
 
 ```
