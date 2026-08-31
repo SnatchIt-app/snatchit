@@ -674,3 +674,67 @@ OWNER SIGNATURE REQUIRED:    NO — the placement is the frozen plan's; only the
                              the body is decided here, and it is decided in the direction that makes the
                              authorised org path work and leaves the deferred path fail-closed.
 ```
+
+## ERRATA — package 078 (recorded, no amendment needed)
+
+**E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
+both *"`ON CONFLICT DO NOTHING`, exactly as `019` does"* and *"a `public.profiles` row for each **carrying
+the display label above**"*. Those are incompatible on this database: the production trigger
+`on_auth_user_created` fires on the `auth.users` INSERT and creates the `profiles` row FIRST with a NULL
+`display_name`, so `DO NOTHING` makes the explicit label a no-op and the Transfer View renders exactly the
+blank §1.16 says it must never render. **Verified live: at the frozen spelling all three sentinels —
+including `019`'s own — carry a NULL `display_name`.** The seed uses `ON CONFLICT (id) DO UPDATE SET
+display_name = excluded.display_name`, scoped to the two sentinel ids and converging on replay, so the
+replay-safety property `DO NOTHING` was chosen *for* is preserved in full while the label requirement is
+actually met.
+
+**E-2 — `auth.users.role` for the two sentinels is `'sentinel'`, not `'authenticated'`.** §1.16's fourth
+reason for refusing the `019` sentinel is that it is *"person-shaped (`role='authenticated'`, a real
+profiles row, an email address)"* and that a custody sink *"must be non-authenticable by construction"*.
+Reproducing `role='authenticated'` would reproduce the property the section rejects. The four required
+properties (no password hash, `email_confirmed_at` NULL, `.internal` address, no role grant) are all
+implemented and asserted; the role label is the mechanical expression of the fourth reason.
+
+**E-3 — `catalog.resale_policy.mode` uses schema §2.5's SEVEN labels; RPC §20.2.2's `{off, capped, free}`
+is the stale surface.** The RPC sketch names three modes that are not in the storage CHECK (`capped` is
+§2.5's `fixed_cap`; `free` has no analogue). The schema spec is the storage authority and the versioned
+snapshot reference depends on the stored label, so the seven-label set governs. `set_resale_policy`
+validates against it and refuses `capped` with `bad_mode`.
+
+**E-4 — `set_resale_policy`'s `p_scope_kind` admits `venue|event` only.** RPC §20.2.2 lists
+`{org, venue, event}`, but `catalog.resale_policy` has no `org_id` column and its coherence CHECK requires
+exactly one of `venue_id`/`event_id` to match `scope_kind` (schema §2.5). An `org` scope has nowhere to
+land; it is refused with `bad_scope`.
+
+**E-5 — `subject_id` for `subject_kind='config_key'` is `md5(key)::uuid`.** `kernel.approval_request.subject_id`
+and `kernel.admin_audit.subject_id` are both `uuid NOT NULL`; a config key is text. The corpus specifies
+the pairing (`APPR-SUBJ-1`) but not the derivation. A deterministic `md5(key)::uuid` is used and the
+literal key travels in `payload`, which is where the approving verb in `085` must read it from. There is
+no FK to satisfy — RPC §17.0a accepts that residual on the record.
+
+**E-6 — a parked config request expires 72 hours after creation.** `kernel.approval_request.expires_at` is
+`NOT NULL` with `CHECK (expires_at > created_at)`, and the frozen corpus specifies no parking horizon for
+`config.set_money_key` (`refund.request_ttl_hours` governs refunds, not config). 72 hours is authored here
+and recorded; a later package may make it a config key.
+
+**E-7 — `catalog.platform_config` uses the composite PK `(key, version)`**, plan §7's primary option, as
+that section requires the choice to be documented in the `078` header. It is.
+
+**E-8 — the "visibility is constant across every version of a key" property is enforced in the WRITER, not
+by a constraint.** A CHECK cannot span rows and a trigger would be an object the frozen closed world does
+not carry (parity `EXTRA = 0`). `set_platform_config` copies `visibility` forward from the current version
+and cannot change it; `T-SCHEMA-CFG-02` asserts the property over the table. The residual — a direct
+superuser INSERT with a different `visibility` — is accepted here on the record, the same class as
+`APPR-SUBJ-1`'s no-FK residual, and it must never be described as equivalent to a constraint.
+
+**E-9 — `catalog.event.category` ships with NO membership CHECK.** See PFA-9 CLASS C: the frozen corpus
+enumerates no members for the closed set schema §2.2 names. A fabricated list would be exactly the key
+RPC §20.2.1 forbids an implementer from inventing.
+
+**E-10 — three `141` assertions were re-scoped by this package.** `A14` (kernel function count 40 → 41),
+`F2` (the `authenticated` EXECUTE closure) and `F3` (the `service_role` closure) each gain
+`kernel.money_role_grant_matured`, which `078` authors by SEAM-1 `max(077, 078) = 078`. Both closures
+remain exact-by-name, so nothing was weakened; the count rose by exactly one and by exactly the function
+the frozen placement puts here.
+
+*(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
