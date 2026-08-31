@@ -9,7 +9,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(185);
+SELECT plan(188);
 
 SELECT tap.seed_core();
 
@@ -699,6 +699,9 @@ SELECT is(
   (SELECT deletion_block_reason LIKE 'BP-11%' FROM kernel.identity_ext
     WHERE identity_id = '66666666-6666-6666-6666-666666666666'),
   true, '077 O13 [BP-11/16d]: the sole-org_owner blocker is recorded, operator-legible, with the org named');
+SELECT is(
+  (SELECT state FROM kernel.approval_request WHERE command_idempotency_key = 'q5a'),
+  'expired', '077 O13b [§3.1.2/red-team A]: the interposed withdrawal did NOT resurrect the Q5-expired approval — expiry is a release, not a suspension');
 -- clear BP-11 by transferring ownership (the ruled clearing path)
 SELECT tap.login('66666666-6666-6666-6666-666666666666'::uuid);
 SELECT lives_ok($$SELECT tap._store('inv_own', (kernel.invite_org_member(tap._fetch('org2')::uuid,
@@ -741,6 +744,10 @@ SELECT throws_like($$SELECT kernel.request_account_deletion('co12')$$, '%erased%
   '077 O22 [E-8]: a request against an ERASED identity fails closed');
 SELECT throws_like($$SELECT kernel.withdraw_account_deletion('co13')$$, '%erased%',
   '077 O23 [dsm §1.3]: ERASED never returns to ACTIVE — no resurrection path exists');
+SELECT throws_like($$SELECT kernel.create_organization('Ghost LLC', 'Ghost', 'co13b')$$, '%erased%',
+  '077 O23b [dsm §1.3/red-team C]: an ERASED session cannot create an organization — acquisition refuses');
+SELECT throws_like($$SELECT kernel.accept_org_invite(gen_random_uuid(), 'co13c')$$, '%erased%',
+  '077 O23c [dsm §1.3/red-team C]: an ERASED session cannot accept an invite (refusal precedes not_found)');
 SELECT tap.logout();
 
 -- O-d: the live-rail blocker arms (BP-6/7/8/9) with real public.* fixtures

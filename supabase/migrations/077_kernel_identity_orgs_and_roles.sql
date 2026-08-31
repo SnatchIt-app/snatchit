@@ -55,7 +55,7 @@
 --   select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
 --    where n.nspname='kernel' and c.relkind='r';                     -- 12
 --   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
---    where n.nspname='kernel';                                       -- 38
+--    where n.nspname='kernel';                                       -- 40 (38 + the two 076 helpers)
 --   select jobname from cron.job where jobname like 'sweep-%';       -- 2 rows
 -- =============================================================================
 
@@ -785,6 +785,14 @@ begin
   if kernel.is_deletion_pending(v_uid) then
     raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
   end if;
+  -- dsm §1.3: ERASED is terminal and sits OUTSIDE the pending freeze operand,
+  -- yet sessions can outlive erasure while OPEN-7 is unresolved — the
+  -- acquisition gate refuses the erased caller too (the E-8 defensive twin;
+  -- red-team C blocker 2).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
   if p_legal_name is null or length(trim(p_legal_name)) = 0
      or p_display_name is null or length(trim(p_display_name)) = 0 then
     raise exception 'precondition_failed: names must be non-empty';
@@ -1103,6 +1111,11 @@ begin
   if kernel.is_deletion_pending(v_uid) then
     raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
   end if;
+  -- dsm §1.3 ERASED acquisition refusal — the E-8 defensive twin (red-team C).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
 
   select * into v_inv from kernel.org_invite where invite_id = p_invite_id for update;
   if not found then
@@ -1203,7 +1216,12 @@ begin
     return jsonb_build_object('status', 'noop_replay');
   end if;
 
-  -- I-11: no self-promotion
+  -- I-11: no self-promotion. Tier is the AUTHORITY ladder (owner > admin >
+  -- the rest); an org_admin self-assigning org_finance is a tier-DEMOTION and
+  -- passes — that is the ratified design, not a gap: money-role acquisition
+  -- is priced by the granted_at maturity floor (AUTHZ-C1B, reset below) plus
+  -- SoD, never by tier prohibition ("inviting at a money role is permitted
+  -- and unchanged — the grant simply starts immature", §2.2).
   v_tier_old := case v_old_role when 'org_owner' then 3 when 'org_admin' then 2 else 1 end;
   v_tier_new := case p_new_role when 'org_owner' then 3 when 'org_admin' then 2 else 1 end;
   if p_identity_id = v_uid and v_tier_new > v_tier_old then
@@ -1933,6 +1951,35 @@ begin
       end if;
 
       -- ===== TERMINAL ENTRY (idempotent; dsm §4) ============================
+      -- (a0) close the BP-11 write-skew (red-team C blocker 1): the RPC-side
+      --     last-owner re-counts serialize on the ORGANIZATION row, so the
+      --     terminal member-delete must too — lock every org the identity
+      --     belongs to (ascending org_id; identity_ext -> organization is the
+      --     existing accept_org_invite direction, no new deadlock class) and
+      --     RE-VERIFY BP-11 under those locks. The unlocked coalesce pass
+      --     above is the cheap early-out; THIS is the enforcement.
+      perform 1
+        from (select o.org_id
+                from kernel.organization o
+               where o.org_id in (select m.org_id from kernel.org_member m
+                                   where m.identity_id = v_row.identity_id)
+               order by o.org_id
+                 for update) locked_orgs;
+      if exists (select 1
+                   from kernel.org_member m
+                  where m.identity_id = v_row.identity_id and m.role = 'org_owner'
+                    and not exists (select 1 from kernel.org_member m2
+                                     where m2.org_id = m.org_id
+                                       and m2.role = 'org_owner'
+                                       and m2.identity_id <> m.identity_id)) then
+        v_blocked := v_blocked + 1;
+        update kernel.identity_ext
+           set deletion_block_reason =
+               'BP-11: sole org_owner (re-verified under the org locks) — transfer ownership first'
+         where identity_id = v_row.identity_id;
+        continue;
+      end if;
+
       -- (a) the erased marker write — PFA-3: deletion_state := 'ERASED';
       --     deletion_requested_at is RETAINED (the durable record).
       update kernel.identity_ext
@@ -1976,8 +2023,12 @@ begin
       -- (e) OPEN-6a: whether ERASED entry hard-deletes the demographic row is
       --     unruled — recorded here, deliberately NOT implemented.
 
-      -- (f) BE-emit account_deletion_completed (R2 row 32) — last write; a
-      --     failed pass re-emits next tick, collapsed by the once-ever key.
+      -- (f) BE-emit account_deletion_completed (R2 row 32) — last write. A
+      --     failed PASS (quarantined exception above) re-runs terminal entry
+      --     next tick and re-emits, collapsed by the once-ever key. A
+      --     SWALLOWED emit beneath a committed tombstone is the accepted
+      --     BEST-EFFORT loss (OR-14: the notice never gates the machine) —
+      --     warning-visible; recorded in the 077 errata.
       begin
         perform notify.emit_event(
           'account_deletion_completed', 'identity', v_row.identity_id,
