@@ -40,16 +40,18 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 9,
-  'A3: catalog holds EXACTLY nine functions — no helper the closed world does not carry');
+            WHERE n.nspname = 'catalog'), 10,
+  -- 2026-08-31 (package 079): 9 -> 10. catalog.update_event_session is 079's
+  -- (SEAM-1: its time guard reads kernel.tickets), named in A4 below.
+  'A3: catalog holds EXACTLY ten functions — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'catalog'$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at')$$,
-  'A4: the nine catalog function names are exactly the frozen set');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session')$$,
+  'A4: the ten catalog function names are exactly the frozen set (update_event_session added by 079)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
@@ -59,12 +61,14 @@ SELECT hasnt_function('catalog'::name, 'publish_event'::name,
   'A6: catalog.publish_event is NOT here — FR-2 moved it to 081 (it reads venue.ticket_type)');
 SELECT hasnt_function('catalog'::name, 'cancel_event'::name,
   'A7: catalog.cancel_event is NOT here — FR-2b moved it to 088');
-SELECT hasnt_function('catalog'::name, 'update_event_session'::name,
-  'A8: catalog.update_event_session is NOT here — SEAM-1 puts it in 079 (its guard reads kernel.tickets)');
+-- 2026-08-31: A8's subject ARRIVED with package 079 (SEAM-1), so the deferral
+-- assertion inverts to presence, pinned to the authoring package.
+SELECT has_function('catalog'::name, 'update_event_session'::name, ARRAY['uuid','jsonb','text']::name[],
+  'A8: catalog.update_event_session now exists — authored by 079, exactly as the SEAM-1 note said');
 SELECT hasnt_function('catalog'::name, 'engage_door_freeze'::name,
   'A9: catalog.engage_door_freeze is NOT here — it is 086, the door_open_at sole writer');
-SELECT hasnt_function('kernel'::name, 'is_transfer_frozen'::name,
-  'A10: kernel.is_transfer_frozen is NOT here — FR-7 resolved it to 079');
+SELECT has_function('kernel'::name, 'is_transfer_frozen'::name, ARRAY['uuid']::name[],
+  'A10: kernel.is_transfer_frozen now exists — FR-7 resolved it to 079, and 079 delivered it');
 
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'catalog'), 9,
@@ -426,8 +430,8 @@ SELECT bag_eq(
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at')$$,
-  'F3: the authenticated EXECUTE closure is exactly the nine caller-authorized catalog RPCs');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session')$$,
+  'F3: the authenticated EXECUTE closure is exactly the ten caller-authorized catalog RPCs (update_event_session added by 079)');
 
 -- A migration is not a config change (plan §4); RPC §20.2.1 forbids every
 -- service_role path on set_platform_config explicitly.
@@ -1100,17 +1104,21 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 12,
-  'K1: kernel still holds exactly 077''s twelve tables — 078 added none');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 15,
+  -- 2026-08-31 (package 079): 12 -> 15 — the three custody tables. 078 itself
+  -- still added none; suite 143 owns the fifteen-table closed world.
+  'K1: kernel holds fifteen tables — 078 added none; 079 added its custody three');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 41,
-  'K3: kernel holds 41 functions — 077''s 40 plus money_role_grant_matured, and nothing else');
+            WHERE n.nspname = 'kernel'), 48,
+  -- 2026-08-31 (package 079): 41 -> 48 (the seven of 079; suite 143 names them).
+  'K3: kernel holds 48 functions — 41 post-078 plus 079''s seven, and nothing else');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 8,
-  'K4: 077''s eight-policy register is untouched');
+            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 10,
+  -- 2026-08-31 (package 079): 8 -> 10 (the two kernel.tickets read policies).
+  'K4: the kernel policy register holds ten names — 077''s eight untouched plus 079''s two');
 SELECT is((SELECT count(*)::int FROM cron.job
             WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')), 2,
   'K5: 077''s two cron entries are untouched');
