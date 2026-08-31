@@ -428,3 +428,566 @@ witness above passes. Until the carrier lands, the gap remains unreachable by co
 CRON_SCHEDULE_REGISTER's default-isolation mechanism is the standing control.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
+
+## PFA-7 — the frozen `credential.*`/`door.*` seed constants VIOLATE the frozen cross-config invariant they are asserted against
+
+```
+ID:                          PFA-7
+FROZEN RULE:                 THREE surfaces assert one invariant OVER THE SEEDED VALUES:
+                             door §10.6 — "config('credential.wallet_default_span') +
+                               config('credential.wallet_exp_skew') <= config('door.manifest_ttl_interval')
+                               … CI asserts it over the seeded values";
+                             plan §8/078 Tests — "Cross-config invariant asserted over the seeded values:
+                               credential.wallet_default_span + credential.wallet_exp_skew <=
+                               door.manifest_ttl_interval";
+                             RPC §20.14 :5703 — the same expression, same wording.
+                             The SEED VALUES are equally frozen:
+                               credential.wallet_default_span = '12 hours'   (WALLET §11.5)
+                               credential.wallet_exp_skew     = '6 hours'    (WALLET §11.5)
+                               door.manifest_ttl_interval      = '12 hours'   (DOOR §10.6)
+IMPLEMENTATION CONFLICT:     12h + 6h = 18h > 12h. The frozen constants FALSIFY the frozen invariant.
+                             078 is the package that seeds all three AND the package whose Tests row
+                             carries the assertion, so the contradiction is not deferrable: seeding the
+                             frozen values ships a RED test, and dropping the test drops a frozen gate.
+                             Nothing in the corpus evaluated the arithmetic; door §10.6's own SPEC
+                             CORRECTION re-scopes the invariant as "necessary-but-not-sufficient" and
+                             explicitly KEEPS it ("stays as an early warning on the operator"), so it is
+                             not superseded by the Wallet §5.2a computed-value clamp.
+OPTIONS:                     (a) door.manifest_ttl_interval := '18 hours' — REJECTED. It widens how long
+                                 a door may admit on stale data, i.e. the width of the offline duplicate-
+                                 admission window (schema §2.4.1's own reason for classing door.*
+                                 restricted). A security LOOSENING to satisfy a consistency check.
+                             (b) credential.wallet_exp_skew := '0 hours' — REJECTED. The skew exists for
+                                 clock drift at sign time (WALLET §5.2); zeroing it makes correct passes
+                                 expire early at the door.
+                             (c) credential.wallet_default_span := '6 hours' — CHOSEN. Derived, not
+                                 chosen: 6h is the MAXIMUM value the frozen invariant admits with the
+                                 other two constants left EXACTLY frozen
+                                 (manifest_ttl - exp_skew = 12h - 6h = 6h). It moves in the TIGHTENING
+                                 direction, which RLS §11.3's direction asymmetry rules may execute
+                                 without a second approver; it binds ONLY the ends_at IS NULL branch
+                                 (WALLET §11.5's own description of the key); and it changes ONE of the
+                                 three constants rather than two.
+RECOMMENDATION:              (c). Two of the three constants ship byte-exact; the third takes the largest
+                             value the frozen invariant permits. Recorded PROVISIONAL and pinned to the
+                             owner's OD-25 ("Ratify the session-bounded wallet token profile … the
+                             credential.wallet_* seeds"), which is still open.
+PACKAGE IMPACT:              078 only (one seed row's value). No object, no signature, no DAG change.
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective. Under (c) a wallet pass minted for a session with no ends_at
+                             expires at starts_at + 6h + 6h = starts_at + 12h, exactly the offline window
+                             any manifest could authorise, instead of 18h — 6 hours of bearer-credential
+                             life removed from the branch the invariant exists to bound.
+WHY IMPLEMENTATION CANNOT CONFORM: seeding all three constants at their frozen values is arithmetically
+                             possible, so this is NOT an impossibility record — it is a record that the
+                             frozen values falsify a frozen assertion. Shipping them turns plan §8/078's
+                             own Tests-row invariant RED; dropping the assertion drops a frozen gate.
+                             There is no conforming option that also ships green, which is precisely the
+                             state freeze §2.6 says to STOP on.
+OWNER SIGNATURE REQUIRED:    YES. CORRECTED 2026-08-31 after red-team lens E — this field originally read
+                             "NO for the merge of 078", reasoning that the Wallet rail is dark
+                             (wallet.apple.enabled seeds false) and WALLET §13 items 10a/10b already gate
+                             the enable. Both facts are true and neither is freeze §4's test, which
+                             admits NO only for corrections the frozen corpus ALREADY UNIQUELY
+                             DETERMINES. The OPTIONS block lists THREE arithmetically admissible
+                             resolutions, rejecting two on security-direction judgement rather than on
+                             any corpus statement foreclosing them — and the value is pinned to OD-25,
+                             which is OPEN. A provisional value pinned to an open owner decision is by
+                             definition not one the corpus determines. Contrast PFA-8, which earns its NO
+                             by showing the alternative reading fails two frozen tests. Merge of 078 was
+                             BLOCKED on this signature; see the signature record below.
+```
+
+### PFA-7 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      APPROVED
+OWNER SIGNATURE REQUIRED:    SATISFIED
+OWNER VALUE:                 credential.wallet_default_span = '6 hours'
+OWNER RULING (verbatim):     "PFA-7 APPROVED — set `credential.wallet_default_span = '6 hours'`.
+                             This value is the ratified Phase-2 default for Wallet credential validity,
+                             subject to the invariant
+                             `wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval`.
+                             This ruling selects the missing seed value only; it does not activate the
+                             Wallet rail, expand Wallet scope, change manifest TTL, or waive any later
+                             Wallet go-live gate."
+INTERPRETATION CONSTRAINTS (owner-stated): credential.wallet_default_span = 6 hours · Wallet rail remains
+                             DARK · no Wallet go-live authorization · no change to
+                             door.manifest_ttl_interval · no change to wallet_exp_skew (frozen 078
+                             requires none) · the invariant must remain mechanically proven · this ruling
+                             does not generalize to other TTL choices · no unrelated config modified ·
+                             migrations 076/077 untouched.
+SCOPE OPENED:                exactly one seed value. The 078 migration already carries '6 hours' under
+                             the fail-pending PFA (chosen as the maximum the invariant admits); this
+                             signature BINDS that existing value to the owner ruling. No implementation
+                             byte changes: the pre-signature migration hash
+                             0821dc23c1d77913fb64cffff3ac1632778c8d26ee5fbeaad4a3b9ad03d216a3 remains
+                             the ratified hash. OD-25's wallet_default_span component is RESOLVED by this
+                             ruling; OD-25's remaining scope (the token profile itself) stays open, as
+                             does every WALLET §13 go-live item.
+STILL CLOSED:                Wallet activation (wallet.apple.enabled stays false, and flipping it true
+                             remains a dual-controlled config write gated on WALLET §13 items 10a/10b) ·
+                             any change to the other two invariant constants · any inference from this
+                             ruling to any other TTL.
+```
+
+## PFA-8 — `visibility` classification: the corpus carries a six-namespace rule and a seven-namespace rule; the six-namespace rule + the explicit public list govern
+
+```
+ID:                          PFA-8
+FROZEN RULE:                 (A) RLS §8.4 AUTHZ-CFG1 — "restricted covers, AT MINIMUM, the namespaces
+                                 refund.* · payout.* · authn.* · comp.* · crm.* · door.*. Everything else
+                                 is public ONLY IF A SEED ROW SAYS SO." Schema §2.4.1's ruling table is
+                                 identical and names the public class explicitly: the three native flags
+                                 + wallet.apple.enabled + notify.announcements_enabled, the fee values,
+                                 and "credential.*/wallet.* client spans a client must honour to render a
+                                 pass".
+                             (B) RLS §11.3 (and RPC §20.2.1's quotation of it) — "All SEVEN namespaces
+                                 are also visibility='restricted' under §8.4 AUTHZ-CFG1", the seven being
+                                 refund.*, payout.*, authn.*, comp.*, wallet.*, credential.*,
+                                 door.session_*.
+IMPLEMENTATION CONFLICT:     (B) makes wallet.apple.enabled restricted. That directly falsifies TWO
+                             frozen tests 078 must ship: plan §8/078 ("an anon SELECT … DOES return the
+                             five feature flags") and schema §2.4.1's non-vacuity guard, where the five
+                             are the three native flags + wallet.apple.enabled +
+                             notify.announcements_enabled. (B) also makes the three credential client
+                             spans unreadable by the client that must honour them to render a pass.
+OPTIONS:                     (a) follow (B) — REJECTED: it fails two frozen tests and dark-ends the pass
+                                 renderer.
+                             (b) follow (A) — CHOSEN. (B) is read as what it is: a sentence about the
+                                 DUAL-CONTROL namespace set (which IS seven — RPC §20.2.1 is unambiguous
+                                 that wallet.*/credential.*/door.session_* need two approvers to raise)
+                                 that over-reached when it appended the visibility claim. Dual-control
+                                 membership and read-visibility are separate properties, and §8.4 is the
+                                 sentence "an implementer writes the USING clause from" (its own words).
+RULING APPLIED:              8 keys ship visibility='public': feature.native_issuance_enabled,
+                             feature.native_scanning_enabled, feature.native_resale_enabled,
+                             wallet.apple.enabled, notify.announcements_enabled, credential.wallet_exp_skew,
+                             credential.wallet_default_span, credential.app_ttl_interval.
+                             33 ship 'restricted', including BOTH non-span wallet ops keys
+                             (wallet.apple.push_retry_max, wallet.apple.cert_expiry_warn_interval) — they
+                             are not client spans, §2.4.1's default is restricted, and "the default is the
+                             design". WALLET §11.5's blanket "public-read like every other config value"
+                             predates AUTHZ-CFG1 and is the stale surface.
+                             The seven-namespace DUAL-CONTROL set is implemented in full and unchanged.
+WHY IMPLEMENTATION CANNOT CONFORM: (B) is unbuildable against the corpus's own tests. Seeding
+                             wallet.apple.enabled restricted makes plan §8/078's "an anon SELECT ...
+                             DOES return the five feature flags" and schema §2.4.1's non-vacuity guard
+                             both fail, and it dark-ends the pass renderer that §2.4.1 names as the
+                             reason the credential client spans are public. Only one value is admissible.
+RECOMMENDATION:              (b) — and the ruling applied below IS that recommendation. RLS §11.3's
+                             visibility clause should be struck at the next ratified doc pass; its
+                             dual-control claim, which is the sentence's actual subject, stands.
+PACKAGE IMPACT:              078 only (the visibility column of 41 seed rows).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective on the two wallet ops keys (fail-closed default applied);
+                             neutral elsewhere — the eight public keys are the exact set the frozen
+                             non-vacuity test requires a signed-out client to read.
+OWNER SIGNATURE REQUIRED:    NO — one reading fails two frozen tests; only one value is admissible
+                             (the C93/PFA-6 precedent class). The door.* row remains the one an owner
+                             could reasonably move (§8.4 / schema §13.7 S-9); it is seeded restricted.
+```
+
+## PFA-9 — the 078 config-key closed world CANNOT be closed from frozen bytes: three classes of gap, recorded rather than invented over
+
+```
+ID:                          PFA-9
+FROZEN RULE:                 plan §8/078 Purpose: 078 is "every seed row in the chain — the single
+                             auditable answer to 'is every gate seeded and every flag OFF?'", and
+                             RPC §20.2.1's precondition binds it: "p_key is a MEMBER OF THE SEEDED KEY
+                             REGISTRY (078 seeds every key; THIS FUNCTION CREATES NO NEW KEY)". A key
+                             078 does not seed can therefore never be set through the only sanctioned
+                             path — plan §4: "flips are never a migration".
+IMPLEMENTATION CONFLICT:     three classes of key are CONSUMED by the frozen corpus and CANNOT be seeded
+                             from it. 078 must not invent them (mission §9's rule generalised).
+WHY IMPLEMENTATION CANNOT CONFORM: a key cannot be seeded without a spelling, and a value cannot be
+                             seeded without a value. CLASS A keys have a spelling and no authoritative
+                             seed row or value; CLASS B has neither a spelling nor a package that agrees
+                             with plan §8; CLASS C names a closed set whose members appear nowhere in the
+                             corpus. Every one of them would have to be INVENTED, which RPC §20.2.1
+                             forbids by name ("a key an implementer invents at 2 a.m. is worse").
+OPTIONS:                     (a) invent the missing spellings, values and CHECK members — REJECTED: it is
+                                 the defect class the whole corpus exists to prevent, and an invented key
+                                 becomes load-bearing the moment a later package reads it;
+                             (b) seed nothing for the value-open keys — REJECTED: RPC §20.2.1's registry
+                                 precondition then makes those keys unsettable through the only
+                                 sanctioned path, and plan §4 forbids a migration flip, so the value
+                                 could never be set at all;
+                             (c) seed the ROW with a JSON null value and record the absence — CHOSEN. It
+                                 is the frozen retention.backup_window_days pattern, applied to the keys
+                                 that are in the same position.
+RECOMMENDATION:              (c), with each open decision named beside its key so the owner can rule per
+                             key rather than per package.
+  CLASS A — spelled, consumed, in NO authoritative seed table, NO value anywhere:
+                             door.session_touch_interval      — read by schema §3.10a.4 and RPC §1.1d;
+                               absent from DOOR §10.6's seed table. The consolidation report §8 item 3
+                               files it as a MISSING OBJECT ("create … the door.session_touch_interval
+                               seed") and the freeze shipped with it still missing.
+                             door.schedule_move_grace_interval — read by catalog.update_event_session
+                               (079, RPC §20.2.4) and RLS §14; absent from DOOR §10.6.
+                               **FAIL-OPEN EXPOSURE, filed against 079:** the guard is "may move only
+                               earlier or by less than config(...)"; a NULL config makes that comparison
+                               NULL, so the guard NEVER FIRES and a published session's schedule moves
+                               freely once atoms exist — the exact X-12 shape, on a key X-12 does not
+                               name. 079 must implement it fail-to-safe (absent ⇒ no later move
+                               permitted), not merely seed it.
+                             notify.delivery_lease_interval   — read by notify.claim_deliveries (092,
+                               RPC §20.10); ODR1_AMENDMENT_DRAFT records it verbatim as "the unseeded
+                               notify.delivery_lease_interval" among the open authoring items.
+  CLASS B — cited as a family, NO key spelling exists anywhere:
+                             the CRM rate limits/caps/retention (CRM §7.1's fifteen rows are ACTIONS and
+                               NUMBERS — "crm_export_request per actor 5/24h" — never platform_config key
+                               strings). CRM §7.1 and its §11 traceability row 20 assign these seeds to
+                               package **087/I**, which CONTRADICTS plan §8/078's "and the CRM
+                               limits/caps/retention/constraint_set_version".
+                             the resale platform ceiling read by catalog.set_resale_policy (RPC §20.2.2:
+                               "within the platform ceiling read from catalog.platform_config") — no key.
+  CLASS C — a CHECK whose closed set has no members:
+                             catalog.event.category (schema §2.2): "CHECK against a closed set (Miami
+                               MVP; the set is a config value, not a new lookup table)". The members are
+                               enumerated nowhere in the corpus.
+RULING APPLIED:              (1) CLASS A + CLASS B are NOT seeded. Only keys with an exact frozen
+                                 spelling ship; `crm_export.constraint_set_version` is the one CRM key
+                                 that has one (CRM §X-9 / §8.3), so it ships here and the unnamed CRM
+                                 limits stay with 087, resolving the 078/087 contradiction in the
+                                 direction that invents nothing.
+                             (2) CLASS C ships as `category text` NULLABLE with NO membership CHECK. A
+                                 CHECK cannot read config, and a fabricated member list would be exactly
+                                 the "invented at 2 a.m." key RPC §20.2.1 forbids. The column is a display
+                                 facet carrying no authority (schema §2.2), like genre_tags beside it.
+                             (3) VALUE-OPEN KEYS ARE SEEDED AS ROWS WITH A JSON `null` VALUE — the frozen
+                                 retention.backup_window_days pattern generalised ("restricted namespace
+                                 row created with NULL value … key-or-value absent ⇒ failsafe"). The ROW
+                                 exists, so set_platform_config's registry precondition is satisfied and
+                                 the value is one audited config change away; the VALUE is absent, so
+                                 every X-12 fail-to-safe consumer takes the restrictive reading. NO
+                                 NUMBER IS FABRICATED. SIXTEEN keys ship this way (count corrected
+                                 2026-08-31 — this line read "15" against its own enumeration of 16):
+                                 refund.* ×7,
+                                 payout.* ×4, authn.* ×2, comp.* ×2 (X-12's own pair), and
+                                 retention.backup_window_days.
+                             (4) FOUR keys take a value the corpus itself states (count corrected
+                                 2026-08-31 — the enumeration was always four), and are marked
+                                 PROVISIONAL: authn.money_role_maturity_hours = 72 (RPC §1.1e's explicit
+                                 instruction — "seed the key at the RESTRICTIVE END of the range and
+                                 record the seed as provisional — never leave it unseeded"; RLS MD-14's
+                                 range is 24–72h and 72 is the restrictive end);
+                                 notify.announcement_hold_seconds = 300 and
+                                 notify.announcement_dual_control_threshold = 500 (ODR-56 "Silence.
+                                 Seeds ship at 300 s / 500 recipients"); refund.scanned_atom_policy =
+                                 'platform_review' (MONEY §7.2 "recommended default").
+PACKAGE IMPACT:              078 (what is seeded and what is not); FILED FORWARD against 079
+                             (schedule_move_grace fail-to-safe), 086 (session_touch), 087 (the CRM key
+                             registry + the resale ceiling key), 092 (delivery_lease).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective — every unresolved value is absent rather than guessed, and every
+                             consumer of an absent value is contractually fail-to-safe (X-12). The one
+                             residual is 079's schedule_move_grace guard, filed above as a fail-open the
+                             consuming package must close in code, not by seeding.
+OWNER SIGNATURE REQUIRED:    NO for 078 — 078 relies on none of the missing keys and fabricates none of
+                             the missing values. YES, per key, before the consuming package's gate goes
+                             live: D-3 (the money numbers), MD-14 (the maturity window), OR-16/DEMOG §8.5
+                             (the retention window — OPS VERIFICATION REQUIRED), ODR-56 (the announcement
+                             pair), and a new owner cell for the CLASS A/B/C gaps above.
+```
+
+## PFA-10 — five 078 RPCs call `kernel.has_venue_role`, authored in 080: SEAM-1's own arithmetic and plan §8's placement disagree
+
+```
+ID:                          PFA-10
+FROZEN RULE:                 SEAM-1 (schema §13.2, as CORRECTED by R2B): "A function is authored in the
+                             package equal to max() of the packages creating every table it reads or
+                             writes" — and the R2B correction extends it: "SEAM-1 is corrected to take
+                             max() over reads, writes AND CALLS." §13.2's method paragraph states the
+                             same reduction, "max( package of every table it reads or writes, package of
+                             every function it calls )".
+IMPLEMENTATION CONFLICT:     five functions plan §8/078 places in 078 call kernel.has_venue_role
+                             (created in 080) in their authority predicate:
+                               catalog.update_venue          (RPC §3.3 / RLS §11.1a)
+                               catalog.create_event          (RPC §4.1)
+                               catalog.create_event_session  (RPC §4.3, "Role: as §4.1")
+                               catalog.update_event          (RPC §20.2.3 / RLS §11.1b)
+                               catalog.set_resale_policy      (RPC §20.2.2 / RLS §11.1)
+                             Under the corrected SEAM-1 each scores max(078, 080) = 080. §13.2's sweep
+                             caught the IDENTICAL edge for four RLS POLICIES (FR-10…FR-13, all four the
+                             has_venue_role/has_event_role call) and created SEAM-3 for them — and did
+                             not re-run the function rows against the widened definition, so these five
+                             were never scored. plpgsql bodies are not validated at CREATE FUNCTION
+                             (the corpus's own R2B finding), so the chain replays GREEN and the venue arm
+                             raises 42883 at first execution until 080 lands.
+OPTIONS:                     (a) move the five to 080 — REJECTED: it rewrites the object sets of two
+                                 packages, one of which (078) is the package being built and the other
+                                 (080) is not authorised; registry, plan §8 and the parity spec all place
+                                 them in 078.
+                             (b) SEAM-2 stub kernel.has_venue_role in 078 — INADMISSIBLE: the SEAM-2 hook
+                                 registry is closed at hook_count 19, a ratified constant (OR-21), and
+                                 has_venue_role is not a member. Adding a 20th hook is an owner amendment.
+                             (c) re-inline the venue-role join inside the five bodies — FORBIDDEN by RM-3,
+                                 explicitly, and it is the failure mode SEAM-3 exists to make unnecessary.
+                             (d) KEEP the placement per plan §8 and ORDER the predicate so the org arm is
+                                 evaluated in its own statement FIRST — CHOSEN. plpgsql prepares each
+                                 statement lazily on first execution, so an org_owner/org_admin caller
+                                 never parses the deferred name and the function is fully live and fully
+                                 testable in 078; a venue_manager caller raises 42883 until 080. That is
+                                 the posture SEAM-3 assigns to exactly this seam: "A deferred [artifact]
+                                 FAILS CLOSED for exactly the packages it is deferred across", and it
+                                 closes one package later, as SEAM-3's own deferral does.
+RULING APPLIED:              (d), with the deferral stated in this package's header (so nobody "fixes" it
+                             by re-inlining) and filed against 080 (so nobody forgets that the venue arm
+                             of these five first becomes reachable there). No exception handler swallows
+                             the 42883: an undefined-function catch would mask a genuine typo forever.
+PACKAGE IMPACT:              078 (statement ordering + header note); 080 (the arm becomes reachable).
+                             No object moves, no package is added, renamed or renumbered.
+DAG IMPACT:                  none — 078 → 080 would run BACKWARDS and is not declarable; this is why the
+                             deferral, not an edge, is the repair. 080 already declares 078.
+SECURITY/MONEY IMPACT:       fail-closed. Between 078 and 080 the venue plane cannot create or edit
+                             catalog objects — the same intended dark window RLS §16.10a already
+                             describes for the three deferred read policies ("Between this package and 080
+                             the venue plane cannot read these tables — intended, fail-closed, and it
+                             closes one package later").
+WHY IMPLEMENTATION CANNOT CONFORM: the name kernel.has_venue_role does not exist at 078 and cannot be
+                             made to. Option (b) is closed by a ratified constant (hook_count 19),
+                             option (c) by a named prohibition (RM-3), and option (a) rewrites two
+                             packages' object sets. What is left is WHERE in the body the name is
+                             mentioned, which is what this record decides.
+RECOMMENDATION:              (d), and the deferral should be stated in 080's plan entry at the next
+                             ratified doc pass, exactly as SEAM-3 requires for the three read policies
+                             it already covers.
+SECOND ARM — RM-3 / has_org_role_over_venue (ADDED 2026-08-31, red-team B):
+                             the same five functions also resolve the ORG-over-scope arm by reading the
+                             row's own denormalised org_id and calling kernel.has_org_role. RLS §11.1a
+                             (update_venue) and RPC §20.2.2 (set_resale_policy, verbatim: "resolved
+                             through has_org_role_over_venue, §1.1a, NEVER a re-inlined join") name
+                             kernel.has_org_role_over_venue / _over_event for that arm, and RM-3 forbids
+                             re-inlining the inheritance join by name. BOTH helpers are authored in 080.
+                             The corpus contradicts itself here: RPC §3.3's own Role line for the SAME
+                             function writes the re-inlined form, "has_org_role(org_of_venue, [org_owner,
+                             org_admin])". Taken together with the venue arm, EVERY authority arm of
+                             these five functions resolves only at 080 — which is SEAM-1 saying they
+                             belong there, against a plan §8 row that places them here.
+                             RULING APPLIED: the re-inlined org arm is kept, because the alternative is
+                             that 078 can author no venue-scoped or event-scoped write verb at all, and
+                             because RPC §3.3 writes that exact form. It is now DISCLOSED rather than
+                             asserted-away: the in-body comment that claimed "never a re-inlined
+                             inheritance join (RM-3)" said the opposite of what the code does and has
+                             been corrected to state the deferral.
+OWNER SIGNATURE REQUIRED:    NO — the placement is the frozen plan's; only the evaluation ORDER inside
+                             the body is decided here, and it is decided in the direction that makes the
+                             authorised org path work and leaves the deferred path fail-closed. The
+                             SECOND ARM is a disclosure of a contradiction between two frozen texts about
+                             the same function, resolved toward the one that is buildable at 078.
+```
+
+## PFA-11 — `catalog.effective_freeze_at`'s frozen `authenticated` grant publishes a `restricted` config value by subtraction
+
+```
+ID:                          PFA-11
+FROZEN RULE:                 (A) RLS §11.4 EXEC table: "catalog.effective_freeze_at · kernel.is_transfer_frozen
+                                 | authenticated (STABLE reads; is_transfer_frozen is already the RN
+                                 eligibility boolean, §14.3)". An explicit, unconditional grant.
+                             (B) schema §2.4.1 / RLS §8.4 AUTHZ-CFG1 classify door.* RESTRICTED, and §8.4
+                                 states the rule that governs client reads: "The RN client and the web
+                                 client read only public keys — and if a screen needs a restricted value,
+                                 the answer is a scoped RPC that returns the DECISION, never the
+                                 THRESHOLD."
+IMPLEMENTATION CONFLICT:     the two cannot both hold. effective_freeze_at returns
+                             LEAST(door_open_at, COALESCE(doors_at, starts_at) + config(
+                             'door.implicit_freeze_offset_interval')). doors_at, starts_at and door_open_at
+                             are all column-granted to anon/authenticated on a world-readable table, so any
+                             signed-in client calls the function on a visible session, subtracts the
+                             publicly-readable COALESCE(doors_at, starts_at), and recovers
+                             door.implicit_freeze_offset_interval EXACTLY — one call, no trace, no
+                             probing phase. §2.4.1's own threat model is that these values are "an attack
+                             calibration table" stating "how long a door may operate on stale data".
+                             Surfaced by red-team lens B (2026-08-31).
+WHY IMPLEMENTATION CANNOT CONFORM: the leak is a property of the FUNCTION'S RETURN VALUE, not of its
+                             implementation. No body satisfies both (A) and (B): the offset is what the
+                             function is for. Only the grant class or the key's classification can move,
+                             and both are frozen.
+OPTIONS:                     (a) implement (A) verbatim and disclose — CHOSEN for this package. The grant
+                                 is what §11.4 says; changing it is the reinterpretation.
+                             (b) make effective_freeze_at DEF and route clients through
+                                 kernel.is_transfer_frozen's boolean — the shape §8.4 prescribes and RPC
+                                 §12.4a implies ("is_transfer_frozen is the ONLY freeze read for RPC
+                                 rechecks, the RN eligibility boolean, and the edge layer"). Contradicts
+                                 §11.4's explicit row and may break an RN countdown that needs the
+                                 timestamp.
+                             (c) reclassify door.implicit_freeze_offset_interval as public — honest, since
+                                 under (A) it is already derivable, but it publishes a value §2.4.1 ruled
+                                 restricted after argument.
+RECOMMENDATION:              (b). It is the only option under which the restricted classification means
+                             anything, and §8.4 states the substitution ("a scoped RPC that returns the
+                             decision") as the general answer to exactly this shape. Requires the owner to
+                             strike or narrow §11.4's row.
+PACKAGE IMPACT:              078 (the grant), 079 (is_transfer_frozen is the client surface under (b)).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       a restricted door parameter is readable by every authenticated client today,
+                             under the frozen grant. Not money; it is the width of the offline
+                             duplicate-admission window. A second, weaker leg: the function carries no
+                             authority predicate (none is contracted), so it also answers for sessions of
+                             draft events — an existence oracle that needs a known session_id.
+OWNER SIGNATURE REQUIRED:    YES to CHANGE anything — moving the grant class or the key's classification
+                             is normative. NO to merge 078, which implements (A), the frozen text, and
+                             relies on no unsigned amendment.
+```
+
+## PFA-12 — two frozen surfaces disagree on whether `visibility` can ever change; under the implemented reading no reclassification path exists at all
+
+```
+ID:                          PFA-12
+FROZEN RULE:                 (A) schema §2.4 Write authority: "visibility is set at key creation and
+                                 set_platform_config MAY NOT CHANGE IT — a function that can flip a key to
+                                 public is a function that can publish the ceilings", with T-SCHEMA-CFG-03
+                                 asserting it.
+                             (B) RLS §8.4 footnote 20: "visibility is set at seed time and is itself
+                                 CHANGED ONLY THROUGH set_platform_config — publishing a restricted key is
+                                 a config change like any other, and in a dual-controlled namespace it
+                                 takes two approvers." RLS §17 X-16 leans the same way ("private until
+                                 someone deliberately publishes it").
+IMPLEMENTATION CONFLICT:     (A) forbids the function the capability (B) says is its job. 078 implements
+                             (A): set_platform_config copies visibility forward and cannot change it.
+                             The consequence is that NO path to reclassify a key exists anywhere — not
+                             through the RPC (A forbids it) and not through a migration (plan §4: "flips
+                             are never a migration"). A key seeded into the wrong class is stuck there
+                             until a package is written to move it.
+WHY IMPLEMENTATION CANNOT CONFORM: a single function cannot both be barred from writing a column and be
+                             the only writer of it.
+OPTIONS:                     (a) implement (A) — CHOSEN. It is the reading a frozen TEST pins
+                                 (T-SCHEMA-CFG-03), it is the fail-closed direction, and its failure mode
+                                 is loud (a client cannot read a value it needs) rather than silent (a
+                                 ceiling leaked).
+                             (b) implement (B) — a reclassification path exists, but the function that can
+                                 publish the ceilings exists too, which is the exposure §2.4.1 was written
+                                 to close.
+RECOMMENDATION:              (a) for the code; the owner should decide whether reclassification needs a
+                             path at all, and if so whether it is a dual-controlled arm of
+                             set_platform_config or a deliberate one-off migration.
+PACKAGE IMPACT:              078 only.
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective — (a) is the direction that cannot publish a ceiling. The cost is
+                             operational rigidity, disclosed here rather than discovered later.
+OWNER SIGNATURE REQUIRED:    NO for 078 — a frozen test pins (a), so only one value is admissible (the
+                             C93/PFA-6 precedent class). YES before any reclassification path is built.
+```
+
+## ERRATA — package 078 (recorded, no amendment needed)
+
+**E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
+both *"`ON CONFLICT DO NOTHING`, exactly as `019` does"* and *"a `public.profiles` row for each **carrying
+the display label above**"*. Those are incompatible on this database: the production trigger
+`on_auth_user_created` fires on the `auth.users` INSERT and creates the `profiles` row FIRST with a NULL
+`display_name`, so `DO NOTHING` makes the explicit label a no-op and the Transfer View renders exactly the
+blank §1.16 says it must never render. **Verified live: at the frozen spelling all three sentinels —
+including `019`'s own — carry a NULL `display_name`.** The seed uses `ON CONFLICT (id) DO UPDATE SET
+display_name = excluded.display_name`, scoped to the two sentinel ids and converging on replay, so the
+replay-safety property `DO NOTHING` was chosen *for* is preserved in full while the label requirement is
+actually met.
+
+**E-2 — `auth.users.role` for the two sentinels is `'sentinel'`, not `'authenticated'`.** §1.16's fourth
+reason for refusing the `019` sentinel is that it is *"person-shaped (`role='authenticated'`, a real
+profiles row, an email address)"* and that a custody sink *"must be non-authenticable by construction"*.
+Reproducing `role='authenticated'` would reproduce the property the section rejects. The four required
+properties (no password hash, `email_confirmed_at` NULL, `.internal` address, no role grant) are all
+implemented and asserted; the role label is the mechanical expression of the fourth reason.
+
+**E-3 — `catalog.resale_policy.mode` uses schema §2.5's SEVEN labels; RPC §20.2.2's `{off, capped, free}`
+is the stale surface.** The RPC sketch names three modes that are not in the storage CHECK (`capped` is
+§2.5's `fixed_cap`; `free` has no analogue). The schema spec is the storage authority and the versioned
+snapshot reference depends on the stored label, so the seven-label set governs. `set_resale_policy`
+validates against it and refuses `capped` with `bad_mode`.
+
+**E-4 — `set_resale_policy`'s `p_scope_kind` admits `venue|event` only.** RPC §20.2.2 lists
+`{org, venue, event}`, but `catalog.resale_policy` has no `org_id` column and its coherence CHECK requires
+exactly one of `venue_id`/`event_id` to match `scope_kind` (schema §2.5). An `org` scope has nowhere to
+land; it is refused with `bad_scope`.
+
+**E-5 — `subject_id` for `subject_kind='config_key'` is `md5(key)::uuid`.** `kernel.approval_request.subject_id`
+and `kernel.admin_audit.subject_id` are both `uuid NOT NULL`; a config key is text. The corpus specifies
+the pairing (`APPR-SUBJ-1`) but not the derivation. A deterministic `md5(key)::uuid` is used and the
+literal key travels in `payload`, which is where the approving verb in `085` must read it from. There is
+no FK to satisfy — RPC §17.0a accepts that residual on the record.
+
+**E-6 — a parked config request expires 72 hours after creation.** `kernel.approval_request.expires_at` is
+`NOT NULL` with `CHECK (expires_at > created_at)`, and the frozen corpus specifies no parking horizon for
+`config.set_money_key` (`refund.request_ttl_hours` governs refunds, not config). 72 hours is authored here
+and recorded; a later package may make it a config key.
+
+**E-7 — `catalog.platform_config` uses the composite PK `(key, version)`**, plan §7's primary option, as
+that section requires the choice to be documented in the `078` header. It is.
+
+**E-8 — the "visibility is constant across every version of a key" property is enforced in the WRITER, not
+by a constraint.** A CHECK cannot span rows and a trigger would be an object the frozen closed world does
+not carry (parity `EXTRA = 0`). `set_platform_config` copies `visibility` forward from the current version
+and cannot change it; `T-SCHEMA-CFG-02` asserts the property over the table. The residual — a direct
+superuser INSERT with a different `visibility` — is accepted here on the record, the same class as
+`APPR-SUBJ-1`'s no-FK residual, and it must never be described as equivalent to a constraint.
+
+**E-9 — `catalog.event.category` ships with NO membership CHECK.** See PFA-9 CLASS C: the frozen corpus
+enumerates no members for the closed set schema §2.2 names. A fabricated list would be exactly the key
+RPC §20.2.1 forbids an implementer from inventing.
+
+**E-10 — three `141` assertions were re-scoped by this package.** `A14` (kernel function count 40 → 41),
+`F2` (the `authenticated` EXECUTE closure) and `F3` (the `service_role` closure) each gain
+`kernel.money_role_grant_matured`, which `078` authors by SEAM-1 `max(077, 078) = 078`. Both closures
+remain exact-by-name, so nothing was weakened; the count rose by exactly one and by exactly the function
+the frozen placement puts here.
+
+**E-11 — the `kernel.sweep_deletion_pending` body replacement is APPROVED CROSS-PACKAGE HARDENING, not a
+078 architecture object.** `PACKAGE_OBJECT_PARITY_SPEC.md` files the sweep under `077`, so a parity
+extractor that scores *created* objects will read 078's `CREATE OR REPLACE` as `EXTRA`. It is not: the
+object is 077's, the body change is authorized by the HARDENING-1 owner approval, and 078 creates no
+object of that name. A parity harness needs a REPLACE exemption keyed to this record; the frozen parity
+spec carries none because it predates the ruling. Raised by red-team lens C.
+
+**E-12 — the two `service_role` EXECUTE grants this package originally issued have been REMOVED.**
+`catalog.effective_freeze_at` (RLS §11.4) and `kernel.money_role_grant_matured` (RPC §1.1e, RLS §11.2)
+each carry exactly one frozen EXEC class, `authenticated`. The `service_role` grants were reasoned from
+"definer RPCs in later packages call them", which is wrong twice over: a definer callee runs as its owner
+and needs no grant (RLS §1.3 `GP-3a`), and `076` gives `service_role` no `USAGE` on `catalog` or `kernel`
+at all, so the grants were inert as well as uncontracted. Raised by red-team lenses A and B.
+
+**E-13 — `catalog_resale_policy_sel_public` cannot express "the version in force".** RLS §8.5's cell reads
+`A(policy in force)`. A "greatest version for this scope target" conjunct must read
+`catalog.resale_policy` itself, which re-enters the policy and raises `42P17 infinite recursion` (observed,
+not predicted). The two ways out — an `is_current` column or a `SECURITY DEFINER` helper — are both objects
+the frozen closed world does not carry, and parity is `EXTRA = 0`. The predicate implemented is the
+PARENT'S VISIBILITY, which is narrow (satisfying `I-2` and `T-RLS-POL-02`) and closes the real exposure
+red-team lens B found: `set_resale_policy` never checks the parent's status, so a policy set on a draft
+event or an unapproved venue was world-readable while the parent row was hidden. Every version of a
+*visible* parent remains readable, which is what a client needs to interpret the `(policy_id, version)`
+pair `market.listing_native` snapshots.
+
+**E-14 — `set_platform_config` does not dedupe on `p_command_key`.** RPC §20.2.1 states *"Idempotency.
+`p_command_key` + `UNIQUE(key, version)`"*, but `catalog.platform_config` carries no command-key column in
+the frozen DDL, so replay dedupe on the direct path is non-structural: it is value equality
+(`noop_replay`). A replay of the same command key carrying a DIFFERENT value inserts a new version, which
+is the correct outcome for a real change but is not idempotency. The parked path IS structurally
+idempotent — `kernel.approval_request` carries `UNIQUE(requested_by, command_idempotency_key)`. Same class
+as the `077` errata `E-3` for `kernel.organization`.
+
+**E-15 — `T-SCHEMA-SENTINEL-05` cannot be asserted at 078 and is filed forward to 079.** The frozen
+assertion is that the `019` anonymization sentinel appears in zero rows of
+`kernel.tickets.current_owner_id` and of every `kernel.ticket_ownership_log` identity column. Both tables
+arrive in `079`. Suite 142 asserts the nearest reachable property instead (the sentinel holds no
+`kernel.identity_ext` row and appears as actor in zero `kernel.admin_audit` rows) and labels it as such;
+the real `-05` is owed by `079`. Likewise `T-SCHEMA-SENTINEL-03`'s `has_venue_role` clause, which is owed
+by `080`. Raised in review as an undisclosed substitution; disclosed here.
+
+**E-16 — the HARDENING-1 guard refuses `READ UNCOMMITTED`, which PostgreSQL implements as READ
+COMMITTED.** Verified live on PostgreSQL 17.11: `BEGIN ISOLATION LEVEL READ UNCOMMITTED` yields
+`current_setting('transaction_isolation') = 'read uncommitted'`, and the guard raises. That caller is
+snapshot-safe — PostgreSQL maps READ UNCOMMITTED onto READ COMMITTED semantics — so the refusal is
+over-strict. It is fail-closed, availability-only, and unreachable under the cron-only operating contract.
+**The guard text is owner-approved VERBATIM, so it is NOT edited here**; correcting it needs a new
+governance record. Raised by red-team lens F.
+
+**E-17 — the recorded HARDENING-1 witness cannot detect a NEUTERED guard.** It is a substring match on
+`pg_get_functiondef` for `transaction_isolation` and `read committed`. Appending `and false` to the guard
+condition leaves both strings present and the suite green. The witness is mandated verbatim and is kept
+verbatim; the behavioural half — that a REPEATABLE READ call actually raises — cannot be added to suite
+142 because pgTAP runs inside one transaction and PostgreSQL refuses `SET TRANSACTION ISOLATION LEVEL`
+after the first query. It was proven out-of-suite instead, on the merged bytes: RR raises with state
+intact, READ COMMITTED is unchanged, and the concurrent write skew stays defeated at every schedule tried.
+Raised by red-team lens F.
+
+*(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

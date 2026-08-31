@@ -56,7 +56,13 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel'),
-  40, '077 A14: exactly 40 kernel functions (the two 076 helpers + 077''s 23 caller-authorized + 14 DEF + 1 trigger writer)');
+  -- 2026-08-31 (package 078): 40 -> 41. kernel.money_role_grant_matured is
+  -- authored in 078, not 077, by SEAM-1 max(077,078)=078 — it reads
+  -- kernel.org_member (077) AND catalog.platform_config plus its
+  -- authn.money_role_maturity_hours seed (078). The count is raised by exactly
+  -- one and the two EXECUTE closures below still name every member, so this
+  -- stays exact-by-name and cannot pass vacuously.
+  41, '077 A14: exactly 41 kernel functions (the two 076 helpers + 077''s 23 caller-authorized + 14 DEF + 1 trigger writer + 078''s money_role_grant_matured)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -216,11 +222,15 @@ SELECT is(
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   'accept_org_invite,admin_set_identity_ext,change_org_role,clear_my_demographics,'
   || 'create_organization,get_my_contact_prefs,get_my_demographics,grant_platform_role,'
-  || 'has_org_role,invite_org_member,is_org_affiliate,is_platform,remove_org_member,'
+  || 'has_org_role,invite_org_member,is_org_affiliate,is_platform,money_role_grant_matured,'
+  || 'remove_org_member,'
   || 'request_account_deletion,revoke_org_invite,revoke_platform_role,set_my_contact_prefs,'
   || 'set_my_demographics,set_org_connect_ref,set_org_status,update_organization,'
   || 'upsert_identity_ext,withdraw_account_deletion',
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 23 caller-authorized functions');
+  -- money_role_grant_matured added 2026-08-31 by package 078: RLS §11.2 gives it
+  -- an explicit `EXEC: authenticated` row (REVOKE FROM public, anon; GRANT TO
+  -- authenticated). Named, not counted.
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 24 caller-authorized functions (23 from 077 + 078''s money_role_grant_matured)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -232,6 +242,10 @@ SELECT is(
   || 'is_deletion_pending,on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
   || 'sweep_deletion_pending,sweep_expired_org_invites',
+  -- UNCHANGED by package 078. kernel.money_role_grant_matured is authored in 078
+  -- but its frozen EXEC class (RPC §1.1e, RLS §11.2) is `authenticated` ONLY —
+  -- definer callers in 085 reach it by ownership, not by grant — so 077's DEF
+  -- closure is exactly as it was.
   '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 14 DEF functions');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
