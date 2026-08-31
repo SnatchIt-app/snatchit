@@ -1364,7 +1364,6 @@ sequenceDiagram
 2. **"Payments never determine ownership" + the two-phase `paid_pending_transfer` state is a genuine, principled seam, but it is the one place the invariant is *relaxed in practice*.** The canonical core allows a cron-swept gap; §6.2 names it. The challenge: this gap must be **bounded and alarmed** (max dwell time, monitored count), or it silently becomes the implicit gap Invariant 3 forbids. Recommend the canonical core commit to an explicit SLO on `paid_pending_transfer` dwell, elevating it from "allowed" to "allowed, bounded, and observable."
 
 3. **The frozen money core and "config, not constants" are in mild tension for the *existing* 20% take.** Principle 23 says move fees to config; canonical §0 freezes the money core. Fee *values* moving to `platform_config` is additive and safe, but the *fee-application code* is frozen. Recommend the canonical core clarify that Phase 2 may relocate the fee **values** to config while leaving the frozen **application** untouched — otherwise the two constants stay hard-coded forever and the drift risk the audit flagged is never actually closed.
-```
 
 
 ---

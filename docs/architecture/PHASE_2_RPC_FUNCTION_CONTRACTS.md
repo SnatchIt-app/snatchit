@@ -3889,7 +3889,16 @@ pressure if the owner ratifies, and **they are not authority to build.** Owner d
     producers only** — its universal `EXCEPTION WHEN OTHERS` wrap would swallow the REQUIRED raise, and
     `-08` asserts the six REQUIRED bodies contain no swallow. Delivery remains best-effort for BOTH classes — the class governs
     the ENVELOPE write, never the drain.
-  logs a warning and **commits its money/custody work regardless**. **Lock order:** the outbox row is written
+  logs a warning and **commits its money/custody work regardless**. **Canonical signature (recorded
+  `PFA-2`, 2026-08-30 — the interface 076 implements; parameters = exactly the C12 columns a producer
+  supplies):** `notify.emit_event(p_event_type text, p_aggregate_kind text, p_aggregate_id uuid,
+  p_event_key text, p_payload jsonb DEFAULT '{}', p_causation_id uuid DEFAULT NULL, p_correlation_id uuid
+  DEFAULT NULL) RETURNS void` — `emit_event_required` identical. **`PFA-2` hardenings:** the REQUIRED
+  variant raises on a same-key/DIFFERENT-aggregate collision (NOTIF §4.2 makes the key the business
+  event, so that call is a producer contract violation and silence would lose a REQUIRED envelope); a
+  true replay still no-ops. `emit_event` carries `lock_timeout='2s'` so a blocked envelope warns (55P03)
+  instead of consuming the producer's statement-timeout budget (57014 pierces `WHEN OTHERS` — the known
+  residual of the pinned 057 shape, recorded in the PFA register). **Lock order:** the outbox row is written
   **last within its transaction, after every money/custody row**, and `sequence` is allocated per
   `(aggregate_kind, aggregate_id)` **under the aggregate's existing row lock**, which every SSCAS member
   already holds — so **no new lock and no new deadlock class**. Idempotency: `UNIQUE(event_type, event_key)`.
