@@ -204,6 +204,53 @@ OWNER SIGNATURE REQUIRED:    NO — a platform impossibility resolved in the onl
                              the stated purpose (the PFA-1/PFA-2 class).
 ```
 
+## PFA-6 — `set_org_connect_ref`'s EXEC class: the corpus carries two readings; the DEF reading is unbuildable (the C93 shape); the caller-authorized reading is implemented
+
+```
+ID:                          PFA-6
+FROZEN RULE:                 two contradictory frozen texts about one function's EXEC class:
+                             (A) RLS spec :1955 (AUTHZ-R3 ruling row): "kernel.set_org_connect_ref |
+                                 ACCEPTED as proposed, NARROWED. DEF — service_role only… No human path
+                                 at all" — and RLS §11's intro: "A DEF row appearing with an
+                                 authenticated grant in a migration is a defect."
+                             (B) RPC §20.1.1: caller-authorized — has_org_role([org_owner,org_finance]),
+                                 EDGE-CALLER-JWT bound, RAISES when auth.uid() IS NULL
+                                 (T-RPC-CONNECT-04); edge spec :1778 classifies connect-onboarding
+                                 Class A with the same predicate.
+IMPLEMENTATION CONFLICT:     the two readings are mutually exclusive; 077 must pick one to author the
+                             GRANT. Surfaced by red-team E (2026-08-30) — the implementation had
+                             followed (B) without filing the contradiction; this record repairs that.
+WHY IMPLEMENTATION CANNOT CONFORM TO (A): the DEF configuration is UNBUILDABLE — the same shape the
+                             corpus itself proved and repaired at C93/C106 (record_money_denial,
+                             ratified "MECHANICAL, not an owner decision… only one value was
+                             admissible"): on a service_role connection auth.uid() IS NULL, and this
+                             function (i) stamps payout_destination_set_by := auth.uid() — the SoD-1
+                             operand, whose whole purpose is naming the human who bound the
+                             destination — and (ii) writes an org.connect_ref.bind audit row whose
+                             actor_identity is NOT NULL FK→auth.users with no admissible sentinel.
+                             Under (A) the INSERT cannot satisfy its own constraints and SoD-1 is
+                             unevaluable from day one.
+OPTIONS:                     (a) implement (B) — CHOSEN: the only buildable reading; it is also the
+                                 STRONGER control (T-RPC-CONNECT-04 makes the service path raise
+                                 loudly, the C93 fail-closed shape) and matches the edge spec's
+                                 Class A classification of the wrapping function;
+                             (b) implement (A) — impossible as shown;
+                             (c) implement (A) with a nullable actor / sentinel — the two repairs C93
+                                 explicitly rejected.
+RECOMMENDATION:              (a); the RLS :1955 cell is the stale surface (its own document proved the
+                             identical configuration unbuildable one section later) and should be
+                             corrected to (B) at the next ratified doc pass.
+PACKAGE IMPACT:              077 only (the GRANT + the in-body predicate, already implemented as (B);
+                             tests T-RPC-CONNECT-01..04 witness it).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective — (B) narrows to two named org roles with a live-table
+                             predicate and a loud service-path refusal; (A) would have handed the
+                             payout-destination bind to the machine identity with no attributable
+                             actor, the exact anti-pattern C35/C93 forbid.
+OWNER SIGNATURE REQUIRED:    NO — the C93 precedent class, ratified as mechanical: one reading is
+                             unbuildable against its own constraints, so only one value is admissible.
+```
+
 ## ERRATA — package 077 (recorded, no amendment needed)
 
 - G-20 alias resolved by contract precedence: `change_org_role`/`remove_org_member` are the contracted
@@ -232,6 +279,13 @@ OWNER SIGNATURE REQUIRED:    NO — a platform impossibility resolved in the onl
   register pins function, package, cadence and mechanism but no literal strings.
 - Q5's `pending → expired` UPDATE from `request_account_deletion` is an approval_request STATE writer by
   §20.17.1/OR-13 Q5; the T-RPC-AUTHZ-15 INSERT fence is untouched.
+- `organization_active_idx` is partial `(org_id) WHERE status='active'`; the frozen §1.2 cell reads
+  "partial index on status where status='active'" — a constant-predicate column choice; the implemented
+  key serves the same dashboard hot-path (red-team E P2).
+- plan §8/077's T-SCHEMA-CRM-03 cell ("a second call with the same value… STILL appends") is a stale
+  cell of the same class as the E-4 aliases: RPC §17.21 and RLS §16.6 rule "a no-op appends NO event —
+  otherwise the log records a client's retry pattern rather than a person's decisions"; the contracts
+  win and the no-append form is implemented and tested (red-team E P2).
 - Completion-notice BE residual (red-team A/C, 2026-08-30): R2 row 32's "re-emitted next pass" holds for a
   failed PASS (the quarantined subtransaction re-runs terminal entry next tick, deduped by the once-ever
   key); a SWALLOWED emit beneath a COMMITTED tombstone has no retry source, because the row leaves the
