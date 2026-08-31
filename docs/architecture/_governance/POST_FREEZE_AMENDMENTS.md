@@ -1376,4 +1376,52 @@ would deviate from §3.2's stated columns and its *"no unique beyond PK"* — so
 than resolved by inventing a surface, exactly as E-28/29/30 do. Filed for the owner: if create idempotency is
 required, it is a ratified §3.2 schema addition, not a clarification. Raised by red-team F (PR #35).
 
+## ERRATA — package 082 (recorded, no amendment needed)
+
+**E-34 — schema §13.2's parity row still credits the `venue.order` attribution-candidate columns + freeze
+trigger to `090`; the governing `R2B`/`C112` amendment births them in `082`.** §13.2 (`PHYSICAL_..._SCHEMA_SPEC.md`)
+lists *"`090 | venue.order.attribution_candidate_code_id / _link_id (+ freeze trigger) | … ✓ — FK targets are
+090`"*, but the ratified `R2B`/`C112` repair (registry §2.1, defect `V3`; plan §8/082) moves the **columns and
+their freeze guard IN to `082`** as plain `uuid NULL`, keeping only the FK **adoption** (`NOT VALID`+`VALIDATE`)
+in `090`. The registry itself flags §13.2 as the stale end: *"§13.2's 090 row reads '✓ — FK targets are 090',
+correctly, about the wrong end of the edge. The **writer** was never asked"* — `venue.create_primary_checkout`
+(082) is the writer, and a body writing a column a later package `ADD COLUMN`s is a `42703`. 082 therefore
+creates the two columns as plain `uuid NULL` (no FK), authors the freeze guard, and leaves them **inert (NULL)**
+— the promoter tables the FKs target (`venue.promoter_code`/`_link`) do not exist until 090, so nothing at 082
+can populate them and no forward reference is emitted. The corpus uniquely determines the placement (the
+governing amendment vs a stale record row), so this is an erratum, not a PFA. §13.2's parity row is owed a
+non-blocking correction by the schema-spec owner.
+
+**E-35 — `PACKAGE_OBJECT_PARITY_SPEC`'s 082 required-object list omits `kernel.list_my_org_contact_consents`.**
+The spec's `082|…` required rows (8: the four tables + `create_primary_checkout` · `cancel_pending_order` ·
+`grant_`/`withdraw_org_contact_consent`) do not include the read RPC `kernel.list_my_org_contact_consents`,
+although plan §8/082, CRM §11.1-8, and RPC §17.21 all author it in 082 (the third of *"`kernel.org_contact_consent`
++ its three RPCs"*, §13.2:4068). The spec is a *"DEMO seed … re-derive every row from plan §8 by hand"* and
+already carries `list_my_org_contact_consents` on its `MENTION-OK` list, so the implemented read RPC is NOT
+flagged EXTRA — but the required-list is genuinely short by one row. 082 builds the RPC per the three governing
+contracts; the parity spec is owed a required-row addition. The two bespoke trigger functions and the
+`deletion_blockers_orders` body-replacement (a 077-born object) are likewise below the spec's coarse
+tables+writers grain and are covered by suite 146's structural assertions. Corpus-determined; erratum.
+
+**E-36 — `WRITER_CANONICAL_UNIVERSE`'s `venue.order` writer set omits `venue.cancel_pending_order`.** The
+canonical universe lists four writers for `venue.order` (`create_primary_checkout`, `finalize_primary_order`,
+`bind_order_attribution`, `refund_primary_order`), but schema §3.7's write-authority registry (corrected
+2026-08-29, `OR-7`), RLS §6/§9.7, RPC §20.7.9, and `PACKAGE_OBJECT_PARITY_SPEC` all carry the fifth writer
+`venue.cancel_pending_order` (→`cancelled`, the webhook terminal-failure writer). 082 authors it as a
+`service_role`-only definer (no human path; actor = the `SN-SYSTEM` sentinel). At the 082 checkpoint the
+`venue.order` writers that EXIST are `create_primary_checkout` + `cancel_pending_order` (both 082); the other
+three are forward (085/090) — the writer fence at 082 is therefore exact, and the canonical universe is owed a
+fifth-writer row. Corpus-determined (four frozen surfaces name the writer, one omits it); erratum.
+
+**E-23 082-arm — SATISFIED (recorded).** `venue.create_primary_checkout` proves the buyer ACTIVE, not merely
+not-pending: the F-1 `kernel.is_deletion_pending` refusal PLUS an explicit `deletion_state='ERASED'` refusal,
+using the exact idiom 077's F-6 acquisition gate uses (the E-8 defensive twin). `buyer_id = auth.uid()` (the
+frozen §6.1 signature carries no buyer parameter), and an ERASED identity cannot authenticate, so the ERASED
+arm is defensive — mandated present by E-23 ("cannot be discharged by `is_deletion_pending` alone"), fired
+early (before any order work). Suite 146 §E proves both refusals and the mutation-resistance (an ACTIVE buyer
+clears the gate and fails later on `no_items`, so the gate — not luck — stops the non-ACTIVE cases). **E-23
+remains a forward obligation for 085 and 088.** The `source` column is server-tagged `'web'` (the frozen §6.1
+signature carries no client source hint and the rail is dark; `door`/`promoter_link`/`app` tagging is a
+client-context detail that activates with native issuance).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
