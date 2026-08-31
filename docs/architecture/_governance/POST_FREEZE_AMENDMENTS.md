@@ -232,6 +232,20 @@ OWNER SIGNATURE REQUIRED:    NO — a platform impossibility resolved in the onl
   register pins function, package, cadence and mechanism but no literal strings.
 - Q5's `pending → expired` UPDATE from `request_account_deletion` is an approval_request STATE writer by
   §20.17.1/OR-13 Q5; the T-RPC-AUTHZ-15 INSERT fence is untouched.
+- Completion-notice BE residual (red-team A/C, 2026-08-30): R2 row 32's "re-emitted next pass" holds for a
+  failed PASS (the quarantined subtransaction re-runs terminal entry next tick, deduped by the once-ever
+  key); a SWALLOWED emit beneath a COMMITTED tombstone has no retry source, because the row leaves the
+  pending cursor and OR-14 forbids holding the transition for a notice. Accepted BEST-EFFORT loss,
+  warning-visible — the same class as PFA-2's 57014 residual.
+- dsm §1.3 ERASED acquisition refusal (red-team C blocker 2): `is_deletion_pending` stays faithful to its
+  frozen name (PENDING only); the two F-6 hosts carry an explicit ERASED refusal twin of E-8, because
+  OPEN-7 leaves erased sessions alive. Later F-clause host packages inherit the same obligation: the
+  pending predicate alone does not bind ERASED.
+- BP-11 write-skew closure (red-team C blocker 1, live-proven): the RPC-side ≥1-org_owner re-counts
+  serialize on the ORGANIZATION row, so the sweep's terminal member-delete locks every org the identity
+  belongs to (ascending org_id; the identity_ext→organization direction accept_org_invite already uses)
+  and re-verifies BP-11 under those locks. The unlocked coalesce evaluation remains the cheap early-out;
+  the locked re-check is the enforcement.
 - The delete-account edge switch + F-5 live-rail guards are DEPLOY ARTIFACTS on the 077 release train
   (FR-9; edge §1.8a) and are deliberately NOT authored in the 077 package branch: they are edge/RN code
   entangled with open PR #28 (whose merge state is the §20.15 authority), and this pass is barred from
