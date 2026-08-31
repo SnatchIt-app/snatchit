@@ -101,8 +101,9 @@ SELECT ok((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=
 SELECT is((SELECT string_agg(p.polname, ',' ORDER BY p.polname)
             FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
            WHERE c.relname = 'tickets'),
-  'kernel_tickets_sel_owner,kernel_tickets_sel_platform',
-  'A23: EXACTLY two policies on kernel.tickets — kernel_tickets_sel_venue is 080''s (AUTHZ-PKG1)');
+  -- 2026-08-31 (package 080): the deferred venue read landed (suite 144 owns it).
+  'kernel_tickets_sel_owner,kernel_tickets_sel_platform,kernel_tickets_sel_venue',
+  'A23: EXACTLY three policies on kernel.tickets — the 080-deferred venue read arrived (AUTHZ-PKG1)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
            WHERE c.relname = 'ticket_ownership_log'), 0,
   'A24: ZERO policies on the ledger — money-custody-RPC-only, deny-all (RLS §7.6)');
@@ -116,8 +117,10 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
   'A26: I-2 — still no USING(true) anywhere in kernel or catalog');
 
 -- table grants (I-7)
-SELECT ok(has_table_privilege('authenticated','kernel.tickets','SELECT'),
-  'A27: authenticated holds SELECT on tickets (rows scoped by the two policies)');
+-- 2026-08-31 (package 080/E-24): the grant is COLUMN-scoped — current_owner_id
+-- (owner PII, §7.5 fn8) is excluded; any granted column satisfies this probe.
+SELECT ok(has_column_privilege('authenticated','kernel.tickets','ticket_atom_id','SELECT'),
+  'A27: authenticated holds column-scoped SELECT on tickets (rows scoped by the policies)');
 SELECT ok(NOT has_table_privilege('authenticated','kernel.tickets','INSERT')
        AND NOT has_table_privilege('authenticated','kernel.tickets','UPDATE')
        AND NOT has_table_privilege('authenticated','kernel.tickets','DELETE'),
@@ -131,8 +134,9 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 48,
-  'A32: kernel holds EXACTLY 48 functions (41 post-078 + the seven of 079)');
+           WHERE n.nspname = 'kernel'), 52,
+  -- 2026-08-31 (package 080): 48 -> 52 (the four predicates; 144 names them).
+  'A32: kernel holds EXACTLY 52 functions (48 post-079 + the four 080 predicates)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 10,
   'A33: catalog holds EXACTLY 10 functions (078''s nine + update_event_session, SEAM-1)');
@@ -171,11 +175,13 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   'A44: the four LATER blocker stubs remain byte-neutral — no second stub implemented early');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel'
-             AND p.proname in ('on_identity_erased_staff','on_identity_erased_door',
+             AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 5,
-  'A45: the five erased/release hooks remain byte-neutral');
+             AND btrim(p.prosrc) = 'select'), 4,
+  -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body
+  -- now (the 080-owned OR-17 slot; 144 A27-A30 own it). FOUR remain neutral.
+  'A45: the four LATER erased/release hooks remain byte-neutral');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) = 'select false',
   'A46: has_outstanding_obligations remains the 077 neutral stub (085''s slot)');
@@ -223,8 +229,8 @@ SELECT hasnt_function('kernel'::name, 'transfer_ticket_ownership'::name,
   'A56: the transfer engine does not exist yet (088; FR-3)');
 SELECT hasnt_function('kernel'::name, 'issue_ticket_atoms'::name,
   'A57: the mint engine does not exist yet (083; C114)');
-SELECT hasnt_function('kernel'::name, 'has_venue_role'::name,
-  'A58: has_venue_role still does not exist — the PFA-10 deferral holds through 079');
+SELECT has_function('kernel'::name, 'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
+  'A58: has_venue_role exists from 080 on — the PFA-10 deferred arms are live (suite 144 owns their behaviour)');
 
 -- ============================================================================
 -- SECTION B — fixtures + THE C26 PROOF RIG (schema §1.6.1 a/b/c/d)
@@ -805,9 +811,12 @@ SELECT throws_ok('SELECT count(*) FROM kernel.door_freeze_override', '42501', NU
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT ok((SELECT count(*) FROM kernel.tickets) >= 5,
-  'I12: the owner reads exactly their own atoms — full rows');
+  'I12: the owner reads their own atoms (all sixteen granted columns; current_owner_id is E-24-excluded from the grant since 080)');
+-- E-24 (080): a client cannot reference current_owner_id, so foreign-row
+-- absence is asserted against KNOWN foreign atom ids instead of the column.
 SELECT ok(NOT EXISTS (SELECT 1 FROM kernel.tickets
-            WHERE current_owner_id <> tap.buyer()),
+            WHERE ticket_atom_id IN ('00000000-0000-0000-0000-00000000aa08',
+                                     '00000000-0000-0000-0000-00000000aa09')),
   'I13: … and NO row of another owner is visible through the owner policy');
 SELECT tap.logout();
 SELECT tap.login(tap.admin_user());
