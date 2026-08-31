@@ -10,7 +10,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(247);
+SELECT plan(248);
 
 SELECT tap.seed_core();
 
@@ -71,8 +71,10 @@ SELECT has_function('kernel'::name, 'is_transfer_frozen'::name, ARRAY['uuid']::n
   'A10: kernel.is_transfer_frozen now exists — FR-7 resolved it to 079, and 079 delivered it');
 
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'catalog'), 9,
-  'A11: catalog carries EXACTLY nine policies (the three venue-plane reads are deferred to 080)');
+            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'catalog'), 12,
+  -- 2026-08-31 (package 080): 9 -> 12 — the three AUTHZ-PKG1 venue-plane reads
+  -- arrived with their helpers (suite 144 owns their behaviour).
+  'A11: catalog carries EXACTLY twelve policies (nine of 078 + 080''s three venue-plane reads)');
 
 -- 078 owns no cron entry (CRON_SCHEDULE_REGISTER has no 078 row) and emits nothing
 -- (the R2 catalog writers are update_event_session·079 and cancel_event·088).
@@ -178,12 +180,13 @@ SELECT ok((SELECT bool_and(c.relrowsecurity) FROM pg_class c JOIN pg_namespace n
 SELECT bag_eq(
   $$SELECT p.polname::text FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'catalog'$$,
-  $$VALUES ('catalog_venue_sel_anon'),('catalog_venue_sel_org'),
-           ('catalog_event_sel_anon'),('catalog_event_sel_org'),
+  $$VALUES ('catalog_venue_sel_anon'),('catalog_venue_sel_org'),('catalog_venue_sel_venue'),
+           ('catalog_event_sel_anon'),('catalog_event_sel_org'),('catalog_event_sel_venue'),
            ('catalog_event_session_sel_anon'),('catalog_event_session_sel_org'),
+           ('catalog_event_session_sel_venue'),
            ('catalog_platform_config_sel_public'),('catalog_platform_config_sel_restricted'),
            ('catalog_resale_policy_sel_public')$$,
-  'C2: the policy names are exactly the §16.10 catalog register minus the three 080 deferrals');
+  'C2: the policy names are exactly the full §16.10 catalog register (the three 080 deferrals landed)');
 
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -192,12 +195,13 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-           WHERE n.nspname = 'catalog' AND p.polname LIKE '%_sel_venue'), 0,
-  'C4: the three venue-plane read policies are ABSENT — deferred to 080 by SEAM-3/FR-10..12');
+           WHERE n.nspname = 'catalog' AND p.polname LIKE '%_sel_venue'), 3,
+  -- 2026-08-31: the SEAM-3/FR-10..12 deferral DISCHARGED on schedule.
+  'C4: the three venue-plane read policies ARRIVED with 080 — the deferral discharged, not decorative');
 
 -- The deferral is only correct if the helper genuinely does not exist yet.
-SELECT hasnt_function('kernel'::name, 'has_venue_role'::name,
-  'C5: kernel.has_venue_role does not exist yet — the deferral is real, not decorative (PFA-10)');
+SELECT has_function('kernel'::name, 'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
+  'C5: kernel.has_venue_role exists from 080 on — the PFA-10 deferred name resolves (suite 144 owns the arm''s behaviour)');
 
 -- RED-B: the §8.1-§8.3 org-plane SEL rows enumerate org_member, org_owner/admin
 -- and org_finance ONLY. org_marketing and org_promoter_manager appear in no SEL
@@ -1011,9 +1015,16 @@ SELECT tap.logout();
 -- SECTION J — GATE-M STAYS DARK, AND THE SENTINELS (MB-5)
 -- ============================================================================
 
+-- 2026-08-31 (package 080): venue gained venue.staff_role — an AUTHORIZATION
+-- surface, not a sale surface. The Gate-M anchor narrows to what it actually
+-- guards: market stays empty, and venue holds nothing transactable.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname IN ('market','venue') AND c.relkind = 'r'), 0,
-  'J1: NATIVE BUY NOW LIVE = NO — neither market nor venue holds a single table yet');
+            WHERE n.nspname = 'market' AND c.relkind = 'r'), 0,
+  'J1: NATIVE BUY NOW LIVE = NO — market holds no table');
+SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'venue' AND c.relkind = 'r'), 'staff_role',
+  'J1b: …and venue holds ONLY the 080 staff-role surface — no ticket_type, no inventory, no order');
 SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
   'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
@@ -1112,13 +1123,15 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 48,
+            WHERE n.nspname = 'kernel'), 52,
+  -- 2026-08-31 (package 080): 48 -> 52 (the four predicates; suite 144 names them).
   -- 2026-08-31 (package 079): 41 -> 48 (the seven of 079; suite 143 names them).
-  'K3: kernel holds 48 functions — 41 post-078 plus 079''s seven, and nothing else');
+  'K3: kernel holds 52 functions — 48 post-079 plus 080''s four predicates, and nothing else');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 10,
+            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 11,
+  -- 2026-08-31 (package 080): 10 -> 11 (kernel_tickets_sel_venue, AUTHZ-PKG1).
   -- 2026-08-31 (package 079): 8 -> 10 (the two kernel.tickets read policies).
-  'K4: the kernel policy register holds ten names — 077''s eight untouched plus 079''s two');
+  'K4: the kernel policy register holds eleven names — 079''s ten plus the deferred venue read');
 SELECT is((SELECT count(*)::int FROM cron.job
             WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')), 2,
   'K5: 077''s two cron entries are untouched');

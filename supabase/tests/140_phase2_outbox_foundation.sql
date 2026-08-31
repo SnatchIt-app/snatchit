@@ -156,7 +156,12 @@ SELECT is(
                AND (a.grantee = 0
                     OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname = 'anon')))
            OR (n.nspname IN ('venue','market','notify')
-               AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname = 'authenticated')))),
+               AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname = 'authenticated')
+               -- 2026-08-31 (package 080): venue gains its FIRST two
+               -- caller-authorized functions (RLS §11.1 rows: grant_staff_role /
+               -- revoke_staff_role, G-13). Named, not counted, so the sweep
+               -- still pins every OTHER venue/market/notify function at zero.
+               AND p.proname NOT IN ('grant_staff_role','revoke_staff_role')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
