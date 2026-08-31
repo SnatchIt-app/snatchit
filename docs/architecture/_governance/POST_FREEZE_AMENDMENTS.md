@@ -1092,17 +1092,33 @@ OWNER SIGNATURE REQUIRED:    YES — the resolution changes the external/service
                              a test comment (red-team F, PR #36).
 ```
 
-### PFA-15 — OWNER SIGNATURE (PENDING)
+### PFA-15 — OWNER SIGNATURE (recorded 2026-08-31)
 
 ```
-STATUS:                      PENDING — awaiting owner ruling. Auto-merge of PR #36 is WITHHELD on this
-                             signature (owner-signature-required > 0).
+STATUS:                      SATISFIED / RATIFIED
 OWNER SIGNATURE REQUIRED:    YES
-OWNER SIGNATURE:             (unsigned)
-FORWARD OBLIGATION (governed): until ruled, `venue.cancel_pending_order` is inert (dark-masked, no
-                             production impact). The payment-rail package that activates native issuance
-                             MUST NOT go live until the reachability mechanism is ratified and built — else a
-                             terminal PaymentIntent failure cannot cancel its pending order.
+OWNER SIGNATURE:             APPROVED
+OWNER RULING:                Option (a) — the payment-rail package (085) GRANTS `service_role` USAGE on
+                             schema `venue`. The frozen "service_role stripe-webhook" caller contract for
+                             `venue.cancel_pending_order` (and the other `venue` DEF money functions) is
+                             kept literally; `service_role`'s `venue` reach is widened to exactly the DEF
+                             functions it already holds EXECUTE on. 076 stays immutable; the grant lands in
+                             085.
+INTERPRETATION CONSTRAINTS (owner-scoped): the widening is `GRANT USAGE ON SCHEMA venue TO service_role`
+                             ONLY — NOT table/DML grants (the DEF functions stay the sole write path; RLS
+                             and the deny-all postures are unchanged); it does NOT grant `service_role`
+                             USAGE on `kernel`/`catalog` unless those packages separately require it; it
+                             does NOT widen `anon` (PFA-14 unchanged); it activates nothing (native
+                             issuance stays dark).
+SCOPE OPENED:                one schema-USAGE grant, owned by 085. 082 ships unchanged — its
+                             `grant execute … to service_role` becomes reachable once 085's USAGE grant
+                             lands. NO 082 SQL byte changes: the 082 migration hash
+                             3a97e3d956f75691bc35e850282fbef94146bce65dc46f4f3e9d99b334cd3db4 is unchanged.
+FORWARD OBLIGATION (governed → 085): `085_kernel_money_native` MUST include `GRANT USAGE ON SCHEMA venue
+                             TO service_role` so the stripe-webhook can reach `venue.cancel_pending_order`
+                             and `venue.finalize_primary_order` (both DEF/`service_role` in `venue`).
+                             085's review gates on this grant being present and scoped to USAGE-only.
+                             Until 085 lands, cancel is inert (dark rail).
 ```
 
 ## ERRATA — package 078 (recorded, no amendment needed)
