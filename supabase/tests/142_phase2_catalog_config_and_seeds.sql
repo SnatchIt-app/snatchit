@@ -1024,10 +1024,10 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
-  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,staff_role,ticket_type',
-  -- 2026-08-31 (package 081): the venue inventory substrate arrived. Still NO
-  -- order table (082) and NO market table.
-  'J1b: venue holds the 080 staff surface + the 081 inventory substrate — no order, no market table');
+  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,staff_role,ticket_type',
+  -- 2026-08-31 (package 082): the two order tables arrived (082_venue_orders).
+  -- market is still empty (native Buy Now dark).
+  'J1b: venue holds the 080 staff + 081 inventory + 082 order tables — market still empty');
 SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
   'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
@@ -1118,18 +1118,18 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 15,
-  -- 2026-08-31 (package 079): 12 -> 15 — the three custody tables. 078 itself
-  -- still added none; suite 143 owns the fifteen-table closed world.
-  'K1: kernel holds fifteen tables — 078 added none; 079 added its custody three');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 17,
+  -- 2026-08-31 (package 079): 12 -> 15; (package 082): 15 -> 17 — the two
+  -- org-consent tables. 078 itself still added none.
+  'K1: kernel holds seventeen tables — 079 added custody three, 082 added consent two');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 52,
-  -- 2026-08-31 (package 080): 48 -> 52 (the four predicates; suite 144 names them).
-  -- 2026-08-31 (package 079): 41 -> 48 (the seven of 079; suite 143 names them).
-  'K3: kernel holds 52 functions — 48 post-079 plus 080''s four predicates, and nothing else');
+            WHERE n.nspname = 'kernel'), 55,
+  -- 2026-08-31 (package 080): 48 -> 52; (package 082): 52 -> 55 (the three
+  -- org-consent RPCs; suite 146 names them).
+  'K3: kernel holds 55 functions — 52 post-080 plus 082''s three org-consent RPCs');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 11,
   -- 2026-08-31 (package 080): 10 -> 11 (kernel_tickets_sel_venue, AUTHZ-PKG1).

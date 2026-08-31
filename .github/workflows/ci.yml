@@ -791,8 +791,13 @@ jobs:
           # below-committed floor incl. platform_admin, the G-24 hold sweep both
           # arms, publish_event's empty-inventory guard, the F-1 clause, E-28's
           # fail-safe unseeded keys, E-29 counter-column hide, E-30 anon wall).
-          MIN_FILES=23
-          MIN_ASSERTIONS=1164
+          # 146 plans 68: the 082 order/consent closed world (venue.order +
+          # order_item, the two org_contact_consent tables, create_primary_checkout
+          # with the E-23 buyer-ACTIVE gate + F-1, cancel_pending_order service-role
+          # + noop, the 3 consent RPCs with AO event append, deletion_blockers_orders
+          # BP-12 pending arm, the IMM + candidate-freeze guards, order RLS).
+          MIN_FILES=24
+          MIN_ASSERTIONS=1235
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"

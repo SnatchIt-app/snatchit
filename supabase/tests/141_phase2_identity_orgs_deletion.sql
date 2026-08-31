@@ -53,7 +53,7 @@ SELECT is(
     WHERE n.nspname = 'kernel' AND c.relkind = 'r'),
   -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
-  15, '077 A13: exactly FIFTEEN kernel tables (077''s twelve + 079''s custody three)');
+  17, '077 A13: exactly SEVENTEEN kernel tables (077''s twelve + 079''s custody three + 082''s two consent tables)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -70,7 +70,7 @@ SELECT is(
   -- 2026-08-31 (package 080): 48 -> 52 — the four §1.1a/§2.2 predicates
   -- (has_venue_role, has_event_role, has_org_role_over_venue,
   -- has_org_role_over_event), named in 144 A16-A19.
-  52, '077 A14: exactly 52 kernel functions (48 post-079 + the four 080 predicates)');
+  55, '077 A14: exactly 55 kernel functions (52 post-080 + 082''s three org-consent RPCs)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -138,7 +138,7 @@ SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
-  15, '077 C1: RLS is ENABLED on all fifteen tables (deny-by-default at birth)');
+  17, '077 C1: RLS is ENABLED on all seventeen tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -237,13 +237,13 @@ SELECT is(
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   'accept_org_invite,admin_set_identity_ext,change_org_role,clear_my_demographics,'
-  || 'create_organization,get_my_contact_prefs,get_my_demographics,grant_platform_role,'
+  || 'create_organization,get_my_contact_prefs,get_my_demographics,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
   || 'has_venue_role,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
-  || 'money_role_grant_matured,remove_org_member,'
+  || 'list_my_org_contact_consents,money_role_grant_matured,remove_org_member,'
   || 'request_account_deletion,revoke_org_invite,revoke_platform_role,set_my_contact_prefs,'
   || 'set_my_demographics,set_org_connect_ref,set_org_status,update_organization,'
-  || 'upsert_identity_ext,withdraw_account_deletion',
+  || 'upsert_identity_ext,withdraw_account_deletion,withdraw_org_contact_consent',
   -- money_role_grant_matured added 2026-08-31 by package 078: RLS §11.2 gives it
   -- an explicit `EXEC: authenticated` row (REVOKE FROM public, anon; GRANT TO
   -- authenticated). Named, not counted.
@@ -252,7 +252,7 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 29 caller-authorized functions (25 post-079 + the four 080 predicates)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 32 caller-authorized functions (29 post-080 + 082''s three org-consent RPCs)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")

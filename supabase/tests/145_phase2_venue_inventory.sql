@@ -40,15 +40,15 @@ GRANT EXECUTE ON FUNCTION tap._cap(uuid), tap._held(uuid), tap._rem(uuid),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='venue' AND c.relkind='r'), 6,
-  'A1: venue holds SIX tables — staff_role (080) + the five 081 inventory tables');
+            WHERE n.nspname='venue' AND c.relkind='r'), 8,
+  'A1: venue holds EIGHT tables — staff_role (080) + five 081 inventory + two 082 order');
 SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'),
-  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,staff_role,ticket_type',
-  'A2: exactly the frozen names — inventory_unit is ABSENT (EXT/C42)');
+  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,staff_role,ticket_type',
+  'A2: exactly the frozen names — order/order_item present (082), inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 10,
-  'A4: venue holds TEN functions — 080''s two + the eight of 081');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 14,
+  'A4: venue holds FOURTEEN functions — 080''s two + 081''s eight + 082''s four');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT hasnt_function('kernel'::name,'issue_ticket_atoms'::name,
@@ -86,11 +86,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND ((p.proname LIKE 'deletion_blockers%' AND btrim(p.prosrc)<>'select null::text')
                OR (p.proname LIKE 'on_identity_erased%' AND btrim(p.prosrc)<>'select')
                OR (p.proname='on_deletion_q5_release' AND btrim(p.prosrc)<>'select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 2,
-  'A17: SEAM-2 still has EXACTLY two real bodies (079 custody + 080 staff) — 081 replaced none');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 3,
+  'A17: SEAM-2 has EXACTLY three real bodies (079 custody + 080 staff + 082 orders)');
 SELECT ok(btrim((SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-           WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))='select null::text',
-  'A18: deletion_blockers_orders (082''s slot) is still the neutral stub');
+           WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))<>'select null::text',
+  'A18: deletion_blockers_orders now carries its real BP-12 pending-order body (082 filled it)');
 
 -- cron + policies
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname='sweep-expired-inventory-holds'), 1,

@@ -50,8 +50,8 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 15,
-  'A1: kernel holds EXACTLY fifteen tables (twelve of 077 + the three of 079)');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 17,
+  'A1: kernel holds EXACTLY seventeen tables (twelve 077 + three 079 + two 082 consent)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
@@ -134,9 +134,9 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 52,
-  -- 2026-08-31 (package 080): 48 -> 52 (the four predicates; 144 names them).
-  'A32: kernel holds EXACTLY 52 functions (48 post-079 + the four 080 predicates)');
+           WHERE n.nspname = 'kernel'), 55,
+  -- 2026-08-31 (package 080): 48 -> 52; (package 082): 52 -> 55 (three consent RPCs).
+  'A32: kernel holds EXACTLY 55 functions (52 post-080 + the three 082 consent RPCs)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 11,
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
@@ -172,8 +172,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
            WHERE n.nspname='kernel'
              AND p.proname in ('deletion_blockers_orders','deletion_blockers_wallet',
                                'deletion_blockers_money','deletion_blockers_market')
-             AND btrim(p.prosrc) = 'select null::text'), 4,
-  'A44: the four LATER blocker stubs remain byte-neutral — no second stub implemented early');
+             AND btrim(p.prosrc) = 'select null::text'), 3,
+  'A44: three LATER blocker stubs remain byte-neutral (082 filled orders; wallet/money/market pending)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel'
              AND p.proname in ('on_identity_erased_door',

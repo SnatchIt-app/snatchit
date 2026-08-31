@@ -29,9 +29,9 @@ $m$ SELECT v FROM tap.memo_144 WHERE k = $1 $m$;
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 6,
-  -- 2026-08-31 (package 081): 1 -> 6 (the five inventory tables; suite 145 owns them).
-  'A1: venue holds SIX tables — staff_role (080) + the five 081 inventory tables');
+            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 8,
+  -- 2026-08-31 (package 081): 1 -> 6; (package 082): 6 -> 8 (order + order_item).
+  'A1: venue holds EIGHT tables — staff_role (080) + five 081 inventory + two 082 order');
 SELECT is((SELECT count(*)::int FROM information_schema.columns
             WHERE table_schema='venue' AND table_name='staff_role'), 5,
   'A2: the five §3.9 columns');
@@ -84,12 +84,13 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 52,
-  'A14: kernel holds EXACTLY 52 functions (48 post-079 + the four 080 predicates)');
+           WHERE n.nspname = 'kernel'), 55,
+  'A14: kernel holds EXACTLY 55 functions (52 post-080 + the three 082 consent RPCs)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 10,
-  -- 2026-08-31 (package 081): 2 -> 10 (the eight inventory RPCs; suite 145 names them).
-  'A15: venue holds EXACTLY ten functions — 080''s two staff RPCs + 081''s eight inventory RPCs');
+           WHERE n.nspname = 'venue'), 14,
+  -- 2026-08-31 (package 082): 10 -> 14 (create_primary_checkout, cancel_pending_order,
+  -- the two order guard trigger fns; suite 146 names them).
+  'A15: venue holds EXACTLY fourteen functions — 080''s two + 081''s eight + 082''s four');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');
@@ -131,8 +132,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 9,
-  'A28: the other NINE hooks remain byte-neutral — exactly one replacement per owning package');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 8,
+  'A28: the other EIGHT hooks remain byte-neutral — 082 filled deletion_blockers_orders');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');
