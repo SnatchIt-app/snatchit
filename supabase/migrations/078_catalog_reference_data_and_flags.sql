@@ -266,8 +266,13 @@ create table if not exists catalog.resale_policy (
     check (   (scope_kind = 'venue' and venue_id is not null and event_id is null)
            or (scope_kind = 'event' and event_id is not null and venue_id is null)),
   constraint resale_policy_version_check check (version >= 1),
+  -- NULLS NOT DISTINCT is load-bearing: the coherence CHECK forces exactly one
+  -- of venue_id/event_id to be NULL in EVERY row, so under Postgres's default
+  -- NULLS DISTINCT this constraint could never fire on any row the table can
+  -- hold — and schema §2.5's stated property ("at most one active policy per
+  -- scope target per version") would be enforced by nothing.
   constraint resale_policy_scope_version_uq
-    unique (scope_kind, venue_id, event_id, version)
+    unique nulls not distinct (scope_kind, venue_id, event_id, version)
 );
 
 create index if not exists resale_policy_event_idx on catalog.resale_policy (event_id, version);
@@ -306,8 +311,7 @@ create policy catalog_venue_sel_anon
 drop policy if exists catalog_venue_sel_org on catalog.venue;
 create policy catalog_venue_sel_org
   on catalog.venue for select to authenticated
-  using (kernel.has_org_role(org_id, array['org_owner','org_admin','org_finance',
-                                           'org_marketing','org_promoter_manager','org_member'])
+  using (kernel.has_org_role(org_id, array['org_owner','org_admin','org_finance','org_member'])
          or kernel.is_platform(array['platform_admin','platform_support','platform_risk']));
 
 -- R3-3a: the visibility test is `status <> 'draft'`, NOT `status >= 'announced'`.
@@ -323,8 +327,7 @@ create policy catalog_event_sel_anon
 drop policy if exists catalog_event_sel_org on catalog.event;
 create policy catalog_event_sel_org
   on catalog.event for select to authenticated
-  using (kernel.has_org_role(org_id, array['org_owner','org_admin','org_finance',
-                                           'org_marketing','org_promoter_manager','org_member'])
+  using (kernel.has_org_role(org_id, array['org_owner','org_admin','org_finance','org_member'])
          or kernel.is_platform(array['platform_admin','platform_support','platform_risk']));
 
 -- "Sessions of visible events" resolves THROUGH catalog.event, so it inherits the
@@ -342,8 +345,7 @@ create policy catalog_event_session_sel_org
   using (exists (select 1 from catalog.event e
                   where e.event_id = catalog.event_session.event_id
                     and (kernel.has_org_role(e.org_id,
-                             array['org_owner','org_admin','org_finance',
-                                   'org_marketing','org_promoter_manager','org_member'])
+                             array['org_owner','org_admin','org_finance','org_member'])
                          or kernel.is_platform(
                              array['platform_admin','platform_support','platform_risk']))));
 
@@ -358,12 +360,39 @@ create policy catalog_platform_config_sel_restricted
   on catalog.platform_config for select to authenticated
   using (kernel.is_platform(array['platform_admin','platform_risk']));
 
--- The policy in force is discoverable (schema §2.5 / RLS §8.5); every version is
--- readable because listings snapshot old versions and readers must interpret them.
+-- RLS §8.5: A(policy in force). NARROW, never USING(true) — I-2 forbids a broad
+-- clause on a catalog table and T-RLS-POL-02 asserts unconditionally that no
+-- USING(true) exists anywhere in the Phase-2 schemas. Two conjuncts:
+-- The predicate is the PARENT'S VISIBILITY: set_resale_policy gates on org
+-- authority only and never on the parent's status, so without this a draft
+-- event's or an unapproved venue's commercial terms (mode, price cap, royalty)
+-- would be world-readable while the parent row itself is hidden. It resolves
+-- THROUGH the parent's own predicate rather than restating it, the shape
+-- catalog_event_session_sel_anon already uses.
+--
+-- §8.5's cell reads A(policy in force). A "greatest version for this scope
+-- target" conjunct is NOT expressible here: it must read catalog.resale_policy
+-- itself, which re-enters this policy and raises 42P17 infinite recursion. The
+-- two ways out are a new column or a SECURITY DEFINER helper, and BOTH are
+-- objects the frozen closed world does not carry (parity EXTRA = 0). So every
+-- version of a VISIBLE parent is readable — which is also what a client needs to
+-- interpret the (policy_id, version) pair market.listing_native snapshots.
+-- Recorded in the 078 errata; the I-2 ban on USING(true) is satisfied either way.
 drop policy if exists catalog_resale_policy_sel_public on catalog.resale_policy;
 create policy catalog_resale_policy_sel_public
   on catalog.resale_policy for select to anon, authenticated
-  using (true);
+  using (
+    (
+      (scope_kind = 'venue'
+        and exists (select 1 from catalog.venue v
+                     where v.venue_id = catalog.resale_policy.venue_id
+                       and v.approval_status = 'approved'))
+      or
+      (scope_kind = 'event'
+        and exists (select 1 from catalog.event e
+                     where e.event_id = catalog.resale_policy.event_id
+                       and e.status <> 'draft'))
+    ));
 
 -- =============================================================================
 -- PART 3 — PREDICATE / DERIVATION HELPERS
@@ -398,13 +427,16 @@ begin
 
   -- An absent or unparseable offset means NO offset — the implicit backstop
   -- engages at COALESCE(doors_at, starts_at) exactly, never later.
-  v_offset := coalesce(
-    (select (c.value #>> '{}')::interval
-       from catalog.platform_config c
-      where c.key = 'door.implicit_freeze_offset_interval'
-      order by c.version desc
-      limit 1),
-    interval '0 minutes');
+  begin
+    v_offset := (select (c.value #>> '{}')::interval
+                   from catalog.platform_config c
+                  where c.key = 'door.implicit_freeze_offset_interval'
+                  order by c.version desc
+                  limit 1);
+  exception when others then
+    v_offset := null;                    -- unparseable is the absent case
+  end;
+  v_offset := coalesce(v_offset, interval '0 minutes');
 
   return least(
     v_row.door_open_at,                                  -- explicit, nullable
@@ -641,7 +673,11 @@ begin
   end if;
 
   for v_key in select jsonb_object_keys(p_patch) loop
-    if v_key not in ('name','neighborhood','address','capacity_hint','org_id') then
+    -- reason_code is a patch-CARRIED field, not a column: the operatorship arm
+    -- below REQUIRES it, so omitting it here made that arm unreachable in both
+    -- directions (no reason => reason_required; reason => unwritable_key).
+    if v_key not in ('name','neighborhood','address','capacity_hint','org_id',
+                     'reason_code') then
       raise exception 'invalid_input: unwritable_key %', v_key;
     end if;
   end loop;
@@ -1072,6 +1108,40 @@ begin
                               'version',v_cur_ver,'request_id',null);
   end if;
 
+  -- RPC §20.2.1 precondition: "p_value passes the key's declared TYPE/RANGE".
+  -- TYPE: a key never changes shape. The seeded row is the type witness; a key
+  -- seeded absent-by-design (JSON null) has no witness yet and accepts the first
+  -- typed value, after which the witness exists.
+  if jsonb_typeof(v_cur_val) <> 'null'
+     and jsonb_typeof(p_value) <> jsonb_typeof(v_cur_val) then
+    raise exception 'precondition_failed: bad_value — % is %, not %',
+      p_key, jsonb_typeof(v_cur_val), jsonb_typeof(p_value);
+  end if;
+  -- RANGE: enforced for every key whose admissible range the frozen corpus
+  -- actually states. A key with no stated range is not invented one here.
+  if p_key = 'authn.money_role_maturity_hours'
+     and jsonb_typeof(p_value) = 'number'
+     and ((p_value #>> '{}')::numeric < 24 or (p_value #>> '{}')::numeric > 72) then
+    -- RLS MD-14 / RPC §1.1e: "the admissible range as 24-72 hours".
+    raise exception 'precondition_failed: bad_value — authn.money_role_maturity_hours is outside MD-14''s admissible 24-72 hours';
+  end if;
+  if p_key = 'notify.announcement_hold_seconds'
+     and jsonb_typeof(p_value) = 'number'
+     and (p_value #>> '{}')::numeric < 120 then
+    -- NOTIF §7.5: "seed 300 s, FLOOR 120 s".
+    raise exception 'precondition_failed: bad_value — notify.announcement_hold_seconds is below NOTIF §7.5''s 120 s floor';
+  end if;
+  if p_key = 'authn.money_action_required_aal'
+     and jsonb_typeof(p_value) = 'string'
+     and (p_value #>> '{}') not in ('aal1','aal2') then
+    raise exception 'precondition_failed: bad_value — authn.money_action_required_aal must be aal1|aal2';
+  end if;
+  if p_key = 'refund.scanned_atom_policy'
+     and jsonb_typeof(p_value) = 'string'
+     and (p_value #>> '{}') not in ('refuse','platform_review') then
+    raise exception 'precondition_failed: bad_value — refund.scanned_atom_policy must be refuse|platform_review';
+  end if;
+
   v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like 'authn.%'
          or p_key like 'comp.%'   or p_key like 'wallet.%' or p_key like 'credential.%'
          or p_key like 'door.session\_%';
@@ -1080,14 +1150,21 @@ begin
   -- therefore parks (when dual-controlled). Booleans, enums and every non-scalar
   -- are incomparable by construction and park for the same reason.
   v_polarity := case
+    -- LOWER IS RESTRICTIVE: every one of these is a CEILING or a span whose
+    -- reduction narrows what may happen without a second human.
     when p_key in ('refund.org_auto_execute_max_minor',
                    'refund.org_dual_control_max_minor',
                    'refund.buyer_self_service_max_minor',
                    'refund.buyer_self_service_window_hours',
                    'refund.platform_support_max_minor',
                    'payout.request_auto_max_minor',
+                   -- payout.dual_control_min_minor is the amount ABOVE WHICH a
+                   -- payout parks (MONEY §7.2), so RAISING it REMOVES payouts
+                   -- from dual control. T-RPC-CFG-01 names this exact key:
+                   -- "raising ... parks and inserts no version; lowering it
+                   -- executes". It is a ceiling in disguise, not a floor.
+                   'payout.dual_control_min_minor',
                    'comp.per_staff_step_up_max_units',
-                   'comp.per_staff_step_up_window_hours',
                    'authn.money_action_max_age_seconds',
                    'door.session_ttl_interval',
                    'door.session_absolute_max_interval',
@@ -1095,10 +1172,26 @@ begin
                    'credential.wallet_exp_skew',
                    'credential.wallet_default_span',
                    'credential.app_ttl_interval')          then 'lower_is_restrictive'
-    when p_key in ('payout.dual_control_min_minor',
-                   'payout.destination_cooldown_hours',
+    -- HIGHER IS RESTRICTIVE: a longer cooldown, a longer probation and a longer
+    -- maturity floor each narrow what may happen (RPC §20.2.1: "a longer
+    -- probation"). comp.per_staff_step_up_window_hours is DELIBERATELY ABSENT:
+    -- the window is the COUNTING period of the C39 insider-fraud gate, so
+    -- shortening it counts fewer units and fires step-up LESS often — the
+    -- corpus declares a direction only for its _max_units half (RLS §11.1
+    -- AUTHZ-M8), so this key has NO declared polarity and takes §20.2.1's third
+    -- arm: not comparable => PARK. Failing toward the approver is the whole
+    -- point of that arm.
+    when p_key in ('payout.destination_cooldown_hours',
                    'payout.destination_probation_days',
                    'authn.money_role_maturity_hours')      then 'higher_is_restrictive'
+    -- FALSE IS RESTRICTIVE: a kill switch. WALLET §11.5b — "Setting
+    -- wallet.apple.enabled := false ... needs ONE admin and no approval round.
+    -- A kill switch that needs a quorum is not a kill switch."
+    when p_key = 'wallet.apple.enabled'                    then 'false_is_restrictive'
+    -- HIGHER AAL IS RESTRICTIVE: RPC §20.2.1 enumerates "a higher required AAL"
+    -- among the restrictive directions by name, so raising it during a
+    -- session-theft incident must execute in one transaction.
+    when p_key = 'authn.money_action_required_aal'         then 'aal_higher_is_restrictive'
     else null
   end;
 
@@ -1111,7 +1204,21 @@ begin
                        when 'lower_is_restrictive'  then v_new_num < v_old_num
                        when 'higher_is_restrictive' then v_new_num > v_old_num
                      end;
-  elsif v_polarity is not null
+  elsif v_polarity = 'false_is_restrictive'
+     and jsonb_typeof(p_value) = 'boolean' then
+    -- Pulling the switch is a tightening; flipping it on is the mandatory-
+    -- dual-control write WALLET §11.5 describes.
+    v_restrictive := (p_value = 'false'::jsonb);
+  elsif v_polarity = 'aal_higher_is_restrictive'
+     and jsonb_typeof(v_cur_val) in ('string','null') and jsonb_typeof(p_value) = 'string' then
+    -- aal1 < aal2. An absent current value is the weakest state, so ANY named
+    -- level is a tightening against it.
+    v_restrictive := case
+      when p_value #>> '{}' not in ('aal1','aal2') then false      -- unknown => park
+      when jsonb_typeof(v_cur_val) = 'null'        then true
+      else (p_value #>> '{}') > (v_cur_val #>> '{}')
+    end;
+  elsif v_polarity in ('lower_is_restrictive','higher_is_restrictive')
      and jsonb_typeof(v_cur_val) = 'string' and jsonb_typeof(p_value) = 'string' then
     begin
       v_restrictive := case v_polarity
@@ -1257,8 +1364,12 @@ begin
     raise exception 'not_found: % %', p_scope_kind, p_scope_id using errcode = 'P0002';
   end if;
 
-  -- Authority covers the scope, resolved THROUGH the org that operates it —
-  -- never a re-inlined inheritance join (RM-3).
+  -- Authority covers the scope. RLS §11.1a and RPC §20.2.2 both name
+  -- kernel.has_org_role_over_venue for this arm and forbid a re-inlined
+  -- inheritance join (RM-3) — but that helper is authored in 080, so at 078 the
+  -- org arm is resolved from the row's own denormalised org_id and the venue arm
+  -- is deferred. PFA-10 §B records this second arm of the same seam; the comment
+  -- that used to sit here claimed the opposite of what the code does.
   if kernel.has_org_role(v_org_id, array['org_owner','org_admin'])
      or kernel.is_platform(array['platform_admin']) then
     v_allowed := true;
@@ -1295,9 +1406,13 @@ begin
   select p.version, p.mode, p.price_cap_bps, p.royalty_bps
     into v_cur
     from catalog.resale_policy p
+   -- Match on the column the scope ACTUALLY stores. The previous form filtered
+   -- event-scoped rows on p.venue_id, which the coherence CHECK forces to NULL,
+   -- so the lookup matched zero rows: every event-scoped call re-inserted
+   -- version 1, noop_replay was unreachable and the FOR UPDATE locked nothing.
    where p.scope_kind = p_scope_kind
-     and p.venue_id is not distinct from v_venue_id
-     and (p_scope_kind = 'venue' or p.event_id is not distinct from v_event_id)
+     and (   (p_scope_kind = 'venue' and p.venue_id = v_venue_id)
+          or (p_scope_kind = 'event' and p.event_id = v_event_id))
    order by p.version desc
    limit 1
      for update;
@@ -1364,14 +1479,15 @@ declare
     'catalog.effective_freeze_at(uuid)',
     'kernel.money_role_grant_matured(uuid)'
   ];
-  -- service_role: the machine plane may read the two predicates (definer RPCs in
-  -- later packages call them). It holds NO catalog write verb — a migration is
-  -- not a config change (plan §4), and RPC §20.2.1 forbids every service_role
-  -- path on set_platform_config explicitly.
-  v_svc constant text[] := array[
-    'catalog.effective_freeze_at(uuid)',
-    'kernel.money_role_grant_matured(uuid)'
-  ];
+  -- service_role holds NOTHING here. RLS §11.4 grants effective_freeze_at to
+  -- `authenticated` and RPC §1.1e grants money_role_grant_matured to
+  -- `authenticated`; neither carries a service_role class, definer callers in
+  -- later packages reach both by ownership rather than by grant, and 076 gives
+  -- service_role no USAGE on catalog or kernel anyway — so the grants this
+  -- package previously issued were both uncontracted AND inert. A migration is
+  -- also not a config change (plan §4), and RPC §20.2.1 forbids every
+  -- service_role path on set_platform_config explicitly.
+  v_svc constant text[] := '{}'::text[];
   f text;
 begin
   foreach f in array v_all loop

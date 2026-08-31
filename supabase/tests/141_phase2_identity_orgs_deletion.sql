@@ -239,13 +239,14 @@ SELECT is(
       AND has_function_privilege('service_role', p.oid, 'EXECUTE')),
   'deletion_blockers_custody,deletion_blockers_market,deletion_blockers_money,'
   || 'deletion_blockers_orders,deletion_blockers_wallet,has_outstanding_obligations,'
-  || 'is_deletion_pending,money_role_grant_matured,on_deletion_q5_release,on_identity_erased_door,'
+  || 'is_deletion_pending,on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
   || 'sweep_deletion_pending,sweep_expired_org_invites',
-  -- money_role_grant_matured added 2026-08-31 by package 078: the definer money
-  -- RPCs of 085 call it from the machine plane, so it holds service_role EXECUTE
-  -- as well as the authenticated grant above. Named, not counted.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = the 14 DEF functions + 078''s money_role_grant_matured');
+  -- UNCHANGED by package 078. kernel.money_role_grant_matured is authored in 078
+  -- but its frozen EXEC class (RPC §1.1e, RLS §11.2) is `authenticated` ONLY —
+  -- definer callers in 085 reach it by ownership, not by grant — so 077's DEF
+  -- closure is exactly as it was.
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 14 DEF functions');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

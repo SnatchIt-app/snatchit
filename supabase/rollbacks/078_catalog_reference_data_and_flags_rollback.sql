@@ -51,6 +51,7 @@ declare
   v_n   bigint := 0;
   v_cfg bigint := 0;
   v_ref bigint := 0;
+  v_appr bigint := 0;
 begin
   -- Partial-apply tolerant: to_regclass returns NULL for a table that never
   -- got created, so a half-applied 078 still rolls back.
@@ -75,6 +76,24 @@ begin
       into v_cfg using v_seeded;
     if v_cfg > 0 then
       raise exception 'REFUSED: catalog.platform_config holds % row(s) this package did not seed. Config history is append-only and pinned by kernel.approval_request; roll forward instead.', v_cfg;
+    end if;
+  end if;
+
+  -- A PARKED config change writes NO platform_config row at all — it writes a
+  -- kernel.approval_request whose config_versions pins (key, version). Between
+  -- this package and 085 (which owns the approve verb) parking is the ONLY
+  -- outcome a money-namespace write can have, so the row-count arm above is
+  -- blind to 100% of the config activity this package permits. Dropping
+  -- platform_config under a pending request strands it: it pins a version of a
+  -- relation that no longer exists, and 085's approve verb would later insert
+  -- against it.
+  if to_regclass('kernel.approval_request') is not null then
+    execute $q$select count(*) from kernel.approval_request
+                where subject_kind = 'config_key'
+                  and state = 'pending'$q$
+      into v_appr;
+    if v_appr > 0 then
+      raise exception 'REFUSED: % pending config approval request(s) pin a catalog.platform_config version. Resolve or cancel them first; config history is append-only and this rollback would strand the pin.', v_appr;
     end if;
   end if;
 

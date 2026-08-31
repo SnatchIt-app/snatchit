@@ -10,7 +10,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(207);
+SELECT plan(247);
 
 SELECT tap.seed_core();
 
@@ -194,6 +194,24 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 -- The deferral is only correct if the helper genuinely does not exist yet.
 SELECT hasnt_function('kernel'::name, 'has_venue_role'::name,
   'C5: kernel.has_venue_role does not exist yet — the deferral is real, not decorative (PFA-10)');
+
+-- RED-B: the §8.1-§8.3 org-plane SEL rows enumerate org_member, org_owner/admin
+-- and org_finance ONLY. org_marketing and org_promoter_manager appear in no SEL
+-- row on any of the three tables, and absence of a policy is deny-by-default.
+SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'catalog'
+             AND (pg_get_expr(p.polqual, p.polrelid) LIKE '%org_marketing%'
+               OR pg_get_expr(p.polqual, p.polrelid) LIKE '%org_promoter_manager%')), 0,
+  'C5a: no catalog policy admits org_marketing or org_promoter_manager — the matrices enumerate neither');
+
+-- I-2 / T-RLS-POL-02: asserted UNCONDITIONALLY over the whole schema, because the
+-- ban is stated that way and a per-policy spot check would miss the next one.
+SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'catalog'
+             AND coalesce(btrim(pg_get_expr(p.polqual, p.polrelid)), '') = 'true'), 0,
+  'C5b: I-2 — NO policy in catalog is USING (true)');
 
 SELECT is((SELECT count(*)::int FROM information_schema.role_table_grants
             WHERE table_schema = 'catalog'
@@ -417,8 +435,10 @@ SELECT ok(NOT has_function_privilege('service_role', 'catalog.set_platform_confi
   'F4: service_role holds NO EXECUTE on set_platform_config — a migration is not a config change');
 SELECT ok(NOT has_function_privilege('service_role', 'catalog.approve_venue(uuid,text,text,text)', 'EXECUTE'),
   'F5: service_role holds no catalog write verb at all');
-SELECT ok(has_function_privilege('service_role', 'catalog.effective_freeze_at(uuid)', 'EXECUTE'),
-  'F6: service_role MAY read the freeze helper — later definer RPCs call it');
+SELECT ok(NOT has_function_privilege('service_role', 'catalog.effective_freeze_at(uuid)', 'EXECUTE'),
+  'F6: service_role holds NO EXECUTE on the freeze helper — RLS §11.4''s class is `authenticated`, and a definer callee is reached by ownership, not by grant');
+SELECT ok(NOT has_function_privilege('service_role', 'kernel.money_role_grant_matured(uuid)', 'EXECUTE'),
+  'F6a: nor on the money-maturity predicate — RPC §1.1e''s class is `authenticated` only');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'catalog' AND NOT p.prosecdef), 0,
@@ -454,6 +474,15 @@ SELECT is((SELECT count(*)::int FROM catalog.platform_config), 8,
 SELECT throws_ok(
   $$INSERT INTO catalog.platform_config (key, version, value) VALUES ('x', 1, '1'::jsonb)$$,
   NULL, NULL, 'F15: anon cannot INSERT a config row');
+-- T-RLS-CFG-02 asserts the DEFAULT, not the seed: a key inserted with no
+-- visibility at all must be unreadable by anon. col_default_is asserts the
+-- declaration; this asserts the read.
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value)
+VALUES ('probe.novis', 1, '1'::jsonb);
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key = 'probe.novis'), 0,
+  'F14a: T-RLS-CFG-02 — a key seeded with NO visibility value is unreadable by anon');
 SELECT throws_ok(
   $$UPDATE catalog.platform_config SET value = '1'::jsonb$$,
   NULL, NULL, 'F16: anon cannot UPDATE a config row');
@@ -464,10 +493,19 @@ SELECT throws_ok(
   $$SELECT catalog.set_platform_config('feature.native_resale_enabled','true'::jsonb,'r','k')$$,
   NULL, NULL, 'F18: anon cannot call set_platform_config');
 
-SELECT tap.login(tap.seller());
-SELECT is((SELECT count(*)::int FROM catalog.platform_config
-            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 0,
-  'F19: a plain authenticated fan reads ZERO money thresholds');
+SELECT tap.login(tap.buyer());
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'refund.%'), 0,
+  'F19a: a plain authenticated fan reads zero refund.* rows');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'payout.%'), 0,
+  'F19b: zero payout.* rows');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'authn.%'), 0,
+  'F19c: zero authn.* rows');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'comp.%'), 0,
+  'F19d: zero comp.* rows');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'crm%'), 0,
+  'F19e: zero crm* rows');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key LIKE 'door.%'), 0,
+  'F19f: zero door.* rows — asserted PER NAMESPACE, because one key passing says nothing about five');
 SELECT throws_ok(
   $$SELECT catalog.set_platform_config('feature.native_resale_enabled','true'::jsonb,'r','k')$$,
   NULL, NULL, 'F20: a plain fan cannot change config');
@@ -594,10 +632,14 @@ UPDATE catalog.event SET status = 'draft' WHERE event_id = tap._fetch142('event'
 
 -- update_venue: the operatorship arm.
 SELECT tap.login(tap.seller());
+-- RED-B: matched on the MESSAGE, not on "any error". With a bare matcher this
+-- passed on `unwritable_key reason_code` — the arm was unreachable and the test
+-- could not tell.
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"org_id":"%s","reason_code":"sale"}'::jsonb,'ck-w-1')$$,
          tap._fetch142('venue'), tap._fetch142('org')),
-  NULL, NULL, 'G20: an org_owner cannot move operatorship — it is platform_admin only (RLS §11.1a)');
+  '42501', 'insufficient_privilege: operatorship change is platform_admin only',
+  'G20: an org_owner cannot move operatorship — it is platform_admin only (RLS §11.1a)');
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"capacity_hint":900,"approval_status":"approved"}'::jsonb,'ck-w-2')$$,
          tap._fetch142('venue')),
@@ -634,6 +676,51 @@ SELECT is((SELECT price_cap_bps FROM catalog.resale_policy
             WHERE venue_id = tap._fetch142('venue')::uuid AND version = 1), 1100,
   'G30: version 1 is UNCHANGED — a listing that snapshotted it is still governed by it');
 
+-- RED-B: a policy on a DRAFT event / UNAPPROVED venue must not be anon-readable.
+-- set_resale_policy gates on org authority only and never on the parent's status,
+-- so the policy predicate is the only thing standing between an unannounced
+-- event's commercial terms and a signed-out client.
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'draft'
+ WHERE venue_id = tap._fetch142('venue')::uuid;
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.resale_policy), 0,
+  'G30a: anon reads ZERO resale policies while the parent venue is unapproved');
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'approved'
+ WHERE venue_id = tap._fetch142('venue')::uuid;
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.resale_policy), 2,
+  'G30b: with the venue approved anon reads that venue''s policy versions');
+SELECT is((SELECT max(version)::int FROM catalog.resale_policy), 2,
+  'G30c: including the current one, so a snapshotted (policy_id, version) always resolves');
+SELECT tap.logout();
+
+-- RED-A/RED-B: EVENT-scoped versioning. The lookup used to filter on venue_id,
+-- which the coherence CHECK forces NULL on every event-scoped row, so every call
+-- re-inserted version 1 and noop_replay was unreachable.
+SELECT tap.login(tap.seller());
+SELECT is((catalog.set_resale_policy('event', tap._fetch142('event')::uuid,
+             '{"mode":"transfers_only"}'::jsonb, 'ck-pe-1') ->> 'version'), '1',
+  'G30d: the first EVENT-scoped policy is version 1');
+SELECT is((catalog.set_resale_policy('event', tap._fetch142('event')::uuid,
+             '{"mode":"transfers_only"}'::jsonb, 'ck-pe-2') ->> 'status'), 'noop_replay',
+  'G30e: an identical EVENT-scoped policy is noop_replay — it issues NO new version');
+SELECT is((catalog.set_resale_policy('event', tap._fetch142('event')::uuid,
+             '{"mode":"off"}'::jsonb, 'ck-pe-3') ->> 'version'), '2',
+  'G30f: tightening an EVENT-scoped policy SUPERSEDES it at version 2');
+-- as postgres: these are structural facts about the table, and a client read is
+-- filtered by the parent-visibility predicate (the event is draft at this point).
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM catalog.resale_policy
+            WHERE event_id = tap._fetch142('event')::uuid AND version = 1), 1,
+  'G30g: exactly ONE version-1 row exists for the event — no duplicate accumulation');
+SELECT throws_ok(
+  format($$INSERT INTO catalog.resale_policy (scope_kind, event_id, mode, version)
+           VALUES ('event', %L::uuid, 'buy_now', 1)$$, tap._fetch142('event')),
+  '23505', NULL,
+  'G30h: NULLS NOT DISTINCT — a duplicate (scope, version) is refused 23505, not silently stored');
+
 -- The AO discipline on the version register, asserted as postgres because "no
 -- UPDATE path" is what makes a listing's snapshot resolvable forever.
 SELECT tap.logout();
@@ -643,6 +730,69 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$DELETE FROM catalog.resale_policy WHERE version = 1$$,
   NULL, NULL, 'G32: and it cannot be deleted, so a listing''s snapshot always resolves');
+
+-- ---------------------------------------------------------------------------
+-- The frozen anon/fan read tests (plan §8/078 Tests; RLS §16.11 T-RLS-CAT-01's
+-- anon half — the venue-label half belongs to 080 with the deferred policies).
+-- Asserted over the VISIBLE SET, never over the operator: a suite written
+-- against `status >= 'announced'` passes on the broken clause, which is the
+-- whole R3-3a defect.
+-- ---------------------------------------------------------------------------
+SELECT tap.logout();
+UPDATE catalog.event SET status = 'draft' WHERE event_id = tap._fetch142('event')::uuid;
+
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.venue
+            WHERE venue_id = tap._fetch142('venue')::uuid), 1,
+  'G33: anon CAN read an approved venue');
+SELECT is((SELECT count(*)::int FROM catalog.event
+            WHERE event_id = tap._fetch142('event')::uuid), 0,
+  'G34: R3-3a — anon reads ZERO rows for a DRAFT event');
+SELECT is((SELECT count(*)::int FROM catalog.event_session
+            WHERE event_id = tap._fetch142('event')::uuid), 0,
+  'G35: and ZERO sessions of that draft event — the child inherits the parent predicate');
+SELECT throws_ok(
+  format($$INSERT INTO catalog.event (venue_id, org_id, title) VALUES (%L::uuid, %L::uuid, 'x')$$,
+         tap._fetch142('venue'), tap._fetch142('org')),
+  NULL, NULL, 'G36: write as anon fails');
+
+SELECT tap.login(tap.buyer());
+SELECT is((SELECT count(*)::int FROM catalog.event
+            WHERE event_id = tap._fetch142('event')::uuid), 0,
+  'G37: a plain authenticated fan also reads ZERO rows for a draft event');
+SELECT is((SELECT count(*)::int FROM catalog.venue
+            WHERE venue_id = tap._fetch142('venue')::uuid), 1,
+  'G38: but CAN read the approved venue');
+
+SELECT tap.logout();
+UPDATE catalog.event SET status = 'announced' WHERE event_id = tap._fetch142('event')::uuid;
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.event
+            WHERE event_id = tap._fetch142('event')::uuid), 1,
+  'G39: once announced, anon CAN read it');
+SELECT is((SELECT count(*)::int FROM catalog.event_session
+            WHERE event_id = tap._fetch142('event')::uuid), 1,
+  'G40: and its session becomes visible with it');
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'pending'
+ WHERE venue_id = tap._fetch142('venue')::uuid;
+SELECT tap.login_anon();
+SELECT is((SELECT count(*)::int FROM catalog.venue
+            WHERE venue_id = tap._fetch142('venue')::uuid), 0,
+  'G41: a venue that is not `approved` is invisible to anon — equality, not an ordering');
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'approved'
+ WHERE venue_id = tap._fetch142('venue')::uuid;
+
+-- The org arm of the same policies: a member of the owning org DOES see the draft.
+SELECT tap.logout();
+UPDATE catalog.event SET status = 'draft' WHERE event_id = tap._fetch142('event')::uuid;
+SELECT tap.login(tap.seller());
+SELECT is((SELECT count(*)::int FROM catalog.event
+            WHERE event_id = tap._fetch142('event')::uuid), 1,
+  'G42: the owning org_owner DOES read the draft event — the org arm is not vacuous');
+SELECT tap.logout();
+UPDATE catalog.event SET status = 'announced' WHERE event_id = tap._fetch142('event')::uuid;
 
 -- ============================================================================
 -- SECTION H — set_platform_config: the two paths, and what cannot move
@@ -692,12 +842,24 @@ SELECT tap.login(tap.admin_user());
 
 -- Dual-control key, TIGHTENING => direct. "A security control that is hard to
 -- tighten in an incident is a liability."
-SELECT is((catalog.set_platform_config('authn.money_role_maturity_hours','96'::jsonb,'incident','ck-c-3')
+SELECT throws_ok(
+  $$SELECT catalog.set_platform_config('authn.money_role_maturity_hours','96'::jsonb,'incident','ck-c-3x')$$,
+  NULL, NULL,
+  'H12a: RPC §20.2.1 — a value outside MD-14''s admissible 24-72 h is refused bad_value');
+SELECT throws_ok(
+  $$SELECT catalog.set_platform_config('authn.money_role_maturity_hours','"72 hours"'::jsonb,'x','ck-c-3y')$$,
+  NULL, NULL,
+  'H12b: and a value of the wrong TYPE is refused — a key never changes shape');
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('authn.money_role_maturity_hours', 2, '24'::jsonb, 'restricted');
+SELECT tap.login(tap.admin_user());
+SELECT is((catalog.set_platform_config('authn.money_role_maturity_hours','48'::jsonb,'incident','ck-c-3')
            ->> 'status'), 'ok',
-  'H13: RAISING the maturity window is a TIGHTENING and executes in one transaction');
+  'H13: RAISING the maturity window inside the admissible range is a TIGHTENING and executes in one transaction');
 SELECT is((SELECT max(version) FROM catalog.platform_config
-            WHERE key = 'authn.money_role_maturity_hours'), 2,
-  'H14: the tightening inserted version 2');
+            WHERE key = 'authn.money_role_maturity_hours'), 3,
+  'H14: the tightening inserted a new version');
 
 -- The incomparable arm: a non-scalar value on a money key must PARK whichever
 -- direction it appears to move (T-RPC-CFG-02).
@@ -713,6 +875,56 @@ SELECT throws_ok(
   $$SELECT catalog.set_platform_config('door.manifest_ttl_interval','"2 hours"'::jsonb,'tighten','ck-c-6')$$,
   NULL, NULL,
   'H17: shrinking the manifest TTL below span+skew is REJECTED — the invariant binds the writer');
+
+-- T-RPC-CFG-01, the frozen contract's own worked example, by name. This key is
+-- the amount ABOVE WHICH a payout parks, so RAISING it is a LOOSENING.
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('payout.dual_control_min_minor', 2, '50000'::jsonb, 'restricted');
+SELECT tap.login(tap.admin_user());
+SELECT is((catalog.set_platform_config('payout.dual_control_min_minor','999999'::jsonb,'ops','ck-c-9')
+           ->> 'status'), 'parked',
+  'H18a: T-RPC-CFG-01 — RAISING payout.dual_control_min_minor PARKS');
+SELECT is((SELECT max(version) FROM catalog.platform_config
+            WHERE key = 'payout.dual_control_min_minor'), 2,
+  'H18b: T-RPC-CFG-01 — and inserts no version');
+SELECT is((catalog.set_platform_config('payout.dual_control_min_minor','100'::jsonb,'incident','ck-c-10')
+           ->> 'status'), 'ok',
+  'H18c: T-RPC-CFG-01 — LOWERING it executes in one transaction');
+
+-- WALLET §11.5b: "A kill switch that needs a quorum is not a kill switch."
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('wallet.apple.enabled', 2, 'true'::jsonb, 'public');
+SELECT tap.login(tap.admin_user());
+SELECT is((catalog.set_platform_config('wallet.apple.enabled','false'::jsonb,'incident','ck-c-11')
+           ->> 'status'), 'ok',
+  'H18d: pulling the Wallet kill switch executes with ONE platform_admin');
+SELECT is((catalog.set_platform_config('wallet.apple.enabled','true'::jsonb,'gate_clear','ck-c-12')
+           ->> 'status'), 'parked',
+  'H18e: turning it back ON is the mandatory-dual-control write and PARKS');
+
+-- RPC §20.2.1 enumerates "a higher required AAL" as restrictive by name.
+SELECT is((catalog.set_platform_config('authn.money_action_required_aal','"aal2"'::jsonb,'incident','ck-c-13')
+           ->> 'status'), 'ok',
+  'H18f: raising the required AAL executes — it is the incident tightening');
+SELECT is((catalog.set_platform_config('authn.money_action_required_aal','"aal1"'::jsonb,'convenience','ck-c-14')
+           ->> 'status'), 'parked',
+  'H18g: lowering it back to aal1 PARKS');
+
+-- comp.per_staff_step_up_window_hours has NO declared polarity: the corpus
+-- declares a direction only for its _max_units half, so it takes §20.2.1's third
+-- arm and parks in BOTH directions rather than guessing.
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('comp.per_staff_step_up_window_hours', 2, '24'::jsonb, 'restricted');
+SELECT tap.login(tap.admin_user());
+SELECT is((catalog.set_platform_config('comp.per_staff_step_up_window_hours','1'::jsonb,'ops','ck-c-15')
+           ->> 'status'), 'parked',
+  'H18h: SHRINKING the C39 comp counting window PARKS — it is a loosening of the insider-fraud gate');
+SELECT is((catalog.set_platform_config('comp.per_staff_step_up_window_hours','48'::jsonb,'ops','ck-c-16')
+           ->> 'status'), 'parked',
+  'H18i: lengthening it parks too — no declared polarity means fail toward the approver');
 
 -- The unknown-key arm, and the forbidden callers.
 SELECT throws_ok(
@@ -839,6 +1051,14 @@ SELECT ok(NOT kernel.is_platform(ARRAY['platform_admin','platform_support','plat
   'J15: is_platform returns FALSE for SN-SYSTEM');
 SELECT ok(NOT kernel.has_org_role(tap._fetch142('org')::uuid, ARRAY['org_owner','org_admin']),
   'J16: has_org_role returns FALSE for SN-SYSTEM');
+-- BOTH sentinels, because T-SCHEMA-SENTINEL-03 names both and a one-sentinel
+-- test is exactly the shape the assertion exists to prevent. The has_venue_role
+-- clause of -03 is unassertable until 080 and is filed forward in the errata.
+SELECT tap.login('00000000-0000-0000-0000-0000000000f0'::uuid);
+SELECT ok(NOT kernel.is_platform(ARRAY['platform_admin','platform_support','platform_risk']),
+  'J16a: is_platform returns FALSE for SN-VOID too');
+SELECT ok(NOT kernel.has_org_role(tap._fetch142('org')::uuid, ARRAY['org_owner','org_admin']),
+  'J16b: has_org_role returns FALSE for SN-VOID too');
 SELECT tap.logout();
 
 -- T-SCHEMA-SENTINEL-04: non-authenticable by construction.

@@ -589,10 +589,13 @@ RULING APPLIED:              (1) CLASS A + CLASS B are NOT seeded. Only keys wit
                                  exists, so set_platform_config's registry precondition is satisfied and
                                  the value is one audited config change away; the VALUE is absent, so
                                  every X-12 fail-to-safe consumer takes the restrictive reading. NO
-                                 NUMBER IS FABRICATED. 15 keys ship this way: refund.* ×7,
+                                 NUMBER IS FABRICATED. SIXTEEN keys ship this way (count corrected
+                                 2026-08-31 — this line read "15" against its own enumeration of 16):
+                                 refund.* ×7,
                                  payout.* ×4, authn.* ×2, comp.* ×2 (X-12's own pair), and
                                  retention.backup_window_days.
-                             (4) THREE keys take a value the corpus itself states, and are marked
+                             (4) FOUR keys take a value the corpus itself states (count corrected
+                                 2026-08-31 — the enumeration was always four), and are marked
                                  PROVISIONAL: authn.money_role_maturity_hours = 72 (RPC §1.1e's explicit
                                  instruction — "seed the key at the RESTRICTIVE END of the range and
                                  record the seed as provisional — never leave it unseeded"; RLS MD-14's
@@ -670,9 +673,129 @@ SECURITY/MONEY IMPACT:       fail-closed. Between 078 and 080 the venue plane ca
                              describes for the three deferred read policies ("Between this package and 080
                              the venue plane cannot read these tables — intended, fail-closed, and it
                              closes one package later").
+WHY IMPLEMENTATION CANNOT CONFORM: the name kernel.has_venue_role does not exist at 078 and cannot be
+                             made to. Option (b) is closed by a ratified constant (hook_count 19),
+                             option (c) by a named prohibition (RM-3), and option (a) rewrites two
+                             packages' object sets. What is left is WHERE in the body the name is
+                             mentioned, which is what this record decides.
+RECOMMENDATION:              (d), and the deferral should be stated in 080's plan entry at the next
+                             ratified doc pass, exactly as SEAM-3 requires for the three read policies
+                             it already covers.
+SECOND ARM — RM-3 / has_org_role_over_venue (ADDED 2026-08-31, red-team B):
+                             the same five functions also resolve the ORG-over-scope arm by reading the
+                             row's own denormalised org_id and calling kernel.has_org_role. RLS §11.1a
+                             (update_venue) and RPC §20.2.2 (set_resale_policy, verbatim: "resolved
+                             through has_org_role_over_venue, §1.1a, NEVER a re-inlined join") name
+                             kernel.has_org_role_over_venue / _over_event for that arm, and RM-3 forbids
+                             re-inlining the inheritance join by name. BOTH helpers are authored in 080.
+                             The corpus contradicts itself here: RPC §3.3's own Role line for the SAME
+                             function writes the re-inlined form, "has_org_role(org_of_venue, [org_owner,
+                             org_admin])". Taken together with the venue arm, EVERY authority arm of
+                             these five functions resolves only at 080 — which is SEAM-1 saying they
+                             belong there, against a plan §8 row that places them here.
+                             RULING APPLIED: the re-inlined org arm is kept, because the alternative is
+                             that 078 can author no venue-scoped or event-scoped write verb at all, and
+                             because RPC §3.3 writes that exact form. It is now DISCLOSED rather than
+                             asserted-away: the in-body comment that claimed "never a re-inlined
+                             inheritance join (RM-3)" said the opposite of what the code does and has
+                             been corrected to state the deferral.
 OWNER SIGNATURE REQUIRED:    NO — the placement is the frozen plan's; only the evaluation ORDER inside
                              the body is decided here, and it is decided in the direction that makes the
-                             authorised org path work and leaves the deferred path fail-closed.
+                             authorised org path work and leaves the deferred path fail-closed. The
+                             SECOND ARM is a disclosure of a contradiction between two frozen texts about
+                             the same function, resolved toward the one that is buildable at 078.
+```
+
+## PFA-11 — `catalog.effective_freeze_at`'s frozen `authenticated` grant publishes a `restricted` config value by subtraction
+
+```
+ID:                          PFA-11
+FROZEN RULE:                 (A) RLS §11.4 EXEC table: "catalog.effective_freeze_at · kernel.is_transfer_frozen
+                                 | authenticated (STABLE reads; is_transfer_frozen is already the RN
+                                 eligibility boolean, §14.3)". An explicit, unconditional grant.
+                             (B) schema §2.4.1 / RLS §8.4 AUTHZ-CFG1 classify door.* RESTRICTED, and §8.4
+                                 states the rule that governs client reads: "The RN client and the web
+                                 client read only public keys — and if a screen needs a restricted value,
+                                 the answer is a scoped RPC that returns the DECISION, never the
+                                 THRESHOLD."
+IMPLEMENTATION CONFLICT:     the two cannot both hold. effective_freeze_at returns
+                             LEAST(door_open_at, COALESCE(doors_at, starts_at) + config(
+                             'door.implicit_freeze_offset_interval')). doors_at, starts_at and door_open_at
+                             are all column-granted to anon/authenticated on a world-readable table, so any
+                             signed-in client calls the function on a visible session, subtracts the
+                             publicly-readable COALESCE(doors_at, starts_at), and recovers
+                             door.implicit_freeze_offset_interval EXACTLY — one call, no trace, no
+                             probing phase. §2.4.1's own threat model is that these values are "an attack
+                             calibration table" stating "how long a door may operate on stale data".
+                             Surfaced by red-team lens B (2026-08-31).
+WHY IMPLEMENTATION CANNOT CONFORM: the leak is a property of the FUNCTION'S RETURN VALUE, not of its
+                             implementation. No body satisfies both (A) and (B): the offset is what the
+                             function is for. Only the grant class or the key's classification can move,
+                             and both are frozen.
+OPTIONS:                     (a) implement (A) verbatim and disclose — CHOSEN for this package. The grant
+                                 is what §11.4 says; changing it is the reinterpretation.
+                             (b) make effective_freeze_at DEF and route clients through
+                                 kernel.is_transfer_frozen's boolean — the shape §8.4 prescribes and RPC
+                                 §12.4a implies ("is_transfer_frozen is the ONLY freeze read for RPC
+                                 rechecks, the RN eligibility boolean, and the edge layer"). Contradicts
+                                 §11.4's explicit row and may break an RN countdown that needs the
+                                 timestamp.
+                             (c) reclassify door.implicit_freeze_offset_interval as public — honest, since
+                                 under (A) it is already derivable, but it publishes a value §2.4.1 ruled
+                                 restricted after argument.
+RECOMMENDATION:              (b). It is the only option under which the restricted classification means
+                             anything, and §8.4 states the substitution ("a scoped RPC that returns the
+                             decision") as the general answer to exactly this shape. Requires the owner to
+                             strike or narrow §11.4's row.
+PACKAGE IMPACT:              078 (the grant), 079 (is_transfer_frozen is the client surface under (b)).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       a restricted door parameter is readable by every authenticated client today,
+                             under the frozen grant. Not money; it is the width of the offline
+                             duplicate-admission window. A second, weaker leg: the function carries no
+                             authority predicate (none is contracted), so it also answers for sessions of
+                             draft events — an existence oracle that needs a known session_id.
+OWNER SIGNATURE REQUIRED:    YES to CHANGE anything — moving the grant class or the key's classification
+                             is normative. NO to merge 078, which implements (A), the frozen text, and
+                             relies on no unsigned amendment.
+```
+
+## PFA-12 — two frozen surfaces disagree on whether `visibility` can ever change; under the implemented reading no reclassification path exists at all
+
+```
+ID:                          PFA-12
+FROZEN RULE:                 (A) schema §2.4 Write authority: "visibility is set at key creation and
+                                 set_platform_config MAY NOT CHANGE IT — a function that can flip a key to
+                                 public is a function that can publish the ceilings", with T-SCHEMA-CFG-03
+                                 asserting it.
+                             (B) RLS §8.4 footnote 20: "visibility is set at seed time and is itself
+                                 CHANGED ONLY THROUGH set_platform_config — publishing a restricted key is
+                                 a config change like any other, and in a dual-controlled namespace it
+                                 takes two approvers." RLS §17 X-16 leans the same way ("private until
+                                 someone deliberately publishes it").
+IMPLEMENTATION CONFLICT:     (A) forbids the function the capability (B) says is its job. 078 implements
+                             (A): set_platform_config copies visibility forward and cannot change it.
+                             The consequence is that NO path to reclassify a key exists anywhere — not
+                             through the RPC (A forbids it) and not through a migration (plan §4: "flips
+                             are never a migration"). A key seeded into the wrong class is stuck there
+                             until a package is written to move it.
+WHY IMPLEMENTATION CANNOT CONFORM: a single function cannot both be barred from writing a column and be
+                             the only writer of it.
+OPTIONS:                     (a) implement (A) — CHOSEN. It is the reading a frozen TEST pins
+                                 (T-SCHEMA-CFG-03), it is the fail-closed direction, and its failure mode
+                                 is loud (a client cannot read a value it needs) rather than silent (a
+                                 ceiling leaked).
+                             (b) implement (B) — a reclassification path exists, but the function that can
+                                 publish the ceilings exists too, which is the exposure §2.4.1 was written
+                                 to close.
+RECOMMENDATION:              (a) for the code; the owner should decide whether reclassification needs a
+                             path at all, and if so whether it is a dual-controlled arm of
+                             set_platform_config or a deliberate one-off migration.
+PACKAGE IMPACT:              078 only.
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective — (a) is the direction that cannot publish a ceiling. The cost is
+                             operational rigidity, disclosed here rather than discovered later.
+OWNER SIGNATURE REQUIRED:    NO for 078 — a frozen test pins (a), so only one value is admissible (the
+                             C93/PFA-6 precedent class). YES before any reclassification path is built.
 ```
 
 ## ERRATA — package 078 (recorded, no amendment needed)
@@ -736,5 +859,63 @@ RPC §20.2.1 forbids an implementer from inventing.
 `kernel.money_role_grant_matured`, which `078` authors by SEAM-1 `max(077, 078) = 078`. Both closures
 remain exact-by-name, so nothing was weakened; the count rose by exactly one and by exactly the function
 the frozen placement puts here.
+
+**E-11 — the `kernel.sweep_deletion_pending` body replacement is APPROVED CROSS-PACKAGE HARDENING, not a
+078 architecture object.** `PACKAGE_OBJECT_PARITY_SPEC.md` files the sweep under `077`, so a parity
+extractor that scores *created* objects will read 078's `CREATE OR REPLACE` as `EXTRA`. It is not: the
+object is 077's, the body change is authorized by the HARDENING-1 owner approval, and 078 creates no
+object of that name. A parity harness needs a REPLACE exemption keyed to this record; the frozen parity
+spec carries none because it predates the ruling. Raised by red-team lens C.
+
+**E-12 — the two `service_role` EXECUTE grants this package originally issued have been REMOVED.**
+`catalog.effective_freeze_at` (RLS §11.4) and `kernel.money_role_grant_matured` (RPC §1.1e, RLS §11.2)
+each carry exactly one frozen EXEC class, `authenticated`. The `service_role` grants were reasoned from
+"definer RPCs in later packages call them", which is wrong twice over: a definer callee runs as its owner
+and needs no grant (RLS §1.3 `GP-3a`), and `076` gives `service_role` no `USAGE` on `catalog` or `kernel`
+at all, so the grants were inert as well as uncontracted. Raised by red-team lenses A and B.
+
+**E-13 — `catalog_resale_policy_sel_public` cannot express "the version in force".** RLS §8.5's cell reads
+`A(policy in force)`. A "greatest version for this scope target" conjunct must read
+`catalog.resale_policy` itself, which re-enters the policy and raises `42P17 infinite recursion` (observed,
+not predicted). The two ways out — an `is_current` column or a `SECURITY DEFINER` helper — are both objects
+the frozen closed world does not carry, and parity is `EXTRA = 0`. The predicate implemented is the
+PARENT'S VISIBILITY, which is narrow (satisfying `I-2` and `T-RLS-POL-02`) and closes the real exposure
+red-team lens B found: `set_resale_policy` never checks the parent's status, so a policy set on a draft
+event or an unapproved venue was world-readable while the parent row was hidden. Every version of a
+*visible* parent remains readable, which is what a client needs to interpret the `(policy_id, version)`
+pair `market.listing_native` snapshots.
+
+**E-14 — `set_platform_config` does not dedupe on `p_command_key`.** RPC §20.2.1 states *"Idempotency.
+`p_command_key` + `UNIQUE(key, version)`"*, but `catalog.platform_config` carries no command-key column in
+the frozen DDL, so replay dedupe on the direct path is non-structural: it is value equality
+(`noop_replay`). A replay of the same command key carrying a DIFFERENT value inserts a new version, which
+is the correct outcome for a real change but is not idempotency. The parked path IS structurally
+idempotent — `kernel.approval_request` carries `UNIQUE(requested_by, command_idempotency_key)`. Same class
+as the `077` errata `E-3` for `kernel.organization`.
+
+**E-15 — `T-SCHEMA-SENTINEL-05` cannot be asserted at 078 and is filed forward to 079.** The frozen
+assertion is that the `019` anonymization sentinel appears in zero rows of
+`kernel.tickets.current_owner_id` and of every `kernel.ticket_ownership_log` identity column. Both tables
+arrive in `079`. Suite 142 asserts the nearest reachable property instead (the sentinel holds no
+`kernel.identity_ext` row and appears as actor in zero `kernel.admin_audit` rows) and labels it as such;
+the real `-05` is owed by `079`. Likewise `T-SCHEMA-SENTINEL-03`'s `has_venue_role` clause, which is owed
+by `080`. Raised in review as an undisclosed substitution; disclosed here.
+
+**E-16 — the HARDENING-1 guard refuses `READ UNCOMMITTED`, which PostgreSQL implements as READ
+COMMITTED.** Verified live on PostgreSQL 17.11: `BEGIN ISOLATION LEVEL READ UNCOMMITTED` yields
+`current_setting('transaction_isolation') = 'read uncommitted'`, and the guard raises. That caller is
+snapshot-safe — PostgreSQL maps READ UNCOMMITTED onto READ COMMITTED semantics — so the refusal is
+over-strict. It is fail-closed, availability-only, and unreachable under the cron-only operating contract.
+**The guard text is owner-approved VERBATIM, so it is NOT edited here**; correcting it needs a new
+governance record. Raised by red-team lens F.
+
+**E-17 — the recorded HARDENING-1 witness cannot detect a NEUTERED guard.** It is a substring match on
+`pg_get_functiondef` for `transaction_isolation` and `read committed`. Appending `and false` to the guard
+condition leaves both strings present and the suite green. The witness is mandated verbatim and is kept
+verbatim; the behavioural half — that a REPEATABLE READ call actually raises — cannot be added to suite
+142 because pgTAP runs inside one transaction and PostgreSQL refuses `SET TRANSACTION ISOLATION LEVEL`
+after the first query. It was proven out-of-suite instead, on the merged bytes: RR raises with state
+intact, READ COMMITTED is unchanged, and the concurrent write skew stays defeated at every schedule tried.
+Raised by red-team lens F.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
