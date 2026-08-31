@@ -5,8 +5,9 @@
 --
 -- Order is the frozen one: the four AUTHZ-PKG1 policies FIRST (fails closed —
 -- the venue plane goes dark; a table is never left readable by a principal
--- whose predicate has just been dropped), then venue.staff_role's own
--- policies, the RPCs, the predicates, the table.
+-- whose predicate has just been dropped), then the RPCs and venue.staff_role's
+-- own policies (both consumers of the predicates, either order), then the
+-- predicates, then the table.
 --
 -- OR-17 rider F-5: kernel.on_identity_erased_staff is restored to its 077
 -- stub body VERBATIM — a rolled-back replacer must never leave a body

@@ -1177,4 +1177,20 @@ ERASED and refuses). `DELETION_PENDING` targets are deliberately NOT refused: st
 blockers, and dsm §3.2's freeze surface names no staff-grant refusal. Verified live in both orders;
 zero-integrity `ERASED ∧ authority = ∅` held.
 
+**E-27 — DISCLOSURE (RLS owner): `catalog_event_session_sel_venue` reveals a DRAFT event's SESSION timing
+to non-manager venue ops, while `catalog_event_sel_venue` hides the event row from them.** The frozen
+§16.10a clause for the session policy names five labels
+(`venue_manager·venue_finance·venue_box_office·venue_marketing·venue_promoter_manager`) with NO
+parent-event-status filter, whereas the sibling event policy's R3-3a two-tier split withholds a `draft`
+event from every label except `venue_manager`. Consequently `venue_finance`/`box_office`/`marketing`/
+`promoter_manager` at the venue can read a draft event's `event_session` rows (start/doors/label — which
+disclose the show date) even though the `catalog.event` row itself is hidden from them. The anon path is
+safe (it resolves *through* `catalog.event`, inheriting the corrected predicate); the venue-staff path does
+not. **080 ships the ratified clause VERBATIM — this is a gloss-vs-clause inconsistency in the spec (§16.10's
+gloss "sessions of visible events" vs the written §16.10a clause, which carries no such join), NOT an
+implementation defect, and NOT changed here.** Exposure is to trusted same-venue staff and is metadata only.
+Filed for the RLS owner beside OPEN-1/OPEN-2: if the board wants draft-event session timing withheld from
+non-manager venue labels, that is a new ratification (an added `EXISTS (visible parent event)` conjunct),
+not a clarification. Raised independently by two red-team reviewers on PR #34.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
