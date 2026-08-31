@@ -210,13 +210,14 @@ SELECT isnt(kernel.deletion_blockers_orders(tap.buyer()), NULL, 'F8: BP-12 — t
 -- ============================================================================
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.cancel_pending_order(%L, 'webhook_terminal', 'ck-x-1')$$, tap._fetch146('checkout')),
-  '42501', NULL, 'G1: a signed-in fan cannot call the machine-only cancel (service_role EXEC)');
+  '42501', NULL, 'G1: a signed-in fan cannot call the machine-only cancel (no EXECUTE grant)');
 SELECT tap.logout();
--- as the machine: cancel the pending order
-SELECT tap.login_service();
-SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'ok', 'G2: the webhook cancels a pending order');
+-- cancel is DEF/service_role (B3 asserts the grant). 076 gives service_role no
+-- `venue` schema USAGE, so — exactly like 081's DEF hold-sweep — the body runs in
+-- the DEFINER (postgres) context via the webhook path (edge design, §6.2/deliv #5),
+-- not a raw service_role session. Exercise the body here as the DEFINER runs it.
+SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'ok', 'G2: the webhook path cancels a pending order');
 SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'noop_replay', 'G3: redelivery on a cancelled order is a noop_replay (never raises — a raising webhook retries forever)');
-SELECT tap.logout();
 SELECT is(tap._ord_status(tap._fetch146('checkout')::uuid), 'cancelled', 'G4: the order is cancelled');
 SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE subject_id = tap._fetch146('checkout')::uuid AND action='order.cancel'
             AND actor_identity='00000000-0000-0000-0000-0000000000f1'), 1,
