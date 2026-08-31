@@ -253,8 +253,8 @@ SELECT throws_ok(format($$UPDATE venue."order" SET attribution_candidate_code_id
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT count(*)::int FROM venue."order" WHERE buyer_id = tap.buyer()), 2, 'I1: the buyer reads their own orders (owner policy)');
 SELECT tap.logout();
--- a different fan (seller identity as a plain signed-in user) sees none of them
-SELECT tap.login(tap.stranger());
+-- a different signed-in user (not the buyer, holds no org/venue role) sees none
+SELECT tap.login(tap.other_user());
 SELECT is((SELECT count(*)::int FROM venue."order"), 0, 'I2: a non-buyer, non-staff signed-in user sees ZERO orders');
 SELECT is((SELECT count(*)::int FROM venue.order_item), 0, 'I3: …and zero order_items (order scope inherited)');
 SELECT tap.logout();
