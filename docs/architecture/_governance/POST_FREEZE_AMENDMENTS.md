@@ -353,4 +353,78 @@ OWNER SIGNATURE REQUIRED:    NO — the C93 precedent class, ratified as mechani
   the physical path). The tombstone-flow storage step remains the named engineering cell of that
   artifact.
 
+## HARDENING-1 — sweep_deletion_pending isolation guard (recorded 2026-08-31; carried by the next band package)
+
+**Finding (merge review C of PR #30, non-blocking).** The BP-11 re-check-under-org-locks in
+`kernel.sweep_deletion_pending`'s terminal arm is correct ONLY under READ COMMITTED, where each statement
+takes a fresh snapshot. Under REPEATABLE READ the re-check reads the transaction snapshot and the
+zero-owner write skew returns — **live-reproduced twice** (the reviewer's schedule, and independently on
+2026-08-31 with a sequential RR-snapshot schedule: snapshot fixed → external owner-demote commits →
+stale-snapshot sweep tombstoned the identity and left the org with ZERO owners). Unreachable today by
+contract: EXECUTE is service_role-only, the sole contracted caller is the CRON_SCHEDULE_REGISTER entry,
+and pg_cron runs under default isolation. This record converts that convention into structure.
+
+**Why this rides a later package.** Migration 077 is merged and immutable (its reviewed SHA-256 is the
+governance artifact identity). The sweep is NOT a SEAM-2 hook, so §0.4b's stub-replacement discipline
+does not cover a body change — **this record is the explicit rationale and authorization trail for a
+later `CREATE OR REPLACE` of the sweep body with EXACTLY the block below inserted and no other change.**
+Carrier: the next Phase-2 band package PR (078 at the earliest; 079 is the first to touch the deletion
+machine), as its own commit, with the pgTAP witness added to that package's suite (plan +1; ratchet +1).
+
+**The guard block, VALIDATED VERBATIM** — inserted at the top of the function body, immediately after
+`begin` (top-of-function placement is strictly stronger than the terminal-arm placement the review
+suggested: one check per call, and it also covers the live-arm coalesce pass, which shares the
+per-statement-snapshot dependency):
+
+```sql
+  -- HARDENING-1 (merge review C of PR #30, recorded in the 077 errata): the
+  -- BP-11 re-check-under-org-locks below is correct ONLY under READ COMMITTED,
+  -- where each statement takes a fresh snapshot — under REPEATABLE READ the
+  -- re-check reads the transaction snapshot and the zero-owner write skew
+  -- returns (live-reproduced). The sweep's sole contracted caller is the cron
+  -- register entry under default isolation; this guard makes the dependency
+  -- structural instead of conventional.
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'sweep_deletion_pending requires read committed isolation (the BP-11 re-check depends on per-statement snapshots)';
+  end if;
+```
+
+**The pgTAP witness, VALIDATED VERBATIM** (for the carrying package's suite):
+
+```sql
+SELECT ok(
+  (SELECT pg_get_functiondef(k.oid) LIKE '%transaction_isolation%'
+      AND pg_get_functiondef(k.oid) LIKE '%read committed%'
+     FROM (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'kernel' AND p.proname = 'sweep_deletion_pending'
+            OFFSET 0) k),
+  'HARDENING-1: the deletion sweep carries the isolation guard (BP-11 re-check depends on per-statement snapshots)');
+```
+
+### HARDENING-1 — OWNER APPROVAL (recorded 2026-08-31)
+
+```
+STATUS:                      APPROVED
+OWNER RULING (verbatim):     "HARDENING-1 APPROVED — merge the governance record. The validated
+                             isolation guard and its pgTAP witness are authorized to be carried into the
+                             next appropriate Phase-2 band migration via CREATE OR REPLACE, without
+                             modifying immutable migration 077. The carrier must make the recorded guard
+                             and witness executable before any supported caller may invoke
+                             kernel.sweep_deletion_pending outside its current READ COMMITTED-only
+                             operating contract."
+BINDING CARRIER CONDITION:   any change that would let a supported caller invoke the sweep outside the
+                             READ COMMITTED-only operating contract (a new caller, a new mechanism, a
+                             non-default-isolation invocation path) REQUIRES the guard + witness to be
+                             live FIRST. Until the carrier lands, the cron register's default-isolation
+                             entry remains the sole supported caller.
+```
+
+**Validation record (2026-08-31, scratch pg17 battery, merged 077 bytes + this block):** (a) the RR
+schedule that produced owners=0 on the unhardened body now RAISES the guard error and leaves state
+intact (identity still DELETION_PENDING, owners=1); (b) normal READ COMMITTED sweeps behave identically
+(BP-11 recorded, terminal entry unchanged); (c) the original concurrent write-skew attack remains
+defeated (owners_after=1); (d) the full 141 suite passes 188/188 against the hardened body; (e) the
+witness above passes. Until the carrier lands, the gap remains unreachable by contract, and the
+CRON_SCHEDULE_REGISTER's default-isolation mechanism is the standing control.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
