@@ -478,11 +478,57 @@ SECURITY/MONEY IMPACT:       protective. Under (c) a wallet pass minted for a se
                              expires at starts_at + 6h + 6h = starts_at + 12h, exactly the offline window
                              any manifest could authorise, instead of 18h — 6 hours of bearer-credential
                              life removed from the branch the invariant exists to bound.
-OWNER SIGNATURE REQUIRED:    NO for the merge of 078 — the Apple Wallet rail is DARK
+WHY IMPLEMENTATION CANNOT CONFORM: seeding all three constants at their frozen values is arithmetically
+                             possible, so this is NOT an impossibility record — it is a record that the
+                             frozen values falsify a frozen assertion. Shipping them turns plan §8/078's
+                             own Tests-row invariant RED; dropping the assertion drops a frozen gate.
+                             There is no conforming option that also ships green, which is precisely the
+                             state freeze §2.6 says to STOP on.
+OWNER SIGNATURE REQUIRED:    YES. CORRECTED 2026-08-31 after red-team lens E — this field originally read
+                             "NO for the merge of 078", reasoning that the Wallet rail is dark
                              (wallet.apple.enabled seeds false) and WALLET §13 items 10a/10b already gate
-                             the enable on the exp-clamp evidence, so no live behaviour depends on this
-                             number today. YES before wallet.apple.enabled is flipped true: the owner
-                             must ratify 6h (or set another value satisfying the invariant) under OD-25.
+                             the enable. Both facts are true and neither is freeze §4's test, which
+                             admits NO only for corrections the frozen corpus ALREADY UNIQUELY
+                             DETERMINES. The OPTIONS block lists THREE arithmetically admissible
+                             resolutions, rejecting two on security-direction judgement rather than on
+                             any corpus statement foreclosing them — and the value is pinned to OD-25,
+                             which is OPEN. A provisional value pinned to an open owner decision is by
+                             definition not one the corpus determines. Contrast PFA-8, which earns its NO
+                             by showing the alternative reading fails two frozen tests. Merge of 078 was
+                             BLOCKED on this signature; see the signature record below.
+```
+
+### PFA-7 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      APPROVED
+OWNER SIGNATURE REQUIRED:    SATISFIED
+OWNER VALUE:                 credential.wallet_default_span = '6 hours'
+OWNER RULING (verbatim):     "PFA-7 APPROVED — set `credential.wallet_default_span = '6 hours'`.
+                             This value is the ratified Phase-2 default for Wallet credential validity,
+                             subject to the invariant
+                             `wallet_default_span + wallet_exp_skew <= door.manifest_ttl_interval`.
+                             This ruling selects the missing seed value only; it does not activate the
+                             Wallet rail, expand Wallet scope, change manifest TTL, or waive any later
+                             Wallet go-live gate."
+INTERPRETATION CONSTRAINTS (owner-stated): credential.wallet_default_span = 6 hours · Wallet rail remains
+                             DARK · no Wallet go-live authorization · no change to
+                             door.manifest_ttl_interval · no change to wallet_exp_skew (frozen 078
+                             requires none) · the invariant must remain mechanically proven · this ruling
+                             does not generalize to other TTL choices · no unrelated config modified ·
+                             migrations 076/077 untouched.
+SCOPE OPENED:                exactly one seed value. The 078 migration already carries '6 hours' under
+                             the fail-pending PFA (chosen as the maximum the invariant admits); this
+                             signature BINDS that existing value to the owner ruling. No implementation
+                             byte changes: the pre-signature migration hash
+                             0821dc23c1d77913fb64cffff3ac1632778c8d26ee5fbeaad4a3b9ad03d216a3 remains
+                             the ratified hash. OD-25's wallet_default_span component is RESOLVED by this
+                             ruling; OD-25's remaining scope (the token profile itself) stays open, as
+                             does every WALLET §13 go-live item.
+STILL CLOSED:                Wallet activation (wallet.apple.enabled stays false, and flipping it true
+                             remains a dual-controlled config write gated on WALLET §13 items 10a/10b) ·
+                             any change to the other two invariant constants · any inference from this
+                             ruling to any other TTL.
 ```
 
 ## PFA-8 — `visibility` classification: the corpus carries a six-namespace rule and a seven-namespace rule; the six-namespace rule + the explicit public list govern
@@ -524,6 +570,14 @@ RULING APPLIED:              8 keys ship visibility='public': feature.native_iss
                              design". WALLET §11.5's blanket "public-read like every other config value"
                              predates AUTHZ-CFG1 and is the stale surface.
                              The seven-namespace DUAL-CONTROL set is implemented in full and unchanged.
+WHY IMPLEMENTATION CANNOT CONFORM: (B) is unbuildable against the corpus's own tests. Seeding
+                             wallet.apple.enabled restricted makes plan §8/078's "an anon SELECT ...
+                             DOES return the five feature flags" and schema §2.4.1's non-vacuity guard
+                             both fail, and it dark-ends the pass renderer that §2.4.1 names as the
+                             reason the credential client spans are public. Only one value is admissible.
+RECOMMENDATION:              (b) — and the ruling applied below IS that recommendation. RLS §11.3's
+                             visibility clause should be struck at the next ratified doc pass; its
+                             dual-control claim, which is the sentence's actual subject, stands.
 PACKAGE IMPACT:              078 only (the visibility column of 41 seed rows).
 DAG IMPACT:                  none.
 SECURITY/MONEY IMPACT:       protective on the two wallet ops keys (fail-closed default applied);
@@ -546,6 +600,24 @@ FROZEN RULE:                 plan §8/078 Purpose: 078 is "every seed row in the
                              path — plan §4: "flips are never a migration".
 IMPLEMENTATION CONFLICT:     three classes of key are CONSUMED by the frozen corpus and CANNOT be seeded
                              from it. 078 must not invent them (mission §9's rule generalised).
+WHY IMPLEMENTATION CANNOT CONFORM: a key cannot be seeded without a spelling, and a value cannot be
+                             seeded without a value. CLASS A keys have a spelling and no authoritative
+                             seed row or value; CLASS B has neither a spelling nor a package that agrees
+                             with plan §8; CLASS C names a closed set whose members appear nowhere in the
+                             corpus. Every one of them would have to be INVENTED, which RPC §20.2.1
+                             forbids by name ("a key an implementer invents at 2 a.m. is worse").
+OPTIONS:                     (a) invent the missing spellings, values and CHECK members — REJECTED: it is
+                                 the defect class the whole corpus exists to prevent, and an invented key
+                                 becomes load-bearing the moment a later package reads it;
+                             (b) seed nothing for the value-open keys — REJECTED: RPC §20.2.1's registry
+                                 precondition then makes those keys unsettable through the only
+                                 sanctioned path, and plan §4 forbids a migration flip, so the value
+                                 could never be set at all;
+                             (c) seed the ROW with a JSON null value and record the absence — CHOSEN. It
+                                 is the frozen retention.backup_window_days pattern, applied to the keys
+                                 that are in the same position.
+RECOMMENDATION:              (c), with each open decision named beside its key so the owner can rule per
+                             key rather than per package.
   CLASS A — spelled, consumed, in NO authoritative seed table, NO value anywhere:
                              door.session_touch_interval      — read by schema §3.10a.4 and RPC §1.1d;
                                absent from DOOR §10.6's seed table. The consolidation report §8 item 3
