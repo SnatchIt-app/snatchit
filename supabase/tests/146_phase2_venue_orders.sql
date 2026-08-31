@@ -154,8 +154,9 @@ INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('f
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.per_user_active_hold_max', 1, '10'::jsonb, 'restricted');
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.hold_ttl_interval', 1, '"15 minutes"'::jsonb, 'restricted');
 
--- a DELETION_PENDING buyer is refused (F-1)
-INSERT INTO kernel.identity_ext (identity_id, deletion_state) VALUES (tap.buyer(),'ACTIVE')
+-- a DELETION_PENDING buyer is refused (F-1). Set the state directly in VALUES so
+-- it holds whether or not the buyer already has a lazily-created identity_ext row.
+INSERT INTO kernel.identity_ext (identity_id, deletion_state) VALUES (tap.buyer(),'DELETION_PENDING')
   ON CONFLICT (identity_id) DO UPDATE SET deletion_state='DELETION_PENDING';
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L, '[]'::jsonb, ARRAY[]::uuid[], 'ck-e1')$$, tap._fetch146('session')),
@@ -207,10 +208,12 @@ SELECT isnt(kernel.deletion_blockers_orders(tap.buyer()), NULL, 'F8: BP-12 — t
 -- ============================================================================
 -- SECTION G — cancel_pending_order (service_role; forward-only; noop on redelivery)
 -- ============================================================================
+SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.cancel_pending_order(%L, 'webhook_terminal', 'ck-x-1')$$, tap._fetch146('checkout')),
   '42501', NULL, 'G1: a signed-in fan cannot call the machine-only cancel (service_role EXEC)');
+SELECT tap.logout();
 -- as the machine: cancel the pending order
-SELECT tap.as_service_role();
+SELECT tap.login_service();
 SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'ok', 'G2: the webhook cancels a pending order');
 SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'noop_replay', 'G3: redelivery on a cancelled order is a noop_replay (never raises — a raising webhook retries forever)');
 SELECT tap.logout();
