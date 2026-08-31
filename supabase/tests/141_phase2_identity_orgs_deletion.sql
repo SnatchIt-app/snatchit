@@ -51,7 +51,9 @@ SELECT ok(to_regclass('kernel.org_customer_key')            is not null, '077 A1
 SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r'),
-  12, '077 A13: exactly TWELVE kernel tables (plan §8/077 — no extra, no missing)');
+  -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
+  -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
+  15, '077 A13: exactly FIFTEEN kernel tables (077''s twelve + 079''s custody three)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -62,7 +64,10 @@ SELECT is(
   -- authn.money_role_maturity_hours seed (078). The count is raised by exactly
   -- one and the two EXECUTE closures below still name every member, so this
   -- stays exact-by-name and cannot pass vacuously.
-  41, '077 A14: exactly 41 kernel functions (the two 076 helpers + 077''s 23 caller-authorized + 14 DEF + 1 trigger writer + 078''s money_role_grant_matured)');
+  -- 2026-08-31 (package 079): 41 -> 48. The seven of 079: is_transfer_frozen,
+  -- lock_ticket, unlock_ticket, mark_ticket_scanned, sweep_expired_ticket_atoms,
+  -- tg_custody_head_is_ledger_tail and raise_override_forward_only.
+  48, '077 A14: exactly 48 kernel functions (41 post-078 + the seven of 079)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -129,7 +134,8 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
-  12, '077 C1: RLS is ENABLED on all twelve tables (deny-by-default at birth)');
+  -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
+  15, '077 C1: RLS is ENABLED on all fifteen tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -145,8 +151,12 @@ SELECT is(
      JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'),
   'kernel_identity_ext_sel_owner,kernel_org_invite_sel_invitee,kernel_org_invite_sel_org,'
   || 'kernel_org_member_sel_org,kernel_org_member_sel_platform,kernel_organization_sel_org,'
-  || 'kernel_organization_sel_platform,kernel_platform_role_sel_platform',
-  '077 D1 [T-RLS-POL-01]: exactly the EIGHT registered policy names — nothing else');
+  || 'kernel_organization_sel_platform,kernel_platform_role_sel_platform,'
+  -- 2026-08-31 (package 079): the §16.10 register's two kernel.tickets read
+  -- policies (kernel_tickets_sel_venue stays 080's, AUTHZ-PKG1). The ledger and
+  -- the override table are deny-all by design and add NO name.
+  || 'kernel_tickets_sel_owner,kernel_tickets_sel_platform',
+  '077 D1 [T-RLS-POL-01]: exactly the TEN registered policy names — nothing else');
 SELECT is(
   (SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
     WHERE c.oid IN ('kernel.admin_audit'::regclass, 'kernel.approval_request'::regclass,
@@ -222,15 +232,18 @@ SELECT is(
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   'accept_org_invite,admin_set_identity_ext,change_org_role,clear_my_demographics,'
   || 'create_organization,get_my_contact_prefs,get_my_demographics,grant_platform_role,'
-  || 'has_org_role,invite_org_member,is_org_affiliate,is_platform,money_role_grant_matured,'
-  || 'remove_org_member,'
+  || 'has_org_role,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
+  || 'money_role_grant_matured,remove_org_member,'
   || 'request_account_deletion,revoke_org_invite,revoke_platform_role,set_my_contact_prefs,'
   || 'set_my_demographics,set_org_connect_ref,set_org_status,update_organization,'
   || 'upsert_identity_ext,withdraw_account_deletion',
   -- money_role_grant_matured added 2026-08-31 by package 078: RLS §11.2 gives it
   -- an explicit `EXEC: authenticated` row (REVOKE FROM public, anon; GRANT TO
   -- authenticated). Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 24 caller-authorized functions (23 from 077 + 078''s money_role_grant_matured)');
+  -- 2026-08-31 (package 079): is_transfer_frozen joins (RLS §11.4 — the RN
+  -- eligibility boolean). lock/unlock/mark_ticket_scanned/the expiry sweep are
+  -- DEF and deliberately ABSENT. Named, not counted.
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 25 caller-authorized functions (23 from 077 + money_role_grant_matured + is_transfer_frozen)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -241,12 +254,13 @@ SELECT is(
   || 'deletion_blockers_orders,deletion_blockers_wallet,has_outstanding_obligations,'
   || 'is_deletion_pending,on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
-  || 'sweep_deletion_pending,sweep_expired_org_invites',
-  -- UNCHANGED by package 078. kernel.money_role_grant_matured is authored in 078
-  -- but its frozen EXEC class (RPC §1.1e, RLS §11.2) is `authenticated` ONLY —
-  -- definer callers in 085 reach it by ownership, not by grant — so 077's DEF
-  -- closure is exactly as it was.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 14 DEF functions');
+  || 'sweep_deletion_pending,sweep_expired_org_invites,sweep_expired_ticket_atoms',
+  -- 2026-08-31 (package 079): sweep_expired_ticket_atoms is the FIFTEENTH name —
+  -- its frozen EXEC row (RPC §12.5 / S-22 / CRON register) is DEF,
+  -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
+  -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
+  -- callers are definer functions reached by ownership.
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 15 DEF functions');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

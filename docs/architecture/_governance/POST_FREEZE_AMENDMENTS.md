@@ -634,6 +634,17 @@ RECOMMENDATION:              (c), with each open decision named beside its key s
                              notify.delivery_lease_interval   — read by notify.claim_deliveries (092,
                                RPC §20.10); ODR1_AMENDMENT_DRAFT records it verbatim as "the unseeded
                                notify.delivery_lease_interval" among the open authoring items.
+                             ticket.expiry_grace              — ADDED 2026-08-31 (completeness
+                               correction, package 079; erratum E-18): read by
+                               kernel.sweep_expired_ticket_atoms (schema §1.5.1, RPC §12.5); in NO
+                               authoritative seed table, NO value anywhere. Same CLASS A disposition:
+                               NOT seeded; the consumer is fail-to-safe. The safe direction for THIS
+                               consumer is INERT (sweep expires nothing while the key is absent):
+                               'expired' is a TERMINAL label, so stamping it on a guessed grace could
+                               terminal-ize an atom a later refund path still needs, while not stamping
+                               it is the direction the corpus itself declares harmless ("lateness is
+                               harmless by construction", plan §8/079; §4.3.1 forbids any path trusting
+                               the label). The VALUE is owner-owed forward like the rest of CLASS A.
   CLASS B — cited as a family, NO key spelling exists anywhere:
                              the CRM rate limits/caps/retention (CRM §7.1's fifteen rows are ACTIONS and
                                NUMBERS — "crm_export_request per actor 5/24h" — never platform_config key
@@ -870,6 +881,62 @@ OWNER SIGNATURE REQUIRED:    NO for 078 — a frozen test pins (a), so only one 
                              C93/PFA-6 precedent class). YES before any reclassification path is built.
 ```
 
+## PFA-13 — `kernel.unlock_ticket`'s R-40 dispute re-arm reads an `088` table from a `079` function, and no seam is recorded
+
+```
+ID:                          PFA-13
+FROZEN RULE:                 (A) RPC §7.4 (and RLS §11's unlock row, verbatim): "an unlock resolves the
+                                 overlay to `dispute_hold` — not `none` — while an open
+                                 `kernel.dispute_native` row joins the atom's originating payment
+                                 (`R-40` re-arm)". §7.4 is a 079-authored function's contract.
+                             (B) `kernel.dispute_native` and the whole R-40 dispute surface are `088`
+                                 objects (plan §8/088; registry: "kernel.record_dispute_native …
+                                 SEAM-1 max(077,079,085,087,088)=088"), and `kernel.payment_native`
+                                 (the join's other leg) is `085`.
+                             (C) The corpus's own no-forward-reference discipline (SEAM-1/SEAM-2,
+                                 §0.4b; FR-7's withdrawal of the tolerate-missing-operand hatch) and
+                                 the mission rule that a package must not implement later-package
+                                 operands early.
+IMPLEMENTATION CONFLICT:     the arm's operands do not exist at 079. A static reference is 42P01 at
+                             creation-world replay; a runtime to_regclass probe would IMPLEMENT 088's
+                             dispute predicate early (against (C)); a new SEAM-2 hook
+                             (dispute_freeze_active stub) is an object the frozen closed world does not
+                             carry (parity EXTRA = 0); and 088's recorded replacement list
+                             (settlement_royalty_lines, on_atom_voided, on_door_freeze_engaged,
+                             door_freeze_drain_preview) does NOT name unlock_ticket — the corpus
+                             mandates the behaviour and records no mechanism for it to become live.
+WHY IMPLEMENTATION CANNOT CONFORM: no body writable at 079 satisfies (A), (B) and (C) simultaneously.
+OPTIONS:                     (a) runtime to_regclass-guarded dynamic check — REJECTED by (C): it is
+                                 088's operand implemented at 079, and the corpus resolves forward
+                                 shapes structurally (the §13.5-B precedent), never by runtime probes;
+                             (b) a new SEAM-2 stub pair — REJECTED: EXTRA = 0; and C110 shows hooks are
+                                 added only where a RECORDED caller needs them;
+                             (c) author unlock at 079 releasing to 'none' — the TRUE value over the
+                                 empty world (no dispute can exist before 088; every native release
+                                 path that could observe one arrives at 085+) — and record that 088
+                                 OWES a body-only CREATE OR REPLACE of kernel.unlock_ticket (SEAM-2a
+                                 discipline: signature, parameter names, return type verbatim) adding
+                                 the dispute_hold arm. CHOSEN. This is the same shape as every §20.17.5
+                                 stub ("the neutral result is the true value over an empty world; the
+                                 replacing package asserts the stub body is no longer live") applied to
+                                 one arm of a real body, and the same declaration-only transcription
+                                 class as the SEAM-1 edge corrections.
+RECOMMENDATION:              (c). 088's implementer adds the arm and a T-RPC-DISP-09-family witness that
+                                 the release resolves to dispute_hold while a dispute is open.
+PACKAGE IMPACT:              079 (the body ships without the arm, disclosed in-body); 088 (owes the
+                             replacement).
+DAG IMPACT:                  none — 088 already depends on 079.
+SECURITY/MONEY IMPACT:       none at 079 (the arm is unreachable: no dispute object exists, and unlock's
+                             callers all arrive at 085+). At 088, failing to carry the replacement would
+                             weaken the R-40 persist-until-resolve property — which is why the
+                             obligation is recorded HERE, where the arm is visibly absent.
+OWNER SIGNATURE REQUIRED:    NO — the corpus uniquely determines the correction: the arm is mandated
+                             (A), its operands' package is fixed (B), body-only replacement is the
+                             corpus's own mechanism (SEAM-2a/C110's "a CREATE OR REPLACE that ran
+                             before its stub would be silently overwritten" discipline), and (a)/(b)
+                             are each closed by a named rule. The only admissible resolution is (c).
+```
+
 ## ERRATA — package 078 (recorded, no amendment needed)
 
 **E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
@@ -989,5 +1056,68 @@ verbatim; the behavioural half — that a REPEATABLE READ call actually raises �
 after the first query. It was proven out-of-suite instead, on the merged bytes: RR raises with state
 intact, READ COMMITTED is unchanged, and the concurrent write skew stays defeated at every schedule tried.
 Raised by red-team lens F.
+
+## ERRATA — package 079 (recorded, no amendment needed)
+
+**E-18 — `ticket.expiry_grace` is a PFA-9 CLASS A key the register missed; the consumer ships
+fail-INERT.** Spelled and consumed by `kernel.sweep_expired_ticket_atoms` (schema §1.5.1, RPC §12.5), in
+no authoritative seed table, no value anywhere — the exact CLASS A definition, absent from PFA-9's
+enumeration. Corrected in place (the tally-fix precedent) and applied under PFA-9's own ruling: NOT
+seeded; the sweep returns `{swept_count: 0}` while the key is absent, NULL, or unparseable, because
+`expired` is a terminal label and the inert direction is the only one the corpus declares harmless.
+Additionally disclosed: the contract writes the signature as `(p_limit int)`; the implementation carries
+`DEFAULT 100` (mirroring `kernel.sweep_deletion_pending(p_limit int DEFAULT 100)`) so the register's bare
+`cron.schedule` call form is invocable — identity `(integer)` is unchanged. And a session with
+`ends_at IS NULL` expires nothing: "ended by more than the grace" is unevaluable without an end, and the
+sweep never guesses one.
+
+**E-19 — two DOOR §8.1 clauses are platform impossibilities, each resolved in its only admissible
+direction.** (1) The CHECK `expires_at <= granted_at + config('door.max_override_interval')` cannot exist:
+a CHECK cannot read a table. The ceiling is enforced as precondition 2 of
+`kernel.grant_door_freeze_override` (`086`), the table's sole contracted INSERT writer; the static half
+(`expires_at > granted_at`) ships as a real CHECK. (2) The partial index `(session_id) WHERE revoked_at IS
+NULL AND expires_at > now()` cannot exist: an index predicate must be immutable. Shipped as
+`(session_id, expires_at) WHERE revoked_at IS NULL` — the expiry comparison lives in the reader
+(`is_transfer_frozen`), which still walks only unrevoked rows of the session. Both are the PFA-1/PFA-2
+impossibility class: no owner bit, one admissible direction each.
+
+**E-20 — `kernel.tg_custody_head_is_ledger_tail` evaluates the LIVE head at fire time, not the queued
+row-version's `NEW`.** Schema §1.6.2 writes the clauses over `NEW.current_owner_id` /
+`NEW.credential_version`. A deferred constraint-trigger queue holds one event per ROW VERSION, so a
+transaction performing two correct custody moves on the same atom (each properly paired) queues an
+intermediate version whose `NEW` no longer matches the final tail — the literal reading RAISES ON A
+CORRECT TRANSACTION (observed live before correction). The invariant the record states is over the state
+"at COMMIT", and the shipped body reads `kernel.tickets`' current row for `NEW.ticket_atom_id`, which is
+exactly that state; the three clauses, the firing columns (`current_owner_id`, `credential_version` — and
+nothing else), and DEFERRABLE INITIALLY DEFERRED are all verbatim. A row deleted before commit (possible
+only in the pre-go-live window, where the rollback's emptiness guard lives) is skipped.
+
+**E-21 — the corpus's "no new cron entry" phrases for the atom-expiry sweep are SUPERSEDED text, disclosed
+here so a reader of schema §1.5.1 / RPC §12.5 alone is not misled.** Both sections say the sweep "rides the
+2-minute heartbeat that already runs — no new cron entry". The P0-1 correction (2026-08-29) found no shared
+heartbeat exists; plan §8/079's own row carries the correction ("this package creates its OWN explicit
+cron.schedule entry — register row: 079, 2 min") and `_governance/CRON_SCHEDULE_REGISTER.md` line 35 corrects
+"every 'rides the existing heartbeat' phrase in the corpus". 079 ships the dedicated entry, per the register.
+Raised by red-team F (PR #33) because the correction lived only in the plan row and the register, not here.
+
+**E-22 — FORWARD OBLIGATION (083/085/088, the ledger-writing engines): the MB-4 verify trigger is not
+self-sufficient under concurrency; the engine atom-lock invariant is load-bearing.**
+`kernel.tg_custody_head_is_ledger_tail` fires only on head writes (`current_owner_id`/`credential_version`)
+and compares to the MAX(sequence) tail. Red-team B (PR #33) demonstrated with real interleavings that (a) a
+NAKED ledger append — a log row with no head write — never fires it and can commit a silent head≠tail
+desync, and (b) a concurrent naked append can make the trigger FALSE-REJECT a correct move. Unreachable at
+079: the ledger is deny-all and no ledger-writing engine exists. The closure is the construction §1.6.1
+already describes: **every engine that appends `kernel.ticket_ownership_log` MUST hold the atom's
+`kernel.tickets` row `FOR UPDATE` across both the head write and the append, in the same transaction.**
+Recorded here so 083's mint, 085's void and 088's transfer engines implement that invariant as load-bearing,
+not stylistic; a defense-in-depth guard on the ledger side is admissible future hardening, not shipped here
+(EXTRA = 0).
+
+**E-23 — FORWARD OBLIGATION (082/085/088, the acquisition engines): `kernel.is_deletion_pending` is a
+pending-flag, not a recipient-validity gate.** It returns FALSE for an ERASED identity, so the F-11 lock
+closes the read→tombstone window but does not stop new matter landing on an ALREADY-TOMBSTONED identity.
+Every acquisition path (checkout buyer, p2p recipient, market buyer) must independently refuse a
+non-ACTIVE counterparty — which is what the dsm §1.3 ERASED refusals already contract; this erratum pins
+that the refusal cannot be discharged by calling `is_deletion_pending` alone. Raised by red-team B (PR #33).
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
