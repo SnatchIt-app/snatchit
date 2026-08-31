@@ -751,7 +751,9 @@ SELECT lives_ok($$SELECT kernel.sweep_deletion_pending()$$, '077 O24b: sweep run
 SELECT is(
   (SELECT deletion_block_reason LIKE 'BP-7%' FROM kernel.identity_ext WHERE identity_id = tap.buyer()),
   true, '077 O24 [BP-7 live]: the seed pending transfer blocks the buyer — first-true-in-order wins');
+SELECT set_config('app.bypass_transfer_guard', 'on', true), set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.transfers SET payout_review_status = 'held' WHERE id = tap.transfer_a();
+SELECT tap.reset_guards();
 SELECT lives_ok($$SELECT kernel.sweep_deletion_pending()$$, '077 O25a: sweep re-evaluates every pass');
 SELECT tap.login(tap.seller());
 SELECT is((kernel.request_account_deletion('co15'))->>'status', 'ok', '077 O25b: seller requests too');
@@ -760,7 +762,9 @@ SELECT lives_ok($$SELECT kernel.sweep_deletion_pending()$$, '077 O25c: sweep see
 SELECT is(
   (SELECT deletion_block_reason LIKE 'BP-6%' FROM kernel.identity_ext WHERE identity_id = tap.seller()),
   true, '077 O25 [BP-6 live]: an unresolved payout hold blocks the seller BEFORE BP-7 (order held)');
+SELECT set_config('app.bypass_transfer_guard', 'on', true), set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET reserved_by = '77777777-7777-7777-7777-777777777777' WHERE id = tap.listing_d();
+SELECT tap.reset_guards();
 SELECT tap.login('77777777-7777-7777-7777-777777777777'::uuid);
 SELECT is((kernel.request_account_deletion('co16'))->>'status', 'ok', '077 O26a: reserver requests');
 SELECT tap.logout();
@@ -769,14 +773,18 @@ SELECT is(
   (SELECT deletion_block_reason LIKE 'BP-8%' FROM kernel.identity_ext
     WHERE identity_id = '77777777-7777-7777-7777-777777777777'),
   true, '077 O26 [BP-8 live]: an in-flight buy-now reservation blocks');
+SELECT set_config('app.bypass_transfer_guard', 'on', true), set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET reserved_by = NULL WHERE id = tap.listing_d();
 UPDATE public.listings SET winner_user_id = '77777777-7777-7777-7777-777777777777' WHERE id = tap.listing_c();
+SELECT tap.reset_guards();
 SELECT lives_ok($$SELECT kernel.sweep_deletion_pending()$$, '077 O27a: sweep');
 SELECT is(
   (SELECT deletion_block_reason LIKE 'BP-9%' FROM kernel.identity_ext
     WHERE identity_id = '77777777-7777-7777-7777-777777777777'),
   true, '077 O27 [BP-9 live]: a won-unsettled auction blocks (no silent discard of the win)');
+SELECT set_config('app.bypass_transfer_guard', 'on', true), set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET winner_user_id = NULL WHERE id = tap.listing_c();
+SELECT tap.reset_guards();
 SELECT tap.login('77777777-7777-7777-7777-777777777777'::uuid);
 SELECT is((kernel.withdraw_account_deletion('co17'))->>'status', 'ok', '077 O28: withdrawal mid-machine restores ACTIVE');
 SELECT tap.logout();

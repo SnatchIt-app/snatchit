@@ -137,16 +137,28 @@ SELECT is(
   0,
   'outbox: postgres is the SOLE grantee — service_role (BYPASSRLS) holds zero table grants; the grant wall is its only wall and it is watched (review C-F8/E-F3)');
 
+-- Re-scoped at package 077 (PFA-1's own standing obligation: "every later
+-- package's suite keeps this sweep green over its own functions"): the
+-- INVARIANT arms — zero PUBLIC and zero anon EXECUTE on ANY walled-schema
+-- function, forever — stay here unchanged. The authenticated arm is no longer
+-- a global zero once RLS §11's caller-authorized class exists (077's client
+-- RPCs carry GRANT EXECUTE TO authenticated BY FROZEN CONTRACT), so from 077
+-- each package's suite asserts its own schema's authenticated EXECUTE closure
+-- by EXACT NAME EQUALITY (kernel: 141 test F2), and this sweep pins
+-- authenticated at zero for the schemas that still have no caller-authorized
+-- function (venue, market, notify).
 SELECT is(
   (SELECT count(*)::int
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-    WHERE n.nspname IN ('kernel','venue','market','notify')
-      AND (a.grantee = 0
-           OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated')))
-      AND a.privilege_type = 'EXECUTE'),
+    WHERE a.privilege_type = 'EXECUTE'
+      AND (   (n.nspname IN ('kernel','venue','market','notify')
+               AND (a.grantee = 0
+                    OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname = 'anon')))
+           OR (n.nspname IN ('venue','market','notify')
+               AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname = 'authenticated')))),
   0,
-  'PFA-1 witness: EVERY function in the walled schemas carries zero PUBLIC/anon/authenticated EXECUTE — the per-object sweep replacing the impossible per-schema functions belt (schema-scoped ADP REVOKE cannot subtract the built-in PUBLIC default; each package suite keeps this sweep green over its own functions)');
+  'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
 SELECT tap.login('11111111-1111-1111-1111-111111111111');
 SELECT throws_ok(
