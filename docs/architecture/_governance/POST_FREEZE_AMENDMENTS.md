@@ -789,6 +789,24 @@ OWNER SIGNATURE REQUIRED:    NO — the placement is the frozen plan's; only the
                              the same function, resolved toward the one that is buildable at 078.
 ```
 
+### PFA-10 — DISCHARGED (recorded 2026-08-31, package 080)
+
+```
+STATUS:                      DISCHARGED — no body replacement was owed and none occurred. The deferred
+                             name kernel.has_venue_role was AUTHORED by 080 (its frozen owner), plpgsql
+                             late-binding resolved every deferred arm in the six 078/079 RPC bodies
+                             UNCHANGED, and suite 144 §E asserts the activation boundary behaviourally
+                             (venue_manager live on update_event/update_venue/create_event_session/
+                             update_event_session; venue_marketing on marketing-only columns; scanner,
+                             box_office and wrong-venue denied; the time/freeze guards and reason-code
+                             requirements unmoved). Every label array in those arms was verified against
+                             the canonical six of ROLE_MODEL §3.4 before activation — all conform.
+                             No owner signature was required (the record's own NO verdict), and the
+                             SECOND-ARM (RM-3) disclosure stands unchanged: the re-inlined ORG arms in
+                             078/079 remain as disclosed; has_org_role_over_venue/_over_event now exist
+                             for every FUTURE authority arm, which is where RM-3 binds them.
+```
+
 ## PFA-11 — `catalog.effective_freeze_at`'s frozen `authenticated` grant publishes a `restricted` config value by subtraction
 
 ```
@@ -1119,5 +1137,44 @@ closes the read→tombstone window but does not stop new matter landing on an AL
 Every acquisition path (checkout buyer, p2p recipient, market buyer) must independently refuse a
 non-ACTIVE counterparty — which is what the dsm §1.3 ERASED refusals already contract; this erratum pins
 that the refusal cannot be discharged by calling `is_deletion_pending` alone. Raised by red-team B (PR #33).
+
+## ERRATA — package 080 (recorded, no amendment needed)
+
+**E-24 — per-policy column scoping does not exist in PostgreSQL; the I-4 discipline on `kernel.tickets`
+is carried by the role's ONE column grant, which therefore reaches the owner read too.** RLS §16.10a:
+*"I-4 column discipline is carried by the GRANT, not by the USING. Footnote 8 of §7.5 scopes the
+issuing-venue read so that current_owner_id is NOT among the granted columns"* — while §7.5's owner cell
+reads *"owner reads own atom in full"*. One role (`authenticated`), one column set: both cannot hold.
+Resolved in the direction §16.10a itself states (it is the later, DDL-directive text, written for the
+package that creates the venue policy): 080 re-issues `kernel.tickets`' authenticated grant as the sixteen
+non-PII columns, excluding `current_owner_id`. The owner's ROW visibility is unaffected (`sel_owner`'s
+predicate is a policy expression, outside column ACLs), and an owner client never needs to SELECT the
+column — it is by definition their own `auth.uid()`. The 079 suite's one column-referencing client probe
+was re-scoped (143 I13). Platform/postgres reads are unaffected. The PFA-1/PFA-2 impossibility class: one
+admissible direction, no owner bit.
+
+**E-25 — the "079-deferred venue policy" and the SEAM-3/FR-10..12 deferrals DISCHARGED on schedule.**
+The four AUTHZ-PKG1 policies (`catalog_venue_sel_venue`, `catalog_event_sel_venue`,
+`catalog_event_session_sel_venue`, `kernel_tickets_sel_venue`) were created by 080 with the §16.10a USING
+clauses verbatim — including the R3-3a corrected `status <> 'draft'` second tier, the OPEN-1 deliberate
+absence of the `venue_scanner` arm on `event_session` (filed to the RLS owner, not guessed), and the
+GP-3-NOTE unsplit org arm on `kernel_tickets_sel_venue`. Suites 142/143's deferral assertions inverted to
+presence-pinned-to-080; suite 144 asserts the predicates behaviourally per label (T-RLS-POL-03's positive
+half).
+
+**E-26 — a staff grant could resurrect a tombstone's authority; closed with the F-11 construction and a
+terminal-state refusal.** `venue.grant_staff_role`'s frozen preconditions require only a live `auth.users`
+row — an ERASED identity still has one (the tombstone never calls `auth.admin.deleteUser`), so a manager
+could re-grant authority the INV #23 cleanup had just removed, making the CLEANED disposition
+non-terminal. Worse, the pure static check races: a grant that OBSERVED `DELETION_PENDING` could commit
+after the tombstone (proven with a real two-session interleave: `ERASED ∧ holds-authority`). Both closed:
+the grant refuses an `ERASED` target (`identity_erased` — dsm §1.3's terminality applied to the one 080
+verb that confers authority on a counterparty; the E-23 principle, discharged here for this verb rather
+than owed forward), and the check takes `FOR SHARE` on the target's `kernel.identity_ext` row — the F-11
+construction — so the sweep's terminal-entry `FOR UPDATE` serializes against it in both orders
+(grant-first: the next pass's INV #23 cleanup removes the fresh row; tombstone-first: the check reads
+ERASED and refuses). `DELETION_PENDING` targets are deliberately NOT refused: staff roles are not
+blockers, and dsm §3.2's freeze surface names no staff-grant refusal. Verified live in both orders;
+zero-integrity `ERASED ∧ authority = ∅` held.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
