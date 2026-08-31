@@ -5,11 +5,12 @@
 -- §2.4.1 (AUTHZ-CFG1) · RLS spec §8.1–§8.5, §11, §16.10/§16.10a · RPC contracts
 -- §1.1e, §3.1–§3.3, §4.1, §4.3, §12.4a, §20.2.1–§20.2.3 · DOOR §10.6 ·
 -- WALLET §11.5 · NOTIF §7.3/§7.4 · MONEY §7.2 · OR-22 · OR-16/DEMOG §8.5.
--- PFA-7/PFA-8/PFA-9/PFA-10 witnesses included.
+-- PFA-7/PFA-8/PFA-9/PFA-10 witnesses included. HARDENING-1's recorded witness is
+-- section L, verbatim from the governance record.
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(202);
+SELECT plan(207);
 
 SELECT tap.seed_core();
 
@@ -897,6 +898,39 @@ SELECT throws_ok(
   $$SELECT kernel.grant_platform_role('00000000-0000-0000-0000-00000000beef'::uuid,'platform_admin','r','k')$$,
   NULL, NULL,
   'K6: PFA-4 — the platform-role grant plane is STILL FAIL-CLOSED; 078 did not implement it');
+
+-- ============================================================================
+-- SECTION L — HARDENING-1 (owner-approved; carried by this package)
+-- ============================================================================
+
+-- The witness, VERBATIM from the governance record.
+SELECT ok(
+  (SELECT pg_get_functiondef(k.oid) LIKE '%transaction_isolation%'
+      AND pg_get_functiondef(k.oid) LIKE '%read committed%'
+     FROM (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'kernel' AND p.proname = 'sweep_deletion_pending'
+            OFFSET 0) k),
+  'HARDENING-1: the deletion sweep carries the isolation guard (BP-11 re-check depends on per-statement snapshots)');
+
+-- The guard is a BODY change only: signature, parameter names and return type are
+-- exactly 077's, so no caller anywhere in the chain is re-bound.
+SELECT is((SELECT pg_get_function_identity_arguments(p.oid)
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'kernel' AND p.proname = 'sweep_deletion_pending'), 'p_limit integer',
+  'L2: the signature AND the parameter NAME are unchanged by the body replacement');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'kernel' AND p.proname = 'sweep_deletion_pending'), 1,
+  'L3: exactly one sweep_deletion_pending exists — the replacement did not create an overload');
+SELECT ok(
+  (SELECT pg_get_functiondef(k.oid) LIKE '%BP-11: sole org_owner (re-verified under the org locks)%'
+     FROM (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'kernel' AND p.proname = 'sweep_deletion_pending'
+            OFFSET 0) k),
+  'L4: the BP-11 re-check-under-org-locks the guard protects is still present, unmodified');
+
+-- Behaviour: READ COMMITTED (the contracted caller's isolation) is unchanged.
+SELECT is((SELECT (kernel.sweep_deletion_pending(1) ->> 'swept')::int), 0,
+  'L5: under READ COMMITTED the sweep runs normally and finds nothing pending');
 
 SELECT * FROM finish();
 ROLLBACK;
