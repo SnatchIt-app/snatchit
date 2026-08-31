@@ -781,7 +781,7 @@ jobs:
           # wide, override subtraction) + lock/unlock/scan overlays +
           # update_event_session time guard + BP-1 routing + the REAL
           # T-SCHEMA-SENTINEL-05 + AO guards + adversarial RLS.
-          # 144 plans 113: the 080 authz closed world (six-label CHECK, the four
+          # 144 plans 114: the 080 authz closed world (six-label CHECK, the four
           # predicates, AUTHZ-M7 tier guard, the four AUTHZ-PKG1 policies
           # behaviourally per label, live revocation, INV #23/#24 through the
           # sweep, the PFA-10 activation boundary, deny-by-default). 142 +1
