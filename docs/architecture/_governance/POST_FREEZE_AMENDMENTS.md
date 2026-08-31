@@ -634,6 +634,13 @@ RECOMMENDATION:              (c), with each open decision named beside its key s
                              notify.delivery_lease_interval   — read by notify.claim_deliveries (092,
                                RPC §20.10); ODR1_AMENDMENT_DRAFT records it verbatim as "the unseeded
                                notify.delivery_lease_interval" among the open authoring items.
+                             inventory.per_user_active_hold_max · inventory.hold_ttl_interval
+                               — ADDED 2026-08-31 (completeness correction, package 081; erratum
+                               E-28): read by venue.reserve_primary_inventory /
+                               create_inventory_hold (RPC §5.3/§5.4); NO frozen spelling, seeded by
+                               nobody. Fail-safe: the cap is fail-to-ZERO (AUTHZ-M8 precedent), the TTL
+                               REFUSES rather than invent policy. Unreachable while
+                               feature.native_issuance_enabled is false. Values owner-owed forward.
                              ticket.expiry_grace              — ADDED 2026-08-31 (completeness
                                correction, package 079; erratum E-18): read by
                                kernel.sweep_expired_ticket_atoms (schema §1.5.1, RPC §12.5); in NO
@@ -1192,5 +1199,49 @@ implementation defect, and NOT changed here.** Exposure is to trusted same-venue
 Filed for the RLS owner beside OPEN-1/OPEN-2: if the board wants draft-event session timing withheld from
 non-manager venue labels, that is a new ratification (an added `EXISTS (visible parent event)` conjunct),
 not a clarification. Raised independently by two red-team reviewers on PR #34.
+
+## ERRATA — package 081 (recorded, no amendment needed)
+
+**E-28 — two config keys the inventory-hold path reads have NO frozen spelling; they are PFA-9 CLASS A,
+seeded by nobody, and the path fails SAFE without them.** `venue.reserve_primary_inventory` and
+`venue.create_inventory_hold` read a per-user active-hold cap (RPC §5.3: *"per-user cap read from
+catalog.platform_config"*) and a hold TTL (RPC §5.3: *"expires_at := now() + server_max_ttl"*). Neither key
+has a spelling anywhere in the corpus — the same CLASS A shape as `ticket.expiry_grace` (E-18). 081 reads
+them as **`inventory.per_user_active_hold_max`** and **`inventory.hold_ttl_interval`**, seeds NEITHER, and
+ships fail-safe in the frozen directions: the cap is **fail-to-ZERO** (`COALESCE(config, 0)` — the AUTHZ-M8
+precedent: a missing seed refuses every reserve loudly, never admits unbounded holds silently), and the TTL
+**REFUSES** (`hold_ttl_unset`) rather than invent a business policy (a TTL is policy, not a default — the
+one direction PFA-9 forbids is inventing a value). Both are unreachable while native issuance is dark:
+reserve/create-hold check `feature.native_issuance_enabled` (false for all of 081's life) and refuse
+`feature_disabled` BEFORE either key is read — proven by flipping the flag inside a rolled-back test txn
+(suite 145 §G) and observing the fail-to-zero and refuse-unset behaviours. The VALUES are owner-owed
+forward, exactly like the rest of PFA-9 CLASS A; PFA-9's CLASS A list is extended by these two keys (the
+E-18 tally-fix precedent).
+
+**E-29 — the raw inventory counters cannot be shown to venue staff but hidden from fans via a column ACL;
+the E-24 impossibility, recomplicated by two visibility tiers.** RLS §9.2 footnote 23 wants
+`capacity`/`held`/`sold` *"col-scoped to venue staff + platform"* while `remaining` is *"world-readable"*.
+PostgreSQL column ACLs are per-(relation, role), and venue staff, fans and platform staff are ALL the single
+`authenticated` role (staff/platform status lives in `kernel.*_role` rows, not in Postgres roles) — so no
+column grant can split them. Resolved the fail-closed way, the direction §9.2's own hot-path discipline
+points: `remaining` is a GENERATED column; `authenticated` is granted SELECT on every column EXCEPT the three
+raw counters; and venue staff read the counters through the batch/capacity RPC **result JSON**
+(`create_inventory_batch`/`set_batch_capacity` return `{capacity, held, sold, remaining}`), never a table
+SELECT — the same construction the money plane uses. The `venue_inventory_batch_sel_venue` row policy still
+governs WHICH rows a staff member sees. Same class as E-24 (`kernel.tickets.current_owner_id`): one
+admissible direction, no owner bit.
+
+**E-30 — RLS §9.1/§9.2's `anon`-public-availability arm is undeliverable: migration 076 (immutable) grants
+schema `venue` USAGE to `authenticated` only.** §9.1 grants `anon` a read of `public`-visibility ticket
+types (and §9.2 the `remaining` projection), but `076_create_phase2_schemas_and_grants.sql:78` grants
+`venue` USAGE to `authenticated` and not `anon`, so an anon principal cannot reach the venue schema at all —
+a schema-level `42501` fires before any policy runs. 076 is hash-locked and merged; widening `anon`'s
+schema access from 081 would be a security-boundary change 076 owns and did not make, so 081 scopes the two
+`_sel_public` policies and their grants to `authenticated` (the deliverable half — any logged-in fan reads
+public availability) and does NOT touch anon's access. The anon-browsing surface (a web/edge concern, and
+moot while native issuance and Buy Now are both dark) is left to whatever later package owns the public
+storefront read, or to an owner ruling if §9.1's anon arm is required at the venue-schema layer. Fail-closed;
+disclosed rather than silently widened. Suite 145 §H asserts the anon wall and the authenticated-fan
+delivery.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
