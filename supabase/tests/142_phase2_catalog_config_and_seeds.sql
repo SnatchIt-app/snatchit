@@ -40,25 +40,25 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 10,
-  -- 2026-08-31 (package 079): 9 -> 10. catalog.update_event_session is 079's
-  -- (SEAM-1: its time guard reads kernel.tickets), named in A4 below.
-  'A3: catalog holds EXACTLY ten functions — no helper the closed world does not carry');
+            WHERE n.nspname = 'catalog'), 11,
+  -- 2026-08-31 (package 081): 10 -> 11. catalog.publish_event is 081's (SEAM-1:
+  -- it reads venue.ticket_type + inventory_batch), named in A4 below.
+  'A3: catalog holds EXACTLY eleven functions — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'catalog'$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at'),('update_event_session')$$,
-  'A4: the ten catalog function names are exactly the frozen set (update_event_session added by 079)');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event')$$,
+  'A4: the eleven catalog function names are exactly the frozen set (publish_event added by 081)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
 
 -- FR-2 / FR-2b / FR-7: three functions plan §8/078 names are NOT in this package.
-SELECT hasnt_function('catalog'::name, 'publish_event'::name,
-  'A6: catalog.publish_event is NOT here — FR-2 moved it to 081 (it reads venue.ticket_type)');
+SELECT has_function('catalog'::name, 'publish_event'::name, ARRAY['uuid','text','text']::name[],
+  'A6: catalog.publish_event ARRIVED with 081 (FR-2/SEAM-1: it reads venue.ticket_type + inventory_batch)');
 SELECT hasnt_function('catalog'::name, 'cancel_event'::name,
   'A7: catalog.cancel_event is NOT here — FR-2b moved it to 088');
 -- 2026-08-31: A8's subject ARRIVED with package 079 (SEAM-1), so the deferral
@@ -434,8 +434,8 @@ SELECT bag_eq(
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at'),('update_event_session')$$,
-  'F3: the authenticated EXECUTE closure is exactly the ten caller-authorized catalog RPCs (update_event_session added by 079)');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event')$$,
+  'F3: the authenticated EXECUTE closure is exactly the eleven caller-authorized catalog RPCs (publish_event added by 081)');
 
 -- A migration is not a config change (plan §4); RPC §20.2.1 forbids every
 -- service_role path on set_platform_config explicitly.
@@ -1023,8 +1023,11 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   'J1: NATIVE BUY NOW LIVE = NO — market holds no table');
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-           WHERE n.nspname = 'venue' AND c.relkind = 'r'), 'staff_role',
-  'J1b: …and venue holds ONLY the 080 staff-role surface — no ticket_type, no inventory, no order');
+           WHERE n.nspname = 'venue' AND c.relkind = 'r'),
+  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,staff_role,ticket_type',
+  -- 2026-08-31 (package 081): the venue inventory substrate arrived. Still NO
+  -- order table (082) and NO market table.
+  'J1b: venue holds the 080 staff surface + the 081 inventory substrate — no order, no market table');
 SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
   'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config

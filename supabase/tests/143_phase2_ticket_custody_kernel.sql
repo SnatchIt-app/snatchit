@@ -138,8 +138,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-08-31 (package 080): 48 -> 52 (the four predicates; 144 names them).
   'A32: kernel holds EXACTLY 52 functions (48 post-079 + the four 080 predicates)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 10,
-  'A33: catalog holds EXACTLY 10 functions (078''s nine + update_event_session, SEAM-1)');
+           WHERE n.nspname = 'catalog'), 11,
+  -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
+  'A33: catalog holds EXACTLY 11 functions (10 post-079 + publish_event, SEAM-1)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),

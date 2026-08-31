@@ -161,7 +161,13 @@ SELECT is(
                -- caller-authorized functions (RLS §11.1 rows: grant_staff_role /
                -- revoke_staff_role, G-13). Named, not counted, so the sweep
                -- still pins every OTHER venue/market/notify function at zero.
-               AND p.proname NOT IN ('grant_staff_role','revoke_staff_role')))),
+               -- 2026-08-31 (package 081): venue's inventory RPCs are
+               -- caller-authorized (RLS §9.1/§9.2/§20.3). The DEF hold sweep is
+               -- service_role (not authenticated) so it is not excepted here.
+               AND p.proname NOT IN ('grant_staff_role','revoke_staff_role',
+                     'create_ticket_type','set_ticket_type_price','create_inventory_batch',
+                     'set_batch_capacity','reserve_primary_inventory','create_inventory_hold',
+                     'release_inventory_hold')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 

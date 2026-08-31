@@ -634,6 +634,13 @@ RECOMMENDATION:              (c), with each open decision named beside its key s
                              notify.delivery_lease_interval   — read by notify.claim_deliveries (092,
                                RPC §20.10); ODR1_AMENDMENT_DRAFT records it verbatim as "the unseeded
                                notify.delivery_lease_interval" among the open authoring items.
+                             inventory.per_user_active_hold_max · inventory.hold_ttl_interval
+                               — ADDED 2026-08-31 (completeness correction, package 081; erratum
+                               E-28): read by venue.reserve_primary_inventory /
+                               create_inventory_hold (RPC §5.3/§5.4); NO frozen spelling, seeded by
+                               nobody. Fail-safe: the cap is fail-to-ZERO (AUTHZ-M8 precedent), the TTL
+                               REFUSES rather than invent policy. Unreachable while
+                               feature.native_issuance_enabled is false. Values owner-owed forward.
                              ticket.expiry_grace              — ADDED 2026-08-31 (completeness
                                correction, package 079; erratum E-18): read by
                                kernel.sweep_expired_ticket_atoms (schema §1.5.1, RPC §12.5); in NO
@@ -955,6 +962,93 @@ OWNER SIGNATURE REQUIRED:    NO — the corpus uniquely determines the correctio
                              are each closed by a named rule. The only admissible resolution is (c).
 ```
 
+## PFA-14 — the frozen RLS `anon`-public-availability arm is undeliverable at the venue-schema layer; the delivery boundary is amended to a separately reviewed public read surface (E-30 ratified)
+
+```
+ID:                          PFA-14  (ratifies E-30 — reclassified from an ownerless erratum)
+FROZEN RULE:                 RLS §9.1 grants `anon` a SELECT of `public`-visibility ticket types and
+                             §9.2 the `remaining` availability projection — an UNAUTHENTICATED public
+                             browsing arm at the `venue`-schema layer.
+IMPLEMENTATION CONFLICT:     migration 076 (immutable, hash-locked, merged) grants `venue` schema USAGE
+                             to `authenticated` ONLY (076:78) and not to `anon`. An anon principal
+                             cannot reach the `venue` schema at all — a schema-level 42501 fires before
+                             any §9.1/§9.2 policy is evaluated. The frozen anon arm is therefore
+                             undeliverable from 081 without widening 076's schema-USAGE boundary, a
+                             security-boundary change 076 owns and did not make.
+OPTIONS:                     (a) grant `venue` USAGE to `anon` from 081 — REJECTED. It reaches into an
+                                 immutable, hash-locked earlier package's security boundary and widens
+                                 raw-schema reach for the unauthenticated role; the corpus does not
+                                 uniquely determine that 076's omission was an error rather than a
+                                 deliberate boundary choice.
+                             (b) leave the anon arm undelivered at the venue-schema layer, scope the two
+                                 `_sel_public` policies and their grants to `authenticated` (the
+                                 deliverable half — any logged-in fan reads public availability under
+                                 §9.1/§9.2 semantics), and route unauthenticated public browsing through
+                                 a separately reviewed public storefront / server / edge read surface
+                                 that projects the same public semantics without exposing the raw
+                                 `venue` schema. CHOSEN by owner.
+WHY IMPLEMENTATION CANNOT CONFORM: 076 is hash-locked; 081 cannot conform to §9.1/§9.2's anon arm without
+                             mutating 076's grant, and whether the anon arm belongs at the venue-schema
+                             layer or at a public read surface is a delivery-boundary choice the frozen
+                             corpus does not settle — exactly freeze §4's "not uniquely determined" test.
+PACKAGE IMPACT:              081 only (the two `_sel_public` policies + their grants scoped to
+                             `authenticated`; no `anon` grant). No object added or removed; NO SQL
+                             behaviour change from the 55d06c5 implementation — this ratifies the posture
+                             already shipped, it does not alter it.
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective. Fail-closed: no unauthenticated raw-schema access is opened.
+                             Native issuance and Buy Now are both dark, so no public purchase path
+                             depends on the anon arm today.
+OWNER SIGNATURE REQUIRED:    YES — the resolution is a delivery-boundary choice (venue-schema layer vs a
+                             separately reviewed public read surface) that the frozen corpus does not
+                             uniquely determine, and it AMENDS a frozen §9.1/§9.2 requirement. This was
+                             recorded first as E-30 "no amendment needed"; that classification was WRONG
+                             — amending the delivery boundary is precisely what fail-closed did, and
+                             freeze §4 admits NO only for corrections the corpus already uniquely
+                             determines. Corrected here and escalated. See the signature record below.
+```
+
+### PFA-14 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING (verbatim):     "PFA-14 APPROVED — direct anonymous PostgREST access to the `venue` schema
+                             remains CLOSED for Phase 2. Package 081 must not widen the 076 schema-USAGE
+                             boundary to `anon`. The frozen §9.1/§9.2 anonymous public-availability
+                             requirement is amended so that unauthenticated public ticket-type and
+                             availability browsing is delivered through a separately reviewed public
+                             storefront/server/edge read surface, not direct `anon` table access.
+                             Authenticated fans may continue to receive the 081 RLS-governed public
+                             projections. This ruling changes only the delivery boundary; it does not
+                             broaden venue data visibility, activate native issuance, activate Buy Now,
+                             or authorize production."
+INTERPRETATION CONSTRAINTS (owner-stated): direct `anon` `venue`-schema access stays CLOSED for Phase 2 ·
+                             081 must NOT grant `venue` USAGE to `anon` · the §9.1/§9.2 anon arm is
+                             amended as a delivery-boundary change only · unauthenticated public browsing
+                             is delivered by a separately reviewed public storefront/server/edge read
+                             surface, NOT direct anon table access · authenticated fans keep the 081
+                             RLS-governed public projections · no broadening of venue data visibility ·
+                             native issuance stays OFF · Buy Now stays OFF · no production authorization.
+SCOPE OPENED:                the delivery boundary only. NO implementation byte changes: the ratified 081
+                             migration hash
+                             15d018d6a1ecfc8cf2188d4fec6f3bc94892077ff28a81789192300b1442a55d is
+                             unchanged by this ratification. E-30 is reclassified from an ownerless
+                             erratum to a ratified PFA record and now references PFA-14.
+FORWARD OBLIGATION (governed): the eventual unauthenticated public storefront / server / edge read
+                             surface MUST preserve the frozen §9.1/§9.2 public projection semantics
+                             (public-visibility ticket types + the `remaining` availability projection)
+                             WITHOUT exposing the raw `venue` schema to `anon`. OWNER: UNASSIGNED — the
+                             frozen migration DAG (076–092) identifies NO package that owns a public
+                             web/edge read surface, so this is NOT assigned to an arbitrary package; it
+                             remains a GOVERNED FORWARD OBLIGATION until the corpus or a later owner
+                             ruling names its owner. It must be a separately reviewed surface
+                             (owner-stated).
+STILL CLOSED:                direct `anon` `venue`-schema USAGE (076's boundary is unchanged) · native
+                             issuance (dark) · Buy Now (dark) · Wallet (dark) · production.
+```
+
 ## ERRATA — package 078 (recorded, no amendment needed)
 
 **E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
@@ -1192,5 +1286,94 @@ implementation defect, and NOT changed here.** Exposure is to trusted same-venue
 Filed for the RLS owner beside OPEN-1/OPEN-2: if the board wants draft-event session timing withheld from
 non-manager venue labels, that is a new ratification (an added `EXISTS (visible parent event)` conjunct),
 not a clarification. Raised independently by two red-team reviewers on PR #34.
+
+## ERRATA — package 081 (recorded, no amendment needed — EXCEPT E-30, escalated and ratified as PFA-14)
+
+**E-28 — two config keys the inventory-hold path reads have NO frozen spelling; they are PFA-9 CLASS A,
+seeded by nobody, and the path fails SAFE without them.** `venue.reserve_primary_inventory` and
+`venue.create_inventory_hold` read a per-user active-hold cap (RPC §5.3: *"per-user cap read from
+catalog.platform_config"*) and a hold TTL (RPC §5.3: *"expires_at := now() + server_max_ttl"*). Neither key
+has a spelling anywhere in the corpus — the same CLASS A shape as `ticket.expiry_grace` (E-18). 081 reads
+them as **`inventory.per_user_active_hold_max`** and **`inventory.hold_ttl_interval`**, seeds NEITHER, and
+ships fail-safe in the frozen directions: the cap is **fail-to-ZERO** (`COALESCE(config, 0)` — the AUTHZ-M8
+precedent: a missing seed refuses every reserve loudly, never admits unbounded holds silently), and the TTL
+**REFUSES** (`hold_ttl_unset`) rather than invent a business policy (a TTL is policy, not a default — the
+one direction PFA-9 forbids is inventing a value). Both are unreachable while native issuance is dark:
+reserve/create-hold check `feature.native_issuance_enabled` (false for all of 081's life) and refuse
+`feature_disabled` BEFORE either key is read — proven by flipping the flag inside a rolled-back test txn
+(suite 145 §G) and observing the fail-to-zero and refuse-unset behaviours. The VALUES are owner-owed
+forward, exactly like the rest of PFA-9 CLASS A; PFA-9's CLASS A list is extended by these two keys (the
+E-18 tally-fix precedent).
+
+**E-29 — the raw inventory counters cannot be shown to venue staff but hidden from fans via a column ACL;
+the E-24 impossibility, recomplicated by two visibility tiers.** RLS §9.2 footnote 23 wants
+`capacity`/`held`/`sold` *"col-scoped to venue staff + platform"* while `remaining` is *"world-readable"*.
+PostgreSQL column ACLs are per-(relation, role), and venue staff, fans and platform staff are ALL the single
+`authenticated` role (staff/platform status lives in `kernel.*_role` rows, not in Postgres roles) — so no
+column grant can split them. Resolved the fail-closed way, the direction §9.2's own hot-path discipline
+points: `remaining` is a GENERATED column; `authenticated` is granted SELECT on every column EXCEPT the three
+raw counters; and venue staff read the counters through the batch/capacity RPC **result JSON**
+(`create_inventory_batch`/`set_batch_capacity` return `{capacity, held, sold, remaining}`), never a table
+SELECT — the same construction the money plane uses. The `venue_inventory_batch_sel_venue` row policy still
+governs WHICH rows a staff member sees. Same class as E-24 (`kernel.tickets.current_owner_id`): one
+admissible direction, no owner bit.
+
+**E-30 — RLS §9.1/§9.2's `anon`-public-availability arm is undeliverable: migration 076 (immutable) grants
+schema `venue` USAGE to `authenticated` only. RECLASSIFIED → ratified as PFA-14 (owner-signed 2026-08-31);
+this is NOT an ownerless erratum and NOT "no amendment needed" — the delivery boundary was amended under
+owner signature.** §9.1 grants `anon` a read of `public`-visibility ticket
+types (and §9.2 the `remaining` projection), but `076_create_phase2_schemas_and_grants.sql:78` grants
+`venue` USAGE to `authenticated` and not `anon`, so an anon principal cannot reach the venue schema at all —
+a schema-level `42501` fires before any policy runs. 076 is hash-locked and merged; widening `anon`'s
+schema access from 081 would be a security-boundary change 076 owns and did not make, so 081 scopes the two
+`_sel_public` policies and their grants to `authenticated` (the deliverable half — any logged-in fan reads
+public availability) and does NOT touch anon's access. The delivery boundary — whether the frozen anon arm
+lives at the venue-schema layer or at a separately reviewed public read surface — is NOT one the frozen
+corpus uniquely determines, so it was escalated to the owner and is governed by **PFA-14**: direct `anon`
+`venue`-schema access stays CLOSED for Phase 2, and unauthenticated public browsing is delivered through a
+separately reviewed public storefront/server/edge read surface that preserves the §9.1/§9.2 public
+projection semantics WITHOUT exposing the raw `venue` schema (a GOVERNED FORWARD OBLIGATION, owner
+UNASSIGNED — the migration DAG 076–092 names no owner for a public web/edge read surface). Fail-closed;
+disclosed rather than silently widened, then owner-ratified. Suite 145 §H asserts the anon wall and the
+authenticated-fan delivery.
+
+**E-31 — `venue.inventory_movement.movement_kind` needs a fifth value, `capacity_change`, that schema §3.4's
+enum omits but RPC §20.3.2 mandates.** §3.4 lists `movement_kind` ∈ `{hold, release, issue, void_return}`,
+while RPC §20.3.2 contracts `set_batch_capacity` to write *"a cause-keyed `capacity_change` row, so the
+counter still reconciles to its ledger"*. The two frozen texts disagree; the CHECK ships with the fifth
+value because a capacity edit that wrote no ledger row would break the C27 discipline §20.3.2 states (every
+delta has a ledger row). §20.3.2 (the writer's contract) governs over §3.4's enumeration. Raised by
+red-team A and F (PR #35). Also recorded here: the four inventory-config RPCs (`create_ticket_type`,
+`set_ticket_type_price`, `create_inventory_batch`, `set_batch_capacity`) express their org arm through
+`kernel.has_org_role_over_venue` — the RM-3 sanctioned helper — rather than a direct
+`has_org_role(catalog.event.org_id)`; §5.1/§5.2's `has_org_role(org)` spelling is reconciled toward RM-3's
+helper-derived discipline (functionally identical: `catalog.event.org_id` is denormalised from
+`catalog.venue.org_id` and always resolves the same org).
+
+**E-32 — sharding (the MVP-optional hot-row mitigation, schema §3.3) is DEFERRED; the unsharded aggregate
+counter delivers full oversell-safety.** Schema §3.3 introduces `venue.inventory_batch_shard` as *"MVP-optional
+hot-row mitigation"* and §3.3.1 point 4 + plan §8/081's Tests row describe a sharded draw. Implementing it
+partially (creating shard rows that the reserve/hold/release path never draws from) would leave the shards
+inert and break the §3.3 *"Σshard == batch"* reconciliation the moment a sharded batch took a hold — the
+defect red-team A and C found in the first cut. Resolved by the schema's own *"MVP-optional"*: 081
+`create_inventory_batch` refuses `shard_count>0` (`sharding_deferred`), so `is_sharded` is always false and no
+shard rows are ever created; the `venue.inventory_batch_shard` table stays as the frozen schema object for
+when sharding is built later. Oversell-safety is unaffected — the aggregate `inventory_batch` row's
+`CHECK + FOR UPDATE + single-writer` is the authoritative guard (§3.3.1), and there is no thundering herd to
+relieve while native issuance is dark. The plan §8/081 sharded-draw test defers with the feature; schema §3.3
+(the subject-matter owner, O11) is the authority that it is optional. A later ratification builds the shard
+draw + the single-shard last-unit fallback + a Σshard==batch reconciliation job. Raised by red-team A/C.
+
+**E-33 — `venue.create_inventory_batch`'s frozen `p_command_key` idempotency has no persistence surface;
+RPC §5.2 and schema §3.2 conflict.** §5.2 contracts *"Idempotency: `p_command_key`"*, but §3.2 gives
+`venue.inventory_batch` no command-key column and *"no unique beyond PK (a type/session may have several
+batches by release_kind)"* — the table is DELIBERATELY non-unique, so there is no surface on which to dedup a
+replayed create. 081 validates `p_command_key` for presence (the frozen signature) but cannot enforce
+idempotency: a retried create over-provisions (a second batch of extra capacity). This is **benign** — it is
+capacity OVER-provision, not oversell (each batch is independently oversell-safe by its own CHECK), the path
+is admin-frequency, and the duplicate is operator-visible. Adding a `command_idempotency_key` column + UNIQUE
+would deviate from §3.2's stated columns and its *"no unique beyond PK"* — so the tension is disclosed rather
+than resolved by inventing a surface, exactly as E-28/29/30 do. Filed for the owner: if create idempotency is
+required, it is a ratified §3.2 schema addition, not a clarification. Raised by red-team F (PR #35).
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
