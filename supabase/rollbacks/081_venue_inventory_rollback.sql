@@ -22,6 +22,14 @@ do $$
 declare
   v_tt bigint := 0; v_b bigint := 0; v_h bigint := 0; v_m bigint := 0;
 begin
+  -- Count authoritatively regardless of the executing role. inventory_movement
+  -- and inventory_batch_shard are deny-all (RLS on, zero policies); a
+  -- non-BYPASSRLS runner would count 0 there and undercount the policy-scoped
+  -- tables, so the guard could false-negative and drop the AO ledger while it
+  -- holds rows. With row_security off, the owner/BYPASSRLS runner gets the true
+  -- count and a non-privileged runner ERRORS here and aborts the rollback —
+  -- fail-safe either way (red-team E, PR #35).
+  set local row_security = off;
   if to_regclass('venue.ticket_type')      is not null then execute 'select count(*) from venue.ticket_type'      into v_tt; end if;
   if to_regclass('venue.inventory_batch')  is not null then execute 'select count(*) from venue.inventory_batch'  into v_b;  end if;
   if to_regclass('venue.inventory_hold')   is not null then execute 'select count(*) from venue.inventory_hold'   into v_h;  end if;

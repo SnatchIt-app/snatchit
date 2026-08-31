@@ -1244,4 +1244,43 @@ storefront read, or to an owner ruling if §9.1's anon arm is required at the ve
 disclosed rather than silently widened. Suite 145 §H asserts the anon wall and the authenticated-fan
 delivery.
 
+**E-31 — `venue.inventory_movement.movement_kind` needs a fifth value, `capacity_change`, that schema §3.4's
+enum omits but RPC §20.3.2 mandates.** §3.4 lists `movement_kind` ∈ `{hold, release, issue, void_return}`,
+while RPC §20.3.2 contracts `set_batch_capacity` to write *"a cause-keyed `capacity_change` row, so the
+counter still reconciles to its ledger"*. The two frozen texts disagree; the CHECK ships with the fifth
+value because a capacity edit that wrote no ledger row would break the C27 discipline §20.3.2 states (every
+delta has a ledger row). §20.3.2 (the writer's contract) governs over §3.4's enumeration. Raised by
+red-team A and F (PR #35). Also recorded here: the four inventory-config RPCs (`create_ticket_type`,
+`set_ticket_type_price`, `create_inventory_batch`, `set_batch_capacity`) express their org arm through
+`kernel.has_org_role_over_venue` — the RM-3 sanctioned helper — rather than a direct
+`has_org_role(catalog.event.org_id)`; §5.1/§5.2's `has_org_role(org)` spelling is reconciled toward RM-3's
+helper-derived discipline (functionally identical: `catalog.event.org_id` is denormalised from
+`catalog.venue.org_id` and always resolves the same org).
+
+**E-32 — sharding (the MVP-optional hot-row mitigation, schema §3.3) is DEFERRED; the unsharded aggregate
+counter delivers full oversell-safety.** Schema §3.3 introduces `venue.inventory_batch_shard` as *"MVP-optional
+hot-row mitigation"* and §3.3.1 point 4 + plan §8/081's Tests row describe a sharded draw. Implementing it
+partially (creating shard rows that the reserve/hold/release path never draws from) would leave the shards
+inert and break the §3.3 *"Σshard == batch"* reconciliation the moment a sharded batch took a hold — the
+defect red-team A and C found in the first cut. Resolved by the schema's own *"MVP-optional"*: 081
+`create_inventory_batch` refuses `shard_count>0` (`sharding_deferred`), so `is_sharded` is always false and no
+shard rows are ever created; the `venue.inventory_batch_shard` table stays as the frozen schema object for
+when sharding is built later. Oversell-safety is unaffected — the aggregate `inventory_batch` row's
+`CHECK + FOR UPDATE + single-writer` is the authoritative guard (§3.3.1), and there is no thundering herd to
+relieve while native issuance is dark. The plan §8/081 sharded-draw test defers with the feature; schema §3.3
+(the subject-matter owner, O11) is the authority that it is optional. A later ratification builds the shard
+draw + the single-shard last-unit fallback + a Σshard==batch reconciliation job. Raised by red-team A/C.
+
+**E-33 — `venue.create_inventory_batch`'s frozen `p_command_key` idempotency has no persistence surface;
+RPC §5.2 and schema §3.2 conflict.** §5.2 contracts *"Idempotency: `p_command_key`"*, but §3.2 gives
+`venue.inventory_batch` no command-key column and *"no unique beyond PK (a type/session may have several
+batches by release_kind)"* — the table is DELIBERATELY non-unique, so there is no surface on which to dedup a
+replayed create. 081 validates `p_command_key` for presence (the frozen signature) but cannot enforce
+idempotency: a retried create over-provisions (a second batch of extra capacity). This is **benign** — it is
+capacity OVER-provision, not oversell (each batch is independently oversell-safe by its own CHECK), the path
+is admin-frequency, and the duplicate is operator-visible. Adding a `command_idempotency_key` column + UNIQUE
+would deviate from §3.2's stated columns and its *"no unique beyond PK"* — so the tension is disclosed rather
+than resolved by inventing a surface, exactly as E-28/29/30 do. Filed for the owner: if create idempotency is
+required, it is a ratified §3.2 schema addition, not a clarification. Raised by red-team F (PR #35).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

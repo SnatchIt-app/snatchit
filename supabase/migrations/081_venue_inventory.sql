@@ -9,9 +9,12 @@
 -- {077,078,080} (080 = has_venue_role for RLS).
 --
 -- The oversell-safe substrate: the priced product (ticket_type), the
--- authoritative capacity counter (inventory_batch, C27) with its optional
--- sharding, the AO audit ledger (inventory_movement), and time-boxed holds
--- (inventory_hold) with the LOAD-BEARING expiry sweep (G-24).
+-- authoritative capacity counter (inventory_batch, C27), the AO audit ledger
+-- (inventory_movement), and time-boxed holds (inventory_hold) with the
+-- LOAD-BEARING expiry sweep (G-24). SHARDING (the MVP-optional hot-row
+-- mitigation, schema §3.3) is DEFERRED — create_inventory_batch refuses
+-- shard_count>0; the aggregate batch counter delivers full oversell-safety and
+-- there is no thundering herd to relieve while native issuance is dark (E-32).
 --
 -- NATIVE ISSUANCE STAYS DARK: feature.native_issuance_enabled seeds false;
 -- the real-draw path (reserve/create-hold) refuses feature_disabled while it is
@@ -210,7 +213,11 @@ begin
     raise exception 'precondition_failed: event_terminal';
   end if;
 
-  if not (kernel.has_org_role(v_org_id, array['org_owner','org_admin'])
+  -- RM-3: org->venue inheritance is expressed ONLY through the sanctioned
+  -- helper, never a direct has_org_role on the denormalised event.org_id
+  -- (which IS the venue's org). Reconciles §5.1's has_org_role spelling to the
+  -- ratified helper-derived discipline; functionally identical (E-31 note).
+  if not (kernel.has_org_role_over_venue(v_venue, array['org_owner','org_admin'])
           or kernel.has_venue_role(v_venue, array['venue_manager'])) then
     raise exception 'insufficient_privilege: venue_manager or org_owner/org_admin required'
       using errcode = '42501';
@@ -277,8 +284,8 @@ begin
     raise exception 'precondition_failed: event_terminal';
   end if;
 
-  -- C9 money-consequential live-table recheck (never a JWT claim).
-  if not (kernel.has_org_role(v_org_id, array['org_owner','org_admin'])
+  -- C9 money-consequential live-table recheck (never a JWT claim); RM-3 helper.
+  if not (kernel.has_org_role_over_venue(v_venue, array['org_owner','org_admin'])
           or kernel.has_venue_role(v_venue, array['venue_manager'])) then
     raise exception 'insufficient_privilege: venue_manager or org_owner/org_admin required'
       using errcode = '42501';
@@ -325,11 +332,8 @@ declare
   v_tt_event  uuid;
   v_s_event   uuid;
   v_batch_id  uuid;
+  v_evstatus  text;
   v_sharded   boolean;
-  v_base      integer;
-  v_rem       integer;
-  v_i         integer;
-  v_cap_i     integer;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -345,11 +349,23 @@ begin
     raise exception 'precondition_failed: bad_capacity';
   end if;
 
-  select tt.event_id, e.org_id, e.venue_id into v_tt_event, v_org_id, v_venue
+  -- Sharding is deferred (E-32): the aggregate counter is oversell-safe and no
+  -- contention exists while native issuance is dark. Refuse rather than create
+  -- inert shard rows that would break the §3.3 Σshard==batch reconciliation.
+  if coalesce(p_shard_count, 0) > 0 then
+    raise exception 'precondition_failed: sharding_deferred (MVP ships the unsharded counter; schema §3.3 is MVP-optional)';
+  end if;
+
+  select tt.event_id, e.org_id, e.venue_id, e.status into v_tt_event, v_org_id, v_venue, v_evstatus
     from venue.ticket_type tt join catalog.event e on e.event_id = tt.event_id
    where tt.ticket_type_id = p_ticket_type_id;
   if v_tt_event is null then
     raise exception 'not_found: ticket type %', p_ticket_type_id using errcode = 'P0002';
+  end if;
+  -- refuse a batch on a terminal event (symmetry with create_ticket_type; a
+  -- batch on a completed/cancelled event can never reach on_sale anyway).
+  if v_evstatus in ('completed','cancelled') then
+    raise exception 'precondition_failed: event_terminal';
   end if;
   select s.event_id into v_s_event from catalog.event_session s where s.session_id = p_session_id;
   if v_s_event is null then
@@ -360,28 +376,18 @@ begin
     raise exception 'precondition_failed: type_session_event_mismatch';
   end if;
 
-  if not (kernel.has_org_role(v_org_id, array['org_owner','org_admin'])
+  if not (kernel.has_org_role_over_venue(v_venue, array['org_owner','org_admin'])
           or kernel.has_venue_role(v_venue, array['venue_manager'])) then
     raise exception 'insufficient_privilege: venue_manager or org_owner/org_admin required'
       using errcode = '42501';
   end if;
 
-  v_sharded := coalesce(p_shard_count, 0) > 0;
+  -- sharding deferred: is_sharded is always false, no shard rows (E-32).
+  v_sharded := false;
   insert into venue.inventory_batch
          (ticket_type_id, event_session_id, release_kind, capacity, held, sold, is_sharded)
   values (p_ticket_type_id, p_session_id, p_release_kind, p_capacity, 0, 0, v_sharded)
   returning batch_id into v_batch_id;
-
-  if v_sharded then
-    -- N shards summing EXACTLY to capacity (remainder onto the last shard).
-    v_base := p_capacity / p_shard_count;
-    v_rem  := p_capacity - v_base * p_shard_count;
-    for v_i in 1..p_shard_count loop
-      v_cap_i := v_base + case when v_i = p_shard_count then v_rem else 0 end;
-      insert into venue.inventory_batch_shard (batch_id, shard_no, capacity, held, sold)
-      values (v_batch_id, v_i, v_cap_i, 0, 0);
-    end loop;
-  end if;
 
   insert into kernel.admin_audit
          (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
@@ -531,7 +537,8 @@ declare
   v_held     integer;
   v_cap      integer;
   v_sold     integer;
-  v_s_status text;
+  v_s_status   text;
+  v_sess_status text;
   v_ttl      interval;
   v_cap_max  integer;
   v_active   integer;
@@ -554,6 +561,20 @@ begin
     raise exception 'precondition_failed: deletion_pending';
   end if;
 
+  -- Idempotency short-circuit (§5.3): a replay of a SUCCEEDED reserve returns
+  -- the original hold, not oversell_rejected (the caller's own committed hold
+  -- fills the batch, so the oversell gate below would misreport it).
+  declare v_ex_hold uuid; v_ex_exp timestamptz;
+  begin
+    select hold_id, expires_at into v_ex_hold, v_ex_exp
+      from venue.inventory_hold
+     where identity_id = v_uid and command_idempotency_key = p_command_key;
+    if v_ex_hold is not null then
+      return jsonb_build_object('status','idempotency_replay','hold_id',v_ex_hold,
+                                'expires_at',v_ex_exp);
+    end if;
+  end;
+
   -- NATIVE ISSUANCE GATE (§4): real draws are gated behind the flag, false for
   -- the entire life of 081. The flag is checked BEFORE any counter mutation, so
   -- the substrate provably cannot draw while native issuance is dark.
@@ -565,17 +586,23 @@ begin
     raise exception 'precondition_failed: feature_disabled';
   end if;
 
-  -- session must be on_sale/live.
-  select e.status into v_s_status
+  -- the batch's EVENT must be on_sale/live AND its SESSION must not be terminal
+  -- (§5.3: "batch's session/event on_sale/live"; a session carries its own
+  -- cancelled/completed state, 078).
+  select e.status, s.status into v_s_status, v_sess_status
     from venue.inventory_batch b
     join venue.ticket_type tt on tt.ticket_type_id = b.ticket_type_id
     join catalog.event e on e.event_id = tt.event_id
+    join catalog.event_session s on s.session_id = b.event_session_id
    where b.batch_id = p_batch_id;
   if v_s_status is null then
     raise exception 'not_found: batch %', p_batch_id using errcode = 'P0002';
   end if;
   if v_s_status not in ('on_sale','live') then
     raise exception 'precondition_failed: not_on_sale';
+  end if;
+  if v_sess_status in ('completed','cancelled') then
+    raise exception 'precondition_failed: session_terminal';
   end if;
 
   -- Per-user active-hold cap (C5) via an advisory xact lock on the identity —
@@ -756,14 +783,21 @@ begin
     raise exception 'precondition_failed: command key required';
   end if;
 
-  -- Lock the BATCH first (rank 2, Inventory-before-anything), then the hold.
-  select h.batch_id, h.quantity, h.status, h.identity_id
-    into v_batch, v_qty, v_status, v_holder
-    from venue.inventory_hold h where h.hold_id = p_hold_id;
+  -- Resolve the batch id (holds never move batches, so an unlocked read is
+  -- safe), then lock the BATCH first (rank 2, the frozen §5.5 order), THEN
+  -- lock and RE-READ the hold row. The prior form read status on an unlocked
+  -- SELECT and checked the STALE snapshot — two concurrent releases both saw
+  -- 'active' and both decremented held; benign in 081 (the movement UNIQUE
+  -- aborts the second) but a latent oversell once a converter lands (082/083).
+  select h.batch_id into v_batch from venue.inventory_hold h where h.hold_id = p_hold_id;
   if v_batch is null then
     raise exception 'not_found: hold %', p_hold_id using errcode = 'P0002';
   end if;
-  perform 1 from venue.inventory_batch b where b.batch_id = v_batch for update;
+  perform 1 from venue.inventory_batch b where b.batch_id = v_batch for update;  -- rank 2
+  select h.quantity, h.status, h.identity_id
+    into v_qty, v_status, v_holder
+    from venue.inventory_hold h where h.hold_id = p_hold_id
+    for update;                                          -- authoritative under lock
 
   -- terminal-state idempotency: a double-release is a no-op.
   if v_status <> 'active' then
@@ -799,6 +833,10 @@ begin
   values (v_batch, 'release', -v_qty, 0, 'admin_action', p_hold_id, v_uid);
 
   return jsonb_build_object('status','ok','remaining',v_rem);
+exception when unique_violation then
+  -- the movement idempotency key already exists: this hold was released by a
+  -- concurrent path. Report the no-op, do not surface a raw 23505.
+  return jsonb_build_object('status','noop_replay','hold_status','released');
 end;
 $$;
 
@@ -821,6 +859,7 @@ declare
   v_row      record;
   v_swept    integer := 0;
   v_released integer := 0;
+  v_errors   integer := 0;
   v_batches  uuid[] := '{}';
 begin
   for v_row in
@@ -831,15 +870,25 @@ begin
      limit p_limit
      for update of h skip locked
   loop
-    perform venue.release_inventory_hold(v_row.hold_id, 'sweep:'||v_row.hold_id::text);
-    v_swept := v_swept + 1;
-    v_released := v_released + v_row.quantity;
-    if not (v_row.batch_id = any(v_batches)) then
-      v_batches := array_append(v_batches, v_row.batch_id);
-    end if;
+    -- Each row is its own subtransaction (§20.3.3): a poisoned or racing hold
+    -- rolls back ONLY its own release and is skipped, so one bad row cannot
+    -- block the tick — this sweep is the ONLY writer that returns the stored
+    -- `held`, so a blocked tick is permanent lost capacity (§3.5.1).
+    begin
+      perform venue.release_inventory_hold(v_row.hold_id, 'sweep:'||v_row.hold_id::text);
+      v_swept := v_swept + 1;
+      v_released := v_released + v_row.quantity;
+      if not (v_row.batch_id = any(v_batches)) then
+        v_batches := array_append(v_batches, v_row.batch_id);
+      end if;
+    exception when others then
+      v_errors := v_errors + 1;
+      raise warning 'inventory.hold.sweep_error: hold % skipped: %', v_row.hold_id, sqlerrm;
+    end;
   end loop;
   return jsonb_build_object('swept', v_swept, 'released_qty', v_released,
-                            'batches_touched', coalesce(array_length(v_batches,1), 0));
+                            'batches_touched', coalesce(array_length(v_batches,1), 0),
+                            'errors', v_errors);
 end;
 $$;
 
@@ -941,15 +990,22 @@ drop policy if exists venue_ticket_type_sel_public on venue.ticket_type;
 create policy venue_ticket_type_sel_public
   on venue.ticket_type for select to authenticated
   using (visibility = 'public');
+-- §9.1 is a TWO-TIER grant and the tier is load-bearing: ONLY org_owner/admin
+-- and venue_manager read HIDDEN types ("incl. hidden" qualifies exactly those
+-- rows). Every other role reads public+door_only only (visibility <> 'hidden').
+-- The prior single-arm form leaked hidden name+price_minor to seven
+-- lower-privilege roles — the R3-3a shape §16.10a exists to catch.
 drop policy if exists venue_ticket_type_sel_venue on venue.ticket_type;
 create policy venue_ticket_type_sel_venue
   on venue.ticket_type for select to authenticated
   using (
-    kernel.has_org_role_over_event(event_id,
-      array['org_owner','org_admin','org_finance','org_member'])
-    or kernel.has_event_role(event_id,
-      array['venue_manager','venue_finance','venue_box_office',
-            'venue_marketing','venue_promoter_manager','venue_scanner'])
+        kernel.has_org_role_over_event(event_id, array['org_owner','org_admin'])
+     or kernel.has_event_role(event_id, array['venue_manager'])
+     or (visibility <> 'hidden'
+         and (kernel.has_org_role_over_event(event_id, array['org_finance','org_member'])
+              or kernel.has_event_role(event_id,
+                   array['venue_finance','venue_box_office',
+                         'venue_marketing','venue_promoter_manager','venue_scanner'])))
   );
 
 -- inventory_batch: `remaining` is the only client-readable counter (footnote 23).
@@ -989,15 +1045,24 @@ drop policy if exists venue_inventory_hold_sel_owner on venue.inventory_hold;
 create policy venue_inventory_hold_sel_owner
   on venue.inventory_hold for select to authenticated
   using (identity_id = auth.uid());
+-- §9.5: venue ops (manager/scanner) + the org plane (owner/admin/finance).
 drop policy if exists venue_inventory_hold_sel_venue on venue.inventory_hold;
 create policy venue_inventory_hold_sel_venue
   on venue.inventory_hold for select to authenticated
-  using (kernel.has_event_role(
-    ( select s.event_id
-        from venue.inventory_batch b
-        join catalog.event_session s on s.session_id = b.event_session_id
-       where b.batch_id = venue.inventory_hold.batch_id ),
-    array['venue_manager','venue_scanner']));
+  using (
+    kernel.has_org_role_over_event(
+      ( select s.event_id
+          from venue.inventory_batch b
+          join catalog.event_session s on s.session_id = b.event_session_id
+         where b.batch_id = venue.inventory_hold.batch_id ),
+      array['org_owner','org_admin','org_finance'])
+    or kernel.has_event_role(
+      ( select s.event_id
+          from venue.inventory_batch b
+          join catalog.event_session s on s.session_id = b.event_session_id
+         where b.batch_id = venue.inventory_hold.batch_id ),
+      array['venue_manager','venue_scanner'])
+  );
 
 -- AO / counter integrity: REVOKE UPDATE,DELETE on the movement ledger (I-7).
 revoke update, delete on venue.inventory_movement from anon, authenticated;

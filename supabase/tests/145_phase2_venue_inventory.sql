@@ -9,7 +9,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(94);
+SELECT plan(96);
 
 SELECT tap.seed_core();
 
@@ -213,13 +213,13 @@ SELECT is(tap._cap(tap._fetch145('batch')::uuid), 100,
   'B9: create_inventory_batch — capacity set, held/sold default 0 (counter via definer, E-29)');
 SELECT is(tap._rem(tap._fetch145('batch')::uuid), 100,
   'B10: remaining computes to capacity for a fresh batch');
-SELECT tap._store145('sbatch',
-  (venue.create_inventory_batch(tap._fetch145('tt')::uuid, tap._fetch145('session')::uuid,
-     'public_sale', 30, 4, 'ck-b-2') ->> 'batch_id'));
-SELECT is(tap._shardcnt(tap._fetch145('sbatch')::uuid), 4,
-  'B11: a sharded batch creates N shards');
-SELECT is(tap._shardsum(tap._fetch145('sbatch')::uuid), 30,
-  'B12: the shards sum EXACTLY to batch capacity (remainder onto the last)');
+SELECT throws_ok(format($$SELECT venue.create_inventory_batch(%L, %L, 'public_sale', 30, 4, 'ck-b-2')$$,
+  tap._fetch145('tt'), tap._fetch145('session')), NULL, NULL,
+  'B11: E-32 — create_inventory_batch REFUSES shard_count>0 (sharding deferred, schema §3.3 MVP-optional)');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM venue.inventory_batch_shard), 0,
+  'B12: …so NO shard row is ever created — the aggregate counter is the single oversell guard');
+SELECT tap.login(tap.seller());
 SELECT throws_ok(format($$SELECT venue.create_inventory_batch(%L, %L, 'public_sale', 0, 0, 'ck-b-3')$$,
   tap._fetch145('tt'), tap._fetch145('session')), NULL, NULL, 'B13: capacity must be > 0');
 
@@ -250,13 +250,13 @@ SELECT throws_ok(format($$SELECT venue.set_batch_capacity(%L, 200, 'support', 'c
   '42501', NULL, 'C6: T-RPC-INV-02 — even platform_admin is refused a capacity edit (a room edit is not a support action)');
 SELECT tap.logout();
 
--- sharded grow keeps Σshard = batch (T-RPC-INV-03)
+-- (T-RPC-INV-03 sharded grow deferred with sharding, E-32.)
 SELECT tap.login(tap.seller());
-SELECT is((venue.set_batch_capacity(tap._fetch145('sbatch')::uuid, 40, 'grow', 'ck-c-6') ->> 'capacity'), '40',
-  'C7: a sharded grow is permitted');
-SELECT is(tap._shardsum(tap._fetch145('sbatch')::uuid), 40,
-  'C8: T-RPC-INV-03 — Σ shard.capacity == batch.capacity after a sharded grow');
+SELECT is((SELECT is_sharded FROM venue.inventory_batch WHERE batch_id = tap._fetch145('batch')::uuid), false,
+  'C7: E-32 — every batch is unsharded (is_sharded=false); no shard machinery is live');
 SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM venue.inventory_batch_shard), 0,
+  'C8: …and no shard row exists anywhere in the schema');
 
 -- ============================================================================
 -- SECTION D — the OVERSELL PROOF + the native-issuance dark gate
@@ -431,7 +431,20 @@ SELECT is((SELECT count(*)::int FROM venue.inventory_hold WHERE identity_id <> t
 SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT is((SELECT count(*)::int FROM venue.ticket_type WHERE ticket_type_id = tap._fetch145('tth')::uuid), 1,
-  'H7: the venue org_owner reads the hidden type (venue-scoped)');
+  'H7: the venue org_owner reads the hidden type (venue-scoped, the top tier)');
+SELECT tap.logout();
+INSERT INTO auth.users (id,email,role,instance_id,aud,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-00000000f501','lp@t.local','authenticated','00000000-0000-0000-0000-000000000000','authenticated',now(),now())
+ON CONFLICT DO NOTHING;
+SELECT tap.login(tap.seller());
+SELECT venue.grant_staff_role(tap._fetch145('venue')::uuid,'00000000-0000-0000-0000-00000000f501','venue_marketing','ck-sr-1');
+SELECT venue.grant_staff_role(tap._fetch145('venue')::uuid,'00000000-0000-0000-0000-00000000f501','venue_scanner','ck-sr-2');
+SELECT tap.logout();
+SELECT tap.login('00000000-0000-0000-0000-00000000f501');
+SELECT is((SELECT count(*)::int FROM venue.ticket_type WHERE ticket_type_id = tap._fetch145('tth')::uuid), 0,
+  'H7a: B-P1 — a venue_marketing/scanner reads ZERO hidden ticket types (the §9.1 two-tier split; no name/price leak)');
+SELECT is((SELECT count(*)::int FROM venue.ticket_type WHERE ticket_type_id = tap._fetch145('tt')::uuid), 1,
+  'H7b: …but DOES read the public type (the lower tier gets public + door_only, never hidden)');
 SELECT tap.logout();
 SELECT tap.login_anon();
 SELECT throws_ok('SELECT count(*) FROM venue.inventory_movement', '42501', NULL,
