@@ -762,8 +762,21 @@ jobs:
           # REQUIRED-rollback and BEST-EFFORT-survival transactional proofs +
           # the per-aggregate UNIQUE concurrency backstop.
           # Raised again 2026-08-30 (review hardenings A/B/C/D/E): 140 plans 59.
-          MIN_FILES=18
-          MIN_ASSERTIONS=364
+          # Ratchets raised 2026-08-30 with supabase/tests/141_phase2_identity_orgs_deletion.sql
+          # (Phase-2 package 077): 18 -> 19 files, 364 -> 549 assertions.
+          # Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 19
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 549
+          # 141 plans 185: the twelve-table closed world + 15-label role columns
+          # + INV-NOFORCE + the 8-policy register + hostile grants + the
+          # PFA-1 walled-function ACL sweep + EXEC-set equalities + the eight
+          # approval_request CHECKs + AO guards + demographics/contact-pref
+          # contracts + org lifecycle + connect bind-once + platform-role
+          # PFA-4 posture + the OR-13 deletion machine (request/withdraw/Q5/
+          # sweep/BP live arms/terminal entry/ERASED refusals) + R2 emits +
+          # the eleven SEAM-2 stub identities.
+          MIN_FILES=19
+          MIN_ASSERTIONS=549
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
