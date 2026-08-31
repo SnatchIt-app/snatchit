@@ -962,6 +962,93 @@ OWNER SIGNATURE REQUIRED:    NO — the corpus uniquely determines the correctio
                              are each closed by a named rule. The only admissible resolution is (c).
 ```
 
+## PFA-14 — the frozen RLS `anon`-public-availability arm is undeliverable at the venue-schema layer; the delivery boundary is amended to a separately reviewed public read surface (E-30 ratified)
+
+```
+ID:                          PFA-14  (ratifies E-30 — reclassified from an ownerless erratum)
+FROZEN RULE:                 RLS §9.1 grants `anon` a SELECT of `public`-visibility ticket types and
+                             §9.2 the `remaining` availability projection — an UNAUTHENTICATED public
+                             browsing arm at the `venue`-schema layer.
+IMPLEMENTATION CONFLICT:     migration 076 (immutable, hash-locked, merged) grants `venue` schema USAGE
+                             to `authenticated` ONLY (076:78) and not to `anon`. An anon principal
+                             cannot reach the `venue` schema at all — a schema-level 42501 fires before
+                             any §9.1/§9.2 policy is evaluated. The frozen anon arm is therefore
+                             undeliverable from 081 without widening 076's schema-USAGE boundary, a
+                             security-boundary change 076 owns and did not make.
+OPTIONS:                     (a) grant `venue` USAGE to `anon` from 081 — REJECTED. It reaches into an
+                                 immutable, hash-locked earlier package's security boundary and widens
+                                 raw-schema reach for the unauthenticated role; the corpus does not
+                                 uniquely determine that 076's omission was an error rather than a
+                                 deliberate boundary choice.
+                             (b) leave the anon arm undelivered at the venue-schema layer, scope the two
+                                 `_sel_public` policies and their grants to `authenticated` (the
+                                 deliverable half — any logged-in fan reads public availability under
+                                 §9.1/§9.2 semantics), and route unauthenticated public browsing through
+                                 a separately reviewed public storefront / server / edge read surface
+                                 that projects the same public semantics without exposing the raw
+                                 `venue` schema. CHOSEN by owner.
+WHY IMPLEMENTATION CANNOT CONFORM: 076 is hash-locked; 081 cannot conform to §9.1/§9.2's anon arm without
+                             mutating 076's grant, and whether the anon arm belongs at the venue-schema
+                             layer or at a public read surface is a delivery-boundary choice the frozen
+                             corpus does not settle — exactly freeze §4's "not uniquely determined" test.
+PACKAGE IMPACT:              081 only (the two `_sel_public` policies + their grants scoped to
+                             `authenticated`; no `anon` grant). No object added or removed; NO SQL
+                             behaviour change from the 55d06c5 implementation — this ratifies the posture
+                             already shipped, it does not alter it.
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       protective. Fail-closed: no unauthenticated raw-schema access is opened.
+                             Native issuance and Buy Now are both dark, so no public purchase path
+                             depends on the anon arm today.
+OWNER SIGNATURE REQUIRED:    YES — the resolution is a delivery-boundary choice (venue-schema layer vs a
+                             separately reviewed public read surface) that the frozen corpus does not
+                             uniquely determine, and it AMENDS a frozen §9.1/§9.2 requirement. This was
+                             recorded first as E-30 "no amendment needed"; that classification was WRONG
+                             — amending the delivery boundary is precisely what fail-closed did, and
+                             freeze §4 admits NO only for corrections the corpus already uniquely
+                             determines. Corrected here and escalated. See the signature record below.
+```
+
+### PFA-14 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING (verbatim):     "PFA-14 APPROVED — direct anonymous PostgREST access to the `venue` schema
+                             remains CLOSED for Phase 2. Package 081 must not widen the 076 schema-USAGE
+                             boundary to `anon`. The frozen §9.1/§9.2 anonymous public-availability
+                             requirement is amended so that unauthenticated public ticket-type and
+                             availability browsing is delivered through a separately reviewed public
+                             storefront/server/edge read surface, not direct `anon` table access.
+                             Authenticated fans may continue to receive the 081 RLS-governed public
+                             projections. This ruling changes only the delivery boundary; it does not
+                             broaden venue data visibility, activate native issuance, activate Buy Now,
+                             or authorize production."
+INTERPRETATION CONSTRAINTS (owner-stated): direct `anon` `venue`-schema access stays CLOSED for Phase 2 ·
+                             081 must NOT grant `venue` USAGE to `anon` · the §9.1/§9.2 anon arm is
+                             amended as a delivery-boundary change only · unauthenticated public browsing
+                             is delivered by a separately reviewed public storefront/server/edge read
+                             surface, NOT direct anon table access · authenticated fans keep the 081
+                             RLS-governed public projections · no broadening of venue data visibility ·
+                             native issuance stays OFF · Buy Now stays OFF · no production authorization.
+SCOPE OPENED:                the delivery boundary only. NO implementation byte changes: the ratified 081
+                             migration hash
+                             15d018d6a1ecfc8cf2188d4fec6f3bc94892077ff28a81789192300b1442a55d is
+                             unchanged by this ratification. E-30 is reclassified from an ownerless
+                             erratum to a ratified PFA record and now references PFA-14.
+FORWARD OBLIGATION (governed): the eventual unauthenticated public storefront / server / edge read
+                             surface MUST preserve the frozen §9.1/§9.2 public projection semantics
+                             (public-visibility ticket types + the `remaining` availability projection)
+                             WITHOUT exposing the raw `venue` schema to `anon`. OWNER: UNASSIGNED — the
+                             frozen migration DAG (076–092) identifies NO package that owns a public
+                             web/edge read surface, so this is NOT assigned to an arbitrary package; it
+                             remains a GOVERNED FORWARD OBLIGATION until the corpus or a later owner
+                             ruling names its owner. It must be a separately reviewed surface
+                             (owner-stated).
+STILL CLOSED:                direct `anon` `venue`-schema USAGE (076's boundary is unchanged) · native
+                             issuance (dark) · Buy Now (dark) · Wallet (dark) · production.
+```
+
 ## ERRATA — package 078 (recorded, no amendment needed)
 
 **E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
@@ -1200,7 +1287,7 @@ Filed for the RLS owner beside OPEN-1/OPEN-2: if the board wants draft-event ses
 non-manager venue labels, that is a new ratification (an added `EXISTS (visible parent event)` conjunct),
 not a clarification. Raised independently by two red-team reviewers on PR #34.
 
-## ERRATA — package 081 (recorded, no amendment needed)
+## ERRATA — package 081 (recorded, no amendment needed — EXCEPT E-30, escalated and ratified as PFA-14)
 
 **E-28 — two config keys the inventory-hold path reads have NO frozen spelling; they are PFA-9 CLASS A,
 seeded by nobody, and the path fails SAFE without them.** `venue.reserve_primary_inventory` and
@@ -1232,17 +1319,23 @@ governs WHICH rows a staff member sees. Same class as E-24 (`kernel.tickets.curr
 admissible direction, no owner bit.
 
 **E-30 — RLS §9.1/§9.2's `anon`-public-availability arm is undeliverable: migration 076 (immutable) grants
-schema `venue` USAGE to `authenticated` only.** §9.1 grants `anon` a read of `public`-visibility ticket
+schema `venue` USAGE to `authenticated` only. RECLASSIFIED → ratified as PFA-14 (owner-signed 2026-08-31);
+this is NOT an ownerless erratum and NOT "no amendment needed" — the delivery boundary was amended under
+owner signature.** §9.1 grants `anon` a read of `public`-visibility ticket
 types (and §9.2 the `remaining` projection), but `076_create_phase2_schemas_and_grants.sql:78` grants
 `venue` USAGE to `authenticated` and not `anon`, so an anon principal cannot reach the venue schema at all —
 a schema-level `42501` fires before any policy runs. 076 is hash-locked and merged; widening `anon`'s
 schema access from 081 would be a security-boundary change 076 owns and did not make, so 081 scopes the two
 `_sel_public` policies and their grants to `authenticated` (the deliverable half — any logged-in fan reads
-public availability) and does NOT touch anon's access. The anon-browsing surface (a web/edge concern, and
-moot while native issuance and Buy Now are both dark) is left to whatever later package owns the public
-storefront read, or to an owner ruling if §9.1's anon arm is required at the venue-schema layer. Fail-closed;
-disclosed rather than silently widened. Suite 145 §H asserts the anon wall and the authenticated-fan
-delivery.
+public availability) and does NOT touch anon's access. The delivery boundary — whether the frozen anon arm
+lives at the venue-schema layer or at a separately reviewed public read surface — is NOT one the frozen
+corpus uniquely determines, so it was escalated to the owner and is governed by **PFA-14**: direct `anon`
+`venue`-schema access stays CLOSED for Phase 2, and unauthenticated public browsing is delivered through a
+separately reviewed public storefront/server/edge read surface that preserves the §9.1/§9.2 public
+projection semantics WITHOUT exposing the raw `venue` schema (a GOVERNED FORWARD OBLIGATION, owner
+UNASSIGNED — the migration DAG 076–092 names no owner for a public web/edge read surface). Fail-closed;
+disclosed rather than silently widened, then owner-ratified. Suite 145 §H asserts the anon wall and the
+authenticated-fan delivery.
 
 **E-31 — `venue.inventory_movement.movement_kind` needs a fifth value, `capacity_change`, that schema §3.4's
 enum omits but RPC §20.3.2 mandates.** §3.4 lists `movement_kind` ∈ `{hold, release, issue, void_return}`,
