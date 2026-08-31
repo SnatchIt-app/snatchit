@@ -43,7 +43,14 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- PART 1 — cron entry (register row 079)
 -- ---------------------------------------------------------------------------
-select cron.unschedule('sweep-expired-ticket-atoms');
+do $$
+begin
+  -- tolerate the (unreachable-in-supported-flows) absent-job state rather than
+  -- letting an availability error mask the rollback (red-team E, PR #33)
+  if exists (select 1 from cron.job where jobname = 'sweep-expired-ticket-atoms') then
+    perform cron.unschedule('sweep-expired-ticket-atoms');
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- PART 2 — OR-17 rider F-5: restore the 077 stub body VERBATIM (SEAM-2a)

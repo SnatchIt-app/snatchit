@@ -1092,4 +1092,32 @@ exactly that state; the three clauses, the firing columns (`current_owner_id`, `
 nothing else), and DEFERRABLE INITIALLY DEFERRED are all verbatim. A row deleted before commit (possible
 only in the pre-go-live window, where the rollback's emptiness guard lives) is skipped.
 
+**E-21 — the corpus's "no new cron entry" phrases for the atom-expiry sweep are SUPERSEDED text, disclosed
+here so a reader of schema §1.5.1 / RPC §12.5 alone is not misled.** Both sections say the sweep "rides the
+2-minute heartbeat that already runs — no new cron entry". The P0-1 correction (2026-08-29) found no shared
+heartbeat exists; plan §8/079's own row carries the correction ("this package creates its OWN explicit
+cron.schedule entry — register row: 079, 2 min") and `_governance/CRON_SCHEDULE_REGISTER.md` line 35 corrects
+"every 'rides the existing heartbeat' phrase in the corpus". 079 ships the dedicated entry, per the register.
+Raised by red-team F (PR #33) because the correction lived only in the plan row and the register, not here.
+
+**E-22 — FORWARD OBLIGATION (083/085/088, the ledger-writing engines): the MB-4 verify trigger is not
+self-sufficient under concurrency; the engine atom-lock invariant is load-bearing.**
+`kernel.tg_custody_head_is_ledger_tail` fires only on head writes (`current_owner_id`/`credential_version`)
+and compares to the MAX(sequence) tail. Red-team B (PR #33) demonstrated with real interleavings that (a) a
+NAKED ledger append — a log row with no head write — never fires it and can commit a silent head≠tail
+desync, and (b) a concurrent naked append can make the trigger FALSE-REJECT a correct move. Unreachable at
+079: the ledger is deny-all and no ledger-writing engine exists. The closure is the construction §1.6.1
+already describes: **every engine that appends `kernel.ticket_ownership_log` MUST hold the atom's
+`kernel.tickets` row `FOR UPDATE` across both the head write and the append, in the same transaction.**
+Recorded here so 083's mint, 085's void and 088's transfer engines implement that invariant as load-bearing,
+not stylistic; a defense-in-depth guard on the ledger side is admissible future hardening, not shipped here
+(EXTRA = 0).
+
+**E-23 — FORWARD OBLIGATION (082/085/088, the acquisition engines): `kernel.is_deletion_pending` is a
+pending-flag, not a recipient-validity gate.** It returns FALSE for an ERASED identity, so the F-11 lock
+closes the read→tombstone window but does not stop new matter landing on an ALREADY-TOMBSTONED identity.
+Every acquisition path (checkout buyer, p2p recipient, market buyer) must independently refuse a
+non-ACTIVE counterparty — which is what the dsm §1.3 ERASED refusals already contract; this erratum pins
+that the refusal cannot be discharged by calling `is_deletion_pending` alone. Raised by red-team B (PR #33).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
