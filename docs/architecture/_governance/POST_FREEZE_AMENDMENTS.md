@@ -401,6 +401,24 @@ SELECT ok(
   'HARDENING-1: the deletion sweep carries the isolation guard (BP-11 re-check depends on per-statement snapshots)');
 ```
 
+### HARDENING-1 — OWNER APPROVAL (recorded 2026-08-31)
+
+```
+STATUS:                      APPROVED
+OWNER RULING (verbatim):     "HARDENING-1 APPROVED — merge the governance record. The validated
+                             isolation guard and its pgTAP witness are authorized to be carried into the
+                             next appropriate Phase-2 band migration via CREATE OR REPLACE, without
+                             modifying immutable migration 077. The carrier must make the recorded guard
+                             and witness executable before any supported caller may invoke
+                             kernel.sweep_deletion_pending outside its current READ COMMITTED-only
+                             operating contract."
+BINDING CARRIER CONDITION:   any change that would let a supported caller invoke the sweep outside the
+                             READ COMMITTED-only operating contract (a new caller, a new mechanism, a
+                             non-default-isolation invocation path) REQUIRES the guard + witness to be
+                             live FIRST. Until the carrier lands, the cron register's default-isolation
+                             entry remains the sole supported caller.
+```
+
 **Validation record (2026-08-31, scratch pg17 battery, merged 077 bytes + this block):** (a) the RR
 schedule that produced owners=0 on the unhardened body now RAISES the guard error and leaves state
 intact (identity still DELETION_PENDING, owners=1); (b) normal READ COMMITTED sweeps behave identically
