@@ -100,7 +100,9 @@ SELECT tap.login(tap.admin_user());
 SELECT catalog.approve_venue(tap._fetch146('venue')::uuid,'approved','miami_gate','ck-a-1');
 SELECT tap.logout();
 SELECT tap.login(tap.seller());
-SELECT tap._store146('event', (catalog.create_event(tap._fetch146('venue')::uuid,'Ord Night','desc','ck-e-1') ->> 'event_id'));
+SELECT tap._store146('event', (catalog.create_event(tap._fetch146('venue')::uuid,'Ord Night',
+  jsonb_build_object('starts_at',(now()+interval '20 days')::text,
+                     'ends_at',(now()+interval '20 days 5 hours')::text),'ck-e-1') ->> 'event_id'));
 SELECT tap._store146('session', (SELECT session_id::text FROM catalog.event_session WHERE event_id = tap._fetch146('event')::uuid));
 SELECT tap._store146('tt', (venue.create_ticket_type(tap._fetch146('event')::uuid,'admission','GA',5000,'public','ck-tt-1') ->> 'ticket_type_id'));
 SELECT tap._store146('batch', (venue.create_inventory_batch(tap._fetch146('tt')::uuid, tap._fetch146('session')::uuid, 'public_sale', 100, 0, 'ck-b-1') ->> 'batch_id'));
