@@ -1049,6 +1049,62 @@ STILL CLOSED:                direct `anon` `venue`-schema USAGE (076's boundary 
                              issuance (dark) · Buy Now (dark) · Wallet (dark) · production.
 ```
 
+## PFA-15 — `venue.cancel_pending_order`'s contracted `service_role` invocation is undeliverable under the immutable 076 schema boundary (the PFA-14 class)
+
+```
+ID:                          PFA-15
+FROZEN RULE:                 RLS §11 grades `venue.cancel_pending_order` "DEF — `service_role` only;
+                             `stripe-webhook` on a TERMINAL payment failure only", and the edge registry
+                             names it the `payment_intent.payment_failed` writer for `native_primary`. Its
+                             sole contracted caller is the stripe-webhook acting as `service_role`.
+IMPLEMENTATION CONFLICT:     migration 076 (immutable, hash-locked) grants `venue` schema USAGE to
+                             `authenticated` ONLY (076:78); plan §8/076 states "service_role is a machine
+                             identity, never a human grant target." A `service_role` session therefore hits
+                             a schema-level 42501 at the `venue` wall BEFORE any policy or the function's own
+                             EXECUTE grant is consulted (the exact wall E-30/PFA-14 record). The
+                             `grant execute … to service_role` 082 adds is INERT — the caller cannot reach
+                             the schema. (081's DEF hold-sweep carries the same grant but is genuinely
+                             reachable because `pg_cron` invokes it as the postgres owner;
+                             `cancel_pending_order` has NO cron and no in-package postgres-context caller —
+                             so the "same as 081's sweep" test-comment disposition was wrong, red-team F.)
+OPTIONS:                     (a) grant `service_role` USAGE on `venue` (at the payment-rail package, or by
+                                 amending 076) — widens the machine role's raw-schema reach;
+                             (b) ratify a postgres-owner DB connection for the stripe-webhook edge fn;
+                             (c) front the webhook with an authenticated edge-caller holding venue USAGE;
+                             (d) make it cron-driven like the 081 sweep — but that adds a cron object the
+                                 frozen 082 closed world does not carry.
+                             Each changes the external/service-role access boundary differently; the corpus
+                             does NOT uniquely determine which.
+WHY IMPLEMENTATION CANNOT CONFORM: the function is a frozen 082 object (parity spec + §20.7.9) that 082 MUST
+                             ship; its body is correct; but the frozen contract's caller (service_role)
+                             cannot reach it under the immutable 076 boundary, and how it is reached is a
+                             delivery-boundary choice the corpus leaves open — freeze §4's "not uniquely
+                             determined" test, identical to the anon arm escalated to PFA-14.
+PACKAGE IMPACT:              082 ships the function (body correct) + the service_role EXECUTE grant; the
+                             reachability mechanism is deferred to the owner. No 082 SQL behaviour change is
+                             needed for any option except (a)/(d), which touch other packages.
+SECURITY/MONEY IMPACT:       none while native issuance is dark (no orders ⇒ no webhook ⇒ the path is never
+                             exercised). Uncaught, it ships a dead terminal-failure writer to the payment
+                             rail once the rail activates.
+OWNER SIGNATURE REQUIRED:    YES — the resolution changes the external/service-role access boundary, a policy
+                             choice the corpus does not determine, and the identical class the anon arm was
+                             escalated to PFA-14 (owner-signed) for. Recorded here rather than disposed of by
+                             a test comment (red-team F, PR #36).
+```
+
+### PFA-15 — OWNER SIGNATURE (PENDING)
+
+```
+STATUS:                      PENDING — awaiting owner ruling. Auto-merge of PR #36 is WITHHELD on this
+                             signature (owner-signature-required > 0).
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             (unsigned)
+FORWARD OBLIGATION (governed): until ruled, `venue.cancel_pending_order` is inert (dark-masked, no
+                             production impact). The payment-rail package that activates native issuance
+                             MUST NOT go live until the reachability mechanism is ratified and built — else a
+                             terminal PaymentIntent failure cannot cancel its pending order.
+```
+
 ## ERRATA — package 078 (recorded, no amendment needed)
 
 **E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
@@ -1411,7 +1467,10 @@ canonical universe lists four writers for `venue.order` (`create_primary_checkou
 `service_role`-only definer (no human path; actor = the `SN-SYSTEM` sentinel). At the 082 checkpoint the
 `venue.order` writers that EXIST are `create_primary_checkout` + `cancel_pending_order` (both 082); the other
 three are forward (085/090) — the writer fence at 082 is therefore exact, and the canonical universe is owed a
-fifth-writer row. Corpus-determined (four frozen surfaces name the writer, one omits it); erratum.
+fifth-writer row. Corpus-determined (four frozen surfaces name the writer, one omits it); erratum. **The
+STRUCTURAL writer fence (which functions may write `venue.order`) is exact; the writer's REACHABILITY — its
+sole contracted caller (`service_role`/stripe-webhook) cannot reach `venue` under the 076 boundary — is the
+separate PFA-15 (owner-signed) concern, not a writer-fence defect (red-team F, PR #36).**
 
 **E-23 082-arm — SATISFIED (recorded).** `venue.create_primary_checkout` proves the buyer ACTIVE, not merely
 not-pending: the F-1 `kernel.is_deletion_pending` refusal PLUS an explicit `deletion_state='ERASED'` refusal,
@@ -1420,8 +1479,51 @@ frozen §6.1 signature carries no buyer parameter), and an ERASED identity canno
 arm is defensive — mandated present by E-23 ("cannot be discharged by `is_deletion_pending` alone"), fired
 early (before any order work). Suite 146 §E proves both refusals and the mutation-resistance (an ACTIVE buyer
 clears the gate and fails later on `no_items`, so the gate — not luck — stops the non-ACTIVE cases). **E-23
-remains a forward obligation for 085 and 088.** The `source` column is server-tagged `'web'` (the frozen §6.1
-signature carries no client source hint and the rail is dark; `door`/`promoter_link`/`app` tagging is a
-client-context detail that activates with native issuance).
+remains a forward obligation for 085 and 088.** The `source` column is server-tagged `'web'` — an
+**owner-owed-forward** classification (E-39, corrected from "settled"): with no source hint in the frozen §6.1
+signature it is the inert placeholder while the rail is dark, resolved before native issuance activates.
+
+**E-37 — RLS §9.7's `venue_scanner = A(own-session orders)` is not expressible with the frozen role model; 082
+fails closed (no direct scanner order read).** §9.7 (footnote 28) grades `venue_scanner` a read of its
+**own-session** orders — narrower than `venue_manager`/`venue_finance` (venue-wide). But `venue_scanner` is a
+venue-grain `staff_role` (080) with no session-membership concept, so `kernel.has_venue_role(venue,
+[venue_scanner])` would grant every session's orders at the venue — a cross-session over-read, the exact
+over-exposure §9.7 avoided by scoping scanner narrower. Venue-scope is INADMISSIBLE (it erases §9.7's
+deliberate narrowing); session-scope is inexpressible at 082. Resolved **fail-closed**: `venue_scanner` is NOT
+in the `venue_order[_item]_sel_venue` arm, so a scanner gets NO direct order read — the tightening direction
+(RLS §11.3, single-approver), disclosed rather than over-granted. Suite 146 §I5 regression-pins that no order
+policy references `venue_scanner`. The §9.7 "own-session order read" is a **governed forward obligation**:
+delivered by a session-scoped read RPC / session-membership mechanism in a later package, or blessed to
+venue-scope by an owner ruling. (`platform_support` — graded V, redacted-RPC-only — was likewise removed from
+the direct policy arm; that is a plain §9.7-conformance fix, not a deviation.) Raised by red-team D (PR #36).
+
+**E-38 — RPC §17.21's `p_notice_version` "validated against the known list" has no registry to validate against
+at 082.** `grant_org_contact_consent` is contracted to validate `p_notice_version` *"against the known list"*,
+but no notice-version registry object exists at the 082 checkpoint (none is created by 076–082, none is a
+frozen 082 object). 082 validates PRESENCE (non-empty) — the deliverable, fail-safe half — and the known-list
+check is a **governed forward obligation** (the E-28 shape): the spec owner supplies a notice-version registry
+(or relaxes the clause) before consent capture goes live. Never invented. Raised by red-team A (PR #36).
+
+**E-39 — `venue."order".source` server default `'web'` is an owner-owed-forward classification, not a settled
+default.** §6.1's frozen signature carries no source hint, yet `source` CHECKs the closed set `{app, web, door,
+promoter_link}`, so the server MUST tag a value, and `create_primary_checkout` is callable from both the native
+app and web. Tagging every native checkout `'web'` mis-classifies app/door/promoter_link origins; nothing in
+the corpus forecloses the other labels (the PFA-7 shape — a value chosen among admissible options on
+judgement). **Inert today** (dark rail ⇒ no order is written), so not a blocker, but the honest disposition is
+PFA-9 CLASS-A: an **owner-owed-forward** value (or a client `source` param added when §6.1 is next opened),
+resolved BEFORE native issuance activates — not "settled." Raised by red-team F (PR #36).
+
+**E-40 — 082 creates SOFT pending orders and never converts/locks holds; oversell-safety is a forward
+obligation on 085's finalize.** `create_primary_checkout` validates hold coverage as a pure READ, takes ZERO
+batch/hold locks and issues ZERO counter DML (081 stays the single writer). It does not transition holds to
+`converted` or reserve them against a specific order, so: (a) the same active holds can back multiple pending
+orders (distinct command keys); (b) the 081 TTL sweep can `expired`-release a hold while a pending order still
+references it; (c) `cancel_pending_order` releases no holds (capacity returns via the TTL sweep). At 082 NO
+oversell is reachable — `finalize_primary_order`/`issue_ticket_atoms` are absent and the rail is dark; this is
+the frozen SSCAS #1 design (finalize is the choke-point, §6.3). **Forward obligation on 085**:
+`venue.finalize_primary_order` MUST re-read the hold `status='active'` + `expires_at > now()` and re-derive
+capacity from the batch counter under the batch `FOR UPDATE`, honoring the 081 oversell CHECK
+(`held+sold<=capacity`) — a blind `held -= q` on a swept/converted hold would double-decrement and abort as
+oversell (buyer paid, no ticket). Recorded so 085's review gates on it. Raised by red-team C (PR #36).
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

@@ -10,7 +10,7 @@
 -- controlled in-txn flag flip. Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(68);
+SELECT plan(71);
 
 SELECT tap.seed_core();
 
@@ -145,6 +145,9 @@ SELECT isnt(btrim(pg_get_functiondef('kernel.deletion_blockers_orders(uuid)'::re
 SELECT ok(pg_get_functiondef('kernel.deletion_blockers_orders(uuid)'::regprocedure) LIKE '%venue.%order%',
   'D2: the 082 body reads venue.order (BP-12 pending arm) — the 077 stub returned null');
 SELECT is(kernel.deletion_blockers_orders(tap.buyer()), NULL, 'D3: no pending order for the buyer → no BP-12 block');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'), 1,
+  'D4: SEAM-2a — exactly ONE kernel.deletion_blockers_orders (the CREATE OR REPLACE spawned no overload)');
 
 -- ============================================================================
 -- SECTION E — E-23 / F-1: the checkout buyer must be proven ACTIVE
@@ -209,15 +212,18 @@ SELECT isnt(kernel.deletion_blockers_orders(tap.buyer()), NULL, 'F8: BP-12 — t
 -- SECTION G — cancel_pending_order (service_role; forward-only; noop on redelivery)
 -- ============================================================================
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.cancel_pending_order(%L, 'webhook_terminal', 'ck-x-1')$$, tap._fetch146('checkout')),
+SELECT throws_ok(format($$SELECT venue.cancel_pending_order(%L, 'payment_failed', 'ck-x-1')$$, tap._fetch146('checkout')),
   '42501', NULL, 'G1: a signed-in fan cannot call the machine-only cancel (no EXECUTE grant)');
 SELECT tap.logout();
--- cancel is DEF/service_role (B3 asserts the grant). 076 gives service_role no
--- `venue` schema USAGE, so — exactly like 081's DEF hold-sweep — the body runs in
--- the DEFINER (postgres) context via the webhook path (edge design, §6.2/deliv #5),
--- not a raw service_role session. Exercise the body here as the DEFINER runs it.
-SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'ok', 'G2: the webhook path cancels a pending order');
-SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'pi_failed', 'ck-c-1') ->> 'status'), 'noop_replay', 'G3: redelivery on a cancelled order is a noop_replay (never raises — a raising webhook retries forever)');
+-- cancel is DEF/service_role (B3 asserts the grant). Its contracted caller is the
+-- stripe-webhook, but 076 gives service_role no `venue` schema USAGE — the delivery
+-- mechanism is escalated to the owner as PFA-15 (NOT resolved by this test). Here
+-- we exercise the correct BODY in the DEFINER (postgres) context, as the DEFINER
+-- runs it once reached; p_reason_code is the frozen closed-set value 'payment_failed'.
+SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'payment_failed', 'ck-c-1') ->> 'status'), 'cancelled', 'G2: the webhook path cancels a pending order (§20.7.9 status=cancelled)');
+SELECT throws_ok(format($$SELECT venue.cancel_pending_order(%L, 'bogus', 'ck-c-9')$$, tap._fetch146('checkout')),
+  NULL, 'invalid_input: reason_code must be ''payment_failed''', 'G2b: reason_code outside the closed set is refused (§20.7.9)');
+SELECT is((venue.cancel_pending_order(tap._fetch146('checkout')::uuid, 'payment_failed', 'ck-c-1') ->> 'status'), 'noop_replay', 'G3: redelivery on a cancelled order is a noop_replay (never raises — a raising webhook retries forever)');
 SELECT is(tap._ord_status(tap._fetch146('checkout')::uuid), 'cancelled', 'G4: the order is cancelled');
 SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE subject_id = tap._fetch146('checkout')::uuid AND action='order.cancel'
             AND actor_identity='00000000-0000-0000-0000-0000000000f1'), 1,
@@ -262,6 +268,13 @@ SELECT tap.logout();
 SELECT tap.login(tap.seller());   -- the org owner reads own-org orders (org policy)
 SELECT ok((SELECT count(*)::int FROM venue."order" WHERE org_id = tap._fetch146('org')::uuid) >= 2, 'I4: the org owner reads own-org orders (org policy)');
 SELECT tap.logout();
+-- regression (red-team D): the two role-matrix overreaches must never reappear in
+-- the policy predicates — platform_support (graded V, redacted-RPC only) and
+-- venue_scanner (own-session inexpressible → fail-closed, E-37).
+SELECT is((SELECT count(*)::int FROM pg_policies
+            WHERE schemaname='venue' AND tablename IN ('order','order_item')
+              AND (qual LIKE '%platform_support%' OR qual LIKE '%venue_scanner%')), 0,
+  'I5: no order/order_item policy references platform_support or venue_scanner (fail-closed authz scope)');
 
 SELECT finish();
 ROLLBACK;

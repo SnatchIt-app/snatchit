@@ -129,6 +129,13 @@ revoke all on venue."order" from anon, authenticated;
 grant select on venue."order" to authenticated;   -- money writes are RPC/definer-only
 
 -- RLS §9.7 — owner (buyer) + org back office + venue ops + platform; all reads.
+-- platform_support is graded V (view-only, redacted-RPC path — NOT direct table
+-- SELECT) for the order money surface (§9.7), so it is DELIBERATELY absent from
+-- the is_platform arm; only platform_risk/platform_admin (graded A) read directly.
+-- venue_scanner is graded A(own-SESSION orders) (§9.7 n28), a scope the frozen
+-- role model cannot express (scanner is a venue-grain staff_role, no session
+-- membership). Fail-closed: scanner is NOT in the venue arm — it gets no direct
+-- order read, deferring the session-scoped read to a later mechanism (E-37).
 drop policy if exists venue_order_sel_owner on venue."order";
 create policy venue_order_sel_owner on venue."order" for select to authenticated
   using (buyer_id = auth.uid());
@@ -137,7 +144,7 @@ drop policy if exists venue_order_sel_org on venue."order";
 create policy venue_order_sel_org on venue."order" for select to authenticated
   using (
     kernel.has_org_role(org_id, array['org_owner','org_admin','org_finance'])
-    or kernel.is_platform(array['platform_support','platform_risk','platform_admin'])
+    or kernel.is_platform(array['platform_risk','platform_admin'])
   );
 
 drop policy if exists venue_order_sel_venue on venue."order";
@@ -147,7 +154,7 @@ create policy venue_order_sel_venue on venue."order" for select to authenticated
       select 1 from catalog.event_session s
         join catalog.event e on e.event_id = s.event_id
        where s.session_id = venue."order".event_session_id
-         and kernel.has_venue_role(e.venue_id, array['venue_manager','venue_finance','venue_scanner'])
+         and kernel.has_venue_role(e.venue_id, array['venue_manager','venue_finance'])
     )
   );
 
@@ -191,7 +198,7 @@ $$;
 
 drop trigger if exists tg_order_item_immutable on venue.order_item;
 create trigger tg_order_item_immutable
-  before update or delete on venue.order_item
+  before insert or update or delete on venue.order_item   -- INSERT arm: defense-in-depth, no row may be added to an already-issued order
   for each row execute function venue.guard_order_item_immutable();
 
 alter table venue.order_item enable row level security;
@@ -210,7 +217,7 @@ create policy venue_order_item_sel_org on venue.order_item for select to authent
   using (exists (select 1 from venue."order" o
                   where o.order_id = venue.order_item.order_id
                     and (kernel.has_org_role(o.org_id, array['org_owner','org_admin','org_finance'])
-                         or kernel.is_platform(array['platform_support','platform_risk','platform_admin']))));
+                         or kernel.is_platform(array['platform_risk','platform_admin']))));
 
 drop policy if exists venue_order_item_sel_venue on venue.order_item;
 create policy venue_order_item_sel_venue on venue.order_item for select to authenticated
@@ -219,7 +226,7 @@ create policy venue_order_item_sel_venue on venue.order_item for select to authe
       join catalog.event_session s on s.session_id = o.event_session_id
       join catalog.event e on e.event_id = s.event_id
      where o.order_id = venue.order_item.order_id
-       and kernel.has_venue_role(e.venue_id, array['venue_manager','venue_finance','venue_scanner'])));
+       and kernel.has_venue_role(e.venue_id, array['venue_manager','venue_finance'])));
 
 -- ============================================================================
 -- PART 3 — kernel.org_contact_consent (current-state, CRM §11.2; MUT)
@@ -317,6 +324,7 @@ declare
   v_qty       integer;
   v_price     integer;
   v_held      integer;
+  v_snapshot  jsonb := '[]'::jsonb;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -373,10 +381,14 @@ begin
     raise exception 'precondition_failed: session_terminal';
   end if;
 
-  -- Validate items and snapshot server-authoritative prices from venue.ticket_type,
-  -- then prove the buyer's ACTIVE holds cover each item's quantity for THIS session
-  -- (holds belong to the buyer, are active, not expired — §6.1). Money never moves;
-  -- the authoritative held→sold conversion + oversell backstop (C27) is 085/finalize.
+  -- Validate items and snapshot the server-authoritative price ONCE per item
+  -- (§6.1: a SINGLE server snapshot — the same value backs total_minor AND the
+  -- line item, so a concurrent set_ticket_type_price cannot make them diverge),
+  -- then prove the buyer's ACTIVE holds cover each item's quantity for THIS
+  -- session (holds belong to the buyer, are active, not expired — §6.1). Money
+  -- never moves; the authoritative held→sold conversion + oversell backstop
+  -- (C27) is 085/finalize, which MUST re-read hold status + re-derive capacity
+  -- under the batch FOR UPDATE (forward obligation — see governance E-40).
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_tt_id := (v_item->>'ticket_type_id')::uuid;
     v_qty   := (v_item->>'quantity')::integer;
@@ -407,23 +419,40 @@ begin
     end if;
 
     v_total := v_total + (v_price * v_qty);
+    -- carry the ONE snapshotted price forward; the line item is written from
+    -- this, never re-read, so order.total_minor = Σ(order_item.unit_price × qty).
+    v_snapshot := v_snapshot || jsonb_build_array(
+      jsonb_build_object('tt', v_tt_id, 'qty', v_qty, 'price', v_price));
   end loop;
 
-  -- Create the pending order. source is server-tagged; with no client source hint
-  -- in the frozen signature and the rail dark, the default self-serve tag is 'web'.
-  -- Attribution candidates stay NULL (R2B/C112 — no promoter tables until 090).
-  insert into venue."order" (buyer_id, event_session_id, org_id, status, source,
-                             total_minor, currency, command_idempotency_key)
-  values (v_uid, p_session_id, v_org_id, 'pending', 'web', v_total, 'USD', p_command_key)
-  returning order_id into v_order_id;
+  -- Create the pending order + items in one inner block. source is server-tagged;
+  -- the frozen §6.1 signature carries no source hint and the rail is dark, so 'web'
+  -- is the inert placeholder (owner-owed-forward, E-39). Candidate columns stay
+  -- NULL (R2B/C112 — no promoter tables until 090). A concurrent C16 replay (both
+  -- submits pass the short-circuit above, the loser trips order_buyer_command_uq)
+  -- returns idempotency_replay, not a raw 23505 — the 081 reserve idiom. Scoped to
+  -- the INSERTs so the gate's FOR SHARE lock on identity_ext (taken above via
+  -- is_deletion_pending, F-11) is held to commit, outside this savepoint.
+  begin
+    insert into venue."order" (buyer_id, event_session_id, org_id, status, source,
+                               total_minor, currency, command_idempotency_key)
+    values (v_uid, p_session_id, v_org_id, 'pending', 'web', v_total, 'USD', p_command_key)
+    returning order_id into v_order_id;
 
-  for v_item in select * from jsonb_array_elements(p_items) loop
-    v_tt_id := (v_item->>'ticket_type_id')::uuid;
-    v_qty   := (v_item->>'quantity')::integer;
-    select tt.price_minor into v_price from venue.ticket_type tt where tt.ticket_type_id = v_tt_id;
-    insert into venue.order_item (order_id, ticket_type_id, quantity, unit_price_minor, currency)
-    values (v_order_id, v_tt_id, v_qty, v_price, 'USD');
-  end loop;
+    for v_item in select * from jsonb_array_elements(v_snapshot) loop
+      insert into venue.order_item (order_id, ticket_type_id, quantity, unit_price_minor, currency)
+      values (v_order_id, (v_item->>'tt')::uuid, (v_item->>'qty')::integer,
+              (v_item->>'price')::integer, 'USD');
+    end loop;
+  exception when unique_violation then
+    -- the C16 (buyer, command_key) race: the other txn committed the order first.
+    select order_id, total_minor, currency into v_ex_id, v_ex_total, v_ex_curr
+      from venue."order"
+     where buyer_id = v_uid and command_idempotency_key = p_command_key;
+    if not found then raise; end if;   -- a different unique violation (e.g. a dup item)
+    return jsonb_build_object('status','idempotency_replay','order_id',v_ex_id,
+                              'total_minor',v_ex_total,'currency',v_ex_curr);
+  end;
 
   return jsonb_build_object('status','ok','order_id',v_order_id,
                             'total_minor',v_total,'currency','USD');
@@ -434,7 +463,17 @@ $$;
 -- PART 6 — venue.cancel_pending_order (RPC §20.7.9) — service_role only.
 --   The webhook terminal-failure writer: pending -> cancelled, forward-only.
 --   Redelivery on a cancelled order is a noop_replay (never raises — a raising
---   webhook is retried forever). Actor is the SN-SYSTEM sentinel (078 §1.16).
+--   webhook is retried forever). A non-pending/non-cancelled order raises
+--   order_not_pending per §20.7.9 (a terminal-failure PI cannot be paid, so this
+--   is unreachable in practice). Actor is the SN-SYSTEM sentinel (078 §1.16).
+--   REACHABILITY — OWNER-OWED (PFA-15): the frozen RLS §11 + edge contract names
+--   the stripe-webhook (service_role) as the sole caller, but 076 (immutable)
+--   gives service_role NO `venue` schema USAGE, so a raw service_role session hits
+--   42501 at the schema wall. The delivery mechanism (grant service_role venue
+--   USAGE at the payment package · a postgres-owner webhook connection · an
+--   authenticated edge-caller · cron) is a boundary the corpus does not uniquely
+--   determine — escalated to the owner as PFA-15. The body is correct and inert
+--   while native issuance is dark (no orders => no webhook).
 -- ============================================================================
 create or replace function venue.cancel_pending_order(
   p_order_id uuid, p_reason_code text, p_command_key text)
@@ -451,6 +490,10 @@ begin
   end if;
   if p_command_key is null or length(trim(p_command_key)) = 0 then
     raise exception 'invalid_input: command key required';
+  end if;
+  -- §20.7.9: p_reason_code is REQUIRED and ∈ the closed set ('payment_failed').
+  if p_reason_code is null or p_reason_code <> 'payment_failed' then
+    raise exception 'invalid_input: reason_code must be ''payment_failed''';
   end if;
 
   select status into v_status from venue."order" where order_id = p_order_id for update;
@@ -471,10 +514,11 @@ begin
   insert into kernel.admin_audit
          (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
   values ('00000000-0000-0000-0000-0000000000f1', 'order.cancel', 'order', p_order_id,
-          coalesce(p_reason_code, 'webhook_terminal'),
+          p_reason_code,
           jsonb_build_object('status', v_status), jsonb_build_object('status','cancelled'));
 
-  return jsonb_build_object('status','ok','order_id',p_order_id);
+  -- §20.7.9 Result: status ∈ {cancelled, noop_replay}.
+  return jsonb_build_object('status','cancelled','order_id',p_order_id);
 end;
 $$;
 
@@ -498,11 +542,23 @@ begin
   if v_uid is null then
     raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
   end if;
+  -- rate-limited per identity (§17.21; public.check_rate_limit is fail-closed per
+  -- migration 021; numeric bounds implementation-chosen, E-6). Bounds the rate at
+  -- which grant/withdraw churn can append to the AO consent-event ledger.
+  if not public.check_rate_limit(v_uid, 'grant_org_contact_consent', 30, 3600) then
+    raise exception 'policy_violation: rate limit exceeded for contact consent changes';
+  end if;
+  -- §17.21 wants notice_version "validated against the known list" — no notice-
+  -- version registry object exists at the 082 checkpoint, so PRESENCE is validated
+  -- and the known-list check is a governed forward obligation (E-38), never invented.
   if p_notice_version is null or length(trim(p_notice_version)) = 0 then
     raise exception 'precondition_failed: notice version required';
   end if;
-  if not exists (select 1 from kernel.organization o where o.org_id = p_org_id) then
-    raise exception 'not_found: organization %', p_org_id using errcode = 'P0002';
+  -- §17.21: p_org_id re-validated as a LIVE org (status in approved/active — an
+  -- applied/suspended/closed org cannot record a fresh contact consent).
+  if not exists (select 1 from kernel.organization o
+                  where o.org_id = p_org_id and o.status in ('approved','active')) then
+    raise exception 'not_found: live organization %', p_org_id using errcode = 'P0002';
   end if;
 
   select state into v_state from kernel.org_contact_consent
@@ -523,6 +579,11 @@ begin
   insert into kernel.org_contact_consent_event (identity_id, org_id, event, notice_version, source_order_id)
   values (v_uid, p_org_id, 'granted', p_notice_version, p_source_order_id);
 
+  -- audited (§17.21) — the actor IS the data subject (their own consent).
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'crm_contact.consent_granted', 'organization', p_org_id, 'self_service',
+          jsonb_build_object('state', coalesce(v_state,'none')), jsonb_build_object('state','granted'));
+
   return jsonb_build_object('status','ok');
 end;
 $$;
@@ -541,6 +602,10 @@ begin
   if v_uid is null then
     raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
   end if;
+  -- rate-limited per identity (§17.21; fail-closed per 021; bounds E-6).
+  if not public.check_rate_limit(v_uid, 'withdraw_org_contact_consent', 30, 3600) then
+    raise exception 'policy_violation: rate limit exceeded for contact consent changes';
+  end if;
 
   select state into v_state from kernel.org_contact_consent
    where identity_id = v_uid and org_id = p_org_id;
@@ -556,6 +621,11 @@ begin
 
   insert into kernel.org_contact_consent_event (identity_id, org_id, event, notice_version, source_order_id)
   values (v_uid, p_org_id, 'withdrawn', null, null);
+
+  -- audited (§17.21) — the actor IS the data subject.
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'crm_contact.consent_withdrawn', 'organization', p_org_id, 'self_service',
+          jsonb_build_object('state', v_state), jsonb_build_object('state','withdrawn'));
 
   return jsonb_build_object('status','ok');
 end;
