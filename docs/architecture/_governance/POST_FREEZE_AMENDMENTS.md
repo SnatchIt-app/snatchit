@@ -1921,4 +1921,51 @@ does not change buyer refund policy. Implementation note (085): candidates = the
 stable timestamp on the immutable 082 table — it expires no later than a paid-time window would, and the
 in-flight-refund arm of `deletion_blockers_money` covers active requests independently).
 
+## ERRATA — package 085 (recorded, no amendment needed)
+
+All corpus-determined under the freeze §4 test; the policy decisions 085 executes are separately
+owner-signed (PFA-15/PFA-21/PFA-22).
+
+**E-49 — the immature-grant failure token is `sod_violation` (C58), not schema §1.13.4's
+`precondition_failed('money_role_too_new')`.** MONEY §6.7a records the conflict and RPC/RLS carry the
+RATIFIED C58 form; the ratified correction governs (the E-34 class). 085's verbs raise `sod_violation`.
+The §6.7a second conflict (whether `set_platform_config`'s money arm is a maturity site) is NOT 085's:
+078 is applied and immutable, and adding a platform-plane maturity control would be NEW authority —
+left on the MONEY §11 owner queue.
+
+**E-50 — `kernel.payment_native` carries the standing `raise_append_only` guard.** Schema §1.8 declares
+the ledger "effectively AO"; the plan's trigger row enumerates only `set_updated_at` (inapplicable — the
+table has no `updated_at`). The declared property governs; the guard is its mechanical witness (the
+083 push-log precedent). R-34's two writers INSERT only; nothing legitimate updates or deletes a link.
+
+**E-51 — `kernel.payout.cause` CHECK admits the four NAMED §1.9 labels** (`settlement`, `market_sale`,
+`promoter_commission`, `refund_void`) — the ellipsis in "from D3 (…)" is prose style, not a wider set:
+every contracted writer (close_settlement, native-sale, pay_promoter_commission, request_org_payout)
+writes one of the four. Widening is additive if a later package's writer needs a fifth label.
+
+**E-52 — the executed refund tier is WITNESSED by an auto-approved `approval_request` row.** The
+executor's delegated-authority gate recognizes an APPROVED request on the order; the parked branch's
+approval satisfies it naturally. For the auto-execute tiers (buyer self-service / org auto / platform),
+085 writes the SAME record class with `state='approved'`, `approved_by = SN-SYSTEM`,
+`reason_code='auto_execute_tier'` — the tier check that admitted execution IS the authority, the record
+is its witness, and the SoD pair (`approved_by <> requested_by`) holds by the sentinel. This closes the
+delegation channel without a new mechanism (no GUC, no signature change) and improves the audit trail:
+EVERY executed refund now has an intent record. Inert today: all D-3 keys are NULL, so no auto tier is
+satisfiable until the owner sets values.
+
+**E-53 — `market.on_atom_voided` ships the C117-canonical THREE-parameter stub**; the two-parameter
+summaries in plan §0.4b and schema §13.2 FR-4 are ruled stale by the registry's SEVENTH AMENDMENT. The
+`p_cause` VALUE SET remains uncontracted — that derivation belongs to 088's body review (the stub is a
+no-op; SEAM-2a freezes names/types only). The plan's "a ruling that drops `p_cause` must be taken
+BEFORE 085 is authored" is satisfied BY C117: the ruling exists and keeps it.
+
+**E-54 — `kernel.payout.status='paid'` is built as form (a)** (the executor's synchronous transfer
+result) per RPC §20.7.6's own instruction pending the O16 ruling; `mark_payout_transfer_state` refuses
+`submitted` (087's request path — a second door past the money controls otherwise). Forward notes
+carried: the venue_finance arm of `list_org_payouts` FAILS CLOSED (empty page) until 087's settlement
+join exists; the org/venue-scoped `payment_native` read RPC named by RLS §7.8's V cells is unbuilt and
+fails closed (the §20.0c shape — recorded, owed to the 087-surface review); the BP-6 kernel arm is
+subsumed by BP-5's stricter `status <> 'paid'` predicate while both live only in `deletion_blockers_money`
+(a held payout is definitionally unsettled) — the arm is kept for when the predicates diverge.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
