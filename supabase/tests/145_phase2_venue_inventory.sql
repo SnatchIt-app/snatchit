@@ -143,8 +143,8 @@ SELECT is((SELECT value::text FROM catalog.platform_config WHERE key='feature.na
 SELECT is((SELECT value::text FROM catalog.platform_config WHERE key='feature.native_resale_enabled' ORDER BY version DESC LIMIT 1),
   'false', 'A31: BUY NOW stays dark');
 SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='kernel.tickets'::regclass
-            AND contype='f' AND conname LIKE '%ticket_type%'), 0,
-  'A32: kernel.tickets.ticket_type_id FK is NOT adopted here — that is 084''s step');
+            AND contype='f' AND conname LIKE '%ticket_type%'), 1,
+  'A32: kernel.tickets.ticket_type_id FK is adopted by 084 (fk_tickets_ticket_type) — 081 built the target only');
 
 -- HARDENING-1 / BP-1 / MB-4 survive
 SELECT ok(pg_get_functiondef((SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace

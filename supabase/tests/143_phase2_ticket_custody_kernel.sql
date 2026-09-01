@@ -69,8 +69,8 @@ SELECT col_is_null('kernel','tickets','seat_ref', 'A8: seat_ref nullable (C42 he
 SELECT col_is_null('kernel','tickets','unit_row_id', 'A9: unit_row_id nullable, bare uuid (EXT target)');
 SELECT is((SELECT count(*)::int FROM information_schema.table_constraints
             WHERE table_schema='kernel' AND table_name='tickets'
-              AND constraint_type='FOREIGN KEY'), 3,
-  'A10: tickets carries THREE FKs — ticket_type_id/signing_key_id FKs are 084''s (adopt), not here');
+              AND constraint_type='FOREIGN KEY'), 5,
+  'A10: tickets carries FIVE FKs — the three birth FKs + 084''s two adopts (ticket_type_id/signing_key_id)');
 SELECT col_not_null('kernel','tickets','ticket_type_id',
   'A11: ticket_type_id NOT NULL now (no row can exist before the mint engine)');
 SELECT col_not_null('kernel','tickets','signing_key_id', 'A12: signing_key_id NOT NULL now');
