@@ -34,8 +34,8 @@ GRANT EXECUTE ON FUNCTION tap._sk_count(uuid), tap._wp_status(uuid), tap._ticket
 -- SECTION A — THE 083 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 22,
-  'A1: kernel holds 22 tables — 17 post-082 + the 5 of 083 (signing_key, pass_type_cert, 3 wallet)');
+            WHERE n.nspname='kernel' AND c.relkind='r'), 26,
+  'A1: kernel holds 26 tables — 22 post-084 + 085''s four money ledgers');
 SELECT has_table('kernel'::name,'signing_key'::name, 'A2: kernel.signing_key');
 SELECT has_table('kernel'::name,'pass_type_cert'::name, 'A3: kernel.pass_type_cert');
 SELECT has_table('kernel'::name,'wallet_pass'::name, 'A4: kernel.wallet_pass');
@@ -47,8 +47,8 @@ SELECT has_function('venue'::name,'append_door_manifest_delta'::name, ARRAY['uui
 -- PFA-17: revoke_signing_key is NOT here (→ 086)
 SELECT hasnt_function('kernel'::name,'revoke_signing_key'::name, 'A10: PFA-17 — revoke_signing_key is NOT authored here (→ 086)');
 -- forward objects absent
-SELECT hasnt_function('venue'::name,'finalize_primary_order'::name, 'A11: finalize is NOT here (085)');
-SELECT hasnt_table('kernel'::name,'payment_native'::name, 'A12: kernel.payment_native is NOT here (085)');
+SELECT has_function('venue'::name,'finalize_primary_order'::name, ARRAY['uuid','uuid','text','text']::name[], 'A11: finalize landed in 085 (C111)');
+SELECT has_table('kernel'::name,'payment_native'::name, 'A12: kernel.payment_native landed in 085');
 SELECT hasnt_function('kernel'::name,'transfer_ticket_ownership'::name, 'A13: the transfer engine is NOT here (088)');
 -- the .pkpass private bucket + zero policies
 SELECT is((SELECT public::text FROM storage.buckets WHERE id='pkpass'), 'false', 'A14: the .pkpass bucket exists and is PRIVATE (public=false)');

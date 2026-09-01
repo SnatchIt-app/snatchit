@@ -179,13 +179,13 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 4,
-  -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body
-  -- now (the 080-owned OR-17 slot; 144 A27-A30 own it). FOUR remain neutral.
-  'A45: the four LATER erased/release hooks remain byte-neutral');
+             AND btrim(p.prosrc) = 'select'), 3,
+  -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body.
+  -- 2026-09-01 (package 085): on_deletion_q5_release filled (§17.4 semantics).
+  'A45: THREE later erased hooks remain byte-neutral (door/market/promoter)');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-           WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) = 'select false',
-  'A46: has_outstanding_obligations remains the 077 neutral stub (085''s slot)');
+           WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) <> 'select false',
+  'A46: has_outstanding_obligations carries its REAL body now (BP-10 over kernel.identity_obligation — 085)');
 
 -- the MB-4 trigger, structurally (T-SCHEMA-CUSTODY-05: a dropped trigger and a
 -- trigger that never fires are indistinguishable to every value-based test)

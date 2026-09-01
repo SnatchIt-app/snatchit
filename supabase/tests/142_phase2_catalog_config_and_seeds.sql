@@ -236,14 +236,14 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- SECTION D — THE CONFIG CONTRACT (41 keys; the two-class split)
 -- ============================================================================
 
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 41,
-  'D1: exactly 41 config keys are seeded');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 42,
+  'D1: exactly 42 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
   'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 33,
-  'D4: the other 33 are restricted');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 34,
+  'D4: the other 34 are restricted (the PFA-22 key is restricted)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
