@@ -8,9 +8,15 @@
 -- table. Now both exist, the forward reference closes:
 --   fk_tickets_ticket_type  (ticket_type_id) -> venue.ticket_type   ON DELETE RESTRICT
 --   fk_tickets_signing_key  (signing_key_id) -> kernel.signing_key  ON DELETE RESTRICT
--- Each ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT — trivial on the
--- empty table; the pattern is the standing discipline for the populated case
--- (NOT VALID takes a brief ShareRowExclusive; VALIDATE only ShareUpdateExclusive).
+-- Each ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT — trivial here:
+-- kernel.tickets is provably empty (its sole writer, the 083 mint, is doubly
+-- dark). LOCK HONESTY (E-48): in this single-transaction form the two-step is
+-- CEREMONIAL — the ADD's ShareRowExclusive (on tickets AND both referenced
+-- tables) is held to COMMIT, so VALIDATE's weaker ShareUpdateExclusive buys
+-- nothing. The two-step's populated-table benefit exists only when ADD and
+-- VALIDATE commit in SEPARATE transactions — a future adopt package landing on
+-- populated prod (089/090) needs that ruled exception to the single-txn
+-- discipline BEFORE it ships. Recorded as erratum E-48.
 --
 -- PURITY INVARIANT (registry §084): this package creates ZERO relations and
 -- ZERO routines — no tables, no functions, no RLS, no triggers, no indexes,

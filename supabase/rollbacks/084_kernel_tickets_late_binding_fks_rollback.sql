@@ -6,6 +6,11 @@
 -- row. No refusal guard exists BY DESIGN — there is nothing to refuse over.
 -- Restores the post-083 state exactly (kernel.tickets carries its three birth
 -- FKs; ticket_type_id/signing_key_id revert to unconstrained NOT NULL uuids).
+-- LOCKS: DROP CONSTRAINT takes a brief AccessExclusive on kernel.tickets and
+-- locks both referenced tables to drop the RI triggers — no scan, no rewrite.
+-- ORDERING: this rollback must run BEFORE 083's — 083's bare `drop table
+-- kernel.signing_key` fails loudly (dependent fk_tickets_signing_key) while 084
+-- stands. Reverse-order rollout guarantees it; the failure mode is fail-safe.
 -- ============================================================================
 
 begin;

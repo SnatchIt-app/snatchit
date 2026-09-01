@@ -27,14 +27,16 @@ $m$ SELECT v FROM tap.memo_148 WHERE k = $1 $m$;
 -- ============================================================================
 SELECT ok((SELECT c.contype='f' AND c.confrelid='venue.ticket_type'::regclass
               AND c.convalidated AND c.confdeltype='r'
+              AND NOT c.condeferrable AND c.confupdtype='a'
              FROM pg_constraint c
             WHERE c.conrelid='kernel.tickets'::regclass AND c.conname='fk_tickets_ticket_type'),
-  'A1: fk_tickets_ticket_type — FK -> venue.ticket_type, VALIDATED, ON DELETE RESTRICT');
+  'A1: fk_tickets_ticket_type — FK -> venue.ticket_type, VALIDATED, RESTRICT, non-deferrable, ON UPDATE NO ACTION');
 SELECT ok((SELECT c.contype='f' AND c.confrelid='kernel.signing_key'::regclass
               AND c.convalidated AND c.confdeltype='r'
+              AND NOT c.condeferrable AND c.confupdtype='a'
              FROM pg_constraint c
             WHERE c.conrelid='kernel.tickets'::regclass AND c.conname='fk_tickets_signing_key'),
-  'A2: fk_tickets_signing_key — FK -> kernel.signing_key, VALIDATED, ON DELETE RESTRICT');
+  'A2: fk_tickets_signing_key — FK -> kernel.signing_key, VALIDATED, RESTRICT, non-deferrable, ON UPDATE NO ACTION');
 SELECT is((SELECT count(*)::int FROM pg_constraint
             WHERE conrelid='kernel.tickets'::regclass AND contype='f'), 5,
   'A3: tickets now carries FIVE outgoing FKs — the three 079 birth FKs + the two 084 adopts, no more');
@@ -42,29 +44,37 @@ SELECT is((SELECT count(*)::int FROM pg_constraint
 -- seating rollout adds that FK as ANOTHER adopt step, not an edit to 084.
 SELECT is((SELECT count(*)::int FROM pg_constraint c
             WHERE c.conrelid='kernel.tickets'::regclass AND c.contype='f'
-              AND (SELECT attname FROM pg_attribute
-                    WHERE attrelid=c.conrelid AND attnum = c.conkey[1]) = 'unit_row_id'), 0,
-  'A4: unit_row_id carries NO FK (C42 — EXT target, future adopt step)');
+              AND c.conkey @> ARRAY[(SELECT attnum FROM pg_attribute
+                    WHERE attrelid='kernel.tickets'::regclass AND attname='unit_row_id')]::int2[]), 0,
+  'A4: unit_row_id appears in NO FK at any column position (C42 — EXT target, future adopt step)');
 
 -- ============================================================================
 -- SECTION B — THE DUMPING-GROUND GUARD (plan §8/084: "assert the package
 -- creates zero relations and zero routines"; registry purity invariant)
 -- ============================================================================
+-- the FIVE-SCHEMA sweep: any relation or routine dumped into ANY phase-2 schema
+-- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 22,
-  'B1: kernel still holds exactly 22 tables — 084 created ZERO relations');
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
+              AND c.relkind IN ('r','p','v','m','S','f')), 36,
+  'B1: the five phase-2 schemas hold exactly 36 relations of ANY kind (tables/views/matviews/sequences/foreign) — 084 created ZERO');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel'), 75,
-  'B2: kernel still holds exactly 75 functions — 084 created ZERO routines');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue'), 15,
-  'B3: venue still holds exactly 15 functions');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='market' AND c.relkind='r'), 0,
-  'B4: market still holds NO table');
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 103,
+  'B2: the five phase-2 schemas still hold exactly 103 routines (75+15+11+0+2) — 084 created ZERO');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel'), 12,
-  'B5: the kernel policy register is untouched (still 12) — no RLS rode along');
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 39,
+  'B3: the five-schema policy register is untouched (12 kernel + 15 venue + 12 catalog) — no RLS rode along');
+SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='kernel' AND c.relkind='r') = 22
+       AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='kernel') = 75,
+  'B4: kernel per-schema census unchanged (22 tables, 75 functions)');
+SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='venue') = 15
+       AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='market' AND c.relkind='r') = 0,
+  'B5: venue holds 15 functions, market holds no table — unchanged');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)
@@ -103,7 +113,10 @@ SELECT throws_ok(format($$INSERT INTO kernel.tickets (event_session_id, org_id, 
   VALUES (%L, %L, %L, 9002, %L, gen_random_uuid())$$,
     tap._fetch148('session'), tap._fetch148('org'), tap._fetch148('tt'), tap.buyer()),
   '23503', NULL, 'C2: a ticket with a BOGUS signing_key_id is rejected (fk_tickets_signing_key bites)');
--- a coherent row still inserts (the FKs constrain, they do not block the mint's shape)
+-- a coherent row still inserts (the FKs constrain, they do not block the mint's
+-- shape). NOTE: this row has no ownership-log pair — legal ONLY because the 079
+-- custody verify trigger is INITIALLY DEFERRED and this suite ends in ROLLBACK
+-- (COMMIT never happens); a COMMIT-based harness refactor would trip it.
 SELECT lives_ok(format($$INSERT INTO kernel.tickets (event_session_id, org_id, ticket_type_id, serial_no, current_owner_id, signing_key_id)
   VALUES (%L, %L, %L, 1, %L, %L)$$,
     tap._fetch148('session'), tap._fetch148('org'), tap._fetch148('tt'), tap.buyer(), tap._fetch148('key')),
