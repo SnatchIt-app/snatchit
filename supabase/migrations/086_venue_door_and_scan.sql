@@ -715,6 +715,7 @@ declare
   v_count  integer;
   v_ttl    interval;
   v_first  boolean;
+  v_opened_at timestamptz;
 begin
   select * into v_sess from catalog.event_session where session_id = p_session_id for update;   -- rank 1
   if not found then raise exception 'not_found: session %', p_session_id using errcode = 'P0002'; end if;
@@ -752,7 +753,7 @@ begin
           coalesce(auth.uid(),'00000000-0000-0000-0000-0000000000f1'), p_reason_code,
           now() + coalesce(v_ttl, interval '12 hours'), v_count,
           md5(p_session_id::text || ':' || v_ver::text || ':' || now()::text), p_command_key)
-  returning manifest_id into v_mid;
+  returning manifest_id, opened_at into v_mid, v_opened_at;
 
   insert into venue.door_manifest_entry (manifest_id, ticket_atom_id, serial_no, ticket_type_id,
          credential_version, signing_key_id, ticket_state, resale_state)
@@ -762,7 +763,10 @@ begin
 
   -- first open engages the door freeze (sole door_open_at write via engage_door_freeze)
   if v_first then
-    perform catalog.engage_door_freeze(p_session_id, v_sess.starts_at);   -- opened_at is the freeze head
+    -- freeze head = THIS first episode's opened_at, so door_open_at == MIN(opened_at)
+    -- holds by construction (ledger-head trigger). starts_at is the scheduled time
+    -- (informational doors_at, §17.12), NEVER door_open_at (T-RPC-DOOR-23).
+    perform catalog.engage_door_freeze(p_session_id, v_opened_at);
     perform market.on_door_freeze_engaged(p_session_id, v_mid);           -- 088 stub (drains market)
   end if;
 

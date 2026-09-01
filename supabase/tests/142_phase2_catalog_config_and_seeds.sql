@@ -84,11 +84,12 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 -- 078 owns no cron entry (CRON_SCHEDULE_REGISTER has no 078 row) and emits nothing
 -- (the R2 catalog writers are update_event_session·079 and cancel_event·088).
 SELECT is((SELECT count(*)::int FROM cron.job
-            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 1,
-  -- 2026-09-01 (package 086): the implicit door-freeze sweep
-  -- (sweep-implicit-door-freezes, command `select catalog.sweep_implicit_door_freezes(500)`)
-  -- is catalog's FIRST cron entry. 078 still schedules none — 086 owns this one.
-  'A12: exactly one catalog cron job — 086''s implicit door-freeze sweep (078 schedules none)');
+            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 2,
+  -- 2026-09-01 (package 086): TWO cron commands reference catalog.* — the implicit
+  -- door-freeze sweep (`select catalog.sweep_implicit_door_freezes(500)`) and the
+  -- nightly holder-mix refresh (`... from catalog.event_session ...`). 078 still
+  -- schedules none; both are 086's.
+  'A12: exactly two catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh (078 schedules none)');
 SELECT is((SELECT count(*)::int FROM (
              SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'catalog' OFFSET 0) q
