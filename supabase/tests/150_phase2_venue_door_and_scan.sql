@@ -6,7 +6,7 @@
 -- (incl. revoke) is PARKED (PFA-18A). BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(62);
+SELECT plan(67);
 
 SELECT tap.seed_core();
 
@@ -203,41 +203,35 @@ SELECT throws_ok(format($$UPDATE catalog.event_session SET door_open_at = now()+
   'P0001', NULL, 'D19: door_open_at is immutable once engaged (ledger-head trigger)');
 
 -- ============================================================================
--- SECTION E — DOOR PIN + TOKENIZED SESSION (mint/assert/revoke; RV-1)
+-- SECTION E — DOOR PIN + TOKENIZED SESSION: PARKED fail-closed (PFA-26 / PFA-20)
+--   §3.10 mandates a SLOW KDF for the low-entropy PIN; no crypto extension is in
+--   the chain, so create_door_pin + mint_door_session are parked (owner ruling).
+--   scan_device registration and assert_door_session (256-bit token md5, compliant)
+--   stay live; there are simply no PINs/sessions to work with.
 -- ============================================================================
 SELECT tap.login(tap.seller());
-SELECT tap._store150('pin', (venue.create_door_pin(tap._fetch150('venue')::uuid, tap._fetch150('session')::uuid, 'front', 'pin1234', now()+interval '1 day', 'ck86-p-1') ->> 'pin_id'));
 SELECT tap._store150('dev', (venue.register_scan_device(tap._fetch150('venue')::uuid, 'scanner-1', 'ck86-dev-1') ->> 'device_id'));
+SELECT throws_ok(format($$SELECT venue.create_door_pin(%L,%L,'front','pin1234',now()+interval '1 day','ck86-p-1')$$,
+    tap._fetch150('venue'), tap._fetch150('session')),
+  NULL, 'precondition_failed: door_pin_kdf_unavailable — door-PIN slow-KDF mechanism not yet ratified (PFA-26); door PIN creation is parked fail-closed',
+  'E1: create_door_pin is PARKED fail-closed (PFA-26; no slow KDF in the chain)');
 SELECT tap.logout();
-SELECT ok(NOT (SELECT pin_hash FROM venue.door_pin WHERE pin_id=tap._fetch150('pin')::uuid) = 'pin1234',
-  'E1: the PIN is stored hashed, never in the clear');
--- mint a door session as service_role (the edge), assert it, then revoke the pin (RV-1)
 SELECT tap.login_service();
-SELECT tap._store150('mds', (venue.mint_door_session(tap._fetch150('venue')::uuid, tap._fetch150('session')::uuid, tap._fetch150('dev')::uuid, 'pin1234', 'ck86-ds-1'))::text);
+SELECT throws_ok(format($$SELECT venue.mint_door_session(%L,%L,%L,'pin1234','ck86-ds-1')$$,
+    tap._fetch150('venue'), tap._fetch150('session'), tap._fetch150('dev')),
+  NULL, 'precondition_failed: door_pin_kdf_unavailable — door-session mint depends on the parked door-PIN mechanism (PFA-26); parked fail-closed',
+  'E2: mint_door_session is PARKED fail-closed (depends on the parked PIN)');
 SELECT tap.logout();
-SELECT is((tap._fetch150('mds')::jsonb ->> 'status'), 'ok', 'E2: the door edge mints a session (service_role)');
-SELECT tap._store150('dsid', (tap._fetch150('mds')::jsonb ->> 'door_session_id'));
-SELECT tap._store150('dtok', (tap._fetch150('mds')::jsonb ->> 'session_token'));
+SELECT is((SELECT count(*)::int FROM venue.door_pin), 0, 'E3: zero door_pin rows stored (create parked, no mutation)');
+SELECT is((SELECT count(*)::int FROM venue.door_session), 0, 'E4: zero door_session rows minted (mint parked)');
 SELECT tap.login_service();
-SELECT is((SELECT event_session_id FROM kernel.assert_door_session(tap._fetch150('dev')::uuid, tap._fetch150('session')::uuid, tap._fetch150('dsid')::uuid, tap._fetch150('dtok'))),
-  tap._fetch150('session')::uuid, 'E3: assert_door_session validates the token and returns the bound session');
-SELECT throws_ok(format($$SELECT kernel.assert_door_session(%L,%L,%L,'wrong-token')$$,
-    tap._fetch150('dev'), tap._fetch150('session'), tap._fetch150('dsid')),
-  '42501', NULL, 'E4: a wrong token is rejected (opaque door_session_invalid)');
-SELECT tap.logout();
-SELECT tap.login(tap.seller());
-SELECT is((venue.revoke_door_pin(tap._fetch150('pin')::uuid, 'ck86-p-2') ->> 'status'), 'ok', 'E5: the manager revokes the pin');
-SELECT tap.logout();
-SELECT is((SELECT status FROM venue.door_session WHERE door_session_id=tap._fetch150('dsid')::uuid), 'revoked',
-  'E6: RV-1 — revoking the pin revoked its door session in the same txn');
-SELECT tap.login_service();
-SELECT throws_ok(format($$SELECT kernel.assert_door_session(%L,%L,%L,%L)$$,
-    tap._fetch150('dev'), tap._fetch150('session'), tap._fetch150('dsid'), tap._fetch150('dtok')),
-  '42501', NULL, 'E7: …and the revoked session no longer asserts');
+SELECT throws_ok(format($$SELECT kernel.assert_door_session(%L,%L,%L,'any-token')$$,
+    tap._fetch150('dev'), tap._fetch150('session'), gen_random_uuid()),
+  '42501', NULL, 'E5: assert_door_session is opaque 42501 for any token (no session exists)');
 SELECT tap.logout();
 
 -- ============================================================================
--- SECTION F — SCAN (dark gate) + on_identity_erased_door (BP body)
+-- SECTION F — SCAN (dark gate) + on_identity_erased_door (ODR16 INV #29-#31)
 -- ============================================================================
 SELECT tap.login(tap.seller());
 SELECT throws_ok(format($$SELECT venue.record_scan(%L,%L,%L,'{}'::jsonb,'ck86-s-1')$$,
@@ -246,15 +240,25 @@ SELECT throws_ok(format($$SELECT venue.record_scan(%L,%L,%L,'{}'::jsonb,'ck86-s-
   NULL, 'precondition_failed: feature_disabled — native scanning is dark',
   'F1: record_scan is gated on native scanning (dark)');
 SELECT tap.logout();
--- on_identity_erased_door scrubs the erased identity's comp grantee name
+-- ODR16: SET NULL the ops FKs (granted_to_identity #29, granted_by #30, created_by
+-- #31); granted_to_name SURVIVES. Seed rows owned by the to-be-erased other_user.
 INSERT INTO venue.comp_allocation (event_session_id, batch_id, granted_to_identity, granted_to_name, quantity, granted_by)
-VALUES (tap._fetch150('session')::uuid, tap._fetch150('batch')::uuid, tap.other_user(), 'Jane Doe', 1, tap.seller());
-SELECT lives_ok(format($$SELECT kernel.on_identity_erased_door(%L)$$, tap.other_user()), 'F2: on_identity_erased_door runs (real body)');
-SELECT is((SELECT granted_to_name FROM venue.comp_allocation WHERE granted_to_identity=tap.other_user()), NULL,
-  'F3: …and it scrubbed the erased identity''s comp-grantee name (INV #29-#31)');
+VALUES (tap._fetch150('session')::uuid, tap._fetch150('batch')::uuid, tap.other_user(), 'Jane Doe', 1, tap.other_user());
+INSERT INTO venue.guest_list (event_session_id, name, created_by)
+VALUES (tap._fetch150('session')::uuid, 'VIP list', tap.other_user());
+SELECT lives_ok(format($$SELECT kernel.on_identity_erased_door(%L)$$, tap.other_user()),
+  'F2: on_identity_erased_door runs (ODR16 real body)');
+SELECT is((SELECT count(*)::int FROM venue.comp_allocation WHERE granted_to_identity=tap.other_user()), 0,
+  'F3: INV #29 — comp_allocation.granted_to_identity SET NULL');
+SELECT is((SELECT count(*)::int FROM venue.comp_allocation WHERE granted_by=tap.other_user()), 0,
+  'F4: INV #30 — comp_allocation.granted_by SET NULL');
+SELECT is((SELECT granted_to_name FROM venue.comp_allocation WHERE granted_to_name='Jane Doe' LIMIT 1), 'Jane Doe',
+  'F5: INV #29 note — granted_to_name SURVIVES (a label, not an auth.users linkage)');
+SELECT is((SELECT count(*)::int FROM venue.guest_list WHERE created_by=tap.other_user()), 0,
+  'F6: INV #31 — guest_list.created_by SET NULL');
 
 -- ============================================================================
--- SECTION G — HOLDER-MIX PRIVACY (deny-all; R2 sub-5 floor)
+-- SECTION G — HOLDER-MIX PRIVACY (deny-all; R2 sub-5 floor; §10.4 read contract)
 -- ============================================================================
 SELECT ok(NOT has_table_privilege('authenticated','venue.holder_mix_snapshot','SELECT')
        AND NOT has_table_privilege('authenticated','venue.holder_mix_bucket','SELECT'),
@@ -265,6 +269,39 @@ SELECT throws_ok($$INSERT INTO venue.holder_mix_bucket (snapshot_id, bucket, hol
 SELECT ok(NOT EXISTS (SELECT 1 FROM information_schema.check_constraints cc
                        WHERE cc.constraint_schema='venue' AND cc.check_clause LIKE '%prefer_not_to_say%'),
   'G3: prefer_not_to_say is not a holder-mix bucket');
+-- §5.5 kill switch ON for the read-contract checks (platform_config is AO → INSERT a version).
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('demographics.holder_mix_enabled', 1, 'true'::jsonb, 'restricted');
+SELECT tap.login(tap.seller());   -- venue_manager on this venue (granted in section D)
+SELECT is(venue.get_holder_mix(tap._fetch150('session')::uuid,'gender_identity'), '{"suppressed": true}'::jsonb,
+  'G4: §10.4 R6 — no published snapshot => the CONSTANT {suppressed:true} (no reason/status leak)');
+SELECT tap.logout();
+-- a published snapshot that FAILS R1 (holders_responded 10 < 25) with valid >=5 buckets.
+INSERT INTO venue.holder_mix_snapshot (snapshot_id, event_session_id, dimension, as_of, holders_total, holders_responded, published_at)
+VALUES ('00000000-0000-0000-0000-0000000086a1', tap._fetch150('session')::uuid, 'gender_identity', now(), 40, 10, now());
+INSERT INTO venue.holder_mix_bucket (snapshot_id, bucket, holder_count) VALUES
+  ('00000000-0000-0000-0000-0000000086a1','woman',5), ('00000000-0000-0000-0000-0000000086a1','man',5);
+SELECT tap.login(tap.seller());
+SELECT is(venue.get_holder_mix(tap._fetch150('session')::uuid,'gender_identity'), '{"suppressed": true}'::jsonb,
+  'G5: §5.2 read-side re-derivation fail-closed — responded<25 (R1) => {suppressed:true}');
+SELECT tap.logout();
+-- a VALID published snapshot (responded>=25, >=2 buckets summing to responded).
+UPDATE venue.holder_mix_snapshot SET published_at = null WHERE snapshot_id='00000000-0000-0000-0000-0000000086a1';
+INSERT INTO venue.holder_mix_snapshot (snapshot_id, event_session_id, dimension, as_of, holders_total, holders_responded, published_at)
+VALUES ('00000000-0000-0000-0000-0000000086a2', tap._fetch150('session')::uuid, 'gender_identity', now()+interval '1 minute', 50, 30, now());
+INSERT INTO venue.holder_mix_bucket (snapshot_id, bucket, holder_count) VALUES
+  ('00000000-0000-0000-0000-0000000086a2','woman',15), ('00000000-0000-0000-0000-0000000086a2','man',15);
+SELECT tap.login(tap.seller());
+SELECT is((venue.get_holder_mix(tap._fetch150('session')::uuid,'gender_identity') ->> 'suppressed'), 'false',
+  'G6: a valid published snapshot (R1/R2/R4/R5 pass) => {suppressed:false} card');
+SELECT tap.logout();
+-- §5.5 kill switch OFF (INSERT a higher version) => suppressed for every session.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('demographics.holder_mix_enabled', 2, 'false'::jsonb, 'restricted');
+SELECT tap.login(tap.seller());
+SELECT is(venue.get_holder_mix(tap._fetch150('session')::uuid,'gender_identity'), '{"suppressed": true}'::jsonb,
+  'G7: §5.5 kill switch OFF => {suppressed:true} even with a valid published snapshot');
+SELECT tap.logout();
 
 SELECT finish();
 ROLLBACK;

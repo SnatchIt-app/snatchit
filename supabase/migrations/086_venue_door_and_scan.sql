@@ -168,7 +168,7 @@ create table if not exists venue.comp_allocation (
   granted_to_name      text,
   quantity             integer not null check (quantity > 0),
   status               text not null default 'allocated' check (status in ('allocated','issued','revoked')),
-  granted_by           uuid not null references auth.users(id) on delete restrict,
+  granted_by           uuid references auth.users(id) on delete restrict,   -- nullable: ODR16 #30 SET NULL on erasure
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
@@ -192,7 +192,7 @@ create table if not exists venue.guest_list (
   id               uuid primary key default gen_random_uuid(),
   event_session_id uuid not null references catalog.event_session(session_id) on delete restrict,
   name             text not null,
-  created_by       uuid not null references auth.users(id) on delete restrict,
+  created_by       uuid references auth.users(id) on delete restrict,   -- nullable: ODR16 #31 SET NULL on erasure
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
@@ -277,14 +277,30 @@ begin
   if tg_op = 'DELETE' then
     raise exception 'append_only: door_manifest is never deleted' using errcode = 'P0001';
   end if;
-  if new.manifest_id <> old.manifest_id or new.session_id <> old.session_id
-     or new.manifest_version <> old.manifest_version or new.opened_at <> old.opened_at
-     or new.opened_by <> old.opened_by or new.entry_count <> old.entry_count
-     or new.manifest_digest <> old.manifest_digest then
+  -- ALLOWLIST: the ONLY mutable columns are the close trio (closed_at/closed_by/
+  -- close_reason), max_delta_seq (bumped by the delta appender), and the status
+  -- open->closed flip. EVERY other column is immutable after open — including
+  -- venue_id (the denormalized authz key that drives the entry/delta RLS joins),
+  -- not_after (the offline-staleness boundary) and command_idempotency_key. A
+  -- blocklist that named only identity/base columns let a service_role UPDATE flip
+  -- venue_id and silently move a whole episode + its ledger to another tenant.
+  if new.manifest_id is distinct from old.manifest_id
+     or new.session_id is distinct from old.session_id
+     or new.venue_id is distinct from old.venue_id
+     or new.manifest_version is distinct from old.manifest_version
+     or new.opened_at is distinct from old.opened_at
+     or new.opened_by is distinct from old.opened_by
+     or new.open_reason_code is distinct from old.open_reason_code
+     or new.not_after is distinct from old.not_after
+     or new.entry_count is distinct from old.entry_count
+     or new.manifest_digest is distinct from old.manifest_digest
+     or new.command_idempotency_key is distinct from old.command_idempotency_key
+     or new.created_at is distinct from old.created_at then
     raise exception 'append_only: door_manifest identity/base is immutable after open' using errcode = 'P0001';
   end if;
-  if old.status = 'closed' and new.status <> 'closed' then
-    raise exception 'append_only: a closed episode is terminal' using errcode = 'P0001';
+  -- status may only advance open->closed, never regress or jump.
+  if not (new.status = old.status or (old.status = 'open' and new.status = 'closed')) then
+    raise exception 'append_only: door_manifest status may only advance open->closed' using errcode = 'P0001';
   end if;
   return new;
 end;
@@ -447,6 +463,9 @@ begin
 end;
 $$;
 drop trigger if exists tg_door_open_at_is_ledger_head on catalog.event_session;
+-- UPDATE-only is sufficient: on INSERT the session_id is new, so no door_manifest
+-- episode can reference it yet — the equality branch is vacuous and door_open_at is
+-- only ever engaged by a later engage_door_freeze UPDATE.
 create trigger tg_door_open_at_is_ledger_head before update of door_open_at on catalog.event_session
   for each row execute function catalog.tg_door_open_at_is_ledger_head();
 
@@ -666,14 +685,17 @@ create or replace function kernel.on_identity_erased_door(p_identity uuid)
 returns void language plpgsql security definer set search_path = ''
 as $$
 begin
-  -- The door plane is device/pin based; the AO scan ledger is NEVER rewritten
-  -- (actor_identity_id is a bare reference, not profile data). The only free-text
-  -- PII the erased identity leaves here is their NAME as a comp grantee — scrub it
-  -- (the allocation fact stays for accounting; only the name is cleared). INV #29-#31.
-  update venue.comp_allocation
-     set granted_to_name = null, updated_at = now()
-   where granted_to_identity = p_identity and granted_to_name is not null;
-  return;
+  -- ODR16 (ratified) INV #29/#30/#31 — CLEANED (SET NULL) so the auth.users delete
+  -- (ON DELETE RESTRICT) can complete. #29 note: granted_to_name SURVIVES — it is a
+  -- free-text label, not an auth.users linkage, and must NOT be scrubbed here. The
+  -- AO ledgers keep their bare identity refs untouched: scan.actor_identity_id (#28)
+  -- and door_manifest.opened_by/closed_by (#32/#33) are TOMBSTONED — never rewritten.
+  update venue.comp_allocation set granted_to_identity = null, updated_at = now()
+   where granted_to_identity = p_identity;
+  update venue.comp_allocation set granted_by = null, updated_at = now()
+   where granted_by = p_identity;
+  update venue.guest_list set created_by = null, updated_at = now()
+   where created_by = p_identity;
 end;
 $$;
 
@@ -897,22 +919,13 @@ create or replace function venue.create_door_pin(
   p_venue_id uuid, p_session_id uuid, p_label text, p_pin_plain text, p_expires_at timestamptz, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_id uuid;
 begin
-  if not (kernel.has_venue_role(p_venue_id, array['venue_manager'])
-          or kernel.has_org_role((select ev.org_id from catalog.event_session es join catalog.event ev on ev.event_id=es.event_id where es.session_id=p_session_id),
-               array['org_owner','org_admin'])) then
-    raise exception 'insufficient_privilege: venue_manager or org_owner/admin required' using errcode = '42501';
-  end if;
-  if p_pin_plain is null or length(p_pin_plain) < 4 then
-    raise exception 'precondition_failed: pin too short';
-  end if;
-  insert into venue.door_pin (venue_id, event_session_id, label, pin_hash, expires_at)
-  values (p_venue_id, p_session_id, p_label, md5('door_pin:' || p_pin_plain), p_expires_at)
-  returning pin_id into v_id;
-  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-  values (auth.uid(), 'door.pin_create', 'door_pin', v_id, coalesce(p_label,'pin'));
-  return jsonb_build_object('status','ok','pin_id', v_id);
+  -- PARKED FAIL-CLOSED (PFA-26; PFA-20 class). SCHEMA_SPEC §3.10 rules door_pin.pin_hash
+  -- entropy LOW → it requires a SLOW KDF + constant-time compare. No crypto extension is
+  -- installed in the chain (PFA-20), so md5 would be a silent security-boundary downgrade.
+  -- Owner ruling: park door-PIN creation until a slow-KDF mechanism (or edge-side hashing)
+  -- is ratified. ZERO mutation — no PIN is stored; the signature is frozen for un-park.
+  raise exception 'precondition_failed: door_pin_kdf_unavailable — door-PIN slow-KDF mechanism not yet ratified (PFA-26); door PIN creation is parked fail-closed';
 end;
 $$;
 
@@ -943,31 +956,15 @@ create or replace function venue.mint_door_session(
   p_venue_id uuid, p_session_id uuid, p_device_id uuid, p_pin_plain text, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_pin venue.door_pin%rowtype; v_token text; v_ttl interval; v_id uuid;
 begin
-  -- device↔venue (DS-2)
-  if not exists (select 1 from venue.scan_device d where d.device_id = p_device_id
-                  and d.venue_id = p_venue_id and d.status = 'active') then
-    raise exception 'precondition_failed: device not active for this venue';
-  end if;
-  -- pin↔session↔venue live (DS-1)
-  select * into v_pin from venue.door_pin
-   where event_session_id = p_session_id and venue_id = p_venue_id and status = 'active' and expires_at > now()
-     and pin_hash = md5('door_pin:' || coalesce(p_pin_plain,''))
-   limit 1;
-  if not found then
-    raise exception 'door_session_invalid' using errcode = '42501';   -- opaque (never PIN oracle)
-  end if;
-  select (c.value #>> '{}')::interval into v_ttl from catalog.platform_config c
-   where c.key = 'door.session_ttl_interval' order by c.version desc limit 1;
-  v_token := gen_random_uuid()::text || gen_random_uuid()::text;   -- 256-bit server secret
-  insert into venue.door_session (token_hash, device_id, event_session_id, venue_id, pin_id, expires_at)
-  values (md5('door_session:' || v_token), p_device_id, p_session_id, p_venue_id, v_pin.pin_id,
-          now() + coalesce(v_ttl, interval '12 hours'))
-  returning door_session_id into v_id;
-  return jsonb_build_object('status','ok','door_session_id', v_id, 'session_token', v_token);
-exception when unique_violation then
-  raise exception 'precondition_failed: an active door session already exists for this device/session';
+  -- PARKED FAIL-CLOSED (PFA-26). Minting a door session requires verifying p_pin_plain
+  -- against the parked door-PIN hash (§3.10 slow KDF, unbuildable — PFA-20 class). No
+  -- PIN can be created (create_door_pin is parked), so no door session can be minted.
+  -- ZERO mutation. The full body (device↔venue + pin↔session live check, 256-bit token
+  -- issue, command-key idempotency) is the PFA-26 forward obligation, delivered with a
+  -- ratified KDF. assert_door_session stays live (its token md5 is corpus-compliant) but
+  -- has no sessions to assert. Signature frozen for un-park.
+  raise exception 'precondition_failed: door_pin_kdf_unavailable — door-session mint depends on the parked door-PIN mechanism (PFA-26); parked fail-closed';
 end;
 $$;
 
@@ -1056,7 +1053,13 @@ begin
     update venue.scan_device set manifest_version = v_m.manifest_version, manifest_id = v_m.manifest_id,
            last_sync_at = now(), updated_at = now() where device_id = p_device_id;
   end if;
-  return venue.get_door_manifest(p_session_id, coalesce(p_known_manifest_version, 0));
+  -- FAIL-SAFE full sync. p_known_manifest_version is the per-session EPISODE counter,
+  -- NOT a delta-seq cursor (the per-manifest seq resets each episode). Passing it as
+  -- get_door_manifest's p_since_delta_seq silently dropped deltas 1..N of the open
+  -- episode (e.g. a revoke), so a device could keep admitting a revoked atom. Return
+  -- the COMPLETE current manifest (all deltas) — incremental delta sync is a forward
+  -- obligation (needs a real delta-seq parameter; native scanning is dark).
+  return venue.get_door_manifest(p_session_id, 0);
 end;
 $$;
 
@@ -1183,6 +1186,11 @@ begin
   if v_alloc.status <> 'allocated' then
     return jsonb_build_object('status','noop_replay','comp_allocation_id', p_comp_allocation_id);
   end if;
+  -- the allocate->issue two-step caps issuance at the AUTHORIZED amount: issuing
+  -- more than was allocated diverges authorized-vs-issued comp accounting.
+  if coalesce(p_quantity, v_alloc.quantity) > v_alloc.quantity then
+    raise exception 'precondition_failed: issue quantity % exceeds allocation %', coalesce(p_quantity, v_alloc.quantity), v_alloc.quantity;
+  end if;
   select * into v_batch from venue.inventory_batch where batch_id = v_alloc.batch_id;
   -- resolve the active signing key for the event scope (mint precondition)
   select k.key_id into v_key from kernel.signing_key k
@@ -1234,8 +1242,11 @@ begin
     insert into venue.guest_entry (guest_list_id, guest_name, party_size)
     values (p_guest_list_id, p_guest_name, coalesce(p_party_size,1)) returning id into v_id;
   else
+    -- bind the entry to the AUTHORIZED list: authority was checked on p_guest_list_id,
+    -- so the write MUST be constrained to that list — else a caller with a role on
+    -- list A could rewrite an entry in another venue's list B (cross-tenant IDOR).
     update venue.guest_entry set guest_name = p_guest_name, party_size = coalesce(p_party_size,party_size), updated_at = now()
-     where id = p_entry_id returning id into v_id;
+     where id = p_entry_id and guest_list_id = p_guest_list_id returning id into v_id;
     if v_id is null then raise exception 'not_found: entry %', p_entry_id using errcode = 'P0002'; end if;
   end if;
   return jsonb_build_object('status','ok','guest_entry_id', v_id);
@@ -1301,6 +1312,7 @@ create or replace function venue.get_holder_mix(p_event_session_id uuid, p_dimen
 returns jsonb language plpgsql stable security definer set search_path = ''
 as $$
 declare v_venue uuid; v_snap venue.holder_mix_snapshot%rowtype; v_buckets jsonb;
+        v_flag boolean; v_n integer; v_sum integer; v_min integer;
 begin
   select ev.venue_id into v_venue from catalog.event_session es join catalog.event ev on ev.event_id=es.event_id
    where es.session_id = p_event_session_id;
@@ -1310,16 +1322,32 @@ begin
           or kernel.is_platform(array['platform_admin'])) then
     raise exception 'insufficient_privilege' using errcode = '42501';
   end if;
+  -- §10.4 R6: the suppressed shape is the CONSTANT { suppressed: true } — no reason,
+  -- no denominators, no as_of (a reason is the same leak in words). Every guarded
+  -- path below returns exactly that. §5.5 kill switch, read LIVE on every call.
+  select (c.value #>> '{}')::boolean into v_flag from catalog.platform_config c
+   where c.key = 'demographics.holder_mix_enabled' order by c.version desc limit 1;
+  if not coalesce(v_flag, false) then return jsonb_build_object('suppressed', true); end if;
   select * into v_snap from venue.holder_mix_snapshot
    where event_session_id = p_event_session_id and dimension = p_dimension and published_at is not null
    order by as_of desc limit 1;
-  if not found then return jsonb_build_object('status','no_published_snapshot'); end if;
-  if v_snap.suppressed then
-    return jsonb_build_object('status','suppressed','reason', v_snap.suppression_reason);
+  -- no published snapshot (incl. published_at IS NULL) or stored-suppressed => suppressed.
+  if not found or v_snap.suppressed then return jsonb_build_object('suppressed', true); end if;
+  -- §5.2 read-side re-derivation (the independent second enforcement layer), FAIL-CLOSED:
+  -- R1 responded>=25, R5 count>=2, R2 min>=5, R4 sum=responded, responded<=total. Any
+  -- failure => { suppressed: true } (never a partial/corrected card). This is what makes
+  -- a writer bug / hand-INSERT / restored-backup row fail closed at the read. (The
+  -- reconciliation alarm + per-call read audit are the demographics-activation forward
+  -- obligation — the function is STABLE and no read-audit sink exists yet; PFA-27.)
+  select count(*)::int, coalesce(sum(b.holder_count),0)::int, min(b.holder_count)::int
+    into v_n, v_sum, v_min from venue.holder_mix_bucket b where b.snapshot_id = v_snap.snapshot_id;
+  if v_snap.holders_responded < 25 or v_n < 2 or coalesce(v_min, 0) < 5
+     or v_sum <> v_snap.holders_responded or v_snap.holders_responded > v_snap.holders_total then
+    return jsonb_build_object('suppressed', true);
   end if;
-  select coalesce(jsonb_object_agg(b.bucket, b.holder_count), '{}'::jsonb) into v_buckets
-    from venue.holder_mix_bucket b where b.snapshot_id = v_snap.snapshot_id;
-  return jsonb_build_object('status','ok','as_of', v_snap.as_of,
+  select coalesce(jsonb_agg(jsonb_build_object('bucket', b.bucket, 'holder_count', b.holder_count) order by b.bucket), '[]'::jsonb)
+    into v_buckets from venue.holder_mix_bucket b where b.snapshot_id = v_snap.snapshot_id;
+  return jsonb_build_object('suppressed', false, 'as_of', v_snap.as_of,
     'holders_total', v_snap.holders_total, 'holders_responded', v_snap.holders_responded, 'buckets', v_buckets);
 end;
 $$;
