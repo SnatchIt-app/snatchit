@@ -753,8 +753,11 @@ begin
     raise exception 'precondition_failed: bad_reason_code (mandatory)';
   end if;
   v_res := kernel.void_ticket_atom(p_atom_id, md5('force:' || p_command_key)::uuid, p_command_key);
-  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-  values (auth.uid(), 'ticket.force_void', 'ticket_atom', p_atom_id, p_reason_code, v_res);
+  -- audit only a real void — a noop_replay wrote nothing, so it records nothing.
+  if v_res->>'status' = 'ok' then
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (auth.uid(), 'ticket.force_void', 'ticket_atom', p_atom_id, p_reason_code, v_res);
+  end if;
   return v_res;
 end;
 $$;

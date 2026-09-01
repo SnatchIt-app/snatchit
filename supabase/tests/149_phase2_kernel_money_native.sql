@@ -592,15 +592,18 @@ SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-5%', 'I1: an
 SELECT kernel.mark_payout_transfer_state(tap._fetch149('i_payout')::uuid,'failed','tr_x','net_fail','ck-i-1');
 SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
   'I2: R1 P3 — a TERMINAL failed payout does NOT block forever (BP-5 is in-flight only)');
--- PFA-22: candidate order + NULL window ⇒ block; a set window that excludes it ⇒ clear
-SELECT tap._store149('oi', tap._neworder149(1, 4000)::text);
-SELECT ok(kernel.deletion_blockers_money(tap.buyer()) LIKE 'BP-12%window unset%',
-  'I3: PFA-22 — a candidate order + NULL window ⇒ BLOCKED (fail-closed exactly when it must be)');
+-- PFA-22 window arm, tested on other_user (clean: their only money fact was the
+-- now-failed payout above — no in-flight refunds/requests to mask the window arm,
+-- unlike the refund-polluted buyer). A bare paid order is enough for arm 2.
+INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+VALUES (tap.other_user(), tap._fetch149('session')::uuid, tap._fetch149('org')::uuid, 'paid', 'web', 4000, 'ck-i-cand');
+SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-12%window unset%',
+  'I3: PFA-22 — a candidate paid order + NULL window ⇒ BLOCKED (fail-closed exactly when it must be)');
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.refund_possible_window_hours', 2, '0'::jsonb, 'restricted');
-SELECT is(kernel.deletion_blockers_money(tap.buyer()), NULL,
+SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
   'I4: …the owner sets the window (0h); the candidate falls outside it — unblocked');
-SELECT is(kernel.deletion_blockers_money('00000000-0000-0000-0000-0000000000ab'), NULL,
-  'I5: an identity with NO candidates + NO money facts is never blocked by the NULL key');
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()), NULL,
+  'I5: an identity with NO candidates + NO money facts is never blocked by the NULL key (owner scoping verbatim)');
 
 -- ============================================================================
 -- SECTION J — Q5 RELEASE (OR-17 / DSM §3.1): keyed on requested_by (P0-5)
