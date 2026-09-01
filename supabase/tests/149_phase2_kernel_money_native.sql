@@ -384,7 +384,8 @@ SELECT tap.login(tap.buyer());
 SELECT tap._store149('req3', ((kernel.request_order_refund(tap._fetch149('order3')::uuid, '{}'::uuid[],
     4000, 'buyer_request', 'ck85-q-3'))::jsonb ->> 'request_id'));
 SELECT tap.logout();
-UPDATE kernel.approval_request SET expires_at = now() - interval '1 minute'
+UPDATE kernel.approval_request
+   SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 minute'
  WHERE request_id = tap._fetch149('req3')::uuid;
 SELECT ok(((kernel.sweep_expired_refund_requests()) ->> 'swept_count')::int >= 1,
   'E14: the TTL sweep expires the stale request (P0-1 — no immortal holds)');

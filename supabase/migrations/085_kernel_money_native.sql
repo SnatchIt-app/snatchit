@@ -1160,7 +1160,7 @@ begin
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
     values (v_uid, 'refund.request_approved', 'approval_request', p_request_id,
             coalesce(p_reason_code,'approved'), v_res);
-    return jsonb_build_object('status','approved','request_id', p_request_id) || v_res;
+    return v_res || jsonb_build_object('status','approved','request_id', p_request_id);
   end if;
 
   if v_ar.action = 'payout.request' then
