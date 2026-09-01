@@ -471,9 +471,9 @@ SELECT tap.login(tap.buyer());
 SELECT throws_ok($$SELECT kernel.resolve_identity_obligation(gen_random_uuid(), 'recovered', 'r', 'ck85-ob-x')$$,
   '42501', NULL, 'H4: resolve refuses non-platform callers');
 SELECT tap.logout();
-SELECT tap.login(tap.admin_user());
 SELECT tap._store149('oblig', (SELECT o.obligation_id::text FROM kernel.identity_obligation o
                                 WHERE o.origin_ref = tap._fetch149('oref')::uuid));
+SELECT tap.login(tap.admin_user());
 SELECT is((kernel.resolve_identity_obligation(tap._fetch149('oblig')::uuid, 'recovered', 'paid_back', 'ck85-ob-2') ->> 'status'),
   'ok', 'H5: platform resolves the obligation');
 SELECT is((kernel.resolve_identity_obligation(tap._fetch149('oblig')::uuid, 'recovered', 'paid_back', 'ck85-ob-3') ->> 'status'),
