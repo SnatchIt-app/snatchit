@@ -69,8 +69,8 @@ SELECT col_is_null('kernel','tickets','seat_ref', 'A8: seat_ref nullable (C42 he
 SELECT col_is_null('kernel','tickets','unit_row_id', 'A9: unit_row_id nullable, bare uuid (EXT target)');
 SELECT is((SELECT count(*)::int FROM information_schema.table_constraints
             WHERE table_schema='kernel' AND table_name='tickets'
-              AND constraint_type='FOREIGN KEY'), 3,
-  'A10: tickets carries THREE FKs — ticket_type_id/signing_key_id FKs are 084''s (adopt), not here');
+              AND constraint_type='FOREIGN KEY'), 5,
+  'A10: tickets carries FIVE FKs — the three birth FKs + 084''s two adopts (ticket_type_id/signing_key_id)');
 SELECT col_not_null('kernel','tickets','ticket_type_id',
   'A11: ticket_type_id NOT NULL now (no row can exist before the mint engine)');
 SELECT col_not_null('kernel','tickets','signing_key_id', 'A12: signing_key_id NOT NULL now');
@@ -273,6 +273,15 @@ INSERT INTO auth.users (id,email,role,instance_id,aud,created_at,updated_at) VAL
 ON CONFLICT DO NOTHING;
 INSERT INTO kernel.org_member (org_id, identity_id, role, granted_by)
 VALUES (tap._fetch143('org')::uuid,'00000000-0000-0000-0000-000000000c05','org_marketing', tap.seller());
+
+-- 084 adopt: the fixture's fixed ticket_type/signing_key ids must now be REAL
+-- rows — kernel.tickets carries fk_tickets_ticket_type/fk_tickets_signing_key.
+INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility)
+VALUES ('00000000-0000-0000-0000-00000000d0d0', tap._fetch143('event')::uuid, 'admission', 'FIX-84', 5000, 'public');
+INSERT INTO kernel.signing_key (key_id, scope, event_id, public_key, kms_handle_ref, status, not_before)
+VALUES ('00000000-0000-0000-0000-00000000c0c0', 'per_event', tap._fetch143('event')::uuid, 'PUBKEY-FIX', 'kms-fix', 'active', now()),
+       -- C8's rotation target ('rotating': the one-active-per-event partial unique holds)
+       ('00000000-0000-0000-0000-00000000c0c1', 'per_event', tap._fetch143('event')::uuid, 'PUBKEY-FIX2', 'kms-fix2', 'rotating', now());
 
 -- paired custody facts (atom + its issuance ledger row, same transaction —
 -- exactly the shape the deferred verify trigger accepts)

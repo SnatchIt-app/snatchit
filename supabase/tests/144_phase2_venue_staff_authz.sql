@@ -329,6 +329,13 @@ SELECT is((SELECT count(*)::int FROM catalog.event_session WHERE session_id = ta
 SELECT tap.logout();
 UPDATE catalog.event SET status = 'announced' WHERE event_id = tap._fetch144('event')::uuid;
 
+-- 084 adopt: the fixture's fixed ticket_type/signing_key ids must now be REAL
+-- rows — kernel.tickets carries fk_tickets_ticket_type/fk_tickets_signing_key.
+INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility)
+VALUES ('00000000-0000-0000-0000-00000000d0d0', tap._fetch144('event')::uuid, 'admission', 'FIX-84', 5000, 'public');
+INSERT INTO kernel.signing_key (key_id, scope, event_id, public_key, kms_handle_ref, status, not_before)
+VALUES ('00000000-0000-0000-0000-00000000c0c0', 'per_event', tap._fetch144('event')::uuid, 'PUBKEY-FIX', 'kms-fix', 'active', now());
+
 -- kernel.tickets: the session-grain clause, both arms
 CREATE FUNCTION tap._mint144(p_atom uuid, p_owner uuid, p_serial int) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $m$

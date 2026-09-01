@@ -1875,4 +1875,23 @@ mint of still-held units otherwise (the E-40 ordering corollary; raised by R6). 
 the mint's activation-boundary key check is not `FOR UPDATE`-locked against a concurrent status flip —
 benign while rotation is parked; re-review at un-park (raised by R6).
 
+## ERRATA — package 084 (recorded, no amendment needed)
+
+**E-48 — the adopt pattern's recorded lock claim is corrected; the populated-table discipline is a
+forward obligation on the NEXT adopt package.** Plan §8/084 states the `NOT VALID` + `VALIDATE` two-step
+takes only "a brief ShareRowExclusive … VALIDATE only ShareUpdateExclusive (non-blocking)". In the
+standing SINGLE-TRANSACTION migration form this is wrong for a populated table: every lock acquired is
+held to COMMIT, so the ADD's `ShareRowExclusive` (taken on `kernel.tickets` AND on both referenced
+tables — `venue.ticket_type`, which has live writers, and `kernel.signing_key`) is still held while
+`VALIDATE` scans, giving the identical blocking profile to a plain `ADD CONSTRAINT`. The two-step's
+benefit exists only when ADD and VALIDATE commit in SEPARATE transactions. 084 itself is unaffected —
+`kernel.tickets` is provably empty (its sole writer, the 083 mint, is doubly dark: feature flag false
+AND no activatable signing key under PFA-18A), and the plan's own "trivial on empty kernel.tickets"
+carries the apply. **Forward obligation:** the next adopt-shaped package that lands on POPULATED
+production tables (the registry names `089` `payment_native.sale_id` and `090`'s order-column FKs as
+this construction) must either ship ADD-NOT-VALID and VALIDATE as separate transactions — a ruled
+exception to the single-txn discipline, decided at that package's review — or accept the full-lock
+profile explicitly. Purity invariant intact: this is a comment/record correction; 084's object list is
+untouched. Raised by red-team B (PR #38).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
