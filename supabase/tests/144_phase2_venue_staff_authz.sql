@@ -29,9 +29,10 @@ $m$ SELECT v FROM tap.memo_144 WHERE k = $1 $m$;
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 8,
+            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 20,
   -- 2026-08-31 (package 081): 1 -> 6; (package 082): 6 -> 8 (order + order_item).
-  'A1: venue holds EIGHT tables — staff_role (080) + five 081 inventory + two 082 order');
+  -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
+  'A1: venue holds TWENTY tables — 8 post-082 + 086''s twelve door/scan');
 SELECT is((SELECT count(*)::int FROM information_schema.columns
             WHERE table_schema='venue' AND table_name='staff_role'), 5,
   'A2: the five §3.9 columns');
@@ -84,21 +85,25 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 94,
-  'A14: kernel holds EXACTLY 94 functions (75 post-084 + the nineteen 085 money fns)');
+           WHERE n.nspname = 'kernel'), 99,
+  -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
+  'A14: kernel holds EXACTLY 99 functions (94 post-085 + 086''s five door/scan)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 18,
+           WHERE n.nspname = 'venue'), 46,
   -- 2026-09-01 (package 085): 15 -> 18 (finalize_primary_order + the two SEAM-2 stubs, R2B/C111).
-  'A15: venue holds EXACTLY eighteen functions — 15 post-083 + 085''s finalize + two stubs');
+  -- 2026-09-01 (package 086): 18 -> 46 (+28: 27 door/scan/comp/guest/manifest/holder-mix
+  -- RPCs + the guard_door_manifest_transition trigger fn; append_door_manifest_delta
+  -- is a SEAM-2 body-replace, already counted).
+  'A15: venue holds EXACTLY forty-six functions — 18 post-085 + 086''s twenty-eight');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');
 SELECT has_function('kernel'::name,'has_org_role_over_venue'::name, ARRAY['uuid','text[]']::name[], 'A18: has_org_role_over_venue (R-9)');
 SELECT has_function('kernel'::name,'has_org_role_over_event'::name, ARRAY['uuid','text[]']::name[], 'A19: has_org_role_over_event (R-9)');
 SELECT hasnt_function('kernel'::name,'is_promoter_for_event'::name, 'A20: is_promoter_for_event is 090''s — not here');
-SELECT hasnt_function('kernel'::name,'assert_door_session'::name, 'A21: assert_door_session is 086''s — not here');
-SELECT hasnt_function('venue'::name,'register_scan_device'::name, 'A22: no scan-device verb — 086''s');
-SELECT hasnt_function('venue'::name,'open_door_manifest'::name, 'A23: no door verb — 086''s');
+SELECT has_function('kernel'::name,'assert_door_session'::name, ARRAY['uuid','uuid','uuid','text']::name[], 'A21: assert_door_session authored by 086 (tokenized door session)');
+SELECT has_function('venue'::name,'register_scan_device'::name, ARRAY['uuid','text','text']::name[], 'A22: the scan-device verb exists — 086');
+SELECT has_function('venue'::name,'open_door_manifest'::name, ARRAY['uuid','text','text']::name[], 'A23: the door-manifest verb exists — 086');
 
 -- T-RLS-ROLE-07 per name: definer, postgres-owned, STABLE, pinned, no anon EXEC
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -131,8 +136,10 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 4,
-  'A28: FOUR hooks remain byte-neutral — 085 filled money, obligations (BP-10) and the Q5 release');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 3,
+  -- 2026-09-01 (package 086): on_identity_erased_door filled — byte-neutral 4 -> 3
+  -- (deletion_blockers_market + on_identity_erased market/promoter remain).
+  'A28: THREE hooks remain byte-neutral — 086 filled the door erase hook (market/promoter pending)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');

@@ -40,18 +40,23 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 11,
+            WHERE n.nspname = 'catalog'), 15,
   -- 2026-08-31 (package 081): 10 -> 11. catalog.publish_event is 081's (SEAM-1:
   -- it reads venue.ticket_type + inventory_batch), named in A4 below.
-  'A3: catalog holds EXACTLY eleven functions — no helper the closed world does not carry');
+  -- 2026-09-01 (package 086): 11 -> 15. engage_door_freeze (door_open_at sole
+  -- writer), set_session_door_schedule, sweep_implicit_door_freezes and the
+  -- tg_door_open_at_is_ledger_head trigger fn. Named in A4 below.
+  'A3: catalog holds EXACTLY fifteen functions — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'catalog'$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event')$$,
-  'A4: the eleven catalog function names are exactly the frozen set (publish_event added by 081)');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
+           ('engage_door_freeze'),('set_session_door_schedule'),('sweep_implicit_door_freezes'),
+           ('tg_door_open_at_is_ledger_head')$$,
+  'A4: the fifteen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
@@ -65,8 +70,8 @@ SELECT hasnt_function('catalog'::name, 'cancel_event'::name,
 -- assertion inverts to presence, pinned to the authoring package.
 SELECT has_function('catalog'::name, 'update_event_session'::name, ARRAY['uuid','jsonb','text']::name[],
   'A8: catalog.update_event_session now exists — authored by 079, exactly as the SEAM-1 note said');
-SELECT hasnt_function('catalog'::name, 'engage_door_freeze'::name,
-  'A9: catalog.engage_door_freeze is NOT here — it is 086, the door_open_at sole writer');
+SELECT has_function('catalog'::name, 'engage_door_freeze'::name, ARRAY['uuid','timestamptz']::name[],
+  'A9: catalog.engage_door_freeze now exists — authored by 086, the door_open_at sole writer');
 SELECT has_function('kernel'::name, 'is_transfer_frozen'::name, ARRAY['uuid']::name[],
   'A10: kernel.is_transfer_frozen now exists — FR-7 resolved it to 079, and 079 delivered it');
 
@@ -79,8 +84,12 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 -- 078 owns no cron entry (CRON_SCHEDULE_REGISTER has no 078 row) and emits nothing
 -- (the R2 catalog writers are update_event_session·079 and cancel_event·088).
 SELECT is((SELECT count(*)::int FROM cron.job
-            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 0,
-  'A12: 078 schedules no cron job');
+            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 2,
+  -- 2026-09-01 (package 086): TWO cron commands reference catalog.* — the implicit
+  -- door-freeze sweep (`select catalog.sweep_implicit_door_freezes(500)`) and the
+  -- nightly holder-mix refresh (`... from catalog.event_session ...`). 078 still
+  -- schedules none; both are 086's.
+  'A12: exactly two catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh (078 schedules none)');
 SELECT is((SELECT count(*)::int FROM (
              SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'catalog' OFFSET 0) q
@@ -434,8 +443,11 @@ SELECT bag_eq(
        AND has_function_privilege('authenticated', p.oid, 'EXECUTE')$$,
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
-           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event')$$,
-  'F3: the authenticated EXECUTE closure is exactly the eleven caller-authorized catalog RPCs (publish_event added by 081)');
+           ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
+           ('set_session_door_schedule')$$,
+  -- engage_door_freeze/sweep_implicit_door_freezes/tg_* are NOT authenticated
+  -- (definer-internal / service_role / trigger). Only the schedule editor is.
+  'F3: the authenticated EXECUTE closure is exactly the twelve caller-authorized catalog RPCs (publish_event by 081; set_session_door_schedule by 086)');
 
 -- A migration is not a config change (plan §4); RPC §20.2.1 forbids every
 -- service_role path on set_platform_config explicitly.
@@ -975,8 +987,12 @@ SELECT throws_ok(
   $$SELECT catalog.effective_freeze_at('00000000-0000-0000-0000-00000000dead'::uuid)$$,
   NULL, NULL,
   'I5: an unknown session RAISES — the "tolerates a not-yet-existing id" escape hatch is WITHDRAWN');
+-- door_open_at is write-once in prod (086 ledger-head guard); this suite probes
+-- effective_freeze_at's read branches, so it resets the fixture behind the guard.
+ALTER TABLE catalog.event_session DISABLE TRIGGER tg_door_open_at_is_ledger_head;
 UPDATE catalog.event_session SET door_open_at = NULL, doors_at = starts_at - interval '1 hour'
  WHERE session_id = tap._fetch142('sess')::uuid;
+ALTER TABLE catalog.event_session ENABLE TRIGGER tg_door_open_at_is_ledger_head;
 
 -- money_role_grant_matured: the fail-to-safe behaviour, all four directions.
 SELECT tap.login(tap.seller());
@@ -1024,10 +1040,12 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
-  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,staff_role,ticket_type',
+  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,staff_role,ticket_type',
   -- 2026-08-31 (package 082): the two order tables arrived (082_venue_orders).
+  -- 2026-09-01 (package 086): +12 door/scan tables (pin/session/scan_device/scan,
+  -- comp_allocation, guest_list/_entry, manifest/_entry/_delta, holder_mix_*).
   -- market is still empty (native Buy Now dark).
-  'J1b: venue holds the 080 staff + 081 inventory + 082 order tables — market still empty');
+  'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan tables — market still empty');
 SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
   'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
@@ -1126,10 +1144,11 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 94,
+            WHERE n.nspname = 'kernel'), 99,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
-  'K3: kernel holds 94 functions — 75 post-084 plus 085''s nineteen');
+  -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
+  'K3: kernel holds 99 functions — 94 post-085 plus 086''s five door/scan');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

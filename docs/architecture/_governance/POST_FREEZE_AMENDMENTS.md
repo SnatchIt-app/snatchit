@@ -2061,4 +2061,84 @@ contracted shapes (`cumulative_minor`, `atoms_voided[]`, `updated_at`, cursor pa
 `{hold_state}` return on hold/release) are additive and adapted by the edge tier — deferred to the
 edge-integration pass rather than expanded here. Neither affects authority, money movement, or custody.
 
+## PFA-24 — PFA-16 anon-verify surface: the verify key rides M1 (kernel.signing_key projection), NOT the 086 manifest
+
+**OWNER-SIGNED 2026-09-01.** PFA-16's forward obligation said 086 delivers the anon verify key "through
+the door-manifest / public read surface (which carries public_key in the manifest)." Three later frozen
+docs (DOOR §7.5a, EDGE §5.4.2, RPC §20.6.1) instead place `public_key` in **M1** — the KMS-signed
+projection of `kernel.signing_key`'s world-readable columns, served by the door-session edge — and
+DELIBERATELY omit `public_key` from **M2** / `venue.get_door_manifest`, which carries only
+`signing_key_id` (the join key to M1). The corpus did not uniquely resolve the conflict. **RULING:** the
+door-spec reading governs. 086's `door_manifest_entry`/`door_manifest_delta` and `get_door_manifest` (M2)
+carry per-atom `signing_key_id` ONLY — never `public_key`, never key material, never identity. The
+offline/loginless door obtains M2 via `get_door_manifest` (token-bound through `kernel.assert_door_session`,
+service_role edge, no `auth.uid()`, no kernel USAGE) and joins `signing_key_id` → M1 (the
+`kernel.signing_key` public projection). 086 creates NO anon-readable table and NO anon grant; the 076
+kernel-USAGE wall stays closed to anon (the PFA-14/16 fail-closed posture holds). PFA-16's
+"carries public_key" phrasing is superseded (E-61). C33 intact — no verify-key material in the manifest.
+
+## PFA-25 — `set_event_security_config` is ruled OUT of 086; the per-event door-config surface is a governed forward obligation
+
+**OWNER-SIGNED 2026-09-01.** RPC §20.6.6 contracts `venue.set_event_security_config` and RLS §11.4 grants
+it to three human roles, but its target table `catalog.event_security_config` is created by NO package,
+078 (its natural home) is immutable, and schema §13.7 (S-13) flags the gap. **RULING:** 086 does NOT build
+the function or an invented table for it (building a function against a non-existent table is forbidden by
+the plan's own discipline). The per-event door-config surface — the table AND the function together, with
+its own review — is a **governed forward obligation, OWNER-owed** at (or before) the 2B door-gate
+activation; a future package (or a re-opened 078-successor) authors both. 086 ships the complete
+door/scan substrate without it; the three role grants have nothing to point at until then. T-RPC-DOOR-24
+(the "held" assertion) stays satisfied.
+
+## PFA-26 — door PIN hashing parked fail-closed (no slow KDF in the chain)
+
+```
+ID:                          PFA-26  (PFA-20 class)
+FROZEN RULE:                 SCHEMA_SPEC §3.10 — venue.door_pin.pin_hash entropy LOW (a human types it) →
+                             requires a SLOW KDF + constant-time compare (Phase-0 §9).
+DEFECT:                      086 authored create_door_pin / mint_door_session with md5('door_pin:'||pin) —
+                             a fast, unsalted digest over a >=4-char PIN. A leaked hash brute-forces the
+                             PIN; identical PINs collide. No crypto extension (pgcrypto crypt()/gen_salt())
+                             is installed 076-086, so a real slow KDF is unbuildable in-DB. Red team (086
+                             corpus/PFA lens) flagged it as a silent security-boundary downgrade.
+FREEZE §4 TEST:              policy/security-boundary decision the corpus does not let the DB build →
+                             OWNER SIGNATURE required (not self-signed).
+OWNER RULING (2026-09-01):   PARK fail-closed. create_door_pin and mint_door_session RAISE
+                             'precondition_failed: door_pin_kdf_unavailable … (PFA-26)' with ZERO mutation,
+                             signatures frozen for un-park. Consistent with the parked credential trio
+                             (PFA-18A) and wallet crypto (PFA-20). NOTE: door_session.token_hash md5 is
+                             corpus-COMPLIANT (§3.10: 256-bit token → plain digest sufficient) and stays;
+                             assert_door_session stays live (no sessions to assert). Suite 150 §E asserts
+                             the park (E1/E2 throw; E3/E4 zero-mutation).
+FORWARD OBLIGATION:          un-park with a ratified slow-KDF mechanism (edge-side hashing, or a sanctioned
+                             crypto extension) at native-scanning activation.
+```
+
+## PFA-27 — holder-mix read audit + reconciliation alarm deferred to demographics activation
+
+```
+ID:                          PFA-27  (forward obligation)
+FROZEN RULE:                 DEMOGRAPHICS_PRIVACY_SPEC §10.4 — get_holder_mix writes one read-audit row
+                             per call (actor, event_session_id, dimension, occurred_at, §11), is
+                             rate-limited per principal (005/021 pattern), and raises a reconciliation
+                             alarm when the read-side re-derivation fails.
+086 POSITION:                the fail-closed re-derivation itself (R1 k>=25, R2 min>=5, R4 Σ=responded,
+                             R5 count>=2, responded<=total → {suppressed:true}), the constant suppressed
+                             shape (R6), and the live §5.5 kill switch ARE authored here (E-64). The audit
+                             sink + rate-limit + alarm are NOT — no demographic-read audit table exists in
+                             the chain, and the function is STABLE. get_holder_mix fails CLOSED without
+                             them (suppresses); it does not fail open. Delivered at demographics activation.
+```
+
+## Errata (corpus-determined corrections) — 086 red-team remediation
+
+- **E-62** — `kernel.revoke_signing_key` is the third leg of the credential trio; PFA-18A ruled the dual-control mechanism unbuildable, so it ships FAIL-CLOSED (ZERO mutation), signature frozen, exactly as 083 parked provision/rotate. Real body (force-close open episodes in key scope + outbox #44) is the PFA-18A un-park obligation.
+- **E-63** — `kernel.on_identity_erased_door` was authored with the INVERSE of the ratified ODR16 dispositions (it scrubbed `comp_allocation.granted_to_name`, which #29 says SURVIVES, and touched none of the three ops FKs). Corrected to ODR16 INV #29/#30/#31: SET NULL `comp_allocation.granted_to_identity`, `.granted_by`, and `guest_list.created_by`. `granted_by`/`created_by` relaxed from NOT NULL to nullable (the SET-NULL disposition requires it, and their RESTRICT FK to `auth.users` otherwise makes right-to-erasure fail hard). AO ledgers keep bare refs (INV #28/#32/#33 TOMBSTONED). Suite 150 §F rewritten.
+- **E-64** — `venue.get_holder_mix` corrected to the DEMOGRAPHICS §10.4 read contract: the suppressed shape is the CONSTANT `{suppressed:true}` (was leaking `suppression_reason` and a distinct `no_published_snapshot` status — "a reason is the same leak in words", R6); the §5.5 kill switch is read live every call; the §5.2 read-side re-derivation (R1/R2/R4/R5 + responded<=total) fails closed to `{suppressed:true}`. Audit/alarm → PFA-27. Suite 150 §G extended (G4-G7).
+- **E-65** — `venue.guard_door_manifest_transition` converted from a blocklist to an ALLOWLIST. The blocklist named only identity/base columns, leaving `venue_id` (the denormalized authz key driving the entry/delta RLS joins), `not_after`, and `command_idempotency_key` service_role-mutable — an UPDATE could silently flip a whole episode + its ledger to another tenant with the digest untouched. Now every column except the close trio, `max_delta_seq`, and the `open→closed` status flip is immutable.
+- **E-66** — three linkage/ceiling corrections (the "check authority on object A, write to object B" anti-pattern): `upsert_guest_entry` UPDATE now binds `guest_entry.guest_list_id = p_guest_list_id` (was a cross-tenant IDOR write); `issue_comp` now caps issuance at the allocation quantity (was mintable up to batch capacity); `sync_scan_device_manifest` returns the COMPLETE manifest (delta cursor 0) — it was passing the episode VERSION as `get_door_manifest`'s delta-SEQ cursor, silently dropping deltas (a revoke could be lost). Incremental delta sync (needs a real delta-seq parameter) is a native-scanning-activation forward obligation.
+
+## Forward obligations opened by 086 (native-scanning / demographics activation gate)
+
+`record_scan` full result classification (`duplicate`/`frozen`/`fraud_review`, currently all non-admit → `invalid`; the `when others` also masks transient faults) + offline metadata (`offline_pending`, `device_boot_id`, `scan_sequence`, `manifest_version`, `direction`, `scan_type`) + command-key idempotency (RPC §20.4.3); `mint_door_session` command-key idempotency (moot while parked, PFA-26); `manifest_digest` should commit to the ordered entry set, not metadata; the `scan_admitted_in_uq` predicate vs `re_entry` re-admission; `record_scan` actor-device venue validation; and the loginless/token-bound door edge wiring (`get_door_manifest`/`record_scan` do not yet call `assert_door_session`; fails closed). All behind the dark gate.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

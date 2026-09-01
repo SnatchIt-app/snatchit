@@ -44,8 +44,8 @@ SELECT has_table('kernel'::name,'wallet_pass_push_log'::name, 'A6: kernel.wallet
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[], 'A7: the mint engine issue_ticket_atoms is authored HERE (C114/R2B)');
 SELECT has_function('kernel'::name,'mint_wallet_pass'::name, ARRAY['uuid','text']::name[], 'A8: mint_wallet_pass');
 SELECT has_function('venue'::name,'append_door_manifest_delta'::name, ARRAY['uuid','uuid[]','text','uuid']::name[], 'A9: the append_door_manifest_delta SEAM-2 stub');
--- PFA-17: revoke_signing_key is NOT here (→ 086)
-SELECT hasnt_function('kernel'::name,'revoke_signing_key'::name, 'A10: PFA-17 — revoke_signing_key is NOT authored here (→ 086)');
+-- PFA-17: revoke_signing_key authored in 086 (this suite runs post-086)
+SELECT has_function('kernel'::name,'revoke_signing_key'::name, ARRAY['uuid','text','integer','text']::name[], 'A10: PFA-17 — revoke_signing_key authored by 086');
 -- forward objects absent
 SELECT has_function('venue'::name,'finalize_primary_order'::name, ARRAY['uuid','uuid','text','text']::name[], 'A11: finalize landed in 085 (C111)');
 SELECT has_table('kernel'::name,'payment_native'::name, 'A12: kernel.payment_native landed in 085');

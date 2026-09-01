@@ -56,25 +56,29 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 40,
-  'B1: the five phase-2 schemas hold exactly 40 relations of ANY kind (36 post-084 + 085''s four money ledgers)');
+              AND c.relkind IN ('r','p','v','m','S','f')), 52,
+  -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
+  'B1: the five phase-2 schemas hold exactly 52 relations of ANY kind (40 post-085 + 086''s twelve door/scan)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 126,
-  'B2: the five phase-2 schemas hold exactly 126 routines (94+18+11+1+2 — 085''s twenty-three)');
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 165,
+  -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
+  'B2: the five phase-2 schemas hold exactly 165 routines (99+46+15+3+2 — 086''s thirty-nine)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 39,
-  'B3: the five-schema policy register is untouched (12 kernel + 15 venue + 12 catalog) — no RLS rode along');
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 48,
+  -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies; the 3 deny-all
+  -- door/holder-mix tables carry none).
+  'B3: the five-schema policy register (12 kernel + 24 venue + 12 catalog) — 086 added its nine venue policies');
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 26
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 94,
-  'B4: kernel per-schema census (26 tables, 94 functions post-085)');
+            WHERE n.nspname='kernel') = 99,
+  'B4: kernel per-schema census (26 tables, 99 functions post-086)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 18
+            WHERE n.nspname='venue') = 46
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 0,
-  'B5: venue holds 18 functions (085''s finalize + two stubs), market holds no table');
+  'B5: venue holds 46 functions (086''s twenty-eight door/scan), market holds no table');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

@@ -134,13 +134,16 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 94,
+           WHERE n.nspname = 'kernel'), 99,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
-  'A32: kernel holds EXACTLY 94 functions (75 post-084 + the nineteen 085 money fns)');
+  -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
+  'A32: kernel holds EXACTLY 99 functions (94 post-085 + 086''s five door/scan)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 11,
+           WHERE n.nspname = 'catalog'), 15,
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
-  'A33: catalog holds EXACTLY 11 functions (10 post-079 + publish_event, SEAM-1)');
+  -- 2026-09-01 (package 086): 11 -> 15 (engage_door_freeze, set_session_door_schedule,
+  -- sweep_implicit_door_freezes, tg_door_open_at_is_ledger_head).
+  'A33: catalog holds EXACTLY 15 functions (11 post-085 + 086''s four door fns)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),
@@ -179,10 +182,12 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 3,
+             AND btrim(p.prosrc) = 'select'), 2,
   -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body.
   -- 2026-09-01 (package 085): on_deletion_q5_release filled (§17.4 semantics).
-  'A45: THREE later erased hooks remain byte-neutral (door/market/promoter)');
+  -- 2026-09-01 (package 086): on_identity_erased_door filled (scrubs
+  -- comp_allocation.granted_to_name). Only market/promoter remain neutral (→ 088/090).
+  'A45: TWO later erased hooks remain byte-neutral (market/promoter)');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) <> 'select false',
   'A46: has_outstanding_obligations carries its REAL body now (BP-10 over kernel.identity_obligation — 085)');
@@ -558,9 +563,13 @@ UPDATE kernel.door_freeze_override
    SET revoked_at = now(), revoked_by = tap.admin_user()
  WHERE override_id = '00000000-0000-0000-0000-00000000cc03';
 
--- the boundary comes back off for section F
+-- the boundary comes back off for section F. door_open_at is write-once in prod
+-- (086 tg_door_open_at_is_ledger_head); this suite probes is_transfer_frozen's
+-- read branches, so it toggles the fixture behind the guard it is not testing.
+ALTER TABLE catalog.event_session DISABLE TRIGGER tg_door_open_at_is_ledger_head;
 UPDATE catalog.event_session SET door_open_at = NULL
  WHERE session_id = tap._fetch143('session')::uuid;
+ALTER TABLE catalog.event_session ENABLE TRIGGER tg_door_open_at_is_ledger_head;
 
 SELECT tap.login(tap.buyer());
 SELECT ok(NOT kernel.is_transfer_frozen('00000000-0000-0000-0000-00000000aa03'),
@@ -623,8 +632,10 @@ UPDATE kernel.tickets SET resale_state = 'listed' WHERE ticket_atom_id = '000000
 SELECT throws_ok($$SELECT tap._scan('00000000-0000-0000-0000-00000000aa03', tap._fetch143('session')::uuid)$$,
   NULL, NULL, 'F16: listed_locked — delist first (the rule that already covers what the freeze check was reaching for)');
 UPDATE kernel.tickets SET resale_state = 'none' WHERE ticket_atom_id = '00000000-0000-0000-0000-00000000aa03';
+ALTER TABLE catalog.event_session DISABLE TRIGGER tg_door_open_at_is_ledger_head;
 UPDATE catalog.event_session SET door_open_at = NULL
  WHERE session_id = tap._fetch143('session')::uuid;
+ALTER TABLE catalog.event_session ENABLE TRIGGER tg_door_open_at_is_ledger_head;
 
 -- ============================================================================
 -- SECTION G — catalog.update_event_session (§20.2.4; T-RPC-CAT-02)
@@ -690,8 +701,10 @@ SELECT is((catalog.update_event_session(tap._fetch143('session')::uuid,
   '{"session_label":"night one"}'::jsonb,'ck-s-10') ->> 'status'),
   'ok', 'G13: the label is not the boundary — it still edits');
 SELECT tap.logout();
+ALTER TABLE catalog.event_session DISABLE TRIGGER tg_door_open_at_is_ledger_head;
 UPDATE catalog.event_session SET door_open_at = NULL
  WHERE session_id = tap._fetch143('session')::uuid;
+ALTER TABLE catalog.event_session ENABLE TRIGGER tg_door_open_at_is_ledger_head;
 SELECT tap.login(tap.seller());
 SELECT throws_ok(format($$SELECT catalog.update_event_session(%L,
   jsonb_build_object('ends_at',(now() - interval '50 days')::text),'ck-s-11')$$,

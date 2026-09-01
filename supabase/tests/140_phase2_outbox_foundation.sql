@@ -167,10 +167,24 @@ SELECT is(
                -- 2026-08-31 (package 082): venue.create_primary_checkout is
                -- caller-authorized (RLS §9.7). cancel_pending_order is service_role
                -- and the two order guard trigger fns hold no EXECUTE — not excepted.
+               -- 2026-09-01 (package 086): venue's 23 EDGE-FRONTED door/scan/comp/
+               -- guest/manifest/holder-mix verbs are caller-authorized (in-body
+               -- has_venue_role / RLS §16). mint_door_session, the two holder-mix
+               -- refresh/reconcile crons and sweep_expired_door_sessions are
+               -- service_role; append_door_manifest_delta / engage / the market
+               -- stubs / trigger fns hold NO grant — none excepted here.
                AND p.proname NOT IN ('grant_staff_role','revoke_staff_role',
                      'create_ticket_type','set_ticket_type_price','create_inventory_batch',
                      'set_batch_capacity','reserve_primary_inventory','create_inventory_hold',
-                     'release_inventory_hold','create_primary_checkout')))),
+                     'release_inventory_hold','create_primary_checkout',
+                     'create_door_pin','revoke_door_pin','register_scan_device',
+                     'set_scan_device_status','sync_scan_device_manifest','record_scan',
+                     'reconcile_offline_scans','validate_ticket_online','allocate_comp',
+                     'issue_comp','create_guest_list','upsert_guest_entry','remove_guest_entry',
+                     'check_in_guest_entry','open_door_manifest','close_door_manifest',
+                     'get_door_manifest','preview_door_open_impact','get_live_device_count',
+                     'get_holder_mix','revoke_door_session','unpublish_holder_mix',
+                     'unpublish_all_holder_mix')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 

@@ -40,22 +40,25 @@ GRANT EXECUTE ON FUNCTION tap._cap(uuid), tap._held(uuid), tap._rem(uuid),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='venue' AND c.relkind='r'), 8,
-  'A1: venue holds EIGHT tables — staff_role (080) + five 081 inventory + two 082 order');
+            WHERE n.nspname='venue' AND c.relkind='r'), 20,
+  -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
+  'A1: venue holds TWENTY tables — 8 post-082 + 086''s twelve door/scan');
 SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'),
-  'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,staff_role,ticket_type',
-  'A2: exactly the frozen names — order/order_item present (082), inventory_unit ABSENT (EXT/C42)');
+  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,staff_role,ticket_type',
+  'A2: exactly the frozen names — order/order_item (082), 086 door/scan present, inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 18,
-  'A4: venue holds EIGHTEEN functions — 15 post-083 + 085''s finalize + two SEAM-2 stubs');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 46,
+  -- 2026-09-01 (package 086): 18 -> 46 (+28 door/scan/comp/guest/manifest/holder-mix
+  -- fns incl. the guard trigger fn; append_door_manifest_delta is a body-replace).
+  'A4: venue holds FORTY-SIX functions — 18 post-085 + 086''s twenty-eight');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
   'A6: the mint engine landed in 083 (C114) — kernel.issue_ticket_atoms(jsonb, text) exists');
 SELECT has_function('venue'::name,'finalize_primary_order'::name, ARRAY['uuid','uuid','text','text']::name[], 'A7: the order engine landed in 085 (SSCAS #1)');
-SELECT hasnt_function('venue'::name,'allocate_comp'::name, 'A8: no comp engine (086)');
-SELECT hasnt_function('venue'::name,'record_scan'::name, 'A9: no door/scan surface (086)');
+SELECT has_function('venue'::name,'allocate_comp'::name, ARRAY['uuid','uuid','integer','text','text']::name[], 'A8: the comp engine exists — 086');
+SELECT has_function('venue'::name,'record_scan'::name, ARRAY['uuid','uuid','uuid','jsonb','text']::name[], 'A9: the door/scan surface exists — 086');
 
 -- the C27 oversell CHECK, structurally
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='venue.inventory_batch'::regclass
@@ -86,8 +89,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND ((p.proname LIKE 'deletion_blockers%' AND btrim(p.prosrc)<>'select null::text')
                OR (p.proname LIKE 'on_identity_erased%' AND btrim(p.prosrc)<>'select')
                OR (p.proname='on_deletion_q5_release' AND btrim(p.prosrc)<>'select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 7,
-  'A17: SEAM-2 has EXACTLY seven real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5)');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 8,
+  -- 2026-09-01 (package 086): on_identity_erased_door filled — 7 -> 8 real bodies.
+  'A17: SEAM-2 has EXACTLY eight real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5 + 086''s door erase)');
 SELECT ok(btrim((SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))<>'select null::text',
   'A18: deletion_blockers_orders now carries its real BP-12 pending-order body (082 filled it)');
