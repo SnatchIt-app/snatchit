@@ -6,13 +6,17 @@
 -- (incl. revoke) is PARKED (PFA-18A). BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(63);
+SELECT plan(62);
 
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_150 (k text PRIMARY KEY, v text);
-CREATE FUNCTION tap._store150(k text, v text) RETURNS text
-LANGUAGE sql SECURITY DEFINER AS $m$ INSERT INTO tap.memo_150 VALUES (k,v) ON CONFLICT (k) DO UPDATE SET v=excluded.v RETURNING v $m$;
+-- RETURNS void, not text: a bare `SELECT tap._store150(...)` must emit NOTHING to
+-- stdout. If it returned the stored value, a store of a value like 'ok' (e.g. a
+-- mint status) would print a line `ok`, which pg_prove parses as a phantom
+-- numberless TAP test — desyncing every assertion after it. The return is never used.
+CREATE FUNCTION tap._store150(k text, v text) RETURNS void
+LANGUAGE sql SECURITY DEFINER AS $m$ INSERT INTO tap.memo_150 VALUES (k,v) ON CONFLICT (k) DO UPDATE SET v=excluded.v $m$;
 CREATE FUNCTION tap._fetch150(k text) RETURNS text
 LANGUAGE sql SECURITY DEFINER AS $m$ SELECT v FROM tap.memo_150 WHERE k=$1 $m$;
 -- definer reads of deny-all / venue tables under superuser context
