@@ -804,8 +804,14 @@ jobs:
           # 148 plans 14: the 084 ADOPT step (both late-binding tickets FKs
           # validated + RESTRICT, unit_row_id bare (C42), the dumping-ground
           # guard — zero relations/routines created — and both FKs biting).
-          MIN_FILES=26
-          MIN_ASSERTIONS=1338
+          # 149 plans 108: the 085 money kernel (four ledgers + the closed world,
+          # PFA-15/21 walls, finalize end-to-end with E-40/E-47(b) draw + replay,
+          # the void/refund executors with the Σ-guard, the NULL-fails-closed
+          # tier ladder + the full dual-control loop, payout holds + state sync,
+          # obligations/BP-10, PFA-22 BP-12 semantics, Q5, the denial witness,
+          # the destination SoD/step-up ladder).
+          MIN_FILES=27
+          MIN_ASSERTIONS=1468
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"

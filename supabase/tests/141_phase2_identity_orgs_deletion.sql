@@ -53,7 +53,7 @@ SELECT is(
     WHERE n.nspname = 'kernel' AND c.relkind = 'r'),
   -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
-  22, '077 A13: exactly TWENTY-TWO kernel tables (17 post-082 + 083''s five credential/wallet tables)');
+  26, '077 A13: exactly TWENTY-SIX kernel tables (22 post-084 + 085''s four money ledgers)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -70,7 +70,7 @@ SELECT is(
   -- 2026-08-31 (package 080): 48 -> 52 — the four §1.1a/§2.2 predicates
   -- (has_venue_role, has_event_role, has_org_role_over_venue,
   -- has_org_role_over_event), named in 144 A16-A19.
-  75, '077 A14: exactly 75 kernel functions (55 post-082 + 083''s twenty credential/wallet/mint fns)');
+  94, '077 A14: exactly 94 kernel functions (75 post-084 + 085''s nineteen money fns)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -138,7 +138,7 @@ SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
-  22, '077 C1: RLS is ENABLED on all twenty-two tables (deny-by-default at birth)');
+  26, '077 C1: RLS is ENABLED on all twenty-six tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -241,19 +241,28 @@ SELECT is(
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
-  'accept_org_invite,admin_set_identity_ext,change_org_role,clear_my_demographics,'
-  || 'create_organization,get_my_contact_prefs,get_my_demographics,grant_org_contact_consent,grant_platform_role,'
+  'accept_org_invite,admin_refund,admin_set_identity_ext,approve_refund_request,'
+  || 'cancel_refund_request,change_org_role,clear_my_demographics,'
+  || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
-  || 'has_venue_role,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
-  || 'list_my_org_contact_consents,mint_wallet_pass,money_role_grant_matured,'
+  || 'has_venue_role,hold_payout,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
+  -- 2026-09-01 (package 085): +14 money verbs/reads — the EDGE-FRONTED authority
+  -- set (request/approve/cancel, the three lists, the denial witness, the
+  -- destination change, the platform executors, the payout hold pair, resolve).
+  -- Named, not counted.
+  || 'list_approval_requests,list_my_org_contact_consents,list_org_payouts,list_org_refunds,'
+  || 'mint_wallet_pass,money_role_grant_matured,'
   -- 2026-08-31 (package 083): +7 credential/wallet client RPCs — mint_wallet_pass
   -- + the two-of-two-parked lifecycle five (provision/rotate signing_key,
   -- provision/rotate/revoke pass_type_cert) + revoke_wallet_pass. All EXEC
   -- authenticated at the edge; parked bodies fail closed regardless. Named, not counted.
-  || 'provision_pass_type_cert,provision_signing_key,remove_org_member,'
-  || 'request_account_deletion,revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
+  || 'provision_pass_type_cert,provision_signing_key,record_money_denial,'
+  -- refund_primary_order moved to service_role (EXEC DEF) by PFA-23.
+  || 'release_payout,remove_org_member,'
+  || 'request_account_deletion,request_order_refund,resolve_identity_obligation,'
+  || 'revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
   || 'revoke_wallet_pass,rotate_pass_type_cert,rotate_signing_key,set_my_contact_prefs,'
-  || 'set_my_demographics,set_org_connect_ref,set_org_status,update_organization,'
+  || 'set_my_demographics,set_org_connect_ref,set_org_payout_destination,set_org_status,update_organization,'
   || 'upsert_identity_ext,withdraw_account_deletion,withdraw_org_contact_consent',
   -- money_role_grant_matured added 2026-08-31 by package 078: RLS §11.2 gives it
   -- an explicit `EXEC: authenticated` row (REVOKE FROM public, anon; GRANT TO
@@ -263,7 +272,7 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 39 caller-authorized functions (32 post-082 + 083''s seven credential/wallet client RPCs)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 52 caller-authorized functions (39 post-083 + 085''s thirteen money verbs; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -278,17 +287,22 @@ SELECT is(
   -- REVOKE FROM anon+authenticated; service_role only. Named, not counted.
   || 'has_outstanding_obligations,'
   || 'is_deletion_pending,issue_ticket_atoms,list_updated_wallet_passes,'
+  -- 2026-09-01 (package 085): +5 DEF — the Stripe state-sync pair, the
+  -- obligation recorder, the refund-TTL sweep (PFA-21 delivers kernel USAGE).
+  || 'mark_payout_transfer_state,mark_refund_state,'
   || 'on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
-  || 'record_wallet_push_result,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
-  || 'sweep_deletion_pending,sweep_expired_org_invites,sweep_expired_ticket_atoms,'
+  || 'record_identity_obligation,'
+  -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
+  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
+  || 'sweep_deletion_pending,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
   || 'sweep_wallet_pass_lifecycle,touch_wallet_pass,unregister_wallet_pass_device',
   -- 2026-08-31 (package 079): sweep_expired_ticket_atoms is the FIFTEENTH name —
   -- its frozen EXEC row (RPC §12.5 / S-22 / CRON register) is DEF,
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 24 DEF functions (15 post-082 + 083''s nine mint/wallet DEF RPCs)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 29 DEF functions (24 post-083 + 085''s five: the state-sync pair, record_identity_obligation, sweep_expired_refund_requests, refund_primary_order)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

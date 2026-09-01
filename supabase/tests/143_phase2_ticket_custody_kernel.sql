@@ -50,8 +50,8 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 22,
-  'A1: kernel holds EXACTLY twenty-two tables (17 post-082 + five 083 credential/wallet)');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 26,
+  'A1: kernel holds EXACTLY twenty-six tables (22 post-084 + four 085 money ledgers)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
@@ -134,9 +134,9 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 75,
+           WHERE n.nspname = 'kernel'), 94,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
-  'A32: kernel holds EXACTLY 75 functions (55 post-082 + the twenty 083 fns)');
+  'A32: kernel holds EXACTLY 94 functions (75 post-084 + the nineteen 085 money fns)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 11,
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
@@ -172,20 +172,20 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
            WHERE n.nspname='kernel'
              AND p.proname in ('deletion_blockers_orders','deletion_blockers_wallet',
                                'deletion_blockers_money','deletion_blockers_market')
-             AND btrim(p.prosrc) = 'select null::text'), 2,
-  'A44: two LATER blocker stubs remain byte-neutral (082 filled orders, 083 filled wallet; money/market pending)');
+             AND btrim(p.prosrc) = 'select null::text'), 1,
+  'A44: one LATER blocker stub remains byte-neutral (085 filled money; market pending — 088)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel'
              AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 4,
-  -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body
-  -- now (the 080-owned OR-17 slot; 144 A27-A30 own it). FOUR remain neutral.
-  'A45: the four LATER erased/release hooks remain byte-neutral');
+             AND btrim(p.prosrc) = 'select'), 3,
+  -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body.
+  -- 2026-09-01 (package 085): on_deletion_q5_release filled (§17.4 semantics).
+  'A45: THREE later erased hooks remain byte-neutral (door/market/promoter)');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-           WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) = 'select false',
-  'A46: has_outstanding_obligations remains the 077 neutral stub (085''s slot)');
+           WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) <> 'select false',
+  'A46: has_outstanding_obligations carries its REAL body now (BP-10 over kernel.identity_obligation — 085)');
 
 -- the MB-4 trigger, structurally (T-SCHEMA-CUSTODY-05: a dropped trigger and a
 -- trigger that never fires are indistinguishable to every value-based test)
@@ -224,8 +224,8 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname = 'sweep-expired-tic
   'A54: the per-package cron entry exists (P0-1; register row 079, 2 min)');
 
 -- 085''s subjects are absent (T-SCHEMA-CUSTODY-06 owed there, not silently dropped)
-SELECT hasnt_function('kernel'::name, 'void_ticket_atom'::name,
-  'A55: void_ticket_atom does not exist yet — T-SCHEMA-CUSTODY-06 is 085''s obligation');
+SELECT has_function('kernel'::name, 'void_ticket_atom'::name, ARRAY['uuid','uuid','text']::name[],
+  'A55: void_ticket_atom(uuid, uuid, text) landed in 085 (FR-4 — born with kernel.refund)');
 SELECT hasnt_function('kernel'::name, 'transfer_ticket_ownership'::name,
   'A56: the transfer engine does not exist yet (088; FR-3)');
 SELECT has_function('kernel'::name, 'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],

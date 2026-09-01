@@ -84,12 +84,12 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 75,
-  'A14: kernel holds EXACTLY 75 functions (55 post-082 + the twenty 083 fns)');
+           WHERE n.nspname = 'kernel'), 94,
+  'A14: kernel holds EXACTLY 94 functions (75 post-084 + the nineteen 085 money fns)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 15,
-  -- 2026-08-31 (package 083): 14 -> 15 (venue.append_door_manifest_delta SEAM-2 stub).
-  'A15: venue holds EXACTLY fifteen functions — 082''s fourteen + 083''s append_door_manifest_delta');
+           WHERE n.nspname = 'venue'), 18,
+  -- 2026-09-01 (package 085): 15 -> 18 (finalize_primary_order + the two SEAM-2 stubs, R2B/C111).
+  'A15: venue holds EXACTLY eighteen functions — 15 post-083 + 085''s finalize + two stubs');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');
@@ -131,8 +131,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 7,
-  'A28: the other SEVEN hooks remain byte-neutral — 083 filled deletion_blockers_wallet too');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 4,
+  'A28: FOUR hooks remain byte-neutral — 085 filled money, obligations (BP-10) and the Q5 release');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');

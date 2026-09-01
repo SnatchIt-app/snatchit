@@ -1894,4 +1894,171 @@ exception to the single-txn discipline, decided at that package's review — or 
 profile explicitly. Purity invariant intact: this is a comment/record correction; 084's object list is
 untouched. Raised by red-team B (PR #38).
 
+## PFA-21 — service_role cannot reach the 085 kernel state-sync entry RPCs under the immutable 076 kernel wall (the PFA-14/15/16 class, fourth instance) — kernel USAGE granted at 085
+
+**OWNER-SIGNED 2026-09-01.** `kernel.mark_refund_state`, `kernel.mark_payout_transfer_state` and
+`kernel.record_identity_obligation` are DEF/service_role-only ENTRY functions whose sole contracted
+callers are service_role edge sessions (stripe-webhook, payout-execute, refund-execute — RPC §20.7.6/.7/.10).
+Immutable 076 grants kernel USAGE to `authenticated` only (076:77), and PFA-15's ruling widened venue ONLY,
+stating kernel/catalog need their own ruling. Without it every Stripe state-sync silently dead-ends
+(a refund stays `pending` forever once the rail activates). **RULING: 085 ships
+`GRANT USAGE ON SCHEMA kernel TO service_role` — USAGE ONLY.** No table/DML grants ride along; EXECUTE
+stays per-function; the deny-by-default table posture is unchanged; anon is NOT widened (PFA-14 intact);
+catalog is NOT touched. 085's review gates on this grant being present and USAGE-scoped.
+
+## PFA-22 — OPEN-2 closed: the BP-12 refund-possible window gets a DEDICATED config operand with candidate-scoped NULL semantics
+
+**OWNER-SIGNED 2026-09-01 (verbatim semantics).** The deletion-machine spec left BP-12's "a refund is
+still possible for recent orders" window with no named key or operand (DSM OPEN-2). RULING: create a
+dedicated operand **`deletion.refund_possible_window_hours`** — do NOT reuse
+`refund.buyer_self_service_window_hours`. Initial value NULL / owner-unset (seeded at 085,
+visibility `restricted`). **NULL is fail-closed ONLY when a relevant BP-12 candidate order exists**: if
+the blocker needs the refund-possible window (a qualifying candidate order is present) and the value is
+NULL, deletion completion is BLOCKED; if there are NO qualifying candidate orders, NULL by itself must
+NOT block deletion. The key controls DELETION SAFETY ONLY — it does not create refund eligibility and
+does not change buyer refund policy. Implementation note (085): candidates = the identity's
+`venue.order` rows in `paid`/`partially_refunded`; the window is measured from `created_at` (the only
+stable timestamp on the immutable 082 table — it expires no later than a paid-time window would, and the
+in-flight-refund arm of `deletion_blockers_money` covers active requests independently).
+
+## ERRATA — package 085 (recorded, no amendment needed)
+
+All corpus-determined under the freeze §4 test; the policy decisions 085 executes are separately
+owner-signed (PFA-15/PFA-21/PFA-22).
+
+**E-49 — the immature-grant failure token is `sod_violation` (C58), not schema §1.13.4's
+`precondition_failed('money_role_too_new')`.** MONEY §6.7a records the conflict and RPC/RLS carry the
+RATIFIED C58 form; the ratified correction governs (the E-34 class). 085's verbs raise `sod_violation`.
+The §6.7a second conflict (whether `set_platform_config`'s money arm is a maturity site) is NOT 085's:
+078 is applied and immutable, and adding a platform-plane maturity control would be NEW authority —
+left on the MONEY §11 owner queue.
+
+**E-50 — `kernel.payment_native` carries the standing `raise_append_only` guard.** Schema §1.8 declares
+the ledger "effectively AO"; the plan's trigger row enumerates only `set_updated_at` (inapplicable — the
+table has no `updated_at`). The declared property governs; the guard is its mechanical witness (the
+083 push-log precedent). R-34's two writers INSERT only; nothing legitimate updates or deletes a link.
+
+**E-51 — `kernel.payout.cause` CHECK admits the four NAMED §1.9 labels** (`settlement`, `market_sale`,
+`promoter_commission`, `refund_void`) — the ellipsis in "from D3 (…)" is prose style, not a wider set:
+every contracted writer (close_settlement, native-sale, pay_promoter_commission, request_org_payout)
+writes one of the four. Widening is additive if a later package's writer needs a fifth label.
+
+**E-52 — the executed refund tier is WITNESSED by an auto-approved `approval_request` row.** The
+executor's delegated-authority gate recognizes an APPROVED request on the order; the parked branch's
+approval satisfies it naturally. For the auto-execute tiers (buyer self-service / org auto / platform),
+085 writes the SAME record class with `state='approved'`, `approved_by = SN-SYSTEM`,
+`reason_code='auto_execute_tier'` — the tier check that admitted execution IS the authority, the record
+is its witness, and the SoD pair (`approved_by <> requested_by`) holds by the sentinel. This closes the
+delegation channel without a new mechanism (no GUC, no signature change) and improves the audit trail:
+EVERY executed refund now has an intent record. Inert today: all D-3 keys are NULL, so no auto tier is
+satisfiable until the owner sets values.
+
+**E-53 — `market.on_atom_voided` ships the C117-canonical THREE-parameter stub**; the two-parameter
+summaries in plan §0.4b and schema §13.2 FR-4 are ruled stale by the registry's SEVENTH AMENDMENT. The
+`p_cause` VALUE SET remains uncontracted — that derivation belongs to 088's body review (the stub is a
+no-op; SEAM-2a freezes names/types only). The plan's "a ruling that drops `p_cause` must be taken
+BEFORE 085 is authored" is satisfied BY C117: the ruling exists and keeps it.
+
+**E-54 — `kernel.payout.status='paid'` is built as form (a)** (the executor's synchronous transfer
+result) per RPC §20.7.6's own instruction pending the O16 ruling; `mark_payout_transfer_state` refuses
+`submitted` (087's request path — a second door past the money controls otherwise). Forward notes
+carried: the venue_finance arm of `list_org_payouts` FAILS CLOSED (empty page) until 087's settlement
+join exists; the org/venue-scoped `payment_native` read RPC named by RLS §7.8's V cells is unbuilt and
+fails closed (the §20.0c shape — recorded, owed to the 087-surface review); the BP-6 kernel arm is
+subsumed by BP-5's stricter `status <> 'paid'` predicate while both live only in `deletion_blockers_money`
+(a held payout is definitionally unsettled) — the arm is kept for when the predicates diverge.
+
+## PFA-23 — refund-execution authority: EXEC-DEF + single-use idempotency-bound delegation (red-team P0)
+
+**OWNER-SIGNED 2026-09-01.** The 7-reviewer red team (fidelity R3, money-custody R7, correctness R1,
+security R2, tests R5) converged on a P0: the first implementation granted
+`kernel.refund_primary_order` EXECUTE to `authenticated` and gated it on
+`exists(any approved refund.issue request on the order)`. Because approvals are never consumed, that
+gate was a reusable, amount-unbound skeleton key — once one refund on an order was approved, any
+authenticated principal could call the executor directly and drain the payment (voiding the buyer's
+tickets), and `platform_support`'s cap was skipped whenever an approved row existed. This contradicted
+the frozen §11.4 (EXEC: **DEF**) and §17.2 (approve executes the refund in the same transaction) and was
+an invented, self-signed authority mechanism.
+
+**RULING (owner-selected):** restore §11.4/§17.2 via a SINGLE-USE IDEMPOTENCY BINDING, no 077 mutation,
+no new state, no new function:
+- `kernel.refund_primary_order` is **EXEC DEF** — granted to `service_role` (edge-fronted), REVOKED from
+  `authenticated`/anon/public. The bare `exists(approved)` gate is DELETED.
+- **Direct arm** (`p_command_key` not `'req:%'`): authority = `is_platform([platform_support (cap ALWAYS
+  evaluated, on the cumulative operand under the payment lock), platform_admin])`. A full refund
+  (amount ≥ coverable order total) voids all voidable atoms; a partial platform refund is money-only
+  (voids nothing — atom-specific voids go through `admin_refund(p_atom_ids)`).
+- **Delegated arm** (`p_command_key = 'req:'||request_id`): reachable only definer→definer (from
+  `approve_refund_request`/`request_order_refund`, which have already enforced dual control) or via the
+  refund-execute edge as service_role. It loads THAT request, requires `state='approved'` +
+  `subject_id = p_order_id` + `amount_minor = p_amount_minor`, voids exactly the request's payload atoms,
+  and is single-execution because the inserted `kernel.refund.idempotency_key = p_command_key`
+  (`'req:'||request_id`) is UNIQUE — a second attempt returns `idempotency_replay`. No `approved→executed`
+  state is needed (077's state set is immutable); the refund ledger row IS the consumption record.
+Recorded as the corpus-conforming remediation of the red-team P0; the executor now moves money only for
+platform (capped) or a specific, once-only, amount-and-atom-bound approved request.
+
+## ERRATA — package 085, red-team remediation addendum (E-55..E-60)
+
+Corpus-conforming fixes for the 7-reviewer red team (the authority P0 is PFA-23, owner-signed).
+
+**E-55 — finalize lock order: Order(3) before Inventory batch(2) (R3 P1-4).** §6.3 lists the SSCAS #1
+order as Event/Session → Inventory batch → Order → Atom → Payment. The implementation acquires
+Event/Session(1) → the resolved signing key → Order(3) → the (deterministically pre-locked) batches(2)
+→ mint → Payment(6). This is internally consistent with the refund member (both money paths take the
+ORDER lock before any inventory/atom lock), so no finalize×refund inversion exists; finalize×finalize on
+one order serialize on the order lock; and finalize×finalize on DIFFERENT orders sharing batches are
+serialized by the ascending-by-batch_id pre-lock (E-58). The batch-before-order literal is recorded as a
+knowing deviation with this deadlock analysis rather than reordered, because order-first is the coherent
+ladder across BOTH money engines.
+
+**E-56 — force_void_ticket uses a DETERMINISTIC synthetic void cause_ref** = `md5('force:'||command_key)
+::uuid`, so a replayed break-glass command returns `noop_replay` via the void engine's command-key arm
+(the voided-branch now matches EITHER the refund cause_ref OR the command key) instead of raising
+`state_conflict` (§11.1 idempotency; R1/R3 P1).
+
+**E-57 — admin_refund binds atoms to the payment (R7 P3/R2 P2).** The void loop now requires each
+`p_atom_ids` member to belong to an order paid by `p_payment_id` (via ownership_log seq-1 → order_item →
+payment_native), and raises `precondition_failed` when none match. Break-glass latitude no longer
+decouples the money leg from arbitrary tickets.
+
+**E-58 — finalize batch attribution is HEURISTIC; exact linkage is a forward obligation (R1 P1).** 082's
+`create_primary_checkout` takes `p_hold_ids` but persists no order↔hold/batch linkage, and `order_item`
+(082, immutable) has no column for it. finalize therefore attributes each item to the buyer's reservation
+for that ticket_type/session, PREFERRING an active-unexpired hold (`ORDER BY (active AND unexpired) DESC,
+created_at DESC`). Correct for the common one-pending-order-per-buyer case; a buyer holding two concurrent
+pending orders on the same tt/session cannot be perfectly disambiguated. **Forward obligation
+(OWNER-owed at activation / a future checkout-successor package):** persist the chosen hold_ids/batch on
+the order so finalize derives attribution from a stored fact. Inert today (dark rail); the C27 CHECK and
+the TTL sweep contain any mis-attribution. Batches are pre-locked ascending by batch_id (R6 P1 — no
+AB-BA deadlock); all active-unexpired holds convert WHOLE (held -= their sum; the over-held remainder
+returns to free capacity), fixing the greedy-conversion false `oversell_rejected` (R1 P1).
+
+**E-59 — PFA-21 disclosure: the kernel USAGE grant makes the pre-existing service_role EXECUTE grants
+RUNTIME-live; the established ACL boundary is accepted, not narrowed (R2 P1).** PFA-21's
+`GRANT USAGE ON SCHEMA kernel TO service_role` makes runtime-reachable the service_role EXECUTE grants
+077/081/082/083 already authored (the deletion machinery, the sweeps, the mint/wallet DEF set) — grants
+that were present in the ACL catalog all along (the F3 register and A30/A41 assert them) but inert
+without schema USAGE. The red team (R2 P1) flagged the deletion machinery as an escalation surface for a
+compromised service_role and offered two dispositions: revoke to a minimal boundary, OR accept and
+disclose. **085 ACCEPTS the established boundary** — the 077 service_role grants are a frozen invariant
+(revoking them contradicts A30/A41/F3, i.e., it would be a policy CHANGE, not corpus-conforming
+remediation), the deletion functions' real callers are pg_cron (postgres) + definer-internal so the
+grants are unused at runtime by service_role in practice, and service_role is already fully trusted for
+the money rail (finalize, mark_*). `issue_ticket_atoms` stays service_role (its §7.1 comp/door/import
+paths are contracted, non-payment issuance BY DESIGN) and darkness-gated. **Forward obligation:** at
+native-issuance activation, re-verify that the comp/door/import edge callers of `issue_ticket_atoms`
+enforce their own authority, and reconsider (with owner sign-off) whether the dormant deletion-machinery
+service_role grants should be tightened chain-wide.
+
+**E-60 — two recorded deferrals.** (a) SHARD COUNTERS (R3 P1-5): finalize's `held-=q` and the void
+engine's `sold-=1` touch `venue.inventory_batch` only, not `inventory_batch_shard`. Inert under E-32
+(sharding deferred; `is_sharded` always false; `create_inventory_batch` refuses `shard_count>0`).
+Forward obligation on the sharding-activation package to mirror the deltas (083's mint shares the gap).
+(b) RESULT/PROJECTION SHAPES (R3 P2-2): `request_order_refund` returns `parked`/`executed` +
+`required_approver_class` and the reads return presence-boolean/scalar-filter projections; the fuller
+contracted shapes (`cumulative_minor`, `atoms_voided[]`, `updated_at`, cursor pagination, the
+`{hold_state}` return on hold/release) are additive and adapted by the edge tier — deferred to the
+edge-integration pass rather than expanded here. Neither affects authority, money movement, or custody.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

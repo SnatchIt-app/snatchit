@@ -236,14 +236,14 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- SECTION D — THE CONFIG CONTRACT (41 keys; the two-class split)
 -- ============================================================================
 
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 41,
-  'D1: exactly 41 config keys are seeded');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 42,
+  'D1: exactly 42 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
   'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 33,
-  'D4: the other 33 are restricted');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 34,
+  'D4: the other 34 are restricted (the PFA-22 key is restricted)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
@@ -1118,18 +1118,18 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 22,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 26,
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
   -- credential/wallet tables.
-  'K1: kernel holds twenty-two tables — 082 added consent two, 083 added credential/wallet five');
+  'K1: kernel holds twenty-six tables — 083 added five, 085 added the four money ledgers');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 75,
+            WHERE n.nspname = 'kernel'), 94,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
-  'K3: kernel holds 75 functions — 55 post-082 plus 083''s twenty');
+  'K3: kernel holds 94 functions — 75 post-084 plus 085''s nineteen');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).
