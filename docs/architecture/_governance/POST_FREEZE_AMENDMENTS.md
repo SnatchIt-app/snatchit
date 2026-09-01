@@ -2061,4 +2061,32 @@ contracted shapes (`cumulative_minor`, `atoms_voided[]`, `updated_at`, cursor pa
 `{hold_state}` return on hold/release) are additive and adapted by the edge tier — deferred to the
 edge-integration pass rather than expanded here. Neither affects authority, money movement, or custody.
 
+## PFA-24 — PFA-16 anon-verify surface: the verify key rides M1 (kernel.signing_key projection), NOT the 086 manifest
+
+**OWNER-SIGNED 2026-09-01.** PFA-16's forward obligation said 086 delivers the anon verify key "through
+the door-manifest / public read surface (which carries public_key in the manifest)." Three later frozen
+docs (DOOR §7.5a, EDGE §5.4.2, RPC §20.6.1) instead place `public_key` in **M1** — the KMS-signed
+projection of `kernel.signing_key`'s world-readable columns, served by the door-session edge — and
+DELIBERATELY omit `public_key` from **M2** / `venue.get_door_manifest`, which carries only
+`signing_key_id` (the join key to M1). The corpus did not uniquely resolve the conflict. **RULING:** the
+door-spec reading governs. 086's `door_manifest_entry`/`door_manifest_delta` and `get_door_manifest` (M2)
+carry per-atom `signing_key_id` ONLY — never `public_key`, never key material, never identity. The
+offline/loginless door obtains M2 via `get_door_manifest` (token-bound through `kernel.assert_door_session`,
+service_role edge, no `auth.uid()`, no kernel USAGE) and joins `signing_key_id` → M1 (the
+`kernel.signing_key` public projection). 086 creates NO anon-readable table and NO anon grant; the 076
+kernel-USAGE wall stays closed to anon (the PFA-14/16 fail-closed posture holds). PFA-16's
+"carries public_key" phrasing is superseded (E-61). C33 intact — no verify-key material in the manifest.
+
+## PFA-25 — `set_event_security_config` is ruled OUT of 086; the per-event door-config surface is a governed forward obligation
+
+**OWNER-SIGNED 2026-09-01.** RPC §20.6.6 contracts `venue.set_event_security_config` and RLS §11.4 grants
+it to three human roles, but its target table `catalog.event_security_config` is created by NO package,
+078 (its natural home) is immutable, and schema §13.7 (S-13) flags the gap. **RULING:** 086 does NOT build
+the function or an invented table for it (building a function against a non-existent table is forbidden by
+the plan's own discipline). The per-event door-config surface — the table AND the function together, with
+its own review — is a **governed forward obligation, OWNER-owed** at (or before) the 2B door-gate
+activation; a future package (or a re-opened 078-successor) authors both. 086 ships the complete
+door/scan substrate without it; the three role grants have nothing to point at until then. T-RPC-DOOR-24
+(the "held" assertion) stays satisfied.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
