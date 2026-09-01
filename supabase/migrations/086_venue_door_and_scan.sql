@@ -153,14 +153,9 @@ revoke update, delete on venue.scan from service_role;    -- AO
 grant select on venue.scan to authenticated;
 drop policy if exists venue_scan_sel_venue on venue.scan;
 create policy venue_scan_sel_venue on venue.scan for select to authenticated
-  using (kernel.has_venue_role((select s.event_id from catalog.event_session es
-                                join catalog.event ev on ev.event_id = es.event_id
-                                join catalog.venue vv on vv.venue_id = ev.venue_id
-                                where es.session_id = venue.scan.event_session_id limit 1),
-                               array['venue_scanner','venue_manager'])
-    or exists (select 1 from catalog.event_session es join catalog.event ev on ev.event_id=es.event_id
-                where es.session_id = venue.scan.event_session_id
-                  and kernel.has_venue_role(ev.venue_id, array['venue_scanner','venue_manager'])));
+  using (exists (select 1 from catalog.event_session es join catalog.event ev on ev.event_id=es.event_id
+                  where es.session_id = venue.scan.event_session_id
+                    and kernel.has_venue_role(ev.venue_id, array['venue_scanner','venue_manager'])));
 
 -- ============================================================================
 -- PART 5 — venue.comp_allocation (schema §3.15)
