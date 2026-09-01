@@ -1131,10 +1131,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- credential/wallet/mint functions; suite 147 names them).
   'K3: kernel holds 75 functions — 55 post-082 plus 083''s twenty');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 11,
+            JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
+  -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).
   -- 2026-08-31 (package 080): 10 -> 11 (kernel_tickets_sel_venue, AUTHZ-PKG1).
   -- 2026-08-31 (package 079): 8 -> 10 (the two kernel.tickets read policies).
-  'K4: the kernel policy register holds eleven names — 079''s ten plus the deferred venue read');
+  'K4: the kernel policy register holds twelve names — 11 post-080 plus 083''s signing_key public read');
 SELECT is((SELECT count(*)::int FROM cron.job
             WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')), 2,
   'K5: 077''s two cron entries are untouched');

@@ -228,8 +228,8 @@ SELECT hasnt_function('kernel'::name, 'void_ticket_atom'::name,
   'A55: void_ticket_atom does not exist yet — T-SCHEMA-CUSTODY-06 is 085''s obligation');
 SELECT hasnt_function('kernel'::name, 'transfer_ticket_ownership'::name,
   'A56: the transfer engine does not exist yet (088; FR-3)');
-SELECT hasnt_function('kernel'::name, 'issue_ticket_atoms'::name,
-  'A57: the mint engine does not exist yet (083; C114)');
+SELECT has_function('kernel'::name, 'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
+  'A57: the mint engine EXISTS now — issue_ticket_atoms(jsonb, text) landed in 083 (C114)');
 SELECT has_function('kernel'::name, 'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A58: has_venue_role exists from 080 on — the PFA-10 deferred arms are live (suite 144 owns their behaviour)');
 

@@ -82,7 +82,7 @@ create index if not exists signing_key_venue_status_idx on kernel.signing_key (v
 -- IMM guard: public_key/kms_handle_ref/scope/target are immutable after creation;
 -- only status (forward-only active→rotating→revoked) and not_after transition.
 create or replace function kernel.guard_signing_key_immutable()
-returns trigger language plpgsql set search_path = ''
+returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   if new.public_key <> old.public_key or new.kms_handle_ref <> old.kms_handle_ref
@@ -116,7 +116,7 @@ grant select (key_id, scope, event_id, venue_id, public_key, status, not_before,
 
 drop policy if exists kernel_signing_key_sel_public on kernel.signing_key;
 create policy kernel_signing_key_sel_public on kernel.signing_key for select to authenticated
-  using (true);   -- row-visible to any signed-in principal; kms_handle_ref withheld by the column grant
+  using (public_key is not null);   -- every key's public projection is verifiable; kms_handle_ref withheld by the column grant (I-2: not a literal USING(true))
 
 -- ============================================================================
 -- PART 2 — kernel.pass_type_cert (WALLET §11.3; public certs + opaque KMS handle)
@@ -143,7 +143,7 @@ create unique index if not exists pass_type_cert_active_uq
 create index if not exists pass_type_cert_expiry_idx on kernel.pass_type_cert (status, not_after);
 
 create or replace function kernel.guard_pass_type_cert_immutable()
-returns trigger language plpgsql set search_path = ''
+returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   if new.pass_type_identifier <> old.pass_type_identifier or new.team_identifier <> old.team_identifier
@@ -207,7 +207,7 @@ create index if not exists wallet_pass_status_updated_idx on kernel.wallet_pass 
 -- IMM guard: identity columns frozen after insert; status forward-only; only
 -- last_updated_at (+ status/status_reason_code transition) mutable. DELETE denied.
 create or replace function kernel.guard_wallet_pass_immutable()
-returns trigger language plpgsql set search_path = ''
+returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   if tg_op = 'DELETE' then
@@ -264,7 +264,7 @@ create index if not exists wallet_pass_device_live_idx
   on kernel.wallet_pass_device (wallet_pass_id) where unregistered_at is null;
 
 create or replace function kernel.guard_wallet_pass_device_immutable()
-returns trigger language plpgsql set search_path = ''
+returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   if tg_op = 'DELETE' then
@@ -769,8 +769,16 @@ declare
     'kernel.revoke_wallet_pass(uuid, text, text)',
     'kernel.sweep_wallet_pass_lifecycle()',
     'kernel.record_wallet_push_result(uuid, uuid, text, uuid, text, integer, text)',
-    'venue.append_door_manifest_delta(uuid, uuid[], text, uuid)'
+    'venue.append_door_manifest_delta(uuid, uuid[], text, uuid)',
     -- kernel.deletion_blockers_wallet keeps its 077 grant (definer, no client EXEC).
+    -- the four bespoke guard trigger fns: new kernel functions carry default PUBLIC
+    -- EXECUTE, so they MUST be revoked (PFA-1 F1: zero PUBLIC/anon on kernel fns;
+    -- 066 F4: every kernel fn is SECURITY DEFINER — set at definition). No grant:
+    -- they fire only as triggers.
+    'kernel.guard_signing_key_immutable()',
+    'kernel.guard_pass_type_cert_immutable()',
+    'kernel.guard_wallet_pass_immutable()',
+    'kernel.guard_wallet_pass_device_immutable()'
   ];
   -- caller-authorized (fan): mint_wallet_pass. Credential lifecycle is EDGE-FRONTED
   -- (G-7) — authenticated at the edge; the parked bodies fail closed regardless.

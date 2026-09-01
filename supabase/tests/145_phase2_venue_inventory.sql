@@ -51,8 +51,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   'A4: venue holds FIFTEEN functions — 082''s fourteen + 083''s append_door_manifest_delta');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
-SELECT hasnt_function('kernel'::name,'issue_ticket_atoms'::name,
-  'A6: the mint engine is NOT here — kernel.issue_ticket_atoms moved to 083 (C114)');
+SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
+  'A6: the mint engine landed in 083 (C114) — kernel.issue_ticket_atoms(jsonb, text) exists');
 SELECT hasnt_function('venue'::name,'finalize_primary_order'::name, 'A7: no order engine (082/085)');
 SELECT hasnt_function('venue'::name,'allocate_comp'::name, 'A8: no comp engine (086)');
 SELECT hasnt_function('venue'::name,'record_scan'::name, 'A9: no door/scan surface (086)');

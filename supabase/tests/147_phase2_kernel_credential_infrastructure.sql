@@ -77,9 +77,16 @@ SELECT ok(NOT has_column_privilege('authenticated','kernel.wallet_pass','auth_to
   'B3: no client SELECT on the wallet bearer-token columns (service_role only)');
 SELECT ok(NOT has_table_privilege('authenticated','kernel.pass_type_cert','SELECT'),
   'B4: pass_type_cert has no client access at all (doors never verify the Apple signature)');
--- push_log is AO
-SELECT throws_ok($$UPDATE kernel.wallet_pass_push_log SET outcome='sent'$$, 'P0001', NULL,
-  'B5: the push-log ledger refuses UPDATE (AO)');
+-- push_log is AO — structural + grant-layer (the empty ledger can't fire a per-row
+-- guard; its P0001 raise is exercised on populated tables by F/G immutability tests).
+SELECT ok(
+  (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE n.nspname='kernel' AND c.relname='wallet_pass_push_log'
+      AND p.proname='raise_append_only' AND NOT t.tgisinternal) = 1
+  AND NOT has_table_privilege('service_role','kernel.wallet_pass_push_log','UPDATE')
+  AND NOT has_table_privilege('service_role','kernel.wallet_pass_push_log','DELETE'),
+  'B5: the push-log ledger is append-only — raise_append_only guard attached AND service_role holds no UPDATE/DELETE');
 
 -- ============================================================================
 -- SECTION C — FEATURE DARKNESS (native issuance + Wallet both OFF)
