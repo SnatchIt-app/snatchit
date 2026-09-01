@@ -32,6 +32,20 @@ begin
     raise exception 'REFUSED: 085 holds MONEY rows (payment_native=%, refund=%, payout=%, identity_obligation=%). FORWARD-FIX ONLY (plan §8/085) — money ledgers are never clean-deletable once written.',
       v_pn, v_r, v_p, v_o;
   end if;
+  -- R4 P1: money INTENT can exist with all four ledgers empty — a parked refund
+  -- request (077 table) + its refund_hold overlays on 079 tickets. Dropping the
+  -- verbs + the real Q5 body would strand them (P0-1 "bricked ticket"). Refuse.
+  if exists (select 1 from kernel.approval_request
+              where action='refund.issue' and state='pending')
+     or exists (select 1 from kernel.tickets where resale_state='refund_hold') then
+    raise exception 'REFUSED: 085 has parked refund intent (a pending refund.issue request or a refund_hold overlay). Sweep/decide it first — FORWARD-FIX ONLY.';
+  end if;
+  -- R4 P1: the owner may have set a later version of the PFA-22 key; deleting only
+  -- v1 would orphan v2. Refuse rather than corrupt the version chain.
+  if exists (select 1 from catalog.platform_config
+              where key='deletion.refund_possible_window_hours' and version > 1) then
+    raise exception 'REFUSED: deletion.refund_possible_window_hours has an owner-set version > 1. FORWARD-FIX ONLY.';
+  end if;
 end $$;
 
 -- PART 1 — the cron entry.
@@ -86,7 +100,13 @@ drop table if exists kernel.payment_native;
 -- PART 5 — the owner-ruled schema grants (PFA-15 / PFA-21) and the PFA-22 seed.
 revoke usage on schema venue  from service_role;
 revoke usage on schema kernel from service_role;
+-- catalog.platform_config is APPEND-ONLY (078 tg_platform_config_append_only on
+-- UPDATE OR DELETE). The guard above proved no owner-set v2 exists, so removing
+-- the lone v1 PFA-22 seed is safe — but the AO trigger must be lifted for the
+-- delete (R4 P0). Same txn; re-enabled immediately.
+alter table catalog.platform_config disable trigger tg_platform_config_append_only;
 delete from catalog.platform_config
  where key = 'deletion.refund_possible_window_hours' and version = 1;
+alter table catalog.platform_config enable trigger tg_platform_config_append_only;
 
 commit;

@@ -1968,4 +1968,91 @@ fails closed (the §20.0c shape — recorded, owed to the 087-surface review); t
 subsumed by BP-5's stricter `status <> 'paid'` predicate while both live only in `deletion_blockers_money`
 (a held payout is definitionally unsettled) — the arm is kept for when the predicates diverge.
 
+## PFA-23 — refund-execution authority: EXEC-DEF + single-use idempotency-bound delegation (red-team P0)
+
+**OWNER-SIGNED 2026-09-01.** The 7-reviewer red team (fidelity R3, money-custody R7, correctness R1,
+security R2, tests R5) converged on a P0: the first implementation granted
+`kernel.refund_primary_order` EXECUTE to `authenticated` and gated it on
+`exists(any approved refund.issue request on the order)`. Because approvals are never consumed, that
+gate was a reusable, amount-unbound skeleton key — once one refund on an order was approved, any
+authenticated principal could call the executor directly and drain the payment (voiding the buyer's
+tickets), and `platform_support`'s cap was skipped whenever an approved row existed. This contradicted
+the frozen §11.4 (EXEC: **DEF**) and §17.2 (approve executes the refund in the same transaction) and was
+an invented, self-signed authority mechanism.
+
+**RULING (owner-selected):** restore §11.4/§17.2 via a SINGLE-USE IDEMPOTENCY BINDING, no 077 mutation,
+no new state, no new function:
+- `kernel.refund_primary_order` is **EXEC DEF** — granted to `service_role` (edge-fronted), REVOKED from
+  `authenticated`/anon/public. The bare `exists(approved)` gate is DELETED.
+- **Direct arm** (`p_command_key` not `'req:%'`): authority = `is_platform([platform_support (cap ALWAYS
+  evaluated, on the cumulative operand under the payment lock), platform_admin])`. A full refund
+  (amount ≥ coverable order total) voids all voidable atoms; a partial platform refund is money-only
+  (voids nothing — atom-specific voids go through `admin_refund(p_atom_ids)`).
+- **Delegated arm** (`p_command_key = 'req:'||request_id`): reachable only definer→definer (from
+  `approve_refund_request`/`request_order_refund`, which have already enforced dual control) or via the
+  refund-execute edge as service_role. It loads THAT request, requires `state='approved'` +
+  `subject_id = p_order_id` + `amount_minor = p_amount_minor`, voids exactly the request's payload atoms,
+  and is single-execution because the inserted `kernel.refund.idempotency_key = p_command_key`
+  (`'req:'||request_id`) is UNIQUE — a second attempt returns `idempotency_replay`. No `approved→executed`
+  state is needed (077's state set is immutable); the refund ledger row IS the consumption record.
+Recorded as the corpus-conforming remediation of the red-team P0; the executor now moves money only for
+platform (capped) or a specific, once-only, amount-and-atom-bound approved request.
+
+## ERRATA — package 085, red-team remediation addendum (E-55..E-60)
+
+Corpus-conforming fixes for the 7-reviewer red team (the authority P0 is PFA-23, owner-signed).
+
+**E-55 — finalize lock order: Order(3) before Inventory batch(2) (R3 P1-4).** §6.3 lists the SSCAS #1
+order as Event/Session → Inventory batch → Order → Atom → Payment. The implementation acquires
+Event/Session(1) → the resolved signing key → Order(3) → the (deterministically pre-locked) batches(2)
+→ mint → Payment(6). This is internally consistent with the refund member (both money paths take the
+ORDER lock before any inventory/atom lock), so no finalize×refund inversion exists; finalize×finalize on
+one order serialize on the order lock; and finalize×finalize on DIFFERENT orders sharing batches are
+serialized by the ascending-by-batch_id pre-lock (E-58). The batch-before-order literal is recorded as a
+knowing deviation with this deadlock analysis rather than reordered, because order-first is the coherent
+ladder across BOTH money engines.
+
+**E-56 — force_void_ticket uses a DETERMINISTIC synthetic void cause_ref** = `md5('force:'||command_key)
+::uuid`, so a replayed break-glass command returns `noop_replay` via the void engine's command-key arm
+(the voided-branch now matches EITHER the refund cause_ref OR the command key) instead of raising
+`state_conflict` (§11.1 idempotency; R1/R3 P1).
+
+**E-57 — admin_refund binds atoms to the payment (R7 P3/R2 P2).** The void loop now requires each
+`p_atom_ids` member to belong to an order paid by `p_payment_id` (via ownership_log seq-1 → order_item →
+payment_native), and raises `precondition_failed` when none match. Break-glass latitude no longer
+decouples the money leg from arbitrary tickets.
+
+**E-58 — finalize batch attribution is HEURISTIC; exact linkage is a forward obligation (R1 P1).** 082's
+`create_primary_checkout` takes `p_hold_ids` but persists no order↔hold/batch linkage, and `order_item`
+(082, immutable) has no column for it. finalize therefore attributes each item to the buyer's reservation
+for that ticket_type/session, PREFERRING an active-unexpired hold (`ORDER BY (active AND unexpired) DESC,
+created_at DESC`). Correct for the common one-pending-order-per-buyer case; a buyer holding two concurrent
+pending orders on the same tt/session cannot be perfectly disambiguated. **Forward obligation
+(OWNER-owed at activation / a future checkout-successor package):** persist the chosen hold_ids/batch on
+the order so finalize derives attribution from a stored fact. Inert today (dark rail); the C27 CHECK and
+the TTL sweep contain any mis-attribution. Batches are pre-locked ascending by batch_id (R6 P1 — no
+AB-BA deadlock); all active-unexpired holds convert WHOLE (held -= their sum; the over-held remainder
+returns to free capacity), fixing the greedy-conversion false `oversell_rejected` (R1 P1).
+
+**E-59 — PFA-21 disclosure corrected: the kernel USAGE grant activated 077's dormant service_role
+EXECUTE grants; the deletion machinery is revoked back to its contracted boundary (R2 P1).** PFA-21's
+`GRANT USAGE ON SCHEMA kernel TO service_role` made ~23 previously-inert 077/081/082/083 service_role
+EXECUTE grants live. The wallet/mint/cancel/state-sync set is contracted (edge/webhook callers,
+darkness-gated). The 077 DELETION MACHINERY (`sweep_deletion_pending`, the four `on_identity_erased_*`,
+`on_deletion_q5_release`, the five `deletion_blockers_*`, `has_outstanding_obligations`,
+`is_deletion_pending`, `sweep_expired_org_invites`) has NO contracted service_role caller — its callers
+are pg_cron (postgres) and definer-internal — so 085 REVOKEs service_role EXECUTE on all fourteen after
+the USAGE grant (fail-closed; the cron runs as postgres, unaffected). `issue_ticket_atoms` stays
+service_role (its §7.1 comp/door/import edge paths are contracted; darkness-gated).
+
+**E-60 — two recorded deferrals.** (a) SHARD COUNTERS (R3 P1-5): finalize's `held-=q` and the void
+engine's `sold-=1` touch `venue.inventory_batch` only, not `inventory_batch_shard`. Inert under E-32
+(sharding deferred; `is_sharded` always false; `create_inventory_batch` refuses `shard_count>0`).
+Forward obligation on the sharding-activation package to mirror the deltas (083's mint shares the gap).
+(b) RESULT/PROJECTION SHAPES (R3 P2-2): `request_order_refund` returns `parked`/`executed` +
+`required_approver_class` and the reads return presence-boolean/scalar-filter projections; the fuller
+contracted shapes (`cumulative_minor`, `atoms_voided[]`, `updated_at`, cursor pagination, the
+`{hold_state}` return on hold/release) are additive and adapted by the edge tier — deferred to the
+edge-integration pass rather than expanded here. Neither affects authority, money movement, or custody.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

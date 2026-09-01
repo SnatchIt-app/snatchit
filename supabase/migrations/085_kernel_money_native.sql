@@ -232,10 +232,11 @@ as $$
 declare
   v_window numeric;
 begin
-  -- BP-5: an unsettled identity payout (anything short of terminal-good).
+  -- BP-5: an IN-FLIGHT identity payout (pending/submitted). Terminal failed/
+  -- reversed do NOT block forever (R1 P3 — no transition exits them).
   if exists (select 1 from kernel.payout p
-              where p.payee_identity_id = p_identity and p.status <> 'paid') then
-    return 'BP-5: identity payout not settled';
+              where p.payee_identity_id = p_identity and p.status in ('pending','submitted')) then
+    return 'BP-5: identity payout in flight';
   end if;
   -- BP-6: a payout under hold/probation for this identity.
   if exists (select 1 from kernel.payout p
@@ -288,16 +289,18 @@ $$;
 -- BP-10 (OR-21): EXISTS over the §1.10a partial index. The 077 stub returned
 -- false — true-not-inert (no origin object existed before 085).
 create or replace function kernel.has_outstanding_obligations(p_identity_id uuid)
-returns boolean language sql volatile security definer set search_path = ''
+returns boolean language sql stable security definer set search_path = ''   -- §20.7.12: STABLE
 as $$
   select exists (select 1 from kernel.identity_obligation o
                   where o.debtor_identity_id = p_identity_id
                     and o.status = 'outstanding');
 $$;
 
--- Q5 release (OR-17): §17.4's release semantics applied to the deleting
--- identity's set — expire their orders' pending refund requests, release the
--- refund_hold overlays, audit, and emit the contracted notice (best-effort).
+-- Q5 release (OR-17 / DSM §3.1 frozen, RATREC): "every kernel.approval_request
+-- row with requested_by = :id and state='pending'" — the deleter NAMES the
+-- requests it AUTHORED (requested_by), across ALL actions, not requests on
+-- orders it bought (P0-5). Expire each, release the refund_hold overlays pinned
+-- on that request's payload atoms, audit, emit the notice (best-effort).
 create or replace function kernel.on_deletion_q5_release(p_identity uuid)
 returns void language plpgsql security definer set search_path = ''
 as $$
@@ -305,26 +308,26 @@ declare
   v_req record;
 begin
   for v_req in
-    select ar.request_id, ar.subject_id
+    select ar.request_id, ar.action, ar.payload
       from kernel.approval_request ar
-      join venue."order" o on o.order_id = ar.subject_id
-     where ar.action = 'refund.issue' and ar.subject_kind = 'order'
-       and ar.state = 'pending' and o.buyer_id = p_identity
+     where ar.requested_by = p_identity and ar.state = 'pending'
      for update of ar
   loop
     update kernel.approval_request set state = 'expired', updated_at = now()
      where request_id = v_req.request_id;
+    -- release the refund_hold overlays this request pinned (refund.issue only)
+    if v_req.action = 'refund.issue' and v_req.payload ? 'atom_ids' then
+      update kernel.tickets set resale_state = 'none', updated_at = now()
+       where ticket_atom_id in (select (jsonb_array_elements_text(v_req.payload->'atom_ids'))::uuid)
+         and resale_state = 'refund_hold';
+    end if;
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-    values ('00000000-0000-0000-0000-0000000000f1', 'refund.request_expired', 'approval_request',
+    values ('00000000-0000-0000-0000-0000000000f1', v_req.action || '.request_expired', 'approval_request',
             v_req.request_id, 'deletion_q5_release');
     perform notify.emit_event('refund_request_expired', 'approval_request', v_req.request_id,
             'q5:' || v_req.request_id::text,
-            jsonb_build_object('order_id', v_req.subject_id, 'cause', 'deletion_q5'));
+            jsonb_build_object('action', v_req.action, 'cause', 'deletion_q5'));
   end loop;
-  -- release the deleting identity's refund_hold overlays (the §17.4 hold release)
-  update kernel.tickets
-     set resale_state = 'none', updated_at = now()
-   where current_owner_id = p_identity and resale_state = 'refund_hold';
 end;
 $$;
 
@@ -357,10 +360,14 @@ begin
     raise exception 'not_found: atom %', p_atom_id using errcode = 'P0002';
   end if;
   if v_row.state = 'voided' then
-    -- replay of THIS void → noop; a different void of an already-voided atom is a conflict
+    -- replay of THIS void → noop, matched by EITHER the refund cause_ref OR the
+    -- command key (force_void mints a fresh cause_ref per call, so the command
+    -- key is its only stable replay anchor — E-56); a genuinely different void of
+    -- an already-voided atom is a conflict.
     if exists (select 1 from kernel.ticket_ownership_log l
                 where l.ticket_atom_id = p_atom_id
-                  and l.cause = 'refund_void' and l.cause_ref = p_refund_id) then
+                  and (   (l.cause = 'refund_void' and l.cause_ref = p_refund_id)
+                       or l.command_idempotency_key = p_command_key || ':' || p_atom_id::text)) then
       return jsonb_build_object('status','noop_replay','atom_id', p_atom_id);
     end if;
     raise exception 'state_conflict: atom % already voided under a different cause', p_atom_id;
@@ -436,9 +443,17 @@ $$;
 -- ============================================================================
 -- PART 8 — the refund executors (RPC §11.4, §20.7.1, §11.1)
 -- ============================================================================
--- §11.4 — the sole ORDER-scoped kernel.refund writer. DEF; direct callers are
--- platform (support capped / admin); org+buyer reach it only THROUGH the
--- dual-control verbs, whose APPROVED request is the delegated authority.
+-- §11.4 (PFA-23) — the sole ORDER-scoped kernel.refund writer. EXEC DEF
+-- (service_role/edge-fronted, NEVER authenticated). Two authority arms:
+--   DIRECT   (command_key not 'req:%'): is_platform([support (cap ALWAYS
+--            evaluated on the cumulative operand under the payment lock),
+--            admin]). A full refund voids all voidable atoms; a partial platform
+--            refund is money-only (atom-specific voids go through admin_refund).
+--   DELEGATED (command_key = 'req:'||request_id): reachable only definer->definer
+--            (approve/request, dual-control already enforced) or the refund edge.
+--            Bound to THAT approved request (amount + payload atoms); single-use
+--            because refund.idempotency_key = command_key is UNIQUE. No bare
+--            exists(approved) gate; the refund row IS the consumption record.
 create or replace function kernel.refund_primary_order(
   p_order_id uuid, p_amount_minor integer, p_reason_code text, p_command_key text)
 returns jsonb
@@ -457,26 +472,18 @@ declare
   v_consumed   uuid[] := '{}';
   v_is_admin   boolean;
   v_is_support boolean;
-  v_approved   boolean;
+  v_delegated  boolean := false;
+  v_deleg_req  uuid;
+  v_ar         kernel.approval_request%rowtype;
+  v_targets    uuid[];          -- delegated: the request's payload atoms; direct: NULL (=whole order)
+  v_full       boolean;
   v_cap        numeric;
   v_existing   kernel.refund%rowtype;
 begin
-  -- idempotency pre-check (webhook/operator replay)
+  -- idempotency pre-check (webhook/operator replay; the delegated key is single-use here)
   select * into v_existing from kernel.refund where idempotency_key = p_command_key;
   if found then
     return jsonb_build_object('status','idempotency_replay','refund_id', v_existing.refund_id);
-  end if;
-
-  v_is_admin   := kernel.is_platform(array['platform_admin']);
-  v_is_support := (not v_is_admin) and kernel.is_platform(array['platform_support']);
-  -- delegated authority: an APPROVED dual-control request on this order
-  -- (approve_refund_request flips state then calls here in the same txn).
-  v_approved := exists (select 1 from kernel.approval_request ar
-                         where ar.action = 'refund.issue' and ar.subject_kind = 'order'
-                           and ar.subject_id = p_order_id and ar.state = 'approved');
-  if not (v_is_admin or v_is_support or v_approved) then
-    raise exception 'insufficient_privilege: refund_primary_order is platform- or approved-request-only'
-      using errcode = '42501';
   end if;
   if p_reason_code not in ('buyer_request','event_cancelled','oversell_correction',
                            'dispute','admin_action','auto_compensation') then
@@ -484,6 +491,32 @@ begin
   end if;
   if p_amount_minor is null or p_amount_minor <= 0 then
     raise exception 'precondition_failed: bad_amount';
+  end if;
+
+  -- AUTHORITY (PFA-23)
+  if p_command_key like 'req:%' then
+    -- DELEGATED: bind to the specific approved request named by the key.
+    begin
+      v_deleg_req := substring(p_command_key from 5)::uuid;
+    exception when others then
+      raise exception 'insufficient_privilege: malformed delegated key' using errcode = '42501';
+    end;
+    select * into v_ar from kernel.approval_request
+     where request_id = v_deleg_req and action = 'refund.issue' and subject_kind = 'order'
+       and subject_id = p_order_id and state = 'approved' and amount_minor = p_amount_minor;
+    if not found then
+      raise exception 'insufficient_privilege: no matching approved request for this delegated refund'
+        using errcode = '42501';
+    end if;
+    v_delegated := true;
+    v_targets := array(select (jsonb_array_elements_text(v_ar.payload->'atom_ids'))::uuid);
+  else
+    v_is_admin   := kernel.is_platform(array['platform_admin']);
+    v_is_support := (not v_is_admin) and kernel.is_platform(array['platform_support']);
+    if not (v_is_admin or v_is_support) then
+      raise exception 'insufficient_privilege: refund_primary_order is platform (direct) or dual-control-delegated only'
+        using errcode = '42501';
+    end if;
   end if;
 
   select * into v_order from venue."order" where order_id = p_order_id for update;
@@ -499,57 +532,68 @@ begin
     raise exception 'precondition_failed: order % carries no native payment link', p_order_id;
   end if;
 
-  -- the support cap binds DIRECT support execution on the CUMULATIVE operand
-  -- (§17.1a/MB-1); an unset key authorizes ZERO (AUTHZ-M3/X-12 — fail closed).
-  if v_is_support and not v_approved then
-    select (c.value #>> '{}')::numeric into v_cap
-      from catalog.platform_config c
-     where c.key = 'refund.platform_support_max_minor'
-     order by c.version desc limit 1;
-    select coalesce(sum(r.amount_minor), 0) into v_prior
-      from kernel.refund r where r.payment_id = v_pn.payment_id and r.status <> 'failed';
-    if v_cap is null or (v_prior + p_amount_minor) > v_cap then
-      raise exception 'insufficient_privilege: platform_support cap (cumulative % + % vs %)',
-        v_prior, p_amount_minor, coalesce(v_cap::text, 'UNSET') using errcode = '42501';
-    end if;
-  end if;
-
-  v_refund_id := gen_random_uuid();
-
-  -- atoms of this order (seq-1 issuance cause_ref = order_item.id — §6.3).
-  -- Partition voidable vs consumed; routine path rechecks the freeze (§12.4c)
-  -- and routes moved custody to admin_refund (custody_moved).
-  for v_atom in
-    select t.ticket_atom_id, t.state, t.current_owner_id
-      from kernel.tickets t
-      join kernel.ticket_ownership_log l1
-        on l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1
-     where l1.cause_ref in (select oi.id from venue.order_item oi where oi.order_id = p_order_id)
-     order by t.ticket_atom_id
-  loop
-    if v_atom.state = 'scanned' then
-      v_consumed := v_consumed || v_atom.ticket_atom_id;   -- money completes; never voided
-    elsif v_atom.state = 'voided' then
-      null;                                                -- already terminal (prior partial refund)
-    else
-      if v_atom.current_owner_id <> v_order.buyer_id then
-        raise exception 'custody_moved: atom % left the buyer — use admin_refund', v_atom.ticket_atom_id;
-      end if;
-      if kernel.is_transfer_frozen(v_atom.ticket_atom_id) then
-        raise exception 'frozen: atom % is transfer-frozen — routine refund parked until the episode closes', v_atom.ticket_atom_id;
-      end if;
-      perform kernel.void_ticket_atom(v_atom.ticket_atom_id, v_refund_id, p_command_key);
-      v_voided := v_voided + 1;
-    end if;
-  end loop;
-
-  -- payment lock LAST in the ladder (rank 6): the Σ-guard serializes here.
+  -- payment lock (rank 6): the Σ-guard AND the support cap both serialize here.
   perform 1 from public.payments p where p.id = v_pn.payment_id for update;
   select coalesce(sum(r.amount_minor), 0) into v_prior
     from kernel.refund r where r.payment_id = v_pn.payment_id and r.status <> 'failed';
   select p.total into v_total from public.payments p where p.id = v_pn.payment_id;
+
+  -- support cap ALWAYS evaluated for a direct support caller (R7 Floor-1a):
+  -- cumulative = prior refunds + parked pending requests + this; unset key = ZERO.
+  if v_is_support then
+    select (c.value #>> '{}')::numeric into v_cap
+      from catalog.platform_config c
+     where c.key = 'refund.platform_support_max_minor' order by c.version desc limit 1;
+    if v_cap is null
+       or (v_prior
+           + coalesce((select sum(ar.amount_minor) from kernel.approval_request ar
+                        where ar.action='refund.issue' and ar.subject_kind='order'
+                          and ar.subject_id=p_order_id and ar.state='pending'),0)
+           + p_amount_minor) > v_cap then
+      raise exception 'insufficient_privilege: platform_support cap exceeded (cumulative vs %)',
+        coalesce(v_cap::text,'UNSET') using errcode = '42501';
+    end if;
+  end if;
+
   if v_prior + p_amount_minor > v_total then
     raise exception 'precondition_failed: over_refund (% + % > %)', v_prior, p_amount_minor, v_total;
+  end if;
+
+  -- VOID SCOPE. Delegated: exactly the request's payload atoms. Direct-full
+  -- (amount covers the order total): all voidable atoms. Direct-partial: money
+  -- only (voids nothing — atom-specific platform voids use admin_refund).
+  v_full := (p_amount_minor >= v_order.total_minor);
+  v_refund_id := gen_random_uuid();
+
+  if v_delegated or v_full then
+    for v_atom in
+      select t.ticket_atom_id, t.state, t.current_owner_id, t.resale_state
+        from kernel.tickets t
+        join kernel.ticket_ownership_log l1
+          on l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1
+       where l1.cause_ref in (select oi.id from venue.order_item oi where oi.order_id = p_order_id)
+         and (v_targets is null or t.ticket_atom_id = any(v_targets))
+       order by t.ticket_atom_id
+       for update of t
+    loop
+      if v_atom.state = 'scanned' then
+        v_consumed := v_consumed || v_atom.ticket_atom_id;   -- money completes; never voided
+      elsif v_atom.state in ('voided','expired') then
+        null;                                                -- terminal already (skip; R1 P2)
+      else
+        if v_atom.current_owner_id <> v_order.buyer_id then
+          raise exception 'custody_moved: atom % left the buyer — use admin_refund', v_atom.ticket_atom_id;
+        end if;
+        if v_atom.resale_state not in ('none','refund_hold') then
+          raise exception 'conflict_locked: atom % is % — delist before refunding', v_atom.ticket_atom_id, v_atom.resale_state;
+        end if;
+        if kernel.is_transfer_frozen(v_atom.ticket_atom_id) then
+          raise exception 'frozen: atom % is transfer-frozen — routine refund parked until the episode closes', v_atom.ticket_atom_id;
+        end if;
+        perform kernel.void_ticket_atom(v_atom.ticket_atom_id, v_refund_id, p_command_key);
+        v_voided := v_voided + 1;
+      end if;
+    end loop;
   end if;
 
   insert into kernel.refund (refund_id, payment_id, reason_code, amount_minor, idempotency_key)
@@ -566,7 +610,7 @@ begin
           p_reason_code,
           jsonb_build_object('order_status', v_order.status),
           jsonb_build_object('refund_id', v_refund_id, 'amount_minor', p_amount_minor,
-                            'voided', v_voided, 'consumed', to_jsonb(v_consumed)));
+                            'delegated', v_delegated, 'voided', v_voided, 'consumed', to_jsonb(v_consumed)));
 
   return jsonb_build_object('status','ok','refund_id', v_refund_id,
                             'voided', v_voided, 'consumed', to_jsonb(v_consumed));
@@ -626,11 +670,20 @@ begin
   for v_atom in
     select t.ticket_atom_id, t.state from kernel.tickets t
      where t.ticket_atom_id = any(coalesce(p_atom_ids, '{}'))
+       -- LINKAGE (E-57): the atoms must belong to an order paid by THIS payment —
+       -- money leg and ticket leg cannot be decoupled even for break-glass.
+       and exists (
+         select 1 from kernel.ticket_ownership_log l1
+         join venue.order_item oi on oi.id = l1.cause_ref
+         join kernel.payment_native pn on pn.order_id = oi.order_id
+        where l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1
+          and pn.payment_id = p_payment_id)
      order by t.ticket_atom_id
+     for update of t
   loop
     if v_atom.state = 'scanned' then
       v_consumed := v_consumed || v_atom.ticket_atom_id;   -- money-only leg
-    elsif v_atom.state = 'voided' then
+    elsif v_atom.state in ('voided','expired') then
       null;
     else
       -- freeze-exempt: no is_transfer_frozen recheck; the void engine writes
@@ -639,6 +692,9 @@ begin
       v_voided := v_voided + 1;
     end if;
   end loop;
+  if coalesce(array_length(p_atom_ids,1),0) > 0 and v_voided = 0 and array_length(v_consumed,1) is null then
+    raise exception 'precondition_failed: none of the atoms belong to payment % (linkage, E-57)', p_payment_id;
+  end if;
 
   perform 1 from public.payments p where p.id = p_payment_id for update;
   select coalesce(sum(r.amount_minor), 0) into v_prior
@@ -649,6 +705,14 @@ begin
 
   insert into kernel.refund (refund_id, payment_id, reason_code, amount_minor, idempotency_key)
   values (v_refund_id, p_payment_id, p_reason_code, p_amount_minor, p_command_key);
+
+  -- reflect the money on the linked order's status when one resolves (R1 P2).
+  update venue."order" o
+     set status = case when v_prior + p_amount_minor >= o.total_minor then 'refunded' else 'partially_refunded' end,
+         updated_at = now()
+    from kernel.payment_native pn
+   where pn.payment_id = p_payment_id and o.order_id = pn.order_id
+     and o.status in ('paid','partially_refunded');
 
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
   values (auth.uid(), 'refund.admin', 'payment', p_payment_id, p_reason_code,
@@ -668,8 +732,10 @@ end;
 $$;
 
 -- §11.1 — break-glass single-atom void, no money leg at 085 (the optional
--- kernel.refund pairing rides the refund executors; this path's ledger anchor
--- is a synthetic cause ref, replay-safe via the void engine's command-key arm).
+-- kernel.refund pairing rides the refund executors). The void's cause_ref is a
+-- DETERMINISTIC synthetic derived from the command key (E-56) so a replayed
+-- command returns noop_replay via the void engine's command-key arm, not a
+-- state_conflict.
 create or replace function kernel.force_void_ticket(
   p_atom_id uuid, p_reason_code text, p_command_key text)
 returns jsonb
@@ -686,7 +752,7 @@ begin
   if p_reason_code is null or length(trim(p_reason_code)) = 0 then
     raise exception 'precondition_failed: bad_reason_code (mandatory)';
   end if;
-  v_res := kernel.void_ticket_atom(p_atom_id, gen_random_uuid(), p_command_key);
+  v_res := kernel.void_ticket_atom(p_atom_id, md5('force:' || p_command_key)::uuid, p_command_key);
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
   values (auth.uid(), 'ticket.force_void', 'ticket_atom', p_atom_id, p_reason_code, v_res);
   return v_res;
@@ -840,6 +906,11 @@ begin
      and not kernel.money_role_grant_matured(v_order.org_id) then
     raise exception 'sod_violation: org money grant not yet matured';
   end if;
+  -- §6.1 reason-code caller policy (R7 P2): only platform may cite the
+  -- privileged causes; org/buyer callers are confined to their two.
+  if not v_is_plat and p_reason_code not in ('buyer_request','oversell_correction') then
+    raise exception 'policy_violation: reason_code % is platform-only', p_reason_code;
+  end if;
 
   -- ladder rank 1: the session read-gate
   perform 1 from catalog.event_session s where s.session_id = v_order.event_session_id for share;
@@ -855,7 +926,7 @@ begin
 
   -- rank 5: targeted atoms (ascending) — validate membership + partition
   for v_atom in
-    select t.ticket_atom_id, t.state, t.current_owner_id
+    select t.ticket_atom_id, t.state, t.current_owner_id, t.resale_state
       from kernel.tickets t
       join kernel.ticket_ownership_log l1
         on l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1
@@ -870,6 +941,11 @@ begin
       if v_atom.current_owner_id <> v_order.buyer_id then
         raise exception 'custody_moved: atom % left the buyer — platform review required', v_atom.ticket_atom_id;
       end if;
+      -- §17.1 precond 5: a listed/locked atom must be delisted first; an atom
+      -- already under refund_hold is covered by ANOTHER pending request (R6 P2).
+      if v_atom.resale_state <> 'none' then
+        raise exception 'conflict_locked: atom % is % — delist / no overlapping refund request', v_atom.ticket_atom_id, v_atom.resale_state;
+      end if;
       if kernel.is_transfer_frozen(v_atom.ticket_atom_id) then
         raise exception 'frozen: atom % is transfer-frozen', v_atom.ticket_atom_id;
       end if;
@@ -877,6 +953,9 @@ begin
     end if;
   end loop;
 
+  -- rank 6: the payment lock — taken BEFORE the cumulative/tier computation so
+  -- the operand is serialized (MB-1; P0-4), not a stale snapshot.
+  perform 1 from public.payments p where p.id = v_pn.payment_id for update;
   -- the CUMULATIVE operand (MB-1): succeeded/in-flight refunds + parked pending
   -- requests on this order + this request
   select p.total into v_total from public.payments p where p.id = v_pn.payment_id;
@@ -901,7 +980,9 @@ begin
   select (c.value #>> '{}')          into v_spolicy from catalog.platform_config c where c.key='refund.scanned_atom_policy'           order by c.version desc limit 1;
 
   -- tier decision. The consumed-atom row takes PRECEDENCE over every amount row.
-  if v_has_consumed and coalesce(v_spolicy, 'platform_review') = 'platform_review' then
+  if v_has_consumed and coalesce(v_spolicy, 'platform_review') = 'refuse' then
+    raise exception 'policy_violation: a consumed (scanned) atom is not refundable (scanned_atom_policy=refuse)';
+  elsif v_has_consumed and coalesce(v_spolicy, 'platform_review') = 'platform_review' then
     v_class := 'platform'; v_execute := false;
   elsif v_is_admin_risk then
     v_execute := true;
@@ -921,9 +1002,11 @@ begin
 
   if v_execute then
     -- E-52: the executed tier is WITNESSED by an auto-approved intent record —
-    -- the same record class the parked branch writes — which is also the
-    -- delegation the executor's authority check recognizes (SN-SYSTEM approver
-    -- satisfies the SoD pair; the tier check above IS the authority).
+    -- the same class the parked branch writes; the tier check above IS the
+    -- authority, SN-SYSTEM approver satisfies SoD. expires_at MUST be > now()
+    -- (077 CHECK; P0-1/R3) even though the row is born approved+executed. The
+    -- executor is then called with the DELEGATED key 'req:'||request_id
+    -- (PFA-23) so the refund is bound to THIS record and single-use.
     insert into kernel.approval_request
            (action, required_approver_class, subject_kind, subject_id, org_id, payload,
             amount_minor, config_versions, requested_by, approved_by, state, reason_code,
@@ -935,13 +1018,14 @@ begin
             p_amount_minor,
             jsonb_build_object('refund.platform_support_max_minor', null),
             v_uid, '00000000-0000-0000-0000-0000000000f1', 'approved', 'auto_execute_tier',
-            now(), p_command_key)
+            now() + interval '1 hour', p_command_key)
     returning request_id into v_request_id;
-    v_res := kernel.refund_primary_order(p_order_id, p_amount_minor, p_reason_code, p_command_key);
+    v_res := kernel.refund_primary_order(p_order_id, p_amount_minor, p_reason_code,
+                                         'req:' || v_request_id::text);
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
     values (v_uid, 'refund.request', 'order', p_order_id, p_reason_code,
             jsonb_build_object('tier', 'auto_execute', 'request_id', v_request_id) || v_res);
-    return v_res || jsonb_build_object('request_id', v_request_id);
+    return v_res || jsonb_build_object('request_id', v_request_id, 'status', 'executed');
   end if;
 
   -- PARKED branch: the dual-control intent + the refund_hold overlay. A parked
@@ -1010,6 +1094,9 @@ declare
   v_setter uuid;
   v_res    jsonb;
   v_key    text; v_next integer;
+  v_aal    text;
+  v_live_consumed boolean;
+  v_atom   record;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -1035,9 +1122,40 @@ begin
     end if;
     raise exception 'precondition_failed: request % is % — only a pending request decides', p_request_id, v_ar.state;
   end if;
+  -- Q5 lifetime (R1 P1): an expired-but-unswept request never decides.
+  if v_ar.expires_at is not null and v_ar.expires_at <= now() then
+    update kernel.approval_request set state = 'expired', updated_at = now() where request_id = p_request_id;
+    if v_ar.action = 'refund.issue' and v_ar.payload ? 'atom_ids' then
+      update kernel.tickets set resale_state = 'none', updated_at = now()
+       where ticket_atom_id in (select (jsonb_array_elements_text(v_ar.payload->'atom_ids'))::uuid)
+         and resale_state = 'refund_hold';
+    end if;
+    raise exception 'precondition_failed: request % has expired', p_request_id;
+  end if;
   -- SoD-2: the requester may never decide their own token
   if v_uid = v_ar.requested_by then
     raise exception 'self_approval: the requester cannot decide their own request';
+  end if;
+  -- refund.issue: the buyer of the order may never approve a refund of their own
+  -- purchase (SoD — money would land on the approver's card; R1 P2).
+  if v_ar.action = 'refund.issue' then
+    select * into v_order from venue."order" where order_id = v_ar.subject_id;
+    if found and v_order.buyer_id = v_uid then
+      raise exception 'sod_violation: the order buyer cannot approve a refund of their own purchase';
+    end if;
+  end if;
+  -- AUTHZ-M4 step-up: an approval decision is a money action and requires a
+  -- step-up (aal2) session. Absent claim ⇒ step_up_unavailable (never evaluated
+  -- as satisfied); aal1 ⇒ step_up_required. Denials are exempt (S-3 spirit —
+  -- refusing money is not a money movement).
+  if p_decision = 'approve' then
+    v_aal := coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'aal';
+    if v_aal is null then
+      raise exception 'step_up_unavailable: the session carries no aal claim';
+    end if;
+    if v_aal <> 'aal2' then
+      raise exception 'step_up_required: a step-up (aal2) session is required to approve money';
+    end if;
   end if;
 
   -- the FIVE-ROW branch table — (action, required_approver_class), nothing else
@@ -1045,8 +1163,8 @@ begin
     if not kernel.has_org_role(v_ar.org_id, array['org_owner','org_finance']) then
       raise exception 'insufficient_privilege: org money role required' using errcode = '42501';
     end if;
-    if not kernel.money_role_grant_matured(v_ar.org_id) then
-      raise exception 'sod_violation: org money grant not yet matured';
+    if p_decision = 'approve' and not kernel.money_role_grant_matured(v_ar.org_id) then
+      raise exception 'sod_violation: org money grant not yet matured';   -- S-3: never gates a denial
     end if;
   elsif v_ar.action = 'refund.issue' then   -- required_approver_class = 'platform'
     if kernel.is_platform(array['platform_risk','platform_admin']) then
@@ -1062,8 +1180,11 @@ begin
        where a2.action='refund.issue' and a2.subject_kind='order' and a2.subject_id = v_ar.subject_id
          and a2.state='pending' and a2.request_id <> p_request_id;
       v_cum := v_prior + v_parked + v_ar.amount_minor;
+      -- AUTHZ-M3: the cap is read at the version PINNED in the request (R3 P1-6),
+      -- not the live latest.
       select (c.value #>> '{}')::numeric into v_scap from catalog.platform_config c
-       where c.key='refund.platform_support_max_minor' order by c.version desc limit 1;
+       where c.key='refund.platform_support_max_minor'
+         and c.version = coalesce((v_ar.config_versions->>'refund.platform_support_max_minor')::int, -1);
       if v_scap is null or v_cum > v_scap then
         raise exception 'insufficient_privilege: platform_support cap (cumulative % vs %)',
           v_cum, coalesce(v_scap::text,'UNSET') using errcode = '42501';
@@ -1075,11 +1196,13 @@ begin
     if not kernel.has_org_role(v_ar.org_id, array['org_owner','org_finance']) then
       raise exception 'insufficient_privilege: org money role required' using errcode = '42501';
     end if;
-    if not kernel.money_role_grant_matured(v_ar.org_id) then
-      raise exception 'sod_violation: org money grant not yet matured';
+    if p_decision = 'approve' and not kernel.money_role_grant_matured(v_ar.org_id) then
+      raise exception 'sod_violation: org money grant not yet matured';   -- S-3: never gates a denial
     end if;
-    -- §8.2: the destination SETTER may never approve the payout
-    select o.payout_destination_set_by into v_setter from kernel.organization o where o.org_id = v_ar.org_id;
+    -- §8.2: the destination SETTER may never approve the payout — read under the
+    -- org lock so a concurrent set_org_payout_destination cannot slip past (R6 P1).
+    select o.payout_destination_set_by into v_setter from kernel.organization o
+     where o.org_id = v_ar.org_id for update;
     if v_setter is not null and v_setter = v_uid then
       raise exception 'sod_violation: the payout-destination setter cannot approve a payout';
     end if;
@@ -1132,8 +1255,24 @@ begin
     select (c.value #>> '{}') into v_spolicy from catalog.platform_config c
      where c.key='refund.scanned_atom_policy'
        and c.version = coalesce((v_ar.config_versions->>'refund.scanned_atom_policy')::int, -1);
-    if (v_ar.payload->>'has_consumed')::boolean is true
-       and coalesce(v_spolicy,'platform_review') = 'platform_review' then
+    -- T-RPC-AUTHZ-01 (P0-3): re-derive consumed from LIVE atom state under lock,
+    -- never from the request-time payload snapshot — an atom scanned while parked
+    -- must re-tier to platform (the MD-6 collusion control). Also re-check custody.
+    v_live_consumed := false;
+    for v_atom in
+      select t.ticket_atom_id, t.state, t.current_owner_id from kernel.tickets t
+       where t.ticket_atom_id in (select (jsonb_array_elements_text(v_ar.payload->'atom_ids'))::uuid)
+       for update of t
+    loop
+      if v_atom.state = 'scanned' then v_live_consumed := true; end if;
+      if v_atom.state in ('issued','active') and v_order.order_id is not null
+         and v_atom.current_owner_id <> v_order.buyer_id then
+        raise exception 'custody_moved: atom % left the buyer since the request', v_atom.ticket_atom_id;
+      end if;
+    end loop;
+    if v_live_consumed and coalesce(v_spolicy,'platform_review') = 'refuse' then
+      raise exception 'policy_violation: a consumed atom is not refundable (scanned_atom_policy=refuse)';
+    elsif v_live_consumed and coalesce(v_spolicy,'platform_review') = 'platform_review' then
       v_class := 'platform';
     else
       v_class := case when v_odual is not null and v_cum <= v_odual then 'org' else 'platform' end;
@@ -1155,8 +1294,11 @@ begin
     update kernel.tickets set resale_state = 'none', updated_at = now()
      where ticket_atom_id in (select (jsonb_array_elements_text(v_ar.payload->'atom_ids'))::uuid)
        and resale_state = 'refund_hold';
+    -- PFA-23: execute via the DELEGATED key bound to THIS request — single-use
+    -- (refund.idempotency_key = 'req:'||request_id), amount + payload-atom bound.
     v_res := kernel.refund_primary_order(v_ar.subject_id,
-               v_ar.amount_minor, coalesce(v_ar.payload->>'reason_code','buyer_request'), p_command_key);
+               v_ar.amount_minor, coalesce(v_ar.payload->>'reason_code','buyer_request'),
+               'req:' || p_request_id::text);
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
     values (v_uid, 'refund.request_approved', 'approval_request', p_request_id,
             coalesce(p_reason_code,'approved'), v_res);
@@ -1182,7 +1324,7 @@ begin
      set state = 'approved', approved_by = v_uid, updated_at = now()
    where request_id = p_request_id;
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
-  values (v_uid, 'config.set_money_key_approved', 'approval_request', p_request_id,
+  values (v_uid, 'config.money_key_approved', 'approval_request', p_request_id,   -- MONEY §7.3 name
           coalesce(p_reason_code,'approved'),
           jsonb_build_object('key', v_key, 'value', v_ar.payload->'current_value'),
           jsonb_build_object('key', v_key, 'value', v_ar.payload->'proposed_value', 'version', v_next));
@@ -1252,26 +1394,30 @@ declare
   v_holds integer := 0;
   v_n integer;
 begin
+  -- ALL actions expire (R1 P1) — a stale payout/config request must not remain
+  -- approvable forever; refund holds release only for refund.issue.
   for v_req in
-    select ar.request_id, ar.payload
+    select ar.request_id, ar.action, ar.payload
       from kernel.approval_request ar
-     where ar.action = 'refund.issue' and ar.state = 'pending' and ar.expires_at <= now()
+     where ar.state = 'pending' and ar.expires_at <= now()
      order by ar.expires_at
      for update skip locked
   loop
     update kernel.approval_request set state = 'expired', updated_at = now()
      where request_id = v_req.request_id;
-    update kernel.tickets set resale_state = 'none', updated_at = now()
-     where ticket_atom_id in (select (jsonb_array_elements_text(v_req.payload->'atom_ids'))::uuid)
-       and resale_state = 'refund_hold';
-    get diagnostics v_n = row_count;
-    v_holds := v_holds + v_n;
+    if v_req.action = 'refund.issue' and v_req.payload ? 'atom_ids' then
+      update kernel.tickets set resale_state = 'none', updated_at = now()
+       where ticket_atom_id in (select (jsonb_array_elements_text(v_req.payload->'atom_ids'))::uuid)
+         and resale_state = 'refund_hold';
+      get diagnostics v_n = row_count;
+      v_holds := v_holds + v_n;
+    end if;
     v_swept := v_swept + 1;
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-    values ('00000000-0000-0000-0000-0000000000f1', 'refund.request_expired', 'approval_request',
+    values ('00000000-0000-0000-0000-0000000000f1', v_req.action || '.request_expired', 'approval_request',
             v_req.request_id, 'ttl_expired');
     perform notify.emit_event('refund_request_expired', 'approval_request', v_req.request_id,
-            'expire:' || v_req.request_id::text, '{}'::jsonb);
+            'expire:' || v_req.request_id::text, jsonb_build_object('action', v_req.action));
   end loop;
   return jsonb_build_object('status','ok','swept_count', v_swept, 'holds_released', v_holds);
 end;
@@ -1769,6 +1915,17 @@ begin
   if v_pay.buyer_id <> v_order.buyer_id then
     raise exception 'payment_unverified: payment buyer does not match order buyer';
   end if;
+  -- the payment must at least COVER the order (R1 P1 — a $1 charge cannot
+  -- finalize a $500 order; the link ledger must not self-certify a mismatch).
+  if v_pay.total < v_order.total_minor then
+    raise exception 'payment_unverified: payment % (% minor) does not cover order % (% minor)',
+      p_payment_id, v_pay.total, p_order_id, v_order.total_minor;
+  end if;
+  -- a payment already carrying a refund is not a finalize target (R6 P2 — a
+  -- delayed webhook must not mint tickets for money that was refunded).
+  if exists (select 1 from kernel.refund r where r.payment_id = p_payment_id and r.status <> 'failed') then
+    raise exception 'payment_unverified: payment % already carries a refund', p_payment_id;
+  end if;
 
   -- rank 1: the Event/Session lock (also serializes the mint's serial draw and
   -- excludes update_event_session's schedule guard — E-46(a)).
@@ -1807,42 +1964,59 @@ begin
     raise exception 'precondition_failed: order % is % — only a pending order finalizes', p_order_id, v_order.status;
   end if;
 
-  -- per item: rank 2 batch lock, the E-40 hold re-read, the E-47(b) ordering
-  -- (held -= live-backed BEFORE the mint's sold += q, same txn), then the mint.
+  -- DETERMINISTIC batch pre-lock (R6 P1): resolve every item's batch, then take
+  -- the batch locks ascending by batch_id BEFORE any per-item work, so two
+  -- concurrent finalizes over the same batch set can never AB-BA deadlock.
+  -- Batch attribution is HEURISTIC (E-58): 082's checkout persists no order->hold
+  -- linkage on the immutable order_item, so the batch is named by the buyer's
+  -- reservation for this tt/session, preferring an ACTIVE unexpired hold; a
+  -- future package that persists hold_ids on the order discharges the heuristic.
+  perform 1 from venue.inventory_batch b
+   where b.batch_id in (
+     select distinct (
+       select b2.batch_id
+         from venue.inventory_hold h
+         join venue.inventory_batch b2 on b2.batch_id = h.batch_id
+        where h.identity_id = v_order.buyer_id
+          and b2.ticket_type_id = oi.ticket_type_id
+          and b2.event_session_id = v_order.event_session_id
+        order by (h.status = 'active' and h.expires_at > now()) desc, h.created_at desc
+        limit 1)
+       from venue.order_item oi where oi.order_id = p_order_id)
+   order by b.batch_id
+   for update;
+
+  -- per item: the E-40 hold re-read, the E-47(b) ordering (held -= live-backed
+  -- BEFORE the mint's sold += q, same txn), then the mint. Batches already locked.
   for v_item in
     select oi.id, oi.ticket_type_id, oi.quantity
       from venue.order_item oi where oi.order_id = p_order_id order by oi.id
   loop
-    -- the intended batch is named by the buyer's OWN reservation facts (any
-    -- status — an expired hold still names the batch it held).
     select b.* into v_batch
       from venue.inventory_hold h
       join venue.inventory_batch b on b.batch_id = h.batch_id
      where h.identity_id = v_order.buyer_id
        and b.ticket_type_id = v_item.ticket_type_id
        and b.event_session_id = v_order.event_session_id
-     order by h.created_at desc
+     order by (h.status = 'active' and h.expires_at > now()) desc, h.created_at desc
      limit 1;
     if v_batch.batch_id is null then
       raise exception 'precondition_failed: no reservation names a batch for item % (checkout guarantees coverage)', v_item.id;
     end if;
 
-    perform 1 from venue.inventory_batch b where b.batch_id = v_batch.batch_id for update;
-    select b.* into v_batch from venue.inventory_batch b where b.batch_id = v_batch.batch_id;
-
-    -- E-40: only LIVE holds may back the held-decrement — a blind held -= q on
-    -- a swept hold double-decrements. Convert whole holds (never split a row);
-    -- the un-backed remainder draws free capacity under the C27 CHECK.
+    -- E-40: only LIVE holds back the held-decrement — a blind held -= q on a
+    -- swept hold double-decrements. Convert ALL of the buyer's active-unexpired
+    -- holds on this batch WHOLE; held -= their sum (any over-held remainder
+    -- returns to free capacity). The un-backed part draws free capacity (C27).
     v_dec := 0; v_need := v_item.quantity;
     for v_hold in
       select h.hold_id, h.quantity
         from venue.inventory_hold h
        where h.identity_id = v_order.buyer_id and h.batch_id = v_batch.batch_id
          and h.status = 'active' and h.expires_at > now()
-       order by h.expires_at
+       order by h.hold_id
        for update
     loop
-      exit when v_dec + v_hold.quantity > v_need;
       update venue.inventory_hold set status = 'converted', updated_at = now()
        where hold_id = v_hold.hold_id;
       v_dec := v_dec + v_hold.quantity;
@@ -1939,7 +2113,8 @@ declare
     -- deletion_blockers_money / has_outstanding_obligations / on_deletion_q5_release
     -- keep their 077 grants (CREATE OR REPLACE preserves ACLs).
   ];
-  -- caller-authorized (EDGE-FRONTED verbs + reads + the R-28 denial witness).
+  -- caller-authorized (EDGE-FRONTED, EDGE-CALLER-JWT verbs + reads + the R-28
+  -- denial witness). refund_primary_order is NOT here — PFA-23 makes it EXEC DEF.
   v_auth constant text[] := array[
     'kernel.request_order_refund(uuid, uuid[], integer, text, text)',
     'kernel.approve_refund_request(uuid, text, text, text)',
@@ -1949,7 +2124,6 @@ declare
     'kernel.list_approval_requests(uuid, jsonb, text)',
     'kernel.record_money_denial(text, text, uuid, text)',
     'kernel.set_org_payout_destination(uuid, text, text, text)',
-    'kernel.refund_primary_order(uuid, integer, text, text)',
     'kernel.admin_refund(uuid, uuid[], integer, text, text)',
     'kernel.force_void_ticket(uuid, text, text)',
     'kernel.hold_payout(uuid, text, text)',
@@ -1957,12 +2131,36 @@ declare
     'kernel.resolve_identity_obligation(uuid, text, text, text)'
   ];
   -- machine-only (service_role edge sessions; PFA-15/PFA-21 deliver USAGE).
+  -- refund_primary_order (PFA-23, §11.4 EXEC DEF): the refund-execute edge (as
+  -- service_role, forwarding the platform JWT for the direct arm) + definer->definer.
   v_svc constant text[] := array[
     'venue.finalize_primary_order(uuid, uuid, text, text)',
+    'kernel.refund_primary_order(uuid, integer, text, text)',
     'kernel.sweep_expired_refund_requests()',
     'kernel.mark_payout_transfer_state(uuid, text, text, text, text)',
     'kernel.mark_refund_state(uuid, text, text, text, text)',
     'kernel.record_identity_obligation(uuid, text, uuid, text, integer, text, text)'
+  ];
+  -- R2 P1 / PFA-21 disclosure: 085's kernel USAGE grant would ACTIVATE 077's
+  -- previously-inert service_role EXECUTE grants on the deletion machinery —
+  -- functions whose only contracted caller is pg_cron/definer-internal, NEVER a
+  -- service_role edge. Revoke them back to that minimal boundary (fail-closed:
+  -- the cron runs as postgres and is unaffected). E-59.
+  v_deny_svc constant text[] := array[
+    'kernel.sweep_deletion_pending(int)',
+    'kernel.on_identity_erased_staff(uuid)',
+    'kernel.on_identity_erased_door(uuid)',
+    'kernel.on_identity_erased_market(uuid)',
+    'kernel.on_identity_erased_promoter(uuid)',
+    'kernel.on_deletion_q5_release(uuid)',
+    'kernel.deletion_blockers_custody(uuid)',
+    'kernel.deletion_blockers_orders(uuid)',
+    'kernel.deletion_blockers_wallet(uuid)',
+    'kernel.deletion_blockers_money(uuid)',
+    'kernel.deletion_blockers_market(uuid)',
+    'kernel.has_outstanding_obligations(uuid)',
+    'kernel.is_deletion_pending(uuid)',
+    'kernel.sweep_expired_org_invites(int)'
   ];
 begin
   foreach v_fn in array v_all loop
@@ -1973,6 +2171,9 @@ begin
   end loop;
   foreach v_fn in array v_svc loop
     execute format('grant execute on function %s to service_role', v_fn);
+  end loop;
+  foreach v_fn in array v_deny_svc loop
+    execute format('revoke execute on function %s from service_role', v_fn);
   end loop;
   -- R-28 hard edge: the denial witness must NEVER be service_role-reachable.
   execute 'revoke execute on function kernel.record_money_denial(text, text, uuid, text) from service_role';

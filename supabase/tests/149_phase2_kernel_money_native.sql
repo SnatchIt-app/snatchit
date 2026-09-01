@@ -9,7 +9,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(108);
+SELECT plan(130);
 
 SELECT tap.seed_core();
 
@@ -222,349 +222,437 @@ SELECT ok(to_regclass('venue.attribution') IS NULL,
   'C13: T-SCHEMA-ISSUE-02/-03 — the purchase COMMITTED with NO attribution substrate: the stub never raised and could not have written (table+body are 090''s)');
 
 -- ============================================================================
--- SECTION D — THE REFUND EXECUTOR (§11.4): platform authority, voids, Σ-guard
+-- HELPERS for the money sections — clean per-test orders (superuser/definer).
 -- ============================================================================
-SELECT tap.login(tap.buyer());
-SELECT throws_ok($$SELECT kernel.refund_primary_order(gen_random_uuid(), 100, 'buyer_request', 'ck85-r-x')$$,
-  '42501', NULL, 'D1: the executor refuses a plain buyer — platform or an APPROVED request only');
-SELECT tap.logout();
-SELECT tap.login(tap.admin_user());
-SELECT is((kernel.refund_primary_order(tap._fetch149('order')::uuid, 10000, 'admin_action', 'ck85-r-1') ->> 'status'),
-  'ok', 'D2: platform_admin executes a full refund');
-SELECT tap.logout();
-SELECT tap._store149('refund', (SELECT r.refund_id::text FROM kernel.refund r WHERE r.idempotency_key='ck85-r-1'));
-SELECT ok((SELECT bool_and(t.state = 'voided' AND t.current_owner_id = '00000000-0000-0000-0000-0000000000f0'
-                           AND t.credential_version = 1)
-             FROM kernel.tickets t WHERE t.event_session_id = tap._fetch149('session')::uuid),
-  'D3: both atoms voided — SN-VOID holds them, credential bumped (S-18/C107)');
-SELECT is((SELECT sold::int FROM venue.inventory_batch WHERE batch_id = tap._fetch149('batch')::uuid), 0,
-  'D4: the inventory came back (sold -= 2 via the void engine)');
-SELECT is((SELECT count(*)::int FROM venue.inventory_movement m
-            WHERE m.batch_id = tap._fetch149('batch')::uuid AND m.movement_kind='void_return'), 2,
-  'D5: two void_return movements (one per atom — the AO ledger balances)');
-SELECT is((SELECT status FROM venue."order" WHERE order_id = tap._fetch149('order')::uuid), 'refunded',
-  'D6: order → refunded (full coverage)');
-SELECT is((SELECT r.status FROM kernel.refund r WHERE r.refund_id = tap._fetch149('refund')::uuid), 'pending',
-  'D7: the refund ledger row is born pending (the Stripe leg is the edge''s — never the DB''s)');
-SELECT tap.login(tap.admin_user());
-SELECT is((kernel.refund_primary_order(tap._fetch149('order')::uuid, 10000, 'admin_action', 'ck85-r-1') ->> 'status'),
-  'idempotency_replay', 'D8: the executor replays by idempotency_key — no double refund');
-SELECT throws_ok(format($$SELECT kernel.refund_primary_order(%L, 1, 'admin_action', 'ck85-r-2')$$, tap._fetch149('order')),
-  NULL, NULL, 'D9: one more cent exceeds the payment — over_refund (the Σ-guard under the payment lock)');
-SELECT tap.logout();
-SELECT is((SELECT count(*)::int FROM kernel.admin_audit
-            WHERE action='refund.issue' AND subject_id = tap._fetch149('order')::uuid), 1,
-  'D10: the refund is admin-audited in-txn');
-SELECT tap.login(tap.buyer());
-SELECT throws_ok($$SELECT kernel.force_void_ticket(gen_random_uuid(), 'r', 'ck85-fv-x')$$,
-  '42501', NULL, 'D11: force_void refuses a non-platform caller');
-SELECT tap.logout();
-SELECT tap.login(tap.admin_user());
-SELECT throws_ok(format($$SELECT kernel.force_void_ticket(%L, 'test', 'ck85-fv-1')$$,
-    (SELECT t.ticket_atom_id::text FROM kernel.tickets t WHERE t.event_session_id = tap._fetch149('session')::uuid LIMIT 1)),
-  NULL, NULL, 'D12: force-voiding an ALREADY-voided atom is a state_conflict — terminals are exclusive');
-SELECT tap.logout();
+CREATE FUNCTION tap._neworder149(p_qty int, p_amount int) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $f$
+declare v_lst uuid; v_pay uuid; v_ord uuid;
+begin
+  insert into public.listings (seller_id, event_name, venue, neighborhood, event_date, event_time,
+     ticket_type, quantity, transfer_method, starting_bid, current_bid, duration_hours, ends_at, cover_image_path)
+   values (tap.seller(),'N '||gen_random_uuid()::text,'Money Hall','wynwood',(now()+interval '15 days')::date,'20:00',
+     'GA',p_qty,'mobile_transfer',p_amount,p_amount,24,now()+interval '1 day','covers/x.jpg') returning id into v_lst;
+  insert into public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, total, status, mode)
+   values (v_lst, tap.buyer(), tap.seller(), p_amount, 0, p_amount, 'succeeded', 'buy_now') returning id into v_pay;
+  insert into venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+   values (tap.buyer(), (select v from tap.memo_149 where k='session')::uuid,
+           (select v from tap.memo_149 where k='org')::uuid, 'pending','web',p_amount,'ck-no-'||gen_random_uuid()::text)
+   returning order_id into v_ord;
+  insert into venue.order_item (order_id, ticket_type_id, quantity, unit_price_minor)
+   values (v_ord, (select v from tap.memo_149 where k='tt')::uuid, p_qty, (p_amount/p_qty));
+  insert into venue.inventory_hold (batch_id, identity_id, quantity, status, expires_at, command_idempotency_key)
+   values ((select v from tap.memo_149 where k='batch')::uuid, tap.buyer(), p_qty, 'active', now()+interval '1 hour','ck-nh-'||gen_random_uuid()::text);
+  update venue.inventory_batch set held = held + p_qty where batch_id=(select v from tap.memo_149 where k='batch')::uuid;
+  perform venue.finalize_primary_order(v_ord, v_pay, 'ck-nf-'||gen_random_uuid()::text, null);
+  return v_ord;
+end $f$;
+CREATE FUNCTION tap._atomsof149(p_order uuid) RETURNS uuid[]
+LANGUAGE sql SECURITY DEFINER SET search_path='' AS $f$
+  select array_agg(t.ticket_atom_id order by t.ticket_atom_id) from kernel.tickets t
+   join kernel.ticket_ownership_log l1 on l1.ticket_atom_id=t.ticket_atom_id and l1.sequence=1
+   where l1.cause_ref in (select oi.id from venue.order_item oi where oi.order_id=p_order) $f$;
+CREATE FUNCTION tap._payof149(p_order uuid) RETURNS uuid
+LANGUAGE sql SECURITY DEFINER SET search_path='' AS $f$
+  select payment_id from kernel.payment_native where order_id=p_order $f$;
+CREATE FUNCTION tap._ordstatus149(p_order uuid) RETURNS text
+LANGUAGE sql SECURITY DEFINER SET search_path='' AS $f$ select status from venue."order" where order_id=p_order $f$;
+CREATE FUNCTION tap._atomstate149(p_atom uuid) RETURNS text
+LANGUAGE sql SECURITY DEFINER SET search_path='' AS $f$ select state from kernel.tickets where ticket_atom_id=p_atom $f$;
+CREATE FUNCTION tap._aal2() RETURNS void
+LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
+  (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true); end $f$;
 
 -- ============================================================================
--- SECTION E — THE DUAL-CONTROL LOOP (§17.1-§17.4): NULL keys fail closed, then
---   the owner sets values and the ladder walks.
+-- SECTION D — THE REFUND PATH (PFA-23): direct executor is EXEC DEF; humans go
+--   through request_order_refund (auto-exec for platform) / approve.
 -- ============================================================================
--- a second paid order + minted atoms for the request path
-WITH inso3 AS (
-  INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
-  VALUES (tap.buyer(), tap._fetch149('session')::uuid, tap._fetch149('org')::uuid, 'pending', 'web', 10000, 'ck85-ord-2')
-  RETURNING order_id
-)
-SELECT tap._store149('order2', (SELECT order_id::text FROM inso3));
-WITH insi2 AS (
-  INSERT INTO venue.order_item (order_id, ticket_type_id, quantity, unit_price_minor)
-  VALUES (tap._fetch149('order2')::uuid, tap._fetch149('tt')::uuid, 2, 5000)
-  RETURNING id
-)
-SELECT tap._store149('item2', (SELECT id::text FROM insi2));
-WITH insp3 AS (
-  INSERT INTO public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, total, status, mode)
-  VALUES (tap._newlisting149(), tap.buyer(), tap.seller(), 9000, 1000, 10000, 'succeeded', 'buy_now')
-  RETURNING id
-)
-SELECT tap._store149('payment2', (SELECT id::text FROM insp3));
-SELECT venue.finalize_primary_order(tap._fetch149('order2')::uuid, tap._fetch149('payment2')::uuid, 'ck85-f-4', NULL);
--- resolve the target atoms as SUPERUSER — a client cannot read the walled ledger
-SELECT tap._store149('atoms2', (SELECT array_agg(t.ticket_atom_id)::text FROM kernel.tickets t
-      JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-      WHERE l1.cause_ref = tap._fetch149('item2')::uuid));
-
--- E1: C61 — a parked request with an UNSET TTL cannot mint an immortal hold
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, %L::uuid[], 10000, 'buyer_request', 'ck85-q-0')$$,
-    tap._fetch149('order2'), tap._fetch149('atoms2')),
-  NULL, NULL, 'E1: ALL D-3 keys NULL → the parked branch refuses config_unset (nothing auto-executes, nothing parks unbounded)');
+SELECT throws_ok($$SELECT kernel.refund_primary_order(gen_random_uuid(), 100, 'buyer_request', 'x')$$,
+  '42501', NULL, 'D1: PFA-23 — refund_primary_order is EXEC DEF; a plain authenticated caller cannot reach it');
+SELECT tap.logout();
+-- a full platform refund flows through the request auto-exec tier (admin/risk)
+SELECT tap._store149('od', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('od_atoms', tap._atomsof149(tap._fetch149('od')::uuid)::text);
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.request_order_refund(tap._fetch149('od')::uuid, tap._fetch149('od_atoms')::uuid[],
+    10000, 'admin_action', 'ck-d-1') ->> 'status'), 'executed',
+  'D2: platform_admin refund auto-executes through request_order_refund (PFA-23 delegated key)');
+SELECT tap.logout();
+SELECT ok((SELECT bool_and(t.state='voided' AND t.current_owner_id='00000000-0000-0000-0000-0000000000f0'
+                           AND t.credential_version=1)
+             FROM kernel.tickets t WHERE t.ticket_atom_id = any(tap._fetch149('od_atoms')::uuid[])),
+  'D3: both atoms voided — SN-VOID + credential bump (S-18/C107)');
+SELECT is(tap._ordstatus149(tap._fetch149('od')::uuid), 'refunded', 'D4: order → refunded (full coverage)');
+SELECT is((SELECT count(*)::int FROM kernel.refund r WHERE r.payment_id = tap._payof149(tap._fetch149('od')::uuid)), 1,
+  'D5: exactly one refund ledger row');
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action='refund.issue'
+            AND subject_id = tap._fetch149('od')::uuid), 1, 'D6: the refund is admin-audited in-txn');
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.request_order_refund(tap._fetch149('od')::uuid, tap._fetch149('od_atoms')::uuid[],
+    10000, 'admin_action', 'ck-d-1') ->> 'status'), 'idempotency_replay',
+  'D7: the request replays by command key — no double refund');
+SELECT tap.logout();
+-- PFA-23 single-use: a stranger who learns an approved request_id cannot re-drain
+SELECT tap._store149('od_req', (SELECT request_id::text FROM kernel.approval_request
+  WHERE command_idempotency_key='ck-d-1'));
+SELECT ok(NOT has_function_privilege('authenticated','kernel.refund_primary_order(uuid,integer,text,text)','EXECUTE')
+       AND NOT has_function_privilege('anon','kernel.refund_primary_order(uuid,integer,text,text)','EXECUTE')
+       AND has_function_privilege('service_role','kernel.refund_primary_order(uuid,integer,text,text)','EXECUTE'),
+  'D8: PFA-23 — the executor is EXEC DEF (service_role only; not authenticated/anon) — the drain surface is gone');
+
+-- ── PARTIAL refund + the Σ over-refund guard (R5 P0-1) ──────────────────────
+SELECT tap._store149('op', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('op_atoms', tap._atomsof149(tap._fetch149('op')::uuid)::text);
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.request_order_refund(tap._fetch149('op')::uuid,
+    ARRAY[(tap._fetch149('op_atoms')::uuid[])[1]], 5000, 'admin_action', 'ck-p-1') ->> 'status'), 'executed',
+  'DP1: a PARTIAL refund (one atom, 5000 of 10000) executes');
+SELECT tap.logout();
+SELECT is(tap._atomstate149((tap._fetch149('op_atoms')::uuid[])[1]), 'voided', 'DP2: only the targeted atom voided');
+SELECT is(tap._atomstate149((tap._fetch149('op_atoms')::uuid[])[2]), 'active', 'DP3: the untargeted atom stays live');
+SELECT is(tap._ordstatus149(tap._fetch149('op')::uuid), 'partially_refunded', 'DP4: order → partially_refunded');
+SELECT tap.login(tap.admin_user());
+SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, ARRAY[%L]::uuid[], 6000, 'admin_action', 'ck-p-2')$$,
+    tap._fetch149('op'), (tap._fetch149('op_atoms')::uuid[])[2]),
+  NULL, 'precondition_failed: over_refund (cumulative 11000 > payment total 10000)',
+  'DP5: R5 P0-1 — a further refund exceeding the remaining balance is over_refund (the Σ-guard FIRES)');
+SELECT is((kernel.request_order_refund(tap._fetch149('op')::uuid,
+    ARRAY[(tap._fetch149('op_atoms')::uuid[])[2]], 5000, 'admin_action', 'ck-p-3') ->> 'status'), 'executed',
+  'DP6: exactly the remaining 5000 executes');
+SELECT tap.logout();
+SELECT is(tap._ordstatus149(tap._fetch149('op')::uuid), 'refunded', 'DP7: …and the order is now fully refunded');
+
+-- ── force_void (E-56 replay) ────────────────────────────────────────────────
+SELECT tap._store149('ofv', tap._neworder149(1, 4000)::text);
+SELECT tap._store149('ofv_atom', ((tap._atomsof149(tap._fetch149('ofv')::uuid))[1])::text);
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT kernel.force_void_ticket(%L,'r','ck-fv-x')$$, tap._fetch149('ofv_atom')),
+  '42501', NULL, 'DF1: force_void refuses a non-platform caller');
+SELECT tap.logout();
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.force_void_ticket(tap._fetch149('ofv_atom')::uuid, 'leak', 'ck-fv-1') ->> 'status'), 'ok',
+  'DF2: platform force-voids a LIVE atom');
+SELECT is((kernel.force_void_ticket(tap._fetch149('ofv_atom')::uuid, 'leak', 'ck-fv-1') ->> 'status'), 'noop_replay',
+  'DF3: E-56 — a replayed force_void returns noop_replay (deterministic synthetic ref), not state_conflict');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action='ticket.force_void'
+            AND subject_id=tap._fetch149('ofv_atom')::uuid), 1, 'DF4: the force-void is audited');
+
+-- ============================================================================
+-- SECTION E — DUAL CONTROL (§17.2): NULL keys fail closed; approve needs aal2.
+-- ============================================================================
+SELECT tap._store149('oe', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('oe_atoms', tap._atomsof149(tap._fetch149('oe')::uuid)::text);
+-- E1: all amount keys NULL AND no TTL → the parked branch refuses config_unset
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, %L::uuid[], 10000, 'buyer_request', 'ck-e-0')$$,
+    tap._fetch149('oe'), tap._fetch149('oe_atoms')),
+  NULL, 'precondition_failed: config_unset refund.request_ttl_hours — parked requests need a bounded life (C61 fail-closed)',
+  'E1: NULL keys + no TTL → config_unset (nothing auto-executes, nothing parks unbounded)');
 SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('refund.request_ttl_hours', 2, '24'::jsonb, 'restricted');
--- E2: with a TTL, the buyer parks to the STRICTEST class (amount keys still NULL)
 SELECT tap.login(tap.buyer());
-SELECT tap._store149('req1_res', (kernel.request_order_refund(tap._fetch149('order2')::uuid,
-    tap._fetch149('atoms2')::uuid[], 10000, 'buyer_request', 'ck85-q-1'))::text);
+SELECT tap._store149('e_req1', (kernel.request_order_refund(tap._fetch149('oe')::uuid, tap._fetch149('oe_atoms')::uuid[],
+    10000, 'buyer_request', 'ck-e-1') ->> 'request_id'));
 SELECT tap.logout();
-SELECT is((tap._fetch149('req1_res')::jsonb ->> 'status'), 'parked',
-  'E2: NULL amount keys → the buyer request PARKS (no self-service tier exists yet)');
-SELECT is((tap._fetch149('req1_res')::jsonb ->> 'required_approver_class'), 'platform',
-  'E3: …to the STRICTEST class — platform (NULL org_dual authorizes nothing)');
-SELECT tap._store149('req1', (tap._fetch149('req1_res')::jsonb ->> 'request_id'));
-SELECT ok((SELECT bool_and(t.resale_state = 'refund_hold')
-             FROM kernel.tickets t
-             JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-            WHERE l1.cause_ref = tap._fetch149('item2')::uuid),
-  'E4: the refund_hold overlay landed on the targeted atoms');
--- E5: SoD-2 — the requester can never decide their own token
+SELECT is((SELECT required_approver_class FROM kernel.approval_request WHERE request_id=tap._fetch149('e_req1')::uuid), 'platform',
+  'E2: NULL amount keys → the buyer request PARKS to the STRICTEST class (platform)');
+SELECT ok((SELECT bool_and(t.resale_state='refund_hold') FROM kernel.tickets t
+            WHERE t.ticket_atom_id = any(tap._fetch149('oe_atoms')::uuid[])),
+  'E3: the refund_hold overlay landed on the targeted atoms');
+-- SoD-2 + step-up
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L, 'approve', 'r', 'ck85-ap-x')$$, tap._fetch149('req1')),
-  NULL, NULL, 'E5: self_approval — the requester cannot decide their own request');
+SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L,'approve','r','ck-e-ap0')$$, tap._fetch149('e_req1')),
+  NULL, 'self_approval: the requester cannot decide their own request', 'E4: SoD-2 — the requester cannot approve');
 SELECT tap.logout();
--- E6: a platform-class request refuses an org approver outright
-INSERT INTO kernel.org_member (org_id, identity_id, role, granted_by)
-VALUES (tap._fetch149('org')::uuid, tap.other_user(), 'org_finance', tap.seller())
-ON CONFLICT DO NOTHING;
-UPDATE kernel.identity_ext SET deletion_state='ACTIVE' WHERE identity_id = tap.other_user();
-SELECT tap.login(tap.other_user());
-SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L, 'approve', 'r', 'ck85-ap-y')$$, tap._fetch149('req1')),
-  '42501', NULL, 'E6: a platform-class request is NOT approvable by org money roles (AUTHZ-C1A branch table)');
-SELECT tap.logout();
--- E7: deny (platform) — reason mandatory, holds release
 SELECT tap.login(tap.admin_user());
-SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L, 'deny', '', 'ck85-ap-0')$$, tap._fetch149('req1')),
-  NULL, NULL, 'E7: a denial without a reason is refused (the denial carries its reason)');
-SELECT is((kernel.approve_refund_request(tap._fetch149('req1')::uuid, 'deny', 'not_warranted', 'ck85-ap-1') ->> 'status'),
-  'denied', 'E8: platform denies the parked request');
+SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L,'approve','r','ck-e-ap1')$$, tap._fetch149('e_req1')),
+  NULL, 'step_up_unavailable: the session carries no aal claim', 'E5: AUTHZ-M4 — approve with NO aal claim is step_up_unavailable');
+SELECT set_config('request.jwt.claims', (current_setting('request.jwt.claims',true)::jsonb||'{"aal":"aal1"}'::jsonb)::text, true);
+SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L,'approve','r','ck-e-ap2')$$, tap._fetch149('e_req1')),
+  NULL, 'step_up_required: a step-up (aal2) session is required to approve money', 'E6: aal1 is step_up_required');
+-- deny needs no step-up (S-3 spirit) and no reason → precondition
+SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L,'deny','','ck-e-ap3')$$, tap._fetch149('e_req1')),
+  NULL, NULL, 'E7: a denial without a reason is refused');
+SELECT is((kernel.approve_refund_request(tap._fetch149('e_req1')::uuid,'deny','not_warranted','ck-e-ap4') ->> 'status'),
+  'denied', 'E8: platform denies WITHOUT a step-up (refusing money is not moving it)');
 SELECT tap.logout();
-SELECT ok((SELECT bool_and(t.resale_state = 'none')
-             FROM kernel.tickets t
-             JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-            WHERE l1.cause_ref = tap._fetch149('item2')::uuid),
-  'E9: …and the refund_hold overlays released on denial');
--- E10-E13: the ORG dual-control arm — owner sets org_dual, maturity gates, then executes
+SELECT ok((SELECT bool_and(t.resale_state='none') FROM kernel.tickets t
+            WHERE t.ticket_atom_id = any(tap._fetch149('oe_atoms')::uuid[])),
+  'E9: …the refund_hold overlays released on denial');
+-- ORG dual-control arm + maturity + aal2
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('refund.org_dual_control_max_minor', 2, '50000'::jsonb, 'restricted');
+INSERT INTO kernel.org_member (org_id, identity_id, role, granted_by)
+VALUES (tap._fetch149('org')::uuid, tap.other_user(), 'org_finance', tap.seller()) ON CONFLICT DO NOTHING;
+UPDATE kernel.identity_ext SET deletion_state='ACTIVE' WHERE identity_id = tap.other_user();
+SELECT tap._store149('oe2', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('oe2_atoms', tap._atomsof149(tap._fetch149('oe2')::uuid)::text);
 SELECT tap.login(tap.buyer());
-SELECT tap._store149('req2_res', (kernel.request_order_refund(tap._fetch149('order2')::uuid,
-    tap._fetch149('atoms2')::uuid[], 10000, 'buyer_request', 'ck85-q-2'))::text);
+SELECT tap._store149('e_req2', (kernel.request_order_refund(tap._fetch149('oe2')::uuid, tap._fetch149('oe2_atoms')::uuid[],
+    10000, 'buyer_request', 'ck-e-2') ->> 'request_id'));
 SELECT tap.logout();
-SELECT is((tap._fetch149('req2_res')::jsonb ->> 'required_approver_class'), 'org',
+SELECT is((SELECT required_approver_class FROM kernel.approval_request WHERE request_id=tap._fetch149('e_req2')::uuid), 'org',
   'E10: with org_dual set (50000), a 10000 request parks to the ORG class');
-SELECT tap._store149('req2', (tap._fetch149('req2_res')::jsonb ->> 'request_id'));
--- immature org grant → sod_violation (C58; authn.money_role_maturity_hours = 72 seeded)
-SELECT tap.login(tap.other_user());
-SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L, 'approve', 'ok', 'ck85-ap-2')$$, tap._fetch149('req2')),
-  NULL, NULL, 'E11: an IMMATURE org money grant fails as sod_violation (C58 — maturity gates authority, 72h seed)');
+-- immature org approver (even with aal2) → sod_violation
+SELECT tap.login(tap.other_user()); SELECT tap._aal2();
+SELECT throws_ok(format($$SELECT kernel.approve_refund_request(%L,'approve','ok','ck-e-3')$$, tap._fetch149('e_req2')),
+  NULL, 'sod_violation: org money grant not yet matured', 'E11: an IMMATURE org grant fails as sod_violation (C58)');
 SELECT tap.logout();
 UPDATE kernel.org_member SET granted_at = now() - interval '100 hours'
- WHERE org_id = tap._fetch149('org')::uuid AND identity_id = tap.other_user();
+ WHERE org_id=tap._fetch149('org')::uuid AND identity_id=tap.other_user();
+SELECT tap.login(tap.other_user()); SELECT tap._aal2();
+SELECT is((kernel.approve_refund_request(tap._fetch149('e_req2')::uuid,'approve','ok','ck-e-4') ->> 'status'), 'approved',
+  'E12: the MATURED org approver + aal2 completes dual control — the refund EXECUTES');
+SELECT tap.logout();
+SELECT is(tap._ordstatus149(tap._fetch149('oe2')::uuid), 'refunded', 'E13: …order2 refunded via the approved request (delegated, single-use)');
+-- P0-3: an atom SCANNED while parked re-tiers to platform at approve (live read)
+SELECT tap._store149('oe3', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('oe3_atoms', tap._atomsof149(tap._fetch149('oe3')::uuid)::text);
+SELECT tap.login(tap.buyer());
+SELECT tap._store149('e_req3', (kernel.request_order_refund(tap._fetch149('oe3')::uuid, tap._fetch149('oe3_atoms')::uuid[],
+    10000, 'buyer_request', 'ck-e-5') ->> 'request_id'));
+SELECT tap.logout();
+UPDATE kernel.tickets SET state='scanned' WHERE ticket_atom_id = (tap._fetch149('oe3_atoms')::uuid[])[1];
+SELECT tap.login(tap.other_user()); SELECT tap._aal2();
+SELECT is((kernel.approve_refund_request(tap._fetch149('e_req3')::uuid,'approve','ok','ck-e-6') ->> 'status'), 'stale',
+  'E14: P0-3 — an atom scanned while parked re-tiers from LIVE state to platform ⇒ stale (not the payload snapshot)');
+SELECT tap.logout();
+-- the expiry sweep releases a REAL hold (R5 P0-2)
+SELECT tap._store149('oe4', tap._neworder149(1, 4000)::text);
+SELECT tap._store149('oe4_atoms', tap._atomsof149(tap._fetch149('oe4')::uuid)::text);
+SELECT tap.login(tap.buyer());
+SELECT tap._store149('e_req4', (kernel.request_order_refund(tap._fetch149('oe4')::uuid, tap._fetch149('oe4_atoms')::uuid[],
+    4000, 'buyer_request', 'ck-e-7') ->> 'request_id'));
+SELECT tap.logout();
+SELECT is((SELECT resale_state FROM kernel.tickets WHERE ticket_atom_id=(tap._fetch149('oe4_atoms')::uuid[])[1]), 'refund_hold',
+  'E15: the parked request holds the atom');
+UPDATE kernel.approval_request SET created_at = now()-interval '2 hours', expires_at = now()-interval '1 minute'
+ WHERE request_id = tap._fetch149('e_req4')::uuid;
+SELECT ok(((kernel.sweep_expired_refund_requests()) ->> 'holds_released')::int >= 1,
+  'E16: R5 P0-2 — the sweep releases a REAL refund_hold (holds_released >= 1)');
+SELECT is((SELECT resale_state FROM kernel.tickets WHERE ticket_atom_id=(tap._fetch149('oe4_atoms')::uuid[])[1]), 'none',
+  'E17: …the atom overlay is cleared');
+SELECT is((SELECT state FROM kernel.approval_request WHERE request_id=tap._fetch149('e_req4')::uuid), 'expired', 'E18: …and the request is expired');
+-- cancel
+SELECT tap._store149('oe5', tap._neworder149(1, 4000)::text);
+SELECT tap.login(tap.buyer());
+SELECT tap._store149('e_req5', (kernel.request_order_refund(tap._fetch149('oe5')::uuid,
+    tap._atomsof149(tap._fetch149('oe5')::uuid), 4000, 'buyer_request', 'ck-e-8') ->> 'request_id'));
+SELECT is((kernel.cancel_refund_request(tap._fetch149('e_req5')::uuid,'changed_mind','ck-e-9') ->> 'status'), 'cancelled',
+  'E19: the requester cancels their own pending request (no maturity/step-up — S-3)');
+SELECT tap.logout();
+-- reason-code caller policy (R7 P2)
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, %L::uuid[], 100, 'dispute', 'ck-e-rc')$$,
+    tap._fetch149('oe5'), tap._atomsof149(tap._fetch149('oe5')::uuid)),
+  NULL, 'policy_violation: reason_code dispute is platform-only', 'E20: R7 P2 — a buyer cannot cite a platform-only reason code');
+SELECT tap.logout();
+
+-- ============================================================================
+-- SECTION M — admin_refund (§20.7.1): linkage + authority (R5 P1)
+-- ============================================================================
+SELECT tap._store149('om', tap._neworder149(2, 10000)::text);
+SELECT tap._store149('om_atoms', tap._atomsof149(tap._fetch149('om')::uuid)::text);
+SELECT tap._store149('om_pay', tap._payof149(tap._fetch149('om')::uuid)::text);
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT kernel.admin_refund(%L, %L::uuid[], 100, 'dispute', 'ck-m-x')$$,
+    tap._fetch149('om_pay'), tap._fetch149('om_atoms')),
+  '42501', NULL, 'M1: admin_refund refuses a non-platform caller');
+SELECT tap.logout();
+SELECT tap.login(tap.admin_user());
+SELECT throws_ok(format($$SELECT kernel.admin_refund(%L, ARRAY[gen_random_uuid()]::uuid[], 100, 'dispute', 'ck-m-y')$$,
+    tap._fetch149('om_pay')),
+  NULL, NULL, 'M2: E-57 — atoms that do not belong to the payment are rejected (linkage)');
+SELECT is((kernel.admin_refund(tap._fetch149('om_pay')::uuid, tap._fetch149('om_atoms')::uuid[], 10000, 'dispute', 'ck-m-1') ->> 'status'),
+  'ok', 'M3: admin_refund voids the payment''s own atoms');
+SELECT throws_ok(format($$SELECT kernel.admin_refund(%L, %L::uuid[], 1, 'dispute', 'ck-m-2')$$,
+    tap._fetch149('om_pay'), tap._fetch149('om_atoms')),
+  NULL, NULL, 'M4: one more cent is over_refund (Σ-guard under the payment lock)');
+SELECT tap.logout();
+SELECT is(tap._ordstatus149(tap._fetch149('om')::uuid), 'refunded', 'M5: …and admin_refund reflected the linked order → refunded (R1 P2)');
+
+-- ============================================================================
+-- SECTION N — platform_support cap ladder (R5 P1; AUTHZ-M3)
+-- ============================================================================
+INSERT INTO kernel.platform_role (identity_id, role) VALUES (tap.other_user(), 'platform_support') ON CONFLICT DO NOTHING;
+SELECT tap._store149('on1', tap._neworder149(1, 4000)::text);
+SELECT tap.login(tap.other_user());   -- support, support cap key still NULL
+SELECT is((kernel.request_order_refund(tap._fetch149('on1')::uuid, tap._atomsof149(tap._fetch149('on1')::uuid),
+    4000, 'oversell_correction', 'ck-n-1') ->> 'status'), 'parked',
+  'N1: support with a NULL cap key auto-executes NOTHING — it PARKS (AUTHZ-M3 unset=ZERO)');
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('refund.platform_support_max_minor', 2, '500000'::jsonb, 'restricted');
+SELECT tap._store149('on2', tap._neworder149(1, 4000)::text);
 SELECT tap.login(tap.other_user());
-SELECT tap._store149('ap2_res', (kernel.approve_refund_request(tap._fetch149('req2')::uuid, 'approve', 'ok', 'ck85-ap-3'))::text);
+SELECT is((kernel.request_order_refund(tap._fetch149('on2')::uuid, tap._atomsof149(tap._fetch149('on2')::uuid),
+    4000, 'oversell_correction', 'ck-n-2') ->> 'status'), 'executed',
+  'N2: with the support cap set above the amount, support auto-executes (capped tier)');
 SELECT tap.logout();
-SELECT is((tap._fetch149('ap2_res')::jsonb ->> 'status'), 'approved',
-  'E12: the MATURED org approver completes dual control — the refund EXECUTES');
-SELECT is((SELECT status FROM venue."order" WHERE order_id = tap._fetch149('order2')::uuid), 'refunded',
-  'E13: …order2 is refunded through the approved request (delegated authority, not role bypass)');
--- E14: the expiry sweep releases what the TTL bounds
-WITH inso4 AS (
-  INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
-  VALUES (tap.buyer(), tap._fetch149('session')::uuid, tap._fetch149('org')::uuid, 'paid', 'web', 4000, 'ck85-ord-3')
-  RETURNING order_id
-)
-SELECT tap._store149('order3', (SELECT order_id::text FROM inso4));
-WITH insp4 AS (
-  INSERT INTO public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, total, status, mode)
-  VALUES (tap._newlisting149(), tap.buyer(), tap.seller(), 3600, 400, 4000, 'succeeded', 'buy_now')
-  RETURNING id
-)
-SELECT tap._store149('payment3', (SELECT id::text FROM insp4));
-INSERT INTO kernel.payment_native (payment_id, order_id, amount_minor)
-VALUES (tap._fetch149('payment3')::uuid, tap._fetch149('order3')::uuid, 4000);
-SELECT tap.login(tap.buyer());
-SELECT tap._store149('req3', ((kernel.request_order_refund(tap._fetch149('order3')::uuid, '{}'::uuid[],
-    4000, 'buyer_request', 'ck85-q-3'))::jsonb ->> 'request_id'));
+DELETE FROM kernel.platform_role WHERE identity_id=tap.other_user() AND role='platform_support';
+
+-- ============================================================================
+-- SECTION O — the scoped reads (§17.5/6/8): scope walls + PII (R5 P1)
+-- ============================================================================
+WITH inspo AS (INSERT INTO kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, status, stripe_transfer_ref, idempotency_key)
+  VALUES ('organization', tap._fetch149('org')::uuid, 'settlement', gen_random_uuid(), 20000, 'paid', 'tr_secret', 'ck-o-po') RETURNING payout_id)
+SELECT tap._store149('o_payout', (SELECT payout_id::text FROM inspo));
+SELECT tap.login(tap.seller());   -- org_owner of the org
+SELECT is((kernel.list_org_payouts(tap._fetch149('org')::uuid, NULL, '{}'::jsonb, NULL) ->> 'status'), 'ok',
+  'O1: an org role lists its own payouts');
+SELECT ok((kernel.list_org_payouts(tap._fetch149('org')::uuid, NULL, '{}'::jsonb, NULL) -> 'payouts') @> '[{"has_transfer_ref":true}]'::jsonb
+       AND NOT ((kernel.list_org_payouts(tap._fetch149('org')::uuid, NULL, '{}'::jsonb, NULL))::text LIKE '%tr_secret%'),
+  'O2: the stripe transfer ref surfaces as a PRESENCE boolean, never the raw value (no PII)');
+SELECT throws_ok($$SELECT kernel.list_org_payouts(NULL, NULL, '{}'::jsonb, NULL)$$, NULL, NULL,
+  'O3: no scope-free form (an org or venue scope is required)');
 SELECT tap.logout();
-UPDATE kernel.approval_request
-   SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 minute'
- WHERE request_id = tap._fetch149('req3')::uuid;
-SELECT ok(((kernel.sweep_expired_refund_requests()) ->> 'swept_count')::int >= 1,
-  'E14: the TTL sweep expires the stale request (P0-1 — no immortal holds)');
-SELECT is((SELECT state FROM kernel.approval_request WHERE request_id = tap._fetch149('req3')::uuid), 'expired',
-  'E15: …state = expired, audited, notice emitted');
--- E16: cancel path
 SELECT tap.login(tap.buyer());
-SELECT tap._store149('req4', ((kernel.request_order_refund(tap._fetch149('order3')::uuid, '{}'::uuid[],
-    4000, 'buyer_request', 'ck85-q-4'))::jsonb ->> 'request_id'));
-SELECT is((kernel.cancel_refund_request(tap._fetch149('req4')::uuid, 'changed_mind', 'ck85-c-1') ->> 'status'),
-  'cancelled', 'E16: the requester cancels their own pending request (no maturity conjunct — S-3)');
+SELECT throws_ok(format($$SELECT kernel.list_org_refunds(%L, NULL, '{}'::jsonb, NULL)$$, tap._fetch149('org')),
+  '42501', NULL, 'O4: a non-member cannot list an org''s refunds');
 SELECT tap.logout();
 
 -- ============================================================================
 -- SECTION F — PAYOUT HOLDS + STATE SYNC (MB-2; §20.7.6)
 -- ============================================================================
-WITH inspo AS (
-  INSERT INTO kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, status, idempotency_key)
-  VALUES ('organization', tap._fetch149('org')::uuid, 'settlement', gen_random_uuid(), 20000, 'submitted', 'ck85-po-1')
-  RETURNING payout_id
-)
+WITH inspo AS (INSERT INTO kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, status, idempotency_key)
+  VALUES ('organization', tap._fetch149('org')::uuid, 'settlement', gen_random_uuid(), 20000, 'submitted', 'ck-f-po') RETURNING payout_id)
 SELECT tap._store149('payout', (SELECT payout_id::text FROM inspo));
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT kernel.hold_payout(%L, 'risk', 'ck85-h-x')$$, tap._fetch149('payout')),
+SELECT throws_ok(format($$SELECT kernel.hold_payout(%L,'risk','ck-f-x')$$, tap._fetch149('payout')),
   '42501', NULL, 'F1: hold_payout refuses non-platform callers');
 SELECT tap.logout();
 SELECT tap.login(tap.admin_user());
-SELECT is((kernel.hold_payout(tap._fetch149('payout')::uuid, 'risk_review', 'ck85-h-1') ->> 'status'), 'ok',
-  'F2: platform holds the payout');
+SELECT is((kernel.hold_payout(tap._fetch149('payout')::uuid, 'risk_review', 'ck-f-1') ->> 'status'), 'ok', 'F2: platform holds the payout');
 SELECT tap.logout();
-SELECT ok((SELECT p.hold_state = 'held' AND p.status = 'submitted' AND p.held_by IS NOT NULL
-             FROM kernel.payout p WHERE p.payout_id = tap._fetch149('payout')::uuid),
+SELECT ok((SELECT p.hold_state='held' AND p.status='submitted' AND p.held_by IS NOT NULL
+             FROM kernel.payout p WHERE p.payout_id=tap._fetch149('payout')::uuid),
   'F3: the hold is the FOUR-COLUMN overlay — status untouched (S-15/C105)');
-SELECT throws_ok(format($$SELECT kernel.mark_payout_transfer_state(%L, 'paid', 'tr_1', NULL, 'ck85-m-1')$$, tap._fetch149('payout')),
-  NULL, 'precondition_failed: payout_held',
-  'F4: a HELD payout refuses the webhook sync (Control-4 cannot be undone by Stripe)');
-SELECT ok((SELECT p.status = 'submitted' AND p.stripe_transfer_ref IS NULL
-             FROM kernel.payout p WHERE p.payout_id = tap._fetch149('payout')::uuid),
-  'F5: …and BOTH columns are untouched (T-SCHEMA-PAYOUT-06 — zero mutation on refusal)');
+SELECT throws_ok(format($$SELECT kernel.mark_payout_transfer_state(%L,'paid','tr_1',NULL,'ck-f-2')$$, tap._fetch149('payout')),
+  NULL, 'precondition_failed: payout_held', 'F4: a HELD payout refuses the webhook sync (Control-4)');
+SELECT ok((SELECT p.status='submitted' AND p.stripe_transfer_ref IS NULL FROM kernel.payout p WHERE p.payout_id=tap._fetch149('payout')::uuid),
+  'F5: …and BOTH columns untouched (T-SCHEMA-PAYOUT-06 — zero mutation on refusal)');
 SELECT tap.login(tap.admin_user());
-SELECT is((kernel.release_payout(tap._fetch149('payout')::uuid, 'ck85-rel-1') ->> 'status'), 'ok',
-  'F6: platform releases the hold');
+SELECT is((kernel.release_payout(tap._fetch149('payout')::uuid, 'ck-f-3') ->> 'status'), 'ok', 'F6: platform releases the hold');
 SELECT tap.logout();
-SELECT ok((SELECT p.hold_state = 'none' AND p.hold_reason_code IS NULL AND p.held_by IS NULL AND p.held_at IS NULL
-             FROM kernel.payout p WHERE p.payout_id = tap._fetch149('payout')::uuid),
-  'F7: …all four hold columns cleared together (the pairing CHECK holds)');
-SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid, 'paid', 'tr_1', NULL, 'ck85-m-2') ->> 'status'),
-  'ok', 'F8: the executor syncs paid (form (a), O16) — the settlement hook fires as a no-op stub');
-SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid, 'paid', 'tr_1', NULL, 'ck85-m-3') ->> 'status'),
-  'noop_replay', 'F9: the same sync replays as a noop — never a raise');
-SELECT throws_ok(format($$SELECT kernel.mark_payout_transfer_state(%L, 'failed', 'tr_1', 'x', 'ck85-m-4')$$, tap._fetch149('payout')),
-  NULL, NULL, 'F10: paid → failed is BACKWARDS (payout_state_backwards)');
-SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid, 'reversed', 'tr_1', NULL, 'ck85-m-5') ->> 'status'),
-  'ok', 'F11: paid → reversed is the ONE legal terminal-to-terminal edge');
+SELECT ok((SELECT p.hold_state='none' AND p.hold_reason_code IS NULL AND p.held_by IS NULL AND p.held_at IS NULL
+             FROM kernel.payout p WHERE p.payout_id=tap._fetch149('payout')::uuid),
+  'F7: …all four hold columns cleared together');
+SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid,'paid','tr_1',NULL,'ck-f-4') ->> 'status'), 'ok',
+  'F8: the executor syncs paid (form (a), O16) — the settlement hook fires as a no-op stub');
+SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid,'paid','tr_1',NULL,'ck-f-5') ->> 'status'), 'noop_replay',
+  'F9: the same sync replays as noop');
+SELECT throws_ok(format($$SELECT kernel.mark_payout_transfer_state(%L,'failed','tr_1','x','ck-f-6')$$, tap._fetch149('payout')),
+  NULL, 'precondition_failed: payout_state_backwards (paid → failed)', 'F10: paid → failed is BACKWARDS');
+SELECT is((kernel.mark_payout_transfer_state(tap._fetch149('payout')::uuid,'reversed','tr_1',NULL,'ck-f-7') ->> 'status'), 'ok',
+  'F11: paid → reversed is the one legal terminal-to-terminal edge');
 
 -- ============================================================================
--- SECTION G — REFUND STATE SYNC (§20.7.7; S-24)
+-- SECTION G — REFUND STATE SYNC (§20.7.7; S-24) on a real refund
 -- ============================================================================
-SELECT is((kernel.mark_refund_state(tap._fetch149('refund')::uuid, 'submitted', 're_1', NULL, 'ck85-rs-1') ->> 'status'),
-  'ok', 'G1: pending → submitted (the ref is mandatory — non-pending rows carry it)');
-SELECT throws_ok(format($$SELECT kernel.mark_refund_state(%L, 'succeeded', 're_DIFFERENT', NULL, 'ck85-rs-2')$$, tap._fetch149('refund')),
-  NULL, NULL, 'G2: the stripe ref is WRITE-ONCE — a different ref is conflict_locked');
-SELECT is((kernel.mark_refund_state(tap._fetch149('refund')::uuid, 'succeeded', 're_1', NULL, 'ck85-rs-3') ->> 'status'),
-  'ok', 'G3: submitted → succeeded');
-SELECT throws_ok(format($$SELECT kernel.mark_refund_state(%L, 'submitted', 're_1', NULL, 'ck85-rs-4')$$, tap._fetch149('refund')),
-  NULL, NULL, 'G4: succeeded → submitted is BACKWARDS (refund_state_backwards)');
-SELECT throws_ok(format($$UPDATE kernel.refund SET stripe_refund_ref = NULL WHERE refund_id = %L$$, tap._fetch149('refund')),
+SELECT tap._store149('g_refund', (SELECT r.refund_id::text FROM kernel.refund r
+  WHERE r.payment_id=tap._payof149(tap._fetch149('od')::uuid) LIMIT 1));
+SELECT is((kernel.mark_refund_state(tap._fetch149('g_refund')::uuid,'submitted','re_1',NULL,'ck-g-1') ->> 'status'), 'ok',
+  'G1: pending → submitted (the ref is mandatory)');
+SELECT throws_ok(format($$SELECT kernel.mark_refund_state(%L,'succeeded','re_DIFF',NULL,'ck-g-2')$$, tap._fetch149('g_refund')),
+  NULL, 'conflict_locked: stripe_refund_ref is write-once', 'G2: the stripe ref is WRITE-ONCE');
+SELECT is((kernel.mark_refund_state(tap._fetch149('g_refund')::uuid,'succeeded','re_1',NULL,'ck-g-3') ->> 'status'), 'ok',
+  'G3: submitted → succeeded');
+SELECT throws_ok(format($$SELECT kernel.mark_refund_state(%L,'submitted','re_1',NULL,'ck-g-4')$$, tap._fetch149('g_refund')),
+  NULL, 'precondition_failed: refund_state_backwards (succeeded → submitted)', 'G4: succeeded → submitted is BACKWARDS');
+SELECT throws_ok(format($$UPDATE kernel.refund SET stripe_refund_ref=NULL WHERE refund_id=%L$$, tap._fetch149('g_refund')),
   '23514', NULL, 'G5: the S-24 pairing CHECK makes a ref-less non-pending row UNSTORABLE');
 
 -- ============================================================================
 -- SECTION H — OBLIGATIONS (OR-21) + BP-10
 -- ============================================================================
 SELECT tap._store149('oref', gen_random_uuid()::text);
-SELECT is((kernel.record_identity_obligation(tap.other_user(), 'chargeback', tap._fetch149('oref')::uuid,
-    'dp_1', 500, 'cb', 'ck85-ob-1') ->> 'status'), 'ok',
-  'H1: the machine records an obligation (no debtor-state precondition — Q2 works on ERASED too)');
-SELECT is((kernel.record_identity_obligation(tap.other_user(), 'chargeback', tap._fetch149('oref')::uuid,
-    'dp_1', 500, 'cb', 'ck85-ob-1') ->> 'status'), 'noop_replay',
-  'H2: (origin_kind, origin_ref) replays as a noop — one obligation per origin fact');
-SELECT is(kernel.has_outstanding_obligations(tap.other_user()), true,
-  'H3: BP-10 — the REAL body sees the outstanding debt (the 077 stub said false)');
+SELECT is((kernel.record_identity_obligation(tap.buyer(), 'chargeback', tap._fetch149('oref')::uuid, 'dp_1', 500, 'cb', 'ck-h-1') ->> 'status'),
+  'ok', 'H1: the machine records an obligation');
+SELECT is((kernel.record_identity_obligation(tap.buyer(), 'chargeback', tap._fetch149('oref')::uuid, 'dp_1', 500, 'cb', 'ck-h-1') ->> 'status'),
+  'noop_replay', 'H2: (origin_kind, origin_ref) replays as noop');
+SELECT is(kernel.has_outstanding_obligations(tap.buyer()), true, 'H3: BP-10 — the REAL body sees the debt (STABLE)');
 SELECT tap.login(tap.buyer());
-SELECT throws_ok($$SELECT kernel.resolve_identity_obligation(gen_random_uuid(), 'recovered', 'r', 'ck85-ob-x')$$,
+SELECT throws_ok($$SELECT kernel.resolve_identity_obligation(gen_random_uuid(),'recovered','r','ck-h-x')$$,
   '42501', NULL, 'H4: resolve refuses non-platform callers');
 SELECT tap.logout();
-SELECT tap._store149('oblig', (SELECT o.obligation_id::text FROM kernel.identity_obligation o
-                                WHERE o.origin_ref = tap._fetch149('oref')::uuid));
+SELECT tap._store149('oblig', (SELECT o.obligation_id::text FROM kernel.identity_obligation o WHERE o.origin_ref=tap._fetch149('oref')::uuid));
 SELECT tap.login(tap.admin_user());
-SELECT is((kernel.resolve_identity_obligation(tap._fetch149('oblig')::uuid, 'recovered', 'paid_back', 'ck85-ob-2') ->> 'status'),
-  'ok', 'H5: platform resolves the obligation');
-SELECT is((kernel.resolve_identity_obligation(tap._fetch149('oblig')::uuid, 'recovered', 'paid_back', 'ck85-ob-3') ->> 'status'),
-  'noop_replay', 'H6: the same terminal replays as a noop');
-SELECT throws_ok(format($$SELECT kernel.resolve_identity_obligation(%L, 'written_off', 'w', 'ck85-ob-4')$$, tap._fetch149('oblig')),
-  NULL, NULL, 'H7: a DIFFERENT terminal is state_conflict — terminals are exclusive');
+SELECT is((kernel.resolve_identity_obligation(tap._fetch149('oblig')::uuid,'recovered','paid_back','ck-h-2') ->> 'status'), 'ok', 'H5: platform resolves it');
+SELECT throws_ok(format($$SELECT kernel.resolve_identity_obligation(%L,'written_off','w','ck-h-3')$$, tap._fetch149('oblig')),
+  NULL, 'state_conflict: obligation '||tap._fetch149('oblig')||' already recovered — terminals are exclusive', 'H6: a different terminal is state_conflict');
 SELECT tap.logout();
-SELECT is(kernel.has_outstanding_obligations(tap.other_user()), false,
-  'H8: …and BP-10 clears');
+SELECT is(kernel.has_outstanding_obligations(tap.buyer()), false, 'H7: …and BP-10 clears');
 
 -- ============================================================================
--- SECTION I — DELETION BLOCKERS (BP-5/BP-6/BP-12 + PFA-22)
+-- SECTION I — DELETION BLOCKERS (BP-5 in-flight; PFA-22 window)
 -- ============================================================================
--- settle the E12-executed refund first: BP-12's IN-FLIGHT arm correctly fires
--- on a pending refund and would mask the window arm under test.
-SELECT tap._store149('refund2', (SELECT r.refund_id::text FROM kernel.refund r WHERE r.idempotency_key='ck85-ap-3'));
-SELECT kernel.mark_refund_state(tap._fetch149('refund2')::uuid, 'submitted', 're_2', NULL, 'ck85-rs-5');
-SELECT kernel.mark_refund_state(tap._fetch149('refund2')::uuid, 'succeeded', 're_2', NULL, 'ck85-rs-6');
-WITH inspi AS (
-  INSERT INTO kernel.payout (payee_kind, payee_identity_id, cause, cause_ref, amount_minor, status, idempotency_key)
-  VALUES ('identity', tap.buyer(), 'refund_void', gen_random_uuid(), 700, 'submitted', 'ck85-po-2')
-  RETURNING payout_id
-)
-SELECT tap._store149('payout_id2', (SELECT payout_id::text FROM inspi));
-SELECT ok(kernel.deletion_blockers_money(tap.buyer()) LIKE 'BP-5%',
-  'I1: an unsettled identity payout blocks the tombstone (BP-5)');
-SELECT kernel.mark_payout_transfer_state(tap._fetch149('payout_id2')::uuid, 'paid', 'tr_2', NULL, 'ck85-m-6');
--- order3 is still 'paid' (its requests expired/cancelled, never refunded) → a
--- BP-12 candidate exists → the PFA-22 NULL window BLOCKS
+WITH inspi AS (INSERT INTO kernel.payout (payee_kind, payee_identity_id, cause, cause_ref, amount_minor, status, idempotency_key)
+  VALUES ('identity', tap.other_user(), 'refund_void', gen_random_uuid(), 700, 'submitted', 'ck-i-po') RETURNING payout_id)
+SELECT tap._store149('i_payout', (SELECT payout_id::text FROM inspi));
+SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-5%', 'I1: an IN-FLIGHT identity payout blocks (BP-5)');
+SELECT kernel.mark_payout_transfer_state(tap._fetch149('i_payout')::uuid,'failed','tr_x','net_fail','ck-i-1');
+SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
+  'I2: R1 P3 — a TERMINAL failed payout does NOT block forever (BP-5 is in-flight only)');
+-- PFA-22: candidate order + NULL window ⇒ block; a set window that excludes it ⇒ clear
+SELECT tap._store149('oi', tap._neworder149(1, 4000)::text);
 SELECT ok(kernel.deletion_blockers_money(tap.buyer()) LIKE 'BP-12%window unset%',
-  'I2: PFA-22 — candidate orders + NULL window ⇒ BLOCKED (fail-closed exactly when it must be)');
+  'I3: PFA-22 — a candidate order + NULL window ⇒ BLOCKED (fail-closed exactly when it must be)');
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.refund_possible_window_hours', 2, '0'::jsonb, 'restricted');
 SELECT is(kernel.deletion_blockers_money(tap.buyer()), NULL,
-  'I3: …the owner sets the window (0h) and the candidate falls OUTSIDE it — deletion unblocked (NULL never blocked without candidates)');
-SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
-  'I4: an identity with NO candidates and NO money facts is never blocked by the NULL key (the owner''s scoping verbatim)');
+  'I4: …the owner sets the window (0h); the candidate falls outside it — unblocked');
+SELECT is(kernel.deletion_blockers_money('00000000-0000-0000-0000-0000000000ab'), NULL,
+  'I5: an identity with NO candidates + NO money facts is never blocked by the NULL key');
 
 -- ============================================================================
--- SECTION J — Q5 RELEASE (OR-17): the deleting identity's parked requests
+-- SECTION J — Q5 RELEASE (OR-17 / DSM §3.1): keyed on requested_by (P0-5)
 -- ============================================================================
+SELECT tap._store149('oj', tap._neworder149(1, 4000)::text);
+SELECT tap._store149('oj_atoms', tap._atomsof149(tap._fetch149('oj')::uuid)::text);
 SELECT tap.login(tap.buyer());
-SELECT tap._store149('req5', ((kernel.request_order_refund(tap._fetch149('order3')::uuid, '{}'::uuid[],
-    4000, 'buyer_request', 'ck85-q-5'))::jsonb ->> 'request_id'));
+SELECT tap._store149('j_req', (kernel.request_order_refund(tap._fetch149('oj')::uuid, tap._fetch149('oj_atoms')::uuid[],
+    4000, 'buyer_request', 'ck-j-1') ->> 'request_id'));
 SELECT tap.logout();
-SELECT lives_ok(format($$SELECT kernel.on_deletion_q5_release(%L)$$, tap.buyer()),
-  'J1: the Q5 release runs (§17.4 semantics on the identity''s set)');
-SELECT is((SELECT state FROM kernel.approval_request WHERE request_id = tap._fetch149('req5')::uuid), 'expired',
-  'J2: …the deleting identity''s pending request is expired');
-SELECT is((SELECT count(*)::int FROM kernel.tickets t
-            WHERE t.current_owner_id = tap.buyer() AND t.resale_state = 'refund_hold'), 0,
-  'J3: …and no refund_hold overlay survives on their atoms');
+SELECT is((SELECT resale_state FROM kernel.tickets WHERE ticket_atom_id=(tap._fetch149('oj_atoms')::uuid[])[1]), 'refund_hold',
+  'J1: the buyer''s own request holds the atom');
+SELECT lives_ok(format($$SELECT kernel.on_deletion_q5_release(%L)$$, tap.buyer()), 'J2: the Q5 release runs');
+SELECT is((SELECT state FROM kernel.approval_request WHERE request_id=tap._fetch149('j_req')::uuid), 'expired',
+  'J3: …the request the deleter AUTHORED (requested_by) is expired');
+SELECT is((SELECT resale_state FROM kernel.tickets WHERE ticket_atom_id=(tap._fetch149('oj_atoms')::uuid[])[1]), 'none',
+  'J4: R5 P0-2 — …and its refund_hold overlay is really released');
 
 -- ============================================================================
 -- SECTION K — THE DENIAL WITNESS (§17.9; R-28; T-SCHEMA-AUDIT-01/-02)
 -- ============================================================================
 SELECT tap.login(tap.buyer());
-SELECT is((kernel.record_money_denial('refund.request', 'order', tap._fetch149('order')::uuid, 'insufficient_privilege') ->> 'status'),
+SELECT is((kernel.record_money_denial('refund.request','order', tap._fetch149('od')::uuid, 'insufficient_privilege') ->> 'status'),
   'ok', 'K1: an authenticated human records their denial');
-SELECT throws_ok($$SELECT kernel.record_money_denial('rm -rf', 'order', gen_random_uuid(), 'x')$$,
-  NULL, NULL, 'K2: the action vocabulary is CLOSED — arbitrary strings are refused');
+SELECT throws_ok($$SELECT kernel.record_money_denial('rm -rf','order', gen_random_uuid(),'x')$$, NULL, NULL,
+  'K2: the action vocabulary is CLOSED');
 SELECT tap.logout();
-SELECT throws_ok(format($$SELECT kernel.record_money_denial('refund.request', 'order', %L, 'x')$$, tap._fetch149('order')),
-  '42501', NULL, 'K3: T-SCHEMA-AUDIT-01 — with NO human principal (auth.uid() NULL) the witness RAISES; no parameter can set the actor');
-SELECT is((SELECT count(*)::int FROM kernel.admin_audit
-            WHERE action = 'refund.request.denied' AND actor_identity = tap.buyer()), 1,
-  'K4: the denial row is attributed to auth.uid() and nothing else');
+SELECT throws_ok(format($$SELECT kernel.record_money_denial('refund.request','order',%L,'x')$$, tap._fetch149('od')),
+  '42501', NULL, 'K3: T-SCHEMA-AUDIT-01 — with NO principal (auth.uid() NULL) the witness RAISES');
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action='refund.request.denied' AND actor_identity=tap.buyer()), 1,
+  'K4: the denial is attributed to auth.uid() and nothing else');
 
 -- ============================================================================
 -- SECTION L — PAYOUT DESTINATION (§17.7; SoD-1; AUTHZ-M4)
 -- ============================================================================
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L, 'acct_X1', 'r', 'ck85-d-x')$$, tap._fetch149('org')),
-  '42501', NULL, 'L1: only org_owner may touch the destination (SoD-1 — finance excluded)');
+SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L,'acct_X1','r','ck-l-x')$$, tap._fetch149('org')),
+  '42501', NULL, 'L1: only org_owner may touch the destination (SoD-1)');
 SELECT tap.logout();
-UPDATE kernel.org_member SET granted_at = now() - interval '100 hours'
- WHERE org_id = tap._fetch149('org')::uuid AND identity_id = tap.seller();
+UPDATE kernel.org_member SET granted_at = now()-interval '100 hours'
+ WHERE org_id=tap._fetch149('org')::uuid AND identity_id=tap.seller();
 SELECT tap.login(tap.seller());
-SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L, 'acct_X1', 'r', 'ck85-d-0')$$, tap._fetch149('org')),
-  NULL, NULL, 'L2: a session with NO aal claim is step_up_unavailable — never evaluated as satisfied (AUTHZ-M4)');
-SELECT set_config('request.jwt.claims',
-  (current_setting('request.jwt.claims', true)::jsonb || '{"aal":"aal1"}'::jsonb)::text, true);
-SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L, 'acct_X1', 'r', 'ck85-d-1')$$, tap._fetch149('org')),
-  NULL, NULL, 'L3: aal1 is step_up_required — money-destination changes demand the step-up');
-SELECT set_config('request.jwt.claims',
-  (current_setting('request.jwt.claims', true)::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
-SELECT is((kernel.set_org_payout_destination(tap._fetch149('org')::uuid, 'acct_NEW1', 'rotation', 'ck85-d-2') ->> 'status'),
-  'ok', 'L4: matured org_owner + aal2 changes the destination');
+SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L,'acct_X1','r','ck-l-0')$$, tap._fetch149('org')),
+  NULL, 'step_up_unavailable: the session carries no aal claim', 'L2: a session with NO aal claim is step_up_unavailable');
+SELECT tap._aal2();
+SELECT is((kernel.set_org_payout_destination(tap._fetch149('org')::uuid, 'acct_NEW1', 'rotation', 'ck-l-1') ->> 'status'), 'ok',
+  'L3: matured org_owner + aal2 changes the destination');
 SELECT tap.logout();
-SELECT ok((SELECT o.stripe_connect_account_ref = 'acct_NEW1' AND o.payout_destination_set_by = tap.seller()
-             FROM kernel.organization o WHERE o.org_id = tap._fetch149('org')::uuid),
-  'L5: …the setter is recorded — the §8.2 SoD exclusion now binds them at approval time');
+SELECT ok((SELECT o.stripe_connect_account_ref='acct_NEW1' AND o.payout_destination_set_by=tap.seller()
+             FROM kernel.organization o WHERE o.org_id=tap._fetch149('org')::uuid),
+  'L4: …the setter is recorded (the §8.2 SoD exclusion now binds them at approval time)');
+
 
 SELECT finish();
 ROLLBACK;
