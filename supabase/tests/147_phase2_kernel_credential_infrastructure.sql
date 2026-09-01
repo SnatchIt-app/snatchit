@@ -10,7 +10,7 @@
 -- plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(53);
+SELECT plan(89);
 
 SELECT tap.seed_core();
 
@@ -58,9 +58,12 @@ SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname='kernel'
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname='kernel' AND tablename='signing_key'), 1,
   'A16: signing_key has exactly one policy (the public projection)');
 -- the structural half of the Wallet non-negotiable: one live pass per atom
-SELECT ok(EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='kernel' AND tablename='wallet_pass'
-                   AND indexdef LIKE '%status%issued%'),
-  'A17: wallet_pass has the partial UNIQUE(ticket_atom_id) WHERE status=issued (≤1 live pass per atom)');
+SELECT ok((SELECT i.indisunique AND pg_get_indexdef(i.indexrelid) LIKE '%(ticket_atom_id)%'
+                  AND pg_get_indexdef(i.indexrelid) LIKE '%issued%'
+             FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+             JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='kernel' AND c.relname='wallet_pass_live_atom_uq'),
+  'A17: wallet_pass_live_atom_uq IS UNIQUE, on (ticket_atom_id), partial WHERE issued (≤1 live pass per atom)');
 
 -- ============================================================================
 -- SECTION B — C33: NO PRIVATE KEY MATERIAL + secret-column custody
@@ -103,13 +106,17 @@ SELECT throws_ok($$SELECT kernel.provision_signing_key('per_event', gen_random_u
   NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); provisioning is parked, no key is activated',
   'D1: provision_signing_key FAILS CLOSED (dual_control_unavailable)');
 SELECT throws_ok($$SELECT kernel.rotate_signing_key(gen_random_uuid(),'pk','kms','r','ck')$$,
-  NULL, NULL, 'D2: rotate_signing_key fails closed');
+  NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); rotation is parked, no key is activated',
+  'D2: rotate_signing_key FAILS CLOSED (dual_control_unavailable)');
 SELECT throws_ok($$SELECT kernel.provision_pass_type_cert('pass.x','TEAM','c','w','kms','2026-01-01'::timestamptz,'2027-01-01'::timestamptz,'r','ck')$$,
-  NULL, NULL, 'D3: provision_pass_type_cert fails closed');
+  NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); provisioning is parked, no cert is activated',
+  'D3: provision_pass_type_cert FAILS CLOSED (dual_control_unavailable)');
 SELECT throws_ok($$SELECT kernel.rotate_pass_type_cert(gen_random_uuid(),'c','w','kms','2026-01-01'::timestamptz,'2027-01-01'::timestamptz,'r','ck')$$,
-  NULL, NULL, 'D4: rotate_pass_type_cert fails closed');
+  NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); rotation is parked, no cert is activated',
+  'D4: rotate_pass_type_cert FAILS CLOSED (dual_control_unavailable)');
 SELECT throws_ok($$SELECT kernel.revoke_pass_type_cert(gen_random_uuid(),'r','ck')$$,
-  NULL, NULL, 'D5: revoke_pass_type_cert fails closed');
+  NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); revocation is parked, no cert state changes',
+  'D5: revoke_pass_type_cert FAILS CLOSED (dual_control_unavailable)');
 -- ZERO credential mutation on the parked path
 SELECT is((SELECT count(*)::int FROM kernel.signing_key), 0, 'D6: PFA-18A — the parked lifecycle activated NO signing key (zero mutation)');
 SELECT is((SELECT count(*)::int FROM kernel.pass_type_cert), 0, 'D7: …and NO pass_type_cert (zero mutation)');
@@ -122,7 +129,11 @@ SELECT throws_ok($$SELECT kernel.mint_wallet_pass(gen_random_uuid(),'ck')$$,
 SELECT throws_ok($$SELECT kernel.get_wallet_pass_build_context('serial','tok')$$,
   NULL, 'precondition_failed: wallet_disabled', 'E2: the serve route refuses wallet_disabled while dark');
 SELECT throws_ok($$SELECT kernel.register_wallet_pass_device('serial','tok','dev','push')$$,
-  NULL, NULL, 'E3: register fails closed');
+  NULL, 'precondition_failed: wallet_disabled', 'E3: register refuses wallet_disabled while dark');
+SELECT throws_ok($$SELECT kernel.list_updated_wallet_passes('dev','pass.x',NULL)$$,
+  NULL, 'precondition_failed: wallet_disabled', 'E3b: list_updated refuses wallet_disabled while dark');
+SELECT throws_ok($$SELECT kernel.unregister_wallet_pass_device('serial','tok','dev')$$,
+  NULL, 'precondition_failed: wallet_disabled', 'E3c: unregister refuses wallet_disabled while dark');
 -- flip the wallet flag: mint now parks on token_encryption_unavailable (PFA-20), NOT a token
 SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('wallet.apple.enabled', 2, 'true'::jsonb, 'restricted');
@@ -159,12 +170,46 @@ SELECT tap.logout();
 SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',gen_random_uuid()),'ck-m-0')$$,
     tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer()),
   NULL, 'precondition_failed: feature_disabled', 'F1: the mint refuses feature_disabled while native issuance is dark');
+-- E-46: a ctx without the cause_ref idempotency anchor is refused up front
+SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','signing_key_id',gen_random_uuid()),'ck-m-0b')$$,
+    tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer()),
+  NULL, 'precondition_failed: incomplete context',
+  'F1b: E-46 — a NULL cause_ref (the idempotency anchor) is refused, never silently un-deduped');
 -- flip native issuance ON. ACTIVATION BOUNDARY: still fails closed — no active signing key.
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('feature.native_issuance_enabled', 2, 'true'::jsonb, 'public');
 SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',%L),'ck-m-1')$$,
     tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer(), gen_random_uuid()),
   NULL, 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted',
   'F2: ACTIVATION BOUNDARY — with the flag ON but no active signing key, the mint fails closed (never auto-creates a key)');
+-- an INACTIVE key that EXISTS is equally refused (R5: the "active" half of the boundary)
+WITH insr AS (
+  INSERT INTO kernel.signing_key (scope, event_id, public_key, kms_handle_ref, status, not_before)
+  VALUES ('per_event', tap._fetch147('event')::uuid, 'PUBKEY-ROT', 'kms-handle-rot', 'rotating', now())
+  RETURNING key_id
+)
+SELECT tap._store147('key_rot', (SELECT key_id::text FROM insr));
+SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',%L),'ck-m-1b')$$,
+    tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer(), tap._fetch147('key_rot')),
+  NULL, 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted',
+  'F2b: an existing-but-ROTATING key does NOT satisfy the activation boundary');
+-- an ACTIVE key of the WRONG SCOPE is refused (E-46 scope coherence)
+SELECT tap.login(tap.seller());
+SELECT tap._store147('event2', (catalog.create_event(tap._fetch147('venue')::uuid,'Cred Night 2',
+  jsonb_build_object('starts_at',(now()+interval '30 days')::text,'ends_at',(now()+interval '30 days 5 hours')::text),'ck-e-2') ->> 'event_id'));
+SELECT tap._store147('session2', (SELECT session_id::text FROM catalog.event_session WHERE event_id = tap._fetch147('event2')::uuid));
+SELECT tap._store147('tt2', (venue.create_ticket_type(tap._fetch147('event2')::uuid,'admission','GA',5000,'public','ck-tt-2') ->> 'ticket_type_id'));
+SELECT tap._store147('batch2', (venue.create_inventory_batch(tap._fetch147('tt2')::uuid, tap._fetch147('session2')::uuid, 'comp', 100, 0, 'ck-b-2') ->> 'batch_id'));
+SELECT tap.logout();
+WITH insk2 AS (
+  INSERT INTO kernel.signing_key (scope, event_id, public_key, kms_handle_ref, status, not_before)
+  VALUES ('per_event', tap._fetch147('event2')::uuid, 'PUBKEY-E2', 'kms-handle-e2', 'active', now())
+  RETURNING key_id
+)
+SELECT tap._store147('key_e2', (SELECT key_id::text FROM insk2));
+SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',%L),'ck-m-1c')$$,
+    tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer(), tap._fetch147('key_e2')),
+  NULL, 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted',
+  'F2c: an ACTIVE key scoped to ANOTHER event does NOT govern this session (E-46 — atoms the door could not verify)');
 -- provision a signing key DIRECTLY (the lifecycle is parked; a test bypasses it) and mint.
 WITH ins AS (
   INSERT INTO kernel.signing_key (scope, event_id, public_key, kms_handle_ref, status, not_before)
@@ -172,9 +217,15 @@ WITH ins AS (
   RETURNING key_id
 )
 SELECT tap._store147('key', (SELECT key_id::text FROM ins));
+-- E-46 batch↔ctx coherence: a valid key + a batch belonging to ANOTHER session is refused
+SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',%L),'ck-m-1d')$$,
+    tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch2'), tap.buyer(), tap._fetch147('key')),
+  NULL, format('precondition_failed: batch_mismatch — batch %s does not belong to the ctx session/ticket_type', tap._fetch147('batch2')),
+  'F2d: E-46 — the sold counter and the atoms must move on the SAME session/ticket_type (batch_mismatch)');
+SELECT tap._store147('cref', gen_random_uuid()::text);
 SELECT is((kernel.issue_ticket_atoms(jsonb_build_object('session_id',tap._fetch147('session')::uuid,'org_id',tap._fetch147('org')::uuid,
     'ticket_type_id',tap._fetch147('tt')::uuid,'batch_id',tap._fetch147('batch')::uuid,'owner_id',tap.buyer(),
-    'quantity',2,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',tap._fetch147('key')::uuid),'ck-m-2') ->> 'status'),
+    'quantity',2,'cause','comp','cause_ref',tap._fetch147('cref')::uuid,'signing_key_id',tap._fetch147('key')::uuid),'ck-m-2') ->> 'status'),
   'ok', 'F3: with an active key + the flag on, the mint DRAWS — the engine works end to end');
 SELECT is(tap._tickets_for(tap._fetch147('session')::uuid), 2, 'F4: two atoms minted into kernel.tickets');
 SELECT is((SELECT count(*)::int FROM kernel.ticket_ownership_log l JOIN kernel.tickets t ON t.ticket_atom_id=l.ticket_atom_id
@@ -182,13 +233,34 @@ SELECT is((SELECT count(*)::int FROM kernel.ticket_ownership_log l JOIN kernel.t
   'F5: two ownership-log mint rows (sequence=1, from NULL, cause=issue)');
 SELECT is((SELECT sold::int FROM venue.inventory_batch WHERE batch_id=tap._fetch147('batch')::uuid), 2,
   'F6: the batch counter converted sold += 2 (C27 held+sold<=capacity backstop)');
-SELECT is((SELECT signing_key_id FROM kernel.tickets WHERE event_session_id=tap._fetch147('session')::uuid LIMIT 1), tap._fetch147('key')::uuid,
-  'F7: every minted atom pins the active signing_key_id (C33 — the key ref, never key material)');
--- idempotency: a replay returns the original atoms, mints no more
-SELECT is((SELECT count(*)::int FROM kernel.tickets WHERE event_session_id=tap._fetch147('session')::uuid), 2, 'F8: still exactly 2 atoms (no double-mint)');
--- oversell backstop: a mint that would exceed capacity aborts (23514)
+SELECT is((SELECT count(*) FILTER (WHERE signing_key_id = tap._fetch147('key')::uuid)::int FROM kernel.tickets
+            WHERE event_session_id=tap._fetch147('session')::uuid), 2,
+  'F7: BOTH minted atoms pin the active signing_key_id (C33 — the key ref, never key material)');
+-- idempotency (R5 P0 remediation): an ACTUAL replay of the same cause_ref
+SELECT is((kernel.issue_ticket_atoms(jsonb_build_object('session_id',tap._fetch147('session')::uuid,'org_id',tap._fetch147('org')::uuid,
+    'ticket_type_id',tap._fetch147('tt')::uuid,'batch_id',tap._fetch147('batch')::uuid,'owner_id',tap.buyer(),
+    'quantity',2,'cause','comp','cause_ref',tap._fetch147('cref')::uuid,'signing_key_id',tap._fetch147('key')::uuid),'ck-m-2') ->> 'status'),
+  'idempotency_replay', 'F8: a REPLAYED mint (same cause_ref) returns idempotency_replay — it does not mint again');
+SELECT is((SELECT array_agg(x.v ORDER BY x.v) FROM jsonb_array_elements_text(
+      kernel.issue_ticket_atoms(jsonb_build_object('session_id',tap._fetch147('session')::uuid,'org_id',tap._fetch147('org')::uuid,
+        'ticket_type_id',tap._fetch147('tt')::uuid,'batch_id',tap._fetch147('batch')::uuid,'owner_id',tap.buyer(),
+        'quantity',2,'cause','comp','cause_ref',tap._fetch147('cref')::uuid,'signing_key_id',tap._fetch147('key')::uuid),'ck-m-2') -> 'atom_ids') x(v)),
+  (SELECT array_agg(t.ticket_atom_id::text ORDER BY t.ticket_atom_id::text) FROM kernel.tickets t
+    WHERE t.event_session_id=tap._fetch147('session')::uuid),
+  'F9: the replay returns the ORIGINAL atom ids (the F3 mint set), not new ones');
+SELECT is(tap._tickets_for(tap._fetch147('session')::uuid), 2, 'F10: still exactly 2 atoms after the replay (no double-mint)');
+SELECT is((SELECT sold::int FROM venue.inventory_batch WHERE batch_id=tap._fetch147('batch')::uuid), 2,
+  'F11: sold is UNCHANGED by the replay (the counter moved exactly once)');
+-- oversell THROUGH THE MINT (R5 P1 remediation): a draw beyond capacity aborts on C27
+SELECT throws_ok(format($$SELECT kernel.issue_ticket_atoms(jsonb_build_object('session_id',%L,'org_id',%L,'ticket_type_id',%L,'batch_id',%L,'owner_id',%L,'quantity',99,'cause','comp','cause_ref',gen_random_uuid(),'signing_key_id',%L),'ck-m-3')$$,
+    tap._fetch147('session'), tap._fetch147('org'), tap._fetch147('tt'), tap._fetch147('batch'), tap.buyer(), tap._fetch147('key')),
+  '23514', NULL, 'F12: the MINT PATH itself aborts on C27 when the draw would exceed capacity (sold 2 + 99 > 100)');
+SELECT ok((SELECT sold::int FROM venue.inventory_batch WHERE batch_id=tap._fetch147('batch')::uuid) = 2
+       AND tap._tickets_for(tap._fetch147('session')::uuid) = 2,
+  'F13: …and the failed oversell mutated NOTHING (sold still 2, atoms still 2)');
+-- and the raw counter CHECK stands on its own
 SELECT throws_ok(format($$UPDATE venue.inventory_batch SET sold=101 WHERE batch_id=%L$$, tap._fetch147('batch')),
-  '23514', NULL, 'F9: C27 — a direct over-write of the counter beyond capacity is rejected (oversell CHECK)');
+  '23514', NULL, 'F14: C27 — a direct over-write of the counter beyond capacity is rejected (oversell CHECK)');
 
 -- ============================================================================
 -- SECTION G — deletion_blockers_wallet (SEAM-2 body; BP-2) + non-crypto wallet RPCs
@@ -218,12 +290,107 @@ SELECT is((kernel.supersede_wallet_passes_for_atom(tap._fetch147('atom')::uuid, 
   'G4: supersede_wallet_passes_for_atom marks the live pass superseded');
 SELECT is(tap._wp_status(tap._fetch147('atom')::uuid), 'superseded', 'G5: …the pass is now superseded');
 SELECT is(kernel.deletion_blockers_wallet(tap.buyer()), NULL, 'G6: …and BP-2 no longer blocks (no issued pass)');
--- touch + record_push are buildable (no crypto)
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel' AND p.proname='sweep_wallet_pass_lifecycle'), 1, 'G7: sweep_wallet_pass_lifecycle exists (cron, non-crypto)');
+
+-- ── the implemented non-crypto RPCs, exercised (R5 remediation) ─────────────
+SELECT tap._store147('wp1', (SELECT wallet_pass_id::text FROM kernel.wallet_pass
+  WHERE ticket_atom_id = tap._fetch147('atom')::uuid AND generation = 1));
+SELECT is((kernel.touch_wallet_pass(tap._fetch147('wp1')::uuid) ->> 'status'), 'ok',
+  'G7: touch_wallet_pass bumps a real pass (ok)');
+SELECT is((kernel.touch_wallet_pass(gen_random_uuid()) ->> 'status'), 'not_found',
+  'G8: touch_wallet_pass on a nonexistent pass says not_found — never a silent ok (E-46)');
+-- revoke is platform-authz-gated: a plain buyer is refused BEFORE any lookup
+SELECT tap.login(tap.buyer());
+SELECT throws_ok($$SELECT kernel.revoke_wallet_pass(gen_random_uuid(),'r','ck')$$, '42501', NULL,
+  'G9: revoke_wallet_pass refuses a non-platform caller (42501)');
+SELECT tap.logout();
+-- a second live pass (on the OTHER atom) + a registered device, for the revoke path
+SELECT tap._store147('atom2', (SELECT ticket_atom_id::text FROM kernel.tickets
+  WHERE event_session_id = tap._fetch147('session')::uuid AND ticket_atom_id <> tap._fetch147('atom')::uuid LIMIT 1));
+WITH insw2 AS (
+  INSERT INTO kernel.wallet_pass (ticket_atom_id, holder_identity_id, generation, serial_no_opaque, pass_type_cert_id,
+      auth_token_enc, auth_token_hash, credential_version_at_build, signing_key_id, status, command_idempotency_key)
+  VALUES (tap._fetch147('atom2')::uuid, tap.buyer(), 1, 'SERIAL-OPAQUE-0000002', tap._fetch147('cert')::uuid,
+          '\x00'::bytea, 'hash2', 0, tap._fetch147('key')::uuid, 'issued', 'ck-wp-2')
+  RETURNING wallet_pass_id
+)
+SELECT tap._store147('wp2', (SELECT wallet_pass_id::text FROM insw2));
+WITH insd AS (
+  INSERT INTO kernel.wallet_pass_device (wallet_pass_id, device_library_identifier, push_token_enc)
+  VALUES (tap._fetch147('wp2')::uuid, 'dev-lib-1', '\x01'::bytea)
+  RETURNING registration_id
+)
+SELECT tap._store147('reg1', (SELECT registration_id::text FROM insd));
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.revoke_wallet_pass(tap._fetch147('wp2')::uuid,'lost_device','ck-rv-1') ->> 'status'), 'ok',
+  'G10: revoke_wallet_pass by a platform admin succeeds');
+SELECT is((kernel.revoke_wallet_pass(tap._fetch147('wp2')::uuid,'lost_device','ck-rv-1') ->> 'status'), 'noop_replay',
+  'G11: revoking an already-terminal pass is a noop_replay (idempotent)');
+SELECT tap.logout();
+SELECT is(tap._wp_status(tap._fetch147('atom2')::uuid), 'revoked', 'G12: …the pass is revoked');
+SELECT ok((SELECT unregistered_at IS NOT NULL FROM kernel.wallet_pass_device
+            WHERE registration_id = tap._fetch147('reg1')::uuid),
+  'G13: …revoke unregistered the pass''s device');
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit
+            WHERE action='wallet_pass.revoke' AND subject_id = tap._fetch147('wp2')::uuid), 1,
+  'G14: …and the revoke is admin-audited (AO §7.12)');
+-- sweep reconciles pass status from the atom's terminal state
+WITH insw3 AS (
+  INSERT INTO kernel.wallet_pass (ticket_atom_id, holder_identity_id, generation, serial_no_opaque, pass_type_cert_id,
+      auth_token_enc, auth_token_hash, credential_version_at_build, signing_key_id, status, command_idempotency_key)
+  VALUES (tap._fetch147('atom')::uuid, tap.buyer(), 2, 'SERIAL-OPAQUE-0000003', tap._fetch147('cert')::uuid,
+          '\x00'::bytea, 'hash3', 0, tap._fetch147('key')::uuid, 'issued', 'ck-wp-3')
+  RETURNING wallet_pass_id
+)
+SELECT tap._store147('wp3', (SELECT wallet_pass_id::text FROM insw3));
+UPDATE kernel.tickets SET state='scanned' WHERE ticket_atom_id = tap._fetch147('atom')::uuid;
+SELECT is((kernel.sweep_wallet_pass_lifecycle() ->> 'reconciled'), '1',
+  'G15: sweep_wallet_pass_lifecycle reconciles exactly the one issued pass whose atom went terminal');
+SELECT is(tap._wp_status(tap._fetch147('atom')::uuid), 'consumed',
+  'G16: …scanned atom → pass consumed (the §11.2 mapping)');
+-- record_wallet_push_result: AO ledger + stat coherence (one attempt, one count — E-46)
+SELECT tap._store147('crefp1', gen_random_uuid()::text);
+SELECT is((kernel.record_wallet_push_result(tap._fetch147('wp2')::uuid, tap._fetch147('reg1')::uuid, 'update',
+    tap._fetch147('crefp1')::uuid, 'sent', 200, NULL) ->> 'status'), 'ok',
+  'G17: record_wallet_push_result appends the attempt (ok)');
+SELECT is((SELECT count(*)::int FROM kernel.wallet_pass_push_log), 1, 'G18: exactly one ledger row');
+SELECT is((kernel.record_wallet_push_result(tap._fetch147('wp2')::uuid, tap._fetch147('reg1')::uuid, 'update',
+    tap._fetch147('crefp1')::uuid, 'sent', 200, NULL) ->> 'status'), 'noop_replay',
+  'G19: the SAME attempt replayed is deduped (noop_replay)');
+SELECT ok((SELECT count(*)::int FROM kernel.wallet_pass_push_log) = 1
+       AND (SELECT push_failure_count FROM kernel.wallet_pass_device WHERE registration_id = tap._fetch147('reg1')::uuid) = 0,
+  'G20: …the replay moved NEITHER the ledger NOR the device stats (E-46 — one attempt, one count)');
+SELECT is((kernel.record_wallet_push_result(tap._fetch147('wp2')::uuid, tap._fetch147('reg1')::uuid, 'update',
+    gen_random_uuid(), 'error', 500, 'apns-500') ->> 'status'), 'ok',
+  'G21: a NEW failed attempt appends');
+SELECT is((SELECT push_failure_count FROM kernel.wallet_pass_device WHERE registration_id = tap._fetch147('reg1')::uuid), 1,
+  'G22: …and increments push_failure_count exactly once');
+-- the push-log AO guard FIRES on the now-populated ledger (backs B5's structural claim)
+SELECT throws_ok($$UPDATE kernel.wallet_pass_push_log SET outcome='x'$$, 'P0001', NULL,
+  'G23: the populated push-log refuses UPDATE (raise_append_only fires)');
+SELECT throws_ok($$DELETE FROM kernel.wallet_pass_push_log$$, 'P0001', NULL,
+  'G24: …and refuses DELETE');
+
+-- ── the four 083 immutability guards FIRE (R5 remediation) ──────────────────
+SELECT throws_ok(format($$UPDATE kernel.wallet_pass SET status='issued' WHERE wallet_pass_id=%L$$, tap._fetch147('wp1')),
+  'P0001', NULL, 'G25: a superseded pass cannot be reversed to issued (forward-only)');
+SELECT throws_ok(format($$DELETE FROM kernel.wallet_pass WHERE wallet_pass_id=%L$$, tap._fetch147('wp1')),
+  'P0001', NULL, 'G26: wallet_pass is never deleted');
+SELECT throws_ok(format($$UPDATE kernel.signing_key SET public_key='TAMPERED' WHERE key_id=%L$$, tap._fetch147('key')),
+  'P0001', NULL, 'G27: signing_key.public_key is immutable after creation');
+SELECT lives_ok(format($$UPDATE kernel.signing_key SET status='revoked' WHERE key_id=%L$$, tap._fetch147('key_rot')),
+  'G28: rotating → revoked is a legal forward transition');
+SELECT throws_ok(format($$UPDATE kernel.signing_key SET status='active' WHERE key_id=%L$$, tap._fetch147('key_rot')),
+  'P0001', NULL, 'G29: revoked is TERMINAL — a revoked key can never be re-activated');
+SELECT throws_ok(format($$UPDATE kernel.pass_type_cert SET certificate_pem='TAMPERED' WHERE pass_type_cert_id=%L$$, tap._fetch147('cert')),
+  'P0001', NULL, 'G30: pass_type_cert identity/cert material is immutable after creation');
+SELECT throws_ok(format($$UPDATE kernel.wallet_pass_device SET device_library_identifier='x' WHERE registration_id=%L$$, tap._fetch147('reg1')),
+  'P0001', NULL, 'G31: wallet_pass_device identity is immutable after registration');
+SELECT throws_ok($$DELETE FROM kernel.wallet_pass_device$$, 'P0001', NULL,
+  'G32: wallet_pass_device is never deleted (unregister sets a timestamp)');
+
 -- SEAM-2 stub is a no-op (returns void, writes nothing) — asserted before venue.door_manifest exists
 SELECT lives_ok(format($$SELECT venue.append_door_manifest_delta(%L, ARRAY[gen_random_uuid()], 'add', gen_random_uuid())$$, tap._fetch147('session')),
-  'G8: append_door_manifest_delta is a silent no-op at 083 (body 086)');
+  'G33: append_door_manifest_delta is a silent no-op at 083 (body 086)');
 
 SELECT finish();
 ROLLBACK;

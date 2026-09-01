@@ -35,6 +35,11 @@ begin
     raise exception 'REFUSED: 083 holds rows (signing_key=%, pass_type_cert=%, wallet_pass=%, device=%, push_log=%). CLEAN-WHILE-EMPTY only (plan §8/083) — live credentials/passes are forward-fix territory.',
       v_k, v_c, v_w, v_d, v_p;
   end if;
+  -- belt (R4): a pass artifact embeds the bearer token — refuse if the bucket holds
+  -- any object, rather than relying on the storage FK to abort at PART 4.
+  if exists (select 1 from storage.objects where bucket_id = 'pkpass') then
+    raise exception 'REFUSED: the pkpass bucket holds objects. CLEAN-WHILE-EMPTY only (plan §8/083).';
+  end if;
 end $$;
 
 -- PART 1 — OR-17 F-5: restore the 077 neutral stub of kernel.deletion_blockers_wallet, VERBATIM.

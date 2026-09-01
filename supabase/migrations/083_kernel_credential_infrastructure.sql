@@ -116,7 +116,12 @@ grant select (key_id, scope, event_id, venue_id, public_key, status, not_before,
 
 drop policy if exists kernel_signing_key_sel_public on kernel.signing_key;
 create policy kernel_signing_key_sel_public on kernel.signing_key for select to authenticated
-  using (public_key is not null);   -- every key's public projection is verifiable; kms_handle_ref withheld by the column grant (I-2: not a literal USING(true))
+  using (public_key is not null);
+  -- DELIBERATELY row-universal (public_key is NOT NULL by constraint): every key's
+  -- public projection is verifiable BY DESIGN — RLS §7.7 verify-key distribution,
+  -- owner-signed PFA-16; recorded E-45. The secret stays column-fenced (kms_handle_ref
+  -- excluded from the grant above). Written non-literally so the I-2 "no USING(true)"
+  -- witness keeps catching ACCIDENTAL universal exposure elsewhere.
 
 -- ============================================================================
 -- PART 2 — kernel.pass_type_cert (WALLET §11.3; public certs + opaque KMS handle)
@@ -301,7 +306,10 @@ create table if not exists kernel.wallet_pass_push_log (
   apns_status     integer,
   apns_reason     text,
   created_at      timestamptz not null default now(),
-  constraint wallet_pass_push_log_dedup_uq unique (wallet_pass_id, trigger_kind, cause_ref, registration_id)
+  -- NULLS NOT DISTINCT: cause_ref/registration_id are nullable members; classic
+  -- unique semantics would never match a NULL pair, so ON CONFLICT DO NOTHING would
+  -- silently re-append duplicate ledger rows on replay (E-46).
+  constraint wallet_pass_push_log_dedup_uq unique nulls not distinct (wallet_pass_id, trigger_kind, cause_ref, registration_id)
 );
 
 drop trigger if exists tg_wallet_pass_push_log_append_only on kernel.wallet_pass_push_log;
@@ -451,6 +459,8 @@ declare
   v_atom     uuid;
   v_atoms    uuid[] := '{}';
   v_ex       uuid[];
+  v_b_session uuid;
+  v_b_tt     uuid;
   i          integer;
 begin
   v_actor := coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1');  -- SN-SYSTEM for import/sweep
@@ -474,7 +484,10 @@ begin
   if v_qty is null or v_qty <= 0 then
     raise exception 'precondition_failed: bad_quantity';
   end if;
-  if v_owner is null or v_batch is null or v_session is null then
+  if v_owner is null or v_batch is null or v_session is null
+     or v_tt is null or v_cause_ref is null then
+    -- cause_ref is the idempotency anchor and tt is the coherence key: a NULL in
+    -- either would silently defeat the replay guard / batch check downstream (E-46).
     raise exception 'precondition_failed: incomplete context';
   end if;
 
@@ -501,17 +514,40 @@ begin
   -- ACTIVATION BOUNDARY (§7.1): an ACTIVE signing_key must resolve for the scope.
   -- Fail closed if the pinned key is missing/inactive — NEVER auto-create one.
   if v_key is null or not exists (
-    select 1 from kernel.signing_key k
+    select 1
+      from kernel.signing_key k
+      join catalog.event_session s on s.session_id = v_session
+      join catalog.event e on e.event_id = s.event_id
      where k.key_id = v_key and k.status = 'active'
        and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
+       -- scope coherence (E-46): the pinned key must GOVERN this session's scope —
+       -- an active-but-wrong-scope key would mint atoms the door cannot verify.
+       and (   (k.scope = 'global')
+            or (k.scope = 'per_event' and k.event_id = s.event_id)
+            or (k.scope = 'per_venue' and k.venue_id = e.venue_id))
   ) then
     raise exception 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted';
   end if;
 
-  -- lock the batch (C27 choke-point) and mint N atoms.
-  perform 1 from venue.inventory_batch b where b.batch_id = v_batch for update;
+  -- rank-1 Event/Session lock (SPEC_FOUNDATION §5 order; DOOR §818; E-46): the
+  -- serial_no counter below is SESSION-scoped while the batch lock is batch-scoped —
+  -- without this, same-session/different-batch mints race to the same serial and the
+  -- loser aborts on tickets_session_serial_uq. Also mutually excludes
+  -- catalog.update_event_session's atoms-issued schedule guard.
+  perform 1 from catalog.event_session s where s.session_id = v_session for update;
+  if not found then
+    raise exception 'not_found: session %', v_session using errcode = 'P0002';
+  end if;
+
+  -- lock the batch (C27 choke-point) and verify ctx coherence (E-46): the sold
+  -- counter and the atoms must move on the SAME session/ticket_type.
+  select b.event_session_id, b.ticket_type_id into v_b_session, v_b_tt
+    from venue.inventory_batch b where b.batch_id = v_batch for update;
   if not found then
     raise exception 'not_found: batch %', v_batch using errcode = 'P0002';
+  end if;
+  if v_b_session <> v_session or v_b_tt <> v_tt then
+    raise exception 'precondition_failed: batch_mismatch — batch % does not belong to the ctx session/ticket_type', v_batch;
   end if;
 
   select coalesce(max(t.serial_no), 0) into v_serial
@@ -544,6 +580,18 @@ begin
   perform venue.append_door_manifest_delta(v_session, v_atoms, 'add', v_cause_ref);
 
   return jsonb_build_object('status','ok','atom_ids', to_jsonb(v_atoms));
+exception when unique_violation then
+  -- concurrent identical retry (E-46): the loser's partial work rolled back to the
+  -- block savepoint; under a fresh snapshot the winner's committed rows are visible.
+  -- Honor the replay contract (the 081 reserve idiom) — any unique_violation NOT
+  -- explained by the idempotency anchor re-raises raw.
+  select array_agg(l.ticket_atom_id order by l.ticket_atom_id) into v_ex
+    from kernel.ticket_ownership_log l
+   where l.cause = 'issue' and l.cause_ref = v_cause_ref;
+  if v_ex is not null and array_length(v_ex, 1) > 0 then
+    return jsonb_build_object('status','idempotency_replay','atom_ids', to_jsonb(v_ex));
+  end if;
+  raise;
 end;
 $$;
 
@@ -658,8 +706,13 @@ $$;
 create or replace function kernel.touch_wallet_pass(p_wallet_pass_id uuid)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
+declare v_n integer;
 begin
   update kernel.wallet_pass set last_updated_at = now() where wallet_pass_id = p_wallet_pass_id;
+  get diagnostics v_n = row_count;
+  if v_n = 0 then
+    return jsonb_build_object('status','not_found');   -- never silent-ok a no-op (E-46)
+  end if;
   return jsonb_build_object('status','ok');
 end;
 $$;
@@ -721,11 +774,18 @@ create or replace function kernel.record_wallet_push_result(
   p_cause_ref uuid, p_outcome text, p_apns_status integer, p_apns_reason text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
+declare v_ins integer;
 begin
   insert into kernel.wallet_pass_push_log (wallet_pass_id, registration_id, trigger_kind,
                                            cause_ref, outcome, apns_status, apns_reason)
   values (p_wallet_pass_id, p_registration_id, p_trigger_kind, p_cause_ref, p_outcome, p_apns_status, p_apns_reason)
   on conflict (wallet_pass_id, trigger_kind, cause_ref, registration_id) do nothing;
+  get diagnostics v_ins = row_count;
+  if v_ins = 0 then
+    -- deduped replay: the ledger already holds this attempt — the device stats MUST
+    -- NOT move again (one attempt, one count — E-46).
+    return jsonb_build_object('status','noop_replay');
+  end if;
   if p_registration_id is not null then
     if p_outcome = 'sent' then
       update kernel.wallet_pass_device set last_push_at = now(), last_push_result = p_outcome

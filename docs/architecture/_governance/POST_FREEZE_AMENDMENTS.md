@@ -1802,4 +1802,77 @@ capacity from the batch counter under the batch `FOR UPDATE`, honoring the 081 o
 (`held+sold<=capacity`) — a blind `held -= q` on a swept/converted hold would double-decrement and abort as
 oversell (buyer paid, no ticket). Recorded so 085's review gates on it. Raised by red-team C (PR #36).
 
+## ERRATA — package 083 (recorded, no amendment needed)
+
+All corrections below are corpus-determined under the freeze §4 test (the corpus uniquely determines each);
+none is a policy choice. The policy decisions 083 executes are separately owner-signed (PFA-16/17/18/18A/20).
+
+**E-41 — the PFA-18A affected-RPC set and the `pass_type_cert` trio signatures, derived mechanically.**
+PFA-18A parks "the credential lifecycle" — the affected set is derived, not chosen: every RPC whose body
+would CREATE or TRANSITION a `kernel.signing_key` or `kernel.pass_type_cert` row =
+`provision_signing_key` (§20.7.3), `rotate_signing_key` (§20.7.4), `provision_pass_type_cert`,
+`rotate_pass_type_cert`, `revoke_pass_type_cert` (§17.23 names the cert trio without signatures).
+`revoke_signing_key` is NOT in the set at 083 — it does not exist here (PFA-17 → 086). Read paths
+(the PFA-16 public projection; the mint's activation-boundary SELECT) are not lifecycle and are NOT parked.
+The cert trio's parameter lists are derived from the §11.3 column set they would populate (identifiers,
+public certs, opaque KMS handle, validity window, reason, command key) — the §20.7.3/.4 shape applied to
+§11.3; pending the real (post-dual-control) bodies these signatures are the frozen-shape projection, and the
+un-parking package re-reviews them against the ratified mechanism. Referenced by PFA-18A ("derived
+mechanically below in the 083 errata (E-41)") — this entry is that record.
+
+**E-42 — `key_id` joins the §7.7 public projection of `kernel.signing_key`.** RLS §7.7 fn-13 lists "only
+public_key, scope, target, status, not_before, not_after" as readable; the 083 column grant adds `key_id`.
+Corpus-determined: the PFA-16 authenticated-verify path resolves the verify key BY `signing_key_id` pinned on
+`kernel.tickets` (§7.1 Writes) — a projection without the join key cannot be joined to, so fn-13's list is a
+spec gap, not a boundary. `key_id` is a non-secret surrogate PK already derivable via
+`kernel.tickets.signing_key_id`. No secret moves; `kms_handle_ref` stays excluded.
+
+**E-43 — WALLET §11.1/§11.2/§11.4 package tags read "084"; the governing PACKAGE_REGISTRY places
+`wallet_pass`/`wallet_pass_device`/`wallet_pass_push_log` (with `pass_type_cert` + the `.pkpass` bucket) in
+083, with 084 = "late-binding FKs … and nothing else."** The registry is the object-placement authority
+(the E-34 class: a stale placement row in one spec vs the governing register). 083 follows the registry.
+Non-blocking correction owed to the WALLET §11.x tags.
+
+**E-44 — the mint's ownership-log rows carry `cause='issue'` for ALL business causes; the business cause
+lives in `inventory_movement.cause` + `state_transition.mint_cause`.** §7.1's literal "ownership_log
+`cause`" cannot hold `comp`/`door_sale`/`import`: the immutable 079 `ownership_log_from_identity_check`
+REQUIRES `cause='issue'` on every from-NULL sequence-1 row. Corpus-determined reconciliation — the
+constraint is the stronger, frozen artifact; the business cause is preserved losslessly one column over.
+
+**E-45 — `kernel_signing_key_sel_public` is deliberately row-universal; I-2 interaction recorded.** The
+PFA-16-signed surface is "every signing key's public projection readable by any authenticated principal"
+(§7.7 verify-key distribution) — a row predicate that admits every row IS the design, not an accident. The
+qual is written `public_key is not null` (row-universal under the NOT NULL constraint) rather than literal
+`USING(true)` so the standing I-2 witness ("no USING(true) anywhere") keeps its power to catch ACCIDENTAL
+universal exposure on tables where universality was never signed. The secret column stays grant-fenced.
+Raised by red-team R2 (PR #37).
+
+**E-46 — mint-engine hardening: five corpus-determined corrections applied at review.** (a) rank-1
+Event/Session `FOR UPDATE` added before serial allocation — SPEC_FOUNDATION §5 lock order + DOOR §818 mandate
+the rank-1 lock, and CDM's "all inventory draws for a session serialize within this aggregate" uniquely
+determines session-scope serialization (the batch-only lock raced same-session/different-batch mints to the
+same `serial_no`); it also mutually excludes `catalog.update_event_session`'s atoms-issued schedule guard.
+(b) `EXCEPTION WHEN unique_violation` replay path — the frozen idempotency contract ("a replay returns the
+original atoms", the 081 reserve idiom) must hold for CONCURRENT retries, not only sequential ones.
+Residual (accepted): the ownership log carries no single-column unique on `cause_ref`, so the anchor is
+contractual — one `cause_ref` = one mint attempt-set (the 085/finalize caller contract); a cross-session
+`cause_ref` reuse is caller error and surfaces raw. (c) batch↔ctx coherence — the batch's
+`event_session_id`/`ticket_type_id` must equal the ctx's (the sold counter and the atoms move together);
+`ticket_type_id`+`cause_ref` join the required-context set (a NULL anchor silently defeated the replay
+guard). (d) signing-key SCOPE coherence in the activation boundary — the §7.1 raise text already said "must
+resolve for the event scope"; the predicate now enforces it (global | per_event=session's event |
+per_venue=event's venue). (e) `record_wallet_push_result` stat-gating + `wallet_pass_push_log_dedup_uq`
+NULLS NOT DISTINCT + `touch_wallet_pass` not_found — the AO ledger and the device stats must agree (one
+attempt, one count; no silent-ok no-ops; a NULL dedup member must still dedup). Raised by red-teams
+R1/R6 (PR #37).
+
+**E-47 — forward obligations recorded from the 083 red team.** (a) The un-parking packages MUST add in-DB
+principal checks to the parked bodies (`mint_wallet_pass`, the lifecycle five): at 083 they are
+`authenticated`-granted and rely on edge-fronting (G-7) — fail-closed today, but the real bodies must not
+trust the edge tier alone (raised by R2/R7). (b) 085/finalize MUST decrement `held` BEFORE (or atomically
+with) invoking the mint's `sold += N` in the same transaction — the C27 CHECK `held+sold<=capacity` aborts a
+mint of still-held units otherwise (the E-40 ordering corollary; raised by R6). (c) When rotation un-parks:
+the mint's activation-boundary key check is not `FOR UPDATE`-locked against a concurrent status flip —
+benign while rotation is parked; re-review at un-park (raised by R6).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
