@@ -20,6 +20,14 @@ $m$ INSERT INTO tap.memo_149 VALUES (k, v) ON CONFLICT (k) DO UPDATE SET v = exc
 CREATE FUNCTION tap._fetch149(k text) RETURNS text
 LANGUAGE sql SECURITY DEFINER AS
 $m$ SELECT v FROM tap.memo_149 WHERE k = $1 $m$;
+-- phase-0 allows ONE succeeded payment per listing — mint a fresh listing per payment
+CREATE FUNCTION tap._newlisting149() RETURNS uuid LANGUAGE sql SECURITY DEFINER AS
+$m$ INSERT INTO public.listings (seller_id, event_name, venue, neighborhood, event_date, event_time,
+      ticket_type, quantity, transfer_method, starting_bid, current_bid, duration_hours, ends_at, cover_image_path)
+    VALUES (tap.seller(), 'Money Night ' || gen_random_uuid()::text, 'Money Hall', 'wynwood',
+      (now()+interval '15 days')::date, '20:00', 'GA', 2, 'mobile_transfer', 5000, 5000, 24,
+      now()+interval '1 day', 'covers/fixture.jpg')
+    RETURNING id $m$;
 
 -- ============================================================================
 -- SECTION A — THE 085 CLOSED WORLD
@@ -276,7 +284,7 @@ WITH insi2 AS (
 SELECT tap._store149('item2', (SELECT id::text FROM insi2));
 WITH insp3 AS (
   INSERT INTO public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, total, status, mode)
-  VALUES (tap._fetch149('listing')::uuid, tap.buyer(), tap.seller(), 9000, 1000, 10000, 'succeeded', 'buy_now')
+  VALUES (tap._newlisting149(), tap.buyer(), tap.seller(), 9000, 1000, 10000, 'succeeded', 'buy_now')
   RETURNING id
 )
 SELECT tap._store149('payment2', (SELECT id::text FROM insp3));
@@ -370,7 +378,7 @@ WITH inso4 AS (
 SELECT tap._store149('order3', (SELECT order_id::text FROM inso4));
 WITH insp4 AS (
   INSERT INTO public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, total, status, mode)
-  VALUES (tap._fetch149('listing')::uuid, tap.buyer(), tap.seller(), 3600, 400, 4000, 'succeeded', 'buy_now')
+  VALUES (tap._newlisting149(), tap.buyer(), tap.seller(), 3600, 400, 4000, 'succeeded', 'buy_now')
   RETURNING id
 )
 SELECT tap._store149('payment3', (SELECT id::text FROM insp4));
