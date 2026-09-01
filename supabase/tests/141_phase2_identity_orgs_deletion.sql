@@ -53,7 +53,7 @@ SELECT is(
     WHERE n.nspname = 'kernel' AND c.relkind = 'r'),
   -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
-  17, '077 A13: exactly SEVENTEEN kernel tables (077''s twelve + 079''s custody three + 082''s two consent tables)');
+  22, '077 A13: exactly TWENTY-TWO kernel tables (17 post-082 + 083''s five credential/wallet tables)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -70,7 +70,7 @@ SELECT is(
   -- 2026-08-31 (package 080): 48 -> 52 — the four §1.1a/§2.2 predicates
   -- (has_venue_role, has_event_role, has_org_role_over_venue,
   -- has_org_role_over_event), named in 144 A16-A19.
-  55, '077 A14: exactly 55 kernel functions (52 post-080 + 082''s three org-consent RPCs)');
+  75, '077 A14: exactly 75 kernel functions (55 post-082 + 083''s twenty credential/wallet/mint fns)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -138,7 +138,7 @@ SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
-  17, '077 C1: RLS is ENABLED on all seventeen tables (deny-by-default at birth)');
+  22, '077 C1: RLS is ENABLED on all twenty-two tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');

@@ -1118,18 +1118,18 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 17,
-  -- 2026-08-31 (package 079): 12 -> 15; (package 082): 15 -> 17 — the two
-  -- org-consent tables. 078 itself still added none.
-  'K1: kernel holds seventeen tables — 079 added custody three, 082 added consent two');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 22,
+  -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
+  -- credential/wallet tables.
+  'K1: kernel holds twenty-two tables — 082 added consent two, 083 added credential/wallet five');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 55,
-  -- 2026-08-31 (package 080): 48 -> 52; (package 082): 52 -> 55 (the three
-  -- org-consent RPCs; suite 146 names them).
-  'K3: kernel holds 55 functions — 52 post-080 plus 082''s three org-consent RPCs');
+            WHERE n.nspname = 'kernel'), 75,
+  -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
+  -- credential/wallet/mint functions; suite 147 names them).
+  'K3: kernel holds 75 functions — 55 post-082 plus 083''s twenty');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 11,
   -- 2026-08-31 (package 080): 10 -> 11 (kernel_tickets_sel_venue, AUTHZ-PKG1).

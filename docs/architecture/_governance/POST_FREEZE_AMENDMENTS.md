@@ -1121,6 +1121,266 @@ FORWARD OBLIGATION (governed → 085): `085_kernel_money_native` MUST include `G
                              Until 085 lands, cancel is inert (dark rail).
 ```
 
+## PFA-16 — the frozen `anon`-reads-`signing_key.public_key` arm is undeliverable under the immutable 076 kernel schema wall (the PFA-14 class, one schema over)
+
+```
+ID:                          PFA-16
+FROZEN RULE:                 RLS §7.7 grades `anon` an `A` read of `kernel.signing_key`'s public projection
+                             (`public_key, scope, event_id/venue_id, status, not_before, not_after`), plan
+                             §8/083's RLS row calls it "world-readable", and plan §8/083's Tests row asserts
+                             "Anon reads `public_key` but NOT `kms_handle_ref`."
+IMPLEMENTATION CONFLICT:     migration 076 (immutable, hash-locked) grants `kernel` schema USAGE to
+                             `authenticated` ONLY (for function EXECUTE) and `REVOKE ALL … FROM PUBLIC,
+                             anon, authenticated`; plan §8/076's test asserts
+                             `has_schema_privilege('anon','kernel','USAGE') = false`. An `anon` principal
+                             hits a schema-level 42501 at the `kernel` wall BEFORE any column grant or the
+                             `_sel_public` policy runs — the EXACT wall E-30 recorded for the `venue`
+                             schema and the owner ratified as PFA-14. No post-freeze amendment covered the
+                             `kernel`/`signing_key` instance. (Even the `authenticated` arm needs an
+                             explicit column GRANT that 083 must add, since 076 revokes all kernel table
+                             privileges.)
+OPTIONS:                     (a) fail-closed — 083 GRANTs the public-key column projection to
+                                 `authenticated` only (the deliverable half — any signed-in fan reads the
+                                 verify key); anon door/verification reads the verify key via the 086
+                                 door-manifest / public read surface, NOT a raw kernel table SELECT. Anon
+                                 kernel access stays CLOSED. CHOSEN by owner — the PFA-14 parallel.
+                             (b) grant `anon` kernel USAGE + column SELECT — widens 076's boundary.
+                             (c) defer the authenticated arm only, anon TBD.
+OWNER SIGNATURE REQUIRED:    YES — an external/anon access-boundary choice the corpus does not uniquely
+                             determine, identical to the PFA-14 class. Raised independently by both 083
+                             derivation passes (2026-08-31).
+```
+
+### PFA-16 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING:                Option (a) — fail-closed to `authenticated` (the PFA-14 parallel). 083 grants
+                             the public-key column projection to `authenticated` only; anon door/
+                             verification reads the verify key through the 086 manifest / public read
+                             surface, not a raw kernel table SELECT. Direct `anon` `kernel`-schema access
+                             stays CLOSED (076 boundary unchanged).
+INTERPRETATION CONSTRAINTS (owner-scoped): 083 adds NO `anon` grant and does NOT widen 076's kernel
+                             schema USAGE; the `kernel_signing_key_sel_public` policy + column grant are
+                             scoped to `authenticated`; `kms_handle_ref` stays service_role/platform only;
+                             no key material anywhere (C33). Activates nothing.
+FORWARD OBLIGATION (governed): unauthenticated door/verification access to the verify key is delivered by
+                             the 086 door-manifest / public read surface (which carries `public_key` in
+                             the manifest), preserving the §7.7 public-projection semantics WITHOUT
+                             exposing the raw `kernel` schema to `anon`. 086's review gates on it.
+```
+
+## PFA-17 — `kernel.revoke_signing_key` cannot be authored at 083 (its frozen body writes 086 `venue.door_manifest` + emits via the 092 outbox); plan §8/083 and R2/ODR2 disagree on its package
+
+```
+ID:                          PFA-17
+FROZEN RULE:                 plan §8/083's Functions row lists `provision_/rotate_/revoke_signing_key`;
+                             schema §1.7 write-authority and the RPC EXEC register also place
+                             `revoke_signing_key` at 083.
+IMPLEMENTATION CONFLICT:     RPC §20.7.5's mandated body force-closes every open `venue.door_manifest`
+                             (086) episode in scope (lock order `catalog.event_session` → `door_manifest`
+                             → `signing_key`) and emits #44 DoorManifestInvalidated (REQUIRED-RAISING,
+                             via the 092 notify outbox). `venue.door_manifest` and the outbox drain do not
+                             exist at 083, and 083 cannot depend forward on 086/092 (`083 → 086` is a
+                             forward edge). R2_EMITTER row 6 and ODR2 row 12 classify `revoke_signing_key`
+                             as an **086** function. Unlike `append_door_manifest_delta` and the 085 void
+                             paths, NO document declares a stub-083/body-086 SEAM-2 split for it.
+OPTIONS:                     (a) author `revoke_signing_key` in 086 (where `door_manifest` exists); 083
+                                 ships `provision` + `rotate` only. Follows the corpus's own SEAM-1
+                                 (max-over-reads/writes/calls) rule and reconciles with R2/ODR2's 086
+                                 classification. CHOSEN by owner.
+                             (b) stub in 083, body in 086 (a new declared SEAM-2 edge).
+                             (c) full body in 083 with late-bound guards — implements 086/092 operands
+                                 early, against the no-forward-reference discipline.
+OWNER SIGNATURE REQUIRED:    YES — two frozen normative sources conflict on package placement and
+                             precedence does not uniquely resolve it (freeze §4 / auto-merge §3.C).
+                             Raised independently by both 083 derivation passes.
+```
+
+### PFA-17 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING:                Option (a) — `kernel.revoke_signing_key` is authored in **086** (the door
+                             package), NOT 083. 083 ships `provision_signing_key` + `rotate_signing_key`
+                             only. The revoke's door-episode force-close + #44 emit belong with the door
+                             manifest and the outbox drain.
+CONSEQUENCE:                 083's function set is the closed world MINUS `revoke_signing_key`: 17 new
+                             functions (2 signing-key lifecycle + 3 pass_type_cert + 10 wallet +
+                             issue_ticket_atoms + the append_door_manifest_delta stub) + the
+                             deletion_blockers_wallet body-replace. schema §1.7's write-authority row and
+                             the plan §8/083 function row are owed a non-blocking correction moving
+                             `revoke_signing_key` to 086.
+FORWARD OBLIGATION (governed → 086): `086_venue_door_and_scan` MUST author `kernel.revoke_signing_key`
+                             (§20.7.5) with the door-episode force-close + #44 emit; 086's review gates on
+                             it. Until 086 lands, a signing key can be provisioned/rotated but not revoked
+                             — acceptable while the rail is dark (no live credentials to revoke).
+```
+
+## PFA-18 — dual-control on the signing-key trio is authored by inference (RLS §11.1 is silent; §11.7 mandates it for pass_type_cert)
+
+```
+ID:                          PFA-18
+FROZEN RULE:                 RLS §11.7 mandates a second approver (via `kernel.approval_request`) for the
+                             `pass_type_cert` lifecycle; RPC §20.7.3 authors dual control for
+                             `provision_signing_key` "with it, and flagged" (INFERENCE — AUTHORED, R-11).
+IMPLEMENTATION CONFLICT:     RLS §11.1 does not spell out dual control for the signing-key trio, so whether
+                             provisioning/rotating a signing key requires a second approver is a role-
+                             authority choice the corpus authored only by inference and flagged for the
+                             owner (R-11).
+OWNER SIGNATURE REQUIRED:    YES — a role-authority / security-boundary choice (auto-merge §3.B). Raised
+                             by both derivation passes; the RPC contract itself flags it.
+```
+
+### PFA-18 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING:                YES — the signing-key lifecycle at 083 (`provision_signing_key`,
+                             `rotate_signing_key`) is DUAL-CONTROLLED: a second `platform_admin` approver
+                             via `kernel.approval_request`, parallel to `pass_type_cert`. A signing key is
+                             at least as consequential; matches the RPC's authored-by-inference default.
+                             (`revoke_signing_key` carries the same discipline when authored in 086 — PFA-17.)
+```
+
+## PFA-18A — PFA-18's dual-control-via-`kernel.approval_request` mechanism is STRUCTURALLY UNBUILDABLE from 083 (the PFA-4 class reaches the credential lifecycle); the affected RPCs FAIL CLOSED
+
+```
+ID:                          PFA-18A  (implementation consequence of PFA-18 × the PFA-4 impossibility class)
+FROZEN RULE:                 RPC §20.7.3-4 (signing-key provision/rotate) and §17.23/§11.7 (pass_type_cert
+                             lifecycle) contract dual control via `kernel.approval_request`: write the
+                             approval on the first call, activate the credential on the SECOND approver's
+                             approval only (SoD via `approval_request_sod_check`).
+IMPLEMENTATION CONFLICT:     `kernel.approval_request` (077, immutable, hash-locked) constrains
+                             `action ∈ ('refund.issue','payout.request','config.set_money_key')` and
+                             `subject_kind ∈ ('order','settlement','config_key')`. NEITHER can represent a
+                             `signing_key` or `pass_type_cert` approval. A credential approval INSERT would
+                             VIOLATE the frozen CHECK; 083 must not mutate 077, must not extend its
+                             action/subject vocabulary, and must not semantically lie (encoding a credential
+                             as `config_key`/etc.). This is the exact impossibility PFA-4 recorded for
+                             `grant_platform_role`'s dual-control parking — now reaching the credential trio.
+OPTIONS:                     (a) fail-closed park: every affected credential lifecycle RPC keeps its frozen
+                                 signature and raises a stable `precondition_failed` (dual-control
+                                 unavailable), performing ZERO credential mutation/activation/partial-
+                                 approval/authority-escalation, until a credential-compatible dual-control
+                                 mechanism is separately ratified. CHOSEN by owner (PFA-18A). Preserves the
+                                 dual-control SECURITY REQUIREMENT unchanged.
+                             (b) single-control fallback (platform_admin alone) — REJECTED by owner: the
+                                 unavailable approval mechanism does NOT authorize downgrading the security
+                                 requirement.
+                             (c) extend/overload 077's approval_request — REJECTED: 077 is immutable and
+                                 semantic lying is prohibited.
+OWNER SIGNATURE REQUIRED:    YES — preserving a dual-control security boundary while its ratified mechanism
+                             is structurally unavailable is an owner decision (not a corpus-determined
+                             correction). Discovered during 083 implementation; both derivation passes +
+                             the §20.7.3 contract's own flag.
+```
+
+### PFA-18A — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING (verbatim key points): "PFA-18A APPROVED — preserve PFA-18's dual-control requirement for
+                             signing-key and pass-type-certificate credential lifecycle operations, but
+                             reject extending or semantically overloading Package 077's immutable
+                             kernel.approval_request closed sets from Package 083. Until a credential-
+                             compatible dual-control mechanism is separately ratified and implemented, every
+                             affected credential lifecycle RPC MUST FAIL CLOSED. The unavailable approval
+                             mechanism does not authorize single-control fallback. … This ruling changes the
+                             implementation mechanism only. It does NOT remove or weaken the dual-control
+                             security requirement."
+INTERPRETATION CONSTRAINTS (owner-stated): dual-control REQUIREMENT preserved · NO single-control fallback ·
+                             077 NOT mutated · no credential vocabulary added to approval_request · no
+                             semantic overloading (order/settlement/config_key) · fail-closed path performs
+                             ZERO credential mutation / signing-key activation / cert activation / partial
+                             approval / authority escalation · test rollback · PFA-4 remains intact, PFA-18
+                             remains intact, PFA-18A records the newly-discovered credential application.
+AFFECTED RPCS (fail-closed at 083): derived mechanically below in the 083 errata (E-41).
+FORWARD OBLIGATION (governed): a credential-compatible dual-control mechanism is REQUIRED before the parked
+                             credential lifecycle RPCs may become operational. OWNER: UNASSIGNED — the
+                             frozen package/DAG does not uniquely assign it; it is NOT arbitrarily assigned
+                             to 084–092, and 083 builds NO generalized approval framework / shadow approval
+                             system. A later design chooses the mechanism through separate ratification.
+STILL CLOSED:                credential provisioning/rotation (parked) · native issuance (dark) · Wallet
+                             (dark) · production. A parked provisioning path must NOT make minting usable
+                             with missing/uninitialized credential material (activation boundary tested).
+```
+
+## PFA-20 — the wallet bearer-token envelope-encryption / hash mechanism is under-specified; the affected wallet RPCs FAIL CLOSED (owner: DO NOT INVENT CRYPTOGRAPHY)
+
+```
+ID:                          PFA-20
+FROZEN RULE:                 `kernel.wallet_pass.auth_token_enc`/`auth_token_hash` and
+                             `kernel.wallet_pass_device.push_token_enc` must be "envelope-encrypted"
+                             (WALLET §11.1-§11.4, secret-custody table); `mint_wallet_pass` generates the
+                             per-pass token in-DB (returns plaintext once) and `register_wallet_pass_device`
+                             takes a plaintext push token and "encrypts" it; auth is a constant-time compare
+                             of a token HASH (I-9).
+IMPLEMENTATION CONFLICT:     the frozen corpus fixes the custody/exposure NON-NEGOTIABLES (bytea, service_role
+                             only, returned by no RPC, plaintext forbidden at rest/in logs, paired hash) but
+                             names NO encryption primitive and NO key-custody source; NO crypto extension is
+                             installed by 076-083 (only pg_cron/pg_net); the sole DB-secret precedent is
+                             Supabase Vault holding a single service_role_key (not per-row column crypto). And
+                             the contract has an internal tension: it names the DB RPCs as the encryptors, yet
+                             the DB has no crypto primitive, no key parameter, and is barred from calling KMS
+                             (unlike the signing keys, which store an opaque KMS handle and let the edge
+                             encrypt). The token-HASH primitive (`auth_token_hash`) has the same gap (no
+                             installed digest). Two independent derivation passes (main + a dedicated security
+                             subagent) confirmed the mechanism is nowhere specified.
+AFFECTED RPCS (fail-closed at 083): the FIVE wallet RPCs that generate/encrypt OR hash-authenticate a bearer
+                             token — `mint_wallet_pass`, `register_wallet_pass_device`,
+                             `get_wallet_pass_build_context`, `list_updated_wallet_passes`,
+                             `unregister_wallet_pass_device`. The other five wallet RPCs
+                             (`supersede_wallet_passes_for_atom`, `touch_wallet_pass`, `revoke_wallet_pass`,
+                             `sweep_wallet_pass_lifecycle`, `record_wallet_push_result`) carry no token-crypto
+                             dependency and are IMPLEMENTED.
+OPTIONS:                     (a) fail-closed park the five affected RPCs (each keeps its frozen signature,
+                                 gates on `wallet.apple.enabled` [dark], then raises
+                                 `token_encryption_unavailable`; ZERO token material generated/hashed/
+                                 encrypted/stored). The mechanism is a governed forward obligation decided
+                                 by the package/owner that activates Wallet. CHOSEN by owner.
+                             (b) decide the in-Postgres key-managed mechanism now (an installed crypto
+                                 extension + a managed key source) — deferred.
+                             (c) move encryption to the edge/KMS with ciphertext-in — requires amending the
+                                 frozen `mint_wallet_pass`/`register` contracts — deferred.
+OWNER SIGNATURE REQUIRED:    YES — a cryptographic-architecture / key-custody choice the corpus does not
+                             determine; the owner ruled DO NOT INVENT CRYPTOGRAPHY and to return the smallest
+                             decision. Discovered during 083 implementation.
+```
+
+### PFA-20 — OWNER SIGNATURE (recorded 2026-08-31)
+
+```
+STATUS:                      SATISFIED / RATIFIED (fail-closed park; mechanism deferred)
+OWNER SIGNATURE REQUIRED:    YES
+OWNER SIGNATURE:             APPROVED
+OWNER RULING:                Option (a) — fail-closed park the five affected wallet token-crypto RPCs now,
+                             decide the encryption/key-custody mechanism at Wallet activation. No
+                             cryptography is invented in 083. 083 meets its frozen closed world with these
+                             five explicitly-ratified fail-closed objects (parallel to PFA-18A) plus the five
+                             implemented non-crypto wallet RPCs.
+INTERPRETATION CONSTRAINTS (owner-stated): DO NOT INVENT CRYPTOGRAPHY — no plaintext at rest, no
+                             base64-as-encryption, no reversible obfuscation, no invented master key, no key
+                             in SQL, no hard-coded key, no reusing signing keys for token encryption, no
+                             silently choosing pgcrypto with unmanaged custody, no plaintext token in a
+                             client-readable column or in logs. The parked path generates/stores NO token.
+FORWARD OBLIGATION (governed): a ratified envelope-encryption mechanism (primitive + key custody + encryption
+                             locus — in-Postgres managed key vs edge/KMS ciphertext-in) is REQUIRED before the
+                             five affected wallet RPCs may become operational. OWNER: UNASSIGNED — the frozen
+                             DAG does not uniquely assign it; it is decided by the package/owner that
+                             activates Wallet, through separate review. Until then the five are parked and
+                             Wallet stays dark.
+STILL CLOSED:                Wallet (dark + parked crypto) · native issuance (dark) · production.
+```
+
 ## ERRATA — package 078 (recorded, no amendment needed)
 
 **E-1 — `public.profiles` seed uses `ON CONFLICT DO UPDATE`, not `DO NOTHING`.** Schema §1.16 requires
