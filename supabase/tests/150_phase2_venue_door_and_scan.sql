@@ -115,6 +115,9 @@ SELECT tap.login(tap.seller());
 SELECT tap._store150('event', (catalog.create_event(tap._fetch150('venue')::uuid,'Door Night',
   jsonb_build_object('starts_at',(now()+interval '10 days')::text,'ends_at',(now()+interval '10 days 5 hours')::text),'ck86-e') ->> 'event_id'));
 SELECT tap._store150('session', (SELECT session_id::text FROM catalog.event_session WHERE event_id=tap._fetch150('event')::uuid));
+-- a SECOND session whose door is NEVER opened — the D13 silent-no-op target.
+SELECT tap._store150('session2', (catalog.create_event_session(tap._fetch150('event')::uuid,
+  jsonb_build_object('starts_at',(now()+interval '11 days')::text,'ends_at',(now()+interval '11 days 4 hours')::text),'ck86-s2') ->> 'session_id'));
 SELECT tap._store150('tt', (venue.create_ticket_type(tap._fetch150('event')::uuid,'admission','GA',5000,'public','ck86-tt') ->> 'ticket_type_id'));
 SELECT tap._store150('batch', (venue.create_inventory_batch(tap._fetch150('tt')::uuid, tap._fetch150('session')::uuid, 'comp', 100, 0, 'ck86-b') ->> 'batch_id'));
 SELECT tap.logout();
@@ -179,10 +182,12 @@ SELECT (SELECT venue.append_door_manifest_delta(tap._fetch150('session')::uuid,
           'revoke', gen_random_uuid()));
 SELECT ok((SELECT count(*)::int FROM venue.door_manifest_delta WHERE manifest_id=tap._fetch150('mid')::uuid AND op='revoke')=1,
   'D12: a revoke delta appends (bare payload; MP-1 CHECKs satisfied)');
--- the SEAM body is a SILENT NO-OP where no episode is open (another session)
-SELECT tap._store150('session2', (SELECT session_id::text FROM catalog.event_session WHERE event_id=tap._fetch150('event')::uuid AND session_id <> tap._fetch150('session')::uuid LIMIT 1));
-SELECT lives_ok(format($$SELECT venue.append_door_manifest_delta(%L, ARRAY[gen_random_uuid()], 'add', gen_random_uuid())$$, tap._fetch150('session')),
-  'D13: append_door_manifest_delta on a session with no OTHER open episode still succeeds (idempotent)');
+-- the SEAM body is a SILENT NO-OP when the target session has no open episode
+-- (session2's door was never opened). op='add' + a random atom would trip the MP-1
+-- payload CHECKs IF it reached the insert — it must NOT: no open episode ⇒ early
+-- return (DOOR §7.7), so this lives.
+SELECT lives_ok(format($$SELECT venue.append_door_manifest_delta(%L, ARRAY[gen_random_uuid()], 'add', gen_random_uuid())$$, tap._fetch150('session2')),
+  'D13: append_door_manifest_delta on a session with no open episode is a silent no-op');
 -- close
 SELECT tap.login(tap.seller());
 SELECT is((venue.close_door_manifest(tap._fetch150('session')::uuid,'doors_closed','ck86-d-3') ->> 'status'), 'ok', 'D14: close the episode');
