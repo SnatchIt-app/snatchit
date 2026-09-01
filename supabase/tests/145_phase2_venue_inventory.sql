@@ -47,8 +47,8 @@ SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
   'inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,staff_role,ticket_type',
   'A2: exactly the frozen names — order/order_item present (082), inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 15,
-  'A4: venue holds FIFTEEN functions — 082''s fourteen + 083''s append_door_manifest_delta');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 18,
+  'A4: venue holds EIGHTEEN functions — 15 post-083 + 085''s finalize + two SEAM-2 stubs');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
@@ -86,8 +86,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND ((p.proname LIKE 'deletion_blockers%' AND btrim(p.prosrc)<>'select null::text')
                OR (p.proname LIKE 'on_identity_erased%' AND btrim(p.prosrc)<>'select')
                OR (p.proname='on_deletion_q5_release' AND btrim(p.prosrc)<>'select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 4,
-  'A17: SEAM-2 has EXACTLY four real bodies (079 custody + 080 staff + 082 orders + 083 wallet)');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 7,
+  'A17: SEAM-2 has EXACTLY seven real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5)');
 SELECT ok(btrim((SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))<>'select null::text',
   'A18: deletion_blockers_orders now carries its real BP-12 pending-order body (082 filled it)');

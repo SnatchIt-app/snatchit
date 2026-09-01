@@ -1894,4 +1894,31 @@ exception to the single-txn discipline, decided at that package's review — or 
 profile explicitly. Purity invariant intact: this is a comment/record correction; 084's object list is
 untouched. Raised by red-team B (PR #38).
 
+## PFA-21 — service_role cannot reach the 085 kernel state-sync entry RPCs under the immutable 076 kernel wall (the PFA-14/15/16 class, fourth instance) — kernel USAGE granted at 085
+
+**OWNER-SIGNED 2026-09-01.** `kernel.mark_refund_state`, `kernel.mark_payout_transfer_state` and
+`kernel.record_identity_obligation` are DEF/service_role-only ENTRY functions whose sole contracted
+callers are service_role edge sessions (stripe-webhook, payout-execute, refund-execute — RPC §20.7.6/.7/.10).
+Immutable 076 grants kernel USAGE to `authenticated` only (076:77), and PFA-15's ruling widened venue ONLY,
+stating kernel/catalog need their own ruling. Without it every Stripe state-sync silently dead-ends
+(a refund stays `pending` forever once the rail activates). **RULING: 085 ships
+`GRANT USAGE ON SCHEMA kernel TO service_role` — USAGE ONLY.** No table/DML grants ride along; EXECUTE
+stays per-function; the deny-by-default table posture is unchanged; anon is NOT widened (PFA-14 intact);
+catalog is NOT touched. 085's review gates on this grant being present and USAGE-scoped.
+
+## PFA-22 — OPEN-2 closed: the BP-12 refund-possible window gets a DEDICATED config operand with candidate-scoped NULL semantics
+
+**OWNER-SIGNED 2026-09-01 (verbatim semantics).** The deletion-machine spec left BP-12's "a refund is
+still possible for recent orders" window with no named key or operand (DSM OPEN-2). RULING: create a
+dedicated operand **`deletion.refund_possible_window_hours`** — do NOT reuse
+`refund.buyer_self_service_window_hours`. Initial value NULL / owner-unset (seeded at 085,
+visibility `restricted`). **NULL is fail-closed ONLY when a relevant BP-12 candidate order exists**: if
+the blocker needs the refund-possible window (a qualifying candidate order is present) and the value is
+NULL, deletion completion is BLOCKED; if there are NO qualifying candidate orders, NULL by itself must
+NOT block deletion. The key controls DELETION SAFETY ONLY — it does not create refund eligibility and
+does not change buyer refund policy. Implementation note (085): candidates = the identity's
+`venue.order` rows in `paid`/`partially_refunded`; the window is measured from `created_at` (the only
+stable timestamp on the immutable 082 table — it expires no later than a paid-time window would, and the
+in-flight-refund arm of `deletion_blockers_money` covers active requests independently).
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
