@@ -142,9 +142,9 @@ UPDATE venue.inventory_batch SET held = 2 WHERE batch_id = tap._fetch149('batch'
 -- the frozen public rail: a listing + a SUCCEEDED payment for the buyer
 WITH insl AS (
   INSERT INTO public.listings (seller_id, event_name, venue, neighborhood, event_date, event_time,
-                               ticket_type, quantity, transfer_method, starting_bid, current_bid, duration_hours, ends_at)
+                               ticket_type, quantity, transfer_method, starting_bid, current_bid, duration_hours, ends_at, cover_image_path)
   VALUES (tap.seller(), 'Money Night', 'Money Hall', 'wynwood', (now()+interval '15 days')::date, '20:00',
-          'GA', 2, 'mobile_transfer', 5000, 5000, 24, now()+interval '1 day')
+          'GA', 2, 'mobile_transfer', 5000, 5000, 24, now()+interval '1 day', 'covers/fixture.jpg')
   RETURNING id
 )
 SELECT tap._store149('listing', (SELECT id::text FROM insl));
