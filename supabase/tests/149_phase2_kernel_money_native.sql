@@ -223,8 +223,8 @@ SELECT tap.logout();
 SELECT tap.login(tap.admin_user());
 SELECT is((kernel.refund_primary_order(tap._fetch149('order')::uuid, 10000, 'admin_action', 'ck85-r-1') ->> 'status'),
   'ok', 'D2: platform_admin executes a full refund');
-SELECT tap._store149('refund', (SELECT r.refund_id::text FROM kernel.refund r WHERE r.idempotency_key='ck85-r-1'));
 SELECT tap.logout();
+SELECT tap._store149('refund', (SELECT r.refund_id::text FROM kernel.refund r WHERE r.idempotency_key='ck85-r-1'));
 SELECT ok((SELECT bool_and(t.state = 'voided' AND t.current_owner_id = '00000000-0000-0000-0000-0000000000f0'
                            AND t.credential_version = 1)
              FROM kernel.tickets t WHERE t.event_session_id = tap._fetch149('session')::uuid),
