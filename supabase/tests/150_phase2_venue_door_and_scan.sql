@@ -6,7 +6,7 @@
 -- (incl. revoke) is PARKED (PFA-18A). BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(62);
+SELECT plan(63);
 
 SELECT tap.seed_core();
 
@@ -115,9 +115,6 @@ SELECT tap.login(tap.seller());
 SELECT tap._store150('event', (catalog.create_event(tap._fetch150('venue')::uuid,'Door Night',
   jsonb_build_object('starts_at',(now()+interval '10 days')::text,'ends_at',(now()+interval '10 days 5 hours')::text),'ck86-e') ->> 'event_id'));
 SELECT tap._store150('session', (SELECT session_id::text FROM catalog.event_session WHERE event_id=tap._fetch150('event')::uuid));
--- a SECOND session whose door is NEVER opened — the D13 silent-no-op target.
-SELECT tap._store150('session2', (catalog.create_event_session(tap._fetch150('event')::uuid,
-  jsonb_build_object('starts_at',(now()+interval '11 days')::text,'ends_at',(now()+interval '11 days 4 hours')::text),'ck86-s2') ->> 'session_id'));
 SELECT tap._store150('tt', (venue.create_ticket_type(tap._fetch150('event')::uuid,'admission','GA',5000,'public','ck86-tt') ->> 'ticket_type_id'));
 SELECT tap._store150('batch', (venue.create_inventory_batch(tap._fetch150('tt')::uuid, tap._fetch150('session')::uuid, 'comp', 100, 0, 'ck86-b') ->> 'batch_id'));
 SELECT tap.logout();
@@ -182,11 +179,10 @@ SELECT (SELECT venue.append_door_manifest_delta(tap._fetch150('session')::uuid,
           'revoke', gen_random_uuid()));
 SELECT ok((SELECT count(*)::int FROM venue.door_manifest_delta WHERE manifest_id=tap._fetch150('mid')::uuid AND op='revoke')=1,
   'D12: a revoke delta appends (bare payload; MP-1 CHECKs satisfied)');
--- the SEAM body is a SILENT NO-OP when the target session has no open episode
--- (session2's door was never opened). op='add' + a random atom would trip the MP-1
--- payload CHECKs IF it reached the insert — it must NOT: no open episode ⇒ early
--- return (DOOR §7.7), so this lives.
-SELECT lives_ok(format($$SELECT venue.append_door_manifest_delta(%L, ARRAY[gen_random_uuid()], 'add', gen_random_uuid())$$, tap._fetch150('session2')),
+-- the SEAM body is a SILENT NO-OP when the target session has no open episode.
+-- A random (non-existent) session has none, so the body early-returns (DOOR §7.7)
+-- BEFORE the insert — op='add' + a random atom would otherwise trip the MP-1 CHECKs.
+SELECT lives_ok($$SELECT venue.append_door_manifest_delta(gen_random_uuid(), ARRAY[gen_random_uuid()], 'add', gen_random_uuid())$$,
   'D13: append_door_manifest_delta on a session with no open episode is a silent no-op');
 -- close
 SELECT tap.login(tap.seller());
