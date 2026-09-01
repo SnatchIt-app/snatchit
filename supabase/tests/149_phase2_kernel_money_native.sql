@@ -487,6 +487,11 @@ SELECT is(kernel.has_outstanding_obligations(tap.other_user()), false,
 -- ============================================================================
 -- SECTION I — DELETION BLOCKERS (BP-5/BP-6/BP-12 + PFA-22)
 -- ============================================================================
+-- settle the E12-executed refund first: BP-12's IN-FLIGHT arm correctly fires
+-- on a pending refund and would mask the window arm under test.
+SELECT tap._store149('refund2', (SELECT r.refund_id::text FROM kernel.refund r WHERE r.idempotency_key='ck85-ap-3'));
+SELECT kernel.mark_refund_state(tap._fetch149('refund2')::uuid, 'submitted', 're_2', NULL, 'ck85-rs-5');
+SELECT kernel.mark_refund_state(tap._fetch149('refund2')::uuid, 'succeeded', 're_2', NULL, 'ck85-rs-6');
 WITH inspi AS (
   INSERT INTO kernel.payout (payee_kind, payee_identity_id, cause, cause_ref, amount_minor, status, idempotency_key)
   VALUES ('identity', tap.buyer(), 'refund_void', gen_random_uuid(), 700, 'submitted', 'ck85-po-2')
