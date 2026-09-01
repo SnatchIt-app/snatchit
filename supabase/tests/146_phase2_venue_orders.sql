@@ -45,7 +45,7 @@ SELECT has_function('kernel'::name,'withdraw_org_contact_consent'::name, ARRAY['
 SELECT has_function('kernel'::name,'list_my_org_contact_consents'::name, 'A9: list_my_org_contact_consents (parameterless)');
 -- forward objects are ABSENT (no 083+ leakage)
 SELECT hasnt_function('venue'::name,'finalize_primary_order'::name, 'A10: finalize_primary_order is NOT here — moved to 085 (C111)');
-SELECT hasnt_function('kernel'::name,'issue_ticket_atoms'::name, 'A11: the mint engine is NOT here (083)');
+SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[], 'A11: the mint engine landed in 083 — issue_ticket_atoms(jsonb, text) exists');
 SELECT hasnt_function('kernel'::name,'refund_primary_order'::name, 'A12: refund is NOT here (085)');
 SELECT hasnt_function('venue'::name,'bind_order_attribution'::name, 'A13: attribution binding is NOT here (090)');
 SELECT hasnt_table('kernel'::name,'payment_native'::name, 'A14: kernel.payment_native is NOT here (085)');

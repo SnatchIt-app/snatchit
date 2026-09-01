@@ -84,13 +84,12 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 55,
-  'A14: kernel holds EXACTLY 55 functions (52 post-080 + the three 082 consent RPCs)');
+           WHERE n.nspname = 'kernel'), 75,
+  'A14: kernel holds EXACTLY 75 functions (55 post-082 + the twenty 083 fns)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 14,
-  -- 2026-08-31 (package 082): 10 -> 14 (create_primary_checkout, cancel_pending_order,
-  -- the two order guard trigger fns; suite 146 names them).
-  'A15: venue holds EXACTLY fourteen functions — 080''s two + 081''s eight + 082''s four');
+           WHERE n.nspname = 'venue'), 15,
+  -- 2026-08-31 (package 083): 14 -> 15 (venue.append_door_manifest_delta SEAM-2 stub).
+  'A15: venue holds EXACTLY fifteen functions — 082''s fourteen + 083''s append_door_manifest_delta');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');
@@ -132,8 +131,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 8,
-  'A28: the other EIGHT hooks remain byte-neutral — 082 filled deletion_blockers_orders');
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 7,
+  'A28: the other SEVEN hooks remain byte-neutral — 083 filled deletion_blockers_wallet too');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');
