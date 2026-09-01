@@ -274,6 +274,13 @@ ON CONFLICT DO NOTHING;
 INSERT INTO kernel.org_member (org_id, identity_id, role, granted_by)
 VALUES (tap._fetch143('org')::uuid,'00000000-0000-0000-0000-000000000c05','org_marketing', tap.seller());
 
+-- 084 adopt: the fixture's fixed ticket_type/signing_key ids must now be REAL
+-- rows — kernel.tickets carries fk_tickets_ticket_type/fk_tickets_signing_key.
+INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility)
+VALUES ('00000000-0000-0000-0000-00000000d0d0', tap._fetch143('event')::uuid, 'admission', 'FIX-84', 5000, 'public');
+INSERT INTO kernel.signing_key (key_id, scope, event_id, public_key, kms_handle_ref, status, not_before)
+VALUES ('00000000-0000-0000-0000-00000000c0c0', 'per_event', tap._fetch143('event')::uuid, 'PUBKEY-FIX', 'kms-fix', 'active', now());
+
 -- paired custody facts (atom + its issuance ledger row, same transaction —
 -- exactly the shape the deferred verify trigger accepts)
 CREATE FUNCTION tap._mint(p_atom uuid, p_session uuid, p_serial int, p_owner uuid, p_ref uuid)
