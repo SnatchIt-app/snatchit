@@ -769,7 +769,7 @@ declare
     'kernel.revoke_wallet_pass(uuid, text, text)',
     'kernel.sweep_wallet_pass_lifecycle()',
     'kernel.record_wallet_push_result(uuid, uuid, text, uuid, text, integer, text)',
-    'venue.append_door_manifest_delta(uuid, uuid[], text, text)'
+    'venue.append_door_manifest_delta(uuid, uuid[], text, uuid)'
     -- kernel.deletion_blockers_wallet keeps its 077 grant (definer, no client EXEC).
   ];
   -- caller-authorized (fan): mint_wallet_pass. Credential lifecycle is EDGE-FRONTED

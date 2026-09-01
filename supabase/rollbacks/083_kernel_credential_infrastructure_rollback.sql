@@ -59,7 +59,7 @@ drop function if exists kernel.touch_wallet_pass(uuid);
 drop function if exists kernel.revoke_wallet_pass(uuid, text, text);
 drop function if exists kernel.sweep_wallet_pass_lifecycle();
 drop function if exists kernel.record_wallet_push_result(uuid, uuid, text, uuid, text, integer, text);
-drop function if exists venue.append_door_manifest_delta(uuid, uuid[], text, text);
+drop function if exists venue.append_door_manifest_delta(uuid, uuid[], text, uuid);
 
 -- PART 3 — tables (children first; dropping each removes its triggers).
 drop table if exists kernel.wallet_pass_push_log;
