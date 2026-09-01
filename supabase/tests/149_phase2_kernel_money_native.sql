@@ -289,23 +289,22 @@ WITH insp3 AS (
 )
 SELECT tap._store149('payment2', (SELECT id::text FROM insp3));
 SELECT venue.finalize_primary_order(tap._fetch149('order2')::uuid, tap._fetch149('payment2')::uuid, 'ck85-f-4', NULL);
+-- resolve the target atoms as SUPERUSER — a client cannot read the walled ledger
+SELECT tap._store149('atoms2', (SELECT array_agg(t.ticket_atom_id)::text FROM kernel.tickets t
+      JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
+      WHERE l1.cause_ref = tap._fetch149('item2')::uuid));
 
 -- E1: C61 — a parked request with an UNSET TTL cannot mint an immortal hold
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, ARRAY(SELECT t.ticket_atom_id FROM kernel.tickets t
-      JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-      WHERE l1.cause_ref = %L::uuid), 10000, 'buyer_request', 'ck85-q-0')$$,
-    tap._fetch149('order2'), tap._fetch149('item2')),
+SELECT throws_ok(format($$SELECT kernel.request_order_refund(%L, %L::uuid[], 10000, 'buyer_request', 'ck85-q-0')$$,
+    tap._fetch149('order2'), tap._fetch149('atoms2')),
   NULL, NULL, 'E1: ALL D-3 keys NULL → the parked branch refuses config_unset (nothing auto-executes, nothing parks unbounded)');
 SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('refund.request_ttl_hours', 2, '24'::jsonb, 'restricted');
 -- E2: with a TTL, the buyer parks to the STRICTEST class (amount keys still NULL)
 SELECT tap.login(tap.buyer());
 SELECT tap._store149('req1_res', (kernel.request_order_refund(tap._fetch149('order2')::uuid,
-    ARRAY(SELECT t.ticket_atom_id FROM kernel.tickets t
-          JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-          WHERE l1.cause_ref = tap._fetch149('item2')::uuid),
-    10000, 'buyer_request', 'ck85-q-1'))::text);
+    tap._fetch149('atoms2')::uuid[], 10000, 'buyer_request', 'ck85-q-1'))::text);
 SELECT tap.logout();
 SELECT is((tap._fetch149('req1_res')::jsonb ->> 'status'), 'parked',
   'E2: NULL amount keys → the buyer request PARKS (no self-service tier exists yet)');
@@ -347,10 +346,7 @@ SELECT ok((SELECT bool_and(t.resale_state = 'none')
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('refund.org_dual_control_max_minor', 2, '50000'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
 SELECT tap._store149('req2_res', (kernel.request_order_refund(tap._fetch149('order2')::uuid,
-    ARRAY(SELECT t.ticket_atom_id FROM kernel.tickets t
-          JOIN kernel.ticket_ownership_log l1 ON l1.ticket_atom_id=t.ticket_atom_id AND l1.sequence=1
-          WHERE l1.cause_ref = tap._fetch149('item2')::uuid),
-    10000, 'buyer_request', 'ck85-q-2'))::text);
+    tap._fetch149('atoms2')::uuid[], 10000, 'buyer_request', 'ck85-q-2'))::text);
 SELECT tap.logout();
 SELECT is((tap._fetch149('req2_res')::jsonb ->> 'required_approver_class'), 'org',
   'E10: with org_dual set (50000), a 10000 request parks to the ORG class');
