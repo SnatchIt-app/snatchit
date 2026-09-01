@@ -6,7 +6,7 @@
 -- (incl. revoke) is PARKED (PFA-18A). BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(67);
+SELECT plan(69);
 
 SELECT tap.seed_core();
 
@@ -201,6 +201,18 @@ SELECT throws_ok(format($$DELETE FROM venue.door_manifest_entry WHERE manifest_i
 -- door_open_at is immutable once engaged (ledger head)
 SELECT throws_ok(format($$UPDATE catalog.event_session SET door_open_at = now()+interval '1 day' WHERE session_id=%L$$, tap._fetch150('session')),
   'P0001', NULL, 'D19: door_open_at is immutable once engaged (ledger-head trigger)');
+-- E-65 regression: the transition guard is an ALLOWLIST — venue_id (the denormalized
+-- authz key that drives the entry/delta RLS joins) is immutable after open, even for a
+-- table-UPDATE writer. A blocklist let this silently flip a whole episode to another tenant.
+SELECT throws_ok(format($$UPDATE venue.door_manifest SET venue_id = gen_random_uuid() WHERE manifest_id=%L$$, tap._fetch150('mid')),
+  'P0001', NULL, 'D20: guard ALLOWLIST — venue_id is immutable after open (cross-tenant tamper blocked)');
+-- E-66 regression: issue_comp caps issuance at the AUTHORIZED allocation quantity.
+SELECT tap.login(tap.seller());
+SELECT tap._store150('comp2', (venue.allocate_comp(tap._fetch150('session')::uuid, tap._fetch150('batch')::uuid, 1, 'guest', 'ck86-c-3') ->> 'comp_allocation_id'));
+SELECT throws_ok(format($$SELECT venue.issue_comp(%L, %L, 2, 'ck86-c-4')$$, tap._fetch150('comp2'), tap.buyer()),
+  NULL, 'precondition_failed: issue quantity 2 exceeds allocation 1',
+  'D21: issue_comp caps issuance at the allocation quantity (over-issue blocked)');
+SELECT tap.logout();
 
 -- ============================================================================
 -- SECTION E — DOOR PIN + TOKENIZED SESSION: PARKED fail-closed (PFA-26 / PFA-20)
