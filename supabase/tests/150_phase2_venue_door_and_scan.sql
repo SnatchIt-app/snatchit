@@ -67,7 +67,7 @@ SELECT ok(NOT has_column_privilege('authenticated','venue.door_pin','pin_hash','
   'B1: door_pin.pin_hash is not client-readable (C9)');
 SELECT ok(NOT has_table_privilege('authenticated','venue.door_session','SELECT'),
   'B2: door_session is deny-all (audit-only, §16.4a) — no client read');
-SELECT ok((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
+SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relname='door_session'), 0,
   'B3: door_session carries ZERO policies');
 SELECT ok(NOT has_function_privilege('authenticated','venue.mint_door_session(uuid,uuid,uuid,text,text)','EXECUTE')

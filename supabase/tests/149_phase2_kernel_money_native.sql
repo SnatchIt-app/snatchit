@@ -65,8 +65,11 @@ SELECT is((SELECT value FROM catalog.platform_config
   'A16: PFA-22 — the dedicated BP-12 operand is seeded NULL / owner-unset');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 39,
-  'A17: ZERO new policies — all four money tables are deny-all (GP-3a)');
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 48,
+  -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies). 085 itself
+  -- added ZERO — its four money tables are deny-all (GP-3a); this register census
+  -- tracks the whole five-schema total, which 086 grew.
+  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 48 after 086''s nine venue policies');
 
 -- ============================================================================
 -- SECTION B — GRANTS & CUSTODY WALLS (PFA-15/PFA-21; RLS §7.8-§7.10a)
