@@ -2034,16 +2034,22 @@ the TTL sweep contain any mis-attribution. Batches are pre-locked ascending by b
 AB-BA deadlock); all active-unexpired holds convert WHOLE (held -= their sum; the over-held remainder
 returns to free capacity), fixing the greedy-conversion false `oversell_rejected` (R1 P1).
 
-**E-59 — PFA-21 disclosure corrected: the kernel USAGE grant activated 077's dormant service_role
-EXECUTE grants; the deletion machinery is revoked back to its contracted boundary (R2 P1).** PFA-21's
-`GRANT USAGE ON SCHEMA kernel TO service_role` made ~23 previously-inert 077/081/082/083 service_role
-EXECUTE grants live. The wallet/mint/cancel/state-sync set is contracted (edge/webhook callers,
-darkness-gated). The 077 DELETION MACHINERY (`sweep_deletion_pending`, the four `on_identity_erased_*`,
-`on_deletion_q5_release`, the five `deletion_blockers_*`, `has_outstanding_obligations`,
-`is_deletion_pending`, `sweep_expired_org_invites`) has NO contracted service_role caller — its callers
-are pg_cron (postgres) and definer-internal — so 085 REVOKEs service_role EXECUTE on all fourteen after
-the USAGE grant (fail-closed; the cron runs as postgres, unaffected). `issue_ticket_atoms` stays
-service_role (its §7.1 comp/door/import edge paths are contracted; darkness-gated).
+**E-59 — PFA-21 disclosure: the kernel USAGE grant makes the pre-existing service_role EXECUTE grants
+RUNTIME-live; the established ACL boundary is accepted, not narrowed (R2 P1).** PFA-21's
+`GRANT USAGE ON SCHEMA kernel TO service_role` makes runtime-reachable the service_role EXECUTE grants
+077/081/082/083 already authored (the deletion machinery, the sweeps, the mint/wallet DEF set) — grants
+that were present in the ACL catalog all along (the F3 register and A30/A41 assert them) but inert
+without schema USAGE. The red team (R2 P1) flagged the deletion machinery as an escalation surface for a
+compromised service_role and offered two dispositions: revoke to a minimal boundary, OR accept and
+disclose. **085 ACCEPTS the established boundary** — the 077 service_role grants are a frozen invariant
+(revoking them contradicts A30/A41/F3, i.e., it would be a policy CHANGE, not corpus-conforming
+remediation), the deletion functions' real callers are pg_cron (postgres) + definer-internal so the
+grants are unused at runtime by service_role in practice, and service_role is already fully trusted for
+the money rail (finalize, mark_*). `issue_ticket_atoms` stays service_role (its §7.1 comp/door/import
+paths are contracted, non-payment issuance BY DESIGN) and darkness-gated. **Forward obligation:** at
+native-issuance activation, re-verify that the comp/door/import edge callers of `issue_ticket_atoms`
+enforce their own authority, and reconsider (with owner sign-off) whether the dormant deletion-machinery
+service_role grants should be tightened chain-wide.
 
 **E-60 — two recorded deferrals.** (a) SHARD COUNTERS (R3 P1-5): finalize's `held-=q` and the void
 engine's `sold-=1` touch `venue.inventory_batch` only, not `inventory_batch_shard`. Inert under E-32

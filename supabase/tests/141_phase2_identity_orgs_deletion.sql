@@ -256,7 +256,8 @@ SELECT is(
   -- + the two-of-two-parked lifecycle five (provision/rotate signing_key,
   -- provision/rotate/revoke pass_type_cert) + revoke_wallet_pass. All EXEC
   -- authenticated at the edge; parked bodies fail closed regardless. Named, not counted.
-  || 'provision_pass_type_cert,provision_signing_key,record_money_denial,refund_primary_order,'
+  || 'provision_pass_type_cert,provision_signing_key,record_money_denial,'
+  -- refund_primary_order moved to service_role (EXEC DEF) by PFA-23.
   || 'release_payout,remove_org_member,'
   || 'request_account_deletion,request_order_refund,resolve_identity_obligation,'
   || 'revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
@@ -271,7 +272,7 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 53 caller-authorized functions (39 post-083 + 085''s fourteen money verbs)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 52 caller-authorized functions (39 post-083 + 085''s thirteen money verbs; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -292,7 +293,8 @@ SELECT is(
   || 'on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
   || 'record_identity_obligation,'
-  || 'record_wallet_push_result,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
+  -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
+  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
   || 'sweep_deletion_pending,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
   || 'sweep_wallet_pass_lifecycle,touch_wallet_pass,unregister_wallet_pass_device',
   -- 2026-08-31 (package 079): sweep_expired_ticket_atoms is the FIFTEENTH name —
@@ -300,7 +302,7 @@ SELECT is(
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 29 DEF functions (24 post-083 + 085''s five money-machine RPCs)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 29 DEF functions (24 post-083 + 085''s five: the state-sync pair, record_identity_obligation, sweep_expired_refund_requests, refund_primary_order)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

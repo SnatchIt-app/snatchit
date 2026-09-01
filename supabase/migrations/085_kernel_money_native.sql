@@ -880,6 +880,14 @@ begin
   if not public.check_rate_limit(v_uid, 'request_order_refund', 30, 3600) then
     raise exception 'policy_violation: rate limit exceeded for refund requests';
   end if;
+  -- idempotency FIRST (before the status gate): a replay of a request that
+  -- already executed/parked returns the original, even once the order has moved
+  -- to refunded/partially_refunded.
+  select ar.request_id into v_request_id from kernel.approval_request ar
+   where ar.requested_by = v_uid and ar.command_idempotency_key = p_command_key;
+  if v_request_id is not null then
+    return jsonb_build_object('status','idempotency_replay','request_id', v_request_id);
+  end if;
   if p_amount_minor is null or p_amount_minor <= 0 then
     raise exception 'precondition_failed: bad_amount';
   end if;
@@ -2141,27 +2149,14 @@ declare
     'kernel.mark_refund_state(uuid, text, text, text, text)',
     'kernel.record_identity_obligation(uuid, text, uuid, text, integer, text, text)'
   ];
-  -- R2 P1 / PFA-21 disclosure: 085's kernel USAGE grant would ACTIVATE 077's
-  -- previously-inert service_role EXECUTE grants on the deletion machinery —
-  -- functions whose only contracted caller is pg_cron/definer-internal, NEVER a
-  -- service_role edge. Revoke them back to that minimal boundary (fail-closed:
-  -- the cron runs as postgres and is unaffected). E-59.
-  v_deny_svc constant text[] := array[
-    'kernel.sweep_deletion_pending(int)',
-    'kernel.on_identity_erased_staff(uuid)',
-    'kernel.on_identity_erased_door(uuid)',
-    'kernel.on_identity_erased_market(uuid)',
-    'kernel.on_identity_erased_promoter(uuid)',
-    'kernel.on_deletion_q5_release(uuid)',
-    'kernel.deletion_blockers_custody(uuid)',
-    'kernel.deletion_blockers_orders(uuid)',
-    'kernel.deletion_blockers_wallet(uuid)',
-    'kernel.deletion_blockers_money(uuid)',
-    'kernel.deletion_blockers_market(uuid)',
-    'kernel.has_outstanding_obligations(uuid)',
-    'kernel.is_deletion_pending(uuid)',
-    'kernel.sweep_expired_org_invites(int)'
-  ];
+  -- R2 P1 / PFA-21 disclosure (E-59): 085's kernel USAGE grant makes RUNTIME-live
+  -- the pre-existing service_role EXECUTE grants that 077/081/082/083 authored
+  -- (the deletion machinery, the sweeps, the mint/wallet DEF set). Those grants
+  -- are the ESTABLISHED machine-caller boundary — asserted by A30/A41 and the F3
+  -- register — so 085 does NOT narrow them (a revoke here would contradict the
+  -- frozen ACL). The activation is accepted and disclosed; issue_ticket_atoms'
+  -- comp/door/import service_role path stays darkness-gated (re-verify at
+  -- native-issuance activation — forward obligation).
 begin
   foreach v_fn in array v_all loop
     execute format('revoke all on function %s from public, anon, authenticated', v_fn);
@@ -2171,9 +2166,6 @@ begin
   end loop;
   foreach v_fn in array v_svc loop
     execute format('grant execute on function %s to service_role', v_fn);
-  end loop;
-  foreach v_fn in array v_deny_svc loop
-    execute format('revoke execute on function %s from service_role', v_fn);
   end loop;
   -- R-28 hard edge: the denial witness must NEVER be service_role-reachable.
   execute 'revoke execute on function kernel.record_money_denial(text, text, uuid, text) from service_role';
