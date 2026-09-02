@@ -38,13 +38,37 @@
 
 import { buyerTotalCents } from '@/src/lib/money';
 
+/**
+ * A branded cent amount.
+ *
+ * THIS EXISTS BECAUSE OF A REAL COLLISION. Marketplace prices in this repository
+ * are stored and passed as WHOLE DOLLARS (`public.listings.buy_now_price` is an
+ * integer of dollars, and four live screens pass `listing.current_bid` straight
+ * into a dollars helper). A plain `number` parameter called `baseMinor` happily
+ * accepts `50` meaning fifty dollars and renders it as fifty cents. Branding the
+ * type makes that a compile error instead of a 100x price bug.
+ *
+ * Convert explicitly at the boundary with `centsFromDollars` or `asCents`.
+ */
+export type Cents = number & { readonly __brand: 'cents' };
+
+/** Assert a value is already in minor units. Use where the source is cents. */
+export function asCents(minor: number): Cents {
+  return minor as Cents;
+}
+
+/** Convert the repo's whole-dollar columns into cents. */
+export function centsFromDollars(dollars: number): Cents {
+  return Math.round(dollars * 100) as Cents;
+}
+
 export type PriceRail = 'marketplace' | 'direct';
 
 export type AllInResult =
   | {
       kind: 'all-in';
-      /** The complete amount the buyer will be charged, in minor units. */
-      totalMinor: number;
+      /** The complete amount the buyer will be charged, in cents. */
+      totalMinor: Cents;
       currency: string;
       rail: PriceRail;
     }
@@ -65,8 +89,9 @@ export type AllInResult =
 
 export interface MarketplacePriceInput {
   rail: 'marketplace';
-  /** Listing price in minor units, before the buyer fee. */
-  baseMinor: number | null | undefined;
+  /** Listing price in CENTS, before the buyer fee. Use `centsFromDollars` for
+   *  the repo's whole-dollar listing columns. */
+  baseMinor: Cents | null | undefined;
   currency?: string;
 }
 
@@ -77,7 +102,7 @@ export interface DirectPriceInput {
    * A client must NEVER compute this by summing tiers itself: the server is the
    * price authority and rejects a mismatch.
    */
-  serverTotalMinor: number | null | undefined;
+  serverTotalMinor: Cents | null | undefined;
   currency?: string;
   /**
    * Set true when the venue has configured tax for the event. There is no schema
@@ -90,7 +115,7 @@ export interface DirectPriceInput {
 
 export type PriceInput = MarketplacePriceInput | DirectPriceInput;
 
-function isUsableMinor(v: number | null | undefined): v is number {
+function isUsableMinor(v: number | null | undefined): v is Cents {
   return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0;
 }
 
@@ -110,7 +135,7 @@ export function allInPrice(input: PriceInput): AllInResult {
     }
     return {
       kind: 'all-in',
-      totalMinor: buyerTotalCents(input.baseMinor),
+      totalMinor: buyerTotalCents(input.baseMinor) as Cents,
       currency,
       rail: 'marketplace',
     };
@@ -143,7 +168,7 @@ export function allInPrice(input: PriceInput): AllInResult {
  * "$60" reads better on a card than "$60.00"; non-round amounts keep them,
  * which is what an honest all-in price usually looks like.
  */
-export function formatMinor(totalMinor: number, currency = 'USD'): string {
+export function formatMinor(totalMinor: Cents | number, currency = 'USD'): string {
   const major = totalMinor / 100;
   const isWhole = totalMinor % 100 === 0;
   const symbol = currency === 'USD' ? '$' : '';
@@ -165,7 +190,7 @@ export type PriceLadder =
 
 export function priceLadder(opts: {
   lowestAllIn?: AllInResult | null;
-  lastSaleMinor?: number | null;
+  lastSaleMinor?: Cents | null;
   currency?: string;
 }): PriceLadder {
   const currency = opts.currency ?? 'USD';

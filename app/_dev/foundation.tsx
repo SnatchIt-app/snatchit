@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { MEDIA_SLOTS, slotHeight, type MediaSlotName } from '@/src/lib/media/slots';
-import { allInPrice, formatMinor, priceLadder } from '@/src/lib/pricing/allIn';
+import { allInPrice, asCents, formatMinor, priceLadder } from '@/src/lib/pricing/allIn';
 import { provenanceLabel, type InventoryKind } from '@/src/lib/pricing/provenance';
 import { brandFontsActive, fontFamily } from '@/src/theme/fonts';
 import * as v2 from '@/src/theme/v2';
@@ -223,9 +223,12 @@ export default function FoundationPreview() {
         <Section title="Price and provenance">
           {(
             [
-              ['direct', { rail: 'direct', serverTotalMinor: 6000 } as const],
-              ['marketplace', { rail: 'marketplace', baseMinor: 5000 } as const],
-              ['tax unknown', { rail: 'direct', serverTotalMinor: 6000, taxApplies: true } as const],
+              ['direct', { rail: 'direct', serverTotalMinor: asCents(6000) } as const],
+              ['marketplace', { rail: 'marketplace', baseMinor: asCents(5000) } as const],
+              [
+                'tax unknown',
+                { rail: 'direct', serverTotalMinor: asCents(6000), taxApplies: true } as const,
+              ],
               ['missing base', { rail: 'marketplace', baseMinor: null } as const],
             ] as const
           ).map(([label, input]) => {

@@ -25,7 +25,7 @@
 
 import { Image } from 'expo-image';
 import { memo } from 'react';
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { PixelRatio, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import {
   MEDIA_SLOTS,
@@ -80,7 +80,13 @@ function EventMediaImpl({
   const boxWidth = width ?? spec.layoutWidth[breakpoint];
   const boxHeight = width ? Math.round(width / spec.aspectRatio) : slotHeight(slot, breakpoint);
 
-  const resolved = resolveImage(asset, slot, { breakpoint });
+  const resolved = resolveImage(asset, slot, {
+    breakpoint,
+    // The real laid-out width and the real screen density, so the request
+    // matches the box instead of the slot default.
+    layoutWidth: boxWidth,
+    devicePixelRatio: PixelRatio.get(),
+  });
 
   // Accessibility: artwork that duplicates adjacent text is decorative. Artwork
   // that IS the information gets a real label.
@@ -157,7 +163,7 @@ function EventMediaImpl({
       {spec.scrim !== 'none' ? (
         <View
           style={[
-            StyleSheet.absoluteFill,
+            styles.scrimBase,
             spec.scrim === 'strong' ? styles.scrimStrong : styles.scrimBottom,
           ]}
           pointerEvents="none"
@@ -184,20 +190,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: v2.surface.surface,
   },
+  scrimBase: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   fallbackInitial: {
     fontSize: 32,
     color: 'rgba(255,255,255,0.20)',
   },
   /*
-   * Approximated with a stacked translucent block rather than a gradient, because
-   * a gradient needs expo-linear-gradient and this pass does not add dependencies.
-   * The gradient is specified in EVENT_MEDIA_SYSTEM.md and should replace this
-   * when the dependency lands.
+   * A real gradient band, not a flat wash over the whole image.
+   *
+   * React Native 0.81 ships `experimental_backgroundImage`, so no dependency is
+   * needed. A flat overlay would darken the entire artwork uniformly, which is
+   * precisely what the scrim is supposed to avoid: it exists to make text legible
+   * at the bottom, not to dim the picture.
    */
   scrimBottom: {
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    top: '55%',
+    experimental_backgroundImage:
+      'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.78) 100%)',
   },
   scrimStrong: {
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    top: '35%',
+    experimental_backgroundImage:
+      'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.88) 100%)',
   },
 });

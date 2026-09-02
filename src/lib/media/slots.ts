@@ -164,9 +164,16 @@ export function slotPixelWidth(
   slot: MediaSlotName,
   breakpoint: Breakpoint = 'mobile',
   devicePixelRatio = 2,
+  /**
+   * The width the component is ACTUALLY laid out at, when it overrides the slot
+   * default. Without this a 150pt card still requested the slot's 336px, and a
+   * 140pt hero requested 780px, which defeats the whole point of the system.
+   */
+  overrideLayoutWidth?: number,
 ): number {
   const dpr = Math.min(Math.max(devicePixelRatio, 1), 2);
-  return Math.round(MEDIA_SLOTS[slot].layoutWidth[breakpoint] * dpr);
+  const layout = overrideLayoutWidth ?? MEDIA_SLOTS[slot].layoutWidth[breakpoint];
+  return Math.round(layout * dpr);
 }
 
 /**

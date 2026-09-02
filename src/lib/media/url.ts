@@ -81,6 +81,12 @@ export type ResolvedImage =
       reason: 'no-path' | 'unsafe-path' | 'no-storage-base';
     };
 
+/**
+ * Read lazily rather than importing `supabaseUrl` from `src/lib/supabase`, which
+ * would pull client construction into a pure URL module and into every test that
+ * touches media. The variable name is deliberately the same one
+ * `src/lib/supabase.ts:67` reads, so the two cannot drift.
+ */
 function storageBase(): string | null {
   const url =
     process.env.EXPO_PUBLIC_SUPABASE_URL ??
@@ -110,10 +116,12 @@ export function normalizePath(raw: string | null | undefined, bucket: MediaBucke
 /**
  * Builds a Supabase image-transformation URL.
  *
- * `resize=cover` crops to the requested box; `resize=contain` fits inside it. We
- * only ever request a WIDTH, letting height follow the requested resize mode and
- * the slot's own aspect box, because asking for both can produce a second crop we
- * did not author.
+ * NOTE ON `resize`: it only takes effect when BOTH width and height are given.
+ * With a width alone the image is scaled proportionally and `resize` is inert.
+ * That is deliberate here: the slot frame does the cropping on the client via
+ * `contentFit`, and the server's job is only to stop shipping a multi-megabyte
+ * original. The parameter is still sent so that adding a height later changes
+ * behaviour in one place rather than everywhere.
  */
 export function transformUrl(params: {
   base: string;
@@ -146,7 +154,12 @@ export function publicUrl(base: string, bucket: MediaBucket, path: string): stri
 export function resolveImage(
   asset: MediaAsset,
   slot: MediaSlotName,
-  opts: { breakpoint?: Breakpoint; devicePixelRatio?: number } = {},
+  opts: {
+    breakpoint?: Breakpoint;
+    devicePixelRatio?: number;
+    /** The real laid-out width, when the caller overrides the slot default. */
+    layoutWidth?: number;
+  } = {},
 ): ResolvedImage {
   const breakpoint = opts.breakpoint ?? 'mobile';
   const dpr = opts.devicePixelRatio ?? 2;
@@ -162,7 +175,7 @@ export function resolveImage(
   const path = normalizePath(raw, bucket);
   if (!path) return { kind: 'fallback', reason: 'unsafe-path' };
 
-  const width = slotPixelWidth(slot, breakpoint, dpr);
+  const width = slotPixelWidth(slot, breakpoint, dpr, opts.layoutWidth);
   const quality = slotQuality(dpr);
 
   const contract = asset.contract ?? 'legacy';

@@ -24,7 +24,7 @@ import {
   transformUrl,
   IMMUTABLE_CACHE_CONTROL,
 } from '../src/lib/media/url';
-import { allInPrice, formatMinor, priceLadder } from '../src/lib/pricing/allIn';
+import { allInPrice, asCents, centsFromDollars, formatMinor, priceLadder } from '../src/lib/pricing/allIn';
 import { inventoryKindOf, provenanceLabel, provenanceSortWeight } from '../src/lib/pricing/provenance';
 
 beforeAll(() => {
@@ -48,8 +48,13 @@ describe('brand token parity', () => {
     expect(Object.values(t.radius)).not.toContain(6);
     // Red-tinted hairlines, never gray.
     expect(t.border.default).toContain('255,26,26');
+    // Metadata must clear the 4.5:1 minimum: it carries dates and venue names.
+    expect(t.text.muted).toBe('rgba(255,255,255,0.55)');
     // A destructive action must not share a color with a primary action.
     expect(t.status.error).not.toBe(t.brand.red);
+    // Prices must not jitter as a live bid updates: the variant travels with the
+    // token rather than living only in a comment.
+    expect(t.type.price.fontVariant).toContain('tabular-nums');
   });
 });
 
@@ -125,7 +130,10 @@ describe('media url resolution', () => {
     expect(legacy.kind).toBe('image');
     if (legacy.kind !== 'image') return;
     expect(legacy.fit).toBe('fit');
-    expect(legacy.uri).toContain('resize=contain');
+    // `fit` drives the CLIENT contentFit; the server request only needs to be
+    // slot-sized. Asserting the server `resize` value would assert an inert
+    // parameter, because it only takes effect when a height is also sent.
+    expect(legacy.uri).toContain('width=');
   });
 
   it('crops v2 portrait assets, which were uploaded for this frame', () => {
@@ -136,7 +144,19 @@ describe('media url resolution', () => {
     expect(v2asset.kind).toBe('image');
     if (v2asset.kind !== 'image') return;
     expect(v2asset.fit).toBe('cover');
-    expect(v2asset.uri).toContain('resize=cover');
+    expect(v2asset.uri).toContain('width=');
+  });
+
+  it('requests the width the component is ACTUALLY laid out at, not the slot default', () => {
+    // Regression: a 150pt card used to request the slot's 336px, and a 140pt hero
+    // used to request 780px, which defeats the whole point of the system.
+    const r = resolveImage({ path: 'covers/a.jpg' }, 'EVENT_HERO', {
+      devicePixelRatio: 2,
+      layoutWidth: 140,
+    });
+    if (r.kind !== 'image') throw new Error('expected image');
+    expect(r.uri).toContain('width=280');
+    expect(r.uri).not.toContain('width=780');
   });
 
   it('returns a fallback rather than a broken URL when the path is missing', () => {
@@ -202,27 +222,38 @@ describe('media url resolution', () => {
 
 describe('all-in pricing', () => {
   it('adds the buyer fee on the marketplace rail', () => {
-    const r = allInPrice({ rail: 'marketplace', baseMinor: 5000 });
+    const r = allInPrice({ rail: 'marketplace', baseMinor: asCents(5000) });
     expect(r).toEqual({ kind: 'all-in', totalMinor: 5500, currency: 'USD', rail: 'marketplace' });
+  });
+
+  it('converts the repo whole-dollar columns rather than treating them as cents', () => {
+    // The trap: listing prices in this repo are WHOLE DOLLARS. Passing 50 as if
+    // it were cents renders a $50 ticket as $0.55. The branded type makes that a
+    // compile error; this asserts the conversion is the right one.
+    expect(centsFromDollars(50)).toBe(5000);
+    const r = allInPrice({ rail: 'marketplace', baseMinor: centsFromDollars(50) });
+    if (r.kind !== 'all-in') throw new Error('expected a price');
+    expect(formatMinor(r.totalMinor)).toBe('$55');
   });
 
   it('uses the server total verbatim on the direct rail', () => {
     // The client must never sum tiers itself; the server is the price authority.
-    const r = allInPrice({ rail: 'direct', serverTotalMinor: 6000 });
+    const r = allInPrice({ rail: 'direct', serverTotalMinor: asCents(6000) });
     expect(r).toEqual({ kind: 'all-in', totalMinor: 6000, currency: 'USD', rail: 'direct' });
   });
 
   it('refuses to quote rather than guessing when inputs are absent', () => {
     expect(allInPrice({ rail: 'marketplace', baseMinor: null }).kind).toBe('unavailable');
     expect(allInPrice({ rail: 'direct', serverTotalMinor: undefined }).kind).toBe('unavailable');
-    expect(allInPrice({ rail: 'marketplace', baseMinor: 12.5 as unknown as number }).kind).toBe(
-      'unavailable',
-    );
+    // A fractional cent is not a price.
+    expect(allInPrice({ rail: 'marketplace', baseMinor: 12.5 as never }).kind).toBe('unavailable');
+    // A negative amount must never render as a price.
+    expect(allInPrice({ rail: 'direct', serverTotalMinor: -100 as never }).kind).toBe('unavailable');
   });
 
   it('refuses when tax would apply, because no schema models tax', () => {
     // Showing "all-in" while a tax is coming later would be a lie.
-    const r = allInPrice({ rail: 'direct', serverTotalMinor: 6000, taxApplies: true });
+    const r = allInPrice({ rail: 'direct', serverTotalMinor: asCents(6000), taxApplies: true });
     expect(r).toEqual({ kind: 'unavailable', reason: 'tax-unmodelled' });
   });
 
@@ -230,11 +261,16 @@ describe('all-in pricing', () => {
     expect(formatMinor(6000)).toBe('$60');
     expect(formatMinor(3922)).toBe('$39.22');
     expect(formatMinor(123456)).toBe('$1,234.56');
+    expect(formatMinor(0)).toBe('$0');
+    expect(formatMinor(99)).toBe('$0.99');
   });
 
   it('never renders a blank price: the ladder always yields a label', () => {
-    expect(priceLadder({ lowestAllIn: allInPrice({ rail: 'direct', serverTotalMinor: 6000 }) }).kind).toBe('from');
-    expect(priceLadder({ lowestAllIn: null, lastSaleMinor: 4200 }).kind).toBe('last-sale');
+    expect(
+      priceLadder({ lowestAllIn: allInPrice({ rail: 'direct', serverTotalMinor: asCents(6000) }) })
+        .kind,
+    ).toBe('from');
+    expect(priceLadder({ lowestAllIn: null, lastSaleMinor: asCents(4200) }).kind).toBe('last-sale');
     expect(priceLadder({ lowestAllIn: null, lastSaleMinor: null }).label).toBe('Be the first to sell');
   });
 });
@@ -264,9 +300,22 @@ describe('provenance', () => {
   it('defaults to marketplace when provenance is not positively established', () => {
     // Mislabelling a fan's ticket as venue-issued is the one error that matters.
     expect(inventoryKindOf({})).toBe('marketplace_fixed');
-    expect(inventoryKindOf({ isDirect: undefined })).toBe('marketplace_fixed');
-    expect(inventoryKindOf({ isDirect: false, listingMode: 'auction' })).toBe('marketplace_auction');
-    expect(inventoryKindOf({ isDirect: true })).toBe('direct');
+    expect(inventoryKindOf({ isVenuePrimarySale: undefined })).toBe('marketplace_fixed');
+    expect(inventoryKindOf({ isVenuePrimarySale: false, listingMode: 'auction' })).toBe(
+      'marketplace_auction',
+    );
+    expect(inventoryKindOf({ isVenuePrimarySale: true })).toBe('direct');
+  });
+
+  it('never labels a resale of a venue-issued ticket as venue-direct', () => {
+    // The dangerous case: a fan resells a ticket the venue originally issued. If
+    // the primary flag won, that auction would wear the brand-red official badge.
+    expect(inventoryKindOf({ isVenuePrimarySale: true, listingMode: 'auction' })).toBe(
+      'marketplace_auction',
+    );
+    expect(inventoryKindOf({ isVenuePrimarySale: true, listingMode: 'buy_now' })).toBe(
+      'marketplace_fixed',
+    );
   });
 
   it('sorts available direct inventory first, and sold-out direct last', () => {

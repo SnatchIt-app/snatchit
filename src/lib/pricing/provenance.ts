@@ -64,13 +64,24 @@ export function provenanceLabel(kind: InventoryKind): ProvenanceLabel {
  * error this module exists to prevent, so the default leans the safe way.
  */
 export function inventoryKindOf(row: {
-  /** True only when the row came from the venue's own ticket types. */
-  isDirect?: boolean;
+  /**
+   * True ONLY for a venue's own first-party sale of its own ticket type.
+   * Named for what it means rather than where the row came from: a fan
+   * reselling a venue-issued ticket is NOT a venue primary sale.
+   */
+  isVenuePrimarySale?: boolean;
   /** Marketplace listing mode, when this is a listing. */
   listingMode?: 'buy_now' | 'auction' | 'offer' | null;
 }): InventoryKind {
-  if (row.isDirect === true) return 'direct';
+  // Listing mode is checked FIRST and deliberately. A ticket that a venue
+  // originally issued can be resold by a fan, and if the caller passes both
+  // flags, the presence of a listing mode is the stronger signal: someone is
+  // selling it on the marketplace. Trusting the primary flag first would put
+  // the brand-red "Direct from event" badge on a fan's auction, which is the
+  // exact mislabelling this module exists to prevent.
   if (row.listingMode === 'auction') return 'marketplace_auction';
+  if (row.listingMode === 'buy_now' || row.listingMode === 'offer') return 'marketplace_fixed';
+  if (row.isVenuePrimarySale === true) return 'direct';
   return 'marketplace_fixed';
 }
 

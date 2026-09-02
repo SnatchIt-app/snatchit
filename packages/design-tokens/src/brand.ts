@@ -1,7 +1,12 @@
 /**
- * @snatchit/design-tokens — BRAND LAYER (V2)
+ * @snatchit/design-tokens — BRAND LAYER (V2). Web-consumable copy.
  *
  * THE SOURCE OF TRUTH for Snatch It's product appearance.
+ *
+ * This file is a byte-identical copy of the mobile runtime's `src/theme/v2.ts`;
+ * `tests/product-v2-foundation.test.ts` fails if the two drift. NOTE: the vendored
+ * tarball web installs from does not yet contain this file, so the web app still
+ * renders the legacy palette until the package is repacked.
  *
  * Every value here was read from the live rendered snatchitapp.com on 2026-09-02
  * (computed styles, not guesses) and cross-checked against `web/src/app/globals.css`
@@ -38,7 +43,14 @@ export const surface = {
 export const text = {
   primary: '#FFFFFF',
   secondary: 'rgba(255,255,255,0.70)',
-  muted: 'rgba(255,255,255,0.45)',
+  /**
+   * 0.55 rather than the marketing site's 0.45. White at 45% on black measures
+   * 4.43:1, which fails the 4.5:1 minimum, and this tier carries event dates and
+   * venue names on cards, which a user genuinely needs to read. 0.55 measures
+   * 6.27:1 (both figures computed, not estimated). The marketing site can be dimmer because its metadata is
+   * atmosphere; in the product it is information.
+   */
+  muted: 'rgba(255,255,255,0.55)',
   faint: 'rgba(255,255,255,0.30)',
   /** Text on brand red. Black on red is a Snatch It signature. */
   inverse: '#000000',
@@ -127,8 +139,19 @@ export const type = {
   label: { family: font.bodyBold, size: 12, lineHeight: 16, letterSpacing: 2.2, uppercase: true },
   /** Eyebrows and metadata keys. Decoration tier. */
   micro: { family: font.bodyMedium, size: 10, lineHeight: 14, letterSpacing: 3.0, uppercase: true },
-  /** Prices. Tabular figures so digits do not jitter as a bid updates. */
-  price: { family: font.bodyBold, size: 20, lineHeight: 24, letterSpacing: 0, uppercase: false },
+  /**
+   * Prices. `fontVariant: ['tabular-nums']` must be applied at the Text, or digits
+   * jitter as a live bid updates. Declaring the intent in a comment is not enough,
+   * so the variant travels with the token.
+   */
+  price: {
+    family: font.bodyBold,
+    size: 20,
+    lineHeight: 24,
+    letterSpacing: 0,
+    uppercase: false,
+    fontVariant: ['tabular-nums'] as const,
+  },
 } as const;
 
 /** Motion. Everything collapses under the OS reduced-motion setting. */
@@ -136,8 +159,13 @@ export const motion = {
   instant: 90,
   swift: 180,
   settle: 280,
-  /** The brand's easing, matching web's `--ease-swift`. */
-  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  /**
+   * The brand's easing. `easingCss` is for web consumers; React Native's
+   * Animated and Reanimated take the four control points, not a CSS string, so
+   * both forms are published and neither call site has to guess.
+   */
+  easingCss: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  easingBezier: [0.22, 1, 0.36, 1] as const,
 } as const;
 
 /**
