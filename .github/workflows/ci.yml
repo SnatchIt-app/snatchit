@@ -561,8 +561,13 @@ jobs:
           # already existed. Until 072 is applied to production, the fresh replay
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
+          # 2026-09-02 (release-readiness): functions 69 -> 70 — production's
+          # 20260902003623_admin_relist_listing_rpc (applied to prod that day,
+          # reconstructed into the repo from the production ledger, md5-verified)
+          # adds public.admin_relist_listing. Ledger parity is restored: the
+          # repo's version set now equals production's plus exactly 076-092.
           EXPECT_TABLES: 27
-          EXPECT_FUNCS: 69
+          EXPECT_FUNCS: 70
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 24
 

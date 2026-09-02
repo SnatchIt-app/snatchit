@@ -33,6 +33,11 @@ begin
     raise notice '076 rollback: notify.outbox absent (partial apply) — proceeding with schema drops.';
     return;
   end if;
+  -- ROLLBACK_GUARD_ROW_SECURITY (obligation opened by 091's E-151, CLOSED at the 2026-09-02
+  -- release-readiness pass): the guard counts RLS-enabled zero-policy tables; run by a
+  -- non-owner, non-BYPASSRLS role it would read 0 rows and FAIL OPEN. Count with row
+  -- security off — same house pattern as the 091/092 rollbacks.
+  set local row_security = off;
   -- A-F2: close the TOCTOU between the count and the drops — no emit can
   -- commit between this lock and the end of this transaction.
   lock table notify.outbox in access exclusive mode;

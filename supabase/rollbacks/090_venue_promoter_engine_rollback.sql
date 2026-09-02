@@ -31,6 +31,11 @@ begin
     raise notice '090 rollback: already rolled back (no 090 table present) — the remaining statements are no-ops';
     return;
   end if;
+  -- ROLLBACK_GUARD_ROW_SECURITY (obligation opened by 091's E-151, CLOSED at the 2026-09-02
+  -- release-readiness pass): the guard counts RLS-enabled zero-policy tables; run by a
+  -- non-owner, non-BYPASSRLS role it would read 0 rows and FAIL OPEN. Count with row
+  -- security off — same house pattern as the 091/092 rollbacks.
+  set local row_security = off;
   -- close the count→drop window: no concurrent finalize (attribution) or close (line/payout) can land
   -- venue."order" FIRST (step 4 clears its candidates): a concurrent finalize holds order → waits on
   -- attribution; locking attribution before order would form the cycle (re-review NEW-3)

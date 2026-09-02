@@ -324,6 +324,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- ── no-client-execute ────────────────────────────────────────────────────
   -- Trigger functions, cron/maintenance entry points, and service-role-only
   -- money and webhook internals. Nothing a browser may call.
+  -- 2026-09-02 (release-readiness): production's 20260902003623 admin relist
+  -- verb, reconstructed into the repo — REVOKE PUBLIC/anon/authenticated +
+  -- GRANT EXECUTE service_role in the migration itself (E-164).
+  ('admin_relist_listing(uuid, timestamp with time zone, uuid)',     'no-client-execute'),
   ('admin_release_held_payout(uuid, uuid, text)',                    'no-client-execute'),
   ('admin_resolve_dispute(uuid, text, uuid)',                        'no-client-execute'),
   ('apply_auto_release(uuid)',                                       'no-client-execute'),
