@@ -215,22 +215,51 @@ as $$ select * from (values (null::text, null::uuid, null::bigint, null::text, n
       where false $$;   -- zero rows; real body 090 (venue.attribution commission)
 
 -- 6b — venue.open_settlement (RPC §10.1). INSERT an `open` header, money cols NULL.
+--   SCOPE BINDING (AUTHZ-C1C — "a scope that does not bind to the subject is the
+--   same defect"): the venue MUST belong to p_org_id and the event (if any) to that
+--   venue and org, re-resolved here — otherwise org B's finance could open (and
+--   later close, and be PAID for) a settlement over org A's venue. Unbound scopes
+--   raise not_found (never insufficient_privilege: the caller must not learn the
+--   venue exists). IDEMPOTENCY on (auth.uid(), p_command_key) rides the
+--   settlement.open audit row this txn writes (schema §3.13 carries no key column
+--   and 087 adds none): a replay returns the ORIGINAL header; a transaction-scoped
+--   advisory lock serializes concurrent replays of one key.
 create or replace function venue.open_settlement(
   p_org_id uuid, p_venue_id uuid, p_event_id uuid, p_period jsonb, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_id uuid;
+declare v_id uuid; v_uid uuid := auth.uid();
 begin
+  if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
+  if p_command_key is null or p_command_key !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: command_key must be 1-64 chars of [A-Za-z0-9._:-] (it lands in the immutable audit)';
+  end if;
   if not (kernel.has_venue_role(p_venue_id, array['venue_finance'])
           or kernel.has_org_role(p_org_id, array['org_finance','org_owner'])) then
     raise exception 'insufficient_privilege: venue_finance or org_finance/org_owner required' using errcode = '42501';
+  end if;
+  -- C16 replay: the same actor + key returns the header it already opened.
+  perform pg_advisory_xact_lock(hashtext('settlement.open:' || v_uid::text || ':' || p_command_key));
+  select a.subject_id into v_id from kernel.admin_audit a
+   where a.action = 'settlement.open' and a.actor_identity = v_uid and a.reason_code = p_command_key
+   order by a.occurred_at limit 1;
+  if v_id is not null then
+    return jsonb_build_object('status','idempotency_replay','settlement_id', v_id);
+  end if;
+  -- the scope binds to the subject: venue ∈ org; event ∈ venue ∧ org.
+  if not exists (select 1 from catalog.venue v where v.venue_id = p_venue_id and v.org_id = p_org_id) then
+    raise exception 'not_found: venue % for org %', p_venue_id, p_org_id using errcode = 'P0002';
+  end if;
+  if p_event_id is not null and not exists (select 1 from catalog.event e
+       where e.event_id = p_event_id and e.venue_id = p_venue_id and e.org_id = p_org_id) then
+    raise exception 'not_found: event % for venue % / org %', p_event_id, p_venue_id, p_org_id using errcode = 'P0002';
   end if;
   insert into venue.settlement (org_id, venue_id, event_id, period_start, period_end, status)
   values (p_org_id, p_venue_id, p_event_id,
           (p_period ->> 'period_start')::timestamptz, (p_period ->> 'period_end')::timestamptz, 'open')
   returning settlement_id into v_id;
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-  values (auth.uid(), 'settlement.open', 'settlement', v_id, coalesce(p_command_key,'open'));
+  values (v_uid, 'settlement.open', 'settlement', v_id, p_command_key);
   return jsonb_build_object('status','ok','settlement_id', v_id);
 end;
 $$;
@@ -241,7 +270,18 @@ $$;
 --   R-40 chargeback arm's source (kernel.dispute_native) does not exist until 088,
 --   so a settlement with no seeded lines closes at net=0 with NO payout (payout
 --   requires amount_minor>0). Forward: 088 CREATE OR REPLACEs this with the
---   chargeback arm once kernel.dispute_native lands (SEAM-1; recorded E-67).
+--   chargeback arm (+ the fee/royalty split and the C31 rounding-bearer
+--   assignment, which need the first seam that produces a split) once
+--   kernel.dispute_native lands (SEAM-1; recorded E-67).
+--   BUCKETS ARE DERIVED FROM THE FROZEN SIGN CONVENTION, NOT FROM AN INVENTED
+--   cause→bucket table (E-73): schema §3.14 lines are signed (credits +, debits −);
+--   §3.13.1 gross = Σ positive revenue lines, fees = Σ the fee/royalty (debit)
+--   lines, refunds = Σ the refund lines (D3 refund causes: refund_void,
+--   chargeback). So: gross = Σ(amount>0, non-refund) · fees = −Σ(amount<0,
+--   non-refund) · refunds = −Σ(refund-cause amounts) ⇒ net = Σ ALL lines exactly
+--   (the header equals the sum of its lines, T-SCHEMA-SETTLE-04). Seams therefore
+--   emit debits NEGATIVE (the §3.14 convention binds candidates too); a
+--   candidate in a foreign currency is refused (one header, one currency).
 create or replace function kernel.close_settlement(p_settlement_id uuid, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
@@ -266,17 +306,23 @@ begin
   for v_c in select * from kernel.settlement_royalty_lines(p_settlement_id)
              union all select * from kernel.settlement_commission_lines(p_settlement_id) loop
     if v_c.cause is not null then
+      if v_c.currency is not null and v_c.currency <> v_s.currency then
+        raise exception 'precondition_failed: candidate currency % differs from the settlement currency %', v_c.currency, v_s.currency
+          using errcode = 'P0001';
+      end if;
       insert into venue.settlement_line (settlement_id, cause, cause_ref, amount_minor, currency)
-      values (p_settlement_id, v_c.cause, v_c.cause_ref, v_c.amount_minor::integer, coalesce(v_c.currency, v_s.currency))
+      values (p_settlement_id, v_c.cause, v_c.cause_ref, v_c.amount_minor::integer, v_s.currency)
       on conflict (settlement_id, cause, cause_ref) do nothing;
     end if;
   end loop;
-  -- one derivation from the lines this settlement holds (signed amounts: credits +,
-  -- debits −). net = gross − fees − refunds, so the header equals the sum of the
-  -- lines exactly (the rounding residual rides settlement_line.is_rounding_bearer).
-  select coalesce(sum(amount_minor) filter (where cause in
-           ('issue','primary_sale','comp','door_sale','p2p_transfer','market_sale','auction_sale','import','admin_action')), 0),
-         coalesce(sum(-amount_minor) filter (where cause in ('promoter_commission','settlement')), 0),
+  if exists (select 1 from venue.settlement_line l where l.settlement_id = p_settlement_id and l.currency <> v_s.currency) then
+    raise exception 'precondition_failed: settlement lines carry a currency other than the header''s' using errcode = 'P0001';
+  end if;
+  -- one derivation from the lines this settlement holds, by the frozen SIGN
+  -- convention (E-73): credits + / debits −; refund causes are the refund bucket.
+  -- net = gross − fees − refunds = Σ all lines, exactly.
+  select coalesce(sum(amount_minor)  filter (where amount_minor > 0 and cause not in ('refund_void','chargeback')), 0),
+         coalesce(sum(-amount_minor) filter (where amount_minor < 0 and cause not in ('refund_void','chargeback')), 0),
          coalesce(sum(-amount_minor) filter (where cause in ('refund_void','chargeback')), 0)
     into v_gross, v_fees, v_refunds from venue.settlement_line where settlement_id = p_settlement_id;
   v_net := v_gross - v_fees - v_refunds;
@@ -296,7 +342,9 @@ begin
   end if;
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
   values (auth.uid(), 'settlement.close', 'settlement', p_settlement_id, coalesce(p_command_key,'close'));
-  return jsonb_build_object('status','ok','payout_ids', v_ids, 'net_minor', v_net::integer);
+  -- net_minor is a READ-BACK of the column this function wrote (§10.2 R1-2), never a local.
+  return jsonb_build_object('status','ok','payout_ids', v_ids,
+           'net_minor', (select net_minor from venue.settlement where settlement_id = p_settlement_id));
 end;
 $$;
 
@@ -330,68 +378,158 @@ begin
 end;
 $$;
 
--- 6e — kernel.request_org_payout (RPC §10.3). EDGE-FRONTED: records the request
---   intent; the DB never moves money. Advances an existing pending settlement
---   payout pending→submitted, OR parks a kernel.approval_request for dual control.
---   The dual-control threshold (payout.dual_control_min_minor) is a D-3 money key
---   seeded NULL (PFA-9) → X-12 fail-to-safe → dual control is ALWAYS required
---   until an owner sets the key. SoD-1 (destination setter may not request) +
---   money-role maturity are both enforced. No direct ledger write, no settlement,
---   no destination change (all elsewhere).
+-- 6e — kernel.request_org_payout (RPC §10.3; MONEY §6.7/§8/§9.2). EDGE-FRONTED:
+--   records the request intent; the DB never moves money. Preconditions (frozen):
+--   settlement closed · payout pending · destination not locked
+--   (payout_destination_locked_until) · settlement.org_id = p_org_id re-resolved
+--   under the settlement's lock (AUTHZ-C1C → not_found). The FOUR controls:
+--   SoD-1 destination-setter exclusion (permanent) · money-role maturity
+--   (sod_violation) · step-up (AUTHZ-M4: no aal claim → step_up_unavailable,
+--   not aal2 → step_up_required) · destination PROBATION (§17.7 control 2: the
+--   first payout after a destination change within payout.destination_probation_days
+--   is NOT advanced — hold_state := 'probation_hold', hold_reason_code, held_at,
+--   held_by := NULL, status untouched; released only by kernel.release_payout;
+--   NULL key ⇒ X-12 ⇒ any change counts). Then the tier: above (or NULL — X-12)
+--   payout.dual_control_min_minor it PARKS kernel.approval_request
+--   (action='payout.request', class 'org', amount + pinned config_versions) and
+--   returns pending_approval; an already-parked pending request is returned, not
+--   duplicated; an APPROVED request for this payout advances it (E-74: 085's
+--   approve arm records the approval, the contracted writer of pending→submitted
+--   performs the advance); below the threshold it advances directly. Every arm
+--   writes payout.request / payout.probation_hold audit (§10.3 Writes); a payout
+--   already submitted replays as noop_replay. Locks: Settlement → Organization →
+--   Payout FOR UPDATE → Approval INSERT (SSCAS #4 continuation). The R-40
+--   open-dispute gate lands with kernel.dispute_native (088; E-67).
 create or replace function kernel.request_org_payout(p_org_id uuid, p_settlement_id uuid, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
 declare
-  v_s venue.settlement%rowtype; v_po kernel.payout%rowtype; v_setter uuid;
-  v_threshold bigint; v_req uuid;
+  v_uid uuid := auth.uid(); v_s venue.settlement%rowtype; v_po kernel.payout%rowtype; v_org kernel.organization%rowtype;
+  v_threshold bigint; v_threshold_ver integer; v_req uuid; v_aal text;
+  v_prob_days integer; v_changed_at timestamptz; v_ar kernel.approval_request%rowtype;
 begin
+  if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
   if not kernel.has_org_role(p_org_id, array['org_owner','org_finance']) then
     raise exception 'insufficient_privilege: org_owner or org_finance required' using errcode = '42501';
   end if;
   select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
-  if not found or v_s.org_id <> p_org_id then
+  if not found or v_s.org_id <> p_org_id then   -- AUTHZ-C1C: the scope binds to the subject, under the lock
     raise exception 'not_found: settlement % for org %', p_settlement_id, p_org_id using errcode = 'P0002';
   end if;
   if v_s.status = 'open' then
     raise exception 'precondition_failed: settlement not closed' using errcode = 'P0001';
   end if;
-  -- SoD-1: the destination SETTER may never request (read under the org lock).
-  select o.payout_destination_set_by into v_setter from kernel.organization o where o.org_id = p_org_id for update;
-  if v_setter is not null and v_setter = auth.uid() then
+  -- the org row under lock: SoD-1 setter, cool-down, the probation operand.
+  select * into v_org from kernel.organization o where o.org_id = p_org_id for update;
+  if v_org.payout_destination_set_by is not null and v_org.payout_destination_set_by = v_uid then
     raise exception 'sod_violation: the payout-destination setter cannot request a payout';
   end if;
-  -- money-role maturity (a grant younger than the window may neither request nor approve).
   if not kernel.money_role_grant_matured(p_org_id) then
     raise exception 'sod_violation: org money grant not yet matured';
   end if;
+  -- AUTHZ-M4 step-up: an absent claim is never a pass or a fail.
+  v_aal := coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'aal';
+  if v_aal is null then
+    raise exception 'step_up_unavailable: the session carries no aal claim';
+  end if;
+  if v_aal <> 'aal2' then
+    raise exception 'step_up_required: a step-up (aal2) session is required to request a payout';
+  end if;
+  if v_org.payout_destination_locked_until is not null and v_org.payout_destination_locked_until > now() then
+    raise exception 'precondition_failed: destination cool-down until %', v_org.payout_destination_locked_until using errcode = 'P0001';
+  end if;
   select * into v_po from kernel.payout
-   where cause='settlement' and cause_ref=p_settlement_id and status='pending' for update;
+   where cause = 'settlement' and cause_ref = p_settlement_id and status in ('pending','submitted')
+   order by created_at limit 1 for update;
   if not found then
     raise exception 'precondition_failed: no pending payout for this settlement' using errcode = 'P0001';
   end if;
+  if v_po.status = 'submitted' then
+    return jsonb_build_object('status','noop_replay','payout_id', v_po.payout_id);
+  end if;
+  if v_po.hold_state <> 'none' then
+    return jsonb_build_object('status', case when v_po.hold_state = 'probation_hold' then 'probation_held' else 'held' end,
+                              'payout_id', v_po.payout_id);
+  end if;
+  -- DESTINATION PROBATION (§10.3 third arm). Operand: the last destination change
+  -- (the org.payout_destination.change audit row 085 writes) inside the window;
+  -- "first payout" = no payout of this org reached `paid` since that change.
+  select (c.value #>> '{}')::integer into v_prob_days from catalog.platform_config c
+   where c.key = 'payout.destination_probation_days' order by c.version desc limit 1;
+  select max(a.occurred_at) into v_changed_at from kernel.admin_audit a
+   where a.action = 'org.payout_destination.change' and a.subject_kind = 'organization' and a.subject_id = p_org_id;
+  if v_changed_at is not null
+     and (v_prob_days is null or v_changed_at > now() - make_interval(days => v_prob_days))   -- NULL ⇒ X-12 restrictive
+     and not exists (select 1 from kernel.payout p where p.payee_org_id = p_org_id and p.status = 'paid' and p.updated_at > v_changed_at)
+     -- a platform_risk/platform_admin RELEASE of this payout after the change (kernel.release_payout, the
+     -- sole release path) is the human decision the arm exists to obtain: it is not re-imposed (T-RPC-MONEY-32).
+     and not exists (select 1 from kernel.admin_audit a where a.subject_kind = 'payout' and a.subject_id = v_po.payout_id
+                       and a.action = 'payout.release' and a.occurred_at >= v_changed_at) then   -- >=: same-transaction instants
+    update kernel.payout
+       set hold_state = 'probation_hold', hold_reason_code = 'destination_probation', held_at = now(), held_by = null, updated_at = now()
+     where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.probation_hold', 'payout', v_po.payout_id, 'destination_probation',
+            jsonb_build_object('settlement_id', p_settlement_id, 'destination_changed_at', v_changed_at));
+    return jsonb_build_object('status','probation_held','payout_id', v_po.payout_id);
+  end if;
+  -- an APPROVED, unexpired dual-control request for THIS payout advances it (E-74).
+  select * into v_ar from kernel.approval_request a
+   where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
+     and a.state = 'approved' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
+   order by a.updated_at desc limit 1;
+  if found then
+    update kernel.payout set status = 'submitted', updated_at = now() where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'approved_request',
+            jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_ar.request_id, 'approved_by', v_ar.approved_by));
+    return jsonb_build_object('status','submitted','payout_id', v_po.payout_id, 'request_id', v_ar.request_id);
+  end if;
   -- dual-control threshold: absent (NULL) ⇒ X-12 restrictive ⇒ always park.
-  select (c.value #>> '{}')::bigint into v_threshold from catalog.platform_config c
+  select (c.value #>> '{}')::bigint, c.version into v_threshold, v_threshold_ver from catalog.platform_config c
    where c.key = 'payout.dual_control_min_minor' order by c.version desc limit 1;
   if v_threshold is null or v_po.amount_minor >= v_threshold then
+    -- a request already parked for this payout is returned, never duplicated.
+    select * into v_ar from kernel.approval_request a
+     where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
+       and a.state = 'pending' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
+     order by a.created_at limit 1;
+    if found then
+      return jsonb_build_object('status','pending_approval','request_id', v_ar.request_id, 'payout_id', v_po.payout_id,
+                                'required_approver_class', v_ar.required_approver_class);
+    end if;
     -- PARK: a second org money role must approve (kernel.approve verb, 085).
     insert into kernel.approval_request (action, required_approver_class, subject_kind, subject_id, org_id,
              payload, amount_minor, config_versions, requested_by, expires_at, command_idempotency_key)
     values ('payout.request', 'org', 'settlement', p_settlement_id, p_org_id,
             jsonb_build_object('payout_id', v_po.payout_id, 'tier', 'parked'),
-            v_po.amount_minor, '{}'::jsonb, auth.uid(), now() + interval '72 hours',
+            v_po.amount_minor,
+            jsonb_build_object('payout.dual_control_min_minor', v_threshold_ver),   -- pinned, never a parameter
+            v_uid, now() + interval '72 hours',
             coalesce(p_command_key, 'req:' || p_settlement_id::text))
     on conflict do nothing
     returning request_id into v_req;
+    if v_req is null then   -- same (actor, command key): the original request
+      select a.request_id into v_req from kernel.approval_request a
+       where a.requested_by = v_uid and a.command_idempotency_key = coalesce(p_command_key, 'req:' || p_settlement_id::text);
+    end if;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'pending_approval',
+            jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_req, 'required_approver_class', 'org'));
     -- best-effort notice (BE; dual control is enforced by the Approval row, not the notice).
     begin
-      perform notify.emit_event('PayoutRequestPendingApproval', 'settlement', p_settlement_id,
+      perform notify.emit_event('payout_request_pending_approval', 'settlement', p_settlement_id,   -- R2 row 20 (snake_case IN type)
               'payout_request:' || p_settlement_id::text,
               jsonb_build_object('org_id', p_org_id, 'amount_minor', v_po.amount_minor));
     exception when others then null; end;
-    return jsonb_build_object('status','pending_approval','request_id', v_req, 'payout_id', v_po.payout_id);
+    return jsonb_build_object('status','pending_approval','request_id', v_req, 'payout_id', v_po.payout_id,
+                              'required_approver_class', 'org');
   else
     -- below an owner-set threshold: advance directly to submitted (the edge executes Stripe).
-    update kernel.payout set status='submitted', updated_at=now() where payout_id = v_po.payout_id;
+    update kernel.payout set status = 'submitted', updated_at = now() where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'submitted',
+            jsonb_build_object('settlement_id', p_settlement_id));
     return jsonb_build_object('status','submitted','payout_id', v_po.payout_id);
   end if;
 end;
@@ -470,9 +608,15 @@ begin
     v_venue := null;   -- org grain: no venue role reaches an org-wide export
   end if;
   if v_org is not null then
+    -- OPERATORSHIP BINDING (E-76): venue roles are keyed on the venue as a PLACE while
+    -- catalog.venue.org_id is mutable. A venue role reaches a session/event scope only
+    -- while the venue's CURRENT operator is the scope's org — otherwise the new
+    -- operator's staff would reach the prior operator's exports and rosters (CRM §4.1).
     v_ok := exists (select 1 from kernel.org_member m
                      where m.org_id = v_org and m.identity_id = p_actor and m.role = any(v_org_roles))
-         or (v_venue is not null and exists (select 1 from venue.staff_role s
+         or (v_venue is not null
+             and (select v.org_id from catalog.venue v where v.venue_id = v_venue) = v_org
+             and exists (select 1 from venue.staff_role s
                      where s.venue_id = v_venue and s.identity_id = p_actor and s.role = any(v_venue_roles)));
   end if;
   if not v_ok and p_raise then
@@ -508,8 +652,8 @@ begin
   if v_uid is null then
     raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501';
   end if;
-  if p_command_key is null or length(trim(p_command_key)) = 0 then
-    raise exception 'invalid_input: command_key required';
+  if p_command_key is null or p_command_key !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: command_key must be 1-64 chars of [A-Za-z0-9._:-] (it lands in the immutable audit)';
   end if;
   -- C16 idempotency: same actor + same command key ⇒ the ORIGINAL job, no second row.
   select * into v_existing from venue.export_job where requested_by = v_uid and command_key = p_command_key;
@@ -563,6 +707,13 @@ begin
       if jsonb_typeof(v_v) <> 'array' or jsonb_array_length(v_v) = 0
          or exists (select 1 from jsonb_array_elements(v_v) x where jsonb_typeof(x) <> 'string') then
         raise exception 'invalid_input: filter % must be a non-empty membership array of values (no nesting)', v_k;
+      end if;
+      -- every membership value is a bounded identifier: filters are persisted into the
+      -- job row AND the immutable audit payload, so free text (an address, a name) must
+      -- never be accepted (CRM §8.3 "never in an audit row"). refund_state's derived enum
+      -- has no frozen spelling (PFA-9 class) — bounded identifiers, never free text.
+      if exists (select 1 from jsonb_array_elements_text(v_v) x where x !~ '^[A-Za-z0-9_.:-]{1,64}$') then
+        raise exception 'invalid_input: filter % values must be bounded identifiers (1-64 chars of [A-Za-z0-9_.:-])', v_k;
       end if;
       if v_k = 'order_status' and exists (select 1 from jsonb_array_elements_text(v_v) x
            where x not in ('pending','paid','partially_refunded','refunded','cancelled')) then
@@ -694,6 +845,10 @@ begin
            name_cells_emitted = 0, name_cells_suppressed = 0
      where job_id = p_job_id
      returning * into v_j;
+    -- EX-5: the claim is a state transition (queued→running) and leaves its row (E-77).
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_sys, 'crm_export.claim', 'crm_export', p_job_id, 'claim',
+            jsonb_build_object('gate_as_of', v_j.gate_as_of, 'lease_until', v_j.lease_until));
   elsif v_j.state = 'running' then
     if p_cursor is null then
       raise exception 'precondition_failed: job is leased by a live build; a second claim may not restart it' using errcode = 'P0001';
@@ -702,13 +857,17 @@ begin
   else
     raise exception 'precondition_failed: export job % is % — not buildable', p_job_id, v_j.state using errcode = 'P0001';
   end if;
-  -- authority re-derived from the JOB ROW (recorded actor + scope + template).
-  if not venue.assert_may_request(v_j.requested_by, v_j.scope_kind, v_j.scope_id, v_j.template_id, false) then
+  -- authority re-derived from the JOB ROW (recorded actor + scope + template), through the
+  -- ONE predicate in its RAISING mode (T-RPC-CRM-06: the opt-out has exactly one caller);
+  -- a denial becomes the frozen failure state, not a raise out of the worker.
+  begin
+    perform venue.assert_may_request(v_j.requested_by, v_j.scope_kind, v_j.scope_id, v_j.template_id);
+  exception when insufficient_privilege then
     update venue.export_job set state = 'failed', failure_code = 'scope_unreachable', lease_until = null where job_id = p_job_id;
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
     values (v_sys, 'crm_export.fail', 'crm_export', p_job_id, 'scope_unreachable');
     return;
-  end if;
+  end;
   -- ── PFA-28 FAIL-CLOSED PARK ─────────────────────────────────────────────────
   -- customer_ref (CRM §4.3) = base32(HMAC-SHA256(org_customer_key, identity_id)
   -- [0..9]) has no ratified mechanism in this database. Emitting any substitute
@@ -855,17 +1014,19 @@ $$;
 create or replace function venue.revoke_export(p_job_id uuid, p_reason_code text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_uid uuid := auth.uid(); v_j venue.export_job%rowtype; v_allowed boolean;
+declare v_uid uuid := auth.uid(); v_j venue.export_job%rowtype;
 begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
-  if p_reason_code is null or length(trim(p_reason_code)) = 0 then raise exception 'invalid_input: reason_code required'; end if;
+  if p_reason_code is null or p_reason_code !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: reason_code must be 1-64 chars of [A-Za-z0-9._:-] (it lands in the immutable audit)';
+  end if;
   select * into v_j from venue.export_job where job_id = p_job_id for update;
   if not found then raise exception 'not_found: export job %', p_job_id using errcode = 'P0002'; end if;
-  v_allowed := (v_j.requested_by = v_uid)
-            or kernel.is_platform(array['platform_admin'])
-            or venue.assert_may_request(v_uid, v_j.scope_kind, v_j.scope_id, v_j.template_id, false);
-  if not v_allowed then
-    raise exception 'insufficient_privilege: actor may not revoke this export' using errcode = '42501';
+  -- the requester and platform_admin revoke unconditionally; every other arm (venue_manager /
+  -- org owner-admin over the scope, the marketing labels template-scoped) IS the one shared
+  -- predicate in its RAISING mode — a denial raises 42501 here (T-RPC-CRM-06: no opt-out).
+  if v_j.requested_by <> v_uid and not kernel.is_platform(array['platform_admin']) then
+    perform venue.assert_may_request(v_uid, v_j.scope_kind, v_j.scope_id, v_j.template_id);
   end if;
   if v_j.state = 'revoked' then
     return jsonb_build_object('status','noop_replay','job_id', p_job_id,'state','revoked','artifact_state', v_j.artifact_state);
@@ -912,7 +1073,9 @@ begin
     v_expired := v_expired + 1;
   end loop;
   for v_r in select job_id from venue.export_job
-              where state in ('expired','revoked') and artifact_state = 'deleted' and purge_after < now()
+              where ((state in ('expired','revoked') and artifact_state = 'deleted')
+                     or (state = 'failed' and artifact_state in ('absent','deleted')))   -- E-78: a failed job never held bytes
+                and purge_after < now()
               order by purge_after limit 500 for update skip locked loop
     update venue.export_job set state = 'purged' where job_id = v_r.job_id;
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
@@ -1074,7 +1237,7 @@ create or replace function venue.list_export_jobs(p_scope_kind text, p_scope_id 
 returns jsonb language plpgsql stable security definer set search_path = ''
 as $$
 declare
-  v_uid uuid := auth.uid(); v_org uuid; v_venue uuid; v_event uuid; v_cursor timestamptz; v_rows jsonb; v_next text;
+  v_uid uuid := auth.uid(); v_org uuid; v_venue uuid; v_event uuid; v_cursor timestamptz; v_cursor_id uuid; v_rows jsonb; v_next text;
 begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
   if p_scope_kind is null or p_scope_kind not in ('session','event','venue','org') then
@@ -1090,13 +1253,18 @@ begin
   else
     select o.org_id into v_org from kernel.organization o where o.org_id = p_scope_id;
   end if;
-  if v_org is null then raise exception 'not_found: export scope % %', p_scope_kind, p_scope_id using errcode = 'P0002'; end if;
-  if not (kernel.has_org_role(v_org, array['org_owner','org_admin','org_marketing'])
-          or (v_venue is not null and kernel.has_venue_role(v_venue, array['venue_manager','venue_marketing']))
-          or kernel.is_platform(array['platform_support','platform_risk','platform_admin'])) then
+  -- an unresolvable scope fails IDENTICALLY to an unauthorized one (CRM §4.2(5): no existence oracle).
+  if v_org is null
+     or not (kernel.has_org_role(v_org, array['org_owner','org_admin','org_marketing'])
+             or (v_venue is not null
+                 and (select v.org_id from catalog.venue v where v.venue_id = v_venue) = v_org   -- E-76 operator binding
+                 and kernel.has_venue_role(v_venue, array['venue_manager','venue_marketing']))
+             or kernel.is_platform(array['platform_support','platform_risk','platform_admin'])) then
     raise exception 'insufficient_privilege: no export-history read at this scope (X10)' using errcode = '42501';
   end if;
-  v_cursor := case when p_cursor is null or p_cursor = '' then null else p_cursor::timestamptz end;
+  -- cursor = '<requested_at>|<job_id>' — a total order, so boundary ties never skip a row.
+  v_cursor := case when p_cursor is null or p_cursor = '' then null else split_part(p_cursor, '|', 1)::timestamptz end;
+  v_cursor_id := case when p_cursor is null or p_cursor = '' or split_part(p_cursor, '|', 2) = '' then null else split_part(p_cursor, '|', 2)::uuid end;
   with page as (
     select j.* from venue.export_job j
      where j.org_id = v_org
@@ -1110,7 +1278,7 @@ begin
                    (j.scope_kind = 'event' and j.scope_id = p_scope_id)
                 or (j.scope_kind = 'session' and j.scope_id in (select s.session_id from catalog.event_session s where s.event_id = p_scope_id))))
             or (p_scope_kind = 'session' and j.scope_kind = 'session' and j.scope_id = p_scope_id))
-       and (v_cursor is null or j.requested_at < v_cursor)
+       and (v_cursor is null or j.requested_at < v_cursor or (j.requested_at = v_cursor and v_cursor_id is not null and j.job_id < v_cursor_id))
      order by j.requested_at desc, j.job_id desc
      limit 50)
   select coalesce(jsonb_agg(jsonb_build_object(
@@ -1125,7 +1293,7 @@ begin
            'downloadable', (p.state = 'ready' and p.artifact_state = 'present'
                             and venue.assert_may_request(v_uid, p.scope_kind, p.scope_id, p.template_id, false))
          ) order by p.requested_at desc, p.job_id desc), '[]'::jsonb),
-         (select min(p2.requested_at)::text from page p2)
+         (select p2.requested_at::text || '|' || p2.job_id::text from page p2 order by p2.requested_at, p2.job_id limit 1)
     into v_rows, v_next from page p;
   return jsonb_build_object('status','ok','jobs', v_rows, 'next_cursor',
            case when jsonb_array_length(v_rows) = 50 then v_next else null end);
@@ -1153,18 +1321,20 @@ create or replace function venue.list_attendees(p_session_id uuid, p_filters jso
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
 declare
-  v_uid uuid := auth.uid(); v_org uuid; v_venue uuid; v_event uuid;
+  v_uid uuid := auth.uid(); v_org uuid; v_venue uuid; v_event uuid; v_venue_bound boolean;
   v_ops boolean; v_mkt boolean; v_fin boolean; v_plat boolean; v_k text; v_v jsonb;
 begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
   select e.org_id, e.venue_id, e.event_id into v_org, v_venue, v_event
     from catalog.event_session s join catalog.event e on e.event_id = s.event_id where s.session_id = p_session_id;
-  if v_org is null then raise exception 'not_found: session %', p_session_id using errcode = 'P0002'; end if;
-  v_ops  := kernel.has_venue_role(v_venue, array['venue_manager']) or kernel.has_org_role(v_org, array['org_owner','org_admin']);
-  v_mkt  := kernel.has_venue_role(v_venue, array['venue_marketing']) or kernel.has_org_role(v_org, array['org_marketing']);
-  v_fin  := kernel.has_venue_role(v_venue, array['venue_finance']) or kernel.has_org_role(v_org, array['org_finance']);
+  -- E-76: a venue role reaches this session only while the venue's CURRENT operator is the event's org.
+  v_venue_bound := v_venue is not null and (select v.org_id from catalog.venue v where v.venue_id = v_venue) = v_org;
+  v_ops  := (v_venue_bound and kernel.has_venue_role(v_venue, array['venue_manager'])) or kernel.has_org_role(v_org, array['org_owner','org_admin']);
+  v_mkt  := (v_venue_bound and kernel.has_venue_role(v_venue, array['venue_marketing'])) or kernel.has_org_role(v_org, array['org_marketing']);
+  v_fin  := (v_venue_bound and kernel.has_venue_role(v_venue, array['venue_finance'])) or kernel.has_org_role(v_org, array['org_finance']);
   v_plat := kernel.is_platform(array['platform_support','platform_risk','platform_admin']);
-  if not (v_ops or v_mkt or v_fin or v_plat) then
+  -- an unknown session fails IDENTICALLY to an unauthorized one (no existence oracle, CRM §4.2(5)).
+  if v_org is null or not (v_ops or v_mkt or v_fin or v_plat) then
     raise exception 'insufficient_privilege: no roster read at this session' using errcode = '42501';
   end if;
   -- AUTHZ-M12: the platform arm (and ONLY it) must carry a closed-enum reason code.
@@ -1213,10 +1383,12 @@ begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
   select e.org_id, e.venue_id into v_org, v_venue
     from catalog.event_session s join catalog.event e on e.event_id = s.event_id where s.session_id = p_session_id;
-  if v_org is null then raise exception 'not_found: session %', p_session_id using errcode = 'P0002'; end if;
-  if not (kernel.has_venue_role(v_venue, array['venue_manager','venue_box_office'])
-          or kernel.has_org_role(v_org, array['org_owner','org_admin'])
-          or kernel.is_platform(array['platform_support'])) then
+  -- unknown session ⇒ identical refusal (no oracle); venue arm bound to the current operator (E-76).
+  if v_org is null
+     or not ((v_venue is not null and (select v.org_id from catalog.venue v where v.venue_id = v_venue) = v_org
+              and kernel.has_venue_role(v_venue, array['venue_manager','venue_box_office']))
+             or kernel.has_org_role(v_org, array['org_owner','org_admin'])
+             or kernel.is_platform(array['platform_support'])) then
     raise exception 'insufficient_privilege: no attendee lookup at this session (marketing labels are denied)' using errcode = '42501';
   end if;
   if p_query_kind is null or p_query_kind not in ('email_exact','order_ref','name_prefix') then
@@ -1314,7 +1486,8 @@ select cron.schedule('crm-export-build-tick', '* * * * *', $cron$
       'X-Crm-Export-Worker', coalesce((select decrypted_secret from vault.decrypted_secrets
                                         where name = 'crm_export_worker_secret' order by created_at desc limit 1), ''),
       'Content-Type', 'application/json'),
-    body    := '{}'::jsonb);
+    body    := '{}'::jsonb)
+   where exists (select 1 from vault.decrypted_secrets where name = 'crm_export_worker_secret');   -- no secret ⇒ no post (fail closed, E-79)
 $cron$);
 select cron.schedule('crm-export-purge-tick', '*/15 * * * *', $cron$
   select net.http_post(
@@ -1325,7 +1498,8 @@ select cron.schedule('crm-export-purge-tick', '*/15 * * * *', $cron$
       'X-Crm-Export-Worker', coalesce((select decrypted_secret from vault.decrypted_secrets
                                         where name = 'crm_export_worker_secret' order by created_at desc limit 1), ''),
       'Content-Type', 'application/json'),
-    body    := '{}'::jsonb);
+    body    := '{}'::jsonb)
+   where exists (select 1 from vault.decrypted_secrets where name = 'crm_export_worker_secret');   -- no secret ⇒ no post (fail closed, E-79)
 $cron$);
 
 commit;

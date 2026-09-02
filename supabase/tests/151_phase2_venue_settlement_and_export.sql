@@ -9,7 +9,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(177);
+SELECT plan(213);
 
 SELECT tap.seed_core();
 
@@ -26,6 +26,11 @@ CREATE FUNCTION tap._audit151(p_subject uuid, p_action text, p_reason text DEFAU
 $m$ SELECT count(*)::int FROM kernel.admin_audit a WHERE a.subject_id = p_subject AND a.action = p_action AND (p_reason IS NULL OR a.reason_code = p_reason) $m$;
 CREATE FUNCTION tap._auditcount151() RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path='' AS
 $m$ SELECT count(*)::int FROM kernel.admin_audit $m$;
+-- step-up: the money verbs (AUTHZ-M4) demand an aal2 claim on the session
+CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
+  (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true); end $f$;
+CREATE FUNCTION tap._aal1() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
+  (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal1"}'::jsonb)::text, true); end $f$;
 -- a fifth persona with NO role anywhere (the plain fan)
 CREATE FUNCTION tap.fan151() RETURNS uuid LANGUAGE sql IMMUTABLE AS $$ SELECT '55555555-5555-5555-5555-555555555555'::uuid $$;
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
@@ -136,8 +141,8 @@ SELECT ok((SELECT pg_get_functiondef(p.oid) ~ 'venue\.assert_may_request\(v_uid,
   'B9: T-RLS-CRM-05 / T-RPC-CRM-10 — request and download resolve to the SAME predicate in RAISING mode (an equality between call sites)');
 SELECT is((SELECT string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue' AND p.proname <> 'assert_may_request'
-              AND p.prokind = 'f' AND p.prosrc ~ 'assert_may_request\([^;]*,\s*false\)'), 'build_export_rows,list_export_jobs,revoke_export',
-  'B10: T-RPC-CRM-06 — the non-raising opt-out is used ONLY where a false gates no byte: the lister''s downloadable, the builder''s job-row re-derivation, and revoke''s template-scoped arm');
+              AND p.prokind = 'f' AND p.prosrc ~ 'assert_may_request\([^;]*,\s*false\)'), 'list_export_jobs',
+  'B10: T-RPC-CRM-06 — the non-raising opt-out (p_raise := false) has EXACTLY ONE caller, list_export_jobs (a false renders a disabled control, never gates a byte)');
 SELECT ok(has_table_privilege('authenticated','venue.settlement','SELECT') AND has_table_privilege('authenticated','venue.settlement_line','SELECT'),
   'B11: settlement/settlement_line are policy-gated reads for authenticated (RLS §9.13/§9.14)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -183,6 +188,7 @@ SELECT tap.logout();
 -- roles (direct fixture writes as table owner)
 INSERT INTO kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
 VALUES (tap._fetch151('org1')::uuid, tap.other_user(), 'org_finance', tap.seller(), now() - interval '40 days');
+UPDATE kernel.org_member SET granted_at = now() - interval '40 days' WHERE org_id = tap._fetch151('org1')::uuid AND identity_id = tap.seller();   -- the owner's money grant matured too
 INSERT INTO venue.staff_role (venue_id, identity_id, role, granted_by)
 VALUES (tap._fetch151('venue1')::uuid, tap.buyer(), 'venue_marketing', tap.seller());
 INSERT INTO kernel.platform_role (identity_id, role, granted_by) VALUES (tap.admin_user(), 'platform_support', tap.admin_user());
@@ -202,6 +208,16 @@ SELECT tap.login(tap.seller());
 SELECT tap._store151('s1', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, tap._fetch151('event1')::uuid,
   jsonb_build_object('period_start', now()::text, 'period_end', (now()+interval '1 day')::text), 'ck87-s1') ->> 'settlement_id'));
 SELECT ok(tap._fetch151('s1') IS NOT NULL, 'C2: org_owner opens a settlement header');
+SELECT is((venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, tap._fetch151('event1')::uuid, '{}'::jsonb, 'ck87-s1') ->> 'settlement_id'), tap._fetch151('s1'),
+  'C2a: §10.1 idempotency — the same (actor, command_key) returns the ORIGINAL header, no second row');
+SELECT throws_ok(format($$SELECT venue.open_settlement(%L,%L,%L,'{}','ck87-s-ev2')$$, tap._fetch151('org1'), tap._fetch151('venue1'), tap._fetch151('event2')),
+  'P0002', NULL, 'C2b: AUTHZ-C1C — an event of another venue/org does not bind to the scope (not_found, never insufficient_privilege)');
+SELECT tap.logout();
+SELECT tap.login(tap.other_user());   -- org2''s OWNER (passes the org-role check for org2)
+SELECT throws_ok(format($$SELECT venue.open_settlement(%L,%L,NULL,'{}','ck87-s-steal')$$, tap._fetch151('org2'), tap._fetch151('venue1')),
+  'P0002', NULL, 'C2c: AUTHZ-C1C — org2''s owner cannot open a settlement over org1''s venue (the payee would otherwise be caller-chosen)');
+SELECT tap.logout();
+SELECT tap.login(tap.seller());
 SELECT throws_ok(format($$SELECT kernel.close_settlement(%L,'ck87-c-x')$$, tap._fetch151('s1')),
   '42501', NULL, 'C3: org_owner may NOT close — close is venue_finance / org_finance / platform_admin (RPC §10.2)');
 SELECT tap.logout();
@@ -246,6 +262,13 @@ SELECT tap.logout();
 SELECT ok((SELECT status='closed' AND gross_minor=10000 AND fees_minor=1000 AND refunds_minor=500 AND net_minor=8500
              FROM venue.settlement WHERE settlement_id = tap._fetch151('s2')::uuid),
   'C16: the waterfall from signed lines — gross 10000, fees 1000, refunds 500, net 8500 = gross - fees - refunds');
+SELECT ok((SELECT s.gross_minor   = (SELECT coalesce(sum(l.amount_minor),0)  FROM venue.settlement_line l WHERE l.settlement_id=s.settlement_id AND l.amount_minor > 0 AND l.cause NOT IN ('refund_void','chargeback'))
+              AND s.fees_minor    = (SELECT coalesce(sum(-l.amount_minor),0) FROM venue.settlement_line l WHERE l.settlement_id=s.settlement_id AND l.amount_minor < 0 AND l.cause NOT IN ('refund_void','chargeback'))
+              AND s.refunds_minor = (SELECT coalesce(sum(-l.amount_minor),0) FROM venue.settlement_line l WHERE l.settlement_id=s.settlement_id AND l.cause IN ('refund_void','chargeback'))
+              AND s.net_minor     = (SELECT coalesce(sum(l.amount_minor),0)  FROM venue.settlement_line l WHERE l.settlement_id=s.settlement_id)
+             FROM venue.settlement s WHERE s.settlement_id = tap._fetch151('s2')::uuid),
+  'C16a: T-SCHEMA-SETTLE-04 — the stored header equals the SUM OF ITS OWN LINES by the frozen sign convention (E-73), net = Σ all lines exactly');
+SELECT is((tap._fetch151('c2')::jsonb ->> 'net_minor'), '8500', 'C16b: the returned net_minor is a read-back of the column (§10.2 R1-2)');
 SELECT is(jsonb_array_length(tap._fetch151('c2')::jsonb -> 'payout_ids'), 1, 'C17: a positive net generates exactly one pending payout');
 SELECT tap._store151('p2', ((tap._fetch151('c2')::jsonb -> 'payout_ids') ->> 0));
 SELECT ok((SELECT p.amount_minor=8500 AND p.status='pending' AND p.cause='settlement' AND p.cause_ref=tap._fetch151('s2')::uuid
@@ -274,21 +297,45 @@ SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-imm')
 SELECT tap.logout();
 UPDATE kernel.org_member SET granted_at = now() - interval '40 days' WHERE org_id = tap._fetch151('org1')::uuid AND identity_id = tap.other_user();
 SELECT tap.login(tap.other_user());
+SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-noaal')$$, tap._fetch151('org1'), tap._fetch151('s2')),
+  '%step_up_unavailable%', 'C23a: AUTHZ-M4 — a session with NO aal claim is step_up_unavailable (never a pass, never a fail)');
+SELECT tap._aal1();
+SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-aal1')$$, tap._fetch151('org1'), tap._fetch151('s2')),
+  '%step_up_required%', 'C23b: aal1 is step_up_required');
+SELECT tap._aal2();
+SELECT throws_ok(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-xorg')$$, tap._fetch151('org2'), tap._fetch151('s2')),
+  'P0002', NULL, 'C23c: T-RPC-AUTHZ-20 — org2''s owner passing p_org_id=org2 with org1''s settlement gets not_found (the scope binds to the subject under the lock)');
 SELECT tap._store151('r1', kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s2')::uuid, 'ck87-r1')::text);
 SELECT is((tap._fetch151('r1')::jsonb ->> 'status'), 'pending_approval', 'C24: payout.dual_control_min_minor is NULL-seeded (PFA-9) ⇒ X-12 restrictive ⇒ the request PARKS for dual control');
+SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s2')::uuid, 'ck87-r1-again') ->> 'request_id'), (tap._fetch151('r1')::jsonb ->> 'request_id'),
+  'C24a: a second request while one is parked returns the SAME pending approval (never a duplicate park)');
 SELECT tap.logout();
 SELECT ok((SELECT a.action='payout.request' AND a.required_approver_class='org' AND a.subject_kind='settlement' AND a.state='pending'
               AND a.org_id=tap._fetch151('org1')::uuid AND a.amount_minor=8500 AND a.requested_by=tap.other_user()
              FROM kernel.approval_request a WHERE a.request_id = (tap._fetch151('r1')::jsonb ->> 'request_id')::uuid),
   'C25: the parked approval row: payout.request / org class / settlement subject / the payout amount');
 SELECT is((SELECT status FROM kernel.payout WHERE payout_id = tap._fetch151('p2')::uuid), 'pending', 'C26: a parked request leaves the payout pending');
+SELECT is((SELECT a.config_versions ? 'payout.dual_control_min_minor' FROM kernel.approval_request a WHERE a.request_id = (tap._fetch151('r1')::jsonb ->> 'request_id')::uuid), true,
+  'C26a: the parked row PINS the threshold key version in config_versions (never a parameter)');
+SELECT is(tap._audit151(tap._fetch151('p2')::uuid, 'payout.request', 'pending_approval'), 1, 'C26b: the parked arm writes its payout.request audit row');
+-- the dual-control loop CLOSES: a second money role approves (085 verb) and the requester's re-request advances (E-74)
+SELECT tap.login(tap.seller());
+SELECT tap._aal2();
+SELECT is((kernel.approve_refund_request((tap._fetch151('r1')::jsonb ->> 'request_id')::uuid, 'approve', 'looks_right', 'ck87-ap1') ->> 'status'), 'approved',
+  'C26c: the org_owner (a second, matured money role; not the requester, not the setter) approves the parked payout request');
+SELECT tap.logout();
+SELECT is((SELECT status FROM kernel.payout WHERE payout_id = tap._fetch151('p2')::uuid), 'pending', 'C26d: 085''s approve arm records the approval and moves no money (the payout is still pending)');
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT tap._store151('r1b', kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s2')::uuid, 'ck87-r1b')::text);
+SELECT is((tap._fetch151('r1b')::jsonb ->> 'status'), 'submitted', 'C26e: E-74 — the contracted writer of pending→submitted advances an APPROVED request (the loop has an exit)');
+SELECT is((tap._fetch151('r1b')::jsonb ->> 'request_id'), (tap._fetch151('r1')::jsonb ->> 'request_id'), 'C26f: … citing the approval it consumed');
+SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s2')::uuid, 'ck87-r2') ->> 'status'), 'noop_replay',
+  'C27: a request on an already-submitted payout is noop_replay');
+SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT 'payout.dual_control_min_minor', coalesce(max(version),0)+1, '1000000'::jsonb, 'restricted'
   FROM catalog.platform_config WHERE key='payout.dual_control_min_minor';
-SELECT tap.login(tap.other_user());
-SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s2')::uuid, 'ck87-r2') ->> 'status'), 'submitted',
-  'C27: below an OWNER-SET dual-control threshold the payout advances pending → submitted (the edge executes Stripe)');
-SELECT tap.logout();
 -- the fifth seam: closed → paid rides mark_payout_transfer_state
 SELECT is((kernel.mark_payout_transfer_state(tap._fetch151('p2')::uuid, 'paid', 'tr_87_1', NULL, 'ck87-m1') ->> 'status'), 'ok',
   'C28: the Stripe state-sync marks the payout paid');
@@ -300,8 +347,10 @@ SELECT tap._store151('s3', (venue.open_settlement(tap._fetch151('org1')::uuid, t
 SELECT tap.logout();
 INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (tap._fetch151('s3')::uuid, 'primary_sale', gen_random_uuid(), 5000);
 SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
 SELECT tap._store151('p3', ((kernel.close_settlement(tap._fetch151('s3')::uuid, 'ck87-c3')::jsonb -> 'payout_ids') ->> 0));
-SELECT kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s3')::uuid, 'ck87-r3');
+SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s3')::uuid, 'ck87-r3') ->> 'status'), 'submitted',
+  'C29a: below an OWNER-SET dual-control threshold the payout advances pending → submitted directly (the edge executes Stripe)');
 SELECT tap.logout();
 WITH sib AS (INSERT INTO kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, status, idempotency_key)
   VALUES ('organization', tap._fetch151('org1')::uuid, 'settlement', tap._fetch151('s3')::uuid, 100, 'submitted', 'sib:'||tap._fetch151('s3')) RETURNING payout_id)
@@ -312,6 +361,40 @@ SELECT is((SELECT status FROM venue.settlement WHERE settlement_id = tap._fetch1
 SELECT kernel.mark_payout_transfer_state(tap._fetch151('p3b')::uuid, 'paid', 'tr_87_3b', NULL, 'ck87-m3b');
 SELECT is((SELECT status FROM venue.settlement WHERE settlement_id = tap._fetch151('s3')::uuid), 'paid',
   'C31: … and reaches paid only when EVERY settlement-caused payout is paid');
+-- DESTINATION PROBATION (§10.3 third arm; T-RPC-MONEY-31/32): the org_owner changes the
+-- destination (085 verb, aal2, matured); the FIRST payout after it is held, not advanced.
+SELECT tap.login(tap.seller());
+SELECT tap._aal2();
+SELECT is((kernel.set_org_payout_destination(tap._fetch151('org1')::uuid, 'acct_PROB87', 'new_bank', 'ck87-dest') ->> 'status'), 'ok',
+  'C31a: the org_owner sets a new payout destination (writes the org.payout_destination.change audit row)');
+SELECT tap._store151('s5', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s5') ->> 'settlement_id'));
+SELECT tap.logout();
+INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (tap._fetch151('s5')::uuid, 'primary_sale', gen_random_uuid(), 7000);
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT tap._store151('p5', ((kernel.close_settlement(tap._fetch151('s5')::uuid, 'ck87-c5')::jsonb -> 'payout_ids') ->> 0));
+SELECT tap._store151('r5', kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s5')::uuid, 'ck87-r5')::text);
+SELECT is((tap._fetch151('r5')::jsonb ->> 'status'), 'probation_held', 'C31b: T-RPC-MONEY-31 — the first payout after a destination change returns probation_held, distinctly');
+SELECT tap.logout();
+SELECT ok((SELECT p.status = 'pending' AND p.hold_state = 'probation_hold' AND p.hold_reason_code = 'destination_probation' AND p.held_at IS NOT NULL AND p.held_by IS NULL
+             FROM kernel.payout p WHERE p.payout_id = tap._fetch151('p5')::uuid),
+  'C31c: status stays pending (asserted as an equality), exactly the three hold columns set, held_by NULL (a probation hold, not a risk hold)');
+SELECT is(tap._audit151(tap._fetch151('p5')::uuid, 'payout.probation_hold', 'destination_probation'), 1, 'C31d: payout.probation_hold audited');
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s5')::uuid, 'ck87-r5b') ->> 'status'), 'probation_held',
+  'C31e: a re-request while held is still probation_held — nothing advances');
+SELECT tap.logout();
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.release_payout(tap._fetch151('p5')::uuid, 'ck87-rel5') ->> 'status'), 'ok', 'C31f: only platform_risk/platform_admin release (kernel.release_payout, the sole release path)');
+SELECT tap.logout();
+SELECT ok((SELECT p.status = 'pending' AND p.hold_state = 'none' FROM kernel.payout p WHERE p.payout_id = tap._fetch151('p5')::uuid),
+  'C31g: T-RPC-MONEY-32 — release restores hold_state=none and status is STILL pending (it was never overwritten)');
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s5')::uuid, 'ck87-r5c') ->> 'status'), 'submitted',
+  'C31h: … and a second request then advances it normally');
+SELECT tap.logout();
 -- on_payout_settled refusals / no-ops (called directly under the owning context)
 SELECT tap.login(tap.seller());
 SELECT tap._store151('s4', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s4') ->> 'settlement_id'));
@@ -327,18 +410,36 @@ SELECT tap._store151('p5', (SELECT payout_id::text FROM po));
 SELECT lives_ok(format($$SELECT venue.on_payout_settled(%L)$$, tap._fetch151('p5')), 'C33: a non-settlement payout is a silent no-op for the hook');
 SELECT lives_ok($$SELECT venue.on_payout_settled(gen_random_uuid())$$, 'C34: an unknown payout is a silent no-op');
 SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
 SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r4')$$, tap._fetch151('org1'), tap._fetch151('s4')),
   '%settlement not closed%', 'C35: request_org_payout refuses an open settlement');
 -- RLS: org finance reads, marketing does not
-SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 4, 'C36: org_finance reads its org''s four settlement headers (RLS §9.13)');
-SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 5,
-  'C37: … and their five lines (RLS §9.14)');
+SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 5, 'C36: org_finance reads its org''s five settlement headers (RLS §9.13)');
+SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 6,
+  'C37: … and their six lines (RLS §9.14)');
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT count(*)::int FROM venue.settlement), 0, 'C38: venue_marketing reads ZERO settlements');
 SELECT is((SELECT count(*)::int FROM venue.settlement_line), 0, 'C39: … and ZERO lines');
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM venue.settlement WHERE status='paid'), 2, 'C40: PFA-28 (H) — the settlement subsystem is unaffected by the CRM park: two settlements reached paid');
+-- the venue-role arm binds to the venue's CURRENT operator (E-76): re-operate venue1 to org2
+UPDATE catalog.venue SET org_id = tap._fetch151('org2')::uuid WHERE venue_id = tap._fetch151('venue1')::uuid;
+INSERT INTO venue.staff_role (venue_id, identity_id, role, granted_by) VALUES (tap._fetch151('venue1')::uuid, tap.fan151(), 'venue_manager', tap.other_user());
+SELECT tap.login(tap.fan151());
+SELECT throws_ok(format($$SELECT venue.request_export('event',%L,'operations_v1','{}','ck87-reop-1')$$, tap._fetch151('event1')),
+  '42501', NULL, 'C41: E-76 — the NEW operator''s venue_manager cannot export the PRIOR operator''s event (venue as a place ≠ venue as an operator)');
+SELECT throws_ok(format($$SELECT venue.list_attendees(%L,'{}',NULL,NULL)$$, tap._fetch151('session1')),
+  '42501', NULL, 'C42: … nor read its roster');
+SELECT throws_ok(format($$SELECT venue.list_export_jobs('event',%L,NULL)$$, tap._fetch151('event1')),
+  '42501', NULL, 'C43: … nor list its export history');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT venue.request_export('session',%L,'audience_v1','{}','ck87-reop-2')$$, tap._fetch151('session1')),
+  '42501', NULL, 'C44: … and the prior operator''s venue_marketing is bound out too (the venue role no longer sits under org1)');
+SELECT tap.logout();
+DELETE FROM venue.staff_role WHERE venue_id = tap._fetch151('venue1')::uuid AND identity_id = tap.fan151();
+UPDATE catalog.venue SET org_id = tap._fetch151('org1')::uuid WHERE venue_id = tap._fetch151('venue1')::uuid;
 
 -- ============================================================================
 -- SECTION D — THE EXPORT LIFECYCLE (request → build[PARKED] → finalize →
@@ -376,6 +477,10 @@ SELECT throws_like(format($$SELECT venue.request_export('session',%L,'audience_v
   '%outside the closed set%', 'D10: a value outside a filter''s enum raises');
 SELECT throws_like(format($$SELECT venue.request_export('session',%L,'audience_v1','{"promoter":["x"]}','ck87-f4')$$, tap._fetch151('session1')),
   '%gated on package 090%', 'D11: the promoter filter is gated on 090');
+SELECT throws_like(format($$SELECT venue.request_export('session',%L,'audience_v1','{"refund_state":["alice@example.com"]}','ck87-f4b')$$, tap._fetch151('session1')),
+  '%bounded identifiers%', 'D11a: §8.3 — free text (an address) can never reach the job row or the immutable audit through a filter value');
+SELECT throws_like(format($$SELECT venue.request_export('session',%L,'audience_v1','{}','bad key with spaces @')$$, tap._fetch151('session1')),
+  '%command_key must be%', 'D11b: … nor through the command key');
 SELECT throws_like(format($$SELECT venue.request_export('venue',%L,'audience_v1','{}','ck87-f5')$$, tap._fetch151('venue1')),
   '%date_window%', 'D12: a venue-grain export must be anchored on a bounded window (EX-1)');
 SELECT throws_like(format($$SELECT venue.request_export('venue',%L,'audience_v1',%L,'ck87-f6')$$, tap._fetch151('venue1'),
@@ -420,6 +525,7 @@ SELECT ok((SELECT (j).state='failed' AND (j).failure_code='build_error' AND (j).
   'D24: PFA-28 (F) — the job is recorded in the frozen failure state (failed / build_error) with gate_as_of stamped at claim and no fabricated counters');
 SELECT is(tap._audit151(tap._fetch151('j1')::uuid, 'crm_export.fail', 'customer_ref_crypto_unavailable'), 1,
   'D25: the failure is audited: crm_export.fail / customer_ref_crypto_unavailable');
+SELECT is(tap._audit151(tap._fetch151('j1')::uuid, 'crm_export.claim'), 1, 'D25a: E-77 — the claim (queued→running) left its own audit row (EX-5), carrying gate_as_of');
 SELECT throws_like(format($$SELECT venue.finalize_export(%L, 0, 10, repeat('a',64), %L)$$, tap._fetch151('j1'), tap._fetch151('org1')||'/'||tap._fetch151('j1')||'.csv'),
   '%only a running build finalizes%', 'D26: PFA-28 (F) — a parked build can NEVER finalize; no artifact can exist');
 SELECT tap.login(tap.buyer());
@@ -569,6 +675,8 @@ UPDATE venue.export_job SET purge_after = now() - interval '1 day' WHERE job_id 
 SELECT is((venue.sweep_expired_exports() ->> 'purged'), '1', 'D74: the sweep purges the ONE revoked+deleted job past its 13-month row retention');
 SELECT ok((SELECT (j).state='purged' FROM tap._job151(tap._fetch151('j5')::uuid) j) AND tap._audit151(tap._fetch151('j5')::uuid, 'crm_export.purge', 'job_row_retention') = 1,
   'D75: … terminal `purged`, audited');
+UPDATE venue.export_job SET purge_after = now() - interval '1 day' WHERE job_id = tap._fetch151('j1')::uuid;
+SELECT is((venue.sweep_expired_exports() ->> 'purged'), '1', 'D75a: E-78 — a FAILED job (never held bytes) also purges at its row retention, so parked builds do not accumulate forever');
 -- audit hygiene: §12 33 content scan + EX-5 every transition audited
 SELECT is((SELECT count(*)::int FROM kernel.admin_audit a WHERE a.action LIKE 'crm_export.%'
             AND ((a.after - 'constraint_set_version')::text ~ '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+'   -- the X-9 id is "…@v1", not an address
@@ -593,6 +701,12 @@ SELECT tap.logout();
 SELECT tap.login(tap.fan151());
 SELECT throws_ok(format($$SELECT venue.list_attendees(%L,'{}',NULL,NULL)$$, tap._fetch151('session1')),
   '42501', NULL, 'E4: authz is preserved: a plain fan is denied BEFORE the park (42501, not the park)');
+SELECT throws_ok($$SELECT venue.list_attendees(gen_random_uuid(),'{}',NULL,NULL)$$,
+  '42501', NULL, 'E4a: CRM §4.2(5) — an UNKNOWN session fails identically to an unauthorized one (no existence oracle)');
+SELECT throws_ok($$SELECT venue.lookup_attendee(gen_random_uuid(),'order_ref','X')$$,
+  '42501', NULL, 'E4b: … likewise the lookup');
+SELECT throws_ok($$SELECT venue.list_export_jobs('session',gen_random_uuid(),NULL)$$,
+  '42501', NULL, 'E4c: … likewise the history read');
 SELECT throws_ok(format($$SELECT venue.lookup_attendee(%L,'email_exact','x@y.z')$$, tap._fetch151('session1')),
   '42501', NULL, 'E5: … likewise for lookup_attendee');
 SELECT tap.logout();
@@ -615,9 +729,17 @@ SELECT throws_ok(format($$SELECT venue.lookup_attendee(%L,'order_ref','ORD-1')$$
   '42501', NULL, 'E12: both marketing labels are DENIED the lookup (§7.2)');
 SELECT tap.logout();
 SELECT is(tap._auditcount151() - tap._fetch151('ac0')::int, 0,
-  'E13: PFA-28 zero mutation — none of the parked reads wrote an audit row');
-SELECT is((SELECT count(*)::int FROM public.rate_limits WHERE action LIKE 'attendee%'), 0,
-  'E14: … and none consumed a rate budget (the call reached no data)');
+  'E13: PFA-28 zero mutation — none of the parked reads left an audit row');
+-- a raise rolls writes back, so E13 alone cannot distinguish "wrote then raised" from "never wrote":
+-- the two on-screen readers must contain NO write at all, and the park must precede any limiter call.
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='venue' AND p.proname IN ('list_attendees','lookup_attendee')
+              AND regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* '\m(insert|update|delete)\M'), 0,
+  'E13a: structurally — list_attendees and lookup_attendee contain no INSERT/UPDATE/DELETE at all (zero mutation by construction)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='venue' AND p.proname IN ('list_attendees','lookup_attendee')
+              AND regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'check_rate_limit'), 0,
+  'E14: … and neither reaches the limiter before the park (no rate budget is consumed by a parked read)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue' AND p.proname IN ('build_export_rows','list_attendees','lookup_attendee')
               AND (regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'md5\s*\(' OR regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'sha256\s*\('

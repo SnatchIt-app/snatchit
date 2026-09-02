@@ -21,16 +21,19 @@ begin;
 -- PART 0 — refusal guard (row_security off: export_job is deny-all zero-policy,
 -- so a non-BYPASSRLS runner would under-count).
 do $$
-declare v_s bigint := 0; v_l bigint := 0; v_j bigint := 0; v_o bigint := 0;
+declare v_s bigint := 0; v_l bigint := 0; v_j bigint := 0; v_o bigint := 0; v_p bigint := 0; v_a bigint := 0;
 begin
   set local row_security = off;
   if to_regclass('venue.settlement')      is not null then execute 'select count(*) from venue.settlement'      into v_s; end if;
   if to_regclass('venue.settlement_line') is not null then execute 'select count(*) from venue.settlement_line' into v_l; end if;
   if to_regclass('venue.export_job')      is not null then execute 'select count(*) from venue.export_job'      into v_j; end if;
   execute $q$select count(*) from storage.objects where bucket_id = 'crm-exports'$q$ into v_o;
-  if v_s + v_l + v_j + v_o > 0 then
-    raise exception 'REFUSED: 087 holds rows (settlement=%, line=%, export_job=%, crm-exports objects=%). CLEAN-WHILE-EMPTY only; forward-fix instead.',
-      v_s, v_l, v_j, v_o;
+  -- 087-only WRITERS into earlier ledgers: settlement payouts and parked payout approvals would dangle.
+  execute $q$select count(*) from kernel.payout where cause = 'settlement'$q$ into v_p;
+  execute $q$select count(*) from kernel.approval_request where action = 'payout.request'$q$ into v_a;
+  if v_s + v_l + v_j + v_o + v_p + v_a > 0 then
+    raise exception 'REFUSED: 087 holds rows (settlement=%, line=%, export_job=%, crm-exports objects=%, settlement payouts=%, payout approvals=%). CLEAN-WHILE-EMPTY only; forward-fix instead.',
+      v_s, v_l, v_j, v_o, v_p, v_a;
   end if;
 end $$;
 

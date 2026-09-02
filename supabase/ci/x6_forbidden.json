@@ -38,6 +38,7 @@
     "kyc_ref",
     "ownership_log_id",
     "credential_id",
-    "signing_key_id"
+    "signing_key_id",
+    "scan_device_id"
   ]
 }

@@ -11,6 +11,7 @@
 #        scripts/ci/x6_gate.sh --emit-columns   (regenerate the column manifest from the spec)
 # ============================================================================
 set -uo pipefail
+shopt -s globstar 2>/dev/null || true   # bash 5 on CI; harmless on bash 3.2. NEVER nullglob: an unmatched pattern must not become a bare `ls`.
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 MODE="${1:-gate}"
 FLOORS=supabase/ci/x6_floors.env
@@ -47,7 +48,8 @@ x6_scan() {
   [ "${terms_n:-0}" -ge "$X6_MIN_FORBIDDEN_TERMS" ] || {
     echo "::error::forbidden-term list yields ${terms_n} term(s), floor is ${X6_MIN_FORBIDDEN_TERMS} — truncated manifest, vacuous scan."; return 1; }
   # shellcheck disable=SC2046
-  hits=$(grep -n -F -f "$terms" -- $(cat "$find_list") | grep -v -F -- "$ALLOW_MARK" || true)
+  # -i: unquoted SQL identifiers fold to lower case, so Kernel.Identity_Demographic runs as the prohibited relation
+  hits=$(grep -n -i -F -f "$terms" -- $(cat "$find_list") | grep -v -F -- "$ALLOW_MARK" || true)
   # shellcheck disable=SC2046
   markers=$(grep -c -F -- "$ALLOW_MARK" $(cat "$find_list") 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')
   if [ -n "$hits" ]; then
@@ -86,6 +88,7 @@ x6_scan "$PATHS" "$TMP/x6_terms.txt" "$X6_EXPECT_ALLOW_MARKERS" || rc=1
 
 echo "### T-CI-X6-01 rule 3 — rename tripwire (every term must live somewhere OUTSIDE the scan set)"
 scan_files=$(while IFS= read -r pat; do [ -n "$pat" ] && ls -1 $pat 2>/dev/null; done < "$PATHS" | LC_ALL=C sort -u)
+[ -n "$scan_files" ] || scan_files='(none)'
 while IFS= read -r term; do
   # shellcheck disable=SC2086
   if ! grep -rlF -- "$term" supabase/migrations supabase/functions docs/architecture 2>/dev/null | grep -v -F -x -f <(printf '%s\n' $scan_files) | grep -q .; then

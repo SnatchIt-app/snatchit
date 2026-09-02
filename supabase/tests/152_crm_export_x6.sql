@@ -10,7 +10,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(26);
+SELECT plan(27);
 
 -- ── the manifests (mirrored; gate-diffed) ────────────────────────────────────
 CREATE TEMP TABLE x6_entry_points (sig text PRIMARY KEY, oid oid);
@@ -44,7 +44,7 @@ INSERT INTO x6_terms (term) VALUES
   ('stripe_customer_id'), ('stripe_connect_account_ref'), ('payment_method_id'),
   ('pin_hash'), ('device_boot_id'), ('wallet_balance'), ('is_verified_seller'),
   ('stripe_onboarding_complete'), ('residency_region'), ('kyc_ref'),
-  ('ownership_log_id'), ('credential_id'), ('signing_key_id');
+  ('ownership_log_id'), ('credential_id'), ('signing_key_id'), ('scan_device_id');
 -- X6-TERMS-END
 
 CREATE TEMP TABLE x6_prohibited (rel text PRIMARY KEY, oid oid);
@@ -78,7 +78,10 @@ BEGIN
         FROM (SELECT unnest(v_r) AS x UNION SELECT t.tgrelid FROM pg_trigger t WHERE t.tgfoid = v_p) s;
       -- text hop over the definition: every schema-qualified identifier, resolved with the pinned search_path
       v_def := CASE WHEN (SELECT p.prokind FROM pg_proc p WHERE p.oid = v_p) = 'f' THEN pg_get_functiondef(v_p) ELSE '' END;
-      FOR v_tok IN SELECT DISTINCT m[1] FROM regexp_matches(v_def, '([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)', 'g') m LOOP
+      -- unquoted identifiers FOLD to lower case (so Kernel.Identity_Demographic is the prohibited
+      -- relation) and quoted ones are taken verbatim: both spellings are tokenised.
+      FOR v_tok IN SELECT DISTINCT lower(m[1]) FROM regexp_matches(v_def, '([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)', 'gi') m
+                   UNION SELECT DISTINCT m[1] || '.' || m[2] FROM regexp_matches(v_def, '"([^"]+)"\s*\.\s*"([^"]+)"', 'g') m LOOP
         v_schema := split_part(v_tok, '.', 1); v_name := split_part(v_tok, '.', 2);
         IF v_schema IN ('pg_catalog','information_schema','pg_temp') THEN CONTINUE; END IF;
         v_r2 := to_regclass(v_tok)::oid;
@@ -108,7 +111,7 @@ END $w$;
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM x6_entry_points), 13, 'A1: exactly 13 entry points (X6_MIN_ENTRY_POINTS — D-X6-a)');
 SELECT is((SELECT count(*)::int FROM x6_entry_points WHERE oid IS NULL), 0, 'A2: every entry point resolves to a live pg_proc (an unresolvable name is a failure, never a skip)');
-SELECT ok((SELECT count(*) FROM x6_terms) >= 31, 'A3: the term list is not truncated (X6_MIN_FORBIDDEN_TERMS)');
+SELECT ok((SELECT count(*) FROM x6_terms) >= 32, 'A3: the term list is not truncated (X6_MIN_FORBIDDEN_TERMS)');
 SELECT is((SELECT count(*)::int FROM x6_prohibited WHERE oid IS NULL), 0, 'A4: all four prohibited relations resolve (a NULL would make the intersection trivially empty)');
 
 -- ============================================================================
@@ -124,8 +127,11 @@ SELECT is((SELECT count(*)::int FROM pg_depend d JOIN x6_entry_points e ON e.oid
 SELECT is((SELECT count(*)::int FROM x6_entry_points e
             WHERE pg_get_functiondef(e.oid) ~* '(identity_demographic|holder_mix|gender_identity)'), 0,
   'B3: §10.3 (a) verbatim — the nine-name regex over all thirteen (superset of the spec''s nine)');
-SELECT is((SELECT count(*)::int FROM x6_entry_points e WHERE (SELECT COUNT(*) FROM x6_entry_points) = 13), 13,
-  'B4: §10.3 (c) — both limbs saw all thirteen entry points (T-VERIFY-X6-06 three-way cardinality)');
+-- positive control for the TEXT limb: the same predicate over a probe body that names a term must hit.
+CREATE FUNCTION venue.__x6_text_probe() RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $f$ BEGIN RETURN length('holder_mix'); END $f$;
+SELECT is((SELECT count(*)::int FROM x6_terms t
+            WHERE pg_get_functiondef('venue.__x6_text_probe()'::regprocedure) ~* ('\m' || replace(t.term, '.', '\.') || '\M')), 1,
+  'B4: text-limb positive control — a body naming one forbidden term is matched exactly once by the B1 predicate (the limb can see)');
 
 -- ============================================================================
 -- SECTION C — T-RPC-CRM-15: the TRANSITIVE closure is disjoint from the prohibited set
@@ -157,6 +163,12 @@ CREATE FUNCTION venue.__x6_poison_helper() RETURNS int LANGUAGE plpgsql SECURITY
 CREATE FUNCTION venue.__x6_poison_wrap() RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $f$ BEGIN RETURN venue.__x6_poison_helper(); END $f$;
 SELECT ok((SELECT count(*) FROM x6_prohibited p WHERE p.oid = ANY ((pg_temp.x6_closure(ARRAY['venue.__x6_poison_wrap()'::regprocedure::oid], 32)).rels)) = 1,
   'C8: T-VERIFY-X6-05 positive control — the closure check FAILS as required when a nested helper reads kernel.identity_demographic');
+-- the same poison spelled in MIXED CASE and QUOTED — both must be caught (case folding / quoted identifiers)
+CREATE FUNCTION venue.__x6_poison_mixed() RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $f$ BEGIN RETURN (SELECT count(*) FROM Kernel.Identity_Demographic); END $f$;
+CREATE FUNCTION venue.__x6_poison_quoted() RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $f$ BEGIN RETURN (SELECT count(*) FROM "venue"."holder_mix_snapshot"); END $f$;
+SELECT ok((SELECT count(*) FROM x6_prohibited p WHERE p.oid = ANY ((pg_temp.x6_closure(ARRAY['venue.__x6_poison_mixed()'::regprocedure::oid], 32)).rels)) = 1
+       AND (SELECT count(*) FROM x6_prohibited p WHERE p.oid = ANY ((pg_temp.x6_closure(ARRAY['venue.__x6_poison_quoted()'::regprocedure::oid], 32)).rels)) = 1,
+  'C8b: positive controls — a mixed-case spelling and a quoted spelling of a prohibited relation are BOTH caught by the walker');
 SELECT is((SELECT count(*)::int FROM x6_prohibited p WHERE p.oid = ANY ((SELECT rels FROM x6_cl)::oid[])), 0,
   'C9: … while the REAL closure (computed before the probes existed) stays clean — the probes are outside it');
 
