@@ -54,7 +54,8 @@ SELECT is(
   -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
   -- 2026-09-02 (package 088): 26 -> 27. kernel.dispute_native (R-40).
-  27, '077 A13: exactly TWENTY-SEVEN kernel tables (26 post-087 + 088''s dispute_native)');
+  -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve stub).
+  28, '077 A13: exactly TWENTY-EIGHT kernel tables (27 post-088 + 091''s reserve stub)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -147,7 +148,8 @@ SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
-  27, '077 C1: RLS is ENABLED on all twenty-seven tables (deny-by-default at birth)');
+  -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
+  28, '077 C1: RLS is ENABLED on all twenty-eight tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');

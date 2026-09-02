@@ -1143,10 +1143,11 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 27,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
+  -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
   -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
-  'K1: kernel holds twenty-seven tables — 083 added five, 085 the four money ledgers, 088 dispute_native');
+  'K1: kernel holds twenty-eight tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
