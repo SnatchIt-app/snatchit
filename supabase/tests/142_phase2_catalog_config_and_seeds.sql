@@ -10,7 +10,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(248);
+SELECT plan(249);
 
 SELECT tap.seed_core();
 
@@ -248,14 +248,15 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- SECTION D — THE CONFIG CONTRACT (41 keys; the two-class split)
 -- ============================================================================
 
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 42,
-  'D1: exactly 42 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085)');
+-- 2026-09-02 (package 092): 42 -> 43 (+notify.delivery_lease_interval, owner-unset 'null'::jsonb — PFA-22 shape, E-154).
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43,
+  'D1: exactly 43 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085 + 092''s owner-unset lease key)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
   'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 34,
-  'D4: the other 34 are restricted (the PFA-22 key is restricted)');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 35,
+  'D4: the other 35 are restricted (the PFA-22 key and 092''s lease key are restricted)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
@@ -388,9 +389,12 @@ SELECT is((SELECT count(*)::int FROM catalog.platform_config
 -- PFA-9: the keys deliberately NOT seeded, asserted as absences so a later
 -- package cannot silently assume 078 covered them.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
-            WHERE key IN ('door.session_touch_interval','door.schedule_move_grace_interval',
-                          'notify.delivery_lease_interval')), 0,
-  'D41: the three consumed-but-unspecified keys are NOT invented here (PFA-9 CLASS A)');
+            WHERE key IN ('door.session_touch_interval','door.schedule_move_grace_interval')), 0,
+  -- 2026-09-02 (package 092): notify.delivery_lease_interval left this list — 092 seeds it OWNER-UNSET ('null'::jsonb,
+  -- the PFA-22 shape) and claim_deliveries fails closed while it is unset (E-154). Its value is still not invented.
+  'D41: the two door consumed-but-unspecified keys are NOT invented here (PFA-9 CLASS A)');
+SELECT is((SELECT c.value #>> '{}' FROM catalog.platform_config c WHERE c.key = 'notify.delivery_lease_interval' ORDER BY c.version DESC LIMIT 1), NULL,
+  'D41b: 092''s lease key carries NO value (owner-unset, PFA-22 shape — E-154)');
 
 -- ============================================================================
 -- SECTION E — SEED IDEMPOTENCY AND CONFLICT BEHAVIOUR
@@ -1149,8 +1153,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
   'K1: kernel holds twenty-eight tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
-  'K2: notify still holds only 076''s outbox');
+            WHERE n.nspname = 'notify' AND c.relkind = 'r'), 7,
+  -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
+  'K2: notify holds 076''s outbox + 092''s six reduced-plane tables');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'kernel'), 109,
   -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).

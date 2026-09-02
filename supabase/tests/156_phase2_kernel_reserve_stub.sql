@@ -40,12 +40,14 @@ SELECT ok((SELECT p.proname = 'set_updated_at' AND n.nspname = 'kernel' FROM pg_
 -- nothing else was created
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
   'A19: kernel holds 28 tables — 27 post-090 + the reserve stub');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 228,
-  'A20: 091 creates NO function (five-schema routines stay 228)');
-SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 67,
-  'A21: 091 creates NO policy (register stays 67)');
-SELECT is((SELECT count(*)::int FROM cron.job), 18, 'A22: 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 42, 'A23: PFA-9 — 091 fabricates NO config key (42 rows post-090 — an absolute census)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243,
+  -- 2026-09-02 (package 092): 228 -> 243 (+15 notify routines).
+  'A20: 091 creates NO function (five-schema routines 243 post-092)');
+SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
+  -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
+  'A21: 091 creates NO policy (register 72 post-092)');
+SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-drain-outbox): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43, 'A23 (092: 43 with the owner-unset lease key): PFA-9 — 091 fabricates NO config key (42 rows post-090 — an absolute census)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify','public') AND p.prosrc ~ '(kernel|"kernel")\s*\.\s*"?reserve"?\M'), 0,
   'A24: plan §8/091 Tests row — NO routine in the database references kernel.reserve ("stub" is a checked property)');
