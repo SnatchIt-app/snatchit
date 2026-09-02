@@ -18,8 +18,13 @@
 -- proven by replaying 001→088 through it and diffing the catalog against the
 -- c087-clone + 088 path (identical) and by running the full pgTAP suite.
 -- Known local-only gaps (unchanged from the original): no `authenticator` role
--- (test 131), no real pg_cron (test 132's cron.database_name), pgcrypto not
--- installed (the platform pre-installs it; PFA-28 is asserted structurally).
+-- (test 131), no real pg_cron (test 132's cron.database_name; cron.schedule /
+-- unschedule are stand-ins over a plain cron.job table — nothing ever fires),
+-- net.http_post is a stand-in returning 1 (nothing is posted),
+-- vault.decrypted_secrets is an EMPTY plain table (production: a decrypting
+-- view — secret reads return NULL locally, so any secret-gated cron body is
+-- inert here by construction), pgcrypto not installed (the platform
+-- pre-installs it; PFA-28 is asserted structurally).
 -- ============================================================================
 SET statement_timeout = 0;
 SET lock_timeout = 0;

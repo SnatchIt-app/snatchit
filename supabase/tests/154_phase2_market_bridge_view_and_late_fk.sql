@@ -7,7 +7,7 @@
 -- ROLLBACK to prove the bridge's own predicate. BEGIN … plan(N) … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(63);
+SELECT plan(64);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_154 (k text PRIMARY KEY, v text);
@@ -33,7 +33,7 @@ SELECT has_view('market'::name, 'listing_unified'::name, 'A1: market.listing_uni
 SELECT ok((SELECT c.reloptions @> ARRAY['security_invoker=true'] FROM pg_class c WHERE c.oid = 'market.listing_unified'::regclass),
   'A2: RLS §14.1 — the bridge is security_invoker (evaluates under the CALLER; it cannot launder authority)');
 SELECT is((SELECT string_agg(column_name||':'||data_type, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='market' AND table_name='listing_unified'),
-  'id:uuid,rail:text,event_session_id:uuid,event_name:text,price_minor:integer,currency:text,seller_id:uuid,status:text,cover_image_path:text,created_at:timestamp with time zone',
+  'id:uuid,rail:text,event_session_id:uuid,event_name:text,price_minor:bigint,currency:text,seller_id:uuid,status:text,cover_image_path:text,created_at:timestamp with time zone',
   'A3: exactly the common discovery column set (id · rail · event/session · price · seller · status · cover + currency, created_at) — no money/custody/PII column');
 SELECT is((SELECT string_agg(DISTINCT n.nspname||'.'||c.relname, ',' ORDER BY n.nspname||'.'||c.relname)
              FROM pg_rewrite r JOIN pg_depend d ON d.objid = r.oid AND d.refclassid = 'pg_class'::regclass
@@ -68,15 +68,15 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   'A18: overload count 1 on every seam name');
 -- the projection is stated in bytes, never inferred at read time
 SELECT ok((SELECT pg_get_viewdef('market.listing_unified'::regclass) LIKE '%proof_status = ''approved''%external_verified%'), 'A19: E-114 — rail = external_verified ⇔ proof_status = ''approved'' (the sole verified-positive label of 071''s CHECK set; C10)');
-SELECT ok((SELECT pg_get_viewdef('market.listing_unified'::regclass) ~ 'current_bid\)::bigint \* 100\)+::integer'), 'A20: E-115 — the external dollar price is normalized to minor units (× 100, integer; no rounding, no float)');
+SELECT ok((SELECT pg_get_viewdef('market.listing_unified'::regclass) ~ 'current_bid\)::bigint \* 100' AND pg_get_viewdef('market.listing_unified'::regclass) !~ '\* 100\)+::integer'), 'A20: E-115 — the external dollar price is normalized to minor units (× 100) in bigint with NO narrowing cast (a poisoned current_bid cannot fail every price read)');
 SELECT ok((SELECT pg_get_viewdef('market.listing_unified'::regclass) LIKE '%feature.native_resale_enabled%' AND pg_get_viewdef('market.listing_unified'::regclass) LIKE '%''active''%''reserved''%'),
   'A21: E-116 — the native arm carries the discovery predicate AND the flag explicitly');
 
 -- ============================================================================
 -- SECTION B — GRANTS (RLS §10.6 · E-106 / E-113 · PFA-1)
 -- ============================================================================
-SELECT ok(has_table_privilege('authenticated','market.listing_unified','SELECT') AND has_table_privilege('service_role','market.listing_unified','SELECT'),
-  'B1: SELECT to authenticated (discovery) and service_role (machine) — RLS §10.6');
+SELECT ok(has_table_privilege('authenticated','market.listing_unified','SELECT') AND NOT has_table_privilege('service_role','market.listing_unified','SELECT') AND NOT has_schema_privilege('service_role','market','USAGE'),
+  'B1: SELECT to authenticated only — E-118: service_role holds no USAGE on market/catalog, so RLS §10.6''s machine cell is undeliverable here and no dormant grant is written');
 SELECT ok(NOT has_table_privilege('anon','market.listing_unified','SELECT') AND NOT has_schema_privilege('anon','market','USAGE'),
   'B2: E-106 (countersigned) / PFA-14 — NO anon grant on the bridge and no anon USAGE on market; the plan''s anon row is superseded (E-113)');
 SELECT ok(NOT has_table_privilege('authenticated','market.listing_unified','INSERT') AND NOT has_table_privilege('authenticated','market.listing_unified','UPDATE') AND NOT has_table_privilege('authenticated','market.listing_unified','DELETE')
@@ -210,7 +210,8 @@ VALUES ('00000000-0000-0000-0000-00000000e001', tap._u154('l1'), tap._u154('a1')
 SELECT is((market.finalize_market_sale('00000000-0000-0000-0000-00000000e001', 'ck89-fz1') ->> 'status'), 'ok', 'E2: the 088 engine completes the seeded sale and writes the payment link…');
 SELECT ok((SELECT pn.sale_id = '00000000-0000-0000-0000-00000000e001' FROM kernel.payment_native pn WHERE pn.payment_id = tap._u154('pay2')), 'E3: …payment_native.sale_id points at the sale under the new FK');
 SELECT throws_ok($$DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-00000000e001'$$, '23503', NULL, 'E4: ON DELETE RESTRICT — the consummated sale cannot vanish from under its payment link');
-SELECT throws_ok(format($$UPDATE kernel.payment_native SET sale_id = gen_random_uuid() WHERE payment_id = %L$$, tap._u154('pay2')), NULL, NULL, 'E5: re-pointing the link to a non-existent sale is refused (FK or the 085 AO guard — either way, unstorable)');
+SELECT throws_like(format($$UPDATE kernel.payment_native SET sale_id = gen_random_uuid() WHERE payment_id = %L$$, tap._u154('pay2')), '%append%', 'E5: re-pointing the link is refused by 085''s append-only guard BEFORE the FK is consulted (the link is write-once; the FK guards the referenced side — E4)');
+SELECT ok((SELECT (l.current_bid::bigint * 100) = u.price_minor AND pg_typeof(u.price_minor)::text = 'bigint' FROM market.listing_unified u JOIN public.listings l ON l.id = u.id WHERE u.id = tap.listing_a()), 'E5a: the projected price is bigint end to end (E-115: no narrowing anywhere in the arm)');
 SELECT is((SELECT count(*)::int FROM market.listing_unified WHERE id = tap._u154('l1')), 0, 'E6: a SOLD listing leaves discovery (status sold is not in the discovery set)');
 
 -- ============================================================================
