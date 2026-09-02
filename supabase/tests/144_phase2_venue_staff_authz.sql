@@ -29,10 +29,11 @@ $m$ SELECT v FROM tap.memo_144 WHERE k = $1 $m$;
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 20,
+            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 23,
   -- 2026-08-31 (package 081): 1 -> 6; (package 082): 6 -> 8 (order + order_item).
   -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
-  'A1: venue holds TWENTY tables — 8 post-082 + 086''s twelve door/scan');
+  -- 2026-09-01 (package 087): 20 -> 23 (settlement, settlement_line, export_job).
+  'A1: venue holds TWENTY-THREE tables — 20 post-086 + 087''s three settlement/export');
 SELECT is((SELECT count(*)::int FROM information_schema.columns
             WHERE table_schema='venue' AND table_name='staff_role'), 5,
   'A2: the five §3.9 columns');
@@ -85,16 +86,20 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 99,
+           WHERE n.nspname = 'kernel'), 103,
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
-  'A14: kernel holds EXACTLY 99 functions (94 post-085 + 086''s five door/scan)');
+  -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
+  -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
+  'A14: kernel holds EXACTLY 103 functions (99 post-086 + 087''s four settlement fns)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 46,
+           WHERE n.nspname = 'venue'), 60,
+  -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
+  -- twelve CRM export/read RPCs (on_payout_settled is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 085): 15 -> 18 (finalize_primary_order + the two SEAM-2 stubs, R2B/C111).
   -- 2026-09-01 (package 086): 18 -> 46 (+28: 27 door/scan/comp/guest/manifest/holder-mix
   -- RPCs + the guard_door_manifest_transition trigger fn; append_door_manifest_delta
   -- is a SEAM-2 body-replace, already counted).
-  'A15: venue holds EXACTLY forty-six functions — 18 post-085 + 086''s twenty-eight');
+  'A15: venue holds EXACTLY sixty functions — 46 post-086 + 087''s fourteen');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');

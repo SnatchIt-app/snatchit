@@ -73,7 +73,9 @@ SELECT is(
   -- 2026-09-01 (package 086): 94 -> 99. Five kernel door/scan fns:
   -- assert_door_session, grant/revoke_door_freeze_override,
   -- sweep_expired_door_overrides, revoke_signing_key (PFA-17). Named in F2/F3.
-  99, '077 A14: exactly 99 kernel functions (94 post-085 + 086''s five door/scan)');
+  -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
+  -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
+  103, '077 A14: exactly 103 kernel functions (99 post-086 + 087''s four settlement fns)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -246,6 +248,10 @@ SELECT is(
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   'accept_org_invite,admin_refund,admin_set_identity_ext,approve_refund_request,'
   || 'cancel_refund_request,change_org_role,clear_my_demographics,'
+  -- 2026-09-01 (package 087): +2 authenticated — close_settlement (venue_finance/
+  -- org_finance/platform_admin in-body) and request_org_payout (org_owner/org_finance
+  -- in-body). The two settlement seams are definer-internal. Named, not counted.
+  || 'close_settlement,'
   || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,grant_door_freeze_override,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
   || 'has_venue_role,hold_payout,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
@@ -262,7 +268,7 @@ SELECT is(
   || 'provision_pass_type_cert,provision_signing_key,record_money_denial,'
   -- refund_primary_order moved to service_role (EXEC DEF) by PFA-23.
   || 'release_payout,remove_org_member,'
-  || 'request_account_deletion,request_order_refund,resolve_identity_obligation,'
+  || 'request_account_deletion,request_order_refund,request_org_payout,resolve_identity_obligation,'
   || 'revoke_door_freeze_override,revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
   -- 2026-09-01 (package 086): +3 authenticated — the two door-freeze override
   -- verbs (AUTHZ) and revoke_signing_key (PFA-17). Named, not counted.
@@ -277,7 +283,7 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 55 caller-authorized functions (52 post-085 + 086''s three door-freeze/signing verbs; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 57 caller-authorized functions (55 post-086 + 087''s close_settlement + request_org_payout; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")

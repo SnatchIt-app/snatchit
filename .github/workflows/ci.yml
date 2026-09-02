@@ -393,6 +393,28 @@ jobs:
           python3 scripts/precedence_gate.py --selftest
           python3 scripts/precedence_gate.py
 
+      # X-6 export-source gate (CRM EXPORT SPEC §10.2; X6_POSTGRES_OWNED_ASSURANCE_PLAN
+      # T-CI-X6-01/02/03). Text-only, no database, runs BEFORE `npm ci` for the
+      # same reason the OFFLINE-VERIFY gate does: a broken lockfile must not be
+      # able to take the gate offline. The scan set, the forbidden-term list, the
+      # column manifest and every floor live under supabase/ci/ — no check carries
+      # its own copy of a list; the pgTAP suite's embedded copies are diffed
+      # against the manifests here. Positive controls run against the poison
+      # directory so a broken scanner fails here, never silently passes a tree.
+      - name: X-6 export-source gate (T-CI-X6-01/02/03)
+        run: |
+          set -uo pipefail
+          scripts/ci/x6_gate.sh 2>&1 | tee "$RUNNER_TEMP/x6_gate.txt"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "### X-6 export-source gate"
+            echo
+            echo '```'
+            grep -E '^(X-6|column manifest|positive control|suite manifests|### )' "$RUNNER_TEMP/x6_gate.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -814,8 +836,20 @@ jobs:
           # engine open/snapshot/delta/get/close, PFA-24 no-public_key, the SEAM
           # bodies, revoke_signing_key PARKED (PFA-18A), tokenized door sessions,
           # RV-1, scan dark-gate, holder-mix R2 floor).
-          MIN_FILES=28
-          MIN_ASSERTIONS=1537
+          # 151 plans 235: the 087 settlement money engine (waterfall CHECK, AO
+          # lines, zero-net/no-payout, seeded-line rollup → pending payout, SoD-1,
+          # maturity, NULL-threshold park, on_payout_settled negative predicate
+          # T-SCHEMA-SETTLE-01) + the CRM export lifecycle (grammar, caps, X-9,
+          # history, claim/lease, finalize count_mismatch + canary, download
+          # template re-check T-RLS-CRM-06, revoke, sweep, purge claim/confirm,
+          # orphan pass both directions, EX-5 audit) + PFA-28 fail-closed parks
+          # (E1-E17) + cross-org isolation.
+          # 152 plans 27: X-6 under the postgres-owned builder — T-RPC-CRM-14
+          # (text+catalog limbs over 13 entry points), -15 (transitive closure to
+          # a fixed point with depth/view witnesses + poison pill), -19 (no dynamic
+          # SQL in the closure + positive control), OR-1 ownership.
+          MIN_FILES=30
+          MIN_ASSERTIONS=1799
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"

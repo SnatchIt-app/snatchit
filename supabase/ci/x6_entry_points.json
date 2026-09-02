@@ -1,0 +1,18 @@
+{
+  "_doc": "The 13 CRM export entry points (RPC §17.22 ×12 + venue.assert_may_request §20.7.8 — X6 plan D-X6-a). Read by scripts/ci/x6_gate.sh and supabase/tests/152_crm_export_x6.sql (T-RPC-CRM-14/15/19). Every name must resolve to a live pg_proc; an unresolvable name is a hard failure, never a skip.",
+  "entry_points": [
+    "venue.assert_may_request(uuid,text,uuid,text,boolean)",
+    "venue.request_export(text,uuid,text,jsonb,text)",
+    "venue.build_export_rows(uuid,text,integer)",
+    "venue.finalize_export(uuid,integer,integer,text,text)",
+    "venue.authorize_export_download(uuid)",
+    "venue.revoke_export(uuid,text)",
+    "venue.claim_artifacts_for_purge(integer)",
+    "venue.confirm_artifact_purged(uuid,text)",
+    "venue.reconcile_export_orphans(uuid,text[])",
+    "venue.list_export_jobs(text,uuid,text)",
+    "venue.sweep_expired_exports()",
+    "venue.list_attendees(uuid,jsonb,text,text)",
+    "venue.lookup_attendee(uuid,text,text)"
+  ]
+}

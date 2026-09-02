@@ -134,10 +134,12 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 99,
+           WHERE n.nspname = 'kernel'), 103,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
-  'A32: kernel holds EXACTLY 99 functions (94 post-085 + 086''s five door/scan)');
+  -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
+  -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
+  'A32: kernel holds EXACTLY 103 functions (99 post-086 + 087''s four settlement fns)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 15,
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).

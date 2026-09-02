@@ -1040,12 +1040,13 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
-  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,staff_role,ticket_type',
+  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
+  -- 2026-09-01 (package 087): +3 — settlement, settlement_line, export_job.
   -- 2026-08-31 (package 082): the two order tables arrived (082_venue_orders).
   -- 2026-09-01 (package 086): +12 door/scan tables (pin/session/scan_device/scan,
   -- comp_allocation, guest_list/_entry, manifest/_entry/_delta, holder_mix_*).
   -- market is still empty (native Buy Now dark).
-  'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan tables — market still empty');
+  'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan + 087 settlement/export tables — market still empty');
 SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
   'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
@@ -1144,11 +1145,13 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 99,
+            WHERE n.nspname = 'kernel'), 103,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
-  'K3: kernel holds 99 functions — 94 post-085 plus 086''s five door/scan');
+  -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
+  -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
+  'K3: kernel holds 103 functions — 99 post-086 plus 087''s four settlement fns');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

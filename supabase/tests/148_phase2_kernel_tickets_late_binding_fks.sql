@@ -56,29 +56,33 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 52,
+              AND c.relkind IN ('r','p','v','m','S','f')), 55,
   -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
-  'B1: the five phase-2 schemas hold exactly 52 relations of ANY kind (40 post-085 + 086''s twelve door/scan)');
+  -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
+  'B1: the five phase-2 schemas hold exactly 55 relations of ANY kind (52 post-086 + 087''s three)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 165,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 183,
   -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
-  'B2: the five phase-2 schemas hold exactly 165 routines (99+46+15+3+2 — 086''s thirty-nine)');
+  -- 2026-09-01 (package 087): 165 -> 183 (+4 kernel, +14 venue).
+  'B2: the five phase-2 schemas hold exactly 183 routines (103+60+15+3+2 — 087''s eighteen)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 48,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 52,
   -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies; the 3 deny-all
   -- door/holder-mix tables carry none).
-  'B3: the five-schema policy register (12 kernel + 24 venue + 12 catalog) — 086 added its nine venue policies');
+  -- 2026-09-01 (package 087): 48 -> 52 (+4 venue settlement read policies; export_job is
+  -- deny-all zero-policy, OR-1).
+  'B3: the five-schema policy register (12 kernel + 28 venue + 12 catalog) — 087 added its four settlement policies');
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 26
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 99,
-  'B4: kernel per-schema census (26 tables, 99 functions post-086)');
+            WHERE n.nspname='kernel') = 103,
+  'B4: kernel per-schema census (26 tables, 103 functions post-087)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 46
+            WHERE n.nspname='venue') = 60
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 0,
-  'B5: venue holds 46 functions (086''s twenty-eight door/scan), market holds no table');
+  'B5: venue holds 60 functions (087''s fourteen settlement/export), market holds no table');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

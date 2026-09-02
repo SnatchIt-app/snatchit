@@ -184,7 +184,14 @@ SELECT is(
                      'check_in_guest_entry','open_door_manifest','close_door_manifest',
                      'get_door_manifest','preview_door_open_impact','get_live_device_count',
                      'get_holder_mix','revoke_door_session','unpublish_holder_mix',
-                     'unpublish_all_holder_mix')))),
+                     'unpublish_all_holder_mix',
+                     -- 2026-09-01 (package 087): venue's seven caller-authorized verbs —
+                     -- open_settlement (venue_finance/org_finance in-body) and the six CRM
+                     -- client RPCs (RLS §11.6). The seven EXEC-DEF CRM definers, the two
+                     -- settlement seams and assert_may_request (OR-10) hold NO authenticated
+                     -- grant — not excepted here.
+                     'open_settlement','request_export','authorize_export_download',
+                     'revoke_export','list_export_jobs','list_attendees','lookup_attendee')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 

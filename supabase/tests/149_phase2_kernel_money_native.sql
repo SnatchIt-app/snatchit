@@ -52,7 +52,8 @@ SELECT is((SELECT p.proargnames FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   'A9: market.on_atom_voided — THREE params, p_-prefixed (SEAM-2a frozen; the 2-param summaries are stale)');
 SELECT has_function('kernel'::name,'void_ticket_atom'::name, ARRAY['uuid','uuid','text']::name[],
   'A10: the void engine (SSCAS #3; FR-4 — born here with kernel.refund)');
-SELECT hasnt_function('kernel'::name,'request_org_payout'::name, 'A11: request_org_payout is NOT here (087)');
+-- 2026-09-01 (package 087): request_org_payout LANDED (RPC §10.3) — the anchor flips.
+SELECT has_function('kernel'::name,'request_org_payout'::name, ARRAY['uuid','uuid','text']::name[], 'A11: request_org_payout is authored by 087 (was NOT here at 085)');
 SELECT hasnt_function('kernel'::name,'transfer_ticket_ownership'::name, 'A12: the transfer engine is NOT here (088)');
 SELECT hasnt_table('market'::name,'market_sale'::name, 'A13: market.market_sale is NOT here (088)');
 SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='kernel.payment_native'::regclass
@@ -65,11 +66,12 @@ SELECT is((SELECT value FROM catalog.platform_config
   'A16: PFA-22 — the dedicated BP-12 operand is seeded NULL / owner-unset');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 48,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 52,
   -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies). 085 itself
   -- added ZERO — its four money tables are deny-all (GP-3a); this register census
   -- tracks the whole five-schema total, which 086 grew.
-  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 48 after 086''s nine venue policies');
+  -- 2026-09-01 (package 087): 48 -> 52 (+4 venue settlement/settlement_line read policies).
+  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 52 after 087''s four settlement policies');
 
 -- ============================================================================
 -- SECTION B — GRANTS & CUSTODY WALLS (PFA-15/PFA-21; RLS §7.8-§7.10a)
