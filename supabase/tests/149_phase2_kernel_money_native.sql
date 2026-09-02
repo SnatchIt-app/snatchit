@@ -56,9 +56,9 @@ SELECT has_function('kernel'::name,'void_ticket_atom'::name, ARRAY['uuid','uuid'
 SELECT has_function('kernel'::name,'request_org_payout'::name, ARRAY['uuid','uuid','text']::name[], 'A11: request_org_payout is authored by 087 (was NOT here at 085)');
 SELECT has_function('kernel'::name,'transfer_ticket_ownership'::name, ARRAY['uuid','uuid','text','uuid','uuid','text']::name[], 'A12: the transfer engine landed in 088 (FR-3)');
 SELECT has_table('market'::name,'market_sale'::name, 'A13: market.market_sale landed in 088 (C26 terminal SM)');
-SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='kernel.payment_native'::regclass
-            AND contype='f' AND conname LIKE '%sale%'), 0,
-  'A14: payment_native.sale_id carries NO FK — that is 089''s adopt step');
+SELECT is((SELECT count(*)::int FROM pg_constraint c WHERE c.conrelid='kernel.payment_native'::regclass AND c.contype='f' AND c.confrelid='market.market_sale'::regclass), 1,
+  -- 2026-09-02 (package 089): the deferred FK is ADOPTED (fk_payment_native_sale, RESTRICT, validated) — the 085 negative flips.
+  'A14: payment_native.sale_id carries the FK to market.market_sale — adopted by 089 (085 §1.8 deferred it to the package creating the target)');
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname='sweep-expired-refund-requests'), 1,
   'A15: the refund-TTL tick is scheduled (P0-1 — not optional)');
 SELECT is((SELECT value FROM catalog.platform_config

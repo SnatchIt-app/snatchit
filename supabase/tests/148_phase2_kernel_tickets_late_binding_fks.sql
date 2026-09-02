@@ -56,11 +56,12 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 61,
+              AND c.relkind IN ('r','p','v','m','S','f')), 62,
   -- 2026-09-02 (package 088): 55 -> 61 (+5 market rail tables, +1 kernel.dispute_native).
+  -- 2026-09-02 (package 089): 61 -> 62 (+1 VIEW market.listing_unified — the ADOPT step's bridge).
   -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
-  'B1: the five phase-2 schemas hold exactly 61 relations of ANY kind (55 post-087 + 088''s six)');
+  'B1: the five phase-2 schemas hold exactly 62 relations of ANY kind (61 post-088 + 089''s bridge view)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 207,
   -- 2026-09-02 (package 088): 183 -> 207 (+19 market, +4 kernel, +1 catalog; the seven body-only
