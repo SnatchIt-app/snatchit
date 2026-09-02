@@ -50,8 +50,9 @@ SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p
   -- 2026-09-02 (package 090): kernel 107 -> 109 (is_promoter_for_event + pay_promoter_commission); market/catalog unchanged.
   'A10: 089 creates NO function (market 22 / kernel 109 post-090 / catalog 16)');
 -- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies).
-SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 67, 'A11: 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
-SELECT is((SELECT count(*)::int FROM cron.job), 18, 'A12: 089 schedules nothing (cron rows unchanged)');
+SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 72, 'A11 (092: register 72 after notify''s five owner policies): 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
+-- 2026-09-02 (package 092): 18 -> 19 (+notify-drain-outbox).
+SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A12: 089 schedules nothing (cron rows unchanged; 19 post-092)');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND NOT t.tgisinternal), 5,
   'A13: no new trigger (the five 088 set_updated_at triggers only)');
 -- the late-binding FK (plan §8/089; 085 §1.8)

@@ -28,7 +28,9 @@ SELECT has_schema('notify',  'schema notify exists (076, OR-12 fifth schema)');
 
 SELECT is(has_schema_privilege('anon','kernel','USAGE'),  false, 'anon has NO USAGE on kernel (frozen Tests row)');
 SELECT is(has_schema_privilege('anon','notify','USAGE'),  false, 'anon has NO USAGE on notify (OR-12/F-P1-7 wall)');
-SELECT is(has_schema_privilege('authenticated','notify','USAGE'), false, 'authenticated has NO USAGE on notify');
+-- 2026-09-02 (package 092, E-152): the client surface landed in notify (RLS §16.9 owner-scoped
+-- notification/preference + nine EXEC: authenticated RPCs) — USAGE is the frozen grant's precondition.
+SELECT is(has_schema_privilege('authenticated','notify','USAGE'), true, 'authenticated HAS USAGE on notify (092, E-152); anon stays walled');
 SELECT is(has_schema_privilege('anon','catalog','USAGE'), true,  'anon HAS USAGE on catalog (frozen Tests row)');
 SELECT is(has_schema_privilege('authenticated','catalog','USAGE'), true, 'authenticated HAS USAGE on catalog');
 SELECT is(has_schema_privilege('authenticated','kernel','USAGE'), true, 'authenticated USAGE on kernel (function-EXECUTE-only)');
@@ -88,8 +90,9 @@ SELECT is(
   (SELECT string_agg(column_name::text, ',' ORDER BY column_name::text COLLATE "C")
      FROM information_schema.columns
     WHERE table_schema='notify' AND table_name='outbox'),
-  'aggregate_id,aggregate_kind,attempt,causation_id,claimed_until,correlation_id,created_at,event_key,event_type,last_error,occurred_at,outbox_id,payload,sequence,state',
-  'C12 envelope: exactly the fifteen frozen columns, no more, no fewer');
+  'aggregate_id,aggregate_kind,attempt,causation_id,claimed_until,correlation_id,created_at,event_key,event_type,expand_cursor,expanded_count,last_error,occurred_at,outbox_id,payload,sequence,state',
+  -- 2026-09-02 (package 092): +expand_cursor/+expanded_count — the RPC §17.24 (i) bounded-expansion cursor (E-153).
+  'C12 envelope: the fifteen frozen columns + 092''s two bounded-expansion cursor columns, no more, no fewer');
 
 SELECT throws_ok(
   $q$ INSERT INTO notify.outbox (event_type, aggregate_kind, aggregate_id, sequence, event_key, payload, occurred_at, state)
@@ -205,7 +208,11 @@ SELECT is(
                      'check_promoter_slug_available','create_promoter_code','create_promoter_codes_bulk',
                      'set_promoter_code_status','set_promoter_code_scope','set_promoter_code_window',
                      'preview_promoter_code','bind_order_attribution','review_attribution_flag',
-                     'get_my_promoter_summary','list_my_attributions','list_promoter_attributions')))),
+                     'get_my_promoter_summary','list_my_attributions','list_promoter_attributions',
+                     -- 2026-09-02 (package 092): notify's nine caller-authorized consumer RPCs (RLS §11 / NOTIF §6.3;
+                     -- auth.uid()-scoped in-body). The six internal definers hold service_role only — not excepted.
+                     'get_inbox','get_unread_count','mark_read','mark_all_read','dismiss','get_preference_matrix',
+                     'set_preference','register_push_token','revoke_push_token')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
