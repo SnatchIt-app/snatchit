@@ -48,7 +48,7 @@ SELECT hasnt_table('catalog'::name,'event_security_config'::name,
   'A13: PFA-25 — catalog.event_security_config is NOT built (forward obligation)');
 SELECT hasnt_function('venue'::name,'set_event_security_config'::name, ARRAY['uuid','jsonb','text','text']::name[],
   'A14: PFA-25 — set_event_security_config is NOT built here');
-SELECT hasnt_table('kernel'::name,'dispute_native'::name, 'A15: kernel.dispute_native is NOT here (088)');
+SELECT has_table('kernel'::name,'dispute_native'::name, 'A15: kernel.dispute_native landed in 088 (R-40 freeze operand)');
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname LIKE '%door%' OR jobname LIKE '%holder-mix%'), 5,
   'A16: five door/holder-mix cron entries scheduled (P0-1)');
 

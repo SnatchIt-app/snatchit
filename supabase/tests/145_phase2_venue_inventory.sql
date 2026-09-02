@@ -92,9 +92,10 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND ((p.proname LIKE 'deletion_blockers%' AND btrim(p.prosrc)<>'select null::text')
                OR (p.proname LIKE 'on_identity_erased%' AND btrim(p.prosrc)<>'select')
                OR (p.proname='on_deletion_q5_release' AND btrim(p.prosrc)<>'select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 8,
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 10,
   -- 2026-09-01 (package 086): on_identity_erased_door filled — 7 -> 8 real bodies.
-  'A17: SEAM-2 has EXACTLY eight real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5 + 086''s door erase)');
+  -- 2026-09-02 (package 088): deletion_blockers_market + on_identity_erased_market filled — 8 -> 10.
+  'A17: SEAM-2 has EXACTLY ten real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5 + 086''s door erase + 088''s two market hooks)');
 SELECT ok(btrim((SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))<>'select null::text',
   'A18: deletion_blockers_orders now carries its real BP-12 pending-order body (082 filled it)');

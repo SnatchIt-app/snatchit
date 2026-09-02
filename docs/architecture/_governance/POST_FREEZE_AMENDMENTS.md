@@ -2278,4 +2278,158 @@ NOTE (2026-09-01, CI fact):  the Supabase local stack — and the platform — P
 - **The two edge deployments** `crm-export` (`/download`) and `crm-export-worker` (`/build`, `/purge`) with `CRM_EXPORT_WORKER_SECRET` in Vault as `crm_export_worker_secret` — deploy artifacts, not SQL; 087's two pg_net ticks target the worker URL and send the header from Vault (an absent secret sends an empty header → the worker refuses). Until deployed, the ticks 404 harmlessly each cycle.
 - **Staging verify** for 087 (no staging plan) — as for every prior package.
 
+## PFA-29 — chargeback → settlement mechanism: the 088-owned `settlement_royalty_lines` seam carries BOTH 088 line classes (royalty + chargeback)
+
+```
+ID:                          PFA-29  (SEAM/plan amendment class)
+FROZEN RULE:                 RPC §10.2 places the R-40 chargeback-lines arm INSIDE kernel.close_settlement
+                             ("the close additionally writes one negative venue.settlement_line with
+                             cause='chargeback' … idempotent on the cross-settlement unique"); plan §8/087
+                             "close_settlement (authored once, here)"; plan §0.4b / schema §13.2 "the caller
+                             is authored once and is never rewritten by another package"; hook_count = 19
+                             (REG:594, PLAN:185, SCHEMA:4200, RAT:598); plan §8/088 schedules no rewrite of
+                             close_settlement and "no hook, no edge" for R-40 (OR-24: "ZERO hooks, ZERO edges").
+IMPLEMENTATION CONFLICT:     the arm's source (kernel.dispute_native) is an 088 table; the merged 087 body
+                             iterates EXACTLY the two seams, so no frozen byte authorizes a rewrite, none
+                             authorizes a third hook, and a pure third hook would be called by nothing.
+OPTIONS:                     O-A body-only CREATE OR REPLACE of close_settlement in 088 (breaks "never
+                             rewritten"); O-B a third hook + O-A (hook_count 19→20, dominated); O-C emit the
+                             chargeback candidates from the EXISTING 088-owned settlement_royalty_lines body
+                             (zero objects, count 19, no rewrite, rollback restores the 087 stub; the hook's
+                             name under-describes it); O-D defer the arm (new money policy — owner-only).
+OWNER RULING (2026-09-02):   O-C APPROVED. Do NOT rewrite kernel.close_settlement; do NOT add a third
+                             settlement hook; hook count stays 19. kernel.settlement_royalty_lines'
+                             088 body is the canonical 088 settlement-line-source seam for BOTH native
+                             resale royalty candidates AND native chargeback candidates. The naming
+                             mismatch is accepted as a governance/documentation erratum (E-89); do not
+                             "clean up" the name by introducing a hook.
+ACCOUNTING (corpus-determined, unchanged): a chargeback is an APPEND-ONLY negative settlement line,
+                             cause='chargeback', cause_ref = the native dispute id, in the org's NEXT
+                             eligible settlement (PROMOTER §5.3, RPC §10.2), booked into the refunds bucket
+                             by 087's sign-derived rollup (E-73); a closed settlement is never mutated, no
+                             header is rewritten, no clawback (MONEY §9.4), no org identity obligation
+                             (schema §1.10a). Duplicate booking is prevented by NOT EXISTS over
+                             settlement_line (cause='chargeback', cause_ref) evaluated under the
+                             settlement's FOR UPDATE — the partial unique is a Gate-M structural property
+                             (schema §3.14.1), so no Indexes-row amendment.
+PACKAGE IMPACT:              088 only (the seam body it already owned). DAG IMPACT: none.
+SECURITY / MONEY IMPACT:     none loosened; the seam stays STABLE, pure, never raises (§20.11.1).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+```
+
+- **E-89** — `kernel.settlement_royalty_lines` (RPC §20.11.1 "adds the market_sale royalty arm"; plan §8/088 "adds the market_sale royalty arm") is, by PFA-29, the 088 line-source seam for royalty AND chargeback candidates. The name is retained (SEAM-2a freezes it); the Purpose is read as "the 088 settlement-line sources". Its determinism/no-raise posture is unchanged and now also binds the chargeback arm.
+- **E-90 (royalty sign; owner-ruled 2026-09-02 in the PFA-29 packet)** — schema §3.13.1's bucket sentence ("`fees_minor` — Σ the platform-fee and royalty lines") conflicts with the ratified product/subject-matter economics (DA §683 "venue gets: venue_royalty → event settlement → org payout"; dashboard §1075 "your sold-out event keeps earning"). **RULING: a native resale royalty owed to the venue is a POSITIVE venue earning** — the 088 royalty candidate is emitted as a CREDIT (+) and lands in GROSS under 087's sign-derived buckets (E-73). §3.13.1's sentence is read as naming fee lines (and any royalty the org PAYS), not the royalty the org earns. No other bucket changes. Test: a royalty candidate of +100 raises the settlement's gross/net by exactly 100.
+
+## PFA-30 — the native resale 3-way split (platform / venue / seller) PARKED fail-closed
+
+```
+ID:                          PFA-30  (PFA-9/PFA-26 class — money policy the corpus does not fix)
+FROZEN RULE:                 market_sale carries platform_fee_minor / venue_royalty_minor /
+                             seller_proceeds_minor with a split-sums CHECK "(± the named rounding bearer)"
+                             (schema §4.4); checkout_buy_now ⑦ and respond_offer(accept) write the split
+                             from "the listing's immutable policy snapshot" (RPC §20.8.8, §20.8.6); C31 names
+                             settlement_line.is_rounding_bearer.
+IMPLEMENTATION CONFLICT:     no platform-fee key or value exists anywhere (PFA-9 CLASS B: "the resale
+                             platform ceiling … no key"); the royalty basis (full price vs above-face
+                             delta) is unstated; NO byte names which party bears the rounding residual.
+                             088 owns the split arithmetic and none of its inputs is frozen.
+OPTIONS:                     (a) PARK the split-writing paths fail-closed until the policy is ratified;
+                             (b) the owner names key/value/basis/bearer now.
+OWNER RULING (2026-09-02):   (a) PARK FAIL-CLOSED. Do NOT invent a platform fee rate/key/value, a royalty
+                             basis or percentage, a rounding bearer, fallback percentages, an implicit zero
+                             fee or zero royalty. Every 088 path that must author the split FAILS CLOSED
+                             before any money/state is committed — zero guessed fee/royalty/proceeds,
+                             zero partial split row, zero sale terminalization or payout on invented
+                             economics. The feature flag stays dark. Tests may drive downstream engines
+                             with explicitly controlled fixtures; production-shaped client paths never
+                             synthesize a split.
+AFFECTED SET (derived):      the two frozen split WRITERS — market.checkout_buy_now (step ⑦, the
+                             market_sale INSERT) and market.respond_offer (accept: the market_sale INSERT
+                             before the engine call). finalize_market_sale / transfer_ticket_ownership /
+                             on_atom_voided consume a stored split and compute none; p2p transfers carry
+                             no platform split (RPC §8.x). Error: precondition_failed
+                             ('resale_split_unavailable … PFA-30') — the frozen §0.5 vocabulary, no new
+                             taxonomy.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+```
+
+## PFA-31 — `kernel.resolve_dispute_native` dual control PARKED fail-closed (PFA-18A principle, applied explicitly to disputes)
+
+```
+ID:                          PFA-31  (PFA-18A class — dual-control mechanism unbuildable under immutable bytes)
+FROZEN RULE:                 RPC §20.7.15 / RLS §11: platform_risk / platform_support PROPOSE ONLY (park a
+                             kernel.approval_request with required_approver_class='platform_admin');
+                             platform_admin EXECUTES with step-up + dual control.
+IMPLEMENTATION CONFLICT:     077's immutable kernel.approval_request CHECKs admit action ∈ {refund.issue,
+                             payout.request, config.set_money_key} and subject_kind ∈ {order, settlement,
+                             config_key} with a pairing CHECK — no dispute action/subject exists; OR-24
+                             ratified "ZERO edges … NOT authorized: new money policy, SQL".
+OPTIONS:                     (a) PARK fail-closed (zero terminal resolution mutation) until a
+                             dispute-compatible dual-control mechanism is ratified; (b) overload an
+                             existing action label — FORBIDDEN; (c) single-control platform_admin —
+                             FORBIDDEN (downgrade); (d) a shadow approval table — FORBIDDEN.
+OWNER RULING (2026-09-02):   (a) PARK FAIL-CLOSED. resolve_dispute_native raises
+                             'precondition_failed: dual_control_unavailable … (PFA-31)' with ZERO
+                             mutation for every caller class, signature frozen for the un-park. Independent
+                             dispute behaviour CONTINUES where frozen: record_dispute_native (upsert +
+                             freeze legs), mark_dispute_state (processor-driven, forward-only), dispute
+                             holds on atoms and payouts, deletion blocking (BP-7 twin), audit. While
+                             parked an unresolved dispute STAYS HELD: no auto-release of dispute_hold, no
+                             payout finalization, no custody unlock, no resolved marking, no fabricated
+                             approval, no silent expiry — unless a separate frozen terminal transition
+                             independently authorizes it (mark_dispute_state's Stripe-reported terminal
+                             is a STATE fact and releases nothing).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+NOTE:                        PFA-18A did not change the dispute architecture; this is its principle
+                             applied to a new surface, recorded on its own id.
+```
+
+## Forward obligations opened by the 088 rulings (OWNER: UNASSIGNED unless frozen bytes assign them; not arbitrarily assigned to 089-092)
+
+- **`NATIVE_RESALE_SPLIT_POLICY`** — before native resale activation, ratify at minimum: (1) platform fee key, (2) platform fee value/rule, (3) venue royalty key, (4) venue royalty value/rule, (5) royalty basis (full resale price · above-face delta · another explicit basis), (6) seller proceeds formula, (7) rounding mode, (8) rounding bearer, (9) zero/negative edge cases, (10) refunds, (11) chargebacks, (12) partial reversal behaviour, (13) settlement bucket mapping. Un-park = the two split writers (PFA-30) + the `is_rounding_bearer` assignment the royalty seam then carries.
+- **`DISPUTE_DUAL_CONTROL`** — a credential/dispute-compatible dual-control mechanism (not a second generalized approval framework, not a shadow table) before dispute resolution activation; un-park = `resolve_dispute_native`'s body (PFA-31).
+- **`NEGATIVE_SETTLEMENT_CARRY`** — 087's close mints a payout only when net > 0 (kernel.payout.amount_minor > 0) and the corpus provides no carry-forward for excess negative settlement value; a chargeback larger than the next settlement's positive balance is absorbed beyond one settlement. NOT authorization for the platform to absorb such losses in production — a dark-rail residual that must be resolved before native money activation. 088 invents no carry account.
+- **`PUBLIC_PAYMENTS_NATIVE_SHAPE`** (filed, non-blocking for 088 SQL) — `public.payments.listing_id NOT NULL → public.listings` (frozen Phase-0) has no native-sale writer while `market_sale.payment_id` and `kernel.dispute_native.payment_id` FK `public.payments`; the native money path cannot record a payment without a live-rail listing row. No fake listing row, no opportunistic Phase-0 mutation, no activation: a deployment/live-rail compatibility decision owed before native money activation.
+- **`P2P_TRANSFER_TTL`** (088 implementation park, PFA-9/X-12) — RPC §8.1 writes `expires_at := now()+TTL` and names no key for the TTL anywhere in the frozen corpus. `market.create_p2p_transfer` runs every validation (owner, atom state, freeze, policy, cap) and then FAILS CLOSED with `precondition_failed: p2p_ttl_unavailable` — zero mutation; the accept / decline / cancel / sweep verbs are real and exercised over directly-seeded rows. Un-park = the named key (a `catalog.platform_config` seed, restricted) + the one `expires_at` line. Owner: UNASSIGNED.
+- **`PAID_PENDING_DWELL_SLO`** (088 implementation park, PFA-9/X-12) — RPC §12.3's C25 dwell bound is "named in the Edge/ops spec"; no key exists in any byte. `market.sweep_paid_pending_sales` is INERT (selects nothing, writes nothing, returns `{completed:0, compensated:0, status:'inert', reason:'dwell_slo_unnamed'}`); the webhook-prompt completer `finalize_market_sale` and the C26 compensate hook are real. Un-park = the named key + the sweep body (complete-XOR-compensate under the listing → atom → payment/refund ladder, freeze on the complete branch only, lost/charge_refunded refund-leg-satisfied arm). Owner: UNASSIGNED.
+- **`RESALE_CHECKOUT_SWEEP_TICK`** (088 deploy artifact park, PFA-9/E-79) — the Edge spec names the worker's env var `INTERNAL_CRON_SECRET` for `resale-checkout /sweep-lapsed` but no Vault secret name and no header name exist in any byte (notify-dispatch's tick is not in migration bytes either). 088 schedules the two pure-DB sweeps and NO pg_net tick; nothing is lost while `checkout_buy_now` is parked (no initiated reservation can exist). Un-park = the Vault name + header (with the edge deployment) + one `cron.schedule` row (2-minute cadence per the register). Owner: UNASSIGNED (ops/edge).
+- **`REQUEST_ORG_PAYOUT_OPEN_DISPUTE_GATE`** (E-96) — RPC §10.3 / R-40 name an `open_dispute` refusal on `kernel.request_org_payout`; that function is 087's authored-once body and 088 may not rewrite it (the same principle as PFA-29 O-C). Today the refusal is delivered by `record_dispute_native`'s payout leg (every reachable pending/submitted payout → `hold_state='held'` → `request_org_payout` raises `payout_held`, E-87) for disputes recorded while the payout exists; a settlement CLOSED AFTER the dispute opened mints an unheld payout. Un-park = a body-only amendment to 087's `request_org_payout` (an owner-signed PFA, since it touches an authored money verb) or a settlement-close-time hold. Owner: UNASSIGNED.
+
+## ERRATA recorded by package 088 (no amendment needed; frozen bytes win as stated)
+
+- **E-89** — the 087-stub name `kernel.settlement_royalty_lines` under-describes its 088 body: per PFA-29 O-C the seam returns BOTH the native-resale royalty candidates AND the native chargeback candidates. Name frozen (SEAM-2a); recorded, not renamed.
+- **E-90** — a venue royalty is a POSITIVE venue earning: the candidate is a credit (+) and lands in GROSS under 087's sign-derived buckets (E-73). Owner-ruled 2026-09-02; tested (153 §H: +100 candidate → gross +100).
+- **E-91** — schema §4.1's column list for `market.listing_native` omits `listing_mode` and `reason_code`, both required by RPC §20.8.1/§20.8.2 (the mode the seller chose; the cancel reason). Implemented as `listing_mode text CHECK (buy_now|auction|offer)` and `reason_code text`.
+- **E-92** — plan §8/088 asks for a DROP/ADD CHECK pair adding `'dispute_hold'` to `kernel.tickets.resale_state` and `venue.door_manifest_entry.resale_state`; the 079 and 086 bytes ALREADY carry the five-label form. 088 verifies (fail-loud DO block) instead of re-adding; the rollback does not regress the CHECKs.
+- **E-93** — `kernel.dispute_native.resolved_by` is an ODR-16 SPEC-SILENT identity-FK class: implemented `ON DELETE RESTRICT` (TOMBSTONED — auth.users terminal state is the tombstone, never a physical delete); the resolution quadruple carries a pairing CHECK (all four NULL ⇔ none set).
+- **E-94** — the chargeback arm books ORDER-linked disputes (`payment_native.order_id → venue.order.org_id`) against the org in full (PROMOTER §5.3: the org absorbs; commission not pursued). A NATIVE-RESALE (sale-arm) dispute is NOT booked against the org: the org held only the royalty share and RPC §20.7.14 assigns org-held resale proceeds to "BP-11's org's (C31, Gate-M)". Fail-closed; dark rail; C31 owes the resale-side clawback shape.
+- **E-95** — RPC §20.11.3's "a completed sale raises conflict_locked" cannot hold in `market.on_atom_voided`: the hook runs on EVERY void, including `catalog.cancel_event` voiding a successfully-resold atom, and a raise there would abort every event cancellation with resold inventory. Implemented: pending → compensated; completed → NO-OP (never flipped — the C26 XOR holds); the void's own cause_ref is the refund, not the sale. Tested (153 §J).
+- **E-96** — see `REQUEST_ORG_PAYOUT_OPEN_DISPUTE_GATE` above.
+- **E-97** — `kernel.transfer_ticket_ownership` "re-pins signing_key_id" per RPC §7.2, but no ratified resolver exists (`kernel.resolve_active_signing_key` is MENTION-OK, built nowhere; E-47's rotation un-park owns key selection). The engine keeps the atom's pinned key; the credential-version bump alone supersedes the old credential.
+- **E-98** — the resale-policy → listing rule is derived from the 078 CHECK set (`off · transfers_only · fixed_cap · face_value_queue · buy_now · auction · offer`; 078's own comment marks RPC §20.2.2's `{off, capped, free}` sketch stale): off/transfers_only/face_value_queue/auction refuse a native listing; buy_now/offer bind `listing_mode`; fixed_cap requires a cap; any present `price_cap_bps` binds as `price ≤ floor(face × bps / 10000)` in integer minor units (bps ∈ [0,10000] by CHECK ⇒ at-or-below face). Governing policy = the event-scope latest version, else the venue's; none ⇒ refused (C11 default off). p2p: `off` refuses; a priced send honours a present cap.
+- **E-99** — RPC §8.2 `accept_p2p_transfer(p_transfer_id, p_command_key)` and §8.3's "`accept_p2p_transfer` with `p_decision='decline'`" are reconciled by a DEFAULTED third parameter `p_decision text default 'accept'`: the two-argument shape stays callable, the overload count stays 1, the decline branch is the contracted owner of `declined`.
+- **E-100** — a handle-addressed transfer (`to_identity NULL, to_handle set`) has no ratified handle→identity resolver; acceptance is refused `handle_resolution_unavailable` (fail-closed). No transfer can be created with a handle in 088 anyway (P2P_TRANSFER_TTL).
+- **E-101** — a PRICED p2p acceptance has no contracted binding between the transfer and its `public.payments` row (§8.2 says "a verified public.payments row for the recipient" with no key); refused `payment_unverified`. Gifts complete.
+- **E-102** — `catalog.cancel_event` voids only atoms with a refund lineage (seq-1 `issue` row → `venue.order_item` → order → `payment_native`); comp/import mints (no order item; a synthetic cause_ref) have nothing to refund and are skipped with an `event.cancel_skip` audit (`no_refund_lineage`). The cancelled session already denies their scan. Refunds are ONE per originating ORDER (amount = Σ voided items' unit prices, §11.4 sum-guarded against prior refunds AND lost/charge_refunded disputes), idempotency key `<command_key>:order:<order_id>`.
+- **E-103** — the unlock re-arm (PFA-13) and the engine's open-dispute refusal bind an open dispute to the atom ONLY while the CURRENT holder is that payment's buyer (order arm: the holder is the order's buyer; sale arm: the holder is that completed sale's buyer) — the same custody-moved rule `record_dispute_native` applies on the freeze side (custody moved ⇒ skip + alert). A primary buyer's chargeback after a completed resale does not hold the new holder's atom.
+- **E-104** — `kernel.settlement_royalty_lines` is VOLATILE (the 087 stub was STABLE; volatility is not part of the SEAM-2a freeze — signature, parameter names, return type and overload count are unchanged) and takes a per-org TRANSACTION advisory lock before emitting candidates. Reason: two settlements of one org closing concurrently would both pass the `NOT EXISTS` dedupe (PFA-29 relies on the caller's settlement lock, which does not serialize a sibling settlement); a STABLE body keeps the calling statement's snapshot and cannot see a line committed while it waited, so the lock alone would not suffice. The lock is released at commit; the loser's queries take fresh snapshots (VOLATILE) and see the sibling's line. PFA-29 defers the structural cross-settlement partial unique to Gate-M (§3.14.1) — `CHARGEBACK_CROSS_SETTLEMENT_UNIQUE` below is that successor. Proven by race R8 (two live sessions).
+- **E-105** — `market.market_sale` carries a partial UNIQUE on `payment_id` (`WHERE payment_id IS NOT NULL`): one succeeded payment settles ONE sale (C35 / R-34 "one link born at transfer" / §20.8.7 write-once). Not in schema §4.4's index list; the engine additionally refuses a payment already linked to another order/sale (`payment_unverified`) and `mark_sale_paid_state` refuses `payment_reused` / `payment_intent_mismatch` / a second payment on a paid sale.
+- **E-106** — the anon discovery arm for `market.listing_native` (RLS §10.1/§10.2, plan §8/088 Tests "to anon only when the flag is ON") is undeliverable at the market-schema layer: 076's wall grants `anon` no USAGE on `market`. PFA-14 (owner-signed) ruled exactly this class for the venue layer and moved the delivery boundary to a separately reviewed public read surface; 088 applies the same ruling — no anon grant is written (a dormant grant would only invite a later accidental USAGE), the flag-gated public arm is delivered to `authenticated`. Recorded for owner countersignature as a PFA-14 extension.
+- **E-107** — the money-landing arms of `market.mark_sale_paid_state` (a payment on a cancelled / terminal / already-paid sale, a PI mismatch, a reused payment) are NON-RAISING: they write one idempotent `market_sale.alert` audit row per (sale, payment) and return `{status: state_conflict | conflict_locked, reason, action: reverse_payment}`. §20.8.7 names `conflict_locked` as an error; a raise would roll the alert back and make the webhook retry forever with no reversal signal — the label is preserved in the result, the alert survives.
+- **E-108** — recorded deviations without an owner-level ambiguity: (a) `respond_offer` implements `accept | decline`; the `counter` decision (§20.8.6) has no ratified shape (a counter is a seller-authored offer with no table for it) — `OFFER_COUNTER_DECISION` below; (b) authority readings taken where RPC and RLS differ: `cancel_event` admits `platform_admin` (RPC §4.4; RLS §11.1 omits it) and `cancel_listing` excludes `platform_support` (RPC §20.8.2; RLS §10.1 lists it) — EXEC-DERIVED / §5.3: the RPC authority line governs; (c) error-label drift kept as implemented and named here: `cancel_listing` on a reserved listing → `sale_in_flight`; `cancel_buy_now_sale` on a non-initiated sale → `state_conflict`; `checkout_buy_now` on a reserved listing → `listing_reserved`; `mark_sale_paid_state` success returns `ok` (not `updated`); (d) client-supplied reason codes and command keys that land in `kernel.admin_audit` are bounded to `^[A-Za-z0-9._:-]{1,64}$` (E-80) and clients may not write the system reasons `door_freeze` / `event_cancelled` / `expired`; (e) `cancel_event`'s per-atom void keeps 085's `void_ticket_atom` batch lock (rank 2 inside the void) — 088 pre-locks the session's batches (rank 2) before the atom loop, so 088's own path is ascending; a deadlock remains possible against 085's `refund_primary_order` (payment → atom → batch, immutable) — `VOID_PATH_LOCK_LADDER` below.
+- **E-110** — `catalog.cancel_event` refund routing for a RESOLD atom: an atom acquired through a COMPLETED native sale refunds the LATEST such sale's PAYER (the last money-in for that atom); atoms with no completed native sale refund the originating order's payer (a gift/p2p chain leaves the original payer out of pocket). The reseller's proceeds/royalty clawback is `NATIVE_RESALE_SPLIT_POLICY` (10). RPC §4.4 says "void + refund all issued atoms" without naming the payee for a resold atom; refunding the originating order would pay a reseller who already received proceeds. Dark under PFA-30; tested on the seeded completed sale (153 L21a/L21b).
+- **E-111** — `listing_native_atom_active_uq` spans `status IN ('active','reserved')` (schema §4.1 pre-dates R-37's `reserved`; "an atom is listed once at a time" must include a reservation in flight), and `create_listing` treats an atom whose overlay is not `none` — or 079 `lock_ticket`'s same-target `noop_replay` — as `conflict_locked` (a new listing is never a replay of another listing's lock).
+- **E-112** — X-6 vocabulary: 088 introduces the Stripe-reference spellings `stripe_dispute_ref` / `stripe_charge_ref` / `stripe_pi_ref` / `payment_intent_ref`; they join `x6_forbidden.json` (floor 32 → 36) so the rule-3 tripwire catches the synonyms, not only Phase-0's `stripe_payment_intent_id` / `stripe_charge_id`. `p2p_transfer.to_handle` is scrubbed on erasure of its addressee.
+- **E-109** — the chargeback amount booked against the org is the FULL disputed amount (the org received the primary sale; PROMOTER §5.3 "the org absorbs it"); whether any platform-retained buyer fee inside that amount should be netted is an economics decision the corpus does not fix — filed under `NATIVE_RESALE_SPLIT_POLICY` items (11)/(13).
+
+## Forward obligations opened by the 088 red team (OWNER: UNASSIGNED unless frozen bytes assign them)
+
+- **`CHARGEBACK_CROSS_SETTLEMENT_UNIQUE`** (Gate-M; PFA-29 / §3.14.1) — the partial unique `ON venue.settlement_line (cause_ref) WHERE cause IN ('chargeback')` (and the royalty analogue if the period semantics are ratified) is the structural successor to E-104's advisory lock. Until it lands, E-104 is the only cross-settlement dedupe.
+- **`LISTING_EXPIRY_SWEEP`** — `market.listing_native.status = 'expired'` has no writer; `kernel.sweep_expired_ticket_atoms` (079) expires a listed atom and leaves its listing `active` (publicly visible while the flag is ON; 16d deletes only draft/cancelled). Owed: a listing sweep (or a body-only amendment to 079's sweep) that cancels/expires the listing and withdraws its offers when the atom expires.
+- **`REFUND_HOLD_RELEASE_REARM`** — 085's refund-hold release paths write `kernel.tickets.resale_state = 'none'` directly instead of through `kernel.unlock_ticket`, so the PFA-13 dispute re-arm does not run on them (the engine's R-40 mirror still refuses the move, so custody is safe; the overlay is merely not re-labelled). Owed: an owner-signed body-only amendment to 085 or a 088+ release primitive those paths adopt.
+- **`PROMOTER_COMMISSION_PAYOUT_HOLD`** (090) — `record_dispute_native`'s payout leg reaches settlement and sale payouts by `cause_ref`; 090's `promoter_commission` payouts are reached only if they carry `cause_ref = settlement_id` (§20.7.13 A-F5). 090 must keep that shape or extend the leg.
+- **`OFFER_COUNTER_DECISION`** — §20.8.6's `counter` decision: shape to ratify (a seller-authored counter-offer row? a new offer table state?) before native resale activation.
+- **`VOID_PATH_LOCK_LADDER`** — 085's `refund_primary_order` locks Payment (6) → Atom (5) → (inside the void) Inventory batch (2); 088's `cancel_event` locks Session (1) → Inventory (2) → Atom (5) → Payment (6) per the contract. The two can deadlock on a concurrent refund + cancellation of the same order (40P01 — one side aborts and retries; no money moves). Owed: an owner-signed body-only amendment to 085 (batch pre-lock) or a serialization rule in the ops runbook.
+- **`RESALE_CHECKOUT_LATE_PAYMENT_DWELL`** — the door drain and `cancel_event` cancel a `reserved` listing over an `initiated` sale; a payment landing afterwards meets `mark_sale_paid_state`'s cancelled arm (alert + reversal) — but a listing cancelled BETWEEN mark and finalize leaves a `paid_pending_transfer` sale whose completer requires `reserved`; until `PAID_PENDING_DWELL_SLO` names the bound, that sale dwells with a `compensation_refund_missing` / manual reversal path only.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*

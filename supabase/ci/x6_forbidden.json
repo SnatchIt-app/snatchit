@@ -39,6 +39,10 @@
     "ownership_log_id",
     "credential_id",
     "signing_key_id",
-    "scan_device_id"
+    "scan_device_id",
+    "stripe_dispute_ref",
+    "stripe_charge_ref",
+    "stripe_pi_ref",
+    "payment_intent_ref"
   ]
 }

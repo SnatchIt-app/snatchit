@@ -86,11 +86,12 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 103,
+           WHERE n.nspname = 'kernel'), 107,
+  -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A14: kernel holds EXACTLY 103 functions (99 post-086 + 087''s four settlement fns)');
+  'A14: kernel holds EXACTLY 107 functions (103 post-087 + 088''s engine and three dispute verbs)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'venue'), 60,
   -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
@@ -141,10 +142,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 3,
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 1,
   -- 2026-09-01 (package 086): on_identity_erased_door filled — byte-neutral 4 -> 3
   -- (deletion_blockers_market + on_identity_erased market/promoter remain).
-  'A28: THREE hooks remain byte-neutral — 086 filled the door erase hook (market/promoter pending)');
+  -- 2026-09-02 (package 088): deletion_blockers_market + on_identity_erased_market filled — 3 -> 1.
+  'A28: ONE hook remains byte-neutral — 088 filled both market hooks (promoter pending → 090)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');

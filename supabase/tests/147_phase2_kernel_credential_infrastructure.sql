@@ -34,8 +34,8 @@ GRANT EXECUTE ON FUNCTION tap._sk_count(uuid), tap._wp_status(uuid), tap._ticket
 -- SECTION A — THE 083 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 26,
-  'A1: kernel holds 26 tables — 22 post-084 + 085''s four money ledgers');
+            WHERE n.nspname='kernel' AND c.relkind='r'), 27,
+  'A1: kernel holds 27 tables — 22 post-084 + 085''s four money ledgers + 088''s dispute_native');
 SELECT has_table('kernel'::name,'signing_key'::name, 'A2: kernel.signing_key');
 SELECT has_table('kernel'::name,'pass_type_cert'::name, 'A3: kernel.pass_type_cert');
 SELECT has_table('kernel'::name,'wallet_pass'::name, 'A4: kernel.wallet_pass');
@@ -49,7 +49,7 @@ SELECT has_function('kernel'::name,'revoke_signing_key'::name, ARRAY['uuid','tex
 -- forward objects absent
 SELECT has_function('venue'::name,'finalize_primary_order'::name, ARRAY['uuid','uuid','text','text']::name[], 'A11: finalize landed in 085 (C111)');
 SELECT has_table('kernel'::name,'payment_native'::name, 'A12: kernel.payment_native landed in 085');
-SELECT hasnt_function('kernel'::name,'transfer_ticket_ownership'::name, 'A13: the transfer engine is NOT here (088)');
+SELECT has_function('kernel'::name,'transfer_ticket_ownership'::name, ARRAY['uuid','uuid','text','uuid','uuid','text']::name[], 'A13: the transfer engine landed in 088 (FR-3)');
 -- the .pkpass private bucket + zero policies
 SELECT is((SELECT public::text FROM storage.buckets WHERE id='pkpass'), 'false', 'A14: the .pkpass bucket exists and is PRIVATE (public=false)');
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname='kernel'

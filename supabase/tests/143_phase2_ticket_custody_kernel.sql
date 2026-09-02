@@ -50,8 +50,8 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 26,
-  'A1: kernel holds EXACTLY twenty-six tables (22 post-084 + four 085 money ledgers)');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 27,
+  'A1: kernel holds EXACTLY twenty-seven tables (26 post-087 + 088''s dispute_native)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
@@ -134,18 +134,20 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 103,
+           WHERE n.nspname = 'kernel'), 107,
+  -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A32: kernel holds EXACTLY 103 functions (99 post-086 + 087''s four settlement fns)');
+  'A32: kernel holds EXACTLY 107 functions (103 post-087 + 088''s engine and three dispute verbs)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 15,
+           WHERE n.nspname = 'catalog'), 16,
+  -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
   -- 2026-09-01 (package 086): 11 -> 15 (engage_door_freeze, set_session_door_schedule,
   -- sweep_implicit_door_freezes, tg_door_open_at_is_ledger_head).
-  'A33: catalog holds EXACTLY 15 functions (11 post-085 + 086''s four door fns)');
+  'A33: catalog holds EXACTLY 16 functions (15 post-086 + 088''s cancel_event)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),
@@ -177,19 +179,21 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
            WHERE n.nspname='kernel'
              AND p.proname in ('deletion_blockers_orders','deletion_blockers_wallet',
                                'deletion_blockers_money','deletion_blockers_market')
-             AND btrim(p.prosrc) = 'select null::text'), 1,
-  'A44: one LATER blocker stub remains byte-neutral (085 filled money; market pending — 088)');
+             AND btrim(p.prosrc) = 'select null::text'), 0,
+  -- 2026-09-02 (package 088): deletion_blockers_market filled (BP-3/BP-4/BP-7/BP-8 twins) — 1 -> 0.
+  'A44: ZERO blocker stubs remain byte-neutral (085 filled money; 088 filled market)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel'
              AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 2,
+             AND btrim(p.prosrc) = 'select'), 1,
   -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body.
   -- 2026-09-01 (package 085): on_deletion_q5_release filled (§17.4 semantics).
   -- 2026-09-01 (package 086): on_identity_erased_door filled (scrubs
   -- comp_allocation.granted_to_name). Only market/promoter remain neutral (→ 088/090).
-  'A45: TWO later erased hooks remain byte-neutral (market/promoter)');
+  -- 2026-09-02 (package 088): on_identity_erased_market filled (16d hard-delete allowance). Only promoter remains (→ 090).
+  'A45: ONE later erased hook remains byte-neutral (promoter → 090)');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) <> 'select false',
   'A46: has_outstanding_obligations carries its REAL body now (BP-10 over kernel.identity_obligation — 085)');
@@ -233,8 +237,8 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname = 'sweep-expired-tic
 -- 085''s subjects are absent (T-SCHEMA-CUSTODY-06 owed there, not silently dropped)
 SELECT has_function('kernel'::name, 'void_ticket_atom'::name, ARRAY['uuid','uuid','text']::name[],
   'A55: void_ticket_atom(uuid, uuid, text) landed in 085 (FR-4 — born with kernel.refund)');
-SELECT hasnt_function('kernel'::name, 'transfer_ticket_ownership'::name,
-  'A56: the transfer engine does not exist yet (088; FR-3)');
+SELECT has_function('kernel'::name, 'transfer_ticket_ownership'::name, ARRAY['uuid','uuid','text','uuid','uuid','text']::name[],
+  'A56: the transfer engine landed in 088 (FR-3; SSCAS #2)');
 SELECT has_function('kernel'::name, 'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
   'A57: the mint engine EXISTS now — issue_ticket_atoms(jsonb, text) landed in 083 (C114)');
 SELECT has_function('kernel'::name, 'has_venue_role'::name, ARRAY['uuid','text[]']::name[],

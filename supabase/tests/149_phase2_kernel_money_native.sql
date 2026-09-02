@@ -33,8 +33,8 @@ $m$ INSERT INTO public.listings (seller_id, event_name, venue, neighborhood, eve
 -- SECTION A — THE 085 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 26,
-  'A1: kernel holds 26 tables — 22 post-084 + the four money ledgers');
+            WHERE n.nspname='kernel' AND c.relkind='r'), 27,
+  'A1: kernel holds 27 tables — 22 post-084 + the four money ledgers + 088''s dispute_native');
 SELECT has_table('kernel'::name,'payment_native'::name, 'A2: kernel.payment_native (the R-34 link ledger)');
 SELECT has_table('kernel'::name,'refund'::name, 'A3: kernel.refund');
 SELECT has_table('kernel'::name,'payout'::name, 'A4: kernel.payout');
@@ -54,8 +54,8 @@ SELECT has_function('kernel'::name,'void_ticket_atom'::name, ARRAY['uuid','uuid'
   'A10: the void engine (SSCAS #3; FR-4 — born here with kernel.refund)');
 -- 2026-09-01 (package 087): request_org_payout LANDED (RPC §10.3) — the anchor flips.
 SELECT has_function('kernel'::name,'request_org_payout'::name, ARRAY['uuid','uuid','text']::name[], 'A11: request_org_payout is authored by 087 (was NOT here at 085)');
-SELECT hasnt_function('kernel'::name,'transfer_ticket_ownership'::name, 'A12: the transfer engine is NOT here (088)');
-SELECT hasnt_table('market'::name,'market_sale'::name, 'A13: market.market_sale is NOT here (088)');
+SELECT has_function('kernel'::name,'transfer_ticket_ownership'::name, ARRAY['uuid','uuid','text','uuid','uuid','text']::name[], 'A12: the transfer engine landed in 088 (FR-3)');
+SELECT has_table('market'::name,'market_sale'::name, 'A13: market.market_sale landed in 088 (C26 terminal SM)');
 SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='kernel.payment_native'::regclass
             AND contype='f' AND conname LIKE '%sale%'), 0,
   'A14: payment_native.sale_id carries NO FK — that is 089''s adopt step');
@@ -66,12 +66,13 @@ SELECT is((SELECT value FROM catalog.platform_config
   'A16: PFA-22 — the dedicated BP-12 operand is seeded NULL / owner-unset');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 52,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 57,
+  -- 2026-09-02 (package 088): 52 -> 57 (+5 market read policies; market_sale/dispute_native deny-all).
   -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies). 085 itself
   -- added ZERO — its four money tables are deny-all (GP-3a); this register census
   -- tracks the whole five-schema total, which 086 grew.
   -- 2026-09-01 (package 087): 48 -> 52 (+4 venue settlement/settlement_line read policies).
-  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 52 after 087''s four settlement policies');
+  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 57 after 088''s five market read policies');
 
 -- ============================================================================
 -- SECTION B — GRANTS & CUSTODY WALLS (PFA-15/PFA-21; RLS §7.8-§7.10a)

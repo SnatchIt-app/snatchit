@@ -55,7 +55,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   'A6: exactly ONE overload of each hook (no accidental second signature)');
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(gen_random_uuid()))
         + (SELECT count(*)::int FROM kernel.settlement_commission_lines(gen_random_uuid())), 0,
-  'A7: both hook stubs return ZERO rows at 087 (bodies land in 088/090)');
+  'A7: both seams return ZERO rows over an empty market — the 090 commission stub and 088''s REAL royalty/chargeback seam alike (deterministic, never raises)');
 SELECT has_function('kernel'::name,'close_settlement'::name, ARRAY['uuid','text']::name[], 'A8: kernel.close_settlement (SSCAS #4)');
 SELECT has_function('kernel'::name,'request_org_payout'::name, ARRAY['uuid','uuid','text']::name[], 'A9: kernel.request_org_payout');
 SELECT has_function('venue'::name,'open_settlement'::name, ARRAY['uuid','uuid','uuid','jsonb','text']::name[], 'A10: venue.open_settlement');
