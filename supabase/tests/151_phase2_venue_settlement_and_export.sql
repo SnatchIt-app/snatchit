@@ -625,8 +625,18 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                    OR regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'identity_id::text' OR regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'left\s*\(\s*[a-z_.]*identity_id'
                    OR regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* 'gen_random_uuid\s*\(\)\s*as\s*customer_ref')), 0,
   'E15: PFA-28 (B/C/D) — no reader body computes a weak, unkeyed, truncated-uuid or random substitute for customer_ref');
-SELECT is((SELECT count(*)::int FROM pg_extension WHERE extname='pgcrypto'), 0,
-  'E16: PFA-28 — pgcrypto is NOT installed by 087 (the crypto mechanism is a separate ratification)');
+-- The Supabase platform pre-installs pgcrypto as a default extension, so "absent from the
+-- cluster" is not the ruling's condition; "087 installs no extension and no 087 routine
+-- uses a pgcrypto symbol" is (the byte-level half — no `create extension` in 087 — is
+-- asserted by scripts/ci/x6_gate.sh on every PR).
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname IN ('venue','kernel')
+              AND p.proname IN ('open_settlement','close_settlement','request_org_payout','settlement_royalty_lines','settlement_commission_lines',
+                'on_payout_settled','assert_may_request','request_export','build_export_rows','finalize_export','authorize_export_download','revoke_export',
+                'sweep_expired_exports','claim_artifacts_for_purge','confirm_artifact_purged','reconcile_export_orphans','list_export_jobs',
+                'list_attendees','lookup_attendee')
+              AND regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~* '\m(hmac|digest|gen_random_bytes|crypt|gen_salt|pgp_[a-z_]+|encrypt|decrypt)\s*\('), 0,
+  'E16: PFA-28 — no 087 routine references a pgcrypto symbol (the crypto mechanism is a separate ratification; 087 creates no extension — gate-asserted)');
 SELECT ok((SELECT bool_and(p.prosrc ILIKE '%PFA-28%') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue' AND p.proname IN ('build_export_rows','list_attendees','lookup_attendee')),
   'E17: each of the three readers cites the ruling at its park (greppable un-park point)');

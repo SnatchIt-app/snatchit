@@ -2193,8 +2193,8 @@ FAIL-CLOSED DERIVATION:      build_export_rows: claims the job (queued→running
                              and the builder's return shape (row_cursor, columns[], cells[]) are fixed so the
                              un-park is body-only.
 TESTS:                       suite 151 §E (E1-E17: fail-closed, no raw identity / unkeyed hash / uuid /
-                             random substitute, authz before park, zero mutation, no budget, pgcrypto absent,
-                             greppable park); D23-D27 (job → failed/build_error, cannot finalize, cannot
+                             random substitute, authz before park, zero mutation, no budget, no pgcrypto symbol
+                             in any 087 routine + no `create extension` in 087 (gate), greppable park); D23-D27 (job → failed/build_error, cannot finalize, cannot
                              download); D18 (no key minted); C40 (settlement subsystem unaffected); suite 152
                              (X-6 closure stays disjoint). Ruling §11 A-H all covered.
 FORWARD OBLIGATION:          CRM_CUSTOMER_REF_CRYPTO — see "Forward obligations opened by 087". OWNER: UNASSIGNED

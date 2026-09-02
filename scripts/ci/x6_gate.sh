@@ -123,6 +123,10 @@ if [ -d "$POISON" ]; then
   if [ "$pn" -eq "$X6_EXPECT_COLUMNS" ]; then echo "::error::poison column table has ${pn} rows — the control would not distinguish it from the spec."; rc=1; else echo "positive control: poison column table (${pn} rows) != ${X6_EXPECT_COLUMNS}, as required"; fi
 fi
 
+echo "### PFA-28 — 087 installs no extension (no pgcrypto by owner ruling)"
+ext_hits=$(grep -n -i -E '^\s*create\s+extension' supabase/migrations/087_venue_settlement_and_export.sql || true)
+if [ -n "$ext_hits" ]; then echo "::error::087 creates an extension — PFA-28 forbids installing pgcrypto or any crypto extension in this package:"; printf '%s\n' "$ext_hits" | sed 's/^/  /'; rc=1; else echo "PFA-28: 087 creates no extension"; fi
+
 echo "### suite manifests — the pgTAP suite's embedded copies ≡ the JSON manifests (one truth, drift detected)"
 SUITE=supabase/tests/152_crm_export_x6.sql
 if [ -f "$SUITE" ]; then
