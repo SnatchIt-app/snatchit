@@ -7,9 +7,15 @@
  * the mobile test run. Package parity suites run separately via
  * `npm run test:packages` inside web/ (see packages/vitest.config.ts).
  */
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // The app resolves `@/…` through tsconfig paths; vitest needs the same alias
+  // or any suite importing app code fails to resolve.
+  resolve: {
+    alias: [{ find: /^@\/(.*)$/, replacement: path.resolve(__dirname, '$1') }],
+  },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
