@@ -29,11 +29,12 @@ $m$ SELECT v FROM tap.memo_144 WHERE k = $1 $m$;
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 23,
+            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 29,
+  -- 2026-09-02 (package 090): 23 -> 29 (+6 promoter-engine tables).
   -- 2026-08-31 (package 081): 1 -> 6; (package 082): 6 -> 8 (order + order_item).
   -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
   -- 2026-09-01 (package 087): 20 -> 23 (settlement, settlement_line, export_job).
-  'A1: venue holds TWENTY-THREE tables — 20 post-086 + 087''s three settlement/export');
+  'A1: venue holds TWENTY-NINE tables — 23 post-087 + 090''s six promoter-engine tables');
 SELECT is((SELECT count(*)::int FROM information_schema.columns
             WHERE table_schema='venue' AND table_name='staff_role'), 5,
   'A2: the five §3.9 columns');
@@ -86,27 +87,30 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 107,
+           WHERE n.nspname = 'kernel'), 109,
+  -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A14: kernel holds EXACTLY 107 functions (103 post-087 + 088''s engine and three dispute verbs)');
+  'A14: kernel holds EXACTLY 109 functions (107 post-088 + 090''s two)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 60,
+           WHERE n.nspname = 'venue'), 79,
+  -- 2026-09-02 (package 090): 60 -> 79 (+19: 17 promoter RPCs/reads + the normalizer + 2 trigger fns;
+  -- resolve_order_attribution is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
   -- twelve CRM export/read RPCs (on_payout_settled is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 085): 15 -> 18 (finalize_primary_order + the two SEAM-2 stubs, R2B/C111).
   -- 2026-09-01 (package 086): 18 -> 46 (+28: 27 door/scan/comp/guest/manifest/holder-mix
   -- RPCs + the guard_door_manifest_transition trigger fn; append_door_manifest_delta
   -- is a SEAM-2 body-replace, already counted).
-  'A15: venue holds EXACTLY sixty functions — 46 post-086 + 087''s fourteen');
+  'A15: venue holds EXACTLY seventy-nine functions — 60 post-087 + 090''s nineteen');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');
 SELECT has_function('kernel'::name,'has_org_role_over_venue'::name, ARRAY['uuid','text[]']::name[], 'A18: has_org_role_over_venue (R-9)');
 SELECT has_function('kernel'::name,'has_org_role_over_event'::name, ARRAY['uuid','text[]']::name[], 'A19: has_org_role_over_event (R-9)');
-SELECT hasnt_function('kernel'::name,'is_promoter_for_event'::name, 'A20: is_promoter_for_event is 090''s — not here');
+SELECT has_function('kernel'::name,'is_promoter_for_event'::name, ARRAY['uuid']::name[], 'A20: is_promoter_for_event landed in 090 (§1.1c — link OR code route)');
 SELECT has_function('kernel'::name,'assert_door_session'::name, ARRAY['uuid','uuid','uuid','text']::name[], 'A21: assert_door_session authored by 086 (tokenized door session)');
 SELECT has_function('venue'::name,'register_scan_device'::name, ARRAY['uuid','text','text']::name[], 'A22: the scan-device verb exists — 086');
 SELECT has_function('venue'::name,'open_door_manifest'::name, ARRAY['uuid','text','text']::name[], 'A23: the door-manifest verb exists — 086');
@@ -142,11 +146,12 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
                OR (p.proname in ('on_identity_erased_door','on_identity_erased_market',
                                  'on_identity_erased_promoter','on_deletion_q5_release')
                    AND btrim(p.prosrc)='select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 1,
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)='select false'))), 0,
+  -- 2026-09-02 (package 090): on_identity_erased_promoter filled — 1 -> 0.
   -- 2026-09-01 (package 086): on_identity_erased_door filled — byte-neutral 4 -> 3
   -- (deletion_blockers_market + on_identity_erased market/promoter remain).
   -- 2026-09-02 (package 088): deletion_blockers_market + on_identity_erased_market filled — 3 -> 1.
-  'A28: ONE hook remains byte-neutral — 088 filled both market hooks (promoter pending → 090)');
+  'A28: ZERO hooks remain byte-neutral — 090 filled the promoter hook');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='on_identity_erased_staff'), 1,
   'A29: SEAM-2a — exactly one overload');

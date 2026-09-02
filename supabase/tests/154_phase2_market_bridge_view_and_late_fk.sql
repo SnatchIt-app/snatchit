@@ -46,9 +46,11 @@ SELECT throws_ok($$INSERT INTO market.listing_unified (id, rail) VALUES (gen_ran
 SELECT throws_ok($$DELETE FROM market.listing_unified$$, '55000', NULL, 'A7: …so is a DELETE');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='v'), 1, 'A8: market holds exactly ONE view');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='r'), 5, 'A9: …and still its five 088 tables (089 creates no table)');
-SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/107/16',
-  'A10: 089 creates NO function (market 22 / kernel 107 / catalog 16 unchanged)');
-SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 57, 'A11: 089 creates NO policy (the view carries none — it inherits; register stays 57)');
+SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/109/16',
+  -- 2026-09-02 (package 090): kernel 107 -> 109 (is_promoter_for_event + pay_promoter_commission); market/catalog unchanged.
+  'A10: 089 creates NO function (market 22 / kernel 109 post-090 / catalog 16)');
+-- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies).
+SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 67, 'A11: 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
 SELECT is((SELECT count(*)::int FROM cron.job), 18, 'A12: 089 schedules nothing (cron rows unchanged)');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND NOT t.tgisinternal), 5,
   'A13: no new trigger (the five 088 set_updated_at triggers only)');
@@ -60,10 +62,11 @@ SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='kernel.paymen
 SELECT ok((SELECT pg_get_constraintdef(c.oid) LIKE '%order_id IS NOT NULL%' FROM pg_constraint c WHERE c.conrelid='kernel.payment_native'::regclass AND c.conname='payment_native_subject_xor_ck'),
   'A16: 085''s subject XOR CHECK is untouched (order XOR sale)');
 -- SEAM accounting unchanged
-SELECT ok((SELECT p.prosrc LIKE '%where false%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_commission_lines')
-       AND (SELECT btrim(p.prosrc) = 'select' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='on_identity_erased_promoter')
+-- 2026-09-02 (package 090): the 090 seams are now REAL; the 088 seam and the hook count (19) are unchanged.
+SELECT ok((SELECT p.prosrc NOT LIKE '%where false%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_commission_lines')
+       AND (SELECT btrim(p.prosrc) <> 'select' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='on_identity_erased_promoter')
        AND (SELECT p.prosrc LIKE '%chargeback%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
-  'A17: ODR-16 SEAM state unchanged by 089 — the 090 seams stay byte-neutral, the 088 seam stays real (hook count 19)');
+  'A17: ODR-16 SEAM state after 090 — the two 090 seams are real, the 088 seam stays real (hook count 19)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','market') AND p.proname IN ('settlement_royalty_lines','settlement_commission_lines','on_atom_voided','on_door_freeze_engaged','door_freeze_drain_preview','deletion_blockers_market','on_identity_erased_market','on_identity_erased_promoter')), 8,
   'A18: overload count 1 on every seam name');
 -- the projection is stated in bytes, never inferred at read time

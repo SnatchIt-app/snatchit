@@ -197,7 +197,15 @@ SELECT is(
                      -- market verbs are service_role; the three market hooks hold NO grant — not excepted.
                      'create_listing','cancel_listing','create_auction','place_bid','make_offer','respond_offer',
                      'checkout_buy_now','create_p2p_transfer','accept_p2p_transfer','cancel_p2p_transfer',
-                     'get_ticket_history','get_market_sale_status')))),
+                     'get_ticket_history','get_market_sale_status',
+                     -- 2026-09-02 (package 090): venue's sixteen caller-authorized promoter verbs/reads (RLS §11.5;
+                     -- 2026-09-02 (package 090): in-body allow-lists / own-promoter-row authz). pay_promoter_commission is EXEC DEF, the
+                     -- 2026-09-02 (package 090): resolver keeps its 085 revoke, the two trigger fns hold no grant — none excepted.
+                     'create_promoter','update_promoter','create_promoter_link','set_promoter_link_status',
+                     'check_promoter_slug_available','create_promoter_code','create_promoter_codes_bulk',
+                     'set_promoter_code_status','set_promoter_code_scope','set_promoter_code_window',
+                     'preview_promoter_code','bind_order_attribution','review_attribution_flag',
+                     'get_my_promoter_summary','list_my_attributions','list_promoter_attributions')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 

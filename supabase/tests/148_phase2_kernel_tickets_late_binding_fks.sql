@@ -56,39 +56,43 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 62,
+              AND c.relkind IN ('r','p','v','m','S','f')), 68,
+  -- 2026-09-02 (package 090): 62 -> 68 (+6 venue promoter-engine tables).
   -- 2026-09-02 (package 088): 55 -> 61 (+5 market rail tables, +1 kernel.dispute_native).
   -- 2026-09-02 (package 089): 61 -> 62 (+1 VIEW market.listing_unified — the ADOPT step's bridge).
   -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
-  'B1: the five phase-2 schemas hold exactly 62 relations of ANY kind (61 post-088 + 089''s bridge view)');
+  'B1: the five phase-2 schemas hold exactly 68 relations of ANY kind (62 post-089 + 090''s six tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 207,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 228,
+  -- 2026-09-02 (package 090): 207 -> 228 (+2 kernel, +19 venue; the three body-only hook replacements add no routine).
   -- 2026-09-02 (package 088): 183 -> 207 (+19 market, +4 kernel, +1 catalog; the seven body-only
   -- hook/PFA-13 replacements add no routine).
   -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
   -- 2026-09-01 (package 087): 165 -> 183 (+4 kernel, +14 venue).
-  'B2: the five phase-2 schemas hold exactly 207 routines (107+60+16+22+2 — 088''s twenty-four)');
+  'B2: the five phase-2 schemas hold exactly 228 routines (109+79+16+22+2 — 090''s twenty-one)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 57,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 67,
+  -- 2026-09-02 (package 090): 57 -> 67 (+10 venue read policies: promoter 3, promoter_link 3, promoter_code 3,
+  -- promoter_code_scope 1; attribution / attribution_review are deny-all zero-policy — AUTHZ-M9).
   -- 2026-09-02 (package 088): 52 -> 57 (+5 market read policies; market_sale and dispute_native
   -- are deny-all zero-policy).
   -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies; the 3 deny-all
   -- door/holder-mix tables carry none).
   -- 2026-09-01 (package 087): 48 -> 52 (+4 venue settlement read policies; export_job is
   -- deny-all zero-policy, OR-1).
-  'B3: the five-schema policy register (12 kernel + 28 venue + 12 catalog + 5 market) — 088 added its five market read policies');
+  'B3: the five-schema policy register (12 kernel + 38 venue + 12 catalog + 5 market) — 090 added its ten promoter-engine read policies');
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 27
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 107,
-  'B4: kernel per-schema census (27 tables, 107 functions post-088)');
+            WHERE n.nspname='kernel') = 109,
+  'B4: kernel per-schema census (27 tables, 109 functions post-090)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 60
+            WHERE n.nspname='venue') = 79
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 5,
-  'B5: venue holds 60 functions (087''s fourteen settlement/export), market holds its five 088 rail tables');
+  'B5: venue holds 79 functions (60 post-087 + 090''s nineteen), market holds its five 088 rail tables');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

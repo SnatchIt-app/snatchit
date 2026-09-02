@@ -47,14 +47,14 @@ SELECT has_function('kernel'::name,'list_my_org_contact_consents'::name, 'A9: li
 SELECT has_function('venue'::name,'finalize_primary_order'::name, ARRAY['uuid','uuid','text','text']::name[], 'A10: finalize_primary_order landed in 085 (C111) — SSCAS #1');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[], 'A11: the mint engine landed in 083 — issue_ticket_atoms(jsonb, text) exists');
 SELECT has_function('kernel'::name,'refund_primary_order'::name, ARRAY['uuid','integer','text','text']::name[], 'A12: refund_primary_order landed in 085');
-SELECT hasnt_function('venue'::name,'bind_order_attribution'::name, 'A13: attribution binding is NOT here (090)');
+SELECT has_function('venue'::name,'bind_order_attribution'::name, ARRAY['uuid','text','text','text']::name[], 'A13: attribution binding landed in 090 (§17.18 — the candidate writer on the 082 columns)');
 SELECT has_table('kernel'::name,'payment_native'::name, 'A14: kernel.payment_native landed in 085 (the R-34 link ledger)');
 -- the C16 idempotency unique + the reserved-word table name
 SELECT col_is_unique('venue'::name,'order'::name, ARRAY['buyer_id','command_idempotency_key']::name[], 'A15: order UNIQUE(buyer_id, command_idempotency_key) (C16)');
 SELECT col_is_unique('venue'::name,'order_item'::name, ARRAY['order_id','ticket_type_id']::name[], 'A16: order_item UNIQUE(order_id, ticket_type_id)');
 -- the two candidate columns are born plain (no FK at 082 — R2B/C112)
 SELECT is((SELECT count(*)::int FROM pg_constraint WHERE conrelid='venue."order"'::regclass AND contype='f'
-            AND conname LIKE '%attr%'), 0, 'A17: no attribution-candidate FK at 082 (adopted in 090)');
+            AND conname LIKE '%attr%'), 2, 'A17: the two attribution-candidate FKs are ADOPTED by 090 (NOT VALID → VALIDATE; born plain at 082 — R2B/C112)');
 SELECT has_column('venue'::name,'order'::name,'attribution_candidate_code_id'::name, 'A18: candidate code column born here');
 SELECT has_column('venue'::name,'order'::name,'attribution_candidate_link_id'::name, 'A19: candidate link column born here');
 -- 6 RLS policies (order x3, order_item x3); consent tables ZERO policies

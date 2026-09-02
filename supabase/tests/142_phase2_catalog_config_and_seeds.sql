@@ -1045,7 +1045,8 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
-  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
+  'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
+  -- 2026-09-02 (package 090): +6 — promoter, promoter_link, promoter_code, promoter_code_scope, attribution, attribution_review.
   -- 2026-09-01 (package 087): +3 — settlement, settlement_line, export_job.
   -- 2026-08-31 (package 082): the two order tables arrived (082_venue_orders).
   -- 2026-09-01 (package 086): +12 door/scan tables (pin/session/scan_device/scan,
@@ -1150,14 +1151,15 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 107,
+            WHERE n.nspname = 'kernel'), 109,
+  -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
-  'K3: kernel holds 107 functions — 103 post-087 plus 088''s engine and three dispute verbs');
+  'K3: kernel holds 109 functions — 107 post-088 plus 090''s promoter predicate and commission primitive');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

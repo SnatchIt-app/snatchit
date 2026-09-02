@@ -27,9 +27,10 @@ $m$ SELECT count(*)::int FROM venue.door_manifest WHERE session_id=p_session AND
 -- SECTION A — THE 086 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='venue' AND c.relkind='r'), 23,
+            WHERE n.nspname='venue' AND c.relkind='r'), 29,
+  -- 2026-09-02 (package 090): 23 -> 29 (+6 promoter-engine tables).
   -- 2026-09-01 (package 087): 20 -> 23 (settlement, settlement_line, export_job).
-  'A1: venue holds 23 tables — 20 post-086 + 087''s three settlement/export tables');
+  'A1: venue holds 29 tables — 23 post-087 + 090''s six promoter-engine tables');
 SELECT has_table('venue'::name,'door_manifest'::name, 'A2: venue.door_manifest');
 SELECT has_table('venue'::name,'door_manifest_entry'::name, 'A3: venue.door_manifest_entry (AO)');
 SELECT has_table('venue'::name,'door_manifest_delta'::name, 'A4: venue.door_manifest_delta (AO)');

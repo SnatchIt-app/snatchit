@@ -66,13 +66,14 @@ SELECT is((SELECT value FROM catalog.platform_config
   'A16: PFA-22 — the dedicated BP-12 operand is seeded NULL / owner-unset');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 57,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 67,
+  -- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies; attribution/attribution_review deny-all).
   -- 2026-09-02 (package 088): 52 -> 57 (+5 market read policies; market_sale/dispute_native deny-all).
   -- 2026-09-01 (package 086): 39 -> 48 (+9 venue door/scan policies). 085 itself
   -- added ZERO — its four money tables are deny-all (GP-3a); this register census
   -- tracks the whole five-schema total, which 086 grew.
   -- 2026-09-01 (package 087): 48 -> 52 (+4 venue settlement/settlement_line read policies).
-  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 57 after 088''s five market read policies');
+  'A17: 085 added ZERO policies (money tables deny-all, GP-3a); register now 67 after 090''s ten promoter-engine read policies');
 
 -- ============================================================================
 -- SECTION B — GRANTS & CUSTODY WALLS (PFA-15/PFA-21; RLS §7.8-§7.10a)
@@ -224,8 +225,11 @@ SELECT is((venue.finalize_primary_order(tap._fetch149('order')::uuid, tap._fetch
 SELECT ok((SELECT count(*)::int FROM kernel.tickets t WHERE t.event_session_id = tap._fetch149('session')::uuid) = 2
        AND (SELECT sold::int FROM venue.inventory_batch WHERE batch_id = tap._fetch149('batch')::uuid) = 2,
   'C12: …and the replay moved NOTHING (atoms 2, sold 2)');
-SELECT ok(to_regclass('venue.attribution') IS NULL,
-  'C13: T-SCHEMA-ISSUE-02/-03 — the purchase COMMITTED with NO attribution substrate: the stub never raised and could not have written (table+body are 090''s)');
+-- 2026-09-02 (package 090): the substrate now exists; this fixture binds NO candidate, so the
+-- REAL resolver writes no row (P10) — the same observable: a purchase commits with no attribution.
+SELECT ok(to_regclass('venue.attribution') IS NOT NULL
+       AND (SELECT count(*)::int FROM venue.attribution a WHERE a.order_id = tap._fetch149('order')::uuid) = 0,
+  'C13: T-SCHEMA-ISSUE-02/-03 — the purchase COMMITTED with NO attribution row: no candidate presented ⇒ the 090 resolver writes nothing (P10) and never raises');
 
 -- ============================================================================
 -- HELPERS for the money sections — clean per-test orders (superuser/definer).

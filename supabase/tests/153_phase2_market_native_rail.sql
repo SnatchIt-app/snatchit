@@ -129,9 +129,10 @@ SELECT ok((SELECT btrim(p.prosrc) <> 'select' AND p.prosrc LIKE '%delete from ma
   'A28: ODR-16 — on_identity_erased_market is REAL (16d allowance only)');
 SELECT ok((SELECT p.prosrc LIKE '%dispute_hold%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='unlock_ticket'),
   'A29: PFA-13 — unlock_ticket carries the R-40 re-arm');
-SELECT ok((SELECT p.prosrc LIKE '%where false%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_commission_lines')
-       AND (SELECT btrim(p.prosrc) = 'select' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='on_identity_erased_promoter'),
-  'A30: ODR-16 — the 090 seams stay byte-NEUTRAL (commission_lines stub; on_identity_erased_promoter stub)');
+-- 2026-09-02 (package 090): both 090 seams are now REAL (the flip this assertion was written to catch).
+SELECT ok((SELECT p.prosrc NOT LIKE '%where false%' AND p.prosrc LIKE '%pay_promoter_commission%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_commission_lines')
+       AND (SELECT btrim(p.prosrc) <> 'select' AND p.prosrc LIKE '%status_changed_by%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='on_identity_erased_promoter'),
+  'A30: ODR-16 — the 090 seams are REAL (commission_lines → pay_promoter_commission; on_identity_erased_promoter INV #36 SET NULL)');
 SELECT ok((SELECT p.prosrc LIKE '%cause%settlement%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue' AND p.proname='on_payout_settled'),
   'A31: ODR-16 — 087''s on_payout_settled body is untouched by 088');
 -- CHECK sets (E-92 verified, never re-added)
