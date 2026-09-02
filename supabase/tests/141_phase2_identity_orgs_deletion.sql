@@ -53,7 +53,8 @@ SELECT is(
     WHERE n.nspname = 'kernel' AND c.relkind = 'r'),
   -- 2026-08-31 (package 079): 12 -> 15. kernel.tickets, ticket_ownership_log
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
-  26, '077 A13: exactly TWENTY-SIX kernel tables (22 post-084 + 085''s four money ledgers)');
+  -- 2026-09-02 (package 088): 26 -> 27. kernel.dispute_native (R-40).
+  27, '077 A13: exactly TWENTY-SEVEN kernel tables (26 post-087 + 088''s dispute_native)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -75,7 +76,9 @@ SELECT is(
   -- sweep_expired_door_overrides, revoke_signing_key (PFA-17). Named in F2/F3.
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  103, '077 A14: exactly 103 kernel functions (99 post-086 + 087''s four settlement fns)');
+  -- 2026-09-02 (package 088): 103 -> 107. transfer_ticket_ownership (the engine),
+  -- record_dispute_native, mark_dispute_state, resolve_dispute_native (PFA-31 parked).
+  107, '077 A14: exactly 107 kernel functions (103 post-087 + 088''s engine + three dispute verbs)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -143,7 +146,7 @@ SELECT is(
   (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
-  26, '077 C1: RLS is ENABLED on all twenty-six tables (deny-by-default at birth)');
+  27, '077 C1: RLS is ENABLED on all twenty-seven tables (deny-by-default at birth)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -268,7 +271,10 @@ SELECT is(
   || 'provision_pass_type_cert,provision_signing_key,record_money_denial,'
   -- refund_primary_order moved to service_role (EXEC DEF) by PFA-23.
   || 'release_payout,remove_org_member,'
-  || 'request_account_deletion,request_order_refund,request_org_payout,resolve_identity_obligation,'
+  || 'request_account_deletion,request_order_refund,request_org_payout,'
+  -- 2026-09-02 (package 088): +1 authenticated — resolve_dispute_native (EDGE-FRONTED;
+  -- PFA-31 parks its body fail-closed). Named, not counted.
+  || 'resolve_dispute_native,resolve_identity_obligation,'
   || 'revoke_door_freeze_override,revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
   -- 2026-09-01 (package 086): +3 authenticated — the two door-freeze override
   -- verbs (AUTHZ) and revoke_signing_key (PFA-17). Named, not counted.
@@ -283,7 +289,7 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 57 caller-authorized functions (55 post-086 + 087''s close_settlement + request_org_payout; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 58 caller-authorized functions (57 post-087 + 088''s resolve_dispute_native; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -300,22 +306,25 @@ SELECT is(
   || 'is_deletion_pending,issue_ticket_atoms,list_updated_wallet_passes,'
   -- 2026-09-01 (package 085): +5 DEF — the Stripe state-sync pair, the
   -- obligation recorder, the refund-TTL sweep (PFA-21 delivers kernel USAGE).
-  || 'mark_payout_transfer_state,mark_refund_state,'
+  -- 2026-09-02 (package 088): +3 DEF service_role — mark_dispute_state, record_dispute_native
+  -- (the stripe-webhook native dispute branch) and transfer_ticket_ownership (the engine,
+  -- reached by the market definers and the sweep). Named, not counted.
+  || 'mark_dispute_state,mark_payout_transfer_state,mark_refund_state,'
   || 'on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
-  || 'record_identity_obligation,'
+  || 'record_dispute_native,record_identity_obligation,'
   -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
   || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
   -- 2026-09-01 (package 086): +2 DEF service_role — assert_door_session (the door
   -- edge) and sweep_expired_door_overrides (CRON). Named, not counted.
   || 'sweep_deletion_pending,sweep_expired_door_overrides,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
-  || 'sweep_wallet_pass_lifecycle,touch_wallet_pass,unregister_wallet_pass_device',
+  || 'sweep_wallet_pass_lifecycle,touch_wallet_pass,transfer_ticket_ownership,unregister_wallet_pass_device',
   -- 2026-08-31 (package 079): sweep_expired_ticket_atoms is the FIFTEENTH name —
   -- its frozen EXEC row (RPC §12.5 / S-22 / CRON register) is DEF,
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 31 DEF functions (29 post-085 + 086''s two: assert_door_session, sweep_expired_door_overrides)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 34 DEF functions (31 post-087 + 088''s engine + record/mark dispute)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

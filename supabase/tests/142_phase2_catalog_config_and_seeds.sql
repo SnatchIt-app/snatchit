@@ -40,13 +40,14 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 15,
+            WHERE n.nspname = 'catalog'), 16,
   -- 2026-08-31 (package 081): 10 -> 11. catalog.publish_event is 081's (SEAM-1:
   -- it reads venue.ticket_type + inventory_batch), named in A4 below.
   -- 2026-09-01 (package 086): 11 -> 15. engage_door_freeze (door_open_at sole
   -- writer), set_session_door_schedule, sweep_implicit_door_freezes and the
   -- tg_door_open_at_is_ledger_head trigger fn. Named in A4 below.
-  'A3: catalog holds EXACTLY fifteen functions — no helper the closed world does not carry');
+  -- 2026-09-02 (package 088): 15 -> 16. catalog.cancel_event (FR-2b; SEAM-1 at 088).
+  'A3: catalog holds EXACTLY sixteen functions — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -55,8 +56,8 @@ SELECT bag_eq(
            ('create_event_session'),('update_event'),('set_platform_config'),
            ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
            ('engage_door_freeze'),('set_session_door_schedule'),('sweep_implicit_door_freezes'),
-           ('tg_door_open_at_is_ledger_head')$$,
-  'A4: the fifteen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086)');
+           ('tg_door_open_at_is_ledger_head'),('cancel_event')$$,
+  'A4: the sixteen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086; cancel_event by 088)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
@@ -64,8 +65,8 @@ SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uui
 -- FR-2 / FR-2b / FR-7: three functions plan §8/078 names are NOT in this package.
 SELECT has_function('catalog'::name, 'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A6: catalog.publish_event ARRIVED with 081 (FR-2/SEAM-1: it reads venue.ticket_type + inventory_batch)');
-SELECT hasnt_function('catalog'::name, 'cancel_event'::name,
-  'A7: catalog.cancel_event is NOT here — FR-2b moved it to 088');
+SELECT has_function('catalog'::name, 'cancel_event'::name, ARRAY['uuid','text','text']::name[],
+  'A7: catalog.cancel_event ARRIVED with 088 (FR-2b: it orchestrates the market drain + kernel.void_ticket_atom)');
 -- 2026-08-31: A8's subject ARRIVED with package 079 (SEAM-1), so the deferral
 -- assertion inverts to presence, pinned to the authoring package.
 SELECT has_function('catalog'::name, 'update_event_session'::name, ARRAY['uuid','jsonb','text']::name[],
@@ -93,8 +94,10 @@ SELECT is((SELECT count(*)::int FROM cron.job
 SELECT is((SELECT count(*)::int FROM (
              SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'catalog' OFFSET 0) q
-            WHERE pg_get_functiondef(q.oid) ILIKE '%emit_event%'), 0,
-  'A13: no 078 function emits — R2 carries no 078 emitter row');
+            WHERE pg_get_functiondef(q.oid) ILIKE '%emit_event%'), 1,
+  -- 2026-09-02 (package 088): exactly ONE catalog emitter — cancel_event (R2: event_cancelled +
+  -- refund_requested, REQUIRED). No 078-authored function emits.
+  'A13: exactly one catalog function emits — 088''s cancel_event; no 078 function does (R2 carries no 078 emitter row)');
 
 -- ============================================================================
 -- SECTION B — TABLE SHAPE AND THE CHECK SETS
@@ -444,10 +447,10 @@ SELECT bag_eq(
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
            ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
-           ('set_session_door_schedule')$$,
+           ('set_session_door_schedule'),('cancel_event')$$,
   -- engage_door_freeze/sweep_implicit_door_freezes/tg_* are NOT authenticated
   -- (definer-internal / service_role / trigger). Only the schedule editor is.
-  'F3: the authenticated EXECUTE closure is exactly the twelve caller-authorized catalog RPCs (publish_event by 081; set_session_door_schedule by 086)');
+  'F3: the authenticated EXECUTE closure is exactly the thirteen caller-authorized catalog RPCs (publish_event by 081; set_session_door_schedule by 086; cancel_event by 088)');
 
 -- A migration is not a config change (plan §4); RPC §20.2.1 forbids every
 -- service_role path on set_platform_config explicitly.
@@ -1035,8 +1038,10 @@ SELECT tap.logout();
 -- surface, not a sale surface. The Gate-M anchor narrows to what it actually
 -- guards: market stays empty, and venue holds nothing transactable.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'market' AND c.relkind = 'r'), 0,
-  'J1: NATIVE BUY NOW LIVE = NO — market holds no table');
+            WHERE n.nspname = 'market' AND c.relkind = 'r'), 5,
+  -- 2026-09-02 (package 088): market holds its five rail tables. NATIVE BUY NOW LIVE = NO is
+  -- now proven by the dark flag (J1c) and PFA-30's fail-closed park (suite 153), not by absence.
+  'J1: market holds the five 088 rail tables (listing_native, auction, offer, market_sale, p2p_transfer)');
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
@@ -1047,8 +1052,8 @@ SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
   -- comp_allocation, guest_list/_entry, manifest/_entry/_delta, holder_mix_*).
   -- market is still empty (native Buy Now dark).
   'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan + 087 settlement/export tables — market still empty');
-SELECT hasnt_function('market'::name, 'checkout_buy_now'::name,
-  'J2: market.checkout_buy_now does not exist — seeding the TTL activated nothing');
+SELECT has_function('market'::name, 'checkout_buy_now'::name, ARRAY['uuid','text']::name[],
+  'J2: market.checkout_buy_now exists and is PARKED fail-closed (PFA-30) — seeding the TTL activates nothing (153 proves the park)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
             WHERE key LIKE 'feature.%' AND value = 'false'::jsonb AND version = 1), 3,
   'J3: all three native feature flags are seeded FALSE — the production-OFF anchor');
@@ -1137,21 +1142,22 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 26,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 27,
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
-  -- credential/wallet tables.
-  'K1: kernel holds twenty-six tables — 083 added five, 085 added the four money ledgers');
+  -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
+  'K1: kernel holds twenty-seven tables — 083 added five, 085 the four money ledgers, 088 dispute_native');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 1,
   'K2: notify still holds only 076''s outbox');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 103,
+            WHERE n.nspname = 'kernel'), 107,
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'K3: kernel holds 103 functions — 99 post-086 plus 087''s four settlement fns');
+  -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
+  'K3: kernel holds 107 functions — 103 post-087 plus 088''s engine and three dispute verbs');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

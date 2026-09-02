@@ -191,7 +191,13 @@ SELECT is(
                      -- settlement seams and assert_may_request (OR-10) hold NO authenticated
                      -- grant — not excepted here.
                      'open_settlement','request_export','authorize_export_download',
-                     'revoke_export','list_export_jobs','list_attendees','lookup_attendee')))),
+                     'revoke_export','list_export_jobs','list_attendees','lookup_attendee',
+                     -- 2026-09-02 (package 088): market's twelve caller-authorized verbs (RLS §11 /
+                     -- RPC §20.8 EXEC rows; in-body owner/seller/recipient authz). The eight EXEC-DEF
+                     -- market verbs are service_role; the three market hooks hold NO grant — not excepted.
+                     'create_listing','cancel_listing','create_auction','place_bid','make_offer','respond_offer',
+                     'checkout_buy_now','create_p2p_transfer','accept_p2p_transfer','cancel_p2p_transfer',
+                     'get_ticket_history','get_market_sale_status')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
