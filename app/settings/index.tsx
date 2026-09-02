@@ -106,22 +106,36 @@ export default function SettingsScreen() {
   // (owner-scoped SELECT policy; requires the kernel schema to be exposed via
   // PostgREST — live since the dark-substrate deploy). Pre-cutover backends
   // make the probe throw; we then show nothing, exactly like before.
-  const [deletionPending, setDeletionPending] = useState(false);
+  // Tri-state on purpose. A failed probe must NOT be read as "not pending":
+  // the banner is the only route to withdrawing a deletion request, so hiding
+  // it on a network blip would strand the user with no way to cancel.
+  // 'unknown' keeps whatever we last knew and offers a retry instead.
+  type DeletionView = 'unknown' | 'pending' | 'active';
+  const [deletionView, setDeletionView] = useState<DeletionView>('unknown');
+  const [deletionProbeFailed, setDeletionProbeFailed] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const deletionPending = deletionView === 'pending';
 
   async function refreshDeletionState() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setDeletionPending(false); return; }
-      const { data: ext } = await (supabase as any)
+      if (!user) { setDeletionView('active'); setDeletionProbeFailed(false); return; }
+      const { data: ext, error } = await (supabase as any)
         .schema('kernel')
         .from('identity_ext')
         .select('deletion_state')
         .eq('identity_id', user.id)
         .maybeSingle();
-      setDeletionPending(ext?.deletion_state === 'DELETION_PENDING');
+      if (error) {
+        // Could not read. Hold the previous view and show a retry.
+        setDeletionProbeFailed(true);
+        return;
+      }
+      setDeletionProbeFailed(false);
+      // A missing row is the lazy-create case and means no request exists.
+      setDeletionView(ext?.deletion_state === 'DELETION_PENDING' ? 'pending' : 'active');
     } catch {
-      setDeletionPending(false);
+      setDeletionProbeFailed(true);
     }
   }
 
@@ -138,7 +152,8 @@ export default function SettingsScreen() {
         alertWeb(parsed?.error ?? 'Could not withdraw the deletion request. Please try again.');
         return;
       }
-      await refreshDeletionState();
+      setDeletionView('active');
+      setDeletionProbeFailed(false);
       if (Platform.OS === 'web') {
         window.alert('Your deletion request has been withdrawn. Your account stays active.');
       } else {
@@ -276,6 +291,17 @@ export default function SettingsScreen() {
         contentContainerStyle={s.scrollBody}
         showsVerticalScrollIndicator={false}
       >
+
+        {deletionProbeFailed && !deletionPending && (
+          <View style={{ borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, padding: 12, marginBottom: 16 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
+              We could not check your account status.
+            </Text>
+            <Pressable onPress={refreshDeletionState}>
+              <Text style={{ color: '#FF1A1A', fontWeight: '700' }}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
 
         {deletionPending && (
           <View style={{ backgroundColor: '#FFF4F4', borderColor: '#FF1A1A', borderWidth: 1, borderRadius: 0, padding: 14, marginBottom: 16 }}>
