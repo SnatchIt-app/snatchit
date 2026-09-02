@@ -44,7 +44,9 @@ INSERT INTO x6_terms (term) VALUES
   ('stripe_customer_id'), ('stripe_connect_account_ref'), ('payment_method_id'),
   ('pin_hash'), ('device_boot_id'), ('wallet_balance'), ('is_verified_seller'),
   ('stripe_onboarding_complete'), ('residency_region'), ('kyc_ref'),
-  ('ownership_log_id'), ('credential_id'), ('signing_key_id'), ('scan_device_id');
+  ('ownership_log_id'), ('credential_id'), ('signing_key_id'), ('scan_device_id'),
+  -- 2026-09-02 (package 088): the native dispute / checkout Stripe-reference spellings (R-40, R-37)
+  ('stripe_dispute_ref'), ('stripe_charge_ref'), ('stripe_pi_ref'), ('payment_intent_ref');
 -- X6-TERMS-END
 
 CREATE TEMP TABLE x6_prohibited (rel text PRIMARY KEY, oid oid);
@@ -111,7 +113,7 @@ END $w$;
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM x6_entry_points), 13, 'A1: exactly 13 entry points (X6_MIN_ENTRY_POINTS — D-X6-a)');
 SELECT is((SELECT count(*)::int FROM x6_entry_points WHERE oid IS NULL), 0, 'A2: every entry point resolves to a live pg_proc (an unresolvable name is a failure, never a skip)');
-SELECT ok((SELECT count(*) FROM x6_terms) >= 32, 'A3: the term list is not truncated (X6_MIN_FORBIDDEN_TERMS)');
+SELECT ok((SELECT count(*) FROM x6_terms) >= 36, 'A3: the term list is not truncated (X6_MIN_FORBIDDEN_TERMS; 088 added the four native Stripe-reference spellings)');
 SELECT is((SELECT count(*)::int FROM x6_prohibited WHERE oid IS NULL), 0, 'A4: all four prohibited relations resolve (a NULL would make the intersection trivially empty)');
 
 -- ============================================================================

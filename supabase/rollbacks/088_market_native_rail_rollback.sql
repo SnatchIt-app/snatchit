@@ -21,16 +21,24 @@ begin;
 
 -- 1 — CLEAN-WHILE-EMPTY guard
 do $$
-declare v_sales bigint; v_disputes bigint; v_live bigint;
+declare v_sales bigint; v_disputes bigint; v_live bigint; v_pinned bigint; v_facts bigint;
 begin
+  if to_regclass('market.market_sale') is null and to_regclass('kernel.dispute_native') is null then
+    raise notice '088 rollback: already rolled back (no 088 table present) — the remaining statements are no-ops';
+    return;
+  end if;
   select count(*) into v_sales from market.market_sale;
   select count(*) into v_disputes from kernel.dispute_native;
   -- a LIVE overlay (an active/reserved listing, an open transfer) pins kernel.tickets.resale_state
   -- to listed/locked; dropping its table with every release caller would strand the atom forever.
   select (select count(*) from market.listing_native where status in ('active','reserved'))
        + (select count(*) from market.p2p_transfer where status in ('initiated','accepted')) into v_live;
-  if v_sales > 0 or v_disputes > 0 or v_live > 0 then
-    raise exception 'rollback_refused: 088 is not clean — % market_sale row(s), % dispute_native row(s), % live listing/transfer overlay(s); forward-fix instead (CLEAN-WHILE-EMPTY)', v_sales, v_disputes, v_live;
+  -- a PINNED overlay with no live row (a stranded atom) is just as stuck without the 088 release verbs
+  select count(*) into v_pinned from kernel.tickets where resale_state in ('listed','locked');
+  -- immutable custody facts that name 088 rows (a native sale / transfer already moved custody)
+  select count(*) into v_facts from kernel.ticket_ownership_log where cause in ('market_sale','auction_sale','p2p_transfer');
+  if v_sales > 0 or v_disputes > 0 or v_live > 0 or v_pinned > 0 or v_facts > 0 then
+    raise exception 'rollback_refused: 088 is not clean — % market_sale row(s), % dispute_native row(s), % live listing/transfer overlay(s), % pinned atom overlay(s), % ledger custody fact(s) naming 088 rows; forward-fix instead (CLEAN-WHILE-EMPTY)', v_sales, v_disputes, v_live, v_pinned, v_facts;
   end if;
 end $$;
 

@@ -848,7 +848,7 @@ jobs:
           # (text+catalog limbs over 13 entry points), -15 (transitive closure to
           # a fixed point with depth/view witnesses + poison pill), -19 (no dynamic
           # SQL in the closure + positive control), OR-1 ownership.
-          # 153 plans 356: the 088 native rail (six tables / 24 routines / the
+          # 153 plans 367: the 088 native rail (six tables / 24 routines / the
           # seven SEAM-2a body-only replacements incl. PFA-13, ODR-16 SEAM state),
           # grants + the 076 wall, dark rails, listing lifecycle + E-98 cap, the
           # PFA-30 fail-closed parks (buy-now ⑦ and offer-accept: zero rows), the
@@ -863,9 +863,9 @@ jobs:
           # deletion twins + 16d erase, the integer-exact split CHECK.
           # Recomputed from the tree at this commit:
           #   ls supabase/tests/*.sql | wc -l                         -> 31
-          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2155
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2166
           MIN_FILES=31
-          MIN_ASSERTIONS=2155
+          MIN_ASSERTIONS=2166
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"

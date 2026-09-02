@@ -10,7 +10,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(356);
+SELECT plan(367);
 
 SELECT tap.seed_core();
 
@@ -426,6 +426,15 @@ SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM market.market_sale), 0, 'E3: OWNER TEST H — ZERO market_sale rows: no guessed split, no partial row, no reservation');
 SELECT is((tap._listing153(tap._u153('l2'))).status, 'active', 'E4: the listing is still active (never reserved)');
 SELECT is((tap._atom153(tap._u153('a1'))).resale_state, 'listed', 'E5: the atom is still listed (custody untouched)');
+UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
+SELECT tap.login(tap.buyer());
+SELECT throws_like(format($$SELECT market.create_listing(%L, 5000, 'buy_now', 'ck88-l2-dup')$$, tap._u153('a1')), '%conflict_locked%',
+  'E5a: a RESERVED listing (checkout in flight) blocks a second listing on the atom — one listing at a time, active|reserved');
+SELECT tap.logout();
+SELECT throws_ok(format($$INSERT INTO market.listing_native (ticket_atom_id, seller_id, event_session_id, listing_mode, price_minor, resale_policy_id, resale_policy_version, status, command_idempotency_key)
+  VALUES (%L, %L, %L, 'buy_now', 5000, %L, 1, 'active', 'ck88-l2-dup2')$$, tap._u153('a1'), tap.buyer(), tap._u153('session1'), tap._u153('pol1')), '23505', NULL,
+  'E5b: …structurally (the partial UNIQUE spans active AND reserved)');
+UPDATE market.listing_native SET status='active' WHERE listing_id = tap._u153('l2');
 INSERT INTO kernel.identity_ext (identity_id, deletion_state) VALUES (tap.other_user(), 'DELETION_PENDING') ON CONFLICT (identity_id) DO UPDATE SET deletion_state='DELETION_PENDING';
 SELECT tap.login(tap.other_user());
 SELECT throws_ok(format($$SELECT market.checkout_buy_now(%L, 'ck88-cb-2')$$, tap._u153('l2')), NULL, 'precondition_failed: deletion_pending',
@@ -616,6 +625,18 @@ DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-00000000
 UPDATE market.listing_native SET status='sold' WHERE listing_id = tap._u153('l2');
 SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'market_sale', %L, %L, 'ck88-x10')$$, tap._u153('a2'), tap.fan153(), tap._u153('s2b'), tap._u153('pay2')), '%already settled another custody move%',
   'G49: the engine refuses a payment already linked to ANOTHER sale (R-34 one link; C35)');
+SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'admin_action', %L, NULL, 'ck88-fz1')$$, tap._u153('a1'), tap.buyer(), gen_random_uuid()), '%idempotency_conflict%',
+  'G50: a command key reused on the same atom for a DIFFERENT custody move is idempotency_conflict, never a raw 23505');
+UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
+INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, sale_state, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000a7', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, 'initiated', 'ck88-s7');
+UPDATE market.listing_native SET status='cancelled', reason_code='door_freeze' WHERE listing_id = tap._u153('l2');   -- the reservation died under a drain
+SELECT ok((SELECT r ->> 'status' = 'conflict_locked' AND r ->> 'reason' = 'listing_not_reserved' AND r ->> 'action' = 'reverse_payment'
+             FROM market.mark_sale_paid_state('00000000-0000-0000-0000-0000000000a7', tap._u153('pay4b'), 'ck88-mp8') r)
+       AND tap._audit153('00000000-0000-0000-0000-0000000000a7', 'market_sale.alert', 'listing_not_reserved') = 1,
+  'G51: money landing on a reservation whose listing was drained/cancelled is alerted for reversal, never advanced to paid_pending');
+DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-0000000000a7';
+UPDATE market.listing_native SET status='sold', reason_code=NULL WHERE listing_id = tap._u153('l2');
 
 -- ============================================================================
 -- SECTION H — DISPUTES (R-40; PFA-13; PFA-31 park; PFA-29 chargeback seam; E-90)
@@ -859,6 +880,9 @@ SELECT tap._store153('sw1', market.sweep_expired_p2p_transfers()::text);
 SELECT is((tap._fetch153('sw1')::jsonb ->> 'swept_count')::int, 1, 'K30: §12.2 — the lapsed transfer is swept');
 SELECT ok((SELECT status='expired' AND reason_code='expired' FROM market.p2p_transfer WHERE transfer_id='00000000-0000-0000-0000-0000000000b5'), 'K31: → expired (first-class state)');
 SELECT is((tap._atom153(tap._u153('a1'))).resale_state, 'none', 'K32: …and unlocked');
+SELECT tap.login(tap.buyer());
+SELECT is((market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b5', 'changed_mind', 'ck88-cn5') ->> 'final_state'), 'expired', 'K32a: the sender''s cancel after the sweep expired it is an idempotent close (noop_replay/expired)');
+SELECT tap.logout();
 SELECT is((tap._fetch153('sw1')::jsonb ->> 'offers_expired')::int, 1, 'K33: the tick''s SECOND statement expired the lapsed pending offer (presentational)');
 SELECT ok((SELECT status='expired' FROM market.offer WHERE offer_id='00000000-0000-0000-0000-00000000f001'), 'K34: …the F18 offer is now expired');
 SELECT is((market.sweep_expired_p2p_transfers() ->> 'swept_count')::int, 0, 'K35: a re-run sweeps nothing (re-entrant)');
@@ -931,6 +955,15 @@ SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, 
 SELECT ok((SELECT s.sale_state='cancelled' AND s.terminal_state='pending' FROM tap._sale153('00000000-0000-0000-0000-0000000000a5') s) AND tap._audit153('00000000-0000-0000-0000-0000000000a5', 'market_sale.cancelled', 'refund_void') = 1,
   'J5d: …dies with the atom (cancelled; a late payment then meets the cancelled arm)');
 DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-0000000000a5';
+-- a charged-back sale payment: finalize refuses; the void hook compensates (money returned by the chargeback)
+UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
+INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, payment_id, sale_state, paid_pending_since, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000a8', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, tap._u153('pay4b'), 'paid_pending_transfer', now(), 'ck88-s8');
+SELECT is((kernel.record_dispute_native('dp_88_4b', 'ch_88_4b', 'pi_88_4b', 5000, 'USD', 'fraudulent', 'lost', NULL, 'ck88-d4b') ->> 'status'), 'ok', 'J6a: the sale''s payment is charged back (lost)…');
+SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz8')$$, '00000000-0000-0000-0000-0000000000a8'), '%payment_charged_back%', 'J6b: …finalize can never move custody on returned money');
+SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J6c: the void hook runs…');
+SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153('00000000-0000-0000-0000-0000000000a8') s), 'J6d: …and compensates the charged-back sale (the chargeback IS the money return)');
+UPDATE market.listing_native SET status='sold' WHERE listing_id = tap._u153('l2');
 SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J6: E-95 — a void of a COMPLETED sale''s atom does not raise…');
 SELECT ok((SELECT s.terminal_state='completed' FROM tap._sale153(tap._u153('s1')) s), 'J7: …and never flips completed → compensated (C26 XOR holds)');
 SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz3')$$, tap._u153('s2b')), '%state_conflict%compensated%', 'J8: a compensated sale can never be completed');
@@ -1013,11 +1046,15 @@ SELECT ok((SELECT position('from market.market_sale ms where ms.sale_id = p_caus
 SELECT tap.login(tap.seller());
 SELECT tap._store153('ce2', catalog.cancel_event(tap._u153('event1'), 'venue_closed', 'ck88-ce2')::text);
 SELECT tap.logout();
-SELECT ok((tap._fetch153('ce2')::jsonb ->> 'refunds_created')::int = 0 AND (tap._fetch153('ce2')::jsonb ->> 'atoms_voided')::int = 0,
-  'L19: cancelling event1 — pay1 (lost 15000 = total) and pay7 (lost 5000 = total): ZERO refunds, ZERO voids (money already returned)');
+SELECT ok((tap._fetch153('ce2')::jsonb ->> 'refunds_created')::int = 1 AND (tap._fetch153('ce2')::jsonb ->> 'atoms_voided')::int = 1,
+  'L19: cancelling event1 — pay1 (lost 15000 = total) and pay7 (lost 5000 = total) refund NOTHING; the one refund/void is a1''s RESOLD arm');
 SELECT ok(tap._audit153(tap._u153('order1'), 'event.cancel_skip', 'money_already_returned') = 1 AND tap._audit153(tap._u153('order3'), 'event.cancel_skip', 'money_already_returned') = 1,
-  'L20: …each order is audited money_already_returned, its atoms left as they are (held / disputed)');
+  'L20: …each charged-back order is audited money_already_returned, its atoms left as they are (held / disputed)');
 SELECT is((SELECT count(*)::int FROM kernel.refund r WHERE r.payment_id IN (tap._u153('pay1'), tap._u153('pay7'))), 0, 'L21: no refund intent on a charged-back payment (§12.3: the refund leg is satisfied by the chargeback)');
+SELECT ok((SELECT r.amount_minor=5000 AND r.reason_code='event_cancelled' AND r.idempotency_key='ck88-ce2:sale:'||tap._fetch153('s1') FROM kernel.refund r WHERE r.payment_id = tap._u153('pay2')),
+  'L21a: a1 was RESOLD (s1, completed): the refund goes to the LATEST native sale''s payer (fan153''s pay2), never to the reseller''s order');
+SELECT ok((SELECT t.state='voided' FROM tap._atom153(tap._u153('a1')) t) AND (SELECT s.terminal_state='completed' FROM tap._sale153(tap._u153('s1')) s),
+  'L21b: …the atom is voided against that refund; the completed sale is never flipped (E-95)');
 SELECT ok((SELECT status='cancelled' FROM catalog.event WHERE event_id=tap._u153('event1')), 'L22: the event is still cancelled (the cascade is money-safe, not money-blind)');
 
 -- ============================================================================
