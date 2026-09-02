@@ -244,6 +244,10 @@ begin
    where a.action = 'settlement.open' and a.actor_identity = v_uid and a.reason_code = p_command_key
    order by a.occurred_at limit 1;
   if v_id is not null then
+    if not exists (select 1 from venue.settlement s where s.settlement_id = v_id and s.org_id = p_org_id
+                     and s.venue_id = p_venue_id and s.event_id is not distinct from p_event_id) then
+      raise exception 'precondition_failed: idempotency_conflict — command key reused with different parameters' using errcode = 'P0001';
+    end if;
     return jsonb_build_object('status','idempotency_replay','settlement_id', v_id);
   end if;
   -- the scope binds to the subject: venue ∈ org; event ∈ venue ∧ org.
@@ -292,7 +296,8 @@ declare
 begin
   select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
   if not found then raise exception 'not_found: settlement %', p_settlement_id using errcode = 'P0002'; end if;
-  if not (kernel.has_venue_role(v_s.venue_id, array['venue_finance'])
+  if not ((kernel.has_venue_role(v_s.venue_id, array['venue_finance'])
+           and (select v.org_id from catalog.venue v where v.venue_id = v_s.venue_id) = v_s.org_id)   -- E-76: current operator
           or kernel.has_org_role(v_s.org_id, array['org_finance'])
           or kernel.is_platform(array['platform_admin'])) then
     raise exception 'insufficient_privilege: venue_finance / org_finance / platform only' using errcode = '42501';
@@ -438,52 +443,80 @@ begin
   if v_org.payout_destination_locked_until is not null and v_org.payout_destination_locked_until > now() then
     raise exception 'precondition_failed: destination cool-down until %', v_org.payout_destination_locked_until using errcode = 'P0001';
   end if;
+  if v_org.stripe_connect_account_ref is null then   -- a disbursement needs a destination; a NULL one strands the money at the edge   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+    raise exception 'precondition_failed: no_payout_destination — the org has no Stripe Connect destination bound' using errcode = 'P0001';
+  end if;
   select * into v_po from kernel.payout
    where cause = 'settlement' and cause_ref = p_settlement_id and status in ('pending','submitted')
-   order by created_at limit 1 for update;
+   order by (status = 'pending') desc, created_at limit 1 for update;   -- a pending sibling is never shadowed by a submitted one
   if not found then
     raise exception 'precondition_failed: no pending payout for this settlement' using errcode = 'P0001';
   end if;
   if v_po.status = 'submitted' then
     return jsonb_build_object('status','noop_replay','payout_id', v_po.payout_id);
   end if;
-  if v_po.hold_state <> 'none' then
-    return jsonb_build_object('status', case when v_po.hold_state = 'probation_hold' then 'probation_held' else 'held' end,
-                              'payout_id', v_po.payout_id);
+  if v_po.hold_state = 'probation_hold' then   -- still held: the request is recorded and declined again
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'probation_held', jsonb_build_object('settlement_id', p_settlement_id));
+    return jsonb_build_object('status','probation_held','payout_id', v_po.payout_id);
+  elsif v_po.hold_state <> 'none' then   -- a platform RISK hold is not a request outcome (§10.3 result set): fail closed
+    raise exception 'precondition_failed: payout_held — a platform risk hold must be released before a request' using errcode = 'P0001';
   end if;
   -- DESTINATION PROBATION (§10.3 third arm). Operand: the last destination change
   -- (the org.payout_destination.change audit row 085 writes) inside the window;
   -- "first payout" = no payout of this org reached `paid` since that change.
   select (c.value #>> '{}')::integer into v_prob_days from catalog.platform_config c
    where c.key = 'payout.destination_probation_days' order by c.version desc limit 1;
+  -- the change instant: the 085 destination-change audit OR the 077 first bind (a fresh destination
+  -- is the archetypal fresh destination — the restrictive reading, E-86).
   select max(a.occurred_at) into v_changed_at from kernel.admin_audit a
-   where a.action = 'org.payout_destination.change' and a.subject_kind = 'organization' and a.subject_id = p_org_id;
+   where a.action in ('org.payout_destination.change','org.connect_ref.bind')
+     and a.subject_kind = 'organization' and a.subject_id = p_org_id;
   if v_changed_at is not null
      and (v_prob_days is null or v_changed_at > now() - make_interval(days => v_prob_days))   -- NULL ⇒ X-12 restrictive
-     and not exists (select 1 from kernel.payout p where p.payee_org_id = p_org_id and p.status = 'paid' and p.updated_at > v_changed_at)
-     -- a platform_risk/platform_admin RELEASE of this payout after the change (kernel.release_payout, the
-     -- sole release path) is the human decision the arm exists to obtain: it is not re-imposed (T-RPC-MONEY-32).
+     -- "the FIRST payout": no payout of this org was SYNCED to paid since the change (the 085
+     -- payout.state_sync audit row — never updated_at, which a later overlay may bump).
+     and not exists (select 1 from kernel.admin_audit a2 join kernel.payout p on p.payout_id = a2.subject_id
+                      where p.payee_org_id = p_org_id and a2.subject_kind = 'payout' and a2.action = 'payout.state_sync'
+                        and a2.after ->> 'status' = 'paid' and a2.occurred_at > v_changed_at)
+     -- a platform_risk/platform_admin RELEASE OF THIS PROBATION (kernel.release_payout, the sole release
+     -- path, reason = the probation hold's own reason) is the human decision the arm exists to obtain:
+     -- it is not re-imposed (T-RPC-MONEY-32). A risk-hold release does not count.
      and not exists (select 1 from kernel.admin_audit a where a.subject_kind = 'payout' and a.subject_id = v_po.payout_id
-                       and a.action = 'payout.release' and a.occurred_at >= v_changed_at) then   -- >=: same-transaction instants
+                       and a.action = 'payout.release' and a.reason_code = 'destination_probation'
+                       and a.occurred_at >= v_changed_at) then   -- >=: same-transaction instants
     update kernel.payout
        set hold_state = 'probation_hold', hold_reason_code = 'destination_probation', held_at = now(), held_by = null, updated_at = now()
      where payout_id = v_po.payout_id;
     insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
     values (v_uid, 'payout.probation_hold', 'payout', v_po.payout_id, 'destination_probation',
             jsonb_build_object('settlement_id', p_settlement_id, 'destination_changed_at', v_changed_at));
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)   -- §10.3 Writes: payout.request on every arm
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'probation_held', jsonb_build_object('settlement_id', p_settlement_id));
     return jsonb_build_object('status','probation_held','payout_id', v_po.payout_id);
   end if;
-  -- an APPROVED, unexpired dual-control request for THIS payout advances it (E-74).
+  -- an APPROVED, unexpired dual-control request for THIS payout advances it (E-74) — but ONLY the
+  -- destination it was approved against (E-85): an approval that predates the last destination
+  -- change, or names another destination, is STALE and is never honoured.
   select * into v_ar from kernel.approval_request a
    where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
      and a.state = 'approved' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
    order by a.updated_at desc limit 1;
   if found then
-    update kernel.payout set status = 'submitted', updated_at = now() where payout_id = v_po.payout_id;
-    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'approved_request',
-            jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_ar.request_id, 'approved_by', v_ar.approved_by));
-    return jsonb_build_object('status','submitted','payout_id', v_po.payout_id, 'request_id', v_ar.request_id);
+    if (v_ar.payload ->> 'destination_ref') is distinct from v_org.stripe_connect_account_ref   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+       or (v_changed_at is not null and v_ar.updated_at <= v_changed_at) then
+      update kernel.approval_request set state = 'stale', updated_at = now() where request_id = v_ar.request_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request_stale', 'approval_request', v_ar.request_id, 'destination_changed',
+              jsonb_build_object('payout_id', v_po.payout_id, 'settlement_id', p_settlement_id));
+      -- fall through: a fresh park against the CURRENT destination
+    else
+      update kernel.payout set status = 'submitted', updated_at = now() where payout_id = v_po.payout_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'approved_request',
+              jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_ar.request_id, 'approved_by', v_ar.approved_by));
+      return jsonb_build_object('status','submitted','payout_id', v_po.payout_id, 'request_id', v_ar.request_id);
+    end if;
   end if;
   -- dual-control threshold: absent (NULL) ⇒ X-12 restrictive ⇒ always park.
   select (c.value #>> '{}')::bigint, c.version into v_threshold, v_threshold_ver from catalog.platform_config c
@@ -494,15 +527,21 @@ begin
      where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
        and a.state = 'pending' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
      order by a.created_at limit 1;
-    if found then
+    if found and (v_ar.payload ->> 'destination_ref') is not distinct from v_org.stripe_connect_account_ref then   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
       return jsonb_build_object('status','pending_approval','request_id', v_ar.request_id, 'payout_id', v_po.payout_id,
                                 'required_approver_class', v_ar.required_approver_class);
+    elsif found then   -- parked against a destination that has since changed: stale, park anew
+      update kernel.approval_request set state = 'stale', updated_at = now() where request_id = v_ar.request_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request_stale', 'approval_request', v_ar.request_id, 'destination_changed',
+              jsonb_build_object('payout_id', v_po.payout_id, 'settlement_id', p_settlement_id));
     end if;
     -- PARK: a second org money role must approve (kernel.approve verb, 085).
     insert into kernel.approval_request (action, required_approver_class, subject_kind, subject_id, org_id,
              payload, amount_minor, config_versions, requested_by, expires_at, command_idempotency_key)
     values ('payout.request', 'org', 'settlement', p_settlement_id, p_org_id,
-            jsonb_build_object('payout_id', v_po.payout_id, 'tier', 'parked'),
+            jsonb_build_object('payout_id', v_po.payout_id, 'tier', 'parked',
+                               'destination_ref', v_org.stripe_connect_account_ref),   -- E-85: the approval binds to THIS destination   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
             v_po.amount_minor,
             jsonb_build_object('payout.dual_control_min_minor', v_threshold_ver),   -- pinned, never a parameter
             v_uid, now() + interval '72 hours',
