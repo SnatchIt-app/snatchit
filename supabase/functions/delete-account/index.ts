@@ -94,7 +94,7 @@ async function checkRateLimit(
     const { data, error } = await service.rpc('check_rate_limit', {
       p_user_id: userId,
       p_action: 'delete_account',
-      p_max_requests: 5,
+      p_max: 5,
       p_window_seconds: 3600,
     });
     if (error) return 'error';

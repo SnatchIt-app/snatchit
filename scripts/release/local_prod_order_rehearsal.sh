@@ -71,7 +71,7 @@ psql -d $DB -tA -c "
 echo "LIVE-ROW MUTATION CHECK (diff lines): $(diff $S/rg/prodsim_pre.txt $S/rg/prodsim_post.txt | wc -l | tr -d ' ')"
 # faux CLI ledger so phase2_postapply_verify.sql V1 runs identically to production
 psql -q -d $DB -v ON_ERROR_STOP=1 -c "create schema if not exists supabase_migrations" -c "create table if not exists supabase_migrations.schema_migrations (version text primary key, statements text[], name text)"
-for f in $(ls supabase/migrations/*.sql | LC_ALL=C sort); do v=$(basename $f); v=${v%%_*}; psql -q -d $DB -c "insert into supabase_migrations.schema_migrations (version, name) values ('"'"'$v'"'"', '"'"'x'"'"') on conflict do nothing"; done
+for f in $(ls supabase/migrations/*.sql | LC_ALL=C sort); do v=$(basename $f); v=${v%%_*}; psql -q -d $DB -c "insert into supabase_migrations.schema_migrations (version, name) values ('$v', 'x') on conflict do nothing"; done
 echo "== post-apply verify:"
 psql -d $DB -tA -F' | ' -f scripts/release/phase2_postapply_verify.sql
 echo "== phase-2 suite battery on the production-order DB:"
