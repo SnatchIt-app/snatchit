@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -132,14 +133,33 @@ export default function SettingsScreen() {
         return;
       }
       setDeletionProbeFailed(false);
-      // A missing row is the lazy-create case and means no request exists.
-      setDeletionView(ext?.deletion_state === 'DELETION_PENDING' ? 'pending' : 'active');
+      if (ext?.deletion_state === 'DELETION_PENDING') {
+        setDeletionView('pending');
+        return;
+      }
+      // A null row is ambiguous: identity_ext is lazy-created, so "no row"
+      // legitimately means active, but an expired session or a policy miss also
+      // returns null with no error. Never let that ambiguity CANCEL a banner we
+      // have already shown, because the banner is the only route to withdrawing.
+      if (!ext && deletionView === 'pending') {
+        setDeletionProbeFailed(true);
+        return;
+      }
+      setDeletionView('active');
     } catch {
       setDeletionProbeFailed(true);
     }
   }
 
-  useEffect(() => { refreshDeletionState(); }, []);
+  useEffect(() => {
+    refreshDeletionState();
+    // Re-check when the app returns to the foreground: a pending request can be
+    // resolved by the sweep while the user is away.
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') refreshDeletionState();
+    });
+    return () => sub.remove();
+  }, []);
 
   async function handleWithdrawDeletion() {
     setWithdrawing(true);
@@ -238,7 +258,7 @@ export default function SettingsScreen() {
   function handleDeleteAccount() {
     if (Platform.OS === 'web') {
       const first = window.confirm(
-        'Delete Account\n\nThis submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings. This cannot be undone.\n\nAre you sure?',
+        'Delete Account\n\nThis submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings. Until it completes you can withdraw it from Settings. After it completes this cannot be undone.\n\nAre you sure?',
       );
       if (!first) return;
       const second = window.confirm(
@@ -249,7 +269,7 @@ export default function SettingsScreen() {
     } else {
       Alert.alert(
         'Delete Account',
-        'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nThis cannot be undone.',
+        'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nUntil it completes you can withdraw it from Settings. After it completes this cannot be undone.',
         [
           { text: 'Cancel', style: 'cancel' },
           {

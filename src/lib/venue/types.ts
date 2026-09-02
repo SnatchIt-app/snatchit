@@ -31,14 +31,14 @@ export type OrgRole =
 
 export type EventStatus = 'draft' | 'published' | 'cancelled' | 'postponed';
 
-/** venue.ticket_type.kind */
-export type TicketTypeKind = 'admission' | 'table' | 'comp' | 'addon';
+/** venue.ticket_type.kind — CHECK (kind in ('admission','table')) at 081:37. */
+export type TicketTypeKind = 'admission' | 'table';
 
-/** venue.ticket_type.visibility */
-export type TicketTypeVisibility = 'public' | 'hidden' | 'unlisted';
+/** venue.ticket_type.visibility — CHECK at 081:41-42. `door_only` is box-office inventory. */
+export type TicketTypeVisibility = 'hidden' | 'public' | 'door_only';
 
-/** venue.inventory_batch.release_kind */
-export type ReleaseKind = 'public_sale' | 'presale' | 'hold' | 'comp';
+/** venue.inventory_batch.release_kind — CHECK at 081:63-64. */
+export type ReleaseKind = 'public_sale' | 'promoter_hold' | 'comp' | 'door' | 'presale';
 
 export type OrderStatus = 'pending' | 'paid' | 'cancelled' | 'expired' | 'refunded';
 
@@ -89,16 +89,19 @@ export interface TicketType {
   visibility: TicketTypeVisibility;
 }
 
-export interface InventoryBatch {
+/**
+ * The columns a client may actually SELECT (081:1014-1016). Raw `capacity`,
+ * `held` and `sold` are withheld from every client role by column grant; venue
+ * staff read them through an RPC result, never a table read. `remaining` is a
+ * generated column and IS granted, so it is the only count a client can see.
+ */
+export interface InventoryBatchRow {
   batchId: string;
   ticketTypeId: string;
-  sessionId: string;
+  eventSessionId: string;
   releaseKind: ReleaseKind;
-  capacity: number;
-  held: number;
-  sold: number;
-  /** capacity - held - sold. Never rendered as a precise count to buyers. */
-  available: number;
+  isSharded: boolean;
+  remaining: number;
 }
 
 /** A reservation returned by venue.reserve_primary_inventory. Expires on a TTL. */
@@ -138,7 +141,12 @@ export interface PurchaseOption {
   label: string;
   priceMinor: number;
   currency: string;
-  /** Coarse availability only. Never expose exact remaining inventory. */
+  /**
+   * Coarse band for display. Note: the exact `remaining` count IS readable by
+   * any authenticated client through the column grant (081:1014-1016), so this
+   * band is a presentation choice, not a confidentiality control. Do not claim
+   * inventory levels are private.
+   */
   availability: 'available' | 'low' | 'sold_out';
 }
 

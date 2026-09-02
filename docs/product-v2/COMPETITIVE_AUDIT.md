@@ -2,8 +2,16 @@
 
 **Method.** Three independent agents read shipped code, not screenshots: compiled CSS, JavaScript
 chunks, image CDN parameters, server-rendered payloads, structured data and public documentation.
-Every claim in the underlying research is tagged OBSERVED or INFERRED. Full evidence in
+The underlying research files tag every claim OBSERVED or INFERRED. Full evidence in
 `_research/posh.md`, `_research/dice.md`, `_research/crowdvolt.md`.
+
+> **Read this before citing anything here.** This synthesis document is **not** tagged line by line,
+> and an adversarial review (finding J-6) found that flattening the tags let two inferences read as
+> facts. Corrected here: CrowdVolt's take rate of roughly 4% per side is **inferred** from live
+> price data, since the rate is never disclosed; and DICE's "all-in pricing" is **inferred** from the
+> absence of any fee string in its shipped translation dictionary, which is strong evidence of a
+> practice but is not the same as the practice being stated. Do not let either number reach a
+> pricing decision without checking the tagged source file.
 
 **Purpose.** Understand why these interfaces work, then reinterpret the principles through Snatch
 It's own brand. Nothing here proposes copying markup, assets, type stacks or color.

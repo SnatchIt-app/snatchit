@@ -55,10 +55,17 @@ Seven more defects compound it:
 
 ## 2. Principles
 
-1. **Portrait is the source of truth.** Nightlife artwork is made for Instagram. It arrives 4:5 or
-   9:16, not 16:9. A portrait master crops down to square and landscape gracefully; a landscape
-   master cannot be made portrait without destroying it. Today the system assumes landscape and
-   that assumption is the root defect.
+1. **Portrait is the source of truth GOING FORWARD, and cannot be applied retroactively.**
+   Nightlife artwork is made for Instagram: it arrives 4:5 or 9:16, not 16:9. A portrait master
+   crops down to square and landscape gracefully; a landscape master cannot be made portrait
+   without destroying it.
+
+   **The correction an adversarial review forced (finding J-7):** the mobile picker performs a
+   *destructive* 16:9 crop at upload, so for every existing listing the portrait pixels were never
+   stored and cannot be recovered. A 4:5 frame is therefore right for new venue-supplied artwork and
+   wrong as a migration for the existing corpus. On migration day, existing covers must render in a
+   frame that does not re-crop them, or with the contain-plus-blur fallback below. Do not present
+   4:5 as a system-wide switch; it is the target for new uploads, with an explicit legacy path.
 2. **One upload, many derivatives.** An organizer uploads once. The system produces every
    placement. Optional extra assets are an enhancement, never a requirement.
 3. **The crop is authored, not accidental.** Every asset carries a focal point. Cropping preserves
@@ -174,9 +181,10 @@ brand.
 | **Venue hero** | 16:9 | full-bleed x 200 | x 280 | x 360 | bottom 50% | Venue photo asset, falls back to a solid surface. |
 | **Promoter share** | 1:1 and 9:16 | generated | generated | generated | brand plate | Rendered server-side with the wordmark. Dark rail, spec only. |
 
-**Why 4:5 for discovery.** It matches the source, so nothing is thrown away. It gives each event
-more vertical presence in a scrolling feed than a 16:9 card. And it lets two cards sit side by side
-on a phone while still showing a readable image.
+**Why 4:5 for discovery.** It matches the shape venues actually supply, so new artwork loses
+nothing. It gives each event more vertical presence in a scrolling feed than a 16:9 card, and it
+lets two cards sit side by side on a phone while still showing a readable image. Legacy 16:9 covers
+in this frame use the contain-plus-blur fallback rather than a second destructive crop.
 
 **Why the ticket view is 16:9.** On a ticket the artwork is context, not merchandise. The QR code
 and the entry details own the screen.

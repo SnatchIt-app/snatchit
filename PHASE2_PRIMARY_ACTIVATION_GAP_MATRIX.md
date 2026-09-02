@@ -10,6 +10,30 @@ Every disagreement found is flagged in §7.
 
 ---
 
+## 0a. CORRECTION — the money-boundary claim was too strong (adversarial finding J-1)
+
+This document's §6 headline said payment collection is "verified separable" from settlement and
+payout. **That framing is withdrawn.** It is true in the narrow technical sense and misleading in
+the sense that matters.
+
+What is actually true:
+
+- `venue.finalize_primary_order` writes no payout and no settlement row, so taking a payment does
+  not require the payout rail to be lit. That much stands.
+- **But no code path anywhere emits a primary-sale settlement line.** `087:318` is the only INSERT
+  into `venue.settlement_line` in the repository, and its two sources are the resale royalty seam
+  and the promoter commission seam, which is negative. Gross is therefore 0, `close_settlement`'s
+  `if v_net > 0` never fires, and no organization payout is ever minted. Turning the payout rail on
+  later does not fix this; the line does not exist to be paid.
+- Money-in lands in the **platform's** Stripe balance. The PaymentIntent carries no
+  `transfer_data`, no `on_behalf_of` and no application fee, and a venue organization has no
+  connected account.
+
+**The honest statement:** a venue that sells 400 tickets is owed money that no schema row names and
+no code path can pay. Collection can be switched on without the payout rail, but doing so creates an
+obligation the system cannot represent. That is an owner decision about how venues actually get
+paid, not an engineering detail, and it gates the first activation train.
+
 ## 0. GROUND TRUTH CORRECTION (read this first)
 
 Two of the three "already-classified obligation ledgers" this analysis was told to reuse are **STALE on the

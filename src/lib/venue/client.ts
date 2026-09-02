@@ -3,7 +3,10 @@
  *
  * WHAT THIS IS
  * Every function here wraps one deployed Phase-2 RPC (migrations 076-092, live in
- * production but dark). Signatures were read from the deployed catalog, not guessed.
+ * production but dark). RPC argument lists were read from the deployed catalog.
+ * Enum values and table columns were verified against migration 081 after an
+ * adversarial review caught three wrong enums and a read function that could not
+ * execute; see docs/product-v2/ADVERSARIAL_REVIEW.md finding J-3.
  *
  * WHAT THIS IS NOT
  * This module does not activate anything. It cannot run until two things happen,
@@ -15,15 +18,16 @@
  *
  * COMMAND KEYS
  * Every mutating Phase-2 RPC takes a command key and is idempotent on it. The key
- * must be stable for a given user intent so a retry replays rather than duplicates.
- * Callers pass their own key for anything money-adjacent; `commandKey()` is for
- * one-shot UI actions where a fresh attempt is genuinely a new intent.
+ * must be STABLE for a given user intent so a retry replays instead of duplicating.
+ * Every mutating wrapper here therefore takes a required key from the caller. There
+ * is no fresh-key-per-call convenience, because that silently defeats the server's
+ * idempotency (see `commandKey` below).
  */
 
 import { supabase } from '@/src/lib/supabase';
 import type {
   CheckoutItem,
-  InventoryBatch,
+  InventoryBatchRow,
   InventoryHold,
   PrimaryOrder,
   ReleaseKind,
@@ -34,10 +38,21 @@ import type {
   VenueRole,
 } from './types';
 
-/** Generates a fresh command key. Use a caller-owned stable key for money paths. */
-export function commandKey(prefix: string): string {
-  const safe = prefix.replace(/[^A-Za-z0-9._:-]/g, '').slice(0, 24);
-  return `${safe}-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`.slice(0, 64);
+/**
+ * Builds a command key from a caller-supplied stable seed.
+ *
+ * There is deliberately no "generate me a fresh key" helper. Every mutating verb
+ * below takes a REQUIRED key, because a fresh key per attempt defeats the
+ * server's idempotency entirely: two taps on "create batch" with two different
+ * keys create two batches and therefore double the capacity, and the per-batch
+ * oversell constraint does not catch it.
+ *
+ * The seed must be stable for one user intent. Derive it from the thing being
+ * acted on plus the screen's mount, never from a clock.
+ */
+export function commandKey(prefix: string, stableSeed: string): string {
+  const safe = (v: string) => v.replace(/[^A-Za-z0-9._:-]/g, '');
+  return `${safe(prefix).slice(0, 16)}-${safe(stableSeed)}`.slice(0, 64);
 }
 
 /**
@@ -91,12 +106,13 @@ async function callKernel<T>(fn: string, args: Record<string, unknown>): Promise
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** kernel.has_venue_role(p_venue_id, p_roles[]) — the gate for every venue screen. */
-export async function hasVenueRole(venueId: string, roles: VenueRole[]): Promise<boolean> {
-  const res = await callKernel<boolean>('has_venue_role', {
-    p_venue_id: venueId,
-    p_roles: roles,
-  });
-  return res.ok ? res.data === true : false;
+export async function hasVenueRole(
+  venueId: string,
+  roles: VenueRole[],
+): Promise<'granted' | 'denied' | 'unknown'> {
+  const res = await callKernel<boolean>('has_venue_role', { p_venue_id: venueId, p_roles: roles });
+  if (!res.ok) return 'unknown';
+  return res.data === true ? 'granted' : 'denied';
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -109,13 +125,13 @@ export async function createEvent(params: {
   title: string;
   startsAt: string;
   endsAt?: string;
-  key?: string;
+  key: string;
 }): Promise<RpcResult<{ event_id: string }>> {
   return callCatalog('create_event', {
     p_venue_id: params.venueId,
     p_title: params.title,
     p_first_session: { starts_at: params.startsAt, ends_at: params.endsAt ?? null },
-    p_command_key: params.key ?? commandKey('evt'),
+    p_command_key: params.key,
   });
 }
 
@@ -123,12 +139,12 @@ export async function createEvent(params: {
 export async function publishEvent(
   eventId: string,
   targetStatus: 'published' | 'draft',
-  key?: string,
+  key: string,
 ): Promise<RpcResult<{ status: string }>> {
   return callCatalog('publish_event', {
     p_event_id: eventId,
     p_target_status: targetStatus,
-    p_command_key: key ?? commandKey('pub'),
+    p_command_key: key,
   });
 }
 
@@ -139,7 +155,7 @@ export async function createTicketType(params: {
   name: string;
   priceMinor: number;
   visibility: TicketTypeVisibility;
-  key?: string;
+  key: string;
 }): Promise<RpcResult<{ ticket_type_id: string }>> {
   return callVenue('create_ticket_type', {
     p_event_id: params.eventId,
@@ -147,7 +163,7 @@ export async function createTicketType(params: {
     p_name: params.name,
     p_price_minor: params.priceMinor,
     p_visibility: params.visibility,
-    p_command_key: params.key ?? commandKey('tt'),
+    p_command_key: params.key,
   });
 }
 
@@ -159,7 +175,7 @@ export async function createInventoryBatch(params: {
   capacity: number;
   /** Shards spread contention. 0 lets the server choose. */
   shardCount?: number;
-  key?: string;
+  key: string;
 }): Promise<RpcResult<{ batch_id: string }>> {
   return callVenue('create_inventory_batch', {
     p_ticket_type_id: params.ticketTypeId,
@@ -167,7 +183,7 @@ export async function createInventoryBatch(params: {
     p_release_kind: params.releaseKind,
     p_capacity: params.capacity,
     p_shard_count: params.shardCount ?? 0,
-    p_command_key: params.key ?? commandKey('batch'),
+    p_command_key: params.key,
   });
 }
 
@@ -176,13 +192,13 @@ export async function setTicketTypePrice(params: {
   ticketTypeId: string;
   priceMinor: number;
   reasonCode: string;
-  key?: string;
+  key: string;
 }): Promise<RpcResult<{ status: string }>> {
   return callVenue('set_ticket_type_price', {
     p_ticket_type_id: params.ticketTypeId,
     p_price_minor: params.priceMinor,
     p_reason_code: params.reasonCode,
-    p_command_key: params.key ?? commandKey('price'),
+    p_command_key: params.key,
   });
 }
 
@@ -191,13 +207,13 @@ export async function setBatchCapacity(params: {
   batchId: string;
   newCapacity: number;
   reasonCode: string;
-  key?: string;
+  key: string;
 }): Promise<RpcResult<{ status: string }>> {
   return callVenue('set_batch_capacity', {
     p_batch_id: params.batchId,
     p_new_capacity: params.newCapacity,
     p_reason_code: params.reasonCode,
-    p_command_key: params.key ?? commandKey('cap'),
+    p_command_key: params.key,
   });
 }
 
@@ -226,10 +242,10 @@ export async function reserveInventory(params: {
 }
 
 /** venue.release_inventory_hold(p_hold_id, p_command_key) — call on abandon or back. */
-export async function releaseHold(holdId: string, key?: string): Promise<RpcResult<{ status: string }>> {
+export async function releaseHold(holdId: string, key: string): Promise<RpcResult<{ status: string }>> {
   return callVenue('release_inventory_hold', {
     p_hold_id: holdId,
-    p_command_key: key ?? commandKey('rel'),
+    p_command_key: key,
   });
 }
 
@@ -307,30 +323,34 @@ export async function listTicketTypes(eventId: string): Promise<RpcResult<Ticket
 }
 
 /**
- * Coarse availability for a session's batches.
+ * Availability per ticket type for a session, from the only columns a client is
+ * granted: `remaining` is a generated column and is readable; `capacity`, `held`
+ * and `sold` are withheld by column grant (081:1014-1016). The filter column is
+ * `event_session_id`, not `session_id`.
  *
- * Deliberately returns a band, never an exact remaining count. Exact counts leak
- * commercial information and invite scraping, and the corpus treats inventory
- * levels as venue-private.
+ * The returned band is a PRESENTATION choice. Exact `remaining` is readable by
+ * any authenticated client, so this is not a confidentiality control.
  */
 export async function sessionAvailability(
-  sessionId: string,
+  eventSessionId: string,
 ): Promise<RpcResult<Record<string, 'available' | 'low' | 'sold_out'>>> {
   const { data, error } = await (supabase as any)
     .schema('venue')
     .from('inventory_batch')
-    .select('batch_id, ticket_type_id, capacity, held, sold')
-    .eq('session_id', sessionId);
+    .select('batch_id, ticket_type_id, event_session_id, release_kind, is_sharded, remaining')
+    .eq('event_session_id', eventSessionId);
 
   if (error) return normalizeError(error);
 
+  const LOW_THRESHOLD = 10;
   const byType: Record<string, 'available' | 'low' | 'sold_out'> = {};
-  for (const b of (data ?? []) as InventoryBatch[] & any[]) {
-    const remaining = (b.capacity ?? 0) - (b.held ?? 0) - (b.sold ?? 0);
-    const band = remaining <= 0 ? 'sold_out' : remaining <= Math.max(5, (b.capacity ?? 0) * 0.1) ? 'low' : 'available';
-    const current = byType[b.ticket_type_id];
-    // Best band across batches wins: any available batch means the type is available.
-    byType[b.ticket_type_id] =
+  for (const row of (data ?? []) as InventoryBatchRow[] & any[]) {
+    // Only publicly sellable releases count toward what a fan can buy.
+    if (row.release_kind !== 'public_sale' && row.release_kind !== 'presale') continue;
+    const remaining: number = row.remaining ?? 0;
+    const band = remaining <= 0 ? 'sold_out' : remaining <= LOW_THRESHOLD ? 'low' : 'available';
+    const current = byType[row.ticket_type_id];
+    byType[row.ticket_type_id] =
       current === 'available' || band === 'available'
         ? 'available'
         : current === 'low' || band === 'low'
