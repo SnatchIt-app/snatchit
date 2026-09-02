@@ -48,3 +48,41 @@ human approval gate). Executor: Claude (Fable 5.1), this session.
 - NOT DONE (per authorization): no flag flips, no Stripe changes, no email, no
   push lease, no Vault secrets, no other schema exposure, no PR #28 merge, no
   post-092 migration, no rail activation.
+
+
+## OBSERVATION CYCLE — checkpoint 1 (2026-09-02 ~21:35Z, elapsed ~0.9 h of 24)
+- Deployed-state verification: 12/12 PASS (tip 74479b81; 076-092 immutable; ledger 107;
+  flags 5/5 false; owner-unset 3/3 NULL; exposure exactly public,graphql_public,kernel;
+  cron 19 by exact name - no parked tick armed; PFA-1 sweep 0; anon walls 0).
+- PR #28: CLOSED as SUPERSEDED (unmerged, branch retained) after mechanical confirmation -
+  deployed delete-account source contains zero auth.admin.deleteUser calls; cutover
+  request/withdraw smoke-proven; owner ruling recorded in-session.
+- Cron: 19/19 jobs, every run succeeded since apply (0 failures; holder-mix dailies not
+  yet due; CRM ticks succeed as fail-closed no-ops on the absent secret - by design).
+- Deletion: ERASED:1 (smoke1 - the ratified no-waiting-window tombstone), ACTIVE:3
+  (smoke2 + the two 078 sentinels); both smoke auth rows present (no physical delete);
+  0 orphaned requests; no real-user deletion activity.
+- Money: legacy invariants 0 anomalies; native money rows 0 across payout/refund/
+  market_sale/reserve/custody ledger; 0 promoter payouts.
+- Notifications: outbox done:3 dead:0; deliveries pending:2 (push; claim fail-closed on
+  the NULL lease) suppressed:3 (channel_unavailable - email N1); payload scan 0 hits.
+- Logs: 0 error-severity postgres lines in the window; edge invocations = the cron tick
+  plus the smoke calls only.
+- Credential follow-up (read-only inventory; NO rotation this cycle): the value that
+  reached one AI session transcript via the management API postgrest GET is the
+  project's legacy signing secret for API tokens - it can mint any role's token, so
+  treat it as compromised-by-policy. Consumers of that category: the deployed mobile
+  build (baked legacy anon key), web (Vercel env), edge functions (platform-injected
+  env - auto-tracks rotation), the Vault service_role_key row (read by
+  enforce-transfer-expiry and the two CRM ticks), and user sessions. Recommended
+  owner-gated sequence: (1) ship mobile + web on the new publishable key
+  (rotation-independent), (2) stage the new secret key into the Vault row, (3) rotate
+  in a low-traffic window (all sessions sign out - 14 users), (4) verify edges, web,
+  cron. Timing: after the publishable-key mobile build clears review; NOT during this
+  observation cycle.
+- Mobile follow-up (owner-approved separate client work, authored on the post-cutover
+  line): app/settings/index.tsx now reads own deletion state (kernel.identity_ext,
+  owner-scoped), shows a DELETION_PENDING banner with a working withdraw action, and
+  the request-flow copy no longer claims immediate physical deletion. No App Store
+  build published.
+- 24-hour close: NOT DUE (target ~2026-09-03T20:45Z). Next checkpoint: the close-out.

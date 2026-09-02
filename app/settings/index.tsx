@@ -25,7 +25,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
@@ -101,6 +101,55 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
 export default function SettingsScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // OR-17 tombstone deletion machine (Phase-2 cutover, 2026-09-02): own
+  // deletion state, read from the caller's own kernel.identity_ext row
+  // (owner-scoped SELECT policy; requires the kernel schema to be exposed via
+  // PostgREST — live since the dark-substrate deploy). Pre-cutover backends
+  // make the probe throw; we then show nothing, exactly like before.
+  const [deletionPending, setDeletionPending] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  async function refreshDeletionState() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setDeletionPending(false); return; }
+      const { data: ext } = await (supabase as any)
+        .schema('kernel')
+        .from('identity_ext')
+        .select('deletion_state')
+        .eq('identity_id', user.id)
+        .maybeSingle();
+      setDeletionPending(ext?.deletion_state === 'DELETION_PENDING');
+    } catch {
+      setDeletionPending(false);
+    }
+  }
+
+  useEffect(() => { refreshDeletionState(); }, []);
+
+  async function handleWithdrawDeletion() {
+    setWithdrawing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: { action: 'withdraw' },
+      });
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      if (error || parsed?.error) {
+        alertWeb(parsed?.error ?? 'Could not withdraw the deletion request. Please try again.');
+        return;
+      }
+      await refreshDeletionState();
+      if (Platform.OS === 'web') {
+        window.alert('Your deletion request has been withdrawn. Your account stays active.');
+      } else {
+        Alert.alert('Request withdrawn', 'Your deletion request has been withdrawn. Your account stays active.');
+      }
+    } catch {
+      alertWeb('Could not withdraw the deletion request. Please try again.');
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   function nav(path: SettingsRoute) {
     // The new "/settings/blocked-users" route hasn't been picked up by
@@ -174,18 +223,18 @@ export default function SettingsScreen() {
   function handleDeleteAccount() {
     if (Platform.OS === 'web') {
       const first = window.confirm(
-        'Delete Account\n\nThis will permanently delete your account, profile, and all associated data. Active listings will be cancelled. This cannot be undone.\n\nAre you sure?',
+        'Delete Account\n\nThis submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings. This cannot be undone.\n\nAre you sure?',
       );
       if (!first) return;
       const second = window.confirm(
-        'Final Confirmation\n\nThis action is irreversible. Your account and data will be permanently deleted.\n\nProceed with deletion?',
+        'Final Confirmation\n\nOnce the deletion request completes, this account can no longer be used to sign in.\n\nProceed with the deletion request?',
       );
       if (!second) return;
       executeDeleteAccount();
     } else {
       Alert.alert(
         'Delete Account',
-        'This will permanently delete your account, profile, and all associated data. Active listings will be cancelled.\n\nThis cannot be undone.',
+        'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nThis cannot be undone.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -194,11 +243,11 @@ export default function SettingsScreen() {
             onPress: () => {
               Alert.alert(
                 'Are you absolutely sure?',
-                'This action is irreversible. Your account and data will be permanently deleted.',
+                'Once the deletion request completes, this account can no longer be used to sign in.',
                 [
                   { text: 'Cancel', style: 'cancel' },
                   {
-                    text: 'Yes, Delete Everything',
+                    text: 'Yes, Request Deletion',
                     style: 'destructive',
                     onPress: executeDeleteAccount,
                   },
@@ -227,6 +276,24 @@ export default function SettingsScreen() {
         contentContainerStyle={s.scrollBody}
         showsVerticalScrollIndicator={false}
       >
+
+        {deletionPending && (
+          <View style={{ backgroundColor: '#FFF4F4', borderColor: '#FF1A1A', borderWidth: 1, borderRadius: 0, padding: 14, marginBottom: 16 }}>
+            <Text style={{ fontWeight: '700', marginBottom: 6 }}>Account deletion requested</Text>
+            <Text style={{ marginBottom: 10 }}>
+              Your account deletion request is pending. You can withdraw it to keep your account.
+            </Text>
+            <Pressable
+              onPress={handleWithdrawDeletion}
+              disabled={withdrawing}
+              style={{ backgroundColor: '#FF1A1A', paddingVertical: 10, alignItems: 'center', opacity: withdrawing ? 0.6 : 1 }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                {withdrawing ? 'Withdrawing…' : 'Withdraw deletion request'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
         <SectionLabel text="Account" />
