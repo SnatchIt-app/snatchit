@@ -40,21 +40,23 @@ GRANT EXECUTE ON FUNCTION tap._cap(uuid), tap._held(uuid), tap._rem(uuid),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='venue' AND c.relkind='r'), 23,
+            WHERE n.nspname='venue' AND c.relkind='r'), 29,
+  -- 2026-09-02 (package 090): 23 -> 29 (+6 promoter-engine tables).
   -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
   -- 2026-09-01 (package 087): 20 -> 23 (settlement, settlement_line, export_job).
-  'A1: venue holds TWENTY-THREE tables — 20 post-086 + 087''s three settlement/export');
+  'A1: venue holds TWENTY-NINE tables — 23 post-087 + 090''s six');
 SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'),
-  'comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
+  'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
   'A2: exactly the frozen names — order/order_item (082), 086 door/scan, 087 settlement/settlement_line/export_job present, inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 60,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 79,
+  -- 2026-09-02 (package 090): 60 -> 79 (+19 promoter-engine fns; resolve_order_attribution is a body-replace).
   -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
   -- twelve CRM export/read RPCs (on_payout_settled is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 086): 18 -> 46 (+28 door/scan/comp/guest/manifest/holder-mix
   -- fns incl. the guard trigger fn; append_door_manifest_delta is a body-replace).
-  'A4: venue holds SIXTY functions — 46 post-086 + 087''s fourteen');
+  'A4: venue holds SEVENTY-NINE functions — 60 post-087 + 090''s nineteen');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],
@@ -92,10 +94,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND ((p.proname LIKE 'deletion_blockers%' AND btrim(p.prosrc)<>'select null::text')
                OR (p.proname LIKE 'on_identity_erased%' AND btrim(p.prosrc)<>'select')
                OR (p.proname='on_deletion_q5_release' AND btrim(p.prosrc)<>'select')
-               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 10,
+               OR (p.proname='has_outstanding_obligations' AND btrim(p.prosrc)<>'select false'))), 11,
+  -- 2026-09-02 (package 090): on_identity_erased_promoter filled — 10 -> 11.
   -- 2026-09-01 (package 086): on_identity_erased_door filled — 7 -> 8 real bodies.
   -- 2026-09-02 (package 088): deletion_blockers_market + on_identity_erased_market filled — 8 -> 10.
-  'A17: SEAM-2 has EXACTLY ten real bodies (custody/staff/orders/wallet + 085''s money/BP-10/Q5 + 086''s door erase + 088''s two market hooks)');
+  'A17: SEAM-2 has EXACTLY eleven real bodies (ten post-088 + 090''s promoter erase hook)');
 SELECT ok(btrim((SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='deletion_blockers_orders'))<>'select null::text',
   'A18: deletion_blockers_orders now carries its real BP-12 pending-order body (082 filled it)');

@@ -78,7 +78,8 @@ SELECT is(
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
   -- 2026-09-02 (package 088): 103 -> 107. transfer_ticket_ownership (the engine),
   -- record_dispute_native, mark_dispute_state, resolve_dispute_native (PFA-31 parked).
-  107, '077 A14: exactly 107 kernel functions (103 post-087 + 088''s engine + three dispute verbs)');
+  -- 2026-09-02 (package 090): 107 -> 109. is_promoter_for_event (§1.1c) + pay_promoter_commission (§20.7.2).
+  109, '077 A14: exactly 109 kernel functions (107 post-088 + 090''s promoter predicate and commission primitive)');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -257,7 +258,7 @@ SELECT is(
   || 'close_settlement,'
   || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,grant_door_freeze_override,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
-  || 'has_venue_role,hold_payout,invite_org_member,is_org_affiliate,is_platform,is_transfer_frozen,'
+  || 'has_venue_role,hold_payout,invite_org_member,is_org_affiliate,is_platform,is_promoter_for_event,is_transfer_frozen,'
   -- 2026-09-01 (package 085): +14 money verbs/reads — the EDGE-FRONTED authority
   -- set (request/approve/cancel, the three lists, the denial witness, the
   -- destination change, the platform executors, the payout hold pair, resolve).
@@ -289,7 +290,8 @@ SELECT is(
   -- DEF and deliberately ABSENT. Named, not counted.
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 58 caller-authorized functions (57 post-087 + 088''s resolve_dispute_native; refund_primary_order is EXEC DEF per PFA-23)');
+    -- 2026-09-02 (package 090): +1 — is_promoter_for_event (RPC §1.1c EXEC: authenticated). pay_promoter_commission is EXEC DEF (no grant). Named, not counted.
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 59 caller-authorized functions (58 post-088 + 090''s is_promoter_for_event; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")

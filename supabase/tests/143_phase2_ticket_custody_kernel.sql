@@ -134,13 +134,14 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 107,
+           WHERE n.nspname = 'kernel'), 109,
+  -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A32: kernel holds EXACTLY 107 functions (103 post-087 + 088''s engine and three dispute verbs)');
+  'A32: kernel holds EXACTLY 109 functions (107 post-088 + 090''s two)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 16,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).
@@ -187,13 +188,14 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
              AND p.proname in ('on_identity_erased_door',
                                'on_identity_erased_market','on_identity_erased_promoter',
                                'on_deletion_q5_release')
-             AND btrim(p.prosrc) = 'select'), 1,
+             AND btrim(p.prosrc) = 'select'), 0,
+  -- 2026-09-02 (package 090): on_identity_erased_promoter filled (INV #36 SET NULL) — 1 -> 0.
   -- 2026-08-31 (package 080): on_identity_erased_staff carries its REAL body.
   -- 2026-09-01 (package 085): on_deletion_q5_release filled (§17.4 semantics).
   -- 2026-09-01 (package 086): on_identity_erased_door filled (scrubs
   -- comp_allocation.granted_to_name). Only market/promoter remain neutral (→ 088/090).
   -- 2026-09-02 (package 088): on_identity_erased_market filled (16d hard-delete allowance). Only promoter remains (→ 090).
-  'A45: ONE later erased hook remains byte-neutral (promoter → 090)');
+  'A45: ZERO erased hooks remain byte-neutral — 090 filled the promoter hook');
 SELECT ok(btrim((SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='kernel' AND p.proname='has_outstanding_obligations')) <> 'select false',
   'A46: has_outstanding_obligations carries its REAL body now (BP-10 over kernel.identity_obligation — 085)');
