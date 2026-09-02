@@ -50,8 +50,9 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 27,
-  'A1: kernel holds EXACTLY twenty-seven tables (26 post-087 + 088''s dispute_native)');
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
+  -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
+  'A1: kernel holds EXACTLY twenty-eight tables (27 post-088 + 091''s reserve stub)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
