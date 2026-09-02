@@ -2278,4 +2278,117 @@ NOTE (2026-09-01, CI fact):  the Supabase local stack — and the platform — P
 - **The two edge deployments** `crm-export` (`/download`) and `crm-export-worker` (`/build`, `/purge`) with `CRM_EXPORT_WORKER_SECRET` in Vault as `crm_export_worker_secret` — deploy artifacts, not SQL; 087's two pg_net ticks target the worker URL and send the header from Vault (an absent secret sends an empty header → the worker refuses). Until deployed, the ticks 404 harmlessly each cycle.
 - **Staging verify** for 087 (no staging plan) — as for every prior package.
 
+## PFA-29 — chargeback → settlement mechanism: the 088-owned `settlement_royalty_lines` seam carries BOTH 088 line classes (royalty + chargeback)
+
+```
+ID:                          PFA-29  (SEAM/plan amendment class)
+FROZEN RULE:                 RPC §10.2 places the R-40 chargeback-lines arm INSIDE kernel.close_settlement
+                             ("the close additionally writes one negative venue.settlement_line with
+                             cause='chargeback' … idempotent on the cross-settlement unique"); plan §8/087
+                             "close_settlement (authored once, here)"; plan §0.4b / schema §13.2 "the caller
+                             is authored once and is never rewritten by another package"; hook_count = 19
+                             (REG:594, PLAN:185, SCHEMA:4200, RAT:598); plan §8/088 schedules no rewrite of
+                             close_settlement and "no hook, no edge" for R-40 (OR-24: "ZERO hooks, ZERO edges").
+IMPLEMENTATION CONFLICT:     the arm's source (kernel.dispute_native) is an 088 table; the merged 087 body
+                             iterates EXACTLY the two seams, so no frozen byte authorizes a rewrite, none
+                             authorizes a third hook, and a pure third hook would be called by nothing.
+OPTIONS:                     O-A body-only CREATE OR REPLACE of close_settlement in 088 (breaks "never
+                             rewritten"); O-B a third hook + O-A (hook_count 19→20, dominated); O-C emit the
+                             chargeback candidates from the EXISTING 088-owned settlement_royalty_lines body
+                             (zero objects, count 19, no rewrite, rollback restores the 087 stub; the hook's
+                             name under-describes it); O-D defer the arm (new money policy — owner-only).
+OWNER RULING (2026-09-02):   O-C APPROVED. Do NOT rewrite kernel.close_settlement; do NOT add a third
+                             settlement hook; hook count stays 19. kernel.settlement_royalty_lines'
+                             088 body is the canonical 088 settlement-line-source seam for BOTH native
+                             resale royalty candidates AND native chargeback candidates. The naming
+                             mismatch is accepted as a governance/documentation erratum (E-89); do not
+                             "clean up" the name by introducing a hook.
+ACCOUNTING (corpus-determined, unchanged): a chargeback is an APPEND-ONLY negative settlement line,
+                             cause='chargeback', cause_ref = the native dispute id, in the org's NEXT
+                             eligible settlement (PROMOTER §5.3, RPC §10.2), booked into the refunds bucket
+                             by 087's sign-derived rollup (E-73); a closed settlement is never mutated, no
+                             header is rewritten, no clawback (MONEY §9.4), no org identity obligation
+                             (schema §1.10a). Duplicate booking is prevented by NOT EXISTS over
+                             settlement_line (cause='chargeback', cause_ref) evaluated under the
+                             settlement's FOR UPDATE — the partial unique is a Gate-M structural property
+                             (schema §3.14.1), so no Indexes-row amendment.
+PACKAGE IMPACT:              088 only (the seam body it already owned). DAG IMPACT: none.
+SECURITY / MONEY IMPACT:     none loosened; the seam stays STABLE, pure, never raises (§20.11.1).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+```
+
+- **E-89** — `kernel.settlement_royalty_lines` (RPC §20.11.1 "adds the market_sale royalty arm"; plan §8/088 "adds the market_sale royalty arm") is, by PFA-29, the 088 line-source seam for royalty AND chargeback candidates. The name is retained (SEAM-2a freezes it); the Purpose is read as "the 088 settlement-line sources". Its determinism/no-raise posture is unchanged and now also binds the chargeback arm.
+- **E-90 (royalty sign; owner-ruled 2026-09-02 in the PFA-29 packet)** — schema §3.13.1's bucket sentence ("`fees_minor` — Σ the platform-fee and royalty lines") conflicts with the ratified product/subject-matter economics (DA §683 "venue gets: venue_royalty → event settlement → org payout"; dashboard §1075 "your sold-out event keeps earning"). **RULING: a native resale royalty owed to the venue is a POSITIVE venue earning** — the 088 royalty candidate is emitted as a CREDIT (+) and lands in GROSS under 087's sign-derived buckets (E-73). §3.13.1's sentence is read as naming fee lines (and any royalty the org PAYS), not the royalty the org earns. No other bucket changes. Test: a royalty candidate of +100 raises the settlement's gross/net by exactly 100.
+
+## PFA-30 — the native resale 3-way split (platform / venue / seller) PARKED fail-closed
+
+```
+ID:                          PFA-30  (PFA-9/PFA-26 class — money policy the corpus does not fix)
+FROZEN RULE:                 market_sale carries platform_fee_minor / venue_royalty_minor /
+                             seller_proceeds_minor with a split-sums CHECK "(± the named rounding bearer)"
+                             (schema §4.4); checkout_buy_now ⑦ and respond_offer(accept) write the split
+                             from "the listing's immutable policy snapshot" (RPC §20.8.8, §20.8.6); C31 names
+                             settlement_line.is_rounding_bearer.
+IMPLEMENTATION CONFLICT:     no platform-fee key or value exists anywhere (PFA-9 CLASS B: "the resale
+                             platform ceiling … no key"); the royalty basis (full price vs above-face
+                             delta) is unstated; NO byte names which party bears the rounding residual.
+                             088 owns the split arithmetic and none of its inputs is frozen.
+OPTIONS:                     (a) PARK the split-writing paths fail-closed until the policy is ratified;
+                             (b) the owner names key/value/basis/bearer now.
+OWNER RULING (2026-09-02):   (a) PARK FAIL-CLOSED. Do NOT invent a platform fee rate/key/value, a royalty
+                             basis or percentage, a rounding bearer, fallback percentages, an implicit zero
+                             fee or zero royalty. Every 088 path that must author the split FAILS CLOSED
+                             before any money/state is committed — zero guessed fee/royalty/proceeds,
+                             zero partial split row, zero sale terminalization or payout on invented
+                             economics. The feature flag stays dark. Tests may drive downstream engines
+                             with explicitly controlled fixtures; production-shaped client paths never
+                             synthesize a split.
+AFFECTED SET (derived):      the two frozen split WRITERS — market.checkout_buy_now (step ⑦, the
+                             market_sale INSERT) and market.respond_offer (accept: the market_sale INSERT
+                             before the engine call). finalize_market_sale / transfer_ticket_ownership /
+                             on_atom_voided consume a stored split and compute none; p2p transfers carry
+                             no platform split (RPC §8.x). Error: precondition_failed
+                             ('resale_split_unavailable … PFA-30') — the frozen §0.5 vocabulary, no new
+                             taxonomy.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+```
+
+## PFA-31 — `kernel.resolve_dispute_native` dual control PARKED fail-closed (PFA-18A principle, applied explicitly to disputes)
+
+```
+ID:                          PFA-31  (PFA-18A class — dual-control mechanism unbuildable under immutable bytes)
+FROZEN RULE:                 RPC §20.7.15 / RLS §11: platform_risk / platform_support PROPOSE ONLY (park a
+                             kernel.approval_request with required_approver_class='platform_admin');
+                             platform_admin EXECUTES with step-up + dual control.
+IMPLEMENTATION CONFLICT:     077's immutable kernel.approval_request CHECKs admit action ∈ {refund.issue,
+                             payout.request, config.set_money_key} and subject_kind ∈ {order, settlement,
+                             config_key} with a pairing CHECK — no dispute action/subject exists; OR-24
+                             ratified "ZERO edges … NOT authorized: new money policy, SQL".
+OPTIONS:                     (a) PARK fail-closed (zero terminal resolution mutation) until a
+                             dispute-compatible dual-control mechanism is ratified; (b) overload an
+                             existing action label — FORBIDDEN; (c) single-control platform_admin —
+                             FORBIDDEN (downgrade); (d) a shadow approval table — FORBIDDEN.
+OWNER RULING (2026-09-02):   (a) PARK FAIL-CLOSED. resolve_dispute_native raises
+                             'precondition_failed: dual_control_unavailable … (PFA-31)' with ZERO
+                             mutation for every caller class, signature frozen for the un-park. Independent
+                             dispute behaviour CONTINUES where frozen: record_dispute_native (upsert +
+                             freeze legs), mark_dispute_state (processor-driven, forward-only), dispute
+                             holds on atoms and payouts, deletion blocking (BP-7 twin), audit. While
+                             parked an unresolved dispute STAYS HELD: no auto-release of dispute_hold, no
+                             payout finalization, no custody unlock, no resolved marking, no fabricated
+                             approval, no silent expiry — unless a separate frozen terminal transition
+                             independently authorizes it (mark_dispute_state's Stripe-reported terminal
+                             is a STATE fact and releases nothing).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED.    STATUS: SATISFIED / RATIFIED.
+NOTE:                        PFA-18A did not change the dispute architecture; this is its principle
+                             applied to a new surface, recorded on its own id.
+```
+
+## Forward obligations opened by the 088 rulings (OWNER: UNASSIGNED unless frozen bytes assign them; not arbitrarily assigned to 089-092)
+
+- **`NATIVE_RESALE_SPLIT_POLICY`** — before native resale activation, ratify at minimum: (1) platform fee key, (2) platform fee value/rule, (3) venue royalty key, (4) venue royalty value/rule, (5) royalty basis (full resale price · above-face delta · another explicit basis), (6) seller proceeds formula, (7) rounding mode, (8) rounding bearer, (9) zero/negative edge cases, (10) refunds, (11) chargebacks, (12) partial reversal behaviour, (13) settlement bucket mapping. Un-park = the two split writers (PFA-30) + the `is_rounding_bearer` assignment the royalty seam then carries.
+- **`DISPUTE_DUAL_CONTROL`** — a credential/dispute-compatible dual-control mechanism (not a second generalized approval framework, not a shadow table) before dispute resolution activation; un-park = `resolve_dispute_native`'s body (PFA-31).
+- **`NEGATIVE_SETTLEMENT_CARRY`** — 087's close mints a payout only when net > 0 (kernel.payout.amount_minor > 0) and the corpus provides no carry-forward for excess negative settlement value; a chargeback larger than the next settlement's positive balance is absorbed beyond one settlement. NOT authorization for the platform to absorb such losses in production — a dark-rail residual that must be resolved before native money activation. 088 invents no carry account.
+- **`PUBLIC_PAYMENTS_NATIVE_SHAPE`** (filed, non-blocking for 088 SQL) — `public.payments.listing_id NOT NULL → public.listings` (frozen Phase-0) has no native-sale writer while `market_sale.payment_id` and `kernel.dispute_native.payment_id` FK `public.payments`; the native money path cannot record a payment without a live-rail listing row. No fake listing row, no opportunistic Phase-0 mutation, no activation: a deployment/live-rail compatibility decision owed before native money activation.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
