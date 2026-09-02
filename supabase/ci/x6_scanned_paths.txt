@@ -1,0 +1,11 @@
+supabase/migrations/*settlement_and_export*.sql
+supabase/migrations/*crm_export*.sql
+supabase/migrations/*attendee*.sql
+supabase/migrations/*contact_consent*.sql
+supabase/functions/crm-export/*.ts
+supabase/functions/crm-export/**/*.ts
+supabase/functions/crm-export/**/*.sql
+supabase/functions/crm-export-worker/*.ts
+supabase/functions/crm-export-worker/**/*.ts
+supabase/functions/crm-export-worker/**/*.sql
+supabase/functions/_shared/crm-export.ts

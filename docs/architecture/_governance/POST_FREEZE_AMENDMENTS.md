@@ -2141,4 +2141,87 @@ FROZEN RULE:                 DEMOGRAPHICS_PRIVACY_SPEC §10.4 — get_holder_mix
 
 `record_scan` full result classification (`duplicate`/`frozen`/`fraud_review`, currently all non-admit → `invalid`; the `when others` also masks transient faults) + offline metadata (`offline_pending`, `device_boot_id`, `scan_sequence`, `manifest_version`, `direction`, `scan_type`) + command-key idempotency (RPC §20.4.3); `mint_door_session` command-key idempotency (moot while parked, PFA-26); `manifest_digest` should commit to the ordered entry set, not metadata; the `scan_admitted_in_uq` predicate vs `re_entry` re-admission; `record_scan` actor-device venue validation; and the loginless/token-bound door edge wiring (`get_door_manifest`/`record_scan` do not yet call `assert_door_session`; fails closed). All behind the dark gate.
 
+## PFA-28 — CRM `customer_ref` HMAC mechanism: the three customer-data readers parked FAIL-CLOSED (no pgcrypto, no weak fallback)
+
+```
+ID:                          PFA-28  (PFA-20 class)
+FROZEN RULE:                 CRM_EXPORT_SPEC §4.3 — customer_ref = base32(HMAC-SHA256(org_customer_key(:job_org_id),
+                             identity_id)[0..9]) (80 bits, 16 chars); §2.2 field 1 is IDENT and is carried by EVERY
+                             roster projection ("every role that may read the roster"); §11.4 build_export_rows /
+                             list_attendees / lookup_attendee emit it; OR-19 — request_export mints the org's
+                             kernel.org_customer_key lazily ("server-generated random 32 B").
+DEFECT / GAP:                repository bytes prove pgcrypto is NOT installed (076-086 install only pg_cron + pg_net;
+                             PFA-20 rejected "silently choosing pgcrypto with unmanaged custody"); no other approved DB
+                             HMAC primitive exists; md5 is the only built-in digest and is not an HMAC;
+                             gen_random_bytes (the only in-DB CSPRNG byte source) is pgcrypto's. The frozen
+                             customer_ref therefore cannot be computed in-DB without a NEW crypto dependency, and
+                             the frozen key material cannot be generated without one either.
+FREEZE §4 TEST:              security/privacy-boundary mechanism the corpus does not uniquely determine →
+                             OWNER SIGNATURE REQUIRED: YES.
+OWNER SIGNATURE:             APPROVED (2026-09-01).            STATUS: SATISFIED / RATIFIED.
+OWNER RULING (substance):    DO NOT install pgcrypto in 087. DO NOT invent an alternate in-DB crypto mechanism.
+                             DO NOT weaken HMAC-SHA256 to md5/sha/simple digest. The frozen customer_ref requirement
+                             REMAINS MANDATORY (algorithm, truncation, key source, identity input, encoding, output
+                             semantics unchanged). Every 087 function that must emit customer_ref FAILS CLOSED
+                             rather than emit a weaker, placeholder, reversible, deterministic-unkeyed or
+                             non-conforming identifier — never identity_id, never an unkeyed hash, never a
+                             truncated uuid, never NULL, never a random substitute. The export lifecycle,
+                             settlement engine, purge/orphan machinery, bucket, cron, gate_as_of storage, cell
+                             counters and deletion composition CONTINUE. X-6 is not relaxed. This ruling defers
+                             ONLY the crypto implementation mechanism.
+CUSTOMER_REF CRYPTO:         RATIFIED IMPLEMENTATION: NO   ·  PGCRYPTO INSTALLED: NO   ·  WEAK FALLBACK: NO
+AFFECTED READERS:            FAIL-CLOSED: YES
+AFFECTED SET (derived):      of the 13 CRM entry points, EXACTLY the three whose projection carries field 1:
+                             venue.build_export_rows · venue.list_attendees · venue.lookup_attendee. The other ten
+                             (assert_may_request, request_export, finalize_export, authorize_export_download,
+                             revoke_export, list_export_jobs, sweep_expired_exports, the three purge definers)
+                             touch no customer row and are LIVE. Corollary: request_export's OR-19 mint is
+                             DEFERRED with the mechanism — key generation/custody are items 3/4/8 of the
+                             forward obligation and the only in-DB byte generator is pgcrypto's — so NO
+                             kernel.org_customer_key row is written at 087 (no key material exists to leak;
+                             suite 151 D18).
+FAIL-CLOSED DERIVATION:      build_export_rows: claims the job (queued→running, lease, gate_as_of stamped,
+                             counters zeroed — the frozen claim semantics are exercised), re-derives authority
+                             from the job row, then records the FROZEN failure state — state='failed',
+                             failure_code='build_error' (the schema §3.18 closed set's member for a build that
+                             could not be performed), crm_export.fail reason customer_ref_crypto_unavailable —
+                             and returns ZERO rows; finalize_export refuses any non-running job, so no artifact
+                             can ever exist for a parked build. list_attendees / lookup_attendee: authz, closed
+                             filter grammar, reason-code enum (platform arm) and prefix_too_short are enforced
+                             FIRST, then RAISE precondition_failed(customer_ref_crypto_unavailable) with ZERO
+                             mutation and NO rate budget consumed (the call reached no data). Frozen signatures
+                             and the builder's return shape (row_cursor, columns[], cells[]) are fixed so the
+                             un-park is body-only.
+TESTS:                       suite 151 §E (E1-E17: fail-closed, no raw identity / unkeyed hash / uuid /
+                             random substitute, authz before park, zero mutation, no budget, pgcrypto absent,
+                             greppable park); D23-D27 (job → failed/build_error, cannot finalize, cannot
+                             download); D18 (no key minted); C40 (settlement subsystem unaffected); suite 152
+                             (X-6 closure stays disjoint). Ruling §11 A-H all covered.
+FORWARD OBLIGATION:          CRM_CUSTOMER_REF_CRYPTO — see "Forward obligations opened by 087". OWNER: UNASSIGNED
+                             (frozen bytes assign it to no package; NOT arbitrarily assigned to 088-092).
+```
+
+## Owner rulings ratified in the 087 authorization (recorded)
+
+- **ODR16 #34 — `venue.export_job.requested_by` (OWNER DECISION → RULED, 2026-09-01):** the column is RETAINED through the ordinary `purge_after` lifecycle; erasure of the requester does NOT immediately NULL, rewrite or hard-delete it; this is NOT a new permanent retention class (the job row already purges at 13 months). Physical form: `NOT NULL`, FK → `auth.users` `ON DELETE RESTRICT` (never CASCADE), untouched by `kernel.on_identity_erased_*`. Asserted structurally (suite 151 A18: `confdeltype='r'`).
+- **CRM export privacy ruling (2026-09-01):** eligibility/consent are evaluated against the boundary the FROZEN contract defines — membership at `as_of` (request), the consent gate at `gate_as_of` (CRM §5.1 (1)/(3), K-19: stamped at CLAIM, re-stamped on re-claim, one instant for the whole build). X-6 preserved; NO demographic expansion. The §11 potential stop ("what happens when consent is revoked after request but before finalization") is CORPUS-DETERMINED and needed no owner decision: a withdrawal before the claim suppresses the cell; a withdrawal after the claim is honoured by the NEXT build (§5.3 binding copy: "takes effect at the next export build"); a re-claim after lease expiry re-stamps and rebuilds from page 1. 087 stores `gate_as_of` and stamps it at claim (suite 151 D15/D24); the gate's evaluation itself lands with the un-park.
+
+## Errata (corpus-determined corrections) — package 087
+
+- **E-67** — `kernel.close_settlement`'s R-40 chargeback arm reads `kernel.dispute_native`, a table created by 088 (schema §1.10b). It cannot be authored at 087 (SEAM-1: `max(087, 088) = 088`). 087's close already routes `chargeback`-cause lines into `refunds_minor`; 088 `CREATE OR REPLACE`s `close_settlement` (body-only) to SOURCE them from the dispute ledger. The two settlement seams return zero rows at 087 exactly as plan §8/087 states.
+- **E-68** — CRM §12 24a asks `authorize_export_download` to `raise insufficient_privilege(42501)` AND write a `crm_export.denied` row in one call. Unbuildable in one transaction (the raise rolls the row back). The corpus's own answer to this shape is the R-28 client-recorded denial witness (`kernel.record_money_denial`), whose action vocabulary is money-only and lives in immutable 085. 087 RAISES on denial (fail closed, never fail open); the CRM denial witness is a recorded forward obligation, not an invented object.
+- **E-69** — The X-6 assurance plan names its pgTAP file `140_crm_export_x6.sql`; `140` is the outbox-foundation suite. It lands as `152_crm_export_x6.sql`. The plan's SCANNED_PATHS include the frozen spec documents with `-- x6-allow: naming-only` markers on every naming line; those documents carry 1 + 2 markers and hundreds of naming lines, and adding markers would be an edit to frozen documents. The T-CI-X6-01 scan set is therefore the SQL/TS export sources (§10.2's globs + `*settlement_and_export*.sql`); the documents remain in rule 3's rename-tripwire corpus. `T-CI-X6-05` (the committed closure lock) needs a verify run that does not exist without staging → deferred; its database-side twin `T-RPC-CRM-19` runs on every PR in suite 152. pgTAP cannot read the JSON manifests, so suite 152 embeds the two lists between markers and `scripts/ci/x6_gate.sh` DIFFS them against the manifests on every PR (one truth, drift detected).
+- **E-70** — The corpus asks for "a `platform_risk` signal" (blank-column canary, purge stalled > 3 attempts, a `ready` job with no object) and names no carrier; the ratified notification type set is closed (OR-20 note). The carrier is a `kernel.admin_audit` row, `action='crm_export.signal'` (schema §1.12: the action vocabulary is deliberately open), `reason_code ∈ {blank_column_canary, purge_stalled, ready_without_object}`, `after.audience='platform_risk'` — readable by platform roles, never by a venue.
+- **E-71** — Schema §3.18 A4 names `venue.build_export_rows` as the CLAIM writer (`gate_as_of`, the counters); the worker holds no table access (§16.6: `service_role` UPD is `R(def)`). The claim is therefore page 1 of `build_export_rows` (`p_cursor IS NULL`): queued→running under a 10-minute `lease_until` (longer than the worker's 15 s page timeout), and a re-claim after lease expiry re-stamps `gate_as_of` and rebuilds from page 1; a live-leased job refuses a second claim. CRM §7.3's "2 concurrent running jobs per org — queued behind" is enforced AT CLAIM (a third build raises and the cron retries).
+- **E-72** — The X-6 plan's `gate_evaluations` fifth counter (`T-SCHEMA-CRM-10`) is NOT added: it is absent from the frozen schema §3.18 column list, the plan "edits no contract", and its only writer is the parked builder — an unwritten column is the dumping-ground shape. It is folded into the CRM_CUSTOMER_REF_CRYPTO un-park (where the writer lands).
+- **PFA-9 applied** — CRM §7.1's "all limits live in `catalog.platform_config`" has no frozen key spellings and 078 seeds none (PFA-9 CLASS B); the frozen §7.1 NUMBERS are enforced in-RPC through the fail-closed 005 limiter (`public.check_rate_limit`), per actor AND per org (the org row is keyed on the org id). `crm_export.constraint_set_version` IS seeded by 078 and is read live (X-9), NULL ⇒ refuse (X-12).
+
+## Forward obligations opened by 087
+
+- **`CRM_CUSTOMER_REF_CRYPTO` (OWNER-recorded; OWNER: UNASSIGNED)** — before any customer_ref-emitting read or export becomes operational, explicitly ratify: (1) crypto primitive, (2) location of computation, (3) key custody, (4) `org_customer_key` handling, (5) whether DB, edge or server computes the HMAC, (6) base32 encoding implementation, (7) truncation exactness, (8) key rotation semantics (OR-20 runbook), (9) backward compatibility of existing customer_ref values, (10) cross-export stability, (11) backup/restore behaviour, (12) logging/redaction, (13) service_role exposure, (14) test vectors. The un-park then delivers, body-only: the three readers, the OR-19 lazy mint, the `gate_evaluations` counter (E-72), and the deferred assertions `T-RPC-CRM-16/17/18`, `T-SCHEMA-CRM-10/11`, CRM §12 3-13c/18-18c/22-22c/23/34a-34h, `T-RLS-CRM-04`, `T-VERIFY-X6-01..06`.
+- **CRM denial witness** (E-68): a client-recorded `crm_export.denied` path (an `R-28`-shaped witness with a CRM vocabulary, or a widening of `record_money_denial` in a future package).
+- **`T-CI-X6-05` closure lock** (E-69): needs a verify step that commits `supabase/ci/x6_closure.lock`.
+- **The two edge deployments** `crm-export` (`/download`) and `crm-export-worker` (`/build`, `/purge`) with `CRM_EXPORT_WORKER_SECRET` in Vault as `crm_export_worker_secret` — deploy artifacts, not SQL; 087's two pg_net ticks target the worker URL and send the header from Vault (an absent secret sends an empty header → the worker refuses). Until deployed, the ticks 404 harmlessly each cycle.
+- **Staging verify** for 087 (no staging plan) — as for every prior package.
+
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
