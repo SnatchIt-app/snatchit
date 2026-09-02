@@ -37,6 +37,7 @@ import {
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 // ── CORS origin whitelist ────────────────────────────────────────────────────
 // React Native apps don't send an Origin header, so CORS only affects
@@ -252,6 +253,46 @@ serve(async (req: Request) => {
       .select('id, seller_id, buyer_id, payment_id, listing_id, status, payout_released_at, disputed_at, payout_risk_tier')
       .eq('id', transfer_id)
       .single();
+
+    // ── F-5 live-rail acquisition guard (OR-17 release train; FR-9; DSM §3.2
+    // F-5): a DELETION_PENDING buyer must not CONFIRM an inbound transfer that
+    // was INITIATED AFTER their deletion request (accepting it is a custody
+    // acquisition). A transfer initiated BEFORE the request is resolution of
+    // existing business and stays allowed. Class A read (EA-1): the caller's
+    // own kernel.identity_ext row via the caller's JWT — the owner SELECT
+    // policy scopes it; before migration 077 the schema is absent and the
+    // probe errs → not-pending (the DB sweep's BP wall is the enforcement).
+    try {
+      const callerAuth = req.headers.get('authorization')!;
+      const callerKernel = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: callerAuth } },
+        auth: { autoRefreshToken: false, persistSession: false },
+        db: { schema: 'kernel' },
+      });
+      const { data: ext } = await callerKernel
+        .from('identity_ext')
+        .select('deletion_state, deletion_requested_at')
+        .eq('identity_id', buyerId)
+        .maybeSingle();
+      if (ext?.deletion_state === 'DELETION_PENDING' && ext.deletion_requested_at) {
+        const { data: tCreated } = await supabase
+          .from('transfers')
+          .select('created_at')
+          .eq('id', transfer_id)
+          .maybeSingle();
+        if (tCreated?.created_at && new Date(tCreated.created_at) > new Date(ext.deletion_requested_at)) {
+          return new Response(
+            JSON.stringify({
+              error: 'Your account deletion request is pending. Withdraw it in Settings to accept new transfers.',
+              code: 'account_deletion_pending',
+            }),
+            { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+          );
+        }
+      }
+    } catch {
+      /* pre-077 world or transient probe failure — proceed; the DB wall holds */
+    }
 
     if (transferErr || !transfer) {
       console.error('confirm-and-release: transfer lookup failed:', {

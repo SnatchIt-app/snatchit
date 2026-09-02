@@ -55,6 +55,11 @@ declare
 begin
   -- Partial-apply tolerant: to_regclass returns NULL for a table that never
   -- got created, so a half-applied 078 still rolls back.
+  -- ROLLBACK_GUARD_ROW_SECURITY (obligation opened by 091's E-151, CLOSED at the 2026-09-02
+  -- release-readiness pass): the guard counts RLS-enabled zero-policy tables; run by a
+  -- non-owner, non-BYPASSRLS role it would read 0 rows and FAIL OPEN. Count with row
+  -- security off — same house pattern as the 091/092 rollbacks.
+  set local row_security = off;
   if to_regclass('catalog.venue')          is not null then
     execute 'select count(*) from catalog.venue'          into v_n; end if;
   if to_regclass('catalog.event')          is not null then

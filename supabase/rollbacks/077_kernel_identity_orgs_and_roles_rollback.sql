@@ -36,6 +36,11 @@ begin
     raise notice '077 rollback: kernel.identity_ext absent (partial apply) — proceeding with drops.';
     return;
   end if;
+  -- ROLLBACK_GUARD_ROW_SECURITY (obligation opened by 091's E-151, CLOSED at the 2026-09-02
+  -- release-readiness pass): the guard counts RLS-enabled zero-policy tables; run by a
+  -- non-owner, non-BYPASSRLS role it would read 0 rows and FAIL OPEN. Count with row
+  -- security off — same house pattern as the 091/092 rollbacks.
+  set local row_security = off;
   foreach v_tbl in array array[
     'kernel.identity_ext','kernel.organization','kernel.org_member',
     'kernel.org_invite','kernel.platform_role','kernel.admin_audit',

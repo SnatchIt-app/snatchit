@@ -27,6 +27,15 @@ begin
     raise notice '088 rollback: already rolled back (no 088 table present) — the remaining statements are no-ops';
     return;
   end if;
+  -- ROLLBACK_GUARD_ROW_SECURITY (obligation opened by 091's E-151, CLOSED at the 2026-09-02
+  -- release-readiness pass): the guard counts RLS-enabled zero-policy tables; run by a
+  -- non-owner, non-BYPASSRLS role it would read 0 rows and FAIL OPEN. Count with row
+  -- security off — same house pattern as the 091/092 rollbacks.
+  set local row_security = off;
+  -- close the count→drop window on the four tables this rollback drops (090/091/092 house
+  -- pattern; the maintenance-window precondition in the runbook covers kernel.tickets /
+  -- ticket_ownership_log, which are counted here but owned by 079 and not dropped).
+  lock table market.market_sale, kernel.dispute_native, market.listing_native, market.p2p_transfer in access exclusive mode;
   select count(*) into v_sales from market.market_sale;
   select count(*) into v_disputes from kernel.dispute_native;
   -- a LIVE overlay (an active/reserved listing, an open transfer) pins kernel.tickets.resale_state

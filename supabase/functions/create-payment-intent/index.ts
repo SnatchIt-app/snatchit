@@ -250,6 +250,37 @@ serve(async (req: Request) => {
       );
     }
 
+    // ── F-5 live-rail acquisition guard (OR-17 release train; FR-9;
+    // DELETION_STATE_MACHINE_SPEC §3.2 F-5) ─────────────────────────────
+    // A caller whose account deletion is pending must not ACQUIRE on the live
+    // rail (buy-now reservation/purchase, live bid funding). Disposal verbs
+    // stay allowed and do not run through this function. The predicate is
+    // kernel.is_deletion_pending (EXEC: service_role; STABLE definer — RPC
+    // §20.17.3), reached through the service client. Before migration 077 is
+    // applied the kernel schema does not exist: the probe then errs and the
+    // guard treats the caller as not-pending (fail-open by design here — the
+    // hard wall is the DB sweep's BP re-check at the terminal; this edge layer
+    // is the UX courtesy the machine names, not the enforcement).
+    try {
+      const kernelClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        db: { schema: 'kernel' },
+      });
+      const { data: pending, error: pendErr } = await kernelClient.rpc('is_deletion_pending', {
+        p_identity: buyerId,
+      });
+      if (!pendErr && pending === true) {
+        return new Response(
+          JSON.stringify({
+            error: 'Your account deletion request is pending. Withdraw it in Settings to make new purchases.',
+            code: 'account_deletion_pending',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+        );
+      }
+    } catch {
+      /* pre-077 world or transient probe failure — proceed; the DB wall holds */
+    }
+
     const { listing_id, mode, expected_total_cents } = await req.json();
 
     if (!listing_id || !mode) {
