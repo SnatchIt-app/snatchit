@@ -10,7 +10,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(314);
+SELECT plan(356);
 
 SELECT tap.seed_core();
 
@@ -30,9 +30,11 @@ CREATE FUNCTION tap._sale153(p_sale uuid) RETURNS market.market_sale LANGUAGE sq
 $m$ SELECT s FROM market.market_sale s WHERE s.sale_id = p_sale $m$;
 CREATE FUNCTION tap._listing153(p_l uuid) RETURNS market.listing_native LANGUAGE sql SECURITY DEFINER SET search_path='' AS
 $m$ SELECT l FROM market.listing_native l WHERE l.listing_id = p_l $m$;
-CREATE FUNCTION tap._cfg153(p_key text, p_val jsonb) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' AS
+CREATE FUNCTION tap._cfg153(p_key text, p_val jsonb, p_vis text DEFAULT 'restricted') RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' AS
 $m$ INSERT INTO catalog.platform_config (key, version, value, visibility)
-    SELECT p_key, coalesce(max(version),0)+1, p_val, 'restricted' FROM catalog.platform_config WHERE key = p_key $m$;
+    SELECT p_key, coalesce(max(version),0)+1, p_val, p_vis FROM catalog.platform_config WHERE key = p_key $m$;
+CREATE FUNCTION tap._refund153(p_pay uuid, p_key text) RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path='' AS
+$m$ INSERT INTO kernel.refund (payment_id, reason_code, amount_minor, idempotency_key) VALUES (p_pay, 'admin_action', 1, p_key) RETURNING refund_id $m$;
 -- lock_ticket is definer-internal (no client EXECUTE): the suite reaches it through a
 -- definer wrapper; auth.uid() still resolves to the logged-in owner (the 079 owner check).
 CREATE FUNCTION tap._lock153(p_atom uuid, p_reason text, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path='' AS
@@ -83,9 +85,12 @@ SELECT has_function('market'::name,'accept_p2p_transfer'::name, ARRAY['uuid','te
 SELECT ok((SELECT p.pronargdefaults = 1 AND p.proargnames = ARRAY['p_transfer_id','p_command_key','p_decision'] FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market' AND p.proname='accept_p2p_transfer'),
   'A14: …exactly one default, so the two-argument §8.2 shape stays callable');
 -- SEAM-2a: the seven body-only replacements keep their frozen signatures
-SELECT ok((SELECT p.proargnames = ARRAY['p_settlement_id'] AND p.proretset AND p.prorettype = 'kernel.settlement_line_candidate'::regtype AND p.provolatile = 's'
+SELECT ok((SELECT p.proargnames = ARRAY['p_settlement_id'] AND p.proretset AND p.prorettype = 'kernel.settlement_line_candidate'::regtype AND p.provolatile = 'v'
+             AND p.prosrc LIKE '%pg_advisory_xact_lock%'
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
-  'A15: settlement_royalty_lines — signature frozen from 087 (p_settlement_id → SETOF candidate), STABLE');
+  'A15: settlement_royalty_lines — signature frozen from 087 (p_settlement_id → SETOF candidate); VOLATILE + per-org xact advisory lock (E-104: race-safe dedupe)');
+SELECT ok((SELECT count(*)=1 FROM pg_indexes WHERE schemaname='market' AND indexname='market_sale_payment_uq' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%payment_id IS NOT NULL%'),
+  'A15a: E-105 — one succeeded payment settles ONE sale (partial UNIQUE on market_sale.payment_id)');
 SELECT ok((SELECT p.proargnames = ARRAY['p_atom_id','p_refund_id','p_cause'] AND p.prorettype = 'void'::regtype
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market' AND p.proname='on_atom_voided'),
   'A16: on_atom_voided — signature frozen from 085');
@@ -195,8 +200,10 @@ SELECT ok(NOT has_column_privilege('anon','market.listing_native','seller_id','S
   'B12: listing_native.seller_id is NOT in anon''s column grant (authenticated reads it)');
 SELECT ok(NOT has_column_privilege('anon','market.listing_native','command_idempotency_key','SELECT') AND NOT has_column_privilege('authenticated','market.listing_native','command_idempotency_key','SELECT'),
   'B13: the idempotency key is in NOBODY''s column grant');
-SELECT ok(has_table_privilege('authenticated','market.offer','SELECT') AND has_table_privilege('authenticated','market.p2p_transfer','SELECT') AND NOT has_table_privilege('anon','market.offer','SELECT'),
-  'B14: offer / p2p_transfer are owner-policy reads for authenticated only');
+SELECT ok(has_column_privilege('authenticated','market.offer','offer_id','SELECT') AND has_column_privilege('authenticated','market.p2p_transfer','transfer_id','SELECT')
+       AND NOT has_column_privilege('authenticated','market.offer','command_idempotency_key','SELECT') AND NOT has_column_privilege('authenticated','market.p2p_transfer','command_idempotency_key','SELECT')
+       AND NOT has_table_privilege('anon','market.offer','SELECT'),
+  'B14: offer / p2p_transfer are COLUMN-scoped owner-policy reads for authenticated — the idempotency keys are in nobody''s grant');
 
 -- ============================================================================
 -- FIXTURE — org1 (seller = org_owner + venue_manager) → venue1 → event1 (session1)
@@ -342,7 +349,7 @@ SELECT tap.logout();
 -- ============================================================================
 -- SECTION D — LISTING LIFECYCLE (flag ON; event policy buy_now, cap 100% of face)
 -- ============================================================================
-SELECT tap._cfg153('feature.native_resale_enabled', 'true'::jsonb);
+SELECT tap._cfg153('feature.native_resale_enabled', 'true'::jsonb, 'public');
 SELECT tap.login(tap.seller());
 SELECT tap._store153('pol1', (catalog.set_resale_policy('event', tap._u153('event1'), '{"mode":"buy_now","price_cap_bps":10000}'::jsonb, 'ck88-pol1') ->> 'policy_id'));
 SELECT tap.logout();
@@ -362,6 +369,12 @@ SELECT throws_ok(format($$SELECT market.create_listing(%L, 5000, 'auction', 'ck8
 SELECT throws_like(format($$SELECT market.create_listing(%L, 5000, 'bogus', 'ck88-l-x5')$$, tap._u153('a1')), '%invalid_input%', 'D5: an unknown listing_mode is invalid_input');
 SELECT tap._store153('l1', (market.create_listing(tap._u153('a1'), 5000, 'buy_now', 'ck88-l1') ->> 'listing_id'));
 SELECT ok(tap._u153('l1') IS NOT NULL, 'D6: the owner lists at face — listing created');
+SELECT tap.logout();
+SELECT tap.login(tap.other_user());
+SELECT is((SELECT count(*)::int FROM market.listing_native WHERE listing_id = tap._u153('l1')), 1, 'D6a: the PUBLIC arm surfaces the active listing to another fan while the flag is ON (plan §8/088 Tests)');
+SELECT is((SELECT count(*)::int FROM market.listing_native WHERE listing_id = tap._u153('l1') AND seller_id IS NOT NULL), 1, 'D6b: …with seller_id readable (display resolves via 068 profile columns)');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
 SELECT is((market.create_listing(tap._u153('a1'), 5000, 'buy_now', 'ck88-l1') ->> 'status'), 'noop_replay', 'D7: C16 — the same command key replays the original listing');
 SELECT throws_like(format($$SELECT market.create_listing(%L, 5000, 'buy_now', 'ck88-l1b')$$, tap._u153('a1')), '%conflict_locked%',
   'D8: double-listing the same atom raises conflict_locked (partial UNIQUE + lock_ticket)');
@@ -370,8 +383,14 @@ SELECT ok((SELECT l.status='active' AND l.listing_mode='buy_now' AND l.price_min
              FROM tap._listing153(tap._u153('l1')) l), 'D9: the listing is active and SNAPSHOTS the governing policy (id + version 1; O3/C11)');
 SELECT is((tap._atom153(tap._u153('a1'))).resale_state, 'listed', 'D10: the atom overlay is listed (SSCAS #6: Listing INSERT → lock_ticket)');
 SELECT tap.login(tap.other_user());
-SELECT throws_like(format($$SELECT market.make_offer(%L, 4000, now()+interval '1 hour', 'ck88-o-x1')$$, tap._u153('l1')), '%offers_not_accepted%',
-  'D11: an offer on a buy_now listing is refused (listing_mode binds)');
+SELECT throws_like(format($$SELECT market.make_offer(%L, 5001, now()+interval '1 hour', 'ck88-o-x1')$$, tap._u153('l1')), '%above_cap%',
+  'D11: §20.8.5 — an offer above the listing''s SNAPSHOT cap is policy_violation(above_cap)');
+SELECT is((market.make_offer(tap._u153('l1'), 4000, now()+interval '1 hour', 'ck88-o-bn') ->> 'status'), 'ok', 'D11a: an offer on a buy_now listing is contracted (listing_mode ∈ {buy_now, offer})');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
+SELECT throws_like(format($$SELECT market.cancel_listing(%L, 'door_freeze', 'ck88-c-rsv')$$, tap._u153('l1')), '%system reason%', 'D11b: a client may not write a SYSTEM reason (door_freeze / event_cancelled)');
+SELECT tap.logout();
+SELECT tap.login(tap.other_user());
 SELECT throws_ok(format($$SELECT market.cancel_listing(%L, 'x', 'ck88-c-x1')$$, tap._u153('l1')), '42501', NULL, 'D12: a non-seller, non-platform actor cannot cancel a listing');
 SELECT tap.logout();
 SELECT tap.login(tap.risk153());
@@ -381,6 +400,7 @@ SELECT tap.logout();
 SELECT ok((SELECT l.status='cancelled' AND l.reason_code='fraud_review' FROM tap._listing153(tap._u153('l1')) l), 'D15: cancelled with the reason recorded');
 SELECT is((tap._atom153(tap._u153('a1'))).resale_state, 'none', 'D16: the atom overlay is released (unlock_ticket; no dispute ⇒ none)');
 SELECT is(tap._audit153(tap._u153('l1'), 'listing.cancel', 'fraud_review'), 1, 'D17: the platform arm writes a listing.cancel audit row (the seller arm does not)');
+SELECT is((SELECT status FROM market.offer WHERE command_idempotency_key = 'ck88-o-bn'), 'withdrawn', 'D17a: the cancel withdrew the pending buy-now offer');
 -- get_ticket_history (§1.2): current owner only; plain verbs; no PII columns
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT string_agg(h.verb, ',' ORDER BY h.sequence) FROM market.get_ticket_history(tap._u153('a1')) h), 'bought',
@@ -550,7 +570,7 @@ VALUES ('00000000-0000-0000-0000-0000000000a2', tap._u153('l3'), tap._u153('a2')
 SELECT tap._store153('s2', '00000000-0000-0000-0000-0000000000a2');
 SELECT is((market.bind_checkout_payment_ref(tap._u153('s2'), 'pi_88_res', 'ck88-bind1') ->> 'status'), 'ok', 'G24: bind_checkout_payment_ref binds the PI ref');
 SELECT is((market.bind_checkout_payment_ref(tap._u153('s2'), 'pi_88_res', 'ck88-bind2') ->> 'status'), 'noop_replay', 'G25: the same ref replays');
-SELECT throws_like(format($$SELECT market.bind_checkout_payment_ref(%L, 'pi_88_other', 'ck88-bind3')$$, tap._u153('s2')), '%state_conflict%', 'G26: a DIFFERENT ref is a state_conflict (write-once)');
+SELECT throws_like(format($$SELECT market.bind_checkout_payment_ref(%L, 'pi_88_other', 'ck88-bind3')$$, tap._u153('s2')), '%conflict_locked%', 'G26: a DIFFERENT ref is conflict_locked (write-once, §20.8.9)');
 SELECT is((SELECT count(*)::int FROM market.list_lapsed_checkouts(10) x WHERE x.sale_id = tap._u153('s2') AND x.payment_intent_ref = 'pi_88_res'), 1,
   'G27: list_lapsed_checkouts surfaces the lapsed reservation with its ref');
 SELECT throws_like(format($$SELECT market.cancel_buy_now_sale(%L, 'bogus', 'ck88-cx1')$$, tap._u153('s2')), '%invalid_input%', 'G28: cancel reasons are the closed four-label set');
@@ -574,6 +594,28 @@ SELECT is((market.mark_sale_paid_state(tap._u153('s2b'), tap._u153('pay4'), 'ck8
 SELECT is((market.mark_sale_paid_state(tap._u153('s2b'), tap._u153('pay4'), 'ck88-mp4') ->> 'status'), 'noop_replay', 'G38: the webhook replay is noop_replay');
 SELECT ok((SELECT s.paid_pending_since IS NOT NULL AND s.payment_id = tap._u153('pay4') FROM tap._sale153(tap._u153('s2b')) s), 'G39: the dwell clock and the payment are recorded');
 SELECT throws_like(format($$SELECT market.cancel_buy_now_sale(%L, 'buyer_released', 'ck88-cx4')$$, tap._u153('s2b')), '%state_conflict%', 'G40: a PAID sale cannot be released (money wins)');
+SELECT tap._store153('pay4b', tap._newpayment153(tap.fan153(), tap.buyer(), 5000, 'pi_88_4b')::text);
+SELECT ok((SELECT r ->> 'status' = 'conflict_locked' AND r ->> 'reason' = 'second_payment_on_paid_sale' AND r ->> 'action' = 'reverse_payment'
+             FROM market.mark_sale_paid_state(tap._u153('s2b'), tap._u153('pay4b'), 'ck88-mp5') r),
+  'G41: §20.8.7 write-once — a DIFFERENT payment on a paid sale is conflict_locked (non-raising, E-107) with a reversal action…');
+SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.alert', 'second_payment_on_paid_sale'), 1, 'G42: …and the second charge is alerted for reversal');
+SELECT ok((SELECT s.payment_id = tap._u153('pay4') FROM tap._sale153(tap._u153('s2b')) s), 'G43: the stored payment is unchanged (never re-pointed)');
+SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.state_sync'), 1, 'G44: the successful mark wrote ONE state_sync audit row');
+UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
+INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, sale_state, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000a4', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, 'initiated', 'ck88-s4');
+SELECT ok((SELECT r ->> 'status' = 'conflict_locked' AND r ->> 'reason' = 'payment_reused' FROM market.mark_sale_paid_state('00000000-0000-0000-0000-0000000000a4', tap._u153('pay4'), 'ck88-mp6') r),
+  'G45: a payment already carried by another sale is payment_reused (one payment, one sale — E-105)');
+SELECT is((market.bind_checkout_payment_ref('00000000-0000-0000-0000-0000000000a4', 'pi_88_other', 'ck88-bind4') ->> 'status'), 'ok', 'G46: bind a PI ref on the fresh reservation…');
+SELECT ok((SELECT r ->> 'status' = 'conflict_locked' AND r ->> 'reason' = 'payment_intent_mismatch' FROM market.mark_sale_paid_state('00000000-0000-0000-0000-0000000000a4', tap._u153('pay4b'), 'ck88-mp7') r),
+  'G47: …a payment whose PI is not the bound ref is payment_intent_mismatch (§20.8.9 binding)');
+SELECT throws_ok($$INSERT INTO market.market_sale (listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, payment_id, sale_state, command_idempotency_key)
+  VALUES (tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, tap._u153('pay4'), 'initiated', 'ck88-s-dup')$$, '23505', NULL,
+  'G48: E-105 structural — a second sale row carrying the same payment is unstorable');
+DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-0000000000a4';
+UPDATE market.listing_native SET status='sold' WHERE listing_id = tap._u153('l2');
+SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'market_sale', %L, %L, 'ck88-x10')$$, tap._u153('a2'), tap.fan153(), tap._u153('s2b'), tap._u153('pay2')), '%already settled another custody move%',
+  'G49: the engine refuses a payment already linked to ANOTHER sale (R-34 one link; C35)');
 
 -- ============================================================================
 -- SECTION H — DISPUTES (R-40; PFA-13; PFA-31 park; PFA-29 chargeback seam; E-90)
@@ -613,11 +655,14 @@ SELECT is((kernel.record_dispute_native('dp_88_1', 'ch_88_1', 'pi_88_1', 15000, 
 SELECT is((SELECT count(*)::int FROM kernel.dispute_native), 1, 'H15: one dispute row');
 SELECT is(tap._audit153(tap._u153('d1'), 'dispute.record'), 1, 'H16: no second audit row');
 -- the no-link arm
-SELECT tap._store153('d5r', kernel.record_dispute_native('dp_88_5', 'ch_88_5', 'pi_88_5', 5000, 'USD', 'product_not_received', 'needs_response', NULL, 'ck88-d5')::text);
+SELECT tap._store153('d5r', kernel.record_dispute_native('dp_88_5', 'ch_88_5', 'pi_88_5', 5000, 'usd', 'product_not_received', 'needs_response', NULL, 'ck88-d5')::text);
 SELECT tap._store153('d5', (tap._fetch153('d5r')::jsonb ->> 'dispute_id'));
 SELECT ok((tap._fetch153('d5r')::jsonb ->> 'linked')::boolean = false AND (tap._fetch153('d5r')::jsonb ->> 'atoms_held')::int = 0 AND (tap._fetch153('d5r')::jsonb ->> 'payouts_held')::int = 0,
   'H17: NO-LINK ARM — a payment with no payment_native row is recorded with zero freeze legs');
 SELECT is(tap._audit153(tap._u153('d5'), 'dispute.alert', 'no_link'), 1, 'H18: …and alerted');
+SELECT is((SELECT currency FROM kernel.dispute_native WHERE dispute_id = tap._u153('d5')), 'USD', 'H18a: a lowercase Stripe currency is normalized to the ISO uppercase the seam compares on');
+SELECT throws_like($$SELECT kernel.record_dispute_native('dp_x2', 'ch_x2', 'pi_88_5', 1, 'US', 'x', 'won', NULL, 'ck88-d-x2')$$, '%invalid_input%currency%', 'H18b: a non-ISO currency is refused');
+SELECT throws_like($$SELECT kernel.record_dispute_native('dp_x3', 'ch_x3', 'pi_88_5', 1, 'USD', 'x', 'won', NULL, 'bad key!')$$, '%invalid_input%command_key%', 'H18c: E-80 — a command key that would land in the audit is bounded');
 -- BP-7 native twin while open
 SELECT is(kernel.deletion_blockers_market(tap.other_user()), 'BP-7: open native dispute', 'H19: BP-7 twin — the disputed payment''s buyer (d5: other_user) is deletion-blocked while the dispute is OPEN');
 SELECT is(kernel.deletion_blockers_market(tap.buyer()), 'BP-3: unsettled native sale', 'H19a: the ordered predicate — BP-3 (the seller''s unsettled s2b) precedes BP-7 for the buyer');
@@ -650,6 +695,9 @@ SELECT is((kernel.unlock_ticket(tap._u153('a1'), 'ck88-ul3') ->> 'resale_state')
 SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'admin_action', %L, NULL, 'ck88-x7')$$, tap._u153('a3'), tap.fan153(), gen_random_uuid()), '%conflict_locked%',
   'H31: the engine refuses a dispute_hold atom (overlay check) — R-40 custody freeze');
 UPDATE kernel.tickets SET resale_state='listed' WHERE ticket_atom_id = tap._u153('a3');
+SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'admin_action', %L, NULL, 'ck88-x8a')$$, tap._u153('a3'), tap.fan153(), gen_random_uuid()), '%conflict_locked%',
+  'H32a: admin_action never moves an atom under a LIVE market overlay (the listing/transfer must be cancelled first)');
+UPDATE kernel.tickets SET resale_state='none' WHERE ticket_atom_id = tap._u153('a3');
 SELECT throws_like(format($$SELECT kernel.transfer_ticket_ownership(%L, %L, 'admin_action', %L, NULL, 'ck88-x8')$$, tap._u153('a3'), tap.fan153(), gen_random_uuid()), '%open_dispute%',
   'H32: …and refuses on the open-dispute predicate even when the overlay would allow (the R-40 mirror)');
 UPDATE kernel.tickets SET resale_state='dispute_hold' WHERE ticket_atom_id = tap._u153('a3');
@@ -665,6 +713,7 @@ SELECT throws_like($$SELECT kernel.mark_dispute_state('dp_88_5', 'lost', 'ck88-m
 SELECT is(kernel.deletion_blockers_market(tap.other_user()), NULL, 'H40a: BP-7 releases once the dispute is terminal (won)');
 SELECT is((kernel.mark_dispute_state('dp_88_1', 'lost', 'ck88-m3') ->> 'dispute_status'), 'lost', 'H41: dispute 1 → LOST (the chargeback fact)');
 SELECT is((tap._atom153(tap._u153('a3'))).resale_state, 'dispute_hold', 'H42: PFA-31 — a Stripe-reported terminal is a STATE fact: the atom stays held');
+SELECT is((kernel.unlock_ticket(tap._u153('a3'), 'ck88-ul4') ->> 'resale_state'), 'dispute_hold', 'H42a: a market release NEVER clears dispute_hold — only resolution does (PFA-31), even after the dispute is terminal');
 SELECT ok((SELECT p.hold_state='held' FROM kernel.payout p WHERE p.payout_id = tap._u153('po1')), 'H43: …and the payout stays held');
 SELECT is(kernel.deletion_blockers_market(tap.buyer()), 'BP-3: unsettled native sale', 'H44: a LOST dispute no longer blocks its buyer under BP-7; the buyer''s remaining blocker is BP-3 (the unsettled s2b)');
 -- the chargeback seam (OWNER TESTS B, C, D)
@@ -795,7 +844,7 @@ SELECT throws_ok($$SELECT market.cancel_p2p_transfer('00000000-0000-0000-0000-00
 SELECT tap.logout();
 SELECT throws_ok($$SELECT market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b4', 'changed_mind', 'ck88-cn-y')$$, '42501', NULL, 'K24: the definer arm (no auth.uid) may ONLY expire');
 SELECT tap.login(tap.buyer());
-SELECT throws_like($$SELECT market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b4', 'expired', 'ck88-cn-z')$$, '%invalid_input%sweep%', 'K25: a sender cannot write ''expired'' (the sweep''s transition)');
+SELECT throws_like($$SELECT market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b4', 'expired', 'ck88-cn-z')$$, '%system reason%', 'K25: a sender cannot write ''expired'' / a system reason (the sweep''s transition)');
 SELECT is((market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b4', 'changed_mind', 'ck88-cn1') ->> 'final_state'), 'cancelled', 'K26: the sender cancels');
 SELECT is((market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b4', 'changed_mind', 'ck88-cn1b') ->> 'status'), 'noop_replay', 'K27: a re-cancel replays');
 SELECT tap.logout();
@@ -813,6 +862,16 @@ SELECT is((tap._atom153(tap._u153('a1'))).resale_state, 'none', 'K32: …and unl
 SELECT is((tap._fetch153('sw1')::jsonb ->> 'offers_expired')::int, 1, 'K33: the tick''s SECOND statement expired the lapsed pending offer (presentational)');
 SELECT ok((SELECT status='expired' FROM market.offer WHERE offer_id='00000000-0000-0000-0000-00000000f001'), 'K34: …the F18 offer is now expired');
 SELECT is((market.sweep_expired_p2p_transfers() ->> 'swept_count')::int, 0, 'K35: a re-run sweeps nothing (re-entrant)');
+SELECT tap.login(tap.buyer());
+SELECT is((tap._lock153(tap._u153('a1'), 'locked', 'ck88-lk8') ->> 'status'), 'ok', 'K35a: buyer locks a1 for an unlapsed transfer');
+SELECT tap.logout();
+INSERT INTO market.p2p_transfer (transfer_id, ticket_atom_id, from_identity, to_identity, expires_at, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000b8', tap._u153('a1'), tap.buyer(), tap.fan153(), now()+interval '1 hour', 'ck88-t8');
+SELECT throws_like($$SELECT market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b8', 'expired', 'ck88-cn8')$$, '%has not lapsed%', 'K35b: §8.3 — the definer arm expires ONLY TTL-lapsed rows');
+SELECT ok((SELECT status='initiated' FROM market.p2p_transfer WHERE transfer_id='00000000-0000-0000-0000-0000000000b8'), 'K35c: …the live transfer is untouched');
+SELECT tap.login(tap.buyer());
+SELECT is((market.cancel_p2p_transfer('00000000-0000-0000-0000-0000000000b8', 'changed_mind', 'ck88-cn8b') ->> 'final_state'), 'cancelled', 'K35d: cleaned up by the sender');
+SELECT tap.logout();
 -- BP-4 twin
 SELECT tap.login(tap.buyer());
 SELECT is((tap._lock153(tap._u153('a1'), 'locked', 'ck88-lk6') ->> 'status'), 'ok', 'K36: buyer locks a1 for a transfer to risk153');
@@ -857,10 +916,21 @@ SELECT is((SELECT count(*)::int FROM kernel.ticket_ownership_log WHERE ticket_at
 -- SECTION J — market.on_atom_voided (C26 compensate arm; E-95)
 -- ============================================================================
 SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a2'), gen_random_uuid()), 'J1: the hook runs on the paid-pending atom');
-SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153(tap._u153('s2b')) s), 'J2: pending → COMPENSATED (the XOR arm)');
-SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.compensated'), 1, 'J3: audited once');
-SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a2'), gen_random_uuid()), 'J4: a second void is a no-op');
-SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.compensated'), 1, 'J5: …no second audit row');
+SELECT ok((SELECT s.terminal_state='pending' AND s.sale_state='paid_pending_transfer' FROM tap._sale153(tap._u153('s2b')) s),
+  'J2: a PAID sale whose buyer''s payment carries NO refund is NEVER terminalized (money would be stranded) — stays pending…');
+SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.alert', 'compensation_refund_missing'), 1, 'J3: …and platform_risk is alerted');
+SELECT tap._store153('rf4', tap._refund153(tap._u153('pay4'), 'ck88-rf4')::text);
+SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a2'), tap._u153('rf4')), 'J4: with a refund intent on the buyer''s payment the hook runs again…');
+SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153(tap._u153('s2b')) s), 'J4a: …pending → COMPENSATED (compensated ⇔ refunded; C26)');
+SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.compensated'), 1, 'J5: audited once');
+SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a2'), tap._u153('rf4')), 'J5a: a third void is a no-op');
+SELECT is(tap._audit153(tap._u153('s2b'), 'market_sale.compensated'), 1, 'J5b: …no second audit row');
+INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, sale_state, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000a5', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, 'initiated', 'ck88-s5');
+SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J5c: an UNPAID reservation on a voided atom…');
+SELECT ok((SELECT s.sale_state='cancelled' AND s.terminal_state='pending' FROM tap._sale153('00000000-0000-0000-0000-0000000000a5') s) AND tap._audit153('00000000-0000-0000-0000-0000000000a5', 'market_sale.cancelled', 'refund_void') = 1,
+  'J5d: …dies with the atom (cancelled; a late payment then meets the cancelled arm)');
+DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-0000000000a5';
 SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J6: E-95 — a void of a COMPLETED sale''s atom does not raise…');
 SELECT ok((SELECT s.terminal_state='completed' FROM tap._sale153(tap._u153('s1')) s), 'J7: …and never flips completed → compensated (C26 XOR holds)');
 SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz3')$$, tap._u153('s2b')), '%state_conflict%compensated%', 'J8: a compensated sale can never be completed');
@@ -875,14 +945,38 @@ SELECT tap.logout();
 SELECT tap.login(tap.other_user());
 SELECT tap._store153('l5', (market.create_listing(tap._u153('a5'), 5000, 'buy_now', 'ck88-l5') ->> 'listing_id'));
 SELECT tap.logout();
+-- a PAID, untransferred resale of a5 (the P0 operand): fan153 paid pay8; the atom is about to be voided
+UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l5');
+SELECT tap._store153('pay8', tap._newpayment153(tap.fan153(), tap.other_user(), 5000, 'pi_88_8')::text);
+INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, payment_id, sale_state, paid_pending_since, command_idempotency_key)
+VALUES ('00000000-0000-0000-0000-0000000000a6', tap._u153('l5'), tap._u153('a5'), tap.fan153(), tap.other_user(), 5000, tap._u153('pay8'), 'paid_pending_transfer', now(), 'ck88-s6');
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT catalog.cancel_event(%L, 'weather', 'ck88-ce-x')$$, tap._u153('event2')), '42501', NULL, 'L1: a fan cannot cancel an event');
+SELECT tap.logout();
+-- E-76: a venue_manager of a venue whose CURRENT operator is another org may not cancel
+INSERT INTO venue.staff_role (venue_id, identity_id, role, granted_by) VALUES (tap._u153('venue1'), tap.fan153(), 'venue_manager', tap.admin_user()) ON CONFLICT DO NOTHING;
+SELECT tap.login(tap.other_user());
+SELECT tap._store153('org2', (kernel.create_organization('Other Op','Other Op','ck88-o2') ->> 'org_id'));
+SELECT tap.logout();
+UPDATE kernel.organization SET status='approved' WHERE org_id = tap._u153('org2');
+UPDATE catalog.venue SET org_id = tap._u153('org2') WHERE venue_id = tap._u153('venue1');
+SELECT tap.login(tap.fan153());
+SELECT throws_ok(format($$SELECT catalog.cancel_event(%L, 'weather', 'ck88-ce-x2')$$, tap._u153('event2')), '42501', NULL,
+  'L1a: E-76 — a venue_manager arm requires the venue''s CURRENT operator to be the event''s org (re-operated venue ⇒ refused)');
+SELECT tap.logout();
+UPDATE catalog.venue SET org_id = tap._u153('org1') WHERE venue_id = tap._u153('venue1');
+SELECT tap.login(tap.fan153());
+SELECT throws_like(format($$SELECT catalog.cancel_event(%L, 'bad reason!', 'ck88-ce-x3')$$, tap._u153('event2')), '%invalid_input%reason_code%', 'L1b: E-80 — a reason that lands in the audit is bounded');
 SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT tap._store153('ce1', catalog.cancel_event(tap._u153('event2'), 'weather', 'ck88-ce1')::text);
 SELECT tap.logout();
-SELECT ok((tap._fetch153('ce1')::jsonb ->> 'status')='ok' AND (tap._fetch153('ce1')::jsonb ->> 'atoms_voided')::int=1 AND (tap._fetch153('ce1')::jsonb ->> 'refunds_created')::int=1 AND (tap._fetch153('ce1')::jsonb ->> 'atoms_skipped')::int=1,
-  'L2: the org_owner cancels: 1 atom voided, 1 refund created, 1 skipped (the comp mint — E-102)');
+SELECT ok((tap._fetch153('ce1')::jsonb ->> 'status')='ok' AND (tap._fetch153('ce1')::jsonb ->> 'atoms_voided')::int=1 AND (tap._fetch153('ce1')::jsonb ->> 'refunds_created')::int=2 AND (tap._fetch153('ce1')::jsonb ->> 'atoms_skipped')::int=1,
+  'L2: the org_owner cancels: 1 atom voided, TWO refunds created (the order''s buyer AND the resale buyer), 1 skipped (the comp mint — E-102)');
+SELECT ok((SELECT r.reason_code='event_cancelled' AND r.amount_minor=5000 AND r.idempotency_key='ck88-ce1:sale:00000000-0000-0000-0000-0000000000a6' FROM kernel.refund r WHERE r.payment_id = tap._u153('pay8')),
+  'L2a: P0 — the RESALE BUYER''s payment gets its own refund intent (one per paid sale, deterministic key)');
+SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153('00000000-0000-0000-0000-0000000000a6') s), 'L2b: …and the sale is compensated (compensated ⇔ refunded)');
+SELECT is((SELECT count(*)::int FROM notify.outbox o WHERE o.event_type='refund_requested' AND o.aggregate_id = (SELECT r.refund_id FROM kernel.refund r WHERE r.payment_id = tap._u153('pay8'))), 1, 'L2c: refund_requested REQUIRED-emitted for it');
 SELECT ok((SELECT r.reason_code='event_cancelled' AND r.amount_minor=5000 AND r.status='pending' AND r.idempotency_key='ck88-ce1:order:'||tap._fetch153('order2')
              FROM kernel.refund r WHERE r.payment_id = tap._u153('pay6')),
   'L3: ONE refund per originating order (amount = the voided item price; deterministic key)');
@@ -904,6 +998,27 @@ SELECT is((catalog.cancel_event(tap._u153('event2'), 'weather', 'ck88-ce1') ->> 
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM kernel.refund r WHERE r.payment_id = tap._u153('pay6')), 1, 'L13: …and no second refund');
 SELECT ok((SELECT sold = 0 FROM venue.inventory_batch WHERE batch_id = tap._u153('batch2')), 'L14: capacity returned (void_return)');
+SELECT ok((SELECT position('inventory_batch b where b.event_session_id' in p.prosrc) < position('kernel.void_ticket_atom(' in p.prosrc)
+              AND position('kernel.void_ticket_atom(' in p.prosrc) < position('insert into kernel.refund (refund_id' in p.prosrc)
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog' AND p.proname='cancel_event'),
+  'L15: §14.2 structural — Inventory (2) is locked before the atom voids (5), and the order refund row is inserted after them (6)');
+SELECT ok((SELECT p.prosrc LIKE '%dispute_native d%lost%charge_refunded%' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog' AND p.proname='cancel_event'),
+  'L16: E-102 — the §11.4 sum guard counts lost/charge_refunded disputes as money already returned');
+SELECT ok((SELECT position('for share' in p.prosrc) < position('for update;' in p.prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market' AND p.proname='finalize_market_sale'),
+  'L17: §20.8.10 structural — finalize takes Session FOR SHARE (1) before the Listing (4)');
+SELECT ok((SELECT position('from market.market_sale ms where ms.sale_id = p_cause_ref for update' in p.prosrc) < position('from kernel.tickets t where t.ticket_atom_id = p_atom_id for update' in p.prosrc)
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='transfer_ticket_ownership'),
+  'L18: §14.2 structural — the engine takes the Sale (4) before the Atom (5)');
+-- the LAST act: cancel event1, whose payments were fully charged back — nothing is refunded twice
+SELECT tap.login(tap.seller());
+SELECT tap._store153('ce2', catalog.cancel_event(tap._u153('event1'), 'venue_closed', 'ck88-ce2')::text);
+SELECT tap.logout();
+SELECT ok((tap._fetch153('ce2')::jsonb ->> 'refunds_created')::int = 0 AND (tap._fetch153('ce2')::jsonb ->> 'atoms_voided')::int = 0,
+  'L19: cancelling event1 — pay1 (lost 15000 = total) and pay7 (lost 5000 = total): ZERO refunds, ZERO voids (money already returned)');
+SELECT ok(tap._audit153(tap._u153('order1'), 'event.cancel_skip', 'money_already_returned') = 1 AND tap._audit153(tap._u153('order3'), 'event.cancel_skip', 'money_already_returned') = 1,
+  'L20: …each order is audited money_already_returned, its atoms left as they are (held / disputed)');
+SELECT is((SELECT count(*)::int FROM kernel.refund r WHERE r.payment_id IN (tap._u153('pay1'), tap._u153('pay7'))), 0, 'L21: no refund intent on a charged-back payment (§12.3: the refund leg is satisfied by the chargeback)');
+SELECT ok((SELECT status='cancelled' FROM catalog.event WHERE event_id=tap._u153('event1')), 'L22: the event is still cancelled (the cascade is money-safe, not money-blind)');
 
 -- ============================================================================
 -- SECTION M — DELETION (BP-3 twin; the 16d erase allowance; composition)

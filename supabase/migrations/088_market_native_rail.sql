@@ -148,6 +148,8 @@ create index if not exists market_sale_paid_pending_idx on market.market_sale (p
 -- at most ONE live checkout per listing — the index, not a NOT EXISTS (R-37/OR-22)
 create unique index if not exists market_sale_listing_initiated_uq on market.market_sale (listing_id) where sale_state = 'initiated';
 create index if not exists market_sale_reservation_idx on market.market_sale (reservation_expires_at) where sale_state = 'initiated';
+-- one succeeded payment settles ONE sale (C35 / R-34; §20.8.7 write-once) — the structural backstop (E-105)
+create unique index if not exists market_sale_payment_uq on market.market_sale (payment_id) where payment_id is not null;
 drop trigger if exists tg_market_sale_set_updated_at on market.market_sale;
 create trigger tg_market_sale_set_updated_at before update on market.market_sale
   for each row execute function kernel.set_updated_at();
@@ -252,7 +254,7 @@ create policy market_auction_sel_public on market.auction for select to authenti
   using (status = 'active');
 
 -- offer: buyer's own offers + the listing seller's offers-on-own-listing
-grant select on market.offer to authenticated;
+grant select (offer_id, listing_id, buyer_id, amount_minor, currency, status, expires_at, created_at, updated_at) on market.offer to authenticated;
 drop policy if exists market_offer_sel_owner on market.offer;
 create policy market_offer_sel_owner on market.offer for select to authenticated
   using (buyer_id = auth.uid()
@@ -260,7 +262,7 @@ create policy market_offer_sel_owner on market.offer for select to authenticated
 
 -- market_sale: ZERO client policies (RLS §16.10) — reads only via get_market_sale_status.
 -- p2p_transfer: owner-scoped (sender or resolved recipient)
-grant select on market.p2p_transfer to authenticated;
+grant select (transfer_id, ticket_atom_id, from_identity, to_identity, to_handle, price_minor, currency, status, reason_code, expires_at, created_at, updated_at) on market.p2p_transfer to authenticated;
 drop policy if exists market_p2p_transfer_sel_owner on market.p2p_transfer;
 create policy market_p2p_transfer_sel_owner on market.p2p_transfer for select to authenticated
   using (from_identity = auth.uid() or to_identity = auth.uid());
@@ -291,8 +293,13 @@ end $$;
 
 -- 3a — kernel.settlement_royalty_lines (RPC §20.11.1; stub 087). PFA-29 / O-C:
 --   THE 088 settlement-line-source seam — it returns BOTH 088-owned candidate
---   classes for the settlement being closed. STABLE, pure, deterministic within
---   a transaction, NEVER raises (a raise rolls back a settlement close).
+--   classes for the settlement being closed. Deterministic, NEVER raises (a raise
+--   rolls back a settlement close). VOLATILE + a per-org TRANSACTION advisory lock
+--   (E-104): two settlements of one org closing concurrently must not both pass
+--   the NOT EXISTS dedupe — a STABLE body keeps the caller's statement snapshot
+--   and cannot see a sibling close committed while it waited; the lock is released
+--   at commit and the Gate-M cross-settlement unique (PFA-29 / §3.14.1) is the
+--   structural successor.
 --   ROYALTY ARM (E-90: a POSITIVE venue earning, credit +, lands in GROSS under
 --     087's sign-derived buckets): completed native sales whose atom belongs to
 --     the settlement's scope (event, or venue+period) and whose stored
@@ -310,8 +317,17 @@ end $$;
 --     debt on the resale rail is BP-11/C31 Gate-M (§20.7.14) — recorded E-94.
 create or replace function kernel.settlement_royalty_lines(p_settlement_id uuid)
 returns setof kernel.settlement_line_candidate
-language sql stable security definer set search_path = ''
+language plpgsql volatile security definer set search_path = ''
 as $$
+declare v_org uuid;
+begin
+  select st.org_id into v_org from venue.settlement st where st.settlement_id = p_settlement_id;
+  if v_org is null then return; end if;
+  -- E-104: serialize this org's candidate emission for the calling transaction
+  -- (released at commit). After the wait, every query below takes a fresh
+  -- snapshot (VOLATILE), so a line committed by the sibling close is SEEN.
+  perform pg_advisory_xact_lock(hashtext('settlement.seam.org:' || v_org::text));
+  return query
   with s as (
     select st.settlement_id, st.org_id, st.venue_id, st.event_id, st.period_start, st.period_end, st.currency
       from venue.settlement st where st.settlement_id = p_settlement_id
@@ -344,7 +360,8 @@ as $$
   select * from royalty
   union all
   select * from chargeback
-  order by 1, 2
+  order by 1, 2;
+end;
 $$;
 
 -- 3b — market.on_atom_voided (RPC §20.11.3; stub 085). The C26 compensate arm:
@@ -358,21 +375,32 @@ $$;
 create or replace function market.on_atom_voided(p_atom_id uuid, p_refund_id uuid, p_cause text)
 returns void language plpgsql security definer set search_path = ''
 as $$
-declare v_sale market.market_sale%rowtype;
+declare v_sale market.market_sale%rowtype; v_sys constant uuid := '00000000-0000-0000-0000-0000000000f1';
 begin
-  select * into v_sale from market.market_sale ms
-   where ms.ticket_atom_id = p_atom_id and ms.sale_state <> 'cancelled'
-   order by ms.created_at desc limit 1
-   for update;                                   -- rank 4, before the caller's rank-5 atom lock
-  if not found or v_sale.terminal_state <> 'pending' then
-    return;                                      -- nothing to compensate (or already terminal)
-  end if;
-  update market.market_sale
-     set terminal_state = 'compensated', updated_at = now()
-   where sale_id = v_sale.sale_id;
-  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-  values (coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1'), 'market_sale.compensated', 'market_sale', v_sale.sale_id,
-          coalesce(p_cause, 'refund_void'), jsonb_build_object('atom_id', p_atom_id, 'refund_id', p_refund_id));
+  -- EVERY non-terminal, non-cancelled sale on the atom (rank 4, before the caller's rank-5 atom lock).
+  for v_sale in select * from market.market_sale ms
+                 where ms.ticket_atom_id = p_atom_id and ms.sale_state <> 'cancelled' and ms.terminal_state = 'pending'
+                 order by ms.created_at for update loop
+    if v_sale.payment_id is null then
+      -- an UNPAID reservation dies with the atom (a late payment then meets the cancelled arm: alert + reverse).
+      update market.market_sale set sale_state = 'cancelled', updated_at = now() where sale_id = v_sale.sale_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_sys, 'market_sale.cancelled', 'market_sale', v_sale.sale_id, coalesce(p_cause, 'refund_void'),
+              jsonb_build_object('atom_id', p_atom_id, 'refund_id', p_refund_id, 'reason', 'atom_voided_unpaid'));
+    elsif exists (select 1 from kernel.refund r where r.payment_id = v_sale.payment_id and r.status <> 'failed') then
+      -- the buyer's money carries a refund intent: the C26 compensate arm (compensated ⇔ refunded).
+      update market.market_sale set terminal_state = 'compensated', updated_at = now() where sale_id = v_sale.sale_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_sys, 'market_sale.compensated', 'market_sale', v_sale.sale_id, coalesce(p_cause, 'refund_void'),
+              jsonb_build_object('atom_id', p_atom_id, 'refund_id', p_refund_id));
+    else
+      -- PAID and NO refund for the buyer's payment: NEVER terminalize (money would be stranded
+      -- behind a 'compensated' label nobody revisits). Leave pending; alert platform_risk.
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_sys, 'market_sale.alert', 'market_sale', v_sale.sale_id, 'compensation_refund_missing',
+              jsonb_build_object('atom_id', p_atom_id, 'refund_id', p_refund_id, 'payment_id', v_sale.payment_id, 'audience', 'platform_risk'));
+    end if;
+  end loop;
 end;
 $$;
 
@@ -491,10 +519,13 @@ $$;
 --   verbatim). The release resolves to 'dispute_hold' — NOT 'none' — while an
 --   open kernel.dispute_native row joins the atom's ORIGINATING payment (the
 --   issuance order's payment, or the completed native sale's payment); every
---   native release path (cancel_listing, the door drain, cancel/expire p2p, the
---   refund-hold release, Q5) routes through this one primitive, so the
---   persist-until-resolve property holds with no new verb. Everything else is
---   the 079 body unchanged: no owner precondition, no freeze recheck, noop on 'none'.
+--   088 release path (cancel_listing, the door drain, cancel/expire/decline p2p,
+--   cancel_event) routes through this one primitive. NOTE: 085's refund-hold
+--   release paths write resale_state = 'none' directly (immutable bytes) and do
+--   not re-arm — the engine's R-40 mirror still refuses the move; recorded as
+--   REFUND_HOLD_RELEASE_REARM (forward obligation). A 'dispute_hold' atom is
+--   released by NOTHING here (PFA-31: resolution only). Everything else is the
+--   079 body unchanged: no owner precondition, no freeze recheck, noop on 'none'.
 create or replace function kernel.unlock_ticket(
   p_atom_id uuid, p_command_key text)
 returns jsonb
@@ -522,6 +553,11 @@ begin
   end if;
   if v_resale = 'none' then
     return jsonb_build_object('status','noop_replay','resale_state','none');
+  end if;
+  if v_resale = 'dispute_hold' then
+    -- PFA-31: a dispute hold is released ONLY by dispute resolution (parked) —
+    -- never by a market release, and not by a Stripe-reported terminal.
+    return jsonb_build_object('status','noop_replay','resale_state','dispute_hold');
   end if;
 
   -- R-40 RE-ARM (PFA-13): an open dispute on the atom's originating payment —
@@ -573,7 +609,7 @@ returns jsonb language plpgsql security definer set search_path = ''
 as $$
 declare
   v_t kernel.tickets%rowtype; v_session uuid; v_seq integer; v_cv integer; v_state text; v_pay public.payments%rowtype;
-  v_sale market.market_sale%rowtype; v_actor uuid := coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1');
+  v_sale market.market_sale%rowtype; v_pn kernel.payment_native%rowtype; v_actor uuid := coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1');
 begin
   if p_cause is null or p_cause not in ('market_sale','auction_sale','p2p_transfer','admin_action') then
     raise exception 'invalid_input: % is not a transfer cause', coalesce(p_cause,'<null>');
@@ -584,6 +620,12 @@ begin
   select t.event_session_id into v_session from kernel.tickets t where t.ticket_atom_id = p_atom_id;
   if v_session is null then raise exception 'not_found: atom %', p_atom_id using errcode = 'P0002'; end if;
   perform 1 from catalog.event_session s where s.session_id = v_session for share;         -- rank 1: the freeze read
+  -- rank 4 BEFORE rank 5 (§14.2): the sale row of a native sale is taken here (a
+  -- market caller already holds it — re-locking is free; a direct call is ordered).
+  if p_cause in ('market_sale','auction_sale') then
+    select * into v_sale from market.market_sale ms where ms.sale_id = p_cause_ref for update;
+    if not found then raise exception 'not_found: sale %', p_cause_ref using errcode = 'P0002'; end if;
+  end if;
   select * into v_t from kernel.tickets t where t.ticket_atom_id = p_atom_id for update;   -- rank 5 (E-22: held to commit)
   -- C26/C16 replay: the same custody move already recorded ⇒ the original result.
   if exists (select 1 from kernel.ticket_ownership_log l
@@ -605,9 +647,12 @@ begin
   if v_t.state <> 'active' then
     raise exception 'precondition_failed: atom is %, not transferable', v_t.state;
   end if;
+  -- the sanctioned overlays: a native sale moves a LISTED atom, a p2p moves a
+  -- LOCKED one; the break-glass admin_action moves only a FREE atom (a live
+  -- listing/transfer must be cancelled first — never orphaned under a moved atom).
   if (p_cause in ('market_sale','auction_sale') and v_t.resale_state <> 'listed')
      or (p_cause = 'p2p_transfer' and v_t.resale_state <> 'locked')
-     or (p_cause = 'admin_action' and v_t.resale_state not in ('none','listed','locked')) then
+     or (p_cause = 'admin_action' and v_t.resale_state <> 'none') then
     raise exception 'precondition_failed: conflict_locked (resale_state=%)', v_t.resale_state;
   end if;
   -- R-40 mirror: no open dispute on the payment that acquired the atom for its
@@ -633,10 +678,9 @@ begin
   if kernel.is_transfer_frozen(p_atom_id) then
     raise exception 'precondition_failed: frozen';
   end if;
-  -- C35: a native sale's payment belongs to the RECIPIENT and is real (succeeded).
+  -- C35: a native sale's payment belongs to the RECIPIENT, is real (succeeded), and settles ONE custody move.
   if p_cause in ('market_sale','auction_sale') then
-    select * into v_sale from market.market_sale ms where ms.sale_id = p_cause_ref for update;   -- rank 4 (the caller holds the listing)
-    if not found or v_sale.ticket_atom_id <> p_atom_id or v_sale.buyer_id <> p_to_identity then
+    if v_sale.ticket_atom_id <> p_atom_id or v_sale.buyer_id <> p_to_identity then
       raise exception 'precondition_failed: sale does not bind this atom and recipient';
     end if;
     if v_sale.terminal_state = 'compensated' then
@@ -648,6 +692,11 @@ begin
     select * into v_pay from public.payments p where p.id = p_payment_id;
     if not found or v_pay.buyer_id <> p_to_identity or v_pay.status <> 'succeeded' then
       raise exception 'payment_unverified: payment does not belong to the recipient or is not succeeded';
+    end if;
+    -- a payment already linked to ANOTHER order/sale never funds a second move (R-34 one link)
+    select * into v_pn from kernel.payment_native pn where pn.payment_id = p_payment_id;
+    if found and (v_pn.order_id is not null or v_pn.sale_id is distinct from p_cause_ref) then
+      raise exception 'payment_unverified: payment % already settled another custody move', p_payment_id;
     end if;
   end if;
   -- ledger FIRST (the idempotency anchors live here), then the head — one txn under the atom lock.
@@ -662,10 +711,9 @@ begin
      set current_owner_id = p_to_identity, credential_version = v_cv, resale_state = 'none', updated_at = now()
    where ticket_atom_id = p_atom_id;
   -- the payment link (R-34: born at transfer, instrument_fingerprint NULL — no webhook context here).
-  if p_payment_id is not null and p_cause in ('market_sale','auction_sale') then
+  if p_payment_id is not null and p_cause in ('market_sale','auction_sale') and v_pn.payment_id is null then
     insert into kernel.payment_native (payment_id, sale_id, amount_minor, currency, instrument_fingerprint)
-    values (p_payment_id, p_cause_ref, v_pay.total, v_sale.currency, null)
-    on conflict (payment_id) do nothing;
+    values (p_payment_id, p_cause_ref, v_pay.total, v_sale.currency, null);
   end if;
   if p_cause in ('market_sale','auction_sale') then
     update market.market_sale set terminal_state = 'completed', updated_at = now()
@@ -709,15 +757,22 @@ declare
   v_sys constant uuid := '00000000-0000-0000-0000-0000000000f1';
   v_pay public.payments%rowtype; v_pn kernel.payment_native%rowtype; v_d kernel.dispute_native%rowtype;
   v_open boolean; v_atom record; v_row record; v_po record; v_held integer := 0; v_atoms integer := 0; v_skipped integer := 0;
+  v_ccy text;
 begin
   if p_stripe_dispute_ref is null or p_stripe_charge_ref is null or p_reason is null or p_command_key is null then
     raise exception 'invalid_input: dispute ref, charge ref, reason and command_key are required';
+  end if;
+  if p_command_key !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: command_key must be 1-64 chars of [A-Za-z0-9._:-] (it lands in the immutable audit)';
   end if;
   if p_status is null or p_status not in ('warning_needs_response','warning_under_review','warning_closed',
                                            'needs_response','under_review','won','lost','charge_refunded') then
     raise exception 'invalid_input: % is not a dispute status', coalesce(p_status,'<null>');
   end if;
   if p_amount_minor is null or p_amount_minor < 0 then raise exception 'invalid_input: amount_minor must be >= 0'; end if;
+  -- currency: Stripe reports lowercase ISO codes; the seam compares by equality — normalize, never guess.
+  v_ccy := upper(coalesce(p_currency, 'USD'));
+  if v_ccy !~ '^[A-Z]{3}$' then raise exception 'invalid_input: currency must be a 3-letter ISO code'; end if;
   -- replay: the same Stripe dispute is recorded once; a status change is mark_dispute_state's.
   select * into v_d from kernel.dispute_native d where d.stripe_dispute_ref = p_stripe_dispute_ref for update;
   if found then
@@ -728,11 +783,17 @@ begin
   if not found then
     raise exception 'not_found: no payment for payment intent %', coalesce(p_stripe_pi_ref,'<null>') using errcode = 'P0002';
   end if;
-  insert into kernel.dispute_native (stripe_dispute_ref, stripe_charge_ref, stripe_pi_ref, payment_id, amount_minor, currency,
-                                     reason, evidence_due_at, status)
-  values (p_stripe_dispute_ref, p_stripe_charge_ref, p_stripe_pi_ref, v_pay.id, p_amount_minor, coalesce(p_currency,'USD'),
-          p_reason, p_evidence_due_at, p_status)
-  returning * into v_d;
+  begin
+    insert into kernel.dispute_native (stripe_dispute_ref, stripe_charge_ref, stripe_pi_ref, payment_id, amount_minor, currency,
+                                       reason, evidence_due_at, status)
+    values (p_stripe_dispute_ref, p_stripe_charge_ref, p_stripe_pi_ref, v_pay.id, p_amount_minor, v_ccy,
+            p_reason, p_evidence_due_at, p_status)
+    returning * into v_d;
+  exception when unique_violation then
+    -- a concurrent first record of the same Stripe dispute won: this call is its replay (UPSERT semantics).
+    select * into v_d from kernel.dispute_native d where d.stripe_dispute_ref = p_stripe_dispute_ref;
+    return jsonb_build_object('status','noop_replay','dispute_id', v_d.dispute_id);
+  end;
   v_open := p_status not in ('won','lost','warning_closed','charge_refunded');
   select * into v_pn from kernel.payment_native pn where pn.payment_id = v_pay.id;
   if v_open and found then
@@ -765,10 +826,12 @@ begin
                 jsonb_build_object('dispute_id', v_d.dispute_id, 'resale_state', v_row.resale_state, 'state', v_row.state, 'audience', 'platform_risk'));
       end if;
     end loop;
-    -- PAYOUT LEG: every pending/submitted, unheld payout reachable from the disputed payment.
+    -- PAYOUT LEG: every pending/submitted payout reachable from the disputed payment that is
+    -- not already under a dispute hold (a probation hold is upgraded: its own release path
+    -- is reason-scoped and never releases a 'dispute' hold — 087).
     for v_po in
       select po.payout_id, po.payee_org_id, po.payee_identity_id, po.amount_minor from kernel.payout po
-       where po.status in ('pending','submitted') and po.hold_state = 'none'
+       where po.status in ('pending','submitted') and po.hold_state in ('none','probation_hold')
          and (   (v_pn.sale_id is not null and po.cause_ref = v_pn.sale_id)
               or po.cause_ref in (select sl.settlement_id from venue.settlement_line sl
                                    where sl.cause_ref = coalesce(v_pn.order_id, v_pn.sale_id)))
@@ -788,7 +851,7 @@ begin
             jsonb_build_object('payment_id', v_pay.id, 'audience', 'platform_risk'));
   end if;
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-  values (v_sys, 'dispute.record', 'dispute_native', v_d.dispute_id, coalesce(p_command_key,'record'),
+  values (v_sys, 'dispute.record', 'dispute_native', v_d.dispute_id, p_command_key,
           jsonb_build_object('status', p_status, 'atoms_held', v_atoms, 'atoms_skipped', v_skipped, 'payouts_held', v_held,
                              'linked', (v_pn.id is not null)));
   return jsonb_build_object('status','ok','dispute_id', v_d.dispute_id, 'atoms_held', v_atoms, 'atoms_skipped', v_skipped,
@@ -956,6 +1019,9 @@ begin
   if v_l.seller_id <> v_uid and not v_platform then
     raise exception 'insufficient_privilege: seller, platform_admin or platform_risk only' using errcode = '42501';
   end if;
+  if p_reason_code is not null and (p_reason_code !~ '^[A-Za-z0-9._:-]{1,64}$' or p_reason_code in ('door_freeze','event_cancelled')) then
+    raise exception 'invalid_input: reason_code must be 1-64 chars of [A-Za-z0-9._:-] and not a system reason';
+  end if;
   if v_l.status = 'cancelled' then return jsonb_build_object('status','noop_replay','listing_id', p_listing_id,'final_state','cancelled'); end if;
   if v_l.status not in ('draft','active','reserved') then
     raise exception 'state_conflict: listing % is %', p_listing_id, v_l.status;
@@ -1013,7 +1079,7 @@ $$;
 create or replace function market.make_offer(p_listing_id uuid, p_amount_minor integer, p_expires_at timestamptz, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_uid uuid := auth.uid(); v_l market.listing_native%rowtype; v_ex market.offer%rowtype; v_replaced uuid; v_id uuid;
+declare v_uid uuid := auth.uid(); v_l market.listing_native%rowtype; v_ex market.offer%rowtype; v_replaced uuid; v_id uuid; v_cap bigint;
 begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
   if p_command_key is null or length(trim(p_command_key)) = 0 then raise exception 'precondition_failed: command key required'; end if;
@@ -1030,8 +1096,17 @@ begin
   if not found then raise exception 'not_found: listing %', p_listing_id using errcode = 'P0002'; end if;
   if v_l.seller_id = v_uid then raise exception 'precondition_failed: self_offer'; end if;
   if v_l.status <> 'active' then raise exception 'precondition_failed: listing_not_active (%)', v_l.status; end if;
-  if v_l.listing_mode <> 'offer' then raise exception 'precondition_failed: offers_not_accepted (listing_mode %)', v_l.listing_mode; end if;
+  if v_l.listing_mode not in ('buy_now','offer') then raise exception 'precondition_failed: offers_not_accepted (listing_mode %)', v_l.listing_mode; end if;
   if kernel.is_transfer_frozen(v_l.ticket_atom_id) then raise exception 'precondition_failed: frozen'; end if;
+  -- the LISTING's snapshot policy governs the offer (§20.8.5 above_cap): price ≤ floor(face × bps / 10000)
+  select (tt.price_minor::bigint * rp.price_cap_bps) / 10000 into v_cap
+    from catalog.resale_policy rp
+    join kernel.tickets t on t.ticket_atom_id = v_l.ticket_atom_id
+    join venue.ticket_type tt on tt.ticket_type_id = t.ticket_type_id
+   where rp.policy_id = v_l.resale_policy_id and rp.price_cap_bps is not null;
+  if v_cap is not null and p_amount_minor > v_cap then
+    raise exception 'precondition_failed: policy_violation (above_cap: offer % exceeds cap %)', p_amount_minor, v_cap;
+  end if;
   update market.offer set status = 'withdrawn', updated_at = now()
    where listing_id = p_listing_id and buyer_id = v_uid and status = 'pending' returning offer_id into v_replaced;
   insert into market.offer (listing_id, buyer_id, amount_minor, currency, status, expires_at, command_idempotency_key)
@@ -1104,8 +1179,9 @@ $$;
 create or replace function market.mark_sale_paid_state(p_sale_id uuid, p_payment_id uuid, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_s market.market_sale%rowtype; v_pay public.payments%rowtype; v_sys constant uuid := '00000000-0000-0000-0000-0000000000f1';
+declare v_s market.market_sale%rowtype; v_pay public.payments%rowtype; v_sys constant uuid := '00000000-0000-0000-0000-0000000000f1'; v_reason text;
 begin
+  if p_command_key is null or length(trim(p_command_key)) = 0 then raise exception 'precondition_failed: command key required'; end if;
   select * into v_s from market.market_sale ms where ms.sale_id = p_sale_id;
   if not found then raise exception 'not_found: sale %', p_sale_id using errcode = 'P0002'; end if;
   perform 1 from market.listing_native l where l.listing_id = v_s.listing_id for update;         -- rank 4
@@ -1114,24 +1190,37 @@ begin
   if not found or v_pay.buyer_id <> v_s.buyer_id or v_pay.status <> 'succeeded' then
     raise exception 'payment_unverified: payment does not belong to the sale buyer or is not succeeded';
   end if;
-  if v_s.sale_state in ('paid_pending_transfer','settled') then
+  -- true replay: the SAME payment on an already-paid sale.
+  if v_s.sale_state in ('paid_pending_transfer','settled') and v_s.payment_id = p_payment_id then
     return jsonb_build_object('status','noop_replay','sale_id', p_sale_id,'sale_state', v_s.sale_state);
   end if;
-  if v_s.sale_state = 'cancelled' then
-    -- money landed on a RELEASED checkout. Not a raise: a raise would roll the
-    -- alert back and make the webhook retry forever. The alert row (once per
-    -- sale+payment) is the reversal trigger for the edge; the result says so.
+  -- money landing where it cannot be consumed: NOT a raise (a raise would roll the
+  -- alert back and make the webhook retry forever). One alert per (sale, payment);
+  -- the result names the reversal action for the edge (E-107).
+  v_reason := case
+    when v_s.sale_state = 'cancelled'                                   then 'late_payment_on_cancelled'
+    when v_s.terminal_state <> 'pending'                                then 'late_payment_on_terminal'
+    when v_s.sale_state in ('paid_pending_transfer','settled')          then 'second_payment_on_paid_sale'   -- write-once (§20.8.7)
+    when v_s.payment_intent_ref is not null
+         and v_pay.stripe_payment_intent_id is distinct from v_s.payment_intent_ref then 'payment_intent_mismatch'  -- §20.8.9 binding
+    when exists (select 1 from market.market_sale o where o.payment_id = p_payment_id and o.sale_id <> p_sale_id) then 'payment_reused'
+    else null end;
+  if v_reason is not null then
     if not exists (select 1 from kernel.admin_audit a where a.subject_id = p_sale_id and a.action = 'market_sale.alert'
-                    and a.reason_code = 'late_payment_on_cancelled' and (a.after ->> 'payment_id') = p_payment_id::text) then
+                    and a.reason_code = v_reason and (a.after ->> 'payment_id') = p_payment_id::text) then
       insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-      values (v_sys, 'market_sale.alert', 'market_sale', p_sale_id, 'late_payment_on_cancelled',
+      values (v_sys, 'market_sale.alert', 'market_sale', p_sale_id, v_reason,
               jsonb_build_object('payment_id', p_payment_id, 'audience', 'platform_risk'));
     end if;
-    return jsonb_build_object('status','state_conflict','sale_id', p_sale_id,'sale_state','cancelled','action','reverse_payment');
+    return jsonb_build_object('status', case when v_reason = 'late_payment_on_cancelled' then 'state_conflict' else 'conflict_locked' end,
+                              'sale_id', p_sale_id,'sale_state', v_s.sale_state,'reason', v_reason,'action','reverse_payment');
   end if;
   update market.market_sale
      set sale_state = 'paid_pending_transfer', paid_pending_since = now(), payment_id = p_payment_id, updated_at = now()
    where sale_id = p_sale_id;
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_sys, 'market_sale.state_sync', 'market_sale', p_sale_id, p_command_key,
+          jsonb_build_object('sale_state', v_s.sale_state), jsonb_build_object('sale_state','paid_pending_transfer','payment_id', p_payment_id));
   return jsonb_build_object('status','ok','sale_id', p_sale_id,'sale_state','paid_pending_transfer');
 end;
 $$;
@@ -1183,9 +1272,12 @@ begin
   select * into v_s from market.market_sale ms where ms.sale_id = p_sale_id for update;
   if not found then raise exception 'not_found: sale %', p_sale_id using errcode = 'P0002'; end if;
   if v_s.payment_intent_ref = p_payment_intent_ref then return jsonb_build_object('status','noop_replay','sale_id', p_sale_id); end if;
-  if v_s.payment_intent_ref is not null then raise exception 'state_conflict: sale % already bound to a payment intent', p_sale_id; end if;
+  if v_s.payment_intent_ref is not null then raise exception 'precondition_failed: conflict_locked (sale % already bound to a payment intent — write-once)', p_sale_id; end if;
   if v_s.sale_state <> 'initiated' then raise exception 'state_conflict: sale % is %', p_sale_id, v_s.sale_state; end if;
   update market.market_sale set payment_intent_ref = p_payment_intent_ref, updated_at = now() where sale_id = p_sale_id;
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+  values ('00000000-0000-0000-0000-0000000000f1', 'market_sale.bind_ref', 'market_sale', p_sale_id, coalesce(p_command_key,'bind'),
+          jsonb_build_object('payment_intent_ref', p_payment_intent_ref));
   return jsonb_build_object('status','ok','sale_id', p_sale_id);
 end;
 $$;
@@ -1203,6 +1295,7 @@ begin
   if p_command_key is null or length(trim(p_command_key)) = 0 then raise exception 'precondition_failed: command key required'; end if;
   select * into v_s from market.market_sale ms where ms.sale_id = p_sale_id;
   if not found then raise exception 'not_found: sale %', p_sale_id using errcode = 'P0002'; end if;
+  perform 1 from catalog.event_session s where s.session_id = (select t.event_session_id from kernel.tickets t where t.ticket_atom_id = v_s.ticket_atom_id) for share;   -- rank 1
   select * into v_l from market.listing_native l where l.listing_id = v_s.listing_id for update;    -- rank 4
   select * into v_s from market.market_sale ms where ms.sale_id = p_sale_id for update;
   if v_s.terminal_state = 'completed' then
@@ -1248,6 +1341,9 @@ begin
   if v_s.sale_state <> 'initiated' then raise exception 'state_conflict: sale % is % — only an initiated checkout can be released', p_sale_id, v_s.sale_state; end if;
   update market.market_sale set sale_state = 'cancelled', updated_at = now() where sale_id = p_sale_id;
   update market.listing_native set status = 'active', updated_at = now() where listing_id = v_s.listing_id and status = 'reserved';
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values ('00000000-0000-0000-0000-0000000000f1', 'market_sale.state_sync', 'market_sale', p_sale_id, p_reason_code,
+          jsonb_build_object('sale_state','initiated'), jsonb_build_object('sale_state','cancelled'));
   return jsonb_build_object('status','ok','sale_id', p_sale_id,'sale_state','cancelled','reason_code', p_reason_code);
 end;
 $$;
@@ -1373,10 +1469,13 @@ begin
     if coalesce(p_reason_code,'') <> 'expired' then
       raise exception 'insufficient_privilege: the definer arm may only expire' using errcode = '42501';
     end if;
+    if v_p.status = 'initiated' and (v_p.expires_at is null or v_p.expires_at > now()) then
+      raise exception 'precondition_failed: transfer % has not lapsed', p_transfer_id;   -- §8.3: expired = TTL-lapsed rows only
+    end if;
   elsif v_p.from_identity <> v_uid then
     raise exception 'insufficient_privilege: sender only (the recipient declines)' using errcode = '42501';
-  elsif coalesce(p_reason_code,'') = 'expired' then
-    raise exception 'invalid_input: expired is the sweep''s transition';
+  elsif p_reason_code is not null and (p_reason_code !~ '^[A-Za-z0-9._:-]{1,64}$' or p_reason_code in ('expired','door_freeze','event_cancelled')) then
+    raise exception 'invalid_input: reason_code must be 1-64 chars of [A-Za-z0-9._:-] and not a system reason';
   end if;
   v_final := case when p_reason_code = 'expired' then 'expired' else 'cancelled' end;
   if v_p.status <> 'initiated' then
@@ -1396,17 +1495,19 @@ $$;
 create or replace function market.sweep_expired_p2p_transfers()
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_r record; v_n integer := 0; v_o integer;
+declare v_r record; v_n integer := 0; v_err integer := 0; v_o integer;
 begin
   for v_r in select p.transfer_id from market.p2p_transfer p
               where p.status = 'initiated' and p.expires_at is not null and p.expires_at < now()
-              order by p.ticket_atom_id loop
-    perform market.cancel_p2p_transfer(v_r.transfer_id, 'expired', 'sweep:' || v_r.transfer_id::text);
-    v_n := v_n + 1;
+              order by p.ticket_atom_id limit 500 loop
+    begin   -- one row's conflict (a concurrent accept/cancel) never aborts the tick
+      perform market.cancel_p2p_transfer(v_r.transfer_id, 'expired', 'sweep:' || v_r.transfer_id::text);
+      v_n := v_n + 1;
+    exception when others then v_err := v_err + 1; end;
   end loop;
   update market.offer set status = 'expired', updated_at = now() where status = 'pending' and expires_at is not null and expires_at < now();
   get diagnostics v_o = row_count;
-  return jsonb_build_object('swept_count', v_n, 'offers_expired', v_o);
+  return jsonb_build_object('swept_count', v_n, 'errors', v_err, 'offers_expired', v_o);
 end;
 $$;
 
@@ -1489,21 +1590,29 @@ create or replace function catalog.cancel_event(p_event_id uuid, p_reason_code t
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
 declare
-  v_uid uuid := auth.uid(); v_e catalog.event%rowtype; v_s record; v_a record; v_r record; v_atom uuid;
-  v_voided integer := 0; v_refunds integer := 0; v_skipped integer := 0; v_refund_id uuid; v_prior bigint; v_amt bigint; v_res jsonb;
+  v_uid uuid := auth.uid(); v_e catalog.event%rowtype; v_s record; v_a record; v_r record; v_ms record; v_atom uuid;
+  v_voided integer := 0; v_refunds integer := 0; v_skipped integer := 0; v_refund_id uuid; v_prior bigint; v_total bigint; v_amt bigint; v_res jsonb;
 begin
   if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
-  if p_command_key is null or length(trim(p_command_key)) = 0 then raise exception 'precondition_failed: command key required'; end if;
+  if p_command_key is null or p_command_key !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: command_key must be 1-64 chars of [A-Za-z0-9._:-] (it lands in the immutable audit)';
+  end if;
+  if p_reason_code is not null and p_reason_code !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'invalid_input: reason_code must be 1-64 chars of [A-Za-z0-9._:-]';
+  end if;
   select * into v_e from catalog.event e where e.event_id = p_event_id;
   if not found then raise exception 'not_found: event %', p_event_id using errcode = 'P0002'; end if;
+  -- E-76: a venue-role arm also requires the venue's CURRENT operator to be the event's org.
   if not (kernel.has_org_role(v_e.org_id, array['org_owner','org_admin'])
-          or kernel.has_venue_role(v_e.venue_id, array['venue_manager'])
+          or (kernel.has_venue_role(v_e.venue_id, array['venue_manager'])
+              and exists (select 1 from catalog.venue v where v.venue_id = v_e.venue_id and v.org_id = v_e.org_id))
           or kernel.is_platform(array['platform_admin'])) then
-    raise exception 'insufficient_privilege: org_owner / org_admin / venue_manager / platform_admin only' using errcode = '42501';
+    raise exception 'insufficient_privilege: org_owner / org_admin / venue_manager (current operator) / platform_admin only' using errcode = '42501';
   end if;
   select * into v_e from catalog.event e where e.event_id = p_event_id for update;              -- rank 1
   for v_s in select es.session_id from catalog.event_session es where es.event_id = p_event_id order by es.session_id for update loop
-    -- market drain (reason event_cancelled) — every open native machine on the session.
+    perform 1 from venue.inventory_batch b where b.event_session_id = v_s.session_id for update;   -- rank 2 (Inventory before Atom — §14.2)
+    -- market drain (reason event_cancelled) — every open native machine on the session (rank 4 → 5).
     for v_r in select p.transfer_id, p.ticket_atom_id from market.p2p_transfer p join kernel.tickets t on t.ticket_atom_id = p.ticket_atom_id
                 where t.event_session_id = v_s.session_id and p.status = 'initiated' order by p.ticket_atom_id for update of p loop
       update market.p2p_transfer set status = 'cancelled', reason_code = 'event_cancelled', updated_at = now() where transfer_id = v_r.transfer_id;
@@ -1516,9 +1625,35 @@ begin
       update market.auction set status = 'cancelled', updated_at = now() where listing_id = v_r.listing_id and status = 'active';
       perform kernel.unlock_ticket(v_r.ticket_atom_id, p_command_key || ':l:' || v_r.listing_id::text);
     end loop;
-    -- refund + void per issued atom, grouped by originating order (ascending atom id within the order).
+    -- RESALE BUYERS FIRST: every PAID, untransferred native sale on the session gets its refund
+    -- intent under the payment lock (rank 6) BEFORE the void, so the C26 hook can compensate
+    -- (compensated ⇔ the buyer's money carries a refund — never a stranded 'compensated').
+    for v_ms in select ms.sale_id, ms.payment_id, ms.price_minor from market.market_sale ms join kernel.tickets t on t.ticket_atom_id = ms.ticket_atom_id
+                 where t.event_session_id = v_s.session_id and ms.sale_state = 'paid_pending_transfer' and ms.terminal_state = 'pending' and ms.payment_id is not null
+                 order by ms.sale_id for update of ms loop
+      perform 1 from public.payments p where p.id = v_ms.payment_id for update;
+      select p.total into v_total from public.payments p where p.id = v_ms.payment_id;
+      select coalesce(sum(r.amount_minor), 0) + coalesce((select sum(d.amount_minor) from kernel.dispute_native d
+                                                            where d.payment_id = v_ms.payment_id and d.status in ('lost','charge_refunded')), 0)
+        into v_prior from kernel.refund r where r.payment_id = v_ms.payment_id and r.status <> 'failed';
+      v_amt := least(v_ms.price_minor::bigint, greatest(v_total - v_prior, 0));
+      if v_amt > 0 then
+        insert into kernel.refund (payment_id, reason_code, amount_minor, currency, idempotency_key)
+        values (v_ms.payment_id, 'event_cancelled', v_amt, 'USD', p_command_key || ':sale:' || v_ms.sale_id::text)
+        on conflict (idempotency_key) do nothing
+        returning refund_id into v_refund_id;
+        if v_refund_id is not null then
+          v_refunds := v_refunds + 1;
+          perform notify.emit_event_required('refund_requested', 'refund', v_refund_id, 'refund_requested:' || v_refund_id::text,
+                    jsonb_build_object('event_id', p_event_id, 'sale_id', v_ms.sale_id, 'amount_minor', v_amt, 'reason', 'event_cancelled'));
+        end if;
+      end if;
+    end loop;
+    -- PRIMARY ORDERS: one refund per originating order (amount = Σ voided item prices, §11.4-guarded
+    -- against prior refunds AND lost/charge_refunded disputes, operand = the payment's total).
+    -- The refund id is fixed BEFORE the voids and the row is inserted AFTER them (Atom 5 → Refund 6).
     for v_r in
-      select o.order_id, pn.payment_id, o.total_minor, pn.currency,
+      select o.order_id, pn.payment_id, pn.currency,
              array_agg(t.ticket_atom_id order by t.ticket_atom_id) as atoms, sum(oi.unit_price_minor)::bigint as amount
         from kernel.tickets t
         join kernel.ticket_ownership_log l1 on l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1 and l1.cause = 'issue'
@@ -1526,39 +1661,48 @@ begin
         join venue."order" o on o.order_id = oi.order_id
         join kernel.payment_native pn on pn.order_id = o.order_id
        where t.event_session_id = v_s.session_id and t.state in ('issued','active')
-       group by o.order_id, pn.payment_id, o.total_minor, pn.currency
+       group by o.order_id, pn.payment_id, pn.currency
        order by o.order_id loop
-      -- §11.4 sum guard: never return more than the payment took.
-      select coalesce(sum(r.amount_minor), 0) into v_prior from kernel.refund r where r.payment_id = v_r.payment_id and r.status <> 'failed';
-      v_amt := least(v_r.amount, greatest(v_r.total_minor - v_prior, 0));
-      v_refund_id := null;
-      if v_amt > 0 then
-        insert into kernel.refund (payment_id, reason_code, amount_minor, currency, idempotency_key)
-        values (v_r.payment_id, 'event_cancelled', v_amt, coalesce(v_r.currency,'USD'), p_command_key || ':order:' || v_r.order_id::text)
-        on conflict (idempotency_key) do nothing
-        returning refund_id into v_refund_id;
-        if v_refund_id is null then
-          select r.refund_id into v_refund_id from kernel.refund r where r.idempotency_key = p_command_key || ':order:' || v_r.order_id::text;
-        else
-          v_refunds := v_refunds + 1;
-          perform notify.emit_event_required('refund_requested', 'refund', v_refund_id, 'refund_requested:' || v_refund_id::text,
-                    jsonb_build_object('event_id', p_event_id, 'order_id', v_r.order_id, 'amount_minor', v_amt, 'reason', 'event_cancelled'));
-        end if;
-      else
-        select r.refund_id into v_refund_id from kernel.refund r
-         where r.payment_id = v_r.payment_id and r.reason_code = 'event_cancelled' order by r.created_at desc limit 1;
-      end if;
+      select r.refund_id into v_refund_id from kernel.refund r where r.idempotency_key = p_command_key || ':order:' || v_r.order_id::text;
       if v_refund_id is null then
-        v_skipped := v_skipped + coalesce(array_length(v_r.atoms, 1), 0);
-        insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-        values (v_uid, 'event.cancel_skip', 'order', v_r.order_id, 'fully_refunded_no_refund_row',
-                jsonb_build_object('event_id', p_event_id, 'atoms', to_jsonb(v_r.atoms)));
-        continue;
+        -- pre-void read of the guard (the re-check under the payment lock follows the voids)
+        select p.total into v_total from public.payments p where p.id = v_r.payment_id;
+        select coalesce(sum(r.amount_minor), 0) + coalesce((select sum(d.amount_minor) from kernel.dispute_native d
+                                                              where d.payment_id = v_r.payment_id and d.status in ('lost','charge_refunded')), 0)
+          into v_prior from kernel.refund r where r.payment_id = v_r.payment_id and r.status <> 'failed';
+        v_amt := least(v_r.amount, greatest(v_total - v_prior, 0));
+        if v_amt <= 0 then
+          -- the money already went back (refunds and/or a chargeback): nothing to refund, so no void
+          -- rides a refund that does not exist — skipped + audited (the held/disputed atom stays as it is).
+          v_skipped := v_skipped + coalesce(array_length(v_r.atoms, 1), 0);
+          insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+          values (v_uid, 'event.cancel_skip', 'order', v_r.order_id, 'money_already_returned',
+                  jsonb_build_object('event_id', p_event_id, 'atoms', to_jsonb(v_r.atoms), 'prior_minor', v_prior, 'total_minor', v_total));
+          continue;
+        end if;
+        v_refund_id := gen_random_uuid();
+      else
+        v_amt := 0;   -- replay: the refund row already exists; only re-void what is still live
       end if;
       foreach v_atom in array v_r.atoms loop
         v_res := kernel.void_ticket_atom(v_atom, v_refund_id, p_command_key);                  -- rank 5 → hook → ledger → head
         if coalesce(v_res ->> 'status', '') = 'ok' then v_voided := v_voided + 1; end if;
       end loop;
+      if v_amt > 0 then
+        perform 1 from public.payments p where p.id = v_r.payment_id for update;                 -- rank 6: the guard re-checked under the lock
+        select p.total into v_total from public.payments p where p.id = v_r.payment_id;
+        select coalesce(sum(r.amount_minor), 0) + coalesce((select sum(d.amount_minor) from kernel.dispute_native d
+                                                              where d.payment_id = v_r.payment_id and d.status in ('lost','charge_refunded')), 0)
+          into v_prior from kernel.refund r where r.payment_id = v_r.payment_id and r.status <> 'failed';
+        if v_amt > greatest(v_total - v_prior, 0) then
+          raise exception 'precondition_failed: refund_sum_guard — payment % headroom changed concurrently (retry)', v_r.payment_id;
+        end if;
+        insert into kernel.refund (refund_id, payment_id, reason_code, amount_minor, currency, idempotency_key)
+        values (v_refund_id, v_r.payment_id, 'event_cancelled', v_amt, coalesce(v_r.currency,'USD'), p_command_key || ':order:' || v_r.order_id::text);
+        v_refunds := v_refunds + 1;
+        perform notify.emit_event_required('refund_requested', 'refund', v_refund_id, 'refund_requested:' || v_refund_id::text,
+                  jsonb_build_object('event_id', p_event_id, 'order_id', v_r.order_id, 'amount_minor', v_amt, 'reason', 'event_cancelled'));
+      end if;
     end loop;
     -- atoms with no refund lineage (comp / import): not voided, alerted (E-102).
     for v_a in select t.ticket_atom_id from kernel.tickets t
@@ -1567,8 +1711,10 @@ begin
                                    where l1.ticket_atom_id = t.ticket_atom_id and l1.sequence = 1 and l1.cause = 'issue')
                 order by t.ticket_atom_id loop
       v_skipped := v_skipped + 1;
-      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
-      values (v_uid, 'event.cancel_skip', 'ticket_atom', v_a.ticket_atom_id, 'no_refund_lineage', jsonb_build_object('event_id', p_event_id));
+      if not exists (select 1 from kernel.admin_audit a where a.subject_id = v_a.ticket_atom_id and a.action = 'event.cancel_skip' and a.reason_code = 'no_refund_lineage') then
+        insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+        values (v_uid, 'event.cancel_skip', 'ticket_atom', v_a.ticket_atom_id, 'no_refund_lineage', jsonb_build_object('event_id', p_event_id));
+      end if;
     end loop;
     update catalog.event_session set status = 'cancelled', updated_at = now() where session_id = v_s.session_id and status <> 'cancelled';
   end loop;

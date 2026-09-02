@@ -1051,7 +1051,7 @@ SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
   -- 2026-09-01 (package 086): +12 door/scan tables (pin/session/scan_device/scan,
   -- comp_allocation, guest_list/_entry, manifest/_entry/_delta, holder_mix_*).
   -- market is still empty (native Buy Now dark).
-  'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan + 087 settlement/export tables — market still empty');
+  'J1b: venue holds the 080 staff + 081 inventory + 082 order + 086 door/scan + 087 settlement/export tables (market''s five rail tables are 088''s — J1)');
 SELECT has_function('market'::name, 'checkout_buy_now'::name, ARRAY['uuid','text']::name[],
   'J2: market.checkout_buy_now exists and is PARKED fail-closed (PFA-30) — seeding the TTL activates nothing (153 proves the park)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config

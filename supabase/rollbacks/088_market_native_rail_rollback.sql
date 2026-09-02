@@ -21,18 +21,21 @@ begin;
 
 -- 1 — CLEAN-WHILE-EMPTY guard
 do $$
-declare v_sales bigint; v_disputes bigint;
+declare v_sales bigint; v_disputes bigint; v_live bigint;
 begin
   select count(*) into v_sales from market.market_sale;
   select count(*) into v_disputes from kernel.dispute_native;
-  if v_sales > 0 or v_disputes > 0 then
-    raise exception 'rollback_refused: 088 is not clean — % market_sale row(s), % dispute_native row(s); forward-fix instead (CLEAN-WHILE-EMPTY)', v_sales, v_disputes;
+  -- a LIVE overlay (an active/reserved listing, an open transfer) pins kernel.tickets.resale_state
+  -- to listed/locked; dropping its table with every release caller would strand the atom forever.
+  select (select count(*) from market.listing_native where status in ('active','reserved'))
+       + (select count(*) from market.p2p_transfer where status in ('initiated','accepted')) into v_live;
+  if v_sales > 0 or v_disputes > 0 or v_live > 0 then
+    raise exception 'rollback_refused: 088 is not clean — % market_sale row(s), % dispute_native row(s), % live listing/transfer overlay(s); forward-fix instead (CLEAN-WHILE-EMPTY)', v_sales, v_disputes, v_live;
   end if;
 end $$;
 
--- 2 — cron
-select cron.unschedule('market-sweep-expired-p2p-transfers');
-select cron.unschedule('market-sweep-paid-pending-sales');
+-- 2 — cron (guarded: a partially-applied 088 may carry neither row)
+select cron.unschedule(jobname) from cron.job where jobname in ('market-sweep-expired-p2p-transfers','market-sweep-paid-pending-sales');
 
 -- 3 — the 24 routines 088 CREATED (never the hooks — they are RESTORED in 4)
 drop function if exists market.create_listing(uuid,integer,text,text);
