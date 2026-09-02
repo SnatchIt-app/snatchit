@@ -2199,6 +2199,14 @@ TESTS:                       suite 151 §E (E1-E17: fail-closed, no raw identity
                              (X-6 closure stays disjoint). Ruling §11 A-H all covered.
 FORWARD OBLIGATION:          CRM_CUSTOMER_REF_CRYPTO — see "Forward obligations opened by 087". OWNER: UNASSIGNED
                              (frozen bytes assign it to no package; NOT arbitrarily assigned to 088-092).
+NOTE (2026-09-01, CI fact):  the Supabase local stack — and the platform — PRE-INSTALL pgcrypto as a default
+                             extension (CI run 33575394319 found pg_extension.pgcrypto present on a fresh
+                             replay that installs only pg_cron + pg_net). The ruling's condition is therefore
+                             enforced as "087 creates no extension AND no 087 routine references a pgcrypto
+                             symbol" (suite 151 E16 + the x6_gate no-`create extension` check), not as
+                             "absent from the cluster". Platform availability of hmac()/gen_random_bytes()
+                             is an INPUT to the CRM_CUSTOMER_REF_CRYPTO ratification (items 1-5), not a
+                             licence to use them before it.
 ```
 
 ## Owner rulings ratified in the 087 authorization (recorded)
