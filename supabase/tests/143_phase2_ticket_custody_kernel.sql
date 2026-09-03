@@ -140,7 +140,7 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 146,
+           WHERE n.nspname = 'kernel'), 147,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -170,9 +170,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 (payout reversal + obligation recovery). 097/098: +0 (body-only
-  -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146,
+  -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146 -> 147,
   -- re-derived from the live catalog, not accepted as a delta.
-  'A32: kernel holds EXACTLY 146 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one)');
+  'A32: kernel holds EXACTLY 147 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 16,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).

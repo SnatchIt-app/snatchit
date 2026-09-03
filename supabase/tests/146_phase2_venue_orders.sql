@@ -129,6 +129,35 @@ SELECT tap._store146('session', (SELECT session_id::text FROM catalog.event_sess
 SELECT tap._store146('tt', (venue.create_ticket_type(tap._fetch146('event')::uuid,'admission','GA',5000,'public','ck-tt-1') ->> 'ticket_type_id'));
 SELECT tap._store146('batch', (venue.create_inventory_batch(tap._fetch146('tt')::uuid, tap._fetch146('session')::uuid, 'public_sale', 100, 0, 'ck-b-1') ->> 'batch_id'));
 SELECT catalog.publish_event(tap._fetch146('event')::uuid, 'announced', 'ck-pub-1');
+SELECT tap.logout();
+-- 2026-09-03 (migration 102, ratified reading B / A8a') — the on_sale
+-- transition now enforces the SAME SALEABLE predicate create_primary_checkout
+-- already enforces below (F0 payout_not_ready, F0b no_active_signing_key, F0a
+-- service_fee_unset): org Connect-bound+ready, an active in-window signing
+-- key resolving for the event scope, and fee.buyer_service_bps set. Grant all
+-- three HERE, TRANSIENTLY, purely so this fixture event can reach on_sale —
+-- every one of them is REGRESSED back to its pre-existing UNSET state below,
+-- immediately before SECTION F, so F0/F0b/F0a still prove their original
+-- refusals against a genuinely unready org exactly as before 102.
+-- A direct UPDATE/INSERT (not the real onboarding verbs) is used on purpose:
+-- kernel.set_org_connect_ref is BIND-ONCE, and its real, audited exercise
+-- happens for good in SECTION F below (~250) — this is scaffolding only, not
+-- the meaningful exercise of that RPC.
+UPDATE kernel.organization
+   SET stripe_connect_account_ref = 'acct_ORD146TEMP', connect_transfers_active = true
+ WHERE org_id = tap._fetch146('org')::uuid;
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-146-TEMP', 'test-fixture://no-kms/146-temp',
+        'active', now() - interval '1 day', NULL);
+-- version 2: 093 owns version 1 of this key (seeded JSON-null, owner-unset).
+-- Regressed to a HIGHER-version null below (v3), then re-granted for good at
+-- v4 in SECTION F (~319) — platform_config is append-only/highest-version-wins,
+-- so lowering v2 in place is not an option.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('fee.buyer_service_bps', 2, '500'::jsonb, 'restricted');
+SELECT tap.login(tap.seller());
 SELECT catalog.publish_event(tap._fetch146('event')::uuid, 'on_sale', 'ck-pub-2');
 SELECT tap.logout();
 
@@ -207,6 +236,27 @@ SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L, '[]'::jsonb, ARRAY[]::uuid[], 'ck-e3')$$, tap._fetch146('session')),
   'P0001', NULL, 'E3: mutation-resistance — ACTIVE buyer clears the identity gate and now fails on no-items (the gate, not luck, stopped E1/E2)');
 SELECT tap.logout();
+
+-- ============================================================================
+-- 102/A8a' REGRESSION — undo the transient publish-time SALEABLE grant made
+-- above (before ck-pub-2) so SECTION F below proves its refusals against a
+-- genuinely unready org, exactly as it did before 102 added the publish-time
+-- gate. Reading B is explicit that on_sale is not a permanent guarantee: "a
+-- later config change… can regress an already-published event's readiness"
+-- (102 PART 2 commentary) — this performs precisely that regression.
+-- ============================================================================
+UPDATE kernel.organization
+   SET stripe_connect_account_ref = NULL, connect_transfers_active = false
+ WHERE org_id = tap._fetch146('org')::uuid;
+DELETE FROM kernel.signing_key WHERE kms_handle_ref = 'test-fixture://no-kms/146-temp';
+-- APPEND-ONLY TRAP: platform_config values can only be added, never lowered.
+-- Restore fee.buyer_service_bps to owner-UNSET with a version ABOVE the temp
+-- v2=500 above (never by deleting it) — version chain for this txn ends up
+-- 1 (093 seed, null) < 2 (temp, 500) < 3 (this regression, null) < 4 (F1 happy
+-- path, 500 — see ~SECTION F), so highest-version-wins always resolves the
+-- LATEST intent.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('fee.buyer_service_bps', 3, 'null'::jsonb, 'restricted');
 
 -- ============================================================================
 -- SECTION F — create_primary_checkout HAPPY PATH + idempotency (flag on, holds)
@@ -315,8 +365,13 @@ SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
   NULL, 'precondition_failed: service_fee_unset — fee.buyer_service_bps has no value; selling cannot be activated until the owner sets it',
   'F0a [093/ruling A5]: Connect-ready but with the buyer service fee UNSET, checkout refuses to quote — it never falls back to zero');
 SELECT tap.logout();
--- version 2: 093 owns version 1 of this key (seeded JSON-null, owner-unset).
-INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('fee.buyer_service_bps', 2, '500'::jsonb, 'restricted');
+-- version 4: 093 owns v1 (seeded JSON-null); v2 was this fixture's temporary
+-- publish-time grant (~ck-pub-2) and v3 the regression back to null
+-- immediately above SECTION F — both already consumed. v4 is what an owner
+-- setting the value through catalog.set_platform_config would produce now,
+-- and (append-only, highest-version-wins) is what F0a above still read as
+-- null and what F1 below reads as 500.
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('fee.buyer_service_bps', 4, '500'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
 SELECT tap._store146('checkout', (venue.create_primary_checkout(
   tap._fetch146('session')::uuid,

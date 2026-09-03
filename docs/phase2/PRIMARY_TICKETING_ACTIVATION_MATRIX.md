@@ -515,3 +515,24 @@ disposable rehearsal databases (`snatchit_rehears_matrix`, [V] 110/110 for 093-0
 `snatchit_rehears_g4fix`, [V] 116/116 for the full chain through 101 —
 `docs/phase2/_impl/KM5_100_implementation.md` §12), GATE-2 at the CI baseline throughout. It records
 what is true at the repo tip and in production — and, where the two disagree, says so.**
+
+## Package 102 additions — credential signing + A8a′ SALEABLE (DARK/undeployed)
+
+| # | Capability | What 102 ships | Still-required to activate | Ready? |
+|---|---|---|---|---|
+| 102-a | Ticket credential minting | `credential-sign` edge (DARK) + `kernel.get_ticket_signing_context` (owner-gated, in prod at 147 kernel fns once 093-102 apply) | Deploy edge; select KMS provider adapter; run KMS ceremony (≥1 active key); PFA-PT-6 owner signature | **No** (DARK; `UnconfiguredKmsSigner` throws) |
+| 102-b | A8a′ on_sale SALEABLE gate | `publish_event` refuses `org_not_saleable`/`connect_not_ready`/`signing_not_ready`/`fee_policy_unset` on the on_sale transition (ratified reading B) | Apply 093-102; an active signing key + fee.buyer_service_bps set for events to reach on_sale | **No** (093-102 unapplied) |
+| 102-c | Trust-root config dual-control | `signing.expected_key_fingerprint` / `signing.expected_max_not_after` PARK for a 2nd platform_admin | Apply 102 | **No** (unapplied) |
+| 102-d | Offline door verifier (M1/M2) | NOT built here | Build door SDK; M1 pins `alg` per `kid` (PFA-PT-8); M2 checks `credential_version` currency + session binding | **No** (out of scope) |
+
+**New hazards / gates crossed by 102:**
+- **A8a′ raises the bar for on_sale.** Before 102, an event reached on_sale with a legal transition +
+  inventory only. After 102 it additionally needs a saleable org (Connect ready), an active signing key
+  for its scope, and fee set. A `global` bootstrap key + fee are now prerequisites for the FIRST event
+  going on sale, not only for scanning. Checkout is unchanged (it already enforced the same predicate).
+- **Tax is NOT gated (PFA-PT-7).** on_sale does not check tax; the tax enforcement locus remains an
+  owner/legal decision. "Fail-closed" holds because the backend computes no tax and the client refuses
+  to quote — not because of any 102 gate.
+- **Signature authenticity ≠ admissibility.** A signed credential proves the atom/version at issue time;
+  the door MUST still run M2 (currency + session) before admitting. Deploying `credential-sign` without
+  the M1/M2 door verifier yields tokens nothing checks for currency.

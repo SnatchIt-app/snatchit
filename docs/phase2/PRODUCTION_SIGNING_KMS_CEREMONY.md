@@ -1073,3 +1073,39 @@ listed outcome was observed.
 
 **Between steps 7 and 10 the bootstrap is still reversible (§10). After the first atom is
 minted it is not (§11).**
+
+## 17. PACKAGE 102 — the ceremony now has a CONSUMER: `credential-sign` (DARK/undeployed)
+
+Before 102, running this ceremony changed zero observable behaviour (ITEM (iii): nothing consumed a
+signature). 102 authors the consumer, DARK:
+
+- **`credential-sign` edge** (`supabase/functions/credential-sign/`, `verify_jwt: true`, NOT deployed):
+  synchronous, on-demand, STATELESS signer. It calls `kernel.get_ticket_signing_context(atom)` AS THE
+  OWNER (forwarded JWT, anon key — never service_role), builds the canonical payload (PFA-PT-6 wire
+  format) ENTIRELY from the DB context, and signs via `KMS.sign(kms_handle_ref, bytes)`. The shipped
+  KMS adapter is `UnconfiguredKmsSigner`, which throws `kms_provider_unconfigured` unconditionally —
+  the edge CANNOT sign until (a) a provider adapter (AWS KMS / GCP KMS / CloudHSM) is selected and
+  wired, and (b) this ceremony has produced a `kernel.signing_key` row whose `kms_handle_ref` the
+  chosen provider can sign under.
+- **IAM the ceremony must provision for the consumer:** the `credential-sign` runtime principal needs
+  `kms:Sign` (or provider equivalent) on the ceremony's key handle, and NOTHING ELSE (no
+  GetKeyMaterial / export). The private key never leaves KMS; `kms_handle_ref` is an ARN/handle, and
+  `get_ticket_signing_context` returns it only to the owner-gated definer path — possessing it grants
+  no signing ability without this IAM role.
+- **Algorithm (PFA-PT-8):** `kernel.signing_key` carries NO `algorithm` column. The ceremony key is
+  Ed25519 (§5.1 preferred). The offline door verifier (M1) MUST pin `alg` per `kid` in its manifest and
+  reject a token-header `alg` that disagrees — do not let the verifier trust the header alg. If a future
+  additive migration adds `signing_key.algorithm`, the ceremony records the alg there.
+- **A8a′ dependency (reading B):** as of 102, `catalog.publish_event`'s on_sale transition REFUSES
+  `signing_not_ready` unless an active, in-window key resolves for the event scope. So this ceremony
+  (or at least a `global`-scope bootstrap key) is now a PREREQUISITE for ANY event going on sale, not
+  only for scanning. Run order is unchanged; its blast radius grew.
+- **Trust-root config now dual-controlled (102):** `signing.expected_key_fingerprint` and
+  `signing.expected_max_not_after` (the monitor's anchors, step D5/D6) now PARK for a second
+  platform_admin via `set_platform_config` — a single admin can no longer silently re-pin the monitor's
+  ground truth to match a substituted key. `signing.monitor_enabled` stays single-admin both directions
+  (an emergency detection toggle is not quorum-gated).
+
+**Still DARK:** authoring 102 + the edge creates no key, calls no KMS, signs nothing. This section
+documents what the ceremony must additionally deliver WHEN it is eventually run and the edge deployed —
+it is not authorization to run it.

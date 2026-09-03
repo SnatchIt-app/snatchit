@@ -2836,3 +2836,264 @@ OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDIN
                              posture), not a precondition to authoring or rehearsing the SQL.
 ```
 
+## PFA-PT-6 — `credential-sign`'s wire encoding: JWS-compact, canonical header/payload, `typ` domain separator, verifier-resolves-`kid`-against-trusted-keyring (package 102, DARK/undeployed)
+
+```
+ID:                          PFA-PT-6  (PFA-20/PFA-26/PFA-28 class — a normative wire-encoding
+                             amendment for a cryptographic mechanism the freeze left underspecified,
+                             filed alongside the DARK edge function that implements it; NOT a change to
+                             any signed claim, key hierarchy, or verification predicate already frozen)
+FROZEN RULE:                  EDGE_FUNCTION_SPEC §3.2 — "`token`: <compact signed token> ... `token` is
+                             the only signed artifact; it embeds `{ atom_id, session_id,
+                             credential_version, key_id, issued_at, exp }` as signed claims." §5.1 — "A
+                             compact signed object over `{ atom_id, session_id, credential_version,
+                             key_id, issued_at, exp }`, signed by the scope's active signer via
+                             `KMS.sign(kms_handle_ref, payload)`." Neither section, nor §5 anywhere else,
+                             fixes: the BYTE ENCODING of "compact signed token" (there is no wire format
+                             — JWS, a bespoke delimiter scheme, protobuf, anything); which of the six
+                             claims ride a header vs a payload, if the encoding has both; how JSON keys
+                             are ordered/whitespaced (a determinism question the moment more than one
+                             encoder exists); whether the six claims embed a DOMAIN/TYPE marker at all —
+                             §5.4.3's `OFFLINE-VERIFY-v1` reads `token.key_id`, `token.session_id`,
+                             `token.credential_version`, `token.exp` as already-resolved fields without
+                             saying how a verifier gets from bytes to those fields, or how a verifier
+                             resolves the public key that checks the signature (the frozen text never
+                             states "resolve `kid` against a trusted keyring, never trust a key inside
+                             the token" — that is a general JWS-family best practice this PFA makes
+                             EXPLICIT and BINDING here, because nothing upstream said it).
+CONTEXT:                      This is the PFA-20 class ("DO NOT INVENT CRYPTOGRAPHY") applied to the ONE
+                             piece of C33 the freeze left as prose rather than a contract: not the key
+                             hierarchy (§5.1-§5.3, fully specified), not the offline admission predicate
+                             (§5.4.3, `OFFLINE-VERIFY-v1`, single-sourced and CI-gated), not the six
+                             signed claims (fixed, unambiguous) — just the BYTES those claims are turned
+                             into and back out of. `credential-sign/credential.ts` (this package) is the
+                             first code that has to make that choice concrete, and DESIGN_102.md §2.2
+                             directs it be filed as a PFA rather than decided silently inside a comment
+                             (the PFA-PT-4/PFA-PT-5 precedent: "implementing it without the PFA would be
+                             the 'silent edit around a conflict' §4 forbids").
+RESOLUTION (the wire format, NORMATIVE once signed):
+                             1. COMPACT FORM — three base64url segments joined by `.`, JWS-compact shaped:
+                                  token = b64url(protected_header) || "." || b64url(payload) || "." || b64url(signature)
+                                base64url per RFC 4648 §5 (`-`/`_`, UNPADDED — no trailing `=`).
+                             2. PROTECTED HEADER — canonical JSON (object keys SORTED
+                                lexicographically, no inserted whitespace), exactly three keys:
+                                  {"alg":<"EdDSA"|"ES256">,"kid":<key_id, lowercase uuid>,"typ":"SNATCHIT-TICKET-CRED-V1"}
+                                `alg` mirrors the resolved signer's algorithm (Ed25519 → `EdDSA`;
+                                ECDSA-P256 → `ES256`, §5.1). `kid` is `kernel.signing_key.key_id` — the
+                                PUBLIC reference, never `kms_handle_ref` (§5.3's non-exposure rule; the
+                                handle never appears in the token, the log, or any response body).
+                             3. PAYLOAD — canonical JSON (same rule: sorted keys, no whitespace), exactly
+                                five keys, mapping the FIVE remaining frozen claims (the sixth, `key_id`,
+                                already rides the header as `kid` — §5.1's six claims split 1 header + 5
+                                payload, not 6 payload):
+                                  {"atom":<ticket_atom_id>,"exp":<unix seconds, int>,"iat":<unix seconds, int>,"sess":<event_session_id>,"ver":<credential_version, int>}
+                                All uuids LOWERCASE. All timestamps UNIX-SECOND INTEGERS — no floats, no
+                                RFC 3339 strings, no locale formatting. NO field beyond these five: in
+                                particular no mutable display data (a session title, a venue name) —
+                                embedding one would make two credentials for the identical
+                                `(atom_id, credential_version)` sign differently depending on catalog
+                                state at issue time, undermining the business-level idempotency argument
+                                (KCRYPTO_credential_sign.md §4) and adding an unnecessary informational
+                                leak to a bearer token.
+                             4. SIGNED BYTES — `ASCII(b64url(protected_header) || "." || b64url(payload))`
+                                — the JWS "signing input." `typ` sits INSIDE the protected header, so it
+                                is COVERED by the signature: this is the domain separator (§6 below).
+                             5. VERIFICATION — the verifier (door, offline or online; any future consumer)
+                                MUST: (a) split on `.` into exactly three segments — a token with any
+                                other segment count is malformed; (b) base64url-decode and JSON-parse the
+                                header and payload; (c) resolve the VERIFY key by `header.kid` AGAINST A
+                                TRUSTED KEYRING — M1, the `kernel.signing_key` public-key projection
+                                (§5.4.2) — and NEVER trust a key embedded in or alongside the token itself
+                                (a token cannot vouch for its own signer); (d) confirm `header.alg` matches
+                                the resolved key's actual algorithm; (e) verify the signature over the
+                                EXACT bytes from step 4, recomputed from the token's own header/payload
+                                segments (not trusted from any side-channel); (f) check `payload.exp`
+                                against the verifier's clock. This is authenticity ONLY (§5.4.3's own
+                                phrase: "Signature authenticity ≠ current admissibility") — `credential_
+                                version` currency (M2/live) and `session_id` binding are SEPARATE checks
+                                `OFFLINE-VERIFY-v1` already specifies and this PFA does not touch, extend,
+                                or narrow in any way.
+DOMAIN SEPARATION (§6, the load-bearing property this PFA makes explicit):
+                             `typ` is not decorative. Because it sits inside the SIGNED protected header,
+                             changing it changes the signed bytes, which the signature no longer covers —
+                             a signature minted over `{"typ":"SNATCHIT-TICKET-CRED-V1",...}` cannot be
+                             replayed against a header claiming any other `typ` (a wallet manifest, a door
+                             manifest, a refund receipt, or any future signed object this system mints).
+                             Every other signed-object family introduced under C33 or its neighbors MUST
+                             mint its OWN `typ` string and MUST NOT reuse `SNATCHIT-TICKET-CRED-V1` — that
+                             is the entirety of the domain-separation mechanism, and it requires no
+                             registry, no central authority, just distinct constants. Proven by
+                             construction in `tests/credential-sign.test.ts` ("domain separation — the typ
+                             claim"): a genuine ticket-credential signature, replayed unmodified against a
+                             header identical in every field except `typ`, fails verification
+                             (`reason: 'signature_invalid'`) — because the signed bytes are no longer the
+                             bytes the signature was computed over, not because of any special-cased `typ`
+                             check. There is no `if (typ === ...)` branch anywhere in the verifier; the
+                             separation is a structural consequence of where `typ` sits, which is exactly
+                             what makes it robust against a verifier that forgets to check it explicitly.
+EXAMPLE TOKEN (FAKE IDS, throwaway Ed25519 keypair generated solely to produce this example — NOT a real
+                             signing key, NOT retained anywhere):
+                               protected header: {"alg":"EdDSA","kid":"aaaaaaaa-0000-4000-8000-000000000001","typ":"SNATCHIT-TICKET-CRED-V1"}
+                               payload:          {"atom":"bbbbbbbb-0000-4000-8000-000000000002","exp":1893124800,"iat":1893110400,"sess":"cccccccc-0000-4000-8000-000000000003","ver":2}
+                               token:            eyJhbGciOiJFZERTQSIsImtpZCI6ImFhYWFhYWFhLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.
+                                                 eyJhdG9tIjoiYmJiYmJiYmItMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwiZXhwIjoxODkzMTI0ODAwLCJpYXQiOjE4OTMxMTA0MDAsInNlc3MiOiJjY2NjY2NjYy0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDMiLCJ2ZXIiOjJ9.
+                                                 _fWREQB-j1hMtgCjPOfhPznEN16_3ms7U6nYbHMjhlYxnXa1lFlqX6JbegHpsLTkqQOlP9TrsCyVaUplP9moBA
+                                                 (wrapped across three lines above for legibility only — the real token has NO
+                                                 embedded newline; the three JWS segments are joined by a single `.` each)
+                             Regeneratable byte-for-byte (modulo the random signature) from
+                             `buildCanonicalPayload` — see `tests/credential-sign.test.ts`'s determinism
+                             cases for the executed proof.
+OPTIONS CONSIDERED:            O0 leave "compact signed token" undefined until a consumer forces the
+                             question at deploy time (rejected — PFA-20's "DO NOT INVENT CRYPTOGRAPHY"
+                             principle cuts the other way here: an UNDOCUMENTED ad hoc choice made once
+                             and never written down is worse than a documented one pending signature; a
+                             wire format touched by every future consumer — door SDK, wallet pass builder,
+                             this edge — is exactly the kind of decision that must not live only in one
+                             file's source). O1 a bespoke non-JWS delimiter scheme (rejected — reinvents a
+                             solved problem for no benefit; JWS-compact is the industry-standard shape for
+                             "header + payload + detached-looking signature," widely implemented, and the
+                             three-segment split this PFA specifies is trivially portable to Swift (door/
+                             wallet) and Kotlin without a JOSE library dependency, since only base64url +
+                             JSON + raw Ed25519/ECDSA verify are required, not any other JWS/JWT feature
+                             — no `alg:"none"`, no key embedding, no JWK header, no nested signing). O2 put
+                             ALL SIX claims in the payload, none in the header (considered — rejected
+                             because `kid` must be readable BEFORE the payload is trusted, to select which
+                             public key even attempts verification; JWS convention puts key-selection
+                             metadata in the header for exactly this reason). O3 (ADOPTED) — the RESOLUTION
+                             above: JWS-compact, `kid`+`alg`+`typ` in the header, the other five claims in
+                             the payload, canonical (sorted-key, unwhitespaced) JSON on both segments,
+                             `typ` as the explicit domain separator, keyring-resolved `kid`.
+CLASSIFICATION:                POST-FREEZE AMENDMENT of EDGE_FUNCTION_SPEC §3.2 / §5.1's "compact signed
+                             token" phrase → 102 (`supabase/functions/credential-sign/` — NOT a migration;
+                             this package ships no SQL of its own. The concurrently-authored migration 102
+                             is DB-IMPL's `kernel.get_ticket_signing_context` + the A8a' SALEABLE gate +
+                             the `signing.%` dual-control amendment — a SEPARATE normative surface this
+                             PFA does not cover). Implementation: `supabase/functions/credential-sign/
+                             credential.ts` (pure builder/encoder/verifier) + `index.ts` (the edge shell —
+                             DARK, `https://` imports, NOT deployed, see its own header). Test: `tests/
+                             credential-sign.test.ts` (23 cases: determinism, domain separation, tamper
+                             detection ×3, K1/K2 rotation ×2, exp/iat/ttl ×5, base64url round-trip ×3, log
+                             shape ×2, canonical-JSON/header/payload shape ×3). Full implementation notes:
+                             `docs/phase2/_impl/KCRYPTO_credential_sign.md`.
+PACKAGE IMPACT:                credential-sign only. No migration, no DDL, no new table, no new column, no
+                             new config key, no cron row, no grant. The edge is authored DARK — its
+                             `KmsSigner` provider adapter throws `kms_provider_unconfigured`
+                             unconditionally (no AWS/GCP/CloudHSM selection made here or by this PFA — a
+                             ceremony-time decision, EDGE_FUNCTION_SPEC §5.3/§5.7); no KMS key exists; no
+                             credential has ever been signed by this code. Nothing about this PFA can be
+                             exercised in production until: (1) migration 102's `kernel.
+                             get_ticket_signing_context` is applied, (2) a real KMS provider adapter
+                             replaces `UnconfiguredKmsSigner`, (3) `credential-sign` is deployed. None of
+                             those three happened here (train boundary: no deploy, no KMS, no signing key,
+                             no secret).
+SECURITY / MONEY IMPACT:      None loosened — nothing is live to loosen. This PFA constrains, rather than
+                             expands, what a future implementer may do: it forecloses O0 (undocumented ad
+                             hoc encoding) and O1 (a non-standard scheme less auditable by outside
+                             tooling), and it makes explicit a rule (keyring-resolved `kid`, never a
+                             token-embedded key) that a careless implementation could otherwise get wrong
+                             in a way indistinguishable from "working" until an attacker embeds their own
+                             key. The six frozen claims, the key hierarchy, the offline admission
+                             predicate (`OFFLINE-VERIFY-v1`), and the non-exposure rule (§5.3) are ALL
+                             UNCHANGED — this PFA is encoding-only.
+OWNER ITEMS OPENED (not resolved by this filing):            (1) sign this PFA (adopt O3, or select a
+                             different wire encoding — without a signature, `credential-sign` has a
+                             tested, internally-consistent encoding but no ratified one); (2) confirm the
+                             header/payload claim split (`kid` in the header, the other five in the
+                             payload) matches what the door-SDK and wallet-pass implementers (not yet
+                             built) should target, since they will need to parse this exact shape; (3) the
+                             KMS provider adapter selection (AWS KMS / GCP KMS / CloudHSM) remains a
+                             SEPARATE ceremony-time decision this PFA does not make or presume.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDING OWNER SIGNATURE — the
+                             pure module and the edge shell are authored and tested (`tests/credential-
+                             sign.test.ts`, 23/23 passing; full suite 512/512, up from a 489 baseline) but
+                             the edge is DARK/UNDEPLOYED and calls no KMS; the signature is a DEPLOY
+                             PRECONDITION for `credential-sign` (the same posture as 094's Gate-M row and
+                             PFA-PT-4/PFA-PT-5's migrations), not a precondition to authoring or testing
+                             the TypeScript.
+```
+
+## PFA-PT-7 — TAX enforcement locus stays an OWNER/LEGAL decision; A8a′'s SALEABLE publish gate deliberately excludes a tax gate (package 102, DARK/undeployed)
+
+```
+ID:                          PFA-PT-7  (owner-decision-reserved class, sibling of ITEM (ii) in
+                             FINAL_ACTIVATION_BLOCKER_RULINGS.md — a decision the corpus MUST NOT make
+                             for the owner; this PFA records the boundary held, not a mechanism adopted)
+FROZEN RULE / RULING:         FINAL_ACTIVATION_BLOCKER_RULINGS.md ITEM (ii): tax is "an activation blocker
+                             of an OWNER/LEGAL kind, not an engineering one … no SQL predicate exists that
+                             could enforce 'tax is not applicable here' versus 'tax is required and we are
+                             not collecting it' … no rate or model is invented here or anywhere in this
+                             corpus, and none should be assumed." Ruling A5 fixes venue entitlement at
+                             face value "subject only to explicitly modeled adjustments," and nothing in
+                             the frozen corpus models tax. Train-3 owner constraint (verbatim): "Do NOT
+                             solve tax or silently define tax=zero (tax stays fail-closed)."
+CONTEXT:                      A8a′ (the ratified reading B of ITEM (i)) directs that `catalog.publish_event`'s
+                             on_sale transition enforce "the SAME Connect-readiness predicate
+                             venue.create_primary_checkout enforces" — i.e. org status / Connect / signing
+                             key / fee. An earlier draft of migration 102 ALSO added a sixth gate,
+                             `tax_policy_unresolved`, backed by a NEW config key `tax.policy_resolved`
+                             seeded false. That gate was REMOVED before this filing. Reason: wiring a
+                             publish-time tax gate would SILENTLY DECIDE the tax enforcement LOCUS
+                             (publish-time) that ITEM (ii) explicitly reserves to the owner/legal — the
+                             same unratified-locus move ITEM (i) itself warns against for the on_sale/
+                             SALEABLE question. "Tax stays fail-closed" is ALREADY the system's state
+                             without such a gate: the backend computes no tax and assumes none (face value
+                             + explicitly-modeled adjustments only), and the only tax representation
+                             anywhere is a client-side advisory that refuses to quote. Adding a backend
+                             gate does not make tax "more fail-closed"; it relocates an owner/legal
+                             decision into engineering without authority.
+RESOLUTION (the boundary held): Migration 102 introduces NO tax key, NO tax gate, NO tax model, NO tax rate.
+                             publish_event's A8a′ ladder is the four create_primary_checkout gates and
+                             nothing else. The status quo (tax computed nowhere; client refuses to quote)
+                             is preserved unchanged.
+OWNER ITEMS OPENED:          (1) DECIDE the tax enforcement LOCUS and mechanism, or affirm the current
+                             "compute none / client-advisory-refuse" posture as the intended one. If a
+                             backend gate is ever wanted, DECIDE where: publish-time (blocks going on
+                             sale), checkout-time (blocks the money move — the stronger fail-closed point,
+                             mirroring where the SALEABLE money gates already live), or both. (2) Any
+                             tax RATE or MODEL remains a question for the owner and counsel and is not
+                             invented here. Until (1) is decided, no tax gate is added by engineering.
+OWNER SIGNATURE REQUIRED:    NO for the boundary held (this PFA RECORDS a non-decision — engineering did
+                             not act). YES before any tax gate/model/rate is ever added.
+STATUS:                      BOUNDARY HELD — no tax mechanism authored. Owner decision OPEN.
+```
+
+## PFA-PT-8 — the door verifier MUST pin signing algorithm per `kid` (M1 manifest), not trust the token-header `alg`; `kernel.signing_key` carries no `algorithm` column (package 102, DARK/undeployed — hardening item)
+
+```
+ID:                          PFA-PT-8  (PFA-20 "DO NOT INVENT CRYPTOGRAPHY" hardening class — a
+                             verification-side binding the freeze left implicit; NOT a change to the
+                             signer, the six claims, or the key hierarchy)
+FROZEN RULE:                  EDGE_FUNCTION_SPEC §5.1/§5.3: Ed25519 preferred, ECDSA-P256 acceptable.
+                             kernel.signing_key (083:49-69) stores public_key, status, not_before,
+                             not_after, kms_handle_ref, scope — and NO `algorithm` column. §5.4.3
+                             OFFLINE-VERIFY-v1 reads token fields as already-resolved and does not state
+                             how the verifier chooses the algorithm it verifies UNDER.
+CONTEXT:                      PFA-PT-6's wire format carries `alg` in the protected header (signed, so it
+                             cannot be altered without breaking the signature). `credential.ts`'s
+                             reference `verifyToken` resolves the public key by `kid` against a trusted
+                             keyring (correct — never a token-embedded key), but selects the verify
+                             primitive from the TOKEN-HEADER `alg`. Because kernel.signing_key has no
+                             algorithm column, the trusted keyring cannot itself pin the algorithm a
+                             given `kid` must be verified under. This is BOUNDED today: verifying an
+                             ES256 header against an Ed25519 SPKI (or vice-versa) fails on key-type
+                             mismatch inside the primitive, so a substituted-alg forgery does not verify.
+                             But relying on the primitive to reject a mismatch is weaker than pinning; a
+                             future verifier backed by a keyring that stores keys type-agnostically, or a
+                             primitive lenient about key/alg pairing, could regress silently.
+RESOLUTION (RECOMMENDED, for the DOOR/verifier side — not the signer):
+                             1. The door's M1 public-key manifest MUST bind (`kid` → `public_key`, `alg`)
+                             and verify each token UNDER the manifest's alg for that `kid`, treating a
+                             token-header `alg` that disagrees with the pinned alg as `signature_invalid`
+                             (a rejection, never a downgrade). 2. Consider adding an `algorithm` column to
+                             kernel.signing_key in a FUTURE migration (additive; would let
+                             get_ticket_signing_context return a non-null `algorithm` and let the M1
+                             manifest source it from the DB rather than a platform default). Not required
+                             for the DARK signer to be correct; required before the offline door verifier
+                             is built.
+OWNER / ARCH ITEMS OPENED:   (1) ratify the M1 alg-pinning rule as a door-SDK requirement; (2) decide
+                             whether kernel.signing_key gains an `algorithm` column (a future additive
+                             migration) or the platform default (Ed25519, §5.1) is pinned in the manifest
+                             builder. Neither blocks this package (no door verifier ships here).
+STATUS:                      HARDENING ITEM RECORDED — bounded-safe today; binding recommended before the
+                             offline door verifier (M1) is implemented.
+```

@@ -354,6 +354,30 @@ SELECT throws_ok(format($$SELECT catalog.publish_event(%L, 'cancelled', 'ck-pub-
 -- the event WITH inventory can reach on_sale
 SELECT is((catalog.publish_event(tap._fetch145('event')::uuid, 'announced', 'ck-pub-5') ->> 'event_status'),
   'announced', 'F5: the inventoried event announces');
+SELECT tap.logout();
+-- 2026-09-03 (migration 102, ratified reading B / A8a') — the on_sale
+-- transition now also enforces the SALEABLE ladder venue.create_primary_checkout
+-- enforces (org Connect-bound+ready, an active in-window signing key resolving
+-- for the event scope, fee.buyer_service_bps set) — 146's F0/F0b/F0a test that
+-- ladder directly; 145 tests SEAM-1's inventory read (F6) and the E-28 dynamic
+-- inventory-policy gates (G1-G7), not this static ladder, so the org ('event',
+-- already status='approved' at line 176) is made saleable here with a direct
+-- UPDATE/INSERT rather than the real onboarding verbs — sufficient for F6 to
+-- reach the SEAM-1 read it actually tests, not a redundant re-exercise of the
+-- real Connect/signing RPCs 141/146 already cover. Left in place for the rest
+-- of the file: nothing below tests connect/signing/fee-UNSET, only inventory
+-- policy (G1-G4), which stays deliberately unset.
+UPDATE kernel.organization
+   SET stripe_connect_account_ref = 'acct_INV145READY', connect_transfers_active = true
+ WHERE org_id = tap._fetch145('org')::uuid;
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-145', 'test-fixture://no-kms/145',
+        'active', now() - interval '1 day', NULL);
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('fee.buyer_service_bps', 2, '500'::jsonb, 'restricted');
+SELECT tap.login(tap.seller());
 SELECT is((catalog.publish_event(tap._fetch145('event')::uuid, 'on_sale', 'ck-pub-6') ->> 'event_status'),
   'on_sale', 'F6: …and reaches on_sale (>=1 ticket type WITH a batch, the SEAM-1 read)');
 SELECT tap.logout();

@@ -161,7 +161,7 @@ SELECT is(
   -- kernel.check_signing_key_invariants (nobody-executable — revoked from public/anon/
   -- authenticated/service_role, run only as the cron job's owner). Re-derived from the live
   -- catalog, not accepted as a delta.
-  146, '077 A14: exactly 146 kernel functions (109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants; settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
+  147, '077 A14: exactly 147 kernel functions (109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants + 102''s get_ticket_signing_context; settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
 -- A14a: the SIXTEEN BY NAME with their grant class and definer flag, so that moving
 -- this census forces the mover to say WHICH function they added rather than bumping
 -- an integer. Grant class is included because a re-classification (say, exposing
@@ -432,6 +432,10 @@ SELECT is(
   -- EXEC DEF service_role (F3), and settlement_primary_lines (ruling A3) carries NO grant
   -- at all. Named, not counted.
   || 'get_org_connect_state,'
+  -- 2026-09-03 (package 102): +1 authenticated — get_ticket_signing_context, the
+  -- credential-sign edge's owner-gated signing-context authority (auth.uid()=current
+  -- owner in body; anon/service_role revoked). Named, not counted.
+  || 'get_ticket_signing_context,'
   || 'grant_door_freeze_override,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
   || 'has_venue_role,hold_payout,invite_org_member,is_order_buyer,is_org_affiliate,is_platform,is_promoter_for_event,is_transfer_frozen,'
@@ -488,10 +492,11 @@ SELECT is(
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
     -- 2026-09-02 (package 090): +1 — is_promoter_for_event (RPC §1.1c EXEC: authenticated). pay_promoter_commission is EXEC DEF (no grant). Named, not counted.
+  -- 2026-09-03 (package 102): 66 -> 67 — get_ticket_signing_context (credential-sign authority).
   -- 2026-09-03 (package 096): 64 -> 66 — record_obligation_recovery (R-5, new) and
   -- resolve_organization_obligation (R-6, RE-CLASSIFIED from service_role-only to
   -- authenticated-only). Re-derived from the live catalog.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 66 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 67 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; 102''s get_ticket_signing_context per credential-sign; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")

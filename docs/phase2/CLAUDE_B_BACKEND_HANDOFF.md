@@ -115,3 +115,30 @@ render, and both are the resting state until the owner acts.
 - **Two owner values gate selling** and both are unset by design: the buyer service fee rate and the
   ticket expiry grace. `service_fee_unset` surfaces as a 503 with a Sentry `activation_blocker`, not a
   400 — treat it as an environment state, not as user error.
+
+## 2c. 2026-09-03 credential-signing + A8a′ SALEABLE train (package 102) — one client contract ADDED, DARK
+
+Nothing existing changed for the client. One NEW capability is authored but DARK (undeployed, no KMS):
+
+- **`credential-sign` edge (NEW, not deployed).** `POST` `{ ticket_atom_id }`, `verify_jwt: true`, called
+  as the ticket's owner. On success returns `{ token, credential_version, signing_key_id, not_after,
+  ttl_seconds }` — `token` is a JWS-compact string (PFA-PT-6): `b64url(header).b64url(payload).b64url(sig)`,
+  header `{alg,kid,typ:"SNATCHIT-TICKET-CRED-V1"}`, payload `{atom,exp,iat,sess,ver}`. Short TTL
+  (`credential.app_ttl_interval`, seed "4 hours"). STATELESS: no signature is stored; re-fetch on demand;
+  `credential_version` (bumped on transfer/void) is the currency mechanism. Refusals: `403 not_owner`,
+  `409 atom_terminal`, `500 signing_key_unavailable`, `503` on KMS-down/rate-limiter fault, `429` over
+  rate limit (30/60s). **Do not build UI against this yet** — it throws `kms_provider_unconfigured` until
+  a KMS provider is wired and the ceremony run.
+- **Door/scan SDK (NOT built).** When built it MUST: (M1) resolve `kid` against a trusted public-key
+  manifest — NEVER a key inside the token — and pin `alg` per `kid` (PFA-PT-8), rejecting a mismatched
+  header alg; (M2) check `credential_version` currency + `session_id` binding + `resale_state='none'`
+  live/manifest (OFFLINE-VERIFY-v1, §5.4.3). **Signature authenticity ≠ admissibility** — a valid
+  signature is necessary, not sufficient.
+- **A8a′: `on_sale` now demands SALEABLE.** `catalog.publish_event(..., 'on_sale', ...)` refuses
+  `org_not_saleable` / `connect_not_ready` / `signing_not_ready` / `fee_policy_unset` (the same predicate
+  checkout enforces, moved earlier). A promoter now discovers a broken config when opening sales, not at
+  the first buyer's failed mint. Surface these four refusal codes in the publish UI. NO tax gate
+  (PFA-PT-7) and NO inventory-policy gate — those stay dynamic/owner-legal.
+- **Owner items before this can go live:** PFA-PT-6 signature (adopt the wire format), KMS provider
+  selection + ceremony, PFA-PT-8 door alg-pinning, and the tax-locus decision (PFA-PT-7). All tracked in
+  `POST_FREEZE_AMENDMENTS.md`.
