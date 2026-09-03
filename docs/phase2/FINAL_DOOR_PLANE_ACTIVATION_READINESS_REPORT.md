@@ -14,8 +14,8 @@ REPOSITORY
 
 BRANCH:      feature/venue-native-and-product-v2
 ENTRY HEAD:  9cd95d6 (packages 102-104) — pushed, CI green
-FINAL HEAD:  <this train's commit> — pushed if permission allows (else the exact command is under FINAL STATUS)
-REMOTE:      origin = SnatchIt-app/snatchit; origin branch = 9cd95d6 at entry
+FINAL HEAD:  55f9d3d (package 105 + door edges) — PUSHED to origin (9cd95d6..55f9d3d); CI runs on the push
+REMOTE:      origin = SnatchIt-app/snatchit; origin/feature/venue-native-and-product-v2 = 55f9d3d (pushed)
 PR:          #52 — OPEN, MERGEABLE
 CI:          GREEN on 9cd95d6 (CI + Migrations guard SUCCESS; Supabase Preview SKIPPED — autodeploy off)
 WORKTREE:    package 105 + two DARK edges authored; migrations 093-104 byte-untouched (git diff empty)
