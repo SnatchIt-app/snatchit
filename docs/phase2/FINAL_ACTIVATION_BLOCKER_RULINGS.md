@@ -1,9 +1,12 @@
 # Final activation blocker rulings
 
 **Status: DRAFT. NOT APPROVED. NOT SIGNED.** **Five** decisions now stand between the current
-implementation and a first venue-direct ticket sale. Each carries approval text written so the owner
-can adopt it verbatim. **None of the five is approved.** Nothing in this document has been acted on
-beyond the fail-closed defaults already in migration 093.
+implementation and a first venue-direct ticket sale, plus **four narrower owner items** added this
+wave (see "ADDITIONAL OWNER ITEMS SURFACED — WAVE 2" below). Each ruling carries approval text written
+so the owner can adopt it verbatim. **None of the five rulings is signed — every OWNER APPROVAL TEXT
+block below being filled in ("approved in text") is not the same fact as being approved or in force.**
+Nothing in this document has been acted on beyond the fail-closed defaults already in migrations 093
+and 100.
 
 G1–G3 were raised by the activation-blocker train (2026-09-02). **G4 and G5 were added 2026-09-03 by
 the refund/payout backend train**, and neither is an implementation detail: G4 is what a promoter is
@@ -12,15 +15,28 @@ post-payout loss or builds a receivable first. G1's and G2's recommendations are
 carry corrected evidence from that train — including two corrections to this document's own earlier
 claims.
 
+**Wave 2, 2026-09-03 (this revision).** Migrations 100 (the G4 economic-consistency fix — a funded-and-
+held commission converges rather than over-charging the venue on reversal) and 101 (the G5 venue-scope
+fix — closes an adversarial finding that cross-venue recovery netting was possible) land this wave,
+both still authored, verified locally, and **UNAPPLIED**. G1's and G2's OWNER APPROVAL TEXT blocks are
+corrected to strike stale claims the code no longer supports (a backward-schedule ticket-expiry defect
+now closed; an eight-predicate maturity conjunction now nine). G4's and G5's OWNER APPROVAL TEXT blocks
+are filled in for the first time with precise, verbatim-adoptable text reflecting migrations 100/101.
+Gate-M's attestation is pre-filled: C29/C30 stated not required for launch, C31 stated conditionally
+met (not unconditionally). Four additional narrow owner items are recorded in a new section below.
+**No ruling is marked SIGNED anywhere in this document — only the owner can do that.**
+
 **Production is untouched.** Ledger verified at 107 rows ending at `092_notify_reduced`; no `093`.
 
 **Evidence.** `docs/phase2/_impl/G1_expiry_semantics.md`, `G2_settlement_maturity.md`,
-`G3_signing_rehearsal.md`, `G7_adversarial_review.md`, and the runbook
-`docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`. Every claim below was executed against a local
-replay of the migration chain: **110 files** at entry (000–095, the state this document's G1–G3
-evidence was gathered against) and **114** once 096–099 (this train's obligation-recovery,
-cross-venue ring-fence, promoter pro-rata funding, and signing-monitor migrations) land — not
-reasoned from documents.
+`G3_signing_rehearsal.md`, `G7_adversarial_review.md`, the runbook
+`docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`, and this wave's
+`docs/phase2/_impl/KINV_activation_investigations.md`, `docs/phase2/_impl/KADV_adversarial_reproof.md`,
+`docs/phase2/_impl/KM5_100_implementation.md`. Every claim below was executed against a local replay of
+the migration chain: **110 files** at entry (000–095, the state this document's G1–G3 evidence was
+gathered against), **114** once 096–099 (the prior train's obligation-recovery, cross-venue ring-fence,
+promoter pro-rata funding, and signing-monitor migrations) landed, and **116** with 100–101 this wave —
+not reasoned from documents.
 
 ---
 
@@ -135,9 +151,23 @@ day for a Friday or Saturday event, which is when nightlife volume actually is.
   the holder loses ticket *and* money. Irreversible in practice: no shipped function writes `state`
   back.
 - **Event postponed after expiry:** verified — moving `ends_at` +5 days returns `swept_count: 0` and
-  atoms stay expired.
-- **`ends_at` moved earlier:** verified — expires live atoms on the next tick with no guard and no
-  reason code.
+  atoms stay expired. The postponed atoms are not reinstated; this remains open (see below).
+- **`ends_at` moved earlier — CORRECTED, closed in code as of migration 093 (the "093 P0 backward
+  `ends_at` arm").** A prior draft of this ruling said this was unguarded. It is not, once a session
+  carries economic weight. `catalog.update_event_session` (`093:6907`) refuses any earlier `ends_at`
+  move once the session carries an issued atom, a `paid`/`partially_refunded`/`refunded` order, a
+  door scan, or any settlement on the event (`backward_schedule_move_frozen`), fails closed if its own
+  probe raises, and demands a mandatory `reason_code`. `platform_admin` is the sole bypass. Proved by
+  execution (G2 above, re-verified 2026-09-03): a paired backward move is refused on its `ends_at`
+  half; an `ends_at`-only backward move of −4 hours is refused; a forward postponement of +30 days
+  succeeds and extends the G2 maturity hold, which is the safe direction; a pre-sale draft event with
+  no economic weight yet remains freely reschedulable in both directions; a session that already
+  carries an issued atom, a paid order, a door scan or a settlement refuses any backward move
+  regardless of who asks, `platform_admin` excepted. **This closes the population this ruling used to
+  flag as an accepted risk** — the residual that remains is narrower: a postponement *after* expiry
+  does not reinstate an already-expired atom (previous bullet), and cancellation/refund on an expired
+  atom is unaffected by this guard (expired atoms are excluded from `cancel_event`'s refund cohort
+  regardless of how `ends_at` moved, per the EVIDENCE section above).
 - **`ends_at IS NULL` or `state='issued'`:** never expire; configuration cannot reach either.
 
 ## OWNER APPROVAL TEXT
@@ -154,18 +184,26 @@ day for a Friday or Saturday event, which is when nightlife volume actually is.
 > `deletion.post_event_hold_hours` (BP-12) independently blocks deletion for any identity with
 > paid orders, and that key remains a separate owner decision.
 >
-> Two defects are acknowledged as accepted risk at launch rather than closed by this ruling: an
-> `ends_at` moved earlier expires live atoms with no guard, and a postponement after expiry does not
-> reinstate them. Both require a code change, not a configuration value.
+> One defect is acknowledged as accepted risk at launch rather than closed by this ruling: a
+> postponement after expiry does not reinstate an already-expired atom. It requires a code change, not
+> a configuration value. **The companion defect this text used to carry — an `ends_at` moved earlier
+> expiring live atoms with no guard — is CLOSED as of migration 093's backward-schedule-move guard
+> (`backward_schedule_move_frozen`) and is struck from this approval text**: moving `ends_at` earlier
+> is refused once the session carries economic weight (an issued atom, a paid/partially-refunded/
+> refunded order, a door scan, or any settlement), with `platform_admin` as the sole bypass. See the
+> corrected FAILURE BEHAVIOR section above for the full proof.
 
-## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+## OWNER DIRECTION RECEIVED 2026-09-03 — APPROVED IN TEXT, PENDING SIGNATURE
 
 Owner direction for this train: `ticket.expiry_grace` = **`"72 hours"`** — confirming this ruling's
-own Option 3 / recommendation above. This is direction, not a signature; the approval text above and
-the signature block below still read PENDING OWNER SIGNATURE. Nothing in migrations 096–099 touches
-this key or the sweep; what already exists at 093 (the setter-level interval-type guard that refuses a
-bare number for interval keys, and `ticket.%` dual control) is what this direction would execute
-against once signed. No new mechanism was built for G1 this train.
+own Option 3 / recommendation above. **This direction is recorded as approved-in-text: the OWNER
+APPROVAL TEXT block above is the exact, verbatim-adoptable ratification of that direction, corrected
+this wave to strike the backward-schedule defect (now closed in code).** It is not yet a signature —
+the signature block below still reads PENDING OWNER SIGNATURE, and nothing here should be read as
+executed. Nothing in migrations 096–101 touches this key or the sweep; what already exists at 093 (the
+setter-level interval-type guard that refuses a bare number for interval keys, and `ticket.%` dual
+control) is what this direction would execute against once signed. No new mechanism was built for G1
+this wave.
 
 ---
 
@@ -300,11 +338,23 @@ named residual with a follow-up for a receivable object.
 > Payout maturity is measured from `max(catalog.event_session.ends_at)` across the money lines the
 > settlement actually covers, plus the configured interval, which is set to **7 days**.
 >
-> A settlement payout is minted HELD unless every one of these holds: the maturity policy is set and
-> non-negative; the covered set resolves; no covered event or session is cancelled; the maturity
-> anchor is known; the interval has elapsed; no non-terminal refund exists on a covered payment; and
-> no dispute is open on a covered payment. Any predicate that cannot be computed holds the payout. No
-> single predicate may release money on its own.
+> A settlement payout is minted HELD unless every one of these **nine** predicates holds — enumerated
+> exactly as `kernel.settlement_payout_maturity` (`093:2076`, extended by migration 097) computes them,
+> not paraphrased: **`unbounded_refund_exposure`** (the maturity policy is unset or invalid) ·
+> **`maturity_policy_invalid`** · **`covered_set_unresolvable`** (the covered set of money lines cannot
+> be resolved) · **`event_cancelled`** (no covered event or session is cancelled) ·
+> **`maturity_instant_unknown`** (the maturity anchor is known) · **`maturity_not_elapsed`** (the
+> interval has elapsed) · **`refund_in_flight`** (no non-terminal refund exists on a covered payment) ·
+> **`dispute_open`** (no dispute is open on a covered payment) · and, added by migration 097,
+> **`dispute_unabsorbed`** (no covered payment carries a `lost`/`charge_refunded`
+> `kernel.dispute_native` row whose ring-fenced recovery against the *originating venue* has not yet
+> been fully recovered — a mechanical extension of the same fail-closed shape, not a new policy
+> question). A tenth code, **`refund_exposure_stale`**, exists at execution time only (the mint cannot
+> carry it) and is evaluated separately by `kernel.settlement_unbooked_refund_exposure`
+> (`095:963`) immediately before transfer. Any predicate that cannot be computed holds the payout. No
+> single predicate may release money on its own. This replaces and supersedes any earlier eight-
+> predicate statement of this conjunction — the ninth predicate is not optional or forthcoming, it is
+> already shipped in migration 097.
 >
 > `kernel.release_payout` remains the only contracted exit and stays restricted to platform roles.
 >
@@ -313,11 +363,14 @@ named residual with a follow-up for a receivable object.
 > decision. It is also recorded that `catalog.update_event_session` does not guard an `ends_at`-only
 > change, which is a code defect and not closed by this ruling.
 
-## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+## OWNER DIRECTION RECEIVED 2026-09-03 — APPROVED IN TEXT, PENDING SIGNATURE
 
 Owner direction for this train: payout maturity = **`max(session.ends_at) + 7 days`**, with the
-fail-closed conjunction — confirming this ruling's own anchor and interval recommendation. **The
-conjunction is now nine predicates, not eight.** Migration 097 (this train) adds a ninth,
+fail-closed conjunction — confirming this ruling's own anchor and interval recommendation. **This
+direction is recorded as approved-in-text: the OWNER APPROVAL TEXT block above now states the
+conjunction as the nine predicates that ship in code, replacing the stale eight-predicate statement.**
+It is not yet a signature. **The conjunction is now nine predicates, not eight.** Migration 097 (this
+train) adds a ninth,
 `dispute_unabsorbed`, alongside the eight this ruling's approval text already lists (maturity policy
 set and non-negative; covered set resolves; no covered event/session cancelled; maturity anchor known;
 interval elapsed; no non-terminal refund on a covered payment; no open dispute on a covered payment;
@@ -478,14 +531,48 @@ A4 holds everything in place while the question is open.
 
 > **G4 — FUNDED COMMISSION ON REVERSED REVENUE**
 >
-> When primary revenue is reversed after the settlement close that funded a promoter commission, the
-> policy is: ______________________________ (A / B / C).
+> Promoter commission stays **HELD at launch** — no release, no payout, under any circumstance. Funding
+> is **pro-rata over surviving face revenue** (migration 098, `PFA-PT-4`), replacing the prior
+> all-or-nothing basis that forfeited 100% of an earned commission on a single pre-close partial
+> refund.
 >
-> Until this is ruled, no promoter commission payout may be released, and `kernel.release_payout` must
-> not be used on a `promoter_commission` payout for any reason. This constraint is recorded in the
-> activation matrix as a precondition of promoter payout, not of venue payout or of selling.
+> **When the revenue that funded a held commission is reversed AFTER the close that funded it**
+> (a post-close chargeback or post-payout refund), the held commission is **CONVERGED to its
+> post-reversal pro-rata surviving amount, never paid, never released** (migration 100,
+> `kernel.converge_held_commission`, filed as `PFA-PT-5`). A converged commission's reduction accrues
+> to the **venue**, not the platform: the venue's chargeback/refund_void obligation is computed net of
+> the still-held commission, because that money never left the platform and the venue never received
+> it. Canonical fixture, executed end to end (test `166`, invariants A1–A19): face 10000, commission
+> 1000 (bps 1000, funded and paid out to the venue in an earlier close, venue actually received 9000),
+> full reversal (dispute lost, amount 10000) — chargeback line **−9000, not −10000**; obligation
+> **9000, not 10000**; the held commission converges to **0**, with the original payout row's
+> `status`/`hold_state` left exactly `pending`/`held` (only `hold_reason_code` is relabeled to the
+> sentinel `commission_converged`) and no promoter payout ever advancing toward `paid`.
+> `kernel.release_payout` must not be used on a `promoter_commission` payout for any reason, converged
+> or not — `kernel.mark_payout_transfer_state` already refuses `cause='promoter_commission'`
+> structurally, independent of this ruling.
+>
+> **Left open by this ruling, recorded rather than decided:** the **partial**-reversal question
+> (`PFA-PT-5` owner item 2). On the shipped **window/FIFO** cap arithmetic, a single partial reversal
+> well under the reduced cap lines at its own disputed amount unreduced by the held-commission term —
+> derived and executed, not assumed: a 4000 chargeback against a commission-reduced cap of 9000 yields
+> obligation **4000**, not the naively expected proportional **3600**. A strictly **proportional**
+> (per-dispute) reduction is a materially different, already-ratified cap-window mechanism change and
+> is out of scope for `PFA-PT-5`; both the window/FIFO reading (4000, shipped) and the proportional
+> reading (3600) satisfy "obligation ≤ what the venue actually received" for the canonical full-
+> reversal case above — they diverge only on partials, by 400 in this fixture. **The owner must choose
+> between the two for partial reversals; neither is silently adopted.**
+>
+> **Also left open, explicitly out of scope for this ruling and for migration 100:** recovery of a
+> commission that has already been **PAID** to a promoter (as opposed to funded-and-held) when the
+> revenue behind it is later reversed. **FUNDED ≠ PAID** remains the governing distinction; this
+> ruling and migration 100 only ever touch held money. A paid-commission clawback/receivable is a
+> separate future ruling and cannot be retrofitted onto money already gone.
+>
+> This constraint is recorded in the activation matrix as a precondition of promoter payout, not of
+> venue payout or of selling.
 
-## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+## OWNER DIRECTION RECEIVED 2026-09-03 — APPROVED IN TEXT, PENDING SIGNATURE
 
 Owner direction for this train: promoter commission stays **HELD at launch** — no release, no payout —
 and reversed revenue does **not** automatically leave the full commission earned; the eventual
@@ -500,6 +587,24 @@ finding that organization debt is overstated by the commission still held agains
 — recorded as an addition to question (iii) in the G4 ruling itself. `kernel.release_payout` remains
 unused on any `promoter_commission` payout.
 See `docs/phase2/G4_PROMOTER_REVERSAL_RULING.md` for the fuller account of what 098 does and does not do.
+
+**Wave-2 addendum, 2026-09-03 — the post-close gap above is now CLOSED by migration 100, pending its
+own signature.** The paragraph immediately above says the post-close defect "remains open." It no
+longer does at the code level: migration 100 (`kernel.converge_held_commission`, filed as `PFA-PT-5`)
+converges a held commission to its post-reversal pro-rata surviving amount the moment a post-close
+chargeback or post-payout refund lands, and nets the venue's own obligation against the still-held
+commission so the venue is never billed for money the platform itself retained. The canonical fixture
+(face 10000/commission 1000/venue 9000/full reversal) now yields obligation **9000, not 10000** — see
+the OWNER APPROVAL TEXT above for the full statement. This does **not** change the answer to G4's own
+question (iii) by fiat — it **resolves** it as: a reduced-or-converged commission's value accrues to
+the **venue**, via the net obligation, not to the platform (matching `PFA-PT-4` owner item 4's answer
+recorded in `PFA-PT-5`). It leaves two things genuinely open, not settled by code: the partial-
+reversal proportional-vs-window choice, and paid-commission recovery (both restated in the OWNER
+APPROVAL TEXT above). `kernel.release_payout` remains unused on any `promoter_commission` payout, and
+`kernel.mark_payout_transfer_state` still refuses `cause='promoter_commission'` outright regardless of
+convergence. See `docs/phase2/_impl/KM5_100_implementation.md` for the full implementation account and
+`docs/architecture/_governance/POST_FREEZE_AMENDMENTS.md` (`PFA-PT-5`) for the filed amendment, status
+PENDING OWNER SIGNATURE.
 
 ---
 
@@ -547,14 +652,63 @@ discovered only after the money has gone.
 
 > **G5 — POST-PAYOUT EXPOSURE**
 >
-> The venue payout executor may not be deployed until: ______________________________
-> (1 accept with risk acceptance / 2 receivable object first / 3 Stripe reserves).
+> `kernel.organization_obligation` (migration 094) is approved as **the durable record of post-payout
+> debt** — a fact recorded, not a recovery mechanism, and not itself an answer to whether or how that
+> debt is collected. It records what is owed; it nets nothing, funds nothing, and gates no payout by
+> itself.
 >
-> It is recorded that only "platform absorbs" is implemented today, that "future payout offset" exists
-> only accidentally and silently confiscates later venue revenue, and that no receivable object exists
-> or is representable without DDL on a money ledger.
+> **Recovery is an explicit, audited act.** Migration 096 adds `kernel.organization_obligation_recovery`
+> (append-only; `source_kind` ∈ `transfer_reversal | manual`; Σ(recovered rows) ≤ the obligation's
+> `amount`; `status='recovered'` is *derived*, never set directly, and only becomes true when receipts
+> sum to the full amount; `written_off` is an explicit, separate terminal state;
+> `resolve_organization_obligation('recovered', …)` is refused without at least one recovery row
+> backing it). **No automatic confiscation or netting of future venue revenue is built, and none is
+> approved.** A same-venue hold that merely *pauses* a matured-but-not-yet-executed payout at the same
+> venue while recovery is outstanding (`shortfall_pending`, migration 097) is acceptable — it holds, it
+> does not net or seize. Any broader seizure or netting policy requires separate, later owner approval.
+>
+> **Cross-venue netting inside one organization is ruled: NOT PERMITTED (owner direction 2026-09-03).**
+> Venue A's debt must not silently consume Venue B's payout inside the same organization, even though
+> the legal debtor remains the organization at the header level. **Migration 096 shipped this
+> ring-fenced at the booking/recovery-arm level (097's chargeback ring-fence to the originating venue),
+> but an adversarial re-proof (P0-1, `docs/phase2/_impl/KADV_adversarial_reproof.md` §2.5/§3) found the
+> RECOVERY guard itself checked only that a cited transfer reversal belonged to the same
+> *organization*, never that it belonged to the same *venue* — so a Venue B transfer reversal could be
+> cited to mark Venue A's debt `recovered`, in direct contradiction of this line. Migration 101
+> (`kernel.organization_obligation_recovery_guard`, body-only re-creation) closes this: a
+> `transfer_reversal` recovery is now refused unless the reversed payout's originating venue matches
+> the obligation's own `venue_id`, and — the fail-closed choice — an obligation that carries no venue
+> attribution at all (a data shape 097 does not itself produce for a `settlement_shortfall`, but the
+> column remains nullable) is refused a `transfer_reversal` recovery entirely rather than allowed
+> org-wide. `manual` recoveries are untouched: an explicit, audited, off-platform receipt against one
+> named obligation carries no cross-venue hazard by construction.** With migration 101 applied, the
+> pre-filled line above is enforced in code, not only stated in policy.
+>
+> It is recorded that a venue's finance role can read another venue's settlement figures today, making
+> this a disclosure decision as well as an economic one, unresolved by this ruling.
+>
+> **Left open by this ruling, not decided:**
+> **(a)** whether recovery, once the fact is recorded, should ever become *automatic* future-settlement
+> offset rather than remaining an explicit audited act (§5.2 of the fuller ruling; ruled out as the
+> *default*, not ruled out categorically);
+> **(b)** a late receipt arriving after an obligation has been `written_off` — migration 096 has no path
+> back from `written_off`, and this ruling does not decide whether write-off is meant to be terminal
+> against money that later shows up, or whether the resolver needs a reopen verb. **Left OPEN**, per
+> instruction, rather than defaulted;
+> **(c)** whether a contractual, multi-venue operator agreement could ever authorize cross-venue netting
+> explicitly, as a durable, auditable exception object rather than a policy carve-out buried in code —
+> **out of scope for launch**, to be designed as a future explicit agreement object if the owner ever
+> wants it, not built or implied by this ruling or by migrations 096/097/101.
+>
+> It is recorded that some post-payout loss is structurally unrecoverable (an organization with no
+> future revenue and an empty Stripe balance), that Stripe reversal requires funds still to be in the
+> venue's balance and therefore fails in exactly the case feared, and that Stripe fixed reserves are in
+> private preview and unavailable for launch.
+>
+> **The venue payout executor may not be deployed until this ruling is signed**, and the Gate-M
+> re-attestation below is signed alongside it.
 
-## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+## OWNER DIRECTION RECEIVED 2026-09-03 — APPROVED IN TEXT, PENDING SIGNATURE
 
 Owner direction for this train: the organization obligation is **the durable record of post-payout
 debt** — recovery must eventually be deterministic and auditable, not accidental — and there is **no
@@ -569,6 +723,19 @@ ledger-derived amounts. Neither migration builds the receivable object Option 2 
 neither releases or changes today's answer to this ruling's own question — the venue payout executor
 still may not be deployed until this ruling is signed. Full account, including the remaining open
 questions, appended to `docs/phase2/G5_POST_PAYOUT_EXPOSURE_RULING.md`.
+
+**Wave-2 addendum, 2026-09-03 — the cross-venue guard is now correct, closing an adversarial finding
+against 096/097.** `docs/phase2/_impl/KADV_adversarial_reproof.md` §2.5 (finding P0-1) executed the
+gap directly: 096's recovery guard verified only that a cited `transfer_reversal` belonged to the same
+*organization* as the obligation, never the same *venue* that 097 itself added `venue_id` to carry —
+so Venue A's debt could be marked `recovered` by citing a reversal of Venue B's payout, exactly the
+outcome this ruling's pre-filled cross-venue line forbids. Migration 101 closes it: `kernel.
+organization_obligation_recovery_guard` now refuses a `transfer_reversal` recovery whose reversed
+payout's originating venue does not match the obligation's `venue_id`, and fails closed (refuses,
+rather than allows org-wide) when the obligation carries no venue attribution at all. See the OWNER
+APPROVAL TEXT above for the full statement and `supabase/migrations/101_recovery_venue_scope.sql` for
+the migration itself. This does not change the ruling's signature requirement or the venue payout
+executor's deploy gate — it corrects the enforcement of a line this ruling already pre-filled.
 
 ---
 
@@ -600,6 +767,14 @@ premise's own condition ("no venue could be paid at all") is precisely what is a
 true. Owner direction for this train re-affirms Gate-M as **REQUIRED** for venue payout activation and
 records that it is **NOT** activated in production.
 
+**Wave-2, 2026-09-03.** Migration 100 (the G4 economic-consistency fix) and migration 101 (the G5
+venue-scope fix) both land squarely inside this gate's scope, not outside it: 100 makes the
+commission-funding side of the ledger conservation-provable from DB rows alone (the C31 condition
+below), and 101 corrects the recovery guard's venue scope, tightening — not loosening — the "no
+default cross-venue netting" posture G5 already commits to. **Neither migration changes this gate's
+own status: Gate-M remains a REQUIRED, unmet precondition of venue payout activation, and C29/C30/C31
+are re-attested below with C31 now stated as conditionally, not unconditionally, met.**
+
 ## WHY RE-ATTESTATION, NOT A NEW RULING
 
 Gate-M was already ratified — MODELED-ONLY — by the frozen corpus; reopening it as a fresh ruling would
@@ -617,24 +792,152 @@ move from MODELED-ONLY to a scheduled build.
 > whether it still holds, given that a payout executor (dark) and `kernel.organization_obligation` (094,
 > dark) now exist where neither did when §67 was written:
 >
-> **C29 (Reserve/Clawback object + payout-timing policy):** ______ still not required / now required,
-> because: ______________________________
+> **C29 (Reserve/Clawback object + payout-timing policy):** **still NOT required for launch.** The
+> organization-obligation object (094) plus its recovery facts (096) and venue-scoped recovery guard
+> (101) already give post-payout debt a durable, auditable record and a bounded, non-netting recovery
+> path without a reserve or a payout-timing policy — see ruling G5. A reserve remains a strictly
+> stronger control that may be adopted later; it is not required to launch on the "platform absorbs,
+> then recovers deterministically" posture G5 describes.
 >
-> **C30 (fan-side chargeback/clawback liability object):** ______ still not required / now required,
-> because: ______________________________
+> **C30 (fan-side chargeback/clawback liability object):** **still NOT required for launch.** No
+> fan-side liability object is built or needed at launch scope; a lost dispute's buyer-side exposure is
+> absorbed by the platform per ruling A5 (the buyer service fee slice), and nothing in 096/097/100/101
+> creates or implies a fan-facing liability.
 >
-> **C31 (double-entry money-ledger schema):** ______ still not required / now required, because:
-> ______________________________
+> **C31 (double-entry money-ledger schema): NOT required for launch, PROVIDED — and only provided —
+> that conservation continues to close without any hand-derived quantity.** This is a conditional
+> attestation, not an unconditional one. The condition is met today, on two independent proofs: (1)
+> adversarial re-proof (`docs/phase2/_impl/KADV_adversarial_reproof.md` §2.3) executed conservation
+> across all five no-commission reversal cases and found it closes cleanly, with zero hand-derived
+> quantity, every term read back from the ledger; and (2) migration 100's canonical commission
+> full-reversal case (`docs/phase2/_impl/KM5_100_implementation.md` §9) proves the SAME property where a
+> funded-and-held commission is in play — `order.total_minor (10000) = kernel.payout(cause=settlement,
+> paid).amount_minor (9000) + convergence_audit.before.amount_minor (1000)`, and
+> `dispute.amount_minor (10000) = obligation.amount_minor (9000) + (1000 − 0 freed by convergence)` —
+> both read straight from `kernel.payout` / `kernel.organization_obligation` / `kernel.admin_audit`,
+> with zero hand-derived quantity. **This attestation is conditionally-met, not permanently closed**: it
+> must be re-checked against any future money-shape change (a new settlement-line cause, a new payout
+> class, a new reversal shape) that has not been proved to close the same way. If conservation is ever
+> found not to close from DB rows alone, C31 becomes required and this attestation is void from that
+> point forward.
 >
 > This attestation is **required before applying migration 094** and **before any venue payout
 > activation** (deploying `payout-execute` or arming its invoker) — it is not required for, and is not
-> satisfied by, this train's dark migrations 096–099 landing in the repository.
+> satisfied by, this train's dark migrations 096–101 landing in the repository, and satisfying it here
+> does not itself apply, deploy, or activate anything.
 >
-> It is recorded that migrations 096 and 097 (this train) give the organization-obligation object a
-> recovery mechanism and a cross-venue ring-fence **without building C29, C30, or C31** — they operate
-> entirely within the existing "platform absorbs, then recovers deterministically from the originating
-> venue" posture ruling G5 already describes, not the reserve, fan-liability, or double-entry shapes
-> Gate-M gates. If that reading is incorrect, this attestation is where the owner says so.
+> It is recorded that migrations 096, 097 and 101 (this and the following train) give the
+> organization-obligation object a recovery mechanism and a correctly venue-scoped ring-fence, and that
+> migration 100 gives the commission-funding side the same ledger-derived conservation property,
+> **without building C29, C30, or C31** — they operate entirely within the existing "platform absorbs,
+> then recovers deterministically from the originating venue" posture ruling G5 already describes, not
+> the reserve, fan-liability, or double-entry shapes Gate-M gates. If the above reading is incorrect,
+> this attestation is where the owner says so — and this pre-filled text is the owner's to strike or
+> amend, not a conclusion already reached on their behalf.
+
+---
+
+# ADDITIONAL OWNER ITEMS SURFACED — WAVE 2 (2026-09-03)
+
+**Four narrow items surfaced by `docs/phase2/_impl/KINV_activation_investigations.md` (investigator
+INV) and `docs/phase2/_impl/KADV_adversarial_reproof.md` (adversarial re-proof). None of these is a
+ruling in the G1–G5 sense — each is either a hard code gap with no owner choice to make (the signer),
+a genuinely ambiguous prior ratification needing a narrow amendment (ON_SALE/SALEABLE), a decision
+this corpus cannot make on its own (tax), or a small, low-risk fix (`signing.%` dual control). Recorded
+here so they travel with the rest of the activation blockers rather than living only in the evidence
+docs.**
+
+## ITEM (i) — ON_SALE vs SALEABLE: A8 is AMBIGUOUS on enforcement locus; code implements reading "A"
+
+`docs/phase2/PRIMARY_TICKETING_OWNER_RATIFICATION.md` A8 (ratified) conjoins two clauses under one
+"Requires Connect readiness: Yes" row: *"event may transition to `on_sale` **and** be purchased."* Read
+literally that pairs the state transition and the purchase as one gated capability (**reading B** —
+SALEABLE gates the transition). But A8's very next sentence names a **different** enforcement point by
+name: *"Checkout must fail closed if the venue organization is not eligible for primary-sale
+collection"* — naming checkout specifically, consistent with **reading A** (on_sale is a display/
+marketing label; the money gate lives only at the point money moves).
+
+**Executed, `docs/phase2/_impl/KINV_activation_investigations.md` §3.2:** `catalog.publish_event`'s
+entire `on_sale`-target precondition is a legal forward transition, a role check, and non-empty
+inventory. It reads no signing key, no config fee key, and no Connect-readiness column — confirmed with
+zero signing keys and `fee.buyer_service_bps IS NULL` in the replayed chain. `venue.
+create_primary_checkout`, by contrast, DOES enforce the full SALEABLE set (`payout_not_ready`,
+`no_active_signing_key`, `service_fee_unset`). **The code implements reading A, by a deliberate 093
+scope decision — not a bug — but that decision was never itself ratified against A8's literal
+grammar.**
+
+> **A8a — SALEABLE enforcement locus, reading A (narrow amendment, matches what is shipped).** The
+> "event may transition to `on_sale`" clause and the "be purchased" clause are DECOUPLED. `on_sale` is
+> a display/marketing state carrying no Connect-readiness precondition of its own; the storefront and
+> any other display surface MUST treat an `on_sale` event whose organization is not SALEABLE-eligible
+> as **"not yet purchasable,"** not as a broken listing. The money-side SALEABLE gate is, and remains,
+> enforced exclusively at `venue.create_primary_checkout` / `venue.reserve_primary_inventory`. No
+> change to `catalog.publish_event` is required or authorized under this amendment.
+>
+> *(Alternative, reading B):* **A8a′ — SALEABLE gates the transition.**
+> `catalog.publish_event(event_id, 'on_sale', command_key)` MUST additionally refuse with a named
+> precondition (e.g. `precondition_failed: org_not_saleable`) unless the organization satisfies the
+> same Connect-readiness predicate `venue.create_primary_checkout` enforces, evaluated at transition
+> time. A body-only replacement of `catalog.publish_event`, no DDL required.
+
+**Neither is selected here. This is the owner's choice**, per `KINV` §3.5 — the draft text above is
+adoptable verbatim for either reading.
+
+## ITEM (ii) — TAX: OWNER/LEGAL activation decision, not an engineering gate
+
+`docs/phase2/_impl/KINV_activation_investigations.md` §3b: zero tax rows, functions, or columns exist
+anywhere in `kernel`/`venue`/`catalog`/`public` (`select count(*) from catalog.platform_config where
+key ilike '%tax%'` = 0; zero matching functions across all four schemas). The only representation
+anywhere is client-side and advisory, refusing to quote. **This is architecturally consistent** — ruling
+A5 fixes venue entitlement at face value "subject only to explicitly modeled adjustments," and nothing
+in the frozen corpus claims to model tax, so there is no half-built or silently-wrong tax logic to
+disable. **It is nonetheless an activation blocker of an OWNER/LEGAL kind, not an engineering one**: no
+SQL predicate exists that could enforce "tax is not applicable here" versus "tax is required and we are
+not collecting it," so the system cannot itself surface a jurisdiction where zero-tax is legally wrong.
+Which US jurisdictions (if any) require sales-tax collection on this product and this merchant-of-
+record structure is a question for the owner and counsel; **no rate or model is invented here or
+anywhere in this corpus, and none should be assumed.**
+
+## ITEM (iii) — CREDENTIAL SIGNER: HARD ACTIVATION BLOCKER, distinct from the KMS ceremony (G3)
+
+`docs/phase2/_impl/KINV_activation_investigations.md` §2, executed against the replayed chain. **No
+component anywhere produces an actual ticket-credential signature.** No `credential-sign` edge exists
+(`ls supabase/functions/` — absent); `kernel.issue_ticket_atoms` (`093:4874`) resolves and pins *which*
+signing key would sign a credential (`signing_key_id`, `credential_version`) but performs no
+cryptographic operation and computes no canonical payload — correct and intentional, since the mint's
+job is scope resolution, not signing. **`kernel.tickets` has no signature/token/digest column at all**
+(`\d kernel.tickets`, full column list read: no such column) — so a signing key existing, or even the
+G3 ceremony being run, is **not the same fact** as tickets being signable. Building the signer requires,
+at minimum, an additive schema change (a new migration, for signature storage) in addition to a new
+edge function — it is not merely "an edge that's missing." `docs/architecture/PHASE_2_EDGE_FUNCTION_
+SPEC.md` §5 (C33) specifies the intended contract (canonical payload, `KMS.sign`, Ed25519 preferred,
+ECDSA-P256 acceptable) but nothing implements it. **This is recorded as a HARD activation blocker
+distinct from G3 — running the KMS ceremony and inserting a bootstrap `kernel.signing_key` row changes
+zero observable behavior for a door, because nothing yet consumes a signature and
+`feature.native_scanning_enabled` is `false`.** No recommendation is made on the signature-storage
+design (`KINV` §2.6 offers implementation considerations only, explicitly not built).
+
+## ITEM (iv) — `signing.%` config keys are NOT dual-controlled (adversarial finding P1-1)
+
+`docs/phase2/_impl/KADV_adversarial_reproof.md` §2.11/§3 (finding P1-1), executed: `catalog.
+set_platform_config`'s dual-control prefix list (`093:6748-6751`) covers `refund.` `payout.` `authn.`
+`comp.` `wallet.` `credential.` `door.session_` `fee.` `deletion.` `ticket.` — **`signing.%` is
+absent**, despite `signing.monitor_enabled` / `signing.expected_key_fingerprint` /
+`signing.expected_max_not_after` being seeded in the same migration (099) with `visibility:
+'restricted'`. Executed as a single `platform_admin`: both `signing.monitor_enabled` and
+`signing.expected_key_fingerprint` were set unilaterally, in one step, with no second approver and no
+`kernel.approval_request` row created. **This is a "who watches the watchman" gap**: the standing
+monitor (`kernel.check_signing_key_invariants`, 099, G3's compensating control) exists specifically to
+detect an unauthorized signing-key change, but its own trust anchor — the pinned expected fingerprint —
+is not protected at the same control level as the money-moving config it is modeled after. A single
+compromised or careless `platform_admin` could, in a real attack, re-pin the fingerprint to match a
+substituted key immediately after substituting it, and the monitor would report `"status":"ok"` on a
+compromised key. **No production exposure today** — the monitor is seeded `signing.monitor_enabled =
+false` — but this is a one-line, low-risk fix (`or p_key like 'signing.%'` added to the `v_dual`
+predicate in a future migration; 093 itself is immutable) that should land before 099 is applied or the
+monitor is ever armed. **Owner decision: authorize this one-line fix as a new migration before arming
+the monitor, or accept the gap as a documented residual.** Not built here, per this train's read-only
+scope.
 
 ---
 
@@ -646,12 +949,17 @@ train and their recommendations are unchanged.
 
 | Ruling | Subject | Status |
 |---|---|---|
-| G1 | Ticket expiry | PENDING OWNER SIGNATURE |
-| G2 | Settlement / payout maturity | PENDING OWNER SIGNATURE |
+| G1 | Ticket expiry | **APPROVED IN TEXT** — PENDING OWNER SIGNATURE |
+| G2 | Settlement / payout maturity | **APPROVED IN TEXT** — PENDING OWNER SIGNATURE |
 | G3 | Production signing ceremony | PENDING OWNER SIGNATURE |
-| G4 | Funded commission on reversed revenue | PENDING OWNER SIGNATURE |
-| G5 | Post-payout refund / chargeback exposure | PENDING OWNER SIGNATURE |
-| Gate-M | Re-attestation (C29/C30/C31) | PENDING OWNER ATTESTATION |
+| G4 | Funded commission on reversed revenue | **APPROVED IN TEXT, WITH TWO OPEN ITEMS** — PENDING OWNER SIGNATURE |
+| G5 | Post-payout refund / chargeback exposure | **APPROVED IN TEXT, WITH THREE OPEN ITEMS** — PENDING OWNER SIGNATURE |
+| Gate-M | Re-attestation (C29/C30/C31) | **PRE-FILLED (C29/C30 not required, C31 conditionally met)** — PENDING OWNER ATTESTATION |
+
+**"APPROVED IN TEXT" means the OWNER APPROVAL TEXT block for that ruling is filled in with the exact,
+verbatim-adoptable ratification the current code proves — not that it is signed, in force, or acted
+upon.** No ruling below is in force until the owner signs it. Nothing has been applied, deployed, or
+configured against any of these texts.
 
 Owner signature: _______________________  Date: _______________
 

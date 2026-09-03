@@ -2679,3 +2679,160 @@ OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDIN
                              the SQL.
 ```
 
+## PFA-PT-5 — ruling A5's chargeback/refund_void face cap is clarified to exclude a still-held funded promoter commission (package 100, SEAMS-ONLY); held-commission-payout convergence is SPECIFIED and DEFERRED to a future promoter-payout ruling
+
+```
+ID:                          PFA-PT-5  (PFA-9/PFA-29/PFA-PT-4 class — a normative clarification of
+                             ruling A5's face cap, filed alongside the migration that implements it;
+                             ALSO resolves PFA-PT-4's OWNER ITEM (4), left explicitly open there)
+
+2026-09-03 (RECON2 reconciliation): 100 was SIMPLIFIED by the orchestrator after this PFA's
+original drafting to a SEAMS-ONLY fix — items (1)/RESOLUTION-item-1 below are BUILT and unchanged
+in substance; the CONVERGENCE MECHANISM this PFA originally described as RESOLUTION item (2) —
+kernel.converge_held_commission, a re-created kernel.close_settlement calling it, kernel function
+census 146→147 — was REMOVED from 100's final design and is NOT part of the shipped migration.
+This entry is rewritten to match. The held commission payout is now NEVER touched by 100 at all:
+it stays at its originally-funded amount, pending/held, for the life of the order, through any
+number of subsequent reversals. Converging it to a pro-rata surviving amount remains a real,
+unresolved question but is explicitly OUT OF SCOPE for launch (G4: promoter payout is dark, no
+commission payout ever leaves pending/held; a separate owner ruling and architecture is required
+"before the FIRST future promoter commission payout" — this is that future ruling's subject, not
+100's). Re-verified on a fresh 000-101 rehearsal replay (supabase/tests/166_venue_obligation_
+excludes_held_commission.sql, rewritten this session, 39/39 assertions) — see docs/phase2/_impl/
+KM5_100_implementation.md and KRECON2.md for the full reconciliation.
+
+FROZEN RULE:                 Ruling A5 — "venue entitlement = face value"; 093/10b's settlement_
+                             primary_lines refund_void cap and 093/10h's (097-amended) settlement_
+                             royalty_lines chargeback cap both read venue entitlement as the ORDER'S
+                             FACE, full stop — neither cap term ever contemplated Option-B funded
+                             commission (venue.attribution / kernel.payout cause='promoter_commission')
+                             reducing what the venue actually received at funding time.
+CONFLICT:                    A5's face cap and Option B's commission-funding mechanism (090/098) were
+                             ratified independently and never reconciled against each other. On a
+                             POST-CLOSE reversal (chargeback or post-payout refund) of an order that
+                             carried a funded-but-held commission, the shipped cap (097's own text,
+                             093:435-560/1136-1216) charges the venue back the FULL face — money the
+                             venue never received, because the commission line already reduced its
+                             distributable at the funding close. Executed (KM5 canonical fixture): face
+                             10000, commission 1000 (bps 1000), venue actually paid 9000 by the funding
+                             close's own waterfall; a full reversal under 097's UNCHANGED cap obligates
+                             10000 — 1000 MORE than the venue ever held.
+EVIDENCE:                    docs/phase2/G4_PROMOTER_REVERSAL_RULING.md, docs/phase2/_impl/
+                             KF_promoter_prorata.md, KC_chargeback_accounting.md §2.i — executed against
+                             the canonical fixture on a fresh 000-101 rehearsal replay (supabase/tests/
+                             166_venue_obligation_excludes_held_commission.sql, sections A/B):
+                             chargeback line −9000 (not −10000), obligation 9000 (not 10000), the
+                             commission payout NEVER touched — same row, same amount_minor=1000, same
+                             status='pending'/hold_state='held'/hold_reason_code='unfunded_settlement',
+                             before AND after the reversal (100 has no verb that could change it), no
+                             promoter payout ever advanced toward paid, buyer net 0 (the dispute equals
+                             the order's full face), conservation closes with zero hand-derived quantity
+                             (every term read back from kernel.payout / kernel.dispute_native /
+                             kernel.organization_obligation). The SAME defect and fix apply
+                             symmetrically to a POST-PAYOUT refund_void (test 166 section B, −9000 not
+                             −10000); a PRE-payout (same-close) reversal is UNCHANGED by construction
+                             (test 166 section D) — nothing has been funded yet for the order when the
+                             debit arms read the held-commission term (settlement_primary_lines/
+                             settlement_royalty_lines are pure candidate generators that run before
+                             settlement_commission_lines, the only branch with side effects, in
+                             close_settlement's three-branch UNION ALL).
+RESOLUTION:                  ONE change, both seams body-only re-creates under the existing
+                             signatures/ACLs (`supabase/migrations/
+                             100_venue_obligation_excludes_held_commission.sql`):
+                               THE CAP CLARIFICATION (ONLY). kernel.settlement_royalty_lines' chargeback
+                                   cap and kernel.settlement_primary_lines' refund_void cap both gain a
+                                   fourth (chargeback) / second (refund_void) subtracted term:
+                                     held_commission(order) := Σ kernel.payout.amount_minor
+                                       WHERE cause='promoter_commission' AND status='pending' AND
+                                       hold_state='held' AND cause_ref IN (the order's attribution id)
+                                       [AND a defensive, currently-inert hold_reason_code<>
+                                       'commission_converged' filter — nothing in the shipped kernel
+                                       ever sets that sentinel; no convergence verb exists].
+                                   cap := greatest(0, face − refund_exposure − prior_cb − held_commission)
+                                   (chargeback); cap := greatest(0, face − held_commission) (refund_void).
+                                   A5 now reads: venue entitlement = face MINUS the commission that
+                                   reduced its distributable and never left the platform. held_commission
+                                   is a CONSTANT once funded — 100 never reduces the row it reads, so the
+                                   cap term does not shrink across subsequent reversals or closes.
+                             NOT DONE, DELIBERATELY (this is the RECON2 correction to this PFA's
+                             original text): the held commission PAYOUT is not converged, relabeled, or
+                             re-minted by 100. An earlier draft did this inside kernel.close_settlement
+                             via a new kernel.converge_held_commission verb; that draft is NOT what
+                             shipped. That earlier draft's own header (100's current file) records why:
+                             a second promoter_commission payout row per attribution broke the
+                             single-minter fence (155 B18), broke single-row cause_ref lookups (164),
+                             and made every "latest payout by created_at" reader — including the
+                             production promoter-status projection at 090:1325 — nondeterministic.
+OPTIONS CONSIDERED:          O0 leave A5's cap as shipped (the venue is charged back money it never held
+                             — dishonest, and the freed commission would become unaccounted-for platform
+                             revenue with no producing line, violating the "no offset_settlement source"
+                             rule 097 itself states); O1 net a NEW settlement_line cause against the
+                             venue's obligation (rejected — this train's boundary forbids a new cause
+                             without a filed PFA, and it would double-book the same fact the cap term
+                             already prevents from mis-charging); **O2 (ADOPTED) — the cap clarification
+                             ONLY, seams-only, no payout-side mechanism**; O2' (an earlier draft; NOT
+                             adopted in the final shipped form) — the cap clarification PLUS a
+                             hold-based payout convergence inside close_settlement (superseded, see
+                             RESOLUTION above and this PFA's 2026-09-03 note); O3 widen
+                             kernel.payout.status with a new non-paying terminal member (considered, NOT
+                             needed — the cap-only fix requires no payout-side CHECK change at all); O4
+                             net the freed commission directly into the venue's obligation via
+                             caller-supplied arithmetic (rejected — any future payout-convergence
+                             mechanism must be DB-derived, never caller-priced, per PFA-PT-4's own O2
+                             requirement for the funding side — this remains true for whatever mechanism
+                             a future ruling adopts).
+CLASSIFICATION:              POST-FREEZE AMENDMENT of ruling A5's face-cap wording, applied to the
+                             Option-B commission-funding case ratification did not contemplate → 100
+                             (`supabase/migrations/100_venue_obligation_excludes_held_commission.sql`,
+                             body-only re-creates of kernel.settlement_royalty_lines (093:1136-1216, 097
+                             Section 5) and kernel.settlement_primary_lines (093:435-560, 097 Section 4)
+                             ONLY — kernel.close_settlement is NOT re-created by 100). PARTIALLY resolves
+                             PFA-PT-4's OWNER ITEM (4) — the obligation itself is now net of the held
+                             commission (via the cap term, not a shortfall-side adjustment); whether the
+                             held commission PAYOUT should also converge is left to the future
+                             promoter-payout ruling (OWNER ITEMS below).
+RETROACTIVE NOTE:            None — this is the FIRST filing to reconcile A5 against Option-B funded
+                             commission; no prior migration comment claimed this reconciliation existed.
+OWNER ITEMS OPENED (not resolved by this filing — see docs/phase2/_impl/KM5_100_implementation.md):
+                             (1) sign this PFA (adopt O2, or select a different option); (2) HELD-
+                             COMMISSION-PAYOUT CONVERGENCE — SPECIFIED, DEFERRED, NOT BUILT. Converging
+                             a held commission payout down to a post-reversal pro-rata surviving amount
+                             is a real, unresolved question, explicitly out of scope for 100 (G4:
+                             promoter payout is dark; a separate owner ruling and architecture is
+                             required before the FIRST future promoter commission payout — this item IS
+                             that future ruling's subject, not a decision made here); (3) the PARTIAL-
+                             reversal cap arithmetic (test 166 section D) is a WINDOW CAP, not
+                             per-reversal-proportional — a single partial reversal well under the
+                             reduced cap lines at its OWN amount, unreduced by the held-commission term
+                             (the term only binds when CUMULATIVE reversals on the order approach the
+                             reduced cap, exactly as A5's original face-cap term already behaved for
+                             refund_exposure/prior_cb) — DERIVED AND EXECUTED, not assumed; a
+                             PROPORTIONAL (per-reversal) reduction was considered out of scope for this
+                             filing (it would change the ALREADY-RATIFIED cap-window mechanism 097 ships,
+                             not just add a term to it) and is recorded here as an owner-visible choice,
+                             not decided; (4) a PAID (not held) commission remains explicitly OUT OF
+                             SCOPE — the future promoter-payout ruling (item 2) covers whether/how a
+                             promoter-side receivable is pursued after a reversal on money that DID reach
+                             them; this filing never reaches that case (G4/A4 unchanged, commission stays
+                             dark).
+PACKAGE IMPACT:               100 only (TWO body-only re-creates, no new function, no client/machine
+                             grant changed). No new settlement_line cause, no new table, no new column,
+                             no CHECK widened, no new object of any kind. kernel functions: 146 → 146
+                             (UNCHANGED — confirmed by direct count against a fresh rehearsal replay).
+SECURITY / MONEY IMPACT:     none loosened. G4 ("commission stays HELD; no release, no payout") and
+                             ruling A4 ("nothing may accidentally release promoter money") are BOTH
+                             UNCHANGED: 100 does not touch kernel.payout at all for the promoter_
+                             commission cause (neither seam inserts into nor updates kernel.payout —
+                             verified statically by grepping both bodies, test 166 §F3/F4), so there is
+                             no new surface to loosen. The only quantitative change is a venue's
+                             chargeback/refund_void obligation, which can only ever DECREASE relative to
+                             097's shipped cap, never increase. The held commission payout's amount is
+                             untouched — neither decreased nor increased by 100.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDING OWNER SIGNATURE — the
+                             migration is authored and tested (supabase/tests/166_venue_obligation_
+                             excludes_held_commission.sql, 39/39 pgTAP assertions passing on a fresh
+                             000-101 rehearsal replay) but UNAPPLIED to production (ledger through 092;
+                             093-101 not applied); the signature is a DEPLOY PRECONDITION (094's Gate-M
+                             posture), not a precondition to authoring or rehearsing the SQL.
+```
+

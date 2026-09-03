@@ -848,7 +848,14 @@ SELECT tap._store153('st6', (venue.open_settlement(tap._u153('org1'), tap._u153(
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(tap._u153('st6'))), 0, 'H56: OWNER TEST D — a re-run of the seam offers NOTHING already lined (royalty AND chargeback)');
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(gen_random_uuid())), 0, 'H57: an unknown settlement yields zero rows — the seam never raises (087 close-safety)');
-SELECT ok((SELECT p.prosrc !~* 'numeric|float|double|real' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
+-- 2026-09-03 (100 reconciliation): strip '--' line comments before the regex.
+-- 100's header prose inside the seam body uses the English words "real
+-- receipt" and "double-counted" in comments — a substring match against raw
+-- prosrc flagged those as if they were the SQL types numeric/float/double/
+-- real. This checks CODE, not comments; the assertion's meaning (no float/
+-- numeric arithmetic in the seam) is unchanged.
+SELECT ok((SELECT regexp_replace(p.prosrc, '--[^' || chr(10) || ']*', '', 'g') !~* 'numeric|float|double|real'
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
   'H58: integer minor units only — no float/numeric arithmetic in the seam');
 
 -- ============================================================================
