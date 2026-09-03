@@ -167,8 +167,10 @@ SELECT ok(EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
 -- If 10m gains a ninth code and this list does not, a payout would be
 -- permanently unclearable by the retry path and nobody would notice — so the
 -- coupling is asserted against 10m's OWN SOURCE, not against a copy.
-SELECT is(array_length(kernel.settlement_maturity_hold_codes(), 1), 8,
-  'A9: the maturity vocabulary is eight codes');
+-- 2026-09-03 (package 097): 8 -> 9. A ninth code, 'dispute_unabsorbed', joins after
+-- 'dispute_open' (the shortfall-hold predicate). Re-derived from the live function.
+SELECT is(array_length(kernel.settlement_maturity_hold_codes(), 1), 9,
+  'A9: the maturity vocabulary is nine codes');
 SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) LIKE '%''' || c || '''%')
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
                   unnest(kernel.settlement_maturity_hold_codes()) c

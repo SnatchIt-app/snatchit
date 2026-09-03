@@ -29,6 +29,9 @@ register the packages build against.
 | outbox drain | `notify.drain_outbox` | 092 | 2 min | `cron.schedule` in 092 | `UNIQUE(dedupe_key)` + envelope state | `pg_try_advisory_xact_lock` + `SKIP LOCKED`; bounded expansion | N-A7 family |
 | notify dispatch | `notify-dispatch` edge | 092 | 1 min | `cron.schedule`+`pg_net` in 092 | delivery claim lease | `claim_deliveries` lease | §17.25 set |
 | notify receipts | `notify-receipts` edge | 092 | 15 min | `cron.schedule`+`pg_net` in 092 | terminal-state guard | lease | §17.25 set |
+| KMS signing-key invariant monitor | `kernel.check_signing_key_invariants` | 099 | daily 05:23 UTC | `cron.schedule` in 099 | none (read-only; internal 24h audit-content dedupe, not a job-level lease) | none — SELECT-only over `kernel.signing_key`/`catalog.platform_config`; alert egress wrapped `exception when others` | test 165 |
+| refund executor tick (DARK — KI P0-2) | `refund-execute` edge, `{"action":"sweep",...}` | 099 | 2 min | `cron.schedule`+`pg_net` in 099 | command is a no-op unless `refund.executor_enabled=true` (dual-controlled, seeded false); the edge's own `claim_refunds_for_execution` lease governs once armed | claim lease (edge-side, unchanged) | test 165 |
+| payout executor tick (DARK — KI P1-1) | `payout-execute` edge, `{"limit":25,"lease_seconds":900}` | 099 | 10 min | `cron.schedule`+`pg_net` in 099 | command is a no-op unless `payout.executor_enabled=true` (dual-controlled, seeded false); the edge's own `claim_payouts_for_execution` lease governs once armed | claim lease (edge-side, unchanged) | test 165 |
 
 **Live production jobs (unchanged, outside the band):** `sweep-auth-password-changes` (*/5 — scheduled by `075`; the retained producer of IN-31 MANDATORY `security_password_changed`, R2 row 25; red-team E-F6) · `auto_finalize_expired_auctions` (2 min — the
 LEGACY auction engine, untouched by `OR-11`) · `enforce-transfer-expiry` http_post (2 min) · the `014`

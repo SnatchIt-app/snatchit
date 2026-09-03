@@ -89,12 +89,19 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 -- 078 owns no cron entry (CRON_SCHEDULE_REGISTER has no 078 row) and emits nothing
 -- (the R2 catalog writers are update_event_session·079 and cancel_event·088).
 SELECT is((SELECT count(*)::int FROM cron.job
-            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 2,
+            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 4,
   -- 2026-09-01 (package 086): TWO cron commands reference catalog.* — the implicit
   -- door-freeze sweep (`select catalog.sweep_implicit_door_freezes(500)`) and the
   -- nightly holder-mix refresh (`... from catalog.event_session ...`). 078 still
   -- schedules none; both are 086's.
-  'A12: exactly two catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh (078 schedules none)');
+  -- 2026-09-03 (package 099): 2 -> 4. `refund-execute-tick` and `payout-execute-tick`'s
+  -- CASE guard reads `catalog.platform_config` inline (`refund.executor_enabled` /
+  -- `payout.executor_enabled`) before deciding whether to POST at all. Re-derived from
+  -- the live cron.job command text (ILIKE '%catalog.%'), not accepted as a delta.
+  -- `monitor-signing-key-invariants` does NOT match — its command is a bare
+  -- `select kernel.check_signing_key_invariants()`; the function's own body reads
+  -- catalog.platform_config, but that text is not in the CRON COMMAND this query scans.
+  'A12: exactly four catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh + 099''s refund/payout executor ticks (078 schedules none)');
 SELECT is((SELECT count(*)::int FROM (
              SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'catalog' OFFSET 0) q
@@ -284,14 +291,19 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- the census gains one. The new row is version 1, JSON-null, RESTRICTED — the same
 -- PFA-22 owner-unset shape — so D2/D3/D5 stay untouched and the public class is
 -- unchanged. See docs/phase2/_impl/H2_deletion_clock.md.
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 49,
-  'D1: exactly 49 config keys are seeded (43 post-092 + 093''s six owner-unset keys per rulings D2/A5/A3 and H2)');
+-- 2026-09-03 (package 099): 49 -> 54. FIVE new keys, all version 1, all RESTRICTED:
+-- signing.monitor_enabled, signing.expected_key_fingerprint, signing.expected_max_not_after
+-- (KJ §4.4 monitor) + refund.executor_enabled, payout.executor_enabled (the dark executor-tick
+-- gates, both false). Re-derived from the live catalog, not accepted as a delta.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 54,
+  'D1: exactly 54 config keys are seeded (43 post-092 + 093''s six owner-unset keys per rulings D2/A5/A3 and H2 + 099''s five signing/executor keys)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
-  'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 41,
-  'D4: the other 41 are restricted (the PFA-22 key, 092''s lease key and 093''s six — H2''s deletion.post_event_hold_hours included)');
+  'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans) — unaffected by 099, all five of its keys are restricted');
+-- 2026-09-03 (package 099): 41 -> 46. All five of 099's new keys are RESTRICTED (see D1).
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 46,
+  'D4: the other 46 are restricted (the PFA-22 key, 092''s lease key, 093''s six and 099''s five signing/executor keys — H2''s deletion.post_event_hold_hours included)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
@@ -437,9 +449,12 @@ SELECT is((SELECT (value #>> '{}')::int FROM catalog.platform_config
 -- payout.settlement_maturity_interval joins the `payout.` namespace this very query
 -- selects on. Count re-derived from the catalog, not assumed: the sixteen are the
 -- three authn.*, the five payout.* and the eight refund.*.
+-- 2026-09-03 (package 099): 16 -> 18. refund.executor_enabled and payout.executor_enabled
+-- (both v1/false/restricted, the dark executor-tick gates) join the same two prefixes.
+-- Re-derived from the live catalog: three authn.*, six payout.*, nine refund.*.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
-            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 16,
-  'D40: exactly 16 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours + 093''s payout.settlement_maturity_interval)');
+            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 18,
+  'D40: exactly 18 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours + 093''s payout.settlement_maturity_interval + 099''s refund.executor_enabled/payout.executor_enabled)');
 
 -- PFA-9: the keys deliberately NOT seeded, asserted as absences so a later
 -- package cannot silently assume 078 covered them.
@@ -1297,17 +1312,19 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 29,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
   -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
-  'K1: kernel holds twenty-eight tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub');
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
+  'K1: kernel holds THIRTY-ONE tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub, 094 organization_obligation, 096 payout_reversal + organization_obligation_recovery');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 7,
   -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
   'K2: notify holds 076''s outbox + 092''s six reduced-plane tables');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 136,
+            WHERE n.nspname = 'kernel'), 146,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -1337,7 +1354,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'K3: kernel holds 132 functions — 109 post-090 plus 093''s sixteen plus 095''s seven (141 A14a names 093''s; 141 F2/F3 pin 095''s four grant-bearing ones)');
+  -- NOTE: this K3 literal was already stale before this reconciliation (132, never updated for
+  -- 094's four organization-obligation functions, which brought the true post-095 total to 136 —
+  -- see 141 A14). 2026-09-03: 132 -> 146, summing the missed +4 (094) with 096's +9 and 099's +1,
+  -- re-derived directly from the live catalog (same query as 141 A14), not accepted as a delta.
+  'K3: kernel holds 146 functions — 109 post-090 plus 093''s sixteen plus 095''s seven plus 094''s four plus 096''s nine plus 099''s one (141 A14 pins the exact figure and the re-created-not-added set)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

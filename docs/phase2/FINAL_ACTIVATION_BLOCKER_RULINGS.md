@@ -17,7 +17,10 @@ claims.
 **Evidence.** `docs/phase2/_impl/G1_expiry_semantics.md`, `G2_settlement_maturity.md`,
 `G3_signing_rehearsal.md`, `G7_adversarial_review.md`, and the runbook
 `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`. Every claim below was executed against a local
-replay of the full 108-migration chain, not reasoned from documents.
+replay of the migration chain: **110 files** at entry (000–095, the state this document's G1–G3
+evidence was gathered against) and **114** once 096–099 (this train's obligation-recovery,
+cross-venue ring-fence, promoter pro-rata funding, and signing-monitor migrations) land — not
+reasoned from documents.
 
 ---
 
@@ -148,12 +151,21 @@ day for a Friday or Saturday event, which is when nightlife volume actually is.
 > derivation is adopted, and no per-atom TTL is introduced.
 >
 > It is recorded that this key governs **door admissibility only**. It is not the money-safety clock:
-> `deletion.refund_possible_window_hours` (BP-12) independently blocks deletion for any identity with
+> `deletion.post_event_hold_hours` (BP-12) independently blocks deletion for any identity with
 > paid orders, and that key remains a separate owner decision.
 >
 > Two defects are acknowledged as accepted risk at launch rather than closed by this ruling: an
 > `ends_at` moved earlier expires live atoms with no guard, and a postponement after expiry does not
 > reinstate them. Both require a code change, not a configuration value.
+
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+Owner direction for this train: `ticket.expiry_grace` = **`"72 hours"`** — confirming this ruling's
+own Option 3 / recommendation above. This is direction, not a signature; the approval text above and
+the signature block below still read PENDING OWNER SIGNATURE. Nothing in migrations 096–099 touches
+this key or the sweep; what already exists at 093 (the setter-level interval-type guard that refuses a
+bare number for interval keys, and `ticket.%` dual control) is what this direction would execute
+against once signed. No new mechanism was built for G1 this train.
 
 ---
 
@@ -301,6 +313,19 @@ named residual with a follow-up for a receivable object.
 > decision. It is also recorded that `catalog.update_event_session` does not guard an `ends_at`-only
 > change, which is a code defect and not closed by this ruling.
 
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+Owner direction for this train: payout maturity = **`max(session.ends_at) + 7 days`**, with the
+fail-closed conjunction — confirming this ruling's own anchor and interval recommendation. **The
+conjunction is now nine predicates, not eight.** Migration 097 (this train) adds a ninth,
+`dispute_unabsorbed`, alongside the eight this ruling's approval text already lists (maturity policy
+set and non-negative; covered set resolves; no covered event/session cancelled; maturity anchor known;
+interval elapsed; no non-terminal refund on a covered payment; no open dispute on a covered payment;
+any predicate that cannot be computed holds the payout). `dispute_unabsorbed` holds the payout while a
+chargeback's ring-fenced recovery against the *originating venue* (G5 direction; migration 097) has not
+yet been fully recovered — a mechanical extension of the same shape, not a new policy question: no
+single predicate may release money on its own, which this ruling already establishes.
+
 ---
 
 # RULING G3 — PRODUCTION SIGNING CEREMONY
@@ -384,6 +409,21 @@ without collision.
 >
 > The database signing-key RPCs remain parked and are not un-parked by this ruling.
 
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+Owner direction for this train: the ceremony is **approved in principle** but **NOT executed this
+train**. No KMS call, no production database write, nothing against `PRODUCTION_SIGNING_KMS_CEREMONY.md`
+was run. What the train built against it: the standing monitor this ruling's recommendation already
+calls the compensating control for all three irreducible residuals is no longer aspirational —
+migration **099** (`099_signing_monitor_and_executor_invokers.sql`) ships it dark: function
+`kernel.check_signing_key_invariants()`, config keys `signing.monitor_enabled` /
+`signing.expected_key_fingerprint` / `signing.expected_max_not_after` (all owner-unset), cron job
+`monitor-signing-key-invariants`, and alert egress via the `notify-report` edge's
+`signing_invariant_alert` event. Arming it (pinning the fingerprint, flipping `signing.monitor_enabled`
+to `true`) remains a separate `PRODUCTION CONFIG` / `OWNER APPROVAL REQUIRED` act, itself **NOT
+executed** — see `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` §9.3 and
+`docs/phase2/_impl/KJ_kms_runbook_monitor.md`.
+
 ---
 
 # RULING G4 — FUNDED PROMOTER COMMISSION WHEN THE REVENUE IS REVERSED
@@ -445,6 +485,22 @@ A4 holds everything in place while the question is open.
 > not be used on a `promoter_commission` payout for any reason. This constraint is recorded in the
 > activation matrix as a precondition of promoter payout, not of venue payout or of selling.
 
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+Owner direction for this train: promoter commission stays **HELD at launch** — no release, no payout —
+and reversed revenue does **not** automatically leave the full commission earned; the eventual
+surviving-commission policy among options A/B/C above is to be decided **before the first release**,
+not before this train. What the train built against it: migration **098** implements **pre-close
+pro-rata FUNDING only** — disputes are included alongside refunds under the same face-value cap, using
+the flat-per-ticket allocation rule, gated `PFA-PT-4 pending signature`. It does **not** release or pay
+anything, and does **not** touch a post-close commission — the defect this ruling describes (funded
+commission standing against reversed revenue after close) remains open. It also does not resolve the
+finding that organization debt is overstated by the commission still held against reversed revenue
+(`docs/phase2/_impl/KC_chargeback_accounting.md` §2.i; `docs/phase2/_impl/KF_promoter_prorata.md` P1-3)
+— recorded as an addition to question (iii) in the G4 ruling itself. `kernel.release_payout` remains
+unused on any `promoter_commission` payout.
+See `docs/phase2/G4_PROMOTER_REVERSAL_RULING.md` for the fuller account of what 098 does and does not do.
+
 ---
 
 # RULING G5 — POST-PAYOUT REFUND AND CHARGEBACK EXPOSURE
@@ -498,6 +554,88 @@ discovered only after the money has gone.
 > only accidentally and silently confiscates later venue revenue, and that no receivable object exists
 > or is representable without DDL on a money ledger.
 
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+Owner direction for this train: the organization obligation is **the durable record of post-payout
+debt** — recovery must eventually be deterministic and auditable, not accidental — and there is **no
+default cross-venue netting**: Venue A's debt must not silently consume Venue B's payout inside the
+same organization. The legal debtor may remain the organization; the recovery source may be
+venue-scoped. What the train built against it: migration **096** adds immutable recovery facts
+(`kernel.organization_obligation_recovery`: `source_kind` `transfer_reversal|manual`, Σ(recovered) ≤
+`amount`, `status='recovered'` derived only when Σ=amount, `written_off` explicit, `resolve('recovered')`
+refused without receipts). Migration **097** ring-fences the chargeback recovery arm to the
+*originating venue* — no default cross-venue netting — and fences the unlined origin to post-payout
+ledger-derived amounts. Neither migration builds the receivable object Option 2 above describes, and
+neither releases or changes today's answer to this ruling's own question — the venue payout executor
+still may not be deployed until this ruling is signed. Full account, including the remaining open
+questions, appended to `docs/phase2/G5_POST_PAYOUT_EXPOSURE_RULING.md`.
+
+---
+
+# GATE-M RE-ATTESTATION
+
+## CURRENT STATE
+
+Gate-M is not a ruling raised by this train; it is a pre-existing architectural gate covering three
+frozen constructs the Phase 2 corpus deliberately did not build: **C29** (a Reserve/Clawback object
+plus a payout-timing policy — `docs/architecture/_governance/CTO_DECISION_MEMO.md:56`), **C30** (a
+fan-side chargeback/clawback liability object — `:57`), and **C31** (an additive double-entry
+money-ledger schema, the intended home for C29/C30 and the fix for the unbalanced royalty/rounding
+residual — `:58`). All three were ratified **MODELED-ONLY at Gate-M**
+(`docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`), not built, and
+`docs/architecture/PHASE_2_MONEY_AUTHORITY_SPEC.md:67` states the premise under which that was
+acceptable:
+
+> "Gate M (C29 reserve / C31 double-entry) not required — CONFIRMED. Nothing here needs a reserve, a
+> clawback, or instant payout. MVP payout stays settlement-cadenced."
+
+**That premise was written when no venue could be paid at all.** `docs/architecture/PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md:1186`
+assigns org-side negative-settlement carry to exactly this gate ("C31, Gate-M"), and migration 094
+(`kernel.organization_obligation`) is what records that carry. This train's 096/097 give it its first
+recovery mechanism and its cross-venue ring-fence (see the G5 note above), on top of a payout executor
+that is now code-complete, dark and undeployed. `docs/phase2/PRIMARY_TICKETING_ACTIVATION_MATRIX.md:279`
+(row 0a′) and `:367,:369` both name **re-attestation — not obedience, not override** — as the
+precondition of **applying migration 094** and of **any venue payout activation**, because the
+premise's own condition ("no venue could be paid at all") is precisely what is about to stop being
+true. Owner direction for this train re-affirms Gate-M as **REQUIRED** for venue payout activation and
+records that it is **NOT** activated in production.
+
+## WHY RE-ATTESTATION, NOT A NEW RULING
+
+Gate-M was already ratified — MODELED-ONLY — by the frozen corpus; reopening it as a fresh ruling would
+relitigate a frozen decision outside the post-freeze amendment procedure. What is missing is narrower: a
+dated owner statement of whether the "not required" premise still holds now that a dark payout executor
+and a dark organization-obligation object exist, or a statement that it does not — in which case C29/C30/C31
+move from MODELED-ONLY to a scheduled build.
+
+## OWNER ATTESTATION TEXT
+
+> **GATE-M RE-ATTESTATION**
+>
+> I have read `PHASE_2_MONEY_AUTHORITY_SPEC.md:67`'s premise — *"Gate M (C29 reserve / C31 double-entry)
+> not required … because payout is settlement-cadenced"* — and for each of C29, C30, and C31 I attest
+> whether it still holds, given that a payout executor (dark) and `kernel.organization_obligation` (094,
+> dark) now exist where neither did when §67 was written:
+>
+> **C29 (Reserve/Clawback object + payout-timing policy):** ______ still not required / now required,
+> because: ______________________________
+>
+> **C30 (fan-side chargeback/clawback liability object):** ______ still not required / now required,
+> because: ______________________________
+>
+> **C31 (double-entry money-ledger schema):** ______ still not required / now required, because:
+> ______________________________
+>
+> This attestation is **required before applying migration 094** and **before any venue payout
+> activation** (deploying `payout-execute` or arming its invoker) — it is not required for, and is not
+> satisfied by, this train's dark migrations 096–099 landing in the repository.
+>
+> It is recorded that migrations 096 and 097 (this train) give the organization-obligation object a
+> recovery mechanism and a cross-venue ring-fence **without building C29, C30, or C31** — they operate
+> entirely within the existing "platform absorbs, then recovers deterministically from the originating
+> venue" posture ruling G5 already describes, not the reserve, fan-liability, or double-entry shapes
+> Gate-M gates. If that reading is incorrect, this attestation is where the owner says so.
+
 ---
 
 # Signature block
@@ -513,18 +651,21 @@ train and their recommendations are unchanged.
 | G3 | Production signing ceremony | PENDING OWNER SIGNATURE |
 | G4 | Funded commission on reversed revenue | PENDING OWNER SIGNATURE |
 | G5 | Post-payout refund / chargeback exposure | PENDING OWNER SIGNATURE |
+| Gate-M | Re-attestation (C29/C30/C31) | PENDING OWNER ATTESTATION |
 
 Owner signature: _______________________  Date: _______________
 
 G1 and G2 additionally require the owner to supply a value, not only a signature. G3 requires two
-named people and a scheduled window.
+named people and a scheduled window. Gate-M requires a per-construct attestation (C29/C30/C31), not a
+single signature — see the GATE-M RE-ATTESTATION section above.
 
 **A fourth value, surfaced this train and deliberately NOT given a recommendation.**
-`deletion.refund_possible_window_hours` (`085:2189`) is seeded null and fail-closed, and independently
-blocks account deletion for any identity holding paid orders. It must be set before deletion works for
-purchasing buyers — but **it must not simply be set**, because its window is measured from
-`venue."order".created_at`. That is the payment clock, and ruling G2 establishes that the payment
-clock is the wrong anchor for anything event-shaped. Setting it as it stands lets a buyer who paid
-early be tombstoned irreversibly before their event, while G2's gate holds the venue's money for the
-same risk. Re-anchoring it to the event is a code change and a separate owner decision; this document
-recommends no duration for it.
+`deletion.post_event_hold_hours` (`093:5851`; the older name `deletion.refund_possible_window_hours`
+at `085:2189` is now an unread orphan — see `docs/phase2/_impl/KI_activation_sequencing.md` P2-3) is
+seeded null and fail-closed, and independently blocks account deletion for any identity holding paid
+orders. It must be set before deletion works for purchasing buyers — but **it must not simply be set**,
+because its window is measured from `venue."order".created_at`. That is the payment clock, and ruling
+G2 establishes that the payment clock is the wrong anchor for anything event-shaped. Setting it as it
+stands lets a buyer who paid early be tombstoned irreversibly before their event, while G2's gate holds
+the venue's money for the same risk. Re-anchoring it to the event is a code change and a separate owner
+decision; this document recommends no duration for it.

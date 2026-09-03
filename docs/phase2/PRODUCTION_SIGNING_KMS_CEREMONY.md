@@ -1,5 +1,7 @@
 # PRODUCTION SIGNING KEY — TWO-PERSON KMS CEREMONY
 
+**Revised 2026-09-03; not executed.**
+
 **Status: PREPARED, NOT EXECUTED.** No production KMS material exists. No production
 `kernel.signing_key` row exists. This document is the executable procedure; running it
 is a separate, owner-approved act.
@@ -40,8 +42,12 @@ is a separate, owner-approved act.
 3. **Do not un-park any signing RPC.** `kernel.provision_signing_key`,
    `rotate_signing_key`, `revoke_signing_key` and the three `pass_type_cert` RPCs stay
    fail-closed exactly as `083:375-425` and `086:714-721` left them. They carry
-   `GRANT EXECUTE … TO authenticated` (`083:846-853`, `:869-871`); un-parking without an
-   in-body principal check would hand key provisioning to every signed-in user.
+   `GRANT EXECUTE … TO authenticated` (`v_auth` list `083:846-854`; grant loop
+   `083:870-872`); un-parking without an in-body principal check would hand key
+   provisioning to every signed-in user. **This default cuts the other way too:** any new
+   `kernel.*` function (e.g. the invariant-monitor checker shipped in migration 099, §9.3)
+   is EXECUTE-able by `authenticated` the instant it is created unless its migration
+   explicitly `revoke`s it (`docs/phase2/_impl/KJ_kms_runbook_monitor.md` §2 E11).
 4. **Never pass the KMS handle to a parked RPC.** Postgres logs the failing statement at
    `log_min_error_statement=error` (the default). Calling
    `kernel.provision_signing_key(..., '<PRODUCTION_KMS_KEY_ID>', ...)` writes the handle
@@ -66,7 +72,7 @@ Nothing in the schema, the mint, or any RPC constrains the provider or the forma
 | `kernel.signing_key.kms_handle_ref` | `text not null` (`083:56`). No `CHECK`, no length rule, no regex, no format. | The provider, the identifier syntax, and whether the identifier pins a key *version*. |
 | `kernel.signing_key.public_key` | `text not null` (`083:55`). No format constraint, no parser. | PEM vs raw base64 vs JWK. |
 | Algorithm | Nothing in SQL. | Everything. |
-| Validation of the pair | **None.** `guard_signing_key_immutable` is `BEFORE UPDATE` only (`083:104-105`); there is no `BEFORE INSERT` trigger. `kernel.issue_ticket_atoms` (`083:514-530`) validates only `status='active'`, `not_before <= now()`, `not_after` unset-or-future, and scope coherence. | Postgres cannot tell a real key from a placeholder. This is by design (it holds no key material) and it is the single most important fact in this document. |
+| Validation of the pair | **None.** `guard_signing_key_immutable` is `BEFORE UPDATE` only (trigger `083:103-105`); there is no `BEFORE INSERT` trigger. The mint `kernel.issue_ticket_atoms` was replaced by 093 (envelope `093:4950-4976`, function head `093:4874`): it no longer accepts a key — it **resolves** one most-specific-first (`093:4954-4966`), refuses `no_active_signing_key` (`093:4968`), and refuses a caller-supplied key that disagrees with the resolved one (`signing_key_override_refused`, `093:4974-4976`). What it still cannot validate: key material, `not_before <= now()`, `not_after` unset-or-future (`093:4959`), and scope coherence. | Postgres cannot tell a real key from a placeholder. This is by design (it holds no key material) and it is the single most important fact in this document. |
 
 The *architecture* — not the code — supplies the intent, at
 `docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md`:
@@ -80,7 +86,7 @@ The *architecture* — not the code — supplies the intent, at
   scoped to `kms:Sign` for signing and `kms:CreateKey`/`ScheduleKeyDeletion` for
   provisioning; *"No env var ever holds key material."* The env-var name is AWS-shaped,
   which is a hint and not a decision.
-- **§5.2 (`:1286-1288`)** — `global` scope is *"allowed but discouraged … only for a
+- **§5.2 (`:1283-1284`)** — `global` scope is *"allowed but discouraged … only for a
   controlled bootstrap."* This ceremony is that bootstrap.
 
 **Conclusion: the implementation expects "an asymmetric signing key held in a cloud
@@ -105,7 +111,7 @@ this runbook must pin down, and does pin down in §1.2:
 | D3 | **`public_key` wire format: SPKI, PEM-armoured**, i.e. a `-----BEGIN PUBLIC KEY-----` block. Both AWS and GCP export SPKI. This is the format the fingerprint in D5 is defined over and the format §5's verification commands consume. | this runbook | fixed |
 | D4 | **`kms_handle_ref` syntax: the provider's fully-qualified resource identifier, pinned to exactly one key *version*.** AWS KMS: `arn:aws:kms:<REGION>:<ACCOUNT_ID>:key/<KEY_ID>` (an AWS asymmetric CMK has one key material; "rotation" is a *new key*). GCP Cloud KMS: `projects/<P>/locations/<L>/keyRings/<KR>/cryptoKeys/<K>/cryptoKeyVersions/<V>` — **the `cryptoKeyVersions/<V>` suffix is mandatory.** A GCP handle that stops at `cryptoKeys/<K>` designates a *rotating* key whose signatures would stop verifying against the immutable `public_key` column the moment a new version becomes primary. | this runbook | `<PRODUCTION_KMS_KEY_ID>` |
 | D5 | **Fingerprint: `SHA-256` over the DER-encoded SPKI bytes, lowercase hex, 64 characters.** Not over the PEM text; not over the raw point. The DB-side gate in §6 recomputes exactly this from the stored PEM. | this runbook | `<EXPECTED_PUBLIC_KEY_FINGERPRINT>` |
-| D6 | **`not_after`: NULL** (no expiry). A bounded window creates a hard issuance cliff — `083:519` requires `not_after > now()`, and both rotation and revoke are parked, so only a superuser SQL session could move it. Choosing a non-NULL value obliges you to name a calendar owner. | `B_signing_dual_control.md:355` | `NULL` unless the owner overrides |
+| D6 | **`not_after`: NULL** (no expiry). A bounded window creates a hard issuance cliff — the resolver's `not_after` predicate (now `093:4959`; same shape at `093:4069` and `085:1953`) requires `not_after > now()`, and both rotation and revoke are parked, so only a superuser SQL session could move it. Choosing a non-NULL value obliges you to name a calendar owner. | `B_signing_dual_control.md:355` | `NULL` unless the owner overrides |
 | D7 | **Scope: `global`. `key_id`: `00000000-0000-0000-0000-0000000000b0`.** Both are already determined — `signing_key_scope_target_ck` (`083:64-68`) forbids any other scope for a bootstrap row that predates the catalog, and `signing_key_active_global_uq` (`083:77-78`) then permits exactly one. | `093_parts/40_config_privacy_freeze.sql` ITEM 2 | fixed |
 
 ### 1.3 What is NOT built, and therefore not in scope
@@ -118,6 +124,17 @@ does not activate scanning.** It exists because `kernel.tickets.signing_key_id` 
 without an active in-scope key — so a ticket cannot exist at all until one honest row
 does. Signature production and verification are consequently **off-database** operations
 throughout this document.
+
+Since 093, the same resolver also runs inside `venue.create_primary_checkout`
+(`093:4066-4077`, gate order within the function: `payout_not_ready` at `093:4026` →
+`no_active_signing_key` at `093:4076` → `service_fee_unset`). With no active key, no
+primary checkout can be quoted at all — **the ceremony gates the first production QUOTE,
+not the first webhook-time mint.** The key is deliberately not pinned onto the order at
+quote time (`093:4077-4081`). The "buyer charged, no ticket" hazard is therefore closed
+before the charge, and a webhook that still reaches finalize without a key is classified
+retryable + alert by `stripe-webhook/native.ts:420-421` (`{ack:false, alert:true,
+reason:'finalize_no_signing_key'}`, surfaced via Sentry `captureException`,
+`index.ts:358-359`).
 
 ---
 
@@ -145,6 +162,10 @@ not share credentials and are not the same human under two accounts.
 | B3. Verifies A's challenge signature against **B's own** exported public key. | `LOCAL` |
 | B4. Holds the production database credential and executes the bootstrap transaction. | `PRODUCTION DB MUTATION` |
 | B5. **Never** holds `kms:CreateKey`. |  |
+
+**On B4:** no role but `postgres` holds `INSERT` on `kernel.signing_key` — `authenticated`
+gets `permission denied for table signing_key` (rehearsed, §15 ADV-3). B4 therefore names
+the **superuser** credential specifically, not merely "a" database credential.
 
 ### Separation invariant
 
@@ -174,7 +195,20 @@ Steps that may be done alone: nothing.
 - [ ] Owner has recorded the go, in writing, referencing Ruling B.
 - [ ] D1–D7 in §1.2 are filled in and countersigned.
 - [ ] Person A and Person B named; their principals confirmed non-overlapping (A has no DB credential; B has no `CreateKey`).
-- [ ] Migration `093_primary_ticketing.sql` is applied to production. (It ships ITEM 2 as a **commented** template and writes no row — `093_parts/40_config_privacy_freeze.sql:341-465`.)
+- [ ] Migrations **093, 094 and 095 applied (ledger 110)** — not merely 093. 093's quote-time
+      gate (`093:4066-4077`) and resolving mint (`093:4874-5010`) are what give this ceremony
+      its semantics (§1.3); `catalog.set_platform_config` as replaced in 093 (`093:6544-…`,
+      dual-control prefix set `093:6748-6751`) is what §13 step 1's single-admin kill switch
+      depends on. 094/095 carry no signing reference themselves but the activation order
+      applies 093→094→095 as one block, so require all three. 093 ships ITEM 2 (the bootstrap
+      template) as a **commented** template and writes no row —
+      `093_parts/40_config_privacy_freeze.sql:446-521`.
+- [ ] Migrations **096–099 applied.** 096 (`kernel.organization_obligation_recovery`) and 097
+      (cross-venue ring-fence) carry no signing reference. 098 (promoter pro-rata funding)
+      carries no signing reference. **099 (`099_signing_monitor_and_executor_invokers.sql`)
+      is the standing monitor this ceremony's §9.3 now points to** — see §9.3 below; it must be
+      applied before step 9 of the §16 sequence so that arming the monitor is a config act, not
+      a deploy.
 - [ ] `feature.native_issuance_enabled` is **false**. It stays false until every other activation item is green; flipping it is a separate, later, owner-executed act.
 - [ ] Confirm the table is empty:
 
@@ -446,8 +480,9 @@ select '00000000-0000-0000-0000-0000000000b0', 'global', null, null,
   from ceremony_input i
  where not exists (select 1 from kernel.signing_key);
 
--- POST-CHECK — the row must satisfy the mint envelope (083:514-530) and the
--- finalize resolver (085:1948-1960), or this transaction aborts.
+-- POST-CHECK — the row must satisfy the resolver used at all three sites this key
+-- feeds (finalize 085:1948-1960 · checkout gate 093:4066-4074 · mint 093:4954-4966),
+-- or this transaction aborts.
 do $$
 declare v_n int; v_ok boolean;
 begin
@@ -531,7 +566,10 @@ Confirm: exactly one line; `key_id` ends `…b0`; `scope=global`; `status=active
 ### 7.2 The key resolves the way the mint and finalize resolve it
 
 ```bash
-# READ ONLY — this is the 085:1948-1960 / 086:1196-1201 resolver, verbatim shape.
+# READ ONLY — this query's `scope in ('global')` filter is only the global arm of the
+# resolver, not its verbatim shape (it cannot see a per_event/per_venue shadow row — see
+# §7.4 for that check). The full resolver is 085:1948-1960 = 093:4066-4074 = 093:4954-4966.
+# (086:1196-1201 is the unrelated comp-issue path.)
 psql "$PROD_DB_URL" -tAc "
 select k.key_id, k.scope from kernel.signing_key k
  where k.status='active' and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
@@ -584,7 +622,8 @@ SQL
 
 ### 7.6 The one live gap to record, not fix
 
-`not_after` is deliberately **excluded** from the immutability guard (`083:88-93`). A
+`not_after` is deliberately **excluded** from the immutability guard's immutable-set
+(`083:88-91`, which also excludes `not_before` — this runbook had never listed that). A
 superuser session can still move the key's window. There is no in-band control for this;
 the compensating control is the §9.3 monitor. Recorded, not fixed.
 
@@ -595,8 +634,9 @@ the compensating control is the §9.3 monitor. Recorded, not fixed.
 Not executed by this ceremony; pinned here so a future implementation cannot drift.
 
 - Fields, from `EDGE_SPEC:1276-1277`: `{ atom_id, session_id, credential_version, key_id, issued_at, exp }`.
-- `key_id` is `kernel.tickets.signing_key_id`, **pinned at mint** (`083:557-559`) and
-  resolved from the ticket row, never by a fresh lookup (`EDGE_SPEC:1289-1290`).
+- `key_id` is `kernel.tickets.signing_key_id`, **pinned at mint** (insert at `093:5003-5005`,
+  superseding the old `083:557-559` site) and resolved from the ticket row, never by a fresh
+  lookup (`EDGE_SPEC:1287-1289`).
 - Signed via `KMS.sign(kms_handle_ref, canonical_payload)`. The signer must define and
   freeze a canonical byte encoding (field order, whitespace, separators) *before* the
   first credential is issued: verification is byte-exact, and a re-ordered JSON
@@ -637,28 +677,80 @@ acceptable; screenshots of any "export"/"download" dialog are not.**
 
 ### 9.3 Standing monitor (`OWNER APPROVAL REQUIRED` to waive)
 
-Rotation and revocation are unavailable in-band, so detection is the control. Alert on any
-of these, at least daily:
+Rotation and revocation are unavailable in-band, so detection is the control. Prior text in
+this section described a manual daily query; no mechanism actually existed. **A mechanism
+now exists, dark, in migration `099_signing_monitor_and_executor_invokers.sql`:**
+
+- Function `kernel.check_signing_key_invariants()` — `SECURITY DEFINER`, read-only,
+  `EXECUTE` revoked from `public, anon, authenticated, service_role` (only the cron owner
+  runs it). It never selects `kms_handle_ref`; the fingerprint is reduced to a comparison
+  result (`match` / `MISMATCH` / `unpinned` / `bootstrap_row_missing`), never the hex or the
+  key material itself.
+- Three config keys, all owner-unset at apply (`restricted` visibility): `signing.monitor_enabled`
+  (seeded `false` — the checker returns `{"status":"monitor_disabled"}` and writes nothing
+  while false), `signing.expected_key_fingerprint` (seeded `null`), `signing.expected_max_not_after`
+  (seeded `null`, D6's default).
+- Cron job `monitor-signing-key-invariants`, daily. The job row exists from apply (owning-package
+  pattern) but is inert until `signing.monitor_enabled` is set `true`.
+- On an alert, a durable append-only `kernel.admin_audit` row (`action = 'signing_key.invariant_alert'`)
+  plus best-effort push egress to the `notify-report` edge, event `signing_invariant_alert`
+  (fans out to every `public.admin_users` row and `ADMIN_EMAIL`, and a Sentry `captureException`
+  so an alert rule can page). Egress failure does not roll back the audit row.
+- **Six standing invariants checked** (the four this section used to list, plus two added to
+  close a gap the old text had: it claimed to alert on any status change but did not watch
+  status at all):
+
+  | Column | Expected | Closes |
+  |---|---|---|
+  | `total_keys` | `1` | — |
+  | `scoped_keys` | `0` | the ADV-7 shadow-key signal |
+  | `active_global` | `1` | — |
+  | `rotating_keys` (**added**) | `0` until the first rotation | ADV-9 — a `rotating` key was previously invisible |
+  | `revoked_keys` (**added**) | `0` | ADV-9 — a `revoked` flip was previously invisible |
+  | `fingerprint` | `match` (a WORD, never the hex) | — |
+  | `max_not_after_set` vs the pinned `signing.expected_max_not_after` | agree | §7.6's live gap |
+
+  Full design, options considered, and the exact SQL: `docs/phase2/_impl/KJ_kms_runbook_monitor.md` §4.
+
+Replaces the former manual-query text. §16 step 9 below is now the arming act, not a
+prose reminder.
+
+#### The arming step — `PRODUCTION CONFIG` · `OWNER APPROVAL REQUIRED` · **NOT EXECUTED**
+
+Runs **after** §7 passes and **before** step 10 (flag flip). Requires migration 099 applied
+and the `notify-report` branch deployed. Executed by a **platform_admin JWT** (the setter
+refuses `postgres`) through PostgREST or an authenticated `psql` session — never the SQL
+editor.
 
 ```sql
--- READ ONLY — the four standing invariants.
-select
-  (select count(*) from kernel.signing_key)                                              as total_keys,          -- expect 1
-  (select count(*) from kernel.signing_key where scope <> 'global')                      as scoped_keys,         -- expect 0
-  (select count(*) from kernel.signing_key where status='active' and scope='global')     as active_global,       -- expect 1
-  (select encode(sha256(decode(regexp_replace(public_key,'-----(BEGIN|END) PUBLIC KEY-----|[[:space:]]','','g'),'base64')),'hex')
-     from kernel.signing_key where key_id='00000000-0000-0000-0000-0000000000b0')        as bootstrap_fpr,       -- expect <EXPECTED_PUBLIC_KEY_FINGERPRINT>
-  (select coalesce(max(not_after)::text,'null') from kernel.signing_key)                 as max_not_after;       -- expect null (D6)
+-- PRODUCTION CONFIG — OWNER APPROVAL REQUIRED. Values from the evidence pack (§9.1), not from this file.
+-- 1. pin the fingerprint B stated first and A confirmed (§5.2). Lowercase hex, 64 chars.
+select catalog.set_platform_config('signing.expected_key_fingerprint',
+         to_jsonb('<EXPECTED_PUBLIC_KEY_FINGERPRINT>'::text), 'ceremony_b_bootstrap', '<COMMAND_KEY_1>');
+-- 2. (only if D6 chose a non-NULL not_after) pin it, else skip:
+-- select catalog.set_platform_config('signing.expected_max_not_after',
+--          to_jsonb('<PRODUCTION_KEY_NOT_AFTER>'::text), 'ceremony_b_bootstrap', '<COMMAND_KEY_2>');
+-- 3. arm
+select catalog.set_platform_config('signing.monitor_enabled', 'true'::jsonb, 'ceremony_b_bootstrap', '<COMMAND_KEY_3>');
+-- 4. READ ONLY — prove the monitor is green NOW, not tomorrow at 05:23 (run as postgres, the cron owner):
+--    select kernel.check_signing_key_invariants();   -- expected: {"status":"ok","alerts":[],"fingerprint":"match",...}
+--    Anything else: STOP; the evidence pack is not signable.
 ```
 
+Expected `set_platform_config` returns: `{"status":"ok","key":…,"version":2,…}` for each
+(direct path, `078:1297-1307`) — because `signing.%` is **not** in the dual-control prefix
+set (`093:6748-6751`), a single platform_admin can pin, arm, and — the weakness — **disarm
+or re-pin alone**. Whether `signing.%` should be dual-controlled is open; see
+`docs/phase2/_impl/KJ_kms_runbook_monitor.md` §5 Q3.
+
 A `per_event` or `per_venue` row appearing **at all** is the scope-shadowing signal (§12
-ADV-7) and is a page-the-owner event, not a ticket.
+ADV-7) and is a page-the-owner event, not a ticket — it now also trips `scoped_keys` above.
 
 ### 9.4 CI and repository hygiene
 
 - `.gitignore` covers `*.pem`, `*.key`, `*.p8`. It does **not** cover `*.der`, `*.sig`, or
   `*.bin`. Run every `LOCAL` step outside any repository (the §3 check enforces this).
-- No CI workflow references KMS or key material today (`grep -rniE 'kms|KMS_SIGNER' .github/workflows/` returns only two prose comments).
+- No CI workflow references KMS or key material today (`grep -rniE 'kms|KMS_SIGNER' .github/workflows/` returns nothing — stale in the safe direction; this section previously said "two prose comments").
 - If `credential-sign` is ever built, `KMS_SIGNER_ROLE_ARN` holds a **role ARN**, never key
   material (`EDGE_SPEC:1293-1297`).
 - The fixtures in `supabase/tests/147_phase2_kernel_credential_infrastructure.sql` insert
@@ -725,17 +817,18 @@ reports it in operator language before Postgres does.
 `IRREVERSIBLE AFTER MINT`
 
 **The point of no return is the first successful `kernel.issue_ticket_atoms` call** — in
-production, the first `venue.finalize_primary_order` on a paid order. Not the ceremony,
-not the flag flip: the first atom.
+production, the first `venue.finalize_primary_order` on a paid order (`085`, untouched by
+093/094/095 — `093:2838`). Not the ceremony, not the flag flip: the first atom — which
+cannot be reached until a quote has passed the `093:4066` gate (§1.3).
 
 At that instant, four doors close at once:
 
 | # | What closes | Mechanism |
 |---|---|---|
 | 1 | **The row can never be deleted.** | `kernel.tickets.signing_key_id … ON DELETE RESTRICT` (`084:52-55`). Rehearsed: `DELETE` fails. |
-| 2 | **`public_key` and `kms_handle_ref` can never be corrected.** | `kernel.guard_signing_key_immutable` (`083:84-102`) raises on any `UPDATE` of either — for superusers too. Rehearsed on all of `public_key`, `kms_handle_ref`, `scope`, target. |
-| 3 | **Those atoms are pinned to this key forever.** | `083:557-559` writes `signing_key_id` at insert; `EDGE_SPEC:1289-1290` resolves the signer from the pin, never by fresh lookup; no re-pinning resolver exists (`088:606`, E-97). Rotation does **not** re-pin — rehearsed. |
-| 4 | **Nothing can prove the key is honest after the fact.** | The mint validates only status/window/scope. A garbage `public_key` mints atoms no door can ever verify, and doors 1–3 mean it can be neither fixed nor removed. |
+| 2 | **`public_key` and `kms_handle_ref` can never be corrected.** | `kernel.guard_signing_key_immutable` (`083:84-101`) raises on any `UPDATE` of either — for superusers too. Rehearsed on all of `public_key`, `kms_handle_ref`, `scope`, target. |
+| 3 | **Those atoms are pinned to this key forever.** | The mint writes `signing_key_id` at insert (`093:5003-5005`, superseding the old `083:557-559` site); `EDGE_SPEC:1287-1289` resolves the signer from the pin, never by fresh lookup; no re-pinning resolver exists (`088:606`, E-97). Rotation does **not** re-pin — rehearsed. |
+| 4 | **Nothing can prove the key is honest after the fact.** | The mint validates only status/window/scope, and refuses a caller override (`093:4974-4976`) — it still cannot validate key material. A garbage `public_key` mints atoms no door can ever verify, and doors 1–3 mean it can be neither fixed nor removed. |
 
 **The owner has accepted this explicitly:** *"a wrong key at launch is silent, deferred and
 permanent, since the key is pinned at mint, rotation never re-pins, revoke is parked, and
@@ -850,7 +943,7 @@ commit;
 ```
 
 **Never set the outgoing key to `revoked` as part of a routine rotation.** `revoked` is
-terminal (`083:96-99`) and, once M1/door verification exists, is the state that makes old
+terminal (`083:95-98`) and, once M1/door verification exists, is the state that makes old
 credentials fail closed. Routine rotation is `rotating`; revocation is §13.
 
 ---
@@ -869,8 +962,10 @@ The only in-band control that still functions with the lifecycle parked:
 psql "$PROD_DB_URL" -tAc "select catalog.set_platform_config('feature.native_issuance_enabled','false'::jsonb,'compromise','<COMMAND_KEY>');"
 ```
 
-`feature.%` is **not** in the dual-control prefix set (`078:1145-1147`), so this is a
-single-admin act by design. Rehearsed: with the flag false, the mint refuses
+`feature.%` is **not** in the dual-control prefix set — the live body is now `093:6748-6751`
+(the 093 replacement of `catalog.set_platform_config` added `fee.%`, `deletion.%`, `ticket.%`
+to the prefix; `feature.%` still absent, superseding the old `078:1145-1147` citation), so
+this is a single-admin act by design. Rehearsed: with the flag false, the mint refuses
 `precondition_failed: feature_disabled` before it touches the key.
 
 ### Step 2 — REVOKE IN KMS (`KMS MUTATION`, immediate, provider-side)
@@ -889,7 +984,7 @@ supported in-band revocation. Options, in order of preference:
    the private key and not forgery of tickets.
 2. **If forged credentials are the threat**, a superuser transaction may set
    `status='revoked'` and `not_after = now()`. The guard permits `rotating → revoked`
-   and `active → revoked` (`083:96-99`); it is **terminal and irreversible**. Do this only
+   and `active → revoked` (`083:95-98`); it is **terminal and irreversible**. Do this only
    with the owner's explicit go, because once door verification exists it invalidates every
    credential pinned to that key, and the atoms themselves cannot be re-pinned.
 3. `venue.open_door_manifest` / door-episode force-closure on revocation is the PFA-18A
@@ -908,10 +1003,10 @@ Record which of options 1/2 was taken and why.
 The property Ruling B requires — *"Old issued tickets remain verifiable after rotation"* —
 holds by construction, and was rehearsed end to end:
 
-1. `kernel.tickets.signing_key_id` is written once at mint (`083:557-559`) and is not in
-   any writer's update set thereafter.
+1. `kernel.tickets.signing_key_id` is written once at mint (`093:5003-5005`, superseding
+   the old `083:557-559` site) and is not in any writer's update set thereafter.
 2. The signer for an atom is resolved **from that pin**, never by a fresh lookup
-   (`EDGE_SPEC:1289-1290`).
+   (`EDGE_SPEC:1287-1289`).
 3. Rotation retains the old row with `status='rotating'` and its `public_key` intact, and
    the RLS policy is row-universal over the public projection (`083:118-124`) — so the
    verify key of a retired key stays distributable.
@@ -939,12 +1034,12 @@ listed outcome was observed.
 | ADV-4 | **The KMS key id points at different material than the stored public key** | **NOT PREVENTABLE IN THE DATABASE. PROVED**: nothing validates the pair at `INSERT`; the guard is `BEFORE UPDATE` only. | Compensating control: the §5.3 binding proof, rehearsed in both directions (matched pair verifies; mismatched pair fails). It is the *only* detector, and it is why §5.3 is mandatory and simultaneous. |
 | ADV-5 | **The DB public key diverges from the KMS key** (typo, wrong export, wrong version) | **PARTIALLY PREVENTED. PROVED.** The §6 fingerprint gate rejects any PEM that does not hash to the independently-computed fingerprint. It cannot detect a *consistently wrong* pair — that is ADV-4's job. | D4 additionally requires a version-pinned GCP handle, closing the "right key, wrong version" case. |
 | ADV-6 | **A stale fingerprint is accepted** | **PREVENTED. PROVED**: supplying key 1's PEM with key 2's fingerprint aborts with `fingerprint mismatch — computed …, expected …`, and `count(*)` stays 0. | The gate compares computed-vs-expected inside the same transaction that writes. |
-| ADV-7 | **The same key registered twice** | **SPLIT VERDICT.** As a second *active global* row: **PREVENTED. PROVED** — `duplicate key value violates unique constraint "signing_key_active_global_uq"`. As a `per_event` **shadow** carrying the identical public key and handle: **NOT PREVENTED. PROVED** — the insert succeeds and the resolver immediately prefers it (`per_event` outranks `global`, `085:1955-1960`). | Compensating controls: (a) no client role can insert at all (ADV-3), so this needs superuser; (b) the §9.3 monitor treats **any** `per_event`/`per_venue` row as a page-the-owner event; (c) §12's rotation artifact refuses a handle already registered on another row. |
+| ADV-7 | **The same key registered twice** | **SPLIT VERDICT.** As a second *active global* row: **PREVENTED. PROVED** — `duplicate key value violates unique constraint "signing_key_active_global_uq"`. As a `per_event` **shadow** carrying the identical public key and handle: **NOT PREVENTED. PROVED at all three resolver sites** (`per_event` outranks `global` at `085:1955-1960` = `093:4066-4074` = `093:4954-4966`) — reproduced against a live fixture on the rehearsal DB (`docs/phase2/_impl/KJ_kms_runbook_monitor.md` §2 E8: `["total_keys=2","scoped_keys=1"]`, and the checkout-time resolver returned the shadow's `key_id`). | Compensating controls: (a) no client role can insert at all (ADV-3), so this needs superuser; (b) the §9.3 monitor's `scoped_keys` invariant treats **any** `per_event`/`per_venue` row as an alert; (c) §12's rotation artifact refuses a handle already registered on another row. |
 | ADV-8 | **Unauthorized activation** (a non-ceremony principal flips a key to `active`) | **PREVENTED for every client role. PROVED** — `authenticated`, `platform_admin` and `service_role` all get `permission denied`. **NOT PREVENTED for a superuser/`postgres` session.** | The compensating control is that superuser access is the deploy path itself; §9.3's `active_global` and fingerprint invariants detect the result. |
-| ADV-9 | **An old key is silently disabled** (`rotating → revoked`, or `not_after` pulled into the past), breaking old tickets | **PREVENTED for client roles. PROVED** (`permission denied`). **NOT PREVENTED for a superuser**: `not_after` is deliberately outside the immutability guard (`083:88-93`), and `rotating → revoked` is a legal forward transition — both PROVED (the `not_after` update succeeded). | Compensating control only: §9.3 alerts on `max_not_after` and on any status change. Recorded in §7.6 as a live gap. |
+| ADV-9 | **An old key is silently disabled** (`rotating → revoked`, or `not_after` pulled into the past), breaking old tickets | **PREVENTED for client roles. PROVED** (`permission denied`). **NOT PREVENTED for a superuser**: `not_after` is deliberately outside the immutability guard's immutable-set (`083:88-91`), and `rotating → revoked` is a legal forward transition — both PROVED (the `not_after` update succeeded). | Compensating control only: the §9.3 monitor (099) alerts on `max_not_after` **and now explicitly on status** — `revoked_keys` and `rotating_keys` census columns, expected `0`/`0` until the first rotation — closing the gap the pre-099 §9.3 query left (it caught `active_global` drift only by side effect and could not see a `rotating → revoked` flip on a retired key). Recorded in §7.6 as a live gap: detection only, not prevention. |
 | ADV-10 | **Malicious rotation** (rotate to an attacker key; or revoke the old key while rotating) | **PREVENTED for client roles. PROVED.** Against the §12 artifact specifically: re-registering the same key **PROVED ABORT**; a duplicate handle **ABORTS**; a non-`global` or non-`active` outgoing key **ABORTS**; re-pinning **ABORTS**. A superuser bypassing the artifact is not prevented. | The artifact makes the honest path easy and the dishonest path require deliberately not using it — which the §9.3 fingerprint invariant then surfaces. |
 | ADV-11 | **A compromised KMS key** | **CONTAINED, NOT PREVENTED.** PROVED that the in-band stop works: with `feature.native_issuance_enabled=false` the mint refuses `feature_disabled` before touching the key. PROVED that `revoke_signing_key` is inert (`dual_control_unavailable`). | §13. Real revocation is a KMS/IAM act. The DB-side residual (no episode force-closure) is PFA-18A's open forward obligation. |
-| ADV-12 | **`service_role` bypass** | **PREVENTED. PROVED.** `service_role` has `BYPASSRLS=true` **and zero table privileges** on `kernel.signing_key` — `SELECT`, `INSERT` and `UPDATE` all → `permission denied for table signing_key`. RLS bypass is irrelevant without a grant. `service_role` **can** call `issue_ticket_atoms` (by design), but only against a key someone else created. | A leaked service-role key mints tickets under the honest key; it cannot create, alter, or shadow a signing identity. |
+| ADV-12 | **`service_role` bypass** | **PREVENTED. PROVED, and strengthened by 093.** `service_role` has `BYPASSRLS=true` **and zero table privileges** on `kernel.signing_key` — `SELECT`, `INSERT` and `UPDATE` all → `permission denied for table signing_key`. RLS bypass is irrelevant without a grant. `service_role` **can** call `issue_ticket_atoms` (by design), but only against a key someone else created — and since 093 it can no longer pin a caller-supplied `signing_key_id` over the resolved one at all (`signing_key_override_refused`, `093:4974-4976`), closing the prior caller-supplied-key gap. | A leaked service-role key mints tickets under the honest key; it cannot create, alter, or shadow a signing identity. |
 | ADV-13 | **CI secret leakage** | **NO LEAK FOUND. PROVED** by inspection: no workflow references KMS or key material; the ceremony runs no CI step; test fixtures use the literal non-keys `'PUBKEY'` / `'kms-handle-opaque'`. **One gap:** `.gitignore` lacks `*.der`/`*.sig`/`*.bin`. | §3's non-repository working-directory check, and §9.4. |
 | ADV-14 | **Logs leak KMS references or key material** | **KEY MATERIAL: NO LEAK POSSIBLE** — the private key never reaches the database or any application process. **HANDLE: A REAL CHANNEL, PROVED as a mechanism.** No RPC returns `kms_handle_ref`; no `admin_audit` row, `notify` event, or edge function carries it (grep over `supabase/migrations/`, `supabase/functions/`, `src/`, `packages/`, `app/`). But the parked `provision_signing_key`/`rotate_signing_key` take it as a **parameter**, and Postgres logs the failing statement at `log_min_error_statement=error` (the default). | §0 rule 4: never pass the handle to a parked RPC. §6.2: never use the SQL editor. §7.1: verification never prints the handle. Residual exposure is bounded — `EDGE_SPEC:1293-1297`: the handle *"is a handle, so even its leak yields no signing ability without KMS IAM."* |
 
@@ -973,7 +1068,7 @@ listed outcome was observed.
 | 6 | **Binding proof** — A signs B's challenge through the handle; B verifies | A + B | `KMS MUTATION` |
 | 7 | Run `signing_key_bootstrap.sql`; three NOTICEs + COMMIT | B (A reads aloud) | `PRODUCTION DB MUTATION` `IRREVERSIBLE AFTER MINT` |
 | 8 | §7.1–§7.5 verification | A + B | `READ ONLY` (§7.5 rolls back) |
-| 9 | Evidence pack signed; monitor §9.3 armed | A + B + Owner | — |
+| 9 | Evidence pack signed; **monitor armed** — the §9.3 arming step: pin `signing.expected_key_fingerprint` (and `signing.expected_max_not_after` if D6 chose non-NULL), then `signing.monitor_enabled=true`, then confirm `kernel.check_signing_key_invariants()` returns `status:"ok"` | A + B + Owner | `PRODUCTION CONFIG` `OWNER APPROVAL REQUIRED` |
 | 10 | *Later, separately:* flip `feature.native_issuance_enabled` | Owner | `PRODUCTION DB MUTATION` |
 
 **Between steps 7 and 10 the bootstrap is still reversible (§10). After the first atom is

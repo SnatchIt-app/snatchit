@@ -159,10 +159,12 @@ longer maturity hold (already 7 days under G2) or a reserve.
 > (2 record only, resolved by an explicit audited act / 3 automatic future-settlement offset / 6 record
 > now and decide offset separately).
 >
-> Cross-venue netting inside one organization is ruled as: ______________________________
-> (permitted / not permitted). It is recorded that the existing chargeback arm already nets org-scoped
-> today, so a "not permitted" answer requires a change to shipped behaviour, and that a venue's finance
-> role can see another venue's settlement, making this a disclosure decision as well as an economic one.
+> Cross-venue netting inside one organization is ruled as: **not permitted (owner direction
+> 2026-09-03)**. It is recorded that the existing chargeback arm already nets org-scoped today, so this
+> answer requires a change to shipped behaviour, and that a venue's finance role can see another venue's
+> settlement, making this a disclosure decision as well as an economic one. Migration 097 (see the OWNER
+> DIRECTION note below) implements the ring-fence this line pre-fills, pending the owner's signature on
+> the ruling as a whole.
 >
 > It is recorded that some post-payout loss is structurally unrecoverable, that Stripe reversal requires
 > funds still to be in the venue's balance and therefore fails in exactly the case we fear, and that
@@ -178,4 +180,76 @@ ratifies Gate-M as "not required" for MVP — on the premise that no reserve or 
 payout is settlement-cadenced. That premise was written when **no venue could be paid at all**. It should
 be **re-attested rather than obeyed or overridden**. Migration 094 therefore records a **ratification row
 as a deploy precondition, not a build precondition**: the file exists and is dark, and applying it
-requires the owner's signature here.
+requires the owner's signature here. **See the new "GATE-M RE-ATTESTATION" section in
+`docs/phase2/FINAL_ACTIVATION_BLOCKER_RULINGS.md`, added this train, for the exact attestation text.**
+
+---
+
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned) — and what this train built
+
+**This ruling is still unsigned.** The direction below is owner guidance for what to build against §3's
+options, not a signature on §7's approval text — §5.1's cross-venue question is the one exception,
+pre-filled above at the owner's direction; every other blank in §7 remains open.
+
+**Direction received.** The organization obligation stays **the durable record of post-payout debt** —
+§3 option 2's posture, now sharpened: recovery must eventually be **deterministic and auditable, not
+accidental** (ruling out option 3's accidental same-close netting as a permanent answer, without yet
+choosing between "record only" and "automatic offset" for §7's first blank). And **no default
+cross-venue netting**: Venue A's debt must not silently consume Venue B's payout inside the same
+organization (§5.1, now answered "not permitted" above). The legal debtor may remain the organization;
+the recovery source may be venue-scoped — the obligation's *header* stays org-level while its recovery
+is fenced to where the loss actually occurred.
+
+**Migration 096 — recovery facts.** Adds `kernel.organization_obligation_recovery`, an append-only
+ledger of recovery events against an `organization_obligation` row: `source_kind` constrained to
+`transfer_reversal | manual` (closing the "how was this recovered" gap §1/§6 leave open — a Stripe
+transfer reversal reaching the platform, or a platform-initiated manual act); every row's amount is
+constrained so that Σ(recovery rows for one obligation) never exceeds that obligation's `amount`;
+`status = 'recovered'` on the parent obligation is **derived**, not settable, and only becomes true when
+the sum reaches the full amount — a partial recovery leaves the obligation `outstanding` with the
+partial credited, rather than either overstating or silently closing it. `written_off` remains an
+**explicit**, separate terminal state — recovery rows and a write-off are mutually exclusive ways an
+obligation stops being outstanding, never inferred from each other. `resolve_organization_obligation('recovered', …)`
+is **refused without at least one recovery row backing it** — closing the "trust me" gap in the
+`identity_obligation` precedent (§3 option 2's own text: "resolved by an audited platform act", which
+previously meant a status flip with no receipts). The resolver's grant was fixed to
+**`authenticated` + `is_platform()` + aal2** — narrower than a bare role check — so a step-up session is
+required to resolve any obligation, recovered or written off.
+
+**Migration 097 — the ring-fence.** Two changes: (1) the chargeback recovery arm is fenced to the
+**originating venue** — a chargeback against Venue 1's sale can only ever be recorded as recovered
+against Venue 1's future settlements, never Venue 2's, closing §5.1 as directed; (2) the **unlined
+origin** (post-payout loss with no `origin_kind` row backing it — the gap §1's finding describes,
+"UNRECOVERED RECEIVABLE… corresponds to no table, no column, no row") is fenced to **post-payout
+ledger-derived amounts only** — an obligation cannot be opened, or recovery attempted, for any amount
+that does not trace to a closed settlement's own negative `net_minor`, so the object cannot be used to
+assert a debt the ledger itself does not already show. A new `shortfall_pending` hold state is added
+to the payout maturity conjunction (this is G2's ninth predicate, `dispute_unabsorbed` — see the
+OWNER DIRECTION note under G2 in `FINAL_ACTIVATION_BLOCKER_RULINGS.md`): it **nets nothing** — it holds
+a payout from advancing while recovery against that venue is outstanding, the same fail-closed shape
+G2 already uses, not a netting mechanism dressed differently.
+
+**What neither migration does.** Neither 096 nor 097 deploys the payout executor, changes today's
+"platform absorbs" default, or answers §7's "record only vs. automatic offset" blank — that remains the
+owner's choice. Neither builds §3 option 4 (reserve/hold-back) or option 5 (Stripe fixed reserves).
+Neither is Gate-M's C29/C30/C31 (see the new GATE-M RE-ATTESTATION section, above).
+
+**Remaining owner questions, sharpened by what 096/097 make possible:**
+
+1. **A late receipt after write-off.** If an obligation is `written_off` and a recovery source (e.g. a
+   delayed transfer reversal) later actually lands, 096 has no path back from `written_off` — is a
+   write-off meant to be terminal even against money that later shows up, or does the resolver need a
+   reopen verb?
+2. **Same-venue unpaid-payout cancellation.** 097's ring-fence permits recovery only against the
+   *originating* venue's future settlements — but if that venue's organization cancels operations or its
+   Connect account is deactivated before any future settlement exists, is the obligation simply
+   unrecoverable by design (§6's residual), or should a same-venue *unpaid, matured* payout be eligible
+   for offset even though it has not yet been requested?
+3. **An org-level netting agreement object.** §5.1 is answered "not permitted" as the *default*. Is there
+   ever a contractual case (a multi-venue operator agreement) where the org and Snatch It could agree to
+   cross-venue netting explicitly, and if so does that need its own durable, auditable object rather than
+   a policy exception buried in code?
+4. **Automated reversal initiation is not built.** 096/097 record and fence recovery; nothing calls
+   Stripe to *initiate* a transfer reversal or any other recovery action — `source_kind='transfer_reversal'`
+   rows are written when a reversal is *observed*, not caused. Is initiating recovery (vs. only recording
+   it when it happens) in scope for a future train, and if so, by what trigger?

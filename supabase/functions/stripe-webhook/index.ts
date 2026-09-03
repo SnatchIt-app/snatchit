@@ -33,6 +33,38 @@ import {
   verifyNativePaymentRow,
   CANCEL_REASON_PAYMENT_FAILED,
 } from './native.ts';
+// Pure decision logic for the NATIVE arm of `charge.dispute.*` and the native
+// routing of `transfer.reversed` (KH §4.5 / §4.6 decision tables). Import-free
+// by construction — see native-dispute.ts's header and
+// tests/stripe-webhook-dispute.test.ts.
+import {
+  type DisputeEventKind,
+  type DisputeLike,
+  type DisputePaymentRow,
+  type MarkDisputeResult,
+  type RecordDisputeResult,
+  type RecordPayoutReversalResult,
+  type ReversalFact,
+  type TransferLike,
+  DISPUTE_PAYMENT_COLUMNS,
+  aggregateDecisions,
+  buildDisputeCommandKey,
+  classifyDisputeError,
+  classifyReversalError,
+  disputeMarkArgs,
+  disputeRecordArgs,
+  disputeStatusKnown,
+  interpretMarkResult,
+  interpretRecordResult,
+  interpretReversalResult,
+  isDisputeNotFound,
+  mergeReversals,
+  planDisputeVerb,
+  planReversalRecording,
+  readInlineReversals,
+  resolveDisputeRail,
+  resolveTransferRail,
+} from './native-dispute.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
@@ -195,6 +227,58 @@ async function readInstrumentFingerprint(paymentIntent: unknown): Promise<string
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
+  }
+}
+
+/** How long one page of a transfer's reversal list may take. */
+const REVERSAL_READ_TIMEOUT_MS = 4000;
+/** Hard cap on pages: 100 reversals per page × 10 is far beyond any real transfer. */
+const REVERSAL_READ_MAX_PAGES = 10;
+
+/**
+ * READ-ONLY BY CONSTRUCTION — the `readInstrumentFingerprint` pattern: `GET`
+ * only, no body, no idempotency key, a hard timeout, and it moves no money.
+ *
+ * `transfer.reversed` carries `reversals.data[]` inline, but the list is
+ * paginated (`has_more`). A Σ over a SHORT list would under-record what came
+ * back, and `record_payout_reversal`'s facts are the only ledger of it
+ * (DESIGN §1.3 / §2.2) — so when `has_more` is true the remaining pages are
+ * read here before any verb is called. Unlike the fingerprint read this one
+ * is NOT advisory: a failed page makes the delivery RETRY (the caller maps
+ * `ok:false` to `ack:false`), because a redelivery genuinely can succeed.
+ */
+async function readTransferReversalsAfter(
+  transferId: string,
+  startingAfter: string | null,
+): Promise<{ ok: true; reversals: ReversalFact[] } | { ok: false; detail: string }> {
+  try {
+    if (!STRIPE_SECRET_KEY) return { ok: false, detail: 'no STRIPE_SECRET_KEY' };
+    const collected: ReversalFact[] = [];
+    let cursor = startingAfter;
+    for (let page = 0; page < REVERSAL_READ_MAX_PAGES; page++) {
+      const qs = new URLSearchParams({ limit: '100' });
+      if (cursor) qs.set('starting_after', cursor);
+      const res = await fetch(
+        `https://api.stripe.com/v1/transfers/${encodeURIComponent(transferId)}/reversals?${qs.toString()}`,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
+          signal: AbortSignal.timeout(REVERSAL_READ_TIMEOUT_MS),
+        },
+      );
+      if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
+      const body = (await res.json()) as { data?: unknown; has_more?: unknown };
+      const parsed = readInlineReversals({ reversals: { data: body.data, has_more: body.has_more } });
+      if (!parsed.ok) return { ok: false, detail: parsed.detail };
+      collected.push(...parsed.reversals);
+      if (!parsed.hasMore) return { ok: true, reversals: collected };
+      const last = parsed.reversals[parsed.reversals.length - 1];
+      if (!last) return { ok: false, detail: 'has_more with an empty page' };
+      cursor = last.id;
+    }
+    return { ok: false, detail: `more than ${REVERSAL_READ_MAX_PAGES} pages of reversals` };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -379,6 +463,291 @@ serve(async (req: Request) => {
         auth: { autoRefreshToken: false, persistSession: false },
         db:   { schema: 'kernel' },
       });
+
+    /**
+     * The alert half of `finishDecision`, WITHOUT ending the request. Used by
+     * the native dispute / reversal arms on their ACK paths: the native work is
+     * done and alerted, and the legacy arm below it still runs and produces the
+     * response exactly as it does today (KH §4.3: the legacy `disputes` upsert
+     * and the `payments.status='refunded'` write are kept for native rows).
+     * A native `ack:false` never reaches here — it returns 500 through
+     * `finishDecision` BEFORE the legacy arm runs (KH §4.5 ordering note).
+     */
+    async function alertDecision(
+      decision: Decision,
+      body: Record<string, unknown>,
+      cause?: unknown,
+    ): Promise<void> {
+      if (!decision.alert) return;
+      await captureException(
+        `stripe-webhook:${decision.reason}`,
+        cause instanceof Error ? cause : new Error(decision.reason),
+        { event_id: event.id, event_type: event.type, ...body },
+      );
+    }
+
+    type NativeArmResult = { decision: Decision; body: Record<string, unknown>; cause?: Error } | null;
+
+    /**
+     * ═══════════════════════════════════════════════════════════════════════
+     * NATIVE PRIMARY dispute arm — KH §4.5 is the normative table.
+     *
+     * Returns null when the event is legacy-only (no PaymentIntent, no
+     * payments row, or `mode` is a resale mode) — the caller then runs the
+     * legacy arm alone, exactly as today. Otherwise returns the Decision.
+     *
+     * THE DISCRIMINATOR IS DB-DERIVED (KH P1-2). A Dispute has no metadata of
+     * its own; `public.payments.mode === 'native_primary'` for the dispute's
+     * `payment_intent`, read through the service client, is the rail. Nothing
+     * here reads metadata off the Dispute.
+     *
+     * THE VERBS: `created` ⇒ `record_dispute_native` (replay-safe by
+     * `stripe_dispute_ref`; NEVER `mark`, which is unordered inside the open
+     * set — KH P1-4). `updated` / `closed` / `funds_*` ⇒ `mark_dispute_state`;
+     * P0002 ⇒ record at the payload's status; if THAT is `noop_replay` a
+     * concurrent `created` won the insert race and `mark` is re-issued once.
+     *
+     * WHAT IS ACKED AND ALERTED, NEVER RETRIED: `state_conflict` (the row is
+     * terminal — 088:887-892), `not_found` from record, `invalid_input`, an
+     * unknown status, a non-live event or row. What is RETRIED: 42501 /
+     * PGRST202 (with alert), transient Postgres classes.
+     *
+     * `won` releases nothing (PFA-31). No obligation is booked here (KH P1-6).
+     * ═══════════════════════════════════════════════════════════════════════
+     */
+    async function runNativeDisputeArm(eventKind: DisputeEventKind): Promise<NativeArmResult> {
+      const d = event.data.object as DisputeLike;
+      const disputeRef = typeof d?.id === 'string' ? d.id : null;
+      const piRef = typeof d?.payment_intent === 'string' && d.payment_intent.length > 0 ? d.payment_intent : null;
+      const base: Record<string, unknown> = { stage: 'native_dispute', event_kind: eventKind, dispute_id: disputeRef, pi_id: piRef };
+
+      if (!piRef) {
+        console.log('Webhook: dispute carries no payment_intent — legacy arm only', base);
+        return null;
+      }
+
+      // ── 0-2. the discriminator: public.payments by PI, service client ──────
+      const { data: row, error: rowErr } = await supabase
+        .from('payments')
+        .select(DISPUTE_PAYMENT_COLUMNS)
+        .eq('stripe_payment_intent_id', piRef)
+        .maybeSingle();
+      if (rowErr) {
+        // We do not know which rail this is. Retryable: the read is idempotent.
+        console.error('Webhook: native dispute payment read errored', { ...base, error: rowErr.message });
+        return {
+          decision: { ack: false, alert: true, reason: 'native_dispute_payment_read_error' },
+          body: base,
+          cause: new Error(rowErr.message),
+        };
+      }
+      const paymentRow = (row as DisputePaymentRow | null) ?? null;
+      const rail = resolveDisputeRail(paymentRow, d, event.livemode);
+      if (rail.route === 'legacy') {
+        console.log('Webhook: dispute routed to the legacy arm', { ...base, why: rail.why, mode: paymentRow?.mode ?? null });
+        return null;
+      }
+      const body: Record<string, unknown> = { ...base, payment_id: rail.paymentId };
+
+      // ── 3. the livemode gate — no native write; legacy still runs ──────────
+      if (rail.route === 'not_livemode') {
+        console.error('Webhook: native dispute refused — not livemode', {
+          ...body, event_livemode: event.livemode ?? null, payment_livemode: paymentRow?.stripe_livemode ?? null,
+        });
+        return { decision: rail.decision, body };
+      }
+
+      // ── 4. the status must be one the kernel CHECK admits ─────────────────
+      const status = d.status;
+      if (!disputeStatusKnown(status)) {
+        console.error('Webhook: native dispute status outside the kernel set', { ...body, status: String(status) });
+        return {
+          decision: { ack: true, alert: true, reason: 'native_dispute_unknown_status' },
+          body: { ...body, status: String(status) },
+        };
+      }
+      if (!disputeRef) {
+        return {
+          decision: { ack: true, alert: true, reason: 'native_dispute_event_malformed' },
+          body: { ...body, detail: 'dispute.id missing' },
+        };
+      }
+
+      const commandKey = buildDisputeCommandKey(eventKind, event.id);
+      const recordArgs = disputeRecordArgs(d, commandKey);
+      if (!recordArgs.ok) {
+        console.error('Webhook: native dispute event malformed', { ...body, detail: recordArgs.detail });
+        return { decision: recordArgs.decision, body: { ...body, detail: recordArgs.detail } };
+      }
+      const kernel = kernelService();
+
+      const callRecord = async (): Promise<
+        | { kind: 'error'; decision: Decision; cause: Error }
+        | { kind: 'result'; outcome: ReturnType<typeof interpretRecordResult> }
+      > => {
+        const { data, error } = await kernel.rpc('record_dispute_native', recordArgs.args);
+        if (error) {
+          const decision = classifyDisputeError(error, { verb: 'record', eventKind });
+          console.error('Webhook: record_dispute_native failed', {
+            ...body, code: error.code, message: error.message, reason: decision.reason, ack: decision.ack,
+          });
+          return { kind: 'error', decision, cause: new Error(error.message) };
+        }
+        const result = (data as RecordDisputeResult | null) ?? null;
+        const outcome = interpretRecordResult(result, { eventKind, payloadStatus: status });
+        console.log('Webhook: record_dispute_native returned', {
+          ...body, rpc_status: outcome.rpcStatus, dispute_row_id: outcome.disputeId, status,
+          atoms_held: result?.atoms_held ?? null, atoms_skipped: result?.atoms_skipped ?? null,
+          payouts_held: result?.payouts_held ?? null, linked: result?.linked ?? null,
+          reason: outcome.decision.reason, flags: outcome.flags,
+        });
+        return { kind: 'result', outcome };
+      };
+
+      const callMark = async (): Promise<
+        | { kind: 'error'; error: { code?: string | null; message: string } }
+        | { kind: 'result'; outcome: ReturnType<typeof interpretMarkResult> }
+      > => {
+        const { data, error } = await kernel.rpc('mark_dispute_state', disputeMarkArgs(disputeRef, status, commandKey));
+        if (error) return { kind: 'error', error };
+        const outcome = interpretMarkResult((data as MarkDisputeResult | null) ?? null, { eventKind, newStatus: status });
+        console.log('Webhook: mark_dispute_state returned', {
+          ...body, rpc_status: outcome.rpcStatus, dispute_row_id: outcome.disputeId, status,
+          reason: outcome.decision.reason,
+        });
+        return { kind: 'result', outcome };
+      };
+
+      const plan = planDisputeVerb(eventKind);
+
+      if (plan.kind === 'record') {
+        const r = await callRecord();
+        if (r.kind === 'error') return { decision: r.decision, body, cause: r.cause };
+        return { decision: r.outcome.decision, body: { ...body, rpc_status: r.outcome.rpcStatus, flags: r.outcome.flags } };
+      }
+
+      // mark_then_record
+      const m1 = await callMark();
+      if (m1.kind === 'result') {
+        return { decision: m1.outcome.decision, body: { ...body, rpc_status: m1.outcome.rpcStatus } };
+      }
+      if (!isDisputeNotFound(m1.error)) {
+        const decision = classifyDisputeError(m1.error, { verb: 'mark', eventKind });
+        console.error('Webhook: mark_dispute_state failed', {
+          ...body, code: m1.error.code, message: m1.error.message, reason: decision.reason, ack: decision.ack,
+        });
+        return { decision, body, cause: new Error(m1.error.message) };
+      }
+      // P0002: `updated`/`closed` arrived before `created`. Record at the
+      // payload's status (KH B2/C2 — zero freeze legs at terminal, alerted by
+      // interpretRecordResult).
+      console.log('Webhook: mark_dispute_state not_found — recording at payload status', { ...body, status });
+      const r = await callRecord();
+      if (r.kind === 'error') return { decision: r.decision, body, cause: r.cause };
+      if (r.outcome.rpcStatus === 'ok') {
+        return { decision: r.outcome.decision, body: { ...body, rpc_status: 'ok', fallback: 'record', flags: r.outcome.flags } };
+      }
+      // noop_replay: a concurrent `created` won the insert race (088:799-803,
+      // KH P2-7). The row exists now, so `mark` is re-issued exactly once.
+      const m2 = await callMark();
+      if (m2.kind === 'result') {
+        return { decision: m2.outcome.decision, body: { ...body, rpc_status: m2.outcome.rpcStatus, fallback: 'record_then_mark' } };
+      }
+      const decision = classifyDisputeError(m2.error, { verb: 'mark', eventKind });
+      console.error('Webhook: mark_dispute_state failed after record replay', {
+        ...body, code: m2.error.code, message: m2.error.message, reason: decision.reason, ack: decision.ack,
+      });
+      return { decision, body: { ...body, fallback: 'record_then_mark' }, cause: new Error(m2.error.message) };
+    }
+
+    /**
+     * ═══════════════════════════════════════════════════════════════════════
+     * NATIVE `transfer.reversed` arm — KH §4.6 routing, DESIGN §2.2 verb.
+     *
+     * A Transfer carries its OWN metadata, so the rail is read off the object
+     * (`metadata.source='payout-execute'` + `metadata.payout_id`, or
+     * `transfer_group = payout_<uuid>`); the legacy rail is
+     * `metadata.transfer_id` with no group. Both / neither / disagreeing ⇒
+     * ACK + alert `transfer_rail_ambiguous`, nothing guessed; the legacy arm
+     * then runs as today (its `mark_transfer_reversed` answers `false` for an
+     * unknown `tr_` — harmless).
+     *
+     * One `kernel.record_payout_reversal` per reversal fact (`trr_`), paging
+     * the list read-only when `has_more`. Replay is the verb's (`trr_` unique).
+     * ═══════════════════════════════════════════════════════════════════════
+     */
+    async function runNativeTransferReversedArm(): Promise<NativeArmResult> {
+      const tr = event.data.object as TransferLike;
+      const trRef = typeof tr?.id === 'string' ? tr.id : null;
+      const rail = resolveTransferRail(tr);
+      const base: Record<string, unknown> = {
+        stage: 'native_transfer_reversed', stripe_transfer_ref: trRef,
+        transfer_group: typeof tr?.transfer_group === 'string' ? tr.transfer_group : null,
+      };
+      if (rail.route === 'legacy') return null;
+      if (rail.route === 'ambiguous') {
+        console.error('Webhook: transfer.reversed rail ambiguous — nothing recorded', { ...base, why: rail.why });
+        return { decision: rail.decision, body: { ...base, why: rail.why } };
+      }
+      const body: Record<string, unknown> = { ...base, payout_id: rail.payoutId, via: rail.via };
+
+      // ── the reversal list: inline page, then the wire when has_more ────────
+      const inline = readInlineReversals(tr);
+      if (!inline.ok) {
+        console.error('Webhook: transfer.reversed reversal list unreadable', { ...body, detail: inline.detail });
+        return { decision: { ack: true, alert: true, reason: 'native_reversal_list_unreadable' }, body: { ...body, detail: inline.detail } };
+      }
+      let reversals = inline.reversals;
+      if (inline.hasMore) {
+        if (!trRef) {
+          return { decision: { ack: true, alert: true, reason: 'native_reversal_transfer_ref_malformed' }, body };
+        }
+        const paged = await readTransferReversalsAfter(trRef, reversals[reversals.length - 1]?.id ?? null);
+        if (!paged.ok) {
+          console.error('Webhook: transfer.reversed reversal page read failed — retrying', { ...body, detail: paged.detail });
+          return { decision: { ack: false, alert: true, reason: 'native_reversal_list_read_failed' }, body: { ...body, detail: paged.detail } };
+        }
+        reversals = mergeReversals(reversals, paged.reversals);
+      }
+
+      const plan = planReversalRecording(tr, rail.payoutId, reversals, event.id);
+      if (plan.kind === 'decision') {
+        console.error('Webhook: transfer.reversed not recordable', { ...body, reason: plan.decision.reason, detail: plan.detail });
+        return { decision: plan.decision, body: { ...body, detail: plan.detail } };
+      }
+
+      const kernel = kernelService();
+      const decisions: Decision[] = [];
+      let cause: Error | undefined;
+      for (const args of plan.calls) {
+        const { data, error } = await kernel.rpc('record_payout_reversal', args);
+        if (error) {
+          const decision = classifyReversalError(error);
+          console.error('Webhook: record_payout_reversal failed', {
+            ...body, stripe_reversal_ref: args.p_stripe_reversal_ref, amount_minor: args.p_amount_minor,
+            code: error.code, message: error.message, reason: decision.reason, ack: decision.ack,
+          });
+          decisions.push(decision);
+          cause = cause ?? new Error(error.message);
+          if (!decision.ack) break;
+          continue;
+        }
+        const result = (data as RecordPayoutReversalResult | null) ?? null;
+        const decision = interpretReversalResult(result);
+        console.log('Webhook: record_payout_reversal returned', {
+          ...body, stripe_reversal_ref: args.p_stripe_reversal_ref, amount_minor: args.p_amount_minor,
+          rpc_status: result?.status ?? null, payout_status: result?.payout_status ?? null,
+          total_reversed_minor: result?.total_reversed_minor ?? null, fully_reversed: result?.fully_reversed ?? null,
+          reason: decision.reason,
+        });
+        decisions.push(decision);
+      }
+      return {
+        decision: aggregateDecisions(decisions),
+        body: { ...body, reversal_count: plan.calls.length, outcomes: decisions.map((x) => x.reason) },
+        cause,
+      };
+    }
 
     if (event.type === 'payment_intent.succeeded') {
       // ═══════════════════════════════════════════════════════════════════
@@ -949,6 +1318,14 @@ serve(async (req: Request) => {
     // ─────────────────────────────────────────────────────────────────────
 
     } else if (event.type === 'charge.dispute.created') {
+      // ═══ NATIVE PRIMARY arm FIRST (KH §4.5) — the legacy arm below is unchanged ═══
+      // A native `ack:false` returns 500 here, before the legacy arm runs; a
+      // native ACK (with or without alert) lets the legacy arm run and answer.
+      {
+        const native = await runNativeDisputeArm('created');
+        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
+        if (native) await alertDecision(native.decision, native.body, native.cause);
+      }
       // ── P1-02: real dispute handling + transfer freeze ────────────────
       // event.data.object is a Stripe Dispute, NOT a PaymentIntent.
       const dispute = event.data.object as {
@@ -1045,7 +1422,28 @@ serve(async (req: Request) => {
         await markProcessed();
       }
 
+    } else if (
+      event.type === 'charge.dispute.updated' ||
+      event.type === 'charge.dispute.funds_withdrawn' ||
+      event.type === 'charge.dispute.funds_reinstated'
+    ) {
+      // ═══ NEW BRANCH — native status sync (KH P2-4). No legacy write exists
+      // for these types: before this branch they fell to the terminal `else`
+      // (ack only), and for the legacy rail they still do, verbatim below. ═══
+      {
+        const native = await runNativeDisputeArm('updated');
+        if (native) return await finishDecision(native.decision, native.body, native.cause);
+      }
+      console.log('Webhook: unhandled event type (ack only)', { event_type: event.type });
+      await markProcessed();
+
     } else if (event.type === 'charge.dispute.closed') {
+      // ═══ NATIVE PRIMARY arm FIRST (KH §4.5) — the legacy arm below is unchanged ═══
+      {
+        const native = await runNativeDisputeArm('closed');
+        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
+        if (native) await alertDecision(native.decision, native.body, native.cause);
+      }
       // ── P1-02: dispute outcome sync ───────────────────────────────────
       const dispute = event.data.object as {
         id:     string;
@@ -1131,6 +1529,12 @@ serve(async (req: Request) => {
       await markProcessed();
 
     } else if (event.type === 'transfer.reversed') {
+      // ═══ NATIVE routing FIRST (KH §4.6, DESIGN §2.2) — legacy arm below unchanged ═══
+      {
+        const native = await runNativeTransferReversedArm();
+        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
+        if (native) await alertDecision(native.decision, native.body, native.cause);
+      }
       // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
       const tr = event.data.object as { id: string; amount_reversed?: number };
       // mark_transfer_reversed (migration 056a) carries the same

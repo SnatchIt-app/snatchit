@@ -2545,3 +2545,137 @@ NOTE:                        PFA-18A did not change the dispute architecture; th
 - **Standing verdicts:** dark DB apply (Option A+C) is the certified release model; production remains UNCHANGED and NOT AUTHORIZED; every rail's activation blockers stand exactly as the 092 final-state census classifies them, now with the owner packets bundled in `docs/release/PHASE2_RELEASE_READINESS_REPORT.md` §14.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
+
+## PFA-PT-4 — promoter commission funding: pro-rata basis over surviving FACE REVENUE replaces the atom-survival reading of PROMO §6.1/§5.2 (package 098)
+
+```
+ID:                          PFA-PT-4  (PFA-9/PFA-29 class — a normative basis-definition amendment,
+                             filed dark/unapplied ahead of the migration that implements it)
+FROZEN RULE:                 PROMO §6.1 — "basis_minor = Σ over the order's SURVIVING ITEMS of
+                             unit_price_minor × quantity"; PROMO §5.2 row 2 — "Partial refund ⇒ basis
+                             recomputed from the order's surviving, non-voided items ⇒ a smaller single
+                             line"; PROMO §5.2 "VERIFIED: D2 — a refunded ticket goes to voided (there is
+                             no `refunded` ticket terminal)"; PROMO §6.3 test 45 — "Partially refunded ⇒
+                             one line, amount = recomputed basis."
+CONFLICT:                    085:563-568 (`kernel.refund_primary_order`'s void scope is `v_delegated or
+                             v_full` — a DIRECT PARTIAL refund is money-only and voids NO atom; a FULL
+                             refund on a past/transfer-frozen session is parked `frozen:` and cannot void
+                             either) collides with the freeze's ATOM-survival basis: the "surviving,
+                             non-voided items" the frozen text reads from custody state is never reduced
+                             by the shipped refund mechanism on a direct partial refund. 093/10e's
+                             (093:857-887) response was a TOTAL EXCLUSION of `partially_refunded` /
+                             `refunded` orders from the commission-eligible set — the frozen basis
+                             mechanism (atom survival) and the shipped refund mechanism (money-only
+                             partial) do not meet, and 10e's own header (093:861-876) calls its exclusion
+                             "a deliberate, reversible over-correction" pending exactly this ruling.
+EVIDENCE:                    docs/phase2/_impl/KF_promoter_prorata.md §2.1 — the `atom_basis` table,
+                             executed on a rehearsal replay: `atom_basis` reads **10000 on all nine
+                             measured rows** (cases A/B/C/D/E1/E2/F/G/H), INCLUDING a fully-refunded order
+                             (C, via the 159 fixture shape standing in for a post-event full refund) and a
+                             direct partial refund (H) — the atom-survival quantity the frozen spec's basis
+                             rule reads is structurally incapable of falling below face under 085's shipped
+                             refund mechanics. Measured forfeiture under 10e as shipped: case B (4000 of
+                             10000 refunded) pays 0 instead of the pro-rata 600; case H (5000 of 10000)
+                             pays 0 instead of 500; case D (a refund that later FAILS — the buyer got
+                             NOTHING back) pays 0 FOREVER instead of the full 1000, because 10e's exclusion
+                             keys on `order.status` (written forward-only at refund CREATION, 085:601-604)
+                             rather than on `kernel.refund`'s terminal facts (KF P1-2). The audit trail is
+                             silent for every excluded case (no `settlement.commission` row is ever
+                             written, because the exclusion happens in the eligible-set predicate, BEFORE
+                             `pay_promoter_commission` — and therefore its audit insert — ever runs; KF
+                             P1-1).
+RESOLUTION:                  Basis becomes FACE MINUS SETTLED REFUND SHARE, capped, read from
+                             `kernel.refund`/`kernel.dispute_native` TERMINAL FACTS rather than from ticket
+                             custody state or `order.status`:
+                               refunded(a) := least(face, Σ kernel.refund.amount_minor WHERE
+                                              status='succeeded')
+                               disputed(a) := least(face − refunded(a), Σ kernel.dispute_native.
+                                              amount_minor WHERE status IN ('lost','charge_refunded'))
+                                              — KF §4.4: disputes count as reversed at the funding close,
+                                              capped at the headroom refunds left, so a chargeback the
+                                              venue was already debited for in the SAME close cannot also
+                                              fund a commission on it. Default = include (owner-visible
+                                              choice, item 2 below).
+                               surviving(a) := face − refunded(a) − disputed(a)
+                               payable(a)   := bps:  floor(surviving(a) × commission_bps_applied / 10000.0)
+                                               flat: floor(surviving(a) / unit_price_minor) per order item,
+                                               summed, capped at that item's own quantity, × commission_
+                                               flat_minor_applied — KF §4.5 OPTION (a): a money-only partial
+                                               refund voids no atom, so the surviving TICKET COUNT for the
+                                               flat kind is DERIVED from surviving face rather than read off
+                                               custody state (option (a) is the closest reading of the
+                                               frozen "surviving items" wording; (b) proportional and (c)
+                                               exclude-flat-promoters were considered and are less faithful
+                                               to §6.1 — recorded as the owner-visible choice, item 3 below).
+                             `payable ≤ 0` stays HELD `basis_zero`, NO line — as 090 already does; rounding
+                             stays FLOOR always (PROMO §6.2, unchanged); ONE line per attribution ever
+                             (unchanged index + NOT EXISTS); idempotent across re-close (unchanged); no
+                             double funding (unchanged: line = −payable, payout = +payable). G4 (unsigned:
+                             a funded commission stays HELD after a post-close reversal, never released,
+                             never reduced) and ruling A4 (nothing may release promoter money) are BOTH
+                             UNCHANGED — this amendment only changes the AMOUNT the pre-close seam computes
+                             under the SAME system hold (`held`/`unfunded_settlement`), never the hold
+                             itself, never the funding source (E-138 Option B stands), never the four locks
+                             (KF §7) that keep promoter payout dark (098 additionally HARDENS lock 4 —
+                             `kernel.mark_payout_transfer_state` now refuses `cause='promoter_commission'`
+                             outright, KF P2-1 — a body-only strengthening, not part of this basis
+                             amendment's normative content).
+OPTIONS (KF §6):             O0 leave 10e as shipped (permanent, unaudited forfeiture — dishonest if
+                             described as "conservative"); O1 fix the ELIGIBILITY KEY only (refund
+                             terminal facts, full-or-nothing amount — repairs P1-2 only, arguably corpus-
+                             determined without a PFA); **O2 (ADOPTED) — O1 + pro-rata basis by settled
+                             refund share, disputes per §4.4, flat kind per §4.5(a)** — the RESOLUTION
+                             above; O3 additionally book a post-close `settlement_shortfall` NET of a
+                             funded-and-held commission on the reversed order (deferred to the G4
+                             signature — KF P1-3/§4.5 item 4, NOT part of this amendment); O4 a
+                             retroactive relining verb for already-excluded prod attributions (moot — the
+                             promoter engine is DARK in prod, ledger 107 = through 092, no
+                             `promoter_commission` line exists in prod; unverified here per the train's no-
+                             prod-access boundary, stated as an assumption to confirm); O5 release-time-
+                             only pro-rata (rejected — the venue's distributable would be wrong by the
+                             difference until release, KF §4.3).
+CLASSIFICATION:               POST-FREEZE AMENDMENT of PROMO §6.1 and §5.2's "VERIFIED: D2" sentence → 098
+                             (`supabase/migrations/098_promoter_prorata_funding.sql`, body-only re-creates
+                             of `kernel.settlement_commission_lines` (093:889-925) and `kernel.
+                             pay_promoter_commission` (090:1401-1507), signatures/ACLs frozen). The
+                             OUTCOME (a reduced single line on a partial refund) is what the frozen text
+                             already asks for (§5.2 row 2, test 45); the BASIS DEFINITION that produces it
+                             (face-minus-settled-refund-share, a money fact) is a normative change from the
+                             frozen atom-survival reading (a custody fact) — KF §5: "implementing it
+                             without the PFA would be the 'silent edit around a conflict' §4 forbids."
+RETROACTIVE NOTE (KF §5 last paragraph): 093/10e's `partially_refunded`/`refunded` total exclusion
+                             (093:857-887, live in the repo since package 093) was ITSELF a deviation from
+                             PROMO §5.2 row 2 / test 45's stated result (a reduced line, not zero) — filed
+                             HERE, retroactively, because it was previously recorded only in a migration
+                             comment (093:861-876) and never in this register. No action is owed on 093
+                             (093 is immutable and 10e's behaviour was superseded by 098, not un-shipped);
+                             this note exists so the register — not just a comment — shows that the
+                             deviation existed and why.
+OWNER ITEMS OPENED (not resolved by this filing — see docs/phase2/_impl/KM3_098_implementation.md):
+                             (1) sign this PFA (adopt O2, or select a different option — without a
+                             signature only O1's key-fix would be a corpus-determined correction; O2's
+                             basis change is not); (2) disputes at the funding close (§4.4) — confirm
+                             "include, capped" as the default; (3) flat-kind surviving quantity (§4.5) —
+                             confirm option (a); (4) G4 (iii) / KC P1-3 — whether a post-close
+                             `settlement_shortfall` should be booked net of a funded-and-held commission on
+                             the reversed order (O3, explicitly DEFERRED here, not decided).
+PACKAGE IMPACT:              098 only (three body-only re-creates: `kernel.settlement_commission_lines`,
+                             `kernel.pay_promoter_commission`, `kernel.mark_payout_transfer_state`). No DDL,
+                             no new table, no new column, no new cause code, no config key, no cron row.
+                             098 is DARK/UNAPPLIED — the promoter engine ships inert in every package that
+                             has touched it (155 A32/A33: no cron, no config key). DAG IMPACT: none.
+SECURITY / MONEY IMPACT:     none loosened. The system hold (`held`/`unfunded_settlement`) is untouched;
+                             the release path (`kernel.release_payout`, Control-5) is untouched; A4 is
+                             HARDENED, not weakened (KF P2-1's fourth-lock gap is closed by the same
+                             migration). The only quantitative change is to an AMOUNT computed under a hold
+                             that already prevents any money from moving — the basis change can only ever
+                             move `payable(a)` between 0 and `credited_amount_minor` (KF §4.2: `payable ≤
+                             credited_amount_minor` always, `payable ≤ surviving revenue` always — proven
+                             against the KF fixture's nine rows).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDING OWNER SIGNATURE — the
+                             migration is authored and tested (supabase/tests/164_promoter_prorata_funding.
+                             sql) but DARK/UNAPPLIED; the signature is a DEPLOY PRECONDITION (the same
+                             posture as 094's Gate-M row), not a precondition to authoring or rehearsing
+                             the SQL.
+```
+

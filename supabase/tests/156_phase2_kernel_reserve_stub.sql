@@ -38,9 +38,11 @@ SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE t.tgrelid = 'kernel.rese
 SELECT ok((SELECT p.proname = 'set_updated_at' AND n.nspname = 'kernel' FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE t.tgrelid = 'kernel.reserve'::regclass AND NOT t.tgisinternal), 'A18: …the 076 kernel.set_updated_at (plan Triggers row)');
 -- nothing else was created
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 29,
-  'A19: kernel holds 28 tables — 27 post-090 + the reserve stub');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 270,
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
+  'A19: kernel holds 31 tables — 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 280,
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -67,11 +69,14 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'A20: 091 creates NO function (five-schema routines 266 post-095)');
+  -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
+  -- 270 -> 280. Re-derived from the live catalog.
+  'A20: 091 creates NO function (five-schema routines 280 post-099)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');
-SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-drain-outbox): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
+-- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
+SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A22 (099: 22 with the three signing/executor jobs): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
 -- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — four keys, each ONE row at
 -- version 1 and each seeded OWNER-UNSET (jsonb null, PFA-9 shape), so the census stays absolute:
 --   inventory.per_user_active_hold_max, inventory.hold_ttl_interval  (093_FINAL_PROPOSED_SCOPE item 3)
@@ -106,7 +111,8 @@ SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-dr
 -- 2026-09-02 (093 / H2): 48 -> 49. RATIFIED CONTRACT CHANGE — ONE key, ONE row at version 1,
 -- seeded OWNER-UNSET ('null'::jsonb, PFA-9 shape), enumerated from the slice-40 seed block.
 -- The census stays ABSOLUTE: nothing here is relaxed to a name filter.
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 49, 'A23 (093: 49 with the six owner-unset primary-ticketing keys): PFA-9 — 091 fabricates NO config key (an absolute census)');
+-- 2026-09-03 (package 099): 49 -> 54 (+5 signing/executor keys).
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 54, 'A23 (099: 54 with the six owner-unset primary-ticketing keys plus 099''s five): PFA-9 — 091 fabricates NO config key (an absolute census)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify','public') AND p.prosrc ~ '(kernel|"kernel")\s*\.\s*"?reserve"?\M'), 0,
   'A24: plan §8/091 Tests row — NO routine in the database references kernel.reserve ("stub" is a checked property)');

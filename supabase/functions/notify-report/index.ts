@@ -5,6 +5,9 @@
  * pattern as enforce-transfer-expiry) when:
  *   • a row is inserted into public.reports            → event 'report_created'
  *   • a transfer flips to 'disputed'                   → event 'dispute_opened'
+ *   • the KMS signing-key invariant monitor alerts      → event 'signing_invariant_alert'
+ *     (migration 099, kernel.check_signing_key_invariants — same pg_net +
+ *     Vault service_role_key auth, dark until signing.monitor_enabled=true)
  *
  * Actions (all best-effort; failures logged, never thrown to the caller):
  *   1. Push notification to every admin (public.admin_users) — "new report".
@@ -23,6 +26,7 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { captureException } from '../_shared/sentry.ts';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -174,6 +178,25 @@ serve(async (req: Request) => {
         if (e) await sendEmail(e, 'Your Snatch It transaction is under review',
           `A dispute was opened on one of your transactions and Snatch It support is reviewing it.\n\n${UNDER_REVIEW_COPY}\n\n— Snatch It Support`);
       }
+
+    } else if (event === 'signing_invariant_alert') {
+      // KJ §4.5 / migration 099. alerts is an array of short words/counts
+      // only (e.g. "total_keys=2", "fingerprint=MISMATCH") — never key
+      // material, never a KMS handle, never the raw fingerprint hex; the DB
+      // function reduces those to a comparison result before this ever
+      // fires. No named person: admin push fan-out + ADMIN_EMAIL + Sentry.
+      const alerts: string[] = Array.isArray(payload?.alerts) ? payload.alerts : [];
+      const summary = alerts.length > 0 ? alerts.join(', ') : '(no alert codes provided)';
+
+      for (const id of adminIds) {
+        await sendPush(supabase, id, 'Signing-key invariant alert',
+          `KMS signing-key monitor: ${summary}`,
+          { type: 'signing_invariant_alert' });
+      }
+      await sendEmail(ADMIN_EMAIL, '[Snatch It] Signing-key invariant alert',
+        `The KMS signing-key invariant monitor (kernel.check_signing_key_invariants, migration 099) fired:\n\n${summary}\n\nSee docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md §4 and docs/phase2/_impl/KJ_kms_runbook_monitor.md.`);
+
+      await captureException('signing-monitor', new Error('signing_invariant_alert: ' + summary));
 
     } else {
       console.warn('notify-report: unknown event', event);

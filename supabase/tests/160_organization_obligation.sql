@@ -38,7 +38,14 @@
 --   house pattern used by 151/B8 and 158/A2.
 -- ============================================================================
 BEGIN;
-SELECT plan(90);
+-- 2026-09-03 (packages 096/097): 90 -> 93. Three new assertions: D9a (added alongside D10's
+-- reconstruction, to keep the fence-proof and the real-origin-succeeds proof separate and
+-- honest rather than collapsing one into the other), E6a (096 R-5/R-6's honesty fix —
+-- 'recovered' is now a consequence of receipts, not a resolve() act, so a new assertion
+-- checks the row flips on the RECOVERY call rather than folding that into E6's own is()), and
+-- F4a (097 adds a read-only kernel.payout join to record_organization_obligation's post-payout
+-- proof — F4 is split into "no verb WRITES" + F4a "the other three still never NAME it").
+SELECT plan(93);
 
 SELECT tap.seed_core();
 
@@ -116,15 +123,34 @@ end $f$;
 
 -- The RESOLVE verb as the edge reaches it: a PLATFORM principal's claims, with
 -- the call itself made by the owner (the tap personas switch the real DB role,
--- and the verb is service_role-only by grant — B6 pins that from the
--- catalogue). This wrapper isolates the AUTHORITY check, kernel.is_platform,
+-- and the verb is authenticated-only by grant since 096 R-6 — B6 pins that from
+-- the catalogue). This wrapper isolates the AUTHORITY check, kernel.is_platform,
 -- from the grant, so E5 fails for the right reason.
+-- 2026-09-03 (package 096, R-6): resolve_organization_obligation now ALSO requires
+-- aal2 step-up (a money act reachable by a real human principal, KD P1-1) — the
+-- wrapper sets it unconditionally; E5's buyer still fails EARLIER at the is_platform
+-- gate regardless, so this does not change what E5 proves.
 CREATE FUNCTION tap._resolve160(p_oblig uuid, p_res text, p_reason text, p_key text, p_uid uuid)
 RETURNS jsonb LANGUAGE plpgsql SET search_path='' AS $f$
 declare v jsonb;
 begin
   perform tap.set_claims(p_uid);
+  perform set_config('request.jwt.claims',
+    (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
   v := kernel.resolve_organization_obligation(p_oblig, p_res, p_reason, p_key);
+  perform tap.logout();
+  return v;
+end $f$;
+-- 2026-09-03 (package 096, R-5): the RECOVER verb, same wrapper shape — a platform
+-- principal's claims plus aal2 (record_obligation_recovery requires both).
+CREATE FUNCTION tap._recover160(p_oblig uuid, p_amt int, p_src_kind text, p_src_ref text, p_reason text, p_key text, p_uid uuid)
+RETURNS jsonb LANGUAGE plpgsql SET search_path='' AS $f$
+declare v jsonb;
+begin
+  perform tap.set_claims(p_uid);
+  perform set_config('request.jwt.claims',
+    (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
+  v := kernel.record_obligation_recovery(p_oblig, p_amt, p_src_kind, p_src_ref, p_reason, p_key);
   perform tap.logout();
   return v;
 end $f$;
@@ -309,10 +335,16 @@ SELECT ok(has_function_privilege('service_role','kernel.record_organization_obli
       AND NOT has_function_privilege('authenticated','kernel.record_organization_obligation(uuid,text,uuid,text,integer,text,text,text)','EXECUTE')
       AND NOT has_function_privilege('anon','kernel.record_organization_obligation(uuid,text,uuid,text,integer,text,text,text)','EXECUTE'),
   'B5: the WRITE verb is service_role ONLY — no client principal can book a debt against an organization');
-SELECT ok(has_function_privilege('service_role','kernel.resolve_organization_obligation(uuid,text,text,text)','EXECUTE')
-      AND NOT has_function_privilege('authenticated','kernel.resolve_organization_obligation(uuid,text,text,text)','EXECUTE')
+-- 2026-09-03 (package 096, R-6): resolve_organization_obligation is RE-CLASSIFIED from
+-- service_role-only to authenticated-only, service_role EXPLICITLY revoked (KD P1-1 fix:
+-- resolving an obligation is a human decision requiring platform_risk|platform_admin + aal2,
+-- not a machine act — matching its identity twin kernel.resolve_identity_obligation, which is
+-- ALSO authenticated). The "strictly tighter" framing this assertion originally pinned is
+-- reversed by design; re-derived from the live catalog, not accepted as a delta.
+SELECT ok(NOT has_function_privilege('service_role','kernel.resolve_organization_obligation(uuid,text,text,text)','EXECUTE')
+      AND has_function_privilege('authenticated','kernel.resolve_organization_obligation(uuid,text,text,text)','EXECUTE')
       AND NOT has_function_privilege('anon','kernel.resolve_organization_obligation(uuid,text,text,text)','EXECUTE'),
-  'B6: the RESOLVE verb is service_role ONLY — strictly tighter than the identity twin, which is also granted to authenticated');
+  'B6: 096 R-6 — the RESOLVE verb is authenticated ONLY (service_role explicitly revoked), now matching its identity twin kernel.resolve_identity_obligation rather than being stricter than it');
 SELECT ok(has_function_privilege('service_role','kernel.org_outstanding_obligation_minor(uuid)','EXECUTE')
       AND NOT has_function_privilege('authenticated','kernel.org_outstanding_obligation_minor(uuid)','EXECUTE'),
   'B7: the projection is service_role only — an org''s debt is not a client-readable number');
@@ -427,10 +459,31 @@ SELECT throws_ok($$SELECT kernel.record_organization_obligation('00000000-0000-0
 SELECT throws_ok(format($$SELECT kernel.record_organization_obligation(%L,'unlined_reversal',%L,NULL,7000,'USD','sweep','ck160-x5')$$,
   tap._g160('org1'), tap._g160('dCB')), 'P0001', NULL,
   'D9: an ALREADY-LINED dispute is refused for unlined_reversal — the shipped netting has it, and booking it here would double-count the same loss');
+-- 2026-09-03 (package 097): the FENCE (KM2 §2.3 origin resolution). A bare/fake origin_ref
+-- is refused not_found — it must resolve to a REAL lost/charge_refunded dispute or a REAL
+-- succeeded refund, never a caller-asserted UUID. D9a proves the fence fires; D10 (below)
+-- then proves a REAL dormant-org origin still succeeds through it.
+SELECT throws_like(format($$SELECT kernel.record_organization_obligation(
+             %L, 'unlined_reversal', '00000000-0000-0000-0000-0000000000cc', 'dp_dormant',
+             2500, 'USD', 'dormant_org', 'ck160-u1x')$$, tap._g160('org1')),
+  '%not_found%unlined origin%', 'D9a: 097''s fence refuses a fake/unresolvable origin_ref for unlined_reversal — it must resolve to a real lost/charge_refunded dispute or a real succeeded refund, not a bare UUID the caller asserts');
+-- D10, rebuilt as a REAL dormant-org origin (097 requires one — see D9a): oKeep is already
+-- POST-PAYOUT (paid out via sPre, C3) and venue1/ev3 never opens another settlement anywhere
+-- in this file, so a NEW refund against oKeep is genuinely UNLINED — never offered to the
+-- shipped netting arm because no future close ever runs to catch it. sPre's payout is flipped
+-- to 'paid' by a direct UPDATE (095's guard only fires on the ->'submitted' edge, so this is a
+-- safe fixture shortcut, matching the file's existing house style of raw INSERT/UPDATE
+-- fixtures elsewhere) to satisfy 097's POST-PAYOUT PROOF (a loss on money never received is
+-- not a debt). The derived amount is re-verified by hand: face 10000 − exposure 2500 (the
+-- refund IS the amount) − 0 prior chargebacks/refund_voids/unlined rows on oKeep = 7500
+-- headroom, so least(origin_amt 2500, 7500) = 2500 — the SAME literal the original fixture
+-- asserted, preserving D10/D11/D12's arithmetic unchanged.
+UPDATE kernel.payout SET status='paid' WHERE cause='settlement' AND cause_ref=tap._g160('sPre');
+SELECT tap._st160('rDorm', tap._rf160(tap._g160('oKeep'), 2500, 'succeeded', 'rDorm')::text);
 SELECT is((SELECT kernel.record_organization_obligation(
-             tap._g160('org1'), 'unlined_reversal', '00000000-0000-0000-0000-0000000000cc', 'dp_dormant',
+             tap._g160('org1'), 'unlined_reversal', tap._g160('rDorm'), 'dp_dormant',
              2500, 'USD', 'dormant_org', 'ck160-u1') ->> 'status'), 'ok',
-  'D10: an UNLINED reversal — the dormant-org case, where the debit is never even OFFERED because no settlement is ever opened — is bookable by the platform alone');
+  'D10: an UNLINED reversal — the dormant-org case, a real post-payout refund on oKeep that no future settlement close ever catches (venue1/ev3 opens no further settlement) — is bookable by the platform alone once it resolves to a real fact (D9a''s fence)');
 SELECT is(kernel.org_outstanding_obligation_minor(tap._g160('org2')), 0::bigint,
   'D11: org2 holds nothing — obligations do not leak across the org boundary');
 SELECT is(kernel.org_outstanding_obligation_minor(tap._g160('org1')), 19500::bigint,
@@ -454,10 +507,18 @@ SELECT throws_ok(format($$UPDATE kernel.organization_obligation SET origin_ref =
 SELECT throws_ok(format($$SELECT tap._resolve160(%L,'written_off','give_up','ck160-r0',%L)$$,
   tap._oblid160(tap._g160('sB')), tap.buyer()),
   '42501', NULL, 'E5: a non-platform principal cannot resolve — recovery and write-off are platform acts, not org self-service (the AUTHORITY check, not the grant: B6 pins the grant)');
-SELECT is((tap._resolve160(tap._oblid160(tap._g160('sB')),'recovered','off_platform_payment','ck160-r1', tap.admin_user()) ->> 'status'), 'ok',
-  'E6: platform_admin resolves it — an AUDITED act, never a timer and never a netting');
+-- 2026-09-03 (package 096, R-5/R-6, KD P1-4 honesty fix): 'recovered' is no longer an ACT —
+-- it is the CONSEQUENCE of receipts summing to the debt (the AFTER trigger,
+-- kernel.organization_obligation_recovery_settle). sB's obligation is exactly 10000 (C9), so
+-- ONE full-amount receipt flips it. E6 is renumbered to this recovery call (was previously
+-- the resolve('recovered') call, which 096 now refuses outright without receipts —
+-- precondition_failed: recovery_facts_required).
+SELECT is((tap._recover160(tap._oblid160(tap._g160('sB')), 10000, 'manual', 'receipt-sB-160', 'off_platform_payment', 'ck160-rec1', tap.admin_user()) ->> 'status'), 'ok',
+  'E6: platform_admin RECORDS a full-amount recovery receipt — an AUDITED act, never a timer and never a netting; Σ = amount flips the obligation to recovered by itself');
+SELECT is((SELECT status || '|' || resolution_reason_code FROM kernel.organization_obligation WHERE origin_ref = tap._g160('sB')),
+  'recovered|recovered:manual', 'E6a: …and the obligation IS recovered, by consequence of the receipt, not by a separate resolve() act');
 SELECT is((tap._resolve160(tap._oblid160(tap._g160('sB')),'recovered','off_platform_payment','ck160-r1', tap.admin_user()) ->> 'status'), 'noop_replay',
-  'E7: re-resolving to the SAME terminal is an idempotent replay');
+  'E7: resolve(''recovered'') on an already-recovered row is CONFIRMATORY, not the act — noop_replay (096''s honesty fix: the verb no longer moves the status, the receipts already did)');
 SELECT throws_ok(format($$SELECT tap._resolve160(%L,'written_off','second','ck160-r2',%L)$$,
   tap._oblid160(tap._g160('sB')), tap.admin_user()),
   'P0001', NULL, 'E8: OVER-RESOLUTION IS IMPOSSIBLE — the two terminals are exclusive, so a debt cannot be both recovered and written off');
@@ -466,11 +527,15 @@ SELECT throws_ok(format($$UPDATE kernel.organization_obligation SET status='writ
 SELECT throws_ok(format($$UPDATE kernel.organization_obligation SET status='outstanding', resolution_reason_code=NULL, resolved_at=NULL WHERE origin_ref = %L$$, tap._g160('sB')),
   'P0001', NULL, 'E10: FORWARD-ONLY — an obligation never returns to outstanding');
 SELECT is((SELECT status || '|' || resolution_reason_code FROM kernel.organization_obligation WHERE origin_ref = tap._g160('sB')),
-  'recovered|off_platform_payment', 'E11: the resolution triple is intact and readable');
+  'recovered|recovered:manual', 'E11: the resolution triple is intact and readable — reason_code is now the TRIGGER''s ''recovered:<source_kind>'' shape, not a caller-supplied string, since 096 the resolution is a consequence of receipts');
 SELECT is(kernel.org_outstanding_obligation_minor(tap._g160('org1')), 9500::bigint,
   'E12: the projection drops the resolved row — "outstanding" is the durable meaning of "not recovered", which is exactly the operand a lines-written guard lacks');
-SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action IN ('org_obligation.record','org_obligation.resolve')), 4,
-  'E13: every write and every resolution left a kernel.admin_audit row (3 records + 1 resolution) — the record is auditable, not just durable');
+-- 2026-09-03 (package 096): the audit action set widens by one ('org_obligation.recovery',
+-- R-5's own audit write) while 'org_obligation.resolve' contributes ZERO rows here (both
+-- E7/E8 calls return before reaching resolve's own audit insert — E7 is an early noop_replay,
+-- E8 throws). Count stays 4 (3 record + 1 recovery), now honestly naming what actually wrote.
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action IN ('org_obligation.record','org_obligation.recovery','org_obligation.resolve')), 4,
+  'E13: every write and every recovery left a kernel.admin_audit row (3 records + 1 recovery) — the record is auditable, not just durable');
 
 -- ============================================================================
 -- SECTION F — THE ATTESTATION, CHECKED RATHER THAN ASSERTED
@@ -493,11 +558,23 @@ SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'insert into venue\.sett
             WHERE n.nspname='kernel' AND p.proname IN ('record_organization_obligation','resolve_organization_obligation',
                                                        'org_outstanding_obligation_minor','organization_obligation_guard')),
   'F3: …and no 094 verb writes a settlement line at all — J3''s own withdrawn first draft (a new netting cause) is NOT what was built');
-SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'kernel\.payout')
+-- 2026-09-03 (package 097): FALSE BY CONSTRUCTION for the literal "!~ 'kernel\.payout'" form —
+-- record_organization_obligation's unlined_reversal branch now JOINS kernel.payout for the
+-- POST-PAYOUT PROOF (a loss on money the organization never received is not a debt; KD P1-3).
+-- That is a READ, never a write, so "FUNDS NOTHING" survives; the assertion is corrected to
+-- prove NO VERB WRITES to kernel.payout (the property that actually matters) rather than that
+-- none of them even names it, and separately confirms the three untouched verbs still never
+-- mention it at all.
+SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'update kernel\.payout' AND pg_get_functiondef(p.oid) !~ 'insert into kernel\.payout')
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='kernel' AND p.proname IN ('record_organization_obligation','resolve_organization_obligation',
                                                        'org_outstanding_obligation_minor','organization_obligation_guard')),
-  'F4: FUNDS NOTHING — not one 094 verb names kernel.payout, in any direction');
+  'F4: FUNDS NOTHING — no 094/097 verb WRITES to kernel.payout in any direction (097 adds a READ-ONLY join in record_organization_obligation''s post-payout proof — KD P1-3 — never a write)');
+SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'kernel\.payout')
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='kernel' AND p.proname IN ('resolve_organization_obligation',
+                                                       'org_outstanding_obligation_minor','organization_obligation_guard')),
+  'F4a: …and the other three verbs still never NAME kernel.payout at all — only record_organization_obligation''s post-payout proof reads it');
 SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'release_payout'
                        AND pg_get_functiondef(p.oid) !~ 'pay_promoter_commission'
                        AND pg_get_functiondef(p.oid) !~ 'promoter')
@@ -509,18 +586,27 @@ SELECT is(tap._payoutstate160('99999999-0000-0000-0000-000000000160'::uuid), (SE
   'F6: …and BEHAVIOURALLY the held promoter_commission payout is byte-identical after three closes, three bookings and a resolution — still pending|held|unfunded_settlement|4200');
 SELECT is((SELECT count(*)::int FROM kernel.payout WHERE cause='promoter_commission' AND hold_state <> 'held'), 0,
   'F7: no promoter_commission payout anywhere left its hold — nothing was released, unheld or advanced');
-SELECT ok((SELECT pg_get_functiondef(p.oid) !~ 'organization_obligation'
+-- 2026-09-03 (package 097): FALSE BY CONSTRUCTION now — the ninth maturity predicate
+-- (dispute_unabsorbed) reads kernel.organization_obligation directly to check the
+-- unlined_reversal fence. Replaced (KM2 §3 item 2) with the assertion of what is now true:
+-- the reference exists ONLY inside the ninth predicate's unlined_reversal check, never as a
+-- gate on the maturity verdict's other eight predicates.
+SELECT ok((SELECT pg_get_functiondef(p.oid) ~ 'organization_obligation' AND pg_get_functiondef(p.oid) ~ 'unlined_reversal'
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='kernel' AND p.proname='settlement_payout_maturity'),
-  'F8: GATES NO PAYOUT — the maturity conjunction does not read the obligation table. Whether an outstanding debt should HOLD an org''s payouts is J3''s Q5, an owner decision deliberately not made here');
+  'F8: 097 — the maturity conjunction reads the obligation table ONLY inside its ninth predicate''s unlined_reversal fence, not as a general gate on an org''s payouts. Whether an outstanding debt should more broadly HOLD an org''s payouts is still J3''s Q5, an owner decision not made here');
 SELECT ok((SELECT pg_get_functiondef(p.oid) !~ 'organization_obligation'
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='kernel' AND p.proname='get_payout_execution_context'),
   'F9: …nor does the transfer context. The projection in B3 is a READ that exists for such a guard to consume; consuming it is not this package''s act');
-SELECT ok((SELECT pg_get_functiondef(p.oid) !~ 'organization_obligation'
+-- 2026-09-03 (package 097): FALSE BY CONSTRUCTION now — the venue ring-fence's bidirectional
+-- fence reads kernel.organization_obligation for the unlined_reversal cb_candidate check
+-- (KM2 §3 item 3, DESIGN §2.7). Replaced with the arm's now-true property: it reads the table
+-- ONLY for origin_kind='unlined_reversal', never as a general scope predicate.
+SELECT ok((SELECT pg_get_functiondef(p.oid) ~ 'organization_obligation' AND pg_get_functiondef(p.oid) ~ 'unlined_reversal'
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
-  'F10: the chargeback arm is UNTOUCHED — its deliberate absence of a scope predicate (088:310-316, "not 093''s to change") survives 094 exactly');
+  'F10: 097 — the chargeback arm reads organization_obligation ONLY for origin_kind=''unlined_reversal'' (the fence''s own read, not a new scope predicate on the arm''s general behaviour, which stays 088:310-316''s deliberate absence)');
 
 -- ── the sealed neighbours ───────────────────────────────────────────────────
 SELECT is((SELECT count(*)::int FROM kernel.reserve), 0,

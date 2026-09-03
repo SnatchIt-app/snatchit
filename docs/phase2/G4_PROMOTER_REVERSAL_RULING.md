@@ -180,3 +180,54 @@ been larger all along.
 unholds or advances a `promoter_commission` payout. Verified after three closes, three obligation
 bookings and a resolution: a held `unfunded_settlement` commission payout is byte-identical, and no 094
 verb body can even name a promoter.
+
+---
+
+## OWNER DIRECTION RECEIVED 2026-09-03 (unsigned)
+
+**This ruling is still unsigned; §8's blanks are still open.** Owner direction is guidance for what to
+build against §4's options and §7's question, not an answer to either.
+
+**Direction received.** Promoter commission remains **HELD at launch** — no release, no payout, under
+any circumstance this train. Reversed revenue does **not** automatically leave the full commission
+earned (ruling out §4 option 1, "funded is final," as the default the train should build toward). The
+eventual surviving-commission policy — §7 question (i): full / pro-rata / nothing, and question (ii)'s
+behaviour once PAID — is to be decided **before the first commission release**, not before this train.
+
+**What migration 098 does: pre-close pro-rata FUNDING only.** It replaces §4's "full-or-nothing" funding
+amount (10e's total exclusion, the mechanism behind case B's 100% forfeiture in §2) with a pro-rata
+basis over the order's settled refund share (§6 option O2's shape): a partial refund funds a
+proportionally reduced commission line instead of zero. **Disputes are included alongside refunds under
+the same face cap** — a lost or `charge_refunded` dispute pre-close counts as reversed revenue for
+funding purposes, capped at `least(disputed, face − refunded − prior_cb)`, so a commission is never
+funded twice against the same reversed money (`docs/phase2/_impl/KF_promoter_prorata.md` §4.4). For
+`flat_per_ticket` promoters, the **flat-per-ticket rule (a)** applies —
+`floor(surviving_face / unit_price)` per item — the reading closest to the frozen "surviving items"
+wording (`KF_promoter_prorata.md` §4.5), rather than pro-rating the flat amount (b) or excluding flat
+promoters from the fix entirely (c). This is a **post-freeze amendment of PROMO §6.1/§5.2's basis**, not
+a correction the frozen corpus already determines on its own — filed as **`PFA-PT-4`, pending owner
+signature**. Migration 098 is dark pending that signature: shipping the basis change without it would be
+the "silent edit around a conflict" the freeze procedure forbids.
+
+**What migration 098 does NOT do.** It does not release a commission, does not pay one, and does not
+touch a **post-close** reduction — the defect §1–§3 of this ruling describe (a funded commission standing
+against revenue reversed *after* the close that funded it) is untouched; 098 only changes what gets
+funded going forward, at the pre-close funding moment. A4's four locks (§1) are unmodified. `E-138`
+(funding source, Option B) is unmodified. `kernel.release_payout` is still never called on a
+`promoter_commission` payout by anything in this train.
+
+**Addition to question (iii).** The obligation-overstatement finding sharpens question (iii) rather than
+answering it: when a chargeback (or full refund) is booked against the organization post-close, the
+`organization_obligation` amount is currently booked at the **full reversed face**, but the venue only
+ever received `face − held commission` — the commission sits `held/unfunded_settlement`, untouched by
+the reversal path, so the org is being asked to answer for money it never held
+(`docs/phase2/_impl/KC_chargeback_accounting.md` §2.i, P1-3: obligation booked 10 000 vs. venue actually
+received 9 000, overstated by the 1 000 the platform itself retained;
+`docs/phase2/_impl/KF_promoter_prorata.md` P1-3, same finding, option O3). This is not fixed by 098 (098
+only touches pre-close funding) and is not fixed by 096/097 (096/097 record and ring-fence recovery of
+whatever amount the obligation is opened for — they do not choose that amount). **It is squarely
+question (iii):** a reduced-or-still-held commission is money the platform is holding, not the venue —
+so until (iii) is answered, every post-close obligation booked against this organization is booked
+`held-commission` too high, and the fix (booking `organization_obligation` net of the funded-and-held
+commission on the reversed orders, so it equals what the venue actually received) is DDL-free but is
+squarely the policy question (iii) already asks, not a separate implementation decision.

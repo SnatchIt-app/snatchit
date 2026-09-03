@@ -1002,6 +1002,193 @@ export function planPayoutBatch(rows: PayoutClaim[], opts: { limit?: number } = 
     .slice(0, limit);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// KE §4.2 / DESIGN_096 §2.3 — the ref-bearing FAILED payout reconcile pass
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `kernel.claim_payouts_for_execution` only ever selects `status='submitted'`,
+// so a `failed` row that DOES carry a `stripe_transfer_ref` (money that moved
+// at Stripe but never got recorded) is permanently invisible to the main
+// batch above. 096 R-7 adds its own claim (`kernel.claim_failed_payouts_for_
+// reconcile`) and its own single-writer edge (`kernel.reconcile_payout_
+// transfer`, migration 096:1013-1186) for exactly that population. THIS
+// executor is the caller; the DB verb remains the sole writer of failed→paid
+// — nothing here writes a status, and nothing here ever calls POST
+// /v1/transfers (096:909-914,938: routing back through 'submitted' is
+// impossible, and inventing a SECOND transfer for money that already moved is
+// exactly the failure this pass exists to prevent).
+//
+// `planFailedReconcile` mirrors `kernel.reconcile_payout_transfer`'s refusal
+// derivation LOCALLY — first-failing-predicate-wins, in the verb's own causal
+// order (096:1101-1120) — so this vitest suite pins the two in lockstep. The
+// DERIVED verdict here decides NOTHING; the DB call is what writes. It exists
+// so (a) a test can assert the p_observed shape and the refusal ladder
+// without a database, and (b) the edge can log/page consistently with what it
+// expects the verb to answer.
+
+/** One row of `kernel.claim_failed_payouts_for_reconcile` (096:992-1000). */
+export interface FailedPayoutClaim {
+  payout_id: string;
+  stripe_transfer_ref: string;
+  transfer_group: string;
+  amount_minor: number;
+  currency: string;
+  destination_ref: string | null;
+  command_key: string;
+}
+
+/**
+ * The edge's normalized read of `GET /v1/transfers/{ref}`. `found: false`
+ * covers a 404 — the transfer Stripe has never heard of. Everything else is
+ * read once, exactly as `p_observed` needs it (096:1076-1087).
+ */
+export interface ObservedTransferRead {
+  found: boolean;
+  id?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  destination?: string | null;
+  transfer_group?: string | null;
+  reversed?: boolean;
+  amount_reversed?: number | null;
+}
+
+/** The exact `p_observed` shape `kernel.reconcile_payout_transfer` reads (096:941-944, DESIGN §1.7). */
+export interface ReconcileObserved {
+  found: boolean;
+  id: string | null;
+  amount: number | null;
+  currency: string | null;
+  destination: string | null;
+  transfer_group: string | null;
+  reversed: boolean;
+  amount_reversed: number;
+  reversals: Array<{ id: string; amount: number }>;
+  group_count: number;
+}
+
+/** Quoted from the verb's own `v_code` case, 096:1101-1120, in that exact order. */
+export type ReconcileRefusalCode =
+  | 'ref_unresolvable'
+  | 'ref_mismatch'
+  | 'transfer_unresolvable'
+  | 'amount_ledger_mismatch'
+  | 'currency_mismatch'
+  | 'destination_mismatch'
+  | 'transfer_group_mismatch'
+  | 'reconcile_ambiguous'
+  | 'reversal_malformed'
+  | 'reversals_incomplete'
+  | 'reversals_inconsistent'
+  | 'reversal_exceeds_transfer';
+
+export interface FailedReconcilePlan {
+  payout_id: string;
+  stripe_transfer_ref: string;
+  command_key: string;
+  observed: ReconcileObserved;
+  refusalCode: ReconcileRefusalCode | null;
+  outcome: 'refused' | 'clean' | 'full_reversed' | 'partial_reversed';
+}
+
+const TRR_RE = /^trr_[A-Za-z0-9]+$/;
+
+function sumReversalFacts(
+  reversals: Array<{ id: unknown; amount: unknown }>,
+): { sum: number; malformed: boolean; clean: Array<{ id: string; amount: number }> } {
+  let sum = 0;
+  let malformed = false;
+  const clean: Array<{ id: string; amount: number }> = [];
+  for (const r of Array.isArray(reversals) ? reversals : []) {
+    const id = r?.id;
+    const amount = Number(r?.amount);
+    if (typeof id !== 'string' || !TRR_RE.test(id) || !Number.isInteger(amount) || amount <= 0) {
+      malformed = true;
+      continue;
+    }
+    sum += amount;
+    clean.push({ id, amount });
+  }
+  return { sum, malformed, clean };
+}
+
+/**
+ * PURE planning for the reconcile pass. Builds `p_observed` from the edge's
+ * Stripe reads and derives the refusal code the DB verb would reach, WITHOUT
+ * writing anything — `kernel.reconcile_payout_transfer` is the sole writer
+ * (096:909-914). Never produces a Stripe request body; this pass creates no
+ * transfer under any input.
+ */
+export function planFailedReconcile(
+  observedTransfer: ObservedTransferRead,
+  reversals: Array<{ id: unknown; amount: unknown }>,
+  groupRows: Array<{ id?: unknown }>,
+  claim: FailedPayoutClaim,
+): FailedReconcilePlan {
+  const found = observedTransfer?.found === true;
+  const rev = sumReversalFacts(reversals);
+  const groupCount = (Array.isArray(groupRows) ? groupRows : []).filter(
+    (t) => typeof t?.id === 'string' && TR_RE.test(t.id as string),
+  ).length;
+
+  const rawAmountReversed = observedTransfer?.amount_reversed;
+  const amountReversed = found
+    ? Number.isFinite(rawAmountReversed)
+      ? (rawAmountReversed as number)
+      : observedTransfer?.reversed === true
+        ? (Number.isFinite(observedTransfer?.amount) ? (observedTransfer!.amount as number) : claim.amount_minor)
+        : 0
+    : 0;
+
+  const observed: ReconcileObserved = {
+    found,
+    id: found && typeof observedTransfer.id === 'string' ? observedTransfer.id : null,
+    amount: found && Number.isFinite(observedTransfer.amount) ? (observedTransfer.amount as number) : null,
+    currency: found && typeof observedTransfer.currency === 'string' ? observedTransfer.currency : null,
+    destination: found && typeof observedTransfer.destination === 'string' ? observedTransfer.destination : null,
+    transfer_group: found && typeof observedTransfer.transfer_group === 'string' ? observedTransfer.transfer_group : null,
+    reversed: found ? observedTransfer.reversed === true : false,
+    amount_reversed: amountReversed,
+    reversals: rev.clean,
+    group_count: groupCount,
+  };
+
+  // First-failing-predicate-wins, mirroring 096:1101-1120 exactly.
+  const refusalCode: ReconcileRefusalCode | null = (() => {
+    if (!TR_RE.test(claim.stripe_transfer_ref)) return 'ref_unresolvable';
+    if (!observed.found) return 'transfer_unresolvable';
+    if (observed.id !== null && observed.id !== claim.stripe_transfer_ref) return 'ref_mismatch';
+    if (observed.amount === null || observed.amount !== claim.amount_minor) return 'amount_ledger_mismatch';
+    if (observed.currency === null || observed.currency.toLowerCase() !== (claim.currency ?? '').toLowerCase()) return 'currency_mismatch';
+    if (observed.destination !== null && observed.destination !== claim.destination_ref) return 'destination_mismatch';
+    if (observed.transfer_group !== null && observed.transfer_group !== `payout_${claim.payout_id}`) return 'transfer_group_mismatch';
+    if (observed.group_count !== 1) return 'reconcile_ambiguous';
+    if (rev.malformed) return 'reversal_malformed';
+    if (observed.amount_reversed > rev.sum) return 'reversals_incomplete';
+    if (rev.sum > observed.amount_reversed) return 'reversals_inconsistent';
+    if (rev.sum > claim.amount_minor) return 'reversal_exceeds_transfer';
+    return null;
+  })();
+
+  const outcome: FailedReconcilePlan['outcome'] =
+    refusalCode !== null
+      ? 'refused'
+      : observed.amount_reversed === 0
+        ? 'clean'
+        : rev.sum >= claim.amount_minor
+          ? 'full_reversed'
+          : 'partial_reversed';
+
+  return {
+    payout_id: claim.payout_id,
+    stripe_transfer_ref: claim.stripe_transfer_ref,
+    command_key: claim.command_key,
+    observed,
+    refusalCode,
+    outcome,
+  };
+}
+
 /** Map a Postgres RPC error onto an HTTP status, per the edge spec's table. */
 export function httpStatusForRpcError(message: string): number {
   if (/insufficient_privilege|sod_violation|step_up_required|step_up_unavailable/.test(message)) return 403;

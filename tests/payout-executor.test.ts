@@ -37,12 +37,15 @@ import {
   isTransientRefusal,
   isUuid,
   PAYOUT_STATE_SYNC_TARGETS,
+  planFailedReconcile,
   planPayoutBatch,
   planPayoutStateSync,
   planPayoutTransfer,
   planReconcile,
   type BalanceProbe,
   type DestinationProbe,
+  type FailedPayoutClaim,
+  type ObservedTransferRead,
   type PayoutExecutionContext,
 } from '../supabase/functions/payout-execute/executor';
 
@@ -1030,5 +1033,256 @@ describe('error taxonomy', () => {
     ];
     for (const i of inputs) expect(classifyTransferError(i).writesState).toBe(false);
     expect(classifyTransferError(new Error('x')).writesState).toBe(false);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 11. `planFailedReconcile` — KE §4.2 / DESIGN_096 §2.3 / 096:1101-1120
+//
+// Mirrors `kernel.reconcile_payout_transfer`'s own first-failing-predicate-
+// wins derivation (096:1101-1120) so this table stays pinned to the verb it
+// plans for. `planFailedReconcile` writes nothing — the DB verb is the sole
+// writer of the failed→paid edge (096:909-914) — so every assertion here is
+// about the SHAPE of `p_observed` and the refusal code, never a status write.
+// ════════════════════════════════════════════════════════════════════════════
+
+const RECONCILE_REF = 'tr_RECONCILEME1';
+
+function failedClaim(over: Partial<FailedPayoutClaim> = {}): FailedPayoutClaim {
+  return {
+    payout_id: PAYOUT,
+    stripe_transfer_ref: RECONCILE_REF,
+    transfer_group: `payout_${PAYOUT}`,
+    amount_minor: 10000,
+    currency: 'USD',
+    destination_ref: DEST,
+    command_key: `payout.reconcile:${PAYOUT}`,
+    ...over,
+  };
+}
+
+function foundTransfer(over: Partial<ObservedTransferRead> = {}): ObservedTransferRead {
+  return {
+    found: true,
+    id: RECONCILE_REF,
+    amount: 10000,
+    currency: 'usd',
+    destination: DEST,
+    transfer_group: `payout_${PAYOUT}`,
+    reversed: false,
+    amount_reversed: 0,
+    ...over,
+  };
+}
+
+const oneGroupRow = () => [{ id: RECONCILE_REF }];
+
+describe('planFailedReconcile — p_observed shape', () => {
+  it('found:false produces a fully-null observed object and no reversals read', () => {
+    const plan = planFailedReconcile({ found: false }, [], [], failedClaim());
+    expect(plan.observed).toEqual({
+      found: false,
+      id: null,
+      amount: null,
+      currency: null,
+      destination: null,
+      transfer_group: null,
+      reversed: false,
+      amount_reversed: 0,
+      reversals: [],
+      group_count: 0,
+    });
+    expect(plan.refusalCode).toBe('transfer_unresolvable');
+    expect(plan.outcome).toBe('refused');
+  });
+
+  it("a clean found transfer carries the ledger's own fields straight through", () => {
+    const plan = planFailedReconcile(foundTransfer(), [], oneGroupRow(), failedClaim());
+    expect(plan.observed).toMatchObject({
+      found: true,
+      id: RECONCILE_REF,
+      amount: 10000,
+      currency: 'usd',
+      destination: DEST,
+      transfer_group: `payout_${PAYOUT}`,
+      amount_reversed: 0,
+      group_count: 1,
+    });
+  });
+});
+
+describe('planFailedReconcile — refusal derivation (096:1101-1120, first predicate wins)', () => {
+  it('a malformed STORED ref refuses ref_unresolvable before anything is even read', () => {
+    const plan = planFailedReconcile(foundTransfer(), [], oneGroupRow(), failedClaim({ stripe_transfer_ref: 'not-a-transfer' }));
+    expect(plan.refusalCode).toBe('ref_unresolvable');
+    expect(plan.outcome).toBe('refused');
+  });
+
+  it('a 404 (found:false) refuses transfer_unresolvable and stores no comparison fields', () => {
+    const plan = planFailedReconcile({ found: false }, [], [], failedClaim());
+    expect(plan.refusalCode).toBe('transfer_unresolvable');
+  });
+
+  it('Stripe answering for a different transfer id refuses ref_mismatch', () => {
+    const plan = planFailedReconcile(foundTransfer({ id: 'tr_SOMEOTHERONE' }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('ref_mismatch');
+  });
+
+  it('an amount that does not equal the ledger obligation refuses amount_ledger_mismatch', () => {
+    const plan = planFailedReconcile(foundTransfer({ amount: 9999 }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('amount_ledger_mismatch');
+  });
+
+  it('a missing amount refuses amount_ledger_mismatch (fails CLOSED, never treated as a match)', () => {
+    const plan = planFailedReconcile(foundTransfer({ amount: undefined }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('amount_ledger_mismatch');
+  });
+
+  it('a currency that does not equal the payout currency refuses currency_mismatch', () => {
+    const plan = planFailedReconcile(foundTransfer({ currency: 'eur' }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('currency_mismatch');
+  });
+
+  it('currency comparison is case-insensitive', () => {
+    const plan = planFailedReconcile(foundTransfer({ currency: 'USD' }), [], oneGroupRow(), failedClaim({ currency: 'usd' }));
+    expect(plan.refusalCode).toBeNull();
+  });
+
+  it('a destination that does not equal the pinned destination_ref refuses destination_mismatch', () => {
+    const plan = planFailedReconcile(foundTransfer({ destination: 'acct_SOMEONEELSE' }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('destination_mismatch');
+  });
+
+  it('a null observed destination does not refuse (the equality is skipped when Stripe omits it)', () => {
+    const plan = planFailedReconcile(foundTransfer({ destination: undefined }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBeNull();
+  });
+
+  it('a transfer_group that does not equal payout_<id> refuses transfer_group_mismatch', () => {
+    const plan = planFailedReconcile(foundTransfer({ transfer_group: `payout_${PAYOUT_2}` }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('transfer_group_mismatch');
+  });
+
+  it('two transfers sharing the group refuses reconcile_ambiguous (group_count > 1)', () => {
+    const rows = [{ id: RECONCILE_REF }, { id: 'tr_ANOTHERONE99' }];
+    const plan = planFailedReconcile(foundTransfer(), [], rows, failedClaim());
+    expect(plan.observed.group_count).toBe(2);
+    expect(plan.refusalCode).toBe('reconcile_ambiguous');
+  });
+
+  it('zero transfers in the group also refuses reconcile_ambiguous (group_count must equal exactly 1)', () => {
+    const plan = planFailedReconcile(foundTransfer(), [], [], failedClaim());
+    expect(plan.observed.group_count).toBe(0);
+    expect(plan.refusalCode).toBe('reconcile_ambiguous');
+  });
+
+  it('a malformed reversal entry (bad id, non-positive amount) refuses reversal_malformed', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ reversed: true, amount_reversed: 10000 }),
+      [{ id: 'not-a-trr', amount: 10000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.refusalCode).toBe('reversal_malformed');
+  });
+
+  it('a reversal list whose sum is short of amount_reversed refuses reversals_incomplete (never under-records)', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ amount_reversed: 6000 }),
+      [{ id: 'trr_PARTONE0001', amount: 2000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.refusalCode).toBe('reversals_incomplete');
+  });
+
+  it('an empty reversal list while amount_reversed > 0 is the reversals_incomplete case, never a silent clean', () => {
+    const plan = planFailedReconcile(foundTransfer({ amount_reversed: 500 }), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBe('reversals_incomplete');
+  });
+
+  it('a reversal list whose sum EXCEEDS amount_reversed refuses reversals_inconsistent', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ amount_reversed: 2000 }),
+      [{ id: 'trr_OVERSHOOT001', amount: 5000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.refusalCode).toBe('reversals_inconsistent');
+  });
+
+  it('a reversal sum exceeding the payout amount_minor refuses reversal_exceeds_transfer', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ amount_reversed: 15000 }),
+      [{ id: 'trr_TOOBIG000001', amount: 15000 }],
+      oneGroupRow(),
+      failedClaim({ amount_minor: 10000 }),
+    );
+    expect(plan.refusalCode).toBe('reversal_exceeds_transfer');
+  });
+});
+
+describe('planFailedReconcile — the three non-refused outcomes (096:1146-1176)', () => {
+  it('clean: amount_reversed=0 ⇒ outcome clean, no refusal, no reversal calls to plan', () => {
+    const plan = planFailedReconcile(foundTransfer(), [], oneGroupRow(), failedClaim());
+    expect(plan.refusalCode).toBeNull();
+    expect(plan.outcome).toBe('clean');
+    expect(plan.observed.reversals).toEqual([]);
+  });
+
+  it('full-reversed: Σ reversals = amount_minor ⇒ outcome full_reversed', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ reversed: true, amount_reversed: 10000 }),
+      [{ id: 'trr_FULLONE00001', amount: 10000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.refusalCode).toBeNull();
+    expect(plan.outcome).toBe('full_reversed');
+    expect(plan.observed.reversals).toEqual([{ id: 'trr_FULLONE00001', amount: 10000 }]);
+  });
+
+  it('partial: 0 < Σ reversals < amount_minor ⇒ outcome partial_reversed', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ amount_reversed: 4000 }),
+      [{ id: 'trr_PARTIAL00001', amount: 4000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.refusalCode).toBeNull();
+    expect(plan.outcome).toBe('partial_reversed');
+  });
+
+  it('two partials summing to the full amount ⇒ full_reversed, both facts carried', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ reversed: true, amount_reversed: 10000 }),
+      [
+        { id: 'trr_PARTA0000001', amount: 6000 },
+        { id: 'trr_PARTB0000001', amount: 4000 },
+      ],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.outcome).toBe('full_reversed');
+    expect(plan.observed.reversals).toHaveLength(2);
+  });
+
+  it('`reversed:true` with amount_reversed omitted falls back to the transfer amount (096:307 parity)', () => {
+    const plan = planFailedReconcile(
+      foundTransfer({ reversed: true, amount_reversed: undefined }),
+      [{ id: 'trr_FALLBACK0001', amount: 10000 }],
+      oneGroupRow(),
+      failedClaim(),
+    );
+    expect(plan.observed.amount_reversed).toBe(10000);
+    expect(plan.outcome).toBe('full_reversed');
+  });
+});
+
+describe('planFailedReconcile — creates no Stripe request under any input', () => {
+  it('the plan carries no idempotency key and no request body — this pass never calls POST /v1/transfers', () => {
+    const plan = planFailedReconcile(foundTransfer(), [], oneGroupRow(), failedClaim());
+    expect(plan).not.toHaveProperty('idempotency_key');
+    expect(plan).not.toHaveProperty('body');
   });
 });

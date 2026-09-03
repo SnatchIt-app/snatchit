@@ -291,6 +291,17 @@ SELECT tap._store153('pay2', tap._newpayment153(tap.fan153(),     tap.buyer(),  
 SELECT tap._store153('pay3', tap._newpayment153(tap.other_user(), tap.buyer(),   5000, 'pi_88_3')::text);
 SELECT tap._store153('pay4', tap._newpayment153(tap.fan153(),     tap.buyer(),   5000, 'pi_88_4')::text);
 SELECT tap._store153('pay5', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_5')::text);
+-- 097's rail guard (KB P1-1) now REFUSES kernel.record_dispute_native for any payment that is
+-- neither mode='native_primary' nor already linked through kernel.payment_native — a legacy
+-- buy_now payment with zero fulfillment (never finalized, never sold) is exactly the leak the
+-- guard closes. pay5 is deliberately left UNFINALIZED (no kernel.payment_native row ever
+-- written for it) to keep exercising the H17/H18 NO-LINK ARM honestly under the new fence: it
+-- is flipped to mode='native_primary' (the pairing CHECK payments_rail_pairing_ck then requires
+-- listing_id/seller_id null, satisfied below) so the guard's mode arm passes while the
+-- payment_native lookup still finds nothing — the one shape 097 still lets reach the no-link
+-- arm (record, zero freeze legs, 'no_link' alert) rather than refusing outright.
+UPDATE public.payments SET mode = 'native_primary', listing_id = NULL, seller_id = NULL
+ WHERE id = tap._u153('pay5');
 SELECT tap._store153('pay6', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_6')::text);
 SELECT tap._store153('pay7', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_7')::text);
 -- mint through the money path (issuance flag ON inside the txn only)
@@ -1012,8 +1023,25 @@ DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-00000000
 UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
 INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, payment_id, sale_state, paid_pending_since, command_idempotency_key)
 VALUES ('00000000-0000-0000-0000-0000000000a8', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, tap._u153('pay4b'), 'paid_pending_transfer', now(), 'ck88-s8');
-SELECT is((kernel.record_dispute_native('dp_88_4b', 'ch_88_4b', 'pi_88_4b', 5000, 'USD', 'fraudulent', 'lost', NULL, 'ck88-d4b') ->> 'status'), 'ok', 'J6a: the sale''s payment is charged back (lost)…');
-SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz8')$$, '00000000-0000-0000-0000-0000000000a8'), '%payment_charged_back%', 'J6b: …finalize can never move custody on returned money');
+-- 097's rail guard (KB P1-1) refuses kernel.record_dispute_native for pay4b here: R-34 writes
+-- kernel.payment_native.sale_id ONLY at transfer (088:716-719), and pay4b's sale (a8) is still
+-- paid_pending_transfer — the guard's payment_native EXISTS check can never see this sale until
+-- AFTER finalize_market_sale runs, which is exactly the call this scenario needs to BLOCK. This
+-- is a genuine gap in 097 as shipped (KB's own O6 trade-off note names the sale arm's exemption
+-- as needed but ties it to `exists payment_native.sale_id`, which is the post-transfer fact, not
+-- the pre-transfer one) — see docs/phase2/_impl/KT_pgtap_reconciliation.md §"153 finding" for the
+-- full analysis. It is NOT a silent hole: the webhook's classifyDisputeError (native-dispute.ts)
+-- treats an unclassified precondition_failed as ack:false/alert:true, so Stripe retries and
+-- platform_risk is paged; the row lands once finalize eventually completes. J6a below proves the
+-- fence fires; the raw kernel.dispute_native insert that follows re-establishes the SAME
+-- charged-back fact record_dispute_native would have written (had the guard let it through) so
+-- J6b-d can still prove finalize_market_sale's own dispute check (088:1327-1329, UNCHANGED by
+-- 097) still blocks custody moves on charged-back money, and on_atom_voided still compensates.
+SELECT throws_like($$SELECT kernel.record_dispute_native('dp_88_4b', 'ch_88_4b', 'pi_88_4b', 5000, 'USD', 'fraudulent', 'lost', NULL, 'ck88-d4b')$$,
+  '%not_native_rail%', 'J6a: 097''s rail guard refuses the pre-transfer chargeback — pay4b has no kernel.payment_native row yet (R-34: born at transfer), so the dispute cannot be recorded until finalize runs (the gap J6a proves; see header comment)');
+INSERT INTO kernel.dispute_native (stripe_dispute_ref, stripe_charge_ref, stripe_pi_ref, payment_id, amount_minor, currency, reason, status)
+VALUES ('dp_88_4b', 'ch_88_4b', 'pi_88_4b', tap._u153('pay4b'), 5000, 'USD', 'fraudulent', 'lost');
+SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz8')$$, '00000000-0000-0000-0000-0000000000a8'), '%payment_charged_back%', 'J6b: …finalize can never move custody on returned money (kernel.dispute_native is UNCHANGED by 097 — the check at 088:1327-1329 still fires against the fact however it landed)');
 SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J6c: the void hook runs…');
 SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153('00000000-0000-0000-0000-0000000000a8') s), 'J6d: …and compensates the charged-back sale (the chargeback IS the money return)');
 UPDATE market.listing_native SET status='sold' WHERE listing_id = tap._u153('l2');

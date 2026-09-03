@@ -53,9 +53,11 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 29,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
-  'A1: kernel holds EXACTLY twenty-eight tables (27 post-088 + 091''s reserve stub)');
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
+  'A1: kernel holds EXACTLY THIRTY-ONE tables (27 post-088 + 091''s reserve stub + 094''s organization_obligation + 096''s payout_reversal/organization_obligation_recovery)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
@@ -138,7 +140,7 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 136,
+           WHERE n.nspname = 'kernel'), 146,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -167,7 +169,10 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'A32: kernel holds EXACTLY 132 functions (109 post-090 + 093''s sixteen + 095''s seven)');
+  -- 2026-09-03 (package 096): +9 (payout reversal + obligation recovery). 097/098: +0 (body-only
+  -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146,
+  -- re-derived from the live catalog, not accepted as a delta.
+  'A32: kernel holds EXACTLY 146 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'catalog'), 16,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).

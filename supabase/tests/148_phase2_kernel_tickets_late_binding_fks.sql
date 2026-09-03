@@ -56,7 +56,7 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 76,
+              AND c.relkind IN ('r','p','v','m','S','f')), 78,
   -- 2026-09-02 (package 093): 75 -> 75. RATIFIED CONTRACT CHANGE (no-op here) —
   -- 093 creates NO relation in any phase-2 schema; its two new objects are the
   -- partial unique indexes on venue.settlement_line (indexes are not relkind
@@ -68,9 +68,11 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-02 (package 089): 61 -> 62 (+1 VIEW market.listing_unified — the ADOPT step's bridge).
   -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
-  'B1: the five phase-2 schemas hold exactly 76 relations of ANY kind (69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation)');
+  -- 2026-09-03 (package 096): 76 -> 78. kernel.payout_reversal + kernel.organization_obligation_recovery.
+  -- Re-derived from the live catalog, not accepted as a delta.
+  'B1: the five phase-2 schemas hold exactly 78 relations of ANY kind (69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation + 096''s two payout-reversal/obligation-recovery tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 270,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 280,
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -112,7 +114,10 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'B2: the five phase-2 schemas hold exactly 270 routines (136+79+16+22+17 — 093''s sixteen, 094''s four obligation routines and 095''s seven, all kernel)');
+  -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
+  -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
+  -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
+  'B2: the five phase-2 schemas hold exactly 280 routines (146+79+16+22+17 — 093''s sixteen, 094''s four obligation routines, 095''s seven, 096''s nine and 099''s one, all kernel)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -127,9 +132,9 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
   -- deny-all zero-policy, OR-1).
   'B3: the five-schema policy register (12 kernel + 38 venue + 12 catalog + 5 market + 5 notify) — 092 added its five owner policies');
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r') = 29
+            WHERE n.nspname='kernel' AND c.relkind='r') = 31
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 136,
+            WHERE n.nspname='kernel') = 146,
   -- 2026-09-03 (package 094, ORG OBLIGATION — 094_organization_obligation.sql): kernel TABLES
   -- 28 -> 29 and kernel functions 132 -> 136. Re-derived from the LIVE CATALOG by replaying the
   -- chain twice, once with this file removed. The table is kernel.organization_obligation, the
@@ -163,7 +168,11 @@ SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'B4: kernel per-schema census (29 tables post-094, 136 functions post-095)');
+  -- 2026-09-03 (package 096): kernel TABLES 29 -> 31 (payout_reversal, organization_obligation_recovery)
+  -- and kernel functions 136 -> 145 (nine, R-1 through R-7). 097/098: +0 functions (body-only
+  -- re-creates). 2026-09-03 (package 099): kernel functions 145 -> 146 (check_signing_key_invariants).
+  -- Re-derived from the LIVE CATALOG, not accepted as a delta.
+  'B4: kernel per-schema census (31 tables post-096, 146 functions post-099)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue') = 79
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

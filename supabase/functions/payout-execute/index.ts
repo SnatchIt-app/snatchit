@@ -56,6 +56,7 @@ import {
   evaluateDestination,
   httpStatusForRpcError,
   isUuid,
+  planFailedReconcile,
   planPayoutBatch,
   planPayoutStateSync,
   planPayoutTransfer,
@@ -63,6 +64,8 @@ import {
   type BalanceProbe,
   type TransferReversal,
   type DestinationProbe,
+  type FailedPayoutClaim,
+  type ObservedTransferRead,
   type PayoutClaim,
   type PayoutExecutionContext,
   type PayoutExecutionMode,
@@ -77,6 +80,8 @@ const CLAIM_RPC = 'claim_payouts_for_execution';
 const NOTE_RPC = 'record_payout_execution_note';
 const DEAUTH_RPC = 'hold_payout_destination_changed';
 const REVERSED_RPC = 'hold_payout_transfer_reversed';
+const RECONCILE_CLAIM_RPC = 'claim_failed_payouts_for_reconcile';
+const RECONCILE_RPC = 'reconcile_payout_transfer';
 
 const ALLOWED_ORIGINS = ['https://snatchitapp.com', 'https://www.snatchitapp.com'];
 
@@ -269,6 +274,198 @@ async function probeTransferGroup(group: string): Promise<{ ok: boolean; rows: A
   } catch (e) {
     return { ok: false, rows: [], detail: String(e) };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KE §4.2 / DESIGN_096 §2.3 — the ref-bearing FAILED payout reconcile pass
+//
+// `claim_payouts_for_execution` only ever selects `status='submitted'`, so a
+// `failed` row that DOES carry a `stripe_transfer_ref` — money that moved at
+// Stripe but was never recorded because the callback died — is invisible to
+// `executeOne` above. This is a SECOND, independent phase with its own claim
+// (`claim_failed_payouts_for_reconcile`) and its own single-writer DB verb
+// (`reconcile_payout_transfer`, 096 R-7). It NEVER writes 'failed', NEVER
+// creates a Stripe transfer, and NEVER calls `mark_payout_transfer_state`
+// directly — the verb is the sole writer of the failed→paid edge.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type TransferRead =
+  | { kind: 'found'; data: Record<string, unknown> }
+  | { kind: 'not_found' }
+  | { kind: 'error'; detail: string };
+
+/** `GET /v1/transfers/{ref}` — a 404 is a legitimate observation, not an error. */
+async function readTransfer(ref: string): Promise<TransferRead> {
+  try {
+    const res = await stripeFetchRaw(`/transfers/${encodeURIComponent(ref)}`);
+    if (res.status === 404) return { kind: 'not_found' };
+    if (!res.ok) return { kind: 'error', detail: `HTTP ${res.status}` };
+    return { kind: 'found', data: (res.data ?? {}) as Record<string, unknown> };
+  } catch (e) {
+    return { kind: 'error', detail: String(e) };
+  }
+}
+
+/**
+ * `GET /v1/transfers/{id}/reversals`, paged. Stripe's `reversals` sub-list on
+ * the Transfer object itself may be short (`has_more`); the EDGE pages here so
+ * `planFailedReconcile`'s Σ is never short of `amount_reversed` (096:932-934).
+ * A hard 20-page cap (2000 reversals) guards against a runaway loop; no real
+ * payout will ever carry that many.
+ */
+async function readAllReversals(
+  transferId: string,
+): Promise<{ ok: true; reversals: Array<{ id: unknown; amount: unknown }> } | { ok: false; detail: string }> {
+  const out: Array<{ id: unknown; amount: unknown }> = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const qs = new URLSearchParams({ limit: '100' });
+    if (startingAfter) qs.set('starting_after', startingAfter);
+    let res: { ok: boolean; status: number; data: unknown };
+    try {
+      res = await stripeFetchRaw(`/transfers/${encodeURIComponent(transferId)}/reversals?${qs.toString()}`);
+    } catch (e) {
+      return { ok: false, detail: String(e) };
+    }
+    if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
+    const d = (res.data ?? {}) as Record<string, unknown>;
+    const rows = Array.isArray(d.data) ? (d.data as Array<Record<string, unknown>>) : [];
+    for (const r of rows) out.push({ id: r.id, amount: r.amount });
+    if (d.has_more !== true) break;
+    const last = rows[rows.length - 1];
+    if (!last || typeof last.id !== 'string') break;
+    startingAfter = last.id;
+  }
+  return { ok: true, reversals: out };
+}
+
+interface ReconcileOutcome {
+  payout_id: string;
+  status: string;
+  refusal_code?: string | null;
+  payout_status?: string | null;
+}
+
+/**
+ * Reconcile ONE ref-bearing failed payout: read Stripe, plan (pure), call the
+ * sole-writer verb, log. No status is written from this function — the RPC is
+ * the only writer, and it writes 'paid' (never 'failed', never a re-create).
+ */
+async function reconcileOneFailedPayout(service: SupabaseClient, claim: FailedPayoutClaim): Promise<ReconcileOutcome> {
+  const transferRead = await readTransfer(claim.stripe_transfer_ref);
+  if (transferRead.kind === 'error') {
+    // Transport hiccup, not an observation. Stays `failed`; the lease expires
+    // and a later tick reclaims it. No verb call — nothing to compare yet.
+    await note(service, claim.payout_id, 'reconcile_transfer_read_failed', {
+      stripe_transfer_ref: claim.stripe_transfer_ref,
+      detail: transferRead.detail,
+    }, claim.command_key);
+    return { payout_id: claim.payout_id, status: 'read_failed' };
+  }
+
+  let reversals: Array<{ id: unknown; amount: unknown }> = [];
+  if (transferRead.kind === 'found') {
+    const revRead = await readAllReversals(claim.stripe_transfer_ref);
+    if (!revRead.ok) {
+      await note(service, claim.payout_id, 'reconcile_reversals_read_failed', {
+        stripe_transfer_ref: claim.stripe_transfer_ref,
+        detail: revRead.detail,
+      }, claim.command_key);
+      return { payout_id: claim.payout_id, status: 'read_failed' };
+    }
+    reversals = revRead.reversals;
+  }
+
+  const group = await probeTransferGroup(claim.transfer_group);
+  if (!group.ok) {
+    await note(service, claim.payout_id, 'reconcile_group_read_failed', {
+      transfer_group: claim.transfer_group,
+      detail: group.detail ?? null,
+    }, claim.command_key);
+    return { payout_id: claim.payout_id, status: 'read_failed' };
+  }
+
+  const observedTransfer: ObservedTransferRead =
+    transferRead.kind === 'found'
+      ? {
+          found: true,
+          id: typeof transferRead.data.id === 'string' ? transferRead.data.id : null,
+          amount: Number.isFinite(transferRead.data.amount as number) ? (transferRead.data.amount as number) : null,
+          currency: typeof transferRead.data.currency === 'string' ? transferRead.data.currency : null,
+          destination: typeof transferRead.data.destination === 'string' ? transferRead.data.destination : null,
+          transfer_group: typeof transferRead.data.transfer_group === 'string' ? transferRead.data.transfer_group : null,
+          reversed: transferRead.data.reversed === true,
+          amount_reversed: Number.isFinite(transferRead.data.amount_reversed as number)
+            ? (transferRead.data.amount_reversed as number)
+            : null,
+        }
+      : { found: false };
+
+  const plan = planFailedReconcile(observedTransfer, reversals, group.rows, claim);
+
+  const { data, error } = await service.rpc(RECONCILE_RPC, {
+    p_payout_id: claim.payout_id,
+    p_stripe_transfer_ref: claim.stripe_transfer_ref,
+    p_observed: plan.observed,
+    p_command_key: claim.command_key,
+  });
+
+  if (error) {
+    await note(service, claim.payout_id, 'reconcile_rpc_failed', { error: error.message, plan_outcome: plan.outcome }, claim.command_key);
+    await captureException('payout-execute:reconcile', new Error(`${RECONCILE_RPC}: ${error.message}`), { payout_id: claim.payout_id });
+    return { payout_id: claim.payout_id, status: 'rpc_failed' };
+  }
+
+  const result = (data ?? {}) as { status?: string; refusal_code?: string; payout_status?: string };
+  await note(service, claim.payout_id, `reconcile_${result.status ?? 'unknown'}`, {
+    result,
+    plan_outcome: plan.outcome,
+    plan_refusal_code: plan.refusalCode,
+  }, claim.command_key);
+
+  if (result.status === 'refused') {
+    // transfer_unresolvable / *_mismatch / reconcile_ambiguous / reversals_* —
+    // the row stays `failed`. This IS the page (096:926-929: a terminal row
+    // cannot be held, so the audit + alert together are the "operator hold").
+    await captureException(
+      'payout-execute:reconcile-refused',
+      new Error(`${result.refusal_code ?? 'unknown'}: payout ${claim.payout_id} stays failed`),
+      { payout_id: claim.payout_id, refusal_code: result.refusal_code ?? '' },
+    );
+  }
+  console.log('[payout-execute] reconcile:', {
+    payout_id: claim.payout_id,
+    status: result.status,
+    payout_status: result.payout_status,
+  });
+  return { payout_id: claim.payout_id, status: result.status ?? 'unknown', refusal_code: result.refusal_code, payout_status: result.payout_status };
+}
+
+async function runReconcilePass(
+  service: SupabaseClient,
+  limit: number,
+  leaseSeconds: number,
+): Promise<{ claimed: number; results: ReconcileOutcome[] }> {
+  const { data, error } = await service.rpc(RECONCILE_CLAIM_RPC, { p_limit: limit, p_lease_seconds: leaseSeconds });
+  if (error) {
+    const missing = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message);
+    console.warn('[payout-execute] reconcile claim failed:', missing ? `${RECONCILE_CLAIM_RPC} not deployed` : error.message);
+    return { claimed: 0, results: [] };
+  }
+  const rows = ((data as { payouts?: FailedPayoutClaim[] } | null)?.payouts ?? []).filter(
+    (r) => r && isUuid(r.payout_id) && typeof r.stripe_transfer_ref === 'string',
+  );
+  const results: ReconcileOutcome[] = [];
+  for (const c of rows) {
+    try {
+      results.push(await reconcileOneFailedPayout(service, c));
+    } catch (err) {
+      await captureException('payout-execute:reconcile-batch', err, { payout_id: c.payout_id });
+      results.push({ payout_id: c.payout_id, status: 'unhandled_error' });
+    }
+  }
+  console.log('[payout-execute] reconcile pass complete:', { claimed: rows.length });
+  return { claimed: rows.length, results };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -605,7 +802,17 @@ serve(async (req: Request) => {
       return acc;
     }, {});
     console.log('[payout-execute] run complete:', { claimed: claims.length, counts });
-    return json({ status: 'ok', attempted: claims.length, counts, results }, 200, headers);
+
+    // ── SECOND PHASE: the ref-bearing FAILED payout reconcile pass (KE §4.2).
+    // Independent of the batch above; one failure here never blocks a reply.
+    let reconciled: { claimed: number; results: ReconcileOutcome[] } = { claimed: 0, results: [] };
+    try {
+      reconciled = await runReconcilePass(service, limit, leaseSeconds);
+    } catch (err) {
+      await captureException('payout-execute:reconcile-phase', err);
+    }
+
+    return json({ status: 'ok', attempted: claims.length, counts, results, reconciled }, 200, headers);
   } catch (err) {
     await captureException('payout-execute', err);
     return json({ error: 'Internal server error' }, 500, headers);

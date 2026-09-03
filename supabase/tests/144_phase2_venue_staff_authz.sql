@@ -91,7 +91,7 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 136,
+           WHERE n.nspname = 'kernel'), 146,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -120,7 +120,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'A14: kernel holds EXACTLY 132 functions (109 post-090 + 093''s sixteen + 095''s seven)');
+  -- 2026-09-03 (package 096): +9. 097/098: +0 (body-only re-creates). 099: +1.
+  -- 136 -> 146, re-derived from the live catalog, not accepted as a delta.
+  'A14: kernel holds EXACTLY 146 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'venue'), 79,
   -- 2026-09-02 (package 090): 60 -> 79 (+19: 17 promoter RPCs/reads + the normalizer + 2 trigger fns;

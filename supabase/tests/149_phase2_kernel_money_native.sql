@@ -34,9 +34,11 @@ $m$ INSERT INTO public.listings (seller_id, event_name, venue, neighborhood, eve
 -- SECTION A — THE 085 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 29,
+            WHERE n.nspname='kernel' AND c.relkind='r'), 31,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
-  'A1: kernel holds 28 tables — 22 post-084 + the four money ledgers + 088''s dispute_native + 091''s reserve stub');
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
+  'A1: kernel holds 31 tables — 22 post-084 + the four money ledgers + 088''s dispute_native + 091''s reserve stub + 094''s organization_obligation + 096''s payout_reversal/organization_obligation_recovery');
 SELECT has_table('kernel'::name,'payment_native'::name, 'A2: kernel.payment_native (the R-34 link ledger)');
 SELECT has_table('kernel'::name,'refund'::name, 'A3: kernel.refund');
 SELECT has_table('kernel'::name,'payout'::name, 'A4: kernel.payout');
