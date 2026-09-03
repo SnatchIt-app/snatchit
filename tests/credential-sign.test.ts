@@ -28,6 +28,10 @@
  *   6. base64url round-trip (including boundary lengths 0/1/2/3 bytes).
  *   7. Log-shape: `buildCredentialSignLogLine` never carries a token, a
  *      payload, or key material.
+ *   8. PFA-PT-8 algorithm pinning — see `tests/credential-sign-kms.test.ts`
+ *      for the full alg-pin + ES256/DER matrix; this file keeps the
+ *      pre-existing Ed25519-only cases passing under the new
+ *      `TrustedKeyResolver` shape.
  */
 import { createPublicKey, generateKeyPairSync, sign as nodeSign, verify as nodeVerify, type KeyObject } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
@@ -41,10 +45,12 @@ import {
   DEFAULT_ALGORITHM,
   DOMAIN,
   encodeToken,
+  MAX_TOKEN_LENGTH,
   toUnixSeconds,
   verifyToken,
-  type PublicKeyResolver,
+  type SigningAlgorithm,
   type TicketSigningContext,
+  type TrustedKeyResolver,
   type VerifyPrimitive,
 } from '../supabase/functions/credential-sign/credential';
 
@@ -91,8 +97,16 @@ function ctx(over: Partial<TicketSigningContext> = {}): TicketSigningContext {
   };
 }
 
-function makeResolver(map: Record<string, string>): PublicKeyResolver {
-  return (kid: string) => map[kid] ?? null;
+/** Existing tests in this file are Ed25519-only — the resolver wraps each
+ *  raw public-key string as a `TrustedKey` pinned to `algorithm` (default
+ *  `EdDSA`), so every pre-existing call site keeps working unchanged under
+ *  the PFA-PT-8 `TrustedKeyResolver` shape. `alg`-mismatch coverage lives in
+ *  `tests/credential-sign-kms.test.ts`, which builds `TrustedKey`s directly. */
+function makeResolver(map: Record<string, string>, algorithm: SigningAlgorithm = 'EdDSA'): TrustedKeyResolver {
+  return (kid: string) => {
+    const public_key = map[kid];
+    return public_key ? { public_key, algorithm } : null;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -157,7 +171,7 @@ describe('canonical payload — determinism', () => {
 });
 
 describe('domain separation — the typ claim', () => {
-  it('a signature minted for the ticket typ does not verify against a different typ header (constructed forgery)', async () => {
+  it('a signature minted for the ticket typ does not verify against a different typ header (constructed forgery) — caught by the explicit typ check, before signature verification is even attempted', async () => {
     const { privateKey, publicKeyB64 } = genEd25519();
     const canonical = buildCanonicalPayload(ctx());
     const sig = signBytes(privateKey, canonical.signedBytes);
@@ -179,10 +193,50 @@ describe('domain separation — the typ claim', () => {
 
     const forgedResult = await verifyToken(forgedToken, makeResolver({ [KEY_ID_1]: publicKeyB64 }), toUnixSeconds(ISSUED_AT), verifyEd25519);
     expect(forgedResult.authentic).toBe(false);
-    expect(forgedResult.reason).toBe('signature_invalid');
+    // `wrong_typ` — verifyToken checks header.typ === DOMAIN FIRST, before
+    // ever calling verifyPrimitive, so a forged typ is caught here and
+    // never reaches signature verification at all (it would ALSO fail
+    // there, since the header change altered the signed bytes — that
+    // remains true and is asserted below — but the explicit check is what
+    // actually enforces it, not a side effect of the signature failing).
+    expect(forgedResult.reason).toBe('wrong_typ');
 
-    // And prove WHY: the header change altered the signed bytes.
+    // And prove the OTHER layer still holds too: the header change altered
+    // the signed bytes, so even a verifier that somehow skipped the typ
+    // check would still reject this on signature grounds.
     expect(forgedHeaderB64).not.toBe(canonical.headerB64);
+  });
+
+  it('REPLAY direction: a GENUINELY-signed different-typ credential (real key, valid signature, shape-matching payload) is refused as wrong_typ — this is what the forgery test above does NOT prove', async () => {
+    const { privateKey, publicKeyB64 } = genEd25519();
+
+    // A real signer mints a token for a DIFFERENT domain (e.g. a
+    // wallet-manifest credential) whose payload happens to shape-match a
+    // ticket credential's five frozen claims. This is not a forged/tampered
+    // token — the signature is completely genuine over these exact bytes.
+    const otherDomainHeaderJson = canonicalJSONStringify({
+      alg: 'EdDSA',
+      kid: KEY_ID_1,
+      typ: 'SNATCHIT-WALLET-MANIFEST-V1',
+    });
+    const otherDomainHeaderB64 = base64urlEncode(new TextEncoder().encode(otherDomainHeaderJson));
+    const canonical = buildCanonicalPayload(ctx()); // reuse the same payload shape/bytes
+    const genuineSig = signBytes(privateKey, new TextEncoder().encode(`${otherDomainHeaderB64}.${canonical.payloadB64}`));
+    const replayToken = encodeToken(otherDomainHeaderB64, canonical.payloadB64, genuineSig);
+
+    // Sanity: this token's signature IS valid over its own (different-typ)
+    // signed bytes — decodeTokenStructure/verifyPrimitive alone would say
+    // "authentic" if nothing checked typ. Prove that first, directly.
+    const decoded = decodeTokenStructure(replayToken)!;
+    expect(decoded.header.typ).toBe('SNATCHIT-WALLET-MANIFEST-V1');
+    const rawSignatureCheck = await verifyEd25519(publicKeyB64, decoded.signedBytes, decoded.signatureBytes, 'EdDSA');
+    expect(rawSignatureCheck).toBe(true); // genuinely valid signature — this is real replay material, not garbage
+
+    // verifyToken must STILL refuse it — this is the actual replay-attack
+    // proof the forgery-direction test above cannot provide, since a forged
+    // token's signature is invalid by construction; this one's is not.
+    const result = await verifyToken(replayToken, makeResolver({ [KEY_ID_1]: publicKeyB64 }), toUnixSeconds(ISSUED_AT), verifyEd25519);
+    expect(result).toEqual({ authentic: false, reason: 'wrong_typ' });
   });
 });
 
@@ -226,6 +280,63 @@ describe('tamper detection', () => {
   it('rejects a structurally malformed token', async () => {
     const result = await verifyToken('not-a-token', makeResolver({}), 0, verifyEd25519);
     expect(result).toEqual({ authentic: false, reason: 'malformed_token' });
+  });
+
+  it('rejects a token over MAX_TOKEN_LENGTH before any parsing work runs (DoS bound, applies to every caller)', async () => {
+    // A genuine token, then padded well past the cap purely in its
+    // (otherwise-ignored, since the size check runs first) signature
+    // segment — proves the length check is the FIRST thing that runs, not
+    // a side effect of some other structural check.
+    const { privateKey, publicKeyB64 } = genEd25519();
+    const canonical = buildCanonicalPayload(ctx());
+    const sig = signBytes(privateKey, canonical.signedBytes);
+    const legitToken = encodeToken(canonical.headerB64, canonical.payloadB64, sig);
+    expect(legitToken.length).toBeLessThan(MAX_TOKEN_LENGTH);
+
+    const oversized = legitToken + 'A'.repeat(MAX_TOKEN_LENGTH - legitToken.length + 1);
+    expect(oversized.length).toBeGreaterThan(MAX_TOKEN_LENGTH);
+
+    expect(decodeTokenStructure(oversized)).toBeNull();
+    const result = await verifyToken(oversized, makeResolver({ [KEY_ID_1]: publicKeyB64 }), toUnixSeconds(ISSUED_AT), verifyEd25519);
+    expect(result).toEqual({ authentic: false, reason: 'malformed_token' });
+  });
+
+  it('the boundary is `length > MAX_TOKEN_LENGTH`, not `>=`: a well-formed token AT the cap still decodes; one byte over is unconditionally malformed_token', () => {
+    // `isCredentialPayload` only requires the five frozen keys to be
+    // present with the right types — it does not reject EXTRA keys — so an
+    // inert `pad` field lets the payload's byte length be dialed to any
+    // target without touching header/payload validity or needing a real
+    // signature (this test only exercises `decodeTokenStructure`'s
+    // structural admission, not signature verification).
+    const canonical = buildCanonicalPayload(ctx());
+    const sigB64 = base64urlEncode(new Uint8Array(64).fill(0xaa)); // shape-valid, not a real signature
+
+    function buildPaddedToken(padLength: number): string {
+      const payload = { ...canonical.payload, pad: 'x'.repeat(padLength) };
+      const payloadB64 = base64urlEncode(new TextEncoder().encode(canonicalJSONStringify(payload)));
+      return `${canonical.headerB64}.${payloadB64}.${sigB64}`;
+    }
+
+    // Binary-search-free: grow pad length one char at a time from a
+    // starting point until the token length first reaches, then exceeds,
+    // MAX_TOKEN_LENGTH — small, fast, and exact (base64/JSON overhead is
+    // fixed per byte of `pad`, so this converges in a handful of steps
+    // once close, but we just walk it directly since the search space here
+    // is small enough not to matter).
+    let padLength = 0;
+    while (buildPaddedToken(padLength).length < MAX_TOKEN_LENGTH) padLength++;
+    // base64 groups 3 input bytes at a time, so growing `pad` one character
+    // can jump the encoded length by more than 1 char — step back until
+    // we're AT OR UNDER the cap (never assume the loop landed exactly on
+    // it).
+    while (buildPaddedToken(padLength).length > MAX_TOKEN_LENGTH) padLength--;
+    const atOrUnderCap = buildPaddedToken(padLength);
+    expect(atOrUnderCap.length).toBeLessThanOrEqual(MAX_TOKEN_LENGTH);
+    expect(decodeTokenStructure(atOrUnderCap)).not.toBeNull();
+
+    const overCap = buildPaddedToken(padLength + 64); // comfortably over MAX_TOKEN_LENGTH
+    expect(overCap.length).toBeGreaterThan(MAX_TOKEN_LENGTH);
+    expect(decodeTokenStructure(overCap)).toBeNull();
   });
 });
 

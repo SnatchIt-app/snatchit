@@ -1109,3 +1109,58 @@ signature). 102 authors the consumer, DARK:
 **Still DARK:** authoring 102 + the edge creates no key, calls no KMS, signs nothing. This section
 documents what the ceremony must additionally deliver WHEN it is eventually run and the edge deployed —
 it is not authorization to run it.
+
+## 18. PACKAGE 103 — algorithm pinning, the KMS adapter, and the ceremony PRE-FLIGHT
+
+Package 102 gave the ceremony a consumer (§17). Package 103 makes the trust chain enforceable and
+gives it a concrete (DARK) adapter. Three changes affect this runbook:
+
+### 18.1 The signing key now carries its ALGORITHM (PFA-PT-8, migration 103)
+`kernel.signing_key.algorithm` (`'EdDSA'|'ES256'`, immutable, granted to authenticated as public
+verification metadata) is now a REQUIRED ceremony output. The row you insert (D-series) MUST set
+`algorithm` to the exact algorithm of the key material you created — it is immutable and cannot be
+corrected later. The verifier PINS this value: a token whose header `alg` disagrees is refused
+(`alg_mismatch`) before any signature check. **Consequence of D1/D2:** if the provider is AWS KMS
+(§18.2), `algorithm` MUST be `'ES256'` — AWS KMS offers no Ed25519. If you insert `'EdDSA'` for an AWS
+ES256 key, every credential fails sign-after-verify and no ticket is ever signable.
+
+### 18.2 Provider REFERENCE adapter is AWS KMS (ES256) — the choice is still the owner's
+`supabase/functions/credential-sign/kms.ts` ships `AwsKmsSigner` (SigV4-over-fetch, `ECDSA_SHA_256`,
+`MessageType:'RAW'` — KMS SHA-256-digests the message itself; sign-after-verify uses the identical
+bytes) plus the `UnconfiguredKmsSigner` default. Selection is `KMS_PROVIDER` env: unset ⇒ Unconfigured
+(DARK, throws). AWS is the reference because the env is AWS-shaped (`KMS_SIGNER_ROLE_ARN`) and Supabase
+runs on AWS — but **the final provider/algorithm pair is an owner/ops decision** (GCP Cloud KMS would
+allow EdDSA; CloudHSM is also sanctioned). Record it as D1/D2. If GCP/CloudHSM is chosen, a GCP/CloudHSM
+adapter must be authored to the same `KmsSigner` contract before the ceremony (the abstraction exists;
+the GCP transport does not yet). The credential AUTHORITY (which key, which bytes, which algorithm) is
+fixed regardless of transport.
+
+### 18.3 SIGN-AFTER-VERIFY is now mandatory in the edge (§9)
+`credential-sign` locally verifies every KMS signature against the pinned public_key + algorithm over
+the exact signed bytes BEFORE returning a credential; a mismatch ⇒ `signing_unhealthy` 500, alert, no
+retry. This catches a wrong `kms_handle_ref`, wrong key version, algorithm/encoding drift. So a
+ceremony misconfiguration (e.g. algorithm column not matching the KMS key spec, or an ARN pinned to the
+wrong version) SELF-DETECTS at first sign attempt rather than shipping unverifiable tickets — but it is
+a fail-CLOSED detection (no credentials issued), so get the ceremony inputs right.
+
+### 18.4 CEREMONY PRE-FLIGHT (all must be TRUE before the ceremony is authorized to run — §20)
+This is an engineering gate, NOT owner authorization to run the ceremony (which remains separate).
+- [ ] Provider selected + algorithm decided (D1/D2), consistent with each other (AWS⇒ES256).
+- [ ] Provider adapter code complete for the chosen provider (`AwsKmsSigner` for AWS; a GCP/CloudHSM
+      adapter authored if chosen) — DARK, fails closed absent credentials.
+- [ ] `npx vitest run` green (adapter DER↔raw, alg-pin, sign-after-verify, taxonomy).
+- [ ] PFA-PT-6 (wire format) ratified/owner-signed.
+- [ ] PFA-PT-8 (algorithm pin) ratified/owner-signed; migration 103 present.
+- [ ] Trusted-key schema complete (signing_key.algorithm granted + immutable; M1 projection carries it).
+- [ ] M1 verifier complete (credential.ts `verifyToken` pins algorithm).
+- [ ] M2 authority complete (`validate_ticket_online` online; `open/get_door_manifest` + OFFLINE-VERIFY-v1
+      core offline).
+- [ ] Rotation rehearsal green (169 C-series); old-owner screenshot green (169 B-series + offline test).
+- [ ] Signer cannot sign arbitrary payload / choose arbitrary key (body carries only `ticket_atom_id`;
+      key from DB-pinned context).
+- [ ] Fingerprint invariant monitor implemented (`kernel.check_signing_key_invariants`, 099) and its
+      trust-root config dual-controlled (102 P3).
+- [ ] Migrations 093-103 hashes pinned; CI green on the pushed commit.
+- [ ] Production observation closeout verified (093-102/103 still unapplied; ledger 107; 0 signing keys).
+- [ ] EXPLICIT owner authorization to run the ceremony (the only remaining gate this checklist does not
+      itself satisfy).

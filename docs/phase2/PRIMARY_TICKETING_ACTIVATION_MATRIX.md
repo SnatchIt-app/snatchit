@@ -536,3 +536,29 @@ what is true at the repo tip and in production — and, where the two disagree, 
 - **Signature authenticity ≠ admissibility.** A signed credential proves the atom/version at issue time;
   the door MUST still run M2 (currency + session) before admitting. Deploying `credential-sign` without
   the M1/M2 door verifier yields tokens nothing checks for currency.
+
+## Package 103 re-derivation — signing / door / KMS (2026-09-03)
+
+Legend: **CODE** = code complete in repo · **RAT** = owner-ratified · **MIG** = migrated to production ·
+**EDGE** = edge deployed · **KMS** = KMS configured (key exists) · **ACT** = activated (flag on / money real).
+Production is through 092 (076-092 are LIVE-but-DARK; 093-103 unapplied). 0 signing keys. Native edges
+NOT deployed.
+
+| Capability | CODE | RAT | MIG | EDGE | KMS | ACT | Blocking gate |
+|---|---|---|---|---|---|---|---|
+| Event draft | ✓ | ✓ | ✓ (dark) | n/a | n/a | ✗ | native issuance flag off |
+| Event publish (A8a′ SALEABLE) | ✓ | ✓ (reading B) | ✗ (102-103) | n/a | n/a | ✗ | migrate 093-103 |
+| Primary sale (`create_primary_checkout`) | ✓ | ✓ | ✗ (093) | ✗ (primary-checkout) | — | ✗ | migrate + deploy edge |
+| Payment confirmation (native) | ✓ | ✓ | ✗ | ✗ | — | ✗ | migrate + deploy edge |
+| Ticket issuance (`issue_ticket_atoms`) | ✓ | ✓ | ✓ (dark, 083) | n/a | ✗ (0 keys) | ✗ | KMS ceremony (key + algorithm) |
+| **Credential sign** (`credential-sign`) | ✓ (102/103) | PFA-PT-6/8 **PENDING** | ✗ (102-103) | ✗ | ✗ | ✗ | PFA signatures → migrate → KMS ceremony → deploy |
+| **Door verify** (M1/M2, OFFLINE-VERIFY-v1) | ✓ core (103) | ✓ (§5.4.3 frozen) | ✓ (086 dark) door RPCs | ✗ (door-session/manifest NOT built) | via signing | ✗ | build door edges (parked KDF) + scanner SDK |
+| Refund (executor) | ✓ | ✓ | ✓ (dark) | ✗ (refund-execute) | — | ✗ | deploy edge + flag |
+| Settlement | ✓ | ✓ | ✓ (dark) | n/a | — | ✗ | flag |
+| Venue payout | ✓ | ✓ | ✓ (dark) | ✗ (payout-execute) | — | ✗ | deploy edge + flag |
+| Promoter payout | ✓ (098 funding) | partial | ✓ (dark) | ✗ | — | ✗ | OUT OF SCOPE / DARK |
+
+**Nothing is READY-to-activate.** Every native-primary row is blocked on at least migrate-093-103
+(unapplied) and, for the signing/scan chain, the KMS ceremony + PFA-PT-6/8 owner signatures. Code
+existing is NOT activation. Refund/payout/promoter-payout remain engineering-ready but DARK and are out
+of this train's activation scope.

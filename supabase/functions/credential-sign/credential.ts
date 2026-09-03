@@ -66,6 +66,23 @@
  *   byte-identical-signature guarantee (ECDSA-P256 is nondeterministic; even
  *   Ed25519's determinism is an implementation detail this module does not
  *   rely on). See KCRYPTO_credential_sign.md §4.
+ *
+ * PFA-PT-8 — ALGORITHM PINNING (migration 103)
+ *   `kernel.signing_key.algorithm` is now a real, immutable, distributed
+ *   column — `kernel.get_ticket_signing_context` returns it (no longer
+ *   null). The token header's `alg` is INFORMATIONAL ONLY: verification
+ *   AUTHORITY is the TRUSTED key's own `algorithm` (`TrustedKey.algorithm`
+ *   below), resolved by `kid` from the trusted keyring, never from the
+ *   token. `verifyToken` refuses (`alg_mismatch`) unless
+ *   `token.header.alg === trustedKey.algorithm` — no fallback, no "try
+ *   EdDSA then ES256". See `docs/phase2/_impl/KMSADAPTER.md`.
+ *
+ * ES256 SIGNATURE ENCODING
+ *   AWS KMS (the sanctioned ES256 provider, `./kms.ts`) returns ECDSA
+ *   signatures as ASN.1/DER `SEQUENCE{INTEGER r, INTEGER s}`. This wire
+ *   format (and WebCrypto's ECDSA verify) uses raw `R||S`, 64 bytes.
+ *   `derToRawEcdsaP256`/`rawToDerEcdsaP256` below do that conversion, pure
+ *   and import-free like everything else here.
  */
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -100,8 +117,10 @@ export interface TicketSigningContext {
   session_id: string;
   credential_version: number;
   key_id: string;
-  /** From `kernel.signing_key` if ever modeled; today always absent/null —
-   *  `DEFAULT_ALGORITHM` applies. Never invent a value here. */
+  /** `kernel.signing_key.algorithm` (migration 103, PFA-PT-8) — a real value
+   *  as of `kernel.get_ticket_signing_context`'s post-103 shape. Only a
+   *  missing/unrecognized value falls back to `DEFAULT_ALGORITHM`; never
+   *  invent one when the context provides a real algorithm. */
   algorithm?: string | null;
   /** A timestamptz from Postgres arrives as an ISO-8601 string over jsonb; a
    *  `Date` or a pre-computed unix-seconds `number` are also accepted (the
@@ -276,14 +295,201 @@ export function encodeToken(headerB64: string, payloadB64: string, signatureByte
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// ES256 (ECDSA P-256) signature encoding — DER ⇄ raw. AWS KMS's `Sign` API
+// (the sanctioned ES256 provider, `./kms.ts`) returns a DER-encoded
+// `SEQUENCE{INTEGER r, INTEGER s}`; JWS/this module's wire format and
+// WebCrypto's ECDSA verify both use raw `R||S`, 64 bytes (r and s each
+// left-padded/trimmed to 32 bytes, big-endian, unsigned). Pure, import-free,
+// like everything else here — DER parsing is just byte offsets, no crypto
+// library needed. EdDSA (Ed25519) signatures are ALREADY raw 64 bytes and
+// need no conversion (passthrough) — these two functions are ES256-only.
+// ─────────────────────────────────────────────────────────────────────────
+
+const P256_INTEGER_BYTES = 32;
+
+/** Reads a DER definite-form length starting at `buf[offset]`. Returns the
+ *  decoded length and the offset of the first content byte. Rejects, each
+ *  with a DISTINCT message:
+ *   - indefinite length (leading byte 0x80, BER-only, invalid DER);
+ *   - a length field wider than 4 bytes (defensive bound — this parser only
+ *     ever sees a tiny ECDSA signature, never anything needing that many
+ *     length-bytes);
+ *   - NON-MINIMAL long-form encoding — either a leading 0x00 length byte
+ *     (padding that contributes nothing: the same value fits in fewer
+ *     bytes) or a long-form length that ends up `< 0x80` (a value that
+ *     should have used short form in the first place). DER requires the
+ *     minimal encoding; both are the same defect, just at different byte
+ *     positions, so both are checked, and both are rejected rather than
+ *     silently accepted from untrusted input;
+ *   - OUT-OF-RANGE — a syntactically well-formed (minimal) long-form length
+ *     that is still larger than the buffer it is read from. Accumulated
+ *     with plain arithmetic (`length * 256 + byte`), not `<<`/`|`, so a
+ *     4-byte length near `2^31` cannot wrap into a negative 32-bit int and
+ *     be misreported as something else — it is caught here, by value,
+ *     with its own message, distinct from "non-minimal". */
+function readDerLength(buf: Uint8Array, offset: number): { length: number; contentOffset: number } {
+  if (offset >= buf.length) throw new Error('malformed_der: truncated length');
+  const first = buf[offset];
+  if (first < 0x80) {
+    return { length: first, contentOffset: offset + 1 };
+  }
+  const numBytes = first & 0x7f;
+  if (numBytes === 0) throw new Error('malformed_der: indefinite length (BER, not DER)');
+  if (numBytes > 4) throw new Error('malformed_der: length field too large');
+  if (offset + 1 + numBytes > buf.length) throw new Error('malformed_der: truncated long-form length');
+  // A leading 0x00 length byte can never be part of a minimal encoding —
+  // it contributes nothing but bulk (the value fits in `numBytes - 1`
+  // bytes, or is 0, which must be short-form). Reject before accumulating.
+  if (buf[offset + 1] === 0x00) {
+    throw new Error('malformed_der: non-minimal length encoding (leading zero byte)');
+  }
+  let length = 0;
+  for (let i = 0; i < numBytes; i++) {
+    length = length * 256 + buf[offset + 1 + i]; // regular arithmetic — no 32-bit bitwise wraparound
+  }
+  // The OTHER non-minimality shape: a nonzero leading byte that still
+  // resolves to a value that fits in short form (e.g. long-form `0x81 0x05`
+  // encoding length 5, which should have been the single short-form byte
+  // `0x05`). Distinct check from the leading-zero-byte one above — together
+  // they cover every non-minimal long-form encoding this parser can see.
+  if (length < 0x80) throw new Error('malformed_der: non-minimal length encoding');
+  // OUT-OF-RANGE, not non-minimal: a syntactically minimal length that is
+  // simply too large for the buffer it was read from. This parser only ever
+  // reads AWS KMS's own `Sign` response (a `security`-class input already
+  // — the caller fails closed regardless), so this is defense-in-depth, not
+  // the primary gate.
+  if (length > buf.length) throw new Error('malformed_der: length exceeds buffer size (out of range)');
+  return { length, contentOffset: offset + 1 + numBytes };
+}
+
+/** Reads one DER `INTEGER` at `buf[offset]`. Rejects a negative integer (the
+ *  content's first byte has its high bit set with no preceding sign-padding
+ *  zero — for r/s, which must be positive, that is malformed input, not a
+ *  value to silently reinterpret) and returns the RAW content bytes
+ *  (including any legitimate leading 0x00 sign-padding — normalization to 32
+ *  bytes happens in the caller). */
+function readDerInteger(buf: Uint8Array, offset: number): { bytes: Uint8Array; nextOffset: number } {
+  if (offset >= buf.length || buf[offset] !== 0x02) {
+    throw new Error('malformed_der: expected INTEGER tag (0x02)');
+  }
+  const { length, contentOffset } = readDerLength(buf, offset + 1);
+  if (length === 0) throw new Error('malformed_der: zero-length INTEGER');
+  if (contentOffset + length > buf.length) throw new Error('malformed_der: truncated INTEGER content');
+  const bytes = buf.slice(contentOffset, contentOffset + length);
+  if (bytes[0] >= 0x80) {
+    // No sign-padding zero preceding a high-bit-set first byte ⇒ DER would
+    // interpret this as a NEGATIVE integer. r/s are always positive.
+    throw new Error('malformed_der: negative integer');
+  }
+  return { bytes, nextOffset: contentOffset + length };
+}
+
+/** Left-pads/trims an unsigned big-endian integer's minimal bytes to exactly
+ *  32 bytes (P-256 field element width). Rejects a value that does not fit
+ *  (more than 32 significant bytes after stripping sign-padding zeros) —
+ *  that is out of range for a P-256 r/s, not a value to truncate. */
+function normalizeToP256Width(bytes: Uint8Array): Uint8Array {
+  let start = 0;
+  while (start < bytes.length - 1 && bytes[start] === 0x00) start++;
+  const trimmed = bytes.slice(start);
+  if (trimmed.length > P256_INTEGER_BYTES) {
+    throw new Error('malformed_der: integer exceeds P-256 field width');
+  }
+  const out = new Uint8Array(P256_INTEGER_BYTES);
+  out.set(trimmed, P256_INTEGER_BYTES - trimmed.length);
+  return out;
+}
+
+/** DER `SEQUENCE{INTEGER r, INTEGER s}` (AWS KMS's `Sign` output for
+ *  `ECDSA_SHA_256`) → raw `R||S`, 64 bytes (JWS/WebCrypto wire format).
+ *  Throws on any malformed input — wrong tag, over-long/under-long,
+ *  trailing extra bytes, or a negative integer — a `security`-class defect
+ *  (§ KMSADAPTER.md taxonomy), never a silent truncation. */
+export function derToRawEcdsaP256(der: Uint8Array): Uint8Array {
+  if (der.length < 8) throw new Error('malformed_der: too short to be a SEQUENCE of two INTEGERs');
+  if (der[0] !== 0x30) throw new Error('malformed_der: expected SEQUENCE tag (0x30)');
+  const seq = readDerLength(der, 1);
+  if (seq.contentOffset + seq.length !== der.length) {
+    throw new Error('malformed_der: SEQUENCE length does not match buffer (extra or missing bytes)');
+  }
+  const r = readDerInteger(der, seq.contentOffset);
+  const s = readDerInteger(der, r.nextOffset);
+  if (s.nextOffset !== der.length) {
+    throw new Error('malformed_der: extra bytes after the second INTEGER');
+  }
+  const rRaw = normalizeToP256Width(r.bytes);
+  const sRaw = normalizeToP256Width(s.bytes);
+  const raw = new Uint8Array(64);
+  raw.set(rRaw, 0);
+  raw.set(sRaw, 32);
+  return raw;
+}
+
+/** Encodes one 32-byte unsigned big-endian integer as a minimal DER
+ *  `INTEGER` (stripping leading zero bytes, then re-adding exactly one
+ *  sign-padding 0x00 if the minimal form's first byte would otherwise be
+ *  interpreted as negative). */
+function encodeDerInteger(fieldBytes: Uint8Array): Uint8Array {
+  let start = 0;
+  while (start < fieldBytes.length - 1 && fieldBytes[start] === 0x00) start++;
+  const trimmed = fieldBytes.slice(start);
+  const needsPad = trimmed[0] >= 0x80;
+  const content = needsPad ? new Uint8Array(trimmed.length + 1) : trimmed;
+  if (needsPad) content.set(trimmed, 1); // content[0] stays 0x00
+  if (content.length >= 0x80) {
+    // Cannot happen for a 32-byte field element (max content is 33 bytes,
+    // well under the short-form length limit of 127) — defensive only.
+    throw new Error('malformed_raw: integer too large to length-encode in short form');
+  }
+  const out = new Uint8Array(2 + content.length);
+  out[0] = 0x02;
+  out[1] = content.length;
+  out.set(content, 2);
+  return out;
+}
+
+/** Raw `R||S`, 64 bytes → DER `SEQUENCE{INTEGER r, INTEGER s}` — the inverse
+ *  of `derToRawEcdsaP256`. Used for the round-trip test proof and for any
+ *  verify primitive that requires DER input (Node's `crypto.verify` accepts
+ *  raw via `dsaEncoding: 'ieee-p1363'`, so this module PREFERS raw
+ *  end-to-end and only builds DER where a caller explicitly needs it). */
+export function rawToDerEcdsaP256(raw: Uint8Array): Uint8Array {
+  if (raw.length !== 64) throw new Error('malformed_raw: expected exactly 64 bytes (32-byte r || 32-byte s)');
+  const rDer = encodeDerInteger(raw.slice(0, 32));
+  const sDer = encodeDerInteger(raw.slice(32, 64));
+  const contentLength = rDer.length + sDer.length;
+  if (contentLength >= 0x80) {
+    throw new Error('malformed_raw: sequence content too large to length-encode in short form');
+  }
+  const out = new Uint8Array(2 + contentLength);
+  out[0] = 0x30;
+  out[1] = contentLength;
+  out.set(rDer, 2);
+  out.set(sDer, 2 + rDer.length);
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Structural decode — no verification, just "is this shaped like a token".
 // ─────────────────────────────────────────────────────────────────────────
+
+/** The DECODED header, before algorithm validation — `alg` is `unknown`
+ *  because a malicious/malformed token can put anything there (`"none"`,
+ *  `"RS256"`, a number, missing entirely). `verifyToken` is what turns this
+ *  into an authoritative `SigningAlgorithm` (or refuses). Structurally
+ *  distinct from `ProtectedHeader`, which is what a HONEST BUILDER produces
+ *  (`buildHeader`), where `alg` is always a real `SigningAlgorithm`. */
+export interface DecodedHeader {
+  alg: unknown;
+  kid: string;
+  typ: string;
+}
 
 export interface DecodedToken {
   headerB64: string;
   payloadB64: string;
   sigB64: string;
-  header: ProtectedHeader;
+  header: DecodedHeader;
   payload: CredentialPayload;
   /** ASCII bytes of `headerB64 + "." + payloadB64`, recomputed from the
    *  token's OWN header/payload segments — this is what a tampered header or
@@ -292,10 +498,19 @@ export interface DecodedToken {
   signatureBytes: Uint8Array;
 }
 
-function isProtectedHeader(value: unknown): value is ProtectedHeader {
+/** Structural only — `alg` may be ANY JSON value, or ABSENT ENTIRELY
+ *  (`v.alg` reads as `undefined` either way); it is treated as `unknown` on
+ *  purpose so `verifyToken` can distinguish "missing alg" and "alg: 'none'"
+ *  from a valid `SigningAlgorithm` and refuse BOTH the same way
+ *  (`unsupported_alg`), rather than a missing `alg` key making the whole
+ *  header structurally invalid (`malformed_token`) while a present-but-wrong
+ *  one is `unsupported_alg` — that split would leak which malformation an
+ *  attacker sent. `kid`/`typ` are still required strings — those drive
+ *  actual lookups/decoding and a missing one IS genuinely malformed. */
+function isDecodedHeader(value: unknown): value is DecodedHeader {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return typeof v.alg === 'string' && typeof v.kid === 'string' && typeof v.typ === 'string';
+  return typeof v.kid === 'string' && typeof v.typ === 'string';
 }
 
 function isCredentialPayload(value: unknown): value is CredentialPayload {
@@ -310,8 +525,19 @@ function isCredentialPayload(value: unknown): value is CredentialPayload {
   );
 }
 
+/** Hard cap on the ACCEPTED token length, checked before any parsing work
+ *  (base64 decode, JSON.parse) runs. A real ticket credential — three short
+ *  base64url segments, `{alg,kid,typ}` header + `{atom,exp,iat,sess,ver}`
+ *  payload + a 64-96 byte signature — is a few hundred bytes; 8192 leaves
+ *  generous headroom while bounding the parsing work ANY caller of
+ *  `decodeTokenStructure`/`verifyToken` does on attacker-controlled input,
+ *  in the one function every caller goes through, rather than leaving the
+ *  DoS bound as an unstated caller obligation. */
+export const MAX_TOKEN_LENGTH = 8192;
+
 export function decodeTokenStructure(token: string): DecodedToken | null {
   if (typeof token !== 'string' || token.length === 0) return null;
+  if (token.length > MAX_TOKEN_LENGTH) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [headerB64, payloadB64, sigB64] = parts;
@@ -327,7 +553,7 @@ export function decodeTokenStructure(token: string): DecodedToken | null {
   } catch {
     return null;
   }
-  if (!isProtectedHeader(header) || !isCredentialPayload(payload)) return null;
+  if (!isDecodedHeader(header) || !isCredentialPayload(payload)) return null;
 
   return {
     headerB64,
@@ -345,13 +571,33 @@ export function decodeTokenStructure(token: string): DecodedToken | null {
 // imports a crypto library; the caller supplies whatever the runtime offers.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Resolves a public key by `kid` against a TRUSTED keyring (M1, the
- *  `kernel.signing_key` projection) — NEVER a key carried inside the token
- *  itself. Return `null`/`undefined` for an unknown/untrusted `kid`. The
- *  shape of the returned key string is whatever `verifyPrimitive` expects
- *  (base64 SPKI DER in the vitest suite; the edge/door's own convention in
+/**
+ * A TRUSTED key, resolved by `kid` against the keyring (M1, the
+ * `kernel.signing_key` projection) — NEVER a key (or its algorithm) carried
+ * inside the token itself. `algorithm` is the ONLY value `verifyToken` trusts
+ * to pick the verify primitive (PFA-PT-8, migration 103): the token header's
+ * `alg` is checked AGAINST it, never used to select it.
+ *
+ * `not_before`/`not_after`/`status` are accepted for forward compatibility
+ * with an M1 resolver that projects the full `kernel.signing_key` row, but
+ * `verifyToken` does not read them (key-window/revocation admissibility is a
+ * door/M1 concern, not this pure authenticity check — same split as
+ * `credential_version`/`session_id` below).
+ */
+export interface TrustedKey {
+  public_key: string;
+  algorithm: SigningAlgorithm;
+  not_before?: string | number | Date;
+  not_after?: string | number | Date | null;
+  status?: string;
+}
+
+/** Resolves `kid` → `TrustedKey` (or `null`/`undefined` for an unknown/
+ *  untrusted `kid`) against the TRUSTED keyring. The shape of
+ *  `TrustedKey.public_key` is whatever `verifyPrimitive` expects (base64
+ *  SPKI DER in the vitest suite; the edge/door's own convention in
  *  production — this module does not care). */
-export type PublicKeyResolver = (kid: string) => string | null | undefined | Promise<string | null | undefined>;
+export type TrustedKeyResolver = (kid: string) => TrustedKey | null | undefined | Promise<TrustedKey | null | undefined>;
 
 export type VerifyPrimitive = (
   publicKey: string,
@@ -363,8 +609,10 @@ export type VerifyPrimitive = (
 export type VerifyReason =
   | 'ok'
   | 'malformed_token'
+  | 'wrong_typ'
   | 'unknown_kid'
   | 'unsupported_alg'
+  | 'alg_mismatch'
   | 'signature_invalid'
   | 'expired';
 
@@ -374,36 +622,98 @@ export interface VerifyResult {
 }
 
 /**
- * Pure verification: structure → key resolution by `kid` → alg check →
- * signature → expiry. Does NOT check `credential_version` currency (that is
- * M2/live, §5.4.3 conjunct 3b.iii — a door/live-read concern, not this
- * module's) and does NOT check `session_id` binding (§5.4.3 check 3 — also a
- * door concern). This function proves AUTHENTICITY, not ADMISSIBILITY —
- * exactly the split the frozen spec draws (§5.4.3: "Signature authenticity ≠
- * current admissibility").
+ * Pure verification: structure → header-alg shape check → key resolution by
+ * `kid` → ALGORITHM PIN (PFA-PT-8) → signature → expiry. Does NOT check
+ * `credential_version` currency (that is M2/live, §5.4.3 conjunct 3b.iii — a
+ * door/live-read concern, not this module's) and does NOT check `session_id`
+ * binding (§5.4.3 check 3 — also a door concern). This function proves
+ * AUTHENTICITY, not ADMISSIBILITY — exactly the split the frozen spec draws
+ * (§5.4.3: "Signature authenticity ≠ current admissibility").
+ *
+ * PFA-PT-8 — the header's `alg` is INFORMATIONAL ONLY. Verification
+ * AUTHORITY is `trustedKey.algorithm`, resolved from the TRUSTED keyring by
+ * `kid`. `token.header.alg` must equal it EXACTLY or verification refuses
+ * with `alg_mismatch` — no fallback, no "try EdDSA then ES256", no
+ * key-type-confusion path where a wrong-algorithm primitive is ever invoked.
+ *
+ * DOMAIN SEPARATION, ENFORCED (not just claimed): `header.typ` must equal
+ * `DOMAIN` exactly, checked FIRST — before the alg-shape check, before any
+ * key resolution — or refuse `wrong_typ`. The file-header comment's domain-
+ * separation argument ("changing typ changes the signed bytes, so a forged
+ * typ breaks the signature") only defends against FORGERY. It does nothing
+ * against REPLAY of a genuinely-signed DIFFERENT-typ credential (e.g. a
+ * wallet/door manifest) whose payload happens to shape-match
+ * `{atom,exp,iat,sess,ver}` — that token's signature is real and would
+ * otherwise verify here. This explicit equality check is what actually
+ * closes that gap; the signed-bytes argument alone does not.
  */
 export async function verifyToken(
   token: string,
-  resolvePublicKeyByKid: PublicKeyResolver,
+  resolveTrustedKey: TrustedKeyResolver,
   nowSeconds: number,
   verifyPrimitive: VerifyPrimitive,
 ): Promise<VerifyResult> {
   const decoded = decodeTokenStructure(token);
   if (!decoded) return { authentic: false, reason: 'malformed_token' };
 
-  if (!isSigningAlgorithm(decoded.header.alg)) {
+  // ENFORCED domain separation (see doc above) — a genuinely-signed token
+  // for a DIFFERENT typ (wallet manifest, door manifest, …) is refused here,
+  // before anything else, even if its payload shape-matches a ticket
+  // credential and its signature is perfectly valid.
+  if (decoded.header.typ !== DOMAIN) {
+    return { authentic: false, reason: 'wrong_typ' };
+  }
+
+  // `alg: 'none'`, an unrecognized alg, or a missing alg are ALL rejected
+  // here, uniformly, as `unsupported_alg` — before any key resolution, so a
+  // garbage `alg` never triggers a `kid` lookup.
+  const headerAlg = decoded.header.alg;
+  if (!isSigningAlgorithm(headerAlg)) {
     return { authentic: false, reason: 'unsupported_alg' };
   }
 
-  const publicKey = await resolvePublicKeyByKid(decoded.header.kid);
-  if (!publicKey) return { authentic: false, reason: 'unknown_kid' };
+  const trustedKey = await resolveTrustedKey(decoded.header.kid);
+  if (!trustedKey) return { authentic: false, reason: 'unknown_kid' };
 
-  const signatureOk = await verifyPrimitive(publicKey, decoded.signedBytes, decoded.signatureBytes, decoded.header.alg);
+  // THE PIN: the trusted key's own algorithm is authority. The header's alg
+  // (already known to be a real SigningAlgorithm, above) must match it
+  // exactly, or refuse — no fallback between algorithms, ever.
+  if (!isSigningAlgorithm(trustedKey.algorithm) || headerAlg !== trustedKey.algorithm) {
+    return { authentic: false, reason: 'alg_mismatch' };
+  }
+
+  const signatureOk = await verifyPrimitive(
+    trustedKey.public_key,
+    decoded.signedBytes,
+    decoded.signatureBytes,
+    trustedKey.algorithm,
+  );
   if (!signatureOk) return { authentic: false, reason: 'signature_invalid' };
 
   if (decoded.payload.exp <= nowSeconds) return { authentic: false, reason: 'expired' };
 
   return { authentic: true, reason: 'ok' };
+}
+
+/**
+ * SIGN-AFTER-VERIFY (index.ts §9) — the one function the KMS-signing path
+ * calls to prove its own output before ever returning a credential. Verifies
+ * `signatureBytes` against `publicKey`/`algorithm` over the EXACT
+ * `canonical.signedBytes` — the SAME bytes handed to `KmsSigner.sign`, not a
+ * re-decoded token (a decode/re-encode round trip could theoretically mask a
+ * framing bug; this checks the literal bytes that were signed). A `false`
+ * result means: wrong KMS handle, wrong key version, wrong algorithm, or
+ * DER/raw encoding drift — index.ts treats it as `signing_unhealthy` and
+ * returns NO credential (fail closed, never retried).
+ */
+export async function verifyCanonicalSignature(
+  canonical: CanonicalCredential,
+  signatureBytes: Uint8Array,
+  publicKey: string,
+  algorithm: SigningAlgorithm,
+  verifyPrimitive: VerifyPrimitive,
+): Promise<boolean> {
+  return verifyPrimitive(publicKey, canonical.signedBytes, signatureBytes, algorithm);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

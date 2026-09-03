@@ -3057,7 +3057,7 @@ OWNER SIGNATURE REQUIRED:    NO for the boundary held (this PFA RECORDS a non-de
 STATUS:                      BOUNDARY HELD — no tax mechanism authored. Owner decision OPEN.
 ```
 
-## PFA-PT-8 — the door verifier MUST pin signing algorithm per `kid` (M1 manifest), not trust the token-header `alg`; `kernel.signing_key` carries no `algorithm` column (package 102, DARK/undeployed — hardening item)
+## PFA-PT-8 — the door verifier MUST pin signing algorithm per `kid`; `kernel.signing_key.algorithm` added (package 102 recommendation → package 103 IMPLEMENTED, DARK/undeployed)
 
 ```
 ID:                          PFA-PT-8  (PFA-20 "DO NOT INVENT CRYPTOGRAPHY" hardening class — a
@@ -3096,4 +3096,81 @@ OWNER / ARCH ITEMS OPENED:   (1) ratify the M1 alg-pinning rule as a door-SDK re
                              builder. Neither blocks this package (no door verifier ships here).
 STATUS:                      HARDENING ITEM RECORDED — bounded-safe today; binding recommended before the
                              offline door verifier (M1) is implemented.
+```
+
+### PFA-PT-8 — package-103 IMPLEMENTATION ADDENDUM (2026-09-03, DARK/unapplied)
+
+```
+STATUS UPDATE:               IMPLEMENTED (DARK). The recommendation above is now built. Ready for owner
+                             signature.
+WHAT SHIPPED (migration 103, supabase/migrations/103_signing_key_algorithm_pin.sql):
+  1. kernel.signing_key gains an ADDITIVE, IMMUTABLE, constrained `algorithm` column
+     (text not null default 'EdDSA' check in ('EdDSA','ES256')) — never an arbitrary
+     string, never RSA/symmetric/`none`; immutable after creation via the re-created
+     kernel.guard_signing_key_immutable; PUBLIC verification metadata, granted select to
+     authenticated (NOT kms_handle_ref), so the M1 manifest projection carries it.
+  2. kernel.get_ticket_signing_context re-created (body-only) to return the REAL
+     algorithm (102 returned literal null). The credential-sign edge stamps the token
+     header `alg` from this value.
+  3. The reference verifier (credential-sign/credential.ts) and the OFFLINE-VERIFY-v1
+     core (supabase/functions/_shared/offline-verify.ts) now PIN algorithm: the trusted
+     key metadata resolved by `kid` supplies the algorithm, and a token whose header alg
+     disagrees is REFUSED (`alg_mismatch`) BEFORE any signature check — no fallback, no
+     "try EdDSA then ES256", no `none`, no key-type/symmetric confusion.
+AUTHORITY MODEL:             token.header.alg is INFORMATIONAL/consistency only; the trusted key's
+                             own `algorithm` is the verification authority. trusted.algorithm ==
+                             token.header.alg or REFUSE.
+EXISTING ROWS / PRODUCTION:  production has ZERO signing keys, so the ALTER is a no-op there; the
+                             ceremony sets `algorithm` EXPLICITLY to match the key material it creates
+                             (ES256 on AWS KMS, which offers no Ed25519 — see PROVIDER decision).
+CENSUS:                      kernel function count unchanged (103 re-creates, adds none); one additive
+                             column on kernel.signing_key; Gate-2 public census unchanged.
+OWNER SIGNATURE REQUIRED:    YES. OWNER SIGNATURE: PENDING. Migration 103 is a DEPLOY/APPLY precondition
+                             for the door verifier, not for authoring/testing (green locally).
+```
+
+## PFA-PT-9 — the door admit-gate "session is live" is implemented as "session not terminal" (cancelled/completed); no code path writes event_session.status='live' (package 104, DARK/undeployed)
+
+```
+ID:                          PFA-PT-9  (normative reconciliation — a frozen contract clause whose
+                             literal form is unimplementable against the shipped session lifecycle,
+                             filed alongside the migration that implements the honest reading)
+FROZEN RULE:                  PHASE_2_RPC_FUNCTION_CONTRACTS.md §7.5, admission-gate (1): "the session is
+                             `live` — venue.record_scan's own precondition, and the only thing that stops
+                             admission." Restated in the same file's §7.5 admit-conditions list (1223).
+THE DEFECT / AMBIGUITY:      Two facts collide. (a) venue.record_scan (086:1070-1109) implements NO
+                             session-status precondition at all — the contract clause was never coded
+                             (adversarial door finding P0-1: a cancelled event's comp/import atoms stay
+                             state='active' and are admissible forever; catalog.cancel_event 088:1607
+                             explicitly ASSUMES "the cancelled session already denies their scan", which
+                             is false). (b) The literal clause — require status='live' — is
+                             UNIMPLEMENTABLE: nothing in migrations 076-104 ever writes
+                             event_session.status='live' (093:781-784 states this outright: "the only
+                             writer of that column is 088:1793, which writes 'cancelled'"; no 'completed'
+                             writer exists either). A status='live' gate would refuse 100% of admissions —
+                             every session sits at its 'scheduled' default (078:186).
+RESOLUTION (migration 104):  venue.record_scan re-created (body-only) to refuse `session_not_admitting`
+                             when event_session.status is 'cancelled' or 'completed' (or unknown/null —
+                             fail closed), and to ADMIT 'scheduled' and 'live'. This is the honest reading
+                             of admit-gate (1): the load-bearing intent is "a TERMINAL session must not
+                             admit" (which makes cancel_event's own 088:1607 assertion true and closes the
+                             P0), not "only a session someone flipped to a state no code writes may
+                             admit." Proven by test 170 (the missing T-RPC-DOOR-04/T-RLS-DOOR-04
+                             regression): scheduled/live admit, cancelled/completed refuse, refusal does
+                             not consume the atom.
+SCOPE / RESIDUAL:            Closes ONLINE admission of a terminal session. Does NOT reach an OFFLINE
+                             device holding an M2 downloaded before the cancel — bounded by the manifest
+                             not_after (door.manifest_ttl_interval, "12 hours") and tied to the §5.6
+                             revocation-force-close obligation (kernel.revoke_signing_key parked, PFA-18A).
+                             Does NOT add credential_version to record_scan: the frozen contract (§7.5,
+                             1185/1223) places version-currency at C37/the verifier by design, so
+                             record_scan's signature is unchanged.
+OWNER ITEMS OPENED:          (1) ratify the terminal-status reading of admit-gate (1) (or introduce a real
+                             event_session → 'live' transition and keep the literal 'live' gate — a larger
+                             lifecycle change); (2) decide whether the offline terminal-session residual
+                             needs cancel_event to force-close open manifests (couples to the parked §5.6
+                             revocation work); (3) decide whether a DB-side credential_version backstop in
+                             record_scan is wanted as defence-in-depth beyond the C37/verifier check
+                             (adversarial P0-2 — currently by-design, trusted-scanner model).
+OWNER SIGNATURE REQUIRED:    YES. OWNER SIGNATURE: PENDING. Migration 104 is DARK/unapplied.
 ```

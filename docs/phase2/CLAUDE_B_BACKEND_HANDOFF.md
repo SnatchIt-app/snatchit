@@ -142,3 +142,34 @@ Nothing existing changed for the client. One NEW capability is authored but DARK
 - **Owner items before this can go live:** PFA-PT-6 signature (adopt the wire format), KMS provider
   selection + ceremony, PFA-PT-8 door alg-pinning, and the tax-locus decision (PFA-PT-7). All tracked in
   `POST_FREEZE_AMENDMENTS.md`.
+
+## 2d. 2026-09-03 signing / door / KMS train (package 103) — verifier + algorithm pin, DARK
+
+No existing client contract changed. New backend surfaces for the door/scanner client (all DARK):
+
+- **Algorithm pin (PFA-PT-8, migration 103).** `credential-sign`'s response and the token header now
+  carry a real `alg` (`EdDSA` or `ES256`) sourced from `kernel.signing_key.algorithm`. A verifier MUST
+  pin the algorithm from the TRUSTED key (resolved by `kid`), NOT from the token header, and refuse
+  `alg_mismatch` if they disagree. The header `alg` is informational only.
+- **M1 verifier core** — `supabase/functions/credential-sign/credential.ts` `verifyToken(token,
+  resolveTrustedKey, nowSeconds, verifyPrimitive)`. `resolveTrustedKey(kid) → { public_key, algorithm,
+  … }` from the M1 key manifest (a projection of `kernel.signing_key`'s granted columns — now including
+  `algorithm`; never a key inside the token). Proves AUTHENTICITY only (signature + exp), NOT
+  admissibility. Reason codes: `malformed_token`, `unsupported_alg`, `unknown_kid`, `alg_mismatch`,
+  `signature_invalid`, `expired`, `ok`.
+- **M2 / OFFLINE-VERIFY-v1 core** — `supabase/functions/_shared/offline-verify.ts`
+  `offlineVerify(token, ctx)` implements the NORMATIVE §5.4.3 predicate exactly (M1 key checks →
+  alg pin → signature → session → exp±skew → manifest authority → 5 currency conjuncts → signing-key
+  match → first-in-wins). Reasons include `stale_version`, `not_active`, `listed_locked`,
+  `atom_absent`, `atom_revoked`, `wrong_session`, `wrong_signing_key`, `already_admitted`,
+  `manifest_expired`, `manifest_other_session`, `no_manifest`. The scanner SDK implements THIS text;
+  do not narrow it. **Signature authenticity ≠ admissibility** — a valid signature is necessary, not
+  sufficient; the currency conjuncts (credential_version, ticket_state='active', resale_state='none')
+  are what defeat the old-owner screenshot after a transfer.
+- **Online path** — `venue.validate_ticket_online(atom, session)` (the C37 live read) substitutes for
+  M2 when connected; `venue.record_scan` is the atomic admission (first-in-wins via a partial unique
+  index). Offline uses the door manifest (`venue.get_door_manifest`, base ⊕ deltas).
+- **Still DARK / not for UI yet:** `credential-sign` is undeployed and throws `kms_provider_unconfigured`
+  until the KMS ceremony runs; the `door-session`/`door-manifest` edges are specified but NOT built
+  (and `create_door_pin`/`mint_door_session` are parked pending a slow-KDF ratification). Build door
+  UI against these contracts, but nothing is live.

@@ -14,10 +14,24 @@
  * ── NOT DEPLOYED ────────────────────────────────────────────────────────────
  * Authoring this file creates no KMS key, calls no KMS, and signs no
  * credential. Train boundary (TRAIN_BRIEF.md): no production, no deploy, no
- * KMS, no signing key, no secret — DARK code only. The `KmsSigner` this file
- * wires up throws `kms_provider_unconfigured` unconditionally; selecting a
- * real AWS KMS / GCP KMS / CloudHSM adapter is a ceremony-time decision made
- * by ANOTHER change, never here (§2.1 below).
+ * KMS, no signing key, no secret — DARK code only. Provider selection below
+ * (`KMS_PROVIDER` env) defaults to `UnconfiguredKmsSigner`, which throws
+ * `kms_provider_unconfigured` unconditionally; `AwsKmsSigner` (`./kms.ts`) is
+ * REAL transport code but fails closed without live AWS credentials, which
+ * this environment never has. Actually SELECTING AWS as the LIVE provider
+ * (setting `KMS_PROVIDER=aws` on a deployed edge with real credentials) is a
+ * ceremony-time operator decision made by ANOTHER change, never here (§2.1
+ * below, and `./kms.ts`'s file header).
+ *
+ * ── SIGN-AFTER-VERIFY (§9) ───────────────────────────────────────────────
+ * Before a credential is ever returned, the signature the signer produced is
+ * verified LOCALLY against `response.public_key` / `response.algorithm` /
+ * the EXACT `canonical.signedBytes` (`verifyCanonicalSignature`,
+ * `credential.ts`). A failure here — wrong KMS handle, wrong key version,
+ * wrong algorithm, DER/raw encoding drift — returns NO credential
+ * (`signing_unhealthy`, 500, Sentry exception, never retried). This is the
+ * last line of defense between "the KMS call returned bytes" and "those
+ * bytes are handed to a client as if they verify."
  *
  * ── WHAT THIS FUNCTION IS ────────────────────────────────────────────────────
  * A THIN shell around `kernel.get_ticket_signing_context` (migration 102,
@@ -55,8 +69,12 @@ import {
   buildCanonicalPayload,
   buildCredentialSignLogLine,
   encodeToken,
+  verifyCanonicalSignature,
+  type SigningAlgorithm,
   type TicketSigningContext,
+  type VerifyPrimitive,
 } from './credential.ts';
+import { AwsKmsSigner, KmsSignError, UnconfiguredKmsSigner, type KmsErrorClass, type KmsSigner } from './kms.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -153,7 +171,11 @@ interface SigningContextOk {
   key_id: string;
   kms_handle_ref: string;
   public_key: string;
-  algorithm: string | null;
+  /** Migration 103 (PFA-PT-8): `kernel.get_ticket_signing_context` now
+   *  returns the PINNED key's real algorithm, never null. Validated below
+   *  (`isSigningContextOk`) rather than trusted blindly — a malformed value
+   *  here is a defect (500), not a value to default around. */
+  algorithm: SigningAlgorithm;
   not_before: string;
   not_after: string | null;
   issued_at: string;
@@ -177,6 +199,8 @@ function isSigningContextOk(v: unknown): v is SigningContextOk {
     typeof r.credential_version === 'number' &&
     typeof r.key_id === 'string' &&
     typeof r.kms_handle_ref === 'string' &&
+    typeof r.public_key === 'string' &&
+    (r.algorithm === 'EdDSA' || r.algorithm === 'ES256') &&
     typeof r.issued_at === 'string' &&
     typeof r.exp === 'string' &&
     typeof r.ttl_seconds === 'number'
@@ -217,36 +241,89 @@ function mapRefusalCode(code: string): { status: number; body: Record<string, un
 
 // ── KMS provider adapter — a ceremony-time choice, NOT made here ───────────
 // (spec §5.3, §5.7; DESIGN_102.md §2.1: "do NOT hardcode a provider or call
-// any KMS"). The real AWS KMS / GCP KMS / CloudHSM adapter is selected when
-// this train's boundary lifts; this default throws unconditionally so the
-// code path is complete and testable in SHAPE without ever being able to
-// reach a live signer.
-interface KmsSigner {
-  sign(kmsHandleRef: string, bytes: Uint8Array, algorithm: string): Promise<Uint8Array>;
-}
-
-class UnconfiguredKmsSigner implements KmsSigner {
-  // deno-lint-ignore require-await
-  async sign(_kmsHandleRef: string, _bytes: Uint8Array, _algorithm: string): Promise<Uint8Array> {
-    throw new Error('kms_provider_unconfigured');
+// any KMS"). `KmsSigner`/`UnconfiguredKmsSigner`/`AwsKmsSigner` live in
+// `./kms.ts` (the DARK provider abstraction — see its file header for why
+// `AwsKmsSigner` is real transport code that still cannot reach AWS in this
+// environment). Selection here is env-driven and defaults to DARK:
+//   KMS_PROVIDER unset/anything but "aws" → UnconfiguredKmsSigner (always
+//     throws `kms_provider_unconfigured`, unchanged behavior).
+//   KMS_PROVIDER="aws" → AwsKmsSigner, constructed from `KMS_SIGNER_ROLE_ARN`
+//     + region env. Still cannot sign without live AWS credentials
+//     (`./kms.ts`'s `readAwsCredentialsFromEnv`, fail-closed) — selecting the
+//     provider is NOT the same as this deploy being able to sign.
+function selectKmsSigner(): KmsSigner {
+  const provider = Deno.env.get('KMS_PROVIDER') ?? '';
+  if (provider === 'aws') {
+    const region = Deno.env.get('AWS_REGION') || Deno.env.get('KMS_REGION') || undefined;
+    const roleArn = Deno.env.get('KMS_SIGNER_ROLE_ARN') || undefined;
+    return new AwsKmsSigner(region, roleArn);
   }
+  return new UnconfiguredKmsSigner();
 }
 
-const kmsSigner: KmsSigner = new UnconfiguredKmsSigner();
+const kmsSigner: KmsSigner = selectKmsSigner();
 
-/** `kms_provider_unconfigured` is a permanent config error (500, alert — this
- *  deploy has no signer wired in at all). Anything else surfacing from a real
- *  adapter's transient failure modes (throttling, timeout, temporary
- *  unavailability) is a 503 the client should retry (spec §3.2 "KMS down:
- *  503"). */
-function classifyKmsError(err: unknown): { status: 500 | 503; retryAfterSeconds: number | null } {
+// ── KMS error taxonomy (§8) — three classes, never conflated, never the same
+// retry instruction for all of them:
+//   TRANSIENT  → 503 + Retry-After (client should retry).
+//   PERMANENT  → 500, alert, no Retry-After (operator action needed; do not
+//     retry blindly — the provider isn't configured, the key is disabled,
+//     access is denied, or the algorithm doesn't exist on this provider).
+//   SECURITY   → 500, alert, no Retry-After, fail closed (the response
+//     contradicted what was requested — wrong algorithm, wrong key came
+//     back). `errorClass` on a thrown `KmsSignError` (from `./kms.ts`)
+//     carries the adapter's own classification; anything else (a generic
+//     `Error`, or the legacy unconfigured-signer message) is pattern-matched
+//     defensively and defaults to PERMANENT (never silently retried) rather
+//     than guessed as transient. ─────────────────────────────────────────
+interface KmsErrorClassification {
+  status: 500 | 503;
+  retryAfterSeconds: number | null;
+  taxonomy: KmsErrorClass;
+}
+
+function classifyKmsError(err: unknown): KmsErrorClassification {
+  if (err instanceof KmsSignError) {
+    if (err.errorClass === 'transient') return { status: 503, retryAfterSeconds: 5, taxonomy: 'transient' };
+    return { status: 500, retryAfterSeconds: null, taxonomy: err.errorClass };
+  }
   const message = err instanceof Error ? err.message : String(err);
-  if (message === 'kms_provider_unconfigured') return { status: 500, retryAfterSeconds: null };
-  if (/throttl|unavailable|timeout|timed out|temporarily|too many requests/i.test(message)) {
-    return { status: 503, retryAfterSeconds: 5 };
+  if (message === 'kms_provider_unconfigured') {
+    return { status: 500, retryAfterSeconds: null, taxonomy: 'permanent' };
   }
-  return { status: 500, retryAfterSeconds: null };
+  if (/throttl|unavailable|timeout|timed out|temporarily|too many requests|5\d\d/i.test(message)) {
+    return { status: 503, retryAfterSeconds: 5, taxonomy: 'transient' };
+  }
+  // Unrecognized error shape: fail closed as PERMANENT (alert, no retry)
+  // rather than assume it is safe to retry.
+  return { status: 500, retryAfterSeconds: null, taxonomy: 'permanent' };
 }
+
+// ── Sign-after-verify (§9) — the local WebCrypto primitive the edge injects
+// into `verifyCanonicalSignature`. Supports both algorithms; `public_key` is
+// standard base64 SPKI DER (the M1 manifest / `kernel.signing_key.public_key`
+// convention — matches the vitest fixtures' shape in `credential.ts`'s and
+// this train's test suites). A `false`/thrown result is treated as "does not
+// verify" — never rethrown past this function. ─────────────────────────────
+const verifyWithWebCrypto: VerifyPrimitive = async (publicKeyB64, message, signature, alg) => {
+  try {
+    const binary = atob(publicKeyB64);
+    const der = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) der[i] = binary.charCodeAt(i);
+
+    if (alg === 'EdDSA') {
+      const key = await crypto.subtle.importKey('spki', der, { name: 'Ed25519' }, false, ['verify']);
+      return await crypto.subtle.verify({ name: 'Ed25519' }, key, signature, message);
+    }
+    if (alg === 'ES256') {
+      const key = await crypto.subtle.importKey('spki', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+      return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, message);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -347,19 +424,53 @@ serve(async (req: Request) => {
     };
     const canonical = buildCanonicalPayload(ctx);
 
-    // ── 6. Sign via KMS (the provider adapter — see UnconfiguredKmsSigner above)
+    // ── 6. Sign via KMS (the provider adapter — see `./kms.ts` / selectKmsSigner above)
     let signatureBytes: Uint8Array;
     try {
       signatureBytes = await kmsSigner.sign(response.kms_handle_ref, canonical.signedBytes, canonical.header.alg);
     } catch (kmsErr) {
-      const { status, retryAfterSeconds } = classifyKmsError(kmsErr);
-      await captureException('credential-sign', kmsErr, { atom_id: ticketAtomId, key_id: response.key_id });
-      logOutcome(ticketAtomId, response.credential_version, response.key_id, 'kms_sign_failed');
+      const { status, retryAfterSeconds, taxonomy } = classifyKmsError(kmsErr);
+      await captureException('credential-sign', kmsErr, { atom_id: ticketAtomId, key_id: response.key_id, kms_error_class: taxonomy });
+      logOutcome(ticketAtomId, response.credential_version, response.key_id, `kms_sign_failed_${taxonomy}`);
       const headers = retryAfterSeconds !== null ? { ...H, 'Retry-After': String(retryAfterSeconds) } : H;
+      const code = taxonomy === 'transient' ? 'kms_unavailable' : taxonomy === 'security' ? 'kms_security_error' : 'kms_unconfigured';
       return json(
-        { error: 'Ticket credentials are temporarily unavailable. Please try again shortly.', code: status === 503 ? 'kms_unavailable' : 'kms_unconfigured' },
+        { error: 'Ticket credentials are temporarily unavailable. Please try again shortly.', code },
         status,
         headers,
+      );
+    }
+
+    // ── 6b. Sign-after-verify (§9, mandatory) — locally verify `signatureBytes`
+    // against `response.public_key` / `response.algorithm` /
+    // `canonical.signedBytes` (the EXACT bytes just handed to the signer)
+    // BEFORE this credential is ever returned. A `false` result means the
+    // KMS call produced bytes that do not verify under the key/algorithm the
+    // DB says are pinned — wrong handle, wrong key version, wrong algorithm,
+    // or DER/raw drift. SECURITY class: fail closed, alert, NEVER retry. ───
+    let signVerified: boolean;
+    try {
+      signVerified = await verifyCanonicalSignature(
+        canonical,
+        signatureBytes,
+        response.public_key,
+        response.algorithm,
+        verifyWithWebCrypto,
+      );
+    } catch {
+      signVerified = false;
+    }
+    if (!signVerified) {
+      await captureException('credential-sign', new Error('sign_verify_failed'), {
+        atom_id: ticketAtomId,
+        key_id: response.key_id,
+        algorithm: response.algorithm,
+      });
+      logOutcome(ticketAtomId, response.credential_version, response.key_id, 'sign_verify_failed');
+      return json(
+        { error: 'Ticket credentials are temporarily unavailable. Please try again shortly.', code: 'signing_unhealthy' },
+        500,
+        H, // no Retry-After — this is never retried
       );
     }
 
