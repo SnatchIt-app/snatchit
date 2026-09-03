@@ -60,11 +60,16 @@ SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-dr
 --   ticket.expiry_grace                                             (RATIFICATION ruling D2)
 --   fee.buyer_service_bps                                           (RATIFICATION ruling A5 — the value is
 --                                                                    OWNER POLICY and is never hardcoded)
---   settlement.refund_window_interval                               (093's second money pass — the
---                                                                    unbounded-refund-exposure gate. UNSET is the
---                                                                    SAFE state: every settlement payout is minted
---                                                                    HELD until an owner rules the window, so
---                                                                    SETTING this key is the dangerous act)
+--   payout.settlement_maturity_interval                             (093's money passes — the settlement-maturity
+--                                                                    gate. UNSET is the SAFE state: every settlement
+--                                                                    payout is minted HELD until an owner rules the
+--                                                                    window, so SETTING this key is the dangerous
+--                                                                    act — and the payout.% prefix puts it under
+--                                                                    dual control, 078:1145-1147. Pass 3 RENAMED it
+--                                                                    from settlement.refund_window_interval, which
+--                                                                    named refund eligibility, a different policy
+--                                                                    that already exists under refund.%; the count
+--                                                                    is unchanged because nothing was added)
 -- 091 still fabricates none of them; a sixth row appearing here would still trip this test.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config), 48, 'A23 (093: 48 with the five owner-unset primary-ticketing keys): PFA-9 — 091 fabricates NO config key (an absolute census)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

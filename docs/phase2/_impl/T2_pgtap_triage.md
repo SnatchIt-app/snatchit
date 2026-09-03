@@ -248,19 +248,102 @@ a real primary-order + payment fixture, and every one of its payments is pinned 
 refunds on `pay1`/`pay7`) or by the `cancel_event` cascade at `L19`. Building the case in place means
 rebalancing assertions that have nothing to do with 093. It should be added with its own fixture.
 
-## Whole-suite state after pass 2
+---
+
+# PASS 3 — the settlement-maturity fix (093 md5 `7ff74d6c9a6832ea694f7ffd067c0bc5`, 4249 lines)
+
+The payout hold stopped being `v_held := v_refund_window is null` — one test of one config key,
+which made an owner config VALUE a hidden feature flag for payout logic that did not exist. It is
+now a conjunction of eight fail-closed predicates in causal order, each with its own
+`hold_reason_code`, plus an additive `payout_hold_detail` key carrying the whole vector.
+
+| | pass-3 start | end |
+|---|---|---|
+| assertions planned | 1529 | **1540** |
+| assertions failing | 6 + **1 aborted file** | **0** |
+| psql errors | **341** (all 151) | 0 |
+
+**Counts by category — A: 5 · B: 6 · C: 0.**
+
+## Pass-3 classification
+
+| # | File | Symptom | Cat | Evidence | Action |
+|---|---|---|---|---|---|
+| 26 | 151 C28a/C28b + 341-error cascade | the key was set, but the payout still held | **B** | the settlement's only line was a hand-inserted `primary_sale` with a random `cause_ref`, so the covered set resolved to nothing (`covered_set_unresolvable`) | fixture builds a real past session + order + `kernel.payment_native`; **C28a/C28b unchanged** |
+| 27 | 151 s5 (C31a1–C31i1) | same, would have held `p5` | **B** | same | real covered order; the probation lifecycle is unchanged |
+| 28 | 151 s9 (C31j–C31q) | same, org2 | **B** | same | real covered order on a past session of event2 |
+| 29 | 153 H2/H6/H11/H12 | `po1` held, so the dispute leg had nothing to hold | **B** | st1 covers order1+order3 on `session1`, whose `ends_at` the fixture puts 10 days in the FUTURE ⇒ `maturity_not_elapsed` | `session1` moved to the past for **the duration of the close only** and restored immediately; **all four assertions unchanged** |
+| 30-32 | 151, 155, 157, 156, 153 comments | pinned the OLD key name | **A** | the key is `payout.settlement_maturity_interval`; the old spelling is not read as a fallback | every reference updated; the config census stays **48** — pass 3 renamed a key, it did not add one |
+
+### Why the rename is right, recorded so it is not undone
+
+`settlement.refund_window_interval` named refund **eligibility** — how long a buyer may still ask
+for money back. That policy exists and is owned by different keys entirely
+(`refund.buyer_self_service_window_hours`, `refund.request_ttl_hours`). This value is how long
+**after the event** the venue's money must sit still, so it belongs under `payout.%` — and that
+prefix is load-bearing rather than cosmetic: `078:1145-1147` puts every `payout.%` key under DUAL
+CONTROL, so setting it now parks for a second `platform_admin`. `unbounded_refund_exposure` is
+retained verbatim as the policy-unset reason code, which is why 151 C20i..C20n survived untouched.
+
+## NEW COVERAGE — the conjunction (151 C28c..C28l, 11 assertions)
+
+The gate had none. Each case starts from **the exact shape that just released at C28a/C28b** — a
+real order on a session that ended 30 days ago, under a 7-day policy — and breaks **exactly one**
+predicate. A case that released would mean that predicate was decorative.
+
+| Assertion | Predicate broken | Expected |
+|---|---|---|
+| C28c | session ended an hour ago, policy 7 days | `maturity_not_elapsed` |
+| C28d | covered session has NULL `ends_at` (`078:806` requires only `starts_at`) | `maturity_instant_unknown` |
+| C28e | a **pending** `kernel.refund` on a covered payment | `refund_in_flight` |
+| C28f | an **open** dispute (`needs_response`) on a covered payment | `dispute_open` |
+| C28g | `cause_ref` resolves to no order | `covered_set_unresolvable` |
+| C28h | maturity interval of **−1 days** | `maturity_policy_invalid` |
+| **C28i** | **nothing** — the control | **`(released)`** |
+| C28j | two covered sessions, one long past and one an hour old | `maturity_not_elapsed` — the anchor is `max(ends_at)`, not `min` |
+| C28k | — | the seven held probes carry **six distinct** reason codes |
+| C28l | — | every one is `held`/`pending`, `held_by` NULL, `held_at` set |
+| C28b1 | — | `payout_hold_detail` is NULL when nothing is held |
+
+C28i is what makes C28c..C28h attributable: the fixture is otherwise identical, so each hold is
+caused by the one predicate it broke and by nothing else. **No single predicate releases the money
+on its own** — which is what the owner's instruction was about.
+
+The anchor is `max(event_session.ends_at)` over the settlement's **own money lines** — not the
+header scope, and not `period_end` (nullable, and bound against `starts_at`). C28j pins that it is
+the later of two sessions: taking the earlier would pay while an event the money belongs to had
+barely finished.
+
+## Fixture helpers added to 151
+
+`tap._sess151` (a session with an explicit, possibly NULL or past, end), `tap._cov151` (payments row
++ `venue."order"` + `kernel.payment_native`, returning the order_id used as a `primary_sale`
+cause_ref), and `tap._probe151` (open → one line → close → report the hold reason). Two details are
+deliberate and load-bearing:
+
+* the probe order is left **`pending`**, so the covered set resolves through it while
+  `kernel.settlement_primary_lines` (which requires paid/partially_refunded/refunded) never sweeps
+  it into some other settlement;
+* `tap._probe151` is **INVOKER** rights, because `tap.login` calls `set_config('role', …)`, which
+  PostgreSQL refuses inside a `SECURITY DEFINER` function.
+
+151 C36/C37 (absolute RLS censuses) move 8 → 16 headers and 11 → 19 lines. That delta is **this
+file's own fixture** — s8 plus the eight one-line probe settlements — not a 093 behaviour change,
+and the annotation says so. The property is undiminished: org1's finance role reads all of its own
+and none of org2's.
+
+## Whole-suite state after pass 3
 
 ```
-TOTAL plan=2960 ok=2956 not_ok=4
+TOTAL plan=2974 ok=2970 not_ok=4
   expected 060_payments_money.sql: 2 known local-only/TODO failure(s)
   expected 132_replay_parity.sql:  2 known local-only/TODO failure(s)
  RESULT: pgTAP suite matches the expected local baseline.
 ```
 
 Every file in the suite passes. The only four failing assertions are the two documented local-only
-delta sets: 060's two pinned `todo()` markers, and 132's two `cron.job."database"` name artifacts (a
-rehearsal database cannot be named `postgres`). `146_phase2_venue_orders.sql`, which was aborting
-with `permission denied for table order` when pass 1 finished, is green — its owner fixed it.
+delta sets: 060's two pinned `todo()` markers, and 132's two `cron.job."database"` name artifacts
+(a rehearsal database cannot be named `postgres`).
 
 ## Statement
 

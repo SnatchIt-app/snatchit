@@ -825,14 +825,18 @@ SELECT ok((SELECT gross_minor = 100000 AND fees_minor = 4600 AND refunds_minor =
 -- negative close, and it is unaffected by 093.
 SELECT is((SELECT jsonb_array_length(tap._fetch155('c1')::jsonb -> 'payout_ids')), 1, 'G10b: …a POSITIVE net mints exactly ONE org payout (A4: commission funded out of gross before venue money is released)');
 -- 2026-09-02 (package 093, second money pass): the payout is minted HELD here, and that is the
--- ratified contract rather than a defect. 155 never sets 'settlement.refund_window_interval', which
--- ships seeded 'null'::jsonb, so close_settlement mints
+-- ratified contract rather than a defect. 155 never sets 'payout.settlement_maturity_interval'
+-- (renamed in pass 3 from settlement.refund_window_interval, which described refund ELIGIBILITY —
+-- a different policy that already exists under refund.%; the old spelling is not read as a
+-- fallback). It ships seeded 'null'::jsonb, and an unset policy is the FIRST of the gate's eight
+-- fail-closed predicates, so close_settlement mints
 -- hold_state='held' / hold_reason_code='unbounded_refund_exposure': a refund succeeding after this
 -- close could never be collected, so the obligation is recorded in full and only the MONEY is
 -- immobilised. That is the point worth asserting HERE, because 155 is the file that proves ruling
 -- A4's funding order — the venue's 95400 is what remains after the promoter's 4600 is deducted, and
--- it does not move. Both arms of the gate, and kernel.release_payout as the contracted exit, are
--- proved at 151 C20i..C20n / C28a/C28b. Every other fact below is pinned exactly as before.
+-- it does not move. The whole conjunction, one predicate at a time, plus kernel.release_payout as
+-- the contracted exit, is proved at 151 C20i..C20n / C28a..C28l. Every other fact below is pinned
+-- exactly as before.
 SELECT ok((SELECT po.payee_kind = 'organization' AND po.payee_org_id = tap._u155('org1') AND po.cause = 'settlement' AND po.cause_ref = tap._u155('s1')
                   AND po.amount_minor = 95400 AND po.currency = 'USD' AND po.status = 'pending'
                   AND po.hold_state = 'held' AND po.hold_reason_code = 'unbounded_refund_exposure' AND po.held_by IS NULL AND po.held_at IS NOT NULL

@@ -1,0 +1,387 @@
+# Final activation blocker rulings
+
+**Status: DRAFT. NOT APPROVED. NOT SIGNED.** Three decisions remain between the current
+implementation and a first venue-direct ticket sale. Each carries approval text written so the owner
+can adopt it verbatim. **None of the three is approved.** Nothing in this document has been acted on
+beyond the fail-closed defaults already in migration 093.
+
+**Production is untouched.** Ledger verified at 107 rows ending at `092_notify_reduced`; no `093`.
+
+**Evidence.** `docs/phase2/_impl/G1_expiry_semantics.md`, `G2_settlement_maturity.md`,
+`G3_signing_rehearsal.md`, `G7_adversarial_review.md`, and the runbook
+`docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`. Every claim below was executed against a local
+replay of the full 108-migration chain, not reasoned from documents.
+
+---
+
+# RULING G1 — TICKET EXPIRY
+
+## CURRENT STATE
+
+`ticket.expiry_grace` ships in migration 093 seeded `'null'::jsonb`. The sweep
+`kernel.sweep_expired_ticket_atoms` (`079:456`) reads it, and with no value returns
+`{swept_count: 0}` — no atom is ever expired.
+
+## EVIDENCE
+
+**What `expired` actually means, measured across fifteen dimensions.** It enforces exactly **one**
+thing that is live today: **the door refuses the credential** (`kernel.mark_ticket_scanned`
+`079:433-437` → `venue.record_scan` writes `result='invalid'`, `086:1088-1097`). It additionally
+*enables* the BP-1 deletion blocker to clear (`079:706-717`), *breaks* cancellation refunds
+(`catalog.cancel_event` excludes expired atoms — `088:1682/1735/1783`), and *degrades* chargeback
+overlay handling (`088:823-833` mislabels an expired atom `overlay_occupied`).
+
+It does **not** affect: app visibility (RLS is `current_owner_id = auth.uid()`, state-independent),
+attendee history (expiry writes no ownership-log row), settlement, or promoter commission (both key
+on `state <> 'voided'`). Transfer and resale are technically affected but moot — `is_transfer_frozen`
+is already true from doors, before `ends_at`.
+
+**A CORRECTION, AND THEN A CORRECTION TO THE CORRECTION — both are load-bearing, so both are
+recorded.**
+
+The previous implementation report said that leaving this key unset makes a paying no-show buyer
+permanently undeletable. Research initially judged that wrong, on the ground that
+`kernel.deletion_blockers_money` BP-12 arm 2 (`085:262-283`) is a second, order-anchored, fail-closed
+gate keyed on `deletion.refund_possible_window_hours`. That much is true and verified: setting
+`ticket.expiry_grace` alone unblocks nobody who paid, so the population *this* key frees is comp,
+guest-list and imported holders.
+
+**But adversarial review then overturned the conclusion drawn from it, and the previous report was
+right on substance.** BP-12 arm 2 measures its window from `venue."order".created_at` — the *payment*
+clock, which ruling G2 below spends its entire analysis proving is the wrong anchor for anything
+event-shaped. Executed: a buyer who paid 60 days ago for an event 10 days away is blocked while the
+key is unset, and becomes fully erasable the moment the key is set to a payment-anchored window — all
+five deletion arms clear and the sweep tombstones them **before the event happens**, while G2's gate is
+simultaneously holding the venue's money for precisely that risk.
+
+Two consequences, and they pull apart:
+
+1. `ticket.expiry_grace` genuinely does not have to carry money safety, so it does not have to be
+   long. It can be set on admissibility grounds alone. **That part stands.**
+2. `deletion.refund_possible_window_hours` is **not** a safe companion value and no duration is
+   recommended for it in this document. Its clock is anchored to payment, not to the event, which is
+   the same defect G2 exists to fix. Setting it without re-anchoring buys irreversible erasure of a
+   buyer whose event has not occurred.
+
+**The derivation is forced.** `ends_at + grace` is the only expressible candidate. `catalog.event`
+carries no time column at all (`078:134-158`); there is no per-atom TTL column; no `admission_until`
+exists; door-close is per-manifest and nullable, and no manifest has ever existed. Every column is
+`timestamptz`, so the arithmetic is timezone-free.
+
+**A type trap worse than previously documented — now closed in code.**
+`('24'::jsonb #>> '{}')::interval` evaluates to **`00:00:24` — twenty-four seconds.** A bare number
+does *not* fail the cast; it silently becomes a near-instant sweep that would terminal-ize every atom
+on every ended session within two minutes. Verified.
+
+The root cause is that the type witness at `078:1111-1114` is **skipped when the current value is JSON
+null**, and every owner-STOP key in 093 is null-seeded — so each accepts any JSON type on its first
+write, which is exactly the write the owner is about to make.
+
+Migration 093 now refuses a bare number for interval-typed keys at the setter, so this is no longer
+guarded only by the approval text below. Verified: `24` is refused with a message naming the correct
+form, `"not an interval"` is refused as unparseable, `"24 hours"` is accepted, and a number on a
+non-interval key is unaffected. One honest limitation carried in the code comment: the guard uses an
+explicit key list and must gain future interval keys — the root cause is the missing witness on a null
+seed, not the list.
+
+## OPTIONS
+
+| | Option | Consequence |
+|---|---|---|
+| 1 | Leave unset | No ticket ever expires. The door still refuses on other grounds only after a manifest exists. Comp/guest holders stay undeletable. Safe but permanently incomplete. |
+| 2 | `"24 hours"` | Matches the ratified `door.session_absolute_max_interval` floor exactly. Leaves no margin for late door operation or offline reconciliation. |
+| 3 | **`"72 hours"`** | Above the 24h door floor; equals the corpus's own ratified human-reaction constant `authn.money_role_maturity_hours = 72` (`078:1560`); crosses a full business day for any weekday. |
+| 4 | Longer (7d+) | Extends erasure exposure for no admissibility benefit, since the door bound is 24h. |
+
+## RECOMMENDATION
+
+**Option 3 — `'"72 hours"'::jsonb`.**
+
+## EXACT VALUE / DERIVATION
+
+```sql
+select catalog.set_platform_config(
+  'ticket.expiry_grace',
+  '"72 hours"'::jsonb,          -- a jsonb STRING. A NUMBER means SECONDS.
+  '<reason code>', '<command key>');
+```
+
+Floor of 24h forced by `door.session_absolute_max_interval` (`078:1540`) — the architecture's own
+outer bound on post-show door activity. 72h chosen above it because it is the corpus's existing
+ratified constant for "a human needs to react", and because 24h and 48h do not cross a full business
+day for a Friday or Saturday event, which is when nightlife volume actually is.
+
+## FAILURE BEHAVIOR
+
+- **Unset:** sweep inert. No expiry. Fail-safe for credentials, incomplete for deletion of
+  non-purchasing holders.
+- **Set as a number:** silently becomes seconds. This is the dangerous input and the reason the
+  approval text below pins the type.
+- **Set too short:** live tickets terminal-ized, and `cancel_event` then excludes them from refunds —
+  the holder loses ticket *and* money. Irreversible in practice: no shipped function writes `state`
+  back.
+- **Event postponed after expiry:** verified — moving `ends_at` +5 days returns `swept_count: 0` and
+  atoms stay expired.
+- **`ends_at` moved earlier:** verified — expires live atoms on the next tick with no guard and no
+  reason code.
+- **`ends_at IS NULL` or `state='issued'`:** never expire; configuration cannot reach either.
+
+## OWNER APPROVAL TEXT
+
+> **G1 — TICKET EXPIRY**
+>
+> `ticket.expiry_grace` is set to the jsonb string `"72 hours"`. It must be a JSON string spelled in
+> hours; a JSON number is interpreted as seconds and is forbidden.
+>
+> Terminal ticket expiry derives from `catalog.event_session.ends_at` plus that grace. No other
+> derivation is adopted, and no per-atom TTL is introduced.
+>
+> It is recorded that this key governs **door admissibility only**. It is not the money-safety clock:
+> `deletion.refund_possible_window_hours` (BP-12) independently blocks deletion for any identity with
+> paid orders, and that key remains a separate owner decision.
+>
+> Two defects are acknowledged as accepted risk at launch rather than closed by this ruling: an
+> `ends_at` moved earlier expires live atoms with no guard, and a postponement after expiry does not
+> reinstate them. Both require a code change, not a configuration value.
+
+---
+
+# RULING G2 — SETTLEMENT / REFUND MATURITY
+
+## CURRENT STATE
+
+**A defect found and fixed during this train.** The payout hold was decided by a single test:
+
+```sql
+v_held := v_refund_window is null;
+```
+
+So the only predicate was "has the owner set the config key". Setting any value released the venue's
+money immediately, even though **no event-based maturity semantics existed**. That made an owner
+configuration value a hidden feature flag for payout logic that had not been written. It is now an
+eight-predicate conjunction, described below.
+
+**The key was misnamed and has been renamed.** `settlement.refund_window_interval` described refund
+*eligibility* — a genuinely different concept that already has its own keys
+(`refund.buyer_self_service_window_hours`, `refund.request_ttl_hours`, `refund.scanned_atom_policy`).
+The value actually controls a payout hold measured from the event's end. It is now
+**`payout.settlement_maturity_interval`**. The prefix is load-bearing: `payout.%` matches the
+dual-control test at `078:1145-1147`, so setting it parks for a second `platform_admin`. Under the
+old `settlement.` prefix it matched nothing and was a single unilateral write — for the one key where
+*setting* the value is the dangerous act.
+
+## WINDOW START
+
+**`max(catalog.event_session.ends_at)` over the settlement's own money lines.**
+
+Not payment time, not settlement close, not `period_end`. The schema forces it: `catalog.event`
+carries no time column, so "event ended" must reduce to sessions; `venue."order".event_session_id` is
+`NOT NULL` (`082:369-372`), so every covered order resolves to exactly one session; and deriving from
+the settlement's *lines* rather than its header makes the anchor computable for period-scoped and
+event-scoped settlements alike. `period_end` is unusable — nullable, and the seams bound `starts_at`
+against it rather than `ends_at`.
+
+Decisive test, executed: an order bought 90 days before an event 60 days out is **HELD**, with
+`matures_at` = event end + interval. A venue does not become payable because a fan bought early.
+
+Stripe's own model agrees on the clock: *"when a customer pays for a future event or service (like …
+event ticket), the dispute window starts on the event date, not the payment date"*
+(https://docs.stripe.com/disputes/how-disputes-work). **This is cited as corroboration of the
+anchor only. Stripe's payout schedule is not Snatch It's settlement policy and the two must not be
+conflated.**
+
+## INTERVAL
+
+**`'7 days'` — recommended, with the trade stated rather than hidden.**
+
+No interval is fully safe, and the evidence does not support pretending otherwise. Full dispute
+coverage would need roughly 120 days after the event, which is commercially impossible and exceeds
+the 90-day non-US manual-payout limit. Stripe publishes no post-event hold figure; its only
+ticketing-specific guidance is a reserve released the day after the event, which covers none of the
+dispute tail. 7 days is strictly more conservative than Stripe's own guidance, sits inside both the
+90-day and 180-day ceilings, and covers post-event refunds and executor latency. **The tail beyond it
+requires a receivable object or Stripe fixed reserves — both separate owner items.**
+
+## POSTPONEMENT
+
+The anchor moves with `ends_at`, so a postponement automatically extends the hold.
+
+**A P0 was found here by adversarial review and is fixed in this train.** The maturity analysis
+originally judged this a bounded residual — "the most a seller can shave is the session's own
+duration, hours not months." **That was wrong.** `catalog.update_event_session`'s time guard tests
+only FORWARD movement (`079:624-659`), so a seller organization could move `starts_at` and `ends_at`
+backward together and release its own payout for an event that had not happened. Executed: a control
+settlement held with `maturity_not_elapsed` and `request_org_payout` refused with `payout_held`; after
+a 400-day backdate the identical settlement closed `hold_state='none'` with `payout_hold: null` and
+the payout request reached an **org-class approver** with no platform human involved anywhere.
+Unbounded, one RPC, and it turns the whole eight-predicate gate into a no-op — every other predicate
+held under attack, but they all depend on this anchor.
+
+The same primitive terminal-izes live credentials: three active atoms on a session thirty days out
+were swept to `expired` after a backdate. One correction to the expiry findings while recording this —
+the claim that an `ends_at`-only move is unguarded is too strong; that form is refused by
+`event_session_time_check`. **Only the paired backward move works**, and that is what the fix targets.
+
+Migration 093 now guards backward movement once a session carries economic weight, while leaving a
+pre-sale draft event freely reschedulable in both directions.
+
+## CANCELLATION
+
+A covered event or session in `cancelled` state holds the payout with `event_cancelled`. Cancellation
+inserts pending refunds for every order (`088:1664/1716/1774`), which independently trips
+`refund_in_flight`.
+
+## REFUND
+
+Any non-terminal refund (`pending`, `submitted`) on a covered payment holds the payout with
+`refund_in_flight`. The settlement seam separately defers an order with a non-terminal refund out of
+the ledger entirely, so the obligation is neither overstated nor understated while money is in doubt.
+
+## DISPUTE
+
+An open dispute on a covered payment holds the payout with `dispute_open`.
+
+## CHARGEBACK
+
+A chargeback filed **after** release lands in the organization's next settlement
+(`088:311-316`). **This is not closed by this ruling and cannot be, without a receivable object.** It
+is the known tail.
+
+## RECOMMENDATION
+
+Adopt the anchor and the conjunction. Set the interval to 7 days. Accept the chargeback tail as a
+named residual with a follow-up for a receivable object.
+
+## OWNER APPROVAL TEXT
+
+> **G2 — SETTLEMENT / PAYOUT MATURITY**
+>
+> The key `settlement.refund_window_interval` is renamed `payout.settlement_maturity_interval`,
+> because it governs payout maturity and not refund eligibility. It inherits `payout.%` dual control:
+> setting it requires two platform administrators.
+>
+> Payout maturity is measured from `max(catalog.event_session.ends_at)` across the money lines the
+> settlement actually covers, plus the configured interval, which is set to **7 days**.
+>
+> A settlement payout is minted HELD unless every one of these holds: the maturity policy is set and
+> non-negative; the covered set resolves; no covered event or session is cancelled; the maturity
+> anchor is known; the interval has elapsed; no non-terminal refund exists on a covered payment; and
+> no dispute is open on a covered payment. Any predicate that cannot be computed holds the payout. No
+> single predicate may release money on its own.
+>
+> `kernel.release_payout` remains the only contracted exit and stays restricted to platform roles.
+>
+> It is recorded that a chargeback filed after release is not covered by this ruling and lands in the
+> organization's next settlement; closing that tail requires a receivable object, which is a separate
+> decision. It is also recorded that `catalog.update_event_session` does not guard an `ends_at`-only
+> change, which is a code defect and not closed by this ruling.
+
+---
+
+# RULING G3 — PRODUCTION SIGNING CEREMONY
+
+## CURRENT STATE
+
+No signing key exists in any environment. `kernel.signing_key.public_key` and `kms_handle_ref` are
+`NOT NULL` with no defaults (`083:55-56`); `guard_signing_key_immutable` (`083:84-102`) blocks any
+UPDATE of either, **including for a superuser**; `kernel.tickets.signing_key_id` is `NOT NULL` with
+`ON DELETE RESTRICT` (`083:191`). `kernel.provision_signing_key` and `rotate_signing_key` remain
+parked unconditional raises and are **not** un-parked.
+
+**Therefore no ticket can be minted in any environment until this ceremony runs.** Migration 093
+ships the fully-determined row as a commented template and inserts nothing.
+
+**The implementation is provider-agnostic.** Nothing in code names a KMS; `kms_handle_ref` is bare
+`text` with no CHECK and no regex, and **there is no insert-time validation at all** — Postgres
+cannot distinguish a real key from a placeholder. Intent comes only from
+`PHASE_2_EDGE_FUNCTION_SPEC.md`: asymmetric signer, Ed25519 preferred and ECDSA-P256 acceptable
+(`:1273-4`); custody in AWS KMS asymmetric, GCP KMS, or CloudHSM (`:1291-2`); `global` scope
+sanctioned only for a controlled bootstrap (`:1286-8`).
+
+## CEREMONY MODEL
+
+Two-person, KMS-backed, with the private key never leaving the KMS and never existing in the
+repository, logs, fixtures, documentation, CI output or the database. Full runbook:
+`docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`. Rehearsed locally with non-production material,
+**12 of 12 items passing**, including rotation preserving verification of previously issued tickets.
+
+## PERSON A
+
+Holds KMS `CreateKey` authority. Creates the asymmetric key, pins the key **version** in the handle,
+extracts the public key as SPKI PEM, and computes the fingerprint as SHA-256 over the DER SPKI.
+Person A never touches the production database.
+
+## PERSON B
+
+Holds the production database path. Independently recomputes the fingerprint from the public key
+before any insert, and aborts if it differs from Person A's. Person B holds no `CreateKey` authority.
+The ceremony aborts loudly on a stale fingerprint, on a private key appearing in any buffer, on a
+placeholder handle, and on replay.
+
+## IRREVERSIBLE POINT
+
+**The first `issue_ticket_atoms` call — not the ceremony, and not the feature-flag flip.** Four doors
+close simultaneously: the foreign key blocks deletion; the immutability guard blocks correcting
+`public_key` or `kms_handle_ref` even for a superuser; every minted atom is pinned to that key forever
+and rotation never re-pins; and nothing can prove the key honest after the fact. Before that call,
+§10 of the runbook is a clean rollback.
+
+## RECOMMENDATION
+
+Approve the ceremony and schedule it. It is the critical path: **every other blocker in this document
+can be resolved by configuration, and this one cannot.**
+
+Three residuals are irreducible and are stated rather than papered over: Postgres cannot verify that a
+key is real; nothing constrains a superuser; and there is no in-band revocation while PFA-18A is open.
+The compensating control for all three is the standing monitor in runbook §9.3. One threat is worth
+the owner's attention specifically: a `per_event` key silently outranks the `global` bootstrap key in
+scope resolution (`085:1948-60`), so a second key registered at event scope takes over immediately and
+without collision.
+
+## OWNER APPROVAL TEXT
+
+> **G3 — PRODUCTION SIGNING CEREMONY**
+>
+> The two-person KMS ceremony in `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` is approved for
+> execution. Person A holds KMS key-creation authority and never touches the production database;
+> Person B holds the database path and holds no key-creation authority; the fingerprint is
+> independently recomputed by Person B and the ceremony aborts on any mismatch.
+>
+> The provider, algorithm and handle format are pinned by the runbook before execution. The handle
+> must pin a key version, because an unversioned handle would let the signer change under an immutable
+> public key.
+>
+> It is recorded that the point of no return is the first ticket mint, not the ceremony itself, and
+> that after it the trusted signing identity cannot be corrected by anyone, including a superuser.
+>
+> It is recorded that a per-event signing key outranks the global bootstrap key in scope resolution,
+> and that monitoring for an unexpected scoped key is a standing operational control.
+>
+> The database signing-key RPCs remain parked and are not un-parked by this ruling.
+
+---
+
+# Signature block
+
+**This document is NOT approved. No ruling below is in force.**
+
+| Ruling | Subject | Status |
+|---|---|---|
+| G1 | Ticket expiry | PENDING OWNER SIGNATURE |
+| G2 | Settlement / payout maturity | PENDING OWNER SIGNATURE |
+| G3 | Production signing ceremony | PENDING OWNER SIGNATURE |
+
+Owner signature: _______________________  Date: _______________
+
+G1 and G2 additionally require the owner to supply a value, not only a signature. G3 requires two
+named people and a scheduled window.
+
+**A fourth value, surfaced this train and deliberately NOT given a recommendation.**
+`deletion.refund_possible_window_hours` (`085:2189`) is seeded null and fail-closed, and independently
+blocks account deletion for any identity holding paid orders. It must be set before deletion works for
+purchasing buyers — but **it must not simply be set**, because its window is measured from
+`venue."order".created_at`. That is the payment clock, and ruling G2 establishes that the payment
+clock is the wrong anchor for anything event-shaped. Setting it as it stands lets a buyer who paid
+early be tombstoned irreversibly before their event, while G2's gate holds the venue's money for the
+same risk. Re-anchoring it to the event is a code change and a separate owner decision; this document
+recommends no duration for it.

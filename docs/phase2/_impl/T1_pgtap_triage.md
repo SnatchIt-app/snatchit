@@ -9,10 +9,10 @@ applied; GATE-2 census matches the CI baseline exactly — tables=27 functions=7
 triggers=24) then `scripts/rehearsal_test.sh snatchit_rehearsal_t1 <files>`. No remote was
 contacted; no commits were made.
 
-**093 revision this triage is pinned to.** `093_primary_ticketing.sql`, **4038 lines,
-`md5 = 6ab87362e3a6983d0ad1355758835402`** — the revision that includes the two money P0 fixes, the
+**093 revision this triage is pinned to.** `093_primary_ticketing.sql`, **5226 lines,
+`md5 = e139aeb5bb48df63393dd93cb116bbb2`** — the revision that includes the two money P0 fixes, the
 `settlement.refund_window_interval` key and the connect staging verb. **093 was re-assembled from
-`docs/phase2/_impl/093_parts/` four times while this triage ran** (2752 → 3078 → 3275 → 4038 lines);
+`docs/phase2/_impl/093_parts/` six times while this triage ran** (2752 → 3078 → 3275 → 4038 → 4249 → 5226 lines);
 every number below was re-derived from the live catalog against the revision named here, never
 carried over from a previous pass. See §5 for the full sequence.
 
@@ -34,16 +34,17 @@ carried over from a previous pass. See §5 for the full sequence.
 | File | Before | After | State |
 |---|---|---|---|
 | `141_phase2_identity_orgs_deletion.sql` | plan 188, ok 105, not_ok 3, **151 psql errors** (aborted in the connect-onboarding block) | plan 193, ok 193, not_ok 0 | **PASS** |
-| `142_phase2_catalog_config_and_seeds.sql` | plan 249, ok 245, not_ok 4 | plan 250, ok 250, not_ok 0 | **PASS** |
+| `142_phase2_catalog_config_and_seeds.sql` | plan 249, ok 245, not_ok 4 | plan 253, ok 253, not_ok 0 | **PASS** |
 | `143_phase2_ticket_custody_kernel.sql` | plan 154, ok 73, not_ok 2, **148 psql errors** (aborted at 143:497) | plan 155, ok 155, not_ok 0 | **PASS** |
-| `144_phase2_venue_staff_authz.sql` | plan 114, ok 113, not_ok 1 | plan 114, ok 114, not_ok 0 | **PASS** |
+| `144_phase2_venue_staff_authz.sql` | plan 114, ok 113, not_ok 1 | plan 118, ok 118, not_ok 0 | **PASS** |
 | `145_phase2_venue_inventory.sql` | plan 96, ok 78, not_ok 2, **47 psql errors** (aborted at 145:393) | plan 96, ok 96, not_ok 0 | **PASS** |
-| `146_phase2_venue_orders.sql` | plan 71, ok 44, not_ok 1, **57 psql errors** (aborted at 146:157) | plan 75, ok 75, not_ok 0 | **PASS** |
+| `146_phase2_venue_orders.sql` | plan 71, ok 44, not_ok 1, **57 psql errors** (aborted at 146:157) | plan 78, ok 78, not_ok 0 | **PASS** |
 
-**Final suite total: plan 888, ok 888, not_ok 0, psql_err 0 — ALL-PASS**, from a clean
+**Final suite total: plan 898, ok 898, not_ok 0, psql_err 0 — ALL-PASS**, from a clean
+`rehearsal_reset` (108/108 migrations, GATE-2 matching the CI baseline)., from a clean
 `rehearsal_reset` (108/108 migrations, GATE-2 census matching the CI baseline).
 
-Counts by classification: **A = 20**, **B = 7**, **C = 1 (since FIXED in 093 — see §3)**.
+Counts by classification: **A = 31**, **B = 8**, **C = 1 (since FIXED in 093 — see §3)**.
 
 The two documented local-only deltas (`060_payments_money.sql` not_ok=2, `132_replay_parity.sql`
 not_ok=2) were not touched.
@@ -168,11 +169,11 @@ were rewritten ahead of it for exactly this reason (§6, item 2).
 | File | plan | Δ | Why |
 |---|---|---|---|
 | 141 | 188 → 198 | +10 | L0a–L0e: the four gates rulings A7/A9 added, plus the approval step. L0f–L0h + L1a: the connect-STAGING provenance control (ruling A7) that closed the `acct_ORPHANATTACKER` P0. A14a: the seven kernel functions 093 adds, by name with grant class |
-| 142 | 249 → 250 | +1 | D5a names the four config keys rulings D2/A5 added |
+| 142 | 249 → 253 | +4 | D5a names the config keys 093 adds; H18j–H18l prove the money slice's `payout.settlement_maturity_interval` is dual-controlled |
 | 143 | 154 → 155 | +1 | D1 splits into D1/D1a (key exists ∧ no version carries a value) |
-| 144 | 114 | 0 | census only |
+| 144 | 114 → 118 | +4 | E2 narrowed to the genuinely-safe column; E2a pins the backward-`ends_at` P0; E2b/E2c walk the two-step bypass; E2d proves the gate is economic weight, not a blanket refusal |
 | 145 | 96 | 0 | G1/G2 restated on the surviving property; H4/H6 re-expressed on the RLS-yielded rows after the ruling-F `inventory_hold.identity_id` revoke. No count change |
-| 146 | 71 → 75 | +4 | B7a (exact 12-column grant), F0 (ruling A8 payout gate), F0a (ruling A5 service-fee gate), I1a (`buyer_id` unreadable). The connect-staging call is fixture only — its contract is asserted in 141 |
+| 146 | 71 → 78 | +7 | B7a (exact 12-column grant), F0 (A8 payout gate), F0b–F0d (A8/G2b signing-key gate), F0a (A5 service-fee gate), I1a (`buyer_id` unreadable). The connect-staging and signing-key fixture rows carry no assertions of their own |
 
 No assertion was deleted, loosened, converted to `todo()`, or given a weaker matcher. Two matchers
 were made **stricter**: 142 G20 now pins the exact errcode *and* the exact full message, and 146 B7
@@ -190,6 +191,7 @@ these six files:
 | `6c6a80af…` | 2752 → 3078 | `kernel.get_refund_execution_context` (D3); the A5 `service_fee_unset` gate | census 112 → 113; new 146 F0a |
 | `90430ede…` | 3275 | `kernel.get_org_connect_ref`, `kernel.is_order_buyer` (the C-1 fix) | census → 115; 146 unblocked, C-1 resolved |
 | `6ab87362…` | 4038 | `kernel.stage_org_connect_ref` (A7 provenance); `settlement.refund_window_interval`; the `venue.inventory_hold` column revoke; two money P0 fixes | census → 116; config → 48; 145 H4/H6 revoke landed; 141/146 fixture staging |
+| `7ff74d6c…` | 4249 | settlement-maturity fix: the key **renamed** to `payout.settlement_maturity_interval` | 142 D5a literal; D40 15 → 16; new H18j–H18l |
 
 ### The census-query discrepancy, resolved
 
@@ -309,3 +311,203 @@ Recorded as instructed and **not** chased: the identical E-76 omission on `catal
 `kernel.tickets` (078/079 surfaces owned elsewhere), and `comp_allocation.granted_to_name` /
 `guest_entry.guest_name` remaining readable by owner ruling — those are venue-authored lists, not
 purchaser rosters.
+
+---
+
+## 7. Follow-up pass — the settlement-maturity key rename
+
+Both deltas are **category A**, and both were re-derived from the live catalog rather than taken
+from the report.
+
+### D5a — the key literal
+
+`settlement.refund_window_interval` → **`payout.settlement_maturity_interval`**. Verified: the old
+key is **absent** and the new one exists at version 1, `restricted`, value `'null'::jsonb`. `D1`
+(48) and `D4` (40) are therefore unchanged — a rename, not an addition.
+
+The rename is recorded in the test comment as substantive, not cosmetic:
+
+* the old name described refund **eligibility**, a genuinely different concept that already owns
+  `refund.buyer_self_service_window_hours`, `refund.request_ttl_hours` and
+  `refund.scanned_atom_policy`. What the value controls is a **payout hold measured from the event's
+  end**. Keeping the old name would have preserved a misleading semantic purely because the key
+  existed;
+* the `payout.` prefix is **load-bearing**. `catalog.set_platform_config` computes
+  `v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like 'authn.%' or …`
+  (078:1145-1147). `settlement.` matched **nothing**, so setting the key was a single unilateral
+  write — on the one key in 093 where *setting* the value is the dangerous act rather than leaving
+  it unset.
+
+### D40 — money-key count, re-derived not accepted
+
+**15 → 16**, and re-derived independently: the query is
+`key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'`, which now returns **16** — three
+`authn.*`, five `payout.*`, eight `refund.*`. This **agrees with the reported figure**; had it
+differed I would have reported the difference rather than adjusting to match. The rise is caused by
+the rename alone: the key moved *into* the namespace this assertion selects on.
+
+### New H18j–H18l — the dual-control side, asserted explicitly
+
+Cheap, so taken. Confirmed empirically before asserting (not assumed from the prefix):
+setting the key returns `parked`, inserts **no** new version, and leaves the value `'null'::jsonb`.
+
+All three halves are asserted, because a park that silently wrote would pass a status-only check.
+`parked` is a discriminating result here, not the default: the surrounding H-block already proves
+the same admin gets `ok` on non-dual-controlled keys (H18c, H18d, H18f).
+
+This is the one key in 093 whose polarity is **inverted** — null is the SAFE state (every settlement
+payout stays HELD) and a value is what releases them. Under the old `settlement.` prefix a single
+`platform_admin` could have released every held payout in one transaction with no second pair of
+eyes. The value is still pinned to `'null'::jsonb` in D5a, as instructed.
+
+---
+
+## 8. Follow-up pass — `144` E2 and the backward-schedule P0
+
+**All four changes are category A.** E2 encoded a claim adversarial review disproved.
+
+### What was wrong
+
+E2 moved `starts_at` **and** `ends_at` earlier together and expected `ok`, reasoning that "earlier
+only tightens the freeze". That is half right, and the wrong half is a proven P0: a backward paired
+move of 400 days took a settlement correctly sitting at `held`/`maturity_not_elapsed` to
+`hold_state='none'`, reaching an org-class approver — releasing venue money for an event that had not
+happened, with no platform human involved. The same primitive swept three live atoms to terminal
+`expired`.
+
+The per-column truth now encoded:
+
+* **`starts_at` / `doors_at` earlier — genuinely safe.** They feed only
+  `catalog.effective_freeze_at`, so earlier freezes transfers *sooner*. E2 keeps its `ok` and is
+  narrowed to this column, matching `143 G10`, which still passes unchanged.
+* **`ends_at` earlier — not safe, and not a freeze input at all.** It anchors the settlement
+  maturity gate and `kernel.sweep_expired_ticket_atoms` (079:494), both of which postdate the
+  reasoning E2 encoded.
+
+### The four assertions
+
+| | asserts | why it is not redundant |
+|---|---|---|
+| **E2** | earlier `starts_at` with atoms → `ok` | the genuinely-safe column keeps its permission |
+| **E2a** | earlier `ends_at` with atoms → `backward_schedule_move_frozen` | **the P0, pinned closed. It had no coverage anywhere.** |
+| **E2b** | `starts_at` backward into the **past** → `ok` | step 1 of the bypass must stay permitted |
+| **E2c** | then `ends_at` into the past → refused | step 2: splitting the edit buys nothing |
+| **E2d** | a session whose only order is `pending` still moves `ends_at` backward → `ok` | mutation resistance: proves the gate is economic **weight**, not a blanket refusal |
+
+E2a and E2c match on the **exact errcode and the exact full message**, per the RED-B discipline. That
+was not belt-and-braces — it caught a real defect in my own first draft. My initial E2c pushed
+`ends_at` into the past while `starts_at` was still in the future, which is refused *earlier* by the
+ordering sanity check `ends_at must be after starts_at`. With a bare `P0001` matcher it passed
+**green while the P0 was wide open**, never reaching the guard at all. Moving `starts_at` into the
+past first (E2b) is what makes step 2 legal on ordering and therefore a genuine probe.
+
+### Why `144` is currently RED — a stale build artifact, not a test defect
+
+The guard **exists in the canonical source** and is **absent from the applied migration**:
+
+* present: `docs/phase2/_impl/093_parts/40_config_privacy_freeze.sql:1625`
+* absent: `supabase/migrations/093_primary_ticketing.sql` (`md5 7ff74d6c…`, 4249 lines) — `grep`
+  for `backward_schedule_move_frozen` returns nothing.
+
+`scripts/assemble_093.sh` states the rule directly: *"THE SLICES ARE CANONICAL. The assembled
+migration is a BUILD ARTIFACT. Edit `docs/phase2/_impl/093_parts/*.sql`, re-run this script, commit
+BOTH."* The slices have moved ahead of the artifact.
+
+**Verified in both directions rather than asserted on faith.** Applying the parts-source
+`catalog.update_event_session` (slice lines 1389-1675) onto the rehearsal database:
+
+| build state | `144` result |
+|---|---|
+| assembled migration as committed | **118 planned, 116 ok, 2 not_ok** — E2a and E2c fail with *"caught: no exception"* |
+| same DB + parts-source function | **118/118 ALL-PASS** |
+
+So the assertions were correct against canonical source, and the two reds were an accurate report
+that the artifact did not yet contain the fix. **I did not run the assembler** — rewriting
+`093_primary_ticketing.sql` is outside my scope and belongs to the slice owner.
+
+**RESOLVED.** The artifact was re-assembled (`md5 e139aeb5…`, 5226 lines) and `144` is now
+**118/118 with no further test edit**, exactly as predicted. E2a and E2c did their job: they were red
+for the duration the P0 was live in the applied migration, and went green the moment the fix shipped.
+
+### The two side-notes — no effect on these six
+
+* **`fee.%` added to the dual-control prefix test.** No file of mine calls `set_platform_config` on a
+  `fee.%` key: `142` references `fee.buyer_service_bps` only as a seed assertion (D5a), and `146`
+  sets it with a direct `INSERT`, bypassing the verb. Nothing to change.
+* **`set_platform_config` refuses a bare JSON number for interval-typed keys.** My only
+  interval-typed call through that verb is `142:1021`, which passes `'"72 hours"'::jsonb` — a JSON
+  *string*, already correct. `143` and `145` write their interval values by direct `INSERT`.
+
+---
+
+## 9. Follow-up pass — the signing-key deliverability gate (A8/G2b)
+
+After the artifact was re-assembled, `146` aborted (50/75, 42 psql errors). Both causes are the new
+gate working as designed: **one category-B fixture drift and one category-A ordering correction**,
+plus three assertions added for behaviour that had no coverage.
+
+### The gate
+
+`venue.create_primary_checkout` now refuses unless an active, in-window signing key resolves for the
+event's scope:
+
+```
+precondition_failed: no_active_signing_key — an active signing key must resolve
+for the event scope before a ticket can be sold
+```
+
+It closes a real charge-without-delivery defect: the key requirement lived in
+`finalize_primary_order`, which runs **after** the PaymentIntent is confirmed. The buyer paid, the
+mint raised `no_active_signing_key` (083:513-530), no ticket existed — and with the refund executor
+undeployed and `kernel.mark_refund_state` without a caller, nothing returned the money
+automatically. G2 asks whether the *venue* can be paid; G2b asks whether the *buyer* can be
+delivered to. The gate reuses `finalize`'s own most-specific-first resolution
+(085:1948-1960 — `per_event` > `per_venue` > `global`).
+
+### The ordering, which was NOT adjusted to suit the test
+
+```
+buyer gates -> idempotency -> session/event status -> connect -> SIGNING KEY -> fee
+            -> item/hold loop -> insert
+```
+
+`F0a` (ruling A5: a Connect-ready org with the fee unset must refuse to quote and never fall back to
+zero) began receiving `no_active_signing_key` instead of `service_fee_unset`, because the signing
+gate precedes fee resolution. **The fix was to give F0a a signing key so it reaches the fee gate —
+not to move a gate.** F0a's assertion, including its exact-message matcher, is byte-unchanged: the
+no-fallback-to-zero property is precisely what ruling A5's owner STOP rests on.
+
+### New coverage — F0b/F0c/F0d
+
+Placed in the only window where the org is Connect-ready (so F0's gate is already passed) and no key
+exists yet:
+
+| | asserts |
+|---|---|
+| **F0b** | zero signing keys → refused on the exact `no_active_signing_key` message |
+| **F0c** | …and **no order row** was created — the refusal precedes the insert, so there is nothing to reconcile or refund |
+| **F0d** | …and the buyer's **hold is untouched** (`active:2`) — the gate precedes the item/hold loop, so a retry after the key lands needs no re-reservation |
+
+**Mutation-tested, not assumed.** Hoisting the fixture key insert to before F0b makes **F0b fail**,
+so it genuinely depends on the zero-key state rather than passing for an unrelated reason.
+
+### The fixture key
+
+```sql
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-146', 'test-fixture://no-kms/146',
+        'active', now() - interval '1 day', NULL);
+```
+
+Deliberately **not key-shaped** — no PEM armour, no base64 body, no plausible KMS handle — so it can
+never be mistaken for or copied into production material. `scope='global'` is the **lowest**
+precedence arm of the resolution rule, so seeding it cannot mask a precedence regression in the
+`per_event` or `per_venue` arms.
+
+Recorded because it constrains future work: the real bootstrap row is an **owner ceremony output**
+(ruling B, 093 scope item 2). 093 deliberately inserts none, and
+`kernel.provision_signing_key` / `rotate_signing_key` stay parked as unconditional raises — a gate
+able to mint its own key would defeat the two-person KMS ceremony it exists to wait for. This
+fixture row is local test material and is no part of that ceremony.

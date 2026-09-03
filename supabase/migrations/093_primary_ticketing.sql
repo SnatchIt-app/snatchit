@@ -1,3 +1,20 @@
+-- @generated-by: scripts/assemble_093.sh
+-- =============================================================================
+-- !!  GENERATED FILE — DO NOT EDIT BY HAND  !!
+--
+-- Assembled from the reviewed slices in docs/phase2/_impl/093_parts/.
+-- THE SLICES ARE CANONICAL. This file is a build artifact.
+--
+-- To change anything below:
+--   1. edit the slice under docs/phase2/_impl/093_parts/
+--   2. run ./scripts/assemble_093.sh
+--   3. commit the slice AND this regenerated file together
+--
+-- A hand-edit here is reverted by the next assembler run and is REJECTED BY CI:
+-- the "Migrations guard / Immutability + ordering" job regenerates this file
+-- from the committed slices and compares it byte-for-byte
+-- (scripts/ci/assembled_migration_integrity.sh).
+-- =============================================================================
 -- =============================================================================
 -- 093_primary_ticketing.sql
 --
@@ -74,12 +91,19 @@
 --                                                      venue); royalty arm verbatim
 --
 --   OWNER STOP RAISED BY THIS PART. 10d refuses to release organization money
---   while 'settlement.refund_window_interval' is unset, because NO settle-after-
---   refund-window policy exists anywhere in the corpus and this schema has no
---   receivable object to carry a post-close refund forward. The key row is NOT
---   created here — it belongs with the other config rows in slice 40, seeded
---   'null'::jsonb / 'restricted' in the retention.backup_window_days pattern.
---   093 invents no duration and no anchor instant.
+--   unless EVERY maturity predicate is proven (G2 —
+--   docs/phase2/_impl/G2_settlement_maturity.md): the policy value is set, the
+--   covered set resolves, no covered event is cancelled, the last covered
+--   session's ends_at is known and has elapsed by the interval, no refund on a
+--   covered payment is in flight, and no dispute on one is open. The DURATION is
+--   still owner policy and 093 invents none — but the ANCHOR INSTANT is no longer
+--   an open question: it is max(event_session.ends_at) over the settlement's own
+--   lines, and it is derived, not configured. The key row is NOT created here —
+--   it belongs with the other config rows in slice 40, seeded 'null'::jsonb /
+--   'restricted' in the retention.backup_window_days pattern, and it is now
+--   spelled 'payout.settlement_maturity_interval' (see 10d for why the old
+--   'settlement.refund_window_interval' spelling was a lie AND a dual-control
+--   bypass).
 --
 --   TEST DELTAS THIS PART CREATES (for the author of 093's test section — every
 --   one of these was checked against the shipped pgTAP suite, not assumed):
@@ -564,8 +588,13 @@ create unique index if not exists settlement_one_refund_void_line_ever
 --       revenue line out of gross with no error and no way to repair the ledger.
 --       An aborted close writes nothing and can be retried; a lost credit cannot.
 --
---   (2) THE PAYOUT IS MINTED HELD WHILE THE REFUND WINDOW IS UNSET — the fix for
---       the post-close refund. The full argument is at the call site below.
+--   (2) THE PAYOUT IS MINTED HELD UNLESS EVERY MATURITY PREDICATE HOLDS — the
+--       fix for the post-close refund, and for the far worse defect that the
+--       first cut of that fix introduced. That cut released on
+--       `config IS NOT NULL` alone, which made an owner config value a hidden
+--       feature flag for payout logic nobody had written. The release condition
+--       is now a CONJUNCTION over seven predicates with distinct
+--       hold_reason_codes. The full argument is at the call site below.
 --
 --   (3) THE INT4 CEILING RAISES A NAMED REFUSAL instead of a bare 22003 that
 --       wedged the header open with zero lines forever. Also at the call site.
@@ -574,10 +603,17 @@ create unique index if not exists settlement_one_refund_void_line_ever
 --   (087:299-302), the noop_replay arm, the per-candidate currency raise, the
 --   whole-settlement currency check, the E-73 waterfall derivation (087:329-333,
 --   byte for byte), the write-once money UPDATE, the net > 0 mint condition and
---   its idempotency_key, the audit row, and the net_minor READ-BACK (§10.2 R1-2).
---   RULING A4 IS UNTOUCHED: the ONLY hold this function writes is on the payout it
---   mints itself, cause='settlement', payee_kind='organization'. It reads no
---   promoter row, writes no promoter_commission payout, and releases nothing.
+--   its idempotency_key, and the net_minor READ-BACK (§10.2 R1-2). The audit row
+--   keeps its actor / action / subject / reason_code and GAINS `after` (additive).
+--   RULING A4 IS UNTOUCHED, AND THE GATE ONLY STRENGTHENS IT: the ONLY payout row
+--   this function touches is the one it INSERTs itself — cause='settlement',
+--   payee_kind='organization', a single INSERT with no UPDATE and no DELETE
+--   anywhere in the body. It reads no promoter row, writes no promoter_commission
+--   payout, calls no release verb, and every change in this revision can only move
+--   a payout from unheld to HELD. A promoter commission is minted
+--   'held'/'unfunded_settlement' by kernel.pay_promoter_commission (090:1487-1491)
+--   and is released ONLY by kernel.release_payout (085:807, platform_risk /
+--   platform_admin, Control-5); neither verb is named here.
 -- ============================================================================
 create or replace function kernel.close_settlement(p_settlement_id uuid, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
@@ -586,7 +622,14 @@ declare
   v_s venue.settlement%rowtype; v_c kernel.settlement_line_candidate;
   v_gross bigint; v_fees bigint; v_refunds bigint; v_net bigint;
   v_payout_id uuid; v_ids uuid[] := '{}';
-  v_refund_window interval; v_held boolean := false;
+  -- G2 payout-maturity operands (the gate is at the mint below). EVERY ONE OF
+  -- THEM IS INITIALISED TO THE VALUE THAT HOLDS, so a path that fails to compute
+  -- an operand can only fail toward the hold, never past it.
+  v_maturity interval; v_held boolean := false; v_hold_reason text;
+  v_anchor timestamptz;
+  v_unresolved bigint := 1; v_sess_n bigint := 0; v_sess_no_end bigint := 1;
+  v_cancelled boolean := true; v_refund_open boolean := true; v_dispute_open boolean := true;
+  v_hold_detail jsonb;
 begin
   select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
   if not found then raise exception 'not_found: settlement %', p_settlement_id using errcode = 'P0002'; end if;
@@ -650,15 +693,65 @@ begin
   -- generate the pending payout only when there is positive net (kernel.payout
   -- amount_minor > 0). Deterministic idempotency on (cause, cause_ref, payee).
   if v_net > 0 then
-    -- (2) THE UNBOUNDED-REFUND-EXPOSURE GATE. A refund that succeeds AFTER this
-    -- close cannot be collected: its debit lands in a settlement nobody opens, or
-    -- in one that nets negative — and a negative net mints no payout and creates
-    -- no receivable, because this schema has no carry-forward object. Bounding
-    -- that exposure needs a settle-after-refund-window policy, and NO SUCH POLICY
-    -- EXISTS anywhere in the corpus. 093 therefore does not pay: while
-    -- 'settlement.refund_window_interval' is unset, the payout is MINTED (so the
-    -- obligation is a durable ledger fact — ruling A3: the debt must be knowable
-    -- without reconstructing it from Stripe) but MINTED HELD, so no money can move.
+    -- (2) THE PAYOUT-MATURITY GATE (G2 — docs/phase2/_impl/G2_settlement_maturity.md).
+    -- A refund that succeeds AFTER this close cannot be collected: its debit lands
+    -- in a settlement nobody opens, or in one that nets negative — and a negative
+    -- net mints no payout and creates no receivable, because this schema has no
+    -- carry-forward object. The payout is therefore MINTED (so the obligation is a
+    -- durable ledger fact — ruling A3: the debt must be knowable without
+    -- reconstructing it from Stripe) but minted HELD unless EVERY predicate below
+    -- is satisfied, so no money can move on a partial proof.
+    --
+    -- ── WHAT THIS REPLACES, AND WHY ──────────────────────────────────────────
+    -- The first cut of this gate was `v_held := v_refund_window is null` — the
+    -- ONLY predicate was "is the config key set". Setting the key to any value
+    -- released every payout immediately, with no maturity semantics implemented
+    -- anywhere: an owner config value was a hidden feature flag for logic that did
+    -- not exist, and the slice's own comment had to warn that SETTING the key was
+    -- the dangerous act. That is inverted here. The key is now ONE CONJUNCT of a
+    -- gate that also has to prove the event happened, that it happened long enough
+    -- ago, and that no money is still in motion against the orders being paid for.
+    --
+    -- ── THE PREDICATES, ALL OF WHICH MUST HOLD TO RELEASE ────────────────────
+    --   1. the maturity policy VALUE is set and non-negative;
+    --   2. every money line in this settlement resolves to its payment AND its
+    --      session — we must know what this money is about before we can time it;
+    --   3. no covered session and no covered event is cancelled;
+    --   4. the maturity INSTANT is known: at least one covered session, and every
+    --      covered session carries ends_at;
+    --   5. that instant plus the policy interval has ELAPSED;
+    --   6. no refund against any covered payment is in a non-terminal state;
+    --   7. no dispute against any covered payment is open.
+    -- Any single failure holds, with its own hold_reason_code. An operand that
+    -- cannot be computed is NOT assumed satisfied: all seven locals are declared
+    -- pre-set to the value that holds.
+    --
+    -- ── WHY ends_at OF THE LAST COVERED SESSION IS THE ANCHOR ────────────────
+    -- The buyer's own chargeback clock starts THERE, not at payment: Stripe states
+    -- it in terms of this exact industry — "when a customer pays for a future
+    -- event or service (like a vacation reservation, professional services
+    -- appointment, or event ticket), the dispute window starts on the event date,
+    -- not the payment date" (https://docs.stripe.com/disputes/how-disputes-work).
+    -- Anchoring on payment would make a ticket bought three months early payable
+    -- three months before anyone could attend. catalog.event carries NO time
+    -- column at all (078:134-154) — the only instants in the schema are on
+    -- catalog.event_session — and venue."order".event_session_id is NOT NULL
+    -- (082:369-372), so every covered order resolves to exactly one session. That
+    -- makes the anchor computable for BOTH settlement grains: event-scoped and
+    -- period-scoped headers alike derive it from their OWN LINES rather than from
+    -- the header's scope, so a period settlement is timed by the last session it
+    -- actually paid for and not by period_end (which is nullable, bounds
+    -- starts_at rather than ends_at, and can be open-ended).
+    --
+    -- ends_at IS NULLABLE (078:170) and catalog.create_event_session requires only
+    -- starts_at (078:805-807). The corpus's ticket-expiry sweep meets the same
+    -- fact and FAILS OPEN — it skips such sessions (079:490-492), which slice 40
+    -- already records as an unfixed schema hole. This gate fails CLOSED on it: a
+    -- session with no end has not verifiably ended, so its money does not mature.
+    -- Session STATUS is deliberately not used: nothing in 076-092 ever writes
+    -- event_session.status = 'completed' (the only writer of that column is
+    -- 088:1793, which writes 'cancelled'), so requiring it would hold every payout
+    -- forever.
     --
     -- WHY HELD RATHER THAN REFUSING THE CLOSE OR MINTING NOTHING. Refusing the
     -- close would also refuse the LINES, so the ledger would never record what the
@@ -674,41 +767,138 @@ begin
     -- platform_risk/platform_admin, Control-5) is the contracted release path once
     -- the owner rules. The hold is therefore recoverable; an overpayment is not.
     --
+    -- ── THE KEY WAS RENAMED, BECAUSE THE OLD NAME WAS A LIE ──────────────────
+    -- 'settlement.refund_window_interval' named a REFUND ELIGIBILITY window — how
+    -- long a buyer may still ask for money back. That policy exists, it is owned
+    -- by an entirely different set of keys (refund.buyer_self_service_window_hours
+    -- / refund.request_ttl_hours / refund.scanned_atom_policy, 078:1544-1551), and
+    -- this value is not it. What this value actually is: HOW LONG AFTER THE EVENT
+    -- THE VENUE'S MONEY MUST SIT STILL. It is a payout property, so it is spelled
+    -- 'payout.settlement_maturity_interval' — and that prefix is load-bearing, not
+    -- cosmetic: 078:1145-1147 puts every 'payout.%' key under DUAL CONTROL, and
+    -- the key carries no declared polarity, so EVERY set of it parks for a second
+    -- platform_admin (078:1268-1285). Slice 40's own caveat on the old name was
+    -- that "there is no second human in the way"; under the new name there is.
+    --
     -- READ AS THE HOUSE PATTERN: absent row, JSON null and unparseable value all
-    -- collapse to NULL and therefore to the hold (the 081:630-639 idiom). NOTE
-    -- WELL — the key's PRESENCE is not an implementation of the window. This gate
-    -- is binary by design because the duration and the instant it runs from are
-    -- owner policy and 093 invents neither. The verb that actually enforces a
-    -- window must land WITH that ruling; setting this key before it exists would
-    -- switch the protection off without replacing it.
+    -- collapse to NULL and therefore to the hold (the 081:630-639 idiom).
     begin
-      v_refund_window := (select (c.value #>> '{}')::interval
-                            from catalog.platform_config c
-                           where c.key = 'settlement.refund_window_interval'
-                           order by c.version desc limit 1);
-    exception when others then v_refund_window := null;
+      v_maturity := (select (c.value #>> '{}')::interval
+                       from catalog.platform_config c
+                      where c.key = 'payout.settlement_maturity_interval'
+                      order by c.version desc limit 1);
+    exception when others then v_maturity := null;
     end;
-    v_held := v_refund_window is null;
+    -- THE COVERED SET IS DERIVED FROM THIS SETTLEMENT'S OWN LINES, not from the
+    -- header's scope predicate. The lines are already written above, they are the
+    -- money actually being paid, and 088's chargeback arm deliberately carries NO
+    -- scope predicate (088:311-316) — so a scope-based derivation would miss
+    -- exactly the rows most likely to be in dispute. One statement, no raise: every
+    -- lookup is a scalar subquery that yields NULL rather than failing, and NULL is
+    -- counted as unresolved.
+    with cov_line as (
+      select l.cause,
+             case l.cause
+               when 'primary_sale'        then (select pn.payment_id from kernel.payment_native pn where pn.order_id = l.cause_ref)
+               when 'refund_void'         then (select r.payment_id from kernel.refund r where r.refund_id = l.cause_ref)
+               when 'chargeback'          then (select d.payment_id from kernel.dispute_native d where d.dispute_id = l.cause_ref)
+               when 'market_sale'         then (select ms.payment_id from market.market_sale ms where ms.sale_id = l.cause_ref)
+               when 'promoter_commission' then (select pn.payment_id from venue.attribution a
+                                                  join kernel.payment_native pn on pn.order_id = a.order_id where a.id = l.cause_ref)
+             end as payment_id,
+             case l.cause
+               when 'primary_sale'        then (select o.event_session_id from venue."order" o where o.order_id = l.cause_ref)
+               when 'refund_void'         then (select o.event_session_id from kernel.refund r
+                                                  join kernel.payment_native pn on pn.payment_id = r.payment_id
+                                                  join venue."order" o on o.order_id = pn.order_id where r.refund_id = l.cause_ref)
+               when 'chargeback'          then (select o.event_session_id from kernel.dispute_native d
+                                                  join kernel.payment_native pn on pn.payment_id = d.payment_id
+                                                  join venue."order" o on o.order_id = pn.order_id where d.dispute_id = l.cause_ref)
+               when 'market_sale'         then (select t.event_session_id from market.market_sale ms
+                                                  join kernel.tickets t on t.ticket_atom_id = ms.ticket_atom_id where ms.sale_id = l.cause_ref)
+               when 'promoter_commission' then (select o.event_session_id from venue.attribution a
+                                                  join venue."order" o on o.order_id = a.order_id where a.id = l.cause_ref)
+             end as session_id
+        from venue.settlement_line l
+       where l.settlement_id = p_settlement_id
+         -- the five causes the three seams emit. Any OTHER cause on this header is
+         -- a hand-written line of unknown provenance; it contributes no anchor, so
+         -- a settlement made only of such lines lands on v_sess_n = 0 and holds.
+         and l.cause in ('primary_sale','refund_void','chargeback','market_sale','promoter_commission')
+    ),
+    cov_session as (select distinct cl.session_id from cov_line cl where cl.session_id is not null)
+    select
+      (select count(*) from cov_line cl where cl.payment_id is null or cl.session_id is null),
+      (select count(*) from cov_session),
+      (select count(*) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id where es.ends_at is null),
+      (select max(es.ends_at) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id),
+      (select exists (select 1 from cov_session cs
+                        join catalog.event_session es on es.session_id = cs.session_id
+                        join catalog.event e on e.event_id = es.event_id
+                       where es.status = 'cancelled' or e.status = 'cancelled')),
+      -- NON-TERMINAL refund: kernel.refund runs pending → submitted →
+      -- succeeded|failed (085:82-85). Money is still in motion in the first two.
+      (select exists (select 1 from cov_line cl join kernel.refund r on r.payment_id = cl.payment_id
+                       where r.status in ('pending','submitted'))),
+      -- OPEN dispute: the four non-terminal members of dispute_native.status
+      -- (085 DDL). 'won' / 'warning_closed' are closed favourably; 'lost' /
+      -- 'charge_refunded' are closed adversely AND already lined by 10h.
+      (select exists (select 1 from cov_line cl join kernel.dispute_native d on d.payment_id = cl.payment_id
+                       where d.status in ('warning_needs_response','warning_under_review','needs_response','under_review')))
+      into v_unresolved, v_sess_n, v_sess_no_end, v_anchor, v_cancelled, v_refund_open, v_dispute_open;
+    -- FIRST FAILING PREDICATE WINS THE CODE, in causal order: you cannot ask
+    -- whether money has matured until you know the policy, what the money is
+    -- about, and when the event ended. The FULL vector goes to the audit and to
+    -- the additive 'payout_hold_detail' key, so precedence hides nothing.
+    v_hold_reason := case
+      -- 'unbounded_refund_exposure' is retained VERBATIM for the policy-unset arm:
+      -- it is the same fact it always named (no policy ⇒ the exposure is unbounded)
+      -- and it keeps every operator runbook and the 151 C20i..C20n block intact.
+      when v_maturity is null                                    then 'unbounded_refund_exposure'
+      when v_maturity < interval '0'                             then 'maturity_policy_invalid'
+      when coalesce(v_unresolved, 1) > 0                         then 'covered_set_unresolvable'
+      when coalesce(v_cancelled, true)                           then 'event_cancelled'
+      when coalesce(v_sess_n, 0) = 0
+        or coalesce(v_sess_no_end, 1) > 0
+        or v_anchor is null                                      then 'maturity_instant_unknown'
+      when now() < v_anchor + v_maturity                         then 'maturity_not_elapsed'
+      when coalesce(v_refund_open, true)                         then 'refund_in_flight'
+      when coalesce(v_dispute_open, true)                        then 'dispute_open'
+      else null
+    end;
+    v_held := v_hold_reason is not null;
+    v_hold_detail := jsonb_build_object(
+      'maturity_interval',  case when v_maturity is null then null else v_maturity::text end,
+      'maturity_anchor',    v_anchor,
+      'matures_at',         case when v_anchor is null or v_maturity is null then null else (v_anchor + v_maturity) end,
+      'covered_sessions',   v_sess_n, 'sessions_without_end', v_sess_no_end,
+      'unresolvable_lines', v_unresolved, 'event_cancelled', v_cancelled,
+      'refund_in_flight',   v_refund_open, 'dispute_open', v_dispute_open);
     insert into kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, currency, status, idempotency_key,
                                hold_state, hold_reason_code, held_by, held_at)
     values ('organization', v_s.org_id, 'settlement', p_settlement_id, v_net::integer, v_s.currency, 'pending',
             'settlement:' || p_settlement_id::text,
             case when v_held then 'held' else 'none' end,
-            case when v_held then 'unbounded_refund_exposure' else null end,
+            v_hold_reason,
             null,
             case when v_held then now() else null end)
     on conflict (idempotency_key) do nothing
     returning payout_id into v_payout_id;
     if v_payout_id is not null then v_ids := array[v_payout_id]; end if;
   end if;
-  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-  values (auth.uid(), 'settlement.close', 'settlement', p_settlement_id, coalesce(p_command_key,'close'));
+  -- the audit row gains `after` — ADDITIVE, and the only durable place an operator
+  -- can read the WHOLE predicate vector rather than the one code that won.
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+  values (auth.uid(), 'settlement.close', 'settlement', p_settlement_id, coalesce(p_command_key,'close'),
+          jsonb_build_object('payout_hold', v_hold_reason, 'hold_predicates', v_hold_detail));
   -- net_minor is a READ-BACK of the column this function wrote (§10.2 R1-2), never a local.
   -- 'payout_hold' is ADDITIVE — every contracted key (status, payout_ids,
   -- net_minor) keeps its meaning; callers that do not read it are unaffected.
+  -- 'payout_hold_detail' is additive in the same way and is NULL when nothing held.
   return jsonb_build_object('status','ok','payout_ids', v_ids,
            'net_minor', (select net_minor from venue.settlement where settlement_id = p_settlement_id),
-           'payout_hold', case when v_held then 'unbounded_refund_exposure' else null end);
+           'payout_hold', v_hold_reason,
+           'payout_hold_detail', case when v_held then v_hold_detail else null end);
 end;
 $$;
 
@@ -1631,13 +1821,16 @@ comment on constraint payments_mode_check on public.payments is
 --   §1  two mirror columns on kernel.organization ......... A6  (scope item 5)
 --   §2  kernel.sync_org_connect_state, service_role only .. A6  (scope item 6)
 --   §2b kernel.stage_org_connect_ref, service_role only ... A7/A9 (RT-A-3)
---   §3  checkout readiness gate, UNCONDITIONAL ............ A8  (scope item 7)
+--   §3  checkout readiness gates, UNCONDITIONAL ........... A8  (scope item 7)
+--         G2  connect readiness — can the VENUE be paid?
+--         G2b signing-key readiness — can the BUYER be delivered to?
 --       + the buyer-side service fee, fail-closed ......... A5  (part 40's
 --         `fee.buyer_service_bps`, whose only possible reader this is)
 --   §4  kernel.set_org_connect_ref — hardened ............. A7/A9 (item 8)
 --   §5  kernel.set_org_payout_destination — hardened ...... A7/A9 (item 9)
 --   §6  kernel.get_org_connect_state — read, HUMANS ........ A7  (F §3.5 G5)
 --   §7  kernel.get_org_connect_ref — read, MACHINES ........ A7  (F §3.4)
+--   §8  kernel.issue_ticket_atoms — resolve, not accept .... T1  (binds G2b)
 --
 -- §6 and §7 are the two objects here that are NOT in the 093 scope list. Both
 -- were added because the onboarding edge cannot function without them: the
@@ -2158,6 +2351,11 @@ declare
   -- A8/G2: the readiness operands, read once from the selling organization.
   v_org_ref   text;
   v_org_ready boolean;
+  -- A8/G2b: the deliverability operands — the event's scope keys for the
+  -- signing-key resolution, and the key that resolution finds.
+  v_event_id    uuid;
+  v_venue_id    uuid;
+  v_signing_key uuid;
   -- A5: the buyer-side service fee. v_fee_bps is NUMERIC on purpose — the cast
   -- happens once, and an owner typo is caught by an explicit range check with a
   -- greppable message instead of a raw 22P02 out of an ::integer cast.
@@ -2218,8 +2416,8 @@ begin
 
   -- Session must be sellable (event on_sale/live) and not terminal (§6.1). org_id
   -- is server-derived from the session's event; never client-trusted.
-  select e.status, s.status, e.org_id
-    into v_evt_status, v_sess_status, v_org_id
+  select e.status, s.status, e.org_id, e.event_id, e.venue_id
+    into v_evt_status, v_sess_status, v_org_id, v_event_id, v_venue_id
     from catalog.event_session s
     join catalog.event e on e.event_id = s.event_id
    where s.session_id = p_session_id;
@@ -2268,6 +2466,61 @@ begin
     raise exception 'precondition_failed: payout_not_ready';
   end if;
   -- ---- end A8 / G2 ---------------------------------------------------------
+
+  -- ---- A8 / G2b — SIGNING-KEY DELIVERABILITY, FAIL CLOSED -----------------
+  -- THE DEFECT THIS CLOSES: with ZERO signing keys in the database an order was
+  -- created, the buyer paid, the webhook called venue.finalize_primary_order,
+  -- and the mint raised `no_active_signing_key` (083:513-530) — AFTER the
+  -- PaymentIntent was confirmed. The buyer is charged and holds no ticket, and
+  -- with the refund executor undeployed and kernel.mark_refund_state without a
+  -- caller, nothing gives the money back automatically. G2 asks whether the
+  -- VENUE can be paid; this asks whether the BUYER can be delivered to. The
+  -- owner's SALEABLE rule covers both: do not sell what Snatch It cannot
+  -- honour, and a sale that provably cannot mint a ticket is the clearest case.
+  --
+  -- THE PREDICATE IS COPIED FROM THE MINT, NOT APPROXIMATED. A gate looser than
+  -- the mint's would pass here and fail there, which is the bug being closed —
+  -- so this is venue.finalize_primary_order's own resolution (085:1948-1960)
+  -- character for character: active status, inside [not_before, not_after), and
+  -- a scope that GOVERNS this event, ordered MOST SPECIFIC FIRST — per_event
+  -- outranks per_venue outranks global. 083:517-527 then re-validates the
+  -- pinned key with the identical conditions, so a key this finds is a key the
+  -- mint accepts.
+  --
+  -- The `order by … limit 1` is retained even though a bare EXISTS would be
+  -- logically equivalent for a yes/no gate: the ordering is what makes this
+  -- visibly the SAME query as finalize's, so a future change to the precedence
+  -- there is an obvious mismatch here rather than a silent divergence.
+  --
+  -- FAILS CLOSED ON EVERY AMBIGUITY: no key at all, a key that is inactive, one
+  -- not yet in force, one already expired, or one whose scope does not govern
+  -- this event all resolve to NULL and refuse. This gate is ON from the moment
+  -- 093 applies and stays on until the ruling-B bootstrap key row exists — the
+  -- owner ceremony (093 scope item 2) — which is the correct resting state:
+  -- until that row exists, no ticket can be minted by anything.
+  --
+  -- NOTHING HERE PROVISIONS A KEY. Ruling B parks kernel.provision_signing_key
+  -- and rotate_signing_key as unconditional raises, and this slice neither
+  -- un-parks them nor inserts a signing_key row. A gate that could mint its own
+  -- key would defeat the two-person KMS ceremony it exists to wait for.
+  select k.key_id into v_signing_key
+    from kernel.signing_key k
+   where k.status = 'active'
+     and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
+     and (   (k.scope = 'per_event' and k.event_id = v_event_id)
+          or (k.scope = 'per_venue' and k.venue_id = v_venue_id)
+          or (k.scope = 'global'))
+   order by case k.scope when 'per_event' then 1 when 'per_venue' then 2 else 3 end
+   limit 1;
+  if v_signing_key is null then
+    raise exception 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before a ticket can be sold';
+  end if;
+  -- The key is NOT pinned onto the order. Resolution happens again at finalize
+  -- under the rank-1 session lock (085:1943-1960), which is the correct place
+  -- for it: a key legitimately rotated between checkout and payment must not be
+  -- frozen by a value captured here, and venue."order" has no column for one.
+  -- This gate proves DELIVERABILITY AT QUOTE TIME; finalize decides WHICH key.
+  -- ---- end A8 / G2b --------------------------------------------------------
 
   -- ---- A5 — BUYER SERVICE FEE RATE, FAIL CLOSED ---------------------------
   -- STRICTLY AFTER the gate above: an organization that cannot be paid is
@@ -2994,6 +3247,244 @@ grant execute on function kernel.get_org_connect_ref(uuid) to service_role;
 
 
 -- ============================================================================
+-- §8 — kernel.issue_ticket_atoms: RESOLVE the signing key, never accept it.
+--   Signing review threat T1 · ruling B (activation boundary) · the binding
+--   half of §3's G2b gate.
+--
+-- WHY THIS IS IN THE CONNECT SLICE: it is not connect work. It is here because
+-- §3's G2b gate is UNENFORCEABLE WITHOUT IT, and shipping the gate without this
+-- would be shipping a control that reads as binding and is not.
+--
+-- THE DEFECT. The mint took the key from the CALLER: `v_key := (p_ctx->>
+-- 'signing_key_id')::uuid` (083:479), then validated it only for scope
+-- COHERENCE (083:512-529) — active, in-window, and governing this session. That
+-- predicate's `global` arm is UNCONDITIONAL, so a `global` key satisfies it even
+-- when a `per_event` key exists for the event. Coherence is not resolution: it
+-- asks "may this key govern here?", never "is this the key that governs here?".
+-- Consequences, both real:
+--   · T1 (a key silently outranking the intended one) is NOT superuser-only. Any
+--     service_role caller could pin a global key over a per_event key and mint
+--     atoms under it.
+--   · MY OWN G2b GATE WAS ADVISORY. I copied finalize's resolution character for
+--     character so a precedence change would surface as a visible mismatch — but
+--     a mint that accepts whatever it is handed can disagree with the gate with
+--     NO MISMATCH TO SEE: the gate resolves the per_event key, the caller pins
+--     the global one, and both "succeed".
+--
+-- THE FIX, AND WHICH OPTION I TOOK. Two were available: ignore the supplied
+-- value silently, or resolve internally and REFUSE a disagreement. I took the
+-- REFUSAL. Silently ignoring would make a caller that believes it is choosing a
+-- key be quietly overruled — the same class of invisible divergence as the bug,
+-- just in the other direction — and it would erase the evidence that anyone
+-- ever tried. The refusal converts an override into a loud, greppable error and
+-- leaves every correct caller untouched: venue.finalize_primary_order supplies
+-- the key it resolved at 085:1948-1960 with this exact rule (085:2050), so its
+-- supplied value EQUALS the resolved one and it never trips the refusal.
+--
+-- NOTE ON THE SIGNATURE: unlike §4/§5 there is no parameter to defend here.
+-- `signing_key_id` is a KEY INSIDE p_ctx jsonb, not an argument, so the frozen
+-- signature (p_ctx jsonb, p_command_key text) is untouched and CREATE OR REPLACE
+-- imposes no constraint at all. The value stays readable purely so the refusal
+-- can compare against it.
+--
+-- THE RESOLUTION IS THE SAME QUERY IN ALL THREE PLACES BY CONSTRUCTION:
+-- finalize (085:1948-1960), §3's G2b gate, and here. Same predicate, same
+-- most-specific-first ordering (per_event → per_venue → global). It keeps 083's
+-- original JOIN through event_session/event rather than finalize's two-step
+-- derivation, for one reason: with a nonexistent session the join yields no row
+-- and this raises `no_active_signing_key` BEFORE the rank-1 session lock,
+-- exactly as the old coherence check did. On every reachable input the three
+-- agree; the join form only preserves 083's pre-lock refusal ordering.
+--
+-- I CHECKED WHETHER THEY ALREADY DIFFERED, AS ASKED. They did, and this is the
+-- finding: finalize RESOLVES (order by scope, limit 1) while the mint only
+-- CHECKED COHERENCE (exists, unordered). Those are different operations, not
+-- different spellings of one — which is precisely how the two could disagree.
+-- After this replacement they are the same operation in all three sites.
+--
+-- EVERYTHING ELSE IS BYTE-FOR-BYTE: the ctx unpack, every refusal code, the
+-- feature-flag gate, the idempotency anchor, the rank-1 session lock, the batch
+-- lock and coherence check, the serial draw, the atom/ownership-log loop, the
+-- sold conversion, the movement row, the door-manifest hook, the return shape,
+-- and the unique_violation handler that returns the original atom set. NO
+-- signing key is provisioned or inserted, and the parked signing RPCs stay
+-- parked — a mint that could create its own key would defeat the ceremony this
+-- boundary exists to wait for, exactly as §3's comment says of the gate.
+-- ============================================================================
+create or replace function kernel.issue_ticket_atoms(p_ctx jsonb, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor    uuid;
+  v_session  uuid;
+  v_org      uuid;
+  v_tt       uuid;
+  v_batch    uuid;
+  v_owner    uuid;
+  v_qty      integer;
+  v_cause    text;
+  v_cause_ref uuid;
+  v_key      uuid;
+  v_key_req  uuid;   -- T1: what the CALLER asked for. Compared, never trusted.
+  v_flag     boolean;
+  v_serial   integer;
+  v_atom     uuid;
+  v_atoms    uuid[] := '{}';
+  v_ex       uuid[];
+  v_b_session uuid;
+  v_b_tt     uuid;
+  i          integer;
+begin
+  v_actor := coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1');  -- SN-SYSTEM for import/sweep
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+
+  v_session   := (p_ctx->>'session_id')::uuid;
+  v_org       := (p_ctx->>'org_id')::uuid;
+  v_tt        := (p_ctx->>'ticket_type_id')::uuid;
+  v_batch     := (p_ctx->>'batch_id')::uuid;
+  v_owner     := (p_ctx->>'owner_id')::uuid;
+  v_qty       := (p_ctx->>'quantity')::integer;
+  v_cause     := (p_ctx->>'cause');
+  v_cause_ref := (p_ctx->>'cause_ref')::uuid;
+  -- T1: read as a REQUEST, not as the answer. Resolution happens below.
+  v_key_req   := (p_ctx->>'signing_key_id')::uuid;
+
+  if v_cause not in ('issue','comp','door_sale','import') then
+    raise exception 'precondition_failed: bad_cause %', v_cause;
+  end if;
+  if v_qty is null or v_qty <= 0 then
+    raise exception 'precondition_failed: bad_quantity';
+  end if;
+  if v_owner is null or v_batch is null or v_session is null
+     or v_tt is null or v_cause_ref is null then
+    -- cause_ref is the idempotency anchor and tt is the coherence key: a NULL in
+    -- either would silently defeat the replay guard / batch check downstream (E-46).
+    raise exception 'precondition_failed: incomplete context';
+  end if;
+
+  -- NATIVE ISSUANCE GATE — the mint is inert while the flag is false (dark).
+  select (c.value #>> '{}')::boolean into v_flag
+    from catalog.platform_config c
+   where c.key = 'feature.native_issuance_enabled'
+   order by c.version desc limit 1;
+  if not coalesce(v_flag, false) then
+    raise exception 'precondition_failed: feature_disabled';
+  end if;
+
+  -- IDEMPOTENCY: a replay of a succeeded mint returns the original atoms. The mint's
+  -- ownership-log entry is ALWAYS cause='issue' (the ownership_log_from_identity_check
+  -- requires cause='issue' for the from-NULL sequence-1 row); the business cause lives
+  -- in the movement + the state_transition jsonb.
+  select array_agg(l.ticket_atom_id order by l.ticket_atom_id) into v_ex
+    from kernel.ticket_ownership_log l
+   where l.cause = 'issue' and l.cause_ref = v_cause_ref;
+  if v_ex is not null and array_length(v_ex, 1) > 0 then
+    return jsonb_build_object('status','idempotency_replay','atom_ids', to_jsonb(v_ex));
+  end if;
+
+  -- ACTIVATION BOUNDARY (§7.1): an ACTIVE signing_key must RESOLVE for the scope.
+  -- Fail closed if none resolves — NEVER auto-create one. Most-specific-first:
+  -- per_event outranks per_venue outranks global (085:1948-1960), so the key the
+  -- door will expect is the key the atom is minted under.
+  select k.key_id into v_key
+    from kernel.signing_key k
+    join catalog.event_session s on s.session_id = v_session
+    join catalog.event e on e.event_id = s.event_id
+   where k.status = 'active'
+     and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
+     -- scope coherence (E-46): the key must GOVERN this session's scope — an
+     -- active-but-wrong-scope key would mint atoms the door cannot verify.
+     and (   (k.scope = 'per_event' and k.event_id = s.event_id)
+          or (k.scope = 'per_venue' and k.venue_id = e.venue_id)
+          or (k.scope = 'global'))
+   order by case k.scope when 'per_event' then 1 when 'per_venue' then 2 else 3 end
+   limit 1;
+  if v_key is null then
+    raise exception 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted';
+  end if;
+  -- T1: a caller MAY state which key it expects, and a correct caller does
+  -- (085:2050 passes the key finalize resolved with this same rule). What it may
+  -- not do is CHOOSE one. A disagreement is refused loudly rather than silently
+  -- honoured (the old bug) or silently discarded (the other wrong fix).
+  if v_key_req is not null and v_key_req <> v_key then
+    raise exception 'precondition_failed: signing_key_override_refused — caller supplied % but % resolves for this scope; the mint resolves its own key', v_key_req, v_key;
+  end if;
+
+  -- rank-1 Event/Session lock (SPEC_FOUNDATION §5 order; DOOR §818; E-46): the
+  -- serial_no counter below is SESSION-scoped while the batch lock is batch-scoped —
+  -- without this, same-session/different-batch mints race to the same serial and the
+  -- loser aborts on tickets_session_serial_uq. Also mutually excludes
+  -- catalog.update_event_session's atoms-issued schedule guard.
+  perform 1 from catalog.event_session s where s.session_id = v_session for update;
+  if not found then
+    raise exception 'not_found: session %', v_session using errcode = 'P0002';
+  end if;
+
+  -- lock the batch (C27 choke-point) and verify ctx coherence (E-46): the sold
+  -- counter and the atoms must move on the SAME session/ticket_type.
+  select b.event_session_id, b.ticket_type_id into v_b_session, v_b_tt
+    from venue.inventory_batch b where b.batch_id = v_batch for update;
+  if not found then
+    raise exception 'not_found: batch %', v_batch using errcode = 'P0002';
+  end if;
+  if v_b_session <> v_session or v_b_tt <> v_tt then
+    raise exception 'precondition_failed: batch_mismatch — batch % does not belong to the ctx session/ticket_type', v_batch;
+  end if;
+
+  select coalesce(max(t.serial_no), 0) into v_serial
+    from kernel.tickets t where t.event_session_id = v_session;
+
+  for i in 1..v_qty loop
+    insert into kernel.tickets (event_session_id, org_id, ticket_type_id, serial_no,
+                                current_owner_id, state, credential_version, signing_key_id)
+    values (v_session, v_org, v_tt, v_serial + i, v_owner, 'active', 0, v_key)
+    returning ticket_atom_id into v_atom;
+    v_atoms := v_atoms || v_atom;
+
+    insert into kernel.ticket_ownership_log (ticket_atom_id, sequence, from_identity, to_identity,
+                                             cause, cause_ref, actor_identity, command_idempotency_key,
+                                             credential_version_after, state_transition)
+    values (v_atom, 1, null, v_owner, 'issue', v_cause_ref, v_actor, p_command_key || ':' || v_atom::text,
+            0, jsonb_build_object('from', null, 'to', 'active', 'mint_cause', v_cause));
+  end loop;
+
+  -- convert to sold. The C27 CHECK (held+sold<=capacity) is the oversell backstop;
+  -- 085/finalize releases the matching hold (held -= N) — forward obligation E-40.
+  update venue.inventory_batch set sold = sold + v_qty, updated_at = now()
+   where batch_id = v_batch;
+
+  insert into venue.inventory_movement (batch_id, movement_kind, delta_held, delta_sold,
+                                        cause, cause_ref, actor_identity)
+  values (v_batch, 'issue', 0, v_qty, v_cause, v_cause_ref, v_actor);
+
+  -- where an open door episode exists, feed the manifest delta (no-op stub until 086).
+  perform venue.append_door_manifest_delta(v_session, v_atoms, 'add', v_cause_ref);
+
+  return jsonb_build_object('status','ok','atom_ids', to_jsonb(v_atoms));
+exception when unique_violation then
+  -- concurrent identical retry (E-46): the loser's partial work rolled back to the
+  -- block savepoint; under a fresh snapshot the winner's committed rows are visible.
+  -- Honor the replay contract (the 081 reserve idiom) — any unique_violation NOT
+  -- explained by the idempotency anchor re-raises raw.
+  select array_agg(l.ticket_atom_id order by l.ticket_atom_id) into v_ex
+    from kernel.ticket_ownership_log l
+   where l.cause = 'issue' and l.cause_ref = v_cause_ref;
+  if v_ex is not null and array_length(v_ex, 1) > 0 then
+    return jsonb_build_object('status','idempotency_replay','atom_ids', to_jsonb(v_ex));
+  end if;
+  raise;
+end;
+$$;
+-- No grant statement: CREATE OR REPLACE preserves the frozen 083 ACL for this
+-- function, and this slice must not widen or narrow it.
+
+
+-- ============================================================================
 -- END PART 30. Residuals this part creates, recorded so they are not mistaken
 -- for oversights (all outside the authored scope of this fragment):
 --   R30-1  OPEN — CARRIED AS A NAMED FOLLOW-UP, NOT CLOSED HERE.
@@ -3034,6 +3525,11 @@ grant execute on function kernel.get_org_connect_ref(uuid) to service_role;
 --          authorize binding the account the platform itself minted for that
 --          org — but a TTL sweep would be the tidier long-term shape, and it is
 --          not in 093.
+--   R30-8  G2b refuses EVERY primary checkout until the ruling-B bootstrap
+--          signing-key row exists (093 scope item 2, an owner KMS ceremony).
+--          That is the intended resting state, not a defect — but it means the
+--          ceremony is now a hard blocker on the first sale, visible as
+--          `no_active_signing_key` rather than as a post-payment mint failure.
 --   R30-5  Nothing in the database stops selling being activated while
 --          fee.buyer_service_bps is null; the §3 refusal is per-checkout, so
 --          the symptom is "every sale fails closed", not "no sale is
@@ -3111,18 +3607,23 @@ grant execute on function kernel.get_org_connect_ref(uuid) to service_role;
 -- credential client spans, 078:1522-1530). These five are operational
 -- thresholds, platform economics and a money-safety gate — PFA-8 posture.
 --
--- DUAL CONTROL: none of these prefixes is dual-controlled. The setter's
--- prefix test is
+-- DUAL CONTROL: FOUR of these five are not dual-controlled; the fifth now is.
+-- The setter's prefix test is
 --     v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like
 --               'authn.%' or p_key like 'comp.%' or p_key like 'wallet.%' or
 --               p_key like 'credential.%' or p_key like 'door.session\_%';
--- at 078:1145-1147. `ticket.%`, `inventory.%`, `fee.%` and `settlement.%` match
--- none of them, so each later set_platform_config call is a SINGLE
--- platform_admin write with no approval round. For three of these rows that is
--- the property that makes seeding them absent safe — the owner can fill them in
--- without a migration. For settlement.refund_window_interval it is the OPPOSITE:
--- it is what makes setting it dangerous, because nobody has to countersign.
--- See that row's caveat.
+-- at 078:1145-1147. `ticket.%`, `inventory.%` and `fee.%` match none of them, so
+-- each later set_platform_config call for those is a SINGLE platform_admin write
+-- with no approval round — which is the property that makes seeding them absent
+-- safe, because the owner can fill them in without a migration.
+--
+-- THE MONEY-SAFETY KEY IS THE EXCEPTION AND IT IS DELIBERATELY IN A DIFFERENT
+-- NAMESPACE. It was 'settlement.refund_window_interval', which matched no
+-- dual-control prefix — so the single most dangerous value in the train could be
+-- set by one person with no countersignature. It is now
+-- 'payout.settlement_maturity_interval' (G2), which matches 'payout.%' AND has no
+-- polarity entry, so every set of it parks for a second platform_admin. See that
+-- row's block.
 --
 -- TYPE WITNESS: 078:1111-1114 — "a key seeded absent-by-design (JSON null) has
 -- no witness yet and accepts the first typed value, after which the witness
@@ -3334,56 +3835,72 @@ insert into catalog.platform_config (key, version, value, visibility) values
   -- price) rather than default to zero while the value is null.
   ('fee.buyer_service_bps',                   1, 'null'::jsonb,       'restricted'),  -- A5: value is OWNER POLICY; never hardcoded here
 
-  -- ---- settlement.refund_window_interval — THE KEY WHOSE *SETTING* IS THE ----
-  -- ---- DANGEROUS ACT. READ THE CAVEAT BEFORE YOU TOUCH THIS ONE. ------------
+  -- ---- payout.settlement_maturity_interval — THE PAYOUT HOLD AFTER THE -------
+  -- ---- EVENT. RENAMED FROM settlement.refund_window_interval (G2). ----------
   --
   -- Routed here so slice 40 and the money slice do not both write the row. The
   -- READER is kernel.close_settlement in
-  -- docs/phase2/_impl/093_parts/10_money_settlement.sql (the lookup at 10:647,
-  -- the hold at 10:653-657). Spelling verified against that reader; the name
-  -- follows inventory.hold_ttl_interval.
+  -- docs/phase2/_impl/093_parts/10_money_settlement.sql (the G2 maturity gate at
+  -- the payout mint). Spelling verified against that reader.
   --
-  -- WHAT IT GATES, which is NOT the obvious thing. A refund that succeeds AFTER
-  -- its settlement has closed is never collected: the venue is paid face value,
-  -- the buyer is refunded, and the debit exists NOWHERE in the ledger,
-  -- permanently. Measured by the red team over five closes: lifetime net 8400
-  -- against 19000 actually paid out. **093 CREATED this exposure** by activating
-  -- the credit side — pre-093 gross was structurally zero, so there was no payout
-  -- to overpay.
+  -- THE OLD NAME WAS A LIE AND IS NOT PRESERVED. 'refund_window' names REFUND
+  -- ELIGIBILITY — how long a buyer may still ask for money back. That is real
+  -- policy and it is owned by an entirely different family of keys
+  -- (refund.buyer_self_service_window_hours, refund.request_ttl_hours,
+  -- refund.scanned_atom_policy — 078:1544-1551). This value is not that. It is:
+  -- HOW LONG AFTER THE LAST COVERED SESSION ENDS THE VENUE'S MONEY MUST SIT
+  -- STILL. Three separate concepts were collapsed into one name — refund
+  -- ELIGIBILITY, payout MATURITY, and refund EXECUTION (kernel.mark_refund_state
+  -- / the refund-execute edge) — and only the middle one is this row.
   --
-  -- HOW IT IS CLOSED TODAY: while this key is unset, close_settlement mints the
+  -- THE PREFIX IS LOAD-BEARING, NOT COSMETIC. This is the sentence the OLD
+  -- version of this comment had to write, and the rename is what answers it:
+  -- 'settlement.%' matched NONE of the dual-control prefixes at 078:1145-1147
+  -- (refund. / payout. / authn. / comp. / wallet. / credential. / door.session_),
+  -- so setting the most dangerous money key in the train was ONE platform_admin
+  -- write with no second pair of eyes. 'payout.%' MATCHES. And because the key
+  -- carries no entry in the polarity map (078:1152-1198), it has no declared
+  -- restrictive direction, so EVERY set of it parks for a second platform_admin
+  -- through kernel.approval_request / 'config.set_money_key' (078:1268-1285,
+  -- consumed at 085:1224/1328). The rename converts a single-writer bypass into
+  -- a two-person control at zero implementation cost.
+  --
+  -- WHAT IT GATES. A refund that succeeds AFTER its settlement has closed is
+  -- never collected: the venue is paid face value, the buyer is refunded, and the
+  -- debit exists NOWHERE in the ledger, permanently. Measured by the red team
+  -- over five closes: lifetime net 8400 against 19000 actually paid out.
+  -- **093 CREATED this exposure** by activating the credit side — pre-093 gross
+  -- was structurally zero, so there was no payout to overpay.
+  --
+  -- HOW IT IS CLOSED: while this key is unset, close_settlement mints the
   -- settlement payout HELD — hold_state='held',
-  -- hold_reason_code='unbounded_refund_exposure' (10:657). The ledger still
-  -- records the full truth and the obligation still exists; only the MONEY is
-  -- immobilised. That is a deliberate fail-closed posture, not a bug.
+  -- hold_reason_code='unbounded_refund_exposure' (that code is retained verbatim
+  -- for this arm). The ledger still records the full truth and the obligation
+  -- still exists; only the MONEY is immobilised.
   --
   -- ####################################################################
-  -- ##  THE CAVEAT — THE PRESENCE OF THIS KEY IS NOT AN IMPLEMENTATION
-  -- ##  OF THE REFUND WINDOW. THE GATE IS BINARY.
+  -- ##  SETTING THIS KEY IS NO LONGER SUFFICIENT TO RELEASE A PAYOUT.
   -- ##
-  -- ##  Both the DURATION and the INSTANT IT RUNS FROM are policy that has
-  -- ##  NEVER BEEN RULED. Nothing in the corpus states either.
+  -- ##  That was the defect this rename ships with the fix for. The old gate
+  -- ##  was `v_held := v_refund_window is null` — the ONLY predicate was
+  -- ##  "is the key set", so setting it to ANY value released every payout
+  -- ##  immediately with no maturity semantics implemented anywhere. The key
+  -- ##  was a hidden feature flag for logic that did not exist.
   -- ##
-  -- ##  Setting this key before a verb exists that actually ENFORCES a window
-  -- ##  switches the protection OFF WITHOUT REPLACING IT — it converts a
-  -- ##  fail-closed hold into an unguarded payout. Whoever sets it MUST FIRST
-  -- ##  CONFIRM THAT ENFORCEMENT EXISTS.
+  -- ##  The gate is now a CONJUNCTION (G2). This value is one conjunct; the
+  -- ##  others are derived from the ledger and cannot be configured away:
+  -- ##  the covered set must resolve, no covered event may be cancelled, the
+  -- ##  last covered session's ends_at must be known and must have elapsed by
+  -- ##  this interval, no refund on a covered payment may be in flight, and
+  -- ##  no dispute on one may be open. Each failure has its own
+  -- ##  hold_reason_code.
   -- ##
-  -- ##  This is the THIRD and MOST DANGEROUS of the train's owner STOPs.
-  -- ##  Unlike the other two — ticket.expiry_grace (leaving it unset is the
-  -- ##  harm) and fee.buyer_service_bps (leaving it unset merely blocks
-  -- ##  selling) — here SETTING THE VALUE IS THE HARMFUL ACTION and leaving
-  -- ##  it null is the safe one. Do not "finish the config" by filling it in.
+  -- ##  The DURATION remains owner policy and 093 invents none. The ANCHOR is
+  -- ##  no longer policy: it is max(catalog.event_session.ends_at) over the
+  -- ##  settlement's own lines. See docs/phase2/_impl/G2_settlement_maturity.md
+  -- ##  for the recommended value and the evidence behind it.
   -- ####################################################################
-  --
-  -- AND THERE IS NO SECOND HUMAN IN THE WAY, which is exactly why the caveat
-  -- matters: 'settlement.%' matches NONE of the dual-control prefixes at
-  -- 078:1145-1147 (refund. / payout. / authn. / comp. / wallet. / credential. /
-  -- door.session_) — verified by evaluating that predicate against this key
-  -- name. So a later set_platform_config call is a SINGLE platform_admin write
-  -- with no approval round and no second pair of eyes. One person, one
-  -- statement, and the hold is gone.
-  ('settlement.refund_window_interval',       1, 'null'::jsonb,       'restricted')   -- SETTING THIS IS THE DANGEROUS ACT — read the caveat above
+  ('payout.settlement_maturity_interval',     1, 'null'::jsonb,       'restricted')   -- G2: one conjunct of the maturity gate; dual-controlled by its 'payout.' prefix
 
 on conflict (key, version) do nothing;
 
@@ -4031,6 +4548,677 @@ create policy venue_order_item_sel_venue on venue.order_item for select to authe
        and kernel.has_venue_role(e.venue_id, array['venue_manager','venue_finance'])
        and (select v.org_id from catalog.venue v where v.venue_id = e.venue_id)
            = o.org_id));   -- E-76: current operator
+
+
+
+-- ============================================================================
+-- ITEM 7 — DUAL-CONTROL THE `fee.%` NAMESPACE
+--          (ruling A5; body-only CREATE OR REPLACE of catalog.set_platform_config)
+--
+-- THE FINDING, executed against the live setter as a single platform_admin:
+-- set_platform_config('fee.buyer_service_bps', '750'::jsonb, ...) executed
+-- IMMEDIATELY — status 'ok', a new version row inserted, no parking, no second
+-- approver. fee.buyer_service_bps is the last surviving instance of the pattern
+-- the owner banned: one person, one statement, and the platform goes from
+-- "cannot sell" to "selling", with three preconditions a gate audit proved are
+-- unenforced behind it (no active signing key required at checkout — the buyer
+-- can be charged for a ticket that can never mint, being closed separately in
+-- slice 30; refund executability checked nowhere; no tax model at all).
+--
+-- THE FIX IS A ONE-LINE WIDENING of the prefix test at 078:1145-1147, delivered
+-- as a body-only replacement because 078 is immutable. The function body below
+-- is reproduced from 078:1048-1310 MECHANICALLY (extracted, not retyped) and is
+-- byte-identical except for the v_dual assignment and its adjacent comment. The
+-- signature, `security definer`, `set search_path = ''`, every precondition,
+-- every RANGE check, the whole polarity map, the cross-config wallet invariant,
+-- the parked path, the direct path and both audit rows are untouched.
+--
+-- POLARITY — CHECKED, NOT ASSUMED. fee.buyer_service_bps appears NOWHERE in the
+-- declared polarity map (078:1148-1196); it falls through to `else null`. With
+-- v_polarity null, v_restrictive can never be set true (every arm that assigns
+-- it requires a non-null polarity), so `v_dual and not v_restrictive` is
+-- unconditionally true and the key PARKS ON EVERY WRITE, in both directions.
+-- That is the intended behaviour: there is no "restrictive direction" for a
+-- platform fee rate, so no write of it should ever bypass the second approver.
+-- Verified by execution, not by reading.
+--
+-- NO NEW VOCABULARY: the parked path reuses action 'config.set_money_key' and
+-- subject_kind 'config_key', both already in kernel.approval_request's frozen
+-- closed sets and already exercised by the other seven dual-controlled
+-- namespaces. Nothing is widened but the prefix list.
+--
+-- BLAST RADIUS: `fee.` is a namespace this train created (ITEM 1). It contains
+-- exactly one key. No pre-093 key anywhere in the 41-key seed block starts with
+-- `fee.`, so no existing configuration path changes behaviour — verified
+-- against the seeded key list.
+-- ============================================================================
+
+create or replace function catalog.set_platform_config(
+  p_key text, p_value jsonb, p_reason_code text, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid        uuid;
+  v_cur_ver    integer;
+  v_cur_val    jsonb;
+  v_visibility text;
+  v_dual       boolean;
+  v_polarity   text;
+  v_restrictive boolean;
+  v_old_num    numeric;
+  v_new_num    numeric;
+  v_span       interval;
+  v_skew       interval;
+  v_ttl        interval;
+  v_probe      interval;                 -- 093: interval type guard scratch
+  v_request_id uuid;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  -- reason_code is mandatory for EVERY key, not only the money namespaces.
+  if p_reason_code is null or length(trim(p_reason_code)) = 0 then
+    raise exception 'precondition_failed: reason_required';
+  end if;
+  -- platform_support and platform_risk hold NO authority here: risk holds
+  -- hold_payout, not the thresholds that decide when a payout needs approval.
+  if not kernel.is_platform(array['platform_admin']) then
+    raise exception 'insufficient_privilege: platform_admin required'
+      using errcode = '42501';
+  end if;
+  if p_value is null then
+    raise exception 'precondition_failed: bad_value — use the JSON null literal';
+  end if;
+
+  -- APPR-SUBJ-1: resolve the subject under its own lock, in the same transaction
+  -- that writes the row. THIS FUNCTION CREATES NO NEW KEY — a key that no code
+  -- reads is a config row that lies (078 seeds every key).
+  select c.version, c.value, c.visibility
+    into v_cur_ver, v_cur_val, v_visibility
+    from catalog.platform_config c
+   where c.key = p_key
+   order by c.version desc
+   limit 1
+     for update;
+  if v_cur_ver is null then
+    raise exception 'precondition_failed: unknown_key %', p_key;
+  end if;
+
+  if v_cur_val = p_value then
+    return jsonb_build_object('status','noop_replay','key',p_key,
+                              'version',v_cur_ver,'request_id',null);
+  end if;
+
+  -- RPC §20.2.1 precondition: "p_value passes the key's declared TYPE/RANGE".
+  -- TYPE: a key never changes shape. The seeded row is the type witness; a key
+  -- seeded absent-by-design (JSON null) has no witness yet and accepts the first
+  -- typed value, after which the witness exists.
+  if jsonb_typeof(v_cur_val) <> 'null'
+     and jsonb_typeof(p_value) <> jsonb_typeof(v_cur_val) then
+    raise exception 'precondition_failed: bad_value — % is %, not %',
+      p_key, jsonb_typeof(v_cur_val), jsonb_typeof(p_value);
+  end if;
+  -- RANGE: enforced for every key whose admissible range the frozen corpus
+  -- actually states. A key with no stated range is not invented one here.
+  if p_key = 'authn.money_role_maturity_hours'
+     and jsonb_typeof(p_value) = 'number'
+     and ((p_value #>> '{}')::numeric < 24 or (p_value #>> '{}')::numeric > 72) then
+    -- RLS MD-14 / RPC §1.1e: "the admissible range as 24-72 hours".
+    raise exception 'precondition_failed: bad_value — authn.money_role_maturity_hours is outside MD-14''s admissible 24-72 hours';
+  end if;
+  if p_key = 'notify.announcement_hold_seconds'
+     and jsonb_typeof(p_value) = 'number'
+     and (p_value #>> '{}')::numeric < 120 then
+    -- NOTIF §7.5: "seed 300 s, FLOOR 120 s".
+    raise exception 'precondition_failed: bad_value — notify.announcement_hold_seconds is below NOTIF §7.5''s 120 s floor';
+  end if;
+  if p_key = 'authn.money_action_required_aal'
+     and jsonb_typeof(p_value) = 'string'
+     and (p_value #>> '{}') not in ('aal1','aal2') then
+    raise exception 'precondition_failed: bad_value — authn.money_action_required_aal must be aal1|aal2';
+  end if;
+  if p_key = 'refund.scanned_atom_policy'
+     and jsonb_typeof(p_value) = 'string'
+     and (p_value #>> '{}') not in ('refuse','platform_review') then
+    raise exception 'precondition_failed: bad_value — refund.scanned_atom_policy must be refuse|platform_review';
+  end if;
+
+  -- 093 — INTERVAL TYPE GUARD (the second of this item's two changes).
+  -- THE HOLE IT CLOSES: the TYPE witness above is skipped when the current value
+  -- is JSON null (078:1111-1114 — "a key seeded absent-by-design has no witness
+  -- yet and accepts the first typed value"). Every owner-STOP key in 093 is
+  -- seeded null, so each one accepts ANY json type on its first write. For an
+  -- interval-consumed key that is silent and severe: set_platform_config(
+  -- 'ticket.expiry_grace','24') is accepted, and '24'::interval is TWENTY-FOUR
+  -- SECONDS, not 24 hours (verified: select '24'::interval => 00:00:24). The
+  -- sweep at 079:475 then terminal-izes every atom on every ended session within
+  -- one cron tick, and `expired` is terminal and excluded from cancel_event's
+  -- refund cascade. The typo reads as correct to a human, which is what makes it
+  -- the dangerous shape.
+  -- THE GUARD: for keys the corpus consumes with ::interval, require a jsonb
+  -- STRING that actually parses. A bare number can no longer be stored.
+  -- MAINTENANCE NOTE: this is a list, in the same explicit per-key style as the
+  -- four RANGE checks above, and it must gain any future interval-typed key. The
+  -- root cause is the missing type witness on a null seed, not the list.
+  if p_key in ('ticket.expiry_grace','inventory.hold_ttl_interval',
+               'payout.settlement_maturity_interval','door.schedule_move_grace_interval',
+               'notify.delivery_lease_interval',
+               'credential.wallet_exp_skew','credential.wallet_default_span',
+               'credential.app_ttl_interval','wallet.apple.cert_expiry_warn_interval',
+               'door.implicit_freeze_offset_interval','door.manifest_ttl_interval',
+               'door.manifest_early_open_window','door.max_override_interval',
+               'door.session_ttl_interval','door.session_absolute_max_interval',
+               'door.session_post_session_grace')
+     and jsonb_typeof(p_value) <> 'null' then
+    if jsonb_typeof(p_value) <> 'string' then
+      raise exception 'precondition_failed: bad_value — % is interval-typed and needs a JSON STRING such as "24 hours"; a bare number is read as SECONDS', p_key;
+    end if;
+    begin
+      v_probe := (p_value #>> '{}')::interval;
+    exception when others then
+      v_probe := null;
+    end;
+    if v_probe is null then
+      raise exception 'precondition_failed: bad_value — % must be a parseable interval literal', p_key;
+    end if;
+  end if;
+
+  -- 093 / ruling A5 — `fee.%` ADDED. This is the ONLY change to this function.
+  -- WHY: fee.buyer_service_bps is the final clause of the SALEABLE chain — the
+  -- statement that sets it moves the platform from "cannot sell" to "selling",
+  -- and a gate audit proved three preconditions behind it are unenforced (no
+  -- active signing key is required at checkout, refund executability is checked
+  -- nowhere, and no tax model exists at all). A single administrator crossing
+  -- that line in one un-parked statement is exactly the shape the owner banned:
+  -- a config value acting as a hidden feature flag for incomplete logic.
+  -- WHY THE PREFIX AND NOT A RENAME: the settlement maturity key was fixed by
+  -- renaming it into `payout.%`; that is REJECTED here because this is not a
+  -- payout key and the rename would reintroduce the misleading semantics the
+  -- maturity rename removed. The prefix list is a policy statement about which
+  -- NAMESPACES are money-critical, and buyer-facing pricing plainly is.
+  v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like 'authn.%'
+         or p_key like 'comp.%'   or p_key like 'wallet.%' or p_key like 'credential.%'
+         or p_key like 'door.session\_%' or p_key like 'fee.%';
+
+  -- The declared polarity map. A key absent from it has NO declared polarity and
+  -- therefore parks (when dual-controlled). Booleans, enums and every non-scalar
+  -- are incomparable by construction and park for the same reason.
+  v_polarity := case
+    -- LOWER IS RESTRICTIVE: every one of these is a CEILING or a span whose
+    -- reduction narrows what may happen without a second human.
+    when p_key in ('refund.org_auto_execute_max_minor',
+                   'refund.org_dual_control_max_minor',
+                   'refund.buyer_self_service_max_minor',
+                   'refund.buyer_self_service_window_hours',
+                   'refund.platform_support_max_minor',
+                   'payout.request_auto_max_minor',
+                   -- payout.dual_control_min_minor is the amount ABOVE WHICH a
+                   -- payout parks (MONEY §7.2), so RAISING it REMOVES payouts
+                   -- from dual control. T-RPC-CFG-01 names this exact key:
+                   -- "raising ... parks and inserts no version; lowering it
+                   -- executes". It is a ceiling in disguise, not a floor.
+                   'payout.dual_control_min_minor',
+                   'comp.per_staff_step_up_max_units',
+                   'authn.money_action_max_age_seconds',
+                   'door.session_ttl_interval',
+                   'door.session_absolute_max_interval',
+                   'door.session_post_session_grace',
+                   'credential.wallet_exp_skew',
+                   'credential.wallet_default_span',
+                   'credential.app_ttl_interval')          then 'lower_is_restrictive'
+    -- HIGHER IS RESTRICTIVE: a longer cooldown, a longer probation and a longer
+    -- maturity floor each narrow what may happen (RPC §20.2.1: "a longer
+    -- probation"). comp.per_staff_step_up_window_hours is DELIBERATELY ABSENT:
+    -- the window is the COUNTING period of the C39 insider-fraud gate, so
+    -- shortening it counts fewer units and fires step-up LESS often — the
+    -- corpus declares a direction only for its _max_units half (RLS §11.1
+    -- AUTHZ-M8), so this key has NO declared polarity and takes §20.2.1's third
+    -- arm: not comparable => PARK. Failing toward the approver is the whole
+    -- point of that arm.
+    when p_key in ('payout.destination_cooldown_hours',
+                   'payout.destination_probation_days',
+                   'authn.money_role_maturity_hours')      then 'higher_is_restrictive'
+    -- FALSE IS RESTRICTIVE: a kill switch. WALLET §11.5b — "Setting
+    -- wallet.apple.enabled := false ... needs ONE admin and no approval round.
+    -- A kill switch that needs a quorum is not a kill switch."
+    when p_key = 'wallet.apple.enabled'                    then 'false_is_restrictive'
+    -- HIGHER AAL IS RESTRICTIVE: RPC §20.2.1 enumerates "a higher required AAL"
+    -- among the restrictive directions by name, so raising it during a
+    -- session-theft incident must execute in one transaction.
+    when p_key = 'authn.money_action_required_aal'         then 'aal_higher_is_restrictive'
+    else null
+  end;
+
+  v_restrictive := false;
+  if v_polarity is not null
+     and jsonb_typeof(v_cur_val) = 'number' and jsonb_typeof(p_value) = 'number' then
+    v_old_num := (v_cur_val #>> '{}')::numeric;
+    v_new_num := (p_value  #>> '{}')::numeric;
+    v_restrictive := case v_polarity
+                       when 'lower_is_restrictive'  then v_new_num < v_old_num
+                       when 'higher_is_restrictive' then v_new_num > v_old_num
+                     end;
+  elsif v_polarity = 'false_is_restrictive'
+     and jsonb_typeof(p_value) = 'boolean' then
+    -- Pulling the switch is a tightening; flipping it on is the mandatory-
+    -- dual-control write WALLET §11.5 describes.
+    v_restrictive := (p_value = 'false'::jsonb);
+  elsif v_polarity = 'aal_higher_is_restrictive'
+     and jsonb_typeof(v_cur_val) in ('string','null') and jsonb_typeof(p_value) = 'string' then
+    -- aal1 < aal2. An absent current value is the weakest state, so ANY named
+    -- level is a tightening against it.
+    v_restrictive := case
+      when p_value #>> '{}' not in ('aal1','aal2') then false      -- unknown => park
+      when jsonb_typeof(v_cur_val) = 'null'        then true
+      else (p_value #>> '{}') > (v_cur_val #>> '{}')
+    end;
+  elsif v_polarity in ('lower_is_restrictive','higher_is_restrictive')
+     and jsonb_typeof(v_cur_val) = 'string' and jsonb_typeof(p_value) = 'string' then
+    begin
+      v_restrictive := case v_polarity
+        when 'lower_is_restrictive'
+          then (p_value #>> '{}')::interval < (v_cur_val #>> '{}')::interval
+        when 'higher_is_restrictive'
+          then (p_value #>> '{}')::interval > (v_cur_val #>> '{}')::interval
+      end;
+    exception when others then
+      v_restrictive := false;                       -- not comparable => park
+    end;
+  end if;
+
+  -- The cross-config invariant (door §10.6): a Wallet token may never outlive the
+  -- offline window any manifest could authorise. Validated whenever EITHER side
+  -- changes, and the write is rejected otherwise. Evaluated INLINE rather than in
+  -- a helper: a helper would be a catalog object the frozen closed world does not
+  -- carry, and package parity is EXTRA = 0.
+  if p_key in ('credential.wallet_default_span','credential.wallet_exp_skew',
+               'door.manifest_ttl_interval') then
+    begin
+      select coalesce(
+               case when p_key = 'credential.wallet_default_span' then (p_value #>> '{}')::interval end,
+               (select (c.value #>> '{}')::interval from catalog.platform_config c
+                 where c.key = 'credential.wallet_default_span'
+                 order by c.version desc limit 1)),
+             coalesce(
+               case when p_key = 'credential.wallet_exp_skew' then (p_value #>> '{}')::interval end,
+               (select (c.value #>> '{}')::interval from catalog.platform_config c
+                 where c.key = 'credential.wallet_exp_skew'
+                 order by c.version desc limit 1)),
+             coalesce(
+               case when p_key = 'door.manifest_ttl_interval' then (p_value #>> '{}')::interval end,
+               (select (c.value #>> '{}')::interval from catalog.platform_config c
+                 where c.key = 'door.manifest_ttl_interval'
+                 order by c.version desc limit 1))
+        into v_span, v_skew, v_ttl;
+    exception when others then
+      v_span := null; v_skew := null; v_ttl := null;    -- unparseable => reject
+    end;
+    -- An absent operand cannot be shown to satisfy the invariant, so it does not.
+    if v_span is null or v_skew is null or v_ttl is null or v_span + v_skew > v_ttl then
+      raise exception 'precondition_failed: bad_value — wallet_default_span + wallet_exp_skew must not exceed door.manifest_ttl_interval';
+    end if;
+  end if;
+
+  if v_dual and not v_restrictive then
+    insert into kernel.approval_request
+           (action, required_approver_class, subject_kind, subject_id, org_id,
+            payload, config_versions, requested_by, state, reason_code,
+            expires_at, command_idempotency_key)
+    values ('config.set_money_key', 'platform_admin', 'config_key',
+            md5(p_key)::uuid, null,
+            jsonb_build_object('key', p_key, 'proposed_value', p_value,
+                               'current_value', v_cur_val),
+            jsonb_build_object(p_key, v_cur_ver),
+            v_uid, 'pending', trim(p_reason_code),
+            now() + interval '72 hours', p_command_key)
+    returning request_id into v_request_id;
+
+    insert into kernel.admin_audit
+           (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+    values (v_uid, 'config.money_key_proposed', 'config_key', md5(p_key)::uuid,
+            trim(p_reason_code),
+            jsonb_build_object('key', p_key, 'version', v_cur_ver, 'value', v_cur_val),
+            jsonb_build_object('key', p_key, 'value', p_value));
+
+    -- version UNCHANGED: the UI must say "waiting for a second approver",
+    -- never "saved".
+    return jsonb_build_object('status','parked','key',p_key,
+                              'version',v_cur_ver,'request_id',v_request_id);
+  end if;
+
+  -- Direct path. visibility is COPIED FORWARD: set_platform_config may not change
+  -- it — a function that can flip a key to public is a function that can publish
+  -- the ceilings.
+  insert into catalog.platform_config (key, version, value, visibility)
+  values (p_key, v_cur_ver + 1, p_value, v_visibility);
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'config.change', 'config_key', md5(p_key)::uuid, trim(p_reason_code),
+          jsonb_build_object('key', p_key, 'version', v_cur_ver, 'value', v_cur_val),
+          jsonb_build_object('key', p_key, 'version', v_cur_ver + 1, 'value', p_value));
+
+  return jsonb_build_object('status','ok','key',p_key,
+                            'version',v_cur_ver + 1,'request_id',null);
+end;
+$$;
+
+
+
+-- ============================================================================
+-- ITEM 8 — GUARD BACKWARD SCHEDULE MOVEMENT (P0 — seller-controlled backdating)
+--          body-only CREATE OR REPLACE of catalog.update_event_session (079:518-699)
+--
+-- Reproduced as executed: a seller org moves starts_at AND ends_at back 400 days
+-- with a reason_code; the settlement that had closed held/maturity_not_elapsed
+-- re-closes with hold_state='none' and payout_hold null, and request_org_payout
+-- returns pending_approval to an org-class approver. Second repro: three active
+-- atoms on a session 30 days out are all swept to 'expired' — terminal — after
+-- the same backdate.
+--
+-- The function below is reproduced from 079:518-699 MECHANICALLY (extracted, not
+-- retyped). Two changes only: one added local (v_econ) and one added guard block,
+-- both marked in place. The forward guard, door.schedule_move_grace_interval, the
+-- boundary_engaged / move_exceeds_grace / reason_required / session_terminal /
+-- unwritable_key refusals, the authority arms, the marketing-only arm, the
+-- session_version bump, the audit row and both return shapes are untouched.
+-- ============================================================================
+
+create or replace function catalog.update_event_session(
+  p_session_id uuid, p_patch jsonb, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid        uuid;
+  v_org_id     uuid;
+  v_venue_id   uuid;
+  v_event_id   uuid;
+  v_status     text;
+  v_starts     timestamptz;
+  v_ends       timestamptz;
+  v_doors      timestamptz;
+  v_door_open  timestamptz;
+  v_before     jsonb;
+  v_key        text;
+  v_reason     text;
+  v_allowed    boolean := false;
+  v_marketing  boolean := false;
+  v_has_atoms  boolean := false;
+  v_grace      interval;
+  v_new_starts timestamptz;
+  v_new_doors  timestamptz;
+  v_new_ends   timestamptz;
+  v_econ       boolean;                 -- 093: economic-weight probe (backward arm)
+  v_time_chg   boolean := false;
+  v_changed    boolean := false;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  if p_patch is null or jsonb_typeof(p_patch) <> 'object' then
+    raise exception 'invalid_input: patch must be a json object';
+  end if;
+
+  select s.event_id, s.status, s.starts_at, s.ends_at, s.doors_at, s.door_open_at,
+         jsonb_build_object('session_label', s.session_label, 'starts_at', s.starts_at,
+                            'ends_at', s.ends_at, 'doors_at', s.doors_at)
+    into v_event_id, v_status, v_starts, v_ends, v_doors, v_door_open, v_before
+    from catalog.event_session s
+   where s.session_id = p_session_id
+   for update;                                          -- rank 1
+  if v_event_id is null then
+    raise exception 'not_found: session %', p_session_id using errcode = 'P0002';
+  end if;
+
+  select e.org_id, e.venue_id into v_org_id, v_venue_id
+    from catalog.event e where e.event_id = v_event_id;
+
+  -- The unwritable set FIRST, for every caller (T-RPC-CAT-02): door_open_at has
+  -- a sole writer (catalog.engage_door_freeze, 086, ruling O-5); session_version
+  -- is bumped by THIS BODY, never named by a client; event_id re-parents atoms.
+  for v_key in select jsonb_object_keys(p_patch) loop
+    if v_key not in ('session_label','starts_at','ends_at','doors_at','reason_code') then
+      raise exception 'invalid_input: unwritable_key %', v_key;
+    end if;
+  end loop;
+
+  if v_status in ('completed','cancelled') then
+    raise exception 'precondition_failed: session_terminal';
+  end if;
+
+  -- Marketing-only patch (RLS §11.1's D3 extension for this verb): the label is
+  -- display; the time columns are freeze INPUTS and never marketing.
+  v_marketing := not (p_patch ? 'starts_at' or p_patch ? 'ends_at' or p_patch ? 'doors_at');
+
+  if kernel.has_org_role(v_org_id, array['org_owner','org_admin']) then
+    v_allowed := true;
+  elsif v_marketing
+        and kernel.has_org_role(v_org_id, array['org_marketing']) then
+    v_allowed := true;
+  end if;
+  if not v_allowed then             -- PFA-10 deferred arm (has_venue_role, 080)
+    v_allowed := kernel.has_venue_role(
+      v_venue_id,
+      case when v_marketing then array['venue_manager','venue_marketing']
+           else array['venue_manager'] end);
+  end if;
+  if not v_allowed then
+    raise exception 'insufficient_privilege: venue_manager or org_owner/org_admin required'
+      using errcode = '42501';
+  end if;
+
+  v_new_starts := coalesce((p_patch ->> 'starts_at')::timestamptz, v_starts);
+  v_new_doors  := case when p_patch ? 'doors_at'
+                       then (p_patch ->> 'doors_at')::timestamptz else v_doors end;
+  v_new_ends   := case when p_patch ? 'ends_at'
+                       then (p_patch ->> 'ends_at')::timestamptz else v_ends end;
+  if v_new_starts is null then
+    raise exception 'invalid_input: starts_at cannot be null';
+  end if;
+  if v_new_ends is not null and v_new_ends <= v_new_starts then
+    raise exception 'precondition_failed: ends_at must be after starts_at';
+  end if;
+  v_time_chg := (v_new_starts is distinct from v_starts)
+             or (v_new_doors  is distinct from v_doors)
+             or (v_new_ends   is distinct from v_ends);
+
+  -- THE TIME GUARD — a custody property (§20.2.4). starts_at/doors_at are the
+  -- inputs to catalog.effective_freeze_at, which decides when transfers stop.
+  if (v_new_starts is distinct from v_starts) or (v_new_doors is distinct from v_doors) then
+    -- once the boundary is taken, the schedule that produced it is evidence.
+    if v_door_open is not null then
+      raise exception 'precondition_failed: boundary_engaged';
+    end if;
+    select exists (select 1 from kernel.tickets t
+                    where t.event_session_id = p_session_id)
+      into v_has_atoms;
+    if v_has_atoms then
+      -- config('door.schedule_move_grace_interval') is a PFA-9 CLASS A key:
+      -- NOT seeded, and 079 is directed to implement it FAIL-TO-SAFE — absent
+      -- means NO later move is permitted (the X-12 shape, ruled in PFA-9).
+      begin
+        v_grace := (select (c.value #>> '{}')::interval
+                      from catalog.platform_config c
+                     where c.key = 'door.schedule_move_grace_interval'
+                     order by c.version desc
+                     limit 1);
+      exception when others then
+        v_grace := null;
+      end;
+      if (v_new_starts > v_starts
+          and (v_grace is null or v_new_starts - v_starts >= v_grace))
+         or (v_doors is not null and v_new_doors is not null and v_new_doors > v_doors
+             and (v_grace is null or v_new_doors - v_doors >= v_grace))
+         or (v_doors is null and v_new_doors is not null and v_new_doors > v_new_starts
+             and (v_grace is null or v_new_doors - v_new_starts >= v_grace)) then
+        raise exception 'precondition_failed: move_exceeds_grace';
+      end if;
+      -- any move with atoms issued is audited with a MANDATORY reason code.
+      v_reason := p_patch ->> 'reason_code';
+      if v_reason is null or length(trim(v_reason)) = 0 then
+        raise exception 'precondition_failed: reason_required';
+      end if;
+    end if;
+  end if;
+
+  -- ==== 093 P0 — THE BACKWARD ends_at ARM. THIS IS THE ONLY LOGIC ADDED. ====
+  -- The guard above tests FORWARD movement only: every arm at 079:646-651 is
+  -- `v_new_* > v_*`, and it never inspects ends_at at all. So a seller org with
+  -- org_owner/org_admin could move starts_at AND ends_at back 400 days with a
+  -- reason_code and have it accepted. That single primitive:
+  --   * defeats the whole eight-predicate G2 maturity gate, because every other
+  --     predicate is anchored on the session's own ends_at — the settlement that
+  --     closed held/maturity_not_elapsed re-closes with hold_state='none' and
+  --     request_org_payout returns pending_approval to an ORG-class approver,
+  --     with no platform human anywhere in the path; and
+  --   * destroys live credentials — with ticket.expiry_grace set, backdating a
+  --     session 30 days out makes sweep_expired_ticket_atoms terminal-ize every
+  --     active atom on it within one cron tick.
+  -- The bound the maturity report claimed ("the most a seller can shave is the
+  -- session's own duration — hours, not months") does not hold: it is unbounded.
+  --
+  -- SCOPE — NARROWED TO ends_at, AND THE REASON MATTERS.
+  -- The corpus's standing claim is that "an earlier move only tightens the
+  -- freeze" (asserted by pgTAP 143 G10 and 144 E2). Per column, that claim is
+  -- HALF right, and the half that is right is kept:
+  --   * starts_at / doors_at earlier — GENUINELY SAFE, still permitted. They
+  --     feed only catalog.effective_freeze_at (078:405-446); moving them earlier
+  --     makes transfers freeze SOONER, which is strictly more conservative, and
+  --     it touches no money anchor. 143 G10 moves starts_at alone and still
+  --     passes.
+  --   * ends_at earlier — NOT SAFE, and this is what the claim missed. ends_at
+  --     is not a freeze input at all; it is the anchor of the two consumers that
+  --     did not exist when that reasoning was written: the G2 payout-maturity
+  --     gate and kernel.sweep_expired_ticket_atoms (079:494). Moving it earlier
+  --     does not tighten anything — it MATURES money and EXPIRES live atoms.
+  -- So this arm tests ends_at only. That is the whole exploitable surface: the
+  -- red team's paired 400-day move is refused because its ends_at half is.
+  --
+  -- THE NULL CASE IS COVERED TOO. A session with ends_at NULL has no maturity
+  -- anchor, so a two-step attack — move starts_at back (now permitted), then SET
+  -- ends_at to a past value that still satisfies the 079:616-617 ends>starts
+  -- check — would reach the same place. Newly setting an ends_at that has
+  -- ALREADY ELAPSED is therefore refused as well. Setting a FUTURE ends_at on a
+  -- session that lacked one stays permitted: it is benign, and it is the only
+  -- way to close R1's separate null-ends_at fail-open.
+  --
+  -- WHY NOT FORBID EVERY BACKWARD MOVE: a pre-sale draft legitimately reschedules
+  -- in both directions. The line is ECONOMIC WEIGHT, read from the schema:
+  --   * an atom was minted for the session          (kernel.tickets)
+  --   * money was actually taken                    (venue."order", paid /
+  --     partially_refunded / refunded — 'pending' and 'cancelled' are not money)
+  --   * the door ran                                (venue.scan)
+  --   * settlement accounting began for the event   (venue.settlement.event_id)
+  -- Any one of those and the schedule is evidence, not a plan.
+  --
+  -- THE PLATFORM CONJUNCT, AND ITS REAL REACHABILITY — MEASURED, NOT ASSUMED.
+  -- The `not kernel.is_platform(...)` test below is NOT a usable escape hatch on
+  -- its own, and must not be described as one. This verb's authority arms
+  -- (079:591-606) admit only org_owner / org_admin / org_marketing and
+  -- venue_manager / venue_marketing; kernel.is_platform is not among them. A
+  -- platform_admin holding no org or venue role is therefore refused EARLIER, at
+  -- 079:603-606, and never reaches this block. Verified by execution:
+  --   pure platform_admin           -> insufficient_privilege (the 079 arm)
+  --   platform_admin + org_owner    -> ok
+  -- So in practice, for an economically-weighted session, a backward move is
+  -- REFUSED OUTRIGHT for every principal who can reach this verb — the
+  -- fail-closed end of "refused, or restricted to platform authority".
+  -- The conjunct is kept because it is correct, costs nothing, and becomes a
+  -- real hatch the moment platform authority is added to this verb's arms.
+  -- WIDENING THOSE ARMS IS DELIBERATELY NOT DONE HERE: it would change who may
+  -- call a frozen 079 verb, which is a bigger decision than this fix, and a
+  -- genuine data-entry correction still has the service_role / superuser path
+  -- that every other break-glass repair uses. Flagged, not taken.
+  --
+  -- FAIL CLOSED: if the probe itself raises, v_econ is forced true and the move
+  -- is refused. A move we cannot prove is safe is not safe.
+  if v_new_ends is not null
+     and ( (v_ends is not null and v_new_ends < v_ends)      -- moved EARLIER
+        or (v_ends is null     and v_new_ends <= now()) )    -- newly set, ALREADY elapsed
+  then
+    if not kernel.is_platform(array['platform_admin']) then
+      begin
+        select exists (select 1 from kernel.tickets t
+                        where t.event_session_id = p_session_id)
+            or exists (select 1 from venue."order" o
+                        where o.event_session_id = p_session_id
+                          and o.status in ('paid','partially_refunded','refunded'))
+            or exists (select 1 from venue.scan sc
+                        where sc.event_session_id = p_session_id)
+            or exists (select 1 from venue.settlement st
+                        where st.event_id = v_event_id)
+          into v_econ;
+      exception when others then
+        v_econ := true;                                  -- fail closed
+      end;
+      if v_econ is null or v_econ then
+        raise exception 'precondition_failed: backward_schedule_move_frozen — this session carries economic weight (an issued atom, a paid order, a door scan or a settlement), so its schedule may not be moved earlier; contact the platform owner'
+          using errcode = 'P0001';
+      end if;
+    end if;
+    -- a backward move is audited with a MANDATORY reason code, exactly as the
+    -- forward arm demands one once atoms exist (079:654-658).
+    v_reason := p_patch ->> 'reason_code';
+    if v_reason is null or length(trim(v_reason)) = 0 then
+      raise exception 'precondition_failed: reason_required';
+    end if;
+  end if;
+  -- ==== end 093 backward arm ===============================================
+
+  if p_patch ? 'session_label' then
+    update catalog.event_session
+       set session_label = p_patch ->> 'session_label', updated_at = now()
+     where session_id = p_session_id;
+    v_changed := true;
+  end if;
+  if v_time_chg then
+    update catalog.event_session
+       set starts_at = v_new_starts, doors_at = v_new_doors, ends_at = v_new_ends,
+           -- Δ-N1 (NOTIF Group E): bumped IN THIS TRANSACTION, under the row's
+           -- FOR UPDATE, whenever starts/doors/ends change — never a patch key.
+           session_version = session_version + 1,
+           updated_at = now()
+     where session_id = p_session_id;
+    v_changed := true;
+  end if;
+
+  if not v_changed then
+    return jsonb_build_object('status','noop_replay','session_id',p_session_id,
+                              'effective_freeze_at', catalog.effective_freeze_at(p_session_id));
+  end if;
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'session.update', 'event_session', p_session_id,
+          coalesce(nullif(trim(coalesce(p_patch ->> 'reason_code','')),''), 'self_service'),
+          v_before,
+          (select jsonb_build_object('session_label', s.session_label, 'starts_at', s.starts_at,
+                                     'ends_at', s.ends_at, 'doors_at', s.doors_at,
+                                     'session_version', s.session_version)
+             from catalog.event_session s where s.session_id = p_session_id));
+
+  -- the recomputed boundary is returned, so the operator sees the consequence
+  -- of the edit in the same round trip rather than discovering it at the door.
+  return jsonb_build_object('status','ok','session_id',p_session_id,
+                            'effective_freeze_at', catalog.effective_freeze_at(p_session_id));
+end;
+$$;
 
 
 -- ============================================================================

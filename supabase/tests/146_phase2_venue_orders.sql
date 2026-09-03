@@ -10,11 +10,12 @@
 -- controlled in-txn flag flip. Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
--- 2026-09-02 (package 093): 71 -> 75. Four new assertions: B7a names the exact
--- column grant ruling F leaves on venue.order, F0 proves ruling A8's fail-closed
--- payout gate, F0a proves ruling A5's fail-closed service-fee gate, I1a proves
--- buyer_id is unreadable. Nothing was removed or relaxed.
-SELECT plan(75);
+-- 2026-09-02 (package 093): 71 -> 78. Seven new assertions: B7a names the exact
+-- column grant ruling F leaves on venue.order; F0 proves ruling A8's fail-closed
+-- payout gate; F0b-F0d prove A8/G2b's signing-key deliverability gate (refused, no
+-- order written, hold untouched); F0a proves ruling A5's fail-closed service-fee
+-- gate; I1a proves buyer_id is unreadable. Nothing was removed or relaxed.
+SELECT plan(78);
 
 SELECT tap.seed_core();
 
@@ -251,6 +252,51 @@ SELECT tap._aal2_146();
 SELECT kernel.set_org_connect_ref(tap._fetch146('org')::uuid, 'acct_ORD146READY', 'ck-cx-1');
 SELECT tap.logout();
 SELECT kernel.sync_org_connect_state(tap._fetch146('org')::uuid, 'acct_ORD146READY', true, now(), 'ck-cx-2');
+-- ── 2026-09-02 (package 093) — A8/G2b: SIGNING-KEY DELIVERABILITY ───────────
+-- RATIFIED CONTRACT CHANGE. venue.create_primary_checkout now refuses unless an
+-- active, in-window signing key resolves for the event's scope. It exists because
+-- a gate audit proved a buyer could be CHARGED for a ticket that could never
+-- exist: the key requirement lived in finalize_primary_order, which runs AFTER
+-- the PaymentIntent is confirmed. Buyer pays, the mint raises
+-- no_active_signing_key (083:513-530), no ticket — and with the refund executor
+-- undeployed there is no automatic path back to the money. G2 asks whether the
+-- VENUE can be paid; this asks whether the BUYER can be delivered to.
+--
+-- The gate order is DELIBERATE and is not to be reordered to suit a test:
+--   buyer gates -> idempotency -> session/event status -> connect -> SIGNING KEY
+--   -> fee -> item/hold loop -> insert.
+-- An unsellable event must fail before any inventory work happens.
+--
+-- F0b-F0d assert the zero-key state, which had no coverage in this file. They sit
+-- HERE because this is the only window where the org is Connect-ready (so F0's
+-- gate is passed) and no key exists yet.
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
+    format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0a')$$,
+    tap._fetch146('session'), tap._fetch146('tt'), tap._fetch146('hold')),
+  NULL, 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before a ticket can be sold',
+  'F0b [093/A8-G2b]: with ZERO signing keys the checkout is REFUSED — the buyer can never be charged for a ticket the mint could not have produced');
+SELECT is((SELECT count(*)::int FROM venue."order"), 0,
+  'F0c [093/A8-G2b]: …and NO order row was created — the refusal precedes the insert, so there is nothing to reconcile or refund');
+SELECT is((SELECT status || ':' || quantity::text FROM venue.inventory_hold
+            WHERE hold_id = tap._fetch146('hold')::uuid), 'active:2',
+  'F0d [093/A8-G2b]: …and the buyer''s HOLD is untouched (still active, still 2) — the gate precedes the item/hold loop, so a retry after the key lands needs no re-reservation');
+SELECT tap.logout();
+-- The key the gate waits for. LOCAL TEST MATERIAL ONLY — deliberately not
+-- key-shaped: no PEM armour, no base64 body, no real KMS handle. The genuine
+-- bootstrap row is an owner ceremony output (ruling B, 093 scope item 2) and 093
+-- DELIBERATELY inserts none — kernel.provision_signing_key and rotate_signing_key
+-- stay parked as unconditional raises, because a gate that could mint its own key
+-- would defeat the two-person KMS ceremony it exists to wait for. scope='global'
+-- is the LOWEST precedence arm of finalize's own most-specific-first rule
+-- (085:1948-1960 — per_event > per_venue > global), so seeding it here cannot mask
+-- a precedence regression in the per-event or per-venue arms.
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-146', 'test-fixture://no-kms/146',
+        'active', now() - interval '1 day', NULL);
+
 -- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, ruling A5 (venue revenue /
 -- platform economics): "No service-fee percentage is hardcoded in migration 093.
 -- No percentage is invented anywhere. Fee economics remain owner/config
@@ -258,8 +304,10 @@ SELECT kernel.sync_org_connect_state(tap._fetch146('org')::uuid, 'acct_ORD146REA
 -- create_primary_checkout refuses to QUOTE rather than falling back to zero —
 -- a fallback would sell at face value with no platform revenue, and settlement
 -- lines are append-only, so unrecognised revenue could never be restated.
--- The gate sits STRICTLY AFTER A8's payout gate (F0 above) and STRICTLY BEFORE
--- any hold/inventory work, and F0a asserts it before the fixture satisfies it.
+-- The gate sits STRICTLY AFTER A8's payout gate (F0) and the signing gate above,
+-- and STRICTLY BEFORE any hold/inventory work. F0a's original point is unchanged —
+-- the signing key is supplied purely so the call REACHES the fee gate. The
+-- no-fallback-to-zero property is what ruling A5's owner STOP depends on.
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
     format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0b')$$,

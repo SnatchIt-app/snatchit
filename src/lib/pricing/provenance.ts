@@ -89,10 +89,17 @@ export function inventoryKindOf(row: {
  * Ordering rule for an event page that carries both kinds.
  *
  * Direct inventory sorts above marketplace inventory when it is available: it is
- * the cheaper, safer, first-party option and burying it would be dishonest. Once
- * direct inventory is sold out it drops below, because at that point the
- * marketplace is the only way in, which is the brand's own line: sold out, but
- * the night is not.
+ * the first-party offer, and burying it would be dishonest. Once direct
+ * inventory is sold out it drops below, because at that point the marketplace is
+ * the only way in, which is the brand's own line: sold out, but the night is not.
+ *
+ * NOT A PRICE CLAIM. An earlier version of this comment called direct inventory
+ * "the cheaper option". Owner ruling A5 makes that unprovable: the direct rail
+ * now carries its own configurable buyer-side service fee
+ * (`fee.buyer_service_bps`), so whether direct beats a given resale listing on
+ * price depends on the rate and on the listing, and this function knows neither.
+ * The ordering is a provenance rule; any "cheapest" claim must come from
+ * comparing `allInPrice(...).totalMinor` values, never from this weight.
  */
 export function provenanceSortWeight(kind: InventoryKind, soldOut: boolean): number {
   if (kind === 'direct') return soldOut ? 30 : 0;

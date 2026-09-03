@@ -645,7 +645,7 @@ UPDATE market.listing_native SET status='sold', reason_code=NULL WHERE listing_i
 -- a closed settlement over order1 → a pending payout (the payout-leg operand)
 -- 2026-09-02 (package 093): TEST SETUP DRIFT — the fixture, not the assertions. 093 mints a
 -- settlement payout HELD/'unbounded_refund_exposure' whenever
--- 'settlement.refund_window_interval' is unset (it ships seeded 'null'::jsonb), because a refund
+-- 'payout.settlement_maturity_interval' is unset (it ships seeded 'null'::jsonb), because a refund
 -- succeeding after a close can never be collected. THIS SECTION IS ABOUT THE DISPUTE FREEZE LEG,
 -- not about that gate: H2/H6/H11/H12/H25/H43 exist to prove that recording a dispute HOLDS the
 -- reachable payout, emits payout_on_hold, and that the hold survives a park and a terminal state.
@@ -654,7 +654,23 @@ UPDATE market.listing_native SET status='sold', reason_code=NULL WHERE listing_i
 -- at risk. Setting the key here mints po1 unheld, so the dispute leg is the only thing that can
 -- hold it and each assertion below means exactly what it always meant, byte for byte.
 -- The gate itself is proved on BOTH arms, with its release exit, at 151 C20i..C20n / C28a/C28b.
-SELECT tap._cfg153('settlement.refund_window_interval', '"30 days"'::jsonb);
+SELECT tap._cfg153('payout.settlement_maturity_interval', '"7 days"'::jsonb);
+-- 2026-09-02 (package 093, pass 3): the key was RENAMED from settlement.refund_window_interval —
+-- it names a payout maturity window after the event, not a refund-eligibility window (that policy
+-- exists and is owned by refund.buyer_self_service_window_hours / refund.request_ttl_hours). The
+-- old spelling is NOT read as a fallback.
+--
+-- The hold is also no longer one config test: it is a conjunction of eight fail-closed predicates,
+-- and one of them is `now() >= max(ends_at over the settlement's covered sessions) + interval`.
+-- st1 is event1-scoped and its lines cover order1 and order3, both on session1, whose ends_at the
+-- fixture puts 10 days in the FUTURE — so the anchor has not elapsed and po1 would be minted HELD
+-- for maturity_not_elapsed. session1 is moved into the past for THE DURATION OF THIS CLOSE ONLY
+-- and restored immediately: the gate reads the anchor once, at close, and stamps the payout's hold
+-- state there, so a two-statement window is exactly enough and cannot leak into the custody,
+-- listing or dispute assertions that follow, every one of which is written against a future event.
+-- The eight predicates are isolated one at a time at 151 C28c..C28l.
+UPDATE catalog.event_session SET starts_at = now() - interval '30 days', ends_at = now() - interval '30 days' + interval '5 hours'
+ WHERE session_id = tap._u153('session1');
 SELECT tap.login(tap.seller());
 SELECT tap._store153('st1', (venue.open_settlement(tap._u153('org1'), tap._u153('venue1'), tap._u153('event1'), '{}'::jsonb, 'ck88-st1') ->> 'settlement_id'));
 SELECT tap.logout();
@@ -663,6 +679,9 @@ SELECT tap.login(tap.other_user());
 SELECT tap._aal2();
 SELECT tap._store153('cl1', kernel.close_settlement(tap._u153('st1'), 'ck88-cl1')::text);
 SELECT tap.logout();
+-- …and session1 goes straight back to the future the rest of this file assumes.
+UPDATE catalog.event_session SET starts_at = now() + interval '10 days', ends_at = now() + interval '10 days 5 hours'
+ WHERE session_id = tap._u153('session1');
 -- 2026-09-02 (package 093): 15000 -> 20000. RATIFIED CONTRACT CHANGE —
 -- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A3/A5 adds the primary revenue seam
 -- kernel.settlement_primary_lines, which close_settlement now unions as a THIRD seam. st1 is

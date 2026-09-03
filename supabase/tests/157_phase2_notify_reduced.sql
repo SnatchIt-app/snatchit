@@ -138,9 +138,11 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname IN ('notify-dispatch
   'A19: no pg_net edge tick for notify (their header/Vault names are unnamed by any frozen byte — E-158)');
 -- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — inventory.per_user_active_hold_max
 -- and inventory.hold_ttl_interval (093_FINAL_PROPOSED_SCOPE item 3), ticket.expiry_grace
--- (RATIFICATION ruling D2), fee.buyer_service_bps (ruling A5) and settlement.refund_window_interval
--- (the unbounded-refund-exposure gate — UNSET is the safe state: every settlement payout is minted
--- HELD until an owner rules the window), each seeded OWNER-UNSET.
+-- (RATIFICATION ruling D2), fee.buyer_service_bps (ruling A5) and payout.settlement_maturity_interval
+-- (the settlement-maturity gate — UNSET is the safe state: every settlement payout is minted HELD
+-- until an owner rules the window; the payout.% prefix is load-bearing, since 078:1145-1147 puts
+-- every payout.% key under dual control), each seeded OWNER-UNSET. The key count is unchanged at
+-- 48: pass 3 RENAMED this key from settlement.refund_window_interval, it did not add one.
 -- 092 still contributes exactly one key; the census stays absolute and distinct-keyed.
 SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 48, 'A20: config census 48 keys — 42 post-091 + notify.delivery_lease_interval + 093''s five (distinct keys: the fixture bumps two versions)');
 SELECT is((SELECT c.visibility || ':' || coalesce(c.value #>> '{}', '<null>') FROM catalog.platform_config c WHERE c.key='notify.delivery_lease_interval' ORDER BY c.version DESC LIMIT 1),

@@ -2,6 +2,14 @@
 # scripts/assemble_093.sh — build supabase/migrations/093_primary_ticketing.sql
 # from the four reviewed slices in docs/phase2/_impl/093_parts/.
 #
+# CANONICAL SOURCE RULE (mechanically enforced — see
+# scripts/ci/assembled_migration_integrity.sh and docs/phase2/_impl/G4_assembler_integrity.md)
+#   THE SLICES ARE CANONICAL. The assembled migration is a BUILD ARTIFACT.
+#   Edit docs/phase2/_impl/093_parts/*.sql, re-run this script, commit BOTH.
+#   A hand-edit of supabase/migrations/093_primary_ticketing.sql is a CI failure,
+#   not a style preference: the gate regenerates the file from the committed
+#   slices and compares it byte-for-byte.
+#
 # WHY THIS EXISTS RATHER THAN ONE HAND-EDITED FILE
 # The slices were authored and validated independently, and each one is a
 # coherent reviewable unit tied to a specific owner ruling. Assembling
@@ -20,11 +28,31 @@
 # This script only WRITES the file. It never applies it. Rehearsal is
 # scripts/rehearsal_reset.sh, which is itself refused against anything that is
 # not a local database.
+#
+# DETERMINISM CONTRACT. The output is a pure function of the slice bytes and of
+# this script. No timestamps, no hostname, no git revision, no `find`, no glob
+# expansion, no locale-dependent sort: the part list is an explicit array and
+# LC_ALL is pinned so that even an incidental future `sort` cannot become
+# environment-dependent. The CI gate both greps this file for those constructs
+# and proves reproducibility by re-running it under a perturbed environment.
+#
+# MODES
+#   assemble_093.sh              write the assembled migration (default)
+#   assemble_093.sh --manifest   print the build inputs and output as key=value
+#                                lines and write NOTHING. This is the contract
+#                                the CI gate reads; any future assembler must
+#                                implement it identically (keys: assembler, out,
+#                                parts_dir, part — paths relative to the repo
+#                                root, `part` repeated in assembly order).
 set -euo pipefail
+export LC_ALL=C
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-parts_dir="$repo_root/docs/phase2/_impl/093_parts"
-out="$repo_root/supabase/migrations/093_primary_ticketing.sql"
+self_rel="scripts/assemble_093.sh"
+parts_rel="docs/phase2/_impl/093_parts"
+out_rel="supabase/migrations/093_primary_ticketing.sql"
+parts_dir="$repo_root/$parts_rel"
+out="$repo_root/$out_rel"
 
 parts=(
   10_money_settlement.sql
@@ -33,11 +61,57 @@ parts=(
   40_config_privacy_freeze.sql
 )
 
+if [ "${1:-}" = "--manifest" ]; then
+  printf 'assembler=%s\n' "$self_rel"
+  printf 'out=%s\n' "$out_rel"
+  printf 'parts_dir=%s\n' "$parts_rel"
+  for p in "${parts[@]}"; do printf 'part=%s\n' "$p"; done
+  exit 0
+fi
+if [ "$#" -gt 0 ]; then
+  echo "usage: $self_rel [--manifest]" >&2
+  exit 2
+fi
+
 for p in "${parts[@]}"; do
   [ -f "$parts_dir/$p" ] || { echo "missing slice: $parts_dir/$p" >&2; exit 1; }
 done
 
 {
+  # ---------------------------------------------------------------------------
+  # GENERATED-FILE BANNER — the first line is MACHINE-READ.
+  #
+  # scripts/ci/assembled_migration_integrity.sh scans EVERY file in
+  # supabase/migrations/ for `-- @generated-by: <path>`. Any migration carrying
+  # that line must have that assembler present, and that assembler must
+  # reproduce the file byte-for-byte. This is what stops the gate being
+  # satisfied by deleting things: removing the slices makes the assembler exit
+  # non-zero, and removing the assembler leaves a banner pointing at a file that
+  # is no longer there. Both are loud failures, not skips.
+  #
+  # The banner cannot itself drift, because it IS assembler output: editing it
+  # inside the migration fails the same byte comparison as any other hand-edit.
+  # ---------------------------------------------------------------------------
+  cat <<'BANNER'
+-- @generated-by: scripts/assemble_093.sh
+-- =============================================================================
+-- !!  GENERATED FILE — DO NOT EDIT BY HAND  !!
+--
+-- Assembled from the reviewed slices in docs/phase2/_impl/093_parts/.
+-- THE SLICES ARE CANONICAL. This file is a build artifact.
+--
+-- To change anything below:
+--   1. edit the slice under docs/phase2/_impl/093_parts/
+--   2. run ./scripts/assemble_093.sh
+--   3. commit the slice AND this regenerated file together
+--
+-- A hand-edit here is reverted by the next assembler run and is REJECTED BY CI:
+-- the "Migrations guard / Immutability + ordering" job regenerates this file
+-- from the committed slices and compares it byte-for-byte
+-- (scripts/ci/assembled_migration_integrity.sh).
+-- =============================================================================
+BANNER
+
   cat <<'HEADER'
 -- =============================================================================
 -- 093_primary_ticketing.sql

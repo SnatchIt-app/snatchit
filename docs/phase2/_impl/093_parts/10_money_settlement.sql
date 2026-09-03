@@ -34,12 +34,19 @@
 --                                                      venue); royalty arm verbatim
 --
 --   OWNER STOP RAISED BY THIS PART. 10d refuses to release organization money
---   while 'settlement.refund_window_interval' is unset, because NO settle-after-
---   refund-window policy exists anywhere in the corpus and this schema has no
---   receivable object to carry a post-close refund forward. The key row is NOT
---   created here — it belongs with the other config rows in slice 40, seeded
---   'null'::jsonb / 'restricted' in the retention.backup_window_days pattern.
---   093 invents no duration and no anchor instant.
+--   unless EVERY maturity predicate is proven (G2 —
+--   docs/phase2/_impl/G2_settlement_maturity.md): the policy value is set, the
+--   covered set resolves, no covered event is cancelled, the last covered
+--   session's ends_at is known and has elapsed by the interval, no refund on a
+--   covered payment is in flight, and no dispute on one is open. The DURATION is
+--   still owner policy and 093 invents none — but the ANCHOR INSTANT is no longer
+--   an open question: it is max(event_session.ends_at) over the settlement's own
+--   lines, and it is derived, not configured. The key row is NOT created here —
+--   it belongs with the other config rows in slice 40, seeded 'null'::jsonb /
+--   'restricted' in the retention.backup_window_days pattern, and it is now
+--   spelled 'payout.settlement_maturity_interval' (see 10d for why the old
+--   'settlement.refund_window_interval' spelling was a lie AND a dual-control
+--   bypass).
 --
 --   TEST DELTAS THIS PART CREATES (for the author of 093's test section — every
 --   one of these was checked against the shipped pgTAP suite, not assumed):
@@ -524,8 +531,13 @@ create unique index if not exists settlement_one_refund_void_line_ever
 --       revenue line out of gross with no error and no way to repair the ledger.
 --       An aborted close writes nothing and can be retried; a lost credit cannot.
 --
---   (2) THE PAYOUT IS MINTED HELD WHILE THE REFUND WINDOW IS UNSET — the fix for
---       the post-close refund. The full argument is at the call site below.
+--   (2) THE PAYOUT IS MINTED HELD UNLESS EVERY MATURITY PREDICATE HOLDS — the
+--       fix for the post-close refund, and for the far worse defect that the
+--       first cut of that fix introduced. That cut released on
+--       `config IS NOT NULL` alone, which made an owner config value a hidden
+--       feature flag for payout logic nobody had written. The release condition
+--       is now a CONJUNCTION over seven predicates with distinct
+--       hold_reason_codes. The full argument is at the call site below.
 --
 --   (3) THE INT4 CEILING RAISES A NAMED REFUSAL instead of a bare 22003 that
 --       wedged the header open with zero lines forever. Also at the call site.
@@ -534,10 +546,17 @@ create unique index if not exists settlement_one_refund_void_line_ever
 --   (087:299-302), the noop_replay arm, the per-candidate currency raise, the
 --   whole-settlement currency check, the E-73 waterfall derivation (087:329-333,
 --   byte for byte), the write-once money UPDATE, the net > 0 mint condition and
---   its idempotency_key, the audit row, and the net_minor READ-BACK (§10.2 R1-2).
---   RULING A4 IS UNTOUCHED: the ONLY hold this function writes is on the payout it
---   mints itself, cause='settlement', payee_kind='organization'. It reads no
---   promoter row, writes no promoter_commission payout, and releases nothing.
+--   its idempotency_key, and the net_minor READ-BACK (§10.2 R1-2). The audit row
+--   keeps its actor / action / subject / reason_code and GAINS `after` (additive).
+--   RULING A4 IS UNTOUCHED, AND THE GATE ONLY STRENGTHENS IT: the ONLY payout row
+--   this function touches is the one it INSERTs itself — cause='settlement',
+--   payee_kind='organization', a single INSERT with no UPDATE and no DELETE
+--   anywhere in the body. It reads no promoter row, writes no promoter_commission
+--   payout, calls no release verb, and every change in this revision can only move
+--   a payout from unheld to HELD. A promoter commission is minted
+--   'held'/'unfunded_settlement' by kernel.pay_promoter_commission (090:1487-1491)
+--   and is released ONLY by kernel.release_payout (085:807, platform_risk /
+--   platform_admin, Control-5); neither verb is named here.
 -- ============================================================================
 create or replace function kernel.close_settlement(p_settlement_id uuid, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
@@ -546,7 +565,14 @@ declare
   v_s venue.settlement%rowtype; v_c kernel.settlement_line_candidate;
   v_gross bigint; v_fees bigint; v_refunds bigint; v_net bigint;
   v_payout_id uuid; v_ids uuid[] := '{}';
-  v_refund_window interval; v_held boolean := false;
+  -- G2 payout-maturity operands (the gate is at the mint below). EVERY ONE OF
+  -- THEM IS INITIALISED TO THE VALUE THAT HOLDS, so a path that fails to compute
+  -- an operand can only fail toward the hold, never past it.
+  v_maturity interval; v_held boolean := false; v_hold_reason text;
+  v_anchor timestamptz;
+  v_unresolved bigint := 1; v_sess_n bigint := 0; v_sess_no_end bigint := 1;
+  v_cancelled boolean := true; v_refund_open boolean := true; v_dispute_open boolean := true;
+  v_hold_detail jsonb;
 begin
   select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
   if not found then raise exception 'not_found: settlement %', p_settlement_id using errcode = 'P0002'; end if;
@@ -610,15 +636,65 @@ begin
   -- generate the pending payout only when there is positive net (kernel.payout
   -- amount_minor > 0). Deterministic idempotency on (cause, cause_ref, payee).
   if v_net > 0 then
-    -- (2) THE UNBOUNDED-REFUND-EXPOSURE GATE. A refund that succeeds AFTER this
-    -- close cannot be collected: its debit lands in a settlement nobody opens, or
-    -- in one that nets negative — and a negative net mints no payout and creates
-    -- no receivable, because this schema has no carry-forward object. Bounding
-    -- that exposure needs a settle-after-refund-window policy, and NO SUCH POLICY
-    -- EXISTS anywhere in the corpus. 093 therefore does not pay: while
-    -- 'settlement.refund_window_interval' is unset, the payout is MINTED (so the
-    -- obligation is a durable ledger fact — ruling A3: the debt must be knowable
-    -- without reconstructing it from Stripe) but MINTED HELD, so no money can move.
+    -- (2) THE PAYOUT-MATURITY GATE (G2 — docs/phase2/_impl/G2_settlement_maturity.md).
+    -- A refund that succeeds AFTER this close cannot be collected: its debit lands
+    -- in a settlement nobody opens, or in one that nets negative — and a negative
+    -- net mints no payout and creates no receivable, because this schema has no
+    -- carry-forward object. The payout is therefore MINTED (so the obligation is a
+    -- durable ledger fact — ruling A3: the debt must be knowable without
+    -- reconstructing it from Stripe) but minted HELD unless EVERY predicate below
+    -- is satisfied, so no money can move on a partial proof.
+    --
+    -- ── WHAT THIS REPLACES, AND WHY ──────────────────────────────────────────
+    -- The first cut of this gate was `v_held := v_refund_window is null` — the
+    -- ONLY predicate was "is the config key set". Setting the key to any value
+    -- released every payout immediately, with no maturity semantics implemented
+    -- anywhere: an owner config value was a hidden feature flag for logic that did
+    -- not exist, and the slice's own comment had to warn that SETTING the key was
+    -- the dangerous act. That is inverted here. The key is now ONE CONJUNCT of a
+    -- gate that also has to prove the event happened, that it happened long enough
+    -- ago, and that no money is still in motion against the orders being paid for.
+    --
+    -- ── THE PREDICATES, ALL OF WHICH MUST HOLD TO RELEASE ────────────────────
+    --   1. the maturity policy VALUE is set and non-negative;
+    --   2. every money line in this settlement resolves to its payment AND its
+    --      session — we must know what this money is about before we can time it;
+    --   3. no covered session and no covered event is cancelled;
+    --   4. the maturity INSTANT is known: at least one covered session, and every
+    --      covered session carries ends_at;
+    --   5. that instant plus the policy interval has ELAPSED;
+    --   6. no refund against any covered payment is in a non-terminal state;
+    --   7. no dispute against any covered payment is open.
+    -- Any single failure holds, with its own hold_reason_code. An operand that
+    -- cannot be computed is NOT assumed satisfied: all seven locals are declared
+    -- pre-set to the value that holds.
+    --
+    -- ── WHY ends_at OF THE LAST COVERED SESSION IS THE ANCHOR ────────────────
+    -- The buyer's own chargeback clock starts THERE, not at payment: Stripe states
+    -- it in terms of this exact industry — "when a customer pays for a future
+    -- event or service (like a vacation reservation, professional services
+    -- appointment, or event ticket), the dispute window starts on the event date,
+    -- not the payment date" (https://docs.stripe.com/disputes/how-disputes-work).
+    -- Anchoring on payment would make a ticket bought three months early payable
+    -- three months before anyone could attend. catalog.event carries NO time
+    -- column at all (078:134-154) — the only instants in the schema are on
+    -- catalog.event_session — and venue."order".event_session_id is NOT NULL
+    -- (082:369-372), so every covered order resolves to exactly one session. That
+    -- makes the anchor computable for BOTH settlement grains: event-scoped and
+    -- period-scoped headers alike derive it from their OWN LINES rather than from
+    -- the header's scope, so a period settlement is timed by the last session it
+    -- actually paid for and not by period_end (which is nullable, bounds
+    -- starts_at rather than ends_at, and can be open-ended).
+    --
+    -- ends_at IS NULLABLE (078:170) and catalog.create_event_session requires only
+    -- starts_at (078:805-807). The corpus's ticket-expiry sweep meets the same
+    -- fact and FAILS OPEN — it skips such sessions (079:490-492), which slice 40
+    -- already records as an unfixed schema hole. This gate fails CLOSED on it: a
+    -- session with no end has not verifiably ended, so its money does not mature.
+    -- Session STATUS is deliberately not used: nothing in 076-092 ever writes
+    -- event_session.status = 'completed' (the only writer of that column is
+    -- 088:1793, which writes 'cancelled'), so requiring it would hold every payout
+    -- forever.
     --
     -- WHY HELD RATHER THAN REFUSING THE CLOSE OR MINTING NOTHING. Refusing the
     -- close would also refuse the LINES, so the ledger would never record what the
@@ -634,41 +710,138 @@ begin
     -- platform_risk/platform_admin, Control-5) is the contracted release path once
     -- the owner rules. The hold is therefore recoverable; an overpayment is not.
     --
+    -- ── THE KEY WAS RENAMED, BECAUSE THE OLD NAME WAS A LIE ──────────────────
+    -- 'settlement.refund_window_interval' named a REFUND ELIGIBILITY window — how
+    -- long a buyer may still ask for money back. That policy exists, it is owned
+    -- by an entirely different set of keys (refund.buyer_self_service_window_hours
+    -- / refund.request_ttl_hours / refund.scanned_atom_policy, 078:1544-1551), and
+    -- this value is not it. What this value actually is: HOW LONG AFTER THE EVENT
+    -- THE VENUE'S MONEY MUST SIT STILL. It is a payout property, so it is spelled
+    -- 'payout.settlement_maturity_interval' — and that prefix is load-bearing, not
+    -- cosmetic: 078:1145-1147 puts every 'payout.%' key under DUAL CONTROL, and
+    -- the key carries no declared polarity, so EVERY set of it parks for a second
+    -- platform_admin (078:1268-1285). Slice 40's own caveat on the old name was
+    -- that "there is no second human in the way"; under the new name there is.
+    --
     -- READ AS THE HOUSE PATTERN: absent row, JSON null and unparseable value all
-    -- collapse to NULL and therefore to the hold (the 081:630-639 idiom). NOTE
-    -- WELL — the key's PRESENCE is not an implementation of the window. This gate
-    -- is binary by design because the duration and the instant it runs from are
-    -- owner policy and 093 invents neither. The verb that actually enforces a
-    -- window must land WITH that ruling; setting this key before it exists would
-    -- switch the protection off without replacing it.
+    -- collapse to NULL and therefore to the hold (the 081:630-639 idiom).
     begin
-      v_refund_window := (select (c.value #>> '{}')::interval
-                            from catalog.platform_config c
-                           where c.key = 'settlement.refund_window_interval'
-                           order by c.version desc limit 1);
-    exception when others then v_refund_window := null;
+      v_maturity := (select (c.value #>> '{}')::interval
+                       from catalog.platform_config c
+                      where c.key = 'payout.settlement_maturity_interval'
+                      order by c.version desc limit 1);
+    exception when others then v_maturity := null;
     end;
-    v_held := v_refund_window is null;
+    -- THE COVERED SET IS DERIVED FROM THIS SETTLEMENT'S OWN LINES, not from the
+    -- header's scope predicate. The lines are already written above, they are the
+    -- money actually being paid, and 088's chargeback arm deliberately carries NO
+    -- scope predicate (088:311-316) — so a scope-based derivation would miss
+    -- exactly the rows most likely to be in dispute. One statement, no raise: every
+    -- lookup is a scalar subquery that yields NULL rather than failing, and NULL is
+    -- counted as unresolved.
+    with cov_line as (
+      select l.cause,
+             case l.cause
+               when 'primary_sale'        then (select pn.payment_id from kernel.payment_native pn where pn.order_id = l.cause_ref)
+               when 'refund_void'         then (select r.payment_id from kernel.refund r where r.refund_id = l.cause_ref)
+               when 'chargeback'          then (select d.payment_id from kernel.dispute_native d where d.dispute_id = l.cause_ref)
+               when 'market_sale'         then (select ms.payment_id from market.market_sale ms where ms.sale_id = l.cause_ref)
+               when 'promoter_commission' then (select pn.payment_id from venue.attribution a
+                                                  join kernel.payment_native pn on pn.order_id = a.order_id where a.id = l.cause_ref)
+             end as payment_id,
+             case l.cause
+               when 'primary_sale'        then (select o.event_session_id from venue."order" o where o.order_id = l.cause_ref)
+               when 'refund_void'         then (select o.event_session_id from kernel.refund r
+                                                  join kernel.payment_native pn on pn.payment_id = r.payment_id
+                                                  join venue."order" o on o.order_id = pn.order_id where r.refund_id = l.cause_ref)
+               when 'chargeback'          then (select o.event_session_id from kernel.dispute_native d
+                                                  join kernel.payment_native pn on pn.payment_id = d.payment_id
+                                                  join venue."order" o on o.order_id = pn.order_id where d.dispute_id = l.cause_ref)
+               when 'market_sale'         then (select t.event_session_id from market.market_sale ms
+                                                  join kernel.tickets t on t.ticket_atom_id = ms.ticket_atom_id where ms.sale_id = l.cause_ref)
+               when 'promoter_commission' then (select o.event_session_id from venue.attribution a
+                                                  join venue."order" o on o.order_id = a.order_id where a.id = l.cause_ref)
+             end as session_id
+        from venue.settlement_line l
+       where l.settlement_id = p_settlement_id
+         -- the five causes the three seams emit. Any OTHER cause on this header is
+         -- a hand-written line of unknown provenance; it contributes no anchor, so
+         -- a settlement made only of such lines lands on v_sess_n = 0 and holds.
+         and l.cause in ('primary_sale','refund_void','chargeback','market_sale','promoter_commission')
+    ),
+    cov_session as (select distinct cl.session_id from cov_line cl where cl.session_id is not null)
+    select
+      (select count(*) from cov_line cl where cl.payment_id is null or cl.session_id is null),
+      (select count(*) from cov_session),
+      (select count(*) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id where es.ends_at is null),
+      (select max(es.ends_at) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id),
+      (select exists (select 1 from cov_session cs
+                        join catalog.event_session es on es.session_id = cs.session_id
+                        join catalog.event e on e.event_id = es.event_id
+                       where es.status = 'cancelled' or e.status = 'cancelled')),
+      -- NON-TERMINAL refund: kernel.refund runs pending → submitted →
+      -- succeeded|failed (085:82-85). Money is still in motion in the first two.
+      (select exists (select 1 from cov_line cl join kernel.refund r on r.payment_id = cl.payment_id
+                       where r.status in ('pending','submitted'))),
+      -- OPEN dispute: the four non-terminal members of dispute_native.status
+      -- (085 DDL). 'won' / 'warning_closed' are closed favourably; 'lost' /
+      -- 'charge_refunded' are closed adversely AND already lined by 10h.
+      (select exists (select 1 from cov_line cl join kernel.dispute_native d on d.payment_id = cl.payment_id
+                       where d.status in ('warning_needs_response','warning_under_review','needs_response','under_review')))
+      into v_unresolved, v_sess_n, v_sess_no_end, v_anchor, v_cancelled, v_refund_open, v_dispute_open;
+    -- FIRST FAILING PREDICATE WINS THE CODE, in causal order: you cannot ask
+    -- whether money has matured until you know the policy, what the money is
+    -- about, and when the event ended. The FULL vector goes to the audit and to
+    -- the additive 'payout_hold_detail' key, so precedence hides nothing.
+    v_hold_reason := case
+      -- 'unbounded_refund_exposure' is retained VERBATIM for the policy-unset arm:
+      -- it is the same fact it always named (no policy ⇒ the exposure is unbounded)
+      -- and it keeps every operator runbook and the 151 C20i..C20n block intact.
+      when v_maturity is null                                    then 'unbounded_refund_exposure'
+      when v_maturity < interval '0'                             then 'maturity_policy_invalid'
+      when coalesce(v_unresolved, 1) > 0                         then 'covered_set_unresolvable'
+      when coalesce(v_cancelled, true)                           then 'event_cancelled'
+      when coalesce(v_sess_n, 0) = 0
+        or coalesce(v_sess_no_end, 1) > 0
+        or v_anchor is null                                      then 'maturity_instant_unknown'
+      when now() < v_anchor + v_maturity                         then 'maturity_not_elapsed'
+      when coalesce(v_refund_open, true)                         then 'refund_in_flight'
+      when coalesce(v_dispute_open, true)                        then 'dispute_open'
+      else null
+    end;
+    v_held := v_hold_reason is not null;
+    v_hold_detail := jsonb_build_object(
+      'maturity_interval',  case when v_maturity is null then null else v_maturity::text end,
+      'maturity_anchor',    v_anchor,
+      'matures_at',         case when v_anchor is null or v_maturity is null then null else (v_anchor + v_maturity) end,
+      'covered_sessions',   v_sess_n, 'sessions_without_end', v_sess_no_end,
+      'unresolvable_lines', v_unresolved, 'event_cancelled', v_cancelled,
+      'refund_in_flight',   v_refund_open, 'dispute_open', v_dispute_open);
     insert into kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, currency, status, idempotency_key,
                                hold_state, hold_reason_code, held_by, held_at)
     values ('organization', v_s.org_id, 'settlement', p_settlement_id, v_net::integer, v_s.currency, 'pending',
             'settlement:' || p_settlement_id::text,
             case when v_held then 'held' else 'none' end,
-            case when v_held then 'unbounded_refund_exposure' else null end,
+            v_hold_reason,
             null,
             case when v_held then now() else null end)
     on conflict (idempotency_key) do nothing
     returning payout_id into v_payout_id;
     if v_payout_id is not null then v_ids := array[v_payout_id]; end if;
   end if;
-  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code)
-  values (auth.uid(), 'settlement.close', 'settlement', p_settlement_id, coalesce(p_command_key,'close'));
+  -- the audit row gains `after` — ADDITIVE, and the only durable place an operator
+  -- can read the WHOLE predicate vector rather than the one code that won.
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+  values (auth.uid(), 'settlement.close', 'settlement', p_settlement_id, coalesce(p_command_key,'close'),
+          jsonb_build_object('payout_hold', v_hold_reason, 'hold_predicates', v_hold_detail));
   -- net_minor is a READ-BACK of the column this function wrote (§10.2 R1-2), never a local.
   -- 'payout_hold' is ADDITIVE — every contracted key (status, payout_ids,
   -- net_minor) keeps its meaning; callers that do not read it are unaffected.
+  -- 'payout_hold_detail' is additive in the same way and is NULL when nothing held.
   return jsonb_build_object('status','ok','payout_ids', v_ids,
            'net_minor', (select net_minor from venue.settlement where settlement_id = p_settlement_id),
-           'payout_hold', case when v_held then 'unbounded_refund_exposure' else null end);
+           'payout_hold', v_hold_reason,
+           'payout_hold_detail', case when v_held then v_hold_detail else null end);
 end;
 $$;
 

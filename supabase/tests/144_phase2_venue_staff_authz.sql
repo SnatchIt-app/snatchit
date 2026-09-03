@@ -11,7 +11,11 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(114);
+-- 2026-09-02 (package 093): 114 -> 118. E2 is narrowed to the genuinely-safe column
+-- and four assertions are ADDED: E2a pins the backward-ends_at P0 closed, E2b/E2c walk
+-- the two-step bypass (step 1 permitted, step 2 refused), E2d proves the gate is
+-- economic WEIGHT rather than a blanket refusal. No assertion was removed or relaxed.
+SELECT plan(118);
 
 SELECT tap.seed_core();
 
@@ -473,11 +477,85 @@ SELECT tap.login('00000000-0000-0000-0000-00000000e001');
 SELECT is((catalog.update_event_session(tap._fetch144('session')::uuid,
   '{"session_label":"managed"}'::jsonb,'ck-s-1') ->> 'status'), 'ok',
   'E1: THE ARM IS LIVE — a venue_manager edits a session through the previously dead has_venue_role branch');
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE. E2 previously moved
+-- starts_at AND ends_at earlier together and expected 'ok', on the reasoning that
+-- "earlier only tightens the freeze". That reasoning is HALF right, and the wrong
+-- half was a proven P0: adversarial review moved a paired schedule backward by 400
+-- days, and a settlement correctly sitting at held/maturity_not_elapsed closed with
+-- hold_state='none' and reached an org-class approver — releasing venue money for an
+-- event that had not happened, with no platform human in the loop. The same
+-- primitive swept three live atoms to terminal 'expired'.
+--
+-- The per-column truth, which is what E2/E2a below now encode:
+--   starts_at / doors_at earlier — GENUINELY SAFE. They feed only
+--     catalog.effective_freeze_at, so moving them earlier freezes transfers SOONER.
+--     This is exactly 143 G10's shape, and that assertion still passes unchanged.
+--   ends_at earlier — NOT SAFE, and not a freeze input at all. It is the anchor for
+--     the settlement maturity gate AND for kernel.sweep_expired_ticket_atoms
+--     (079:494), both of which POSTDATE the reasoning the old E2 encoded.
+--
+-- So E2 keeps its 'ok' expectation but is narrowed to the column that actually is
+-- safe; the dangerous half becomes E2a's refusal. Nothing was weakened: the file
+-- now asserts strictly more than it did, and asserts it per column.
 SELECT is((catalog.update_event_session(tap._fetch144('session')::uuid,
   jsonb_build_object('starts_at',(now()+interval '20 days')::text,
-                     'ends_at',(now()+interval '20 days 5 hours')::text,
                      'reason_code','venue_request'),'ck-s-2') ->> 'status'), 'ok',
-  'E2: …including a reason-coded EARLIER time move (atoms exist; the §20.2.4 guard is unchanged)');
+  'E2: …including a reason-coded EARLIER starts_at move — a freeze input only, so earlier genuinely does only tighten (143 G10''s shape)');
+-- E2a — THE P0, PINNED CLOSED. This behaviour had no coverage anywhere.
+SELECT throws_ok(format($$SELECT catalog.update_event_session(%L,
+  jsonb_build_object('ends_at',(now()+interval '20 days 5 hours')::text,
+                     'reason_code','venue_request'),'ck-s-2a')$$, tap._fetch144('session')),
+  -- RED-B: matched on the EXACT errcode AND the EXACT message, never "any error".
+  -- A bare matcher would pass on any unrelated 079 guard and could not tell the
+  -- difference between the P0 being closed and it merely being shadowed.
+  'P0001', 'precondition_failed: backward_schedule_move_frozen — this session carries economic weight (an issued atom, a paid order, a door scan or a settlement), so its schedule may not be moved earlier; contact the platform owner',
+  'E2a [093]: an earlier ENDS_AT with atoms present is REFUSED backward_schedule_move_frozen — the settlement-maturity and atom-expiry anchor may not be rewound under money');
+-- E2b/E2c — THE TWO-STEP BYPASS, closed. The attacker's move is not a single
+-- paired edit: it is starts_at backward first (permitted, and it must stay
+-- permitted — it only tightens the freeze), and THEN ends_at into the past, which
+-- is what matures the settlement and expires every atom. The guard is on ends_at
+-- itself rather than on the pair, so splitting the edit buys nothing.
+--
+-- Note the shape here is load-bearing and was corrected after a first attempt:
+-- pushing ends_at into the past while starts_at is still in the FUTURE is refused
+-- earlier by the ordering sanity check ("ends_at must be after starts_at"), which
+-- would have made E2c pass without ever reaching the backward guard — a green test
+-- reporting a P0 closed while it was open. Step 1 moving starts_at into the past is
+-- what makes step 2 legal on ordering and therefore a real probe of the guard.
+SELECT is((catalog.update_event_session(tap._fetch144('session')::uuid,
+  jsonb_build_object('starts_at',(now()-interval '2 days')::text,
+                     'reason_code','venue_request'),'ck-s-2b') ->> 'status'), 'ok',
+  'E2b [093]: step 1 of the two-step bypass — starts_at backward into the PAST is still permitted (freeze input only, and it only tightens)');
+SELECT throws_ok(format($$SELECT catalog.update_event_session(%L,
+  jsonb_build_object('ends_at',(now()-interval '1 day')::text,
+                     'reason_code','venue_request'),'ck-s-2c')$$, tap._fetch144('session')),
+  -- Same RED-B rule as E2a, and here it is what caught the shadowing described above.
+  'P0001', 'precondition_failed: backward_schedule_move_frozen — this session carries economic weight (an issued atom, a paid order, a door scan or a settlement), so its schedule may not be moved earlier; contact the platform owner',
+  'E2c [093]: step 2 is REFUSED — ordering now permits it, so this genuinely reaches the guard: the two-step bypass is closed');
+-- E2d — MUTATION RESISTANCE for E2a/E2c. Without this the pair above would also pass
+-- against a guard that simply refused EVERY backward ends_at move, which would be a
+-- different (and wrong) contract: a draft session carrying no money must still be
+-- freely reschedulable in both directions. The gate is ECONOMIC WEIGHT — an issued
+-- atom, a paid/partially_refunded/refunded order, a door scan, or a settlement on the
+-- event. A `pending` order is a quote, not money, and is deliberately NOT weight, so
+-- this session moves backward exactly as it did before 093.
+SELECT tap.logout();
+SELECT tap.login(tap.seller());
+SELECT tap._store144('event2',
+  (catalog.create_event(tap._fetch144('venue')::uuid,'Pending Night',
+     jsonb_build_object('starts_at',(now()+interval '30 days')::text,
+                        'ends_at',(now()+interval '30 days 5 hours')::text),'ck-e-3') ->> 'event_id'));
+SELECT tap.logout();
+SELECT tap._store144('session2',
+  (SELECT session_id::text FROM catalog.event_session WHERE event_id = tap._fetch144('event2')::uuid));
+INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+VALUES (tap.buyer(), tap._fetch144('session2')::uuid, tap._fetch144('org')::uuid,
+        'pending', 'app', 5000, 'ck-ord-pending-1');
+SELECT tap.login('00000000-0000-0000-0000-00000000e001');
+SELECT is((catalog.update_event_session(tap._fetch144('session2')::uuid,
+  jsonb_build_object('ends_at',(now()+interval '30 days 2 hours')::text,
+                     'reason_code','venue_request'),'ck-s-2d') ->> 'status'), 'ok',
+  'E2d [093]: a session whose only order is PENDING still moves ends_at backward — the gate is economic WEIGHT, not any backward move (mutation resistance for E2a/E2c)');
 SELECT throws_ok(format($$SELECT catalog.update_event_session(%L,
   jsonb_build_object('starts_at',(now() + interval '22 days')::text,
                      'ends_at',(now() + interval '22 days 5 hours')::text,

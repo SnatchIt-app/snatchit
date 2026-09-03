@@ -85,17 +85,37 @@ from the stored `payments` row rather than recomputed — see §10. A replay nev
 
 ### The all-in contract (`src/lib/pricing/allIn.ts`)
 
-`total` is the single honest number. Feed it to the `direct` rail:
+`total` is the single honest number. **AB-11 is CLOSED:** `allIn.ts` was rewritten for A5 and no
+longer accepts a single "server total" a caller could fill in with `order.total_minor`. It now demands
+the face value and the buyer fee separately. Pass the whole response to the purpose-built reader:
 
 ```ts
-allInPrice({ rail: 'direct', serverTotalMinor: asCents(res.total), currency: res.currency, taxApplies: false })
+import { allInFromPrimaryCheckout } from '@/src/lib/pricing/allIn';
+
+const price = allInFromPrimaryCheckout(res);            // res = this 200 body
+// price.kind === 'all-in'  -> price.totalMinor is THE charge (= amount + buyer_fee)
+//                             price.faceValueMinor / price.buyerServiceFeeMinor itemize it
+// price.kind === 'unavailable' -> render no all-in claim; see price.reason
 ```
 
-**Feed it `total`, never `amount`.** `allIn.ts:26-30` still says the direct rail's order total "IS
-the whole charge, and it is all-in by construction". That was true before ruling A5 introduced a
-buyer-side fee and is now **stale** — passing `order.total_minor` would under-show the price by
-exactly the service fee. `amount` and `buyer_fee` exist to itemize a receipt, never to be displayed
-as "the price". See **AB-10**.
+or, when the three numbers are already destructured:
+
+```ts
+allInPrice({
+  rail: 'direct',
+  faceValueMinor: asCents(res.amount),                              // face — NOT the price
+  buyerServiceFee: { source: 'server-quote', feeMinor: asCents(res.buyer_fee) },
+  chargeTotalMinor: asCents(res.total),                             // ← the charge, cross-checked
+  currency: res.currency,
+});
+```
+
+**Feed it `total`, never `amount`.** The module now enforces this rather than asking for it: it
+verifies `total === amount + buyer_fee` and refuses with `quote-incoherent` if not, which is the
+client twin of this function's own `quote_incoherent` 500. An absent `buyer_fee` refuses with
+`service-fee-unset`, the client mirror of the `503` in §4. `amount` and `buyer_fee` exist to itemize
+a receipt, never to be displayed as "the price". Contract: `docs/phase2/_impl/G5_pricing_contract.md`.
+See **AB-10**.
 
 ---
 
@@ -301,7 +321,7 @@ without pricing it.
 
 So `total` is the complete charge **under a no-tax-collected policy**. The day tax becomes applicable
 this function must **refuse rather than under-quote**, mirroring `allInPrice`'s `tax-unmodelled`
-refusal (`src/lib/pricing/allIn.ts:145-148`). Inventing a rate, a rounding order, or a jurisdiction
+refusal (`src/lib/pricing/allIn.ts`, reason `tax-unmodelled`). Inventing a rate, a rounding order, or a jurisdiction
 here would make every "all-in" label a lie at the moment it mattered. See **AB-8**.
 
 ---
@@ -501,7 +521,7 @@ Every one of these fails **closed**. The function is inert until they are resolv
 | **AB-8** | **The authoritative A8 gate lands only when 093 APPLIES.** 093 §3 puts the readiness precondition *inside* `venue.create_primary_checkout`. | `093:1414+` (§3) | The edge check here is **defence in depth only**. If `venue` were exposed (AB-5) before 093 applies, a direct PostgREST call to the RPC would bypass the edge entirely. **Apply 093 before exposing `venue`.** | ordering constraint below |
 | **AB-9** | **TAX IS NOT MODELLED AND MUST NOT BE INVENTED.** No tax column on `venue."order"` or `public.payments`; no ruling defines policy, nexus, rate sourcing, or remittance. | `082` table def; `allIn.ts:32-36`; A5 | Zero tax collected; no tax position asserted. If tax ever applies, this function must **refuse**, not under-quote. | **OWNER POLICY DECISION — unowned** |
 | **AB-10** | **Processing-cost allocation is unruled.** A5 surfaced it explicitly: *"no ratified ruling allocates Stripe processing cost on the primary rail"*, and it is **not** encoded in 093. Because A5 fixes venue entitlement at face value and forbids silent subtraction, the cost lands on the platform's side **by elimination — an inference, not a ruling.** | `PRIMARY_TICKETING_OWNER_RATIFICATION.md` A5 open item | Not encoded here. The service fee is the only platform revenue this function creates; whether it must cover processing cost is an owner number. | **OWNER — carried, not closed** |
-| **AB-11** | **`src/lib/pricing/allIn.ts` is stale post-A5.** Its direct-rail doc (`:26-30`) says the order total "IS the whole charge, and it is all-in by construction" — true only with no buyer fee. | `allIn.ts:17-37` | A caller following that comment passes `order.total_minor` and **under-shows the price by the service fee**. Mitigated by returning `total`, but the module's own doc still misleads. Not edited — out of this task's scope. | Follow-up edit |
+| **AB-11** | ~~**`src/lib/pricing/allIn.ts` is stale post-A5.**~~ **CLOSED.** The module's direct rail was rewritten for A5: `serverTotalMinor` is gone, replaced by a required `faceValueMinor` + `buyerServiceFee` pair, a cross-checked `chargeTotalMinor`, and `allInFromPrimaryCheckout()`. | `allIn.ts` (rewritten); `docs/phase2/_impl/G5_pricing_contract.md` | The under-show is now unrepresentable: there is no single "total" field to fill in with `order.total_minor`, an unset fee refuses (`service-fee-unset`), and a quote that fails `charge = face + fee` refuses (`quote-incoherent`). | **DONE** — G5 |
 | **AB-12** | **No hold can exist, so no checkout can succeed even with all of the above.** `feature.native_issuance_enabled` is `false`, and `inventory.hold_ttl_interval` / `inventory.per_user_active_hold_max` rows **do not exist** — the reserve RPC refuses `hold_ttl_unset` / fails-to-zero on the cap. | gap matrix rows D3, E1, E2, E3 | The RPC returns `holds do not cover` ⇒ `409 hold_invalid`. | 093 (create keys) + owner values + flag flip **last** |
 | **AB-13** | **Downstream, not this function: no signing key can exist.** `kernel.provision_signing_key` / `rotate_signing_key` are hard-raise stubs (PFA-18A). | `083:375-393`; gap matrix G1 | Checkout could mint a PI, but `venue.finalize_primary_order` would fail at the mint. **Do not activate collection before issuance can complete** — that is charging for a ticket that cannot be issued. | Owner ruling + 093+ |
 | **AB-14** | **Metadata key discrepancy, resolved defensively.** Brief said `mode`; frozen corpus (`:373`, `:1206`) says `rail`. Both are written with the identical value `native_primary`. | §5 above | None — moot for every consumer. Recorded so the webhook author branches on `rail` and asserts `mode === rail`. | Reconcile in the webhook branch |

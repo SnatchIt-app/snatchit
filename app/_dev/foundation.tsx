@@ -20,7 +20,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { MEDIA_SLOTS, slotHeight, type MediaSlotName } from '@/src/lib/media/slots';
-import { allInPrice, asCents, formatMinor, priceLadder } from '@/src/lib/pricing/allIn';
+import {
+  allInPrice,
+  asCents,
+  centsFromDollars,
+  formatMinor,
+  priceLadder,
+} from '@/src/lib/pricing/allIn';
 import { provenanceLabel, type InventoryKind } from '@/src/lib/pricing/provenance';
 import { brandFontsActive, fontFamily } from '@/src/theme/fonts';
 import * as v2 from '@/src/theme/v2';
@@ -221,13 +227,43 @@ export default function FoundationPreview() {
         </Section>
 
         <Section title="Price and provenance">
+          {/*
+            Post-A5 the direct rail is quoted from THREE server numbers, never
+            from `order.total_minor` alone: face + buyer service fee = charge.
+            The unset-rate row is the one that matters — it is what this harness
+            shows today, because `fee.buyer_service_bps` is seeded null.
+          */}
           {(
             [
-              ['direct', { rail: 'direct', serverTotalMinor: asCents(6000) } as const],
-              ['marketplace', { rail: 'marketplace', baseMinor: asCents(5000) } as const],
+              [
+                'direct (server quote)',
+                {
+                  rail: 'direct',
+                  faceValueMinor: asCents(6000),
+                  buyerServiceFee: { source: 'server-quote', feeMinor: asCents(600) },
+                  chargeTotalMinor: asCents(6600),
+                } as const,
+              ],
+              // Fifty DOLLARS: the resale rail's columns are whole dollars, and only
+              // `centsFromDollars` can produce the type it accepts.
+              ['marketplace', { rail: 'marketplace', baseMinor: centsFromDollars(50) } as const],
+              [
+                'direct, fee rate unset',
+                {
+                  rail: 'direct',
+                  faceValueMinor: asCents(6000),
+                  buyerServiceFee: { source: 'unset' },
+                } as const,
+              ],
               [
                 'tax unknown',
-                { rail: 'direct', serverTotalMinor: asCents(6000), taxApplies: true } as const,
+                {
+                  rail: 'direct',
+                  faceValueMinor: asCents(6000),
+                  buyerServiceFee: { source: 'server-quote', feeMinor: asCents(600) },
+                  chargeTotalMinor: asCents(6600),
+                  tax: { status: 'applies-unknown' },
+                } as const,
               ],
               ['missing base', { rail: 'marketplace', baseMinor: null } as const],
             ] as const
@@ -237,7 +273,9 @@ export default function FoundationPreview() {
               <Row key={label} label={label}>
                 <Text style={[styles.price, { fontFamily: fontFamily('bodyBold') }]}>
                   {r.kind === 'all-in'
-                    ? `${formatMinor(r.totalMinor, r.currency)} all-in`
+                    ? `${formatMinor(r.totalMinor, r.currency)} all-in` +
+                      ` (face ${formatMinor(r.faceValueMinor, r.currency)}` +
+                      ` + fee ${formatMinor(r.buyerServiceFeeMinor, r.currency)})`
                     : `no price shown (${r.reason})`}
                 </Text>
               </Row>

@@ -111,7 +111,7 @@
  * no-tax-collected policy. If tax ever becomes economically applicable (A5
  * lists taxes among the adjustments to venue entitlement), this function must
  * refuse rather than under-quote — mirroring `allInPrice`'s `tax-unmodelled`
- * refusal in `src/lib/pricing/allIn.ts:145-148`. That is an ACTIVATION BLOCKER,
+ * refusal in `src/lib/pricing/allIn.ts`. That is an ACTIVATION BLOCKER,
  * recorded in the impl doc, not something this file may paper over.
  *
  * ── EA-1 / CLASS A — WHOSE CREDENTIALS TALK TO WHAT ───────────────────────
@@ -1263,10 +1263,14 @@ serve(async (req: Request) => {
     // Shape mirrors `create-payment-intent` (spec §3.1 "Response") plus
     // `order_id` and `currency`.
     //
-    // THE ONE HONEST NUMBER: `total`. Feed it to `allInPrice` as
-    // `{ rail: 'direct', serverTotalMinor: total, currency, taxApplies: false }`
-    // and render `formatMinor` of the result. `amount` and `buyer_fee` exist to
-    // itemize that total on a receipt, never to be displayed as "the price".
+    // THE ONE HONEST NUMBER: `total`. The client reads this body through
+    // `allInFromPrimaryCheckout(res)` in `src/lib/pricing/allIn.ts`, which takes
+    // `amount` as FACE VALUE, `buyer_fee` as the A5 service fee, and `total` as
+    // the charge — then re-checks `total === amount + buyer_fee` before showing
+    // anything. (That module's pre-A5 `serverTotalMinor` field is gone; it treated
+    // the order total as the whole charge, which A5 made false.) `amount` and
+    // `buyer_fee` exist to itemize the total on a receipt, never to be displayed
+    // as "the price".
     return json(
       {
         order_id:                   orderId,

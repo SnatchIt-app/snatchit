@@ -10,9 +10,11 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
--- 2026-09-02 (package 093): 249 -> 250. One new assertion (D5a) names the four
--- config keys rulings D2/A5 add, so D1/D4's raised counts stay exact-by-name.
-SELECT plan(250);
+-- 2026-09-02 (package 093): 249 -> 253. D5a names the config keys 093 adds, so
+-- D1/D4's raised counts stay exact-by-name; H18j-H18l prove that the money slice's
+-- payout.settlement_maturity_interval is dual-controlled, which is the whole point
+-- of its `payout.` prefix. No assertion was removed or relaxed.
+SELECT plan(253);
 
 SELECT tap.seed_core();
 
@@ -257,9 +259,20 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- percentage is hardcoded in migration 093"; "fee economics remain owner/config
 -- controlled"). The four are ticket.expiry_grace, fee.buyer_service_bps,
 -- inventory.hold_ttl_interval and inventory.per_user_active_hold_max, joined by
--- settlement.refund_window_interval from the money slice (ruling A3: a settlement
--- payout is minted HELD while the refund window is unset, so the key must exist and
--- must start valueless). All FIVE land at version 1 with a JSON-null value and
+-- payout.settlement_maturity_interval from the money slice (ruling A3: a settlement
+-- payout is minted HELD until the maturity interval has elapsed, so the key must
+-- exist and must start valueless).
+--
+-- RENAMED from settlement.refund_window_interval, and the rename is SUBSTANTIVE, not
+-- cosmetic. The old name described refund ELIGIBILITY, which is a different concept
+-- that already owns its own keys (refund.buyer_self_service_window_hours,
+-- refund.request_ttl_hours, refund.scanned_atom_policy). What the value actually
+-- controls is a PAYOUT HOLD measured from the event's end. The `payout.` prefix is
+-- load-bearing too: it matches the dual-control prefix test at 078:1145-1147, so
+-- SETTING this key now parks for a second platform_admin (asserted at H18j). Under
+-- `settlement.` it matched no prefix and was a single unilateral write — on the one
+-- key in 093 where SETTING the value is the dangerous act, not leaving it unset.
+-- All FIVE land at version 1 with a JSON-null value and
 -- RESTRICTED visibility — the PFA-22 owner-unset shape — so D2/D3/D5 are untouched
 -- and the public class is unchanged. Named, not merely counted, by D5a below.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config), 48,
@@ -288,11 +301,11 @@ SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config
      WHERE key IN ('ticket.expiry_grace','fee.buyer_service_bps',
                    'inventory.hold_ttl_interval','inventory.per_user_active_hold_max',
-                   'settlement.refund_window_interval')
+                   'payout.settlement_maturity_interval')
        AND version = 1 AND visibility = 'restricted' AND value = 'null'::jsonb$$,
   $$VALUES ('ticket.expiry_grace'),('fee.buyer_service_bps'),
            ('inventory.hold_ttl_interval'),('inventory.per_user_active_hold_max'),
-           ('settlement.refund_window_interval')$$,
+           ('payout.settlement_maturity_interval')$$,
   'D5a [093/D2/A5/A3]: the five new keys exist at version 1, RESTRICTED, each with a JSON-null (owner-unset) value');
 
 -- T-SCHEMA-CFG-01 / T-RLS-CFG-01, asserted PER NAMESPACE because a single-key
@@ -410,10 +423,14 @@ SELECT is((SELECT (value #>> '{}')::int FROM catalog.platform_config
             WHERE key = 'notify.announcement_dual_control_threshold'), 500,
   'D39: announcement_dual_control_threshold = 500 (ODR-56 silence)');
 
--- The fifteen money keys MONEY §7.2 + schema §1.13.4 enumerate.
+-- The money keys MONEY §7.2 + schema §1.13.4 enumerate.
+-- 2026-09-02 (package 093): 15 -> 16. RATIFIED CONTRACT CHANGE — the money slice's
+-- payout.settlement_maturity_interval joins the `payout.` namespace this very query
+-- selects on. Count re-derived from the catalog, not assumed: the sixteen are the
+-- three authn.*, the five payout.* and the eight refund.*.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
-            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 15,
-  'D40: exactly 15 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours)');
+            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 16,
+  'D40: exactly 16 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours + 093''s payout.settlement_maturity_interval)');
 
 -- PFA-9: the keys deliberately NOT seeded, asserted as absences so a later
 -- package cannot silently assume 078 covered them.
@@ -990,6 +1007,26 @@ SELECT is((catalog.set_platform_config('comp.per_staff_step_up_window_hours','1'
 SELECT is((catalog.set_platform_config('comp.per_staff_step_up_window_hours','48'::jsonb,'ops','ck-c-16')
            ->> 'status'), 'parked',
   'H18i: lengthening it parks too — no declared polarity means fail toward the approver');
+
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, the money slice.
+-- payout.settlement_maturity_interval is the ONE key in 093 where SETTING the value
+-- is the dangerous act and leaving it unset is the safe state: null holds every
+-- settlement payout, and a value releases them. That inversion is exactly why the
+-- rename off `settlement.` matters — the `payout.` prefix puts it inside the
+-- dual-control predicate at 078:1145-1147, so the release now needs a second
+-- platform_admin. Under the old name it matched no prefix and one admin could have
+-- released every held payout unilaterally, in one transaction, with no second pair
+-- of eyes. Asserted on all three observable halves (status, no new version, value
+-- still null) because a park that silently wrote would pass a status-only check.
+SELECT is((catalog.set_platform_config('payout.settlement_maturity_interval','"72 hours"'::jsonb,'ops','ck-c-17')
+           ->> 'status'), 'parked',
+  'H18j [093]: SETTING payout.settlement_maturity_interval PARKS — the `payout.` prefix puts the payout release under dual control');
+SELECT is((SELECT max(version) FROM catalog.platform_config
+            WHERE key = 'payout.settlement_maturity_interval'), 1,
+  'H18k [093]: …and inserts NO version — the parked write did not land');
+SELECT is((SELECT value FROM catalog.platform_config
+            WHERE key = 'payout.settlement_maturity_interval' ORDER BY version DESC LIMIT 1), 'null'::jsonb,
+  'H18l [093]: …and the value is still JSON-null, so every settlement payout stays HELD until a second admin approves');
 
 -- The unknown-key arm, and the forbidden callers.
 SELECT throws_ok(

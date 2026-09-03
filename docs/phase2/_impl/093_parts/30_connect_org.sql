@@ -12,13 +12,16 @@
 --   §1  two mirror columns on kernel.organization ......... A6  (scope item 5)
 --   §2  kernel.sync_org_connect_state, service_role only .. A6  (scope item 6)
 --   §2b kernel.stage_org_connect_ref, service_role only ... A7/A9 (RT-A-3)
---   §3  checkout readiness gate, UNCONDITIONAL ............ A8  (scope item 7)
+--   §3  checkout readiness gates, UNCONDITIONAL ........... A8  (scope item 7)
+--         G2  connect readiness — can the VENUE be paid?
+--         G2b signing-key readiness — can the BUYER be delivered to?
 --       + the buyer-side service fee, fail-closed ......... A5  (part 40's
 --         `fee.buyer_service_bps`, whose only possible reader this is)
 --   §4  kernel.set_org_connect_ref — hardened ............. A7/A9 (item 8)
 --   §5  kernel.set_org_payout_destination — hardened ...... A7/A9 (item 9)
 --   §6  kernel.get_org_connect_state — read, HUMANS ........ A7  (F §3.5 G5)
 --   §7  kernel.get_org_connect_ref — read, MACHINES ........ A7  (F §3.4)
+--   §8  kernel.issue_ticket_atoms — resolve, not accept .... T1  (binds G2b)
 --
 -- §6 and §7 are the two objects here that are NOT in the 093 scope list. Both
 -- were added because the onboarding edge cannot function without them: the
@@ -539,6 +542,11 @@ declare
   -- A8/G2: the readiness operands, read once from the selling organization.
   v_org_ref   text;
   v_org_ready boolean;
+  -- A8/G2b: the deliverability operands — the event's scope keys for the
+  -- signing-key resolution, and the key that resolution finds.
+  v_event_id    uuid;
+  v_venue_id    uuid;
+  v_signing_key uuid;
   -- A5: the buyer-side service fee. v_fee_bps is NUMERIC on purpose — the cast
   -- happens once, and an owner typo is caught by an explicit range check with a
   -- greppable message instead of a raw 22P02 out of an ::integer cast.
@@ -599,8 +607,8 @@ begin
 
   -- Session must be sellable (event on_sale/live) and not terminal (§6.1). org_id
   -- is server-derived from the session's event; never client-trusted.
-  select e.status, s.status, e.org_id
-    into v_evt_status, v_sess_status, v_org_id
+  select e.status, s.status, e.org_id, e.event_id, e.venue_id
+    into v_evt_status, v_sess_status, v_org_id, v_event_id, v_venue_id
     from catalog.event_session s
     join catalog.event e on e.event_id = s.event_id
    where s.session_id = p_session_id;
@@ -649,6 +657,61 @@ begin
     raise exception 'precondition_failed: payout_not_ready';
   end if;
   -- ---- end A8 / G2 ---------------------------------------------------------
+
+  -- ---- A8 / G2b — SIGNING-KEY DELIVERABILITY, FAIL CLOSED -----------------
+  -- THE DEFECT THIS CLOSES: with ZERO signing keys in the database an order was
+  -- created, the buyer paid, the webhook called venue.finalize_primary_order,
+  -- and the mint raised `no_active_signing_key` (083:513-530) — AFTER the
+  -- PaymentIntent was confirmed. The buyer is charged and holds no ticket, and
+  -- with the refund executor undeployed and kernel.mark_refund_state without a
+  -- caller, nothing gives the money back automatically. G2 asks whether the
+  -- VENUE can be paid; this asks whether the BUYER can be delivered to. The
+  -- owner's SALEABLE rule covers both: do not sell what Snatch It cannot
+  -- honour, and a sale that provably cannot mint a ticket is the clearest case.
+  --
+  -- THE PREDICATE IS COPIED FROM THE MINT, NOT APPROXIMATED. A gate looser than
+  -- the mint's would pass here and fail there, which is the bug being closed —
+  -- so this is venue.finalize_primary_order's own resolution (085:1948-1960)
+  -- character for character: active status, inside [not_before, not_after), and
+  -- a scope that GOVERNS this event, ordered MOST SPECIFIC FIRST — per_event
+  -- outranks per_venue outranks global. 083:517-527 then re-validates the
+  -- pinned key with the identical conditions, so a key this finds is a key the
+  -- mint accepts.
+  --
+  -- The `order by … limit 1` is retained even though a bare EXISTS would be
+  -- logically equivalent for a yes/no gate: the ordering is what makes this
+  -- visibly the SAME query as finalize's, so a future change to the precedence
+  -- there is an obvious mismatch here rather than a silent divergence.
+  --
+  -- FAILS CLOSED ON EVERY AMBIGUITY: no key at all, a key that is inactive, one
+  -- not yet in force, one already expired, or one whose scope does not govern
+  -- this event all resolve to NULL and refuse. This gate is ON from the moment
+  -- 093 applies and stays on until the ruling-B bootstrap key row exists — the
+  -- owner ceremony (093 scope item 2) — which is the correct resting state:
+  -- until that row exists, no ticket can be minted by anything.
+  --
+  -- NOTHING HERE PROVISIONS A KEY. Ruling B parks kernel.provision_signing_key
+  -- and rotate_signing_key as unconditional raises, and this slice neither
+  -- un-parks them nor inserts a signing_key row. A gate that could mint its own
+  -- key would defeat the two-person KMS ceremony it exists to wait for.
+  select k.key_id into v_signing_key
+    from kernel.signing_key k
+   where k.status = 'active'
+     and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
+     and (   (k.scope = 'per_event' and k.event_id = v_event_id)
+          or (k.scope = 'per_venue' and k.venue_id = v_venue_id)
+          or (k.scope = 'global'))
+   order by case k.scope when 'per_event' then 1 when 'per_venue' then 2 else 3 end
+   limit 1;
+  if v_signing_key is null then
+    raise exception 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before a ticket can be sold';
+  end if;
+  -- The key is NOT pinned onto the order. Resolution happens again at finalize
+  -- under the rank-1 session lock (085:1943-1960), which is the correct place
+  -- for it: a key legitimately rotated between checkout and payment must not be
+  -- frozen by a value captured here, and venue."order" has no column for one.
+  -- This gate proves DELIVERABILITY AT QUOTE TIME; finalize decides WHICH key.
+  -- ---- end A8 / G2b --------------------------------------------------------
 
   -- ---- A5 — BUYER SERVICE FEE RATE, FAIL CLOSED ---------------------------
   -- STRICTLY AFTER the gate above: an organization that cannot be paid is
@@ -1375,6 +1438,244 @@ grant execute on function kernel.get_org_connect_ref(uuid) to service_role;
 
 
 -- ============================================================================
+-- §8 — kernel.issue_ticket_atoms: RESOLVE the signing key, never accept it.
+--   Signing review threat T1 · ruling B (activation boundary) · the binding
+--   half of §3's G2b gate.
+--
+-- WHY THIS IS IN THE CONNECT SLICE: it is not connect work. It is here because
+-- §3's G2b gate is UNENFORCEABLE WITHOUT IT, and shipping the gate without this
+-- would be shipping a control that reads as binding and is not.
+--
+-- THE DEFECT. The mint took the key from the CALLER: `v_key := (p_ctx->>
+-- 'signing_key_id')::uuid` (083:479), then validated it only for scope
+-- COHERENCE (083:512-529) — active, in-window, and governing this session. That
+-- predicate's `global` arm is UNCONDITIONAL, so a `global` key satisfies it even
+-- when a `per_event` key exists for the event. Coherence is not resolution: it
+-- asks "may this key govern here?", never "is this the key that governs here?".
+-- Consequences, both real:
+--   · T1 (a key silently outranking the intended one) is NOT superuser-only. Any
+--     service_role caller could pin a global key over a per_event key and mint
+--     atoms under it.
+--   · MY OWN G2b GATE WAS ADVISORY. I copied finalize's resolution character for
+--     character so a precedence change would surface as a visible mismatch — but
+--     a mint that accepts whatever it is handed can disagree with the gate with
+--     NO MISMATCH TO SEE: the gate resolves the per_event key, the caller pins
+--     the global one, and both "succeed".
+--
+-- THE FIX, AND WHICH OPTION I TOOK. Two were available: ignore the supplied
+-- value silently, or resolve internally and REFUSE a disagreement. I took the
+-- REFUSAL. Silently ignoring would make a caller that believes it is choosing a
+-- key be quietly overruled — the same class of invisible divergence as the bug,
+-- just in the other direction — and it would erase the evidence that anyone
+-- ever tried. The refusal converts an override into a loud, greppable error and
+-- leaves every correct caller untouched: venue.finalize_primary_order supplies
+-- the key it resolved at 085:1948-1960 with this exact rule (085:2050), so its
+-- supplied value EQUALS the resolved one and it never trips the refusal.
+--
+-- NOTE ON THE SIGNATURE: unlike §4/§5 there is no parameter to defend here.
+-- `signing_key_id` is a KEY INSIDE p_ctx jsonb, not an argument, so the frozen
+-- signature (p_ctx jsonb, p_command_key text) is untouched and CREATE OR REPLACE
+-- imposes no constraint at all. The value stays readable purely so the refusal
+-- can compare against it.
+--
+-- THE RESOLUTION IS THE SAME QUERY IN ALL THREE PLACES BY CONSTRUCTION:
+-- finalize (085:1948-1960), §3's G2b gate, and here. Same predicate, same
+-- most-specific-first ordering (per_event → per_venue → global). It keeps 083's
+-- original JOIN through event_session/event rather than finalize's two-step
+-- derivation, for one reason: with a nonexistent session the join yields no row
+-- and this raises `no_active_signing_key` BEFORE the rank-1 session lock,
+-- exactly as the old coherence check did. On every reachable input the three
+-- agree; the join form only preserves 083's pre-lock refusal ordering.
+--
+-- I CHECKED WHETHER THEY ALREADY DIFFERED, AS ASKED. They did, and this is the
+-- finding: finalize RESOLVES (order by scope, limit 1) while the mint only
+-- CHECKED COHERENCE (exists, unordered). Those are different operations, not
+-- different spellings of one — which is precisely how the two could disagree.
+-- After this replacement they are the same operation in all three sites.
+--
+-- EVERYTHING ELSE IS BYTE-FOR-BYTE: the ctx unpack, every refusal code, the
+-- feature-flag gate, the idempotency anchor, the rank-1 session lock, the batch
+-- lock and coherence check, the serial draw, the atom/ownership-log loop, the
+-- sold conversion, the movement row, the door-manifest hook, the return shape,
+-- and the unique_violation handler that returns the original atom set. NO
+-- signing key is provisioned or inserted, and the parked signing RPCs stay
+-- parked — a mint that could create its own key would defeat the ceremony this
+-- boundary exists to wait for, exactly as §3's comment says of the gate.
+-- ============================================================================
+create or replace function kernel.issue_ticket_atoms(p_ctx jsonb, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor    uuid;
+  v_session  uuid;
+  v_org      uuid;
+  v_tt       uuid;
+  v_batch    uuid;
+  v_owner    uuid;
+  v_qty      integer;
+  v_cause    text;
+  v_cause_ref uuid;
+  v_key      uuid;
+  v_key_req  uuid;   -- T1: what the CALLER asked for. Compared, never trusted.
+  v_flag     boolean;
+  v_serial   integer;
+  v_atom     uuid;
+  v_atoms    uuid[] := '{}';
+  v_ex       uuid[];
+  v_b_session uuid;
+  v_b_tt     uuid;
+  i          integer;
+begin
+  v_actor := coalesce(auth.uid(), '00000000-0000-0000-0000-0000000000f1');  -- SN-SYSTEM for import/sweep
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+
+  v_session   := (p_ctx->>'session_id')::uuid;
+  v_org       := (p_ctx->>'org_id')::uuid;
+  v_tt        := (p_ctx->>'ticket_type_id')::uuid;
+  v_batch     := (p_ctx->>'batch_id')::uuid;
+  v_owner     := (p_ctx->>'owner_id')::uuid;
+  v_qty       := (p_ctx->>'quantity')::integer;
+  v_cause     := (p_ctx->>'cause');
+  v_cause_ref := (p_ctx->>'cause_ref')::uuid;
+  -- T1: read as a REQUEST, not as the answer. Resolution happens below.
+  v_key_req   := (p_ctx->>'signing_key_id')::uuid;
+
+  if v_cause not in ('issue','comp','door_sale','import') then
+    raise exception 'precondition_failed: bad_cause %', v_cause;
+  end if;
+  if v_qty is null or v_qty <= 0 then
+    raise exception 'precondition_failed: bad_quantity';
+  end if;
+  if v_owner is null or v_batch is null or v_session is null
+     or v_tt is null or v_cause_ref is null then
+    -- cause_ref is the idempotency anchor and tt is the coherence key: a NULL in
+    -- either would silently defeat the replay guard / batch check downstream (E-46).
+    raise exception 'precondition_failed: incomplete context';
+  end if;
+
+  -- NATIVE ISSUANCE GATE — the mint is inert while the flag is false (dark).
+  select (c.value #>> '{}')::boolean into v_flag
+    from catalog.platform_config c
+   where c.key = 'feature.native_issuance_enabled'
+   order by c.version desc limit 1;
+  if not coalesce(v_flag, false) then
+    raise exception 'precondition_failed: feature_disabled';
+  end if;
+
+  -- IDEMPOTENCY: a replay of a succeeded mint returns the original atoms. The mint's
+  -- ownership-log entry is ALWAYS cause='issue' (the ownership_log_from_identity_check
+  -- requires cause='issue' for the from-NULL sequence-1 row); the business cause lives
+  -- in the movement + the state_transition jsonb.
+  select array_agg(l.ticket_atom_id order by l.ticket_atom_id) into v_ex
+    from kernel.ticket_ownership_log l
+   where l.cause = 'issue' and l.cause_ref = v_cause_ref;
+  if v_ex is not null and array_length(v_ex, 1) > 0 then
+    return jsonb_build_object('status','idempotency_replay','atom_ids', to_jsonb(v_ex));
+  end if;
+
+  -- ACTIVATION BOUNDARY (§7.1): an ACTIVE signing_key must RESOLVE for the scope.
+  -- Fail closed if none resolves — NEVER auto-create one. Most-specific-first:
+  -- per_event outranks per_venue outranks global (085:1948-1960), so the key the
+  -- door will expect is the key the atom is minted under.
+  select k.key_id into v_key
+    from kernel.signing_key k
+    join catalog.event_session s on s.session_id = v_session
+    join catalog.event e on e.event_id = s.event_id
+   where k.status = 'active'
+     and (k.not_after is null or k.not_after > now()) and k.not_before <= now()
+     -- scope coherence (E-46): the key must GOVERN this session's scope — an
+     -- active-but-wrong-scope key would mint atoms the door cannot verify.
+     and (   (k.scope = 'per_event' and k.event_id = s.event_id)
+          or (k.scope = 'per_venue' and k.venue_id = e.venue_id)
+          or (k.scope = 'global'))
+   order by case k.scope when 'per_event' then 1 when 'per_venue' then 2 else 3 end
+   limit 1;
+  if v_key is null then
+    raise exception 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before any atom is minted';
+  end if;
+  -- T1: a caller MAY state which key it expects, and a correct caller does
+  -- (085:2050 passes the key finalize resolved with this same rule). What it may
+  -- not do is CHOOSE one. A disagreement is refused loudly rather than silently
+  -- honoured (the old bug) or silently discarded (the other wrong fix).
+  if v_key_req is not null and v_key_req <> v_key then
+    raise exception 'precondition_failed: signing_key_override_refused — caller supplied % but % resolves for this scope; the mint resolves its own key', v_key_req, v_key;
+  end if;
+
+  -- rank-1 Event/Session lock (SPEC_FOUNDATION §5 order; DOOR §818; E-46): the
+  -- serial_no counter below is SESSION-scoped while the batch lock is batch-scoped —
+  -- without this, same-session/different-batch mints race to the same serial and the
+  -- loser aborts on tickets_session_serial_uq. Also mutually excludes
+  -- catalog.update_event_session's atoms-issued schedule guard.
+  perform 1 from catalog.event_session s where s.session_id = v_session for update;
+  if not found then
+    raise exception 'not_found: session %', v_session using errcode = 'P0002';
+  end if;
+
+  -- lock the batch (C27 choke-point) and verify ctx coherence (E-46): the sold
+  -- counter and the atoms must move on the SAME session/ticket_type.
+  select b.event_session_id, b.ticket_type_id into v_b_session, v_b_tt
+    from venue.inventory_batch b where b.batch_id = v_batch for update;
+  if not found then
+    raise exception 'not_found: batch %', v_batch using errcode = 'P0002';
+  end if;
+  if v_b_session <> v_session or v_b_tt <> v_tt then
+    raise exception 'precondition_failed: batch_mismatch — batch % does not belong to the ctx session/ticket_type', v_batch;
+  end if;
+
+  select coalesce(max(t.serial_no), 0) into v_serial
+    from kernel.tickets t where t.event_session_id = v_session;
+
+  for i in 1..v_qty loop
+    insert into kernel.tickets (event_session_id, org_id, ticket_type_id, serial_no,
+                                current_owner_id, state, credential_version, signing_key_id)
+    values (v_session, v_org, v_tt, v_serial + i, v_owner, 'active', 0, v_key)
+    returning ticket_atom_id into v_atom;
+    v_atoms := v_atoms || v_atom;
+
+    insert into kernel.ticket_ownership_log (ticket_atom_id, sequence, from_identity, to_identity,
+                                             cause, cause_ref, actor_identity, command_idempotency_key,
+                                             credential_version_after, state_transition)
+    values (v_atom, 1, null, v_owner, 'issue', v_cause_ref, v_actor, p_command_key || ':' || v_atom::text,
+            0, jsonb_build_object('from', null, 'to', 'active', 'mint_cause', v_cause));
+  end loop;
+
+  -- convert to sold. The C27 CHECK (held+sold<=capacity) is the oversell backstop;
+  -- 085/finalize releases the matching hold (held -= N) — forward obligation E-40.
+  update venue.inventory_batch set sold = sold + v_qty, updated_at = now()
+   where batch_id = v_batch;
+
+  insert into venue.inventory_movement (batch_id, movement_kind, delta_held, delta_sold,
+                                        cause, cause_ref, actor_identity)
+  values (v_batch, 'issue', 0, v_qty, v_cause, v_cause_ref, v_actor);
+
+  -- where an open door episode exists, feed the manifest delta (no-op stub until 086).
+  perform venue.append_door_manifest_delta(v_session, v_atoms, 'add', v_cause_ref);
+
+  return jsonb_build_object('status','ok','atom_ids', to_jsonb(v_atoms));
+exception when unique_violation then
+  -- concurrent identical retry (E-46): the loser's partial work rolled back to the
+  -- block savepoint; under a fresh snapshot the winner's committed rows are visible.
+  -- Honor the replay contract (the 081 reserve idiom) — any unique_violation NOT
+  -- explained by the idempotency anchor re-raises raw.
+  select array_agg(l.ticket_atom_id order by l.ticket_atom_id) into v_ex
+    from kernel.ticket_ownership_log l
+   where l.cause = 'issue' and l.cause_ref = v_cause_ref;
+  if v_ex is not null and array_length(v_ex, 1) > 0 then
+    return jsonb_build_object('status','idempotency_replay','atom_ids', to_jsonb(v_ex));
+  end if;
+  raise;
+end;
+$$;
+-- No grant statement: CREATE OR REPLACE preserves the frozen 083 ACL for this
+-- function, and this slice must not widen or narrow it.
+
+
+-- ============================================================================
 -- END PART 30. Residuals this part creates, recorded so they are not mistaken
 -- for oversights (all outside the authored scope of this fragment):
 --   R30-1  OPEN — CARRIED AS A NAMED FOLLOW-UP, NOT CLOSED HERE.
@@ -1415,6 +1716,11 @@ grant execute on function kernel.get_org_connect_ref(uuid) to service_role;
 --          authorize binding the account the platform itself minted for that
 --          org — but a TTL sweep would be the tidier long-term shape, and it is
 --          not in 093.
+--   R30-8  G2b refuses EVERY primary checkout until the ruling-B bootstrap
+--          signing-key row exists (093 scope item 2, an owner KMS ceremony).
+--          That is the intended resting state, not a defect — but it means the
+--          ceremony is now a hard blocker on the first sale, visible as
+--          `no_active_signing_key` rather than as a post-payment mint failure.
 --   R30-5  Nothing in the database stops selling being activated while
 --          fee.buyer_service_bps is null; the §3 refusal is per-checkout, so
 --          the symptom is "every sale fails closed", not "no sale is
