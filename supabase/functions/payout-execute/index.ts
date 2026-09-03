@@ -61,6 +61,7 @@ import {
   planPayoutTransfer,
   planReconcile,
   type BalanceProbe,
+  type TransferReversal,
   type DestinationProbe,
   type PayoutClaim,
   type PayoutExecutionContext,
@@ -75,6 +76,7 @@ const CONTEXT_RPC = 'get_payout_execution_context';
 const CLAIM_RPC = 'claim_payouts_for_execution';
 const NOTE_RPC = 'record_payout_execution_note';
 const DEAUTH_RPC = 'hold_payout_destination_changed';
+const REVERSED_RPC = 'hold_payout_transfer_reversed';
 
 const ALLOWED_ORIGINS = ['https://snatchitapp.com', 'https://www.snatchitapp.com'];
 
@@ -141,6 +143,71 @@ async function note(
   } catch (err) {
     console.warn('[payout-execute] execution note threw:', String(err));
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A transfer whose money came back
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Route a reversal — full or partial — to `kernel.hold_payout_transfer_reversed`.
+ *
+ * NO STATUS TRANSITION IS WRITTEN, from either of the two sites that can
+ * observe a reversal (the reconcile read, and the sync after a create). 'paid'
+ * would assert money the venue does not have and would fire
+ * `venue.on_payout_settled`; 'reversed' is only reachable through 'paid'; and
+ * `kernel.payout` has one amount column, so a partial has nowhere to live. The
+ * DB verb de-authorizes the row to pending + held with the amounts in the
+ * audit, and a human rules. 'failed' is never written here either.
+ *
+ * A FULL reversal is BENIGN, not an error: Stripe may reverse on its own
+ * initiative (platforms created on or after 2025-01-01, when an async payment
+ * behind the funds fails). It is logged, not paged. A PARTIAL reversal is the
+ * unrepresentable case and IS paged, because a human has to decide what the
+ * venue is still owed.
+ */
+async function holdReversedTransfer(
+  service: SupabaseClient,
+  payoutId: string,
+  reversal: TransferReversal,
+  obligationMinor: number,
+  detail: string,
+  commandKey: string,
+  origin: 'reconcile' | 'post_create',
+): Promise<PayoutOutcome> {
+  const { data, error } = await service.rpc(REVERSED_RPC, {
+    p_payout_id: payoutId,
+    p_stripe_transfer_ref: reversal.stripe_transfer_ref,
+    p_transfer_amount_minor: reversal.transfer_amount_minor,
+    p_amount_reversed_minor: reversal.amount_reversed_minor,
+    p_detail: { origin, detail, obligation_minor: obligationMinor },
+    p_command_key: commandKey,
+  });
+  if (error) {
+    await note(service, payoutId, 'transfer_reversed_hold_failed', {
+      stripe_transfer_ref: reversal.stripe_transfer_ref,
+      amount_reversed_minor: reversal.amount_reversed_minor,
+      error: error.message,
+    }, commandKey);
+    await captureException('payout-execute:reversal-hold', new Error(`hold_payout_transfer_reversed: ${error.message}`), {
+      payout_id: payoutId,
+    });
+    return { payout_id: payoutId, outcome: 'refused', code: 'transfer_reversed_hold_failed', detail: error.message, retryable: true, http: 500 };
+  }
+  const fault = (data as { fault?: string })?.fault ?? (reversal.fully_reversed ? 'transfer_reversed' : 'transfer_partially_reversed');
+  if (fault !== 'transfer_reversed') {
+    // The unrepresentable case. A human must decide what is still owed.
+    await captureException('payout-execute:partial-reversal', new Error(`${fault}: ${detail}`), { payout_id: payoutId });
+  }
+  return {
+    payout_id: payoutId,
+    outcome: 'transfer_reversed',
+    code: fault,
+    detail,
+    stripe_transfer_ref: reversal.stripe_transfer_ref,
+    retryable: false,
+    http: 200,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,7 +283,9 @@ export type PayoutOutcome = {
     | 'refused'
     | 'deauthorized'
     | 'stripe_error'
-    | 'state_sync_deferred';
+    | 'state_sync_deferred'
+    /** A Transfer exists and its money came back. No status transition written. */
+    | 'transfer_reversed';
   stripe_transfer_ref?: string | null;
   code?: string;
   detail?: string;
@@ -322,6 +391,20 @@ async function executeOne(
 
   const auth = authorizeTransfer(plan, { destination: destVerdict, balance: balVerdict, reconcile });
 
+  if (auth.kind === 'reversed') {
+    // The transfer group already holds a transfer for this payout and its money
+    // has come back. Adopting it would sync 'paid' for money the venue does not
+    // have; creating a second one would pay twice. Neither. Hold, and let a
+    // human rule.
+    await note(service, payoutId, 'reconcile_transfer_reversed', {
+      stripe_transfer_ref: auth.reversal.stripe_transfer_ref,
+      amount_reversed_minor: auth.reversal.amount_reversed_minor,
+      obligation_minor: plan.amount_minor,
+      detail: auth.detail,
+    }, commandKey);
+    return await holdReversedTransfer(service, payoutId, auth.reversal, plan.amount_minor, auth.detail, commandKey, 'reconcile');
+  }
+
   if (auth.kind === 'refuse') {
     await note(service, payoutId, auth.code, {
       destination_state: destProbe,
@@ -337,9 +420,12 @@ async function executeOne(
   }
 
   // ── 6. the transfer (or the adoption of one we already made) ─────────────
-  let transferObj: { id?: string; reversed?: boolean };
+  let transferObj: { id?: string; amount?: number; reversed?: boolean; amount_reversed?: number };
   if (auth.kind === 'adopt') {
-    transferObj = { id: auth.stripe_transfer_ref };
+    // planReconcile has already proved this transfer carries amount_reversed = 0
+    // (a reversed one takes the branch above and never reaches here), so the
+    // zero is asserted rather than assumed.
+    transferObj = { id: auth.stripe_transfer_ref, amount: plan.amount_minor, reversed: false, amount_reversed: 0 };
     await note(service, payoutId, 'reconciled_from_transfer_group', { stripe_transfer_ref: auth.stripe_transfer_ref }, commandKey);
   } else {
     let res: { ok: boolean; status: number; data: unknown };
@@ -377,11 +463,25 @@ async function executeOne(
         http: verdict.retryable ? 503 : 409,
       };
     }
-    transferObj = res.data as { id?: string; reversed?: boolean };
+    transferObj = res.data as { id?: string; amount?: number; reversed?: boolean; amount_reversed?: number };
   }
 
   // ── 7. the callback. From here on money HAS moved. ───────────────────────
-  const syncPlan = planPayoutStateSync(transferObj);
+  const syncPlan = planPayoutStateSync(transferObj, plan.amount_minor);
+  if (syncPlan.kind === 'reversed') {
+    // Stripe returned a transfer whose money has already come back — fully (it
+    // may reverse on its own initiative when an async payment behind the funds
+    // fails) or partially. Writing 'paid' here was the defect: `reversed` is
+    // false for a partial, so a partially reversed transfer was recorded as a
+    // full payment. No status transition; hold and page if partial.
+    await note(service, payoutId, 'transfer_reversed_on_arrival', {
+      stripe_transfer_ref: syncPlan.reversal.stripe_transfer_ref,
+      transfer_amount_minor: syncPlan.reversal.transfer_amount_minor,
+      amount_reversed_minor: syncPlan.reversal.amount_reversed_minor,
+      obligation_minor: plan.amount_minor,
+    }, commandKey);
+    return await holdReversedTransfer(service, payoutId, syncPlan.reversal, plan.amount_minor, syncPlan.detail, commandKey, 'post_create');
+  }
   if (syncPlan.kind === 'refuse') {
     await note(service, payoutId, syncPlan.code, { detail: syncPlan.detail }, commandKey);
     await captureException('payout-execute:unrecordable-transfer', new Error(`${syncPlan.code}: ${syncPlan.detail}`), { payout_id: payoutId });

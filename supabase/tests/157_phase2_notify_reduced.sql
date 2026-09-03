@@ -183,14 +183,22 @@ SELECT col_is_unique('notify','delivery',ARRAY['notification_id','channel'],'A39
 SELECT col_is_unique('notify','notification_type',ARRAY['type_key','delivery_class'],'A40: UNIQUE(type_key, delivery_class) — the composite the preference FK targets');
 SELECT ok((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='preference_type_class_fk') ~ 'ON UPDATE CASCADE', 'A41: preference (type_key, delivery_class) FK ON UPDATE CASCADE');
 SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='preference_not_mandatory_ck'), 'CHECK ((delivery_class <> ''mandatory''::text))', 'A42: the mandatory guard is DDL (§3.3)');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel' AND c.relkind='r'), 28, 'A43: kernel tables unchanged at 28');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel' AND c.relkind='r'), 29, 'A43: kernel tables 29 — 094''s kernel.organization_obligation is the only relation added since 091');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'), 29, 'A44: venue tables unchanged at 29');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 75, 'A45: five-schema relations 75 (69 post-091 + 6)');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 76, 'A45: five-schema relations 76 (69 post-091 + 092''s 6 + 094''s kernel.organization_obligation)');
 -- 2026-09-02 (package 093): 243 -> 250. RATIFIED CONTRACT CHANGE — SEVEN kernel routines:
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 259,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 270,
+  -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
   -- 2026-09-03: 251 -> 253. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
   -- 2026-09-03 (package 093, payout-executor slice): 253 -> 259. SIX added, zero removed,
   -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
@@ -201,7 +209,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'A46: five-schema routines 259 (228 + 092''s 15 + 093''s 16 kernel)');
+  'A46: five-schema routines 266 (228 + 092''s 15 + 093''s 16 + 095''s 7, all kernel)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

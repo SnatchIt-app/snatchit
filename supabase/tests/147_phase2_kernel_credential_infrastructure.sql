@@ -34,7 +34,7 @@ GRANT EXECUTE ON FUNCTION tap._sk_count(uuid), tap._wp_status(uuid), tap._ticket
 -- SECTION A — THE 083 CLOSED WORLD
 -- ============================================================================
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r'), 28,
+            WHERE n.nspname='kernel' AND c.relkind='r'), 29,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
   'A1: kernel holds 28 tables — 22 post-084 + 085''s four money ledgers + 088''s dispute_native + 091''s reserve stub');
 SELECT has_table('kernel'::name,'signing_key'::name, 'A2: kernel.signing_key');

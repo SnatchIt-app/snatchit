@@ -217,7 +217,105 @@ export type TransferAuthorization =
       destination: string;
     }
   | { kind: 'adopt'; stripe_transfer_ref: string; detail: string }
+  /**
+   * A Transfer for this payout exists and its money has come back — wholly or
+   * in part. Not a payment, not an error. See `TransferReversal`.
+   */
+  | { kind: 'reversed'; reversal: TransferReversal; detail: string }
   | { kind: 'refuse'; code: PayoutRefusalCode; detail: string; retryable: boolean };
+
+/**
+ * WHAT A REVERSED TRANSFER IS, AND WHY THE BOOLEAN WAS NEVER ENOUGH.
+ *
+ * Stripe's `Transfer.reversed` is FULL reversal only — the API reference is
+ * explicit that "if the transfer is only partially reversed, this attribute
+ * will still be false". The money lives in `amount_reversed`, and `amount` is
+ * NOT reduced by a reversal. So a partially reversed transfer read as clean:
+ * `planPayoutStateSync` synced it to 'paid' at FULL FACE VALUE, which fires
+ * `venue.on_payout_settled` and can advance the settlement header to 'paid' —
+ * the ledger recording the venue as fully paid for money that had already been
+ * pulled back, with nothing downstream ever re-reading the transfer.
+ * `planReconcile` had the same blind spot from the other side: it compares
+ * `amount` (unchanged by a reversal) and would ADOPT a reversed transfer as a
+ * successful payment.
+ *
+ * Both now read `amount_reversed`. `reversed === true` is still honoured as a
+ * belt for the full case, for a payload that omits the amount.
+ *
+ * WHAT THE EXECUTOR DOES WITH IT — and it is neither 'paid' nor 'reversed':
+ *   · 'paid' is false. It asserts the venue received `amount_minor`, and it is
+ *     not an inert label — `mark_payout_transfer_state` fires
+ *     `venue.on_payout_settled` on 'paid'.
+ *   · 'reversed' is only reachable THROUGH 'paid' (the state machine's one
+ *     terminal-to-terminal edge), so taking it would write that lie first, and
+ *     it additionally asserts the WHOLE transfer came back.
+ *   · `kernel.payout` has ONE amount column, the obligation. There is nowhere
+ *     to record "we moved 5000 and 1200 came back".
+ * So the executor writes NO status transition and calls
+ * `kernel.hold_payout_transfer_reversed`, which de-authorizes the payout back
+ * to pending + held with the exact amounts in the audit and leaves the ruling
+ * to a human. 'failed' is still never written.
+ *
+ * FULL REVERSAL IS BENIGN. Stripe may reverse a transfer on its own initiative
+ * — for platforms created on or after 2025-01-01, when an async payment behind
+ * the funds fails. "Already fully reversed" is an expected observation, not a
+ * conflict and not a page.
+ */
+export interface TransferReversal {
+  stripe_transfer_ref: string;
+  /** The Transfer's own `amount`, as reported. Evidence for the audit only. */
+  transfer_amount_minor: number | null;
+  amount_reversed_minor: number;
+  /**
+   * Advisory. The DB verb re-derives full-versus-partial against the payout's
+   * own `amount_minor`, so nothing the executor reports can turn a full
+   * reversal into a partial one or the reverse.
+   */
+  fully_reversed: boolean;
+}
+
+/**
+ * Read the reversal facts off a Stripe Transfer object.
+ *
+ * `unreadable` is a distinct outcome, never a silent zero: a payload whose
+ * `amount_reversed` is present but not a finite non-negative number is one we
+ * do not understand, and assuming "nothing came back" is exactly the failure
+ * this function exists to remove. An ABSENT `amount_reversed` with `reversed`
+ * absent or false is a clean transfer — the ordinary success shape.
+ */
+export function classifyTransferReversal(
+  transfer: { id?: unknown; amount?: unknown; reversed?: unknown; amount_reversed?: unknown },
+  obligationMinor: number,
+): { state: 'none' } | { state: 'unreadable'; detail: string } | { state: 'reversed'; reversal: TransferReversal } {
+  const id = typeof transfer?.id === 'string' ? transfer.id : '';
+  const rawReversed = transfer?.amount_reversed;
+  let reversedMinor = 0;
+  if (rawReversed != null) {
+    const n = Number(rawReversed);
+    if (!Number.isFinite(n) || n < 0) {
+      return { state: 'unreadable', detail: `amount_reversed=${String(rawReversed)} on ${id || '<no id>'}` };
+    }
+    reversedMinor = n;
+  }
+  const amountRaw = Number(transfer?.amount);
+  const transferAmount = Number.isFinite(amountRaw) ? amountRaw : null;
+
+  if (reversedMinor === 0 && transfer?.reversed !== true) return { state: 'none' };
+  // `reversed === true` with no amount: fully reversed by definition. Fall back
+  // to the transfer's own amount, then to the obligation, so the DB verb always
+  // receives a positive number to record.
+  if (reversedMinor === 0) reversedMinor = transferAmount ?? obligationMinor;
+
+  return {
+    state: 'reversed',
+    reversal: {
+      stripe_transfer_ref: id,
+      transfer_amount_minor: transferAmount,
+      amount_reversed_minor: reversedMinor,
+      fully_reversed: transfer?.reversed === true || reversedMinor >= obligationMinor,
+    },
+  };
+}
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -563,9 +661,13 @@ export function evaluateBalance(
  * the only durable handle back to a transfer whose response we lost.
  */
 export function planReconcile(
-  transfers: Array<{ id?: unknown; amount?: unknown; currency?: unknown; destination?: unknown; reversed?: unknown }>,
+  transfers: Array<{ id?: unknown; amount?: unknown; currency?: unknown; destination?: unknown; reversed?: unknown; amount_reversed?: unknown }>,
   plan: { amount_minor: number; currency: string; destination: string },
-): { kind: 'adopt'; stripe_transfer_ref: string } | { kind: 'create_allowed' } | { kind: 'refuse'; code: PayoutRefusalCode; detail: string } {
+):
+  | { kind: 'adopt'; stripe_transfer_ref: string }
+  | { kind: 'create_allowed' }
+  | { kind: 'reversed'; reversal: TransferReversal; detail: string }
+  | { kind: 'refuse'; code: PayoutRefusalCode; detail: string } {
   const rows = Array.isArray(transfers) ? transfers : [];
   const matches = rows.filter((t) => typeof t.id === 'string' && TR_RE.test(t.id as string));
   if (matches.length === 0) return { kind: 'create_allowed' };
@@ -595,6 +697,24 @@ export function planReconcile(
       kind: 'refuse',
       code: 'reconcile_amount_mismatch',
       detail: `existing transfer ${String(t.id)} paid ${destination}, the pinned payee is ${plan.destination}`,
+    };
+  }
+  // A reversal is invisible to every check above: `amount` is NOT reduced when
+  // money comes back, and `reversed` stays false for a partial. Adopting such a
+  // transfer would sync 'paid' at full face value for money that has already
+  // been pulled back — the same defect this module carried at the sync site.
+  // Creating a SECOND transfer would be worse still, so this is neither an
+  // adopt nor a create: it is the reversal outcome, and the caller hands it to
+  // `kernel.hold_payout_transfer_reversed`.
+  const rev = classifyTransferReversal(t, plan.amount_minor);
+  if (rev.state === 'unreadable') {
+    return { kind: 'refuse', code: 'reconcile_ambiguous', detail: `unreadable reversal on ${String(t.id)}: ${rev.detail}` };
+  }
+  if (rev.state === 'reversed') {
+    return {
+      kind: 'reversed',
+      reversal: rev.reversal,
+      detail: `transfer ${String(t.id)} carries amount_reversed=${rev.reversal.amount_reversed_minor} of ${plan.amount_minor}; it is not a payment`,
     };
   }
   return { kind: 'adopt', stripe_transfer_ref: t.id as string };
@@ -634,6 +754,9 @@ export function authorizeTransfer(
       };
     }
     if (r.kind === 'refuse') return { kind: 'refuse', code: r.code, detail: r.detail, retryable: false };
+    if (r.kind === 'reversed') {
+      return { kind: 'reversed', reversal: r.reversal, detail: r.detail };
+    }
     if (r.kind === 'adopt') {
       return { kind: 'adopt', stripe_transfer_ref: r.stripe_transfer_ref, detail: 'recovered via transfer_group' };
     }
@@ -764,7 +887,13 @@ export interface PayoutStateSyncStep {
 
 export type PayoutStateSyncPlan =
   | { kind: 'sync'; steps: PayoutStateSyncStep[] }
-  | { kind: 'refuse'; code: 'malformed_stripe_transfer_ref' | 'transfer_reversed_on_arrival'; detail: string };
+  /**
+   * The money came back — wholly or in part. NO status transition is written;
+   * the caller routes this to `kernel.hold_payout_transfer_reversed`. See
+   * `TransferReversal` for why neither 'paid' nor 'reversed' is honest here.
+   */
+  | { kind: 'reversed'; reversal: TransferReversal; detail: string }
+  | { kind: 'refuse'; code: 'malformed_stripe_transfer_ref' | 'transfer_reversal_unreadable'; detail: string };
 
 /**
  * Turn the Stripe Transfer object into the `kernel.mark_payout_transfer_state`
@@ -777,23 +906,41 @@ export type PayoutStateSyncPlan =
  * transaction and advances the settlement header closed→paid (085:1729,
  * 087:376).
  *
- * The only thing that can go wrong here is a 2xx we cannot record: a malformed
- * id, or a transfer that came back already reversed. Both leave the row
- * `submitted` and page a human — money moved and we cannot prove it, which is
- * the loudest case in the system. NEITHER writes 'failed'.
+ * Two things can go wrong. A malformed id is a 2xx we cannot record: the row
+ * stays `submitted` and a human is paged, because money moved and we cannot
+ * prove it. A transfer whose money has come back is NOT that case — it is an
+ * expected observation with its own DB verb (`reversed` below). NEITHER writes
+ * 'failed'.
+ *
+ * `obligationMinor` is the payout's own `amount_minor`. It is used ONLY to
+ * classify full-versus-partial for the executor's own logging; the DB verb
+ * re-derives that verdict from the ledger and does not trust this number.
  */
 export function planPayoutStateSync(
-  transfer: { id?: unknown; reversed?: unknown; amount_reversed?: unknown },
+  transfer: { id?: unknown; amount?: unknown; reversed?: unknown; amount_reversed?: unknown },
+  obligationMinor: number,
 ): PayoutStateSyncPlan {
   const id = transfer?.id;
   if (typeof id !== 'string' || !TR_RE.test(id)) {
     return { kind: 'refuse', code: 'malformed_stripe_transfer_ref', detail: `id=${String(id)}` };
   }
-  if (transfer.reversed === true) {
+  // THE FIX. `reversed` alone is FULL reversal only — Stripe: "if the transfer
+  // is only partially reversed, this attribute will still be false". Reading it
+  // as the whole truth synced a partially reversed transfer to 'paid' at full
+  // face value.
+  const rev = classifyTransferReversal(transfer, obligationMinor);
+  if (rev.state === 'unreadable') {
     return {
       kind: 'refuse',
-      code: 'transfer_reversed_on_arrival',
-      detail: `${id} came back reversed; 'paid' would assert money the venue does not have`,
+      code: 'transfer_reversal_unreadable',
+      detail: `${id}: ${rev.detail} — refusing to assume nothing came back`,
+    };
+  }
+  if (rev.state === 'reversed') {
+    return {
+      kind: 'reversed',
+      reversal: rev.reversal,
+      detail: `${id} carries amount_reversed=${rev.reversal.amount_reversed_minor} of ${obligationMinor}; 'paid' would assert money the venue does not have`,
     };
   }
   return { kind: 'sync', steps: [{ new_status: 'paid', stripe_transfer_ref: id, failure_code: null }] };

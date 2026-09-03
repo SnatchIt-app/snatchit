@@ -321,9 +321,14 @@ function runExecutor(
     return { outcome: 'refused', code: auth.code };
   }
 
-  let obj: { id?: string; reversed?: boolean };
+  let obj: { id?: string; reversed?: boolean; amount?: number; amount_reversed?: number };
   if (auth.kind === 'adopt') {
     obj = { id: auth.stripe_transfer_ref };
+  } else if (auth.kind === 'reversed') {
+    // A pre-existing reversal discovered at authorization time never reaches a
+    // create: there is no money to send and no status this machine can write.
+    kernel.recordNote(context.payout_id, 'transfer_reversed_on_arrival');
+    return { outcome: 'state_sync_deferred', code: 'transfer_reversed', ref: null };
   } else {
     try {
       obj = stripe.create(auth.idempotency_key, auth.body, {
@@ -340,10 +345,21 @@ function runExecutor(
     }
   }
 
-  const sync = planPayoutStateSync(obj);
+  // The obligation amount comes from the LEDGER, never from the transfer object:
+  // full-vs-partial reversal must be decided by what the venue is owed, not by
+  // what Stripe's payload asserts about itself.
+  const sync = planPayoutStateSync(obj, context.amount_minor);
   if (sync.kind === 'refuse') {
     kernel.recordNote(context.payout_id, sync.code);
     return { outcome: 'state_sync_deferred', code: sync.code, ref: obj.id ?? null };
+  }
+  if (sync.kind === 'reversed') {
+    // Neither 'paid' nor 'reversed' is writable here — 'paid' would fire
+    // on_payout_settled for money that came back, and 'reversed' is only
+    // reachable THROUGH 'paid'. The state machine cannot represent a partial
+    // reversal, so the row is left untouched and a human is paged.
+    kernel.recordNote(context.payout_id, 'transfer_partially_reversed');
+    return { outcome: 'state_sync_deferred', code: 'transfer_reversed', ref: obj.id ?? null };
   }
   for (const step of sync.steps) {
     try {
@@ -438,9 +454,38 @@ describe("`failed` is absorbing, so the executor must be structurally incapable 
       runExecutor(k, s, c, { transportFailureAfterCreate: true });
       expect(k.rows.get(PAYOUT)!.status).toBe('submitted');
     }
-    // reversed-on-arrival and malformed id
-    expect(planPayoutStateSync({ id: 'tr_1', reversed: true }).kind).toBe('refuse');
-    expect(planPayoutStateSync({ id: 'nope' }).kind).toBe('refuse');
+    // reversed-on-arrival and malformed id. The obligation amount is a REQUIRED
+    // second argument now: full-vs-partial is derived from the ledger's own
+    // number, never from anything the caller asserts about the transfer.
+    expect(planPayoutStateSync({ id: 'tr_1', reversed: true }, 10_000).kind).toBe('reversed');
+    expect(planPayoutStateSync({ id: 'nope' }, 10_000).kind).toBe('refuse');
+
+    // THE DEFECT THIS SIGNATURE EXISTS TO CLOSE. Stripe: "if the transfer is
+    // only partially reversed, this attribute will still be false." Reading
+    // `reversed` as the whole truth marked a partially reversed transfer 'paid'
+    // at FULL face value — asserting the venue holds money already pulled back.
+    {
+      const partial = planPayoutStateSync(
+        { id: 'tr_partial', amount: 10_000, reversed: false, amount_reversed: 2_500 },
+        10_000,
+      );
+      expect(partial.kind).toBe('reversed');
+      expect(partial.kind === 'reversed' && partial.reversal.amount_reversed_minor).toBe(2_500);
+    }
+
+    // An unreadable reversal refuses rather than assuming nothing came back —
+    // the safe direction is "we do not know", not "it is fine".
+    expect(
+      planPayoutStateSync({ id: 'tr_x', amount: 10_000, amount_reversed: 'nope' }, 10_000).kind,
+    ).toBe('refuse');
+
+    // A clean transfer still syncs to paid.
+    expect(
+      planPayoutStateSync(
+        { id: 'tr_ok', amount: 10_000, reversed: false, amount_reversed: 0 },
+        10_000,
+      ).kind,
+    ).toBe('sync');
     // success
     {
       const k = new KernelMock(); const s = new StripeMock(); const c = ctx(); seedRow(k, c);

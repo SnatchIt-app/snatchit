@@ -46,7 +46,15 @@ SELECT throws_ok($$INSERT INTO market.listing_unified (id, rail) VALUES (gen_ran
 SELECT throws_ok($$DELETE FROM market.listing_unified$$, '55000', NULL, 'A7: …so is a DELETE');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='v'), 1, 'A8: market holds exactly ONE view');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='r'), 5, 'A9: …and still its five 088 tables (089 creates no table)');
-SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/125/16',
+SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/136/16',
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
   -- 2026-09-02 (package 090): kernel 107 -> 109 (is_promoter_for_event + pay_promoter_commission); market/catalog unchanged.
   -- 2026-09-02 (package 093): kernel 109 -> 116. RATIFIED CONTRACT CHANGE — seven kernel routines:
   -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
@@ -63,7 +71,7 @@ SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p
   -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
   -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
-  'A10: 089 creates NO function (market 22 / kernel 125 post-093 / catalog 16)');
+  'A10: 089 creates NO function (market 22 / kernel 132 post-095 / catalog 16)');
 -- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies).
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 72, 'A11 (092: register 72 after notify''s five owner policies): 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
 -- 2026-09-02 (package 092): 18 -> 19 (+notify-drain-outbox).

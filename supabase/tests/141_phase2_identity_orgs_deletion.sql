@@ -60,7 +60,7 @@ SELECT is(
   -- and door_freeze_override are 079's three tables (plan §8/079; §13.5-B).
   -- 2026-09-02 (package 088): 26 -> 27. kernel.dispute_native (R-40).
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve stub).
-  28, '077 A13: exactly TWENTY-EIGHT kernel tables (27 post-088 + 091''s reserve stub)');
+  29, '077 A13: exactly TWENTY-NINE kernel tables (27 post-088 + 091''s reserve stub + 094''s kernel.organization_obligation)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -130,7 +130,15 @@ SELECT is(
   --   kernel.hold_payout_destination_changed (H8/H6) — de-authorises a payout whose destination
   --     diverged from the one it was authorized against.
   --   kernel.record_payout_execution_note    (H8) — the executor's append-only note sink.
-  125, '077 A14: exactly 125 kernel functions (109 post-090 + 093''s sixteen; settlement_royalty_lines was replaced, not added)');
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
+  136, '077 A14: exactly 136 kernel functions (109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones; settlement_royalty_lines, get_payout_execution_context and close_settlement were replaced, not added)');
 -- A14a: the SIXTEEN BY NAME with their grant class and definer flag, so that moving
 -- this census forces the mover to say WHICH function they added rather than bumping
 -- an integer. Grant class is included because a re-classification (say, exposing
@@ -272,7 +280,7 @@ SELECT is(
     WHERE n.nspname = 'kernel' AND c.relkind = 'r' AND c.relrowsecurity),
   -- 2026-08-31 (package 079): all three custody tables are born with RLS on.
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
-  28, '077 C1: RLS is ENABLED on all twenty-eight tables (deny-by-default at birth)');
+  29, '077 C1: RLS is ENABLED on all twenty-nine tables (deny-by-default at birth; kernel.organization_obligation ships RLS-on with ZERO policies)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -411,13 +419,23 @@ SELECT is(
   -- + the two-of-two-parked lifecycle five (provision/rotate signing_key,
   -- provision/rotate/revoke pass_type_cert) + revoke_wallet_pass. All EXEC
   -- authenticated at the edge; parked bodies fail closed regardless. Named, not counted.
-  || 'provision_pass_type_cert,provision_signing_key,record_money_denial,'
+  || 'provision_pass_type_cert,provision_signing_key,'
+  -- 2026-09-03 (package 095 E-2): +1 authenticated — rearm_failed_payout, THE ONLY EXIT from
+  -- the absorbing 'failed' state. platform_risk/platform_admin on aal2 inside the body, and
+  -- EXPLICITLY revoked from service_role: a machine that executes money must not be able to
+  -- re-arm it. Named, not counted.
+  || 'rearm_failed_payout,record_money_denial,'
   -- refund_primary_order moved to service_role (EXEC DEF) by PFA-23.
   || 'release_payout,remove_org_member,'
   || 'request_account_deletion,request_order_refund,request_org_payout,'
   -- 2026-09-02 (package 088): +1 authenticated — resolve_dispute_native (EDGE-FRONTED;
   -- PFA-31 parks its body fail-closed). Named, not counted.
   || 'resolve_dispute_native,resolve_identity_obligation,'
+  -- 2026-09-03 (package 095 E-3): +1 authenticated — retry_held_payout, the human-initiated
+  -- self-clear for a MACHINE maturity hold. org_owner/org_finance on aal2 inside the body,
+  -- revoked from service_role, and it delegates every advance to request_org_payout. Named,
+  -- not counted.
+  || 'retry_held_payout,'
   || 'revoke_door_freeze_override,revoke_org_invite,revoke_pass_type_cert,revoke_platform_role,'
   -- 2026-09-01 (package 086): +3 authenticated — the two door-freeze override
   -- verbs (AUTHZ) and revoke_signing_key (PFA-17). Named, not counted.
@@ -433,7 +451,7 @@ SELECT is(
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
     -- 2026-09-02 (package 090): +1 — is_promoter_for_event (RPC §1.1c EXEC: authenticated). pay_promoter_commission is EXEC DEF (no grant). Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 62 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 64 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -464,6 +482,11 @@ SELECT is(
   -- list_updated, register/unregister device, supersede, touch, sweep, record_push).
   -- REVOKE FROM anon+authenticated; service_role only. Named, not counted.
   || 'has_outstanding_obligations,hold_payout_destination_changed,'
+  -- 2026-09-03 (package 095 E-4): +1 DEF service_role — hold_payout_transfer_reversed. A
+  -- MACHINE observation of a Stripe fact (amount_reversed > 0) that can only move a payout
+  -- from payable to held; it writes NO status transition, so neither 'paid' nor 'failed' can
+  -- be reached through it. Named, not counted.
+  || 'hold_payout_transfer_reversed,'
   || 'is_deletion_pending,issue_ticket_atoms,list_updated_wallet_passes,'
   -- 2026-09-01 (package 085): +5 DEF — the Stripe state-sync pair, the
   -- obligation recorder, the refund-TTL sweep (PFA-21 delivers kernel USAGE).
@@ -473,12 +496,23 @@ SELECT is(
   || 'mark_dispute_state,mark_payout_transfer_state,mark_refund_state,'
   || 'on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
-  || 'record_dispute_native,record_identity_obligation,record_payout_execution_note,'
+  -- 2026-09-03 (package 094, ORG OBLIGATION — 094_organization_obligation.sql): +3 DEF
+  -- service_role — record_organization_obligation and resolve_organization_obligation (the
+  -- J3 §5.1 definer pair: E-150's "a Gate-M writer will be a definer path", so the record is
+  -- reachable ONLY through them and the TABLE itself carries no grant at all), plus the
+  -- read-only projection org_outstanding_obligation_minor. The resolve verb is deliberately
+  -- NOT granted to authenticated, unlike its identity twin. Named, not counted.
+  || 'org_outstanding_obligation_minor,'
+  || 'record_dispute_native,record_identity_obligation,record_organization_obligation,record_payout_execution_note,'
   -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
   -- 2026-09-02 (package 093): +1 DEF service_role — stage_org_connect_ref (ruling A7).
   -- service_role ONLY is the whole control: a caller that could stage would be able to
   -- authorise its own bind, which is the acct_ORPHANATTACKER P0 restated. Named, not counted.
-  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,settlement_covered_payments,settlement_payout_maturity,stage_org_connect_ref,supersede_wallet_passes_for_atom,'
+  -- 2026-09-03 (package 095 E-6): +1 DEF service_role — settlement_unbooked_refund_exposure,
+  -- the corrected operand behind get_payout_execution_context's refund_exposure_stale (a
+  -- refund_void line only discharges an exposure when its own settlement absorbed it).
+  -- Named, not counted.
+  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,resolve_organization_obligation,settlement_covered_payments,settlement_payout_maturity,settlement_unbooked_refund_exposure,stage_org_connect_ref,supersede_wallet_passes_for_atom,'
   -- 2026-09-01 (package 086): +2 DEF service_role — assert_door_session (the door
   -- edge) and sweep_expired_door_overrides (CRON). Named, not counted.
   || 'sweep_deletion_pending,sweep_expired_door_overrides,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
@@ -491,7 +525,7 @@ SELECT is(
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 45 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context + claim_refunds_for_execution per D3, and the payout executor''s six per H8/G2)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 50 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context + claim_refunds_for_execution per D3, the payout executor''s six per H8/G2, 095''s hold_payout_transfer_reversed per E-4 + settlement_unbooked_refund_exposure per E-6, and the org-obligation package''s three per J3 §5.1/E-150)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),

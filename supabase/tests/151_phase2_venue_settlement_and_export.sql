@@ -338,9 +338,25 @@ SELECT tap.logout();
 SELECT ok((SELECT status='closed' AND gross_minor=0 AND fees_minor=0 AND refunds_minor=0 AND net_minor=0
              FROM venue.settlement WHERE settlement_id = tap._fetch151('s1')::uuid),
   'C9: closed header: four money columns written exactly once, waterfall holds');
-SELECT throws_ok(format($$UPDATE venue.settlement SET net_minor = 5 WHERE settlement_id = %L$$, tap._fetch151('s1')),
+-- 2026-09-03 (package 095 E-5): PROBE CHANGED, ASSERTION UNCHANGED — and it is worth
+-- being precise about why, because the standing rule is "never weaken an assertion".
+-- C10 and C11 assert ONE contract: settlement_waterfall_ck (§3.13.1) makes a bad money
+-- shape UNSTORABLE. They used to demonstrate it by UPDATEing a CLOSED header — net_minor
+-- to 5, and status back to 'open' and then on to 'paid'. 095 E-5 adds
+-- tg_settlement_forward_only, which refuses BOTH of those writes EARLIER, with P0001,
+-- because venue.settlement is now forward-only and its money columns are write-once
+-- after the close. The old probes therefore no longer REACH the CHECK — not because the
+-- CHECK weakened, but because a second, STRICTER guard stands in front of it.
+-- The contract is re-probed at the one door the trigger deliberately does not cover:
+-- INSERT (tg_settlement_forward_only is BEFORE UPDATE OR DELETE, because a malformed
+-- header arriving by INSERT is exactly the CHECK's job and nothing else's). Same
+-- errcode, same two claims, proved where they are still reachable. The forward-only
+-- behaviour that displaced the old probes is asserted in its own right in test 160.
+SELECT throws_ok(format($$INSERT INTO venue.settlement (org_id, venue_id, event_id, status, gross_minor, fees_minor, refunds_minor, net_minor)
+                          VALUES (%L, %L, NULL, 'closed', 100, 0, 0, 5)$$, tap._fetch151('org1'), tap._fetch151('venue1')),
   '23514', NULL, 'C10: the §3.13.1 waterfall CHECK rejects net <> gross - fees - refunds on a closed header');
-SELECT throws_ok(format($$UPDATE venue.settlement SET status='open', gross_minor=NULL, fees_minor=NULL, refunds_minor=NULL, net_minor=NULL WHERE settlement_id=%L; UPDATE venue.settlement SET status='paid' WHERE settlement_id=%L$$, tap._fetch151('s1'), tap._fetch151('s1')),
+SELECT throws_ok(format($$INSERT INTO venue.settlement (org_id, venue_id, event_id, status, gross_minor, fees_minor, refunds_minor, net_minor)
+                          VALUES (%L, %L, NULL, 'paid', NULL, NULL, NULL, NULL)$$, tap._fetch151('org1'), tap._fetch151('venue1')),
   '23514', NULL, 'C11: ''paid'' with NULL money columns is unstorable (the CHECK binds paid too)');
 -- AO + uniqueness on the line ledger
 INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (tap._fetch151('s1')::uuid, 'import', '00000000-0000-0000-0000-00000000aaaa', 100);
