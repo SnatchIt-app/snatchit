@@ -3330,6 +3330,7 @@ comment on constraint payments_mode_check on public.payments is
 --   §2  kernel.sync_org_connect_state, service_role only .. A6  (scope item 6)
 --   §2b kernel.stage_org_connect_ref, service_role only ... A7/A9 (RT-A-3)
 --   §3  checkout readiness gates, UNCONDITIONAL ........... A8  (scope item 7)
+--         G2a organization status — is this org allowed to trade at all?
 --         G2  connect readiness — can the VENUE be paid?
 --         G2b signing-key readiness — can the BUYER be delivered to?
 --       + the buyer-side service fee, fail-closed ......... A5  (part 40's
@@ -3866,8 +3867,9 @@ declare
   v_held      integer;
   v_snapshot  jsonb := '[]'::jsonb;
   -- A8/G2: the readiness operands, read once from the selling organization.
-  v_org_ref   text;
-  v_org_ready boolean;
+  v_org_ref    text;
+  v_org_ready  boolean;
+  v_org_status text;
   -- A8/G2b: the deliverability operands — the event's scope keys for the
   -- signing-key resolution, and the key that resolution finds.
   v_event_id    uuid;
@@ -3974,10 +3976,51 @@ begin
   -- these columns has published the payout destination of every organization
   -- on the platform to every signed-in user. The read path for humans is
   -- kernel.get_org_connect_state (§6), which masks the account id.
-  select o.stripe_connect_account_ref, o.connect_transfers_active
-    into v_org_ref, v_org_ready
+  select o.stripe_connect_account_ref, o.connect_transfers_active, o.status
+    into v_org_ref, v_org_ready, v_org_status
     from kernel.organization o
    where o.org_id = v_org_id;
+
+  -- G2a — ORGANIZATION STATUS, AND IT IS CHECKED FIRST.
+  -- A suspended organization could sell: this function read kernel.organization
+  -- for two columns and never consulted `status`, so a suspended org with a
+  -- bound acct_, transfers active and a live signing key refused only on the
+  -- fee key. That is inconsistent with 093's own posture — this same migration
+  -- added status ∈ ('approved','active') to BOTH Connect binders (§4, §5) and to
+  -- the dashboard read verb (§6), on the reasoning that an organization the
+  -- platform has suspended must not move money or name a payee. SELLING is the
+  -- money-path entry that was left out, and it is the exact twin of the gap the
+  -- rest of this slice closed.
+  --
+  -- ORDERED BEFORE THE CONNECT GATE, DELIBERATELY — this is the one place my
+  -- ladder diverges from the one specified, and it is the divergence that was
+  -- asked for: the more FUNDAMENTAL fact should win the error. "This
+  -- organization is suspended" explains the refusal completely and is actionable
+  -- by exactly one party (the platform, via kernel.set_org_status). Leading with
+  -- `payout_not_ready` would send an operator to re-check Stripe — where they
+  -- would find nothing wrong, because nothing is — for a condition Stripe has no
+  -- part in. A suspended org that is ALSO not connect-ready should still report
+  -- the suspension, because resolving the Connect side would not make it
+  -- sellable.
+  --
+  -- FAILS CLOSED ON NULL. A null status covers the org row having vanished
+  -- (SELECT INTO leaves every target null when no row matches), which is
+  -- stricter than the previous behaviour: that case used to fall through to
+  -- `payout_not_ready`, which was accidentally correct rather than deliberately.
+  -- Any status outside the pair — 'applied', 'suspended', 'closed', or anything
+  -- a later migration adds — refuses. X-12 restrictive: unknown authorizes
+  -- NOTHING.
+  --
+  -- SCOPE, FOR THE RECORD, since this lands late in 093's life: 093 has never
+  -- reached production; this is the same primary-ticketing atomic contract; it
+  -- adds NO object and NO column, being a body-only CREATE OR REPLACE of a
+  -- function 093 already replaces for G2/G2b/A5. THE OBJECT CENSUS DOES NOT
+  -- MOVE: this change creates nothing, so whatever the slice's object count is
+  -- at assembly time, this clause does not alter it.
+  if v_org_status is null or v_org_status not in ('approved','active') then
+    raise exception 'precondition_failed: org_not_active — a % organization may not sell', coalesce(v_org_status,'missing');
+  end if;
+
   if v_org_ref is null or coalesce(v_org_ready, false) is not true then
     -- X-12 restrictive reading: absent or unknown state authorizes NOTHING.
     raise exception 'precondition_failed: payout_not_ready';
