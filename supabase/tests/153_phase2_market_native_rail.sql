@@ -643,6 +643,18 @@ UPDATE market.listing_native SET status='sold', reason_code=NULL WHERE listing_i
 -- SECTION H — DISPUTES (R-40; PFA-13; PFA-31 park; PFA-29 chargeback seam; E-90)
 -- ============================================================================
 -- a closed settlement over order1 → a pending payout (the payout-leg operand)
+-- 2026-09-02 (package 093): TEST SETUP DRIFT — the fixture, not the assertions. 093 mints a
+-- settlement payout HELD/'unbounded_refund_exposure' whenever
+-- 'settlement.refund_window_interval' is unset (it ships seeded 'null'::jsonb), because a refund
+-- succeeding after a close can never be collected. THIS SECTION IS ABOUT THE DISPUTE FREEZE LEG,
+-- not about that gate: H2/H6/H11/H12/H25/H43 exist to prove that recording a dispute HOLDS the
+-- reachable payout, emits payout_on_hold, and that the hold survives a park and a terminal state.
+-- A payout that arrives already held for an unrelated reason would make every one of those pass
+-- VACUOUSLY — H11 would read a hold nobody placed and H25/H43 would confirm a hold that was never
+-- at risk. Setting the key here mints po1 unheld, so the dispute leg is the only thing that can
+-- hold it and each assertion below means exactly what it always meant, byte for byte.
+-- The gate itself is proved on BOTH arms, with its release exit, at 151 C20i..C20n / C28a/C28b.
+SELECT tap._cfg153('settlement.refund_window_interval', '"30 days"'::jsonb);
 SELECT tap.login(tap.seller());
 SELECT tap._store153('st1', (venue.open_settlement(tap._u153('org1'), tap._u153('venue1'), tap._u153('event1'), '{}'::jsonb, 'ck88-st1') ->> 'settlement_id'));
 SELECT tap.logout();
@@ -651,7 +663,16 @@ SELECT tap.login(tap.other_user());
 SELECT tap._aal2();
 SELECT tap._store153('cl1', kernel.close_settlement(tap._u153('st1'), 'ck88-cl1')::text);
 SELECT tap.logout();
-SELECT is((tap._fetch153('cl1')::jsonb ->> 'net_minor'), '15000', 'H1: settlement 1 closes at net 15000 (OWNER TEST C operand: the PRIOR settlement)');
+-- 2026-09-02 (package 093): 15000 -> 20000. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A3/A5 adds the primary revenue seam
+-- kernel.settlement_primary_lines, which close_settlement now unions as a THIRD seam. st1 is
+-- scoped to event1, so the seam emits +5000 for order3 (other_user, 1 x 5000 on session1,
+-- finalized at FIX-2 with a kernel.payment_native row) ON TOP OF the hand-written
+-- primary_sale/15000 line for order1 above — order1 is skipped by the seam's own
+-- never-lined-before dedupe, which is itself the property proved by H50/H56. Gross is
+-- therefore 15000 + 5000 and net follows exactly. The OWNER TEST C operand is unchanged in
+-- kind: this is still the PRIOR settlement whose closed total H49 proves is never clawed back.
+SELECT is((tap._fetch153('cl1')::jsonb ->> 'net_minor'), '20000', 'H1: settlement 1 closes at net 20000 = the hand-written 15000 (order1) + the primary seam''s 5000 (order3) (OWNER TEST C operand: the PRIOR settlement)');
 SELECT tap._store153('po1', ((tap._fetch153('cl1')::jsonb -> 'payout_ids') ->> 0));
 SELECT ok((SELECT p.status='pending' AND p.hold_state='none' FROM kernel.payout p WHERE p.payout_id = tap._u153('po1')), 'H2: its payout is pending and unheld');
 -- record (service path; the webhook branch)
@@ -750,12 +771,24 @@ SELECT tap._aal2();
 SELECT tap._store153('cl2', kernel.close_settlement(tap._u153('st2'), 'ck88-cl2')::text);
 SELECT tap._store153('cl3', kernel.close_settlement(tap._u153('st3'), 'ck88-cl3')::text);
 SELECT tap.logout();
-SELECT ok((SELECT s.status='closed' AND s.gross_minor=0 AND s.fees_minor=0 AND s.refunds_minor=15000 AND s.net_minor=-15000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st2')),
-  'H46: OWNER TEST B — chargeback −15000 lands in the org''s NEXT settlement: refunds 15000, net −15000');
+-- 2026-09-02 (package 093): gross 0 -> 5000, net −15000 -> −10000. RATIFIED CONTRACT CHANGE
+-- (ruling A3/A5, the primary revenue seam). st2 is the PERIOD grain (event_id NULL, empty
+-- period => unbounded), so the seam's period arm — 088:347-351's scope idiom byte for byte —
+-- picks up org1's remaining paid order at venue1: order2 (event2/session2, 1 x 5000,
+-- finalized at FIX-3). order1 and order3 are already lined in st1 and are dedup-skipped.
+-- THE ASSERTION UNDER TEST IS UNWEAKENED: refunds_minor is still exactly 15000 and the
+-- chargeback still lands HERE rather than in st1 — all four money columns stay pinned, and
+-- the extra +5000 of genuine primary revenue is asserted as exactly that, not tolerated.
+SELECT ok((SELECT s.status='closed' AND s.gross_minor=5000 AND s.fees_minor=0 AND s.refunds_minor=15000 AND s.net_minor=-10000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st2')),
+  'H46: OWNER TEST B — chargeback −15000 lands in the org''s NEXT settlement: refunds 15000; gross 5000 is order2''s face value via the primary seam; net −10000');
 SELECT ok((SELECT l.amount_minor=-15000 AND l.cause='chargeback' FROM venue.settlement_line l WHERE l.settlement_id=tap._u153('st2') AND l.cause_ref=tap._u153('d1')),
   'H47: …as an append-only negative line with cause_ref = the dispute');
 SELECT is((tap._fetch153('cl2')::jsonb -> 'payout_ids'), '[]'::jsonb, 'H48: NEGATIVE_SETTLEMENT_CARRY — a negative net mints NO payout (no carry account invented)');
-SELECT ok((SELECT s.gross_minor=15000 AND s.net_minor=15000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st1'))
+-- 2026-09-02 (package 093): 15000 -> 20000, tracking H1. RATIFIED CONTRACT CHANGE (ruling
+-- A3/A5). The property is untouched: st1's totals are EXACTLY what its own close computed and
+-- the later chargeback added nothing to it. Pinned to the literal, not to H1's value, so a
+-- drift in either row is caught independently.
+SELECT ok((SELECT s.gross_minor=20000 AND s.net_minor=20000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st1'))
        AND (SELECT count(*)=0 FROM venue.settlement_line l WHERE l.settlement_id=tap._u153('st1') AND l.cause='chargeback'),
   'H49: OWNER TEST C — the PRIOR (closed) settlement is unchanged: no clawback, no mutation');
 SELECT is((SELECT count(*)::int FROM venue.settlement_line l WHERE l.cause='chargeback' AND l.cause_ref=tap._u153('d1')), 1,

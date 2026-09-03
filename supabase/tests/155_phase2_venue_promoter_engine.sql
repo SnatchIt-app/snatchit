@@ -9,7 +9,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(363);
+SELECT plan(366);   -- 2026-09-02 (package 093): 363 -> 366 (+G10c, the org settlement payout minted once net turns positive under ruling A3/A5; +G41c/+G41d, ruling A4's partially_refunded commission exclusion)
 
 SELECT tap.seed_core();
 
@@ -792,9 +792,52 @@ SELECT is(tap._lines155(tap._u155('s1')), 7, 'G6: SEVEN promoter_commission line
 SELECT is((tap._line155((tap._attr155(tap._u155('o1'))).id)).amount_minor, -1000, 'G7: o1''s payable is recomputed from SURVIVING atoms: floor(10000 × 1000/10000) = 1000, booked as an org DEBIT (−1000; E-73)');
 SELECT ok((SELECT bool_and(l.amount_minor < 0 AND l.currency = 'USD') FROM venue.settlement_line l WHERE l.settlement_id = tap._u155('s1') AND l.cause = 'promoter_commission'), 'G8: every commission line is negative, USD');
 SELECT is((SELECT sum(l.amount_minor)::int FROM venue.settlement_line l WHERE l.settlement_id = tap._u155('s1') AND l.cause = 'promoter_commission'), -(1000+500+500+500+500+1000+600), 'G9: Σ lines = −4600');
-SELECT ok((SELECT gross_minor = 0 AND fees_minor = 4600 AND refunds_minor = 0 AND net_minor = -4600 AND status = 'closed' FROM venue.settlement WHERE settlement_id = tap._u155('s1')),
-  'G10: the E-73 waterfall: commissions land in the fees bucket; net = −4600 (no org payout on a negative net — 087)');
-SELECT is((tap._fetch155('c1')::jsonb -> 'payout_ids'), '[]'::jsonb, 'G10b: …087 mints no org payout');
+-- 2026-09-02 (package 093): gross 0 -> 100000, net −4600 -> +95400. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md rulings A3/A5: kernel.settlement_primary_lines is
+-- unioned into close_settlement as a third seam and credits venue entitlement at the CONFIGURED
+-- TICKET FACE VALUE (ruling A5: "the venue-side entitlement begins with the configured ticket
+-- face value"; no platform fee and no Stripe processing cost is subtracted). Until 093 gross was
+-- structurally zero and every commission was a debit against nothing — this is the activation
+-- the migration exists for, and the number is RECOMPUTED, not suppressed.
+--
+-- GROSS 100000 = sixteen +face_value lines over s1's event1 scope, enumerated exactly:
+--   o1 15000 · o12 10000 · o14 10000 · and 5000 each for o2 o3 o4 o5 o6 o7 o8 o9 o10 o11 o13 o15 o16
+-- DELIBERATELY ABSENT, and each absence is a seam property worth having asserted here:
+--   o19  — currency EUR (155:741) vs the settlement's USD: the seam DROPS a currency mismatch
+--          rather than raising, so 087:314-316 cannot roll the whole close back (088:346's idiom).
+--   odoor— status 'pending' with no kernel.payment_native row: no money was received.
+--   o2 IS present at +5000 even though it is 'refunded' (155:772): it was paid and its face value
+--          WAS credited. The offsetting debit is a SEPARATE negative refund_void line keyed on the
+--          kernel.refund row — and this fixture writes none, it pokes order.status directly.
+-- FEES 4600 is unchanged, byte for byte: the seven commission debits of G9. The waterfall claim
+-- this row exists to prove — commissions land in FEES, not REFUNDS — is asserted identically.
+SELECT ok((SELECT gross_minor = 100000 AND fees_minor = 4600 AND refunds_minor = 0 AND net_minor = 95400 AND status = 'closed' FROM venue.settlement WHERE settlement_id = tap._u155('s1')),
+  'G10: the E-73 waterfall: primary face value lands in GROSS (100000), commissions in the FEES bucket (4600), refunds 0; net = 95400');
+-- 2026-09-02 (package 093): payout_ids [] -> ONE org payout. RATIFIED CONTRACT CHANGE (A3/A5):
+-- net is now POSITIVE, so 087's unmodified `if v_net > 0` arm mints the settlement payout it
+-- always would have. This is ruling A4 working as written — "eligible primary promoter commission
+-- … reduces venue distributable BEFORE venue money is released": 100000 − 4600 = 95400.
+-- THE ROW IS STRENGTHENED, NOT RELAXED. The old assertion pinned one fact (no payout). This pins
+-- five: exactly one payout id, and that payout is the ORGANIZATION settlement payout for s1 at the
+-- exact net, pending, and UNHELD — so a stray second payout, a wrong payee, a wrong amount or a
+-- mis-set hold all fail here. The "no org payout on a NEGATIVE net" property that this row used to
+-- carry is not lost: 153's H48 (NEGATIVE_SETTLEMENT_CARRY) still asserts payout_ids = [] on a
+-- negative close, and it is unaffected by 093.
+SELECT is((SELECT jsonb_array_length(tap._fetch155('c1')::jsonb -> 'payout_ids')), 1, 'G10b: …a POSITIVE net mints exactly ONE org payout (A4: commission funded out of gross before venue money is released)');
+-- 2026-09-02 (package 093, second money pass): the payout is minted HELD here, and that is the
+-- ratified contract rather than a defect. 155 never sets 'settlement.refund_window_interval', which
+-- ships seeded 'null'::jsonb, so close_settlement mints
+-- hold_state='held' / hold_reason_code='unbounded_refund_exposure': a refund succeeding after this
+-- close could never be collected, so the obligation is recorded in full and only the MONEY is
+-- immobilised. That is the point worth asserting HERE, because 155 is the file that proves ruling
+-- A4's funding order — the venue's 95400 is what remains after the promoter's 4600 is deducted, and
+-- it does not move. Both arms of the gate, and kernel.release_payout as the contracted exit, are
+-- proved at 151 C20i..C20n / C28a/C28b. Every other fact below is pinned exactly as before.
+SELECT ok((SELECT po.payee_kind = 'organization' AND po.payee_org_id = tap._u155('org1') AND po.cause = 'settlement' AND po.cause_ref = tap._u155('s1')
+                  AND po.amount_minor = 95400 AND po.currency = 'USD' AND po.status = 'pending'
+                  AND po.hold_state = 'held' AND po.hold_reason_code = 'unbounded_refund_exposure' AND po.held_by IS NULL AND po.held_at IS NOT NULL
+             FROM kernel.payout po WHERE po.payout_id = ((tap._fetch155('c1')::jsonb -> 'payout_ids') ->> 0)::uuid),
+  'G10c: …and it is the org settlement payout: organization/org1, cause settlement:s1, 95400 USD, pending, and HELD unbounded_refund_exposure by the platform (held_by NULL) — the obligation is durable, the money is not released');
 SELECT is((SELECT count(*)::int FROM kernel.payout po WHERE po.cause = 'promoter_commission'), 7, 'G11: SEVEN promoter_commission payouts — one per lined attribution');
 SELECT ok((SELECT bool_and(po.payee_kind = 'identity' AND po.status = 'pending' AND po.hold_state = 'held' AND po.hold_reason_code = 'unfunded_settlement' AND po.held_by IS NULL AND po.amount_minor > 0 AND po.currency = 'USD'
                            AND po.idempotency_key = 'promoter_commission:' || po.cause_ref::text || ':' || po.payee_identity_id::text)
@@ -894,6 +937,27 @@ SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM venue.attribution_review r WHERE r.attribution_id = (tap._attr155(tap._u155('o13'))).id), 2, 'G40: §12.64 — both rows survive');
 SELECT throws_ok(format($$UPDATE venue.attribution_review SET decision = 'deny' WHERE attribution_id = %L$$, (tap._attr155(tap._u155('o13'))).id), 'P0001', NULL, 'G41: the review ledger is AO (UPDATE raises for the owner)');
 SELECT throws_ok(format($$DELETE FROM venue.attribution_review WHERE attribution_id = %L$$, (tap._attr155(tap._u155('o13'))).id), 'P0001', NULL, 'G41b: …DELETE raises');
+-- 2026-09-02 (package 093): NEW COVERAGE for RATIFIED ruling A4. 090:1535 excluded only
+-- ('refunded','cancelled'); 093 adds 'partially_refunded' to that terminal class. The defect it
+-- closes: a DIRECT partial refund voids NO atoms (085:571-573 makes the void scope conditional on
+-- v_full), so the surviving-atom basis at 090:1461-1466 is completely unreduced and FULL commission
+-- would be paid on partly refunded revenue — and 093 is what gives this seam revenue to deduct
+-- from, so the defect would have gone live with it. o13 is the only attribution still unlined at
+-- this point, which makes it the one place the new exclusion can be isolated from the seam's
+-- never-lined-before dedupe. The status is restored immediately so G42 still proves the
+-- release-at-seq-2 payout on an untouched fixture.
+UPDATE venue."order" SET status = 'partially_refunded' WHERE order_id = tap._u155('o13');
+SELECT tap.login(tap.seller());
+SELECT tap._store155('s4pr', (venue.open_settlement(tap._u155('org1'), tap._u155('venue1'), tap._u155('event1'), '{}'::jsonb, 'ck90-s4pr') ->> 'settlement_id'));
+SELECT tap.logout();
+SELECT tap.login(tap.admin_user());
+SELECT kernel.close_settlement(tap._u155('s4pr'), 'ck90-close4pr');
+SELECT tap.logout();
+SELECT is(tap._lines155(tap._u155('s4pr')), 0,
+  'G41c: ruling A4 — a PARTIALLY_REFUNDED order yields NO commission line, even with an effective release decision (093 adds partially_refunded to 090:1535''s terminal-class exclusion)');
+SELECT is((SELECT count(*)::int FROM kernel.payout po WHERE po.cause = 'promoter_commission' AND po.cause_ref = (tap._attr155(tap._u155('o13'))).id), 0,
+  'G41d: …and NO commission payout is minted for it — the exclusion happens before pay_promoter_commission runs, so nothing is accrued, held or released');
+UPDATE venue."order" SET status = 'paid' WHERE order_id = tap._u155('o13');
 SELECT tap.login(tap.seller());
 SELECT tap._store155('s4', (venue.open_settlement(tap._u155('org1'), tap._u155('venue1'), tap._u155('event1'), '{}'::jsonb, 'ck90-s4') ->> 'settlement_id'));
 SELECT tap.logout();

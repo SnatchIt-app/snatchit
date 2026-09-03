@@ -2,6 +2,37 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
+// Pure decision logic for the NATIVE PRIMARY rail and the account.updated
+// organization arm. Import-free by construction so vitest can exercise every
+// branch below without loading a single https specifier — see native.ts's
+// header and tests/stripe-webhook-native.test.ts.
+import {
+  type Decision,
+  type PaymentRow,
+  buildCancelCommandKey,
+  buildFinalizeCommandKey,
+  buildOrgSyncCommandKey,
+  classifyCancelError,
+  classifyFinalizeError,
+  classifyOrgSyncError,
+  decideAccountUpdatedOutcome,
+  decideClaimOutcome,
+  deriveTransfersActive,
+  dispositionForRoute,
+  eventAgeSeconds,
+  extractInstrumentFingerprint,
+  interpretPaymentClaim,
+  isConnectAccountRef,
+  isTerminalPaymentIntent,
+  latestChargeId,
+  observedAtIso,
+  type OrgArmOutcome,
+  readNativeMetadata,
+  resolveRail,
+  selectAccountPlane,
+  verifyNativePaymentRow,
+  CANCEL_REASON_PAYMENT_FAILED,
+} from './native.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
@@ -116,6 +147,55 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
     .join('');
 
   return v1Signatures.some((candidate) => timingSafeEqual(expected, candidate));
+}
+
+/**
+ * The columns the native branch reads off `public.payments`. Kept in one place
+ * because the claim UPDATE and the follow-up SELECT must project identically —
+ * `interpretPaymentClaim` compares the two.
+ */
+const NATIVE_PAYMENT_COLUMNS = 'id, status, mode, listing_id, seller_id, buyer_id, total';
+
+/** How long the fingerprint read may take before issuance stops waiting for it. */
+const CHARGE_READ_TIMEOUT_MS = 4000;
+
+/**
+ * ONE authenticated Stripe GET, used for exactly one thing: recovering the
+ * promoter self-deal detector's `instrument_fingerprint` from the succeeded
+ * PaymentIntent's `latest_charge` (spec §4, RPC §6.3). The pinned post-2022 API
+ * version sends only the charge ID in the event payload.
+ *
+ * READ-ONLY BY CONSTRUCTION — `GET` only, no body, no idempotency key, and it
+ * moves no money. Its result is advisory: per RPC §17.14 no attribution input
+ * may delay or fail issuance, so every failure path here returns `null` and
+ * finalize proceeds. The fingerprint is NEVER logged (PROMO §1.8).
+ */
+async function readInstrumentFingerprint(paymentIntent: unknown): Promise<string | null> {
+  try {
+    // If the endpoint is configured with expansion, or the payload already
+    // carries the object, no network call happens at all.
+    const inline = (paymentIntent as { latest_charge?: unknown })?.latest_charge;
+    if (inline && typeof inline === 'object') return extractInstrumentFingerprint(inline);
+
+    const chargeId = latestChargeId(paymentIntent as { latest_charge?: unknown });
+    if (!chargeId || !STRIPE_SECRET_KEY) return null;
+
+    const res = await fetch(`https://api.stripe.com/v1/charges/${encodeURIComponent(chargeId)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
+      signal: AbortSignal.timeout(CHARGE_READ_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.warn('Webhook: charge read for fingerprint failed (non-fatal)', { status: res.status });
+      return null;
+    }
+    return extractInstrumentFingerprint(await res.json());
+  } catch (err) {
+    console.warn('Webhook: charge read for fingerprint threw (non-fatal)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 async function sendPush(userId: string, title: string, body: string, data?: Record<string, string>) {
@@ -258,7 +338,207 @@ serve(async (req: Request) => {
       );
     }
 
+    /**
+     * Ends the request from a `Decision` produced by native.ts.
+     *
+     * `ack:true`  → 200 + complete (terminal — Stripe never delivers it again)
+     * `ack:false` → 500 + fail    (lease released — Stripe retries)
+     * `alert:true` → Sentry, independently of which of the two it is.
+     *
+     * The two bits are orthogonal on purpose: the branch's most important
+     * outcomes are "ACK loudly" (an event no redelivery can fix) and "retry
+     * quietly" (a race we expect to win next time), and a single ok/error flag
+     * cannot express either.
+     */
+    async function finishDecision(
+      decision: Decision,
+      body: Record<string, unknown>,
+      cause?: unknown,
+    ): Promise<Response> {
+      if (decision.alert) {
+        await captureException(
+          `stripe-webhook:${decision.reason}`,
+          cause instanceof Error ? cause : new Error(decision.reason),
+          { event_id: event.id, event_type: event.type, ...body },
+        );
+      }
+      return await finish(decision.ack, { reason: decision.reason, ...body }, decision.ack ? undefined : decision.reason);
+    }
+
+    // Schema-scoped service clients. PostgREST selects the schema at client
+    // CONSTRUCTION time, so `venue.` / `kernel.` verbs each need their own
+    // client (the house pattern — primary-checkout:914, connect-onboarding:680).
+    // Built lazily so the legacy resale path constructs nothing new.
+    const venueService = () =>
+      createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        db:   { schema: 'venue' },
+      });
+    const kernelService = () =>
+      createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        db:   { schema: 'kernel' },
+      });
+
     if (event.type === 'payment_intent.succeeded') {
+      // ═══════════════════════════════════════════════════════════════════
+      // RAIL DISPATCH (spec §4:1206 — "all branches keyed off metadata.rail").
+      //
+      // THE THIRD BRANCH. Before this existed, a `native_primary` PaymentIntent
+      // fell through the CLOSED two-branch selection below to its explicit
+      // error return (the old :388-395) → `finish(false, …)` → HTTP 500 →
+      // Stripe retried the charge for three days and then gave up, with the
+      // buyer charged, no order finalized and no ticket minted. That is the
+      // failure mode this block removes.
+      //
+      // `resolveRail` is rail-first and asserts `mode === rail`; an absent
+      // `rail` is the ONLY legitimate legacy signal, and every other value
+      // fails closed rather than falling through to a resale money path.
+      // ═══════════════════════════════════════════════════════════════════
+      const route = resolveRail(metadata);
+
+      if (route.route === 'rail_mode_mismatch' || route.route === 'unknown_rail') {
+        const decision = dispositionForRoute(route);
+        console.error('Webhook: rail dispatch refused', {
+          pi_id: piId, route: route.route, reason: decision.reason, ack: decision.ack,
+        });
+        return await finishDecision(decision, { stage: 'rail_dispatch', pi_id: piId });
+      }
+
+      if (route.route === 'native_primary') {
+        // ───────────────────────────────────────────────────────────────
+        // NATIVE PRIMARY — money-in becomes tickets (rulings A2/A3).
+        // ───────────────────────────────────────────────────────────────
+        const meta = readNativeMetadata(metadata);
+        if (!meta.ok) {
+          // A redelivery carries the SAME metadata, so this can never resolve.
+          console.error('Webhook: native_primary metadata incomplete', { pi_id: piId, reason: meta.reason });
+          return await finishDecision(
+            { ack: true, alert: true, reason: `native_${meta.reason}` },
+            { stage: 'native_metadata', pi_id: piId },
+          );
+        }
+        const ref = meta.ref;
+        const ageSeconds = eventAgeSeconds(event.created, Date.now());
+
+        // ── 1. Claim the payments row ───────────────────────────────────
+        // Same idempotent-claim idiom as the legacy arm, plus one native-only
+        // guard: `.neq('status','refunded')`. Without it an out-of-order
+        // `charge.refunded` would be silently overwritten back to 'succeeded'.
+        const { data: claimed, error: claimErr } = await supabase
+          .from('payments')
+          .update({ status: 'succeeded', paid_at: new Date().toISOString() })
+          .eq('stripe_payment_intent_id', piId)
+          .neq('status', 'succeeded')
+          .neq('status', 'refunded')
+          .select(NATIVE_PAYMENT_COLUMNS)
+          .maybeSingle();
+
+        if (claimErr) {
+          // We do not know whether the claim landed. Retryable by construction:
+          // the claim is idempotent, so a redelivery either claims or reads.
+          console.error('Webhook: native payment claim errored', { pi_id: piId, error: claimErr });
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_payment_claim_error' },
+            { stage: 'native_payment_claim', pi_id: piId },
+            new Error(claimErr.message),
+          );
+        }
+
+        let existingPayment: PaymentRow | null = null;
+        if (!claimed) {
+          const { data: found, error: readErr } = await supabase
+            .from('payments')
+            .select(NATIVE_PAYMENT_COLUMNS)
+            .eq('stripe_payment_intent_id', piId)
+            .maybeSingle();
+          if (readErr) {
+            return await finishDecision(
+              { ack: false, alert: true, reason: 'native_payment_read_error' },
+              { stage: 'native_payment_read', pi_id: piId },
+              new Error(readErr.message),
+            );
+          }
+          existingPayment = (found as PaymentRow | null) ?? null;
+        }
+
+        const claimOutcome = interpretPaymentClaim((claimed as PaymentRow | null) ?? null, existingPayment);
+        if (claimOutcome.kind !== 'claimed' && claimOutcome.kind !== 'already_succeeded') {
+          const decision = decideClaimOutcome(claimOutcome, ageSeconds);
+          console.error('Webhook: native payment row not finalizable', {
+            pi_id: piId, order_id: ref.orderId, outcome: claimOutcome.kind,
+            reason: decision.reason, ack: decision.ack, event_age_seconds: ageSeconds,
+          });
+          return await finishDecision(decision, {
+            stage: 'native_payment_state', pi_id: piId, order_id: ref.orderId, outcome: claimOutcome.kind,
+          });
+        }
+        const paymentRow = claimOutcome.row;
+
+        // ── 2. The row must be a DIRECT-RAIL row for THIS buyer ─────────
+        const verdict = verifyNativePaymentRow(paymentRow, ref);
+        if (!verdict.ok) {
+          console.error('Webhook: native payment row failed rail verification', {
+            pi_id: piId, order_id: ref.orderId, payment_id: paymentRow.id, reason: verdict.decision.reason,
+          });
+          return await finishDecision(verdict.decision, {
+            stage: 'native_payment_verify', pi_id: piId, order_id: ref.orderId, payment_id: paymentRow.id,
+          });
+        }
+
+        // ── 3. Instrument fingerprint — advisory, never blocking ────────
+        const fingerprint = await readInstrumentFingerprint(paymentIntent);
+
+        // ── 4. Finalize: the ONLY function that turns money into tickets ─
+        // The command key is derived from (order, PaymentIntent), NOT from
+        // event.id — see buildFinalizeCommandKey. That is what makes the
+        // domain-level dedupe survive a second event id for the same payment.
+        const commandKey = buildFinalizeCommandKey(ref.orderId, piId);
+        console.log('Webhook: finalizing native primary order', {
+          order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
+          claim: claimOutcome.kind, has_fingerprint: fingerprint !== null,
+        });
+
+        const { data: finalizeData, error: finalizeErr } = await venueService().rpc('finalize_primary_order', {
+          p_order_id:               ref.orderId,
+          p_payment_id:             paymentRow.id,
+          p_command_key:            commandKey,
+          p_instrument_fingerprint: fingerprint,
+        });
+
+        if (finalizeErr) {
+          const decision = classifyFinalizeError(finalizeErr);
+          console.error('Webhook: finalize_primary_order failed', {
+            order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
+            code: finalizeErr.code, reason: decision.reason, ack: decision.ack,
+            message: finalizeErr.message,
+          });
+          return await finishDecision(
+            decision,
+            { stage: 'finalize_primary_order', order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId },
+            new Error(finalizeErr.message),
+          );
+        }
+
+        const finalizeStatus = (finalizeData as { status?: string } | null)?.status ?? 'ok';
+        const atomCount = ((finalizeData as { atom_ids?: unknown[] } | null)?.atom_ids ?? []).length;
+        console.log('Webhook: native primary order finalized', {
+          order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
+          status: finalizeStatus, atom_count: atomCount,
+        });
+        // No push here. There is no listing and no individual seller on this
+        // rail; primary notification is `notify-dispatch`'s pipeline (spec
+        // §3.13), and inventing a `send-push` call would create a contract this
+        // branch is not entitled to define.
+        return await finishDecision(
+          { ack: true, alert: false, reason: `native_primary_${finalizeStatus}` },
+          { order_id: ref.orderId, payment_id: paymentRow.id, atom_count: atomCount },
+        );
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // LEGACY RESALE — byte-for-byte unchanged below this line.
+      // ═══════════════════════════════════════════════════════════════════
       // FIX: Use .neq('status', 'succeeded') so this UPDATE is a "claim" operation.
       // If the payment is already 'succeeded' (replay or race with confirm-payment),
       // the UPDATE matches 0 rows and maybeSingle() returns null. We exit early,
@@ -498,7 +778,112 @@ serve(async (req: Request) => {
       // change to the P0 payment-intent flow.
       await markProcessed();
 
-    } else if (event.type === 'payment_intent.payment_failed') {
+    } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
+      // ═══════════════════════════════════════════════════════════════════
+      // RAIL DISPATCH for the failure/cancel events.
+      //
+      // `payment_intent.canceled` previously fell into the terminal `else`
+      // (ack-only). It still does for the legacy rail — untouched — but on the
+      // native rail it is THE terminal signal, and the only one: Stripe emits
+      // no other event from which "this PaymentIntent can never be confirmed"
+      // can be read.
+      // ═══════════════════════════════════════════════════════════════════
+      const failRoute = resolveRail(metadata);
+
+      if (failRoute.route === 'rail_mode_mismatch' || failRoute.route === 'unknown_rail') {
+        const decision = dispositionForRoute(failRoute);
+        console.error('Webhook: rail dispatch refused on failure event', {
+          pi_id: piId, event_type: event.type, route: failRoute.route, reason: decision.reason,
+        });
+        return await finishDecision(decision, { stage: 'rail_dispatch', pi_id: piId });
+      }
+
+      if (failRoute.route === 'native_primary') {
+        const meta = readNativeMetadata(metadata);
+        if (!meta.ok) {
+          console.error('Webhook: native_primary failure metadata incomplete', { pi_id: piId, reason: meta.reason });
+          return await finishDecision(
+            { ack: true, alert: true, reason: `native_${meta.reason}` },
+            { stage: 'native_metadata', pi_id: piId },
+          );
+        }
+        const ref = meta.ref;
+
+        // Record the money fact first. Guarded against BOTH terminal states:
+        // one PI legitimately goes failed→succeeded when the buyer retries in
+        // the same PaymentSheet, and a refund must not be reopened as 'failed'.
+        const { error: failErr } = await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('stripe_payment_intent_id', piId)
+          .neq('status', 'succeeded')
+          .neq('status', 'refunded');
+        if (failErr) {
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_payment_fail_mark_error' },
+            { stage: 'native_fail_mark', pi_id: piId, order_id: ref.orderId },
+            new Error(failErr.message),
+          );
+        }
+
+        // SPEC §4: cancel the pending order ONLY on a TERMINAL PaymentIntent.
+        // A per-attempt decline cancels NOTHING — §3.1's retry contract lets
+        // the buyer re-confirm the same PI in the same sheet, and cancelling
+        // the order would destroy an order still being paid for. Capacity
+        // returns via the §20.3.3 hold-TTL sweep, not from here: 082 persists
+        // no order→hold linkage to release directly.
+        if (!isTerminalPaymentIntent(paymentIntent)) {
+          console.log('Webhook: native_primary payment attempt failed, order left pending', {
+            pi_id: piId, order_id: ref.orderId, pi_status: paymentIntent?.status ?? null,
+          });
+          return await finishDecision(
+            { ack: true, alert: false, reason: 'native_attempt_failed_order_pending' },
+            { order_id: ref.orderId, pi_id: piId },
+          );
+        }
+
+        const { data: cancelData, error: cancelErr } = await venueService().rpc('cancel_pending_order', {
+          p_order_id:    ref.orderId,
+          p_reason_code: CANCEL_REASON_PAYMENT_FAILED,
+          p_command_key: buildCancelCommandKey(ref.orderId, piId),
+        });
+
+        if (cancelErr) {
+          const decision = classifyCancelError(cancelErr);
+          console.error('Webhook: cancel_pending_order failed', {
+            order_id: ref.orderId, pi_id: piId, code: cancelErr.code,
+            reason: decision.reason, ack: decision.ack, message: cancelErr.message,
+          });
+          return await finishDecision(
+            decision,
+            { stage: 'cancel_pending_order', order_id: ref.orderId, pi_id: piId },
+            new Error(cancelErr.message),
+          );
+        }
+
+        const cancelStatus = (cancelData as { status?: string } | null)?.status ?? 'cancelled';
+        console.log('Webhook: native primary order cancelled', {
+          order_id: ref.orderId, pi_id: piId, status: cancelStatus,
+        });
+        return await finishDecision(
+          { ack: true, alert: false, reason: `native_order_${cancelStatus}` },
+          { order_id: ref.orderId, pi_id: piId },
+        );
+      }
+
+      if (event.type === 'payment_intent.canceled') {
+        // Legacy rail, unchanged from the pre-existing terminal `else`: ack only.
+        console.log('Webhook: unhandled event type (ack only)', { event_type: event.type });
+        await markProcessed();
+        return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // LEGACY RESALE payment_failed — byte-for-byte unchanged below.
+      // ═══════════════════════════════════════════════════════════════════
       // Claim guard: Stripe does NOT guarantee event ordering, and one PI
       // legitimately goes failed→succeeded when the buyer retries in the
       // same PaymentSheet. A late-arriving payment_failed must never
@@ -847,15 +1232,115 @@ serve(async (req: Request) => {
         });
         await markProcessed({ error: `account.updated profile update: ${profileErr.message}` });
       } else {
-        console.log('Webhook: account.updated synced', {
+        // ═══════════════════════════════════════════════════════════════
+        // ORGANIZATION ARM (ruling A6/A8 · 093 §2).
+        //
+        // The individual-seller arm above is unchanged and still runs first.
+        // What changes is what happens when it matches NOTHING: that used to
+        // be logged as `matched_profiles: 0` inside a success line, which is
+        // exactly how an ORGANIZATION Connect account got created and then
+        // never monitored again — no capability loss ever reached Postgres,
+        // and 093 §3's checkout gate read a column nothing wrote.
+        //
+        // `transfers_active` is derived from `capabilities.transfers`, NEVER
+        // from charges_enabled/payouts_enabled. connect-onboarding requests
+        // `transfers` and deliberately NOT `card_payments` (:544), so
+        // `charges_enabled` is false forever on a correct org account and a
+        // gate built on it would keep every venue dark permanently.
+        // ═══════════════════════════════════════════════════════════════
+        const accountMetadata = (account as { metadata?: Record<string, unknown> }).metadata ?? {};
+        const plane = selectAccountPlane(accountMetadata);
+        const transfersActive = deriveTransfersActive(account);
+        let orgArm: OrgArmOutcome = 'skipped';
+        let orgSyncDecision: Decision | null = null;
+        let orgSyncCause: Error | null = null;
+
+        if (plane.organization) {
+          if (!isConnectAccountRef(accountId)) {
+            // The RPC refuses a malformed ref outright; refusing here keeps the
+            // refusal legible and costs no round trip.
+            orgArm = 'refused';
+            orgSyncDecision = { ack: true, alert: true, reason: 'org_sync_malformed_account_ref' };
+          } else {
+            // p_observed_at is the EVENT's instant, not now(): that is what
+            // makes 093:1352-1360's out-of-order guard work. A redelivered
+            // stale event must not present itself as a fresher observation.
+            const { data: syncData, error: syncErr } = await kernelService().rpc('sync_org_connect_state', {
+              p_org_id:              plane.orgId,
+              p_connect_account_ref: accountId,
+              p_transfers_active:    transfersActive,
+              p_observed_at:         observedAtIso(event.created),
+              p_command_key:         buildOrgSyncCommandKey(event.id),
+            });
+
+            if (syncErr) {
+              orgSyncDecision = classifyOrgSyncError(syncErr);
+              orgSyncCause = new Error(syncErr.message);
+              orgArm = orgSyncDecision.reason === 'org_sync_org_not_bound'
+                ? 'org_not_bound'
+                : (orgSyncDecision.ack ? 'refused' : 'failed');
+              console.error('Webhook: sync_org_connect_state failed', {
+                account_id: accountId, org_id: plane.orgId, code: syncErr.code,
+                reason: orgSyncDecision.reason, ack: orgSyncDecision.ack, message: syncErr.message,
+              });
+            } else {
+              const status = (syncData as { status?: string } | null)?.status ?? 'ok';
+              orgArm = status === 'noop_replay' ? 'noop_replay' : 'ok';
+              console.log('Webhook: org connect state synced', {
+                account_id:        accountId,
+                org_id:            (syncData as { org_id?: string } | null)?.org_id ?? plane.orgId,
+                transfers_active:  transfersActive,
+                status,
+              });
+            }
+          }
+        }
+
+        const matchedProfiles = updatedProfiles?.length ?? 0;
+        const outcome = decideAccountUpdatedOutcome(matchedProfiles, orgArm);
+
+        // Preserve the pre-existing success line verbatim, then say which
+        // plane(s) actually took the write. `matched: 'none'` is no longer a
+        // success line — it is an alert.
+        const summary = {
           account_id:           accountId,
           onboarding_complete:  onboardingComplete,
           details_submitted:    account.details_submitted ?? false,
           charges_enabled:      account.charges_enabled ?? false,
           payouts_enabled:      account.payouts_enabled ?? false,
-          matched_profiles:     updatedProfiles?.length ?? 0,
-        });
-        await markProcessed();
+          matched_profiles:     matchedProfiles,
+          // Ruling A8's actual operand.
+          transfers_active:     transfersActive,
+          org_plane:            plane.organization,
+          org_id:               plane.orgId,
+          org_arm:              orgArm,
+          matched:              outcome.matched,
+        };
+        if (outcome.alert) console.error('Webhook: account.updated UNMATCHED or contested', summary);
+        else console.log('Webhook: account.updated synced', summary);
+
+        // A transient org-sync failure is the one case worth retrying: losing a
+        // capability-LOST observation leaves an organization selling tickets it
+        // can no longer be paid for. Both arms are idempotent, so redelivery
+        // re-runs them safely.
+        if (orgSyncDecision && !orgSyncDecision.ack) {
+          return await finishDecision(
+            orgSyncDecision,
+            { stage: 'sync_org_connect_state', account_id: accountId, org_id: plane.orgId },
+            orgSyncCause ?? undefined,
+          );
+        }
+
+        // ACK CONTRACT PRESERVED: Stripe always gets a 2xx here. The alert is
+        // what makes a zero match visible, not the status code.
+        return await finishDecision(
+          { ack: true, alert: outcome.alert, reason: outcome.reason },
+          {
+            account_id: accountId, matched: outcome.matched,
+            org_arm: orgArm, transfers_active: transfersActive,
+          },
+          orgSyncCause ?? undefined,
+        );
       }
 
     } else {

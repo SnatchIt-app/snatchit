@@ -9,7 +9,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(235);
+SELECT plan(253);   -- 2026-09-02 (package 093): 235 -> 253. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C20o..C20q (the named int4 settlement_amount_overflow, replacing a bare 22003 that wedged the header); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)   -- 2026-09-02 (package 093): 235 -> 250. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)
 
 SELECT tap.seed_core();
 
@@ -45,14 +45,20 @@ SELECT has_table('venue'::name,'settlement_line'::name, 'A2: venue.settlement_li
 SELECT has_table('venue'::name,'export_job'::name, 'A3: venue.export_job (deny-all lifecycle + purge substrate)');
 SELECT ok(to_regtype('kernel.settlement_line_candidate') IS NOT NULL,
   'A4: T-SCHEMA-SEAM-01 — kernel.settlement_line_candidate exists after replay (C116/S2-A)');
+-- 2026-09-02 (package 093): the enumeration is EXTENDED to a third seam, not changed.
+-- RATIFIED CONTRACT CHANGE — PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A3 adds
+-- kernel.settlement_primary_lines, the primary-revenue credit seam that close_settlement now
+-- unions ahead of the two 087 stubs. It is deliberately NOT a SEAM-2a register hook (155's A13
+-- still counts the frozen SEAM register at 19), but it MUST satisfy the same shape contract, so
+-- it is added here rather than left unasserted.
 SELECT ok((SELECT bool_and(p.prorettype = 'kernel.settlement_line_candidate'::regtype AND p.proretset
                            AND p.proargnames = ARRAY['p_settlement_id'])
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel' AND p.proname IN ('settlement_royalty_lines','settlement_commission_lines')),
-  'A5: T-SCHEMA-SEAM-02 — both hooks RETURN SETOF the composite and carry exactly {p_settlement_id} (SEAM-2a)');
+            WHERE n.nspname='kernel' AND p.proname IN ('settlement_royalty_lines','settlement_commission_lines','settlement_primary_lines')),
+  'A5: T-SCHEMA-SEAM-02 — all three seams RETURN SETOF the composite and carry exactly {p_settlement_id} (SEAM-2a shape)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel' AND p.proname IN ('settlement_royalty_lines','settlement_commission_lines')), 2,
-  'A6: exactly ONE overload of each hook (no accidental second signature)');
+            WHERE n.nspname='kernel' AND p.proname IN ('settlement_royalty_lines','settlement_commission_lines','settlement_primary_lines')), 3,
+  'A6: exactly ONE overload of each seam (no accidental second signature)');
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(gen_random_uuid()))
         + (SELECT count(*)::int FROM kernel.settlement_commission_lines(gen_random_uuid())), 0,
   'A7: both seams return ZERO rows over an empty market — the 090 commission stub and 088''s REAL royalty/chargeback seam alike (deterministic, never raises)');
@@ -124,8 +130,11 @@ SELECT ok((SELECT bool_and(has_function_privilege('authenticated', f, 'EXECUTE')
     'venue.open_settlement(uuid,uuid,uuid,jsonb,text)','kernel.close_settlement(uuid,text)','kernel.request_org_payout(uuid,uuid,text)']) f),
   'B6: the nine caller-authorized verbs are authenticated-only (in-body authz), never anon, never service_role');
 SELECT ok((SELECT bool_and(NOT has_function_privilege('authenticated', f, 'EXECUTE') AND NOT has_function_privilege('anon', f, 'EXECUTE') AND NOT has_function_privilege('service_role', f, 'EXECUTE'))
-  FROM unnest(ARRAY['kernel.settlement_royalty_lines(uuid)','kernel.settlement_commission_lines(uuid)']) f),
-  'B7: the two settlement seams are definer-internal — no client or machine grant');
+-- 2026-09-02 (package 093): third seam added (ruling A3). 093 revokes ALL on
+-- kernel.settlement_primary_lines from public/anon/authenticated/service_role and grants it to
+-- nobody — 087 PART 8 discipline. close_settlement reaches it as the definer.
+  FROM unnest(ARRAY['kernel.settlement_royalty_lines(uuid)','kernel.settlement_commission_lines(uuid)','kernel.settlement_primary_lines(uuid)']) f),
+  'B7: all three settlement seams are definer-internal — no client or machine grant');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
             WHERE a.privilege_type='EXECUTE' AND n.nspname IN ('venue','kernel')
@@ -254,10 +263,14 @@ SELECT throws_ok(format($$INSERT INTO venue.settlement_line (settlement_id, caus
 SELECT tap.login(tap.seller());
 SELECT tap._store151('s2', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s2') ->> 'settlement_id'));
 SELECT tap.logout();
+-- 2026-09-02 (package 093): the three cause_refs are PINNED to literals (they were
+-- gen_random_uuid(), which nothing could reference). Same three rows, same amounts, same causes —
+-- the C16/C16a/C16b waterfall arithmetic is untouched — but C20e/C20f/C20g below can now name them
+-- to prove ruling A5's two cross-settlement money indexes actually bite.
 INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES
-  (tap._fetch151('s2')::uuid, 'primary_sale', gen_random_uuid(), 10000),
-  (tap._fetch151('s2')::uuid, 'promoter_commission', gen_random_uuid(), -1000),
-  (tap._fetch151('s2')::uuid, 'refund_void', gen_random_uuid(), -500);
+  (tap._fetch151('s2')::uuid, 'primary_sale',        '00000000-0000-0000-0000-0000000000c1', 10000),
+  (tap._fetch151('s2')::uuid, 'promoter_commission', '00000000-0000-0000-0000-0000000000c2', -1000),
+  (tap._fetch151('s2')::uuid, 'refund_void',         '00000000-0000-0000-0000-0000000000c3', -500);
 SELECT tap.login(tap.other_user());
 SELECT tap._store151('c2', kernel.close_settlement(tap._fetch151('s2')::uuid, 'ck87-c2')::text);
 SELECT tap.logout();
@@ -281,6 +294,72 @@ SELECT tap.login(tap.other_user());
 SELECT is((kernel.close_settlement(tap._fetch151('s2')::uuid, 'ck87-c2b') ->> 'status'), 'noop_replay', 'C19: replaying the close returns noop_replay …');
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM kernel.payout WHERE cause='settlement' AND cause_ref=tap._fetch151('s2')::uuid), 1, 'C20: … and mints NO second payout');
+-- ---------------------------------------------------------------------------
+-- 2026-09-02 (package 093): NEW COVERAGE — THE UNBOUNDED-REFUND-EXPOSURE GATE.
+--
+-- 093 activated the credit side of the venue ledger (ruling A3/A5), and with it an exposure
+-- that could not exist while gross was structurally zero: a refund that SUCCEEDS AFTER its
+-- settlement closed can never be collected. Its debit lands in a settlement nobody opens, or
+-- in one that nets negative — and a negative net mints no payout and creates no receivable,
+-- because this schema has no carry-forward object. Measured over five closes: lifetime net
+-- 8400 against 19000 paid out.
+--
+-- Bounding it needs a settle-after-refund-window policy and NO SUCH POLICY EXISTS in the
+-- corpus, so 093 does not pay: while 'settlement.refund_window_interval' is unset (it ships
+-- seeded 'null'::jsonb) the payout is MINTED — so the obligation is a durable ledger fact,
+-- which is ruling A3 — but MINTED HELD, so no money can move.
+--
+-- The two rejected alternatives are why this shape is asserted rather than the others:
+-- refusing the CLOSE would also refuse the LINES, so the ledger would never record what the
+-- venue is owed (the opposite of A3); minting nothing would strand the payout forever,
+-- because close_settlement is the only minter of a cause='settlement' payout and is
+-- forward-only. So: the ledger is complete and truthful, the obligation is durable, and only
+-- the money is immobilised. kernel.release_payout is the contracted exit.
+SELECT is((tap._fetch151('c2')::jsonb ->> 'payout_hold'), 'unbounded_refund_exposure',
+  'C20i: the close REPORTS the hold additively — payout_hold names the reason, while status / payout_ids / net_minor keep their contracted meanings');
+SELECT ok((SELECT p.status = 'pending' AND p.hold_state = 'held' AND p.hold_reason_code = 'unbounded_refund_exposure'
+                  AND p.held_at IS NOT NULL AND p.held_by IS NULL AND p.amount_minor = 8500
+             FROM kernel.payout p WHERE p.payout_id = tap._fetch151('p2')::uuid),
+  'C20j: with the refund window UNSET the settlement payout is minted HELD/unbounded_refund_exposure at the full net — status untouched (MB-2), held_by NULL (the platform, not a person)');
+SELECT ok((SELECT s.status = 'closed' AND s.net_minor = 8500 AND s.gross_minor = 10000 FROM venue.settlement s WHERE s.settlement_id = tap._fetch151('s2')::uuid)
+       AND (SELECT count(*) = 3 FROM venue.settlement_line l WHERE l.settlement_id = tap._fetch151('s2')::uuid),
+  'C20k: …and the LEDGER IS COMPLETE anyway — the header still records what the venue is owed and all three lines stand. The hold immobilises money, it does not erase the obligation (ruling A3)');
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-held')$$, tap._fetch151('org1'), tap._fetch151('s2')),
+  '%payout_held%', 'C20l: …and the hold BITES: a held payout cannot be requested, so no money leaves while the exposure is unbounded');
+SELECT tap.logout();
+SELECT tap.login(tap.admin_user());
+SELECT is((kernel.release_payout(tap._fetch151('p2')::uuid, 'ck87-rel2') ->> 'status'), 'ok',
+  'C20m: kernel.release_payout (platform_risk / platform_admin, Control-5) is the CONTRACTED exit — the hold is recoverable, which an overpayment would not have been');
+SELECT tap.logout();
+SELECT ok((SELECT p.hold_state = 'none' AND p.hold_reason_code IS NULL AND p.status = 'pending' FROM kernel.payout p WHERE p.payout_id = tap._fetch151('p2')::uuid),
+  'C20n: …hold cleared, status STILL pending (the hold overlay never overwrote it) — the request lifecycle below now runs on an unheld payout, exactly as it did before 093');
+-- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- 2026-09-02 (package 093): NEW COVERAGE for RATIFIED ruling A5 / 093 scope item 13.
+-- 087:105's uniqueness is PER SETTLEMENT — unique (settlement_id, cause, cause_ref), asserted by
+-- C14 — so before 093 the SAME order could be lined in TWO settlements and paid twice, in a ledger
+-- whose lines can never be deleted (C12/C13). 093 adds the two GLOBAL partial unique indexes in the
+-- 090:214-215 shape (venue.attribution's promoter twin, exercised at 155 G21/G22):
+--     settlement_one_primary_sale_line_ever  unique (cause_ref) where cause = 'primary_sale'
+--     settlement_one_refund_void_line_ever   unique (cause_ref) where cause = 'refund_void'
+-- Each insert below FAILS, so the line ledger gains nothing and C36/C37's censuses are unmoved.
+SELECT throws_ok(format($$INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (%L, 'primary_sale', '00000000-0000-0000-0000-0000000000c1', 1)$$, tap._fetch151('s1')),
+  '23505', NULL, 'C20e: ruling A5 — an order already lined as primary_sale in s2 cannot be lined again in a DIFFERENT settlement (settlement_one_primary_sale_line_ever); the same order can never be paid twice');
+SELECT throws_ok(format($$INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (%L, 'refund_void', '00000000-0000-0000-0000-0000000000c3', -1)$$, tap._fetch151('s1')),
+  '23505', NULL, 'C20f: … and a refund already voided in s2 cannot be voided again elsewhere (settlement_one_refund_void_line_ever) — a refund is debited exactly once, platform-wide, for all time');
+-- kernel.close_settlement's conflict target is NAMED (`on conflict on constraint
+-- settlement_line_cause_uq`), never bare. A bare `do nothing` would ABSORB the violation above and
+-- silently drop a revenue line out of gross, underpaying the venue with no error and no repair path
+-- in an append-only ledger. An aborted close writes nothing and is retryable; a lost credit is not.
+-- This asserts the exact INSERT form close_settlement uses: it still tolerates a same-settlement
+-- replay, and it still RAISES on a global-index violation.
+SELECT throws_ok(format($$INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (%L, 'primary_sale', '00000000-0000-0000-0000-0000000000c1', 1) ON CONFLICT ON CONSTRAINT settlement_line_cause_uq DO NOTHING$$, tap._fetch151('s1')),
+  '23505', NULL, 'C20g: … and close_settlement''s NAMED on-conflict target does NOT swallow a global-index violation (a bare DO NOTHING would have dropped the line silently)');
+SELECT lives_ok(format($$INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (%L, 'primary_sale', '00000000-0000-0000-0000-0000000000c1', 1) ON CONFLICT ON CONSTRAINT settlement_line_cause_uq DO NOTHING$$, tap._fetch151('s2')),
+  'C20h: … while STILL tolerating exactly what 087 tolerated — a re-close replaying its own settlement''s own line (no error, no second row)');
+-- ---------------------------------------------------------------------------
 -- E-73 discriminator: a DEBIT under a revenue cause is a fee by SIGN (the removed cause table would have netted it into gross)
 SELECT tap.login(tap.seller());
 SELECT tap._store151('s6', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s6') ->> 'settlement_id'));
@@ -297,6 +376,32 @@ SELECT throws_like(format($$SELECT kernel.close_settlement(%L,'ck87-c7')$$, tap.
 SELECT tap.logout();
 SELECT ok((SELECT gross_minor = 2000 AND fees_minor = 300 AND refunds_minor = 0 AND net_minor = 1700 FROM venue.settlement WHERE settlement_id = tap._fetch151('s6')::uuid),
   'C20d: E-73 — gross 2000 / fees 300 by SIGN (a cause table keyed on primary_sale would have reported gross 1700, fees 0)');
+-- ---------------------------------------------------------------------------
+-- 2026-09-02 (package 093): NEW COVERAGE — THE INT4 CEILING, NAMED INSTEAD OF OPAQUE.
+-- venue.settlement's four money columns are `integer` (087:52-55, frozen) while close_settlement's
+-- accumulators are bigint, so a scope whose gross exceeds 2^31-1 minor units (~$21.47M) used to
+-- raise a BARE 22003 out of the UPDATE. That rolled the close back with the header still `open`,
+-- and every retry failed identically with an error that named nothing — a permanently wedged
+-- settlement. 093 refuses FIRST, with the remedy in the message (090:1471-1473's rule, "never an
+-- opaque 22003 out of the close", applied to the header). The ceiling itself is structural:
+-- widening the columns is DDL on a frozen money table and an owner item, NOT 093.
+SELECT tap.login(tap.seller());
+SELECT tap._store151('s8', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s8') ->> 'settlement_id'));
+SELECT tap.logout();
+INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES
+  (tap._fetch151('s8')::uuid, 'primary_sale', gen_random_uuid(), 2000000000),
+  (tap._fetch151('s8')::uuid, 'primary_sale', gen_random_uuid(), 2000000000);
+SELECT tap.login(tap.other_user());
+SELECT throws_like(format($$SELECT kernel.close_settlement(%L,'ck87-c8')$$, tap._fetch151('s8')),
+  '%settlement_amount_overflow%',
+  'C20o: a gross beyond the int4 money columns is refused by NAME, not by a bare 22003 — the error says what happened and what to do about it');
+SELECT throws_like(format($$SELECT kernel.close_settlement(%L,'ck87-c8')$$, tap._fetch151('s8')),
+  '%narrower periods%',
+  'C20p: … and it carries the remedy (settle the scope as narrower periods, or widen the columns — an owner item)');
+SELECT tap.logout();
+SELECT is((SELECT status FROM venue.settlement WHERE settlement_id = tap._fetch151('s8')::uuid), 'open',
+  'C20q: … the refusal happens BEFORE the UPDATE, so the header is left OPEN and retryable rather than wedged half-written');
+-- ---------------------------------------------------------------------------
 -- request_org_payout: authority, SoD-1, maturity, the NULL threshold parks
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-x')$$, tap._fetch151('org1'), tap._fetch151('s2')),
@@ -364,9 +469,28 @@ SELECT tap.login(tap.seller());
 SELECT tap._store151('s3', (venue.open_settlement(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, NULL, '{}'::jsonb, 'ck87-s3') ->> 'settlement_id'));
 SELECT tap.logout();
 INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES (tap._fetch151('s3')::uuid, 'primary_sale', gen_random_uuid(), 5000);
+-- 2026-09-02 (package 093): the OTHER arm of the gate above. With
+-- 'settlement.refund_window_interval' SET, the exposure is declared bounded and the payout is
+-- minted unheld. NOTE WELL, and this is why the key ships unset: the key's PRESENCE is not an
+-- implementation of the window — the verb that enforces one must land with the owner ruling that
+-- fixes its duration and its start instant. Setting it here is a FIXTURE act that selects the
+-- unheld arm so the request/dual-control/state-sync lifecycle below (C29a..C31i1) exercises what
+-- it has always exercised. Every one of those assertions is unchanged.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'settlement.refund_window_interval', coalesce(max(version),0)+1, '"30 days"'::jsonb, 'restricted'
+  FROM catalog.platform_config WHERE key='settlement.refund_window_interval';
 SELECT tap.login(tap.other_user());
 SELECT tap._aal2();
-SELECT tap._store151('p3', ((kernel.close_settlement(tap._fetch151('s3')::uuid, 'ck87-c3')::jsonb -> 'payout_ids') ->> 0));
+SELECT tap._store151('c3', kernel.close_settlement(tap._fetch151('s3')::uuid, 'ck87-c3')::text);
+SELECT tap._store151('p3', ((tap._fetch151('c3')::jsonb -> 'payout_ids') ->> 0));
+SELECT tap.logout();   -- kernel.payout carries no `authenticated` grant; the file reads it from the service path
+SELECT is((tap._fetch151('c3')::jsonb ->> 'payout_hold'), NULL,
+  'C28a: with the refund window SET the close reports NO hold …');
+SELECT ok((SELECT p.hold_state = 'none' AND p.hold_reason_code IS NULL AND p.held_at IS NULL AND p.status = 'pending' AND p.amount_minor = 5000
+             FROM kernel.payout p WHERE p.payout_id = tap._fetch151('p3')::uuid),
+  'C28b: … and the payout is minted UNHELD at the full net — the gate is binary on that one key and touches nothing else about the payout');
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
 SELECT is((kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('s3')::uuid, 'ck87-r3') ->> 'status'), 'submitted',
   'C29a: below an OWNER-SET dual-control threshold the payout advances pending → submitted directly (the edge executes Stripe)');
 SELECT tap.logout();
@@ -384,6 +508,13 @@ SELECT is((SELECT status FROM venue.settlement WHERE settlement_id = tap._fetch1
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT 'payout.destination_cooldown_hours', coalesce(max(version),0)+1, '24'::jsonb, 'restricted'
   FROM catalog.platform_config WHERE key='payout.destination_cooldown_hours';
+-- 2026-09-02 (package 093): TEST SETUP DRIFT — the fixture, not the assertion. Ruling A7/A9
+-- (RT-A-3): a re-point now requires the platform to have staged the identifier it minted, via
+-- kernel.stage_org_connect_ref (service_role ONLY). C31a's assertion is unchanged.
+SELECT tap.login_service();
+SELECT is((kernel.stage_org_connect_ref(tap._fetch151('org1')::uuid, 'acct_PROB87', 'ck87-stage-prob') ->> 'status'), 'ok',
+  'C30a: the platform stages the replacement account before any human can bind it (A7/A9 two-key separation: staging is a machine credential, binding is a human org_owner on aal2)');
+SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT tap._aal2();
 SELECT is((kernel.set_org_payout_destination(tap._fetch151('org1')::uuid, 'acct_PROB87', 'new_bank', 'ck87-dest') ->> 'status'), 'ok',
@@ -463,6 +594,14 @@ SELECT tap.login(tap.fan151());
 SELECT tap._aal2();
 SELECT is((kernel.approve_refund_request((tap._fetch151('r9')::jsonb ->> 'request_id')::uuid, 'approve', 'ok', 'ck87-ap9') ->> 'status'), 'approved',
   'C31l: the second matured owner (not the requester, not the setter) approves it');
+-- 2026-09-02 (package 093): TEST SETUP DRIFT — ruling A7/A9 (RT-A-3), as at C30a. The platform
+-- must have staged the replacement it minted before any human can bind it. Assertion unchanged.
+SELECT tap.logout();
+SELECT tap.login_service();
+SELECT kernel.stage_org_connect_ref(tap._fetch151('org2')::uuid, 'acct_NEW2', 'ck87-stage-new2');
+SELECT tap.logout();
+SELECT tap.login(tap.fan151());
+SELECT tap._aal2();
 SELECT lives_ok(format($$SELECT kernel.set_org_payout_destination(%L, 'acct_NEW2', 'rotated', 'ck87-dest2')$$, tap._fetch151('org2')), 'C31m: … then, as setter, changes the destination');
 SELECT tap.logout();
 UPDATE kernel.organization SET payout_destination_locked_until = NULL WHERE org_id = tap._fetch151('org2')::uuid;   -- the cool-down elapsed (fixture)
@@ -521,9 +660,14 @@ SELECT tap._aal2();
 SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r4')$$, tap._fetch151('org1'), tap._fetch151('s4')),
   '%settlement not closed%', 'C35: request_org_payout refuses an open settlement');
 -- RLS: org finance reads, marketing does not
-SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 7, 'C36: org_finance reads its org''s seven settlement headers (RLS §9.13) — and not org2''s');
-SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 9,
-  'C37: … and their nine lines (RLS §9.14)');
+-- 2026-09-02 (package 093): 7 -> 8 headers and 9 -> 11 lines. NOT a 093 behaviour change — these
+-- are absolute RLS censuses and the deltas are C20o..C20q's own int4-ceiling fixture (settlement s8
+-- plus its two deliberately oversized lines, which the refused close leaves in place because the
+-- refusal happens before the UPDATE). The property under test is unchanged and still exact: the
+-- org's finance role reads every one of ITS OWN headers and lines and none of org2's.
+SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 8, 'C36: org_finance reads its org''s eight settlement headers (RLS §9.13) — and not org2''s');
+SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 11,
+  'C37: … and their eleven lines (RLS §9.14)');
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT count(*)::int FROM venue.settlement), 0, 'C38: venue_marketing reads ZERO settlements');
@@ -537,8 +681,27 @@ INSERT INTO venue.staff_role (venue_id, identity_id, role, granted_by) VALUES (t
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT kernel.close_settlement(%L,'ck87-stale-close')$$, tap._fetch151('s4')),
   '42501', NULL, 'C40a: E-76 (money) — a prior operator''s venue_finance cannot close an org1 settlement once the venue is operated by org2');
+-- 2026-09-02 (package 093): P0002 -> 42501. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A3 conjoins the E-76 current-operator clause
+-- onto venue.open_settlement's venue_finance AUTHORITY arm (the identical shape
+-- kernel.close_settlement already carries at 087:299-300, and the same clause C40a asserts one
+-- line above). tap.buyer() here holds ONLY a stale venue_finance grant over a room that org2 now
+-- operates, so the authority gate refuses BEFORE the scope gate is reached and the code changes.
+-- THE REFUSAL IS STRICTLY STRONGER, and the order is deliberate: raising not_found before proving
+-- authority would hand an unauthorized caller the venue/event binding, which is precisely the
+-- disclosure AUTHZ-C1C exists to prevent. Nothing is disclosed that C40a did not already disclose.
+-- The P0002 period-grain coverage this row used to provide is NOT dropped — C40b2 below asserts it
+-- with a caller who genuinely passes the authority gate, which is the only way to reach it at all.
 SELECT throws_ok(format($$SELECT venue.open_settlement(%L,%L,NULL,'{}','ck87-stale-open')$$, tap._fetch151('org1'), tap._fetch151('venue1')),
-  'P0002', NULL, 'C40b: … nor open one for org1 over it (the venue no longer binds to org1)');
+  '42501', NULL, 'C40b: … nor open one for org1 over it — a STALE venue_finance holder is refused at the E-76 authority gate (ruling A3), before the scope gate discloses anything');
+SELECT tap.logout();
+SELECT tap.login(tap.seller());   -- org1's org_owner: passes the authority arm on the ORG side
+SELECT throws_ok(format($$SELECT venue.open_settlement(%L,%L,NULL,'{}','ck87-stale-open-2')$$, tap._fetch151('org1'), tap._fetch151('venue1')),
+  'P0002', NULL, 'C40b2: … and the PERIOD grain still FAILS CLOSED for a properly authorized org1 caller: 087:254-255 is kept verbatim, so a venue+period window whose room org1 no longer operates is not_found (ruling A3 widened the EVENT grain only)');
+SELECT lives_ok(format($$SELECT venue.open_settlement(%L,%L,%L,'{}','ck87-stale-open-3')$$, tap._fetch151('org1'), tap._fetch151('venue1'), tap._fetch151('event1')),
+  'C40b3: … while the EVENT grain now OPENS — ruling A3''s booked-event fix: catalog.event.org_id is still org1, so the settlement binds to the event''s economic counterparty and the transferred room no longer makes the event permanently unsettleable');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
 SELECT tap.logout();
 SELECT tap.login(tap.fan151());
 SELECT throws_ok(format($$SELECT venue.request_export('event',%L,'operations_v1','{}','ck87-reop-1')$$, tap._fetch151('event1')),

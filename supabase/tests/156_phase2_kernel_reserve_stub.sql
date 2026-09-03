@@ -40,14 +40,33 @@ SELECT ok((SELECT p.proname = 'set_updated_at' AND n.nspname = 'kernel' FROM pg_
 -- nothing else was created
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
   'A19: kernel holds 28 tables — 27 post-090 + the reserve stub');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 250,
   -- 2026-09-02 (package 092): 228 -> 243 (+15 notify routines).
-  'A20: 091 creates NO function (five-schema routines 243 post-092)');
+  -- 2026-09-02 (package 093): 243 -> 246. RATIFIED CONTRACT CHANGE —
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A6 (kernel.sync_org_connect_state,
+  -- kernel.get_org_connect_state) and ruling A3 (kernel.settlement_primary_lines). All three
+  -- land in kernel; 091's own schemas are untouched, so the "091 creates NO function" claim
+  -- this row exists to defend is unweakened — it is still an absolute five-schema census.
+  -- 2026-09-02 (package 093, second money pass): 246 -> 250 (+stage_org_connect_ref,
+  -- +get_org_connect_ref, +get_refund_execution_context, +is_order_buyer — all kernel).
+  'A20: 091 creates NO function (five-schema routines 250 post-093)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');
 SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-drain-outbox): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43, 'A23 (092: 43 with the owner-unset lease key): PFA-9 — 091 fabricates NO config key (42 rows post-090 — an absolute census)');
+-- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — four keys, each ONE row at
+-- version 1 and each seeded OWNER-UNSET (jsonb null, PFA-9 shape), so the census stays absolute:
+--   inventory.per_user_active_hold_max, inventory.hold_ttl_interval  (093_FINAL_PROPOSED_SCOPE item 3)
+--   ticket.expiry_grace                                             (RATIFICATION ruling D2)
+--   fee.buyer_service_bps                                           (RATIFICATION ruling A5 — the value is
+--                                                                    OWNER POLICY and is never hardcoded)
+--   settlement.refund_window_interval                               (093's second money pass — the
+--                                                                    unbounded-refund-exposure gate. UNSET is the
+--                                                                    SAFE state: every settlement payout is minted
+--                                                                    HELD until an owner rules the window, so
+--                                                                    SETTING this key is the dangerous act)
+-- 091 still fabricates none of them; a sixth row appearing here would still trip this test.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 48, 'A23 (093: 48 with the five owner-unset primary-ticketing keys): PFA-9 — 091 fabricates NO config key (an absolute census)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify','public') AND p.prosrc ~ '(kernel|"kernel")\s*\.\s*"?reserve"?\M'), 0,
   'A24: plan §8/091 Tests row — NO routine in the database references kernel.reserve ("stub" is a checked property)');

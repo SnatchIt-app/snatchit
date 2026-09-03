@@ -87,13 +87,18 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 109,
+           WHERE n.nspname = 'kernel'), 116,
+  -- 2026-09-02 (package 093): 109 -> 116. RATIFIED CONTRACT CHANGE — SEVEN added, zero
+  -- removed. One of them, is_order_buyer, is a definer predicate that lives in `kernel` on
+  -- the has_venue_role precedent this very file pins at A16-A19, and is NOT relocated to
+  -- dodge this count (PRIMARY_TICKETING_OWNER_RATIFICATION.md). 141 A14a enumerates all
+  -- seven by name with grant class.
   -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A14: kernel holds EXACTLY 109 functions (107 post-088 + 090''s two)');
+  'A14: kernel holds EXACTLY 116 functions (109 post-090 + 093''s seven)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'venue'), 79,
   -- 2026-09-02 (package 090): 60 -> 79 (+19: 17 promoter RPCs/reads + the normalizer + 2 trigger fns;

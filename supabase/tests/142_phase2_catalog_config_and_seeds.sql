@@ -10,7 +10,9 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(249);
+-- 2026-09-02 (package 093): 249 -> 250. One new assertion (D5a) names the four
+-- config keys rulings D2/A5 add, so D1/D4's raised counts stay exact-by-name.
+SELECT plan(250);
 
 SELECT tap.seed_core();
 
@@ -249,14 +251,25 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- ============================================================================
 
 -- 2026-09-02 (package 092): 42 -> 43 (+notify.delivery_lease_interval, owner-unset 'null'::jsonb — PFA-22 shape, E-154).
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43,
-  'D1: exactly 43 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085 + 092''s owner-unset lease key)');
+-- 2026-09-02 (package 093): 43 -> 48. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md rulings D2 (ticket expiry: "leaving it
+-- absent is forbidden by this ruling") and A5 (buyer-funded economics: "no service-fee
+-- percentage is hardcoded in migration 093"; "fee economics remain owner/config
+-- controlled"). The four are ticket.expiry_grace, fee.buyer_service_bps,
+-- inventory.hold_ttl_interval and inventory.per_user_active_hold_max, joined by
+-- settlement.refund_window_interval from the money slice (ruling A3: a settlement
+-- payout is minted HELD while the refund window is unset, so the key must exist and
+-- must start valueless). All FIVE land at version 1 with a JSON-null value and
+-- RESTRICTED visibility — the PFA-22 owner-unset shape — so D2/D3/D5 are untouched
+-- and the public class is unchanged. Named, not merely counted, by D5a below.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 48,
+  'D1: exactly 48 config keys are seeded (43 post-092 + 093''s five owner-unset keys per rulings D2/A5/A3)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
   'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 35,
-  'D4: the other 35 are restricted (the PFA-22 key and 092''s lease key are restricted)');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 40,
+  'D4: the other 40 are restricted (the PFA-22 key, 092''s lease key and 093''s five)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
@@ -265,6 +278,22 @@ SELECT bag_eq(
            ('notify.announcements_enabled'),('credential.wallet_exp_skew'),
            ('credential.wallet_default_span'),('credential.app_ttl_interval')$$,
   'D5: the public class is exactly the frozen §2.4.1 list — asserted by NAME, not by count');
+
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, rulings D2 and A5. The four
+-- keys 093 adds are named here so D1/D4's raised counts cannot pass vacuously, and
+-- their VALUES are pinned to JSON null: A5 forbids inventing a percentage and D2
+-- seeds the grace key owner-unset, so every one of them is inert until an owner sets
+-- it through catalog.set_platform_config — no migration, and no default policy.
+SELECT bag_eq(
+  $$SELECT key FROM catalog.platform_config
+     WHERE key IN ('ticket.expiry_grace','fee.buyer_service_bps',
+                   'inventory.hold_ttl_interval','inventory.per_user_active_hold_max',
+                   'settlement.refund_window_interval')
+       AND version = 1 AND visibility = 'restricted' AND value = 'null'::jsonb$$,
+  $$VALUES ('ticket.expiry_grace'),('fee.buyer_service_bps'),
+           ('inventory.hold_ttl_interval'),('inventory.per_user_active_hold_max'),
+           ('settlement.refund_window_interval')$$,
+  'D5a [093/D2/A5/A3]: the five new keys exist at version 1, RESTRICTED, each with a JSON-null (owner-unset) value');
 
 -- T-SCHEMA-CFG-01 / T-RLS-CFG-01, asserted PER NAMESPACE because a single-key
 -- test passes while five namespaces leak. `crm%` rather than `crm.%`: the real
@@ -662,11 +691,20 @@ SELECT tap.login(tap.seller());
 -- RED-B: matched on the MESSAGE, not on "any error". With a bare matcher this
 -- passed on `unwritable_key reason_code` — the arm was unreachable and the test
 -- could not tell.
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, inverted by owner ruling.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling C: "Venue operatorship transfers
+-- are FROZEN for initial launch… The reviewed body-only enforcement is implemented
+-- so a venue cannot change its operating organization." update_venue no longer
+-- performs the transfer for ANYONE — the platform_admin path 078 held is gone too,
+-- so this is no longer a statement about who may transfer but that nobody may.
+-- The refusal is placed BEFORE the is_platform() check on purpose, so the error
+-- carries NO AUTHORITY ORACLE. Still matched on the EXACT errcode AND the EXACT
+-- message (the RED-B rule below): a bare matcher would pass on unwritable_key.
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"org_id":"%s","reason_code":"sale"}'::jsonb,'ck-w-1')$$,
          tap._fetch142('venue'), tap._fetch142('org')),
-  '42501', 'insufficient_privilege: operatorship change is platform_admin only',
-  'G20: an org_owner cannot move operatorship — it is platform_admin only (RLS §11.1a)');
+  'P0001', 'precondition_failed: operatorship_transfer_frozen — venue operatorship transfer is suspended pending the 093+ atomic re-scoping verb (Decision C). Contact the platform owner.',
+  'G20 [093/ruling C]: operatorship is FROZEN — an org_owner''s transfer is refused with no authority oracle');
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"capacity_hint":900,"approval_status":"approved"}'::jsonb,'ck-w-2')$$,
          tap._fetch142('venue')),
@@ -1157,15 +1195,19 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
   'K2: notify holds 076''s outbox + 092''s six reduced-plane tables');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 109,
+            WHERE n.nspname = 'kernel'), 116,
   -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
+  -- 2026-09-02 (package 093): 109 -> 116. RATIFIED CONTRACT CHANGE — SEVEN added, zero
+  -- removed (settlement_royalty_lines was REPLACED, not added). 141 A14a enumerates all
+  -- seven by name with their grant class; 141 F2/F3 pin each closure. See
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md.
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
-  'K3: kernel holds 109 functions — 107 post-088 plus 090''s promoter predicate and commission primitive');
+  'K3: kernel holds 116 functions — 109 post-090 plus 093''s seven (141 A14a names them all)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

@@ -378,26 +378,41 @@ SELECT tap.logout();
 SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 VALUES ('feature.native_issuance_enabled', 2, 'true'::jsonb, 'public');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key='inventory.hold_ttl_interval'), 0,
-  'G1: E-28 — inventory.hold_ttl_interval is UNSEEDED (a PFA-9 CLASS A key, no frozen spelling)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key='inventory.per_user_active_hold_max'), 0,
-  'G2: E-28 — inventory.per_user_active_hold_max is UNSEEDED');
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A5 ("no percentage is invented
+-- anywhere… fee economics remain owner/config controlled") and the D2 config-key
+-- discipline it applies: 093 CREATES both inventory keys, at version 1, each with
+-- a JSON-NULL value. E-28's property is unchanged and is restated exactly: the
+-- keys carry NO VALUE, so reserve_primary_inventory still reads
+-- (value #>> '{}')::integer / ::interval as SQL NULL and still refuses rather
+-- than inventing a cap or a TTL — which G3/G4 below prove, unmodified.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config
+            WHERE key='inventory.hold_ttl_interval' AND version = 1 AND value = 'null'::jsonb), 1,
+  'G1 [093/A5]: inventory.hold_ttl_interval EXISTS at version 1, seeded owner-UNSET (JSON-null value)');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config
+            WHERE key IN ('inventory.hold_ttl_interval','inventory.per_user_active_hold_max')
+              AND value <> 'null'::jsonb), 0,
+  'G2 [093/A5]: E-28 — NEITHER inventory key carries a value; no TTL and no cap is configured anywhere');
 -- event must be on_sale for the per-user/TTL path; it is (F6). The per-user cap
 -- is read BEFORE the TTL; unseeded cap => 0 => refuse (fail-to-zero, loud).
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-3')$$, tap._fetch145('batch')),
   NULL, NULL, 'G3: E-28 — with the flag flipped but the cap unseeded, reserve REFUSES (fail-to-zero, never unbounded)');
 SELECT tap.logout();
--- seed the cap, leave TTL unseeded => refuse hold_ttl_unset (never invents a TTL)
+-- set the cap, leave the TTL unset => refuse hold_ttl_unset (never invents a TTL).
+-- version 2, not 1: 093 owns version 1 of both keys (owner-UNSET). The reader is
+-- `order by c.version desc limit 1`, so version 2 is what an owner setting the
+-- value through catalog.set_platform_config would produce.
 INSERT INTO catalog.platform_config (key, version, value, visibility)
-VALUES ('inventory.per_user_active_hold_max', 1, '4'::jsonb, 'restricted');
+VALUES ('inventory.per_user_active_hold_max', 2, '4'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-4')$$, tap._fetch145('batch')),
   NULL, NULL, 'G4: E-28 — cap seeded, TTL still unseeded: reserve REFUSES hold_ttl_unset (a TTL is policy, never invented)');
 SELECT tap.logout();
--- seed the TTL => reserve now DRAWS (the oversell choke-point works end-to-end)
+-- set the TTL => reserve now DRAWS (the oversell choke-point works end-to-end).
+-- version 2 for the same reason as the cap above (093 owns version 1).
 INSERT INTO catalog.platform_config (key, version, value, visibility)
-VALUES ('inventory.hold_ttl_interval', 1, '"15 minutes"'::jsonb, 'restricted');
+VALUES ('inventory.hold_ttl_interval', 2, '"15 minutes"'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
 SELECT is((venue.reserve_primary_inventory(tap._fetch145('batch')::uuid, 1, 'ck-r-5') ->> 'status'), 'ok',
   'G5: with both keys seeded AND the flag on, reserve draws — the choke-point works end to end');
@@ -425,9 +440,21 @@ SELECT is((SELECT remaining FROM venue.inventory_batch WHERE batch_id = tap._fet
   'H2: a fan reads remaining, matching the authoritative value (the availability projection)');
 SELECT throws_ok(format($$SELECT held FROM venue.inventory_batch WHERE batch_id = %L$$, tap._fetch145('batch')),
   '42501', NULL, 'H3: E-29 — a fan cannot select the raw counter column');
-SELECT is((SELECT count(*)::int FROM venue.inventory_hold
-            WHERE identity_id = tap.buyer() AND status='active'), 2,
-  'H4: the holder reads their own ACTIVE holds (the two ck-r-5/6 draws)');
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, ruling F (attendee privacy).
+-- inventory_hold.identity_id is column-revoked from `authenticated`: a red team
+-- reconstructed a complete attendee roster, names and money attached, as a mere
+-- venue_manager by joining inventory_hold.identity_id to public.profiles, whose
+-- policy is USING (true). 9 of the 10 columns are re-granted; identity_id alone is
+-- withheld. So the holder scope is asserted on the rows the RLS OWNER POLICY
+-- itself yields rather than on a client-side identity_id predicate — the same
+-- move 146 I1 makes for venue."order".buyer_id, and for the same reason.
+-- This is strictly stronger, not weaker: the buyer holds no org or venue role over
+-- this event, so venue_inventory_hold_sel_owner is the only arm that can admit a
+-- row, and a policy that leaked another holder's hold now shows up as a count > 2
+-- where the old identity_id predicate would have filtered it away unseen.
+-- DO NOT "fix" this by re-granting identity_id — that reopens the P0.
+SELECT is((SELECT count(*)::int FROM venue.inventory_hold WHERE status='active'), 2,
+  'H4: the holder reads their own ACTIVE holds and ONLY those — the owner policy alone yields exactly the two ck-r-5/6 draws');
 SELECT tap.logout();
 -- a hidden ticket type is invisible to a fan
 SELECT tap.login(tap.seller());
@@ -437,8 +464,18 @@ SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT count(*)::int FROM venue.ticket_type WHERE ticket_type_id = tap._fetch145('tth')::uuid), 0,
   'H5: a fan cannot see a HIDDEN ticket type');
-SELECT is((SELECT count(*)::int FROM venue.inventory_hold WHERE identity_id <> tap.buyer()), 0,
-  'H6: a fan sees no other holder''s holds');
+SELECT tap.logout();
+-- H6, same ruling-F reason as H4: `identity_id <> tap.buyer()` is no longer an
+-- expressible client predicate, so the per-holder partition is proved from the
+-- COMPLEMENTARY seat instead — a different signed-in fan, holding no hold of their
+-- own and no org/venue role over this event, must see ZERO. That is strictly
+-- stronger than the predicate it replaces: the old form counted foreign rows among
+-- rows the owner policy had ALREADY filtered to the buyer, and this fixture mints
+-- holds for the buyer only, so it could not have failed. The new form is
+-- non-vacuous — H4 has just proved two rows exist for it to hide.
+SELECT tap.login(tap.other_user());
+SELECT is((SELECT count(*)::int FROM venue.inventory_hold), 0,
+  'H6: a fan sees no other holder''s holds — a different signed-in fan sees ZERO while the holder''s two rows demonstrably exist (H4)');
 SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT is((SELECT count(*)::int FROM venue.ticket_type WHERE ticket_type_id = tap._fetch145('tth')::uuid), 1,

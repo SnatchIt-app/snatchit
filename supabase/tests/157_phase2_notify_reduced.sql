@@ -136,7 +136,13 @@ SELECT is((SELECT schedule || ' | ' || command FROM cron.job WHERE jobname='noti
   'A18: the drainer tick is the register''s 2-minute row; the two edge ticks are PARKED deploy artifacts (E-158) — not scheduled here');
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname IN ('notify-dispatch','notify-receipts') OR command ILIKE '%net.http_post%notify%'), 0,
   'A19: no pg_net edge tick for notify (their header/Vault names are unnamed by any frozen byte — E-158)');
-SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 43, 'A20: config census 43 keys — 42 post-091 + notify.delivery_lease_interval (distinct keys: the fixture bumps two versions)');
+-- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — inventory.per_user_active_hold_max
+-- and inventory.hold_ttl_interval (093_FINAL_PROPOSED_SCOPE item 3), ticket.expiry_grace
+-- (RATIFICATION ruling D2), fee.buyer_service_bps (ruling A5) and settlement.refund_window_interval
+-- (the unbounded-refund-exposure gate — UNSET is the safe state: every settlement payout is minted
+-- HELD until an owner rules the window), each seeded OWNER-UNSET.
+-- 092 still contributes exactly one key; the census stays absolute and distinct-keyed.
+SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 48, 'A20: config census 48 keys — 42 post-091 + notify.delivery_lease_interval + 093''s five (distinct keys: the fixture bumps two versions)');
 SELECT is((SELECT c.visibility || ':' || coalesce(c.value #>> '{}', '<null>') FROM catalog.platform_config c WHERE c.key='notify.delivery_lease_interval' ORDER BY c.version DESC LIMIT 1),
   'restricted:<null>', 'A21: the lease key is seeded OWNER-UNSET (PFA-22 shape, E-154) — no value invented');
 SELECT is((SELECT count(*)::int FROM notify.notification_type), 31, 'A22: registry seeds exactly the 31 reduced IN types (ODR-3 §1 + OR-15 + OR-17)');
@@ -174,7 +180,11 @@ SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='pr
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel' AND c.relkind='r'), 28, 'A43: kernel tables unchanged at 28');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'), 29, 'A44: venue tables unchanged at 29');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 75, 'A45: five-schema relations 75 (69 post-091 + 6)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243, 'A46: five-schema routines 243 (228 + 15)');
+-- 2026-09-02 (package 093): 243 -> 250. RATIFIED CONTRACT CHANGE — SEVEN kernel routines:
+-- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
+-- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
+-- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 250, 'A46: five-schema routines 250 (228 + 092''s 15 + 093''s 7 kernel)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

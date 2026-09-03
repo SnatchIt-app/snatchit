@@ -9,7 +9,7 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(130);
+SELECT plan(132);   -- 2026-09-02 (package 093): 130 -> 132 (+L2a/+L2b, ruling A7/A9's staged-provenance requirement on the Connect bind)
 
 SELECT tap.seed_core();
 
@@ -661,6 +661,27 @@ SELECT tap.login(tap.seller());
 SELECT throws_ok(format($$SELECT kernel.set_org_payout_destination(%L,'acct_X1','r','ck-l-0')$$, tap._fetch149('org')),
   NULL, 'step_up_unavailable: the session carries no aal claim', 'L2: a session with NO aal claim is step_up_unavailable');
 SELECT tap._aal2();
+-- 2026-09-02 (package 093): TEST SETUP DRIFT — the fixture, not the assertion.
+-- Ruling A7/A9 (RT-A-3): binding a Connect account now requires the PLATFORM to have
+-- minted it first. kernel.set_org_payout_destination refuses any identifier that does not
+-- equal kernel.organization.connect_pending_ref with `no_pending_connect_ref`, and only
+-- kernel.stage_org_connect_ref (service_role ONLY, never authenticated) can write that
+-- column. This closes the red-team P0 where an attacker bound an arbitrary acct_ that
+-- existed in neither public.profiles nor the archive, straight through the RPC as
+-- `authenticated`. The two-key property is the control: staging needs a machine
+-- credential, binding needs a matured human org_owner on an aal2 session, and neither
+-- credential alone can bind an account. The fixture therefore performs BOTH halves with
+-- the right persona for each. L3's assertion below is UNCHANGED, byte for byte.
+SELECT tap.logout();
+SELECT tap.login_service();
+SELECT is((kernel.stage_org_connect_ref(tap._fetch149('org')::uuid, 'acct_NEW1', 'ck-l-stage') ->> 'status'), 'ok',
+  'L2a: the platform stages the account it minted — service_role ONLY (A7/A9: a caller may never supply an arbitrary acct_)');
+SELECT tap.logout();
+SELECT tap.login(tap.seller());
+SELECT tap._aal2();
+SELECT throws_like(format($$SELECT kernel.set_org_payout_destination(%L,'acct_ATTACKER','r','ck-l-atk')$$, tap._fetch149('org')),
+  '%connect_ref_not_platform_minted%',
+  'L2b: RT-A-3 — a matured org_owner on an aal2 session STILL cannot bind an identifier the platform never minted for this org; provenance is required, not merely authority (the bind must equal what was staged — `no_pending_connect_ref` is the nothing-staged arm, this is the mismatch arm)');
 SELECT is((kernel.set_org_payout_destination(tap._fetch149('org')::uuid, 'acct_NEW1', 'rotation', 'ck-l-1') ->> 'status'), 'ok',
   'L3: matured org_owner + aal2 changes the destination');
 SELECT tap.logout();

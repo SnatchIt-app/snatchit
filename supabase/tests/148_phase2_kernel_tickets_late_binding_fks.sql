@@ -57,6 +57,10 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
               AND c.relkind IN ('r','p','v','m','S','f')), 75,
+  -- 2026-09-02 (package 093): 75 -> 75. RATIFIED CONTRACT CHANGE (no-op here) —
+  -- 093 creates NO relation in any phase-2 schema; its two new objects are the
+  -- partial unique indexes on venue.settlement_line (indexes are not relkind
+  -- 'r'/'p'/'v'/'m'/'S'/'f'), so the guard is unmoved and stays exact.
   -- 2026-09-02 (package 092): 69 -> 75 (+6 notify reduced-plane tables).
   -- 2026-09-02 (package 091): 68 -> 69 (+1 kernel.reserve stub).
   -- 2026-09-02 (package 090): 62 -> 68 (+6 venue promoter-engine tables).
@@ -66,14 +70,31 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
   'B1: the five phase-2 schemas hold exactly 75 relations of ANY kind (69 post-091 + 092''s six notify tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 250,
+  -- 2026-09-02 (package 093, second money pass): 246 -> 250. RATIFIED CONTRACT CHANGE — four more
+  -- kernel routines, from the two red-team P0 fixes and the refund executor:
+  --   kernel.stage_org_connect_ref         ruling A7/A9 (RT-A-3) — the service_role-only provenance
+  --                                        writer; binding an acct_ now requires the platform to have
+  --                                        staged it, which is the whole of the two-key control.
+  --   kernel.get_org_connect_ref           its read half.
+  --   kernel.get_refund_execution_context  ruling D3 — the refund executor's server-side context.
+  --   kernel.is_order_buyer                ruling F — the buyer predicate behind the column-scoped
+  --                                        venue."order" surface.
+  -- Still kernel-only: venue/catalog/market/notify stay at 79/16/22/17.
+  -- 2026-09-02 (package 093): 243 -> 246. RATIFIED CONTRACT CHANGE —
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A6 (Stripe Connect ownership) adds
+  -- kernel.sync_org_connect_state + kernel.get_org_connect_state; ruling A3 (durable venue
+  -- obligation / settlement) adds kernel.settlement_primary_lines. THREE kernel routines and
+  -- nothing else: venue/catalog/market/notify are unmoved (79/16/22/17), and every other
+  -- 093 change to these schemas is a CREATE OR REPLACE at the frozen signature. The guard is
+  -- as tight as before — a fourth routine dumped anywhere still trips it.
   -- 2026-09-02 (package 092): 228 -> 243 (+15 notify: the reduced 16 minus 076's emit_event; no hook replaced).
   -- 2026-09-02 (package 090): 207 -> 228 (+2 kernel, +19 venue; the three body-only hook replacements add no routine).
   -- 2026-09-02 (package 088): 183 -> 207 (+19 market, +4 kernel, +1 catalog; the seven body-only
   -- hook/PFA-13 replacements add no routine).
   -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
   -- 2026-09-01 (package 087): 165 -> 183 (+4 kernel, +14 venue).
-  'B2: the five phase-2 schemas hold exactly 243 routines (109+79+16+22+17 — 092''s fifteen)');
+  'B2: the five phase-2 schemas hold exactly 250 routines (116+79+16+22+17 — 093''s seven kernel additions)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -90,8 +111,13 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 28
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 109,
-  'B4: kernel per-schema census (28 tables post-091, 109 functions post-090)');
+            WHERE n.nspname='kernel') = 116,
+  -- 2026-09-02 (package 093): kernel functions 109 -> 116. SEVEN new kernel routines, each named:
+  -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
+  -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3)
+  -- · is_order_buyer (F). kernel TABLES are unmoved at 28 — 093 creates no table, so the relation
+  -- half of this guard is untouched, and the two new objects it does create are partial indexes.
+  'B4: kernel per-schema census (28 tables post-091, 116 functions post-093)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue') = 79
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

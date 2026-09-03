@@ -9,7 +9,12 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(188);
+-- 2026-09-02 (package 093): 188 -> 198. Ten new assertions, no removals and no
+-- relaxations: L0a-L0e cover the four gates rulings A7/A9 added to
+-- kernel.set_org_connect_ref; L0f-L0h + L1a cover the connect-STAGING provenance
+-- control (ruling A7) that closed the acct_ORPHANATTACKER P0; A14a names the seven
+-- kernel functions 093 adds, with their grant class.
+SELECT plan(198);
 
 SELECT tap.seed_core();
 
@@ -80,7 +85,49 @@ SELECT is(
   -- 2026-09-02 (package 088): 103 -> 107. transfer_ticket_ownership (the engine),
   -- record_dispute_native, mark_dispute_state, resolve_dispute_native (PFA-31 parked).
   -- 2026-09-02 (package 090): 107 -> 109. is_promoter_for_event (§1.1c) + pay_promoter_commission (§20.7.2).
-  109, '077 A14: exactly 109 kernel functions (107 post-088 + 090''s promoter predicate and commission primitive)');
+  -- 2026-09-02 (package 093): 109 -> 116. RATIFIED CONTRACT CHANGE. SEVEN added,
+  -- zero removed — measured pre/post on two rehearsal databases built from the same
+  -- chain, one stopped at 092 and one with 093. Both this query and
+  -- information_schema.routines return 109 pre-093 and 116 post-093, so the two
+  -- catalogs agree exactly and none of the seven is invisible to this assertion.
+  -- kernel.settlement_royalty_lines was REPLACED, not added, and moves nothing.
+  -- The seven are enumerated by NAME in A14a below — never accepted as a bare
+  -- delta — and each is pinned by grant class in F2/F3.
+  116, '077 A14: exactly 116 kernel functions (109 post-090 + 093''s seven; settlement_royalty_lines was replaced, not added)');
+-- A14a: the seven BY NAME with their grant class and definer flag, so that moving
+-- this census forces the mover to say WHICH function they added rather than bumping
+-- an integer. Grant class is included because a re-classification (say, exposing
+-- stage_org_connect_ref or get_org_connect_ref to `authenticated`) is a security
+-- change that a name-only list would not catch.
+SELECT bag_eq(
+  $$SELECT p.proname || ' secdef=' || p.prosecdef::text
+         || ' auth='   || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
+         || ' svc='    || has_function_privilege('service_role',  p.oid, 'EXECUTE')::text
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'kernel'
+       AND p.proname IN ('get_org_connect_ref','get_org_connect_state',
+                         'get_refund_execution_context','is_order_buyer',
+                         'settlement_primary_lines','stage_org_connect_ref',
+                         'sync_org_connect_state')$$,
+  $$VALUES
+      -- ruling A6 — the Connect trio. The MASKED read is the only caller-facing one;
+      -- the unmasked read and the privileged write are server-side by construction.
+      ('get_org_connect_state secdef=true auth=true svc=false'),
+      ('get_org_connect_ref secdef=true auth=false svc=true'),
+      ('sync_org_connect_state secdef=true auth=false svc=true'),
+      -- ruling A7 — the staging verb that closed the acct_ORPHANATTACKER P0.
+      -- service_role ONLY: if this ever became authenticated the whole provenance
+      -- control collapses, because a caller could stage what it then binds.
+      ('stage_org_connect_ref secdef=true auth=false svc=true'),
+      -- ruling A3 — the primary twin of 087's SEAM-2 line stubs: NO grant at all.
+      ('settlement_primary_lines secdef=true auth=false svc=false'),
+      -- ruling D3 — the refund executor's context read.
+      ('get_refund_execution_context secdef=true auth=false svc=true'),
+      -- ruling F — the definer predicate venue_order_item_sel_owner calls once
+      -- buyer_id is column-revoked. It lives in `kernel` on the has_venue_role
+      -- precedent and is deliberately NOT relocated to dodge this census.
+      ('is_order_buyer secdef=true auth=true svc=false')$$,
+  '077 A14a [093]: the seven functions 093 adds to kernel, BY NAME, with definer flag and grant class');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -258,9 +305,20 @@ SELECT is(
   -- org_finance/platform_admin in-body) and request_org_payout (org_owner/org_finance
   -- in-body). The two settlement seams are definer-internal. Named, not counted.
   || 'close_settlement,'
-  || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,grant_door_freeze_override,grant_org_contact_consent,grant_platform_role,'
+  || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,'
+  -- 2026-09-02 (package 093): +2 authenticated — get_org_connect_state, the MASKED read
+  -- half of RATIFIED ruling A6 (Stripe Connect ownership), and is_order_buyer, the
+  -- ruling-F definer predicate venue_order_item_sel_owner now calls in place of the
+  -- buyer_id subquery the column revoke made unreadable. Both are caller-facing, so both
+  -- belong to the authenticated class. The other four 093 kernel functions are NOT here
+  -- and must never be: get_org_connect_ref and sync_org_connect_state (the unmasked read
+  -- and the privileged write of the Connect facts) and get_refund_execution_context are
+  -- EXEC DEF service_role (F3), and settlement_primary_lines (ruling A3) carries NO grant
+  -- at all. Named, not counted.
+  || 'get_org_connect_state,'
+  || 'grant_door_freeze_override,grant_org_contact_consent,grant_platform_role,'
   || 'has_event_role,has_org_role,has_org_role_over_event,has_org_role_over_venue,'
-  || 'has_venue_role,hold_payout,invite_org_member,is_org_affiliate,is_platform,is_promoter_for_event,is_transfer_frozen,'
+  || 'has_venue_role,hold_payout,invite_org_member,is_order_buyer,is_org_affiliate,is_platform,is_promoter_for_event,is_transfer_frozen,'
   -- 2026-09-01 (package 085): +14 money verbs/reads — the EDGE-FRONTED authority
   -- set (request/approve/cancel, the three lists, the denial witness, the
   -- destination change, the platform executors, the payout hold pair, resolve).
@@ -293,7 +351,7 @@ SELECT is(
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
     -- 2026-09-02 (package 090): +1 — is_promoter_for_event (RPC §1.1c EXEC: authenticated). pay_promoter_commission is EXEC DEF (no grant). Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 59 caller-authorized functions (58 post-088 + 090''s is_promoter_for_event; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 61 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6 and is_order_buyer per F; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -301,7 +359,15 @@ SELECT is(
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('service_role', p.oid, 'EXECUTE')),
   'assert_door_session,deletion_blockers_custody,deletion_blockers_market,deletion_blockers_money,'
-  || 'deletion_blockers_orders,deletion_blockers_wallet,get_wallet_pass_build_context,'
+  || 'deletion_blockers_orders,deletion_blockers_wallet,'
+  -- 2026-09-02 (package 093): +2 DEF service_role — get_refund_execution_context, the
+  -- read PFA-23's refund-execute edge makes as service_role (RATIFIED ruling D3: the
+  -- executor is "server-side, authenticated and authorized appropriately"), and
+  -- get_org_connect_ref (ruling A6), the UNMASKED Connect-id read reserved to the server.
+  -- Both are deliberately NOT authenticated: one resolves payment/order linkage, the
+  -- other returns the raw acct_ id that kernel.get_org_connect_state masks for humans.
+  -- Named, not counted.
+  || 'get_org_connect_ref,get_refund_execution_context,get_wallet_pass_build_context,'
   -- 2026-08-31 (package 083): +9 DEF — the mint engine (issue_ticket_atoms; moved
   -- here by C114) and the eight service_role wallet-substrate RPCs (build_context,
   -- list_updated, register/unregister device, supersede, touch, sweep, record_push).
@@ -318,17 +384,23 @@ SELECT is(
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
   || 'record_dispute_native,record_identity_obligation,'
   -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
-  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,supersede_wallet_passes_for_atom,'
+  -- 2026-09-02 (package 093): +1 DEF service_role — stage_org_connect_ref (ruling A7).
+  -- service_role ONLY is the whole control: a caller that could stage would be able to
+  -- authorise its own bind, which is the acct_ORPHANATTACKER P0 restated. Named, not counted.
+  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,stage_org_connect_ref,supersede_wallet_passes_for_atom,'
   -- 2026-09-01 (package 086): +2 DEF service_role — assert_door_session (the door
   -- edge) and sweep_expired_door_overrides (CRON). Named, not counted.
   || 'sweep_deletion_pending,sweep_expired_door_overrides,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
-  || 'sweep_wallet_pass_lifecycle,touch_wallet_pass,transfer_ticket_ownership,unregister_wallet_pass_device',
+  -- 2026-09-02 (package 093): +1 DEF service_role — sync_org_connect_state, the privileged
+  -- write half of RATIFIED ruling A6/A9: only the server may bind or refresh an organization's
+  -- Connect account facts, so it is service_role-only and never authenticated. Named, not counted.
+  || 'sweep_wallet_pass_lifecycle,sync_org_connect_state,touch_wallet_pass,transfer_ticket_ownership,unregister_wallet_pass_device',
   -- 2026-08-31 (package 079): sweep_expired_ticket_atoms is the FIFTEENTH name —
   -- its frozen EXEC row (RPC §12.5 / S-22 / CRON register) is DEF,
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 34 DEF functions (31 post-087 + 088''s engine + record/mark dispute)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 38 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context per D3)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),
@@ -627,21 +699,109 @@ SELECT lives_ok(
 SELECT tap.logout();
 
 -- ── L. CONNECT ONBOARDING (§20.1.1, T-RPC-CONNECT-01..04) ──────────────────
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md rulings A7 (venue Stripe onboarding —
+-- "a caller must never be permitted to supply or bind an arbitrary acct_
+-- identifier"; "cross-plane reuse of an ordinary seller's existing connected
+-- account must be prevented") and A9 (connect account security — the attachment
+-- is "a privileged, audited operation") harden kernel.set_org_connect_ref with
+-- four gates it did not previously carry:
+--   (i)   org_owner ONLY — org_finance may initiate onboarding but may not bind;
+--   (ii)  an aal2 step-up session, fail-closed when the claim is ABSENT;
+--   (iii) organization status in (approved, active) — approval precedes the
+--         payee, where `applied` was previously admitted;
+--   (iv)  refusal of any acct_ that already lives on the individual seller plane.
+-- L1-L5 below are UNCHANGED. The fixture is stepped up and the org approved so
+-- they remain reachable, and each new gate is asserted FIRST so the added setup
+-- cannot silently conceal a regression in the gate it satisfies.
+CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
+END $f$;
 
 SELECT tap.login(tap.admin_user());
+-- (ii) AUTHZ-M4 fail-closed arm — an absent claim can never evaluate as satisfied
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0a')$$,
+  '%step_up_unavailable%',
+  '077 L0a [093/A9, AUTHZ-M4]: a session carrying NO aal claim is step_up_unavailable — never a pass');
+SELECT set_config('request.jwt.claims',
+  (current_setting('request.jwt.claims', true)::jsonb || '{"aal":"aal1"}'::jsonb)::text, true);
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0b')$$,
+  '%step_up_required%',
+  '077 L0b [093/A9]: aal1 is step_up_required — binding a payee is a money-destination act');
+SELECT tap._aal2();
+-- (iii) G-6 — org1 is still `applied` (K3); approval precedes the payee
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0c')$$,
+  '%org_not_bindable%',
+  '077 L0c [093/A9, G-6]: an APPLIED org may not bind a payee — approval precedes the payee');
+SELECT is((kernel.set_org_status(tap._fetch('org1')::uuid, 'approved', 'review_passed', 'ck-l0d'))->>'org_status',
+  'approved', '077 L0d: platform approval moves org1 applied -> approved — the 093 precondition for any bind');
+-- (iv) G-1 — the cross-plane refusal, asserted on a real individual-plane id
+SELECT tap.logout();
+UPDATE public.profiles SET stripe_connect_id = 'acct_PERSONAL1' WHERE id = tap.seller();
+SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_PERSONAL1', 'cl0e')$$,
+  '%account_not_platform_minted_for_org%',
+  '077 L0e [093/A7, G-1]: an acct_ held on public.profiles is refused — the personal-seller-account attack');
+SELECT tap.logout();
+UPDATE public.profiles SET stripe_connect_id = NULL WHERE id = tap.seller();
+
+-- ── (v) 093: PROVENANCE — the account must have been STAGED by the server ──
+-- RATIFIED ruling A7: "A caller must never be permitted to supply or bind an
+-- arbitrary acct_ identifier." The cross-plane refusal at L0e is a BLOCKLIST — it
+-- enumerates accounts known to belong to the individual plane — and a red team
+-- walked straight past it by binding acct_ORPHANATTACKER, an account it had freshly
+-- created that appeared in neither public.profiles nor public.stripe_connect_archive,
+-- as `authenticated`, on both the first bind and a live re-point. A blocklist cannot
+-- satisfy an absolute prohibition, so the fix is structural: kernel.organization
+-- gains connect_pending_ref, written ONLY by kernel.stage_org_connect_ref
+-- (service_role only), and the bind must match it and CONSUMES it.
+-- These three assertions are that P0's proof and had no coverage before.
+SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0f')$$,
+  '%no_pending_connect_ref%',
+  '077 L0f [093/A7]: with NOTHING staged, a bind is refused — an arbitrary acct_ can no longer enter through the RPC (the acct_ORPHANATTACKER P0)');
+SELECT tap.logout();
+-- staging is service_role-only (pinned by F3); exercised here in the DEFINER
+-- context, as G2-style machine paths are throughout this suite.
+SELECT is((kernel.stage_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0g'))->>'status', 'ok',
+  '077 L0g [093/A7]: the server stages the account it minted — the only writer of connect_pending_ref');
+SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
+SELECT throws_like(
+  $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_OTHER999', 'cl0h')$$,
+  '%connect_ref_not_platform_minted%',
+  '077 L0h [093/A7]: a bind of a DIFFERENT id than the staged one is refused — staging is a match, not a mere flag');
 SELECT is((kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl1'))->>'newly_bound', 'true',
   '077 L1 [T-RPC-CONNECT-01]: the first bind succeeds');
 SELECT tap.logout();
 SELECT is(
+  (SELECT connect_pending_ref FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
+  NULL, '077 L1a [093/A7]: the successful bind CONSUMED connect_pending_ref — one staging authorises exactly one bind, never a later re-point');
+SELECT is(
   (SELECT payout_destination_set_by FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
   tap.admin_user(), '077 L2 [T-RPC-CONNECT-01/SoD-1]: the bind stamps payout_destination_set_by');
 SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
 SELECT is((kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl2'))->>'status', 'noop_replay',
   '077 L3 [T-RPC-CONNECT-03]: re-binding the same id is noop_replay (the re-onboarding retry path)');
 SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_OTHER999', 'cl3')$$,
   '%destination_already_set%',
-  '077 L4 [T-RPC-CONNECT-02]: an org_owner/org_finance re-point of a non-NULL ref raises — §17.7''s control set defended at the second door');
+  -- 093 / ruling A9 narrowed the admitted control set here to org_owner alone; the
+  -- assertion is unchanged — a re-point of a non-NULL ref still raises at this door.
+  -- Note the arm order 093 fixes deliberately: noop_replay (L3) and this bind-once
+  -- arm both sit BEFORE the provenance check, so consuming connect_pending_ref at L1a
+  -- cannot break the idempotent onboarding retry L3 asserts.
+  '077 L4 [T-RPC-CONNECT-02]: an org_owner re-point of a non-NULL ref raises — §17.7''s control set defended at the second door');
 SELECT tap.logout();
 SELECT throws_ok(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_NOJWT', 'cl4')$$,
