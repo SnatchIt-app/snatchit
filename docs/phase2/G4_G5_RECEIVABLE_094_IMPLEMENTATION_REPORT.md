@@ -284,6 +284,14 @@ The two error directions are asymmetric in **reversibility**: booking early is p
 
 **REMAINING PAYABLE BLOCKERS:** all of the above, plus G5 unsigned, the executor undeployed, and no organization payout destination in existence.
 
+**THE ORDERED CRITICAL PATH**, re-derived against a live 110-migration replay:
+
+> **0a** sign G5 · **0a′ Gate-M re-attestation** (gates *applying* 094 — see below) · **0b–0g** the remaining rulings · **1** apply 093 → 094 → 095 (ledger 107 → 110; order is mandatory, and the three were verified disjoint) · **2** expose `catalog` and `venue` over PostgREST · **3** deploy `connect-onboarding` · **4** deploy `stripe-webhook` · **5** deploy `refund-execute` · **6** onboard one organization · **7** the KMS ceremony · **8** owner config values in order · **9** deploy `primary-checkout` · **10** flip `feature.native_issuance_enabled`.
+
+**A distinction worth stating plainly, because it is easy to misread:** signing G5 makes the payout executor **deployable**; it makes nothing **pay**. Execution is blocked independently — venue setup and settlement maturity are both NO, all four `payout.*` keys are null, and `request_org_payout` returns `step_up_unavailable`. The two gates are not the same gate.
+
+**And a precondition that is not a signature.** Applying 094 needs a **Gate-M re-attestation**, separately from G5. `PHASE_2_MONEY_AUTHORITY_SPEC.md:67` ratified Gate-M as "not required" **because payout is settlement-cadenced** — a premise written when no venue could be paid at all. That premise should be re-attested rather than obeyed or overridden, and 094 records the ratification row as a **deploy** precondition, not a build one.
+
 ---
 
 ## G1 / G2 / G3
