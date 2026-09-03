@@ -144,7 +144,11 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname IN ('notify-dispatch
 -- every payout.% key under dual control), each seeded OWNER-UNSET. The key count is unchanged at
 -- 48: pass 3 RENAMED this key from settlement.refund_window_interval, it did not add one.
 -- 092 still contributes exactly one key; the census stays absolute and distinct-keyed.
-SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 48, 'A20: config census 48 keys — 42 post-091 + notify.delivery_lease_interval + 093''s five (distinct keys: the fixture bumps two versions)');
+-- 2026-09-02 (093 / H2): 48 -> 49. deletion.post_event_hold_hours is BP-12 arm 2's
+-- RE-ANCHORED operand (event clock, not payment clock). It is an ADD rather than a
+-- rename because its predecessor is seeded by IMMUTABLE 085 and cannot be withdrawn.
+-- 092 still contributes exactly one key; the census stays absolute and distinct-keyed.
+SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 49, 'A20: config census 49 keys — 42 post-091 + notify.delivery_lease_interval + 093''s six (distinct keys: the fixture bumps two versions)');
 SELECT is((SELECT c.visibility || ':' || coalesce(c.value #>> '{}', '<null>') FROM catalog.platform_config c WHERE c.key='notify.delivery_lease_interval' ORDER BY c.version DESC LIMIT 1),
   'restricted:<null>', 'A21: the lease key is seeded OWNER-UNSET (PFA-22 shape, E-154) — no value invented');
 SELECT is((SELECT count(*)::int FROM notify.notification_type), 31, 'A22: registry seeds exactly the 31 reduced IN types (ODR-3 §1 + OR-15 + OR-17)');
@@ -186,7 +190,18 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 250, 'A46: five-schema routines 250 (228 + 092''s 15 + 093''s 7 kernel)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 259,
+  -- 2026-09-03: 251 -> 253. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 253 -> 259. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  'A46: five-schema routines 259 (228 + 092''s 15 + 093''s 16 kernel)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

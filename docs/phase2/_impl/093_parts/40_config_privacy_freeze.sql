@@ -354,7 +354,90 @@ insert into catalog.platform_config (key, version, value, visibility) values
   -- ##  settlement's own lines. See docs/phase2/_impl/G2_settlement_maturity.md
   -- ##  for the recommended value and the evidence behind it.
   -- ####################################################################
-  ('payout.settlement_maturity_interval',     1, 'null'::jsonb,       'restricted')   -- G2: one conjunct of the maturity gate; dual-controlled by its 'payout.' prefix
+  ('payout.settlement_maturity_interval',     1, 'null'::jsonb,       'restricted'),  -- G2: one conjunct of the maturity gate; dual-controlled by its 'payout.' prefix
+
+  -- ---- deletion.post_event_hold_hours — HOW LONG AFTER THE EVENT AN --------
+  -- ---- IDENTITY MAY NOT BE TOMBSTONED. RENAMED + RE-ANCHORED (H2). ---------
+  --
+  -- Routed here for the same reason the maturity key is: the READER is a kernel
+  -- money verb — kernel.deletion_blockers_money, BP-12 arm 2, in
+  -- docs/phase2/_impl/093_parts/10_money_settlement.sql section 10j — and slice
+  -- 40 owns every platform_config row so the two slices never write the same
+  -- table. Spelling verified against that reader.
+  --
+  -- IT REPLACES `deletion.refund_possible_window_hours` (085:2189, PFA-22).
+  -- That key is NOT preserved as a fallback and is NOT read by anything after
+  -- this migration. Two independent reasons, and the second is the decisive one:
+  --
+  --   (1) THE NAME WAS WRONG. "refund possible window" names refund
+  --       ELIGIBILITY. 085:2186-2187 and PFA-22 both state in terms that this
+  --       key is NOT that — "the key controls DELETION SAFETY only — never
+  --       refund eligibility". Refund eligibility is owned by the `refund.%`
+  --       family (078:1544-1551). This is the identical class of lie G2 removed
+  --       from `settlement.refund_window_interval`.
+  --
+  --   (2) THE CLOCK CHANGED, SO THE CONTRACT CHANGED. The 085 arm measured its
+  --       window from `venue."order".created_at` — the PAYMENT date — so ORDER
+  --       AGE stood in for "the obligation is finished". Executed with the old
+  --       key set to 720 (30 days), a buyer who paid 90 days before a session
+  --       TEN DAYS AWAY was fully erasable and kernel.sweep_deletion_pending
+  --       tombstoned them BEFORE the event, while kernel.close_settlement's G2
+  --       gate was holding the venue's money for exactly that risk. The arm is
+  --       re-anchored to `max(coalesce(session.ends_at, session.starts_at))`
+  --       over the identity's own candidate orders — reached by the join
+  --       `venue."order".event_session_id` (`not null … on delete restrict`,
+  --       082:77), which is TOTAL and STABLE. Re-pointing the OLD key at the new
+  --       anchor would silently re-interpret any value already stored under it.
+  --
+  -- THE FAMILY STAYS `deletion.`, AND THAT IS A DECISION, NOT INERTIA. Filing it
+  -- under `refund.%` or `payout.%` would buy dual control for free — and would
+  -- re-collapse the exact concepts this change exists to separate. TICKET EXPIRY
+  -- != REFUND ELIGIBILITY != DELETION SAFETY != PAYOUT MATURITY. This is
+  -- deletion safety; it is named for what it is, and the dual control is bought
+  -- honestly instead, by adding `deletion.%` to the prefix list in this file's
+  -- own set_platform_config body (see the `v_dual` block below). G7 P1-4 named
+  -- this key as one of the two whose single-admin reachability made its attack a
+  -- one-statement act; that half is closed here.
+  --
+  -- UNITS AND TYPE — a JSON NUMBER of hours, and the reader now ENFORCES it.
+  -- Precedent: authn.money_role_maturity_hours, refund.buyer_self_service_window_hours,
+  -- payout.destination_cooldown_hours (078). Hours-as-a-number is deliberately
+  -- NOT an interval string: an interval-typed key carries the "'24' parses as
+  -- TWENTY-FOUR SECONDS" trap that G1 §7.3 documents, whereas
+  -- make_interval(hours => …) cannot be misread. A guard for this key is added
+  -- alongside the interval guard in set_platform_config below, so a string can
+  -- no longer be stored at all.
+  --
+  -- WHY THE VALUE IS NULL. Same PFA-9 shape as every other owner-STOP key here:
+  -- the ROW exists so the key is settable with no migration; the NUMBER is owner
+  -- policy and 093 invents none. FAIL-CLOSED, VERIFIED IN THE CONSUMER: with the
+  -- value absent and a paid/partially_refunded order present, 10j returns
+  -- 'BP-12: post-event deletion hold unset …' and the identity is not
+  -- tombstoned. With NO candidate order the arm is skipped entirely and an
+  -- absent value blocks nobody — PFA-22's owner scoping ruling, unchanged.
+  --
+  -- WHICH DIRECTION IS DANGEROUS, because it decides the polarity below. SHORT
+  -- is the irreversible direction: a tombstone cannot be undone, and there is no
+  -- force-tombstone verb to compensate a hold that is too long. LONG costs
+  -- erasure LATENCY, which is recoverable. So a LONGER hold is the RESTRICTIVE
+  -- direction (`higher_is_restrictive`, below): raising it executes in one
+  -- statement for an operator responding to an incident, and SHORTENING it —
+  -- making buyers erasable sooner — parks for a second platform_admin.
+  --
+  -- THE STARTING POINT FOR THE OWNER, and it is a trade, not a derivation:
+  -- Stripe documents that for event ticketing "the dispute window starts on the
+  -- event date, not the payment date" and runs ~120 days from it
+  -- (https://docs.stripe.com/disputes/how-disputes-work), which is the same
+  -- evidence G2 relied on. A 120-day post-event erasure block is not defensible
+  -- against erasure law; a 30-day one (720) covers post-event refund requests,
+  -- early-fraud-warning arrivals, the refund executor's own latency and a
+  -- realistic postponement announcement, and it is what the H2 matrix was
+  -- executed against. It is offered on those stated grounds and it is the
+  -- owner's call. What it does NOT cover, plainly: a chargeback filed 60 or 110
+  -- days after the event against an identity already tombstoned — which is
+  -- OR-13/16c's ruled path (the chargeback lands against the TOMBSTONE) with
+  -- BP-10 / kernel.identity_obligation as the blocker, not this key.
+  ('deletion.post_event_hold_hours',          1, 'null'::jsonb,       'restricted')   -- H2: BP-12 arm 2's operand; EVENT-anchored; dual-controlled by the `deletion.` prefix added below
 
 on conflict (key, version) do nothing;
 
@@ -1185,6 +1268,23 @@ begin
     end if;
   end if;
 
+  -- H2 — THE MIRROR GUARD: a key consumed as a NUMBER OF HOURS must be a JSON
+  -- NUMBER. The guard above stops a number reaching an interval-typed key; this
+  -- one stops a STRING reaching an hours-typed key, and it exists because the
+  -- two failure modes are neighbours on the keyboard. `ticket.expiry_grace`
+  -- REQUIRES the string form '"72 hours"', so '"720 hours"' is the natural typo
+  -- on its sibling deletion key — and before H2's rewrite of
+  -- kernel.deletion_blockers_money that one append would have raised inside the
+  -- deletion blocker for EVERY identity, forever (platform_config is append-only,
+  -- and 085's read cast the value in an ordered target list, so the LIMIT could
+  -- not protect it). 10j is now immune by construction; this refuses the value at
+  -- the door as well, so the bad version is never written in the first place.
+  if p_key in ('deletion.post_event_hold_hours')
+     and jsonb_typeof(p_value) <> 'null'
+     and jsonb_typeof(p_value) <> 'number' then
+    raise exception 'precondition_failed: bad_value — % is a NUMBER OF HOURS and needs a JSON number such as 720; "720 hours" is the interval spelling and belongs to ticket.expiry_grace', p_key;
+  end if;
+
   -- 093 / ruling A5 — `fee.%` ADDED. This is the ONLY change to this function.
   -- WHY: fee.buyer_service_bps is the final clause of the SALEABLE chain — the
   -- statement that sets it moves the platform from "cannot sell" to "selling",
@@ -1198,9 +1298,46 @@ begin
   -- payout key and the rename would reintroduce the misleading semantics the
   -- maturity rename removed. The prefix list is a policy statement about which
   -- NAMESPACES are money-critical, and buyer-facing pricing plainly is.
+  -- 093 / H2 — `deletion.%` ADDED, for the same reason and by the same test.
+  -- deletion.post_event_hold_hours decides when an identity becomes
+  -- IRREVERSIBLY tombstoned while money obligations on their orders can still
+  -- arise. G7 P1-4 executed the gap: as one platform_admin with an aal2 claim,
+  -- `set_platform_config('deletion.refund_possible_window_hours', …)` returned
+  -- `{"status":"ok"}` with no second human, and that single statement is what
+  -- turned P0-3 from a design flaw into a one-statement act. `deletion.%`
+  -- matched none of the prefixes below. It does now.
+  -- WHY THE PREFIX AND NOT A RENAME INTO `refund.%`/`payout.%`: the same
+  -- argument the `fee.%` note above makes. This is not a refund key and not a
+  -- payout key; filing it under either would restore exactly the collapsed
+  -- semantics — refund ELIGIBILITY vs payout MATURITY vs DELETION SAFETY — that
+  -- G2's rename and H2's re-anchor both exist to take apart.
+  -- 093 / H2 — `ticket.%` ADDED. The LAST destructive key family outside this list.
+  -- The evidence is G1 §7 and the seed comment at the top of this file, and it is
+  -- stronger than the case for several keys already here: setting
+  -- `ticket.expiry_grace` wrongly does not DEGRADE, it writes the TERMINAL label
+  -- `expired` across every atom on every ended session within one cron tick
+  -- (079:456, cron */2 at 079:799-803) — and 088:1682/1735/1783 then EXCLUDE
+  -- expired atoms from catalog.cancel_event's refund cascade, so the holder loses
+  -- the ticket AND the money. There is no exit: no shipped function writes
+  -- kernel.tickets.state back out of `expired`. A single administrator must not be
+  -- able to cross that boundary alone, for the same reason `fee.%` (ruling A5) and
+  -- `deletion.%` (H2) were added — an irreversible money or identity boundary takes
+  -- two humans.
+  -- NOTE the two controls are INDEPENDENT and both still apply. The interval TYPE
+  -- guard above already refuses a bare number on this key (it is first in that
+  -- list), which is what stops the '24' => TWENTY-FOUR SECONDS cast; dual control
+  -- is the separate question of who may set a WELL-TYPED but wrong value. Neither
+  -- shadows the other: a mistyped value is refused outright and never parks, and a
+  -- well-typed one parks.
+  -- `ticket.%` has NO entry in the polarity map below, so it takes §20.2.1's third
+  -- arm — not comparable => PARK — in BOTH directions. That is intended and is the
+  -- correct default here: the corpus declares no restrictive direction for a grace
+  -- that is destructive when short and merely slow when long, so failing toward the
+  -- approver is the honest reading.
   v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like 'authn.%'
          or p_key like 'comp.%'   or p_key like 'wallet.%' or p_key like 'credential.%'
-         or p_key like 'door.session\_%' or p_key like 'fee.%';
+         or p_key like 'door.session\_%' or p_key like 'fee.%'
+         or p_key like 'deletion.%' or p_key like 'ticket.%';
 
   -- The declared polarity map. A key absent from it has NO declared polarity and
   -- therefore parks (when dual-controlled). Booleans, enums and every non-scalar
@@ -1237,9 +1374,22 @@ begin
     -- AUTHZ-M8), so this key has NO declared polarity and takes §20.2.1's third
     -- arm: not comparable => PARK. Failing toward the approver is the whole
     -- point of that arm.
+    -- H2: deletion.post_event_hold_hours joins this arm, and the direction is
+    -- forced by irreversibility, not by taste. A LONGER hold blocks more
+    -- tombstones, and a tombstone is TERMINAL — DSM has no exit from ERASED and
+    -- the corpus carries no force-tombstone verb to compensate an over-long
+    -- hold. Too long costs erasure LATENCY (recoverable, and visible in
+    -- deletion_block_reason, which now carries the maturity instant). Too short
+    -- destroys a live counterparty. So RAISING it executes in one statement — an
+    -- operator must be able to tighten during an incident — and SHORTENING it,
+    -- which is what makes advance-purchase buyers erasable sooner, parks for a
+    -- second platform_admin. Note the seeded value is JSON null, so the FIRST
+    -- set is not number-to-number and parks regardless: arming this key at all
+    -- is the dangerous act and it takes two humans.
     when p_key in ('payout.destination_cooldown_hours',
                    'payout.destination_probation_days',
-                   'authn.money_role_maturity_hours')      then 'higher_is_restrictive'
+                   'authn.money_role_maturity_hours',
+                   'deletion.post_event_hold_hours')       then 'higher_is_restrictive'
     -- FALSE IS RESTRICTIVE: a kill switch. WALLET §11.5b — "Setting
     -- wallet.apple.enabled := false ... needs ONE admin and no approval round.
     -- A kill switch that needs a quorum is not a kill switch."

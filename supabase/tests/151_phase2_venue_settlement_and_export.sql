@@ -9,7 +9,7 @@
 -- BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(264);   -- 2026-09-02 (package 093): 235 -> 253. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C20o..C20q (the named int4 settlement_amount_overflow, replacing a bare 22003 that wedged the header); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)   -- 2026-09-02 (package 093): 235 -> 250. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)
+SELECT plan(274);   -- 2026-09-03 (package 093, payout-executor slice): 264 -> 274. +C28m..C28u/C28q1 — the TEN assertions that cover ruling D-1, kernel.request_org_payout re-evaluating kernel.settlement_payout_maturity instead of honouring a close-time snapshot. Two post-close arms (covered event cancelled; refund gone non-terminal), each with its own release-at-close CONTROL, plus the durability, no-park, audit and full-vector properties of the refusal.   -- 2026-09-02 (package 093): 235 -> 253. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C20o..C20q (the named int4 settlement_amount_overflow, replacing a bare 22003 that wedged the header); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)   -- 2026-09-02 (package 093): 235 -> 250. +C20e..C20h (ruling A5's two cross-settlement money indexes and close_settlement's NAMED on-conflict); +C20i..C20n / +C28a/+C28b (BOTH arms of the unbounded-refund-exposure gate, and its contracted release exit); +C30a (ruling A7/A9 staged provenance); +C40b2/+C40b3 (which keep the exact P0002 period-grain coverage C40b gave up when ruling A3 moved its refusal to the authority gate)
 
 SELECT tap.seed_core();
 
@@ -57,6 +57,53 @@ BEGIN
   INSERT INTO kernel.payment_native (payment_id, order_id, amount_minor, currency)
   VALUES (v_pay, v_order, p_total, 'USD');
   RETURN v_order;
+END $m$;
+-- 2026-09-03 (package 093, payout-executor slice): the three PINNED-ID twins of _cov151.
+-- s2's three money lines were authored with LITERAL cause_refs (…c1 / …c2 / …c3) so that C20e/C20f/
+-- C20g could name them and prove ruling A5's global indexes bite. Those literals resolve to no
+-- order, no refund and no attribution, so under the maturity conjunction s2 is permanently
+-- `covered_set_unresolvable` — and since request_org_payout now RE-EVALUATES maturity, the whole
+-- dual-control lifecycle at C24..C30 became unreachable. These helpers give the SAME three literals
+-- real provenance: same ids, same causes, same amounts, so C16/C16a/C16b's waterfall arithmetic and
+-- C20e..C20h's index assertions are untouched. Nothing is relaxed; a precondition is supplied.
+CREATE FUNCTION tap._pin151(p_org uuid, p_session uuid, p_total int, p_tag text, p_order uuid, p_status text DEFAULT 'pending')
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $m$
+DECLARE v_pay uuid;
+BEGIN
+  INSERT INTO public.payments (buyer_id, amount, buyer_fee, total, status, mode, stripe_payment_intent_id)
+  VALUES (tap.buyer(), p_total, 0, p_total, 'succeeded', 'native_primary', p_tag) RETURNING id INTO v_pay;
+  INSERT INTO venue."order" (order_id, buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+  VALUES (p_order, tap.buyer(), p_session, p_org, p_status, 'web', p_total, p_tag || '-ord');
+  INSERT INTO kernel.payment_native (payment_id, order_id, amount_minor, currency)
+  VALUES (v_pay, p_order, p_total, 'USD');
+  RETURN p_order;
+END $m$;
+-- a TERMINAL refund pinned at a given refund_id. 'succeeded' is deliberate: a refund_void LINE
+-- means the refund already happened, and a pending one would (correctly) trip `refund_in_flight`.
+CREATE FUNCTION tap._pinrf151(p_order uuid, p_amt int, p_tag text, p_refund uuid)
+RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path='' AS
+-- refund_ref_pairing_ck: anything past 'pending' must carry the Stripe reference it got back.
+$m$ INSERT INTO kernel.refund (refund_id, payment_id, reason_code, amount_minor, currency, status, stripe_refund_ref, idempotency_key)
+    SELECT p_refund, pn.payment_id, 'buyer_request', p_amt, 'USD', 'succeeded', 're_' || p_tag, p_tag
+      FROM kernel.payment_native pn WHERE pn.order_id = p_order
+    RETURNING refund_id $m$;
+-- an attribution pinned at a given id, with the promoter and link it needs minted alongside.
+CREATE FUNCTION tap._pinattr151(p_org uuid, p_event uuid, p_order uuid, p_slug text, p_attr uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $m$
+DECLARE v_pr uuid; v_ln uuid;
+BEGIN
+  -- party_kind defaults to 'promoter', and promoter_identity_for_promoter_ck requires an identity
+  -- for that kind. tap.seller() is already an org1 member, so the row needs no extra persona.
+  INSERT INTO venue.promoter (org_id, event_id, identity_id, commission_kind, commission_bps)
+  VALUES (p_org, p_event, tap.seller(), 'bps', 1000) RETURNING promoter_id INTO v_pr;
+  INSERT INTO venue.promoter_link (promoter_id, event_id, slug)
+  VALUES (v_pr, p_event, p_slug) RETURNING link_id INTO v_ln;
+  INSERT INTO venue.attribution (id, link_id, order_id, promoter_id, org_id, event_id, method,
+      touch_corroborated, terms_version, commission_kind, commission_bps_applied,
+      basis_minor, credited_amount_minor, resolution_reason, order_paid_at)
+  VALUES (p_attr, v_ln, p_order, v_pr, p_org, p_event, 'link', true, 1, 'bps', 1000,
+      10000, 1000, 'link_only', now() - interval '40 days');
+  RETURN p_attr;
 END $m$;
 -- open a settlement, give it ONE primary_sale line, close it, and report the hold reason the gate
 -- chose ('(released)' when every predicate passed). One line per probe case below.
@@ -313,6 +360,26 @@ SELECT tap.logout();
 -- gen_random_uuid(), which nothing could reference). Same three rows, same amounts, same causes —
 -- the C16/C16a/C16b waterfall arithmetic is untouched — but C20e/C20f/C20g below can now name them
 -- to prove ruling A5's two cross-settlement money indexes actually bite.
+-- 2026-09-03 (package 093, payout-executor slice): TEST SETUP DRIFT — the fixture, not the
+-- assertion, and the same drift 093 pass 3 already applied to s3 (C28a) and s5 (C31a1). The three
+-- literals below now have REAL provenance so that the dual-control lifecycle at C24..C30 can still
+-- be reached once request_org_payout re-evaluates maturity. All three covered causes are backed:
+-- a primary_sale order pinned at …c1, an attribution pinned at …c2, and a TERMINAL refund pinned at
+-- …c3, all on one session that ended 40 days ago. The orders stay `pending` so
+-- kernel.settlement_primary_lines never sweeps them into some other settlement, exactly as _cov151
+-- documents. Amounts, causes and ids are unchanged, so C16/C16a/C16b and C20e..C20h are unmoved.
+-- …c1 is `paid`, not `pending`, because an attribution binds only an economically committed order —
+-- and the commission at …c2 binds to THAT order, which is what a promoter commission actually is:
+-- a debit against the very sale that earned it. A paid order is normally swept by
+-- kernel.settlement_primary_lines, but both seams exclude what is ALREADY LINED (the credit arm on
+-- cause_ref = order_id, the commission arm on cause_ref = attribution id), and the three lines below
+-- are inserted before the close. So the seams contribute nothing and C16's waterfall is unchanged.
+-- The refund at …c3 hangs off a SECOND, still-`pending` order so the refund arm never sees it.
+SELECT tap._store151('sessS2', tap._sess151(tap._fetch151('event1')::uuid, 'ck87-s2-past', now() - interval '40 days', now() - interval '40 days' + interval '4 hours')::text);
+SELECT tap._pin151(tap._fetch151('org1')::uuid, tap._fetch151('sessS2')::uuid, 10000, 'pi_87_c1', '00000000-0000-0000-0000-0000000000c1', 'paid');
+SELECT tap._pinattr151(tap._fetch151('org1')::uuid, tap._fetch151('event1')::uuid, '00000000-0000-0000-0000-0000000000c1', 'ck87-s2-promo', '00000000-0000-0000-0000-0000000000c2');
+SELECT tap._store151('ordC3', tap._cov151(tap._fetch151('org1')::uuid, tap._fetch151('sessS2')::uuid, 500, 'pi_87_c3')::text);
+SELECT tap._pinrf151(tap._fetch151('ordC3')::uuid, 500, 'ck87-c3-rf', '00000000-0000-0000-0000-0000000000c3');
 INSERT INTO venue.settlement_line (settlement_id, cause, cause_ref, amount_minor) VALUES
   (tap._fetch151('s2')::uuid, 'primary_sale',        '00000000-0000-0000-0000-0000000000c1', 10000),
   (tap._fetch151('s2')::uuid, 'promoter_commission', '00000000-0000-0000-0000-0000000000c2', -1000),
@@ -457,6 +524,17 @@ SELECT tap.logout();
 SELECT is((SELECT status FROM venue.settlement WHERE settlement_id = tap._fetch151('s8')::uuid), 'open',
   'C20q: … the refusal happens BEFORE the UPDATE, so the header is left OPEN and retryable rather than wedged half-written');
 -- ---------------------------------------------------------------------------
+-- 2026-09-03 (package 093, payout-executor slice): RATIFIED CONTRACT CHANGE — kernel.request_org_payout
+-- now re-evaluates kernel.settlement_payout_maturity instead of merely honouring a hold already set
+-- (ruling D-1: the gate was a close-time SNAPSHOT, it is now an INVARIANT), and it guards both
+-- advance arms AND the park. s2 was minted under an UNSET policy and held `unbounded_refund_exposure`
+-- at C20j; C20m released that hold, which before this slice was enough to make the payout
+-- requestable. It no longer is, and that is the point of the change — so the owner policy the mint
+-- lacked is set HERE, and only here, before the lifecycle that depends on it. Everything above this
+-- line still runs against an UNSET policy, so C20i..C20n are untouched.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'payout.settlement_maturity_interval', coalesce(max(version),0)+1, '"7 days"'::jsonb, 'restricted'
+  FROM catalog.platform_config WHERE key='payout.settlement_maturity_interval';
 -- request_org_payout: authority, SoD-1, maturity, the NULL threshold parks
 SELECT tap.login(tap.buyer());
 SELECT throws_ok(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r-x')$$, tap._fetch151('org1'), tap._fetch151('s2')),
@@ -635,6 +713,68 @@ SELECT ok((SELECT bool_and(p.hold_state = 'held' AND p.status = 'pending' AND p.
                   tap._fetch151('ck87-m3-sid')::uuid, tap._fetch151('ck87-m4-sid')::uuid, tap._fetch151('ck87-m5-sid')::uuid,
                   tap._fetch151('ck87-m7-sid')::uuid, tap._fetch151('ck87-m8-sid')::uuid)),
   'C28l: … and every one of them is held/pending with held_by NULL — the obligation is recorded in full, no money moves, and the platform (not a person) placed the hold');
+-- ---------------------------------------------------------------------------
+-- 2026-09-03 (package 093, payout-executor slice): NEW COVERAGE — MATURITY IS AN INVARIANT, NOT A
+-- CLOSE-TIME SNAPSHOT (ruling D-1). Everything above tests the gate AT THE MINT. Nothing tested it
+-- at the ADVANCE, and that was the whole hole: kernel.request_org_payout honoured a hold already
+-- set but never re-asked the question, so every predicate that can turn AFTER the close was
+-- unguarded. Two of them turn without touching kernel.payout at all — catalog.cancel_event writes
+-- to the payout NOWHERE, and a refund opened post-close moves money back out while the payout sits
+-- pending and requestable. A settlement could therefore mature at close, have its event cancelled
+-- the next hour, and still be paid in full.
+--
+-- Both cases below RELEASE AT CLOSE FIRST, and that control is asserted, so the refusal that
+-- follows is attributable to the post-close change ALONE and not to a fixture that never matured.
+-- The refusal is a HOLD, not a raise (10d's reasoning: a raise leaves the payout advanceable on the
+-- next attempt with no durable record, while the hold overlay has a contracted release path), and
+-- it is reported through the additive 'maturity_held' result member.
+--
+-- (A) THE COVERED EVENT IS CANCELLED AFTER THE CLOSE. A dedicated event is minted for this so the
+--     cancellation cannot leak into s2 / s3 / s5, which all cover event1.
+SELECT tap.login(tap.seller());
+SELECT tap._store151('eventC', (catalog.create_event(tap._fetch151('venue1')::uuid,'Cancelled Night',
+  jsonb_build_object('starts_at',(now()+interval '10 days')::text,'ends_at',(now()+interval '10 days 5 hours')::text),'ck87-eC') ->> 'event_id'));
+SELECT tap.logout();
+SELECT tap._store151('sessC', tap._sess151(tap._fetch151('eventC')::uuid, 'ck87-cancel-past', now() - interval '40 days', now() - interval '40 days' + interval '4 hours')::text);
+SELECT tap._store151('ordC', tap._cov151(tap._fetch151('org1')::uuid, tap._fetch151('sessC')::uuid, 4000, 'pi_87_cxl')::text);
+SELECT is(tap._probe151(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, tap._fetch151('eventC')::uuid, tap._fetch151('ordC')::uuid, 4000, 'ck87-x1'),
+  '(released)', 'C28m: the CONTROL for case (A) — every predicate satisfied at close, so the payout is minted UNHELD and is genuinely payable at this instant');
+UPDATE catalog.event SET status = 'cancelled' WHERE event_id = tap._fetch151('eventC')::uuid;
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT tap._store151('rx1', kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('ck87-x1-sid')::uuid, 'ck87-rx1')::text);
+SELECT tap.logout();
+SELECT is((tap._fetch151('rx1')::jsonb ->> 'status'), 'maturity_held',
+  'C28n: … and once the covered event is CANCELLED after the close, the advance REFUSES — the close-time snapshot said pay, the re-evaluated invariant says no (D-1 closed)');
+SELECT is((tap._fetch151('rx1')::jsonb ->> 'hold_reason_code'), 'event_cancelled',
+  'C28o: … naming the predicate that turned, so an operator can tell a cancelled event from an open dispute without reading the payout');
+SELECT ok((SELECT p.hold_state = 'held' AND p.status = 'pending' AND p.held_by IS NULL AND p.held_at IS NOT NULL
+             FROM kernel.payout p WHERE p.cause = 'settlement' AND p.cause_ref = tap._fetch151('ck87-x1-sid')::uuid),
+  'C28p: … and the refusal is DURABLE — the hold overlay is written, so a retry cannot walk past it and kernel.release_payout is the only exit (a raise would have left the payout advanceable)');
+SELECT is((SELECT count(*)::int FROM kernel.approval_request a
+            WHERE a.action = 'payout.request' AND a.subject_kind = 'settlement' AND a.subject_id = tap._fetch151('ck87-x1-sid')::uuid), 0,
+  'C28q: … and NO approval was parked — the gate guards the PARK as well as both advance arms, so a cancelled event cannot leave a dual-control request sitting ready to be approved into a payment');
+SELECT is(tap._audit151((SELECT p.payout_id FROM kernel.payout p WHERE p.cause='settlement' AND p.cause_ref = tap._fetch151('ck87-x1-sid')::uuid), 'payout.maturity_hold', 'event_cancelled'), 1,
+  'C28q1: … and the refusal is AUDITED as payout.maturity_hold carrying the reason, not left as a silent no-op');
+-- (B) A REFUND ON A COVERED PAYMENT GOES NON-TERMINAL AFTER THE CLOSE. This is the exposure the
+--     gate exists for, arriving on the one path the close-time snapshot could never see.
+SELECT tap._store151('ordY', tap._cov151(tap._fetch151('org1')::uuid, tap._fetch151('sessP1')::uuid, 3000, 'pi_87_rfl')::text);
+SELECT is(tap._probe151(tap._fetch151('org1')::uuid, tap._fetch151('venue1')::uuid, tap._fetch151('event1')::uuid, tap._fetch151('ordY')::uuid, 3000, 'ck87-x2'),
+  '(released)', 'C28r: the CONTROL for case (B) — matured at close, minted UNHELD, no refund anywhere near it');
+INSERT INTO kernel.refund (payment_id, reason_code, amount_minor, currency, status, idempotency_key)
+SELECT pn.payment_id, 'buyer_request', 500, 'USD', 'pending', 'ck87-x2-rf'
+  FROM kernel.payment_native pn WHERE pn.order_id = tap._fetch151('ordY')::uuid;
+SELECT tap.login(tap.other_user());
+SELECT tap._aal2();
+SELECT tap._store151('rx2', kernel.request_org_payout(tap._fetch151('org1')::uuid, tap._fetch151('ck87-x2-sid')::uuid, 'ck87-rx2')::text);
+SELECT tap.logout();
+SELECT is((tap._fetch151('rx2')::jsonb ->> 'status'), 'maturity_held',
+  'C28s: a refund opened AFTER the close refuses the advance — money on its way back to a buyer can no longer be paid out to the venue first');
+SELECT is((tap._fetch151('rx2')::jsonb ->> 'hold_reason_code'), 'refund_in_flight',
+  'C28t: … named refund_in_flight, the same code the mint would have used — one definition evaluated at three moments, so the mint and the advance can never disagree');
+SELECT ok((tap._fetch151('rx2')::jsonb -> 'payout_hold_detail') IS NOT NULL
+       AND ((tap._fetch151('rx2')::jsonb -> 'payout_hold_detail') ->> 'refund_in_flight')::boolean,
+  'C28u: … and the refusal carries the WHOLE predicate vector, not just the first failing code — precedence hides nothing from the operator who has to act on it');
 -- ---------------------------------------------------------------------------
 SELECT tap.login(tap.other_user());
 SELECT tap._aal2();
@@ -822,9 +962,13 @@ SELECT throws_like(format($$SELECT kernel.request_org_payout(%L,%L,'ck87-r4')$$,
 -- under test is unchanged and still exact: org1's finance role reads every one of ITS OWN headers
 -- and lines, and none of org2's — which is precisely what a count that grew with the fixture, and
 -- would have grown with a leak too, continues to prove.
-SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 16, 'C36: org_finance reads its org''s sixteen settlement headers (RLS §9.13) — and not org2''s');
-SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 19,
-  'C37: … and their nineteen lines (RLS §9.14)');
+-- 2026-09-03 (package 093, payout-executor slice): 16 -> 18 headers and 19 -> 21 lines, again this
+-- file's OWN fixture and not a behaviour change: C28m and C28r each open ONE one-line probe
+-- settlement (the release-at-close controls for the two post-close refusal cases). Both are org1's,
+-- both are read here, and the assertion stays absolute.
+SELECT is((SELECT count(*)::int FROM venue.settlement WHERE org_id = tap._fetch151('org1')::uuid), 18, 'C36: org_finance reads its org''s eighteen settlement headers (RLS §9.13) — and not org2''s');
+SELECT is((SELECT count(*)::int FROM venue.settlement_line l JOIN venue.settlement s ON s.settlement_id=l.settlement_id WHERE s.org_id = tap._fetch151('org1')::uuid), 21,
+  'C37: … and their twenty-one lines (RLS §9.14)');
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT is((SELECT count(*)::int FROM venue.settlement), 0, 'C38: venue_marketing reads ZERO settlements');

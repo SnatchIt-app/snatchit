@@ -75,11 +75,13 @@ import {
   httpStatusForRpcError,
   isMoneyDenial,
   isUuid,
+  planClaimedBatch,
+  planReconcile,
   planRefund,
   planStateSync,
-  planSweep,
+  type ClaimedRefund,
   type RefundExecutionContext,
-  type SweepCandidate,
+  type RefundExecutionMode,
 } from './executor.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -248,11 +250,215 @@ export type ExecuteOutcome = {
   http?: number;
 };
 
+/**
+ * Record what Stripe's OWN Refund object says. Shared by both execution modes,
+ * because the truth is identical whether the object came back from a create, a
+ * deduped replay of one, a fetch by ref, or a search of the PaymentIntent: it
+ * is one Stripe Refund, and `mark_refund_state` is forward-only, write-once on
+ * the ref, and `noop_replay` on an identical terminal (085:1737-1789). Calling
+ * this twice with the same object is therefore always safe.
+ */
+async function applyStateSync(
+  service: SupabaseClient,
+  refundId: string,
+  commandKey: string,
+  ctx: RefundExecutionContext,
+  stripeRefund: unknown,
+): Promise<ExecuteOutcome> {
+  const refundObj = stripeRefund as { id?: string; status?: string; failure_reason?: string };
+  const syncPlan = planStateSync(refundObj);
+  if (syncPlan.kind === 'refuse') {
+    // Stripe answered 2xx with something we cannot record. Money moved and we
+    // cannot prove it — page immediately, leave the row `pending` so the sweep
+    // retries (the same key returns the same object).
+    await captureException('refund-execute:unrecordable-refund', new Error(`${syncPlan.code}: ${syncPlan.detail}`), {
+      refund_id: refundId, payment_id: ctx.payment_id,
+    });
+    return { refund_id: refundId, outcome: 'state_sync_deferred', code: syncPlan.code, detail: syncPlan.detail, retryable: true, http: 500 };
+  }
+
+  let last: ExecuteOutcome['outcome'] = 'state_sync_deferred';
+  for (const step of syncPlan.steps) {
+    const { error } = await service.rpc('mark_refund_state', {
+      p_refund_id: refundId,
+      p_new_status: step.new_status,
+      p_stripe_refund_ref: step.stripe_refund_ref,
+      p_failure_code: step.failure_code,
+      p_command_key: commandKey,
+    });
+    if (error) {
+      // MONEY MOVED, DB WRITE FAILED — the dangerous case. Do not retry inline
+      // and do not compensate. The row stays where it is; the next sweep tick
+      // replays the SAME Stripe key, gets the SAME `re_…` back, and re-runs
+      // this callback. `mark_refund_state` is forward-only and returns
+      // `noop_replay` on an identical terminal (085:1752-1755), so convergence
+      // is guaranteed and double-refund is impossible.
+      const verdict = classifyStateSyncError(error.message);
+      console.error('[refund-execute] mark_refund_state did not apply:', {
+        refund_id: refundId,
+        stripe_refund_ref: step.stripe_refund_ref,
+        target: step.new_status,
+        verdict: verdict.kind,
+        error: error.message,
+      });
+      if (verdict.page) {
+        await captureException('refund-execute:state-sync', new Error(`mark_refund_state(${step.new_status}): ${error.message}`), {
+          refund_id: refundId,
+          payment_id: ctx.payment_id,
+          stripe_refund_ref: step.stripe_refund_ref,
+        });
+      }
+      if (verdict.kind === 'converged') {
+        // A concurrent worker already advanced this row past us with the same
+        // deterministic key, so the same `re_…`. Nothing to do and nothing to
+        // retry — treating this as a failure is how a healthy race becomes a
+        // hot loop against Stripe.
+        return {
+          refund_id: refundId,
+          outcome: 'noop_replay',
+          code: 'converged_elsewhere',
+          detail: error.message,
+          stripe_refund_ref: step.stripe_refund_ref,
+          retryable: false,
+          http: 200,
+        };
+      }
+      return {
+        refund_id: refundId,
+        outcome: 'state_sync_deferred',
+        code: verdict.kind === 'conflict' ? 'state_sync_conflict' : 'mark_refund_state_failed',
+        detail: error.message,
+        stripe_refund_ref: step.stripe_refund_ref,
+        retryable: verdict.kind === 'retry',
+        http: 500,
+      };
+    }
+    last = step.new_status;
+  }
+
+  console.log('[refund-execute] refund complete:', {
+    refund_id: refundId,
+    stripe_refund_ref: refundObj.id,
+    final_state: last,
+  });
+  return { refund_id: refundId, outcome: last, stripe_refund_ref: refundObj.id ?? null, http: 200 };
+}
+
+/**
+ * Establish, then act. Never create before establishing.
+ *
+ * Two shapes, both decided by `planReconcile`:
+ *   fetch_ref          the row already names its Stripe Refund (every
+ *                      `submitted` row does — refund_ref_pairing_ck, 085:93).
+ *                      GET it and sync. This is the leg that finishes E4 §5
+ *                      case 4's stranded row, which nothing could reach before
+ *                      and which keeps BP-12 blocking the buyer's account
+ *                      deletion (085:249-262) for as long as it stands.
+ *   search_then_create a `pending` row whose key has expired. Search the
+ *                      PaymentIntent's refunds for the `metadata[refund_id]`
+ *                      this function always writes. Found ⇒ sync it, no second
+ *                      refund. Not found ⇒ nothing was ever created, so the
+ *                      create is safe. Ambiguous (more pages than we read) ⇒
+ *                      REFUSE and page a human; guessing here spends money.
+ */
+async function reconcileOne(
+  service: SupabaseClient,
+  refundId: string,
+  commandKey: string,
+  ctx: RefundExecutionContext,
+): Promise<ExecuteOutcome> {
+  const plan = planReconcile(ctx);
+
+  if (plan.kind === 'refuse') {
+    await captureException('refund-execute:reconcile-refusal', new Error(`${plan.code}: ${plan.detail}`), {
+      refund_id: refundId, payment_id: ctx.payment_id,
+    });
+    return { refund_id: refundId, outcome: 'refused', code: plan.code, detail: plan.detail, retryable: plan.retryable, http: 409 };
+  }
+  if (plan.kind === 'noop_replay') {
+    return { refund_id: refundId, outcome: 'noop_replay', code: plan.reason, stripe_refund_ref: plan.stripe_refund_ref, http: 200 };
+  }
+
+  if (plan.kind === 'fetch_ref') {
+    let res: { ok: boolean; status: number; data: unknown };
+    try {
+      res = await stripeFetchRaw(`/refunds/${encodeURIComponent(plan.stripe_refund_ref)}`, { method: 'GET' });
+    } catch (err) {
+      return { refund_id: refundId, outcome: 'stripe_error', code: 'network', detail: String(err), retryable: true, http: 502 };
+    }
+    if (!res.ok) {
+      // A ref we hold that Stripe does not know is a reconciliation incident,
+      // not a retry: we must never respond to it by creating a replacement.
+      await captureException('refund-execute:reconcile-fetch', new Error(`GET /refunds/${plan.stripe_refund_ref} → ${res.status}`), {
+        refund_id: refundId, payment_id: ctx.payment_id,
+      });
+      return { refund_id: refundId, outcome: 'stripe_error', code: 'resource_missing', detail: `HTTP ${res.status}`, retryable: false, http: 409 };
+    }
+    return await applyStateSync(service, refundId, commandKey, ctx, res.data);
+  }
+
+  // search_then_create
+  let list: { ok: boolean; status: number; data: unknown };
+  try {
+    list = await stripeFetchRaw(`/refunds?payment_intent=${encodeURIComponent(plan.payment_intent)}&limit=100`, { method: 'GET' });
+  } catch (err) {
+    return { refund_id: refundId, outcome: 'stripe_error', code: 'network', detail: String(err), retryable: true, http: 502 };
+  }
+  if (!list.ok) {
+    return { refund_id: refundId, outcome: 'stripe_error', code: 'api_error', detail: `HTTP ${list.status}`, retryable: true, http: 503 };
+  }
+
+  const body = list.data as { data?: Array<{ id?: string; status?: string; failure_reason?: string; metadata?: Record<string, string> }>; has_more?: boolean };
+  const rows = Array.isArray(body?.data) ? body.data : [];
+  const match = rows.find((r) => r?.metadata?.refund_id === plan.metadata_refund_id);
+
+  if (match) {
+    console.log('[refund-execute] reconcile found an existing Stripe refund — NOT creating a second:', {
+      refund_id: refundId, stripe_refund_ref: match.id,
+    });
+    return await applyStateSync(service, refundId, commandKey, ctx, match);
+  }
+  if (body?.has_more === true) {
+    // We did not see the whole set, so "not found" is not established.
+    await captureException('refund-execute:reconcile-ambiguous', new Error(`>100 refunds on ${plan.payment_intent}; existence not established`), {
+      refund_id: refundId, payment_id: ctx.payment_id,
+    });
+    return { refund_id: refundId, outcome: 'refused', code: 'reconcile_ambiguous', detail: 'more refunds on this PaymentIntent than one page — human reconciliation required', retryable: false, http: 409 };
+  }
+
+  // Established: nothing exists for this refund_id. Creating is safe, and it
+  // still goes out under the deterministic key so a concurrent worker converges.
+  console.log('[refund-execute] reconcile established no Stripe refund exists — creating:', { refund_id: refundId });
+  let res: { ok: boolean; status: number; data: unknown };
+  try {
+    res = await stripeFetchRaw('/refunds', { method: 'POST', idempotencyKey: plan.create.idempotency_key, body: plan.create.body });
+  } catch (err) {
+    const verdict = classifyStripeRefundError(err instanceof Error ? err : new Error(String(err)));
+    return { refund_id: refundId, outcome: 'stripe_error', code: verdict.class, detail: String(err), retryable: verdict.retryable, http: 502 };
+  }
+  if (!res.ok) {
+    const verdict = classifyStripeRefundError({
+      status: res.status,
+      error: (res.data as { error?: { type?: string; code?: string; message?: string } })?.error,
+    });
+    return { refund_id: refundId, outcome: 'stripe_error', code: verdict.class, detail: `HTTP ${res.status}`, retryable: verdict.retryable, http: verdict.retryable ? 503 : 409 };
+  }
+  return await applyStateSync(service, refundId, commandKey, ctx, res.data);
+}
+
 async function executeOne(
   service: SupabaseClient,
   refundId: string,
   commandKey: string,
   expected: { order_id?: string | null },
+  /**
+   * DB-ISSUED, never worker-chosen (093 slice 10i). 'create' means the row's
+   * Stripe idempotency key is still a valid dedup token; 'reconcile' means it
+   * is not, and the worker must establish what exists at Stripe before it may
+   * create anything. `action: execute` defaults to 'create' because a
+   * hand-driven single execution is, by construction, the key's first use.
+   */
+  mode: RefundExecutionMode = 'create',
 ): Promise<ExecuteOutcome> {
   if (!isUuid(refundId)) {
     return { refund_id: refundId, outcome: 'refused', code: 'malformed_refund_id', detail: refundId, http: 400 };
@@ -263,6 +469,17 @@ async function executeOne(
     return { refund_id: refundId, outcome: 'refused', code: loaded.code, detail: loaded.detail, http: loaded.status };
   }
   const ctx = loaded.ctx;
+
+  // ── RECONCILE. The branch that exists because Stripe forgets. ───────────
+  // Stripe retains an idempotency key's result for 24 HOURS. E4 §5 cases
+  // 2/3/13 all recover by replaying `refund_<refund_id>` and relying on the
+  // ORIGINAL object coming back — true inside that window and false outside
+  // it, where the identical request creates a SECOND, REAL refund. The
+  // database decides which side of the window a row is on; this branch is
+  // what the worker runs when the answer is "not safe to create blind".
+  if (mode === 'reconcile') {
+    return await reconcileOne(service, refundId, commandKey, ctx);
+  }
 
   // ── The binding gate. Nothing reaches Stripe without passing this. ───────
   const plan = planRefund(ctx, expected);
@@ -365,84 +582,7 @@ async function executeOne(
   }
 
   // ── The callback. From here on money HAS moved. ──────────────────────────
-  const refundObj = res.data as { id?: string; status?: string; failure_reason?: string };
-  const syncPlan = planStateSync(refundObj);
-  if (syncPlan.kind === 'refuse') {
-    // Stripe answered 2xx with something we cannot record. Money moved and we
-    // cannot prove it — page immediately, leave the row `pending` so the sweep
-    // retries (the same key returns the same object).
-    await captureException('refund-execute:unrecordable-refund', new Error(`${syncPlan.code}: ${syncPlan.detail}`), {
-      refund_id: refundId, payment_id: ctx.payment_id,
-    });
-    return { refund_id: refundId, outcome: 'state_sync_deferred', code: syncPlan.code, detail: syncPlan.detail, retryable: true, http: 500 };
-  }
-
-  let last: ExecuteOutcome['outcome'] = 'state_sync_deferred';
-  for (const step of syncPlan.steps) {
-    const { error } = await service.rpc('mark_refund_state', {
-      p_refund_id: refundId,
-      p_new_status: step.new_status,
-      p_stripe_refund_ref: step.stripe_refund_ref,
-      p_failure_code: step.failure_code,
-      p_command_key: commandKey,
-    });
-    if (error) {
-      // MONEY MOVED, DB WRITE FAILED — the dangerous case. Do not retry inline
-      // and do not compensate. The row stays where it is; the next sweep tick
-      // replays the SAME Stripe key, gets the SAME `re_…` back, and re-runs
-      // this callback. `mark_refund_state` is forward-only and returns
-      // `noop_replay` on an identical terminal (085:1752-1755), so convergence
-      // is guaranteed and double-refund is impossible.
-      const verdict = classifyStateSyncError(error.message);
-      console.error('[refund-execute] mark_refund_state did not apply:', {
-        refund_id: refundId,
-        stripe_refund_ref: step.stripe_refund_ref,
-        target: step.new_status,
-        verdict: verdict.kind,
-        error: error.message,
-      });
-      if (verdict.page) {
-        await captureException('refund-execute:state-sync', new Error(`mark_refund_state(${step.new_status}): ${error.message}`), {
-          refund_id: refundId,
-          payment_id: ctx.payment_id,
-          stripe_refund_ref: step.stripe_refund_ref,
-        });
-      }
-      if (verdict.kind === 'converged') {
-        // A concurrent worker already advanced this row past us with the same
-        // deterministic key, so the same `re_…`. Nothing to do and nothing to
-        // retry — treating this as a failure is how a healthy race becomes a
-        // hot loop against Stripe.
-        return {
-          refund_id: refundId,
-          outcome: 'noop_replay',
-          code: 'converged_elsewhere',
-          detail: error.message,
-          stripe_refund_ref: step.stripe_refund_ref,
-          retryable: false,
-          http: 200,
-        };
-      }
-      return {
-        refund_id: refundId,
-        outcome: 'state_sync_deferred',
-        code: verdict.kind === 'conflict' ? 'state_sync_conflict' : 'mark_refund_state_failed',
-        detail: error.message,
-        stripe_refund_ref: step.stripe_refund_ref,
-        retryable: verdict.kind === 'retry',
-        http: 500,
-      };
-    }
-    last = step.new_status;
-  }
-
-  console.log('[refund-execute] refund complete:', {
-    refund_id: refundId,
-    stripe_refund_ref: refundObj.id,
-    final_state: last,
-    amount_minor: plan.amount_minor,
-  });
-  return { refund_id: refundId, outcome: last, stripe_refund_ref: refundObj.id ?? null, http: 200 };
+  return await applyStateSync(service, refundId, commandKey, ctx, res.data);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -492,39 +632,50 @@ serve(async (req: Request) => {
       const svcOk = SUPABASE_SERVICE_ROLE_KEY.length > 0 && constantTimeEqual(token, SUPABASE_SERVICE_ROLE_KEY);
       if (!cronOk && !svcOk) return json({ error: 'Unauthorized' }, 401, headers);
 
-      const limit = Number.isInteger(body.limit) ? Math.max(1, Math.min(body.limit as number, 100)) : 25;
-      const { data, error } = await service.rpc('list_pending_refunds', { p_limit: limit });
+      // THE WORK LIST IS A LEASED CLAIM, NOT A LIST (093 slice 10i). The
+      // database chooses which refunds are eligible, orders them oldest-money-
+      // first, bounds the batch, hands each row to exactly ONE worker for a
+      // bounded lease, and decides per row whether the Stripe idempotency key
+      // is still a valid dedup token. Both parameters are throughput only and
+      // are CLAMPED server-side; neither can name a refund, a payment, an
+      // amount or a destination. See docs/phase2/_impl/H1_refund_architecture.md.
+      const limit = Number.isInteger(body.limit) ? (body.limit as number) : 25;
+      const leaseSeconds = Number.isInteger(body.lease_seconds) ? (body.lease_seconds as number) : 900;
+      const { data, error } = await service.rpc('claim_refunds_for_execution', {
+        p_limit: limit,
+        p_lease_seconds: leaseSeconds,
+      });
       if (error) {
         const missing = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message);
         return json({
-          error: missing ? 'context_rpc_missing' : 'sweep_read_failed',
+          error: missing ? 'claim_rpc_missing' : 'sweep_claim_failed',
           detail: missing
-            ? `kernel.list_pending_refunds(int) is not deployed — see docs/phase2/_impl/E4_refund_executor.md §3`
+            ? `kernel.claim_refunds_for_execution(int, int) is not deployed — 093 slice 10i; see docs/phase2/_impl/H1_refund_architecture.md §4`
             : error.message,
         }, missing ? 501 : 500, headers);
       }
 
-      const rows = (data as { refunds?: SweepCandidate[] } | null)?.refunds ?? [];
-      const ids = planSweep(rows, { limit });
+      const claimed = planClaimedBatch((data as { refunds?: ClaimedRefund[] } | null)?.refunds);
       const results: ExecuteOutcome[] = [];
       // One failure NEVER blocks the batch (the enforce-transfer-expiry rule).
-      for (const id of ids) {
+      for (const row of claimed) {
         try {
-          // `sweep:<uuid>` is 42 chars — inside the 64-char audit command-key
-          // budget WITHOUT truncation. Truncating a key would collapse two
-          // different refunds onto one audit identity.
-          results.push(await executeOne(service, id, `sweep:${id}`, {}));
+          // The command key is the DATABASE's (`refund.execute:<uuid>`, 42
+          // chars — inside the 64-char audit budget with no truncation).
+          // Truncating or minting one would collapse two different refunds
+          // onto one audit identity.
+          results.push(await executeOne(service, row.refund_id, row.command_key, {}, row.execution_mode));
         } catch (err) {
-          await captureException('refund-execute:sweep', err, { refund_id: id });
-          results.push({ refund_id: id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true });
+          await captureException('refund-execute:sweep', err, { refund_id: row.refund_id });
+          results.push({ refund_id: row.refund_id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true });
         }
       }
       const counts = results.reduce<Record<string, number>>((acc, r) => {
         acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
         return acc;
       }, {});
-      console.log('[refund-execute] sweep complete:', { considered: rows.length, attempted: ids.length, counts });
-      return json({ status: 'ok', attempted: ids.length, counts, results }, 200, headers);
+      console.log('[refund-execute] sweep complete:', { claimed: claimed.length, counts });
+      return json({ status: 'ok', attempted: claimed.length, counts, results }, 200, headers);
     }
 
     // ═══ HUMAN PATHS — a platform/operator JWT is mandatory ══════════════════
@@ -558,39 +709,77 @@ serve(async (req: Request) => {
         return json({ error: 'invalid_input', detail: 'amount_minor must be a positive integer' }, 400, headers);
       }
 
-      // PFA-23 arm selection is by command key alone (085:494-520).
-      // DELEGATED (`req:<uuid>`) needs no auth.uid() → service client.
-      // DIRECT needs is_platform() → the caller's client, which is the only
-      // client carrying the platform identity. See executor.ts `classifyArm`
-      // for why the direct arm currently returns 42501 with this grant set.
+      // ── PFA-23 ARM SELECTION, CORRECTED (H1_refund_architecture.md §5) ──
+      // The arm is chosen by command key alone (085:494-520), but the CALLER
+      // differs, and the earlier routing was unreachable:
+      //
+      //   DELEGATED (`req:<uuid>`) reads no auth.uid(), so it runs on the
+      //   service client against `kernel.refund_primary_order` — exactly the
+      //   caller PFA-23's ruling names.
+      //
+      //   DIRECT does NOT go to `refund_primary_order`. Its authority branch
+      //   requires `kernel.is_platform(...)`, i.e. `auth.uid()`, while EXECUTE
+      //   is service_role-only (085:2129-2130, 085:2152). PostgREST derives ONE
+      //   database role per request, so that request is either service_role
+      //   (auth.uid() NULL ⇒ is_platform fails) or authenticated (EXECUTE
+      //   denied). It is unreachable in both directions, and no caller shape
+      //   fixes it.
+      //
+      //   The platform's authority is NOT missing: `kernel.request_order_refund`
+      //   (085:850) IS granted to `authenticated`, is SECURITY DEFINER, carries
+      //   the caller's `auth.uid()`, evaluates the SAME `is_platform` predicates
+      //   and the SAME platform_support cap, and — for platform_admin /
+      //   platform_risk / an in-cap platform_support — sets `v_execute := true`
+      //   and calls `refund_primary_order` definer→definer under a delegated
+      //   key bound to an auto-approved witness record (085:995-1036). Suite
+      //   149 D2 asserts it returns `status: 'executed'`. So the direct branch
+      //   is DEFINER-INTERNAL, not an edge-callable arm, and this is the door.
       const arm = classifyArm(commandKey);
-      const rpcClient = arm === 'delegated' ? service : caller;
-      const { data, error } = await rpcClient.rpc('refund_primary_order', {
-        p_order_id: orderId,
-        p_amount_minor: amountMinor,
-        p_reason_code: reasonCode,
-        p_command_key: commandKey,
-      });
+      const atomIdsForRecord = Array.isArray(body.atom_ids) ? (body.atom_ids as string[]) : [];
+      if (arm === 'direct' && !atomIdsForRecord.every((a) => isUuid(a))) {
+        return json({ error: 'invalid_input', detail: 'atom_ids must all be uuids' }, 400, headers);
+      }
+
+      const { data, error } = arm === 'delegated'
+        ? await service.rpc('refund_primary_order', {
+            p_order_id: orderId,
+            p_amount_minor: amountMinor,
+            p_reason_code: reasonCode,
+            p_command_key: commandKey,
+          })
+        : await caller.rpc('request_order_refund', {
+            p_order_id: orderId,
+            p_atom_ids: atomIdsForRecord,
+            p_amount_minor: amountMinor,
+            p_reason_code: reasonCode,
+            p_command_key: commandKey,
+          });
 
       if (error) {
-        console.error('[refund-execute] refund_primary_order failed:', { arm, order_id: orderId, error: error.message });
+        console.error('[refund-execute] refund record failed:', { arm, order_id: orderId, error: error.message });
         if (isMoneyDenial(error.message)) {
           await recordMoneyDenial(caller, 'order', orderId, error.message.slice(0, 120));
         }
-        return json({ error: 'refund_primary_order_failed', arm, detail: error.message },
+        return json({ error: arm === 'delegated' ? 'refund_primary_order_failed' : 'request_order_refund_failed', arm, detail: error.message },
           httpStatusForRpcError(error.message), headers);
       }
 
-      const result = data as { status?: string; refund_id?: string; voided?: number; consumed?: unknown };
+      // `request_order_refund` answers 'executed' (auto-exec tier), 'parked'
+      // (dual control — a second human must approve) or 'idempotency_replay';
+      // only the first mints a refund row that `action: execute` can drive.
+      const result = data as { status?: string; refund_id?: string; request_id?: string; voided?: number; consumed?: unknown };
       // `idempotency_replay` returns the SAME refund_id (085:484-487, :616-621)
       // — a duplicate request converges on one refund, never two.
       return json({
         status: result?.status ?? 'ok',
         arm,
         refund_id: result?.refund_id ?? null,
+        request_id: result?.request_id ?? null,
         atoms_voided: result?.voided ?? 0,
         consumed: result?.consumed ?? [],
-        next: 'call action:execute with this refund_id',
+        next: result?.refund_id
+          ? 'call action:execute with this refund_id'
+          : 'parked for dual control — a second approver calls kernel.approve_refund_request',
       }, 200, headers);
     }
 

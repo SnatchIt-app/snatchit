@@ -34,7 +34,8 @@ import {
   isUuid,
   planRefund,
   planStateSync,
-  planSweep,
+  planClaimedBatch,
+  planReconcile,
   type RefundExecutionContext,
 } from '../supabase/functions/refund-execute/executor';
 
@@ -597,25 +598,70 @@ describe('worker retry and concurrency', () => {
     expect(v.writesState).toBe(false);
   });
 
-  it('the sweep is bounded, oldest-first, deduped, and pending-only', () => {
-    const ids = planSweep([
-      { refund_id: REFUND_2, created_at: '2026-09-02T10:00:00Z', status: 'pending' },
-      { refund_id: REFUND, created_at: '2026-09-01T10:00:00Z', status: 'pending' },
-      { refund_id: REFUND, created_at: '2026-09-01T10:00:00Z', status: 'pending' },
-      { refund_id: PAYMENT, created_at: '2026-08-01T10:00:00Z', status: 'succeeded' },
-      { refund_id: 'not-a-uuid', created_at: '2026-07-01T10:00:00Z', status: 'pending' },
-    ], { limit: 10 });
-    expect(ids).toEqual([REFUND, REFUND_2]);
+  // RULING: 093 slice 10i (docs/phase2/_impl/H1_refund_architecture.md §4).
+  // The two assertions these replace pinned planSweep's CLIENT-SIDE re-derivation
+  // of the work list — the pending-only filter, the oldest-first sort and the
+  // bound. All three moved INTO kernel.claim_refunds_for_execution, where they
+  // are enforced against a worker rather than performed by one, and are pinned by
+  // supabase/tests/158_refund_execution_claim.sql B1-B6. Nothing they asserted was
+  // dropped: eligibility, ordering, bounding and dedup are all still proven, and
+  // the batch now additionally carries a DB-issued lease and execution mode.
+  it('the claimed batch is taken as issued: dedup and well-formedness only, never re-selection', () => {
+    const rows = planClaimedBatch([
+      { refund_id: REFUND, created_at: '2026-09-01T10:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: `refund.execute:${REFUND}` },
+      { refund_id: REFUND_2, created_at: '2026-09-02T10:00:00Z', status: 'submitted', execution_mode: 'reconcile', attempt: 3, command_key: `refund.execute:${REFUND_2}` },
+      { refund_id: REFUND, created_at: '2026-09-01T10:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: `refund.execute:${REFUND}` },
+    ]);
+    // DB order is preserved verbatim — the worker does not re-sort what the
+    // database already ordered oldest-money-first.
+    expect(rows.map((r) => r.refund_id)).toEqual([REFUND, REFUND_2]);
+    expect(rows[1].execution_mode).toBe('reconcile');
   });
 
-  it('the sweep limit is clamped to 100 and floored at 1', () => {
-    const rows = Array.from({ length: 200 }, (_, i) => ({
-      refund_id: `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,
-      created_at: `2026-09-0${(i % 9) + 1}T00:00:00Z`,
-      status: 'pending' as const,
-    }));
-    expect(planSweep(rows, { limit: 5000 })).toHaveLength(100);
-    expect(planSweep(rows, { limit: 0 })).toHaveLength(1);
+  it('a row that is not a well-formed DB claim is DROPPED, never guessed at', () => {
+    const rows = planClaimedBatch([
+      { refund_id: 'not-a-uuid', created_at: '2026-07-01T10:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: 'refund.execute:not-a-uuid' },
+      // a mode nobody issued
+      { refund_id: REFUND, created_at: '2026-09-01T10:00:00Z', status: 'pending', execution_mode: 'force' as never, attempt: 1, command_key: `refund.execute:${REFUND}` },
+      // a command key the caller minted rather than the database
+      { refund_id: REFUND_2, created_at: '2026-09-01T10:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: 'sweep:whatever' },
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 7b. Reconcile — the branch that exists because Stripe forgets (24h keys)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('reconcile', () => {
+  it('a submitted row is finished by FETCHING its own ref, never by creating again', () => {
+    const plan = planReconcile(ctx({ status: 'submitted', stripe_refund_ref: 're_abc123' }));
+    expect(plan.kind).toBe('fetch_ref');
+    if (plan.kind === 'fetch_ref') expect(plan.stripe_refund_ref).toBe('re_abc123');
+  });
+
+  it('a pending row with an expired key must ESTABLISH existence before it may create', () => {
+    const plan = planReconcile(ctx());
+    expect(plan.kind).toBe('search_then_create');
+    if (plan.kind === 'search_then_create') {
+      expect(plan.payment_intent).toBe('pi_3QabcDEF');
+      // the search key is the metadata every created refund carries
+      expect(plan.metadata_refund_id).toBe(REFUND);
+      expect(plan.create.idempotency_key).toBe(`refund_${REFUND}`);
+      expect(plan.create.body['metadata[refund_id]']).toBe(REFUND);
+    }
+  });
+
+  it('reconcile refuses exactly what the create path refuses — it is not a bypass', () => {
+    expect(planReconcile(ctx({ stripe_livemode: null })).kind).toBe('refuse');
+    expect(planReconcile(ctx({ order_id: ORDER, sale_id: SALE })).kind).toBe('refuse');
+    expect(planReconcile(ctx({ amount_minor: 999999 })).kind).toBe('refuse');
+  });
+
+  it('a terminal row is a no-op in reconcile too — money that settled is never re-touched', () => {
+    expect(planReconcile(ctx({ status: 'succeeded', stripe_refund_ref: 're_x' })).kind).toBe('noop_replay');
+    expect(planReconcile(ctx({ status: 'failed', stripe_refund_ref: 're_y' })).kind).toBe('noop_replay');
   });
 });
 
@@ -718,8 +764,11 @@ describe('event cancellation — catalog.cancel_event refunds are ordinary rows'
       reason_code: 'event_cancelled',
     }));
     rows.forEach((c, i) => seed(kernel, c, `cancel-evt-7:order:${i}`));
-    const ids = planSweep(rows.map((c, i) => ({ refund_id: c.refund_id, created_at: `2026-09-0${i + 1}T00:00:00Z`, status: 'pending' as const })));
-    expect(ids).toHaveLength(3);
+    const claimed = planClaimedBatch(rows.map((c, i) => ({
+      refund_id: c.refund_id, created_at: `2026-09-0${i + 1}T00:00:00Z`, status: 'pending' as const,
+      execution_mode: 'create' as const, attempt: 1, command_key: `refund.execute:${c.refund_id}`,
+    })));
+    expect(claimed).toHaveLength(3);
     rows.forEach((c) => runExecutor(kernel, stripe, c));
     expect(stripe.created).toBe(3);
     expect([...stripe.refundedByPi.values()]).toEqual([5000, 5000, 5000]);

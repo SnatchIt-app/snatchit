@@ -70,7 +70,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
   'B1: the five phase-2 schemas hold exactly 75 relations of ANY kind (69 post-091 + 092''s six notify tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 250,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 259,
   -- 2026-09-02 (package 093, second money pass): 246 -> 250. RATIFIED CONTRACT CHANGE — four more
   -- kernel routines, from the two red-team P0 fixes and the refund executor:
   --   kernel.stage_org_connect_ref         ruling A7/A9 (RT-A-3) — the service_role-only provenance
@@ -94,7 +94,17 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- hook/PFA-13 replacements add no routine).
   -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
   -- 2026-09-01 (package 087): 165 -> 183 (+4 kernel, +14 venue).
-  'B2: the five phase-2 schemas hold exactly 250 routines (116+79+16+22+17 — 093''s seven kernel additions)');
+  -- 2026-09-03: 251 -> 253. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 253 -> 259. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  'B2: the five phase-2 schemas hold exactly 259 routines (125+79+16+22+17 — 093''s sixteen kernel additions)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -111,13 +121,23 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 28
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 116,
+            WHERE n.nspname='kernel') = 125,
   -- 2026-09-02 (package 093): kernel functions 109 -> 116. SEVEN new kernel routines, each named:
   -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
   -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3)
   -- · is_order_buyer (F). kernel TABLES are unmoved at 28 — 093 creates no table, so the relation
   -- half of this guard is untouched, and the two new objects it does create are partial indexes.
-  'B4: kernel per-schema census (28 tables post-091, 116 functions post-093)');
+  -- 2026-09-03: 117 -> 119. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  'B4: kernel per-schema census (28 tables post-091, 125 functions post-093)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue') = 79
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

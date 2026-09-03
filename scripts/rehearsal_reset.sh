@@ -196,4 +196,4 @@ psql -d "$DB" -U postgres -tAc "
       || ' triggers='      || (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
                                  join pg_namespace n on n.oid=c.relnamespace
                                 where n.nspname='public' and not t.tgisinternal)"
-echo "        CI baseline: tables=27 functions=70 policies=37 triggers=24 (ci.yml EXPECT_*)"
+echo "        CI baseline: tables=27 functions=70 policies=37 triggers=26 (ci.yml EXPECT_*)"

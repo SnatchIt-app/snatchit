@@ -83,6 +83,16 @@
  *     binding without staging is `no_pending_connect_ref`. THIS FUNCTION IS THE
  *     ONLY PLACE BOTH CREDENTIALS MEET — that is the point, so the two clients
  *     must never be collapsed into one.
+ *   • authorize_org_payout_dashboard (093 slice 30 §9) GATES THE EXPRESS
+ *     DASHBOARD LOGIN LINK (H6/F-3). Every control above governs WHICH acct_ is
+ *     bound; none governed the EXTERNAL BANK ACCOUNT inside it, which is the
+ *     destination that actually receives the money. The login link at step 12
+ *     hands that over, and it rode the endpoint gate below — org_owner OR
+ *     org_finance, no step-up, no audit, no notice. It is now org_owner + aal2
+ *     + an admin_audit row + a security notice, enforced in SQL. The
+ *     `account_onboarding` arm beside it is unchanged and deliberately so: it
+ *     resumes an unfinished flow on an account that is not yet transfers-active
+ *     and has no money to redirect (F §3.4).
  *
  * Deploy with verify_jwt: true. Preconditions in docs/phase2/_impl/E1_connect_onboarding.md.
  */
@@ -545,6 +555,100 @@ function readAalClaim(token: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * kernel.authorize_org_payout_dashboard (093 slice 30 §9) — THE BANK-ACCOUNT DOOR.
+ *
+ * WHY THIS CALL EXISTS AT ALL. Everything RT-A-3 built protects WHICH Stripe
+ * account is the payee. Nothing protected WHAT IS INSIDE IT. The Express
+ * Dashboard login link minted at step 12 lets its holder change the EXTERNAL
+ * BANK ACCOUNT the venue's money actually lands in — the real destination — and
+ * it rode the endpoint gate at :316, which admits `org_finance`, the one role
+ * SoD-1 exists to exclude from naming the payee, with no aal2, no audit row and
+ * no `security_payout_destination_changed`. Finding H6/F-3.
+ *
+ * NOT A LOCAL `if`. The authority test could have lived here as three lines,
+ * and that is precisely the RT-A-3 mistake restated: a control that lives only
+ * in an edge is advisory. SQL cannot make Stripe's login link unreachable, but
+ * it CAN make the authorization row and the officer notification structural, in
+ * the same shape as the two binders — so a future caller that forgets this step
+ * produces no authorization row, which is a detectable absence rather than a
+ * silent bypass. THE ROLE AND STEP-UP TESTS LIVE IN THE VERB, NOT HERE.
+ *
+ * CALLER'S JWT, never service_role: the verb raises 42501 without auth.uid()
+ * because it stamps a human into kernel.admin_audit (actor_identity NOT NULL).
+ *
+ * FAIL CLOSED. A refusal, an unreachable verb, an unapplied migration — all
+ * mean NO LOGIN LINK. There is no arm in which the link is minted without this
+ * returning ok.
+ */
+async function authorizeDashboard(
+  caller: KernelClient,
+  orgId: string,
+): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+  const unavailable = {
+    ok: false as const, status: 503, code: 'dashboard_authorization_unavailable',
+    message: 'Payment settings are temporarily unavailable. Please try again shortly.',
+  };
+
+  let res;
+  try {
+    res = await caller.rpc('authorize_org_payout_dashboard', {
+      p_org_id:      orgId,
+      p_command_key: `dash:${orgId}`,
+    });
+  } catch (err) {
+    console.error(`[${TAG}] authorize_org_payout_dashboard threw org=${orgId}:`, err);
+    await captureException(TAG, err, { org_id: orgId, stage: 'authorize_org_payout_dashboard' });
+    return unavailable;
+  }
+
+  const { data, error } = res;
+  if (error) {
+    const msg = error.message ?? '';
+    // The refusals a human can legitimately meet, mapped to operator copy. Each
+    // authority refusal is 403: the caller IS authenticated and DOES hold an org
+    // money role (they passed :316) — what they lack is THIS authority.
+    if (/org_owner required/.test(msg)) {
+      return {
+        ok: false, status: 403, code: 'dashboard_requires_owner',
+        message: 'Only an organization owner can open the Stripe payout dashboard. Payment status is available without it.',
+      };
+    }
+    if (/step_up_unavailable/.test(msg)) {
+      return {
+        ok: false, status: 403, code: 'step_up_unavailable',
+        message: 'Your session cannot be verified for this action. Sign in again and retry.',
+      };
+    }
+    if (/step_up_required/.test(msg)) {
+      return {
+        ok: false, status: 403, code: 'step_up_required',
+        message: 'Confirm your identity with two-factor authentication to open the payout dashboard.',
+      };
+    }
+    if (/org_not_bindable/.test(msg)) {
+      return {
+        ok: false, status: 409, code: 'org_not_bindable',
+        message: 'This organization cannot manage payments while its status is under review.',
+      };
+    }
+    // Anything else — INCLUDING a missing function, which means 093 slice 30 §9
+    // is not applied — is a 503 and a page. NEVER a fall-through to the link.
+    console.error(`[${TAG}] authorize_org_payout_dashboard failed org=${orgId}: ${msg}`);
+    await captureException(TAG, new Error(`authorize_org_payout_dashboard: ${msg}`), {
+      org_id: orgId, stage: 'authorize_org_payout_dashboard',
+      hint: 'migration 093 slice 30 section 9 applied?',
+    });
+    return unavailable;
+  }
+
+  if ((data as { status?: string } | null)?.status !== 'ok') {
+    console.error(`[${TAG}] authorize_org_payout_dashboard returned no ok org=${orgId}`);
+    return unavailable;
+  }
+  return { ok: true };
 }
 
 /**
@@ -1467,6 +1571,40 @@ serve(async (req: Request) => {
       // with Stripe-hosted dashboard access — so the self-service surface is the
       // Express Dashboard login link, exactly as the seller path already does
       // (create-connect-account:310).
+      //
+      // ── H6/F-3 — THE BANK-ACCOUNT DOOR IS A MONEY-DESTINATION ACT ─────────
+      // THIS BRANCH AND THE `else` BELOW ARE NOT THE SAME KIND OF THING, and
+      // the split is the whole fix. The `else` arm mints an
+      // `account_onboarding` link for an account that is NOT yet
+      // transfers-active: it RESUMES an unfinished flow, no money has this
+      // destination yet, and F §3.4 is right that requiring an owner with aal2
+      // to resume it would leave a venue disabled whenever the owner is
+      // unreachable — a self-inflicted outage with no fraud benefit. That arm
+      // keeps the wider `['org_owner','org_finance']` gate and carries no
+      // step-up. THIS arm is reached only when the account is bound AND
+      // transfers-active — precisely when there IS money to redirect — and what
+      // it hands over is the ability to change the external bank account. That
+      // is a money-destination act and it now carries the money-destination
+      // controls, in SQL, at the same authority level as set_org_connect_ref:
+      // org_owner only, aal2, an admin_audit row, and a security notice to
+      // every officer. Separating the two arms was not awkward; they were
+      // already separate branches doing categorically different things, and
+      // only the shared gate above them hid it.
+      //
+      // ORDER IS LOAD-BEARING: authorize BEFORE the Stripe call. A refused
+      // caller must never cause a login link to exist, not even an unreturned
+      // one — Express login links are one-shot and a minted-then-discarded link
+      // is a live credential in a Stripe log.
+      const authz = await authorizeDashboard(caller, orgId);
+      if (!authz.ok) {
+        await recordDenial(caller, orgId, authz.code);
+        console.warn(`[${TAG}] dashboard link denied org=${orgId} code=${authz.code}`);
+        return json(
+          { ...snapshotPayload(orgId, snapshot), error: authz.message, code: authz.code },
+          authz.status,
+          getResponseHeaders(req),
+        );
+      }
       const loginLink = await stripeFetch<{ url?: string }>(`/accounts/${accountId}/login_links`, {
         method: 'POST',
         body:   {},

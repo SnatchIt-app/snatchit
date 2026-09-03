@@ -1,5 +1,15 @@
 # E4 — THE REFUND EXECUTOR (owner ruling D3), AND AN INSPECTION OF THE PLANNED PAYOUT EXECUTOR
 
+> **SUPERSEDED IN PART by `docs/phase2/_impl/H1_refund_architecture.md`.** Four statements below are now
+> stale, and H1 §1 shows the working for each: (a) §3 / §12 item 1 — `kernel.get_refund_execution_context`
+> EXISTS (093 slice 10g); (b) §3's trailing note — `kernel.list_pending_refunds` was deliberately NOT built,
+> and `kernel.claim_refunds_for_execution` (slice 10i, a LEASED CLAIM) replaces it; (c) §5's matrix omits
+> Stripe's 24-hour idempotency-key retention, past which cases 2/3/13 create a SECOND real refund — the claim
+> verb's `execution_mode` is what closes that; (d) §7's three authority options are moot, because the DIRECT
+> arm's authority is already reachable through `kernel.request_order_refund` (H1 §5;
+> `docs/architecture/_governance/PFA23_DIRECT_ARM_CLARIFICATION.md`). §6.1, §5.1 and §11 stand unchanged.
+
+
 **Ruling implemented:** D3 (`docs/phase2/PRIMARY_TICKETING_OWNER_RATIFICATION.md:327-345`) — *"RATIFIED: BUILD
 THE REFUND EXECUTOR NOW … PFA-23's already-frozen executor shape remains authoritative and is implemented as
 specified."*

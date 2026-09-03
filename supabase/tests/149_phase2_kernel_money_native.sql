@@ -9,7 +9,8 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(132);   -- 2026-09-02 (package 093): 130 -> 132 (+L2a/+L2b, ruling A7/A9's staged-provenance requirement on the Connect bind)
+SELECT plan(141);   -- 2026-09-02 (package 093): 130 -> 132 (+L2a/+L2b, ruling A7/A9's staged-provenance requirement on the Connect bind)
+                    -- 2026-09-02 (093 / H2): 132 -> 141 (+A16b the re-anchored BP-12 operand seed; +I4b/I4c/I4d/I4e the bounded release, the maturity instant, and the poisoned-version immunity; +I6..I9 SECTION I2, the anchor itself: max-over-orders, multi-day, null ends_at, postponement). I4 was REWRITTEN, not added: its old form asserted the payment-clock contract.
 
 SELECT tap.seed_core();
 
@@ -65,6 +66,18 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname='sweep-expired-refun
 SELECT is((SELECT value FROM catalog.platform_config
             WHERE key='deletion.refund_possible_window_hours' AND version=1), 'null'::jsonb,
   'A16: PFA-22 — the dedicated BP-12 operand is seeded NULL / owner-unset');
+-- 2026-09-02 [093 / H2] — A16 is UNCHANGED and still true: 085 is immutable and
+-- still seeds that row. What changed is that NOTHING READS IT any more. BP-12
+-- arm 2's operand is renamed to deletion.post_event_hold_hours because the old
+-- name asserted refund ELIGIBILITY (which 085:2186-2187 and PFA-22 both say the
+-- key is NOT) and because the arm's CLOCK moved from the payment date to the
+-- event, which is a changed contract and must not silently re-interpret a value
+-- already stored under the old spelling. The 085 row survives as an unread
+-- orphan — the same residue G2's `settlement.refund_window_interval` rename
+-- left — recorded here rather than hidden.
+SELECT is((SELECT value FROM catalog.platform_config
+            WHERE key='deletion.post_event_hold_hours' AND version=1), 'null'::jsonb,
+  'A16b [H2]: the RE-ANCHORED BP-12 operand ships as ONE row at version 1, seeded NULL / owner-unset (PFA-9 shape, PFA-22 semantics preserved)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -604,18 +617,142 @@ SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-5%', 'I1: an
 SELECT kernel.mark_payout_transfer_state(tap._fetch149('i_payout')::uuid,'failed','tr_x','net_fail','ck-i-1');
 SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
   'I2: R1 P3 — a TERMINAL failed payout does NOT block forever (BP-5 is in-flight only)');
--- PFA-22 window arm, tested on other_user (clean: their only money fact was the
--- now-failed payout above — no in-flight refunds/requests to mask the window arm,
+-- PFA-22 arm 2, tested on other_user (clean: their only money fact was the
+-- now-failed payout above — no in-flight refunds/requests to mask the arm,
 -- unlike the refund-polluted buyer). A bare paid order is enough for arm 2.
+--
+-- 2026-09-02 [093 / H2] — I3 and I4 REWRITTEN, and I4's OLD ASSERTION IS THE
+-- REASON. It read: window = 0h ⇒ "the candidate falls outside it — unblocked",
+-- which is only true because 085:281 measured the window from
+-- `venue."order".created_at` — the PAYMENT clock — and the fixture's order was
+-- created moments earlier. That assertion ENCODED THE PAYMENT-CLOCK CONTRACT,
+-- and that contract is the defect H2 removes: order age was standing in for
+-- "the event-related obligation is finished". This fixture is the case in
+-- miniature — its session ends at now() + 15 days 5 hours (149:127), so the
+-- event HAS NOT HAPPENED, and the old code called the buyer erasable anyway.
+-- The arm is now anchored on max(coalesce(session.ends_at, session.starts_at))
+-- over the identity's candidate orders and the operand is renamed to
+-- deletion.post_event_hold_hours. Nothing is relaxed: I3 keeps its fail-closed
+-- meaning verbatim, I4 becomes STRICTLY STRONGER (even a ZERO hold blocks while
+-- the event is ahead), I5 is untouched, and Section I2 below is NEW coverage for
+-- the release half, the maturity instant, the poisoned-version immunity and the
+-- anchor itself.
+-- Argument and executed matrix: docs/phase2/_impl/H2_deletion_clock.md
 INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
 VALUES (tap.other_user(), tap._fetch149('session')::uuid, tap._fetch149('org')::uuid, 'paid', 'web', 4000, 'ck-i-cand');
-SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-12%window unset%',
-  'I3: PFA-22 — a candidate paid order + NULL window ⇒ BLOCKED (fail-closed exactly when it must be)');
-INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.refund_possible_window_hours', 2, '0'::jsonb, 'restricted');
-SELECT is(kernel.deletion_blockers_money(tap.other_user()), NULL,
-  'I4: …the owner sets the window (0h); the candidate falls outside it — unblocked');
+SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-12: post-event deletion hold unset%',
+  'I3: PFA-22 — a candidate paid order + UNSET hold ⇒ BLOCKED (fail-closed exactly when it must be)');
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.post_event_hold_hours', 2, '0'::jsonb, 'restricted');
+SELECT ok(kernel.deletion_blockers_money(tap.other_user()) LIKE 'BP-12: inside the post-event deletion hold%',
+  'I4 [H2]: hold = 0h and the session still ends in 15 days ⇒ STILL BLOCKED — the clock is the EVENT, not the purchase');
+-- Section I2 below uses tap.admin_user() as the probe and DEDICATED sessions of
+-- their own. The fixture session is NOT mutated: moving its times would trip the
+-- transfer-freeze on the atoms Section K later exercises. I5 (immediately below)
+-- is the clean-probe assertion those cases depend on, so it runs FIRST.
 SELECT is(kernel.deletion_blockers_money(tap.admin_user()), NULL,
   'I5: an identity with NO candidates + NO money facts is never blocked by the NULL key (owner scoping verbatim)');
+
+-- ============================================================================
+-- SECTION I2 [093 / H2] — THE ANCHOR ITSELF
+--   BP-12 arm 2 is anchored on max(coalesce(session.ends_at, session.starts_at))
+--   over the identity's OWN candidate orders. These are the cases the payment
+--   clock could not express at all, because created_at knows nothing about when
+--   the event runs. Probe = tap.admin_user(), which I5 just proved clean on every
+--   arm of this function, so every block below is attributable to the order under
+--   test. Three DEDICATED sessions; the fixture session is never touched.
+--   Executed matrix: docs/phase2/_impl/H2_deletion_clock.md
+-- ============================================================================
+INSERT INTO catalog.event_session (event_id, session_label, starts_at, ends_at) VALUES
+  (tap._fetch149('event')::uuid, 'h2_past',     now() - interval '3 days',  now() - interval '2 days'),
+  (tap._fetch149('event')::uuid, 'h2_future',   now() + interval '20 days', now() + interval '20 days 3 hours'),
+  (tap._fetch149('event')::uuid, 'h2_multiday', now() + interval '30 days', now() + interval '33 days');
+INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+SELECT tap.admin_user(), s.session_id, tap._fetch149('org')::uuid, 'paid', 'web', 4000, 'ck-i2-a'
+  FROM catalog.event_session s WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label = 'h2_past';
+
+-- THE RELEASE HALF. The same 0h hold that blocked other_user at I4 (event 15 days
+-- ahead) clears here, because this identity's event ENDED two days ago. This is
+-- the bound that keeps the fix from being an indefinite erasure block: there is no
+-- force-tombstone verb anywhere in the corpus, so an unbounded hold would be an
+-- erasure-law failure, not a safety property.
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()), NULL,
+  'I4b [H2]: the SAME 0h hold clears once the session has ENDED — the hold is BOUNDED, not indefinite');
+-- 72h, not 48h: at exactly 48h the maturity instant EQUALS now() for a session that
+-- ended two days ago, and `now() < v_matures_at` is correctly FALSE — the hold has
+-- elapsed to the second. That boundary is right, and it is not what this case tests.
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.post_event_hold_hours', 3, '72'::jsonb, 'restricted');
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()),
+  'BP-12: inside the post-event deletion hold — erasable after '
+  || to_char(((SELECT s.ends_at FROM catalog.event_session s
+               WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_past')
+              + interval '72 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'I4c [H2]: a 72h hold over a session that ended 2 days ago re-blocks, and the maturity instant is EXACTLY ends_at + the hold — the payment date appears nowhere in it');
+
+-- POISON IMMUNITY (H2, the second defect). platform_config is APPEND-ONLY, so one
+-- bad version is permanent. 085:273-276 cast the value inside an ORDERED TARGET
+-- LIST, where Postgres may evaluate the cast before the LIMIT — so a single
+-- '"720 hours"' append raised `invalid input syntax for type numeric` inside the
+-- blocker for EVERY identity, and sweep_deletion_pending's per-identity handler
+-- (077:2038-2041) swallowed it: the deletion machine would have stopped tombstoning
+-- anyone, silently, forever. 10j reads the raw jsonb out of a SUBQUERY and branches
+-- on jsonb_typeof, so a bad version is NAMED, survivable and superseded.
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.post_event_hold_hours', 4, '"720 hours"'::jsonb, 'restricted');
+SELECT ok(kernel.deletion_blockers_money(tap.admin_user()) LIKE 'BP-12: post-event deletion hold policy invalid%JSON NUMBER%',
+  'I4d [H2]: a STRING version blocks with a NAMED policy fault instead of raising — the poisoned-version read is closed');
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('deletion.post_event_hold_hours', 5, '24'::jsonb, 'restricted');
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()), NULL,
+  'I4e [H2]: …and the NEXT good version supersedes it — an append-only bad row is survivable, not terminal');
+
+-- MAX, not min and not first: a SECOND order on a LATER session moves the whole
+-- identity's clock, because erasure is per-IDENTITY. One unmatured order must hold
+-- the account even though the first order's event is long over.
+INSERT INTO venue."order" (buyer_id, event_session_id, org_id, status, source, total_minor, command_idempotency_key)
+SELECT tap.admin_user(), s.session_id, tap._fetch149('org')::uuid, 'paid', 'web', 4000, 'ck-i2-b'
+  FROM catalog.event_session s WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label = 'h2_future';
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()),
+  'BP-12: inside the post-event deletion hold — erasable after '
+  || to_char(((SELECT s.ends_at FROM catalog.event_session s
+               WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_future')
+              + interval '24 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'I6 [H2]: MULTI-SESSION — the anchor is max() over the identity''s candidate orders; the settled past order does not release the account');
+
+-- MULTI-DAY: one session that RUNS for three days anchors on its END, not its start.
+UPDATE venue."order" SET event_session_id = (SELECT s.session_id FROM catalog.event_session s
+   WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_multiday')
+ WHERE buyer_id = tap.admin_user() AND command_idempotency_key = 'ck-i2-b';
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()),
+  'BP-12: inside the post-event deletion hold — erasable after '
+  || to_char(((SELECT s.ends_at FROM catalog.event_session s
+               WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_multiday')
+              + interval '24 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'I7 [H2]: a MULTI-DAY session anchors on ends_at (day 3), not on starts_at (day 1)');
+
+-- ends_at IS NULL: catalog.create_event_session requires only starts_at
+-- (078:805-807), so this is reachable in production. G2's payout gate fails CLOSED
+-- on an unknown end because kernel.release_payout is a human exit. THIS gate has NO
+-- exit, so blocking would be UNBOUNDED. It falls back to starts_at — still
+-- event-anchored, still bounded, at most one session-duration early.
+UPDATE catalog.event_session SET ends_at = NULL
+ WHERE event_id = tap._fetch149('event')::uuid AND session_label = 'h2_multiday';
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()),
+  'BP-12: inside the post-event deletion hold — erasable after '
+  || to_char(((SELECT s.starts_at FROM catalog.event_session s
+               WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_multiday')
+              + interval '24 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'I8 [H2]: a session with NO ends_at falls back to starts_at — BOUNDED, never an indefinite erasure block');
+
+-- POSTPONEMENT: the anchor is DERIVED from the session, not stamped on the order,
+-- so moving the session moves the hold with it and a buyer days from erasable is
+-- correctly re-blocked.
+UPDATE catalog.event_session SET starts_at = starts_at + interval '60 days'
+ WHERE event_id = tap._fetch149('event')::uuid AND session_label = 'h2_multiday';
+SELECT is(kernel.deletion_blockers_money(tap.admin_user()),
+  'BP-12: inside the post-event deletion hold — erasable after '
+  || to_char(((SELECT s.starts_at FROM catalog.event_session s
+               WHERE s.event_id = tap._fetch149('event')::uuid AND s.session_label='h2_multiday')
+              + interval '24 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'I9 [H2]: POSTPONEMENT moves the anchor and extends the hold — the clock is derived from the session, never stamped on the order');
+
 
 -- ============================================================================
 -- SECTION J — Q5 RELEASE (OR-17 / DSM §3.1): keyed on requested_by (P0-5)

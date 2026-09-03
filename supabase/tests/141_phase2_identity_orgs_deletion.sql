@@ -14,7 +14,7 @@ BEGIN;
 -- kernel.set_org_connect_ref; L0f-L0h + L1a cover the connect-STAGING provenance
 -- control (ruling A7) that closed the acct_ORPHANATTACKER P0; A14a names the seven
 -- kernel functions 093 adds, with their grant class.
-SELECT plan(198);
+SELECT plan(213);
 
 SELECT tap.seed_core();
 
@@ -91,10 +91,47 @@ SELECT is(
   -- information_schema.routines return 109 pre-093 and 116 post-093, so the two
   -- catalogs agree exactly and none of the seven is invisible to this assertion.
   -- kernel.settlement_royalty_lines was REPLACED, not added, and moves nothing.
-  -- The seven are enumerated by NAME in A14a below — never accepted as a bare
+  -- The eight are enumerated by NAME in A14a below — never accepted as a bare
   -- delta — and each is pinned by grant class in F2/F3.
-  116, '077 A14: exactly 116 kernel functions (109 post-090 + 093''s seven; settlement_royalty_lines was replaced, not added)');
--- A14a: the seven BY NAME with their grant class and definer flag, so that moving
+  -- 2026-09-02 (package 093, slice 10i): 116 -> 117 — kernel.claim_refunds_for_execution,
+  -- the refund executor's leased WORK LIST (ruling D3 / H1_refund_architecture.md §4).
+  -- E4 §3 left it unbuilt and refund-execute's sweep answered 501, so every refund
+  -- interrupted between Stripe and the callback was unfindable. Suite 158 is its own
+  -- 39-assertion file; it is service_role-only and named in F3 below.
+  -- 2026-09-03 (package 093, slice 30 §9/§10): 117 -> 119. TWO added, zero removed,
+  -- both closing findings in H6_payout_destination.md:
+  --   kernel.authorize_org_payout_dashboard (F-3) — the Express Dashboard login link
+  --     hands over the ability to change the EXTERNAL BANK ACCOUNT behind the bound
+  --     acct_, and it rode the onboarding edge's wider org_owner|org_finance gate with
+  --     no step-up, no audit row and no notification. EXEC authenticated; org_owner +
+  --     aal2 in body. Named in F2 below.
+  --   kernel.guard_connect_id_not_org_bound (F-4) — the trigger function that makes the
+  --     cross-plane refusal BIDIRECTIONAL. NO GRANT AT ALL (PostgreSQL does not check
+  --     EXECUTE on a trigger function), so it appears in NEITHER F2 nor F3, exactly like
+  --     settlement_primary_lines. Pinned by name in A14a.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed.
+  -- RE-DERIVED FROM THE LIVE CATALOG, not from a delta: two rehearsal databases built from
+  -- the same chain, one stopped at 092 (REHEARSAL_UPTO=092_notify_reduced.sql) and one with
+  -- 093, give 109 and 125, and `comm` over the two sorted proname lists shows SIXTEEN added
+  -- and ZERO removed. The six this slice adds are all service_role-only definers and are
+  -- named in A14a below and in F3 (which moves 39 -> 45 by exactly these six):
+  --   kernel.settlement_payout_maturity      (G2) — THE payout-maturity conjunction, the eight
+  --     fail-closed predicates extracted out of close_settlement's inline gate so that the mint,
+  --     the pending->submitted advance and the transfer all evaluate ONE definition. This is the
+  --     D-1 closure: the gate was a close-time snapshot, now it is an invariant.
+  --   kernel.settlement_covered_payments     (G2/H3 §7.1) — the covered set, once. Its operand
+  --     is venue.settlement_line, not the header scope, because 088's chargeback arm carries no
+  --     scope predicate and a scope-based derivation would miss the rows most likely in dispute.
+  --   kernel.claim_payouts_for_execution     (H8) — the payout executor's leased WORK LIST, the
+  --     exact twin of claim_refunds_for_execution. service_role ONLY: an authenticated grant
+  --     would enumerate every payout in flight.
+  --   kernel.get_payout_execution_context    (H8) — the executor's ONLY read. Returns the PINNED
+  --     payout.destination_ref, never a fresh read of the org's current ref.
+  --   kernel.hold_payout_destination_changed (H8/H6) — de-authorises a payout whose destination
+  --     diverged from the one it was authorized against.
+  --   kernel.record_payout_execution_note    (H8) — the executor's append-only note sink.
+  125, '077 A14: exactly 125 kernel functions (109 post-090 + 093''s sixteen; settlement_royalty_lines was replaced, not added)');
+-- A14a: the SIXTEEN BY NAME with their grant class and definer flag, so that moving
 -- this census forces the mover to say WHICH function they added rather than bumping
 -- an integer. Grant class is included because a re-classification (say, exposing
 -- stage_org_connect_ref or get_org_connect_ref to `authenticated`) is a security
@@ -105,8 +142,15 @@ SELECT bag_eq(
          || ' svc='    || has_function_privilege('service_role',  p.oid, 'EXECUTE')::text
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'kernel'
-       AND p.proname IN ('get_org_connect_ref','get_org_connect_state',
-                         'get_refund_execution_context','is_order_buyer',
+       AND p.proname IN ('authorize_org_payout_dashboard','claim_payouts_for_execution',
+                         'claim_refunds_for_execution',
+                         'get_org_connect_ref',
+                         'get_org_connect_state',
+                         'get_payout_execution_context',
+                         'get_refund_execution_context','guard_connect_id_not_org_bound',
+                         'hold_payout_destination_changed',
+                         'is_order_buyer','record_payout_execution_note',
+                         'settlement_covered_payments','settlement_payout_maturity',
                          'settlement_primary_lines','stage_org_connect_ref',
                          'sync_org_connect_state')$$,
   $$VALUES
@@ -119,15 +163,47 @@ SELECT bag_eq(
       -- service_role ONLY: if this ever became authenticated the whole provenance
       -- control collapses, because a caller could stage what it then binds.
       ('stage_org_connect_ref secdef=true auth=false svc=true'),
+      -- H6/F-3 — the BANK-ACCOUNT door. auth=true is correct and load-bearing: the
+      -- verb's whole content is a test against auth.uid() (org_owner + aal2), so it
+      -- MUST ride the caller's JWT. svc=false is equally load-bearing — a machine
+      -- session has no auth.uid(), so a service_role grant could only ever produce a
+      -- 42501 while advertising a door that does not exist.
+      ('authorize_org_payout_dashboard secdef=true auth=true svc=false'),
+      -- H6/F-4 — the bidirectional cross-plane guard's TRIGGER function. NO grant to
+      -- anyone: PostgreSQL does not check EXECUTE on a trigger function, and a direct
+      -- caller would be a caller bypassing the tables it protects. secdef IS required
+      -- (neither authenticated nor service_role can read kernel.organization).
+      ('guard_connect_id_not_org_bound secdef=true auth=false svc=false'),
       -- ruling A3 — the primary twin of 087's SEAM-2 line stubs: NO grant at all.
       ('settlement_primary_lines secdef=true auth=false svc=false'),
       -- ruling D3 — the refund executor's context read.
       ('get_refund_execution_context secdef=true auth=false svc=true'),
+      -- ruling D3 / slice 10i — the refund executor's leased WORK LIST. service_role
+      -- ONLY, and the grant class is the control: an authenticated grant here would
+      -- hand any client an enumeration of every refund in flight, and 10g's binding
+      -- read would then be one hop away. Suite 158 attacks it directly.
+      ('claim_refunds_for_execution secdef=true auth=false svc=true'),
       -- ruling F — the definer predicate venue_order_item_sel_owner calls once
       -- buyer_id is column-revoked. It lives in `kernel` on the has_venue_role
       -- precedent and is deliberately NOT relocated to dodge this census.
-      ('is_order_buyer secdef=true auth=true svc=false')$$,
-  '077 A14a [093]: the seven functions 093 adds to kernel, BY NAME, with definer flag and grant class');
+      ('is_order_buyer secdef=true auth=true svc=false'),
+      -- H8 / the payout executor. All six are service_role-only definers, and that class is the
+      -- whole control on four of them: claim_payouts_for_execution is an enumeration of every
+      -- payout in flight, get_payout_execution_context carries the PINNED destination_ref, and
+      -- hold_payout_destination_changed / record_payout_execution_note write to money rows. An
+      -- `authenticated` grant on any of them would hand a client the payout rail directly.
+      ('claim_payouts_for_execution secdef=true auth=false svc=true'),
+      ('get_payout_execution_context secdef=true auth=false svc=true'),
+      ('hold_payout_destination_changed secdef=true auth=false svc=true'),
+      ('record_payout_execution_note secdef=true auth=false svc=true'),
+      -- G2 — the maturity conjunction and its covered set. svc=true because the executor read
+      -- (10n) calls settlement_payout_maturity directly; the other two call sites (close_settlement,
+      -- request_org_payout) are DEFINER and reach it by ownership, so no client grant is wanted.
+      -- auth=false is load-bearing: this is a money GATE, not a read model, and an authenticated
+      -- caller able to evaluate it could enumerate which settlements are ripe to pay.
+      ('settlement_covered_payments secdef=true auth=false svc=true'),
+      ('settlement_payout_maturity secdef=true auth=false svc=true')$$,
+  '077 A14a [093]: the sixteen functions 093 adds to kernel, BY NAME, with definer flag and grant class');
 
 SELECT is(
   (SELECT count(*)::int FROM cron.job WHERE jobname IN ('sweep-deletion-pending','sweep-expired-org-invites')),
@@ -300,6 +376,12 @@ SELECT is(
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   'accept_org_invite,admin_refund,admin_set_identity_ext,approve_refund_request,'
+  -- 2026-09-03 (package 093, slice 30 §9): +1 authenticated —
+  -- authorize_org_payout_dashboard (H6/F-3). It gates the Express Dashboard login
+  -- link, which is the only surface that edits the EXTERNAL BANK ACCOUNT behind a
+  -- bound acct_. org_owner + aal2 IN BODY, same set and same shape as
+  -- set_org_connect_ref, because it supersedes them in effect. Named, not counted.
+  || 'authorize_org_payout_dashboard,'
   || 'cancel_refund_request,change_org_role,clear_my_demographics,'
   -- 2026-09-01 (package 087): +2 authenticated — close_settlement (venue_finance/
   -- org_finance/platform_admin in-body) and request_org_payout (org_owner/org_finance
@@ -351,14 +433,18 @@ SELECT is(
   -- 2026-08-31 (package 080): +4 — the §2.2 predicate helpers are EXEC
   -- authenticated by the plan §8/080 Grants row. Named, not counted.
     -- 2026-09-02 (package 090): +1 — is_promoter_for_event (RPC §1.1c EXEC: authenticated). pay_promoter_commission is EXEC DEF (no grant). Named, not counted.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 61 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6 and is_order_buyer per F; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 62 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('service_role', p.oid, 'EXECUTE')),
-  'assert_door_session,deletion_blockers_custody,deletion_blockers_market,deletion_blockers_money,'
+  -- 2026-09-02 (package 093, slice 10i): +1 DEF service_role — claim_refunds_for_execution,
+  -- the refund executor's WORK LIST (ruling D3). service_role ONLY is the whole control:
+  -- it is an enumeration verb over money in flight, and a claim is a machine act.
+  -- Named, not counted.
+  'assert_door_session,claim_payouts_for_execution,claim_refunds_for_execution,deletion_blockers_custody,deletion_blockers_market,deletion_blockers_money,'
   || 'deletion_blockers_orders,deletion_blockers_wallet,'
   -- 2026-09-02 (package 093): +2 DEF service_role — get_refund_execution_context, the
   -- read PFA-23's refund-execute edge makes as service_role (RATIFIED ruling D3: the
@@ -367,12 +453,17 @@ SELECT is(
   -- Both are deliberately NOT authenticated: one resolves payment/order linkage, the
   -- other returns the raw acct_ id that kernel.get_org_connect_state masks for humans.
   -- Named, not counted.
-  || 'get_org_connect_ref,get_refund_execution_context,get_wallet_pass_build_context,'
+  -- 2026-09-03 (package 093, payout-executor slice): +6 DEF service_role, and NOTHING else moved
+  -- class. claim_payouts_for_execution / get_payout_execution_context /
+  -- hold_payout_destination_changed / record_payout_execution_note (H8) and
+  -- settlement_covered_payments / settlement_payout_maturity (G2). Each is named here and in A14a;
+  -- the count moves 39 -> 45 by exactly these six. Named, not counted.
+  || 'get_org_connect_ref,get_payout_execution_context,get_refund_execution_context,get_wallet_pass_build_context,'
   -- 2026-08-31 (package 083): +9 DEF — the mint engine (issue_ticket_atoms; moved
   -- here by C114) and the eight service_role wallet-substrate RPCs (build_context,
   -- list_updated, register/unregister device, supersede, touch, sweep, record_push).
   -- REVOKE FROM anon+authenticated; service_role only. Named, not counted.
-  || 'has_outstanding_obligations,'
+  || 'has_outstanding_obligations,hold_payout_destination_changed,'
   || 'is_deletion_pending,issue_ticket_atoms,list_updated_wallet_passes,'
   -- 2026-09-01 (package 085): +5 DEF — the Stripe state-sync pair, the
   -- obligation recorder, the refund-TTL sweep (PFA-21 delivers kernel USAGE).
@@ -382,12 +473,12 @@ SELECT is(
   || 'mark_dispute_state,mark_payout_transfer_state,mark_refund_state,'
   || 'on_deletion_q5_release,on_identity_erased_door,'
   || 'on_identity_erased_market,on_identity_erased_promoter,on_identity_erased_staff,'
-  || 'record_dispute_native,record_identity_obligation,'
+  || 'record_dispute_native,record_identity_obligation,record_payout_execution_note,'
   -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
   -- 2026-09-02 (package 093): +1 DEF service_role — stage_org_connect_ref (ruling A7).
   -- service_role ONLY is the whole control: a caller that could stage would be able to
   -- authorise its own bind, which is the acct_ORPHANATTACKER P0 restated. Named, not counted.
-  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,stage_org_connect_ref,supersede_wallet_passes_for_atom,'
+  || 'record_wallet_push_result,refund_primary_order,register_wallet_pass_device,settlement_covered_payments,settlement_payout_maturity,stage_org_connect_ref,supersede_wallet_passes_for_atom,'
   -- 2026-09-01 (package 086): +2 DEF service_role — assert_door_session (the door
   -- edge) and sweep_expired_door_overrides (CRON). Named, not counted.
   || 'sweep_deletion_pending,sweep_expired_door_overrides,sweep_expired_org_invites,sweep_expired_refund_requests,sweep_expired_ticket_atoms,'
@@ -400,7 +491,7 @@ SELECT is(
   -- service_role/pg_cron only, REVOKE FROM anon+authenticated. The other four
   -- 079 DEF primitives (lock/unlock/mark/tg_*) carry NO grant at all: their
   -- callers are definer functions reached by ownership.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 38 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context per D3)');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 45 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context + claim_refunds_for_execution per D3, and the payout executor''s six per H8/G2)');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),
@@ -806,6 +897,137 @@ SELECT tap.logout();
 SELECT throws_ok(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_NOJWT', 'cl4')$$,
   '42501', NULL, '077 L5 [T-RPC-CONNECT-04]: on a claims-less (service-path) connection auth.uid() is NULL and the function RAISES rather than binding');
+
+-- ── L6. THE BANK-ACCOUNT DOOR (093 slice 30 §9; H6/F-3) ────────────────────
+-- WHAT THIS SECTION EXISTS TO PROVE. Every assertion above protects WHICH
+-- Stripe account is the payee. NONE of them protected WHAT IS INSIDE IT. The
+-- onboarding edge hands an org officer an Express Dashboard LOGIN LINK for a
+-- bound, verified account, and from that dashboard the holder changes the
+-- EXTERNAL BANK ACCOUNT the money actually lands in. That link rode the edge's
+-- wider `['org_owner','org_finance']` endpoint gate with no aal2, no
+-- kernel.admin_audit row and no security notice — so the weaker of the two org
+-- money roles could re-point the real destination, silently, past SoD-1.
+-- kernel.authorize_org_payout_dashboard is the gate the edge must now clear
+-- before minting that link, and L6a-L6j are its proof.
+-- org1 is approved and bound to acct_TESTABC123 (L1); tap.admin_user() is its
+-- org_owner; 5555…5 was promoted to org_finance at K12a.
+SELECT tap.login(tap.admin_user());
+SELECT throws_like(
+  $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd0')$$,
+  '%step_up_unavailable%',
+  '077 L6a [093 §9/AUTHZ-M4]: a session carrying NO aal claim is step_up_unavailable — the dashboard door fails closed on an absent claim, exactly like the binders');
+SELECT set_config('request.jwt.claims',
+  (current_setting('request.jwt.claims', true)::jsonb || '{"aal":"aal1"}'::jsonb)::text, true);
+SELECT throws_like(
+  $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd1')$$,
+  '%step_up_required%',
+  '077 L6b [093 §9]: aal1 is step_up_required — handing over the ability to change the payout bank account is a money-destination act');
+SELECT tap.logout();
+-- THE ASSERTION THIS SECTION WAS WRITTEN FOR. org_finance is admitted by the
+-- onboarding edge's endpoint gate and is precisely the role SoD-1 excludes from
+-- naming the payee. Before §9 it could open this door; now it cannot.
+SELECT tap.login('55555555-5555-5555-5555-555555555555');
+SELECT tap._aal2();
+SELECT throws_ok(
+  $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd2')$$,
+  '42501', NULL,
+  '077 L6c [093 §9/SoD-1, H6/F-3]: an org_finance on a full aal2 session is REFUSED — the role that may not name the payee may not open the surface that re-points it either');
+SELECT tap.logout();
+SELECT throws_ok(
+  $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd3')$$,
+  '42501', NULL,
+  '077 L6d [093 §9]: a claims-less (service-path) connection is refused — a machine never opens a dashboard, and admin_audit.actor_identity must be a real human');
+SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
+SELECT is((kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd4'))->>'status', 'ok',
+  '077 L6e [093 §9]: the org_owner on aal2 IS authorized — the control narrows the door, it does not close it');
+SELECT tap.logout();
+SELECT is(
+  (SELECT count(*)::int FROM kernel.admin_audit
+    WHERE action = 'org.payout_destination.dashboard_grant'
+      AND subject_kind = 'organization' AND subject_id = tap._fetch('org1')::uuid
+      AND reason_code = 'express_dashboard_login' AND actor_identity = tap.admin_user()),
+  1, '077 L6f [093 §9/A9]: the grant writes an admin_audit row naming the human — the fact that was previously recorded NOWHERE');
+-- The audit row is read by support. G §6.1 bars Connect ids from leaving the
+-- trust boundary, so the row carries last4 and never the identifier.
+SELECT is(
+  (SELECT (a.after ->> 'destination_last4') || '|' || (a.after ? 'connect_account_ref')::text
+     FROM kernel.admin_audit a
+    WHERE a.action = 'org.payout_destination.dashboard_grant' AND a.subject_id = tap._fetch('org1')::uuid
+    ORDER BY a.occurred_at DESC LIMIT 1),
+  'C123|false',
+  '077 L6g [093 §9/G §6.1]: the audit row carries the LAST 4 ONLY — no acct_ id crosses into admin_audit');
+-- NON-CLOBBER, and it is load-bearing: if the grant stamped
+-- payout_destination_set_by it would let an owner clear their own SoD-1 payout
+-- exclusion (087:428-431) merely by opening their Stripe dashboard.
+SELECT is(
+  (SELECT payout_destination_set_by FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
+  tap.admin_user(),
+  '077 L6h [093 §9/SoD-1]: authorizing the dashboard does NOT touch payout_destination_set_by — the grant is not a destination change and must not clear the setter''s payout exclusion');
+-- …and it must not arm destination probation either (087:465-495 reads
+-- org.payout_destination.change / org.connect_ref.bind). A distinct action name
+-- is what keeps an owner looking at their dashboard from holding a payout.
+SELECT is(
+  (SELECT count(*)::int FROM kernel.admin_audit
+    WHERE subject_id = tap._fetch('org1')::uuid
+      AND action IN ('org.payout_destination.change')),
+  0, '077 L6i [093 §9]: the grant writes NO org.payout_destination.change row — a dashboard open is not a destination change and must not start the probation clock');
+-- G-6, the same status set §4/§5 require: suspension freezes the payee, and
+-- that has to include the bank account behind it.
+SELECT tap.logout();
+UPDATE kernel.organization SET status = 'suspended' WHERE org_id = tap._fetch('org1')::uuid;
+SELECT tap.login(tap.admin_user());
+SELECT tap._aal2();
+SELECT throws_like(
+  $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd5')$$,
+  '%org_not_bindable%',
+  '077 L6j [093 §9/G-6]: a SUSPENDED org may not open its payout dashboard — suspension freezes the payee, including the bank behind it');
+SELECT tap.logout();
+UPDATE kernel.organization SET status = 'approved' WHERE org_id = tap._fetch('org1')::uuid;
+
+-- ── L7. THE CROSS-PLANE REFUSAL, BIDIRECTIONAL (093 slice 30 §10; H6/F-4) ──
+-- L0e above proves the refusal in ONE direction: an individual-plane acct_
+-- cannot become an org payee. Nothing proved — or enforced — the reverse, and
+-- the reverse is worse. Writing an org-bound acct_ onto
+-- public.profiles.stripe_connect_id (a) points the individual payout rail
+-- (_shared/payouts.ts) at the organization's account, and (b) BRICKS THE ORG
+-- PERMANENTLY: §2b/§4/§5 all refuse any ref that `exists` in public.profiles,
+-- so once the org's own identifier is there, its own re-stage and re-point
+-- raise account_not_platform_minted_for_org forever. A one-row UPDATE makes a
+-- venue's payout destination unchangeable. Enforced as a trigger, not an edge
+-- check, because this column is written by a direct service-role UPDATE with no
+-- RLS in the way (ruling G threat G-12).
+SELECT throws_like(
+  $$UPDATE public.profiles SET stripe_connect_id = 'acct_TESTABC123' WHERE id = tap.seller()$$,
+  '%account_bound_to_organization%',
+  '077 L7a [093 §10, H6/F-4]: an org-BOUND acct_ cannot be written onto public.profiles — the refusal is now bidirectional');
+-- A STAGED-but-unbound ref is refused too: it is one org_owner bind away from
+-- being live, and poisoning it here would trap that onboarding in a permanent
+-- no_pending / not_minted loop before the bind could ever run.
+SELECT kernel.stage_org_connect_ref(tap._fetch('org1')::uuid, 'acct_STAGEDONLY9', 'cs1');
+SELECT throws_like(
+  $$UPDATE public.profiles SET stripe_connect_id = 'acct_STAGEDONLY9' WHERE id = tap.seller()$$,
+  '%account_bound_to_organization%',
+  '077 L7b [093 §10]: a STAGED-but-unbound org ref is refused as well — it is one bind away from live, and poisoning it would trap the onboarding');
+-- NON-VACUITY, and this is the half that makes L7a/L7b mean anything: an
+-- ordinary seller id still writes. A trigger that refused everything would pass
+-- both assertions above and break every seller onboarding.
+SELECT lives_ok(
+  $$UPDATE public.profiles SET stripe_connect_id = 'acct_ORDINARYSELLER' WHERE id = tap.seller()$$,
+  '077 L7c [093 §10, non-vacuity]: an ordinary individual acct_ still writes — the guard refuses org accounts, not all accounts');
+-- The archive is guarded for the same reason, not merely for symmetry:
+-- §2b/§4/§5 consult stripe_connect_archive with the identical `exists` clause,
+-- so an org id landing THERE bricks the org exactly as it would on profiles.
+SELECT throws_like(
+  $$INSERT INTO public.stripe_connect_archive (profile_id, stripe_connect_id, reason)
+    VALUES (tap.seller(), 'acct_TESTABC123', 'test')$$,
+  '%account_bound_to_organization%',
+  '077 L7d [093 §10]: the ARCHIVE is guarded too — the binders read it with the same exists clause, so an org id there bricks the org one table over');
+-- A profile update that does not touch the column is untouched by the guard.
+SELECT lives_ok(
+  $$UPDATE public.profiles SET display_name = 'Seller S2' WHERE id = tap.seller()$$,
+  '077 L7e [093 §10, non-vacuity]: an ordinary profile update that does not touch stripe_connect_id is unaffected — the guard is column-scoped and costs nothing');
+UPDATE public.profiles SET stripe_connect_id = NULL WHERE id = tap.seller();
 
 -- ── M. IDENTITY_EXT WRITERS (§20.1.3, T-RPC-ORG-02) ────────────────────────
 

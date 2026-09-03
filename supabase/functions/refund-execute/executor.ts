@@ -314,6 +314,93 @@ export function planRefund(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The reconcile plan: what to ESTABLISH before anything is allowed to create
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ReconcilePlan =
+  | {
+      /** The row already names its Stripe Refund. Fetch that object and sync. */
+      kind: 'fetch_ref';
+      stripe_refund_ref: string;
+    }
+  | {
+      /**
+       * A `pending` row whose idempotency key is older than Stripe's 24h
+       * retention. The key is no longer a dedup token, so an identical POST
+       * would create a SECOND real refund. Search the PaymentIntent's refunds
+       * for `metadata[refund_id]` — which `planRefund` always writes — and only
+       * create if nothing is there.
+       */
+      kind: 'search_then_create';
+      payment_intent: string;
+      metadata_refund_id: string;
+      create: Extract<RefundPlan, { kind: 'stripe_create' }>;
+    }
+  | { kind: 'noop_replay'; reason: 'already_succeeded' | 'already_failed'; stripe_refund_ref: string | null }
+  | { kind: 'refuse'; code: RefundRefusalCode; detail: string; retryable: boolean };
+
+/**
+ * Reconciliation is the branch that exists because Stripe forgets.
+ *
+ * `refund_<refund_id>` makes a replay safe — for 24 hours. After that Stripe
+ * has dropped the key and the identical request is simply a new refund. E4 §5
+ * cases 2/3/13 all recover by replaying that key, so a work list that hands a
+ * worker a day-old `pending` row is a double-payment generator. The DATABASE
+ * makes that call (093 slice 10i); this function is what the worker runs when
+ * the answer is `reconcile`, and it NEVER creates before it has established
+ * what already exists at Stripe.
+ */
+export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
+  if (!isUuid(ctx.refund_id)) return { kind: 'refuse', code: 'malformed_refund_id', detail: `refund_id=${String(ctx.refund_id)}`, retryable: false };
+  if (!isUuid(ctx.payment_id)) return { kind: 'refuse', code: 'malformed_payment_id', detail: `payment_id=${String(ctx.payment_id)}`, retryable: false };
+
+  // The same XOR the create path re-proves (085:56-58): a context resolving to
+  // both subjects or to neither means the join was wrong.
+  const hasOrder = ctx.order_id != null;
+  const hasSale = ctx.sale_id != null;
+  if (hasOrder === hasSale) {
+    return {
+      kind: 'refuse',
+      code: 'binding_subject_ambiguous',
+      detail: `payment ${ctx.payment_id} resolves to order=${String(ctx.order_id)} sale=${String(ctx.sale_id)}`,
+      retryable: false,
+    };
+  }
+
+  if (ctx.status === 'succeeded' || ctx.status === 'failed') {
+    return { kind: 'noop_replay', reason: ctx.status === 'succeeded' ? 'already_succeeded' : 'already_failed', stripe_refund_ref: ctx.stripe_refund_ref };
+  }
+
+  // `submitted` ALWAYS carries a ref (refund_ref_pairing_ck, 085:93), so this
+  // is the leg that finishes E4 §5 case 4's stranded row — the one that keeps
+  // BP-12 blocking the buyer's account deletion (085:249-262) forever.
+  if (ctx.stripe_refund_ref != null) {
+    if (!RE_RE.test(ctx.stripe_refund_ref)) {
+      return { kind: 'refuse', code: 'impossible_pending_with_ref', detail: `stripe_refund_ref=${ctx.stripe_refund_ref}`, retryable: false };
+    }
+    return { kind: 'fetch_ref', stripe_refund_ref: ctx.stripe_refund_ref };
+  }
+
+  if (ctx.status !== 'pending') {
+    return { kind: 'refuse', code: 'unknown_refund_status', detail: `status=${String(ctx.status)}`, retryable: false };
+  }
+
+  // No ref: everything the create path requires must still hold, and the create
+  // plan it returns is what we fall through to IF the search finds nothing.
+  const create = planRefund(ctx);
+  if (create.kind === 'refuse') return create;
+  if (create.kind !== 'stripe_create') {
+    return { kind: 'refuse', code: 'unknown_refund_status', detail: `unexpected plan ${create.kind}`, retryable: false };
+  }
+  return {
+    kind: 'search_then_create',
+    payment_intent: create.payment_intent,
+    metadata_refund_id: ctx.refund_id,
+    create,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stripe error classification
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -477,31 +564,56 @@ export function planStateSync(
 // The sweep
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface SweepCandidate {
+/** DB-decided execution mode. The worker obeys it; it never picks one. */
+export type RefundExecutionMode = 'create' | 'reconcile';
+
+/**
+ * One row of `kernel.claim_refunds_for_execution` (093 slice 10i).
+ *
+ * Every field is issued by the database. There is no client-side filter,
+ * ordering or bound left to re-derive, because re-deriving any of them is a
+ * surface on which a worker could choose its own work — the exact property
+ * the claim verb exists to remove.
+ */
+export interface ClaimedRefund {
   refund_id: string;
   created_at: string;
   status: RefundStatus;
+  /** 'create' = the Stripe idempotency key is still a valid dedup token.
+   *  'reconcile' = it is not (expired, or the row already carries a ref), so
+   *  the worker must ESTABLISH what exists at Stripe before it may create. */
+  execution_mode: RefundExecutionMode;
+  attempt: number;
+  /** `refund.execute:<refund_id>` — derived from the durable refund fact. */
+  command_key: string;
 }
 
 /**
- * The worker's work list: oldest-first, deduped, bounded, `pending` only.
+ * The worker's work list is now the DATABASE's answer, not a client-side
+ * re-derivation of one.
  *
- * This is the leg that makes every dangerous interleaving converge —
- * Stripe-succeeded-then-DB-failed, DB-failed-then-worker-retry, a crash
- * between `refund_primary_order` and the Stripe call, and the N `pending`
- * rows `catalog.cancel_event` leaves behind. Each one replays the SAME
- * `refund_<id>` key, so replay never means re-pay.
+ * This replaces `planSweep`, which filtered `status === 'pending'`, re-sorted
+ * by `created_at` and re-applied a limit over the rows a bare
+ * `list_pending_refunds` returned. Every one of those was a decision the worker
+ * made about which refunds it would execute; all three now belong to
+ * `kernel.claim_refunds_for_execution`, which additionally leases each row so
+ * two workers cannot hold one refund (see H1_refund_architecture.md §4).
+ *
+ * What remains here is validation of the batch, never selection from it: a row
+ * that is not a well-formed claim is DROPPED rather than guessed at, because a
+ * malformed claim is the one input that could make a worker act on a refund the
+ * database did not authorize.
  */
-export function planSweep(rows: SweepCandidate[], opts: { limit?: number } = {}): string[] {
-  const limit = Math.max(1, Math.min(opts.limit ?? 25, 100));
+export function planClaimedBatch(rows: ClaimedRefund[] | null | undefined): ClaimedRefund[] {
   const seen = new Set<string>();
-  return rows
-    .filter((r) => r.status === 'pending' && isUuid(r.refund_id))
-    .slice()
-    .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
-    .filter((r) => (seen.has(r.refund_id) ? false : (seen.add(r.refund_id), true)))
-    .slice(0, limit)
-    .map((r) => r.refund_id);
+  return (rows ?? []).filter((r) => {
+    if (!r || !isUuid(r.refund_id)) return false;
+    if (r.execution_mode !== 'create' && r.execution_mode !== 'reconcile') return false;
+    if (r.command_key !== `refund.execute:${r.refund_id}`) return false;   // not DB-issued
+    if (seen.has(r.refund_id)) return false;
+    seen.add(r.refund_id);
+    return true;
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -548,22 +660,27 @@ export type RefundArm = 'delegated' | 'direct';
  * already-approved `kernel.approval_request`; anything else is DIRECT and
  * requires `is_platform([platform_support, platform_admin])`, i.e. `auth.uid()`.
  *
- * WHICH CLIENT EACH ARM NEEDS, AND WHY THE DIRECT ARM IS CURRENTLY UNREACHABLE:
+ * WHICH CLIENT EACH ARM NEEDS — AND WHY 'direct' DOES NOT MEAN
+ * `refund_primary_order` (H1_refund_architecture.md §5):
  *   `refund_primary_order` is granted to `service_role` ONLY (085:2148-2156,
  *   the `v_svc` array) and explicitly NOT to `authenticated` (085:2129-2130:
  *   *"refund_primary_order is NOT here — PFA-23 makes it EXEC DEF"*).
  *   PostgREST derives the database role from the JWT it verifies, so one
  *   request is either `service_role` (and `auth.uid()` is NULL, failing
- *   `is_platform`) or `authenticated` (and EXECUTE is denied). "As service_role,
- *   forwarding the platform JWT" has no single-client implementation with this
- *   grant set. The DELEGATED arm needs no `auth.uid()` and is therefore the arm
- *   that works today — which is also the safer default, since dual control is
- *   already enforced upstream by request/approve.
+ *   `is_platform`) or `authenticated` (and EXECUTE is denied). The function's
+ *   DIRECT branch is therefore unreachable from any edge, in both directions,
+ *   and no caller shape fixes it: it is a DEFINER-INTERNAL branch.
  *
- *   The DIRECT arm is still routed (on the caller's own client, which is the
- *   only client that carries the platform identity) so that the resulting
- *   `42501` is a precise, logged, denial-witnessed refusal instead of a silent
- *   nothing. See `docs/phase2/_impl/E4_refund_executor.md` §7.
+ *   That is not a missing capability. `kernel.request_order_refund` (085:850)
+ *   IS granted to `authenticated`, is SECURITY DEFINER, carries the caller's
+ *   `auth.uid()`, evaluates the SAME `kernel.is_platform` predicates and the
+ *   SAME platform_support cap, and for platform_admin / platform_risk / an
+ *   in-cap platform_support sets `v_execute := true` and calls
+ *   `refund_primary_order` definer→definer under a delegated key bound to an
+ *   auto-approved witness record (085:995-1036). Suite 149 D2 pins that it
+ *   returns `status: 'executed'`. So this classifier still names the ARM; the
+ *   handler routes 'direct' to `request_order_refund`, which is the door
+ *   PFA-23's own ruling text names.
  */
 export function classifyArm(commandKey: string): RefundArm {
   return commandKey.startsWith('req:') ? 'delegated' : 'direct';

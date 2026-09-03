@@ -132,8 +132,26 @@ BANNER
 -- configured to do, not what it does.
 --
 -- SHAPE. 0 new tables. 0 new enum members. 0 new policies beyond two policy
--- REPLACEMENTS that add a missing authority conjunct. 0 DDL on any money-ledger
--- table. 2 new columns, both on kernel.organization, both additive.
+-- REPLACEMENTS that add a missing authority conjunct.
+--
+-- COLUMNS: 4 added, all additive. Three on kernel.organization
+-- (connect_transfers_active, connect_state_synced_at, connect_pending_ref) and
+-- ONE ON A MONEY-LEDGER TABLE: kernel.payout.destination_ref.
+--
+-- That last one is a deliberate exception to this migration's original "0 DDL on
+-- any money-ledger table" rule, and it is called out here rather than buried
+-- because that rule was load-bearing. It exists because a proved replacement
+-- race showed kernel.payout had NO destination column at all: an organization's
+-- payout destination could be re-pointed while a payout sat in `submitted`, and
+-- the transfer would follow the new account with no predicate anywhere refusing
+-- it. Recording the authorized destination on the payout row at pending->submitted
+-- is what makes the money's destination a property of the approval rather than of
+-- whatever the organization happens to point at when the worker runs.
+--
+-- ORDERING CONSTRAINT that travels with it: destination_ref must exist before
+-- payout.dual_control_min_minor is ever given a value. That key is seeded NULL,
+-- so X-12 currently parks every payout and the approval row is the only thing
+-- pinning a destination. Setting the threshold is what creates the exposure.
 --
 -- MIGRATIONS 076-092 ARE IMMUTABLE and are not touched. Every behaviour change
 -- to an existing function is a CREATE OR REPLACE of its body at its exact

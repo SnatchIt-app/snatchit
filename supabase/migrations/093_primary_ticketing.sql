@@ -34,8 +34,26 @@
 -- configured to do, not what it does.
 --
 -- SHAPE. 0 new tables. 0 new enum members. 0 new policies beyond two policy
--- REPLACEMENTS that add a missing authority conjunct. 0 DDL on any money-ledger
--- table. 2 new columns, both on kernel.organization, both additive.
+-- REPLACEMENTS that add a missing authority conjunct.
+--
+-- COLUMNS: 4 added, all additive. Three on kernel.organization
+-- (connect_transfers_active, connect_state_synced_at, connect_pending_ref) and
+-- ONE ON A MONEY-LEDGER TABLE: kernel.payout.destination_ref.
+--
+-- That last one is a deliberate exception to this migration's original "0 DDL on
+-- any money-ledger table" rule, and it is called out here rather than buried
+-- because that rule was load-bearing. It exists because a proved replacement
+-- race showed kernel.payout had NO destination column at all: an organization's
+-- payout destination could be re-pointed while a payout sat in `submitted`, and
+-- the transfer would follow the new account with no predicate anywhere refusing
+-- it. Recording the authorized destination on the payout row at pending->submitted
+-- is what makes the money's destination a property of the approval rather than of
+-- whatever the organization happens to point at when the worker runs.
+--
+-- ORDERING CONSTRAINT that travels with it: destination_ref must exist before
+-- payout.dual_control_min_minor is ever given a value. That key is seeded NULL,
+-- so X-12 currently parks every payout and the approval row is the only thing
+-- pinning a destination. Setting the threshold is what creates the exposure.
 --
 -- MIGRATIONS 076-092 ARE IMMUTABLE and are not touched. Every behaviour change
 -- to an existing function is a CREATE OR REPLACE of its body at its exact
@@ -84,6 +102,10 @@
 --   10g  kernel.get_refund_execution_context NEW fn — A2 / E4 §3 (the executor's
 --                                                      missing refund → Stripe
 --                                                      binding; service_role only)
+--   10i  kernel.claim_refunds_for_execution NEW fn — D3 / E4 §3 (the executor's
+--                                                      missing WORK LIST — a
+--                                                      LEASED CLAIM, not a list;
+--                                                      service_role only)
 --   10h  kernel.settlement_royalty_lines  body-only  — A5 (the chargeback arm
 --                                                      double-debited refunded
 --                                                      money and charged the
@@ -622,14 +644,22 @@ declare
   v_s venue.settlement%rowtype; v_c kernel.settlement_line_candidate;
   v_gross bigint; v_fees bigint; v_refunds bigint; v_net bigint;
   v_payout_id uuid; v_ids uuid[] := '{}';
-  -- G2 payout-maturity operands (the gate is at the mint below). EVERY ONE OF
-  -- THEM IS INITIALISED TO THE VALUE THAT HOLDS, so a path that fails to compute
-  -- an operand can only fail toward the hold, never past it.
-  v_maturity interval; v_held boolean := false; v_hold_reason text;
-  v_anchor timestamptz;
-  v_unresolved bigint := 1; v_sess_n bigint := 0; v_sess_no_end bigint := 1;
-  v_cancelled boolean := true; v_refund_open boolean := true; v_dispute_open boolean := true;
-  v_hold_detail jsonb;
+  -- G2 payout-maturity operands. THE CONJUNCTION ITSELF NOW LIVES IN
+  -- kernel.settlement_payout_maturity (10m) and is called from THREE sites: here
+  -- at the mint, in kernel.request_org_payout immediately before the
+  -- pending→submitted advance (10k), and in kernel.get_payout_execution_context
+  -- immediately before the transfer (10n). It was extracted (D-1) for exactly
+  -- one reason: inline, it was a CLOSE-TIME SNAPSHOT that four later state
+  -- changes defeat — a refund reaching 'succeeded' after the close;
+  -- catalog.cancel_event, which touches kernel.payout NOWHERE; a dispute first
+  -- observed already 'lost' (record_dispute_native freezes only on an OPEN
+  -- dispute, 088:804, so the freeze is inverted relative to risk); and Connect
+  -- capability loss. request_org_payout re-derived NONE of the eight predicates.
+  -- One definition, three call sites, so the evaluations cannot drift. The
+  -- operands themselves, and their fail-toward-the-hold initialisation, moved
+  -- wholesale into 10m — nothing about the gate's meaning changed here.
+  v_held boolean := false; v_hold_reason text; v_hold_detail jsonb;
+  v_maturity_verdict jsonb;
 begin
   select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
   if not found then raise exception 'not_found: settlement %', p_settlement_id using errcode = 'P0002'; end if;
@@ -782,98 +812,19 @@ begin
     --
     -- READ AS THE HOUSE PATTERN: absent row, JSON null and unparseable value all
     -- collapse to NULL and therefore to the hold (the 081:630-639 idiom).
-    begin
-      v_maturity := (select (c.value #>> '{}')::interval
-                       from catalog.platform_config c
-                      where c.key = 'payout.settlement_maturity_interval'
-                      order by c.version desc limit 1);
-    exception when others then v_maturity := null;
-    end;
-    -- THE COVERED SET IS DERIVED FROM THIS SETTLEMENT'S OWN LINES, not from the
-    -- header's scope predicate. The lines are already written above, they are the
-    -- money actually being paid, and 088's chargeback arm deliberately carries NO
-    -- scope predicate (088:311-316) — so a scope-based derivation would miss
-    -- exactly the rows most likely to be in dispute. One statement, no raise: every
-    -- lookup is a scalar subquery that yields NULL rather than failing, and NULL is
-    -- counted as unresolved.
-    with cov_line as (
-      select l.cause,
-             case l.cause
-               when 'primary_sale'        then (select pn.payment_id from kernel.payment_native pn where pn.order_id = l.cause_ref)
-               when 'refund_void'         then (select r.payment_id from kernel.refund r where r.refund_id = l.cause_ref)
-               when 'chargeback'          then (select d.payment_id from kernel.dispute_native d where d.dispute_id = l.cause_ref)
-               when 'market_sale'         then (select ms.payment_id from market.market_sale ms where ms.sale_id = l.cause_ref)
-               when 'promoter_commission' then (select pn.payment_id from venue.attribution a
-                                                  join kernel.payment_native pn on pn.order_id = a.order_id where a.id = l.cause_ref)
-             end as payment_id,
-             case l.cause
-               when 'primary_sale'        then (select o.event_session_id from venue."order" o where o.order_id = l.cause_ref)
-               when 'refund_void'         then (select o.event_session_id from kernel.refund r
-                                                  join kernel.payment_native pn on pn.payment_id = r.payment_id
-                                                  join venue."order" o on o.order_id = pn.order_id where r.refund_id = l.cause_ref)
-               when 'chargeback'          then (select o.event_session_id from kernel.dispute_native d
-                                                  join kernel.payment_native pn on pn.payment_id = d.payment_id
-                                                  join venue."order" o on o.order_id = pn.order_id where d.dispute_id = l.cause_ref)
-               when 'market_sale'         then (select t.event_session_id from market.market_sale ms
-                                                  join kernel.tickets t on t.ticket_atom_id = ms.ticket_atom_id where ms.sale_id = l.cause_ref)
-               when 'promoter_commission' then (select o.event_session_id from venue.attribution a
-                                                  join venue."order" o on o.order_id = a.order_id where a.id = l.cause_ref)
-             end as session_id
-        from venue.settlement_line l
-       where l.settlement_id = p_settlement_id
-         -- the five causes the three seams emit. Any OTHER cause on this header is
-         -- a hand-written line of unknown provenance; it contributes no anchor, so
-         -- a settlement made only of such lines lands on v_sess_n = 0 and holds.
-         and l.cause in ('primary_sale','refund_void','chargeback','market_sale','promoter_commission')
-    ),
-    cov_session as (select distinct cl.session_id from cov_line cl where cl.session_id is not null)
-    select
-      (select count(*) from cov_line cl where cl.payment_id is null or cl.session_id is null),
-      (select count(*) from cov_session),
-      (select count(*) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id where es.ends_at is null),
-      (select max(es.ends_at) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id),
-      (select exists (select 1 from cov_session cs
-                        join catalog.event_session es on es.session_id = cs.session_id
-                        join catalog.event e on e.event_id = es.event_id
-                       where es.status = 'cancelled' or e.status = 'cancelled')),
-      -- NON-TERMINAL refund: kernel.refund runs pending → submitted →
-      -- succeeded|failed (085:82-85). Money is still in motion in the first two.
-      (select exists (select 1 from cov_line cl join kernel.refund r on r.payment_id = cl.payment_id
-                       where r.status in ('pending','submitted'))),
-      -- OPEN dispute: the four non-terminal members of dispute_native.status
-      -- (085 DDL). 'won' / 'warning_closed' are closed favourably; 'lost' /
-      -- 'charge_refunded' are closed adversely AND already lined by 10h.
-      (select exists (select 1 from cov_line cl join kernel.dispute_native d on d.payment_id = cl.payment_id
-                       where d.status in ('warning_needs_response','warning_under_review','needs_response','under_review')))
-      into v_unresolved, v_sess_n, v_sess_no_end, v_anchor, v_cancelled, v_refund_open, v_dispute_open;
-    -- FIRST FAILING PREDICATE WINS THE CODE, in causal order: you cannot ask
-    -- whether money has matured until you know the policy, what the money is
-    -- about, and when the event ended. The FULL vector goes to the audit and to
-    -- the additive 'payout_hold_detail' key, so precedence hides nothing.
-    v_hold_reason := case
-      -- 'unbounded_refund_exposure' is retained VERBATIM for the policy-unset arm:
-      -- it is the same fact it always named (no policy ⇒ the exposure is unbounded)
-      -- and it keeps every operator runbook and the 151 C20i..C20n block intact.
-      when v_maturity is null                                    then 'unbounded_refund_exposure'
-      when v_maturity < interval '0'                             then 'maturity_policy_invalid'
-      when coalesce(v_unresolved, 1) > 0                         then 'covered_set_unresolvable'
-      when coalesce(v_cancelled, true)                           then 'event_cancelled'
-      when coalesce(v_sess_n, 0) = 0
-        or coalesce(v_sess_no_end, 1) > 0
-        or v_anchor is null                                      then 'maturity_instant_unknown'
-      when now() < v_anchor + v_maturity                         then 'maturity_not_elapsed'
-      when coalesce(v_refund_open, true)                         then 'refund_in_flight'
-      when coalesce(v_dispute_open, true)                        then 'dispute_open'
-      else null
-    end;
-    v_held := v_hold_reason is not null;
-    v_hold_detail := jsonb_build_object(
-      'maturity_interval',  case when v_maturity is null then null else v_maturity::text end,
-      'maturity_anchor',    v_anchor,
-      'matures_at',         case when v_anchor is null or v_maturity is null then null else (v_anchor + v_maturity) end,
-      'covered_sessions',   v_sess_n, 'sessions_without_end', v_sess_no_end,
-      'unresolvable_lines', v_unresolved, 'event_cancelled', v_cancelled,
-      'refund_in_flight',   v_refund_open, 'dispute_open', v_dispute_open);
+    -- ONE CALL, AND THE OPERANDS ARE NO LONGER RE-DERIVED HERE. Everything the
+    -- commentary above describes — the config read with its absent / JSON-null /
+    -- unparseable collapse to NULL, the covered set derived from THIS
+    -- settlement's own lines, the causal predicate order, the
+    -- first-failing-predicate-wins rule and the full detail vector — is now
+    -- kernel.settlement_payout_maturity (10m), verbatim. It never raises (a
+    -- raise here would roll back the whole close and the ledger would never
+    -- record what the venue is owed) and it fails toward the hold on every
+    -- missing operand, exactly as this block did.
+    v_maturity_verdict := kernel.settlement_payout_maturity(p_settlement_id);
+    v_hold_reason := v_maturity_verdict ->> 'hold_reason';
+    v_held        := v_hold_reason is not null;
+    v_hold_detail := coalesce(v_maturity_verdict -> 'detail', '{}'::jsonb);
     insert into kernel.payout (payee_kind, payee_org_id, cause, cause_ref, amount_minor, currency, status, idempotency_key,
                                hold_state, hold_reason_code, held_by, held_at)
     values ('organization', v_s.org_id, 'settlement', p_settlement_id, v_net::integer, v_s.currency, 'pending',
@@ -1262,6 +1213,1563 @@ begin
   order by 1, 2;
 end;
 $$;
+
+
+-- ============================================================================
+-- 10i — kernel.claim_refunds_for_execution(p_limit int, p_lease_seconds int) — NEW.
+--   Ruling D3 (build the refund executor) · E4_refund_executor.md §3 trailing
+--   note + §5 · PFA-21 (service_role: USAGE only, no table/DML grants) ·
+--   PFA-23 · H1_refund_architecture.md.
+--
+--   THE GAP IT CLOSES. 10g gave the executor its READ. It still has no WORK
+--   LIST. refund-execute's `action: sweep` — the leg that drains every refund
+--   row a crash, a Stripe timeout or catalog.cancel_event left behind — calls a
+--   function that does not exist (index.ts:496) and therefore answers 501. A
+--   full local replay of 000-093 confirms it: kernel.list_pending_refunds is
+--   absent. Single refunds would work on deploy day; INTERRUPTED ones would be
+--   unfindable, which is precisely the class this executor exists to recover.
+--
+--   WHY THIS IS A CLAIM AND NOT A LIST. E4 §3's trailing note names
+--   `kernel.list_pending_refunds(integer)`. A bare list is refused here, and the
+--   refusal is the whole point: a list hands N workers the SAME N refunds and
+--   relies on Stripe's idempotency key alone to keep the money right. That key
+--   IS the last line of defence and it must never also be the first. This verb
+--   hands each refund to ONE worker for a bounded lease, exactly as
+--   064_webhook_event_claim_lease.sql does for Stripe deliveries, so a healthy
+--   race never becomes a herd against Stripe's API.
+--
+--   THE LEASE IS AN AUDIT ROW, NOT A COLUMN. 064 stamps claimed_at on
+--   public.stripe_webhook_events. kernel.refund is a money-ledger table under an
+--   owner-signed freeze and 093 does no DDL on one, so the lease is carried by
+--   an append-only kernel.admin_audit row (`action = 'refund.execute_claim'`,
+--   subject_kind 'refund'). That is strictly BETTER than a column for this
+--   problem, and not merely a workaround:
+--     * every attempt on money is durably recorded rather than overwritten —
+--       admin_audit is UPDATE/DELETE-revoked even for service_role (077:259)
+--       and trigger-guarded (077:261-264);
+--     * `min(occurred_at)` over those rows is the FIRST-ATTEMPT INSTANT, which
+--       is the operand the Stripe idempotency window below needs and which a
+--       single mutable claimed_at column cannot express;
+--     * `count(*)` is the attempt counter 064 keeps in a column, for free.
+--
+--   THE STRIPE IDEMPOTENCY WINDOW — the defect this verb refuses to enable.
+--   E4 §5 cases 2/3/13 all recover by REPLAYING `refund_<refund_id>` and relying
+--   on Stripe returning the ORIGINAL Refund object. Stripe retains an
+--   idempotency key's result for 24 HOURS. After that the key is forgotten and
+--   the identical request creates a SECOND, REAL refund. A work list that hands
+--   a worker a `pending` row whose key was first used 25 hours ago is therefore
+--   a double-payment generator, and the schedule (a crashed worker, a paused
+--   cron, a paused project) makes that ordinary rather than exotic. So the
+--   DATABASE decides, per row, which of two modes the worker is authorized to
+--   run, and the worker cannot pick:
+--     'create'    — safe to POST /v1/refunds under refund_<refund_id>: either
+--                   the key has NEVER been used (no claim row) or its first use
+--                   is inside the window. A replay inside the window is
+--                   deduped by Stripe and returns the original object.
+--     'reconcile' — the key is unusable as a dedup token, so the worker must
+--                   first ESTABLISH what exists at Stripe (the row's own
+--                   stripe_refund_ref when it has one, else a search of the
+--                   PaymentIntent's refunds for metadata.refund_id, which the
+--                   executor always writes) and only create if nothing is
+--                   there. Never a blind create.
+--   The window is 20 hours, not 24: a 4-hour margin against clock skew and
+--   against a claim stamped before a long Stripe call. It is a CONSTANT, not a
+--   parameter and not a config key — a caller-tunable dedup window is the
+--   tampering vector this verb exists to remove.
+--
+--   'submitted' IS IN SCOPE, AND THAT IS A BUG FIX. E4 §5 case 4 leaves a row
+--   stranded at 'submitted' when a worker dies between the two mark_refund_state
+--   calls, and E4's own sweep filters `status = 'pending'` (executor.ts:497), so
+--   nothing would ever pick it up again. A stranded 'submitted' row keeps the
+--   buyer's account deletion blocked forever (BP-12 arm 1, 085:249-262) — the
+--   SAME defect ruling D3 was issued to close, one state later. A 'submitted'
+--   row always carries a ref (refund_ref_pairing_ck, 085:93), so it is always
+--   'reconcile' and can never mint a second refund.
+--
+--   WHAT THIS VERB CANNOT DO, BY CONSTRUCTION. It takes no payment, no order,
+--   no venue, no organization, no identity, no amount, no destination and no
+--   refund id: there is NO parameter by which a caller can name a subject at
+--   all. It returns refund ids and a mode. It moves no money, transitions no
+--   refund (mark_refund_state, 085:1737, remains the only writer of status) and
+--   projects no PaymentIntent, no buyer and no amount — the executor still has
+--   to go through 10g for those, under 10g's own X-6 / ruling-F projection. The
+--   name is the whole capability: it claims refunds, for execution.
+--
+--   THE COMMAND KEY IS DB-DERIVED. `refund.execute:<refund_id>` is returned
+--   rather than minted by the worker (index.ts built `sweep:<uuid>` itself), so
+--   the audit identity of an execution attempt comes from the durable refund
+--   fact and two workers on one refund cannot land under two audit identities.
+--   42 chars: inside admin_audit's budget with no truncation.
+--
+--   ATOMICITY. `for update ... skip locked` on kernel.refund is what makes the
+--   claim exclusive: a concurrent claimer never even evaluates a row another
+--   transaction holds, and by the time the lock is released the claim's audit
+--   row is committed and the `not exists` predicate excludes it for the lease.
+--   Same guarantee 064 gets from its single INSERT … ON CONFLICT statement.
+--   The row lock ends with this transaction; the LEASE is the audit row.
+-- ============================================================================
+create or replace function kernel.claim_refunds_for_execution(
+  p_limit integer default 25, p_lease_seconds integer default 900)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  -- Both operands are CLAMPED, not trusted. p_lease_seconds = 0 from a
+  -- misconfigured worker would make the lease vacuous and re-create the herd
+  -- this function exists to prevent; p_limit is bounded so one tick cannot
+  -- claim the entire backlog and sit on it.
+  v_limit   integer  := least(greatest(coalesce(p_limit, 25), 1), 100);
+  v_lease   integer  := least(greatest(coalesce(p_lease_seconds, 900), 60), 3600);
+  -- Stripe retains an idempotency key's result for 24h; 4h of margin.
+  v_window  constant interval := interval '20 hours';
+  v_sys     constant uuid := '00000000-0000-0000-0000-0000000000f1';
+  v_rows    jsonb := '[]'::jsonb;
+  v_r       record;
+  v_first   timestamptz;
+  v_tries   integer;
+  v_mode    text;
+begin
+  for v_r in
+    select r.refund_id, r.created_at, r.status, r.stripe_refund_ref
+      from kernel.refund r
+     where r.status in ('pending','submitted')      -- the two UNFINISHED states
+       and not exists (
+             select 1 from kernel.admin_audit a
+              where a.subject_kind = 'refund'
+                and a.subject_id   = r.refund_id
+                and a.action       = 'refund.execute_claim'
+                and a.occurred_at  > now() - make_interval(secs => v_lease))
+     order by r.created_at, r.refund_id                     -- oldest money first
+     limit v_limit
+     for update skip locked
+  loop
+    select min(a.occurred_at), count(*)::integer into v_first, v_tries
+      from kernel.admin_audit a
+     where a.subject_kind = 'refund' and a.subject_id = v_r.refund_id
+       and a.action = 'refund.execute_claim';
+
+    if v_r.status = 'submitted' then
+      v_mode := 'reconcile';                       -- always carries a ref (085:93)
+    elsif v_first is null or v_first > now() - v_window then
+      v_mode := 'create';                          -- key unused, or still deduped
+    else
+      v_mode := 'reconcile';                       -- key expired: establish, then act
+    end if;
+
+    insert into kernel.admin_audit
+           (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+    values (v_sys, 'refund.execute_claim', 'refund', v_r.refund_id, v_mode,
+            jsonb_build_object('status', v_r.status,
+                               'stripe_refund_ref', v_r.stripe_refund_ref),
+            jsonb_build_object('execution_mode', v_mode,
+                               'attempt', v_tries + 1,
+                               'lease_seconds', v_lease,
+                               'first_attempt_at', coalesce(v_first, now())));
+
+    v_rows := v_rows || jsonb_build_object(
+      'refund_id',      v_r.refund_id,
+      'created_at',     v_r.created_at,
+      'status',         v_r.status,
+      'execution_mode', v_mode,
+      'attempt',        v_tries + 1,
+      'command_key',    'refund.execute:' || v_r.refund_id::text);
+  end loop;
+
+  return jsonb_build_object('refunds', v_rows,
+                            'lease_seconds', v_lease,
+                            'claimed_at', now());
+end;
+$$;
+
+-- EXEC DEF (§0.1a): a MACHINE verb on the money execution path — service_role
+-- only, never a client. Revoke the default PUBLIC EXECUTE first (076 discipline).
+revoke all on function kernel.claim_refunds_for_execution(integer, integer)
+  from public, anon, authenticated;
+grant execute on function kernel.claim_refunds_for_execution(integer, integer) to service_role;
+
+-- ============================================================================
+-- 10j — kernel.deletion_blockers_money (085:229-285) — BODY ONLY.
+--       H2: BP-12 arm 2's CLOCK is re-anchored, and its operand is renamed.
+--       Full argument and executed matrix: docs/phase2/_impl/H2_deletion_clock.md
+-- ============================================================================
+--
+-- THE DEFECT. BP-12 arm 2 measured its window from `venue."order".created_at`
+-- — the PAYMENT clock:
+--
+--     and o.created_at > now() - make_interval(hours => v_window::int)   -- 085:281
+--
+-- so ORDER AGE was taken as proof that an event-related obligation was finished.
+-- Executed against snatchit_rehears_del with the key set to 720 (30 days), the
+-- following identities were ALL fully erasable — every deletion arm clear, and
+-- kernel.sweep_deletion_pending tombstoned them — BEFORE their event happened:
+--
+--   * bought 90 days out, event in 10 days                        (the G7 P0-3 case)
+--   * bought 90 days out, PARTIALLY REFUNDED already, event in 10 days
+--   * bought 90 days out, session already CANCELLED, event in 10 days
+--   * bought 90 days out, multi-session and multi-day events still ahead
+--   * bought 90 days out, event POSTPONED further into the future
+--
+-- The only buyer the old clock protected was the one who had bought RECENTLY —
+-- and it protected them for the wrong reason (when they paid), not because
+-- their event had not happened. Meanwhile kernel.close_settlement's G2 maturity
+-- gate was simultaneously holding the VENUE's money on `refund_in_flight` /
+-- `dispute_open` predicates that, after the tombstone, can no longer identify
+-- the counterparty. The two halves of this train contradicted each other on the
+-- same question.
+--
+-- ENGAGING WITH 085's OWN STATED REASONING. The 085 comment defends created_at
+-- as "the only stable timestamp on the immutable 082 table", and PFA-22 defends
+-- it as expiring "no later than a paid-time window would". Both statements are
+-- TRUE and both are IRRELEVANT: they compare two PAYMENT-clock instants to each
+-- other and never consider the event clock at all. The anchor does not have to
+-- live on 082. `venue."order".event_session_id` is `not null references
+-- catalog.event_session(session_id) on delete restrict` (082:77), so the join is
+-- TOTAL (every order resolves to exactly one session) and STABLE (the referent
+-- cannot be deleted out from under it). This is the identical derivation G2
+-- built for the settlement maturity gate, restricted to one identity's orders.
+--
+-- THE ANCHOR:
+--
+--     anchor(identity) = max( coalesce(session.ends_at, session.starts_at) )
+--                        over the sessions of the identity's CANDIDATE orders
+--
+-- and the arm blocks while `now() < anchor + deletion.post_event_hold_hours`.
+--
+--   * `max` because erasure is per-IDENTITY: one unmatured order must hold the
+--     whole account. Multi-session and multi-day events fall out of this for
+--     free (verified: a two-session buyer anchors on day 2; a single session
+--     running days 10-13 anchors on day 13).
+--   * `coalesce(ends_at, starts_at)` because `ends_at` is NULLABLE (078:170) and
+--     `catalog.create_event_session` requires only `starts_at` (078:805-807).
+--     G2 fails CLOSED here — a payout with an unknown end simply never matures,
+--     and `kernel.release_payout` is a human exit. THIS GATE HAS NO SUCH EXIT:
+--     nothing in the corpus can force-tombstone an identity, so blocking on an
+--     unknown end would be an UNBOUNDED erasure block with no release verb —
+--     an erasure-law failure, not a safety property. `starts_at` is NOT NULL,
+--     is event-anchored, and is at most one session-duration early; the hold
+--     interval swamps that gap. Bounded and honest beats unbounded and unusable.
+--   * the ORDER'S OWN session, not every session of its event: a day-1 buyer's
+--     obligation is day 1. An event-grain cancellation that reaches them opens a
+--     `kernel.refund` row, which arm 1 blocks on independently.
+--
+-- CANDIDATE SET UNCHANGED, verbatim from PFA-22: paid / partially_refunded. A
+-- `refunded` order carries no further refund exposure, and a post-tombstone
+-- chargeback is OR-13/16c's ruled path (it lands against the tombstone) with
+-- BP-10 (kernel.identity_obligation) as its blocker. Widening here would add
+-- population without a named risk the corpus does not already carry.
+--
+-- THE CONFIG READ IS NO LONGER POISONABLE — a SECOND defect, found by execution
+-- while testing the first, and it is worse than the one above.
+-- 085:273-276 reads the operand as
+--
+--     select (c.value #>> '{}')::numeric into v_window
+--       from catalog.platform_config c where c.key = '…'
+--      order by c.version desc limit 1;
+--
+-- Postgres may evaluate the target list BEFORE the LIMIT, so the ::numeric cast
+-- is applied to EVERY historical version of the key, not just the newest.
+-- `catalog.platform_config` is APPEND-ONLY (tg_platform_config_append_only), so
+-- one bad version is permanent. Executed: with versions [null, 720,
+-- "720 hours", 720] the whole function raises `invalid input syntax for type
+-- numeric` — for EVERY identity, not only the one who typed it. That exception
+-- is swallowed by sweep_deletion_pending's per-identity `exception when others`
+-- (077:2038-2041), so THE DELETION MACHINE SILENTLY STOPS TOMBSTONING ANYONE,
+-- FOREVER, leaving only a `raise warning` in the log. And `"720 hours"` is the
+-- single most likely typo on this key, because the sibling key
+-- `ticket.expiry_grace` REQUIRES exactly that string form. One platform_admin,
+-- one plausible statement, no dual control on `deletion.%` before this change.
+-- CLOSED here by reading the raw jsonb out of an ordered SUBQUERY and branching
+-- on jsonb_typeof, so no cast is ever applied to a row the LIMIT discards, and
+-- a bad version is named, survivable, and superseded by the next good one.
+--
+-- FAIL-CLOSED IN EVERY DIRECTION (G2's "never assume satisfied" discipline), and
+-- every block names a BOUNDED, actionable instant or a nameable policy fault:
+--   value absent / JSON null        -> block, 'hold unset'          (PFA-22 verbatim)
+--   value not a JSON number         -> block, 'policy invalid — type'
+--   value < 0 or > 87600 (10 years) -> block, 'policy invalid — range'
+--   anchor unresolvable             -> block, 'anchor unknown'      (unreachable by schema; kept as the guard)
+--   now() < anchor + hold           -> block, and the message CARRIES the maturity instant
+-- With NO candidate order the arm is skipped entirely — the owner's PFA-22
+-- scoping ruling, unchanged: a NULL value must not block an identity that has
+-- no qualifying order.
+--
+-- WHAT IS NOT TOUCHED: BP-5, BP-6 and BP-12 arm 1 are transcribed BYTE-FOR-BYTE
+-- from 085:235-261. The signature, return type, volatility, security mode and
+-- search_path are the 077 stub's, unchanged, so SEAM-2a holds and CREATE OR
+-- REPLACE preserves the ACLs 077 authored (085:2124-2125 states this contract).
+--
+-- THE OPERAND IS RENAMED — and the prefix is load-bearing, exactly as it was for
+-- G2's `payout.settlement_maturity_interval`:
+--   `deletion.refund_possible_window_hours` -> `deletion.post_event_hold_hours`
+--   (a) The old NAME says "refund possible window", i.e. refund ELIGIBILITY —
+--       which 085:2186-2187 and PFA-22 both go out of their way to say this key
+--       is NOT ("the key controls DELETION SAFETY only"). The name has been
+--       wrong since PFA-22; the anchor bug and the name bug are one bug.
+--   (b) A changed anchor is a CHANGED CONTRACT. Re-pointing the same key would
+--       silently re-interpret any value an operator had already stored.
+--   (c) The family stays `deletion.` deliberately — this IS a deletion-safety
+--       key, and filing it under `refund.` or `payout.` to buy dual control
+--       would re-collapse the very concepts this change separates. Dual control
+--       is bought instead by adding `deletion.%` to set_platform_config's prefix
+--       list, in slice 40, which is where the row and the setter both live.
+-- The 085 row survives as an unread orphan (platform_config is append-only and
+-- 085 is immutable) — the same residue G2's rename left behind, recorded rather
+-- than hidden. Nothing reads it after this migration, which also retires its
+-- poisonable read.
+--
+-- SEPARATION OF CONCEPTS, restated because collapsing them is what produced the
+-- defect:  TICKET EXPIRY (admissibility at a door; ticket.expiry_grace; BP-1)
+--       != REFUND ELIGIBILITY (may the buyer still ask; refund.% keys)
+--       != DELETION SAFETY (may this identity be irreversibly tombstoned; THIS)
+--       != PAYOUT MATURITY (may the venue's money leave; payout.settlement_maturity_interval).
+-- Four clocks, four keys, four subjects. This function owns exactly one of them.
+
+create or replace function kernel.deletion_blockers_money(p_identity uuid)
+returns text language plpgsql volatile security definer set search_path = ''
+as $$
+declare
+  v_raw        jsonb;
+  v_hold_hours numeric;
+  v_anchor     timestamptz;
+  v_matures_at timestamptz;
+begin
+  -- BP-5: an IN-FLIGHT identity payout (pending/submitted). Terminal failed/
+  -- reversed do NOT block forever (R1 P3 — no transition exits them).
+  if exists (select 1 from kernel.payout p
+              where p.payee_identity_id = p_identity and p.status in ('pending','submitted')) then
+    return 'BP-5: identity payout in flight';
+  end if;
+  -- BP-6: a payout under hold/probation for this identity.
+  if exists (select 1 from kernel.payout p
+              where p.payee_identity_id = p_identity and p.hold_state <> 'none') then
+    return 'BP-6: identity payout under hold';
+  end if;
+  -- BP-12 arm 1: an in-flight refund on the identity's orders (non-terminal
+  -- refund row, or a pending refund approval request on one of their orders).
+  if exists (
+       select 1
+         from kernel.refund r
+         join kernel.payment_native pn on pn.payment_id = r.payment_id
+         join venue."order" o on o.order_id = pn.order_id
+        where o.buyer_id = p_identity and r.status in ('pending','submitted'))
+     or exists (
+       select 1
+         from kernel.approval_request ar
+         join venue."order" o on o.order_id = ar.subject_id
+        where ar.action = 'refund.issue' and ar.subject_kind = 'order'
+          and ar.state = 'pending' and o.buyer_id = p_identity) then
+    return 'BP-12: refund in flight';
+  end if;
+  -- BP-12 arm 2 (PFA-22, re-anchored by H2): the POST-EVENT deletion hold over
+  -- candidate orders. Candidates = the identity's paid/partially_refunded
+  -- orders (PFA-22 verbatim). With NO candidate the arm is skipped entirely, so
+  -- an unset value never blocks an identity that has no qualifying order —
+  -- the owner's scoping ruling, preserved exactly.
+  if exists (select 1 from venue."order" o
+              where o.buyer_id = p_identity
+                and o.status in ('paid','partially_refunded')) then
+    -- The read is a SUBQUERY so the LIMIT is applied BEFORE any cast: casting in
+    -- an ordered target list would touch every historical version of the key and
+    -- one bad append would permanently break this function for EVERY identity.
+    select v.value into v_raw
+      from (select c.value
+              from catalog.platform_config c
+             where c.key = 'deletion.post_event_hold_hours'
+             order by c.version desc
+             limit 1) v;
+    if v_raw is null or jsonb_typeof(v_raw) = 'null' then
+      return 'BP-12: post-event deletion hold unset (deletion.post_event_hold_hours) with candidate orders present';
+    end if;
+    if jsonb_typeof(v_raw) <> 'number' then
+      return 'BP-12: post-event deletion hold policy invalid — deletion.post_event_hold_hours must be a JSON NUMBER of hours, got ' || jsonb_typeof(v_raw);
+    end if;
+    v_hold_hours := (v_raw #>> '{}')::numeric;
+    if v_hold_hours < 0 or v_hold_hours > 87600 then
+      return 'BP-12: post-event deletion hold policy invalid — deletion.post_event_hold_hours must be 0..87600 hours';
+    end if;
+    -- THE ANCHOR (H2). max() because erasure is per-identity; coalesce because
+    -- ends_at is nullable and an unbounded erasure block has no release verb.
+    select max(coalesce(es.ends_at, es.starts_at))
+      into v_anchor
+      from venue."order" o
+      join catalog.event_session es on es.session_id = o.event_session_id
+     where o.buyer_id = p_identity
+       and o.status in ('paid','partially_refunded');
+    if v_anchor is null then
+      -- Unreachable while event_session_id is NOT NULL with an ON DELETE RESTRICT
+      -- FK and starts_at is NOT NULL. Kept as the fail-closed guard: an operand
+      -- this function could not compute must never read as "satisfied".
+      return 'BP-12: post-event deletion anchor unknown for a candidate order';
+    end if;
+    v_matures_at := v_anchor + make_interval(hours => floor(v_hold_hours)::int);
+    if now() < v_matures_at then
+      -- The instant goes IN THE MESSAGE: sweep_deletion_pending writes this to
+      -- kernel.identity_ext.deletion_block_reason, so an operator (and the
+      -- erasure-request audit trail) can see exactly when the account clears.
+      return 'BP-12: inside the post-event deletion hold — erasable after '
+             || to_char(v_matures_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+    end if;
+  end if;
+  return null;
+end;
+$$;
+
+-- GRANTS: NONE, deliberately. kernel.deletion_blockers_money is a DEFINER-
+-- INTERNAL hook called only by kernel.sweep_deletion_pending; 085:2124-2125
+-- records that it "keeps its 077 grants (CREATE OR REPLACE preserves ACLs)".
+-- Re-granting here would restate a frozen ACL and risk widening it.
+
+
+-- ============================================================================
+-- 10j — kernel.payout.destination_ref: PIN THE PAYEE AT AUTHORIZATION.
+--   H6 (docs/phase2/_impl/H6_payout_destination.md, agent F) ·
+--   H8 (docs/phase2/_impl/H8_payout_executor.md) · H3 §5.
+--
+--   *** THIS IS A NEW COLUMN ON A MONEY-LEDGER TABLE. It is a deliberate    ***
+--   *** SCOPE ADDITION to 093 and it overrides H3 §4's "kernel.payout       ***
+--   *** columns: NONE" and the migration header's "0 DDL on any             ***
+--   *** money-ledger table". Both were written before F executed the race   ***
+--   *** below. It belongs in 093 rather than a 094 because 093 has never    ***
+--   *** been deployed: adding it now is a column on an empty rail, whereas  ***
+--   *** adding it later is a column on live money.                          ***
+--
+--   THE RACE, PROVED — NOT THEORETICAL. kernel.payout has no destination column
+--   at all, so nothing in the row records WHO the authorized payee was:
+--     · destination at authorization: acct_ORGAMINTED
+--     · kernel.set_org_payout_destination re-points the org to acct_RACEDEST
+--       while the payout is still status='submitted'
+--     · the payout row is UNCHANGED — there is nothing in it to change
+--     · kernel.mark_payout_transfer_state(...,'paid',...) accepts the result
+--       with NO destination predicate whatsoever (085:1668-1735 tests status,
+--       hold_state and the ref, and nothing else)
+--     · no approval row pins it either, once the request has been consumed
+--   and the paid-after-change payout.state_sync row then DISARMS destination
+--   probation for the NEXT payout (087:479-481 reads exactly that audit row).
+--   One re-point therefore both diverts the money in flight and lowers the
+--   guard behind it.
+--
+--   WHY PINNING, AND NOT "RE-READ AT EXECUTION". The payee was decided when
+--   kernel.request_org_payout authorized the payout behind SoD-1 destination-
+--   setter exclusion, money-role maturity, an aal2 step-up and — above the
+--   dual-control threshold — a second approver. A later re-point passed NONE of
+--   those. An execution-time re-read would let a destination that was never
+--   approved inherit an approval it never received. That is the same staleness
+--   087:506 already refuses at request time (an approval naming a different
+--   destination is marked 'stale' and never honoured); this column extends the
+--   same rule past the moment the approval is consumed.
+--
+--   AND WHY PINNING ALONE IS ALSO WRONG. A pinned destination can be disabled,
+--   disconnected or rejected by Stripe between authorization and execution, and
+--   paying it would be paying a dead account. So the contract is BOTH:
+--     BIND at pending→submitted (here, and in 10k's request_org_payout),
+--     RE-VERIFY at execution as a fail-closed cross-check (10n), and on
+--     divergence do NOT pay and do NOT fail — de-authorize (10o).
+--
+--   LAUNCH-SEQUENCE REQUIREMENT, NOT A NICETY. 'payout.dual_control_min_minor'
+--   is seeded NULL, and X-12 makes NULL restrictive, so TODAY every payout is
+--   parked and the kernel.approval_request row's payload.destination_ref is
+--   what pins the destination. The exposure above is created by SETTING that
+--   config key — the direct-advance arm (087:566-572) has no approval row and
+--   therefore no pin at all. THIS COLUMN MUST LAND BEFORE
+--   'payout.dual_control_min_minor' IS EVER SET.
+--
+--   SHAPE. Nullable (every historical row predates the pin and every payout
+--   born 'pending' has not been authorized yet), text, constrained to Stripe's
+--   account-id shape so a malformed value is unstorable rather than merely
+--   refused at the edge. Re-writable, and only by request_org_payout: a payout
+--   de-authorized by 10o must be able to re-pin a NEW destination when a human
+--   releases the hold and the org re-requests behind the full control set.
+-- ============================================================================
+alter table kernel.payout
+  add column if not exists destination_ref text;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'payout_destination_ref_shape_ck'
+                   and conrelid = 'kernel.payout'::regclass) then
+    alter table kernel.payout
+      add constraint payout_destination_ref_shape_ck
+      check (destination_ref is null or destination_ref ~ '^acct_[A-Za-z0-9]+$');
+  end if;
+end $$;
+
+comment on column kernel.payout.destination_ref is
+  'The Stripe Connect destination this payout was AUTHORIZED against, pinned by kernel.request_org_payout at pending->submitted. The executor sends THIS value and never a fresh read; a divergence from the organization''s current ref de-authorizes the payout (kernel.hold_payout_destination_changed). NULL = not yet authorized.';
+
+
+-- ============================================================================
+-- 10k — kernel.request_org_payout (087:408-575) — BODY ONLY, TWO CHANGES.
+--   H6 (the destination pin) · D-1 (the maturity gate is not inherited).
+--
+--   CHANGE 1 — THE PIN. The two arms that advance pending→submitted now also
+--   write destination_ref = v_org.stripe_connect_account_ref.
+--
+--   CHANGE 2 — THE MATURITY RE-DERIVATION. One guard is inserted immediately
+--   after the probation arm and before everything that can advance or park,
+--   calling kernel.settlement_payout_maturity (10m) — the SAME definition the
+--   mint uses — and holding the payout with the returned reason instead of
+--   advancing. 087 re-derived NONE of the eight predicates; it only honoured a
+--   hold somebody else had already set, and that hold was a close-time
+--   snapshot. Adds one result-set member, 'maturity_held'; changes none.
+--
+--   Nothing else differs — not the signature, not SECURITY DEFINER, not
+--   search_path, not one existing precondition, not one existing audit row, not
+--   one existing return shape, not one comment. Diff it against 087:408-575:
+--   two UPDATE statements gain a column, one declare and one guard block are
+--   inserted, and nothing else moves.
+--
+--   WHY BOTH ARMS AND ONLY THESE ARMS. These are the ONLY writers of
+--   status='submitted' on kernel.payout, verified against the live catalogue:
+--   the five functions whose bodies UPDATE kernel.payout are hold_payout,
+--   release_payout and record_dispute_native (hold_state only),
+--   mark_payout_transfer_state (which REFUSES 'submitted' outright, 085:1681)
+--   and this one. So pinning here pins every authorized payout, with no second
+--   door.
+--
+--   THE VALUE PINNED IS THE ONE THE CONTROLS PASSED. In the approved-request
+--   arm, 087:506 has already refused any approval whose payload destination_ref
+--   differs from v_org.stripe_connect_account_ref, so the org's current ref IS
+--   the approved destination at that instant. In the direct arm the same row
+--   was read under the organization's FOR UPDATE lock (087:428) after the
+--   cool-down and probation gates, so it is the destination those gates were
+--   evaluated against. In neither arm is a fresh read introduced.
+--
+--   087 IS NOT MODIFIED. This is a CREATE OR REPLACE at the exact existing
+--   signature, which is the discipline 093 uses everywhere for a behaviour
+--   change to a shipped function (migrations 076-092 are immutable).
+-- ============================================================================
+create or replace function kernel.request_org_payout(p_org_id uuid, p_settlement_id uuid, p_command_key text)
+returns jsonb language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid(); v_s venue.settlement%rowtype; v_po kernel.payout%rowtype; v_org kernel.organization%rowtype;
+  v_threshold bigint; v_threshold_ver integer; v_req uuid; v_aal text;
+  v_prob_days integer; v_changed_at timestamptz; v_ar kernel.approval_request%rowtype;
+  v_maturity_now jsonb;   -- D-1: the G2 verdict, re-derived immediately before the advance
+begin
+  if v_uid is null then raise exception 'insufficient_privilege: authenticated actor required' using errcode = '42501'; end if;
+  if not kernel.has_org_role(p_org_id, array['org_owner','org_finance']) then
+    raise exception 'insufficient_privilege: org_owner or org_finance required' using errcode = '42501';
+  end if;
+  select * into v_s from venue.settlement where settlement_id = p_settlement_id for update;   -- SSCAS #4 rank-6
+  if not found or v_s.org_id <> p_org_id then   -- AUTHZ-C1C: the scope binds to the subject, under the lock
+    raise exception 'not_found: settlement % for org %', p_settlement_id, p_org_id using errcode = 'P0002';
+  end if;
+  if v_s.status = 'open' then
+    raise exception 'precondition_failed: settlement not closed' using errcode = 'P0001';
+  end if;
+  -- the org row under lock: SoD-1 setter, cool-down, the probation operand.
+  select * into v_org from kernel.organization o where o.org_id = p_org_id for update;
+  if v_org.payout_destination_set_by is not null and v_org.payout_destination_set_by = v_uid then
+    raise exception 'sod_violation: the payout-destination setter cannot request a payout';
+  end if;
+  if not kernel.money_role_grant_matured(p_org_id) then
+    raise exception 'sod_violation: org money grant not yet matured';
+  end if;
+  -- AUTHZ-M4 step-up: an absent claim is never a pass or a fail.
+  v_aal := coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'aal';
+  if v_aal is null then
+    raise exception 'step_up_unavailable: the session carries no aal claim';
+  end if;
+  if v_aal <> 'aal2' then
+    raise exception 'step_up_required: a step-up (aal2) session is required to request a payout';
+  end if;
+  if v_org.payout_destination_locked_until is not null and v_org.payout_destination_locked_until > now() then
+    raise exception 'precondition_failed: destination cool-down until %', v_org.payout_destination_locked_until using errcode = 'P0001';
+  end if;
+  if v_org.stripe_connect_account_ref is null then   -- a disbursement needs a destination; a NULL one strands the money at the edge   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+    raise exception 'precondition_failed: no_payout_destination — the org has no Stripe Connect destination bound' using errcode = 'P0001';
+  end if;
+  select * into v_po from kernel.payout
+   where cause = 'settlement' and cause_ref = p_settlement_id and status in ('pending','submitted')
+   order by (status = 'pending') desc, created_at limit 1 for update;   -- a pending sibling is never shadowed by a submitted one
+  if not found then
+    raise exception 'precondition_failed: no pending payout for this settlement' using errcode = 'P0001';
+  end if;
+  if v_po.status = 'submitted' then
+    return jsonb_build_object('status','noop_replay','payout_id', v_po.payout_id);
+  end if;
+  if v_po.hold_state = 'probation_hold' then   -- still held: the request is recorded and declined again
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'probation_held', jsonb_build_object('settlement_id', p_settlement_id));
+    return jsonb_build_object('status','probation_held','payout_id', v_po.payout_id);
+  elsif v_po.hold_state <> 'none' then   -- a platform RISK hold is not a request outcome (§10.3 result set): fail closed
+    raise exception 'precondition_failed: payout_held — a platform risk hold must be released before a request' using errcode = 'P0001';
+  end if;
+  -- DESTINATION PROBATION (§10.3 third arm). Operand: the last destination change
+  -- (the org.payout_destination.change audit row 085 writes) inside the window;
+  -- "first payout" = no payout of this org reached `paid` since that change.
+  select (c.value #>> '{}')::integer into v_prob_days from catalog.platform_config c
+   where c.key = 'payout.destination_probation_days' order by c.version desc limit 1;
+  -- the change instant: the 085 destination-change audit OR the 077 first bind (a fresh destination
+  -- is the archetypal fresh destination — the restrictive reading, E-86).
+  select max(a.occurred_at) into v_changed_at from kernel.admin_audit a
+   where a.action in ('org.payout_destination.change','org.connect_ref.bind')
+     and a.subject_kind = 'organization' and a.subject_id = p_org_id;
+  if v_changed_at is not null
+     and (v_prob_days is null or v_changed_at > now() - make_interval(days => v_prob_days))   -- NULL ⇒ X-12 restrictive
+     -- "the FIRST payout": no payout of this org was SYNCED to paid since the change (the 085
+     -- payout.state_sync audit row — never updated_at, which a later overlay may bump).
+     and not exists (select 1 from kernel.admin_audit a2 join kernel.payout p on p.payout_id = a2.subject_id
+                      where p.payee_org_id = p_org_id and a2.subject_kind = 'payout' and a2.action = 'payout.state_sync'
+                        and a2.after ->> 'status' = 'paid' and a2.occurred_at > v_changed_at)
+     -- a platform_risk/platform_admin RELEASE OF THIS PROBATION (kernel.release_payout, the sole release
+     -- path, reason = the probation hold's own reason) is the human decision the arm exists to obtain:
+     -- it is not re-imposed (T-RPC-MONEY-32). A risk-hold release does not count.
+     and not exists (select 1 from kernel.admin_audit a where a.subject_kind = 'payout' and a.subject_id = v_po.payout_id
+                       and a.action = 'payout.release' and a.reason_code = 'destination_probation'
+                       and a.occurred_at >= v_changed_at) then   -- >=: same-transaction instants
+    update kernel.payout
+       set hold_state = 'probation_hold', hold_reason_code = 'destination_probation', held_at = now(), held_by = null, updated_at = now()
+     where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.probation_hold', 'payout', v_po.payout_id, 'destination_probation',
+            jsonb_build_object('settlement_id', p_settlement_id, 'destination_changed_at', v_changed_at));
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)   -- §10.3 Writes: payout.request on every arm
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'probation_held', jsonb_build_object('settlement_id', p_settlement_id));
+    return jsonb_build_object('status','probation_held','payout_id', v_po.payout_id);
+  end if;
+  -- ── D-1: THE MATURITY GATE IS RE-EVALUATED HERE, NOT INHERITED ─────────────
+  -- 087 re-derived NONE of the eight G2 predicates: it honoured a hold somebody
+  -- else had already set, and 10d's hold was a CLOSE-TIME SNAPSHOT. Four later
+  -- state changes defeat that snapshot and NONE of them writes kernel.payout —
+  -- a refund reaching 'succeeded' after the close; catalog.cancel_event, which
+  -- touches kernel.payout nowhere, so a cancelled event leaves the payout at
+  -- none/pending/full amount; a dispute first observed already 'lost', because
+  -- kernel.record_dispute_native freezes only on an OPEN dispute (088:804), so
+  -- the freeze is INVERTED relative to the risk; and Connect capability loss.
+  -- The conjunction is therefore re-run HERE, from the SAME definition the mint
+  -- used (10m) — a move plus a call site, not a second implementation.
+  --
+  -- IT GUARDS BOTH ADVANCE ARMS *AND* THE PARK, on purpose. Everything below
+  -- this point either advances to 'submitted' or parks an approval that will
+  -- later be consumed to advance; an approval parked against an immature
+  -- settlement is precisely the drift this closes.
+  --
+  -- IT HOLDS RATHER THAN RAISING, for 10d's reason: a raise leaves the payout
+  -- advanceable on the next attempt with no durable record, while the hold
+  -- overlay is the corpus's own recoverable answer and has a contracted release
+  -- path (kernel.release_payout, 085:807, platform_risk/platform_admin).
+  --
+  -- CONTRACT NOTE: 'maturity_held' is a NEW member of this function's result
+  -- set, alongside 'submitted' / 'pending_approval' / 'probation_held' /
+  -- 'noop_replay'. It is additive; no existing status changes meaning.
+  v_maturity_now := kernel.settlement_payout_maturity(p_settlement_id);
+  if (v_maturity_now ->> 'hold_reason') is not null then
+    update kernel.payout
+       set hold_state = 'held', hold_reason_code = v_maturity_now ->> 'hold_reason',
+           held_at = now(), held_by = null, updated_at = now()
+     where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.maturity_hold', 'payout', v_po.payout_id, v_maturity_now ->> 'hold_reason',
+            jsonb_build_object('settlement_id', p_settlement_id, 'hold_predicates', v_maturity_now -> 'detail'));
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)   -- §10.3 Writes: payout.request on every arm
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'maturity_held', jsonb_build_object('settlement_id', p_settlement_id));
+    return jsonb_build_object('status','maturity_held','payout_id', v_po.payout_id,
+                              'hold_reason_code', v_maturity_now ->> 'hold_reason',
+                              'payout_hold_detail', v_maturity_now -> 'detail');
+  end if;
+  -- an APPROVED, unexpired dual-control request for THIS payout advances it (E-74) — but ONLY the
+  -- destination it was approved against (E-85): an approval that predates the last destination
+  -- change, or names another destination, is STALE and is never honoured.
+  select * into v_ar from kernel.approval_request a
+   where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
+     and a.state = 'approved' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
+   order by a.updated_at desc limit 1;
+  if found then
+    if (v_ar.payload ->> 'destination_ref') is distinct from v_org.stripe_connect_account_ref   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+       or (v_changed_at is not null and v_ar.updated_at <= v_changed_at) then
+      update kernel.approval_request set state = 'stale', updated_at = now() where request_id = v_ar.request_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request_stale', 'approval_request', v_ar.request_id, 'destination_changed',
+              jsonb_build_object('payout_id', v_po.payout_id, 'settlement_id', p_settlement_id));
+      -- fall through: a fresh park against the CURRENT destination
+    else
+      update kernel.payout set status = 'submitted',
+           destination_ref = v_org.stripe_connect_account_ref,   -- H6/F: PIN THE PAYEE AT AUTHORIZATION   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+           updated_at = now() where payout_id = v_po.payout_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'approved_request',
+              jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_ar.request_id, 'approved_by', v_ar.approved_by));
+      return jsonb_build_object('status','submitted','payout_id', v_po.payout_id, 'request_id', v_ar.request_id);
+    end if;
+  end if;
+  -- dual-control threshold: absent (NULL) ⇒ X-12 restrictive ⇒ always park.
+  select (c.value #>> '{}')::bigint, c.version into v_threshold, v_threshold_ver from catalog.platform_config c
+   where c.key = 'payout.dual_control_min_minor' order by c.version desc limit 1;
+  if v_threshold is null or v_po.amount_minor >= v_threshold then
+    -- a request already parked for this payout is returned, never duplicated.
+    select * into v_ar from kernel.approval_request a
+     where a.action = 'payout.request' and a.subject_kind = 'settlement' and a.subject_id = p_settlement_id
+       and a.state = 'pending' and a.expires_at > now() and (a.payload ->> 'payout_id')::uuid = v_po.payout_id
+     order by a.created_at limit 1;
+    if found and (v_ar.payload ->> 'destination_ref') is not distinct from v_org.stripe_connect_account_ref then   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+      return jsonb_build_object('status','pending_approval','request_id', v_ar.request_id, 'payout_id', v_po.payout_id,
+                                'required_approver_class', v_ar.required_approver_class);
+    elsif found then   -- parked against a destination that has since changed: stale, park anew
+      update kernel.approval_request set state = 'stale', updated_at = now() where request_id = v_ar.request_id;
+      insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+      values (v_uid, 'payout.request_stale', 'approval_request', v_ar.request_id, 'destination_changed',
+              jsonb_build_object('payout_id', v_po.payout_id, 'settlement_id', p_settlement_id));
+    end if;
+    -- PARK: a second org money role must approve (kernel.approve verb, 085).
+    insert into kernel.approval_request (action, required_approver_class, subject_kind, subject_id, org_id,
+             payload, amount_minor, config_versions, requested_by, expires_at, command_idempotency_key)
+    values ('payout.request', 'org', 'settlement', p_settlement_id, p_org_id,
+            jsonb_build_object('payout_id', v_po.payout_id, 'tier', 'parked',
+                               'destination_ref', v_org.stripe_connect_account_ref),   -- E-85: the approval binds to THIS destination   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+            v_po.amount_minor,
+            jsonb_build_object('payout.dual_control_min_minor', v_threshold_ver),   -- pinned, never a parameter
+            v_uid, now() + interval '72 hours',
+            coalesce(p_command_key, 'req:' || p_settlement_id::text))
+    on conflict do nothing
+    returning request_id into v_req;
+    if v_req is null then   -- same (actor, command key): the original request
+      select a.request_id into v_req from kernel.approval_request a
+       where a.requested_by = v_uid and a.command_idempotency_key = coalesce(p_command_key, 'req:' || p_settlement_id::text);
+    end if;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'pending_approval',
+            jsonb_build_object('settlement_id', p_settlement_id, 'request_id', v_req, 'required_approver_class', 'org'));
+    -- best-effort notice (BE; dual control is enforced by the Approval row, not the notice).
+    begin
+      perform notify.emit_event('payout_request_pending_approval', 'settlement', p_settlement_id,   -- R2 row 20 (snake_case IN type)
+              'payout_request:' || p_settlement_id::text,
+              jsonb_build_object('org_id', p_org_id, 'amount_minor', v_po.amount_minor));
+    exception when others then null; end;
+    return jsonb_build_object('status','pending_approval','request_id', v_req, 'payout_id', v_po.payout_id,
+                              'required_approver_class', 'org');
+  else
+    -- below an owner-set threshold: advance directly to submitted (the edge executes Stripe).
+    update kernel.payout set status = 'submitted',
+           destination_ref = v_org.stripe_connect_account_ref,   -- H6/F: PIN THE PAYEE AT AUTHORIZATION   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+           updated_at = now() where payout_id = v_po.payout_id;
+    insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, after)
+    values (v_uid, 'payout.request', 'payout', v_po.payout_id, 'submitted',
+            jsonb_build_object('settlement_id', p_settlement_id));
+    return jsonb_build_object('status','submitted','payout_id', v_po.payout_id);
+  end if;
+end;
+$$;
+
+
+-- ============================================================================
+-- 10l — kernel.settlement_covered_payments: the covered set, ONCE.
+--   H3 §5 step 4 / H3 §7.1 · G2 (docs/phase2/_impl/G2_settlement_maturity.md).
+--
+--   WHAT IT IS. The set of (payment_id, session_id) pairs a settlement's lines
+--   actually cover, derived from venue.settlement_line by the same five causes
+--   the three line seams emit. It is the operand of every maturity predicate
+--   and of the executor's staleness re-check, and until now it existed only as
+--   an inline CTE inside 10d's close-time gate.
+--
+--   WHY IT IS A FUNCTION NOW. The maturity conjunction must be evaluated at
+--   THREE moments, not one — the mint (10d), the pending→submitted advance
+--   (10k) and immediately before the transfer (10n) — because as a close-time
+--   snapshot it is defeated by at least four later state changes: a refund
+--   succeeding post-close, catalog.cancel_event (which touches kernel.payout
+--   NOWHERE), a dispute first observed already 'lost' (record_dispute_native
+--   freezes only on an OPEN dispute, 088:804, so the freeze is inverted
+--   relative to risk), and Connect capability loss. Three evaluations of one
+--   inline CTE is three chances to drift; one function called three times is
+--   none. 10d now calls it (via 10m) instead of carrying its own copy.
+--
+--   NEVER RAISES. Every lookup is a scalar subquery that yields NULL rather
+--   than failing, and a NULL on either column is what the callers COUNT as
+--   unresolved. A settlement whose lines are all of some other cause yields
+--   zero rows, which every caller reads as "no anchor" and holds on.
+--
+--   NOT A DISCLOSURE VERB. It returns internal ids only, is service_role-only,
+--   and is called by definer functions in this slice. No buyer, no amount, no
+--   destination, no Stripe identifier.
+-- ============================================================================
+create or replace function kernel.settlement_covered_payments(p_settlement_id uuid)
+returns table (payment_id uuid, session_id uuid, cause text)
+language sql stable security definer set search_path = ''
+as $$
+  select
+    case l.cause
+      when 'primary_sale'        then (select pn.payment_id from kernel.payment_native pn where pn.order_id = l.cause_ref)
+      when 'refund_void'         then (select r.payment_id from kernel.refund r where r.refund_id = l.cause_ref)
+      when 'chargeback'          then (select d.payment_id from kernel.dispute_native d where d.dispute_id = l.cause_ref)
+      when 'market_sale'         then (select ms.payment_id from market.market_sale ms where ms.sale_id = l.cause_ref)
+      when 'promoter_commission' then (select pn.payment_id from venue.attribution a
+                                         join kernel.payment_native pn on pn.order_id = a.order_id where a.id = l.cause_ref)
+    end,
+    case l.cause
+      when 'primary_sale'        then (select o.event_session_id from venue."order" o where o.order_id = l.cause_ref)
+      when 'refund_void'         then (select o.event_session_id from kernel.refund r
+                                         join kernel.payment_native pn on pn.payment_id = r.payment_id
+                                         join venue."order" o on o.order_id = pn.order_id where r.refund_id = l.cause_ref)
+      when 'chargeback'          then (select o.event_session_id from kernel.dispute_native d
+                                         join kernel.payment_native pn on pn.payment_id = d.payment_id
+                                         join venue."order" o on o.order_id = pn.order_id where d.dispute_id = l.cause_ref)
+      when 'market_sale'         then (select t.event_session_id from market.market_sale ms
+                                         join kernel.tickets t on t.ticket_atom_id = ms.ticket_atom_id where ms.sale_id = l.cause_ref)
+      when 'promoter_commission' then (select o.event_session_id from venue.attribution a
+                                         join venue."order" o on o.order_id = a.order_id where a.id = l.cause_ref)
+    end,
+    l.cause
+  from venue.settlement_line l
+ where l.settlement_id = p_settlement_id
+   and l.cause in ('primary_sale','refund_void','chargeback','market_sale','promoter_commission');
+$$;
+
+revoke all on function kernel.settlement_covered_payments(uuid) from public, anon, authenticated;
+grant execute on function kernel.settlement_covered_payments(uuid) to service_role;
+
+
+-- ============================================================================
+-- 10m — kernel.settlement_payout_maturity: THE payout-maturity conjunction,
+--   defined ONCE and called from THREE sites.
+--   G2 (docs/phase2/_impl/G2_settlement_maturity.md) · D-1 · H3 §5 · H8.
+--
+--   THE DEFECT THIS CLOSES. The conjunction used to live inline inside 10d, so
+--   it was a CLOSE-TIME SNAPSHOT of eight predicates and nothing re-evaluated
+--   it afterwards. Four later state changes defeat that snapshot, three of them
+--   demonstrated by execution:
+--     · a refund reaching 'succeeded' after the close leaves the payout
+--       untouched at full face value;
+--     · catalog.cancel_event NEVER touches kernel.payout — a cancelled event
+--       leaves the payout at none/pending/full amount;
+--     · kernel.record_dispute_native freezes a payout only when the dispute is
+--       observed OPEN (088:804), so a dispute first seen as 'lost' holds
+--       nothing — the freeze is INVERTED relative to the risk;
+--     · Connect capability loss, which no payout path consulted at all.
+--   And kernel.request_org_payout re-derived NONE of the eight predicates: it
+--   only honoured a hold somebody else had already set.
+--
+--   THE FIX IS A MOVE PLUS TWO CALL SITES, not four new checks. The body below
+--   is 10d's block verbatim — the same config read with its
+--   absent/JSON-null/unparseable collapse to NULL, the same covered set (now
+--   10l), the same causal predicate order, the same
+--   first-failing-predicate-wins rule, the same full detail vector. Calling it
+--   at the mint, at the advance and at the transfer turns a snapshot into an
+--   invariant, and because there is exactly one definition the three
+--   evaluations cannot disagree.
+--
+--   WHAT IS DELIBERATELY *NOT* HERE. The payee predicates — destination pinned
+--   and unchanged, Connect transfers active, organization status — belong to
+--   the EXECUTION-time gate (10n) and to the de-authorization verb (10o),
+--   because they are about who may be paid rather than when the money has
+--   settled, and because holding a payout at MINT for a capability the org has
+--   not finished onboarding yet would be a different (and wrong) policy. The
+--   staleness re-check is likewise not here: it is meaningless at the mint,
+--   where the lines were just written, and lives in 10n.
+--
+--   ALSO NOT HERE, ON PURPOSE — the predicates D confirmed are already enforced
+--   correctly elsewhere, which must NOT be duplicated: settlement-closed and
+--   destination-non-null (request_org_payout, 087:425/447); the obligation
+--   being positive (10d's `if v_net > 0` plus CHECK (amount_minor > 0)); no
+--   prior payout for the settlement (noop_replay plus the unique
+--   idempotency_key). The promoter deduction is correctly not a predicate at
+--   all: commission is a NEGATIVE line, so the net is already reduced by it.
+--
+--   MUST NOT RAISE. It is called from inside close_settlement, where a raise
+--   would roll back the entire close and the ledger would never record what the
+--   venue is owed. Every operand therefore fails toward the HOLD: the config
+--   read is wrapped, every count coalesces to its holding value, and an unknown
+--   settlement yields the same shape as an immature one.
+-- ============================================================================
+create or replace function kernel.settlement_payout_maturity(p_settlement_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  -- EVERY OPERAND IS INITIALISED TO THE VALUE THAT HOLDS, so a path that fails
+  -- to compute one can only fail toward the hold, never past it.
+  v_maturity     interval;
+  v_unresolved   bigint  := 1;
+  v_sess_n       bigint  := 0;
+  v_sess_no_end  bigint  := 1;
+  v_anchor       timestamptz;
+  v_cancelled    boolean := true;
+  v_refund_open  boolean := true;
+  v_dispute_open boolean := true;
+  v_reason       text;
+begin
+  -- READ AS THE HOUSE PATTERN: absent row, JSON null and unparseable value all
+  -- collapse to NULL and therefore to the hold (the 081:630-639 idiom).
+  begin
+    v_maturity := (select (c.value #>> '{}')::interval
+                     from catalog.platform_config c
+                    where c.key = 'payout.settlement_maturity_interval'
+                    order by c.version desc limit 1);
+  exception when others then v_maturity := null;
+  end;
+
+  -- THE COVERED SET IS DERIVED FROM THIS SETTLEMENT'S OWN LINES (10l), not from
+  -- the header's scope predicate: the lines are the money actually being paid,
+  -- and 088's chargeback arm deliberately carries NO scope predicate
+  -- (088:311-316), so a scope-based derivation would miss exactly the rows most
+  -- likely to be in dispute.
+  with cov as (select * from kernel.settlement_covered_payments(p_settlement_id)),
+       cov_session as (select distinct c.session_id from cov c where c.session_id is not null)
+  select
+    (select count(*) from cov c where c.payment_id is null or c.session_id is null),
+    (select count(*) from cov_session),
+    (select count(*) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id where es.ends_at is null),
+    (select max(es.ends_at) from cov_session cs join catalog.event_session es on es.session_id = cs.session_id),
+    (select exists (select 1 from cov_session cs
+                      join catalog.event_session es on es.session_id = cs.session_id
+                      join catalog.event e on e.event_id = es.event_id
+                     where es.status = 'cancelled' or e.status = 'cancelled')),
+    -- NON-TERMINAL refund: kernel.refund runs pending → submitted →
+    -- succeeded|failed (085:82-85). Money is still in motion in the first two.
+    (select exists (select 1 from cov c join kernel.refund r on r.payment_id = c.payment_id
+                     where r.status in ('pending','submitted'))),
+    -- OPEN dispute: the four non-terminal members of dispute_native.status.
+    -- 'won'/'warning_closed' are closed favourably; 'lost'/'charge_refunded'
+    -- are closed adversely AND already lined by 10h.
+    (select exists (select 1 from cov c join kernel.dispute_native d on d.payment_id = c.payment_id
+                     where d.status in ('warning_needs_response','warning_under_review','needs_response','under_review')))
+    into v_unresolved, v_sess_n, v_sess_no_end, v_anchor, v_cancelled, v_refund_open, v_dispute_open;
+
+  -- FIRST FAILING PREDICATE WINS THE CODE, in causal order: you cannot ask
+  -- whether money has matured until you know the policy, what the money is
+  -- about, and when the event ended. The FULL vector rides in 'detail', so
+  -- precedence hides nothing.
+  v_reason := case
+    when v_maturity is null                                    then 'unbounded_refund_exposure'
+    when v_maturity < interval '0'                             then 'maturity_policy_invalid'
+    when coalesce(v_unresolved, 1) > 0                         then 'covered_set_unresolvable'
+    when coalesce(v_cancelled, true)                           then 'event_cancelled'
+    when coalesce(v_sess_n, 0) = 0
+      or coalesce(v_sess_no_end, 1) > 0
+      or v_anchor is null                                      then 'maturity_instant_unknown'
+    when now() < v_anchor + v_maturity                         then 'maturity_not_elapsed'
+    when coalesce(v_refund_open, true)                         then 'refund_in_flight'
+    when coalesce(v_dispute_open, true)                        then 'dispute_open'
+    else null
+  end;
+
+  return jsonb_build_object(
+    'hold_reason', v_reason,
+    'detail', jsonb_build_object(
+      'maturity_interval',  case when v_maturity is null then null else v_maturity::text end,
+      'maturity_anchor',    v_anchor,
+      'matures_at',         case when v_anchor is null or v_maturity is null then null else (v_anchor + v_maturity) end,
+      'covered_sessions',   v_sess_n, 'sessions_without_end', v_sess_no_end,
+      'unresolvable_lines', v_unresolved, 'event_cancelled', v_cancelled,
+      'refund_in_flight',   v_refund_open, 'dispute_open', v_dispute_open));
+end;
+$$;
+
+-- Called by kernel.close_settlement (10d, SECURITY DEFINER) and
+-- kernel.request_org_payout (10k, SECURITY DEFINER, `authenticated`) as well as
+-- by the service_role executor read (10n). A DEFINER caller executes it under
+-- the definer's privileges, so no client grant is needed or wanted: it is a
+-- money gate, not a read model.
+revoke all on function kernel.settlement_payout_maturity(uuid) from public, anon, authenticated;
+grant execute on function kernel.settlement_payout_maturity(uuid) to service_role;
+
+
+-- ============================================================================
+-- 10n — kernel.get_payout_execution_context: the payout executor's ONLY read,
+--   and the place the payout decision is actually MADE.
+--   H3 §5 · H6 (the destination cross-check) · H8 · the 10g/10i house pattern.
+--
+--   THE INVARIANT. PAYOUT-ROW-DRIVEN, and more than that: THE DATABASE DECIDES
+--   whether this payout may be executed, in SQL, here. The worker receives
+--   `execution_eligible` and a `refusal_code`; it does not receive the
+--   ingredients of a decision it could reach differently. There is no parameter
+--   for an organization, a destination, an amount or a settlement — the ONLY
+--   parameter is a payout id, and every other fact is resolved from it. A
+--   worker cannot select a destination, cannot choose an amount, cannot name an
+--   org, and cannot pay a settlement whose ledger disagrees with the payout row.
+--
+--   THE AMOUNT IS NOT RECOMPUTED HERE AND MUST NEVER BE. kernel.close_settlement
+--   (10d) already ran the waterfall — gross − fees − refunds, with the promoter
+--   commission already deducted as a negative line — and wrote it to
+--   venue.settlement.net_minor and kernel.payout.amount_minor in ONE
+--   transaction. This function only proves the two still AGREE
+--   ('amount_ledger_mismatch'). That equality is the whole anti-tamper control:
+--   a payout row cannot be edited into a larger number without the closed,
+--   waterfall-constrained header (settlement_waterfall_ck, 087) agreeing, and a
+--   closed header cannot move because its lines are append-only.
+--
+--   THE DESTINATION IS THE PINNED ONE (payout.destination_ref, 10j), NOT A
+--   FRESH READ — and the organization's CURRENT ref is returned beside it so
+--   the divergence is a fact the executor can see rather than a race it cannot.
+--   Four destination predicates, all fail-closed, all here rather than in the
+--   worker:
+--     'destination_not_bound'        the payout was authorized before 10j, or
+--                                    by something that is not request_org_payout
+--     'destination_changed'          pinned <> current: the payee moved after
+--                                    the approval. NEVER pay either one — 10o
+--                                    de-authorizes instead
+--     'connect_transfers_inactive'   the org's own transfers mirror is false.
+--                                    F: this column is read by three functions
+--                                    and NONE of them was on the payout path
+--     'org_not_active'               organization.status not in
+--                                    (approved, active). A SUSPENDED org could
+--                                    be paid out today; 093 gates both binders
+--                                    on status but nothing gated the payout.
+--                                    The individual seller rail already does
+--                                    this at attempt time
+--                                    (_shared/payouts.ts:83-96); the org rail
+--                                    had no equivalent until now.
+--   plus the two that were already implicit:
+--     'destination_individual_plane' the identifier belongs to the PERSONAL
+--                                    seller plane (public.profiles.stripe_connect_id,
+--                                    002:25, or the 044 archive). An
+--                                    organization settlement must never land in
+--                                    a personal seller's Connect account
+--     'destination_cooldown'         payout_destination_locked_until is in the
+--                                    future — the same operand
+--                                    request_org_payout blocks on (087:443),
+--                                    re-asserted because the request may be
+--                                    days old.
+--   The remaining destination fact — Stripe's own `capabilities.transfers` —
+--   is not ours to hold, and is preflighted by the executor BEFORE an
+--   idempotency key is spent (H3 §5 step 3).
+--
+--   WHY MATURITY IS RE-EVALUATED RATHER THAN READ OFF hold_state. 10d's gate
+--   ran at CLOSE. A settlement payout is executed at least one maturity
+--   interval later — by construction, weeks. In that window a covered refund
+--   can reach 'succeeded', a dispute can open, and an event can be cancelled;
+--   none of those rewrite hold_state, because nothing sweeps closed
+--   settlements. Trusting the close-time verdict is trusting a stale fact about
+--   money. So 10m — the SAME conjunction the mint used, not a second copy of it
+--   — is re-evaluated here against now(), and its verdict is adopted whole in a
+--   single `when`. hold_state is ALSO checked, and FIRST among the money gates:
+--   a human hold and a platform risk hold refuse before anything else is
+--   considered.
+--
+--   THE STALENESS RE-CHECK (H3 §5 step 4 / §7.1) IS THE ONE PREDICATE 10d DOES
+--   NOT HAVE. venue.settlement_line is append-only under a unique
+--   (settlement_id, cause, cause_ref), so a refund that reaches 'succeeded'
+--   AFTER close cannot reduce the header it was never lined into. Its money
+--   carries forward to the NEXT settlement (H3 §7.2), but the payout in hand is
+--   then an obligation computed before that fact existed. So: Σ succeeded
+--   refunds over the covered payments is compared with the closed header's own
+--   refunds_minor, and an exposure that EXCEEDS what the header booked refuses
+--   with 'refund_exposure_stale'. The executor never pays a stale obligation —
+--   and it does not decide that, this does.
+--
+--   NON-ENUMERABLE, like 10g. An unknown payout id yields SQL NULL, which the
+--   executor maps to 404 — never a partial object, never a distinguishable
+--   shape.
+--
+--   WHAT IT DOES NOT PROJECT. No buyer, no order, no ticket atom, no
+--   PaymentIntent, no charge, no line detail, no identity of any kind. The
+--   destination IS projected — it is the one field the executor cannot do
+--   without — which is precisely why this verb carries the same service_role-
+--   only grant as kernel.get_org_connect_ref (slice 30 §7), and must never be
+--   widened.
+-- ============================================================================
+create or replace function kernel.get_payout_execution_context(p_payout_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_po           kernel.payout%rowtype;
+  v_st           venue.settlement%rowtype;
+  v_org          kernel.organization%rowtype;
+  v_pinned       text;
+  v_current      text;
+  v_dest_indiv   boolean := false;
+  -- The G2 conjunction is NOT re-implemented here; it is 10m's verdict, verbatim.
+  v_maturity     jsonb;
+  -- The one predicate 10m cannot carry, because it is meaningless at the mint.
+  v_stale_minor  bigint := 0;
+  v_code         text;
+begin
+  select * into v_po from kernel.payout where payout_id = p_payout_id;
+  if not found then
+    return null;                      -- non-enumerable: 404 at the edge
+  end if;
+
+  select * into v_st from venue.settlement where settlement_id = v_po.cause_ref;
+  if v_po.payee_org_id is not null then
+    select * into v_org from kernel.organization o where o.org_id = v_po.payee_org_id;
+  end if;
+  v_pinned  := v_po.destination_ref;
+  v_current := v_org.stripe_connect_account_ref;   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+
+  -- CROSS-PLANE: the personal seller Connect plane is not a payout destination
+  -- for an organization settlement. Both the live column (002:25) and the 044
+  -- archive are consulted, against the PINNED value — the one that would be
+  -- sent. A NULL pin trivially matches neither.
+  if v_pinned is not null then
+    v_dest_indiv := exists (select 1 from public.profiles pr where pr.stripe_connect_id = v_pinned)
+                 or exists (select 1 from public.stripe_connect_archive ar where ar.stripe_connect_id = v_pinned);
+  end if;
+
+  -- THE G2 CONJUNCTION IS NOT RE-IMPLEMENTED HERE. One definition (10m), three
+  -- call sites: the mint (10d), the pending→submitted advance (10k), and this,
+  -- the transfer. Re-evaluated against now(), so a refund that succeeded, a
+  -- dispute that opened or an event that was cancelled AFTER the close is seen.
+  v_maturity := kernel.settlement_payout_maturity(v_po.cause_ref);
+
+  -- THE STALENESS OPERAND (H3 §5 step 4 / §7.1) — the one predicate 10m does
+  -- not carry, because at the mint the lines were just written and it can only
+  -- read zero. Per covered order: the settled refund exposure the ledger is
+  -- ENTITLED to book, capped at the order's face value exactly as 10b caps
+  -- 'refund_void', minus what has actually been lined for that order in ANY
+  -- settlement. A positive remainder means money has left for the buyer that no
+  -- settlement has debited, so the payout in hand is an obligation computed
+  -- before that fact existed.
+  --
+  -- THE FACE CAP IS LOAD-BEARING, NOT DECORATION. kernel.refund.amount_minor is
+  -- measured against public.payments.total = amount + buyer_fee (000:978-985),
+  -- while a 'refund_void' line is capped at the order's face value because the
+  -- buyer-side service fee is platform money under ruling A5. Comparing raw
+  -- refund sums against refunds_minor would therefore fire on every ordinary
+  -- fee-bearing refund and STRAND the venue's money — a false positive here is
+  -- not conservative, it is the same permanent loss by another route.
+  select coalesce(sum(x.entitled - x.lined), 0)::bigint into v_stale_minor
+    from (
+      select least(
+               coalesce((select sum(r.amount_minor) from kernel.refund r
+                          where r.payment_id = c.payment_id and r.status = 'succeeded'), 0),
+               coalesce((select o.total_minor from venue."order" o
+                          join kernel.payment_native pn on pn.order_id = o.order_id
+                         where pn.payment_id = c.payment_id), 0))::bigint as entitled,
+             coalesce((select sum(-l.amount_minor) from venue.settlement_line l
+                        join kernel.refund r2 on r2.refund_id = l.cause_ref
+                       where l.cause = 'refund_void' and r2.payment_id = c.payment_id), 0)::bigint as lined
+        from (select distinct cp.payment_id
+                from kernel.settlement_covered_payments(v_po.cause_ref) cp
+               where cp.payment_id is not null) c
+    ) x
+   where x.entitled > x.lined;
+
+  -- FIRST FAILING PREDICATE WINS, in causal order: identity and binding before
+  -- money, money before the payee, the payee before maturity, maturity before
+  -- staleness. Everything below REFUSES; nothing here is advisory.
+  v_code := case
+    -- ── binding: is this even a settlement payout to an organization? ──────
+    when v_po.cause <> 'settlement'                        then 'cause_not_settlement'
+    when v_po.payee_kind <> 'organization'
+      or v_po.payee_org_id is null                         then 'payee_not_organization'
+    -- ── the row's own state ───────────────────────────────────────────────
+    when v_po.hold_state <> 'none'                         then 'payout_held'
+    when v_po.status <> 'submitted'                        then 'payout_not_submitted'
+    when v_po.stripe_transfer_ref is not null              then 'transfer_already_recorded'
+    when v_po.amount_minor is null
+      or v_po.amount_minor <= 0                            then 'amount_not_positive'
+    when upper(coalesce(v_po.currency,'')) <> 'USD'        then 'currency_unsupported'
+    -- ── the obligation ────────────────────────────────────────────────────
+    when v_st.settlement_id is null                        then 'settlement_not_found'
+    when v_st.org_id is distinct from v_po.payee_org_id    then 'org_mismatch'
+    when v_st.status <> 'closed'                           then 'settlement_not_closed'
+    when upper(coalesce(v_st.currency,'')) <> upper(coalesce(v_po.currency,''))
+                                                           then 'currency_mismatch'
+    when v_st.net_minor is distinct from v_po.amount_minor then 'amount_ledger_mismatch'
+    -- ── the payee (H6) ────────────────────────────────────────────────────
+    when v_org.org_id is null                              then 'organization_not_found'
+    when v_org.status not in ('approved','active')         then 'org_not_active'
+    when v_pinned is null                                  then 'destination_not_bound'
+    when v_pinned !~ '^acct_[A-Za-z0-9]+$'                 then 'destination_malformed'
+    when v_dest_indiv                                      then 'destination_individual_plane'
+    when v_current is null                                 then 'no_payout_destination'
+    when v_pinned is distinct from v_current               then 'destination_changed'
+    when not coalesce(v_org.connect_transfers_active, false) then 'connect_transfers_inactive'
+    when v_org.payout_destination_locked_until is not null
+     and v_org.payout_destination_locked_until > now()     then 'destination_cooldown'
+    -- ── maturity: 10m's verdict, adopted whole. ONE line, so this gate and
+    --    the mint gate cannot disagree about what "matured" means. ──────────
+    when (v_maturity ->> 'hold_reason') is not null        then v_maturity ->> 'hold_reason'
+    -- ── staleness (H3 §5 step 4) ──────────────────────────────────────────
+    when v_stale_minor > 0                                 then 'refund_exposure_stale'
+    else null
+  end;
+
+  return jsonb_build_object(
+    'payout_id',              v_po.payout_id,
+    'cause',                  v_po.cause,
+    'settlement_id',          v_po.cause_ref,
+    'payee_kind',             v_po.payee_kind,
+    'payee_org_id',           v_po.payee_org_id,
+    'amount_minor',           v_po.amount_minor,
+    'currency',               v_po.currency,
+    'status',                 v_po.status,
+    'hold_state',             v_po.hold_state,
+    'hold_reason_code',       v_po.hold_reason_code,
+    'stripe_transfer_ref',    v_po.stripe_transfer_ref,
+    'source_transaction_ref', v_po.source_transaction_ref,   -- H3 §3: NULL on this rail, always
+    'created_at',             v_po.created_at,
+    -- the obligation, for the executor's own equality assertion and the audit
+    'settlement_org_id',        v_st.org_id,
+    'settlement_status',        v_st.status,
+    'settlement_net_minor',     v_st.net_minor,
+    'settlement_refunds_minor', v_st.refunds_minor,
+    'settlement_currency',      v_st.currency,
+    -- the payee: PINNED is what gets sent; CURRENT is what it is checked against
+    'destination',              v_pinned,
+    'destination_ref',          v_pinned,
+    'org_connect_ref_current',  v_current,
+    'org_status',               v_org.status,
+    'connect_transfers_active', coalesce(v_org.connect_transfers_active, false),
+    'destination_locked_until', v_org.payout_destination_locked_until,
+    'destination_individual_plane', v_dest_indiv,
+    -- transfer_group: the ONLY durable handle back to a transfer whose response
+    -- was lost after the 24h idempotency window (H3 §6).
+    'transfer_group',         'payout_' || v_po.payout_id::text,
+    -- THE VERDICT. The worker consumes this; it does not re-derive it.
+    'execution_eligible',     (v_code is null),
+    'refusal_code',           v_code,
+    'maturity_detail',        coalesce(v_maturity -> 'detail', '{}'::jsonb)
+                                || jsonb_build_object('unbooked_refund_exposure_minor', v_stale_minor));
+end;
+$$;
+
+-- EXEC DEF (§0.1a): a MACHINE verb on the money execution path, and the ONE
+-- verb in this slice that discloses a payout destination. service_role only,
+-- never a client — the same posture kernel.get_org_connect_ref carries, and for
+-- the same reason. Revoke the default PUBLIC EXECUTE first (076 discipline).
+revoke all on function kernel.get_payout_execution_context(uuid) from public, anon, authenticated;
+grant execute on function kernel.get_payout_execution_context(uuid) to service_role;
+
+
+-- ============================================================================
+-- 10o — kernel.hold_payout_destination_changed: DE-AUTHORIZE, never pay, never
+--   fail. H6 · H3 §6 (the absorbing-'failed' constraint).
+--
+--   THE PROBLEM. A payout whose pinned destination no longer matches the
+--   organization's — or whose org has been suspended, or whose transfers
+--   capability has gone false — must not be paid to EITHER address. But the
+--   executor cannot write 'failed' (085's state machine has no edge out of it;
+--   see 10o), and it cannot call kernel.hold_payout: that verb is gated on
+--   kernel.is_platform, which tests auth.uid() and is NULL on a machine
+--   session, AND it is not granted to service_role at all (verified on the
+--   rehearsal database: has_function_privilege('service_role',
+--   'kernel.hold_payout(uuid,text,text)','EXECUTE') = false). Leaving the row
+--   'submitted' would let the next tick try again forever against a payee that
+--   is no longer authorized.
+--
+--   WHAT IT DOES. submitted → pending, hold_state='held',
+--   hold_reason_code='destination_changed'. That is a DE-AUTHORIZATION, not a
+--   money state: it returns the payout to the state it was in before
+--   request_org_payout advanced it, and holds it so the advance cannot happen
+--   again without a human. The recovery path is the correct one and already
+--   exists: a platform_risk/platform_admin releases the hold
+--   (kernel.release_payout — the sole release path), the org re-requests, and
+--   request_org_payout re-runs SoD-1, money-role maturity, the aal2 step-up,
+--   the cool-down, destination probation and dual control against the NEW
+--   destination, then re-pins it (10k). The new payee earns its own approval
+--   instead of inheriting one.
+--
+--   IT IS THE ONLY BACKWARD STATUS EDGE IN THE SYSTEM, AND IT IS DELIBERATE.
+--   Every other transition is forward-only. This one is safe precisely because
+--   it moves AWAY from executability: 'pending' + held is strictly less
+--   capable than 'submitted', mark_payout_transfer_state refuses a held row
+--   outright (085:1690) with BOTH columns untouched, and request_org_payout
+--   refuses a risk-held row (087:462-464). It is guarded by
+--   stripe_transfer_ref is null, so a payout that has already reached Stripe
+--   can never be walked back by this verb.
+--
+--   THE WORKER CANNOT CHOOSE TO USE IT. It takes no destination and no reason:
+--   the function RE-DERIVES the fault itself from kernel.payout.destination_ref
+--   and kernel.organization, and RAISES precondition_failed when there is no
+--   fault. A worker cannot demote a healthy payout, and cannot pick which
+--   fault it is reporting. p_observed_ref is recorded in the audit as the
+--   worker's OBSERVATION and is never used in a predicate.
+-- ============================================================================
+create or replace function kernel.hold_payout_destination_changed(
+  p_payout_id uuid, p_observed_ref text, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_po   kernel.payout%rowtype;
+  v_org  kernel.organization%rowtype;
+  v_code text;
+begin
+  select * into v_po from kernel.payout where payout_id = p_payout_id for update;
+  if not found then
+    raise exception 'not_found: payout %', p_payout_id using errcode = 'P0002';
+  end if;
+  if v_po.cause <> 'settlement' or v_po.payee_kind <> 'organization' then
+    raise exception 'precondition_failed: not an organization settlement payout' using errcode = 'P0001';
+  end if;
+  if v_po.stripe_transfer_ref is not null then
+    raise exception 'precondition_failed: transfer_already_recorded' using errcode = 'P0001';
+  end if;
+  if v_po.status <> 'submitted' then
+    raise exception 'precondition_failed: payout is %, not submitted', v_po.status using errcode = 'P0001';
+  end if;
+  if v_po.hold_state <> 'none' then
+    return jsonb_build_object('status','noop_replay','payout_id', p_payout_id,
+                              'hold_reason_code', v_po.hold_reason_code);
+  end if;
+
+  select * into v_org from kernel.organization o where o.org_id = v_po.payee_org_id for update;
+
+  -- THE FAULT IS RE-DERIVED HERE. The caller's observation is evidence, never a
+  -- predicate. Same order as 10n so the two never disagree about which fault it
+  -- is.
+  v_code := case
+    when v_org.org_id is null                                 then 'organization_not_found'
+    when v_org.status not in ('approved','active')            then 'org_not_active'
+    when v_po.destination_ref is null                         then 'destination_not_bound'
+    when v_org.stripe_connect_account_ref is null             then 'no_payout_destination'   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+    when v_po.destination_ref is distinct from v_org.stripe_connect_account_ref then 'destination_changed'   -- x6-allow: naming-only (money-engine operand, kernel.organization; outside the export closure — 152 C4)
+    when not coalesce(v_org.connect_transfers_active, false)  then 'connect_transfers_inactive'
+    else null
+  end;
+  if v_code is null then
+    raise exception 'precondition_failed: no_destination_fault — the pinned destination still matches and the payee is still payable'
+      using errcode = 'P0001';
+  end if;
+
+  update kernel.payout
+     set status           = 'pending',
+         hold_state       = 'held',
+         hold_reason_code = 'destination_changed',
+         held_by          = null,
+         held_at          = now(),
+         updated_at       = now()
+   where payout_id = p_payout_id;
+
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values ('00000000-0000-0000-0000-0000000000f1', 'payout.destination_hold', 'payout', p_payout_id, v_code,
+          jsonb_build_object('status', v_po.status, 'hold_state', v_po.hold_state,
+                             'destination_ref', v_po.destination_ref),
+          jsonb_build_object('status', 'pending', 'hold_state', 'held',
+                             'fault', v_code,
+                             'org_status', v_org.status,
+                             'connect_transfers_active', coalesce(v_org.connect_transfers_active, false),
+                             'observed_ref', left(coalesce(p_observed_ref,''), 64),
+                             'command_key', left(coalesce(p_command_key,''), 64)));
+
+  -- best-effort notice: a human must release this, so a human must hear about it.
+  begin
+    perform notify.emit_event('payout_on_hold', 'payout', p_payout_id,
+            'payout_destination_hold:' || p_payout_id::text,
+            jsonb_build_object('reason', v_code, 'amount_minor', v_po.amount_minor));
+  exception when others then null; end;
+
+  return jsonb_build_object('status','held','payout_id', p_payout_id, 'fault', v_code);
+end;
+$$;
+
+revoke all on function kernel.hold_payout_destination_changed(uuid, text, text)
+  from public, anon, authenticated;
+grant execute on function kernel.hold_payout_destination_changed(uuid, text, text) to service_role;
+
+
+-- ============================================================================
+-- 10p — kernel.claim_payouts_for_execution: the payout worker's work list.
+--   The same primitive kernel.claim_refunds_for_execution (10i) is, for the
+--   payout rail, and deliberately its mirror image line for line.
+--
+--   WHY A CLAIM AND NOT A LIST. Two workers on one payout that both reach
+--   Stripe inside the 24h idempotency window are harmless (one key, one
+--   transfer). Two workers a day apart are NOT: Stripe forgets a key after 24h
+--   (<https://docs.stripe.com/api/idempotent_requests>), so the second attempt
+--   would create a SECOND transfer of the same money. The lease is what stops a
+--   crashed worker's row being re-attempted immediately by the herd, and the
+--   `execution_mode` below is what stops a stale retry creating money.
+--
+--   THE 20-HOUR WINDOW IS THE WHOLE POINT OF `execution_mode`. Inside it,
+--   Stripe still holds the key, so a replay is a replay: mode 'create'. Outside
+--   it the key is gone and a bare POST would MINT A SECOND TRANSFER: mode
+--   'reconcile', which obliges the executor to read
+--   GET /v1/transfers?transfer_group=payout_<id> and adopt what it finds before
+--   it is allowed to create anything. Four hours of margin on Stripe's 24.
+--
+--   WHAT THIS VERB CANNOT DO, BY CONSTRUCTION. It takes no payout id, no
+--   organization, no settlement, no destination and no amount: there is NO
+--   parameter by which a caller can name a subject at all. It returns payout
+--   ids and a mode. It moves no money, transitions no payout
+--   (mark_payout_transfer_state, 085:1668, remains the only writer of status to
+--   a terminal and of stripe_transfer_ref), and projects NO DESTINATION AND NO
+--   AMOUNT — the executor must still go through 10n for those, under 10n's own
+--   gate. The destination is deliberately absent here even though it is pinned
+--   on the row: the claim's job is to hand out work, and 10n's job is to prove
+--   the work is still authorized. Two verbs, two questions.
+--
+--   THE ELIGIBLE SET IS NARROWER THAN THE REFUND ONE, AND ONLY ON PURPOSE:
+--     cause='settlement'          — the promoter-commission payout
+--                                   (090:1483-1491) is minted held/unfunded and
+--                                   is NEVER this executor's business (H3 §9).
+--     payee_kind='organization'   — the identity plane has no settlement rail.
+--     status='submitted'          — 'pending' has not passed request_org_payout's
+--                                   controls (SoD-1, money-role maturity, aal2
+--                                   step-up, cool-down, probation, dual
+--                                   control) and must not be short-circuited by
+--                                   a machine.
+--     hold_state='none'           — a held payout is refused by
+--                                   mark_payout_transfer_state anyway
+--                                   (085:1690); refusing it here means no key
+--                                   is ever spent on one.
+--     stripe_transfer_ref is null — the DB-side idempotency stop (H3 §6). A row
+--                                   that already carries a ref is finished with
+--                                   Stripe whatever its status says.
+--     destination_ref is not null — un-pinned means un-authorized under 10j.
+--
+--   'failed' IS ABSENT FROM THE ELIGIBLE SET AND CANNOT BE ADDED. Verified
+--   EMPIRICALLY against the live state machine on a rehearsal database:
+--   submitted→failed is accepted; failed→paid raises
+--   'payout_state_backwards (failed → paid)'; failed→reversed raises the same;
+--   failed→submitted raises 'invalid_input' because
+--   mark_payout_transfer_state accepts only paid|failed|reversed. There is NO
+--   edge out of 'failed'. request_org_payout only ever selects status in
+--   ('pending','submitted'), and close_settlement's mint is
+--   `on conflict (idempotency_key) do nothing` on 'settlement:'||settlement_id,
+--   so it can never re-mint. A failed settlement payout is UNRECOVERABLE money.
+--   THAT is why the executor this feeds NEVER writes 'failed' — every
+--   non-success leaves the row 'submitted', which this function hands out again.
+--
+--   THE COMMAND KEY IS DB-DERIVED. `payout.execute:<payout_id>` is returned
+--   rather than minted by the worker, so the audit identity of an execution
+--   attempt comes from the durable payout fact and two workers on one payout
+--   cannot land under two audit identities. 51 chars: inside admin_audit's
+--   budget with no truncation.
+--
+--   ATOMICITY. `for update ... skip locked` on kernel.payout is what makes the
+--   claim exclusive: a concurrent claimer never even evaluates a row another
+--   transaction holds, and by the time the lock is released the claim's audit
+--   row is committed and the `not exists` predicate excludes it for the lease.
+--   The row lock ends with this transaction; the LEASE is the audit row.
+-- ============================================================================
+create or replace function kernel.claim_payouts_for_execution(
+  p_limit integer default 25, p_lease_seconds integer default 900)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  -- Both operands are CLAMPED, not trusted — 10i's reasoning applies verbatim:
+  -- a vacuous lease re-creates the herd this function exists to prevent, and an
+  -- unbounded limit lets one tick claim the entire backlog and sit on it.
+  v_limit   integer  := least(greatest(coalesce(p_limit, 25), 1), 100);
+  v_lease   integer  := least(greatest(coalesce(p_lease_seconds, 900), 60), 3600);
+  -- Stripe retains an idempotency key's result for 24h; 4h of margin.
+  v_window  constant interval := interval '20 hours';
+  v_sys     constant uuid := '00000000-0000-0000-0000-0000000000f1';
+  v_rows    jsonb := '[]'::jsonb;
+  v_r       record;
+  v_first   timestamptz;
+  v_tries   integer;
+  v_mode    text;
+begin
+  for v_r in
+    select p.payout_id, p.created_at, p.status, p.stripe_transfer_ref
+      from kernel.payout p
+     where p.cause = 'settlement'
+       and p.payee_kind = 'organization'
+       and p.status = 'submitted'          -- the ONE unfinished, human-authorized state
+       and p.hold_state = 'none'
+       and p.stripe_transfer_ref is null   -- the DB-side idempotency stop
+       and p.destination_ref is not null   -- un-pinned is un-authorized (10j)
+       and not exists (
+             select 1 from kernel.admin_audit a
+              where a.subject_kind = 'payout'
+                and a.subject_id   = p.payout_id
+                and a.action       = 'payout.execute_claim'
+                and a.occurred_at  > now() - make_interval(secs => v_lease))
+     order by p.created_at, p.payout_id                     -- oldest money first
+     limit v_limit
+     for update skip locked
+  loop
+    select min(a.occurred_at), count(*)::integer into v_first, v_tries
+      from kernel.admin_audit a
+     where a.subject_kind = 'payout' and a.subject_id = v_r.payout_id
+       and a.action = 'payout.execute_claim';
+
+    if v_first is null or v_first > now() - v_window then
+      v_mode := 'create';                          -- key unused, or still deduped
+    else
+      v_mode := 'reconcile';                       -- key expired: establish, then act
+    end if;
+
+    insert into kernel.admin_audit
+           (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+    values (v_sys, 'payout.execute_claim', 'payout', v_r.payout_id, v_mode,
+            jsonb_build_object('status', v_r.status,
+                               'stripe_transfer_ref', v_r.stripe_transfer_ref),
+            jsonb_build_object('execution_mode', v_mode,
+                               'attempt', v_tries + 1,
+                               'lease_seconds', v_lease,
+                               'first_attempt_at', coalesce(v_first, now())));
+
+    v_rows := v_rows || jsonb_build_object(
+      'payout_id',      v_r.payout_id,
+      'created_at',     v_r.created_at,
+      'status',         v_r.status,
+      'execution_mode', v_mode,
+      'attempt',        v_tries + 1,
+      'command_key',    'payout.execute:' || v_r.payout_id::text);
+  end loop;
+
+  return jsonb_build_object('payouts', v_rows,
+                            'lease_seconds', v_lease,
+                            'claimed_at', now());
+end;
+$$;
+
+-- EXEC DEF (§0.1a): a MACHINE verb on the money execution path — service_role
+-- only, never a client. Revoke the default PUBLIC EXECUTE first (076 discipline).
+revoke all on function kernel.claim_payouts_for_execution(integer, integer)
+  from public, anon, authenticated;
+grant execute on function kernel.claim_payouts_for_execution(integer, integer) to service_role;
+
+
+-- ============================================================================
+-- 10q — kernel.record_payout_execution_note: the executor's ONLY write on an
+--   ordinary non-success path, and the reason it never needs 'failed'.
+--
+--   THE PROBLEM IT SOLVES. Every non-success in the payout executor leaves the
+--   row 'submitted' (H3 §6), because 'failed' is absorbing and would strand the
+--   venue's money forever. That is the right call, but on its own it makes a
+--   repeatedly-refused payout INVISIBLE: it looks exactly like one that has not
+--   been attempted yet. This verb is the difference between a recoverable hang
+--   and a silent one. It writes an immutable audit row and NOTHING else.
+--
+--   IT CANNOT CHANGE STATE, AND THAT IS THE POINT. It does not touch
+--   kernel.payout — not status, not hold_state, not stripe_transfer_ref, not
+--   destination_ref. The one non-success path that DOES change state is 10o,
+--   which is a de-authorization and re-derives its own fault. Everything else
+--   is an audit row plus a notification, and a HUMAN decides what to do.
+--
+--   The reason code is clamped to 120 characters, matching the money-denial
+--   convention, and the detail is a jsonb the executor fills with the evidence
+--   it had at the moment it refused — 10n's refusal code, the Stripe error
+--   class, the destination state it probed, the balance shortfall.
+-- ============================================================================
+create or replace function kernel.record_payout_execution_note(
+  p_payout_id uuid, p_reason_code text, p_detail jsonb, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare v_exists boolean;
+begin
+  if p_reason_code is null or length(trim(p_reason_code)) = 0 then
+    raise exception 'invalid_input: reason_code is mandatory';
+  end if;
+  select exists (select 1 from kernel.payout where payout_id = p_payout_id) into v_exists;
+  if not v_exists then
+    raise exception 'not_found: payout %', p_payout_id using errcode = 'P0002';
+  end if;
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values ('00000000-0000-0000-0000-0000000000f1', 'payout.execute_note', 'payout', p_payout_id,
+          left(trim(p_reason_code), 120),
+          jsonb_build_object('command_key', left(coalesce(p_command_key,''), 64)),
+          coalesce(p_detail, '{}'::jsonb));
+  return jsonb_build_object('status','ok','payout_id', p_payout_id);
+end;
+$$;
+
+revoke all on function kernel.record_payout_execution_note(uuid, text, jsonb, text)
+  from public, anon, authenticated;
+grant execute on function kernel.record_payout_execution_note(uuid, text, jsonb, text) to service_role;
 
 
 -- ###########################################################################
@@ -1831,8 +3339,17 @@ comment on constraint payments_mode_check on public.payments is
 --   §6  kernel.get_org_connect_state — read, HUMANS ........ A7  (F §3.5 G5)
 --   §7  kernel.get_org_connect_ref — read, MACHINES ........ A7  (F §3.4)
 --   §8  kernel.issue_ticket_atoms — resolve, not accept .... T1  (binds G2b)
+--   §10 kernel.guard_connect_id_not_org_bound + 2 triggers  A7/G-1/G-12
+--         (H6/F-4: the cross-plane refusal was ONE-WAY. An org-bound acct_
+--          could be written onto public.profiles, mis-routing seller payouts
+--          AND bricking that org's re-point forever. Now bidirectional.)
+--   §9  kernel.authorize_org_payout_dashboard ............. A7/A9 extension
+--         (H6/F-3: the acct_ was provenance-locked; the BANK ACCOUNT INSIDE IT
+--          was not. The Express Dashboard login link the onboarding edge issues
+--          reached org_finance with no aal2, no audit row and no notification.)
 --
--- §6 and §7 are the two objects here that are NOT in the 093 scope list. Both
+-- §6, §7 and §9 are the three objects here that are NOT in the 093 scope list.
+-- §9's justification is in its own header; §6/§7's follows. Both §6 and §7
 -- were added because the onboarding edge cannot function without them: the
 -- column they read is unreachable by BOTH candidate roles (`authenticated` is
 -- revoked at 077:133-138; service_role holds kernel USAGE only, 085:2092-2095).
@@ -3485,6 +5002,295 @@ $$;
 
 
 -- ============================================================================
+-- §9 — kernel.authorize_org_payout_dashboard: THE BANK-ACCOUNT DOOR.
+--   Rulings A7/A9 extended to the surface they did not cover · G §2 (G-2),
+--   §5.1, §6.1/§6.2 · finding H6/F-3.
+--
+-- THE DEFECT THIS CLOSES, STATED PLAINLY. Everything §2b/§4/§5 build protects
+-- WHICH STRIPE ACCOUNT is the payee. NOTHING protected WHAT IS INSIDE IT. The
+-- onboarding edge issues an Express Dashboard LOGIN LINK for a bound, verified
+-- account (connect-onboarding/index.ts:1470), and from that dashboard the
+-- holder changes the EXTERNAL BANK ACCOUNT the money actually lands in. That
+-- link rode the endpoint gate — `['org_owner','org_finance']`
+-- (connect-onboarding/index.ts:316) — with:
+--   · NO org_owner narrowing. org_finance is precisely the role SoD-1 excludes
+--     from naming the payee (§5 above, 085:1618-1620), and it could reach the
+--     one surface that re-points the money for real.
+--   · NO aal2 step-up. Both binders demand one; the surface that supersedes
+--     them demanded none.
+--   · NO kernel.admin_audit row. A destination change through this door is
+--     invisible to the probation operand (087:472-476), which reads
+--     `org.payout_destination.change` / `org.connect_ref.bind` and cannot see
+--     a bank swap that wrote no row at all.
+--   · NO security_payout_destination_changed emit. A9's "a live payout
+--     destination is never silently replaced" was true of the acct_ and false
+--     of the bank behind it.
+--
+-- WHY THIS IS A SQL VERB AND NOT AN `if` IN THE EDGE. The RT-A-3 lesson,
+-- restated: a control that lives only in an edge function is ADVISORY, because
+-- the verb it protects is reachable without the edge. Here the protected
+-- object is Stripe's, not Postgres's, so SQL cannot make the login link
+-- unreachable — but it CAN make the AUDIT ROW AND THE NOTIFICATION structural
+-- rather than optional, and it can put the authority test in the same place,
+-- in the same shape, as the two binders it is being brought level with. The
+-- edge calls this FIRST and mints the link only on success; a future caller
+-- that forgets is a caller that produces no authorization row, which is a
+-- detectable absence rather than a silent bypass.
+--
+-- IT WRITES NO ORGANIZATION COLUMN, DELIBERATELY. This verb does not change the
+-- destination — it records that a human was handed the ability to. So there is
+-- no `for update` on kernel.organization (a plain read; taking the binders'
+-- lock here would serialise dashboard opens against real destination changes
+-- for no benefit), no cool-down write, and no `payout_destination_set_by`
+-- stamp. THE SETTER STAMP IS NOT TOUCHED ON PURPOSE: SoD-1 must keep naming
+-- whoever bound the acct_, and overwriting it here would let an owner clear
+-- their own payout-request exclusion (087:428-431) by opening a dashboard.
+--
+-- WHY org_owner ONLY, WHEN F §3.4 GIVES VIEW+RECONNECT TO org_finance. Because
+-- this is not view and it is not reconnect. Ruling F's carve-out is about
+-- resuming an INCOMPLETE onboarding, where no money has a destination yet;
+-- this verb only fires for an account that is bound AND transfers-active, i.e.
+-- exactly when there IS money to redirect. org_finance keeps the status read
+-- (§6) and the onboarding-continuation link; it loses the one surface that
+-- edits a live payee. Same set as §4/§5, so all three destination authorities
+-- now agree.
+--
+-- AUDIT ACTION NAME. `org.payout_destination.dashboard_grant` — deliberately
+-- NOT `org.payout_destination.change`, which 087:472-476 reads as the
+-- probation operand. A dashboard grant is not itself a change and must not
+-- start the probation clock; conflating them would hold a payout every time an
+-- owner looked at their Stripe dashboard. Whether a bank swap that follows
+-- SHOULD arm probation is a real question and it is left open: the answer
+-- needs Stripe's `account.external_account.updated` webhook, which this repo
+-- does not handle. Recorded as R30-9.
+-- ============================================================================
+create or replace function kernel.authorize_org_payout_dashboard(
+  p_org_id uuid, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid       uuid;
+  v_org       kernel.organization%rowtype;
+  v_aal       text;
+  v_audit_id  uuid;
+  v_recipient uuid;
+begin
+  -- Caller-JWT bound, exactly as §4: this verb stamps a human into
+  -- admin_audit, and admin_audit.actor_identity is NOT NULL. A service_role
+  -- connection has no auth.uid() and must raise rather than record a sentinel
+  -- — a machine never opens a dashboard.
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: caller JWT required — the payout dashboard is authorized for a human, never a machine session'
+      using errcode = '42501';
+  end if;
+  if p_org_id is null then
+    raise exception 'invalid_input: an org scope is required';
+  end if;
+  -- SoD-1, the same narrowing §4 applied to the bind.
+  if not kernel.has_org_role(p_org_id, array['org_owner']) then
+    raise exception 'insufficient_privilege: org_owner required (SoD-1; org_finance may view payment status but may not open the payout dashboard)'
+      using errcode = '42501';
+  end if;
+  -- AUTHZ-M4, the 085:1624-1631 shape: an absent claim is never a pass.
+  v_aal := coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'aal';
+  if v_aal is null then
+    raise exception 'step_up_unavailable: the session carries no aal claim';
+  end if;
+  if v_aal <> 'aal2' then
+    raise exception 'step_up_required: a step-up (aal2) session is required to open the payout dashboard';
+  end if;
+
+  select * into v_org from kernel.organization where org_id = p_org_id;
+  if not found then
+    raise exception 'not_found: organization %', p_org_id using errcode = 'P0002';
+  end if;
+  -- G-6, the same set §4/§5 require: a suspended org's payee is frozen, and
+  -- that must include the bank account behind it.
+  if v_org.status not in ('approved','active') then
+    raise exception 'precondition_failed: org_not_bindable — a % org may not open its payout dashboard', v_org.status;
+  end if;
+  -- Nothing to authorize for an org with no destination: the edge sends an
+  -- unbound org down the account_links arm, never here. Refusing is what keeps
+  -- this verb from becoming a generic, contentless audit writer.
+  if v_org.stripe_connect_account_ref is null then
+    raise exception 'precondition_failed: no_payout_destination — this organization has no bound payout destination to administer';
+  end if;
+
+  -- THE ROW THAT MAKES THE GRANT VISIBLE. Last 4 only — G §6.1 bars Connect
+  -- ids from leaving the trust boundary, and admin_audit is read by support.
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.payout_destination.dashboard_grant', 'organization', p_org_id,
+          'express_dashboard_login', null,
+          jsonb_build_object('destination_last4', right(v_org.stripe_connect_account_ref, 4),
+                             'command_key', p_command_key))
+  returning id into v_audit_id;
+
+  -- A9 / G-2 — the human tripwire, BEST-EFFORT, verbatim §4/§5 pattern:
+  -- keyed on the audit row id (PFA-2 per-occurrence collision rule), wrapped so
+  -- a failed emit warns and the authorization still commits. Recipients are
+  -- every org_owner AND org_finance including any who did not act — an owner
+  -- opening the dashboard is exactly the event the other officers should see,
+  -- because what happens next is invisible to us.
+  begin
+    for v_recipient in
+      select m.identity_id from kernel.org_member m
+       where m.org_id = p_org_id and m.role in ('org_owner','org_finance')
+    loop
+      perform notify.emit_event(
+        'security_payout_destination_changed', 'identity', v_recipient,
+        'security_payout_destination:' || v_audit_id::text || ':' || v_recipient::text,
+        jsonb_build_object('org_id', p_org_id,
+                           'destination_last4', right(v_org.stripe_connect_account_ref, 4),
+                           'origin', 'express_dashboard_login',
+                           'actor_identity', v_uid));
+    end loop;
+  exception when others then
+    raise warning 'authorize_org_payout_dashboard: best-effort security notice emit failed: %', sqlerrm;
+  end;
+
+  return jsonb_build_object('status','ok','org_id', p_org_id,
+                            'authorization_id', v_audit_id);
+end;
+$$;
+
+-- 076 grant discipline: revoke the default PUBLIC EXECUTE, then ONE targeted
+-- grant. `authenticated` only — this is a caller-authorized verb whose whole
+-- content is a test against auth.uid(), so a service_role grant would be inert
+-- (has_org_role tests auth.uid(), NULL on a machine session) AND misleading.
+-- anon never.
+revoke all on function kernel.authorize_org_payout_dashboard(uuid, text)
+  from public, anon, authenticated;
+grant execute on function kernel.authorize_org_payout_dashboard(uuid, text) to authenticated;
+
+
+-- ============================================================================
+-- §10 — THE CROSS-PLANE REFUSAL, MADE BIDIRECTIONAL.
+--   Ruling A7/G-1 · G §2 threat G-12 · finding H6/F-4.
+--
+-- THE DEFECT. §2b, §4 and §5 all refuse an acct_ that lives on the INDIVIDUAL
+-- seller plane. Nothing refused the reverse: an acct_ already bound to an
+-- ORGANIZATION could be written onto public.profiles.stripe_connect_id, and
+-- the red-team reproduction is one UPDATE. Two consequences, and the second is
+-- worse than the first:
+--   (a) MIS-ROUTED SELLER MONEY. supabase/functions/_shared/payouts.ts is the
+--       individual rail's transfer path and it pays `profiles.stripe_connect_id`
+--       verbatim. An org's Connect account sitting in that column receives
+--       marketplace seller proceeds.
+--   (b) THE ORG IS BRICKED, PERMANENTLY. §2b/§4/§5's refusal is `exists (select
+--       1 from public.profiles where stripe_connect_id = <ref>)`. Once the org's
+--       OWN account appears there, that clause matches the org's own identifier
+--       forever: re-staging and re-pointing both raise
+--       account_not_platform_minted_for_org, and §2.3's already-narrow re-point
+--       path closes completely. A one-row write makes a venue's payout
+--       destination unchangeable.
+--
+-- WHY A TRIGGER AND NOT A CHECK IN AN EDGE. There is NO verb on this side to
+-- put a check in. profiles.stripe_connect_id is written by a direct table
+-- UPDATE from a service-role client with no RLS in the way
+-- (create-connect-account/index.ts:217 and :258) — that is ruling G's own G-12
+-- finding, and it means an edge-level check protects only the edge. The
+-- inbound edge path cannot actually inject an org id anyway (it writes
+-- `created.id`, minted by Stripe seconds earlier), so an edge check would guard
+-- the one caller that was never the threat and miss the two that are: a leaked
+-- SUPABASE_SERVICE_ROLE_KEY, and any future writer. A BEFORE trigger holds
+-- against every writer including service_role, which is exactly the asymmetry
+-- G-12 asks to close.
+--
+-- GUARDED SO IT COSTS NOTHING. The body runs only when the column is non-null
+-- AND actually changed; the lookup then rides organization_connect_ref_key
+-- (077:124-126), a partial unique index on the very column being probed. An
+-- ordinary profile update touches neither.
+--
+-- SECURITY DEFINER IS REQUIRED, NOT DECORATIVE: a trigger function executes as
+-- the invoking role, and NEITHER `authenticated` NOR `service_role` holds any
+-- grant on kernel.organization (077:133-138; 085:2092-2095 gives service_role
+-- kernel USAGE only). An invoker-rights trigger here would raise `permission
+-- denied for table organization` on every seller onboarding.
+--
+-- THE ARCHIVE IS GUARDED TOO, and not only for symmetry: §2b/§4/§5 consult
+-- public.stripe_connect_archive with the identical `exists` clause, so an org
+-- id landing there bricks the org exactly as (b) above. Covering profiles alone
+-- would leave the same trap one table over.
+-- ============================================================================
+create or replace function kernel.guard_connect_id_not_org_bound()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_ref text := new.stripe_connect_id;
+begin
+  -- Fire only on a real, changed value. TG_OP is checked rather than assumed so
+  -- the same function can serve both triggers below.
+  if v_ref is null then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.stripe_connect_id is not distinct from v_ref then
+    return new;
+  end if;
+
+  if exists (select 1 from kernel.organization o
+              where o.stripe_connect_account_ref = v_ref) then
+    raise exception 'precondition_failed: account_bound_to_organization — % is an organization payout destination and may not be recorded on the individual seller plane', v_ref
+      using errcode = 'P0001';
+  end if;
+  -- A STAGED-BUT-UNBOUND ref is refused as well. It is the account the platform
+  -- minted FOR an org and is one org_owner bind away from being live; letting it
+  -- land here would poison the provenance check before the bind could ever run,
+  -- turning a pending onboarding into a permanent no_pending/​not_minted loop.
+  if exists (select 1 from kernel.organization o
+              where o.connect_pending_ref = v_ref) then
+    raise exception 'precondition_failed: account_bound_to_organization — % has been minted for an organization and may not be recorded on the individual seller plane', v_ref
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function kernel.guard_connect_id_not_org_bound()
+  from public, anon, authenticated, service_role;
+-- NO grant, deliberately: PostgreSQL does not check EXECUTE on a trigger
+-- function, and nothing may ever call this directly. Same treatment as
+-- kernel.settlement_primary_lines (no grant at all).
+
+drop trigger if exists tg_profiles_connect_id_not_org_bound on public.profiles;
+create trigger tg_profiles_connect_id_not_org_bound
+  before insert or update of stripe_connect_id on public.profiles
+  for each row execute function kernel.guard_connect_id_not_org_bound();
+
+drop trigger if exists tg_connect_archive_not_org_bound on public.stripe_connect_archive;
+create trigger tg_connect_archive_not_org_bound
+  before insert or update of stripe_connect_id on public.stripe_connect_archive
+  for each row execute function kernel.guard_connect_id_not_org_bound();
+
+-- EXISTING ROWS ARE NOT VALIDATED, AND THE MIGRATION MUST NOT FAIL ON THEM.
+-- A BEFORE trigger only sees new writes. Refusing to apply 093 because a
+-- pre-existing row already carries an org id would make a data problem into an
+-- outage; reporting it loudly is the right trade. In practice this is expected
+-- to be zero — no org has ever been bound in production — and a non-zero count
+-- is a genuine incident to chase, not a migration blocker.
+do $$
+declare v_n integer;
+begin
+  select count(*) into v_n
+    from public.profiles pf
+    join kernel.organization o
+      on o.stripe_connect_account_ref = pf.stripe_connect_id
+     or o.connect_pending_ref         = pf.stripe_connect_id;
+  if v_n > 0 then
+    raise warning 'CROSS-PLANE COLLISION: % profile row(s) already carry an organization Connect account. The §10 trigger blocks NEW writes only; these rows must be reconciled by hand (H6/F-4).', v_n;
+  end if;
+end $$;
+
+
+-- ============================================================================
 -- END PART 30. Residuals this part creates, recorded so they are not mistaken
 -- for oversights (all outside the authored scope of this fragment):
 --   R30-1  OPEN — CARRIED AS A NAMED FOLLOW-UP, NOT CLOSED HERE.
@@ -3530,6 +5336,22 @@ $$;
 --          That is the intended resting state, not a defect — but it means the
 --          ceremony is now a hard blocker on the first sale, visible as
 --          `no_active_signing_key` rather than as a post-payment mint failure.
+--   R30-9  §9 records that a human was GRANTED the ability to change the bank
+--          account behind the bound acct_; it cannot observe whether they then
+--          did. Stripe reports that as `account.external_account.updated` /
+--          `account.updated`'s external_accounts payload, and this repo's
+--          webhook handles neither — supabase/functions/stripe-webhook only
+--          reads capabilities on the org arm. CONSEQUENCE: a bank swap still
+--          does not arm destination probation (087:465-495), because the
+--          probation operand is an admin_audit action and no row is written
+--          when the swap actually happens. §9 converts a silent change into a
+--          visible GRANT, which is strictly better and is not the same thing as
+--          closing it. Closing it needs the external-account webhook arm and a
+--          decision on whether a bank swap re-arms probation.
+--   R30-10 §9's emit inherits R30-1 exactly: notify.drain_outbox still has no
+--          arm for security_payout_destination_changed, so the envelope is
+--          counted `unmapped` and nobody is told. The admin_audit row is the
+--          only channel that works today. Do not read §9 as closing G-2.
 --   R30-5  Nothing in the database stops selling being activated while
 --          fee.buyer_service_bps is null; the §3 refusal is per-checkout, so
 --          the symptom is "every sale fails closed", not "no sale is
@@ -3900,7 +5722,90 @@ insert into catalog.platform_config (key, version, value, visibility) values
   -- ##  settlement's own lines. See docs/phase2/_impl/G2_settlement_maturity.md
   -- ##  for the recommended value and the evidence behind it.
   -- ####################################################################
-  ('payout.settlement_maturity_interval',     1, 'null'::jsonb,       'restricted')   -- G2: one conjunct of the maturity gate; dual-controlled by its 'payout.' prefix
+  ('payout.settlement_maturity_interval',     1, 'null'::jsonb,       'restricted'),  -- G2: one conjunct of the maturity gate; dual-controlled by its 'payout.' prefix
+
+  -- ---- deletion.post_event_hold_hours — HOW LONG AFTER THE EVENT AN --------
+  -- ---- IDENTITY MAY NOT BE TOMBSTONED. RENAMED + RE-ANCHORED (H2). ---------
+  --
+  -- Routed here for the same reason the maturity key is: the READER is a kernel
+  -- money verb — kernel.deletion_blockers_money, BP-12 arm 2, in
+  -- docs/phase2/_impl/093_parts/10_money_settlement.sql section 10j — and slice
+  -- 40 owns every platform_config row so the two slices never write the same
+  -- table. Spelling verified against that reader.
+  --
+  -- IT REPLACES `deletion.refund_possible_window_hours` (085:2189, PFA-22).
+  -- That key is NOT preserved as a fallback and is NOT read by anything after
+  -- this migration. Two independent reasons, and the second is the decisive one:
+  --
+  --   (1) THE NAME WAS WRONG. "refund possible window" names refund
+  --       ELIGIBILITY. 085:2186-2187 and PFA-22 both state in terms that this
+  --       key is NOT that — "the key controls DELETION SAFETY only — never
+  --       refund eligibility". Refund eligibility is owned by the `refund.%`
+  --       family (078:1544-1551). This is the identical class of lie G2 removed
+  --       from `settlement.refund_window_interval`.
+  --
+  --   (2) THE CLOCK CHANGED, SO THE CONTRACT CHANGED. The 085 arm measured its
+  --       window from `venue."order".created_at` — the PAYMENT date — so ORDER
+  --       AGE stood in for "the obligation is finished". Executed with the old
+  --       key set to 720 (30 days), a buyer who paid 90 days before a session
+  --       TEN DAYS AWAY was fully erasable and kernel.sweep_deletion_pending
+  --       tombstoned them BEFORE the event, while kernel.close_settlement's G2
+  --       gate was holding the venue's money for exactly that risk. The arm is
+  --       re-anchored to `max(coalesce(session.ends_at, session.starts_at))`
+  --       over the identity's own candidate orders — reached by the join
+  --       `venue."order".event_session_id` (`not null … on delete restrict`,
+  --       082:77), which is TOTAL and STABLE. Re-pointing the OLD key at the new
+  --       anchor would silently re-interpret any value already stored under it.
+  --
+  -- THE FAMILY STAYS `deletion.`, AND THAT IS A DECISION, NOT INERTIA. Filing it
+  -- under `refund.%` or `payout.%` would buy dual control for free — and would
+  -- re-collapse the exact concepts this change exists to separate. TICKET EXPIRY
+  -- != REFUND ELIGIBILITY != DELETION SAFETY != PAYOUT MATURITY. This is
+  -- deletion safety; it is named for what it is, and the dual control is bought
+  -- honestly instead, by adding `deletion.%` to the prefix list in this file's
+  -- own set_platform_config body (see the `v_dual` block below). G7 P1-4 named
+  -- this key as one of the two whose single-admin reachability made its attack a
+  -- one-statement act; that half is closed here.
+  --
+  -- UNITS AND TYPE — a JSON NUMBER of hours, and the reader now ENFORCES it.
+  -- Precedent: authn.money_role_maturity_hours, refund.buyer_self_service_window_hours,
+  -- payout.destination_cooldown_hours (078). Hours-as-a-number is deliberately
+  -- NOT an interval string: an interval-typed key carries the "'24' parses as
+  -- TWENTY-FOUR SECONDS" trap that G1 §7.3 documents, whereas
+  -- make_interval(hours => …) cannot be misread. A guard for this key is added
+  -- alongside the interval guard in set_platform_config below, so a string can
+  -- no longer be stored at all.
+  --
+  -- WHY THE VALUE IS NULL. Same PFA-9 shape as every other owner-STOP key here:
+  -- the ROW exists so the key is settable with no migration; the NUMBER is owner
+  -- policy and 093 invents none. FAIL-CLOSED, VERIFIED IN THE CONSUMER: with the
+  -- value absent and a paid/partially_refunded order present, 10j returns
+  -- 'BP-12: post-event deletion hold unset …' and the identity is not
+  -- tombstoned. With NO candidate order the arm is skipped entirely and an
+  -- absent value blocks nobody — PFA-22's owner scoping ruling, unchanged.
+  --
+  -- WHICH DIRECTION IS DANGEROUS, because it decides the polarity below. SHORT
+  -- is the irreversible direction: a tombstone cannot be undone, and there is no
+  -- force-tombstone verb to compensate a hold that is too long. LONG costs
+  -- erasure LATENCY, which is recoverable. So a LONGER hold is the RESTRICTIVE
+  -- direction (`higher_is_restrictive`, below): raising it executes in one
+  -- statement for an operator responding to an incident, and SHORTENING it —
+  -- making buyers erasable sooner — parks for a second platform_admin.
+  --
+  -- THE STARTING POINT FOR THE OWNER, and it is a trade, not a derivation:
+  -- Stripe documents that for event ticketing "the dispute window starts on the
+  -- event date, not the payment date" and runs ~120 days from it
+  -- (https://docs.stripe.com/disputes/how-disputes-work), which is the same
+  -- evidence G2 relied on. A 120-day post-event erasure block is not defensible
+  -- against erasure law; a 30-day one (720) covers post-event refund requests,
+  -- early-fraud-warning arrivals, the refund executor's own latency and a
+  -- realistic postponement announcement, and it is what the H2 matrix was
+  -- executed against. It is offered on those stated grounds and it is the
+  -- owner's call. What it does NOT cover, plainly: a chargeback filed 60 or 110
+  -- days after the event against an identity already tombstoned — which is
+  -- OR-13/16c's ruled path (the chargeback lands against the TOMBSTONE) with
+  -- BP-10 / kernel.identity_obligation as the blocker, not this key.
+  ('deletion.post_event_hold_hours',          1, 'null'::jsonb,       'restricted')   -- H2: BP-12 arm 2's operand; EVENT-anchored; dual-controlled by the `deletion.` prefix added below
 
 on conflict (key, version) do nothing;
 
@@ -4731,6 +6636,23 @@ begin
     end if;
   end if;
 
+  -- H2 — THE MIRROR GUARD: a key consumed as a NUMBER OF HOURS must be a JSON
+  -- NUMBER. The guard above stops a number reaching an interval-typed key; this
+  -- one stops a STRING reaching an hours-typed key, and it exists because the
+  -- two failure modes are neighbours on the keyboard. `ticket.expiry_grace`
+  -- REQUIRES the string form '"72 hours"', so '"720 hours"' is the natural typo
+  -- on its sibling deletion key — and before H2's rewrite of
+  -- kernel.deletion_blockers_money that one append would have raised inside the
+  -- deletion blocker for EVERY identity, forever (platform_config is append-only,
+  -- and 085's read cast the value in an ordered target list, so the LIMIT could
+  -- not protect it). 10j is now immune by construction; this refuses the value at
+  -- the door as well, so the bad version is never written in the first place.
+  if p_key in ('deletion.post_event_hold_hours')
+     and jsonb_typeof(p_value) <> 'null'
+     and jsonb_typeof(p_value) <> 'number' then
+    raise exception 'precondition_failed: bad_value — % is a NUMBER OF HOURS and needs a JSON number such as 720; "720 hours" is the interval spelling and belongs to ticket.expiry_grace', p_key;
+  end if;
+
   -- 093 / ruling A5 — `fee.%` ADDED. This is the ONLY change to this function.
   -- WHY: fee.buyer_service_bps is the final clause of the SALEABLE chain — the
   -- statement that sets it moves the platform from "cannot sell" to "selling",
@@ -4744,9 +6666,46 @@ begin
   -- payout key and the rename would reintroduce the misleading semantics the
   -- maturity rename removed. The prefix list is a policy statement about which
   -- NAMESPACES are money-critical, and buyer-facing pricing plainly is.
+  -- 093 / H2 — `deletion.%` ADDED, for the same reason and by the same test.
+  -- deletion.post_event_hold_hours decides when an identity becomes
+  -- IRREVERSIBLY tombstoned while money obligations on their orders can still
+  -- arise. G7 P1-4 executed the gap: as one platform_admin with an aal2 claim,
+  -- `set_platform_config('deletion.refund_possible_window_hours', …)` returned
+  -- `{"status":"ok"}` with no second human, and that single statement is what
+  -- turned P0-3 from a design flaw into a one-statement act. `deletion.%`
+  -- matched none of the prefixes below. It does now.
+  -- WHY THE PREFIX AND NOT A RENAME INTO `refund.%`/`payout.%`: the same
+  -- argument the `fee.%` note above makes. This is not a refund key and not a
+  -- payout key; filing it under either would restore exactly the collapsed
+  -- semantics — refund ELIGIBILITY vs payout MATURITY vs DELETION SAFETY — that
+  -- G2's rename and H2's re-anchor both exist to take apart.
+  -- 093 / H2 — `ticket.%` ADDED. The LAST destructive key family outside this list.
+  -- The evidence is G1 §7 and the seed comment at the top of this file, and it is
+  -- stronger than the case for several keys already here: setting
+  -- `ticket.expiry_grace` wrongly does not DEGRADE, it writes the TERMINAL label
+  -- `expired` across every atom on every ended session within one cron tick
+  -- (079:456, cron */2 at 079:799-803) — and 088:1682/1735/1783 then EXCLUDE
+  -- expired atoms from catalog.cancel_event's refund cascade, so the holder loses
+  -- the ticket AND the money. There is no exit: no shipped function writes
+  -- kernel.tickets.state back out of `expired`. A single administrator must not be
+  -- able to cross that boundary alone, for the same reason `fee.%` (ruling A5) and
+  -- `deletion.%` (H2) were added — an irreversible money or identity boundary takes
+  -- two humans.
+  -- NOTE the two controls are INDEPENDENT and both still apply. The interval TYPE
+  -- guard above already refuses a bare number on this key (it is first in that
+  -- list), which is what stops the '24' => TWENTY-FOUR SECONDS cast; dual control
+  -- is the separate question of who may set a WELL-TYPED but wrong value. Neither
+  -- shadows the other: a mistyped value is refused outright and never parks, and a
+  -- well-typed one parks.
+  -- `ticket.%` has NO entry in the polarity map below, so it takes §20.2.1's third
+  -- arm — not comparable => PARK — in BOTH directions. That is intended and is the
+  -- correct default here: the corpus declares no restrictive direction for a grace
+  -- that is destructive when short and merely slow when long, so failing toward the
+  -- approver is the honest reading.
   v_dual := p_key like 'refund.%' or p_key like 'payout.%' or p_key like 'authn.%'
          or p_key like 'comp.%'   or p_key like 'wallet.%' or p_key like 'credential.%'
-         or p_key like 'door.session\_%' or p_key like 'fee.%';
+         or p_key like 'door.session\_%' or p_key like 'fee.%'
+         or p_key like 'deletion.%' or p_key like 'ticket.%';
 
   -- The declared polarity map. A key absent from it has NO declared polarity and
   -- therefore parks (when dual-controlled). Booleans, enums and every non-scalar
@@ -4783,9 +6742,22 @@ begin
     -- AUTHZ-M8), so this key has NO declared polarity and takes §20.2.1's third
     -- arm: not comparable => PARK. Failing toward the approver is the whole
     -- point of that arm.
+    -- H2: deletion.post_event_hold_hours joins this arm, and the direction is
+    -- forced by irreversibility, not by taste. A LONGER hold blocks more
+    -- tombstones, and a tombstone is TERMINAL — DSM has no exit from ERASED and
+    -- the corpus carries no force-tombstone verb to compensate an over-long
+    -- hold. Too long costs erasure LATENCY (recoverable, and visible in
+    -- deletion_block_reason, which now carries the maturity instant). Too short
+    -- destroys a live counterparty. So RAISING it executes in one statement — an
+    -- operator must be able to tighten during an incident — and SHORTENING it,
+    -- which is what makes advance-purchase buyers erasable sooner, parks for a
+    -- second platform_admin. Note the seeded value is JSON null, so the FIRST
+    -- set is not number-to-number and parks regardless: arming this key at all
+    -- is the dangerous act and it takes two humans.
     when p_key in ('payout.destination_cooldown_hours',
                    'payout.destination_probation_days',
-                   'authn.money_role_maturity_hours')      then 'higher_is_restrictive'
+                   'authn.money_role_maturity_hours',
+                   'deletion.post_event_hold_hours')       then 'higher_is_restrictive'
     -- FALSE IS RESTRICTIVE: a kill switch. WALLET §11.5b — "Setting
     -- wallet.apple.enabled := false ... needs ONE admin and no approval round.
     -- A kill switch that needs a quorum is not a kill switch."

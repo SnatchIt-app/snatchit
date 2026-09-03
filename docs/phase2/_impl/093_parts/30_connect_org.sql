@@ -22,8 +22,17 @@
 --   §6  kernel.get_org_connect_state — read, HUMANS ........ A7  (F §3.5 G5)
 --   §7  kernel.get_org_connect_ref — read, MACHINES ........ A7  (F §3.4)
 --   §8  kernel.issue_ticket_atoms — resolve, not accept .... T1  (binds G2b)
+--   §10 kernel.guard_connect_id_not_org_bound + 2 triggers  A7/G-1/G-12
+--         (H6/F-4: the cross-plane refusal was ONE-WAY. An org-bound acct_
+--          could be written onto public.profiles, mis-routing seller payouts
+--          AND bricking that org's re-point forever. Now bidirectional.)
+--   §9  kernel.authorize_org_payout_dashboard ............. A7/A9 extension
+--         (H6/F-3: the acct_ was provenance-locked; the BANK ACCOUNT INSIDE IT
+--          was not. The Express Dashboard login link the onboarding edge issues
+--          reached org_finance with no aal2, no audit row and no notification.)
 --
--- §6 and §7 are the two objects here that are NOT in the 093 scope list. Both
+-- §6, §7 and §9 are the three objects here that are NOT in the 093 scope list.
+-- §9's justification is in its own header; §6/§7's follows. Both §6 and §7
 -- were added because the onboarding edge cannot function without them: the
 -- column they read is unreachable by BOTH candidate roles (`authenticated` is
 -- revoked at 077:133-138; service_role holds kernel USAGE only, 085:2092-2095).
@@ -1676,6 +1685,295 @@ $$;
 
 
 -- ============================================================================
+-- §9 — kernel.authorize_org_payout_dashboard: THE BANK-ACCOUNT DOOR.
+--   Rulings A7/A9 extended to the surface they did not cover · G §2 (G-2),
+--   §5.1, §6.1/§6.2 · finding H6/F-3.
+--
+-- THE DEFECT THIS CLOSES, STATED PLAINLY. Everything §2b/§4/§5 build protects
+-- WHICH STRIPE ACCOUNT is the payee. NOTHING protected WHAT IS INSIDE IT. The
+-- onboarding edge issues an Express Dashboard LOGIN LINK for a bound, verified
+-- account (connect-onboarding/index.ts:1470), and from that dashboard the
+-- holder changes the EXTERNAL BANK ACCOUNT the money actually lands in. That
+-- link rode the endpoint gate — `['org_owner','org_finance']`
+-- (connect-onboarding/index.ts:316) — with:
+--   · NO org_owner narrowing. org_finance is precisely the role SoD-1 excludes
+--     from naming the payee (§5 above, 085:1618-1620), and it could reach the
+--     one surface that re-points the money for real.
+--   · NO aal2 step-up. Both binders demand one; the surface that supersedes
+--     them demanded none.
+--   · NO kernel.admin_audit row. A destination change through this door is
+--     invisible to the probation operand (087:472-476), which reads
+--     `org.payout_destination.change` / `org.connect_ref.bind` and cannot see
+--     a bank swap that wrote no row at all.
+--   · NO security_payout_destination_changed emit. A9's "a live payout
+--     destination is never silently replaced" was true of the acct_ and false
+--     of the bank behind it.
+--
+-- WHY THIS IS A SQL VERB AND NOT AN `if` IN THE EDGE. The RT-A-3 lesson,
+-- restated: a control that lives only in an edge function is ADVISORY, because
+-- the verb it protects is reachable without the edge. Here the protected
+-- object is Stripe's, not Postgres's, so SQL cannot make the login link
+-- unreachable — but it CAN make the AUDIT ROW AND THE NOTIFICATION structural
+-- rather than optional, and it can put the authority test in the same place,
+-- in the same shape, as the two binders it is being brought level with. The
+-- edge calls this FIRST and mints the link only on success; a future caller
+-- that forgets is a caller that produces no authorization row, which is a
+-- detectable absence rather than a silent bypass.
+--
+-- IT WRITES NO ORGANIZATION COLUMN, DELIBERATELY. This verb does not change the
+-- destination — it records that a human was handed the ability to. So there is
+-- no `for update` on kernel.organization (a plain read; taking the binders'
+-- lock here would serialise dashboard opens against real destination changes
+-- for no benefit), no cool-down write, and no `payout_destination_set_by`
+-- stamp. THE SETTER STAMP IS NOT TOUCHED ON PURPOSE: SoD-1 must keep naming
+-- whoever bound the acct_, and overwriting it here would let an owner clear
+-- their own payout-request exclusion (087:428-431) by opening a dashboard.
+--
+-- WHY org_owner ONLY, WHEN F §3.4 GIVES VIEW+RECONNECT TO org_finance. Because
+-- this is not view and it is not reconnect. Ruling F's carve-out is about
+-- resuming an INCOMPLETE onboarding, where no money has a destination yet;
+-- this verb only fires for an account that is bound AND transfers-active, i.e.
+-- exactly when there IS money to redirect. org_finance keeps the status read
+-- (§6) and the onboarding-continuation link; it loses the one surface that
+-- edits a live payee. Same set as §4/§5, so all three destination authorities
+-- now agree.
+--
+-- AUDIT ACTION NAME. `org.payout_destination.dashboard_grant` — deliberately
+-- NOT `org.payout_destination.change`, which 087:472-476 reads as the
+-- probation operand. A dashboard grant is not itself a change and must not
+-- start the probation clock; conflating them would hold a payout every time an
+-- owner looked at their Stripe dashboard. Whether a bank swap that follows
+-- SHOULD arm probation is a real question and it is left open: the answer
+-- needs Stripe's `account.external_account.updated` webhook, which this repo
+-- does not handle. Recorded as R30-9.
+-- ============================================================================
+create or replace function kernel.authorize_org_payout_dashboard(
+  p_org_id uuid, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid       uuid;
+  v_org       kernel.organization%rowtype;
+  v_aal       text;
+  v_audit_id  uuid;
+  v_recipient uuid;
+begin
+  -- Caller-JWT bound, exactly as §4: this verb stamps a human into
+  -- admin_audit, and admin_audit.actor_identity is NOT NULL. A service_role
+  -- connection has no auth.uid() and must raise rather than record a sentinel
+  -- — a machine never opens a dashboard.
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: caller JWT required — the payout dashboard is authorized for a human, never a machine session'
+      using errcode = '42501';
+  end if;
+  if p_org_id is null then
+    raise exception 'invalid_input: an org scope is required';
+  end if;
+  -- SoD-1, the same narrowing §4 applied to the bind.
+  if not kernel.has_org_role(p_org_id, array['org_owner']) then
+    raise exception 'insufficient_privilege: org_owner required (SoD-1; org_finance may view payment status but may not open the payout dashboard)'
+      using errcode = '42501';
+  end if;
+  -- AUTHZ-M4, the 085:1624-1631 shape: an absent claim is never a pass.
+  v_aal := coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'aal';
+  if v_aal is null then
+    raise exception 'step_up_unavailable: the session carries no aal claim';
+  end if;
+  if v_aal <> 'aal2' then
+    raise exception 'step_up_required: a step-up (aal2) session is required to open the payout dashboard';
+  end if;
+
+  select * into v_org from kernel.organization where org_id = p_org_id;
+  if not found then
+    raise exception 'not_found: organization %', p_org_id using errcode = 'P0002';
+  end if;
+  -- G-6, the same set §4/§5 require: a suspended org's payee is frozen, and
+  -- that must include the bank account behind it.
+  if v_org.status not in ('approved','active') then
+    raise exception 'precondition_failed: org_not_bindable — a % org may not open its payout dashboard', v_org.status;
+  end if;
+  -- Nothing to authorize for an org with no destination: the edge sends an
+  -- unbound org down the account_links arm, never here. Refusing is what keeps
+  -- this verb from becoming a generic, contentless audit writer.
+  if v_org.stripe_connect_account_ref is null then
+    raise exception 'precondition_failed: no_payout_destination — this organization has no bound payout destination to administer';
+  end if;
+
+  -- THE ROW THAT MAKES THE GRANT VISIBLE. Last 4 only — G §6.1 bars Connect
+  -- ids from leaving the trust boundary, and admin_audit is read by support.
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.payout_destination.dashboard_grant', 'organization', p_org_id,
+          'express_dashboard_login', null,
+          jsonb_build_object('destination_last4', right(v_org.stripe_connect_account_ref, 4),
+                             'command_key', p_command_key))
+  returning id into v_audit_id;
+
+  -- A9 / G-2 — the human tripwire, BEST-EFFORT, verbatim §4/§5 pattern:
+  -- keyed on the audit row id (PFA-2 per-occurrence collision rule), wrapped so
+  -- a failed emit warns and the authorization still commits. Recipients are
+  -- every org_owner AND org_finance including any who did not act — an owner
+  -- opening the dashboard is exactly the event the other officers should see,
+  -- because what happens next is invisible to us.
+  begin
+    for v_recipient in
+      select m.identity_id from kernel.org_member m
+       where m.org_id = p_org_id and m.role in ('org_owner','org_finance')
+    loop
+      perform notify.emit_event(
+        'security_payout_destination_changed', 'identity', v_recipient,
+        'security_payout_destination:' || v_audit_id::text || ':' || v_recipient::text,
+        jsonb_build_object('org_id', p_org_id,
+                           'destination_last4', right(v_org.stripe_connect_account_ref, 4),
+                           'origin', 'express_dashboard_login',
+                           'actor_identity', v_uid));
+    end loop;
+  exception when others then
+    raise warning 'authorize_org_payout_dashboard: best-effort security notice emit failed: %', sqlerrm;
+  end;
+
+  return jsonb_build_object('status','ok','org_id', p_org_id,
+                            'authorization_id', v_audit_id);
+end;
+$$;
+
+-- 076 grant discipline: revoke the default PUBLIC EXECUTE, then ONE targeted
+-- grant. `authenticated` only — this is a caller-authorized verb whose whole
+-- content is a test against auth.uid(), so a service_role grant would be inert
+-- (has_org_role tests auth.uid(), NULL on a machine session) AND misleading.
+-- anon never.
+revoke all on function kernel.authorize_org_payout_dashboard(uuid, text)
+  from public, anon, authenticated;
+grant execute on function kernel.authorize_org_payout_dashboard(uuid, text) to authenticated;
+
+
+-- ============================================================================
+-- §10 — THE CROSS-PLANE REFUSAL, MADE BIDIRECTIONAL.
+--   Ruling A7/G-1 · G §2 threat G-12 · finding H6/F-4.
+--
+-- THE DEFECT. §2b, §4 and §5 all refuse an acct_ that lives on the INDIVIDUAL
+-- seller plane. Nothing refused the reverse: an acct_ already bound to an
+-- ORGANIZATION could be written onto public.profiles.stripe_connect_id, and
+-- the red-team reproduction is one UPDATE. Two consequences, and the second is
+-- worse than the first:
+--   (a) MIS-ROUTED SELLER MONEY. supabase/functions/_shared/payouts.ts is the
+--       individual rail's transfer path and it pays `profiles.stripe_connect_id`
+--       verbatim. An org's Connect account sitting in that column receives
+--       marketplace seller proceeds.
+--   (b) THE ORG IS BRICKED, PERMANENTLY. §2b/§4/§5's refusal is `exists (select
+--       1 from public.profiles where stripe_connect_id = <ref>)`. Once the org's
+--       OWN account appears there, that clause matches the org's own identifier
+--       forever: re-staging and re-pointing both raise
+--       account_not_platform_minted_for_org, and §2.3's already-narrow re-point
+--       path closes completely. A one-row write makes a venue's payout
+--       destination unchangeable.
+--
+-- WHY A TRIGGER AND NOT A CHECK IN AN EDGE. There is NO verb on this side to
+-- put a check in. profiles.stripe_connect_id is written by a direct table
+-- UPDATE from a service-role client with no RLS in the way
+-- (create-connect-account/index.ts:217 and :258) — that is ruling G's own G-12
+-- finding, and it means an edge-level check protects only the edge. The
+-- inbound edge path cannot actually inject an org id anyway (it writes
+-- `created.id`, minted by Stripe seconds earlier), so an edge check would guard
+-- the one caller that was never the threat and miss the two that are: a leaked
+-- SUPABASE_SERVICE_ROLE_KEY, and any future writer. A BEFORE trigger holds
+-- against every writer including service_role, which is exactly the asymmetry
+-- G-12 asks to close.
+--
+-- GUARDED SO IT COSTS NOTHING. The body runs only when the column is non-null
+-- AND actually changed; the lookup then rides organization_connect_ref_key
+-- (077:124-126), a partial unique index on the very column being probed. An
+-- ordinary profile update touches neither.
+--
+-- SECURITY DEFINER IS REQUIRED, NOT DECORATIVE: a trigger function executes as
+-- the invoking role, and NEITHER `authenticated` NOR `service_role` holds any
+-- grant on kernel.organization (077:133-138; 085:2092-2095 gives service_role
+-- kernel USAGE only). An invoker-rights trigger here would raise `permission
+-- denied for table organization` on every seller onboarding.
+--
+-- THE ARCHIVE IS GUARDED TOO, and not only for symmetry: §2b/§4/§5 consult
+-- public.stripe_connect_archive with the identical `exists` clause, so an org
+-- id landing there bricks the org exactly as (b) above. Covering profiles alone
+-- would leave the same trap one table over.
+-- ============================================================================
+create or replace function kernel.guard_connect_id_not_org_bound()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_ref text := new.stripe_connect_id;
+begin
+  -- Fire only on a real, changed value. TG_OP is checked rather than assumed so
+  -- the same function can serve both triggers below.
+  if v_ref is null then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.stripe_connect_id is not distinct from v_ref then
+    return new;
+  end if;
+
+  if exists (select 1 from kernel.organization o
+              where o.stripe_connect_account_ref = v_ref) then
+    raise exception 'precondition_failed: account_bound_to_organization — % is an organization payout destination and may not be recorded on the individual seller plane', v_ref
+      using errcode = 'P0001';
+  end if;
+  -- A STAGED-BUT-UNBOUND ref is refused as well. It is the account the platform
+  -- minted FOR an org and is one org_owner bind away from being live; letting it
+  -- land here would poison the provenance check before the bind could ever run,
+  -- turning a pending onboarding into a permanent no_pending/​not_minted loop.
+  if exists (select 1 from kernel.organization o
+              where o.connect_pending_ref = v_ref) then
+    raise exception 'precondition_failed: account_bound_to_organization — % has been minted for an organization and may not be recorded on the individual seller plane', v_ref
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function kernel.guard_connect_id_not_org_bound()
+  from public, anon, authenticated, service_role;
+-- NO grant, deliberately: PostgreSQL does not check EXECUTE on a trigger
+-- function, and nothing may ever call this directly. Same treatment as
+-- kernel.settlement_primary_lines (no grant at all).
+
+drop trigger if exists tg_profiles_connect_id_not_org_bound on public.profiles;
+create trigger tg_profiles_connect_id_not_org_bound
+  before insert or update of stripe_connect_id on public.profiles
+  for each row execute function kernel.guard_connect_id_not_org_bound();
+
+drop trigger if exists tg_connect_archive_not_org_bound on public.stripe_connect_archive;
+create trigger tg_connect_archive_not_org_bound
+  before insert or update of stripe_connect_id on public.stripe_connect_archive
+  for each row execute function kernel.guard_connect_id_not_org_bound();
+
+-- EXISTING ROWS ARE NOT VALIDATED, AND THE MIGRATION MUST NOT FAIL ON THEM.
+-- A BEFORE trigger only sees new writes. Refusing to apply 093 because a
+-- pre-existing row already carries an org id would make a data problem into an
+-- outage; reporting it loudly is the right trade. In practice this is expected
+-- to be zero — no org has ever been bound in production — and a non-zero count
+-- is a genuine incident to chase, not a migration blocker.
+do $$
+declare v_n integer;
+begin
+  select count(*) into v_n
+    from public.profiles pf
+    join kernel.organization o
+      on o.stripe_connect_account_ref = pf.stripe_connect_id
+     or o.connect_pending_ref         = pf.stripe_connect_id;
+  if v_n > 0 then
+    raise warning 'CROSS-PLANE COLLISION: % profile row(s) already carry an organization Connect account. The §10 trigger blocks NEW writes only; these rows must be reconciled by hand (H6/F-4).', v_n;
+  end if;
+end $$;
+
+
+-- ============================================================================
 -- END PART 30. Residuals this part creates, recorded so they are not mistaken
 -- for oversights (all outside the authored scope of this fragment):
 --   R30-1  OPEN — CARRIED AS A NAMED FOLLOW-UP, NOT CLOSED HERE.
@@ -1721,6 +2019,22 @@ $$;
 --          That is the intended resting state, not a defect — but it means the
 --          ceremony is now a hard blocker on the first sale, visible as
 --          `no_active_signing_key` rather than as a post-payment mint failure.
+--   R30-9  §9 records that a human was GRANTED the ability to change the bank
+--          account behind the bound acct_; it cannot observe whether they then
+--          did. Stripe reports that as `account.external_account.updated` /
+--          `account.updated`'s external_accounts payload, and this repo's
+--          webhook handles neither — supabase/functions/stripe-webhook only
+--          reads capabilities on the org arm. CONSEQUENCE: a bank swap still
+--          does not arm destination probation (087:465-495), because the
+--          probation operand is an admin_audit action and no row is written
+--          when the swap actually happens. §9 converts a silent change into a
+--          visible GRANT, which is strictly better and is not the same thing as
+--          closing it. Closing it needs the external-account webhook arm and a
+--          decision on whether a bank swap re-arms probation.
+--   R30-10 §9's emit inherits R30-1 exactly: notify.drain_outbox still has no
+--          arm for security_payout_destination_changed, so the envelope is
+--          counted `unmapped` and nobody is told. The admin_audit row is the
+--          only channel that works today. Do not read §9 as closing G-2.
 --   R30-5  Nothing in the database stops selling being activated while
 --          fee.buyer_service_bps is null; the §3 refusal is per-checkout, so
 --          the symptom is "every sale fails closed", not "no sale is

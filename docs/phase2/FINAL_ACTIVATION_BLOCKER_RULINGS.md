@@ -1,9 +1,16 @@
 # Final activation blocker rulings
 
-**Status: DRAFT. NOT APPROVED. NOT SIGNED.** Three decisions remain between the current
+**Status: DRAFT. NOT APPROVED. NOT SIGNED.** **Five** decisions now stand between the current
 implementation and a first venue-direct ticket sale. Each carries approval text written so the owner
-can adopt it verbatim. **None of the three is approved.** Nothing in this document has been acted on
+can adopt it verbatim. **None of the five is approved.** Nothing in this document has been acted on
 beyond the fail-closed defaults already in migration 093.
+
+G1–G3 were raised by the activation-blocker train (2026-09-02). **G4 and G5 were added 2026-09-03 by
+the refund/payout backend train**, and neither is an implementation detail: G4 is what a promoter is
+owed when the sale they drove is reversed, and G5 is whether the platform accepts an uncollectable
+post-payout loss or builds a receivable first. G1's and G2's recommendations are unchanged, but both
+carry corrected evidence from that train — including two corrections to this document's own earlier
+claims.
 
 **Production is untouched.** Ledger verified at 107 rows ending at `092_notify_reduced`; no `093`.
 
@@ -115,8 +122,12 @@ day for a Friday or Saturday event, which is when nightlife volume actually is.
 
 - **Unset:** sweep inert. No expiry. Fail-safe for credentials, incomplete for deletion of
   non-purchasing holders.
-- **Set as a number:** silently becomes seconds. This is the dangerous input and the reason the
-  approval text below pins the type.
+- **Set as a number:** **refused at the setter since 093** (`093_parts/40:1248`), with a message naming
+  the correct form. It was previously silent and became seconds. The approval text below still pins
+  the type, but that is now belt to the code's braces rather than the only defence. As of 2026-09-03
+  `ticket.%` is also dual-controlled, so a well-typed wrong value needs a second administrator — and
+  the two guards compose in the right order: a bare number is rejected outright and never reaches the
+  approval queue, so no one can be asked to rubber-stamp `'24'`.
 - **Set too short:** live tickets terminal-ized, and `cancel_event` then excludes them from refunds —
   the holder loses ticket *and* money. Irreversible in practice: no shipped function writes `state`
   back.
@@ -224,6 +235,20 @@ the claim that an `ends_at`-only move is unguarded is too strong; that form is r
 
 Migration 093 now guards backward movement once a session carries economic weight, while leaving a
 pre-sale draft event freely reschedulable in both directions.
+
+**Re-verified 2026-09-03 and the residual is struck.** Independent execution as `org_owner` against a
+full replay: a backward move of −65 days is refused; an `ends_at`-only move of −4 hours is refused;
+a postponement of +30 days succeeds, which is the safe direction. The anchor is no longer mutable by
+the party being paid.
+
+**The anchor and interval were attacked again and survive unchanged.** Every scenario in the brief was
+executed — normal nightclub event, an event ending after midnight, one ending at 4–6 AM, a multi-day
+festival, multiple sessions, postponement, cancellation, delayed close, a refund pending on day 7, a
+dispute pending on day 7, the executor offline, a disconnected account, funded commission, and a
+post-release chargeback. The 4–6 AM case, which looked like the most likely source of an off-by-one-day
+error, **does not matter**: the gate is pure instant arithmetic on `timestamptz`, with no `date_trunc`,
+no `AT TIME ZONE` and no `::date` anywhere. It would only matter if the policy were ever re-expressed
+as a calendar day, and the recommendation is that it never is.
 
 ## CANCELLATION
 
@@ -361,15 +386,133 @@ without collision.
 
 ---
 
+# RULING G4 — FUNDED PROMOTER COMMISSION WHEN THE REVENUE IS REVERSED
+
+## CURRENT STATE
+
+Promoter commission is funded from primary-sale economics and reduces venue distributable before venue
+money is released (ratified Option B). **Funded is not paid**, and nothing in the system has ever
+released a commission hold — verified again this train across both economic chains, three refund
+cycles, a chargeback, a cancellation, a re-close and an owner-level re-open: `count(*) from
+kernel.payout where cause='promoter_commission' and hold_state <> 'held'` = **0**.
+
+## THE PROBLEM
+
+When the revenue that funded a commission is reversed **after the close that funded it**, there is no
+mechanism to reduce the commission. Proved by execution, all four routes closed:
+
+- the settlement line cannot be UPDATEd or DELETEd (append-only trigger),
+- a compensating line is **unstorable** (the global partial unique index permits one line per cause
+  reference, which is the protection against double-lining),
+- the closed settlement header is write-once,
+- `kernel.payout` has no reduce or void verb, and the schema has no carry-forward object.
+
+Four ordinary shapes produce it: a post-close full refund, a post-close partial refund, a chargeback,
+and an event cancellation. In the rehearsal, **3800 of 4800 minor units — 79% — across four of five
+funded attributions stood against reversed revenue.**
+
+## WHY IT IS CONTAINED, AND WHY THAT MATTERS
+
+The exposure is bounded by a single fact: nobody has released a commission hold, which is exactly what
+ruling A4 guarantees and what migration 093 was repeatedly verified not to break. So this is a decision
+to be made deliberately, not an incident. **It becomes real the moment the first commission hold is
+released**, which is why it belongs in the activation matrix rather than in a backlog.
+
+## OPTIONS
+
+| | Option | Consequence |
+|---|---|---|
+| A | Never release that attribution's hold | Simplest and already the de facto state. The promoter is not paid on reversed revenue, and also not paid on the surviving portion of a partly refunded order. |
+| B | New `commission_reversal` cause plus a negative-obligation object | Correct accounting. Costs a new enum member on a frozen CHECK and DDL on a money ledger — a post-freeze amendment. |
+| C | Promoter-level running balance | Option A applied at the promoter rather than the attribution; needs a new durable object. |
+| D | Platform absorbs | Already rejected in the original Option B ratification; listed only so the record is complete. |
+
+## RECOMMENDATION
+
+**No recommendation is offered, deliberately.** This is a commercial relationship decision — what a
+promoter is owed when the sale they drove is reversed — and the four options differ in what the
+promoter is told, not merely in how the ledger is shaped. Migration 093 must not choose, and does not:
+A4 holds everything in place while the question is open.
+
+## OWNER APPROVAL TEXT
+
+> **G4 — FUNDED COMMISSION ON REVERSED REVENUE**
+>
+> When primary revenue is reversed after the settlement close that funded a promoter commission, the
+> policy is: ______________________________ (A / B / C).
+>
+> Until this is ruled, no promoter commission payout may be released, and `kernel.release_payout` must
+> not be used on a `promoter_commission` payout for any reason. This constraint is recorded in the
+> activation matrix as a precondition of promoter payout, not of venue payout or of selling.
+
+---
+
+# RULING G5 — POST-PAYOUT REFUND AND CHARGEBACK EXPOSURE
+
+## CURRENT STATE
+
+Once a venue has been paid, a later refund or lost dispute has no recovery mechanism. Executed this
+train: an organization sold 23000, was paid 19000, was entitled to 13000 — **platform loss 6000.**
+
+Of the six possible accounting outcomes, only **platform absorbs** is implemented. *Future payout
+offset* exists accidentally: recovery works only if the organization's next settlement happens to
+carry enough positive lines, and when it does it silently confiscates that later revenue while
+destroying any excess. There is no receivable object, and `CHECK (amount_minor > 0)` on
+`kernel.payout` makes one unrepresentable without DDL.
+
+## WHY IT IS ACCEPTABLE TODAY, AND WHY THAT IS ABOUT TO CHANGE
+
+It is tolerable right now for exactly one reason: **no payout executor exists**, so no venue can be
+paid at all. No edge function calls `request_org_payout`, `mark_payout_transfer_state` or
+`release_payout`, and no cron job does either.
+
+**This train wrote the executor.** It is dark and undeployed, but the protection was the absence of the
+thing that now exists. Two conditions were therefore identified as preconditions of ever *shipping* it,
+distinct from writing it: the maturity re-evaluation fix (done this train — maturity is now an
+invariant rather than a close-time snapshot) and a receivable or reserve object (**not done**).
+
+## OPTIONS
+
+| | Option | Consequence |
+|---|---|---|
+| 1 | Accept the exposure with explicit owner risk acceptance | Ships soonest. Bounded per settlement by the amount paid, unbounded in aggregate across settlements. |
+| 2 | Build a receivable object before the executor ships | Correct, and needs DDL on a money ledger plus a policy for how a negative balance is collected. |
+| 3 | Stripe fixed reserves on connected accounts | Moves the problem to Stripe; changes the venue relationship and needs its own onboarding decision. |
+| 4 | Shorten the maturity interval | Reduces nothing meaningful — the dispute tail is ~120 days and no commercially viable hold covers it. |
+
+## RECOMMENDATION
+
+**Do not ship the payout executor on option 1 by default.** The honest framing is that option 1 is a
+real business choice a launching marketplace may reasonably make, but it must be made explicitly and
+with the number in front of the owner, because the loss lands entirely on the platform and is
+discovered only after the money has gone.
+
+## OWNER APPROVAL TEXT
+
+> **G5 — POST-PAYOUT EXPOSURE**
+>
+> The venue payout executor may not be deployed until: ______________________________
+> (1 accept with risk acceptance / 2 receivable object first / 3 Stripe reserves).
+>
+> It is recorded that only "platform absorbs" is implemented today, that "future payout offset" exists
+> only accidentally and silently confiscates later venue revenue, and that no receivable object exists
+> or is representable without DDL on a money ledger.
+
+---
+
 # Signature block
 
-**This document is NOT approved. No ruling below is in force.**
+**This document is NOT approved. No ruling below is in force.** G4 and G5 were added
+2026-09-03 by the refund/payout backend train; G1 and G2 carry corrected evidence from the same
+train and their recommendations are unchanged.
 
 | Ruling | Subject | Status |
 |---|---|---|
 | G1 | Ticket expiry | PENDING OWNER SIGNATURE |
 | G2 | Settlement / payout maturity | PENDING OWNER SIGNATURE |
 | G3 | Production signing ceremony | PENDING OWNER SIGNATURE |
+| G4 | Funded commission on reversed revenue | PENDING OWNER SIGNATURE |
+| G5 | Post-payout refund / chargeback exposure | PENDING OWNER SIGNATURE |
 
 Owner signature: _______________________  Date: _______________
 
