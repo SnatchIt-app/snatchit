@@ -556,7 +556,7 @@ serve(async (req: Request) => {
     //   • Dispute handlers freeze the related transfer so auto-release
     //     and confirm-and-release cannot fire while the case is pending.
     //   • Refund / payout / transfer events sync DB state for the
-    //     admin SQL-pack ops queries (DAY8_P1_02_ADMIN_SQL_PACK.sql).
+    //     admin ops queries (runbook kept outside this repo).
     //   • Every branch reaches markProcessed()/finish() so the
     //     public.stripe_webhook_events row reflects the actual outcome:
     //     success sets processed_at (terminal, never reprocessed), failure

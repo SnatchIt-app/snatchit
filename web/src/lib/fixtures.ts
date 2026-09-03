@@ -8,7 +8,7 @@ import type { WebListing, SellerSummary } from "@/lib/listings";
  */
 export const FIXTURE_SELLER: SellerSummary = {
   id: "09f1ec06-2bd5-45de-8851-2dd8af08d4eb",
-  display_name: "Demo Seller (App Review)",
+  display_name: "Sample Seller",
   is_verified_seller: false,
   created_at: "2026-05-15T23:13:47.876Z",
 };

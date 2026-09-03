@@ -606,7 +606,9 @@ Apple reviewers must be able to walk through:
 - Pre-seed **1 completed listing+transfer** in `buyer_confirmed` state, so the reviewer can see a "completed transaction" in their bids.
 - Pre-seed **1 active bid** the buyer placed on a listing.
 
-## G3. Seeding script — `scripts/seed-demo.ts`
+## G3. Seeding script — `scripts/seed-demo.ts` *(removed)*
+> **REMOVED (2026-08-26):** `scripts/seed-demo.ts` and the App-Review demo accounts were permanently deleted by owner decision. The credentials are treated as compromised (they were committed to a public repo) and the accounts decommissioned. Any future test seeding must use ephemeral credentials supplied by the test environment — never committed. Retained below as a historical record only.
+
 
 I can produce this script. It needs to run with `SUPABASE_SERVICE_ROLE_KEY` (server-side) so it can bypass RLS. **Run this from your machine, not from this sandbox**, so the service-role key never touches my context:
 
@@ -620,14 +622,14 @@ npx tsx scripts/seed-demo.ts
 
 The script will:
 
-1. **Create buyer auth user:** `review-buyer@snatchitapp.com` / `Snatch1tDemo!` via `supabase.auth.admin.createUser` with `email_confirm: true`.
-2. **Create seller auth user:** `review-seller@snatchitapp.com` / `Snatch1tDemo!` same way.
+1. **Create buyer auth user:** `[credential removed]` / `[credential removed]` via `supabase.auth.admin.createUser` with `email_confirm: true`.
+2. **Create seller auth user:** `[credential removed]` / `[credential removed]` same way.
 3. **Create Stripe Express test account** for the seller via `POST /v1/accounts`:
    ```ts
    const acct = await stripe.accounts.create({
      type: 'express',
      country: 'US',
-     email: 'review-seller@snatchitapp.com',
+  [credential removed — never commit credentials; see private credential store]
      capabilities: {
        card_payments: { requested: true },
        transfers:     { requested: true },
@@ -636,7 +638,7 @@ The script will:
      individual: {
        first_name: 'Demo',
        last_name:  'Seller',
-       email:      'review-seller@snatchitapp.com',
+  [credential removed — never commit credentials; see private credential store]
        phone:      '+15555550000',
        dob:        { day: 1, month: 1, year: 1980 },
        address:    { line1: '123 Demo Lane', city: 'Miami', state: 'FL', postal_code: '33101', country: 'US' },
@@ -660,14 +662,13 @@ The script will:
 After running the seed script, the App Review notes (Section H) include:
 
 ```
-DEMO BUYER:
-  Email:    review-buyer@snatchitapp.com
-  Password: Snatch1tDemo!
+DEMO BUYER (account decommissioned):
+  [credential removed — never commit credentials; see private credential store]
+  [credential removed — never commit credentials; see private credential store]
   Notes:    Has 1 active bid on a $35 listing; 1 confirmed past purchase.
-
-DEMO SELLER:
-  Email:    review-seller@snatchitapp.com
-  Password: Snatch1tDemo!
+DEMO SELLER (account decommissioned):
+  [credential removed — never commit credentials; see private credential store]
+  [credential removed — never commit credentials; see private credential store]
   Notes:    Has Stripe Connect Express account fully onboarded in test mode.
             Has 3 active listings at $35 / $80 / $200.
             Has 1 sold-and-delivered transaction.
@@ -773,8 +774,8 @@ USER-GENERATED CONTENT (1.2):
 Users can post ticket listings. Listings are subject to (a) seller risk scoring before publication, (b) buyer-side "Report listing" and "Block user" actions, (c) review by the Snatch It moderation team within 24h of any report, and (d) automatic removal of listings on N reports.
 
 DEMO REVIEWER ACCOUNTS:
-  Buyer:  review-buyer@snatchitapp.com  /  Snatch1tDemo!
-  Seller: review-seller@snatchitapp.com /  Snatch1tDemo!
+  Buyer:  [credential removed]  /  [credential removed]
+  Seller: [credential removed] /  [credential removed]
 
 The seller account has completed Stripe Connect Express onboarding in TEST MODE. To verify, sign in as the seller, tap Settings → Payout Setup — you'll see "Connected" status. The seller has 3 active listings ($35 / $80 / $200) and 1 completed past sale.
 

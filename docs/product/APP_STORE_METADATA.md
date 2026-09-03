@@ -62,21 +62,16 @@ miami,concert,festival,nightlife,rave,club,edm,resale,marketplace,music,vip,show
 17+ (unrestricted web-adjacent marketplace, nightlife context; app itself enforces 18+ at signup). Answer the ASC questionnaire honestly — no alcohol/drug content is allowed in listings (moderation regex enforces this).
 
 ## App Review Notes (as saved in ASC "Notes" field)
-Sign-in fields in ASC hold the buyer demo account: `<redacted — see private credential store>` (contact phone `<redacted — see private credential store>`).
 
 Updated 2026-08-04: notes aligned to Build 13's exact UI labels ("Buy · $X" / "Pay · $X"), live payment environment verified end-to-end, Build 13 called out as the current binary. 2026-07-24: demo inventory curated to the three strongest listings (III Points Saturday GA $300, Space Miami — Mochakk $225, Quavo E11even $250 — active through 2026-08-23). Original 2026-07-21 update added operator/provider identification, exact Apple Pay navigation, and removed the outdated "escrow-style, 72h auto-release" wording (risk-based release shipped 2026-07-15).
 ```
 Snatch It is a peer-to-peer marketplace where individual users list, bid on, and buy event tickets. It is owned and operated by JDT LLC. Payments are for physical-world services and are processed by Stripe per Guideline 3.1.5(a) — no digital goods, no IAP.
 
-DEMO ACCOUNTS (both preloaded with demo data for App Review)
-
+DEMO ACCOUNTS: removed. The App Review demo accounts were decommissioned;
+supply reviewer credentials via App Store Connect only — never in this repo.
 BUYER ACCOUNT
-Email: <redacted — see private credential store>
-Password: <redacted — see private credential store>
 
 SELLER ACCOUNT
-Email: <redacted — see private credential store>
-Password: <redacted — see private credential store>
 
 HOW TO REACH CHECKOUT AND APPLE PAY (use the buyer account):
 1. Sign in as the buyer.

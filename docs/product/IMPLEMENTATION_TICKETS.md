@@ -333,7 +333,9 @@ vercel --prod
 **I. Acceptance:** all three events return 200; `account.updated` actually toggles the DB flag.
 **J. Rollback:** remove the three `else if` blocks; remove events from Stripe Dashboard. **K. Complexity:** Small.
 
-## Ticket P0-11 — Seed demo buyer + seller accounts
+## Ticket P0-11 — Seed demo buyer + seller accounts *(removed)*
+> **REMOVED (2026-08-26):** `scripts/seed-demo.ts` and the App-Review demo accounts were permanently deleted by owner decision. The credentials are treated as compromised (they were committed to a public repo) and the accounts decommissioned. Any future test seeding must use ephemeral credentials supplied by the test environment — never committed. Retained below as a historical record only.
+
 
 **A. Priority:** P0
 **B. Why it matters:** App Review requires credentials. Reviewers cannot sign up themselves (email confirmation, Stripe Connect onboarding for sellers).
@@ -342,8 +344,8 @@ vercel --prod
 1. Claude writes `scripts/seed-demo.ts` (TypeScript, uses `@supabase/supabase-js` admin client + Stripe REST). Idempotent.
 2. You run it from your machine with `SUPABASE_SERVICE_ROLE_KEY` + `STRIPE_SECRET_KEY` env vars: `npx tsx scripts/seed-demo.ts`.
 3. Script creates:
-   - Buyer: `review-buyer@snatchitapp.com` / `Snatch1tDemo!`.
-   - Seller: `review-seller@snatchitapp.com` / `Snatch1tDemo!`.
+   - Buyer: `[credential removed]` / `[credential removed]`.
+   - Seller: `[credential removed]` / `[credential removed]`.
    - Stripe Express test account for seller with `card_payments` + `transfers` capabilities pre-approved (test mode allows skipping hosted onboarding).
    - 3 active listings under seller.
    - 1 historical sold + buyer-confirmed listing.
