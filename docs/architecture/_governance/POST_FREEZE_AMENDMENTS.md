@@ -3174,3 +3174,143 @@ OWNER ITEMS OPENED:          (1) ratify the terminal-status reading of admit-gat
                              (adversarial P0-2 — currently by-design, trusted-scanner model).
 OWNER SIGNATURE REQUIRED:    YES. OWNER SIGNATURE: PENDING. Migration 104 is DARK/unapplied.
 ```
+
+## PFA-18B — RECOMMENDED OWNER RULING: un-park kernel.revoke_signing_key under SINGLE platform_admin control (emergency tightening), wiring the built §5.6 force-close; provision/rotate STAY parked (package 105, DARK)
+
+```
+ID:                          PFA-18B  (amends PFA-18A for the REVOKE leg only — an owner decision;
+                             NOT self-signed. Engineering has built and tested the force-close
+                             MECHANISM; this PFA asks the owner to choose the revoke AUTHORIZATION.)
+THE STANDING RULING:         PFA-18A (owner-signed) parks the credential lifecycle TRIO
+                             (provision/rotate/revoke) fail-closed with ZERO mutation until a
+                             "credential-compatible dual-control mechanism is separately ratified", and
+                             states "the unavailable approval mechanism does not authorize single-control
+                             fallback." §5.6/RPC §20.7.5 fully specify what an un-parked revoke MUST do
+                             (force-close open episodes in the key's scope, emit DoorManifestInvalidated,
+                             audit). The Wallet 12h session-bound profile (Door OQ-5 / DL-4) is BLOCKED
+                             until revoke can do this.
+WHAT ENGINEERING BUILT (105): kernel.force_close_key_manifests(uuid,text) — the exact §5.6 mechanism,
+                             zero-grant (internal), tested (test 171: scope-exact close, #44 emit,
+                             no_open_episode reconnect signal, T-RPC-KEY-05 out-of-scope isolation). It
+                             is a door-MANIFEST operation, NOT a key mutation, so building it does not
+                             violate PFA-18A. It is NOT wired into revoke (revoke stays parked).
+THE OWNER DECISION:          Dual-control on REVOCATION is the "a kill switch that needs a quorum is not a
+                             kill switch" anti-pattern (the exact polarity the owner already ratified for
+                             wallet.apple.enabled, WALLET §11.5b, and for signing.monitor_enabled,
+                             package 102 P3 — a tightening/emergency-off executes single-admin). PROVISION
+                             and ROTATE create/extend signing authority (arming) and legitimately need
+                             dual control; REVOKE removes authority in an incident and must be fast.
+RECOMMENDATION:              Un-park kernel.revoke_signing_key under SINGLE platform_admin (+aal2)
+                             control: authorize (is_platform([platform_admin]) + aal2), lock
+                             catalog.event_session FOR UPDATE (rank 1) then the key row, verify the
+                             forward-only lifecycle (active/rotating→revoked), set status='revoked',
+                             not_after:=now(), call kernel.force_close_key_manifests(key_id,'key_revoked'),
+                             audit. provision_signing_key / rotate_signing_key STAY parked (PFA-18A) — the
+                             ceremony inserts the bootstrap key directly (two-person), not via provision.
+                             The signature (p_key_id,p_reason_code,p_ack_live_credentials,p_command_key)
+                             is unchanged.
+ALTERNATIVE (if the owner insists on dual-control for revoke too): a credential-compatible dual-control
+                             mechanism must first be designed and ratified (PFA-18A's unassigned forward
+                             obligation — a new kernel credential-approval table, NOT the money-only
+                             kernel.approval_request). That is a larger build; engineering recommends
+                             AGAINST it for the emergency revoke leg on the kill-switch argument above.
+OWNER APPROVAL TEXT (adopt to authorize the recommendation):
+  "PFA-18B APPROVED. kernel.revoke_signing_key un-parks under single platform_admin + aal2 control
+   (revocation is an emergency tightening; the kill-switch polarity of WALLET §11.5b / package-102 P3
+   applies). It MUST, in one transaction, lock event_session FOR UPDATE then the key row, set
+   status='revoked' and not_after:=now(), call kernel.force_close_key_manifests for the key's scope, and
+   audit. provision_signing_key and rotate_signing_key REMAIN parked under PFA-18A; the bootstrap key is
+   a direct two-person ceremony insert. This lifts PFA-18A's no-single-control-fallback for the REVOKE
+   leg only."
+STATUS:                      RECOMMENDED — PENDING OWNER SIGNATURE. Until signed, revoke stays parked and
+                             the Wallet 12h profile stays blocked. The mechanism is engineering-ready
+                             (force_close_key_manifests built+tested); only the authorization ruling and
+                             a small un-park migration remain.
+```
+
+## PFA-26 (un-park mechanism) — RECOMMENDED: in-DB pgcrypto bcrypt slow-KDF, keeping the frozen create_door_pin/mint_door_session signatures; edge rate-limiter is the attempt control (package 105, DARK)
+
+```
+ID:                          PFA-26-UNPARK  (brings PFA-26's forward obligation to a concrete, ratifiable
+                             mechanism. NOT self-signed — PFA-26 requires OWNER SIGNATURE to un-park.)
+THE GAP (PFA-26):            create_door_pin/mint_door_session parked because "no crypto extension
+                             (pgcrypto) is installed 076-086, so a real slow KDF is unbuildable in-DB";
+                             un-park needs "a ratified slow-KDF mechanism (edge-side hashing, or a
+                             sanctioned crypto extension)". PFA-26 fixes NEITHER the location, algorithm,
+                             params, salt, version, nor attempt policy. venue.door_pin has pin_hash only
+                             (no salt/version/attempt/lockout columns).
+RECOMMENDED MECHANISM (the smallest that keeps the FROZEN signatures):
+  * LOCATION: in-DB, via `create extension if not exists pgcrypto` (a Supabase-sanctioned extension).
+    This keeps create_door_pin(...,p_pin_plain,...) and mint_door_session(...,p_pin_plain,...) — the PIN
+    still arrives at the DB and is hashed there; NO signature change (PFA-26 froze the signatures).
+  * ALGORITHM: bcrypt via pgcrypto `crypt(p_pin_plain, gen_salt('bf', 12))` for storage and
+    `crypt(p_pin_plain, pin_hash) = pin_hash` for a constant-time verify. bcrypt is a real slow KDF; the
+    per-hash salt is embedded in the modular-crypt output stored in pin_hash (NO new salt column). The
+    algorithm/version tag lives in that output ('$2a$12$…'), so future rotation to a higher cost or a
+    different KDF needs no schema change. (Argon2id is cryptographically preferred but needs an
+    edge/WASM path and a signature change; bcrypt-in-pgcrypto is the minimal, deploy-safe, frozen-signature
+    choice. Owner may instead choose edge-side Argon2id — that is a larger change and is noted, not built.)
+  * WORK FACTOR: bf cost 12 (owner may set 10-14). This is the one genuinely tunable value.
+  * ATTEMPT/LOCKOUT: NOT new DB columns (none exist). The door-session edge (§3.9a) already specifies a
+    fail-closed rate limiter on /mint keyed venue||device (NS_DOOR_PIN, 5/60) — that IS the brute-force
+    control. A short numeric PIN's low entropy is covered by rate-limiting + bcrypt cost, not by an
+    in-DB lockout table the schema does not carry.
+  * ROTATION: revoke_door_pin (already live) + create_door_pin a new one; no in-place PIN change.
+OWNER APPROVAL TEXT:
+  "PFA-26-UNPARK APPROVED. Un-park venue.create_door_pin / venue.mint_door_session using pgcrypto
+   bcrypt (gen_salt('bf',12); crypt-based constant-time verify), frozen signatures unchanged; brute-force
+   control is the door-session edge's NS_DOOR_PIN rate limiter. door_session.token_hash md5 stays
+   (§3.10-compliant, 256-bit token)."
+STATUS:                      RECOMMENDED — PENDING OWNER SIGNATURE. Engineering has NOT written the
+                             un-park migration (it un-parks a parked security boundary, which needs the
+                             signature first); the door-session edge is authored DARK and surfaces the
+                             parked RPC cleanly. Owner signs the algorithm+cost, then a small migration
+                             (create extension pgcrypto + re-create the two RPCs) un-parks it.
+```
+
+## PFA-PT-9 — RESOLUTION (five items): terminal-session gate, terminal force-close, record_scan version backstop, offline residual, break-glass (packages 104/105)
+
+```
+ID:                          PFA-PT-9  (RESOLVED to a precise recommendation across five items. NOT
+                             self-signed where a ruling is required — owner approval text supplied.)
+ITEM 1 — Is migration 104's terminal-session record_scan gate ratified?
+   RECOMMENDATION: RATIFY. record_scan now refuses a cancelled/completed session (session_not_admitting).
+   This implements frozen contract §7.5 admit-gate (1) ("the session is live — record_scan's own
+   precondition"); the literal 'live' is unimplementable (no code writes event_session.status='live'),
+   so the honest reading is "refuse TERMINAL (cancelled/completed)". Proven by test 170.
+ITEM 2 — Must a terminal (cancelled/completed) session transition force-close open door manifests?
+   FINDING: cancel_event's own §7.2.1 obligation to force-close manifests is ALSO unimplemented in code
+   (088 cancel_event sets status='cancelled' but never calls close_door_manifest / emits
+   DoorManifestInvalidated). RECOMMENDATION: yes — wire cancel_event (and any completed-session sweep) to
+   kernel.force_close_key_manifests-style closure. The MECHANISM now exists (105
+   force_close_key_manifests, scoped by key; a session-scoped sibling is a one-liner). Deferred to a
+   dedicated door migration (re-creating the large 088 cancel_event money function is done under money
+   non-regression, not bundled with signing work). ONLINE terminal admission is already closed (104);
+   the OFFLINE terminal residual is bounded by manifest not_after until this lands.
+ITEM 3 — Should record_scan carry a DB-side credential_version backstop?
+   RECOMMENDATION: NO (keep frozen). §7.5/§1223 place version-currency at C37/the verifier by design;
+   record_scan takes no version and is the admission COMMIT after the scanner verifies (M1+M2/C37). A
+   rogue-STAFF scanner bypassing C37 is a trusted-insider threat (venue staff control the physical door
+   regardless) — not a credential defect. Adding a version param would DEVIATE from the frozen signature
+   and complicate reconciliation for no gain against the actual threat model. The old-owner-screenshot
+   defense is proven at the verifier (offline-verify stale_version; C37 live read).
+ITEM 4 — Accepted offline residual after a terminal session change:
+   An offline device holding an M2 downloaded BEFORE the cancel/complete keeps admitting until its
+   downloaded not_after (bounded by door.manifest_ttl_interval, seed "12 hours"). This is the SAME
+   physical residual as the §5.6 revocation case and is honestly bounded; no DB write can shorten a
+   value already on a disconnected device. ACCEPTED as bounded.
+ITEM 5 — Does break-glass (admin_action) ownership transfer force-close/refresh an episode?
+   FINDING: kernel.transfer_ticket_ownership does NOT append a manifest delta; the only path that moves
+   custody while an episode is frozen is the break-glass admin_action cause (spec-acknowledged §5.5
+   residual). RECOMMENDATION: document in the break-glass runbook that an admin transfer during an open
+   episode should be followed by a manifest force-close/refresh for the affected session (the
+   force_close_key_manifests-class mechanism supports it); do NOT silently redesign transfer.
+OWNER APPROVAL TEXT (items 1 & 3, the ones needing a ruling):
+  "PFA-PT-9 items 1 and 3 APPROVED: (1) migration 104's terminal-session record_scan gate is the
+   ratified reading of §7.5 admit-gate (1); (3) record_scan carries NO credential_version backstop —
+   currency stays at C37/the verifier. Items 2/4/5 are accepted as recommended: terminal/cancel offline
+   force-close is a follow-up door migration; the offline not_after residual is accepted as bounded; the
+   break-glass manifest refresh is a runbook step."
+STATUS:                      RECOMMENDED — PENDING OWNER SIGNATURE (items 1 & 3). Items 2/4/5 are
+                             engineering-tracked follow-ups / accepted residuals.
+```

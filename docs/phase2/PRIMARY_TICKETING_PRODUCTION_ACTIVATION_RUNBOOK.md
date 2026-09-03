@@ -223,3 +223,26 @@ apply `099 → 094` rollbacks in reverse on production → verify ledger 108 (09
 **NOT EXECUTED. NOTHING IN THIS DOCUMENT IS AUTHORIZED.** No production mutation, no remote, no Stripe call, no secret,
 no deploy, no git act was performed in authoring it. Numbers cited come from KI/KJ (executed on `snatchit_rehears_i`),
 the design memos, and the 2026-09-02 deployment record; every value that is the owner's is an `<OWNER_VALUE:…>` placeholder.
+
+## Package 105 addendum — the completed door plane (DO NOT EXECUTE)
+
+The door plane is now MECHANISM-complete (packages 102-105). Insert these steps into the activation
+sequence; every step keeps its label. Full derivation + owner-decision list is in
+`FINAL_DOOR_PLANE_ACTIVATION_READINESS_REPORT.md`.
+
+- **[OWNER APPROVAL]** Sign PFA-18B (single-admin revoke un-park), PFA-26-UNPARK (bcrypt PIN KDF),
+  PFA-PT-9 items 1&3, PFA-PT-6, PFA-PT-8; decide KMS provider/algorithm (D1/D2).
+- **[ENGINEERING, post-signature]** Land the four small un-park/conformance migrations: revoke
+  (wire `kernel.force_close_key_manifests` + single-admin authz), PFA-26 PIN (create extension pgcrypto
+  + re-create create_door_pin/mint_door_session), the record_scan/reconcile service_role door-session
+  auth path, and cancel_event's §7.2.1 force-close wiring. Re-run the full test floor + CI.
+- **[READ ONLY]** Confirm the production-observation closeout ARTIFACT (never "time elapsed").
+- **[PRODUCTION MIGRATION]** Apply 093→(latest) forward-only, hashes pinned, AUTODEPLOY-VERIFIED-OFF.
+- **[KMS][TWO-PERSON]** Ceremony: create the key, insert ONE `kernel.signing_key` (algorithm matching);
+  dual-control the fingerprint; arm `signing.monitor_enabled`.
+- **[EDGE DEPLOY]** credential-sign, primary-checkout, door-session, door-manifest with KMS+provider env.
+- **[CONFIG]** Provision the door PIN(s) (now un-parked); onboard a real org (Connect + fee); expose the
+  RPC surface to PostgREST.
+- **[CONTROLLED SALE][IRREVERSIBLE at issue_ticket_atoms, G3]** first quote → PaymentIntent → atom →
+  credential-sign → M1 → C37/M2 → **[CONTROLLED SCAN]** door admit → offline reconcile. Prove a refund.
+- Venue payout is a SEPARATE later sequence; promoter payout stays DARK.

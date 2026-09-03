@@ -562,3 +562,19 @@ NOT deployed.
 (unapplied) and, for the signing/scan chain, the KMS ceremony + PFA-PT-6/8 owner signatures. Code
 existing is NOT activation. Refund/payout/promoter-payout remain engineering-ready but DARK and are out
 of this train's activation scope.
+
+## Package 105 + edges re-derivation — door plane (2026-09-03)
+
+| Capability | CODE | RAT | MIG | EDGE | KMS | ACT | Blocking gate |
+|---|---|---|---|---|---|---|---|
+| Signing-key REVOCATION force-close | ✓ mechanism (105 `force_close_key_manifests`, tested) | **PFA-18B PENDING** | ✗ | n/a | n/a | ✗ | owner signs PFA-18B → un-park revoke (single-admin) + wire the helper |
+| Door PIN / slow-KDF | ✗ (parked) | **PFA-26 PENDING** | ✗ | door-session authored | n/a | ✗ | owner signs PFA-26-UNPARK (pgcrypto bcrypt) → un-park create_door_pin/mint_door_session |
+| Door session edge | ✓ (DARK) | §3.9a frozen | ✗ | ✗ | n/a | ✗ | PFA-26 (PIN) + service_role auth-path conformance |
+| Door manifest edge | ✓ (DARK, optional) | §3.9b frozen | ✗ | ✗ | ✗ | ✗ | KMS ceremony (or TLS-only MVP) |
+| Offline reconciliation | ✓ (105 conformance: ordering + {admitted,duplicates,conflicts}) | RPC §9.5 | ✗ | via door-session | n/a | ✗ | service_role auth-path + migrate |
+| Terminal-session force-close (offline) | ✓ mechanism | **PFA-PT-9 item 2** | ✗ | n/a | n/a | ✗ | follow-up door migration (wire cancel_event) |
+
+Door VERIFY M1/M2 cores remain complete (packages 102-104). Nothing in the door plane is ACTIVATED;
+every row is blocked on owner PFA signatures and/or migrate-093-105 + the KMS ceremony. The two P1
+blockers from the prior train (§5.6 revocation, PFA-26 PIN) are now MECHANISM-COMPLETE and reduced to
+owner-signature gates (PFA-18B, PFA-26-UNPARK) rather than missing engineering.

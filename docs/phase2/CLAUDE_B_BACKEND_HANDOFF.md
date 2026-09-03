@@ -173,3 +173,25 @@ No existing client contract changed. New backend surfaces for the door/scanner c
   until the KMS ceremony runs; the `door-session`/`door-manifest` edges are specified but NOT built
   (and `create_door_pin`/`mint_door_session` are parked pending a slow-KDF ratification). Build door
   UI against these contracts, but nothing is live.
+
+## 2e. 2026-09-03 door-plane completion (package 105 + edges) — DARK
+
+- **door-session edge (NEW, DARK, §3.9a):** `verify_jwt:false`, bearer `Authorization: DoorSession
+  <door_session_id>.<secret>`. Routes: `/mint` + `/refresh` (PIN→token; PARKED behind PFA-26 →
+  surfaces `pin_unavailable`), `/manifest/sync`→`get_door_manifest`, `/scan`→`record_scan`,
+  `/offline-batch`→`reconcile_offline_scans`. Every relay call re-derives the device from
+  `kernel.assert_door_session`'s return; a body `device_id`/`scan_meta.device_id` is rejected. Whole
+  flow is inert until PFA-26 un-parks the PIN — do not build UI against `/mint` yet.
+- **door-manifest edge (NEW, DARK, OPTIONAL, §3.9b):** staff-JWT, single route, KMS-signs the digest
+  `{manifest_id,manifest_version,session_id,not_after,manifest_digest}`; TLS-only-unsigned fallback is
+  MVP-acceptable; DARK (KMS unconfigured → `kms_unconfigured`).
+- **`reconcile_offline_scans` contract (105):** result is now `{status, admitted, duplicates,
+  conflicts}` (was `{status, reconciled}`); processing is deterministically ordered
+  (server_receipt_at, device_boot_id, scan_sequence); a batch item naming a different session raises
+  `batch_session_mismatch`. A re-scan of a consumed atom is a `conflict` (invalid), not a duplicate.
+- **Manifest invalidation (105):** on signing-key revocation (once revoke un-parks, PFA-18B), open
+  episodes in the key's scope close and emit `DoorManifestInvalidated` (#44); a reconnecting device
+  gets `get_door_manifest → {status:'no_open_episode'}` and MUST drop its M2 and disarm. A fully
+  offline device stays bounded by its downloaded `not_after` (≤ `door.manifest_ttl_interval`).
+- **Still gated:** the whole door plane is inert until the owner signs PFA-18B (revoke), PFA-26 (PIN),
+  and the service_role auth-path conformance item lands on `record_scan`/`reconcile_offline_scans`.
