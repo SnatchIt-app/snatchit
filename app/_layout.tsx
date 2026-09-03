@@ -20,6 +20,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 import { colors } from '@/src/theme';
+import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
 // .web.tsx is a passthrough.
@@ -38,6 +39,13 @@ export const unstable_settings = {
 function RootLayout() {
   const { session, loading } = useAuth();
   const [isRecovery, setIsRecovery] = useState(false);
+
+  // Brand typefaces. The navigator is held until these register, because
+  // `fontFamily()` resolves when a StyleSheet is constructed: a screen built
+  // before the faces land would keep the system face for its whole life, since
+  // nothing re-renders it when loading completes. The wait is over bundled
+  // assets, and a load failure reports ready, so the app can never wedge here.
+  const fontsReady = useBrandFonts();
 
   // Native-only: deep link handling, push token registration.
   // No-op on web.
@@ -79,6 +87,7 @@ function RootLayout() {
     <AppShell>
     <SafeAreaProvider>
     <ThemeProvider value={DarkTheme}>
+      {fontsReady ? (
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
@@ -104,8 +113,9 @@ function RootLayout() {
         <Stack.Screen name="settings/blocked-users" />
         <Stack.Screen name="profile/[id]" />
       </Stack>
+      ) : null}
 
-      {loading && (
+      {(loading || !fontsReady) && (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <View style={styles.splash}>
             <ActivityIndicator color={colors.accent} size="large" />
