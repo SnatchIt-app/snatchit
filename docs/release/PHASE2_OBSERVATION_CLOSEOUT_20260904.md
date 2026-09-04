@@ -46,4 +46,6 @@ Prepared: 2026-09-04 · Author: Claude A (this preflight session) · Production 
   owner's acceptance of it is the step that formally closes the 24-hour observation gate and is a
   precondition for authorizing the 093→109 dark migration.
 
-CLOSE-OUT RESULT: **TECHNICAL PASS — PENDING OWNER ACCEPTANCE.**
+OWNER ACCEPTANCE: **APPROVED (2026-09-04)** — the owner accepted this close-out in-session on the recorded read-only telemetry (acknowledging the noted Sentry limitation). This acceptance does NOT authorize migration 093–109.
+
+CLOSE-OUT RESULT: **ACCEPTED / COMPLETE (owner-accepted 2026-09-04).**

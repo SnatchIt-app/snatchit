@@ -7,9 +7,13 @@ activating anything. Production authorization is a SEPARATE, later, explicit own
 Signature mechanism (repo convention): the owner records approval INLINE in
 `docs/architecture/_governance/POST_FREEZE_AMENDMENTS.md` on the relevant PFA block, in the established
 form `OWNER SIGNATURE: APPROVED (YYYY-MM-DD). STATUS: SATISFIED / RATIFIED.` This package is a
-convenience index; the amendments file is the system of record. Engineering has NOT filled any
-signature line (no self-signing). Each decision's exact approval text is preserved in its PFA block and
-in the "OWNER GATE RATIFICATION TRAIN — 2026-09-03" addendum.
+convenience index; the amendments file is the system of record.
+
+**STATUS: SIGNED.** The owner provided these approvals in-session on **2026-09-04** and they are recorded
+verbatim in POST_FREEZE_AMENDMENTS.md under "OWNER SIGNATURES RECORDED — 2026-09-04" (and reflected on
+each PFA's STATUS line as SATISFIED / RATIFIED). The signature lines below are filled from the owner's
+explicit in-session approval — not self-signed by engineering. Each decision's exact approval text is in
+its PFA block and in the "OWNER GATE RATIFICATION TRAIN — 2026-09-03" addendum.
 
 Each item authorizes **DEVELOPMENT/GOVERNANCE ONLY** unless stated otherwise. None authorizes production.
 
@@ -24,7 +28,7 @@ signature MUST NOT un-park them.
 Consequence: a compromised key can be killed fast without a quorum; arming (provision/rotate) still needs
 the future dual-control build. Engineering landed DARK as migration 106.
 Authorizes: DEVELOPMENT ONLY.
-`OWNER SIGNATURE: __________________________  DATE: ____________`
+**OWNER SIGNATURE: APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 **PFA-26-UNPARK — door PIN launch KDF.**
 Decision: `venue.create_door_pin` / `venue.mint_door_session` un-park using pgcrypto **bcrypt cost 12**,
@@ -34,7 +38,7 @@ future hardening, NOT a launch requirement.
 Consequence: door PINs become usable at launch with a real slow KDF. Engineering landed DARK as
 migration 107.
 Authorizes: DEVELOPMENT ONLY.
-`OWNER SIGNATURE: __________________________  DATE: ____________`
+**OWNER SIGNATURE: APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 **PFA-PT-6 — credential wire format.**
 Decision: the ticket credential stays JWS-compact `b64url(header).b64url(payload).b64url(signature)`;
@@ -42,7 +46,7 @@ header `{alg,kid,typ}`; payload `{atom,sess,ver,iat,exp}`; NO PII, NO display fi
 verification key, NO KMS handle; `typ`/domain enforcement mandatory. No redesign.
 Consequence: locks the on-the-wire credential shape the signer stamps and the verifier checks.
 Authorizes: DEVELOPMENT ONLY.
-`OWNER SIGNATURE: __________________________  DATE: ____________`
+**OWNER SIGNATURE: APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 **PFA-PT-8 — algorithm pinning.**
 Decision: verification authority is the trusted key's metadata resolved by `kid`; token `alg` MUST equal
@@ -50,7 +54,7 @@ Decision: verification authority is the trusted key's metadata resolved by `kid`
 algorithm, no symmetric/asymmetric confusion.
 Consequence: a token cannot choose its own verification primitive. Engineering landed as migration 103.
 Authorizes: DEVELOPMENT ONLY.
-`OWNER SIGNATURE: __________________________  DATE: ____________`
+**OWNER SIGNATURE: APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 **PFA-PT-9 — terminal-session / scan rulings (items 1 & 3 need signature).**
 Decision: (1) migration 104's terminal-session `record_scan` gate is ratified — a cancelled/completed
@@ -62,14 +66,14 @@ step.)
 Consequence: fixes the "cancelled session still admits" gap without deviating the frozen `record_scan`
 signature.
 Authorizes: DEVELOPMENT ONLY.
-`OWNER SIGNATURE (items 1 & 3): __________________________  DATE: ____________`
+**OWNER SIGNATURE (items 1 & 3): APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 **KMS D1 / D2 — provider + algorithm (already recorded; countersignature optional).**
 Decision: D1 = **AWS KMS** (asymmetric); D2 = **ES256 / ECDSA P-256 (SHA-256)**. Recorded in
 `PRODUCTION_SIGNING_KMS_CEREMONY.md` §1.2. Selecting the provider/algorithm is a decision, not a
 production action — no key is created here.
 Authorizes: DEVELOPMENT/GOVERNANCE ONLY (the ceremony is a separate later production operation).
-`OWNER SIGNATURE: __________________________  DATE: ____________`
+**OWNER SIGNATURE: APPROVED (owner, in-session)  DATE: 2026-09-04**
 
 ---
 
