@@ -13,7 +13,7 @@ REPOSITORY
 
 BRANCH:               feature/venue-native-and-product-v2
 ENTRY HEAD:           5721a41 (owner-gate un-park train, pushed)
-FINAL HEAD:           <recorded post-commit below> (adds preflight + signature package + observation close-out docs; NO code/migration change)
+FINAL HEAD:           81d7afc (adds preflight + signature package + observation close-out docs; NO code/migration change) — a report-HEAD note follows
 RELEASE CANDIDATE SHA: 5721a41 (the code-bearing tip: migrations 093–109 + edges; this preflight adds docs only, so the RC is unchanged)
 PR:                   #52 — OPEN, MERGEABLE (head 5721a41)
 CI:                   GREEN on the EXACT RC 5721a41 (run 33835866681: "Migrations apply cleanly (fresh DB)" ✓, "Web build (Next.js)" ✓, "Typecheck / Lint / Unit tests" ✓)
