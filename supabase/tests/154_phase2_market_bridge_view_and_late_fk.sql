@@ -46,13 +46,42 @@ SELECT throws_ok($$INSERT INTO market.listing_unified (id, rail) VALUES (gen_ran
 SELECT throws_ok($$DELETE FROM market.listing_unified$$, '55000', NULL, 'A7: …so is a DELETE');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='v'), 1, 'A8: market holds exactly ONE view');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='r'), 5, 'A9: …and still its five 088 tables (089 creates no table)');
-SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/109/16',
+SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/149/17',
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
   -- 2026-09-02 (package 090): kernel 107 -> 109 (is_promoter_for_event + pay_promoter_commission); market/catalog unchanged.
-  'A10: 089 creates NO function (market 22 / kernel 109 post-090 / catalog 16)');
+  -- 2026-09-02 (package 093): kernel 109 -> 116. RATIFIED CONTRACT CHANGE — seven kernel routines:
+  -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
+  -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3)
+  -- · is_order_buyer (F). MARKET AND CATALOG ARE THE ASSERTION THAT MATTERS HERE and both are
+  -- unmoved (22 / 16): 093 dumps nothing into 089's schemas, which is what this guard proves.
+  -- 2026-09-03: kernel 117 -> 119. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- 2026-09-03 (package 096): kernel 136 -> 145 (+9, R-1 through R-7). 097/098: +0 (body-only
+  -- re-creates). 2026-09-03 (package 099): kernel 145 -> 146 (check_signing_key_invariants).
+  -- market/catalog stay unmoved at 22/16 — this guard is still MARKET AND CATALOG, and both are
+  -- still unmoved, which is what it proves. Re-derived from the live catalog.
+  'A10: 089 creates NO function (market 22 / kernel 149 post-109 / catalog 17)');
 -- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies).
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 72, 'A11 (092: register 72 after notify''s five owner policies): 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
 -- 2026-09-02 (package 092): 18 -> 19 (+notify-drain-outbox).
-SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A12: 089 schedules nothing (cron rows unchanged; 19 post-092)');
+-- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick,
+-- +payout-execute-tick). Re-derived from the live cron.job count.
+SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A12: 089 schedules nothing (cron rows unchanged; 22 post-099)');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND NOT t.tgisinternal), 5,
   'A13: no new trigger (the five 088 set_updated_at triggers only)');
 -- the late-binding FK (plan §8/089; 085 §1.8)

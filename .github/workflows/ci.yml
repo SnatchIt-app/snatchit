@@ -566,10 +566,22 @@ jobs:
           # reconstructed into the repo from the production ledger, md5-verified)
           # adds public.admin_relist_listing. Ledger parity is restored: the
           # repo's version set now equals production's plus exactly 076-092.
+          # 2026-09-03 (package 093, slice 30 §10): triggers 24 -> 26 — the
+          # BIDIRECTIONAL cross-plane guard (H6/F-4). §2b/§4/§5 already refused
+          # an individual-plane acct_ on the org side; nothing refused an
+          # org-bound acct_ being written onto public.profiles.stripe_connect_id,
+          # which mis-routes seller payouts AND permanently bricks that org's
+          # re-point (the refusal then matches the org's own identifier forever).
+          # tg_profiles_connect_id_not_org_bound on public.profiles and
+          # tg_connect_archive_not_org_bound on public.stripe_connect_archive.
+          # A trigger, not an edge check, because the column is written by a
+          # direct service-role UPDATE with no RLS in the way (threat G-12).
+          # FUNCS is unchanged: both new kernel functions live in `kernel`, and
+          # this counter reads `public` only. The kernel census is 077 A14.
           EXPECT_TABLES: 27
           EXPECT_FUNCS: 70
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 24
+          EXPECT_TRIGGERS: 26
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so

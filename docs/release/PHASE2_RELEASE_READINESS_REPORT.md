@@ -7,6 +7,15 @@ this document changes production; production remains at migration 20260902003623
 NONE of 076–092 applied. Feature activation of every rail remains separately blocked
 (per-rail blockers below).
 
+> **DEPLOYMENT-STATE CORRECTION (2026-09-02, added post-apply).** The verdict line below and §2
+> describe the pre-apply world. The dark DB apply was subsequently authorized and executed on
+> 2026-09-02 (apply window 20:41:58Z to 20:43:31Z; ledger 90 -> 107; V1-V18 pass; kernel exposed;
+> three edge functions deployed). See `docs/release/PHASE2_DEPLOYMENT_RECORD_20260902.md`. The
+> classifications, rail matrix and owner packets below remain valid; the deployment-state
+> assertions are superseded.
+
+
+
 ## 1. Source integrity (proven)
 - `phase2/consolidation` tip local=remote `76bda03963d631c365b48aacc14a24e8ca3d1da6`;
   tag `phase2-architecture-v2` → `06fd5ecccc405f416e8f27591ccbbf709771f8ef`.

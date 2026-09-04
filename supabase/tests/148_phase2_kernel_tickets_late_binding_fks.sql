@@ -56,7 +56,11 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 75,
+              AND c.relkind IN ('r','p','v','m','S','f')), 78,
+  -- 2026-09-02 (package 093): 75 -> 75. RATIFIED CONTRACT CHANGE (no-op here) —
+  -- 093 creates NO relation in any phase-2 schema; its two new objects are the
+  -- partial unique indexes on venue.settlement_line (indexes are not relkind
+  -- 'r'/'p'/'v'/'m'/'S'/'f'), so the guard is unmoved and stays exact.
   -- 2026-09-02 (package 092): 69 -> 75 (+6 notify reduced-plane tables).
   -- 2026-09-02 (package 091): 68 -> 69 (+1 kernel.reserve stub).
   -- 2026-09-02 (package 090): 62 -> 68 (+6 venue promoter-engine tables).
@@ -64,16 +68,56 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-02 (package 089): 61 -> 62 (+1 VIEW market.listing_unified — the ADOPT step's bridge).
   -- 2026-09-01 (package 086): 40 -> 52 (+12 venue door/scan tables).
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
-  'B1: the five phase-2 schemas hold exactly 75 relations of ANY kind (69 post-091 + 092''s six notify tables)');
+  -- 2026-09-03 (package 096): 76 -> 78. kernel.payout_reversal + kernel.organization_obligation_recovery.
+  -- Re-derived from the live catalog, not accepted as a delta.
+  'B1: the five phase-2 schemas hold exactly 78 relations of ANY kind (69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation + 096''s two payout-reversal/obligation-recovery tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 288,
+  -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
+  -- 2026-09-02 (package 093, second money pass): 246 -> 250. RATIFIED CONTRACT CHANGE — four more
+  -- kernel routines, from the two red-team P0 fixes and the refund executor:
+  --   kernel.stage_org_connect_ref         ruling A7/A9 (RT-A-3) — the service_role-only provenance
+  --                                        writer; binding an acct_ now requires the platform to have
+  --                                        staged it, which is the whole of the two-key control.
+  --   kernel.get_org_connect_ref           its read half.
+  --   kernel.get_refund_execution_context  ruling D3 — the refund executor's server-side context.
+  --   kernel.is_order_buyer                ruling F — the buyer predicate behind the column-scoped
+  --                                        venue."order" surface.
+  -- Still kernel-only: venue/catalog/market/notify stay at 79/16/22/17.
+  -- 2026-09-02 (package 093): 243 -> 246. RATIFIED CONTRACT CHANGE —
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A6 (Stripe Connect ownership) adds
+  -- kernel.sync_org_connect_state + kernel.get_org_connect_state; ruling A3 (durable venue
+  -- obligation / settlement) adds kernel.settlement_primary_lines. THREE kernel routines and
+  -- nothing else: venue/catalog/market/notify are unmoved (79/16/22/17), and every other
+  -- 093 change to these schemas is a CREATE OR REPLACE at the frozen signature. The guard is
+  -- as tight as before — a fourth routine dumped anywhere still trips it.
   -- 2026-09-02 (package 092): 228 -> 243 (+15 notify: the reduced 16 minus 076's emit_event; no hook replaced).
   -- 2026-09-02 (package 090): 207 -> 228 (+2 kernel, +19 venue; the three body-only hook replacements add no routine).
   -- 2026-09-02 (package 088): 183 -> 207 (+19 market, +4 kernel, +1 catalog; the seven body-only
   -- hook/PFA-13 replacements add no routine).
   -- 2026-09-01 (package 086): 126 -> 165 (+5 kernel, +28 venue, +4 catalog, +2 market).
   -- 2026-09-01 (package 087): 165 -> 183 (+4 kernel, +14 venue).
-  'B2: the five phase-2 schemas hold exactly 243 routines (109+79+16+22+17 — 092''s fifteen)');
+  -- 2026-09-03: 251 -> 253. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 253 -> 259. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
+  -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
+  -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
+  'B2: the five phase-2 schemas hold exactly 288 routines (149+83+17+22+17 — plus 108''s four venue scan cores/machine entrypoints, 109''s force_close_session_manifests (kernel) and tg_session_terminal_force_close (catalog))');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -88,15 +132,52 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
   -- deny-all zero-policy, OR-1).
   'B3: the five-schema policy register (12 kernel + 38 venue + 12 catalog + 5 market + 5 notify) — 092 added its five owner policies');
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='kernel' AND c.relkind='r') = 28
+            WHERE n.nspname='kernel' AND c.relkind='r') = 31
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 109,
-  'B4: kernel per-schema census (28 tables post-091, 109 functions post-090)');
+            WHERE n.nspname='kernel') = 149,
+  -- 2026-09-03 (package 094, ORG OBLIGATION — 094_organization_obligation.sql): kernel TABLES
+  -- 28 -> 29 and kernel functions 132 -> 136. Re-derived from the LIVE CATALOG by replaying the
+  -- chain twice, once with this file removed. The table is kernel.organization_obligation, the
+  -- org-side twin of kernel.identity_obligation (J3 §5.1) — the FIRST kernel relation added
+  -- since 091's reserve stub. The four functions: organization_obligation_guard (the append-only
+  -- trigger function — no grant to any principal, so 077 F1's sweep is still zero),
+  -- record_organization_obligation + resolve_organization_obligation (the E-150 definer pair) and
+  -- org_outstanding_obligation_minor (the read-only projection); the last three are service_role
+  -- and move 141 F3 from 47 to 50. kernel.close_settlement was REPLACED body-only (093:640-854
+  -- verbatim plus one `elsif v_net < 0` branch), not added.
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
+  -- 2026-09-02 (package 093): kernel functions 109 -> 116. SEVEN new kernel routines, each named:
+  -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
+  -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3)
+  -- · is_order_buyer (F). kernel TABLES are unmoved at 28 — 093 creates no table, so the relation
+  -- half of this guard is untouched, and the two new objects it does create are partial indexes.
+  -- 2026-09-03: 117 -> 119. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- 2026-09-03 (package 096): kernel TABLES 29 -> 31 (payout_reversal, organization_obligation_recovery)
+  -- and kernel functions 136 -> 145 (nine, R-1 through R-7). 097/098: +0 functions (body-only
+  -- re-creates). 2026-09-03 (package 099): kernel functions 145 -> 146 (check_signing_key_invariants).
+  -- Re-derived from the LIVE CATALOG, not accepted as a delta.
+  'B4: kernel per-schema census (31 tables post-096, 149 functions post-109)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 79
+            WHERE n.nspname='venue') = 83
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 5,
-  'B5: venue holds 79 functions (60 post-087 + 090''s nineteen), market holds its five 088 rail tables');
+  'B5: venue holds 83 functions (60 post-087 + 090''s nineteen + 108''s four), market holds its five 088 rail tables');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

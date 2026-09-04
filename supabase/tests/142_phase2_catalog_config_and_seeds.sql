@@ -10,7 +10,11 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(249);
+-- 2026-09-02 (package 093): 249 -> 253. D5a names the config keys 093 adds, so
+-- D1/D4's raised counts stay exact-by-name; H18j-H18l prove that the money slice's
+-- payout.settlement_maturity_interval is dual-controlled, which is the whole point
+-- of its `payout.` prefix. No assertion was removed or relaxed.
+SELECT plan(261);   -- 2026-09-02 (093 / H2): 253 -> 261 (+H18m/n/o dual control on the re-anchored deletion clock, +H18p its hours-vs-interval type guard, +H18q/r/s `ticket.%` joins dual control and composes with the interval guard, +H18t the widening is scoped)
 
 SELECT tap.seed_core();
 
@@ -40,14 +44,14 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 16,
+            WHERE n.nspname = 'catalog'), 17,
   -- 2026-08-31 (package 081): 10 -> 11. catalog.publish_event is 081's (SEAM-1:
   -- it reads venue.ticket_type + inventory_batch), named in A4 below.
   -- 2026-09-01 (package 086): 11 -> 15. engage_door_freeze (door_open_at sole
   -- writer), set_session_door_schedule, sweep_implicit_door_freezes and the
   -- tg_door_open_at_is_ledger_head trigger fn. Named in A4 below.
   -- 2026-09-02 (package 088): 15 -> 16. catalog.cancel_event (FR-2b; SEAM-1 at 088).
-  'A3: catalog holds EXACTLY sixteen functions — no helper the closed world does not carry');
+  'A3: catalog holds EXACTLY seventeen functions — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -56,8 +60,8 @@ SELECT bag_eq(
            ('create_event_session'),('update_event'),('set_platform_config'),
            ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
            ('engage_door_freeze'),('set_session_door_schedule'),('sweep_implicit_door_freezes'),
-           ('tg_door_open_at_is_ledger_head'),('cancel_event')$$,
-  'A4: the sixteen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086; cancel_event by 088)');
+           ('tg_door_open_at_is_ledger_head'),('cancel_event'),('tg_session_terminal_force_close')$$,
+  'A4: the seventeen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086; cancel_event by 088; tg_session_terminal_force_close by 109)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
@@ -85,12 +89,19 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
 -- 078 owns no cron entry (CRON_SCHEDULE_REGISTER has no 078 row) and emits nothing
 -- (the R2 catalog writers are update_event_session·079 and cancel_event·088).
 SELECT is((SELECT count(*)::int FROM cron.job
-            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 2,
+            WHERE command ILIKE '%catalog.%' OR jobname ILIKE '%catalog%'), 4,
   -- 2026-09-01 (package 086): TWO cron commands reference catalog.* — the implicit
   -- door-freeze sweep (`select catalog.sweep_implicit_door_freezes(500)`) and the
   -- nightly holder-mix refresh (`... from catalog.event_session ...`). 078 still
   -- schedules none; both are 086's.
-  'A12: exactly two catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh (078 schedules none)');
+  -- 2026-09-03 (package 099): 2 -> 4. `refund-execute-tick` and `payout-execute-tick`'s
+  -- CASE guard reads `catalog.platform_config` inline (`refund.executor_enabled` /
+  -- `payout.executor_enabled`) before deciding whether to POST at all. Re-derived from
+  -- the live cron.job command text (ILIKE '%catalog.%'), not accepted as a delta.
+  -- `monitor-signing-key-invariants` does NOT match — its command is a bare
+  -- `select kernel.check_signing_key_invariants()`; the function's own body reads
+  -- catalog.platform_config, but that text is not in the CRON COMMAND this query scans.
+  'A12: exactly four catalog-referencing cron jobs — 086''s door-freeze sweep + holder-mix refresh + 099''s refund/payout executor ticks (078 schedules none)');
 SELECT is((SELECT count(*)::int FROM (
              SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'catalog' OFFSET 0) q
@@ -249,14 +260,50 @@ SELECT ok((SELECT count(*) FROM information_schema.column_privileges
 -- ============================================================================
 
 -- 2026-09-02 (package 092): 42 -> 43 (+notify.delivery_lease_interval, owner-unset 'null'::jsonb — PFA-22 shape, E-154).
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43,
-  'D1: exactly 43 config keys are seeded (41 from 078 + PFA-22''s deletion.refund_possible_window_hours at 085 + 092''s owner-unset lease key)');
+-- 2026-09-02 (package 093): 43 -> 48. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md rulings D2 (ticket expiry: "leaving it
+-- absent is forbidden by this ruling") and A5 (buyer-funded economics: "no service-fee
+-- percentage is hardcoded in migration 093"; "fee economics remain owner/config
+-- controlled"). The four are ticket.expiry_grace, fee.buyer_service_bps,
+-- inventory.hold_ttl_interval and inventory.per_user_active_hold_max, joined by
+-- payout.settlement_maturity_interval from the money slice (ruling A3: a settlement
+-- payout is minted HELD until the maturity interval has elapsed, so the key must
+-- exist and must start valueless).
+--
+-- RENAMED from settlement.refund_window_interval, and the rename is SUBSTANTIVE, not
+-- cosmetic. The old name described refund ELIGIBILITY, which is a different concept
+-- that already owns its own keys (refund.buyer_self_service_window_hours,
+-- refund.request_ttl_hours, refund.scanned_atom_policy). What the value actually
+-- controls is a PAYOUT HOLD measured from the event's end. The `payout.` prefix is
+-- load-bearing too: it matches the dual-control prefix test at 078:1145-1147, so
+-- SETTING this key now parks for a second platform_admin (asserted at H18j). Under
+-- `settlement.` it matched no prefix and was a single unilateral write — on the one
+-- key in 093 where SETTING the value is the dangerous act, not leaving it unset.
+-- All FIVE land at version 1 with a JSON-null value and
+-- RESTRICTED visibility — the PFA-22 owner-unset shape — so D2/D3/D5 are untouched
+-- and the public class is unchanged. Named, not merely counted, by D5a below.
+-- 2026-09-02 (093 / H2): 48 -> 49, and this one is an ADD, not a rename.
+-- deletion.post_event_hold_hours replaces deletion.refund_possible_window_hours as
+-- BP-12 arm 2's operand — the arm's clock moved from venue."order".created_at (the
+-- PAYMENT date) to max(coalesce(session.ends_at, session.starts_at)) over the
+-- identity's own candidate orders. Unlike G2's settlement rename, the OLD row lives
+-- in IMMUTABLE 085 and cannot be withdrawn, so it survives as an UNREAD ORPHAN and
+-- the census gains one. The new row is version 1, JSON-null, RESTRICTED — the same
+-- PFA-22 owner-unset shape — so D2/D3/D5 stay untouched and the public class is
+-- unchanged. See docs/phase2/_impl/H2_deletion_clock.md.
+-- 2026-09-03 (package 099): 49 -> 54. FIVE new keys, all version 1, all RESTRICTED:
+-- signing.monitor_enabled, signing.expected_key_fingerprint, signing.expected_max_not_after
+-- (KJ §4.4 monitor) + refund.executor_enabled, payout.executor_enabled (the dark executor-tick
+-- gates, both false). Re-derived from the live catalog, not accepted as a delta.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 54,
+  'D1: exactly 54 config keys are seeded (43 post-092 + 093''s six owner-unset keys per rulings D2/A5/A3 and H2 + 099''s five signing/executor keys)');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE version <> 1), 0,
   'D2: every seed is version 1 — a migration seeds, it never bumps');
 SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'public'), 8,
-  'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 35,
-  'D4: the other 35 are restricted (the PFA-22 key and 092''s lease key are restricted)');
+  'D3: exactly 8 keys are public (PFA-8: the five flags + the three credential client spans) — unaffected by 099, all five of its keys are restricted');
+-- 2026-09-03 (package 099): 41 -> 46. All five of 099's new keys are RESTRICTED (see D1).
+SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE visibility = 'restricted'), 46,
+  'D4: the other 46 are restricted (the PFA-22 key, 092''s lease key, 093''s six and 099''s five signing/executor keys — H2''s deletion.post_event_hold_hours included)');
 
 SELECT bag_eq(
   $$SELECT key FROM catalog.platform_config WHERE visibility = 'public'$$,
@@ -265,6 +312,22 @@ SELECT bag_eq(
            ('notify.announcements_enabled'),('credential.wallet_exp_skew'),
            ('credential.wallet_default_span'),('credential.app_ttl_interval')$$,
   'D5: the public class is exactly the frozen §2.4.1 list — asserted by NAME, not by count');
+
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, rulings D2 and A5. The four
+-- keys 093 adds are named here so D1/D4's raised counts cannot pass vacuously, and
+-- their VALUES are pinned to JSON null: A5 forbids inventing a percentage and D2
+-- seeds the grace key owner-unset, so every one of them is inert until an owner sets
+-- it through catalog.set_platform_config — no migration, and no default policy.
+SELECT bag_eq(
+  $$SELECT key FROM catalog.platform_config
+     WHERE key IN ('ticket.expiry_grace','fee.buyer_service_bps',
+                   'inventory.hold_ttl_interval','inventory.per_user_active_hold_max',
+                   'payout.settlement_maturity_interval')
+       AND version = 1 AND visibility = 'restricted' AND value = 'null'::jsonb$$,
+  $$VALUES ('ticket.expiry_grace'),('fee.buyer_service_bps'),
+           ('inventory.hold_ttl_interval'),('inventory.per_user_active_hold_max'),
+           ('payout.settlement_maturity_interval')$$,
+  'D5a [093/D2/A5/A3]: the five new keys exist at version 1, RESTRICTED, each with a JSON-null (owner-unset) value');
 
 -- T-SCHEMA-CFG-01 / T-RLS-CFG-01, asserted PER NAMESPACE because a single-key
 -- test passes while five namespaces leak. `crm%` rather than `crm.%`: the real
@@ -381,10 +444,17 @@ SELECT is((SELECT (value #>> '{}')::int FROM catalog.platform_config
             WHERE key = 'notify.announcement_dual_control_threshold'), 500,
   'D39: announcement_dual_control_threshold = 500 (ODR-56 silence)');
 
--- The fifteen money keys MONEY §7.2 + schema §1.13.4 enumerate.
+-- The money keys MONEY §7.2 + schema §1.13.4 enumerate.
+-- 2026-09-02 (package 093): 15 -> 16. RATIFIED CONTRACT CHANGE — the money slice's
+-- payout.settlement_maturity_interval joins the `payout.` namespace this very query
+-- selects on. Count re-derived from the catalog, not assumed: the sixteen are the
+-- three authn.*, the five payout.* and the eight refund.*.
+-- 2026-09-03 (package 099): 16 -> 18. refund.executor_enabled and payout.executor_enabled
+-- (both v1/false/restricted, the dark executor-tick gates) join the same two prefixes.
+-- Re-derived from the live catalog: three authn.*, six payout.*, nine refund.*.
 SELECT is((SELECT count(*)::int FROM catalog.platform_config
-            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 15,
-  'D40: exactly 15 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours)');
+            WHERE key LIKE 'refund.%' OR key LIKE 'payout.%' OR key LIKE 'authn.%'), 18,
+  'D40: exactly 18 money keys (MONEY §7.2''s fourteen + authn.money_role_maturity_hours + 093''s payout.settlement_maturity_interval + 099''s refund.executor_enabled/payout.executor_enabled)');
 
 -- PFA-9: the keys deliberately NOT seeded, asserted as absences so a later
 -- package cannot silently assume 078 covered them.
@@ -662,11 +732,20 @@ SELECT tap.login(tap.seller());
 -- RED-B: matched on the MESSAGE, not on "any error". With a bare matcher this
 -- passed on `unwritable_key reason_code` — the arm was unreachable and the test
 -- could not tell.
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, inverted by owner ruling.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling C: "Venue operatorship transfers
+-- are FROZEN for initial launch… The reviewed body-only enforcement is implemented
+-- so a venue cannot change its operating organization." update_venue no longer
+-- performs the transfer for ANYONE — the platform_admin path 078 held is gone too,
+-- so this is no longer a statement about who may transfer but that nobody may.
+-- The refusal is placed BEFORE the is_platform() check on purpose, so the error
+-- carries NO AUTHORITY ORACLE. Still matched on the EXACT errcode AND the EXACT
+-- message (the RED-B rule below): a bare matcher would pass on unwritable_key.
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"org_id":"%s","reason_code":"sale"}'::jsonb,'ck-w-1')$$,
          tap._fetch142('venue'), tap._fetch142('org')),
-  '42501', 'insufficient_privilege: operatorship change is platform_admin only',
-  'G20: an org_owner cannot move operatorship — it is platform_admin only (RLS §11.1a)');
+  'P0001', 'precondition_failed: operatorship_transfer_frozen — venue operatorship transfer is suspended pending the 093+ atomic re-scoping verb (Decision C). Contact the platform owner.',
+  'G20 [093/ruling C]: operatorship is FROZEN — an org_owner''s transfer is refused with no authority oracle');
 SELECT throws_ok(
   format($$SELECT catalog.update_venue(%L::uuid,'{"capacity_hint":900,"approval_status":"approved"}'::jsonb,'ck-w-2')$$,
          tap._fetch142('venue')),
@@ -953,6 +1032,92 @@ SELECT is((catalog.set_platform_config('comp.per_staff_step_up_window_hours','48
            ->> 'status'), 'parked',
   'H18i: lengthening it parks too — no declared polarity means fail toward the approver');
 
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, the money slice.
+-- payout.settlement_maturity_interval is the ONE key in 093 where SETTING the value
+-- is the dangerous act and leaving it unset is the safe state: null holds every
+-- settlement payout, and a value releases them. That inversion is exactly why the
+-- rename off `settlement.` matters — the `payout.` prefix puts it inside the
+-- dual-control predicate at 078:1145-1147, so the release now needs a second
+-- platform_admin. Under the old name it matched no prefix and one admin could have
+-- released every held payout unilaterally, in one transaction, with no second pair
+-- of eyes. Asserted on all three observable halves (status, no new version, value
+-- still null) because a park that silently wrote would pass a status-only check.
+SELECT is((catalog.set_platform_config('payout.settlement_maturity_interval','"72 hours"'::jsonb,'ops','ck-c-17')
+           ->> 'status'), 'parked',
+  'H18j [093]: SETTING payout.settlement_maturity_interval PARKS — the `payout.` prefix puts the payout release under dual control');
+SELECT is((SELECT max(version) FROM catalog.platform_config
+            WHERE key = 'payout.settlement_maturity_interval'), 1,
+  'H18k [093]: …and inserts NO version — the parked write did not land');
+SELECT is((SELECT value FROM catalog.platform_config
+            WHERE key = 'payout.settlement_maturity_interval' ORDER BY version DESC LIMIT 1), 'null'::jsonb,
+  'H18l [093]: …and the value is still JSON-null, so every settlement payout stays HELD until a second admin approves');
+
+-- 2026-09-02 (093 / H2) — RATIFIED CONTRACT CHANGE, the deletion clock.
+-- deletion.post_event_hold_hours is the second key in 093 where SETTING the value
+-- is the dangerous act: unset, BP-12 arm 2 blocks every identity holding a
+-- paid/partially_refunded order; set too SHORT, it makes advance-purchase buyers
+-- IRREVERSIBLY tombstoned while their event is still ahead. G7 P1-4 executed the
+-- gap on its predecessor — one platform_admin, one statement,
+-- set_platform_config('deletion.refund_possible_window_hours', …) -> {"status":"ok"}
+-- with no second human — and that is what made P0-3 a one-statement act.
+-- `deletion.%` now matches the prefix predicate. Asserted on all three observable
+-- halves, like H18j/k/l, because a park that silently wrote would pass a
+-- status-only check. See docs/phase2/_impl/H2_deletion_clock.md.
+SELECT is((catalog.set_platform_config('deletion.post_event_hold_hours','720'::jsonb,'ops','ck-c-18')
+           ->> 'status'), 'parked',
+  'H18m [093/H2]: ARMING deletion.post_event_hold_hours PARKS — the `deletion.` prefix puts the deletion clock under dual control');
+SELECT is((SELECT max(version) FROM catalog.platform_config
+            WHERE key = 'deletion.post_event_hold_hours'), 1,
+  'H18n [093/H2]: …and inserts NO version — the parked write did not land');
+SELECT is((SELECT value FROM catalog.platform_config
+            WHERE key = 'deletion.post_event_hold_hours' ORDER BY version DESC LIMIT 1), 'null'::jsonb,
+  'H18o [093/H2]: …and the value is still JSON-null, so BP-12 arm 2 stays fail-closed until a second admin approves');
+-- THE TYPE GUARD's mirror half (H2). `ticket.expiry_grace` REQUIRES the interval
+-- STRING '"72 hours"', so '"720 hours"' is the natural typo on its sibling
+-- deletion key — and before H2 that single append would have raised
+-- `invalid input syntax for type numeric` inside kernel.deletion_blockers_money
+-- for EVERY identity, permanently (platform_config is append-only). Refused at
+-- the door now, so the bad version is never written at all.
+SELECT throws_ok(
+  $$SELECT catalog.set_platform_config('deletion.post_event_hold_hours','"720 hours"'::jsonb,'typo','ck-c-19')$$,
+  NULL,
+  'precondition_failed: bad_value — deletion.post_event_hold_hours is a NUMBER OF HOURS and needs a JSON number such as 720; "720 hours" is the interval spelling and belongs to ticket.expiry_grace',
+  'H18p [093/H2]: the hours-typed guard refuses the interval STRING — the mirror of the interval guard that refuses a bare number');
+
+-- 2026-09-02 (093 / H2) — `ticket.%` joins the dual-control prefix list, and it is
+-- the LAST destructive key family that was outside it. The case is stronger than
+-- for several keys already on the list: setting ticket.expiry_grace wrongly does
+-- not degrade, it writes the TERMINAL label `expired` across every atom on every
+-- ended session within one cron tick (079:456, cron */2 at 079:799-803), and
+-- 088:1682/1735/1783 then EXCLUDE expired atoms from catalog.cancel_event's refund
+-- cascade — the holder loses the ticket AND the money. Nothing shipped writes
+-- kernel.tickets.state back out of `expired`. Same reasoning that put `fee.%`
+-- (ruling A5) and `deletion.%` (H2) here: one administrator must not cross an
+-- irreversible boundary alone.
+-- `ticket.%` has NO polarity entry, so it takes §20.2.1's third arm — not
+-- comparable => PARK — in BOTH directions. Asserted, not assumed.
+SELECT is((catalog.set_platform_config('ticket.expiry_grace','"72 hours"'::jsonb,'g1 value','ck-c-20')
+           ->> 'status'), 'parked',
+  'H18q [093/H2]: setting ticket.expiry_grace PARKS — the terminal-label key is now two-person');
+SELECT is((SELECT max(version) FROM catalog.platform_config
+            WHERE key = 'ticket.expiry_grace'), 1,
+  'H18r [093/H2]: …and inserts NO version — the parked write did not land, so the expiry sweep stays inert');
+-- THE TWO GUARDS COMPOSE; neither shadows the other. A MISTYPED value is refused
+-- OUTRIGHT by the interval guard and never reaches the dual-control branch, so a
+-- second admin can never be asked to rubber-stamp '24' => TWENTY-FOUR SECONDS.
+-- Dual control is the separate question of who may set a WELL-TYPED wrong value.
+SELECT throws_ok(
+  $$SELECT catalog.set_platform_config('ticket.expiry_grace','24'::jsonb,'meant 24h','ck-c-21')$$,
+  NULL,
+  'precondition_failed: bad_value — ticket.expiry_grace is interval-typed and needs a JSON STRING such as "24 hours"; a bare number is read as SECONDS',
+  'H18s [093/H2]: a BARE NUMBER is still refused outright and never parks — the type guard and dual control compose');
+-- NOT OVER-WIDENED. The two inventory.% keys are not destructive and both fail
+-- CLOSED while unset (081:615-626 collapses the cap to zero; 081:638 raises
+-- hold_ttl_unset), so they must still be a single-admin write.
+SELECT is((catalog.set_platform_config('inventory.per_user_active_hold_max','20'::jsonb,'cap','ck-c-22')
+           ->> 'status'), 'ok',
+  'H18t [093/H2]: the widening is SCOPED — inventory.per_user_active_hold_max still executes for one admin (not destructive, fails closed while unset)');
+
 -- The unknown-key arm, and the forbidden callers.
 SELECT throws_ok(
   $$SELECT catalog.set_platform_config('refund.made_up_key','1'::jsonb,'r','ck-c-7')$$,
@@ -1147,25 +1312,53 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
   -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
-  'K1: kernel holds twenty-eight tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub');
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
+  'K1: kernel holds THIRTY-ONE tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub, 094 organization_obligation, 096 payout_reversal + organization_obligation_recovery');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 7,
   -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
   'K2: notify holds 076''s outbox + 092''s six reduced-plane tables');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 109,
+            WHERE n.nspname = 'kernel'), 149,
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
   -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
+  -- 2026-09-02 (package 093): 109 -> 116. RATIFIED CONTRACT CHANGE — SEVEN added, zero
+  -- removed (settlement_royalty_lines was REPLACED, not added). 141 A14a enumerates all
+  -- seven by name with their grant class; 141 F2/F3 pin each closure. See
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md.
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (the twenty
   -- credential/wallet/mint functions; suite 147 names them).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
-  'K3: kernel holds 109 functions — 107 post-088 plus 090''s promoter predicate and commission primitive');
+  -- 2026-09-03: 117 -> 119. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- NOTE: this K3 literal was already stale before this reconciliation (132, never updated for
+  -- 094's four organization-obligation functions, which brought the true post-095 total to 136 —
+  -- see 141 A14). 2026-09-03: 132 -> 146, summing the missed +4 (094) with 096's +9 and 099's +1,
+  -- re-derived directly from the live catalog (same query as 141 A14), not accepted as a delta.
+  'K3: kernel holds 149 functions — 109 post-090 plus 093''s sixteen plus 095''s seven plus 094''s four plus 096''s nine plus 099''s one plus 102''s one plus 105''s one plus 109''s one (141 A14 pins the exact figure and the re-created-not-added set)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

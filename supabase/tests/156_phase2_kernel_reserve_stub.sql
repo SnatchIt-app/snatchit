@@ -38,16 +38,81 @@ SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE t.tgrelid = 'kernel.rese
 SELECT ok((SELECT p.proname = 'set_updated_at' AND n.nspname = 'kernel' FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE t.tgrelid = 'kernel.reserve'::regclass AND NOT t.tgisinternal), 'A18: …the 076 kernel.set_updated_at (plan Triggers row)');
 -- nothing else was created
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
-  'A19: kernel holds 28 tables — 27 post-090 + the reserve stub');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 243,
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
+  'A19: kernel holds 31 tables — 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 288,
+  -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
   -- 2026-09-02 (package 092): 228 -> 243 (+15 notify routines).
-  'A20: 091 creates NO function (five-schema routines 243 post-092)');
+  -- 2026-09-02 (package 093): 243 -> 246. RATIFIED CONTRACT CHANGE —
+  -- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A6 (kernel.sync_org_connect_state,
+  -- kernel.get_org_connect_state) and ruling A3 (kernel.settlement_primary_lines). All three
+  -- land in kernel; 091's own schemas are untouched, so the "091 creates NO function" claim
+  -- this row exists to defend is unweakened — it is still an absolute five-schema census.
+  -- 2026-09-02 (package 093, second money pass): 246 -> 250 (+stage_org_connect_ref,
+  -- +get_org_connect_ref, +get_refund_execution_context, +is_order_buyer — all kernel).
+  -- 2026-09-03: 251 -> 253. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 253 -> 259. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
+  -- 270 -> 280. Re-derived from the live catalog.
+  'A20: 091 creates NO function (five-schema routines 288 post-109)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');
-SELECT is((SELECT count(*)::int FROM cron.job), 19, 'A22 (092: 19 with notify-drain-outbox): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
-SELECT is((SELECT count(*)::int FROM catalog.platform_config), 43, 'A23 (092: 43 with the owner-unset lease key): PFA-9 — 091 fabricates NO config key (42 rows post-090 — an absolute census)');
+-- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
+SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A22 (099: 22 with the three signing/executor jobs): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
+-- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — four keys, each ONE row at
+-- version 1 and each seeded OWNER-UNSET (jsonb null, PFA-9 shape), so the census stays absolute:
+--   inventory.per_user_active_hold_max, inventory.hold_ttl_interval  (093_FINAL_PROPOSED_SCOPE item 3)
+--   ticket.expiry_grace                                             (RATIFICATION ruling D2)
+--   fee.buyer_service_bps                                           (RATIFICATION ruling A5 — the value is
+--                                                                    OWNER POLICY and is never hardcoded)
+--   payout.settlement_maturity_interval                             (093's money passes — the settlement-maturity
+--                                                                    gate. UNSET is the SAFE state: every settlement
+--                                                                    payout is minted HELD until an owner rules the
+--                                                                    window, so SETTING this key is the dangerous
+--                                                                    act — and the payout.% prefix puts it under
+--                                                                    dual control, 078:1145-1147. Pass 3 RENAMED it
+--                                                                    from settlement.refund_window_interval, which
+--                                                                    named refund eligibility, a different policy
+--                                                                    that already exists under refund.%; the count
+--                                                                    is unchanged because nothing was added)
+--   deletion.post_event_hold_hours                                  (093 / H2 — BP-12 arm 2's operand, RE-ANCHORED
+--                                                                    from venue."order".created_at (the PAYMENT
+--                                                                    clock) to max(coalesce(session.ends_at,
+--                                                                    session.starts_at)) over the identity's own
+--                                                                    candidate orders. This one is an ADDED key, so
+--                                                                    the census moves 48 -> 49: unlike G2's rename,
+--                                                                    the old row lives in IMMUTABLE 085 and cannot
+--                                                                    be withdrawn — it survives as an unread orphan
+--                                                                    and the new row is the only one with a reader.
+--                                                                    UNSET is the SAFE state (arm 2 blocks whenever
+--                                                                    a paid/partially_refunded order exists), so
+--                                                                    SETTING it is the dangerous act — and 093 adds
+--                                                                    `deletion.%` to the dual-control prefix list,
+--                                                                    which G7 P1-4 proved was missing)
+-- 091 still fabricates none of them; a seventh row appearing here would still trip this test.
+-- 2026-09-02 (093 / H2): 48 -> 49. RATIFIED CONTRACT CHANGE — ONE key, ONE row at version 1,
+-- seeded OWNER-UNSET ('null'::jsonb, PFA-9 shape), enumerated from the slice-40 seed block.
+-- The census stays ABSOLUTE: nothing here is relaxed to a name filter.
+-- 2026-09-03 (package 099): 49 -> 54 (+5 signing/executor keys).
+SELECT is((SELECT count(*)::int FROM catalog.platform_config), 54, 'A23 (099: 54 with the six owner-unset primary-ticketing keys plus 099''s five): PFA-9 — 091 fabricates NO config key (an absolute census)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify','public') AND p.prosrc ~ '(kernel|"kernel")\s*\.\s*"?reserve"?\M'), 0,
   'A24: plan §8/091 Tests row — NO routine in the database references kernel.reserve ("stub" is a checked property)');

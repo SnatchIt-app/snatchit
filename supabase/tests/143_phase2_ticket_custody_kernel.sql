@@ -17,7 +17,10 @@
 -- Convention: BEGIN … plan(N) … finish() … ROLLBACK (no committed state).
 -- ============================================================================
 BEGIN;
-SELECT plan(154);
+-- 2026-09-02 (package 093): 154 -> 155. D1 splits into D1/D1a — ruling D2 seeds
+-- ticket.expiry_grace owner-UNSET, so the E-18 property is now "no VALUE" rather
+-- than "no KEY", and both halves are asserted. Nothing was removed.
+SELECT plan(155);
 
 SELECT tap.seed_core();
 
@@ -50,9 +53,11 @@ GRANT EXECUTE ON FUNCTION tap._lock(uuid,text,text), tap._unlock(uuid,text),
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 28,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
-  'A1: kernel holds EXACTLY twenty-eight tables (27 post-088 + 091''s reserve stub)');
+  -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
+  -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
+  'A1: kernel holds EXACTLY THIRTY-ONE tables (27 post-088 + 091''s reserve stub + 094''s organization_obligation + 096''s payout_reversal/organization_obligation_recovery)');
 SELECT has_table('kernel'::name, 'tickets'::name, 'A2: kernel.tickets exists');
 SELECT has_table('kernel'::name, 'ticket_ownership_log'::name, 'A3: the custody ledger exists');
 SELECT has_table('kernel'::name, 'door_freeze_override'::name,
@@ -135,21 +140,46 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 109,
+           WHERE n.nspname = 'kernel'), 149,
+  -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
+  -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
+  -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
+  -- no grant to any principal, 077 F1 sweep still zero), rearm_failed_payout and
+  -- retry_held_payout (authenticated, +2 at F2), settlement_maturity_hold_codes
+  -- (definer-internal constant, no grant), hold_payout_transfer_reversed and
+  -- settlement_unbooked_refund_exposure (service_role, +2 at F3). Re-derived from the LIVE
+  -- CATALOG, never by accepting a delta.
+  -- 2026-09-02 (package 093): 109 -> 116. RATIFIED CONTRACT CHANGE — SEVEN added, zero
+  -- removed (settlement_royalty_lines was REPLACED). 141 A14a enumerates all seven by
+  -- name with grant class; 141 F2/F3 pin each closure
+  -- (PRIMARY_TICKETING_OWNER_RATIFICATION.md).
   -- 2026-09-02 (package 090): 107 -> 109 (is_promoter_for_event + pay_promoter_commission).
   -- 2026-09-02 (package 088): 103 -> 107 (the engine + three dispute verbs).
   -- 2026-08-31 (package 082): 52 -> 55; (package 083): 55 -> 75 (twenty credential/wallet/mint fns).
   -- 2026-09-01 (package 086): 94 -> 99 (the five door/scan kernel fns; 141 F2/F3).
   -- 2026-09-01 (package 087): 99 -> 103. Four kernel settlement fns: the two SEAM-2
   -- seam stubs (royalty/commission lines), close_settlement, request_org_payout.
-  'A32: kernel holds EXACTLY 109 functions (107 post-088 + 090''s two)');
+  -- 2026-09-03: 117 -> 119. 093 slice 30 §9/§10 (H6/F-3, F-4) adds kernel.authorize_org_payout_dashboard and kernel.guard_connect_id_not_org_bound.
+  -- 2026-09-03 (package 093, payout-executor slice): 119 -> 125. SIX added, zero removed,
+  -- re-derived from the LIVE CATALOG by diffing two rehearsal databases (one stopped at 092 via
+  -- REHEARSAL_UPTO, one with 093) name-by-name, never by accepting a delta: kernel.settlement_payout_maturity
+  -- and kernel.settlement_covered_payments (G2 — the maturity conjunction and its covered set, extracted
+  -- from close_settlement's inline gate so the mint, the advance and the transfer share ONE definition;
+  -- this is the D-1 closure) plus the payout executor's four (H8): claim_payouts_for_execution,
+  -- get_payout_execution_context, hold_payout_destination_changed, record_payout_execution_note.
+  -- All six are service_role-only definers. 141 A14a names all SIXTEEN of 093's kernel additions with
+  -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
+  -- 2026-09-03 (package 096): +9 (payout reversal + obligation recovery). 097/098: +0 (body-only
+  -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146 -> 147 -> 148,
+  -- re-derived from the live catalog, not accepted as a delta.
+  'A32: kernel holds EXACTLY 149 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 16,
+           WHERE n.nspname = 'catalog'), 17,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
   -- 2026-09-01 (package 086): 11 -> 15 (engage_door_freeze, set_session_door_schedule,
   -- sweep_implicit_door_freezes, tg_door_open_at_is_ledger_head).
-  'A33: catalog holds EXACTLY 16 functions (15 post-086 + 088''s cancel_event)');
+  'A33: catalog holds EXACTLY 17 functions (15 post-086 + 088''s cancel_event + 109''s tg_session_terminal_force_close)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),
@@ -483,18 +513,35 @@ SELECT tap._mint('00000000-0000-0000-0000-00000000aa04', '00000000-0000-0000-000
 SELECT tap._mint('00000000-0000-0000-0000-00000000aa05', '00000000-0000-0000-0000-00000000e5e5', 2, tap.buyer(), '00000000-0000-0000-0000-00000000ee09');
 UPDATE kernel.tickets SET state = 'scanned' WHERE ticket_atom_id = '00000000-0000-0000-0000-00000000aa05';
 
--- E-18: ticket.expiry_grace is a PFA-9 CLASS A key — NOT seeded; the sweep is
--- fail-INERT against the absent value (expiry is a terminal label; stamping it
--- without an owner-ruled grace is the harmful direction).
-SELECT is((SELECT count(*)::int FROM catalog.platform_config WHERE key = 'ticket.expiry_grace'), 0,
-  'D1: E-18 — ticket.expiry_grace is NOT seeded (PFA-9 CLASS A discipline)');
+-- E-18: the sweep is fail-INERT unless an owner-ruled grace VALUE is readable
+-- (expiry is a terminal label; stamping it on a guessed grace is the harmful
+-- direction).
+--
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling D2: "the missing ticket-expiry
+-- configuration contract is created… leaving it absent is forbidden by this
+-- ruling", and 093 creates the row at version 1 carrying a JSON-NULL value.
+-- So the KEY's absence is no longer the thing E-18 rests on — the absence of a
+-- VALUE is, and that is what D1/D1a now assert. The sweep reads
+-- (value #>> '{}')::interval, which is SQL NULL for a JSON null, so D2/D3 are
+-- unchanged in both text and substance: the sweep is still inert, still for the
+-- same reason, and still cannot terminal-ize an atom on a guessed grace.
+SELECT is((SELECT count(*)::int FROM catalog.platform_config
+            WHERE key = 'ticket.expiry_grace' AND version = 1 AND value = 'null'::jsonb), 1,
+  'D1 [093/ruling D2]: ticket.expiry_grace EXISTS at version 1 — seeded owner-UNSET, with a JSON-null value');
+SELECT is((SELECT count(*)::int FROM catalog.platform_config
+            WHERE key = 'ticket.expiry_grace' AND value <> 'null'::jsonb), 0,
+  'D1a [093/ruling D2]: … and NO version of it carries a value — E-18 holds: the sweep has nothing to read');
 SELECT is((kernel.sweep_expired_ticket_atoms() ->> 'swept_count')::int, 0,
-  'D2: E-18 — with the key absent the sweep is INERT (no atom is terminal-ized on a guessed grace)');
+  'D2: E-18 — with no readable grace the sweep is INERT (no atom is terminal-ized on a guessed grace)');
 SELECT is((SELECT state FROM kernel.tickets WHERE ticket_atom_id='00000000-0000-0000-0000-00000000aa04'),
   'active', 'D3: … and the ended-session atom is still active');
 
+-- version 2, not 1: 093 owns version 1 of this key (ruling D2). The sweep reads
+-- `order by c.version desc limit 1`, so a version-2 row is what an owner setting
+-- the grace through catalog.set_platform_config would produce.
 INSERT INTO catalog.platform_config (key, version, value, visibility)
-VALUES ('ticket.expiry_grace', 1, '"1 hour"'::jsonb, 'restricted');
+VALUES ('ticket.expiry_grace', 2, '"1 hour"'::jsonb, 'restricted');
 SELECT is((kernel.sweep_expired_ticket_atoms() ->> 'swept_count')::int, 1,
   'D4: T-SCHEMA-EXPIRY-01 — with a grace value, the active atom of the ended session expires');
 SELECT is((SELECT state FROM kernel.tickets WHERE ticket_atom_id='00000000-0000-0000-0000-00000000aa04'),

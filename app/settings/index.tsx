@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -106,26 +107,59 @@ export default function SettingsScreen() {
   // (owner-scoped SELECT policy; requires the kernel schema to be exposed via
   // PostgREST — live since the dark-substrate deploy). Pre-cutover backends
   // make the probe throw; we then show nothing, exactly like before.
-  const [deletionPending, setDeletionPending] = useState(false);
+  // Tri-state on purpose. A failed probe must NOT be read as "not pending":
+  // the banner is the only route to withdrawing a deletion request, so hiding
+  // it on a network blip would strand the user with no way to cancel.
+  // 'unknown' keeps whatever we last knew and offers a retry instead.
+  type DeletionView = 'unknown' | 'pending' | 'active';
+  const [deletionView, setDeletionView] = useState<DeletionView>('unknown');
+  const [deletionProbeFailed, setDeletionProbeFailed] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const deletionPending = deletionView === 'pending';
 
   async function refreshDeletionState() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setDeletionPending(false); return; }
-      const { data: ext } = await (supabase as any)
+      if (!user) { setDeletionView('active'); setDeletionProbeFailed(false); return; }
+      const { data: ext, error } = await (supabase as any)
         .schema('kernel')
         .from('identity_ext')
         .select('deletion_state')
         .eq('identity_id', user.id)
         .maybeSingle();
-      setDeletionPending(ext?.deletion_state === 'DELETION_PENDING');
+      if (error) {
+        // Could not read. Hold the previous view and show a retry.
+        setDeletionProbeFailed(true);
+        return;
+      }
+      setDeletionProbeFailed(false);
+      if (ext?.deletion_state === 'DELETION_PENDING') {
+        setDeletionView('pending');
+        return;
+      }
+      // A null row is ambiguous: identity_ext is lazy-created, so "no row"
+      // legitimately means active, but an expired session or a policy miss also
+      // returns null with no error. Never let that ambiguity CANCEL a banner we
+      // have already shown, because the banner is the only route to withdrawing.
+      if (!ext && deletionView === 'pending') {
+        setDeletionProbeFailed(true);
+        return;
+      }
+      setDeletionView('active');
     } catch {
-      setDeletionPending(false);
+      setDeletionProbeFailed(true);
     }
   }
 
-  useEffect(() => { refreshDeletionState(); }, []);
+  useEffect(() => {
+    refreshDeletionState();
+    // Re-check when the app returns to the foreground: a pending request can be
+    // resolved by the sweep while the user is away.
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') refreshDeletionState();
+    });
+    return () => sub.remove();
+  }, []);
 
   async function handleWithdrawDeletion() {
     setWithdrawing(true);
@@ -138,7 +172,8 @@ export default function SettingsScreen() {
         alertWeb(parsed?.error ?? 'Could not withdraw the deletion request. Please try again.');
         return;
       }
-      await refreshDeletionState();
+      setDeletionView('active');
+      setDeletionProbeFailed(false);
       if (Platform.OS === 'web') {
         window.alert('Your deletion request has been withdrawn. Your account stays active.');
       } else {
@@ -223,7 +258,7 @@ export default function SettingsScreen() {
   function handleDeleteAccount() {
     if (Platform.OS === 'web') {
       const first = window.confirm(
-        'Delete Account\n\nThis submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings. This cannot be undone.\n\nAre you sure?',
+        'Delete Account\n\nThis submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings. Until it completes you can withdraw it from Settings. After it completes this cannot be undone.\n\nAre you sure?',
       );
       if (!first) return;
       const second = window.confirm(
@@ -234,7 +269,7 @@ export default function SettingsScreen() {
     } else {
       Alert.alert(
         'Delete Account',
-        'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nThis cannot be undone.',
+        'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nUntil it completes you can withdraw it from Settings. After it completes this cannot be undone.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -276,6 +311,17 @@ export default function SettingsScreen() {
         contentContainerStyle={s.scrollBody}
         showsVerticalScrollIndicator={false}
       >
+
+        {deletionProbeFailed && !deletionPending && (
+          <View style={{ borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, padding: 12, marginBottom: 16 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
+              We could not check your account status.
+            </Text>
+            <Pressable onPress={refreshDeletionState}>
+              <Text style={{ color: '#FF1A1A', fontWeight: '700' }}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
 
         {deletionPending && (
           <View style={{ backgroundColor: '#FFF4F4', borderColor: '#FF1A1A', borderWidth: 1, borderRadius: 0, padding: 14, marginBottom: 16 }}>
