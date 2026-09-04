@@ -3468,12 +3468,14 @@ UNCHANGED BY THIS SESSION:
 
 ---
 
-## PFA-18C — single-founder INITIAL KMS trust-root bootstrap exception (compensating-control model) — PROPOSED / READY FOR OWNER RATIFICATION
+## PFA-18C — single-founder INITIAL KMS trust-root bootstrap exception (compensating-control model) — OWNER-RATIFIED (execution-gated)
 
 ```
 ID:      PFA-18C  (amends the PFA-18A/18B signing-key lineage for the INITIAL BOOTSTRAP leg only)
-STATUS:  PROPOSED — READY FOR OWNER RATIFICATION of the governance model, CONDITIONED on execution
-         preconditions. NOT owner-approved (no owner signature supplied yet). Design + adversarial review
+STATUS:  OWNER-RATIFIED 2026-09-04 — governance model APPROVED, CONDITIONED on execution preconditions
+         (bootstrap blockers M1/M2/M3 concretely met + second-device verified, M4-corrected artifact;
+         M5/M6/Model A before issuance). Owner signature recorded verbatim in
+         docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md. Design + adversarial review
          (two rounds) in docs/architecture/_governance/PFA_SINGLE_FOUNDER_KMS_BOOTSTRAP.md; remediation +
          final ratification package in docs/architecture/_governance/PFA_18C_REMEDIATION_AND_FINAL_RATIFICATION.md.
 SUMMARY: permits ONE technically-qualified founder to perform the INITIAL dark AWS KMS ES256 trust-root
@@ -3490,6 +3492,8 @@ SUMMARY: permits ONE technically-qualified founder to perform the INITIAL dark A
          post-revoke re-bootstrap artifact. PFA-18A provision/rotate STAY parked; PFA-18B revoke is the
          abort path. Consumed once; future signing-key lifecycle returns to two-person control (fail
          closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
-OWNER SIGNATURE REQUIRED: YES.  OWNER SIGNATURE: PENDING.  (Exact signature text: see the remediation
-         package. Engineering did NOT self-ratify.)
+OWNER SIGNATURE REQUIRED: YES.  OWNER SIGNATURE: RECORDED 2026-09-04 — "PFA-18C APPROVED (2026-09-04)".
+         Verbatim signature + conformance check in docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md.
+         Engineering did NOT self-ratify. Consumed once; future signing-key lifecycle returns to two-person
+         control (fail closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
 ```
