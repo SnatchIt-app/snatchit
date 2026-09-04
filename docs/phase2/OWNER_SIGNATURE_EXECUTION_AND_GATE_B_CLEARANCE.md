@@ -14,7 +14,7 @@ REPOSITORY
 
 BRANCH:                 feature/venue-native-and-product-v2
 ENTRY HEAD:             4da04d3 (preflight docs)
-FINAL GOVERNANCE HEAD:  <recorded post-commit below> (owner-signature execution + this report; docs only)
+FINAL GOVERNANCE HEAD:  bd19603 (owner-signature execution + this report; docs only) — a report-HEAD note follows
 CODE RELEASE CANDIDATE: 5721a41 (UNCHANGED — every migration/rollback/edge/app byte is byte-identical to
                         5721a41; all commits since are documentation/governance only)
 PR:                     #52 — OPEN, MERGEABLE
