@@ -424,7 +424,12 @@ before it commits.
 -- Values arrive on the psql command line:
 --   -v PUBLIC_KEY_PEM="$(cat pub.pem)"
 --   -v KMS_HANDLE_REF="$(cat handle.txt)"
---   -v EXPECTED_FINGERPRINT="$(cat fingerprint.txt)"
+--   -v EXPECTED_FINGERPRINT="$(cat fingerprint.txt)"   # from the SECOND device (M2, PFA-18C)
+--   -v ALGORITHM="ES256"                               # EXPLICIT — never the column default
+-- M4 / PFA-18C P1-ALGO FIX: kernel.signing_key.algorithm is NOT NULL DEFAULT 'EdDSA'
+-- (migration 103). This artifact now writes `algorithm` EXPLICITLY from -v ALGORITHM and
+-- GATES it (PRE-FLIGHT 2b) so an AWS ES256 key can never be silently, immutably stored as
+-- EdDSA (which would fail every credential sign-after-verify with no way to correct it).
 -- ===========================================================================
 \set ON_ERROR_STOP on
 begin;
@@ -432,6 +437,7 @@ begin;
 create temp table ceremony_input on commit drop as
 select :'PUBLIC_KEY_PEM'::text as pem,
        :'KMS_HANDLE_REF'::text as handle,
+       :'ALGORITHM'::text as algorithm,
        lower(regexp_replace(:'EXPECTED_FINGERPRINT'::text, '[^0-9a-fA-F]', '', 'g')) as expected_fpr;
 
 -- PRE-FLIGHT 1 — bootstrap is once-only.
@@ -467,6 +473,26 @@ begin
   raise notice 'PRE-FLIGHT 2 PASSED — fingerprint %', v_fpr;
 end $$;
 
+-- PRE-FLIGHT 2b — ALGORITHM GATE (M4 / PFA-18C P1-ALGO). algorithm is supplied EXPLICITLY
+-- and NEVER inherited from the column default ('EdDSA', 103). For the owner-directed AWS KMS
+-- ceremony (D1=AWS KMS / D2=ES256) it MUST be 'ES256'. (A future GCP/Ed25519 ceremony
+-- changes ONLY the required literal below to 'EdDSA'.)
+do $$
+declare v_a text;
+begin
+  select algorithm into v_a from ceremony_input;
+  if v_a is null or btrim(v_a) = '' then
+    raise exception 'CEREMONY ABORT: ALGORITHM is empty — supply -v ALGORITHM=ES256 (never rely on the column default)';
+  end if;
+  if v_a not in ('EdDSA','ES256') then
+    raise exception 'CEREMONY ABORT: ALGORITHM % is not a sanctioned value (EdDSA|ES256)', v_a;
+  end if;
+  if v_a <> 'ES256' then
+    raise exception 'CEREMONY ABORT: this is the AWS KMS ceremony (D1=AWS KMS / D2=ES256) — ALGORITHM must be ES256, got %', v_a;
+  end if;
+  raise notice 'PRE-FLIGHT 2b PASSED — algorithm %', v_a;
+end $$;
+
 -- PRE-FLIGHT 3 — the handle must not be empty, a placeholder, or key material.
 do $$
 declare v_h text;
@@ -484,9 +510,9 @@ end $$;
 -- THE ROW. Exactly one, scope=global, deterministic key_id (…b0 = ruling B).
 insert into kernel.signing_key
        (key_id, scope, event_id, venue_id,
-        public_key, kms_handle_ref, status, not_before, not_after)
+        public_key, kms_handle_ref, algorithm, status, not_before, not_after)
 select '00000000-0000-0000-0000-0000000000b0', 'global', null, null,
-       i.pem, i.handle, 'active', now(), null
+       i.pem, i.handle, i.algorithm, 'active', now(), null
   from ceremony_input i
  where not exists (select 1 from kernel.signing_key);
 
@@ -502,11 +528,12 @@ begin
           and k.status='active' and k.not_before <= now()
           and (k.not_after is null or k.not_after > now())
           and k.key_id = '00000000-0000-0000-0000-0000000000b0'
+          and k.algorithm = (select algorithm from ceremony_input)
           and k.public_key = (select pem from ceremony_input)
           and k.kms_handle_ref = (select handle from ceremony_input))
     into v_ok from kernel.signing_key k;
   if not v_ok then raise exception 'CEREMONY ABORT: the row does not resolve as the active global key just supplied'; end if;
-  raise notice 'POST-CHECK PASSED — exactly one active global key, key_id …b0';
+  raise notice 'POST-CHECK PASSED — exactly one active global key, key_id …b0, algorithm %', (select algorithm from ceremony_input);
 end $$;
 
 commit;
@@ -532,17 +559,24 @@ psql "$PROD_DB_URL" \
   -v PUBLIC_KEY_PEM="$(cat pub.pem)" \
   -v KMS_HANDLE_REF="$(cat handle.txt)" \
   -v EXPECTED_FINGERPRINT="$(cat fingerprint.txt)" \
+  -v ALGORITHM="ES256" \
   -f signing_key_bootstrap.sql
 ```
 
-**Required output — all three lines, then `COMMIT`:**
+**Required output — all four lines, then `COMMIT`:**
 
 ```
 NOTICE:  PRE-FLIGHT 2 PASSED — fingerprint <EXPECTED_PUBLIC_KEY_FINGERPRINT>
+NOTICE:  PRE-FLIGHT 2b PASSED — algorithm ES256
 NOTICE:  PRE-FLIGHT 3 PASSED — handle accepted (value not echoed)
-NOTICE:  POST-CHECK PASSED — exactly one active global key, key_id …b0
+NOTICE:  POST-CHECK PASSED — exactly one active global key, key_id …b0, algorithm ES256
 COMMIT
 ```
+
+> **PFA-18C / M4:** `-v ALGORITHM="ES256"` is MANDATORY. The artifact aborts if it is empty,
+> not in (EdDSA|ES256), or (for this AWS ceremony) not ES256 — the column default 'EdDSA' is
+> never inherited. Off-production rehearsal proof (2026-09-04): the corrected artifact stores
+> `algorithm=ES256`; the uncorrected column list stored `EdDSA`.
 
 Anything else means nothing was written. Every abort path was rehearsed and each one
 leaves `count(*) = 0` (`G3_signing_rehearsal.md`, §Bootstrap).

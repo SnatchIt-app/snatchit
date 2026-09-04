@@ -3465,3 +3465,31 @@ UNCHANGED BY THIS SESSION:
   * KMS ceremony — NOT executed; production — UNTOUCHED (ledger 107, tip 092, 0 signing keys, no native
     edges, flags DARK) as of the 2026-09-04 04:49Z read-only recheck.
 ```
+
+---
+
+## PFA-18C — single-founder INITIAL KMS trust-root bootstrap exception (compensating-control model) — PROPOSED / READY FOR OWNER RATIFICATION
+
+```
+ID:      PFA-18C  (amends the PFA-18A/18B signing-key lineage for the INITIAL BOOTSTRAP leg only)
+STATUS:  PROPOSED — READY FOR OWNER RATIFICATION of the governance model, CONDITIONED on execution
+         preconditions. NOT owner-approved (no owner signature supplied yet). Design + adversarial review
+         (two rounds) in docs/architecture/_governance/PFA_SINGLE_FOUNDER_KMS_BOOTSTRAP.md; remediation +
+         final ratification package in docs/architecture/_governance/PFA_18C_REMEDIATION_AND_FINAL_RATIFICATION.md.
+SUMMARY: permits ONE technically-qualified founder to perform the INITIAL dark AWS KMS ES256 trust-root
+         bootstrap (one global kernel.signing_key row) under compensating TECHNICAL controls in lieu of
+         the two-person ceremony, with the honest guarantee DETECTABLE-NOT-PREVENTABLE. Requires (before
+         the dark bootstrap): M4 corrected §6.1 artifact (algorithm=ES256, FIXED + tested this session);
+         M1 out-of-band audit (Model B same-account with the concrete deny-set + Object-Lock compliance +
+         log-CMK control, read back from the second device; Model A separate account required before
+         commerce); M2 second clean device (own read-only IAM; independent GetPublicKey + §5.3 binding
+         proof + deny-set/key-policy read-back); M3 distinct runtime IAM role (key policy Sign-only-to-
+         runtime; ceremony principal drops Sign); C18 the founder runs every AWS/DB mutation, the AI is
+         read-back coordinator only. Requires (after bootstrap, before issuance): M6 BEFORE INSERT
+         scope/algorithm guard migration; M5 end-to-end credential-sign test; a gated two-person
+         post-revoke re-bootstrap artifact. PFA-18A provision/rotate STAY parked; PFA-18B revoke is the
+         abort path. Consumed once; future signing-key lifecycle returns to two-person control (fail
+         closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
+OWNER SIGNATURE REQUIRED: YES.  OWNER SIGNATURE: PENDING.  (Exact signature text: see the remediation
+         package. Engineering did NOT self-ratify.)
+```

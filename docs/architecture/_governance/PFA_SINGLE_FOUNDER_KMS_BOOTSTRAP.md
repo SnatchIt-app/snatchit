@@ -398,3 +398,34 @@ NEXT:                          apply M4, meet M1/M2/M3, then a separate single-f
 STOP. GOVERNANCE ONLY. DO NOT EXECUTE KMS. DO NOT CHANGE PRODUCTION. DO NOT DEPLOY EDGES. DO NOT ACTIVATE.
 
 ============================================================
+
+------------------------------------------------------------
+REMEDIATION ADDENDUM — 2026-09-04 (supersedes the conflicting points above)
+------------------------------------------------------------
+
+Full detail + evidence: docs/architecture/_governance/PFA_18C_REMEDIATION_AND_FINAL_RATIFICATION.md.
+
+  • M4 / P1-ALGO — now FIXED + off-production PROVEN. The §6.1 ceremony artifact (PRODUCTION_SIGNING_KMS_
+    CEREMONY.md) sets algorithm EXPLICITLY via `-v ALGORITHM="ES256"` with a PRE-FLIGHT 2b gate; §6.2 and
+    the expected NOTICEs updated; §6.1↔§18.1 reconciled. Rehearsal proof: corrected artifact stores
+    ES256, old column list stored EdDSA; 5 negatives abort; once-only holds; pgTAP 169 34/34, vitest kms
+    56/56. Runbook/artifact change only — NO migration.
+  • M6 — CLASSIFICATION FIXED: MANDATORY PRE-ISSUANCE HARDENING (not "optional", not pre-bootstrap). The
+    round-2 reviewer VERIFIED no dark path signs/resolves a scoped shadow key, so deferring the BEFORE
+    INSERT guard to before-issuance is safe; it should land WITH the bootstrap PR. Not written this session.
+  • M1 — DECISION: Model B (same AWS account) for the DARK bootstrap ONLY, HARD-CONDITIONED on the
+    concrete deny-set (CloudTrail Stop/Delete/Update denied; S3 delete/policy/lifecycle/retention/
+    legal-hold/bypass/encryption denied; Object-Lock COMPLIANCE + retention period; log-bucket SSE-S3 or a
+    CMK the ceremony principal cannot administer; all IAM self-escalation denied) READ BACK from the
+    second device; Model A (separate audit account + SCP) REQUIRED before T3/commerce. Distinguishes
+    ceremony-session authority (constrained) from ultimate owner/root authority (unconstrainable).
+  • NEW FINDINGS integrated: P1-ALGO-DEFAULT (the schema default 'EdDSA' bricks any non-artifact insert →
+    mitigated by M6's guard enforcing ES256 on the global row + any re-bootstrap artifact setting it
+    explicitly; a future migration could drop the default); P1-REBOOTSTRAP-FAILOPEN (post-T3 recovery has
+    no compliant mechanism → a gated two-person post-revoke re-bootstrap artifact is required forward
+    work); P3-AI-DRIVES-PSQL (single-founder path: the FOUNDER runs every AWS/DB mutation; the AI is
+    read-back coordinator ONLY — C18 strengthened).
+  • Maturity trigger — the exception is consumed ONCE; T3 does not invalidate the completed bootstrap;
+    future lifecycle ops are two-person + fail-closed; the post-T3 recovery gap is disclosed.
+  • STATUS: PROPOSED / READY FOR OWNER RATIFICATION of the model, conditioned on the execution
+    preconditions. NOT owner-approved (no signature supplied). Production UNCHANGED.
