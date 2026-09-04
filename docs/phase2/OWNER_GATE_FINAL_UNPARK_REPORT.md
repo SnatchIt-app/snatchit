@@ -16,7 +16,8 @@ REPOSITORY
 
 BRANCH:      feature/venue-native-and-product-v2
 ENTRY HEAD:  7897f2e (package 105 + door edges) — pushed, CI green
-FINAL HEAD:  <recorded post-commit below> — the four un-park migrations + tests + governance + edge
+FINAL HEAD:  d07ed8a (migrations 106–109 + rollbacks + tests 172–175 + governance/matrix/runbook/
+             ceremony + door-session edge) — the report-HEAD note follows in the next commit
 REMOTE:      origin = SnatchIt-app/snatchit
 PR:          #52 — OPEN, MERGEABLE
 CI:          GREEN on entry 7897f2e (CI push run SUCCESS; Migrations guard SUCCESS); the train commit's CI runs on push
