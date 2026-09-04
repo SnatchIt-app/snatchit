@@ -140,7 +140,7 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 148,
+           WHERE n.nspname = 'kernel'), 149,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -172,14 +172,14 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-09-03 (package 096): +9 (payout reversal + obligation recovery). 097/098: +0 (body-only
   -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146 -> 147 -> 148,
   -- re-derived from the live catalog, not accepted as a delta.
-  'A32: kernel holds EXACTLY 148 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one)');
+  'A32: kernel holds EXACTLY 149 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 16,
+           WHERE n.nspname = 'catalog'), 17,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
   -- 2026-09-01 (package 086): 11 -> 15 (engage_door_freeze, set_session_door_schedule,
   -- sweep_implicit_door_freezes, tg_door_open_at_is_ledger_head).
-  'A33: catalog holds EXACTLY 16 functions (15 post-086 + 088''s cancel_event)');
+  'A33: catalog holds EXACTLY 17 functions (15 post-086 + 088''s cancel_event + 109''s tg_session_terminal_force_close)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),

@@ -104,10 +104,20 @@ this runbook must pin down, and does pin down in §1.2:
 
 `OWNER APPROVAL REQUIRED` — record the chosen values in the evidence pack (§9).
 
+> **OWNER DIRECTION RECEIVED — 2026-09-03 (owner-gate ratification train):** **D1 = AWS KMS**
+> (asymmetric) and **D2 = ES256 / ECDSA P-256 (SHA-256).** Rationale: the infra is AWS-shaped, the
+> `KMS_SIGNER_ROLE_ARN` convention already exists, the `AwsKmsSigner` adapter is authored and tested,
+> and ES256 is architecturally sanctioned (§5.1); Ed25519 would require adding GCP solely for the
+> curve. This resolves the D1/D2 ambiguity below — take the **AWS KMS** provider block (§4a), the
+> ES256 key-spec (`ECC_NIST_P256`), and set the bootstrap `kernel.signing_key.algorithm` column
+> (migration 103) to **`ES256`** to match. The literal ARN, key id, and fingerprint (D4/D5) remain
+> `<…>` placeholders to be filled at the ceremony — **no production key is created here.** STATUS:
+> D1/D2 DECIDED; the ceremony itself remains a later `PRODUCTION OPERATION` behind owner go.
+
 | # | Decision | Ruling | Recorded value |
 |---|---|---|---|
-| D1 | **Provider** — one of AWS KMS (asymmetric), GCP Cloud KMS, or CloudHSM. Nothing else is architecturally sanctioned. | `EDGE_SPEC:1291-1292` | `<PRODUCTION_KMS_PROVIDER>` |
-| D2 | **Algorithm.** Ed25519 preferred; **ECDSA-P256 (SHA-256) is the ratified fallback.** Ed25519 is not offered by every provider for asymmetric signing — before choosing it, confirm it appears in your provider's *current* supported key-spec list (`aws kms create-key help` / `gcloud kms keys create --help`). **If Ed25519 is unavailable on D1's provider, use ECDSA-P256.** Do not substitute RSA; the architecture does not sanction it. | `EDGE_SPEC:1273-1274` | `<PRODUCTION_KMS_ALGORITHM>` |
+| D1 | **Provider** — one of AWS KMS (asymmetric), GCP Cloud KMS, or CloudHSM. Nothing else is architecturally sanctioned. **OWNER-DIRECTED: AWS KMS.** | `EDGE_SPEC:1291-1292` | **AWS KMS** (asymmetric) |
+| D2 | **Algorithm.** Ed25519 preferred; **ECDSA-P256 (SHA-256) is the ratified fallback.** **OWNER-DIRECTED: ES256 / ECDSA-P256 (SHA-256)** — AWS KMS offers no Ed25519 for asymmetric signing, so the ratified P-256 fallback is chosen; the `kernel.signing_key.algorithm` column is set to `ES256`. Do not substitute RSA; the architecture does not sanction it. | `EDGE_SPEC:1273-1274` | **ES256 / ECDSA-P256 (SHA-256)** |
 | D3 | **`public_key` wire format: SPKI, PEM-armoured**, i.e. a `-----BEGIN PUBLIC KEY-----` block. Both AWS and GCP export SPKI. This is the format the fingerprint in D5 is defined over and the format §5's verification commands consume. | this runbook | fixed |
 | D4 | **`kms_handle_ref` syntax: the provider's fully-qualified resource identifier, pinned to exactly one key *version*.** AWS KMS: `arn:aws:kms:<REGION>:<ACCOUNT_ID>:key/<KEY_ID>` (an AWS asymmetric CMK has one key material; "rotation" is a *new key*). GCP Cloud KMS: `projects/<P>/locations/<L>/keyRings/<KR>/cryptoKeys/<K>/cryptoKeyVersions/<V>` — **the `cryptoKeyVersions/<V>` suffix is mandatory.** A GCP handle that stops at `cryptoKeys/<K>` designates a *rotating* key whose signatures would stop verifying against the immutable `public_key` column the moment a new version becomes primary. | this runbook | `<PRODUCTION_KMS_KEY_ID>` |
 | D5 | **Fingerprint: `SHA-256` over the DER-encoded SPKI bytes, lowercase hex, 64 characters.** Not over the PEM text; not over the raw point. The DB-side gate in §6 recomputes exactly this from the stored PEM. | this runbook | `<EXPECTED_PUBLIC_KEY_FINGERPRINT>` |

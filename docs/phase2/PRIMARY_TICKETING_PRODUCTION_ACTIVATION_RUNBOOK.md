@@ -246,3 +246,32 @@ sequence; every step keeps its label. Full derivation + owner-decision list is i
 - **[CONTROLLED SALE][IRREVERSIBLE at issue_ticket_atoms, G3]** first quote → PaymentIntent → atom →
   credential-sign → M1 → C37/M2 → **[CONTROLLED SCAN]** door admit → offline reconcile. Prove a refund.
 - Venue payout is a SEPARATE later sequence; promoter payout stays DARK.
+
+## Package 106–109 addendum — the four un-parks are now LANDED (DO NOT EXECUTE)
+
+Supersedes the "Package 105 addendum" pending-work note: the four migrations it listed are now
+authored, tested, and DARK/unapplied (093–105 byte-untouched). Backend construction is complete for
+a controlled first sale + signed credential + controlled door scan. The remaining sequence:
+
+1. **[OWNER APPROVAL]** Sign PFA-18B (106 revoke un-park), PFA-26-UNPARK (107 bcrypt PIN), PFA-PT-9
+   items 1&3 (104/109), PFA-PT-6 and PFA-PT-8 (wire format + algorithm pin). D1/D2 are owner-decided
+   (AWS KMS / ES256). See POST_FREEZE_AMENDMENTS "OWNER GATE RATIFICATION TRAIN, 2026-09-03".
+2. **[OWNER/LEGAL]** Resolve tax (PFA-PT-7) or affirm compute-none; set `deletion.post_event_hold_hours`.
+3. **[OBSERVATION]** Confirm the production-observation closeout artifact (ledger 107, 0 signing keys,
+   native edges undeployed, no mutation).
+4. **[MIGRATE]** Apply migrations 093→109 to production (forward-only, hashes pinned,
+   `AUTODEPLOY-VERIFIED-OFF`, `git_branch` empty). 107 includes `create extension if not exists
+   pgcrypto with schema extensions` (already present in prod — a no-op).
+5. **[KMS CEREMONY]** Two-person: create the AWS KMS asymmetric ES256 key; insert ONE
+   `kernel.signing_key` row (SPKI `public_key`, version-pinned `kms_handle_ref`, `algorithm='ES256'`).
+6. **[DEPLOY]** Deploy the DARK edges (credential-sign, primary-checkout, door-session, door-manifest)
+   with KMS + provider env.
+7. **[CONFIG]** Provision the door PIN(s) via `create_door_pin` (now un-parked); onboard a real org
+   (Connect + `fee.buyer_service_bps`); expose the RPC surface to PostgREST; publish an event on_sale.
+8. **[CONTROLLED SALE + SCAN]** quote → PaymentIntent → issue_ticket_atoms (the irreversible point) →
+   credential-sign (M1) → door M1 verify → C37/M2 → controlled scan (`record_scan_door`) → offline
+   reconcile (`reconcile_offline_scans_door`). Prove a refund end-to-end before widening.
+9. **[BREAK-GLASS — PFA-PT-9 item 5]** If an admin_action ownership transfer occurs during an OPEN
+   door episode, force-close/refresh that session's manifest (revoke's `force_close_key_manifests` or
+   a session-scoped close) so no offline device admits a stale credential until not_after.
+10. **[SEPARATE — venue payout]** Only after the first sale is proven + settled (see the payout runbook).

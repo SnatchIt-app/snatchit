@@ -50,13 +50,13 @@ SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
   'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
   'A2: exactly the frozen names — order/order_item (082), 086 door/scan, 087 settlement/settlement_line/export_job present, inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 79,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 83,
   -- 2026-09-02 (package 090): 60 -> 79 (+19 promoter-engine fns; resolve_order_attribution is a body-replace).
   -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
   -- twelve CRM export/read RPCs (on_payout_settled is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 086): 18 -> 46 (+28 door/scan/comp/guest/manifest/holder-mix
   -- fns incl. the guard trigger fn; append_door_manifest_delta is a body-replace).
-  'A4: venue holds SEVENTY-NINE functions — 60 post-087 + 090''s nineteen');
+  'A4: venue holds EIGHTY-THREE functions — 60 post-087 + 090''s nineteen + 108''s four');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],

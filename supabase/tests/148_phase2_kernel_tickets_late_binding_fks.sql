@@ -72,7 +72,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- Re-derived from the live catalog, not accepted as a delta.
   'B1: the five phase-2 schemas hold exactly 78 relations of ANY kind (69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation + 096''s two payout-reversal/obligation-recovery tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 282,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 288,
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -117,7 +117,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
   -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
   -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
-  'B2: the five phase-2 schemas hold exactly 282 routines (148+79+16+22+17 — 093''s sixteen, 094''s four obligation routines, 095''s seven, 096''s nine, 099''s one, 102''s one and 105''s one, all kernel)');
+  'B2: the five phase-2 schemas hold exactly 288 routines (149+83+17+22+17 — plus 108''s four venue scan cores/machine entrypoints, 109''s force_close_session_manifests (kernel) and tg_session_terminal_force_close (catalog))');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -134,7 +134,7 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 31
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 148,
+            WHERE n.nspname='kernel') = 149,
   -- 2026-09-03 (package 094, ORG OBLIGATION — 094_organization_obligation.sql): kernel TABLES
   -- 28 -> 29 and kernel functions 132 -> 136. Re-derived from the LIVE CATALOG by replaying the
   -- chain twice, once with this file removed. The table is kernel.organization_obligation, the
@@ -172,12 +172,12 @@ SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- and kernel functions 136 -> 145 (nine, R-1 through R-7). 097/098: +0 functions (body-only
   -- re-creates). 2026-09-03 (package 099): kernel functions 145 -> 146 (check_signing_key_invariants).
   -- Re-derived from the LIVE CATALOG, not accepted as a delta.
-  'B4: kernel per-schema census (31 tables post-096, 148 functions post-105)');
+  'B4: kernel per-schema census (31 tables post-096, 149 functions post-109)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 79
+            WHERE n.nspname='venue') = 83
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 5,
-  'B5: venue holds 79 functions (60 post-087 + 090''s nineteen), market holds its five 088 rail tables');
+  'B5: venue holds 83 functions (60 post-087 + 090''s nineteen + 108''s four), market holds its five 088 rail tables');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

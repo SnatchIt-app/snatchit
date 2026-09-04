@@ -91,7 +91,7 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 148,
+           WHERE n.nspname = 'kernel'), 149,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -122,9 +122,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9. 097/098: +0 (body-only re-creates). 099: +1.
   -- 136 -> 146, re-derived from the live catalog, not accepted as a delta.
-  'A14: kernel holds EXACTLY 148 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one)');
+  'A14: kernel holds EXACTLY 149 functions (109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 79,
+           WHERE n.nspname = 'venue'), 83,
   -- 2026-09-02 (package 090): 60 -> 79 (+19: 17 promoter RPCs/reads + the normalizer + 2 trigger fns;
   -- resolve_order_attribution is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 087): +14 venue fns — open_settlement, assert_may_request and the
@@ -133,7 +133,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-09-01 (package 086): 18 -> 46 (+28: 27 door/scan/comp/guest/manifest/holder-mix
   -- RPCs + the guard_door_manifest_transition trigger fn; append_door_manifest_delta
   -- is a SEAM-2 body-replace, already counted).
-  'A15: venue holds EXACTLY seventy-nine functions — 60 post-087 + 090''s nineteen');
+  'A15: venue holds EXACTLY eighty-three functions — 60 post-087 + 090''s nineteen + 108''s four scan cores/machine entrypoints');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');

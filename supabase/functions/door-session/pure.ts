@@ -20,24 +20,25 @@
  * `kms-taxonomy.ts`, pure modules imported by both `index.ts` (Deno) and the
  * test (Node/vitest) — never the reverse. This file is that split for
  * `door-session`. It has no Deno-specific and no WebCrypto-specific code:
- * SHA-1 (RFC4122 UUIDv5) and SHA-256 (the token_hash wire contract) are
- * hand-rolled in plain JS below specifically so this module never needs
- * `crypto.subtle` — which is the other half of the trap `kms.ts`'s header
- * documents (`Uint8Array<ArrayBufferLike>` vs `BufferSource` strictness
- * under a recent `lib.dom.d.ts`).
+ * SHA-1 (RFC4122 UUIDv5, for the rate-limit principals) is hand-rolled in
+ * plain JS below specifically so this module never needs `crypto.subtle` —
+ * which is the other half of the trap `kms.ts`'s header documents
+ * (`Uint8Array<ArrayBufferLike>` vs `BufferSource` strictness under a recent
+ * `lib.dom.d.ts`). A generic SHA-256 helper (`sha256Hex`) is provided for
+ * completeness/tests; it is NOT the token_hash algorithm (see below).
  *
  * ── WHAT THIS FILE DOES NOT DO ────────────────────────────────────────────
- * `index.ts` NEVER calls `computeTokenHash` on the hot path. Per the frozen
- * contract (EDGE spec §3.9a "Verification"; RPC §1.1d): the bearer header is
+ * This module NEVER computes the door-session `token_hash`. Per the frozen
+ * contract (EDGE spec §3.9a "Verification"; RPC §1.1d), the bearer header is
  * parsed here into `{door_session_id, secret}` and BOTH raw pieces are
- * forwarded to `kernel.assert_door_session`, which computes `token_hash`
- * and compares it constant-time, server-side, against the stored row —
- * "so no second implementation can drift from it and no plaintext leaves
- * the DB boundary." `computeTokenHash`/`buildTokenHashInput` exist here so
- * the WIRE CONTRACT itself — `token_hash = sha256(door_session_id || ':' ||
- * secret)` — is executable and testable, proving this file's understanding
- * of the digest construction matches the frozen spec, even though the edge
- * never performs that computation itself.
+ * forwarded to `kernel.assert_door_session`, which computes `token_hash` and
+ * compares it constant-time, server-side, against the stored row — "so no
+ * second implementation can drift from it and no plaintext leaves the DB
+ * boundary." The AUTHORITATIVE token_hash contract is DB-owned and is
+ * `md5('door_session:' || secret)` — written by `venue.mint_door_session`
+ * (107) and recomputed by `kernel.assert_door_session` (086), which match
+ * each other exactly. The edge deliberately carries NO token_hash
+ * implementation, so none can drift from the DB.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -275,19 +276,13 @@ function sha256(messageBytes: number[]): number[] {
   return out;
 }
 
+/** A GENERIC SHA-256 hex helper. NOTE: this is NOT the door-session token_hash
+ *  algorithm — that contract is DB-owned and is `md5('door_session:' || secret)`
+ *  (venue.mint_door_session 107 / kernel.assert_door_session 086). The edge
+ *  computes no token_hash at all (see the file header); this helper exists only
+ *  as a self-contained hash utility with NIST-vector tests. */
 export function sha256Hex(input: string): string {
   return bytesToHex(sha256(utf8Bytes(input)));
-}
-
-/** `token_hash = sha256(door_session_id::text || ':' || secret)` (edge
- *  §3.9a; RPC §1.1d). Documented as unused by `index.ts`'s hot path — see
- *  file header. */
-export function buildTokenHashInput(doorSessionId: string, secret: string): string {
-  return `${doorSessionId}:${secret}`;
-}
-
-export function computeTokenHash(doorSessionId: string, secret: string): string {
-  return sha256Hex(buildTokenHashInput(doorSessionId, secret));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

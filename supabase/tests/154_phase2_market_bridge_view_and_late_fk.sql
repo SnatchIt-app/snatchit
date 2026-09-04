@@ -46,7 +46,7 @@ SELECT throws_ok($$INSERT INTO market.listing_unified (id, rail) VALUES (gen_ran
 SELECT throws_ok($$DELETE FROM market.listing_unified$$, '55000', NULL, 'A7: …so is a DELETE');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='v'), 1, 'A8: market holds exactly ONE view');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND c.relkind='r'), 5, 'A9: …and still its five 088 tables (089 creates no table)');
-SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/148/16',
+SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel')::text||'/'||(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='catalog')::text), '22/149/17',
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -75,7 +75,7 @@ SELECT is((SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p
   -- re-creates). 2026-09-03 (package 099): kernel 145 -> 146 (check_signing_key_invariants).
   -- market/catalog stay unmoved at 22/16 — this guard is still MARKET AND CATALOG, and both are
   -- still unmoved, which is what it proves. Re-derived from the live catalog.
-  'A10: 089 creates NO function (market 22 / kernel 146 post-099 / catalog 16)');
+  'A10: 089 creates NO function (market 22 / kernel 149 post-109 / catalog 17)');
 -- 2026-09-02 (package 090): 57 -> 67 (+10 venue promoter-engine read policies).
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','venue','catalog','market','notify')), 72, 'A11 (092: register 72 after notify''s five owner policies): 089 creates NO policy (the view carries none — it inherits; register 67 post-090)');
 -- 2026-09-02 (package 092): 18 -> 19 (+notify-drain-outbox).

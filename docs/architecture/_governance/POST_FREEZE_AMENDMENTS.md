@@ -3314,3 +3314,88 @@ OWNER APPROVAL TEXT (items 1 & 3, the ones needing a ruling):
 STATUS:                      RECOMMENDED — PENDING OWNER SIGNATURE (items 1 & 3). Items 2/4/5 are
                              engineering-tracked follow-ups / accepted residuals.
 ```
+
+---
+
+## OWNER GATE RATIFICATION TRAIN — 2026-09-03 (owner directions RECEIVED; engineering LANDED DARK as migrations 106–109; NOT self-signed)
+
+```
+CONTEXT: The owner issued directions to close the four small door-plane un-parks the door-plane
+         readiness report reduced the remaining backend to. Directions are RECORDED here; the
+         literal owner-signature fields on the individual PFAs remain PENDING (this session does
+         NOT self-sign). Engineering has now IMPLEMENTED each direction as a DARK/unapplied
+         migration + pgTAP test, so on signature the code is already in place (no further build).
+
+── PFA-18B (revoke un-park) ────────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE single platform_admin + aal2 revoke (emergency tightening);
+    provision/rotate STAY parked (asymmetric, intentional). Required behavior: platform_admin only,
+    aal2, explicit reason_code, target key locked, forward-only status='revoked', all in-scope open
+    door episodes force-closed, DoorManifestInvalidated emitted durably, NO new manifest opens on
+    the revoked key, signer refuses the revoked key, no silent fallback for already-pinned atoms.
+  ENGINEERING LANDED: migration 106 (kernel.revoke_signing_key real body + venue.open_door_manifest
+    revoked-key refusal; serialized by locking all in-scope non-terminal sessions FOR UPDATE).
+    Test 172 (15 assertions: authz, aal2, ack, cascade, scope isolation, replay, open-refuse,
+    signer-refuse, unknown-key). NOTE: not_after is NOT rewritten on revoke — status='revoked' is
+    the authority (get_ticket_signing_context refuses on status<>'active'; the M1 keyring distributes
+    status); writing not_after=now() would violate signing_key_window_ck for a same-instant key.
+  SIGNATURE TEXT: the PFA-18B "OWNER APPROVAL TEXT" block above (amended: "status='revoked'" — the
+    not_after clause is subsumed by status, per the window-constraint finding).
+  STATUS: OWNER DIRECTION RECEIVED — READY FOR SIGNATURE. Engineering complete (DARK).
+
+── PFA-26-UNPARK (door PIN KDF) ────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE pgcrypto bcrypt cost 12, per-hash salt, frozen create/mint
+    signatures; no plaintext/reversible storage; verifier never returned; edge NS_DOOR_PIN limiter
+    is the brute-force control; rotate by revoke + recreate. Argon2id NOT required for launch.
+  ENGINEERING LANDED: migration 107 (create extension pgcrypto in `extensions`; venue.create_door_pin
+    bcrypt-hashes; venue.mint_door_session constant-time crypt verify + tokenized session; opaque
+    door_session_invalid for wrong pin/device/session/venue). Test 173 (13 assertions). PIN format
+    is NOT frozen — only a 1..64-byte safety envelope is enforced; digit/length policy stays an
+    owner/product decision (train §9: no unfrozen rule invented).
+  SIGNATURE TEXT: the PFA-26-UNPARK "OWNER APPROVAL TEXT" block above.
+  STATUS: OWNER DIRECTION RECEIVED — READY FOR SIGNATURE. Engineering complete (DARK).
+
+── PFA-PT-9 (five items) ───────────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: item 1 APPROVE 104 terminal-session gate; item 2 YES wire terminal
+    force-close; item 3 NO record_scan credential_version backstop (currency stays C37/verifier);
+    item 4 ACCEPT the bounded offline residual; item 5 break-glass admin transfer requires
+    force-close/refresh in the runbook.
+  ENGINEERING LANDED: item 2 is now IMPLEMENTED — migration 109 wires terminal force-close via a
+    TRIGGER on catalog.event_session.status (kernel.force_close_session_manifests +
+    catalog.tg_session_terminal_force_close), NOT a cancel_event rewrite, so ZERO money bytes change
+    (G4/G5 non-regressed by construction). Only 'cancelled' is currently reachable; 'completed' is
+    covered defensively (no writer exists — train §13). Test 175 (9 assertions incl. money
+    non-regression + duplicate-cancel no-re-emit). Items 1/3 were satisfied by 104 (test 170);
+    item 4 accepted; item 5 -> activation runbook break-glass step.
+  SIGNATURE TEXT: the PFA-PT-9 "OWNER APPROVAL TEXT" block above (items 1 & 3).
+  STATUS: OWNER DIRECTION RECEIVED — READY FOR SIGNATURE (items 1 & 3). Item 2 ENGINEERING COMPLETE
+    (DARK); items 4/5 accepted/runbook.
+
+── PFA-PT-6 (credential wire format) ───────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE the existing JWS-compact format (b64url(header).b64url(payload).
+    b64url(sig); header {alg,kid,typ}; payload {atom,sess,ver,iat,exp}; no PII, no embedded verify
+    key, no KMS handle; typ/domain enforcement mandatory). Do NOT redesign.
+  ENGINEERING: unchanged (package 102, adversarially confirmed prior train). READY FOR SIGNATURE.
+  STATUS: OWNER DIRECTION RECEIVED — READY FOR SIGNATURE. No new engineering.
+
+── PFA-PT-8 (algorithm pinning) ────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE trusted-key algorithm pinning — token alg MUST equal the trusted
+    key's kernel.signing_key.algorithm (migration 103); no fallback, no alg=none, no attacker choice.
+  ENGINEERING: unchanged (migration 103). READY FOR SIGNATURE.
+  STATUS: OWNER DIRECTION RECEIVED — READY FOR SIGNATURE. No new engineering.
+
+── KMS D1 / D2 (provider + algorithm) ──────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: D1 = AWS KMS (reference production provider); D2 = ES256 / ECDSA
+    P-256 SHA-256 (production ticket-credential signing algorithm). Rationale: AWS-shaped infra,
+    KMS_SIGNER_ROLE_ARN convention, AwsKmsSigner authored/tested, ES256 sanctioned by §5.1; no need
+    to add GCP solely for Ed25519. The bootstrap kernel.signing_key row's algorithm column (103) is
+    set to 'ES256' at the ceremony to match the key material. NO production key created; NO ceremony
+    run; NO real ARN/fingerprint written. The ceremony runbook is updated to remove D1/D2 ambiguity.
+  STATUS: OWNER DIRECTION RECEIVED. D1/D2 DECIDED. Ceremony remains a later PRODUCTION OPERATION.
+
+OVERALL: the four un-park/conformance migrations (106 revoke, 107 PIN, 108 machine door authority,
+109 terminal force-close) are engineering-complete, tested, DARK/unapplied, and byte-preserve
+093–105. On owner signature of PFA-18B / PFA-26-UNPARK / PFA-PT-9(1,3) / PFA-PT-6 / PFA-PT-8, and
+with D1/D2 decided, the backend is construction-complete for a controlled first sale + signed
+credential + controlled door scan (remaining gates are production migration, edge deploy, the KMS
+ceremony, config, org onboarding, tax/legal, and the observation closeout — none of them new code).
+```

@@ -55,8 +55,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   batchContainsForbiddenDeviceId,
-  buildTokenHashInput,
-  computeTokenHash,
   deriveDoorPinRateLimitPrincipal,
   deriveDoorSessionRateLimitPrincipal,
   deviceIdsMatch,
@@ -178,28 +176,18 @@ describe('batchContainsForbiddenDeviceId', () => {
 });
 
 // ── 5. Token-hash wire contract ────────────────────────────────────────────
-describe('token_hash wire contract', () => {
-  it('buildTokenHashInput concatenates door_session_id + ":" + secret, exactly', () => {
-    expect(buildTokenHashInput('id-1', 'secret-1')).toBe('id-1:secret-1');
-    expect(buildTokenHashInput('', '')).toBe(':');
-  });
-
-  it('sha256Hex matches the NIST test vector for the empty string', () => {
+// NOTE: the door-session token_hash is NOT computed here or anywhere in the edge.
+// Its authoritative contract is DB-owned — md5('door_session:' || secret), written
+// by venue.mint_door_session (107) and recomputed by kernel.assert_door_session
+// (086). sha256Hex below is a GENERIC hash utility (NIST-vector checked), not the
+// token_hash algorithm; the edge forwards the raw secret and the DB hashes it.
+describe('sha256Hex (generic hash utility — NOT the token_hash algorithm)', () => {
+  it('matches the NIST test vector for the empty string', () => {
     expect(sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   });
 
-  it('sha256Hex matches the NIST test vector for "abc"', () => {
+  it('matches the NIST test vector for "abc"', () => {
     expect(sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
-  });
-
-  it('computeTokenHash composes buildTokenHashInput + sha256Hex', () => {
-    expect(computeTokenHash('id-1', 'secret-1')).toBe(sha256Hex('id-1:secret-1'));
-  });
-
-  it('binds the selector into the digest — a secret harvested from one row cannot replay against another id', () => {
-    const hashForRowA = computeTokenHash('door-session-A', 'shared-secret');
-    const hashForRowB = computeTokenHash('door-session-B', 'shared-secret');
-    expect(hashForRowA).not.toBe(hashForRowB);
   });
 });
 

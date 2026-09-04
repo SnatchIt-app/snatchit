@@ -274,8 +274,8 @@ async function handleMintOrRefresh(req: Request, headers: Record<string, string>
   const { data, error } = await venueSvc.rpc('mint_door_session', {
     p_venue_id: venue_id,
     p_session_id: session_id,
-    p_device_id_claim: device_id,
-    p_pin: pin,
+    p_device_id: device_id,
+    p_pin_plain: pin,
     p_command_key: command_key,
   });
 
@@ -340,6 +340,16 @@ async function handleMintOrRefresh(req: Request, headers: Record<string, string>
 interface RelayAdmission {
   boundDeviceId: string;
   boundSessionId: string;
+  // the raw bearer creds + the body cross-check values, so the write routes can
+  // relay through the service_role MACHINE RPCs (record_scan_door /
+  // reconcile_offline_scans_door, migration 108), which RE-assert the door
+  // session and derive scope themselves — the RPC, not the edge, is the scope
+  // authority. (This admit call's own assert is the rate-limit + opaque-auth
+  // gate; the machine RPC's assert is the authorization of record.)
+  doorSessionId: string;
+  secret: string;
+  bodySessionId: string;
+  bodyDeviceId: string;
 }
 async function admitRelayCall(
   req: Request,
@@ -411,7 +421,7 @@ async function admitRelayCall(
   }
 
   logOutcome({ route, door_session_id: doorSessionId, session_id: boundSessionId, venue_id: null, outcome: 'admitted' });
-  return { ok: true, admission: { boundDeviceId, boundSessionId } };
+  return { ok: true, admission: { boundDeviceId, boundSessionId, doorSessionId, secret, bodySessionId, bodyDeviceId } };
 }
 
 // ── `/manifest/sync` — assert → `venue.get_door_manifest`. Pass through
@@ -450,7 +460,8 @@ async function handleManifestSync(req: Request, headers: Record<string, string>)
   return json(data, 200, headers);
 }
 
-// ── `/scan` — assert → `venue.record_scan`. `p_scan_meta.device_id` is
+// ── `/scan` — relay to `venue.record_scan_door` (108, service_role machine
+// path; it re-asserts + derives scope). `p_scan_meta.device_id` is
 // REJECTED, not ignored (RPC §9.4, matrix X-5). ────────────────────────────
 async function handleScan(req: Request, headers: Record<string, string>): Promise<Response> {
   let rawBody: unknown;
@@ -475,11 +486,15 @@ async function handleScan(req: Request, headers: Record<string, string>): Promis
   const admission = await admitRelayCall(req, 'scan', session_id, device_id, headers);
   if (!admission.ok) return admission.response;
 
+  // Relay through the service_role MACHINE RPC (108): it re-asserts the door
+  // session and derives (device, session) itself, so the edge cannot pick scope.
   const venueSvc = serviceClient('venue');
-  const { data, error } = await venueSvc.rpc('record_scan', {
+  const { data, error } = await venueSvc.rpc('record_scan_door', {
     p_atom_id: atomId,
-    p_session_id: admission.admission.boundSessionId,
-    p_actor_device_id: admission.admission.boundDeviceId,
+    p_session_id: admission.admission.bodySessionId,
+    p_door_session_id: admission.admission.doorSessionId,
+    p_session_token: admission.admission.secret,
+    p_device_id: admission.admission.bodyDeviceId,
     p_scan_meta: scanMeta ?? {},
     p_command_key: commandKey,
   });
@@ -494,7 +509,7 @@ async function handleScan(req: Request, headers: Record<string, string>): Promis
   return json(data, 200, headers);
 }
 
-// ── `/offline-batch` — assert → `venue.reconcile_offline_scans`. Every row
+// ── `/offline-batch` — relay to `venue.reconcile_offline_scans_door` (108). Every row
 // of `batch` is checked for a forbidden `device_id` field, same rule as
 // `/scan`. ──────────────────────────────────────────────────────────────
 async function handleOfflineBatch(req: Request, headers: Record<string, string>): Promise<Response> {
@@ -519,10 +534,13 @@ async function handleOfflineBatch(req: Request, headers: Record<string, string>)
   const admission = await admitRelayCall(req, 'offline_batch', session_id, device_id, headers);
   if (!admission.ok) return admission.response;
 
+  // Relay through the service_role MACHINE RPC (108): re-asserts + derives scope.
   const venueSvc = serviceClient('venue');
-  const { data, error } = await venueSvc.rpc('reconcile_offline_scans', {
-    p_session_id: admission.admission.boundSessionId,
-    p_actor_device_id: admission.admission.boundDeviceId,
+  const { data, error } = await venueSvc.rpc('reconcile_offline_scans_door', {
+    p_session_id: admission.admission.bodySessionId,
+    p_door_session_id: admission.admission.doorSessionId,
+    p_session_token: admission.admission.secret,
+    p_device_id: admission.admission.bodyDeviceId,
     p_batch: batch,
     p_command_key: commandKey,
   });

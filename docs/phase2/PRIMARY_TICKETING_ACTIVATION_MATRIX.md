@@ -578,3 +578,23 @@ Door VERIFY M1/M2 cores remain complete (packages 102-104). Nothing in the door 
 every row is blocked on owner PFA signatures and/or migrate-093-105 + the KMS ceremony. The two P1
 blockers from the prior train (§5.6 revocation, PFA-26 PIN) are now MECHANISM-COMPLETE and reduced to
 owner-signature gates (PFA-18B, PFA-26-UNPARK) rather than missing engineering.
+
+## Package 106–109 re-derivation — the four un-parks LANDED (2026-09-03, DARK)
+
+The four small items the package-105 row deferred are now ENGINEERING-COMPLETE as DARK/unapplied
+migrations (093–105 byte-untouched). Owner directions for the gating PFAs were RECEIVED this train
+(POST_FREEZE_AMENDMENTS "OWNER GATE RATIFICATION TRAIN, 2026-09-03"); the literal signatures remain
+the only governance gate, and no code build remains.
+
+| Row | CODE | OWNER-DIRECTED | OWNER-SIGNED | MIGRATED (prod) | EDGE DEPLOYED | KMS | ACTIVATED | what's left |
+|---|---|---|---|---|---|---|---|---|
+| Signing-key REVOCATION | ✓ **106** (`revoke_signing_key` real body, single platform_admin+aal2, force-close + #44, open-on-revoked-trust closed; test 172) | ✓ PFA-18B | PENDING sig | ✗ | n/a | n/a | ✗ | owner signs PFA-18B → migrate |
+| Door PIN / KDF | ✓ **107** (pgcrypto bcrypt cost 12; create_door_pin + mint_door_session un-parked; test 173) | ✓ PFA-26-UNPARK | PENDING sig | ✗ | door-session DARK | n/a | ✗ | owner signs PFA-26-UNPARK → migrate + provision PIN |
+| Machine door authority | ✓ **108** (`record_scan_door`/`reconcile_offline_scans_door` service_role, assert-bound scope; cores zero-grant; edge wired; test 174) | conformance (§9.5) | n/a | ✗ | ✗ | n/a | ✗ | migrate + deploy door-session edge |
+| Terminal-session force-close | ✓ **109** (trigger → `force_close_session_manifests` + #44; zero money bytes; test 175) | ✓ PFA-PT-9 item 2 | PENDING sig (1&3) | ✗ | n/a | n/a | ✗ | owner signs PFA-PT-9 → migrate |
+| DOOR SESSION edge | ✓ (DARK, now relays to the machine RPCs) | §3.9a | n/a | ✗ | ✗ | opt KMS (manifest) | ✗ | deploy after migrate + PIN provision |
+| KMS provider/algorithm | ✓ adapter (AwsKmsSigner, ES256) | ✓ **D1=AWS KMS / D2=ES256** | n/a | n/a | ceremony | ✗ | ✗ | ceremony (later prod op) |
+
+Every door-plane and signing MECHANISM is now built and tested. No large architecture remains; the
+gates are owner PFA signatures, then the ordinary production sequence (migrate 093→109, deploy the
+DARK edges, the KMS ceremony, config, org onboarding, tax/legal, observation closeout).
