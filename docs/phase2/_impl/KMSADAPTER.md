@@ -199,11 +199,13 @@ was.
 1. **Which KMS provider/algorithm actually goes live** (AWS KMS/ES256 vs a future GCP KMS/EdDSA adapter) — this
    train implements AWS KMS/ES256 as the *reference* adapter per the ceremony doc's AWS-shaped env var, but the
    ceremony itself is explicitly out of scope here (`UnconfiguredKmsSigner` stays the default).
-2. **How `KMS_SIGNER_ROLE_ARN`'s credentials actually get into the runtime environment** — this adapter expects
-   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` to already be materialized (the Lambda/ECS
-   task-role convention); whether Supabase's AWS-hosted edge runtime does this automatically, or needs an explicit
-   `sts:AssumeRole` call added to `kms.ts`, is ceremony-time infrastructure work this train did not have visibility
-   into.
+2. **How `KMS_SIGNER_ROLE_ARN`'s credentials actually get into the runtime environment** — **CLOSED by E2
+   (`KMS_RUNTIME_CREDENTIALS.md`).** Supabase Edge documents only static secrets; the adapter now composes a pure
+   `AssumeRoleCredentialProvider` (base user key pair → `sts:AssumeRole` → temporary role credentials, cached per
+   isolate, single-flight, early refresh, bounded timeout/retry, redacted errors) with a pure `AwsKmsSignerCore`
+   that refuses to sign with anything but temporary credentials. `AwsKmsSigner` (class) was replaced by
+   `createAwsKmsSigner()` / `selectKmsSignerFromEnv()`; both signing edges use the latter. Production ADOPTION
+   (O1) stays an owner decision.
 3. **`TrustedKey.not_before`/`not_after`/`status`** are typed on `TrustedKey` (forward-compatible with an M1
    resolver projecting the full `kernel.signing_key` row) but intentionally **not** read by `verifyToken` —
    key-window/revocation admissibility is left as a door/M1-resolver concern, consistent with how
