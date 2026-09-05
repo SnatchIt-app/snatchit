@@ -175,6 +175,66 @@ export function isAssertDoorSessionAuthFailure(errorCode: string | null | undefi
   return false;
 }
 
+// ── `/manifest/sync` → `venue.get_door_manifest_door` (migration 113, the
+// service_role MACHINE path that closes P1-M2-DOOR-AUTHZ). Pure builder so
+// the argument mapping is unit-tested: the BODY session/device go in as the
+// cross-checks `assert_door_session` verifies, the bearer's door_session_id +
+// secret are the credential, and the RPC derives the bound session ITSELF —
+// the edge's earlier admit check is never the authorization of record. ────
+
+export interface ManifestSyncMachineCall {
+  fn: 'get_door_manifest_door';
+  args: {
+    p_session_id: string;
+    p_door_session_id: string;
+    p_session_token: string;
+    p_device_id: string;
+    p_since_delta_seq: number | null;
+  };
+}
+
+export function buildManifestSyncMachineCall(
+  admission: { doorSessionId: string; secret: string; bodySessionId: string; bodyDeviceId: string },
+  sinceDeltaSeq: number | null | undefined,
+): ManifestSyncMachineCall {
+  return {
+    fn: 'get_door_manifest_door',
+    args: {
+      p_session_id: admission.bodySessionId,
+      p_door_session_id: admission.doorSessionId,
+      p_session_token: admission.secret,
+      p_device_id: admission.bodyDeviceId,
+      p_since_delta_seq: typeof sinceDeltaSeq === 'number' ? sinceDeltaSeq : null,
+    },
+  };
+}
+
+// ── Machine-RPC error classification. `door_session_invalid` (42501, raised
+// by `assert_door_session` INSIDE the machine RPC — e.g. credentials revoked
+// or expired between the edge's admit check and this call, or a body
+// cross-check mismatch) maps to the SAME opaque 401 as the admit check. Any
+// OTHER error — including a 42501 that is NOT door_session_invalid, which
+// would mean a missing grant, i.e. a deployment defect — is a 500 + Sentry,
+// never disguised as an auth failure. ───────────────────────────────────────
+
+export type MachineRpcErrorClass = 'door_session_invalid' | 'other';
+
+export function classifyMachineRpcError(errorCode: string | null | undefined, errorMessage: string | null | undefined): MachineRpcErrorClass {
+  if (errorMessage && errorMessage.includes('door_session_invalid')) return 'door_session_invalid';
+  void errorCode;
+  return 'other';
+}
+
+// ── Secret redaction for anything that leaves the edge (Sentry message,
+// log line). The bearer secret is only ever an RPC ARGUMENT; if a database
+// error text ever echoed it, this strips it. Empty secret ⇒ no-op. ─────────
+
+export function redactSecret(text: string | null | undefined, secret: string | null | undefined): string {
+  const t = text ?? '';
+  if (!secret) return t;
+  return t.split(secret).join('[redacted]');
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // UTF-8 encoding — hand-rolled (no `TextEncoder` dependency) so this module
 // makes no assumption about which globals a given tsc `lib` setting exposes.

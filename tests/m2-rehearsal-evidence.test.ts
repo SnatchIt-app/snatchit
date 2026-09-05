@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildCanonicalPayload, encodeToken } from '../supabase/functions/credential-sign/credential';
 import { classifyDoorManifestResponse } from '../supabase/functions/door-manifest/pure';
+import { classifyMachineRpcError } from '../supabase/functions/door-session/pure';
 import { m1FromWire, m2FromWire, verifyOfflineWire, type OfflineVerifyContext, type VerifyPrimitive } from '../supabase/functions/_shared/offline-verify';
 
 const PATH = resolve(__dirname, 'fixtures/m2-rehearsal-evidence.json');
@@ -125,5 +126,66 @@ describe('M2 rehearsal evidence (real RPC output)', () => {
       return encodeToken(c.headerB64, c.payloadB64, new Uint8Array(nodeSign('sha256', Buffer.from(c.signedBytes), { key: privateKey, dsaEncoding: 'ieee-p1363' })));
     })();
     expect(verifyOfflineWire(longLived, ctx({ nowSeconds: r.m2.not_after + 1 }))).toEqual({ admit: false, reason: 'manifest_expired' });
+  });
+
+  // ── 113: the service_role MACHINE path (venue.get_door_manifest_door) — what
+  // door-session /manifest/sync now relays. Real RPC output, same consumers. ──
+  describe('machine path (get_door_manifest_door, migration 113 — P1-M2-DOOR-AUTHZ)', () => {
+    it('a valid bound device gets the manifest for its BOUND session — byte-identical to the staff read; passes the classifier and m2FromWire', () => {
+      expect(ev.door_full).toEqual(ev.open_full);
+      expect(classifyDoorManifestResponse(ev.door_full).kind).toBe('open');
+      const r = m2FromWire(ev.door_full);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.m2.session_id).toBe(ev.ids.session_id);
+      expect(r.m2.not_after).toBe(toSec(stored.not_after));
+      expect(Object.keys(r.m2.base)).toHaveLength(3);
+    });
+    it('incremental sync through the machine path: since 0 ⇒ the revoke delta; since 1 ⇒ none; null ⇒ full', () => {
+      expect(ev.door_incremental_since_0).toEqual(ev.open_incremental_since_0);
+      expect(ev.door_incremental_since_1).toEqual(ev.open_incremental_since_1);
+      const r0 = m2FromWire(ev.door_incremental_since_0);
+      const rn = m2FromWire(ev.door_incremental_since_null);
+      expect(r0.ok && rn.ok).toBe(true);
+      if (!r0.ok || !rn.ok) return;
+      expect(r0.m2.deltas).toHaveLength(1);
+      expect(r0.m2.deltas[0].op).toBe('revoke');
+      expect(rn.maxDeltaSeq).toBe(1);
+      expect(m2FromWire(ev.door_incremental_since_1)).toMatchObject({ ok: true, maxDeltaSeq: 1 });
+    });
+    it('wrong token / device / session, unknown id, and service_role WITHOUT credentials are all the ONE opaque door_session_invalid (42501) — the machine never picks scope', () => {
+      for (const k of ['door_wrong_token', 'door_wrong_device', 'door_wrong_session', 'door_unknown_door_session_id', 'door_service_role_no_credentials']) {
+        expect(ev[k], k).toBe('42501 door_session_invalid');
+        expect(classifyMachineRpcError('42501', ev[k])).toBe('door_session_invalid');
+      }
+    });
+    it('revoked (between the edge admit check and the machine RPC) and expired door sessions are refused by the RPC itself', () => {
+      expect(ev.door_admit_check_before_revoke).toEqual({ device_id: ev.ids.device_id, event_session_id: ev.ids.session_id });
+      expect(ev.door_revoked_between_checks).toBe('42501 door_session_invalid');
+      expect(ev.door_expired_door_session).toBe('42501 door_session_invalid');
+    });
+    it('direct anon / authenticated calls (even with VALID door credentials) and direct core calls are permission errors — classified as deployment defects (500), never as auth', () => {
+      expect(ev.door_anon_direct_valid_credentials).toMatch(/^42501 permission denied/);
+      expect(ev.door_authenticated_direct_valid_credentials).toBe('42501 permission denied for function get_door_manifest_door');
+      expect(ev.door_core_direct_service_role).toBe('42501 permission denied for function _get_door_manifest_core');
+      expect(classifyMachineRpcError('42501', ev.door_authenticated_direct_valid_credentials)).toBe('other');
+    });
+    it('closed and expired manifests through the machine path ⇒ closed / no_open_manifest', () => {
+      for (const k of ['door_closed', 'door_expired']) {
+        expect(ev[k], k).toEqual({ open: false, status: 'no_open_episode', entries: [], deltas: [] });
+        expect(classifyDoorManifestResponse(ev[k]).kind, k).toBe('closed');
+        expect(m2FromWire(ev[k]), k).toEqual({ ok: false, reason: 'no_open_manifest' });
+      }
+    });
+    it('the staff path is unchanged (authorized scanner reads; buyer and service_role refused)', () => {
+      expect(classifyDoorManifestResponse(ev.open_full).kind).toBe('open');
+      expect(String(ev.unauthorized_buyer)).toBe('42501 insufficient_privilege');
+      expect(String(ev.unauthorized_service_role_door_relay)).toBe('42501 permission denied for function get_door_manifest');
+    });
+    it('the committed fixture carries NO bearer secret: no secret/token keys, no token_hash, no "door_session:" preimage; ids hold only selectors', () => {
+      const text = readFileSync(PATH, 'utf8');
+      expect(text).not.toMatch(/"secret"|"p_session_token"|"token_hash"|door_session:/);
+      expect(Object.keys(ev.ids).sort()).toEqual(['device_id', 'door_session_id', 'event_id', 'manifest_id', 'session_id', 'signing_key_id', 'venue_id']);
+    });
   });
 });

@@ -42,7 +42,10 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
   -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
   'A19: kernel holds 32 tables — 111''s approval table + 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 292,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 294,
+  -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core (zero grant),
+  -- get_door_manifest_door (service_role); get_door_manifest is a body-only re-create). Re-derived
+  -- from the live catalog (suites 144 A15 / 145 A4 / 148 B5 / 179 A8-A9 move together).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —

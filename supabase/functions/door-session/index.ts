@@ -73,10 +73,13 @@ import {
   deviceIdsMatch,
   dispatchDoorSessionRoute,
   doorPinRateLimitName,
+  buildManifestSyncMachineCall,
+  classifyMachineRpcError,
   hasForbiddenDeviceIdField,
   isAssertDoorSessionAuthFailure,
   isDoorPinKdfUnavailable,
   parseDoorSessionBearer,
+  redactSecret,
   type DoorSessionRoute,
 } from './pure.ts';
 
@@ -428,8 +431,12 @@ async function admitRelayCall(
   return { ok: true, admission: { boundDeviceId, boundSessionId, doorSessionId, secret, bodySessionId, bodyDeviceId } };
 }
 
-// ── `/manifest/sync` — assert → `venue.get_door_manifest`. Pass through
-// only what the RPC returns (data minimization). ───────────────────────────
+// ── `/manifest/sync` — assert → `venue.get_door_manifest_door` (113, the
+// service_role MACHINE path; it RE-asserts the door session in the database
+// and reads the manifest for the BOUND session it derives itself — closes
+// P1-M2-DOOR-AUTHZ: the staff RPC `venue.get_door_manifest` authorizes on
+// auth.uid() and holds no service_role grant, so this relay could never
+// succeed through it). Pass through only what the RPC returns. ─────────────
 async function handleManifestSync(req: Request, headers: Record<string, string>): Promise<Response> {
   let rawBody: unknown;
   try {
@@ -448,14 +455,25 @@ async function handleManifestSync(req: Request, headers: Record<string, string>)
   const admission = await admitRelayCall(req, 'manifest_sync', session_id, device_id, headers);
   if (!admission.ok) return admission.response;
 
+  // The admit check above is the rate-limit + opaque-auth gate; the machine
+  // RPC's own assert_door_session is the authorization of record. Body
+  // session/device are passed as CROSS-CHECKS; the RPC reads for the bound session.
+  const call = buildManifestSyncMachineCall(admission.admission, sinceDeltaSeq);
   const venueSvc = serviceClient('venue');
-  const { data, error } = await venueSvc.rpc('get_door_manifest', {
-    p_session_id: admission.admission.boundSessionId,
-    p_since_delta_seq: sinceDeltaSeq ?? null,
-  });
+  const { data, error } = await venueSvc.rpc(call.fn, call.args);
 
   if (error) {
-    await captureException('door-session', new Error(error.message), { route: 'manifest_sync', session_id: admission.admission.boundSessionId });
+    if (classifyMachineRpcError(error.code ?? null, error.message ?? null) === 'door_session_invalid') {
+      // Credentials invalidated between the admit check and this call (revoked,
+      // expired, device/PIN deactivated) or a cross-check mismatch: the SAME
+      // opaque response as an unknown id. No Sentry event — it is an auth outcome.
+      logOutcome({ route: 'manifest_sync', door_session_id: admission.admission.doorSessionId, session_id: admission.admission.boundSessionId, venue_id: null, outcome: 'manifest_assert_refused' });
+      return opaqueAuthFailure(headers);
+    }
+    // Anything else (incl. a non-door_session_invalid 42501 = missing grant, a
+    // deployment defect) is a 500 + Sentry. The bearer secret is scrubbed from
+    // the message before it leaves the edge; it is never logged.
+    await captureException('door-session', new Error(redactSecret(error.message, admission.admission.secret)), { route: 'manifest_sync', session_id: admission.admission.boundSessionId });
     logOutcome({ route: 'manifest_sync', door_session_id: null, session_id: admission.admission.boundSessionId, venue_id: null, outcome: 'manifest_rpc_error' });
     return json({ error: 'Manifest sync is temporarily unavailable. Please try again shortly.' }, 500, headers);
   }

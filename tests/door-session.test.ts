@@ -69,6 +69,9 @@ import {
   parseDoorSessionBearer,
   sha256Hex,
   uuidv5,
+  buildManifestSyncMachineCall,
+  classifyMachineRpcError,
+  redactSecret,
 } from '../supabase/functions/door-session/pure';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -273,5 +276,62 @@ describe('isAssertDoorSessionAuthFailure', () => {
   it('is false for an unrelated code/message pair', () => {
     expect(isAssertDoorSessionAuthFailure('23505', 'duplicate key value')).toBe(false);
     expect(isAssertDoorSessionAuthFailure(null, null)).toBe(false);
+  });
+});
+
+// ── /manifest/sync → venue.get_door_manifest_door (113, P1-M2-DOOR-AUTHZ) ──
+describe('buildManifestSyncMachineCall', () => {
+  const admission = { doorSessionId: 'd0000000-0000-4000-8000-000000000001', secret: 's3cr3t-value', bodySessionId: '5e550000-0000-4000-8000-000000000001', bodyDeviceId: 'de000000-0000-4000-8000-000000000001' };
+  it('targets the MACHINE RPC with the body ids as cross-checks and the bearer as the credential', () => {
+    const call = buildManifestSyncMachineCall(admission, 3);
+    expect(call.fn).toBe('get_door_manifest_door');
+    expect(call.args).toEqual({
+      p_session_id: admission.bodySessionId,
+      p_door_session_id: admission.doorSessionId,
+      p_session_token: admission.secret,
+      p_device_id: admission.bodyDeviceId,
+      p_since_delta_seq: 3,
+    });
+  });
+  it('an omitted / null since_delta_seq ⇒ null (the RPC coalesces to 0 = full snapshot)', () => {
+    expect(buildManifestSyncMachineCall(admission, undefined).args.p_since_delta_seq).toBeNull();
+    expect(buildManifestSyncMachineCall(admission, null).args.p_since_delta_seq).toBeNull();
+    expect(buildManifestSyncMachineCall(admission, 0).args.p_since_delta_seq).toBe(0);
+  });
+  it('the secret appears ONLY as p_session_token — never in any other argument', () => {
+    const call = buildManifestSyncMachineCall(admission, 0);
+    const others = Object.entries(call.args).filter(([k]) => k !== 'p_session_token').map(([, v]) => String(v));
+    expect(others.some((v) => v.includes(admission.secret))).toBe(false);
+    expect(call.args.p_session_token).toBe(admission.secret);
+  });
+  it('never uses an edge-derived bound session: the args carry the BODY session (the RPC derives the bound one itself)', () => {
+    const call = buildManifestSyncMachineCall({ ...admission, bodySessionId: '5e550000-0000-4000-8000-0000000000bb' }, 0);
+    expect(call.args.p_session_id).toBe('5e550000-0000-4000-8000-0000000000bb');
+  });
+});
+
+describe('classifyMachineRpcError', () => {
+  it('door_session_invalid (the in-RPC assert refusal) ⇒ the opaque auth class', () => {
+    expect(classifyMachineRpcError('42501', 'door_session_invalid')).toBe('door_session_invalid');
+    expect(classifyMachineRpcError('P0001', 'door_session_invalid')).toBe('door_session_invalid');
+  });
+  it('a 42501 that is NOT door_session_invalid (a missing grant = deployment defect) ⇒ other, never disguised as auth', () => {
+    expect(classifyMachineRpcError('42501', 'permission denied for function get_door_manifest_door')).toBe('other');
+    expect(classifyMachineRpcError('42501', 'insufficient_privilege')).toBe('other');
+  });
+  it('anything else ⇒ other', () => {
+    expect(classifyMachineRpcError('XX000', 'boom')).toBe('other');
+    expect(classifyMachineRpcError(null, null)).toBe('other');
+  });
+});
+
+describe('redactSecret', () => {
+  it('strips every occurrence of the bearer secret from text that leaves the edge', () => {
+    expect(redactSecret('error: token abc.def rejected; again abc.def', 'abc.def')).toBe('error: token [redacted] rejected; again [redacted]');
+  });
+  it('is a no-op for an empty/absent secret or absent text', () => {
+    expect(redactSecret('unchanged', '')).toBe('unchanged');
+    expect(redactSecret('unchanged', null)).toBe('unchanged');
+    expect(redactSecret(null, 'x')).toBe('');
   });
 });
