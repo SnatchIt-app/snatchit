@@ -58,6 +58,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { KmsSignError, selectKmsSignerFromEnv, type KmsErrorClass, type KmsSigner } from '../credential-sign/kms.ts';
+import { canonicalManifestDigestBytes, classifyDoorManifestResponse, type DoorManifestOpen } from './pure.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -153,40 +154,8 @@ function parseBody(body: unknown): { ok: true; value: RequestBody } | { ok: fals
   return { ok: true, value: { session_id: b.session_id, since_delta_seq: (b.since_delta_seq as number | null) ?? null } };
 }
 
-// ── `venue.get_door_manifest`'s reconciled result shape (RPC §20.6.1). Read
-// defensively — a malformed response is a 500, not a crash. ───────────────
-interface DoorManifestOpen {
-  open: true;
-  manifest_id: string;
-  manifest_version: number;
-  session_id: string;
-  opened_at: string;
-  not_after: string;
-  manifest_digest: string;
-  max_delta_seq: number;
-  entries: unknown[];
-  deltas: unknown[];
-}
-interface DoorManifestClosed {
-  open: false;
-  status: 'no_open_manifest';
-  entries: unknown[];
-  deltas: unknown[];
-}
-type DoorManifestResponse = DoorManifestOpen | DoorManifestClosed;
-
-function isDoorManifestOpen(v: unknown): v is DoorManifestOpen {
-  if (!v || typeof v !== 'object') return false;
-  const r = v as Record<string, unknown>;
-  return (
-    r.open === true &&
-    typeof r.manifest_id === 'string' &&
-    typeof r.manifest_version === 'number' &&
-    typeof r.session_id === 'string' &&
-    typeof r.not_after === 'string' &&
-    typeof r.manifest_digest === 'string'
-  );
-}
+// ── `venue.get_door_manifest`'s result shape + classification live in `./pure.ts`
+// (unit-tested): open ⇒ sign · closed ⇒ 200 unsigned · malformed ⇒ 500, never KMS.
 
 // ── KMS provider adapter — a ceremony-time choice, NOT made here. Identical
 // selection logic to `credential-sign/index.ts`. ──────────────────────────
@@ -237,16 +206,6 @@ function classifyKmsError(err: unknown): KmsErrorClassification {
 // ── Canonical bytes for the signed digest object. Fixed key order (object
 // literal insertion order, never re-sorted at runtime) so the same manifest
 // state always produces the same bytes handed to the signer. ─────────────
-function canonicalManifestDigestBytes(open: DoorManifestOpen): Uint8Array {
-  const canonical = {
-    manifest_id: open.manifest_id,
-    manifest_version: open.manifest_version,
-    session_id: open.session_id,
-    not_after: open.not_after,
-    manifest_digest: open.manifest_digest,
-  };
-  return new TextEncoder().encode(JSON.stringify(canonical));
-}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
@@ -327,14 +286,25 @@ serve(async (req: Request) => {
       return json({ error: 'Manifest is temporarily unavailable. Please try again shortly.' }, 500, H);
     }
 
-    const manifest = manifestData as DoorManifestResponse;
-
-    if (!isDoorManifestOpen(manifest)) {
-      // No open episode — a legitimate state (§20.6.1: "{ open: false,
-      // status: 'no_open_manifest' }"), not an error. Nothing to sign.
-      logOutcome(session_id, null, 'no_open_manifest');
-      return json({ manifest, signature: null }, 200, H);
+    // ── 4b. Classify BEFORE anything else (P1-M2-HEADER). Three outcomes,
+    // three behaviours — the old single shape-check treated every non-open
+    // response as "closed" and returned it 200 UNSIGNED, so the 086 body's
+    // header-less open episode was silently handed back without a signature.
+    const classified = classifyDoorManifestResponse(manifestData);
+    if (classified.kind === 'malformed') {
+      // A response the frozen contract does not describe: fail CLOSED with a
+      // stable code. KMS is NEVER reached from here.
+      await captureException('door-manifest', new Error(`manifest_malformed:${classified.reason}`), { session_id });
+      logOutcome(session_id, null, `manifest_malformed:${classified.reason}`);
+      return json({ error: 'Manifest response was malformed.', code: 'manifest_malformed' }, 500, H);
     }
+    if (classified.kind === 'closed') {
+      // No open episode — a legitimate state (RPC §20.6.1 `open:false`, or
+      // the compatible `status:'no_open_episode'`), not an error. Nothing to sign.
+      logOutcome(session_id, null, 'no_open_manifest');
+      return json({ manifest: classified.manifest, signature: null }, 200, H);
+    }
+    const manifest: DoorManifestOpen = classified.manifest;
 
     // ── 5. KMS-sign the digest object (§3.9b). ──────────────────────────
     let signatureBytes: Uint8Array;

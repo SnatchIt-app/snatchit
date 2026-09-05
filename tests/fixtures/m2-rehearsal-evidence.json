@@ -1,0 +1,226 @@
+{
+    "ids": {
+        "event_id": "ae929eaa-2f1d-41fb-992f-ee5a709bc2ae",
+        "venue_id": "f7eb14dd-1adc-4bd6-85ad-64e5305c4dea",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "9f43e7ca-f4cc-4297-aede-309929b8bbcc",
+        "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e"
+    },
+    "closed": {
+        "open": false,
+        "deltas": [
+        ],
+        "status": "no_open_episode",
+        "entries": [
+        ]
+    },
+    "expired": {
+        "open": false,
+        "deltas": [
+        ],
+        "status": "no_open_episode",
+        "entries": [
+        ]
+    },
+    "open_full": {
+        "open": true,
+        "deltas": [
+        ],
+        "status": "ok",
+        "entries": [
+            {
+                "serial_no": 1,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "83076820-9598-41e5-b019-dc5a1f62fd28",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 2,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "0e71da41-241b-489e-9a9e-d65c95e941f7",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 3,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "cd480519-9b7b-44c0-9d03-da5f943300ad",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            }
+        ],
+        "not_after": "2026-09-06T07:13:49.645596-04:00",
+        "opened_at": "2026-09-05T19:13:49.645596-04:00",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "9f43e7ca-f4cc-4297-aede-309929b8bbcc",
+        "max_delta_seq": 0,
+        "manifest_digest": "ec0bf6a9c7044810bae1cb3bf500c9e8",
+        "manifest_version": 1
+    },
+    "rpc_source": {
+        "database": "snatchit_rehearsal",
+        "captured_at": "2026-09-05T19:13:49.645596-04:00",
+        "definition_md5": "362c28545c16ec02bec6af5a34b31bf8"
+    },
+    "stored_header": {
+        "status": "open",
+        "not_after": "2026-09-06T07:13:49.645596-04:00",
+        "opened_at": "2026-09-05T19:13:49.645596-04:00",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "9f43e7ca-f4cc-4297-aede-309929b8bbcc",
+        "manifest_digest": "ec0bf6a9c7044810bae1cb3bf500c9e8",
+        "manifest_version": 1
+    },
+    "reopened_v2_fresh": {
+        "open": true,
+        "deltas": [
+        ],
+        "status": "ok",
+        "entries": [
+            {
+                "serial_no": 1,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "83076820-9598-41e5-b019-dc5a1f62fd28",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 2,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "0e71da41-241b-489e-9a9e-d65c95e941f7",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 3,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "cd480519-9b7b-44c0-9d03-da5f943300ad",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            }
+        ],
+        "not_after": "2026-09-06T07:13:49.645596-04:00",
+        "opened_at": "2026-09-05T19:13:49.645596-04:00",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "0b95ec94-639c-4187-a72d-4e5f3c968d07",
+        "max_delta_seq": 0,
+        "manifest_digest": "275c8b62bf34d7d7a8f6c7b79c1e9247",
+        "manifest_version": 2
+    },
+    "expired_stored_row": {
+        "now": "2026-09-05T19:13:49.645596-04:00",
+        "status": "open",
+        "not_after": "2026-09-05T19:13:48.645596-04:00"
+    },
+    "unauthorized_buyer": "42501 insufficient_privilege",
+    "wrong_session_unknown": "42501 insufficient_privilege",
+    "open_incremental_since_0": {
+        "open": true,
+        "deltas": [
+            {
+                "op": "revoke",
+                "seq": 1,
+                "serial_no": null,
+                "resale_state": null,
+                "ticket_state": null,
+                "signing_key_id": null,
+                "ticket_atom_id": "83076820-9598-41e5-b019-dc5a1f62fd28",
+                "ticket_type_id": null,
+                "credential_version": null
+            }
+        ],
+        "status": "ok",
+        "entries": [
+            {
+                "serial_no": 1,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "83076820-9598-41e5-b019-dc5a1f62fd28",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 2,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "0e71da41-241b-489e-9a9e-d65c95e941f7",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 3,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "cd480519-9b7b-44c0-9d03-da5f943300ad",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            }
+        ],
+        "not_after": "2026-09-06T07:13:49.645596-04:00",
+        "opened_at": "2026-09-05T19:13:49.645596-04:00",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "9f43e7ca-f4cc-4297-aede-309929b8bbcc",
+        "max_delta_seq": 1,
+        "manifest_digest": "ec0bf6a9c7044810bae1cb3bf500c9e8",
+        "manifest_version": 1
+    },
+    "open_incremental_since_1": {
+        "open": true,
+        "deltas": [
+        ],
+        "status": "ok",
+        "entries": [
+            {
+                "serial_no": 1,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "83076820-9598-41e5-b019-dc5a1f62fd28",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 2,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "0e71da41-241b-489e-9a9e-d65c95e941f7",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            },
+            {
+                "serial_no": 3,
+                "resale_state": "none",
+                "ticket_state": "active",
+                "signing_key_id": "82cac77c-e8ea-45ad-a142-aa81df8cd13e",
+                "ticket_atom_id": "cd480519-9b7b-44c0-9d03-da5f943300ad",
+                "ticket_type_id": "af5fb254-1ad4-4b71-a9ae-9c2852d6e74b",
+                "credential_version": 0
+            }
+        ],
+        "not_after": "2026-09-06T07:13:49.645596-04:00",
+        "opened_at": "2026-09-05T19:13:49.645596-04:00",
+        "session_id": "2c6bcca1-c0ee-47e9-a157-089935c46e56",
+        "manifest_id": "9f43e7ca-f4cc-4297-aede-309929b8bbcc",
+        "max_delta_seq": 1,
+        "manifest_digest": "ec0bf6a9c7044810bae1cb3bf500c9e8",
+        "manifest_version": 1
+    },
+    "unauthorized_service_role_door_relay": "42501 permission denied for function get_door_manifest"
+}

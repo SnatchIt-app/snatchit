@@ -1352,3 +1352,39 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # deno-check: type-check the Supabase Edge Function entrypoints and their
+  # shared pure modules under the Deno toolchain they actually run on. Closes
+  # the "deno check OUTSTANDING" item from the signing/door trains: the local
+  # engineering host has no Deno, so this is the sanctioned place to run it.
+  # No deploy, no secrets, no network beyond module fetches (deno.land/esm.sh).
+  # ---------------------------------------------------------------------------
+  deno-check:
+    name: Deno type-check (edge functions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      - name: deno check — shared pure modules
+        run: |
+          deno check \
+            supabase/functions/_shared/offline-verify.ts \
+            supabase/functions/credential-sign/credential.ts \
+            supabase/functions/credential-sign/kms-taxonomy.ts \
+            supabase/functions/door-manifest/pure.ts \
+            supabase/functions/door-session/pure.ts
+
+      - name: deno check — edge entrypoints (credential-sign, door-manifest, door-session)
+        run: |
+          deno check \
+            supabase/functions/credential-sign/index.ts \
+            supabase/functions/door-manifest/index.ts \
+            supabase/functions/door-session/index.ts
