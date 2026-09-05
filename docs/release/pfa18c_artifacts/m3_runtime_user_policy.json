@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RuntimeUserMayOnlyAssumeTheRuntimeRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime"
+    },
+    {
+      "Sid": "DenyAllDirectKms",
+      "Effect": "Deny",
+      "Action": "kms:*",
+      "Resource": "*"
+    }
+  ]
+}
