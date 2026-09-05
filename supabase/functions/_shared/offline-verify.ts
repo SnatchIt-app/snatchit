@@ -380,6 +380,8 @@ export type VerifyPrimitive = (
 // ─────────────────────────────────────────────────────────────────────────
 
 export type OfflineVerifyReason =
+  // Step 0-wire (SCANNER-CONTRACT-v1) — the wire string did not decode strictly
+  | 'malformed_token'
   // Step 0 — domain + algorithm shape (before any key/signature work)
   | 'wrong_typ' // token.typ != DOMAIN — not a ticket credential
   | 'unsupported_alg' // token.algorithm not in {EdDSA, ES256}
@@ -533,4 +535,400 @@ export function offlineVerify(token: OfflineToken, ctx: OfflineVerifyContext): O
   if (ctx.admittedSet.has(token.atomId)) return { admit: false, reason: 'already_admitted' };
 
   return { admit: true, atomId: token.atomId };
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// SCANNER-CONTRACT-v1 — the repository side of the scanner/mobile boundary.
+// (`docs/phase2/SCANNER_VERIFIER_CONTRACT.md`; fixtures in
+// `tests/fixtures/scanner-contract-v1.json`; suite `tests/scanner-contract.test.ts`.)
+//
+// The mobile/scanner implementation is NOT in this repository. What IS here is
+// the reference decoder + adapters an external scanner must reproduce, so that
+// every field the predicate reads is DERIVED from one signed wire string and
+// one server-delivered manifest — never supplied alongside them:
+//   • `decodeOfflineToken(wire)`  — ONE parse of `header.payload.signature`;
+//     `keyId/typ/algorithm` come from the header, `sessionId/atomId/
+//     credentialVersion/exp` from the payload, `claims` are the exact bytes
+//     `header.payload` (what the signature covers). Exact key sets, strict
+//     base64url, uuid-shaped ids, integer times, 64-byte signatures. A caller
+//     has no way to inject a parallel `atom_id`/`session_id`: unknown keys
+//     make the token malformed, and any byte change to the claims breaks
+//     the signature.
+//   • `verifyOfflineWire(wire, ctx)` — decode THEN `offlineVerify`; the only
+//     entry point a scanner should call (it never constructs `OfflineToken`).
+//   • `m1FromWire(rows)` / `m2FromWire(result)` — the `kernel.signing_key`
+//     public projection and the `venue.get_door_manifest` result (RPC
+//     §20.6.1 reconciled shape) turned into `M1Manifest` / `M2Manifest`,
+//     strictly. An M2 whose header lacks `session_id`/`not_after` is refused
+//     `manifest_header_incomplete`: without them the door §3.1 authority
+//     clause cannot be evaluated, so the door has NO offline authority.
+//   • `verifyDoorManifestSignature(artifact, m1, verify, now)` —
+//     DOOR-MANIFEST-SIG-v1: the `door-manifest` edge signs the canonical JSON
+//     `{manifest_id, manifest_version, session_id, not_after, manifest_digest}`
+//     (key order as written, `JSON.stringify`, UTF-8) with ES256 and returns
+//     `signature.value` = standard base64 of the RAW `R||S` (64 bytes). The
+//     verify key is `M1[signature.key_id]` — the contract REQUIRES the
+//     artifact to name `key_id` (today's edge omits it; see the contract doc).
+//   • `toDoorReason(reason, atom)` — this module's per-conjunct codes → door
+//     §9.2's operator vocabulary; `null` where door §9.2 defines no copy.
+// ═════════════════════════════════════════════════════════════════════════
+
+export const MAX_WIRE_TOKEN_LENGTH = 8192;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const B64URL_RE = /^[A-Za-z0-9_-]+$/;
+const B64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const B64URL_REVERSE: Record<string, number> = (() => {
+  const map: Record<string, number> = {};
+  for (let i = 0; i < B64URL_ALPHABET.length; i++) map[B64URL_ALPHABET[i]] = i;
+  return map;
+})();
+
+/** Strict unpadded base64url (RFC 4648 §5, as `credential-sign/credential.ts`
+ *  emits): no `=`, no whitespace, canonical trailing bits, length % 4 ≠ 1. */
+function base64urlDecodeStrict(s: string): Uint8Array | null {
+  if (s.length === 0 || s.length % 4 === 1 || !B64URL_RE.test(s)) return null;
+  const out: number[] = [];
+  let i = 0;
+  for (; i + 4 <= s.length; i += 4) {
+    const n = (B64URL_REVERSE[s[i]] << 18) | (B64URL_REVERSE[s[i + 1]] << 12) | (B64URL_REVERSE[s[i + 2]] << 6) | B64URL_REVERSE[s[i + 3]];
+    out.push((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
+  }
+  const rem = s.length - i;
+  if (rem === 2) {
+    const a = B64URL_REVERSE[s[i]], b = B64URL_REVERSE[s[i + 1]];
+    if ((b & 0x0f) !== 0) return null;
+    out.push(((a << 2) | (b >> 4)) & 0xff);
+  } else if (rem === 3) {
+    const a = B64URL_REVERSE[s[i]], b = B64URL_REVERSE[s[i + 1]], c = B64URL_REVERSE[s[i + 2]];
+    if ((c & 0x03) !== 0) return null;
+    out.push(((a << 2) | (b >> 4)) & 0xff, ((b << 4) | (c >> 2)) & 0xff);
+  }
+  return new Uint8Array(out);
+}
+
+function isPlainObjectWithExactKeys(v: unknown, keys: readonly string[]): v is Record<string, unknown> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const own = Object.keys(v as object).sort();
+  const want = [...keys].sort();
+  if (own.length !== want.length) return false;
+  for (let i = 0; i < own.length; i++) if (own[i] !== want[i]) return false;
+  return true;
+}
+
+function isNonNegativeInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
+/**
+ * ONE parse of the compact wire token `header.payload.signature`
+ * (`SNATCHIT-TICKET-CRED-V1`, `credential-sign/credential.ts`). Returns the
+ * fully-derived `OfflineToken` or `null` for ANY deviation — the scanner must
+ * treat `null` as `malformed_token` and never fall back to a looser parse.
+ *   header  = exactly { alg: string, kid: uuid, typ: string }
+ *   payload = exactly { atom: uuid, exp: int, iat: int, sess: uuid, ver: int }, iat ≤ exp
+ *   claims  = UTF-8 bytes of `<headerB64>.<payloadB64>` verbatim (what was signed)
+ *   sig     = 64 bytes when alg is a known algorithm (raw R||S for ES256, raw for EdDSA)
+ * `header.alg` is INFORMATIONAL — the predicate pins the M1 algorithm and
+ * refuses on disagreement; it is carried only so that check can run.
+ */
+export function decodeOfflineToken(wire: unknown): OfflineToken | null {
+  if (typeof wire !== 'string' || wire.length === 0 || wire.length > MAX_WIRE_TOKEN_LENGTH) return null;
+  const parts = wire.split('.');
+  if (parts.length !== 3) return null;
+  const [h, p, s] = parts;
+  const hb = base64urlDecodeStrict(h);
+  const pb = base64urlDecodeStrict(p);
+  const sig = base64urlDecodeStrict(s);
+  if (!hb || !pb || !sig) return null;
+  let header: unknown;
+  let payload: unknown;
+  try {
+    header = JSON.parse(new TextDecoder().decode(hb));
+    payload = JSON.parse(new TextDecoder().decode(pb));
+  } catch {
+    return null;
+  }
+  if (!isPlainObjectWithExactKeys(header, ['alg', 'kid', 'typ'])) return null;
+  if (!isPlainObjectWithExactKeys(payload, ['atom', 'exp', 'iat', 'sess', 'ver'])) return null;
+  const alg = header.alg, kid = header.kid, typ = header.typ;
+  const atom = payload.atom, exp = payload.exp, iat = payload.iat, sess = payload.sess, ver = payload.ver;
+  if (typeof alg !== 'string' || typeof kid !== 'string' || typeof typ !== 'string') return null;
+  if (!UUID_RE.test(kid)) return null;
+  if (typeof atom !== 'string' || !UUID_RE.test(atom)) return null;
+  if (typeof sess !== 'string' || !UUID_RE.test(sess)) return null;
+  if (!isNonNegativeInt(exp) || !isNonNegativeInt(iat) || !isNonNegativeInt(ver)) return null;
+  if (iat > exp) return null;
+  if (KNOWN_ALGORITHMS.has(alg) && sig.length !== 64) return null;
+  return {
+    keyId: kid,
+    typ,
+    algorithm: alg,
+    claims: new TextEncoder().encode(`${h}.${p}`),
+    sig,
+    sessionId: sess,
+    atomId: atom,
+    credentialVersion: ver,
+    exp,
+  };
+}
+
+/** The scanner's single entry point: decode, then `OFFLINE-VERIFY-v1`. */
+export function verifyOfflineWire(wire: unknown, ctx: OfflineVerifyContext): OfflineVerifyResult {
+  const token = decodeOfflineToken(wire);
+  if (!token) return { admit: false, reason: 'malformed_token' };
+  return offlineVerify(token, ctx);
+}
+
+// ── M1 wire adapter — the kernel.signing_key public projection ──────────────
+
+function unixSecondsFromWire(v: unknown, nullMeans: number | null): number | null {
+  if (v === null || v === undefined) return nullMeans;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === 'string') {
+    const ms = Date.parse(v);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+  }
+  return null;
+}
+
+/** One `kernel.signing_key` public-projection row (`key_id, scope, event_id,
+ *  venue_id, public_key, algorithm, status, not_before, not_after`) → `M1Entry`.
+ *  `public_key` is carried verbatim (PEM per runbook D3, or bare base64) —
+ *  `offlineVerify` normalizes it. `not_after` NULL ⇒ no upper bound. */
+export function m1EntryFromWire(row: unknown): M1Entry | null {
+  if (!row || typeof row !== 'object') return null;
+  const r = row as Record<string, unknown>;
+  if (typeof r.key_id !== 'string' || !UUID_RE.test(r.key_id)) return null;
+  if (r.scope !== 'global' && r.scope !== 'per_event' && r.scope !== 'per_venue') return null;
+  if (typeof r.public_key !== 'string' || r.public_key.length === 0) return null;
+  if (typeof r.algorithm !== 'string') return null;
+  if (typeof r.status !== 'string') return null;
+  const nb = unixSecondsFromWire(r.not_before, null);
+  const na = unixSecondsFromWire(r.not_after, Number.POSITIVE_INFINITY);
+  if (nb === null || na === null) return null;
+  return {
+    key_id: r.key_id,
+    scope: r.scope,
+    event_id: typeof r.event_id === 'string' ? r.event_id : null,
+    venue_id: typeof r.venue_id === 'string' ? r.venue_id : null,
+    public_key: r.public_key,
+    algorithm: r.algorithm,
+    not_before: nb,
+    not_after: na,
+    status: r.status,
+  };
+}
+
+/** An array of projection rows → `M1Manifest`; ANY malformed row ⇒ `null`
+ *  (a partially-trusted keyring is worse than none). Duplicate key_id ⇒ null. */
+export function m1FromWire(rows: unknown): M1Manifest | null {
+  if (!Array.isArray(rows)) return null;
+  const out: M1Manifest = {};
+  for (const row of rows) {
+    const e = m1EntryFromWire(row);
+    if (!e || out[e.key_id]) return null;
+    out[e.key_id] = e;
+  }
+  return out;
+}
+
+// ── M2 wire adapter — venue.get_door_manifest (RPC §20.6.1 reconciled shape) ─
+
+export type M2WireResult =
+  | { ok: true; m2: M2Manifest; manifestVersion: number; maxDeltaSeq: number; manifestDigest: string }
+  | { ok: false; reason: 'no_open_manifest' | 'manifest_header_incomplete' | 'manifest_malformed' };
+
+function atomEntryFromWire(v: Record<string, unknown>): M2AtomEntry | null {
+  if (!isNonNegativeInt(v.credential_version)) return null;
+  if (typeof v.signing_key_id !== 'string' || !UUID_RE.test(v.signing_key_id)) return null;
+  if (typeof v.ticket_state !== 'string' || typeof v.resale_state !== 'string') return null;
+  return {
+    credential_version: v.credential_version,
+    signing_key_id: v.signing_key_id,
+    ticket_state: v.ticket_state,
+    resale_state: v.resale_state,
+  };
+}
+
+/**
+ * `{ open, manifest_id, manifest_version, session_id, opened_at, not_after,
+ *    manifest_digest, max_delta_seq, entries[], deltas[] }` → `M2Manifest`.
+ * `open:false` / `status:'no_open_manifest'|'no_open_episode'` ⇒ `no_open_manifest`.
+ * A result with the per-atom fields but WITHOUT `session_id` + `not_after`
+ * (the header fields door §3.1's authority clause reads — the shape the 086
+ * RPC body emits today) ⇒ `manifest_header_incomplete`: the door MUST NOT
+ * admit offline from it. Entries become the base snapshot keyed by
+ * `ticket_atom_id`; deltas keep `seq`/`op`; an `add` carries the full entry.
+ */
+export function m2FromWire(result: unknown): M2WireResult {
+  if (!result || typeof result !== 'object') return { ok: false, reason: 'manifest_malformed' };
+  const r = result as Record<string, unknown>;
+  if (r.open === false || r.status === 'no_open_manifest' || r.status === 'no_open_episode') {
+    return { ok: false, reason: 'no_open_manifest' };
+  }
+  if (typeof r.manifest_id !== 'string' || !UUID_RE.test(r.manifest_id)) return { ok: false, reason: 'manifest_malformed' };
+  if (!Array.isArray(r.entries) || !Array.isArray(r.deltas)) return { ok: false, reason: 'manifest_malformed' };
+  const notAfter = unixSecondsFromWire(r.not_after, null);
+  if (typeof r.session_id !== 'string' || !UUID_RE.test(r.session_id) || notAfter === null) {
+    return { ok: false, reason: 'manifest_header_incomplete' };
+  }
+  const base: Record<string, M2AtomEntry> = {};
+  for (const e of r.entries) {
+    if (!e || typeof e !== 'object') return { ok: false, reason: 'manifest_malformed' };
+    const v = e as Record<string, unknown>;
+    if (typeof v.ticket_atom_id !== 'string' || !UUID_RE.test(v.ticket_atom_id)) return { ok: false, reason: 'manifest_malformed' };
+    const entry = atomEntryFromWire(v);
+    if (!entry) return { ok: false, reason: 'manifest_malformed' };
+    base[v.ticket_atom_id] = entry;
+  }
+  const deltas: M2Delta[] = [];
+  for (const d of r.deltas) {
+    if (!d || typeof d !== 'object') return { ok: false, reason: 'manifest_malformed' };
+    const v = d as Record<string, unknown>;
+    if (!isNonNegativeInt(v.seq) || typeof v.ticket_atom_id !== 'string' || !UUID_RE.test(v.ticket_atom_id)) {
+      return { ok: false, reason: 'manifest_malformed' };
+    }
+    if (v.op === 'revoke') {
+      deltas.push({ seq: v.seq, op: 'revoke', atom: v.ticket_atom_id });
+    } else if (v.op === 'add') {
+      const entry = atomEntryFromWire(v);
+      if (!entry) return { ok: false, reason: 'manifest_malformed' };
+      deltas.push({ seq: v.seq, op: 'add', atom: v.ticket_atom_id, entry });
+    } else {
+      return { ok: false, reason: 'manifest_malformed' };
+    }
+  }
+  return {
+    ok: true,
+    m2: { manifest_id: r.manifest_id, session_id: r.session_id, not_after: notAfter, base, deltas },
+    manifestVersion: isNonNegativeInt(r.manifest_version) ? r.manifest_version : 0,
+    maxDeltaSeq: isNonNegativeInt(r.max_delta_seq) ? r.max_delta_seq : 0,
+    manifestDigest: typeof r.manifest_digest === 'string' ? r.manifest_digest : '',
+  };
+}
+
+// ── DOOR-MANIFEST-SIG-v1 — verifying the door-manifest edge's signature ─────
+
+export interface DoorManifestSignedHeader {
+  manifest_id: string;
+  manifest_version: number;
+  session_id: string;
+  /** ISO-8601 as the RPC returns it — signed VERBATIM (string), not re-parsed. */
+  not_after: string;
+  manifest_digest: string;
+}
+
+/** The exact bytes the `door-manifest` edge signs: `JSON.stringify` of the
+ *  five fields in THIS key order (`canonicalManifestDigestBytes` in
+ *  `door-manifest/index.ts`), UTF-8. A verifier MUST rebuild them from the
+ *  header it received — never trust a "signed_bytes" field. */
+export function canonicalDoorManifestSignedBytes(h: DoorManifestSignedHeader): Uint8Array {
+  const canonical = {
+    manifest_id: h.manifest_id,
+    manifest_version: h.manifest_version,
+    session_id: h.session_id,
+    not_after: h.not_after,
+    manifest_digest: h.manifest_digest,
+  };
+  return new TextEncoder().encode(JSON.stringify(canonical));
+}
+
+export type DoorManifestSignatureReason =
+  | 'unsigned'            // signature: null — TLS-only artifact; the caller decides policy
+  | 'malformed_artifact'
+  | 'missing_key_id'      // the artifact names no key_id — v1 REQUIRES it
+  | 'unsupported_alg'
+  | 'unknown_key'
+  | 'key_revoked'
+  | 'key_window'
+  | 'alg_mismatch'
+  | 'malformed_public_key'
+  | 'malformed_signature'
+  | 'signature_invalid';
+
+export type DoorManifestSignatureResult = { ok: true; keyId: string } | { ok: false; reason: DoorManifestSignatureReason };
+
+/**
+ * Verifies a `door-manifest` artifact `{ manifest, signature }` against M1.
+ * `signature` = `{ key_id, algorithm, value }` where `value` is STANDARD
+ * base64 of the raw 64-byte `R||S` (the edge base64-encodes what
+ * `KmsSigner.sign` returns, which is already `derToRawEcdsaP256`'d). The key
+ * is `M1[key_id]` with the same status/window/alg-pin/normalization rules as
+ * a ticket credential (steps 1, PFA-PT-8, P1-PUBKEY-FORMAT) — a manifest
+ * signature is verified under exactly the discipline a token is.
+ */
+export function verifyDoorManifestSignature(
+  artifact: unknown,
+  m1: M1Manifest,
+  verify: VerifyPrimitive,
+  nowSeconds: number,
+): DoorManifestSignatureResult {
+  if (!artifact || typeof artifact !== 'object') return { ok: false, reason: 'malformed_artifact' };
+  const a = artifact as Record<string, unknown>;
+  const m = a.manifest as Record<string, unknown> | undefined;
+  if (!m || typeof m !== 'object') return { ok: false, reason: 'malformed_artifact' };
+  if (a.signature === null || a.signature === undefined) return { ok: false, reason: 'unsigned' };
+  const s = a.signature as Record<string, unknown>;
+  if (typeof s !== 'object') return { ok: false, reason: 'malformed_artifact' };
+  if (typeof m.manifest_id !== 'string' || !isNonNegativeInt(m.manifest_version) || typeof m.session_id !== 'string'
+      || typeof m.not_after !== 'string' || typeof m.manifest_digest !== 'string') {
+    return { ok: false, reason: 'malformed_artifact' };
+  }
+  if (typeof s.key_id !== 'string' || !UUID_RE.test(s.key_id)) return { ok: false, reason: 'missing_key_id' };
+  if (typeof s.algorithm !== 'string' || !KNOWN_ALGORITHMS.has(s.algorithm)) return { ok: false, reason: 'unsupported_alg' };
+  const entry = m1[s.key_id];
+  if (!entry) return { ok: false, reason: 'unknown_key' };
+  if (entry.status === 'revoked') return { ok: false, reason: 'key_revoked' };
+  if (nowSeconds < entry.not_before || nowSeconds > entry.not_after) return { ok: false, reason: 'key_window' };
+  if (!KNOWN_ALGORITHMS.has(entry.algorithm) || entry.algorithm !== s.algorithm) return { ok: false, reason: 'alg_mismatch' };
+  const canonicalKey = normalizeSpkiPublicKey(entry.public_key, entry.algorithm);
+  if (canonicalKey === null) return { ok: false, reason: 'malformed_public_key' };
+  if (typeof s.value !== 'string') return { ok: false, reason: 'malformed_signature' };
+  const sig = base64DecodeStrict(s.value);
+  if (!sig || sig.length !== 64) return { ok: false, reason: 'malformed_signature' };
+  const bytes = canonicalDoorManifestSignedBytes({
+    manifest_id: m.manifest_id,
+    manifest_version: m.manifest_version,
+    session_id: m.session_id,
+    not_after: m.not_after,
+    manifest_digest: m.manifest_digest,
+  });
+  if (!verify(canonicalKey, bytes, sig, entry.algorithm)) return { ok: false, reason: 'signature_invalid' };
+  return { ok: true, keyId: s.key_id };
+}
+
+// ── door §9.2 operator vocabulary ───────────────────────────────────────────
+
+export type DoorOperatorReason =
+  | 'wrong_session' | 'voided' | 'duplicate' | 'listed_locked' | 'refund_hold' | 'dispute_hold' | 'version_stale';
+
+/** This module's per-conjunct reason → door §9.2's operator-facing reason
+ *  (VD §12.5 copy). `null` = door §9.2 defines no operator copy for this
+ *  refusal (signature/key/manifest-authority/malformed refusals): the scanner
+ *  shows its generic "not a valid pass for this door" state — it MUST NOT
+ *  map these onto a §9.2 reason. `atom` is the applied M2 entry for the
+ *  token's atom, when one exists, used to split `not_active`/`listed_locked`. */
+export function toDoorReason(reason: OfflineVerifyReason, atom?: AppliedM2Entry | null): DoorOperatorReason | null {
+  switch (reason) {
+    case 'wrong_session':
+    case 'atom_absent':
+      return 'wrong_session';
+    case 'atom_revoked':
+      return 'voided';
+    case 'not_active':
+      if (atom?.ticket_state === 'scanned') return 'duplicate';
+      if (atom?.ticket_state === 'voided') return 'voided';
+      return null;
+    case 'listed_locked':
+      if (atom?.resale_state === 'refund_hold') return 'refund_hold';
+      if (atom?.resale_state === 'dispute_hold') return 'dispute_hold';
+      return 'listed_locked';
+    case 'stale_version':
+    case 'wrong_signing_key':
+      return 'version_stale';
+    case 'already_admitted':
+      return 'duplicate';
+    default:
+      return null;
+  }
 }
