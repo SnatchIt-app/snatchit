@@ -237,3 +237,26 @@ Design + operational requirements (rotation, compromise response, ExternalId as 
 ### SESSION 4 MUTATION LEDGER
 AWS: **none** (no live call). Production DB: **none.** KMS: **not created.** Secrets: **none.** Migration 110: **not created.** Edges: **not
 deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.** Repository: code + tests + docs committed on `feature/venue-native-and-product-v2`.
+
+---
+
+## SESSION 5 — 2026-09-05 — M6 MIGRATION 110 SPECIFICATION + ADVERSARIAL REVIEW (LOCAL / REHEARSAL ONLY)
+
+Authorization: local specification/tests/migration artifact only. **AWS FREE, unchanged. No AWS resource/key/secret/organization. No
+deploy. NOT applied to production. Production ledger 124 / tip 109 / 0 keys / dark — UNCHANGED.**
+
+Artifact: `supabase/migrations/110_signing_key_insert_guard.sql` (+ rollback, pgTAP suite 176, rehearsal census bumps, `tap.seed_core`
+harness reconciliation). Guard rules 1–11 (scope global only; status active; ES256 with no override; full KMS key ARN; SPKI PEM of an
+uncompressed P-256 key; no private material; advisory-lock serialization; duplicate key_id; exactly one active global; post-revoke recovery
+PARKED fail-closed; first row must be the ruling-B key_id). Q7 decision: scoped rows rejected outright while provision/rotate are parked
+(resolver most-specific-first ⇒ shadowing; parked writers write nothing; a runtime predicate would be a bypass). Recovery conflict analysis:
+none — rule 10 IS the ratified fail-closed; the E4 two-person migration replaces it. PFA-18C wording untouched.
+
+Evidence: fresh replay through 110 (no migration skipped; Gate-2 27/70/37/26); suite 176 51/51; full pgTAP plan 3746 · ok 3742 · not_ok 4 (only the 4 documented
+local-only deltas); concurrency probe (second session blocked on the advisory lock then refused `active_global_exists`); unique-index
+defense intact; rollback idempotent + double re-apply clean; vitest 729/729; typecheck clean; lint 0 errors; G-4 PASS; **`deno check`
+OUTSTANDING** (not installed). Full report: `docs/phase2/M6_MIGRATION_110_SPEC_AND_REVIEW.md`. **Tested commit: `e181c3b`.**
+
+### SESSION 5 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (no connection made this session). KMS: **not created.** Secrets: **none.** Migration 110: **written,
+rehearsal-applied locally, NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
