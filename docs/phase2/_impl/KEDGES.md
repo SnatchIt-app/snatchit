@@ -111,10 +111,18 @@ enough to warrant one, and the brief requires no test file for it.
   PFA-26 case, and did not add the unsigned-fallback branch. It is a single
   `if` away if the owner prefers graceful degradation over a hard failure —
   flagged as a product decision, not made here.)
-- **No open episode** (`get_door_manifest` returns
-  `{open:false, status:'no_open_manifest'}`) is treated as a legitimate
-  state, not an error — returned as `{manifest, signature: null}`, `200`,
-  with nothing to sign.
+- **Response classification** (P1-M2-HEADER follow-up, `pure.ts`
+  `classifyDoorManifestResponse`, unit-tested in `tests/door-manifest.test.ts`).
+  `open` ⇒ sign; **closed** (`open:false`, or the compatible 086
+  `{status:'no_open_episode'}`) is a legitimate state, not an error — returned
+  as `{manifest, signature: null}`, `200`, nothing to sign; **malformed**
+  (anything the frozen contract does not describe, including the pre-112
+  header-less open episode) ⇒ `500 {code:'manifest_malformed'}`, Sentry +
+  audit line, **never reaching KMS**. Before this split the single shape
+  check sent every non-open-looking response down the closed branch, so
+  against the 086 RPC body every open episode came back `200` unsigned.
+  The `manifest_id`/`session_id`/`not_after` the edge signs are the stored
+  row values surfaced by migration 112 (rehearsal only; not deployed).
 - **Data minimization.** The response is `{manifest, signature}` where
   `manifest` is exactly what `get_door_manifest` returned (it already
   excludes `public_key`/identity per PFA-24) and `signature` is

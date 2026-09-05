@@ -138,14 +138,44 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
 
 ## 7. Findings (external-boundary risks; nothing changed in production)
 
-- **P1-M2-HEADER — the deployed-shape RPC body omits the header fields the predicate needs.** `venue.get_door_manifest` (086, unchanged
-  through 111) returns `{status:'ok'|'no_open_episode', manifest_id, manifest_version, manifest_digest, max_delta_seq, entries, deltas}` —
-  **no `open`, `session_id`, `opened_at`, `not_after`**, although RPC §20.6.1/door §7.5a (MP-1) require them and both edges assume them
-  (`door-manifest`'s `isDoorManifestOpen` requires `open:true`, `session_id`, `not_after` and would answer `manifest_malformed` on every
-  open episode; `/manifest/sync` relays a manifest a conforming scanner must refuse `manifest_header_incomplete`). Also `no_open_episode`
-  vs the specified `no_open_manifest`. **Required fix (a body-only re-create of `venue.get_door_manifest`, a future migration, not authored
-  here):** add `open`, `session_id`, `opened_at`, `not_after`, and return `{open:false, status:'no_open_manifest', entries:[], deltas:[]}`
-  for no episode; keep 171 F5's reconnect-refuse semantics. Until then a v1 scanner has **no offline authority** from this RPC.
+- **P1-M2-HEADER — RESOLVED IN REHEARSAL (migration 112 + `door-manifest` classifier, commit `f097115`; NOT deployed, NOT
+  applied to production).** The 086 body of `venue.get_door_manifest` (unchanged through 111) returned
+  `{status:'ok'|'no_open_episode', manifest_id, manifest_version, manifest_digest, max_delta_seq, entries, deltas}` — **no `open`,
+  `session_id`, `opened_at`, `not_after`** — although RPC §20.6.1 / door §7.5a (MP-1) require them.
+  - *Observed BEFORE behaviour (corrected record).* An earlier revision of this finding claimed `door-manifest` "would answer
+    `manifest_malformed` on every open episode". **That claim was wrong.** The edge had a single shape check (`isDoorManifestOpen`)
+    whose only failure branch was the "no open episode" branch: against the 086 shape it classified **every open episode as closed**
+    and returned it **`200 {manifest, signature:null}` — unsigned, silently, without reaching KMS** (`tests/door-manifest.test.ts`
+    "the 086 OPEN-episode shape" pins the shape; the pre-fix branch is quoted in `door-manifest/pure.ts`'s header). A conforming
+    scanner receiving that relay refused `manifest_header_incomplete` (this contract, §3) — so a v1 scanner had no offline authority.
+  - *AFTER (rehearsal).* **Migration 112** (`supabase/migrations/112_get_door_manifest_headers.sql`, body-only re-create; rollback =
+    the 086 body generated verbatim) returns the stored header **`open:true, session_id, opened_at, not_after`** (the immutable row
+    values — nothing is manufactured at fetch time) alongside the unchanged 086 fields, entries and deltas; no-episode ⇒
+    `{open:false, status:'no_open_episode', entries:[], deltas:[]}`. **`door-manifest`** now classifies three ways
+    (`classifyDoorManifestResponse`, `supabase/functions/door-manifest/pure.ts`): `open` ⇒ sign via KMS; `closed` ⇒ `200` unsigned
+    (legitimate); `malformed` ⇒ **`500 {code:'manifest_malformed'}`**, Sentry + audit line, **before any KMS call**. The 086
+    open-episode shape now lands in `malformed:missing_open`, never in `closed`.
+  - *Canonical conflicts, documented (not silently changed).* (1) `status` string: 086/171 F5 `no_open_episode` vs §20.6.1
+    `no_open_manifest` — **kept `no_open_episode`** and added the canonical `open:false`; consumers key on `open`; both spellings are
+    accepted by `m2FromWire` and the edge classifier. (2) Expired-but-'open' episode: 086 returned it; door §7.5 preconditions the read on
+    `status='open' AND not_after > now()` — **aligned to §7.5** (reported `open:false`; the row is untouched, `not_after` stays immutable,
+    no expiry is written; strictly less permissive). (3) `p_since_delta_seq` NULL vs non-NULL: 086's superset behaviour (entries always
+    returned, deltas filtered) preserved unchanged.
+  - *Evidence with REAL rehearsal RPC output.* `scripts/rehearsal_m2_evidence.sh` captures `venue.get_door_manifest`'s actual JSON from
+    the local rehearsal database (rolled-back transaction) into `tests/fixtures/m2-rehearsal-evidence.json`;
+    `tests/m2-rehearsal-evidence.test.ts` drives it through both consumers: open full snapshot (`m2FromWire` ok, `session_id`/`not_after`
+    equal the stored row, 3 atoms), incremental (`since 0` ⇒ the revoke delta applied, `since 1` ⇒ none), closed and expired (`closed` /
+    `no_open_manifest`; expired row still `status='open'`), unauthorized callers (buyer `42501 insufficient_privilege`; service_role
+    `42501 permission denied for function get_door_manifest`; unknown session `42501`), malformed headers (mutated copies ⇒ edge
+    `malformed`, adapter `manifest_header_incomplete`/`manifest_malformed`), and an end-to-end OFFLINE-VERIFY-v1 run keyed to the real
+    `signing_key_id`/session/atoms (admit; `atom_revoked`; `stale_version`; `wrong_session` for a wrong bound session and for another
+    session's M2; `expired`; `manifest_expired`). pgTAP `supabase/tests/178_get_door_manifest_headers.sql` (41) covers the same matrix
+    against the database, plus grants/definer invariants and rollback→reapply.
+- **P1-M2-DOOR-AUTHZ — OPEN (found while fixing P1-M2-HEADER; NOT changed).** `venue.get_door_manifest`'s authorization is
+  `kernel.has_venue_role(venue, [venue_scanner, venue_manager])` — **caller identity only** — and its grants are `postgres` +
+  `authenticated` (no `service_role`). `door-session /manifest/sync` calls it through a **service_role** client, so the relay path is
+  refused `42501` today (178 A2/D4; evidence key `unauthorized_service_role_door_relay`). RPC §20.6.1's "service_role edge path bound
+  to `assert_door_session`" needs a `_door` machine RPC per 108's pattern — a separate migration, not bundled here.
 - **P2-MANIFEST-KEY** — §4: no verify-key distribution for the M2 signature; edge response lacks `key_id`.
 - **P2-M1-DELIVERY** — no door-session route serves M1; a door device authenticated only by a door-session bearer cannot read
   `kernel.signing_key` (PFA-16 grants `authenticated`). Either the staff sets up M1 with a staff JWT at check-in or a `/keys` relay is added.
@@ -154,5 +184,11 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
   failures is a UI decision outside this contract (recorded, not invented).
 
 ## 8. Evidence
-`tests/scanner-contract.test.ts` (this session): 18 passed (18); `tests/offline-verify.test.ts` green; full vitest 747 passed (747);
-typecheck clean; lint 0 errors; G-4 PASS; `deno check` **OUTSTANDING** (not installed). **Tested commit `c6e2675`.**
+`tests/scanner-contract.test.ts` (c6e2675 session): 18 passed (18); `tests/offline-verify.test.ts` green; full vitest 747 passed (747);
+typecheck clean; lint 0 errors; G-4 PASS. **Tested commit `c6e2675`.**
+
+**P1-M2-HEADER train (commit `f097115`).** Fresh rehearsal replay through 112 (`scripts/rehearsal_reset.sh`); full pgTAP baseline
++ suite 178 (41/41) — see the train's commit message for the totals; rollback 112 ⇒ 178 fails exactly its 11 header assertions, double
+reapply ⇒ identical definition md5 `362c28545c16ec02bec6af5a34b31bf8`, grants unchanged (`authenticated` yes / `service_role` no);
+`tests/door-manifest.test.ts` 6 + `tests/m2-rehearsal-evidence.test.ts` 7; full vitest 760 passed (760); typecheck clean; lint 0 errors
+(45 pre-existing warnings); G-4 PASS. **`deno check`:** CLOSED IN CI — the `deno-check` job added in f097115 (denoland/setup-deno pinned by SHA, v2.0.3) type-checks the shared pure modules and the three edge entrypoints; its first run found 8 pre-existing Deno-only type errors in credential-sign/door-session (never seen by the Node typecheck, which excludes `supabase/functions`), fixed type-level-only in d9ce602; run 33998491950 at d9ce602: Deno type-check success, Typecheck/Lint/Unit success, Migrations success, Web build success. Still not runnable on the engineering host (no Deno installed).

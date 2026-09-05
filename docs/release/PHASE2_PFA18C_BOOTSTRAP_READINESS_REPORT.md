@@ -287,6 +287,8 @@ Checks run on the working tree that became the tested commit (recorded below): `
 `createAwsKmsSigner`/`selectKmsSignerFromEnv` in `kms.ts`, both edges rewired, `tests/credential-sign-sts-provider.test.ts` (28 mocked-network
 cases). Design + operations: `docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`. Suite       Tests  718 passed (718) passed; typecheck clean; lint 0 errors;
 `deno check` OUTSTANDING (not available on the engineering host). Tested commit `72d4e90`. Deployment PENDING; O1 adoption, access-key creation,
+
+> **Deno check — CLOSED IN CI (2026-09-05).** A `deno-check` job (f097115) now type-checks the edge entrypoints and shared pure modules on every push; its first run surfaced 8 pre-existing Deno-only type errors (fixed type-level-only in d9ce602). CI run 33998491950 at d9ce602: all four jobs green. The P1-M2-HEADER train (migration 112 + `door-manifest` classifier, f097115) is recorded in `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` §7–§8; new open finding P1-M2-DOOR-AUTHZ (service_role door relay unauthorized on `venue.get_door_manifest`). Local/rehearsal only — nothing deployed, production unchanged.
 Supabase secrets, billing: UNAPPROVED.
 
 **Tested commit (P1-PUBKEY-FORMAT):** `c150283` (branch `feature/venue-native-and-product-v2`). **Production deployment: PENDING** — the corrected
