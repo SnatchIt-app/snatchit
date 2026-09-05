@@ -74,7 +74,7 @@ import {
   type TicketSigningContext,
   type VerifyPrimitive,
 } from './credential.ts';
-import { AwsKmsSigner, KmsSignError, UnconfiguredKmsSigner, type KmsErrorClass, type KmsSigner } from './kms.ts';
+import { KmsSignError, selectKmsSignerFromEnv, type KmsErrorClass, type KmsSigner } from './kms.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -247,18 +247,18 @@ function mapRefusalCode(code: string): { status: number; body: Record<string, un
 // environment). Selection here is env-driven and defaults to DARK:
 //   KMS_PROVIDER unset/anything but "aws" → UnconfiguredKmsSigner (always
 //     throws `kms_provider_unconfigured`, unchanged behavior).
-//   KMS_PROVIDER="aws" → AwsKmsSigner, constructed from `KMS_SIGNER_ROLE_ARN`
-//     + region env. Still cannot sign without live AWS credentials
-//     (`./kms.ts`'s `readAwsCredentialsFromEnv`, fail-closed) — selecting the
-//     provider is NOT the same as this deploy being able to sign.
+//   KMS_PROVIDER="aws" → `createAwsKmsSigner` (`./kms.ts`): AssumeRole
+//     credential provider + KMS signer core. Still cannot sign without the
+//     full env (`AWS_REGION`, `KMS_SIGNER_ROLE_ARN`, `KMS_SIGNER_EXTERNAL_ID`)
+//     AND base credentials (fail-closed, PERMANENT, before any network call)
+//     — selecting the provider is NOT the same as this deploy being able to sign.
+// E2: ONE shared selector + ONE shared credential-provider contract for both
+// signing edges (`kms.ts` `selectKmsSignerFromEnv`): KMS_PROVIDER=aws →
+// base env credentials → sts:AssumeRole (cached per isolate, single-flight,
+// early refresh) → TEMPORARY role credentials → kms:Sign. The base
+// credentials can never sign KMS; unset/other → UnconfiguredKmsSigner.
 function selectKmsSigner(): KmsSigner {
-  const provider = Deno.env.get('KMS_PROVIDER') ?? '';
-  if (provider === 'aws') {
-    const region = Deno.env.get('AWS_REGION') || Deno.env.get('KMS_REGION') || undefined;
-    const roleArn = Deno.env.get('KMS_SIGNER_ROLE_ARN') || undefined;
-    return new AwsKmsSigner(region, roleArn);
-  }
-  return new UnconfiguredKmsSigner();
+  return selectKmsSignerFromEnv();
 }
 
 const kmsSigner: KmsSigner = selectKmsSigner();

@@ -57,7 +57,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
-import { AwsKmsSigner, KmsSignError, UnconfiguredKmsSigner, type KmsErrorClass, type KmsSigner } from '../credential-sign/kms.ts';
+import { KmsSignError, selectKmsSignerFromEnv, type KmsErrorClass, type KmsSigner } from '../credential-sign/kms.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -190,14 +190,13 @@ function isDoorManifestOpen(v: unknown): v is DoorManifestOpen {
 
 // ── KMS provider adapter — a ceremony-time choice, NOT made here. Identical
 // selection logic to `credential-sign/index.ts`. ──────────────────────────
+// E2: ONE shared selector + ONE shared credential-provider contract for both
+// signing edges (`kms.ts` `selectKmsSignerFromEnv`): KMS_PROVIDER=aws →
+// base env credentials → sts:AssumeRole (cached per isolate, single-flight,
+// early refresh) → TEMPORARY role credentials → kms:Sign. The base
+// credentials can never sign KMS; unset/other → UnconfiguredKmsSigner.
 function selectKmsSigner(): KmsSigner {
-  const provider = Deno.env.get('KMS_PROVIDER') ?? '';
-  if (provider === 'aws') {
-    const region = Deno.env.get('AWS_REGION') || Deno.env.get('KMS_REGION') || undefined;
-    const roleArn = Deno.env.get('KMS_SIGNER_ROLE_ARN') || undefined;
-    return new AwsKmsSigner(region, roleArn);
-  }
-  return new UnconfiguredKmsSigner();
+  return selectKmsSignerFromEnv();
 }
 const kmsSigner: KmsSigner = selectKmsSigner();
 

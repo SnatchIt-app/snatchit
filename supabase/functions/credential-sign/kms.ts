@@ -50,36 +50,36 @@
  * `fetch` is ~100 lines, fully reviewable, and adds nothing that could
  * "accidentally" reach AWS outside this file's own `callSignApi`.
  *
- * ── CREDENTIAL RESOLUTION — explicitly OUT OF SCOPE here ─────────────────
- * `KMS_SIGNER_ROLE_ARN` NAMES which IAM role must sign KMS calls; this
- * adapter does NOT itself call `sts:AssumeRole`. It expects the deployed
- * runtime to have already materialized that role's temporary credentials
- * into the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
- * `AWS_SESSION_TOKEN` environment shape (how AWS-hosted compute — Lambda,
- * ECS task roles, and by extension a Supabase-on-AWS edge runtime —
- * conventionally exposes assumed-role credentials to application code).
- * Wiring the ACTUAL AssumeRole call (or whatever mechanism Supabase's AWS
- * hosting uses) is ceremony-time infrastructure work, not a credential-sign
- * concern. Without those credentials present, `AwsKmsSigner.sign` throws
- * `aws_kms_credentials_unavailable` (PERMANENT, via `kms-taxonomy.ts`'s
- * `resolveAwsCredentials`) before attempting any network call. FAIL CLOSED,
- * never sign.
+ * ── CREDENTIAL RESOLUTION — E2 (`docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`) ─
+ * `KMS_SIGNER_ROLE_ARN` NAMES the runtime IAM role; the BASE credentials in
+ * `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` belong to the runtime IAM USER
+ * whose only permission is `sts:AssumeRole` into that role. This file's
+ * `createAwsKmsSigner` composes `kms-taxonomy.ts`'s PURE
+ * `AssumeRoleCredentialProvider` (config validation, regional STS endpoint,
+ * strict response parsing, identity + expiry checks, per-isolate cache,
+ * single-flight + early refresh, bounded timeout/retry, redacted errors) and
+ * `AwsKmsSignerCore` (temporary-credentials-only gate, key-scope check,
+ * bounded Sign call, response validation) over the two SigV4 transports
+ * below. The base credentials sign exactly ONE kind of request — the STS
+ * call; the core refuses to sign KMS with anything but `ASIA…` + session
+ * token. Without the env + base credentials it throws PERMANENT before any
+ * network call. FAIL CLOSED, never sign. ADOPTION of this mechanism in
+ * production (O1) is an OWNER decision — not made by this file.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { derToRawEcdsaP256, type SigningAlgorithm } from './credential.ts';
+import { derToRawEcdsaP256 } from './credential.ts';
 import {
-  awsSigningAlgorithmForEs256Only,
+  AssumeRoleCredentialProvider,
+  AwsKmsSignerCore,
   classifyAwsKmsHttpError,
   KmsSignError,
-  requireAwsProviderConfig,
-  resolveAwsCredentials,
+  selectKmsProviderKind,
   UnconfiguredKmsSigner,
-  validateAwsSignResponse,
-  type AwsCredentials,
-  type AwsKmsSignResponseShape,
   type KmsErrorClass,
   type KmsSigner,
+  type KmsTransport,
+  type StsTransport,
 } from './kms-taxonomy.ts';
 
 // Re-exported so `index.ts` (the only importer of this file) can pull the
@@ -179,94 +179,84 @@ async function signSigV4(params: {
 }
 
 /** Reads one env var via `Deno.env` — Deno-only glue, deliberately NOT pure
- *  (unlike `kms-taxonomy.ts`'s `resolveAwsCredentials`, which takes this as
- *  an injected function so IT can be unit-tested without a `Deno` global). */
+ *  (the pure modules take this as an injected function). */
 function readDenoEnv(name: string): string | undefined {
   return Deno.env.get(name);
 }
 
-/**
- * AWS KMS `Sign` adapter — ES256 (ECDSA_SHA_256) ONLY, DARK.
- *
- * MESSAGE MODE DECISION (documented, load-bearing): `MessageType: 'RAW'`.
- * For `ECDSA_SHA_256`, `MessageType: 'RAW'` tells KMS to SHA-256-digest the
- * `Message` bytes itself before signing; `MessageType: 'DIGEST'` would
- * require pre-hashing here and sending the digest. This adapter always sends
- * `MessageType: 'RAW'` with `canonical.signedBytes` verbatim as `Message` —
- * the SAME bytes `index.ts`'s sign-after-verify step verifies the returned
- * signature against (via a `{name:'ECDSA',hash:'SHA-256'}` WebCrypto verify,
- * which also digests internally). Mode and bytes are the same on both sides
- * by construction — there is no code path where they could drift.
- */
-export class AwsKmsSigner implements KmsSigner {
-  constructor(
-    private readonly region: string | undefined,
-    private readonly roleArn: string | undefined,
-  ) {}
+// ─────────────────────────────────────────────────────────────────────────
+// The two REAL transports. Each signs exactly one POST with SigV4 and returns
+// `{ status, text }` — nothing else. They never log, never inspect bodies,
+// never decide anything: every decision is in `kms-taxonomy.ts`.
+// ─────────────────────────────────────────────────────────────────────────
 
-  async sign(kmsHandleRef: string, bytes: Uint8Array, algorithm: SigningAlgorithm): Promise<Uint8Array> {
-    // Three fail-closed checks, in order, ALL from kms-taxonomy.ts (pure,
-    // unit-tested there) — nothing below runs unless every one passes.
-    const awsAlgorithm = awsSigningAlgorithmForEs256Only(algorithm); // AWS KMS offers no Ed25519
-    const { region } = requireAwsProviderConfig(this.region, this.roleArn); // KMS_PROVIDER=aws but incomplete env
-    const creds = resolveAwsCredentials(readDenoEnv); // no live AWS credentials in this environment
-    const der = await this.callSignApi(kmsHandleRef, bytes, creds, region, awsAlgorithm);
-    return derToRawEcdsaP256(der);
-  }
-
-  private async callSignApi(
-    keyId: string,
-    message: Uint8Array,
-    creds: AwsCredentials,
-    region: string,
-    awsAlgorithm: string,
-  ): Promise<Uint8Array> {
-    const host = `kms.${region}.amazonaws.com`;
-    const body = new TextEncoder().encode(
-      JSON.stringify({
-        KeyId: keyId,
-        Message: bytesToBase64(message),
-        MessageType: 'RAW', // see class doc — decision is load-bearing, not incidental
-        SigningAlgorithm: awsAlgorithm,
-      }),
-    );
-
+/** `sts:AssumeRole` (Query API, form-encoded) signed with the BASE credentials
+ *  — the only request the base credentials ever sign. */
+export function makeStsTransport(fetchImpl: typeof fetch = fetch): StsTransport {
+  return async (req) => {
+    const body = new TextEncoder().encode(req.body);
     const headers = await signSigV4({
-      host,
+      host: req.host,
       path: '/',
-      region,
-      service: 'kms',
-      headers: {
-        'content-type': 'application/x-amz-json-1.1',
-        'x-amz-target': 'TrentService.Sign',
-      },
+      region: req.region,
+      service: 'sts',
+      headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' },
       body,
-      creds,
+      creds: req.baseCredentials,
       date: new Date(),
     });
+    const res = await fetchImpl(`https://${req.host}/`, { method: 'POST', headers, body, signal: req.signal });
+    return { status: res.status, text: await res.text() };
+  };
+}
 
-    let res: Response;
-    try {
-      res = await fetch(`https://${host}/`, { method: 'POST', headers, body });
-    } catch (e) {
-      throw new KmsSignError(`kms_transport_unavailable: ${e instanceof Error ? e.message : String(e)}`, 'transient');
-    }
+/** `kms:Sign` (JSON 1.1) signed with the TEMPORARY role credentials. */
+export function makeKmsTransport(fetchImpl: typeof fetch = fetch): KmsTransport {
+  return async (req) => {
+    const body = new TextEncoder().encode(req.body);
+    const headers = await signSigV4({
+      host: req.host,
+      path: '/',
+      region: req.region,
+      service: 'kms',
+      headers: { 'content-type': 'application/x-amz-json-1.1', 'x-amz-target': 'TrentService.Sign' },
+      body,
+      creds: req.credentials,
+      date: new Date(),
+    });
+    const res = await fetchImpl(`https://${req.host}/`, { method: 'POST', headers, body, signal: req.signal });
+    return { status: res.status, text: await res.text() };
+  };
+}
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      // AccessDeniedException, DisabledException, NotFoundException,
-      // KMSInvalidStateException (pending deletion), InvalidKeyUsageException
-      // — all operator-actionable, none retryable as-is; throttling/5xx are
-      // the only TRANSIENT shapes. `classifyAwsKmsHttpError`
-      // (kms-taxonomy.ts) is the single source of truth for this split.
-      throw new KmsSignError(`kms_http_${res.status}:${text.slice(0, 200)}`, classifyAwsKmsHttpError(res.status, text));
-    }
+/**
+ * AWS KMS signer — ES256 only, DARK. Composition of the pure core over the
+ * real transports: base env credentials → `sts:AssumeRole` (cached,
+ * single-flight, early-refresh) → temporary role credentials → `kms:Sign`.
+ * Nothing here can reach AWS without `KMS_PROVIDER=aws`, a valid
+ * `AWS_REGION`/`KMS_SIGNER_ROLE_ARN`/`KMS_SIGNER_EXTERNAL_ID`, AND base
+ * credentials in the environment — none of which exist in this repo, CI,
+ * or the local rehearsal (fail closed: `aws_kms_env_missing` /
+ * `aws_kms_credentials_unavailable`, PERMANENT, before any network call).
+ *
+ * MESSAGE MODE DECISION (load-bearing): `MessageType: 'RAW'` — KMS SHA-256-
+ * digests `Message` itself; `index.ts`'s sign-after-verify verifies the SAME
+ * `canonical.signedBytes` with a digesting WebCrypto verify. Same bytes, same
+ * mode, both sides, by construction (set in `AwsKmsSignerCore`).
+ */
+export function createAwsKmsSigner(getEnv: (name: string) => string | undefined = readDenoEnv, fetchImpl: typeof fetch = fetch): KmsSigner {
+  const credentialProvider = new AssumeRoleCredentialProvider({ getEnv, transport: makeStsTransport(fetchImpl) });
+  return new AwsKmsSignerCore({ getEnv, credentialProvider, transport: makeKmsTransport(fetchImpl), derToRaw: derToRawEcdsaP256 });
+}
 
-    const json = (await res.json()) as AwsKmsSignResponseShape;
-    // `validateAwsSignResponse` (kms-taxonomy.ts, pure) throws PERMANENT for
-    // a missing signature, SECURITY for a response that contradicts what
-    // was requested (wrong algorithm, wrong key came back).
-    const sigB64 = validateAwsSignResponse(json, keyId, awsAlgorithm);
-    return base64ToBytes(sigB64);
-  }
+/**
+ * THE selector both edges call at module scope (one signer — and therefore
+ * one credential cache — per runtime isolate). Unchanged DARK default:
+ *   KMS_PROVIDER unset / anything but "aws" → UnconfiguredKmsSigner (throws
+ *     `kms_provider_unconfigured`, PERMANENT, always).
+ *   KMS_PROVIDER="aws" → `createAwsKmsSigner()` (still fails closed without
+ *     the full env + base credentials, before any network call).
+ */
+export function selectKmsSignerFromEnv(getEnv: (name: string) => string | undefined = readDenoEnv): KmsSigner {
+  return selectKmsProviderKind(getEnv) === 'aws' ? createAwsKmsSigner(getEnv) : new UnconfiguredKmsSigner();
 }
