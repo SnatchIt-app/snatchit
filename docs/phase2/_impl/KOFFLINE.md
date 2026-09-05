@@ -273,7 +273,7 @@ contributes 36/36 passing to that total.
 No predicate conjunct was weakened or added; all three items above are packaging/documentation
 gaps around the predicate, not changes to `ADMIT(token)` itself.
 
-## 8. CLOSURE — SCANNER-CONTRACT-v1 (2026-09-05, commit 3039f8c)
+## 8. CLOSURE — SCANNER-CONTRACT-v1 (2026-09-05, commit c6e2675)
 
 Items 1–3 above are closed by `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` and the module additions in
 `_shared/offline-verify.ts`: (1) `toDoorReason` is the documented translation layer onto door §9.2's six

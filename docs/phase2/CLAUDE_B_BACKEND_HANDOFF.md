@@ -196,7 +196,7 @@ No existing client contract changed. New backend surfaces for the door/scanner c
 - **Still gated:** the whole door plane is inert until the owner signs PFA-18B (revoke), PFA-26 (PIN),
   and the service_role auth-path conformance item lands on `record_scan`/`reconcile_offline_scans`.
 
-## 2f. 2026-09-05 scanner verifier contract closure — DARK, contract only (commit 3039f8c)
+## 2f. 2026-09-05 scanner verifier contract closure — DARK, contract only (commit c6e2675)
 
 For whoever builds the scanner: `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` (SCANNER-CONTRACT-v1) is the boundary.
 Use `verifyOfflineWire(wire, ctx)` from `supabase/functions/_shared/offline-verify.ts` semantics (or reproduce them),

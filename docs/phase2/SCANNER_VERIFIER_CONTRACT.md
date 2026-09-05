@@ -154,5 +154,5 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
   failures is a UI decision outside this contract (recorded, not invented).
 
 ## 8. Evidence
-`tests/scanner-contract.test.ts` (this session):       Tests  18 passed (18); `tests/offline-verify.test.ts` 30/30; full vitest       Tests  747 passed (747);
-typecheck clean; lint 0 errors; G-4 PASS; `deno check` **OUTSTANDING** (not installed). **Tested commit `3039f8c`.**
+`tests/scanner-contract.test.ts` (this session): 18 passed (18); `tests/offline-verify.test.ts` green; full vitest 747 passed (747);
+typecheck clean; lint 0 errors; G-4 PASS; `deno check` **OUTSTANDING** (not installed). **Tested commit `c6e2675`.**
