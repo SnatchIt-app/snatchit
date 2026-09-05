@@ -88,6 +88,20 @@ enough to warrant one, and the brief requires no test file for it.
   `session_id`, `venue_id`, `outcome` — never the PIN, the secret, the full
   bearer header, or PII.
 
+### `/manifest/sync` → `venue.get_door_manifest_door` (migration 113, P1-M2-DOOR-AUTHZ — rehearsal only)
+
+The relay used to call the STAFF RPC `venue.get_door_manifest` through the
+service_role client, which could never succeed (auth.uid()-only authorization,
+no service_role grant — 178 A2/D4). It now relays through the service_role
+MACHINE RPC `venue.get_door_manifest_door` (113; the 108 pattern):
+`buildManifestSyncMachineCall` (`pure.ts`) passes the BODY session/device as
+cross-checks and the bearer as the credential; the RPC re-asserts the door
+session in the database and reads for the BOUND session it derives itself.
+`classifyMachineRpcError` maps only `door_session_invalid` to the opaque 401
+(credentials invalidated between the admit check and the RPC, or a cross-check
+mismatch); anything else is a 500 + Sentry with `redactSecret` applied. Not
+deployed. Commit `a122a6c`.
+
 ## `door-manifest` (§3.9b) — routes, auth model, DARK behavior
 
 - **`verify_jwt: true`, Class A, single route.** Staff JWT

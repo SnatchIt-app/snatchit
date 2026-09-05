@@ -171,11 +171,32 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
     `signing_key_id`/session/atoms (admit; `atom_revoked`; `stale_version`; `wrong_session` for a wrong bound session and for another
     session's M2; `expired`; `manifest_expired`). pgTAP `supabase/tests/178_get_door_manifest_headers.sql` (41) covers the same matrix
     against the database, plus grants/definer invariants and rollback→reapply.
-- **P1-M2-DOOR-AUTHZ — OPEN (found while fixing P1-M2-HEADER; NOT changed).** `venue.get_door_manifest`'s authorization is
-  `kernel.has_venue_role(venue, [venue_scanner, venue_manager])` — **caller identity only** — and its grants are `postgres` +
-  `authenticated` (no `service_role`). `door-session /manifest/sync` calls it through a **service_role** client, so the relay path is
-  refused `42501` today (178 A2/D4; evidence key `unauthorized_service_role_door_relay`). RPC §20.6.1's "service_role edge path bound
-  to `assert_door_session`" needs a `_door` machine RPC per 108's pattern — a separate migration, not bundled here.
+- **P1-M2-DOOR-AUTHZ — RESOLVED IN REHEARSAL (migration 113 + `door-session /manifest/sync` rewire, commit `a122a6c`; NOT
+  deployed, NOT applied to production).** Found while fixing P1-M2-HEADER: `venue.get_door_manifest`'s authorization is
+  `kernel.has_venue_role(venue, [venue_scanner, venue_manager])` — caller identity only — and its grants are `postgres` + `authenticated`
+  (no `service_role`), so `door-session /manifest/sync` (service_role client) was refused `42501` (178 A2/D4).
+  - *Closure, following migration 108's machine-authority pattern (MACHINE MAY EXECUTE, DOOR SESSION DECIDES SCOPE).* **Migration 113**
+    adds `venue._get_door_manifest_core(session, since)` — the 112 read body verbatim minus the role gate, **zero grant** (PUBLIC, anon,
+    authenticated, service_role all revoked) — and `venue.get_door_manifest_door(session, door_session_id, token, device, since)` —
+    **service_role-only** (PUBLIC/anon/authenticated explicitly revoked), whose ONLY gate is `kernel.assert_door_session`; the manifest is
+    read for the RETURNED bound session, never a body field (a body device/session that disagrees raises the same opaque
+    `door_session_invalid`). The staff RPC is re-created body-only as role gate → core; its grants and authorization are unchanged and
+    its response is byte-identical to 112 (suite 178 unchanged and green; 179 B5 asserts machine read == staff read as jsonb).
+  - *Edge.* `/manifest/sync` now relays through `get_door_manifest_door` (`buildManifestSyncMachineCall`, `door-session/pure.ts`): the
+    edge's earlier `assert_door_session` admit call remains the rate-limit + opaque-auth gate, but the machine RPC's own database-side
+    assert is the authorization of record — credentials revoked/expired between the two checks are refused there and mapped to the SAME
+    opaque 401 (`classifyMachineRpcError`: only `door_session_invalid` is an auth outcome; any other error, including a non-`door_session_invalid`
+    42501 = missing grant, is a 500 + Sentry, never disguised as auth). The bearer secret is only ever an RPC argument; `redactSecret`
+    scrubs it from any error text before Sentry; log lines carry fixed non-secret selectors only.
+  - *Census.* venue functions 83 → 85; five-schema routine count 292 → 294 (suites 144 A15 / 145 A4 / 148 B5 / 156 A20 / 179 A8–A9 moved by
+    exactly these two, re-derived from the live catalog). The 140 anon/PUBLIC/authenticated sweep is unmoved.
+  - *Evidence with REAL rehearsal RPC output* (`tests/fixtures/m2-rehearsal-evidence.json`, `door_*` keys; the fixture carries NO secret —
+    asserted): valid bound device full + incremental (`since 0/1/null`) byte-identical to the staff read and passing `m2FromWire` + the
+    `door-manifest` classifier; wrong token / device / session / unknown id / service_role without credentials ⇒ the ONE opaque
+    `42501 door_session_invalid`; admit check passes then revoke ⇒ machine RPC refused; expired door session refused; anon / authenticated
+    (even with VALID door credentials) and direct core calls ⇒ `permission denied`; closed and expired manifests ⇒ `no_open_manifest`;
+    staff path unchanged. pgTAP `supabase/tests/179_get_door_manifest_door_machine_authority.sql` (45) covers the same matrix plus grants,
+    definer/volatility invariants, census, and rollback→reapply.
 - **P2-MANIFEST-KEY** — §4: no verify-key distribution for the M2 signature; edge response lacks `key_id`.
 - **P2-M1-DELIVERY** — no door-session route serves M1; a door device authenticated only by a door-session bearer cannot read
   `kernel.signing_key` (PFA-16 grants `authenticated`). Either the staff sets up M1 with a staff JWT at check-in or a `/keys` relay is added.
@@ -192,3 +213,9 @@ typecheck clean; lint 0 errors; G-4 PASS. **Tested commit `c6e2675`.**
 reapply ⇒ identical definition md5 `362c28545c16ec02bec6af5a34b31bf8`, grants unchanged (`authenticated` yes / `service_role` no);
 `tests/door-manifest.test.ts` 6 + `tests/m2-rehearsal-evidence.test.ts` 7; full vitest 760 passed (760); typecheck clean; lint 0 errors
 (45 pre-existing warnings); G-4 PASS. **`deno check`:** CLOSED IN CI — the `deno-check` job added in f097115 (denoland/setup-deno pinned by SHA, v2.0.3) type-checks the shared pure modules and the three edge entrypoints; its first run found 8 pre-existing Deno-only type errors in credential-sign/door-session (never seen by the Node typecheck, which excludes `supabase/functions`), fixed type-level-only in d9ce602; run 33998491950 at d9ce602: Deno type-check success, Typecheck/Lint/Unit success, Migrations success, Web build success. Still not runnable on the engineering host (no Deno installed).
+
+**P1-M2-DOOR-AUTHZ train (commit `a122a6c`).** Fresh rehearsal replay through 113 (Gate-2 27/70/37/26 unchanged); full pgTAP
+plan 3899 · ok 3895 · not_ok 4 (only the documented 060×2/132×2 local deltas; 3854 post-112 + 45); suites 178 41/41 (unchanged) + 179 45/45; rollback 113 ⇒ staff definition md5 back to 112's `362c28545c16ec02bec6af5a34b31bf8`,
+venue 83, both new functions gone, 178 green / 179 absent-function errors; double reapply ⇒ venue 85, grants correct;
+`tests/door-session.test.ts` +10, `tests/m2-rehearsal-evidence.test.ts` +8 (15); full vitest 777 passed (777); typecheck clean; lint
+0 errors (45 pre-existing warnings); G-4 PASS. **`deno check` (CI):** run 33999411593 at a122a6c — Deno type-check success (door-session/pure.ts + index.ts included), Typecheck/Lint/Unit success, Migrations success, Web build success.

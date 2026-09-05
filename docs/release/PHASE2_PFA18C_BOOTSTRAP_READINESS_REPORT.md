@@ -289,6 +289,8 @@ cases). Design + operations: `docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`. Sui
 `deno check` OUTSTANDING (not available on the engineering host). Tested commit `72d4e90`. Deployment PENDING; O1 adoption, access-key creation,
 
 > **Deno check — CLOSED IN CI (2026-09-05).** A `deno-check` job (f097115) now type-checks the edge entrypoints and shared pure modules on every push; its first run surfaced 8 pre-existing Deno-only type errors (fixed type-level-only in d9ce602). CI run 33998491950 at d9ce602: all four jobs green. The P1-M2-HEADER train (migration 112 + `door-manifest` classifier, f097115) is recorded in `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` §7–§8; new open finding P1-M2-DOOR-AUTHZ (service_role door relay unauthorized on `venue.get_door_manifest`). Local/rehearsal only — nothing deployed, production unchanged.
+
+> **P1-M2-DOOR-AUTHZ — CLOSED IN REHEARSAL (2026-09-05, commit `a122a6c`).** Migration 113 (`venue._get_door_manifest_core` zero-grant + `venue.get_door_manifest_door` service_role, `kernel.assert_door_session` the sole gate) and the `door-session /manifest/sync` rewire; census venue 83→85 / five-schema 292→294. Rehearsal-tested (179 45/45, real-RPC evidence), not deployed, production unchanged. Still open: M1 distribution, `door-manifest` signature.key_id, signed M1 bundles.
 Supabase secrets, billing: UNAPPROVED.
 
 **Tested commit (P1-PUBKEY-FORMAT):** `c150283` (branch `feature/venue-native-and-product-v2`). **Production deployment: PENDING** — the corrected
