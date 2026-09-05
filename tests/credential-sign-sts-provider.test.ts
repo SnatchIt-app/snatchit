@@ -530,9 +530,9 @@ describe('KMS signer core — both consumers, temporary-only credentials, scope,
 
   it('KMS response validation preserved: wrong algorithm / wrong key echoed ⇒ SECURITY; malformed JSON ⇒ PERMANENT', async () => {
     const { core: c1 } = buildSigner(scriptedSts([ok()]).transport, fakeKms(kp.privateKey, { algEcho: 'RSASSA_PSS_SHA_256' }).transport);
-    await expectKmsError(c1.sign(KEY_ARN, credentialSignBytes, 'ES256'), /^kms_response_algorithm_mismatch/, 'security');
+    await expectKmsError(c1.sign(KEY_ARN, credentialSignBytes, 'ES256'), 'kms_response_algorithm_mismatch', 'security');
     const { core: c2 } = buildSigner(scriptedSts([ok()]).transport, fakeKms(kp.privateKey, { keyIdEcho: `arn:aws:kms:${REGION}:${ACCOUNT}:key/ffffffff-ffff-4fff-8fff-ffffffffffff` }).transport);
-    await expectKmsError(c2.sign(KEY_ARN, credentialSignBytes, 'ES256'), /^kms_response_key_mismatch/, 'security');
+    await expectKmsError(c2.sign(KEY_ARN, credentialSignBytes, 'ES256'), 'kms_response_key_mismatch', 'security');
     const { core: c3 } = buildSigner(scriptedSts([ok()]).transport, fakeKms(kp.privateKey, { status: 200, body: 'not json' }).transport);
     // status 200 with garbage body: fakeKms only honours status≠200 for `body`, so craft a transport directly
     const garbage: KmsTransport = () => Promise.resolve({ status: 200, text: '{"KeyId": SENTINEL' });

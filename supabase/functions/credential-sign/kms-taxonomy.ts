@@ -195,11 +195,16 @@ export function validateAwsSignResponse(
   if (!response.Signature) {
     throw new KmsSignError('kms_response_missing_signature', 'permanent');
   }
+  // REDACTED, STABLE CODES ONLY (E2 follow-up): the echoed algorithm / KeyId
+  // are server-controlled strings that can carry an ARN, an account id, or a
+  // principal — they never enter a message. An absent field and a wrong
+  // field are the same refusal for the caller; the distinction is not worth
+  // a byte of response content in an error.
   if (response.SigningAlgorithm !== expectedAwsAlgorithm) {
-    throw new KmsSignError(`kms_response_algorithm_mismatch:${response.SigningAlgorithm ?? '(absent)'}`, 'security');
+    throw new KmsSignError('kms_response_algorithm_mismatch', 'security');
   }
   if (!response.KeyId || !keyMatchesRequestedHandle(response.KeyId, requestedKeyId)) {
-    throw new KmsSignError(`kms_response_key_mismatch:${response.KeyId ?? '(absent)'}`, 'security');
+    throw new KmsSignError('kms_response_key_mismatch', 'security');
   }
   return response.Signature;
 }
@@ -417,24 +422,46 @@ export function parseAssumeRoleResponse(xml: string, cfg: AssumeRoleConfig, nowM
 
 // ── Failure classification (STS + KMS), redacted ─────────────────────────
 
-const SAFE_CODE_RE = /^[A-Za-z0-9.]{1,64}$/;
+/** Error identifiers that may be SURFACED in a message. Anything not in the
+ *  allowlist — including a syntactically valid but unknown identifier — is
+ *  reported as `unknown`, so no response-derived token (which could encode
+ *  an account id, key id, or principal fragment) ever reaches an error
+ *  message, a log line, or a Sentry payload. Classification (transient vs
+ *  permanent) still runs on the raw body/code; only the SURFACED code is
+ *  allowlisted. */
+const KNOWN_STS_ERROR_CODES: ReadonlySet<string> = new Set([
+  'AccessDenied', 'AccessDeniedException', 'InvalidClientTokenId', 'SignatureDoesNotMatch', 'ExpiredToken',
+  'ExpiredTokenException', 'MalformedPolicyDocument', 'PackedPolicyTooLarge', 'RegionDisabled', 'IDPRejectedClaim',
+  'InvalidIdentityToken', 'ValidationError', 'MissingAuthenticationToken', 'IncompleteSignature', 'InvalidAction',
+  'InvalidParameterValue', 'MissingParameter', 'RequestExpired', 'Throttling', 'ThrottlingException',
+  'RequestLimitExceeded', 'ServiceUnavailable', 'InternalFailure', 'InternalError', 'ServiceFailure', 'RequestTimeout',
+]);
+const KNOWN_KMS_ERROR_CODES: ReadonlySet<string> = new Set([
+  'AccessDeniedException', 'DisabledException', 'NotFoundException', 'KMSInvalidStateException',
+  'InvalidKeyUsageException', 'KMSInternalException', 'KeyUnavailableException', 'DependencyTimeoutException',
+  'ThrottlingException', 'InvalidGrantTokenException', 'IncorrectKeyException', 'UnsupportedOperationException',
+  'ValidationException', 'InvalidSignatureException', 'ExpiredTokenException', 'InvalidClientTokenId',
+  'UnrecognizedClientException', 'DryRunOperationException', 'InvalidCiphertextException', 'SerializationException',
+  'MissingAuthenticationTokenException', 'InternalFailure', 'ServiceUnavailableException',
+]);
 
-function sanitizeCode(raw: string | null | undefined): string {
+function surfacedCode(raw: string | null | undefined, known: ReadonlySet<string>): string {
   if (!raw) return 'unknown';
   const code = raw.includes('#') ? raw.slice(raw.lastIndexOf('#') + 1) : raw;
-  return SAFE_CODE_RE.test(code) ? code : 'unknown';
+  return known.has(code) ? code : 'unknown';
 }
 
-/** The `<Code>` of an STS/Query-API error document — identifier only. */
+/** The `<Code>` of an STS/Query-API error document — an ALLOWLISTED
+ *  identifier, else `unknown`. */
 export function extractStsErrorCode(bodyText: string): string {
-  return sanitizeCode(tagText(bodyText, 'Code'));
+  return surfacedCode(tagText(bodyText, 'Code'), KNOWN_STS_ERROR_CODES);
 }
 
-/** The `__type` of a KMS/JSON error body — identifier only (never the
- *  `message`, which can restate the key ARN and principal). */
+/** The `__type` of a KMS/JSON error body — an ALLOWLISTED identifier, else
+ *  `unknown` (never the `message`, which restates the key ARN and principal). */
 export function extractAwsJsonErrorCode(bodyText: string): string {
   const m = /"__type"\s*:\s*"([^"]{1,128})"/.exec(bodyText);
-  return sanitizeCode(m?.[1] ?? null);
+  return surfacedCode(m?.[1] ?? null, KNOWN_KMS_ERROR_CODES);
 }
 
 const STS_TRANSIENT_CODES = new Set([

@@ -70,9 +70,13 @@ parseable, ≥ 60 s ahead, ≤ 12 h + 5 min ahead (else PERMANENT `aws_sts_expir
 
 ## 5. Redaction
 
-Thrown `KmsSignError` messages carry an identifier only: `aws_sts_http_<status>:<Code>` / `kms_http_<status>:<__type>` (sanitized to
-`[A-Za-z0-9.]`), `aws_sts_timeout`, `aws_sts_transport_unavailable`, `aws_sts_identity_mismatch`, … Never: a credential, session token,
-`Authorization` header, request body, ExternalId, or raw STS/KMS response text. The KMS error path was tightened as part of this change
+Thrown `KmsSignError` messages carry an identifier only: `aws_sts_http_<status>:<Code>` / `kms_http_<status>:<__type>` where the code is
+**allowlisted** (known AWS STS/KMS identifiers; anything else — including a well-formed but unknown token that could encode an account id or
+key id — is surfaced as `unknown`), `aws_sts_timeout`, `aws_sts_transport_unavailable`, `aws_sts_identity_mismatch`,
+`kms_response_algorithm_mismatch`, `kms_response_key_mismatch`, `kms_response_missing_signature` (stable, no echoed value), … Never: a
+credential, session token, `Authorization` header, request body, ExternalId, echoed KeyId/algorithm, or raw STS/KMS response text.
+Regression suite: `tests/credential-sign-error-redaction.test.ts` (sentinel ARNs/accounts/principals/tokens checked in `message`, `String()`,
+`stack`, `JSON.stringify`, and Sentry/console-style payloads). The KMS error path was tightened as part of this change
 (the previous message embedded up to 200 chars of the KMS body, which restates the key ARN and principal). The redaction test searches every
 failure path for sentinels planted in credentials, ExternalId, and bodies.
 
