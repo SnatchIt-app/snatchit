@@ -12,14 +12,15 @@
 ## OVERALL STATE
 
 ```
-OVERALL:                 PREPARATION — AWS baseline inventory RECEIVED (owner-returned, 2026-09-05); M1/M2/M3
-                         NOT STARTED; CreateKey NO-GO pending plan-type verification + owner decisions
+OVERALL:                 PREPARATION — AWS baseline RECEIVED; plan state RECEIVED (FREE, owner keeps it) ⇒ CreateKey
+                         NO-GO in account 652872010073 under current decisions; M1/M2/M3 NOT STARTED;
+                         P1-PUBKEY-FORMAT FIXED in repo (deploy pending)
 KMS KEY CREATED:         NO
 SIGNING KEYS IN PROD:    0
 PRODUCTION MUTATION:     NONE
 NATIVE ISSUANCE:         FALSE
 NATIVE SCANNING:         FALSE
-LAST UPDATED (UTC):      2026-09-05 20:30Z
+LAST UPDATED (UTC):      2026-09-05 (session 3 — plan-state evidence + P1-PUBKEY-FORMAT fix)
 ```
 
 ---
@@ -156,9 +157,10 @@ explicit `-v ALGORITHM="ES256"`, PRE-FLIGHT 2b gate, `algorithm` in INSERT + POS
   root and compliance-locked audit evidence cannot live in such an account. **CreateKey is NO-GO until the
   plan type is proven PAID or the owner explicitly authorizes the upgrade.** No upgrade was performed.
 - **P1-PUBKEY-FORMAT** — runbook D3 / §6.1 store `kernel.signing_key.public_key` as a PEM block; the
-  credential-sign edge's sign-after-verify `atob()`s it as bare base64 SPKI DER; `atob` throws on PEM armor
-  (demonstrated: `InvalidCharacterError`) → every credential would be refused; the column is immutable.
-  Required before M5/issuance; strongly recommended before bootstrap. NOT fixed this session (no code change).
+  credential-sign edge's sign-after-verify `atob()`'d it as bare base64 SPKI DER; `atob` throws on PEM armor
+  (demonstrated: `InvalidCharacterError`) → every credential would be refused until the VERIFIER CODE is
+  repaired. The stored PEM's immutability does not prevent that repair (the DB representation is correct;
+  the consumer was wrong) — the earlier "permanent brick" wording is withdrawn. **FIXED in session 3** (see below).
 - **M3 runtime-credential design gap** — Supabase Edge exposes only static secrets; `kms.ts` performs no
   AssumeRole. Design resolved on paper (readiness report §7); engineering + owner decision required.
 - **OBS** — AWS KMS now offers `ECC_NIST_EDWARDS25519`; the repo premise "AWS has no Ed25519" is outdated.
@@ -174,3 +176,36 @@ CreateKey, key metadata/policy, public-key derivation ×2, fingerprint compariso
 sign removal, pre-DB checkpoint, DB bootstrap, post-DB state, invariants, monitor, safe sign test,
 CloudTrail evidence, final darkness verification, PFA-18C consumption, findings, final result, next gate —
 appended as each stage completes.)_
+
+---
+
+## SESSION 3 — 2026-09-05 — OWNER PLAN-STATE EVIDENCE + P1-PUBKEY-FORMAT FIX + DESIGN CORRECTIONS
+
+### Owner-returned evidence (OWNER-RETURNED; not Claude-observed)
+`aws freetier get-account-plan-state` on account `652872010073`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
+accountPlanExpirationDate 2027-03-05T17:57:11.079Z.** **Owner decision: KEEP THE AWS FREE PLAN. No billing upgrade authorized.**
+
+### P0-FREEPLAN — status under that decision
+CONFIRMED FREE. Under the keep-Free-plan decision, a KMS trust root / compliance-locked audit evidence in this account would have a hard horizon
+of 2027-03-05 (+90-day grace, then erasure). **CreateKey = NO-GO in this account while the Free plan is kept.** Owner options (none authorized,
+none performed) are listed in the readiness report §3. Repository work and local tests are unaffected and proceeded.
+
+### P1-PUBKEY-FORMAT — FIXED (repository + local tests only; deployment PENDING)
+Strict `normalizeSpkiPublicKey` in `credential-sign/credential.ts` (applied in `verifyToken` + `verifyCanonicalSignature`) and an identical
+no-imports copy exported from `_shared/offline-verify.ts` (applied before the door's injected primitive); new refusal `malformed_public_key`;
+PFA-PT-8 pin extended to the key bytes (ES256 ⇒ uncompressed P-256 SPKI only; EdDSA ⇒ Ed25519 SPKI only). D3 (PEM in the DB) and the D5
+fingerprint contract are unchanged. `door-manifest` signs only — unchanged. Scanner/mobile verifier: not in this repo — boundary UNVERIFIED,
+contract written in the readiness report §3. Tests: `tests/credential-sign-pubkey-format.test.ts` (21, real P-256/Ed25519 keys; AWS signing stays
+ES256-only). Full suite 690/690; typecheck clean; lint 0 errors; G-4 PASS. **Tested commit: `c150283`.**
+
+### Design corrections recorded (readiness report updated)
+M2 = physically separate clean device only (same-Mac OS-user and CloudShell fallbacks removed). M6 = ratified global-ES256 lineage with **no**
+bypass (session-GUC EdDSA override removed; no migration written). Model A = SCPs never bind the management account ⇒ dedicated management
+account + workload member (holds the key) + audit member; layout to be settled **before CreateKey**; no organization created.
+`deletion.post_event_hold_hours` gates deletion *finalization*, not first sale. O1 runtime credentials = PROPOSED, not owner-approved; Supabase
+"no AWS federation" is a documented-capability finding, not a proof of impossibility. Owner AWS commands carry
+`--profile snatchit-admin --region us-east-1`.
+
+### SESSION 3 MUTATION LEDGER
+AWS: **none.** Production DB: **none.** KMS: **not created.** Migration 110: **not created.** Edges: **not deployed.** Config/flags/secrets: **unchanged.**
+Billing plan: **unchanged (FREE, per owner).** Repository: code + tests + docs committed on `feature/venue-native-and-product-v2`.

@@ -1187,6 +1187,17 @@ ceremony misconfiguration (e.g. algorithm column not matching the KMS key spec, 
 wrong version) SELF-DETECTS at first sign attempt rather than shipping unverifiable tickets — but it is
 a fail-CLOSED detection (no credentials issued), so get the ceremony inputs right.
 
+### 18.5 D3 verifier contract — P1-PUBKEY-FORMAT (PFA-18C readiness, 2026-09-05)
+
+D3 is unchanged: `kernel.signing_key.public_key` holds the SPKI **PEM** block and the D5 fingerprint is computed from it. The consumers were
+wrong, not the data: the credential-sign sign-after-verify primitive decoded the column as bare base64 and would have refused every credential.
+Fixed in the repository (deploy pending): every verify path runs `normalizeSpkiPublicKey(public_key, algorithm)` — strict; accepts exactly one
+`PUBLIC KEY` PEM block or bare canonical base64; refuses PRIVATE KEY / other labels / malformed base64 / non-SPKI DER / any key whose
+AlgorithmIdentifier is not the pinned algorithm's (ES256 ⇒ uncompressed P-256; EdDSA ⇒ Ed25519); returns canonical bare-base64 SPKI DER. It lives
+in `credential-sign/credential.ts` (used by `verifyToken` and `verifyCanonicalSignature`) and, as an identical exported copy, in
+`_shared/offline-verify.ts` (used by `offlineVerify`). Any door/scanner SDK MUST call it on `M1[kid].public_key` before its own primitive and treat
+`null` as `malformed_public_key`, never as `signature_invalid`. Tests: `tests/credential-sign-pubkey-format.test.ts`.
+
 ### 18.4 CEREMONY PRE-FLIGHT (all must be TRUE before the ceremony is authorized to run — §20)
 This is an engineering gate, NOT owner authorization to run the ceremony (which remains separate).
 - [ ] Provider selected + algorithm decided (D1/D2), consistent with each other (AWS⇒ES256).

@@ -22,6 +22,10 @@ audit bucket `snatchit-audit-652872010073` · trail `snatchit-audit-trail`.
 | `kms_key_policy_v1_binding_proof.json` | KMS key policy at `CreateKey` — account root may administer but can NEVER delegate crypto ops via IAM (`NotAction` on Sign/Verify/Decrypt/…); ceremony role has `kms:Sign` ONLY for the §5.3 binding proof | CreateKey |
 | `kms_key_policy_v2_final.json` | Same minus the ceremony `kms:Sign` statement — applied via `PutKeyPolicy` immediately after the binding proof (§24) | post-proof |
 
+**Account-layout caveat (Model A, readiness report §9 E6):** SCPs never bind an Organizations *management* account, so the production key must
+be created in a *member* (workload) account. If the owner adopts that layout, every `652872010073` above becomes the workload member's account id
+— settle this BEFORE CreateKey. Every owner-run AWS command carries `--profile snatchit-admin --region us-east-1` explicitly.
+
 Placeholders that MUST be replaced before use: `<RETENTION_YEARS>`, `<KMS_SIGNER_EXTERNAL_ID>`,
 `<PRODUCTION_KMS_KEY_ARN>`. Never put a secret value into a committed file.
 
