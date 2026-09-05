@@ -235,10 +235,14 @@ function parseRelayBodyBase(body: unknown): { ok: true; value: RelayBodyBase; ra
 // path (verify_jwt: false, no auth.uid() anywhere) — every RPC call below
 // is made AS service_role, deliberately, per §3.9a / RPC §1.1d/§9.4-§9.6. ──
 function serviceClient(schema: 'venue' | 'kernel'): SupabaseClient {
+  // The schema is a runtime PostgREST header (`Accept-Profile`); supabase-js
+  // also threads it through the client's type parameter, which would make
+  // every helper below schema-generic for no runtime gain. Widen the type;
+  // the schema binding itself is unchanged.
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
     db: { schema },
-  });
+  }) as unknown as SupabaseClient;
 }
 function serviceClientPublic(): SupabaseClient {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {

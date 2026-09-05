@@ -76,6 +76,7 @@ import {
   KmsSignError,
   selectKmsProviderKind,
   UnconfiguredKmsSigner,
+  type AwsCredentials,
   type KmsErrorClass,
   type KmsSigner,
   type KmsTransport,
@@ -97,13 +98,15 @@ function toHex(bytes: Uint8Array): string {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  // `new Uint8Array(x)` copies: Deno's WebCrypto lib wants `BufferSource`
+  // (ArrayBuffer-backed), which TS ≥5.7 no longer infers for `Uint8Array`.
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
   return toHex(new Uint8Array(digest));
 }
 
 async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, data);
+  const cryptoKey = await crypto.subtle.importKey('raw', new Uint8Array(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new Uint8Array(data));
   return new Uint8Array(sig);
 }
 

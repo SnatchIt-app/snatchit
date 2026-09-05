@@ -63,7 +63,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException, captureMessage } from '../_shared/sentry.ts';
 import {
   buildCanonicalPayload,
@@ -124,7 +124,7 @@ function logOutcome(atomId: string | null, credentialVersion: number | null, key
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
 
 async function checkRateLimit(
-  service: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   userId: string,
 ): Promise<RateLimitResult> {
   try {
@@ -316,11 +316,14 @@ const verifyWithWebCrypto: VerifyPrimitive = async (publicKeyB64, message, signa
 
     if (alg === 'EdDSA') {
       const key = await crypto.subtle.importKey('spki', der, { name: 'Ed25519' }, false, ['verify']);
-      return await crypto.subtle.verify({ name: 'Ed25519' }, key, signature, message);
+      // `new Uint8Array(x)` copies into a plain ArrayBuffer-backed view — the
+      // `BufferSource` type Deno's WebCrypto lib requires (TS ≥5.7 rejects
+      // `Uint8Array<ArrayBufferLike>`). Type-level only; bytes are unchanged.
+      return await crypto.subtle.verify({ name: 'Ed25519' }, key, new Uint8Array(signature), new Uint8Array(message));
     }
     if (alg === 'ES256') {
       const key = await crypto.subtle.importKey('spki', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-      return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, message);
+      return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, new Uint8Array(signature), new Uint8Array(message));
     }
     return false;
   } catch {
