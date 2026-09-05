@@ -191,6 +191,143 @@ export function base64urlDecode(input: string): Uint8Array {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Trusted public-key NORMALIZATION (P1-PUBKEY-FORMAT fix).
+//
+// The runbook (PRODUCTION_SIGNING_KMS_CEREMONY.md D3) and the §6.1 bootstrap
+// artifact store `kernel.signing_key.public_key` as an SPKI **PEM** block —
+// that is the canonical DB representation and the one the D5 fingerprint
+// gate is defined over. The verify primitives (WebCrypto `importKey('spki')`
+// in the edge, `node:crypto` in the suites) consume **bare base64 SPKI DER**.
+// Before this function existed the edge `atob()`'d the raw column value; on a
+// PEM block `atob` throws on the `-` of the armor, the catch returned `false`,
+// and EVERY credential would have been refused as `signature_invalid`.
+//
+// Every verify path (`verifyToken`, `verifyCanonicalSignature`, and the
+// door's `_shared/offline-verify.ts`, which carries an identical copy under
+// its no-imports rule) funnels the trusted key through this ONE strict parser:
+//   ACCEPTS  (a) exactly one `-----BEGIN PUBLIC KEY-----` … `-----END PUBLIC KEY-----`
+//                block (RFC 7468 label `PUBLIC KEY` only; LF or CRLF; no
+//                encapsulated headers; nothing before/after but whitespace);
+//            (b) bare standard base64 (RFC 4648 §4: padded, canonical, no
+//                whitespace) — the pre-existing fixture/wire representation.
+//   REJECTS  anything else, returning `null` (never throwing): any `PRIVATE
+//            KEY` label, any other PEM label (`CERTIFICATE`, `RSA PUBLIC
+//            KEY`, …), base64url, unpadded or non-canonical base64,
+//            whitespace inside bare base64, DER that is not a single outer
+//            SEQUENCE spanning the buffer, and — the PFA-PT-8 algorithm PIN
+//            carried down to the key BYTES — an SPKI whose AlgorithmIdentifier
+//            is not the one `algorithm` names: ES256 ⇒ id-ecPublicKey /
+//            prime256v1 with an UNCOMPRESSED point (91 bytes, exactly what AWS
+//            KMS `GetPublicKey` and `openssl` emit); EdDSA ⇒ id-Ed25519 (44
+//            bytes). A wrong-type key can therefore never reach a primitive.
+//   RETURNS  the CANONICAL bare-base64 SPKI DER (re-encoded from the parsed
+//            bytes, so PEM and bare inputs for the same key yield the same
+//            string).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** SPKI prefix — SEQUENCE(89) { AlgorithmIdentifier { id-ecPublicKey,
+ *  prime256v1 }, BIT STRING(66, 0 unused bits) } — for an uncompressed P-256
+ *  key; the 65-byte `04 || X || Y` point follows. Total 91 bytes. */
+const SPKI_PREFIX_P256_UNCOMPRESSED: readonly number[] = [
+  0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+  0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+];
+/** SPKI prefix — SEQUENCE(42) { AlgorithmIdentifier { id-Ed25519 }, BIT
+ *  STRING(33, 0 unused bits) } — RFC 8410; the 32 key bytes follow. Total 44. */
+const SPKI_PREFIX_ED25519: readonly number[] = [
+  0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+];
+const SPKI_LENGTH: Record<SigningAlgorithm, number> = { ES256: 91, EdDSA: 44 };
+
+const PEM_PUBLIC_KEY_RE = /^-----BEGIN PUBLIC KEY-----(?:\r?\n)([A-Za-z0-9+/=\r\n]+?)(?:\r?\n)-----END PUBLIC KEY-----$/;
+const BARE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Strict RFC 4648 §4 decoder: padded, canonical (zero unused trailing bits),
+ *  no whitespace, no base64url. Returns `null` instead of throwing. */
+function base64DecodeStrict(b64: string): Uint8Array | null {
+  if (b64.length === 0 || b64.length % 4 !== 0 || !BARE_BASE64_RE.test(b64)) return null;
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  const firstPad = b64.indexOf('=');
+  if (firstPad !== -1 && firstPad !== b64.length - pad) return null;
+  const out: number[] = [];
+  for (let i = 0; i < b64.length; i += 4) {
+    const c2 = b64[i + 2];
+    const c3 = b64[i + 3];
+    const n0 = B64_REVERSE[b64[i]];
+    const n1 = B64_REVERSE[b64[i + 1]];
+    const n2 = c2 === '=' ? 0 : B64_REVERSE[c2];
+    const n3 = c3 === '=' ? 0 : B64_REVERSE[c3];
+    if (n0 === undefined || n1 === undefined || n2 === undefined || n3 === undefined) return null;
+    out.push(((n0 << 2) | (n1 >> 4)) & 0xff);
+    if (c2 !== '=') out.push(((n1 << 4) | (n2 >> 2)) & 0xff);
+    if (c3 !== '=') out.push(((n2 << 6) | n3) & 0xff);
+  }
+  // Canonical-encoding check: bits not covered by output bytes must be zero.
+  if (pad === 1 && (B64_REVERSE[b64[b64.length - 2]] & 0x03) !== 0) return null;
+  if (pad === 2 && (B64_REVERSE[b64[b64.length - 3]] & 0x0f) !== 0) return null;
+  return new Uint8Array(out);
+}
+
+/** Standard padded base64 (RFC 4648 §4) — the canonical output form. */
+function base64EncodeStd(bytes: Uint8Array): string {
+  let out = '';
+  let i = 0;
+  for (; i + 3 <= bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += B64_ALPHABET[(n >> 18) & 63] + B64_ALPHABET[(n >> 12) & 63]
+         + B64_ALPHABET[(n >> 6) & 63] + B64_ALPHABET[n & 63];
+  }
+  const remaining = bytes.length - i;
+  if (remaining === 1) {
+    const n = bytes[i] << 16;
+    out += B64_ALPHABET[(n >> 18) & 63] + B64_ALPHABET[(n >> 12) & 63] + '==';
+  } else if (remaining === 2) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += B64_ALPHABET[(n >> 18) & 63] + B64_ALPHABET[(n >> 12) & 63] + B64_ALPHABET[(n >> 6) & 63] + '=';
+  }
+  return out;
+}
+
+/** See the section comment above. Pure; never throws; `null` = refuse. */
+export function normalizeSpkiPublicKey(input: unknown, algorithm: SigningAlgorithm): string | null {
+  if (typeof input !== 'string') return null;
+  const text = input.replace(/^[\t\r\n ]+|[\t\r\n ]+$/g, '');
+  if (text.length === 0 || text.length > 4096) return null;
+  if (text.indexOf('PRIVATE KEY') !== -1) return null;
+
+  let b64: string;
+  if (text.startsWith('-----')) {
+    const m = PEM_PUBLIC_KEY_RE.exec(text);
+    if (!m) return null;
+    b64 = m[1].replace(/\r?\n/g, '');
+  } else {
+    b64 = text;
+  }
+
+  const bytes = base64DecodeStrict(b64);
+  if (!bytes || bytes.length < 4) return null;
+
+  // Outer DER SEQUENCE with a definite length that spans EXACTLY the buffer.
+  if (bytes[0] !== 0x30) return null;
+  let len: number;
+  let hdr: number;
+  if (bytes[1] < 0x80) { len = bytes[1]; hdr = 2; }
+  else if (bytes[1] === 0x81) { len = bytes[2]; hdr = 3; }
+  else if (bytes[1] === 0x82) { len = (bytes[2] << 8) | bytes[3]; hdr = 4; }
+  else return null;
+  if (hdr + len !== bytes.length) return null;
+
+  // Algorithm pin at the key-bytes level.
+  if (!isSigningAlgorithm(algorithm)) return null;
+  if (bytes.length !== SPKI_LENGTH[algorithm]) return null;
+  const prefix = algorithm === 'ES256' ? SPKI_PREFIX_P256_UNCOMPRESSED : SPKI_PREFIX_ED25519;
+  for (let i = 0; i < prefix.length; i++) if (bytes[i] !== prefix[i]) return null;
+  if (algorithm === 'ES256' && bytes[prefix.length] !== 0x04) return null;
+
+  return base64EncodeStd(bytes);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Canonical JSON — sorted keys, no whitespace, recursive. Deterministic
 // regardless of the insertion order of the object literal that built it.
 // ─────────────────────────────────────────────────────────────────────────
@@ -593,10 +730,11 @@ export interface TrustedKey {
 }
 
 /** Resolves `kid` → `TrustedKey` (or `null`/`undefined` for an unknown/
- *  untrusted `kid`) against the TRUSTED keyring. The shape of
- *  `TrustedKey.public_key` is whatever `verifyPrimitive` expects (base64
- *  SPKI DER in the vitest suite; the edge/door's own convention in
- *  production — this module does not care). */
+ *  untrusted `kid`) against the TRUSTED keyring. `TrustedKey.public_key` may
+ *  be the DB's canonical SPKI **PEM** block (runbook D3) or bare base64 SPKI
+ *  DER; `verifyToken` normalizes it through `normalizeSpkiPublicKey` and the
+ *  injected `verifyPrimitive` ALWAYS receives canonical bare-base64 SPKI DER
+ *  of the pinned algorithm's key type — never raw column text. */
 export type TrustedKeyResolver = (kid: string) => TrustedKey | null | undefined | Promise<TrustedKey | null | undefined>;
 
 export type VerifyPrimitive = (
@@ -613,6 +751,7 @@ export type VerifyReason =
   | 'unknown_kid'
   | 'unsupported_alg'
   | 'alg_mismatch'
+  | 'malformed_public_key'
   | 'signature_invalid'
   | 'expired';
 
@@ -682,8 +821,15 @@ export async function verifyToken(
     return { authentic: false, reason: 'alg_mismatch' };
   }
 
+  // P1-PUBKEY-FORMAT: the trusted key may be PEM (DB canonical, D3) or bare
+  // base64; the primitive only ever sees canonical SPKI DER of the PINNED
+  // algorithm's key type. Malformed/wrong-type key material is its own
+  // refusal — it is not a signature failure and must not look like one.
+  const canonicalPublicKey = normalizeSpkiPublicKey(trustedKey.public_key, trustedKey.algorithm);
+  if (canonicalPublicKey === null) return { authentic: false, reason: 'malformed_public_key' };
+
   const signatureOk = await verifyPrimitive(
-    trustedKey.public_key,
+    canonicalPublicKey,
     decoded.signedBytes,
     decoded.signatureBytes,
     trustedKey.algorithm,
@@ -713,7 +859,13 @@ export async function verifyCanonicalSignature(
   algorithm: SigningAlgorithm,
   verifyPrimitive: VerifyPrimitive,
 ): Promise<boolean> {
-  return verifyPrimitive(publicKey, canonical.signedBytes, signatureBytes, algorithm);
+  // P1-PUBKEY-FORMAT: `publicKey` is `kernel.signing_key.public_key` verbatim
+  // (PEM per runbook D3, via `get_ticket_signing_context`) or bare base64.
+  // A key that does not parse as the pinned algorithm's SPKI is `false` —
+  // fail closed, exactly like a bad signature, before any primitive runs.
+  const canonicalPublicKey = normalizeSpkiPublicKey(publicKey, algorithm);
+  if (canonicalPublicKey === null) return false;
+  return verifyPrimitive(canonicalPublicKey, canonical.signedBytes, signatureBytes, algorithm);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

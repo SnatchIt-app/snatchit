@@ -300,11 +300,14 @@ function classifyKmsError(err: unknown): KmsErrorClassification {
 }
 
 // ── Sign-after-verify (§9) — the local WebCrypto primitive the edge injects
-// into `verifyCanonicalSignature`. Supports both algorithms; `public_key` is
-// standard base64 SPKI DER (the M1 manifest / `kernel.signing_key.public_key`
-// convention — matches the vitest fixtures' shape in `credential.ts`'s and
-// this train's test suites). A `false`/thrown result is treated as "does not
-// verify" — never rethrown past this function. ─────────────────────────────
+// into `verifyCanonicalSignature`. Supports both algorithms. The `publicKeyB64`
+// it receives is ALWAYS canonical bare-base64 SPKI DER of the pinned
+// algorithm's key type: `verifyCanonicalSignature` runs
+// `credential.ts`'s `normalizeSpkiPublicKey` on `kernel.signing_key.public_key`
+// first (P1-PUBKEY-FORMAT — the DB stores an SPKI PEM block per runbook D3,
+// and `atob` on PEM armor throws, which before the fix silently failed every
+// verification). A `false`/thrown result is treated as "does not verify" —
+// never rethrown past this function. ─────────────────────────────────────
 const verifyWithWebCrypto: VerifyPrimitive = async (publicKeyB64, message, signature, alg) => {
   try {
     const binary = atob(publicKeyB64);

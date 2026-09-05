@@ -227,6 +227,115 @@ export const DOMAIN = 'SNATCHIT-TICKET-CRED-V1';
  *  string (PFA-PT-8, defence-in-depth to match credential.ts's own whitelist). */
 const KNOWN_ALGORITHMS: ReadonlySet<string> = new Set(['EdDSA', 'ES256']);
 
+// ─────────────────────────────────────────────────────────────────────────
+// Trusted public-key NORMALIZATION (P1-PUBKEY-FORMAT) — an IDENTICAL, self-
+// contained copy of `credential-sign/credential.ts`'s `normalizeSpkiPublicKey`
+// (this module's no-imports rule; `tests/credential-sign-pubkey-format.test.ts`
+// asserts the two copies agree on the full acceptance/rejection matrix).
+// ACCEPTS one `-----BEGIN PUBLIC KEY-----` block (LF/CRLF, no headers) or bare
+// padded canonical base64; REJECTS (→ `null`, never throws) PRIVATE KEY
+// material, other PEM labels, base64url/unpadded/whitespace-laden base64,
+// non-SEQUENCE DER, and any SPKI whose AlgorithmIdentifier is not the pinned
+// algorithm's (ES256 ⇒ uncompressed P-256, 91 bytes; EdDSA ⇒ Ed25519, 44).
+// RETURNS canonical bare-base64 SPKI DER. This is what the scanner SDK MUST
+// call on every `M1[kid].public_key` before its own verify primitive.
+// ─────────────────────────────────────────────────────────────────────────
+
+const B64_STD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_STD_REVERSE: Record<string, number> = (() => {
+  const map: Record<string, number> = {};
+  for (let i = 0; i < B64_STD.length; i++) map[B64_STD[i]] = i;
+  return map;
+})();
+const SPKI_PREFIX_P256_UNCOMPRESSED: readonly number[] = [
+  0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+  0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+];
+const SPKI_PREFIX_ED25519: readonly number[] = [
+  0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+];
+const SPKI_LENGTH: Record<string, number> = { ES256: 91, EdDSA: 44 };
+const PEM_PUBLIC_KEY_RE = /^-----BEGIN PUBLIC KEY-----(?:\r?\n)([A-Za-z0-9+/=\r\n]+?)(?:\r?\n)-----END PUBLIC KEY-----$/;
+const BARE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function base64DecodeStrict(b64: string): Uint8Array | null {
+  if (b64.length === 0 || b64.length % 4 !== 0 || !BARE_BASE64_RE.test(b64)) return null;
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  const firstPad = b64.indexOf('=');
+  if (firstPad !== -1 && firstPad !== b64.length - pad) return null;
+  const out: number[] = [];
+  for (let i = 0; i < b64.length; i += 4) {
+    const c2 = b64[i + 2];
+    const c3 = b64[i + 3];
+    const n0 = B64_STD_REVERSE[b64[i]];
+    const n1 = B64_STD_REVERSE[b64[i + 1]];
+    const n2 = c2 === '=' ? 0 : B64_STD_REVERSE[c2];
+    const n3 = c3 === '=' ? 0 : B64_STD_REVERSE[c3];
+    if (n0 === undefined || n1 === undefined || n2 === undefined || n3 === undefined) return null;
+    out.push(((n0 << 2) | (n1 >> 4)) & 0xff);
+    if (c2 !== '=') out.push(((n1 << 4) | (n2 >> 2)) & 0xff);
+    if (c3 !== '=') out.push(((n2 << 6) | n3) & 0xff);
+  }
+  if (pad === 1 && (B64_STD_REVERSE[b64[b64.length - 2]] & 0x03) !== 0) return null;
+  if (pad === 2 && (B64_STD_REVERSE[b64[b64.length - 3]] & 0x0f) !== 0) return null;
+  return new Uint8Array(out);
+}
+
+function base64EncodeStd(bytes: Uint8Array): string {
+  let out = '';
+  let i = 0;
+  for (; i + 3 <= bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += B64_STD[(n >> 18) & 63] + B64_STD[(n >> 12) & 63] + B64_STD[(n >> 6) & 63] + B64_STD[n & 63];
+  }
+  const remaining = bytes.length - i;
+  if (remaining === 1) {
+    const n = bytes[i] << 16;
+    out += B64_STD[(n >> 18) & 63] + B64_STD[(n >> 12) & 63] + '==';
+  } else if (remaining === 2) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += B64_STD[(n >> 18) & 63] + B64_STD[(n >> 12) & 63] + B64_STD[(n >> 6) & 63] + '=';
+  }
+  return out;
+}
+
+export function normalizeSpkiPublicKey(input: unknown, algorithm: string): string | null {
+  if (typeof input !== 'string') return null;
+  const text = input.replace(/^[\t\r\n ]+|[\t\r\n ]+$/g, '');
+  if (text.length === 0 || text.length > 4096) return null;
+  if (text.indexOf('PRIVATE KEY') !== -1) return null;
+
+  let b64: string;
+  if (text.startsWith('-----')) {
+    const m = PEM_PUBLIC_KEY_RE.exec(text);
+    if (!m) return null;
+    b64 = m[1].replace(/\r?\n/g, '');
+  } else {
+    b64 = text;
+  }
+
+  const bytes = base64DecodeStrict(b64);
+  if (!bytes || bytes.length < 4) return null;
+
+  if (bytes[0] !== 0x30) return null;
+  let len: number;
+  let hdr: number;
+  if (bytes[1] < 0x80) { len = bytes[1]; hdr = 2; }
+  else if (bytes[1] === 0x81) { len = bytes[2]; hdr = 3; }
+  else if (bytes[1] === 0x82) { len = (bytes[2] << 8) | bytes[3]; hdr = 4; }
+  else return null;
+  if (hdr + len !== bytes.length) return null;
+
+  if (!KNOWN_ALGORITHMS.has(algorithm)) return null;
+  if (bytes.length !== SPKI_LENGTH[algorithm]) return null;
+  const prefix = algorithm === 'ES256' ? SPKI_PREFIX_P256_UNCOMPRESSED : SPKI_PREFIX_ED25519;
+  for (let i = 0; i < prefix.length; i++) if (bytes[i] !== prefix[i]) return null;
+  if (algorithm === 'ES256' && bytes[prefix.length] !== 0x04) return null;
+
+  return base64EncodeStd(bytes);
+}
+
+
 export interface OfflineToken {
   /** `token.key_id` — selects the M1 entry (step 1) and, per 3c, must equal
    *  `M2[atom].signing_key_id`. */
@@ -280,6 +389,8 @@ export type OfflineVerifyReason =
   | 'key_window' // now() ∉ [M1[kid].not_before, not_after]
   // PFA-PT-8 alg pin, evaluated between step 1 and step 2
   | 'alg_mismatch' // token.algorithm != M1[kid].algorithm
+  // P1-PUBKEY-FORMAT — M1[kid].public_key does not parse as the pinned algorithm's SPKI
+  | 'malformed_public_key'
   // Step 2 — signature
   | 'signature_invalid' // Verify(...) == false
   // Step 3 — session binding
@@ -369,8 +480,15 @@ export function offlineVerify(token: OfflineToken, ctx: OfflineVerifyContext): O
     return { admit: false, reason: 'alg_mismatch' };
   }
 
+  // ── P1-PUBKEY-FORMAT: M1 carries `kernel.signing_key.public_key` verbatim —
+  // an SPKI PEM block (runbook D3) or bare base64. Normalize STRICTLY to the
+  // pinned algorithm's canonical SPKI DER before any primitive runs; a key
+  // that does not parse is its own refusal, not a signature failure.
+  const canonicalPublicKey = normalizeSpkiPublicKey(m1Entry.public_key, m1Entry.algorithm);
+  if (canonicalPublicKey === null) return { admit: false, reason: 'malformed_public_key' };
+
   // ── Step 2: Verify(M1[kid].public_key, token.claims, token.sig)
-  const signatureOk = ctx.verify(m1Entry.public_key, token.claims, token.sig, m1Entry.algorithm);
+  const signatureOk = ctx.verify(canonicalPublicKey, token.claims, token.sig, m1Entry.algorithm);
   if (!signatureOk) return { admit: false, reason: 'signature_invalid' };
 
   // ── Step 3: token.session_id == the device's bound scanning session
