@@ -1312,19 +1312,19 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
+            WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 32,
   -- 2026-09-02 (package 091): 27 -> 28 (kernel.reserve — the Gate-M stub, empty, no writer).
   -- 2026-08-31 (package 082): 15 -> 17; (package 083): 17 -> 22 — the five
   -- credential/wallet tables. 2026-09-02 (package 088): 26 -> 27 (dispute_native).
   -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
   -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
-  'K1: kernel holds THIRTY-ONE tables — 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub, 094 organization_obligation, 096 payout_reversal + organization_obligation_recovery');
+  'K1: kernel holds THIRTY-TWO tables — 111 added signing_key_recovery_approval; 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub, 094 organization_obligation, 096 payout_reversal + organization_obligation_recovery');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 7,
   -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
   'K2: notify holds 076''s outbox + 092''s six reduced-plane tables');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'kernel'), 150,
+            WHERE n.nspname = 'kernel'), 153,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -1358,7 +1358,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 094's four organization-obligation functions, which brought the true post-095 total to 136 —
   -- see 141 A14). 2026-09-03: 132 -> 146, summing the missed +4 (094) with 096's +9 and 099's +1,
   -- re-derived directly from the live catalog (same query as 141 A14), not accepted as a delta.
-  'K3: kernel holds 150 functions — 109 post-090 plus 093''s sixteen plus 095''s seven plus 094''s four plus 096''s nine plus 099''s one plus 102''s one plus 105''s one plus 109''s one plus 110''s guard_signing_key_insert (141 A14 pins the exact figure and the re-created-not-added set)');
+  'K3: kernel holds 153 functions — 111 added three; 109 post-090 plus 093''s sixteen plus 095''s seven plus 094''s four plus 096''s nine plus 099''s one plus 102''s one plus 105''s one plus 109''s one plus 110''s guard_signing_key_insert (141 A14 pins the exact figure and the re-created-not-added set)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel'), 12,
   -- 2026-08-31 (package 083): 11 -> 12 (kernel_signing_key_sel_public, PFA-16).

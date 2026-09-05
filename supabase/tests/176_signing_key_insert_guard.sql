@@ -148,7 +148,7 @@ SELECT throws_like($q$ UPDATE kernel.signing_key SET algorithm = 'EdDSA' WHERE k
 SELECT lives_ok($q$ UPDATE kernel.signing_key SET status = 'revoked' WHERE key_id = tap._b0() $q$,
   'F1: active → revoked is permitted by the UPDATE guard (what 106 revoke does)');
 SELECT throws_like($q$ SELECT tap._ins176(tap._b1(), 'global', null, null, tap._pem176_p256(), tap._arn176(), 'ES256', 'active') $q$,
-  '%post_revoke_recovery_parked%', 'F2: a structurally valid replacement row after a revoke is REFUSED — recovery is parked until the two-person artifact ships');
+  '%post_revoke_recovery_unapproved%', 'F2: a structurally valid replacement row after a revoke is REFUSED without two approvals (110 parked it outright; 111/E4 gates it on two platform_admin+aal2 approvals — suite 177 proves the approved path)');
 SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), tap._arn176(), 'ES256', 'active') $q$,
   '%duplicate_key_id%', 'F3: re-using the revoked key_id is refused as duplicate (append-only)');
 SELECT throws_like($q$ UPDATE kernel.signing_key SET status = 'active' WHERE key_id = tap._b0() $q$,

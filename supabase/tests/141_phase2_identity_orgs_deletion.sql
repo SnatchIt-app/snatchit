@@ -63,7 +63,7 @@ SELECT is(
   -- 2026-09-03 (package 096): 29 -> 31. kernel.payout_reversal + kernel.organization_obligation_recovery
   -- (R-1/R-4), both RLS-on/zero-policy append-only evidence tables. Re-derived from the
   -- live catalog (pg_class count), not accepted as a delta.
-  31, '077 A13: exactly THIRTY-ONE kernel tables (27 post-088 + 091''s reserve stub + 094''s kernel.organization_obligation + 096''s payout_reversal/organization_obligation_recovery)');
+  32, '077 A13: exactly THIRTY-TWO kernel tables (111''s signing_key_recovery_approval + 27 post-088 + 091''s reserve stub + 094''s kernel.organization_obligation + 096''s payout_reversal/organization_obligation_recovery)');
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -161,7 +161,7 @@ SELECT is(
   -- kernel.check_signing_key_invariants (nobody-executable — revoked from public/anon/
   -- authenticated/service_role, run only as the cron job's owner). Re-derived from the live
   -- catalog, not accepted as a delta.
-  150, '077 A14: exactly 150 kernel functions (109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants + 102''s get_ticket_signing_context + 105''s force_close_key_manifests + 109''s force_close_session_manifests + 110''s guard_signing_key_insert (106''s revoke un-park and 108''s two scan re-creates were REPLACED, not added); settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
+  153, '077 A14: exactly 153 kernel functions (111''s three recovery fns + 109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants + 102''s get_ticket_signing_context + 105''s force_close_key_manifests + 109''s force_close_session_manifests + 110''s guard_signing_key_insert (106''s revoke un-park and 108''s two scan re-creates were REPLACED, not added); settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
 -- A14a: the SIXTEEN BY NAME with their grant class and definer flag, so that moving
 -- this census forces the mover to say WHICH function they added rather than bumping
 -- an integer. Grant class is included because a re-classification (say, exposing
@@ -306,7 +306,7 @@ SELECT is(
   -- 2026-09-03 (package 096): 29 -> 31. kernel.payout_reversal and kernel.organization_obligation_recovery
   -- both ship RLS-on with ZERO policies (deny-all incl. service_role — append-only evidence
   -- tables reached only through their DEFINER verbs).
-  31, '077 C1: RLS is ENABLED on all thirty-one tables (deny-by-default at birth; kernel.organization_obligation/payout_reversal/organization_obligation_recovery ship RLS-on with ZERO policies)');
+  32, '077 C1: RLS is ENABLED on all thirty-two tables (111''s signing_key_recovery_approval ships RLS-on, zero policies) (deny-by-default at birth; kernel.organization_obligation/payout_reversal/organization_obligation_recovery ship RLS-on with ZERO policies)');
 SELECT is(
   (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'kernel.org_member'::regclass),
   false, '077 C2 [I-12/INV-NOFORCE]: kernel.org_member does NOT force RLS (owner-bypass terminates the helpers)');
@@ -409,7 +409,7 @@ SELECT is(
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel'
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')),
-  'accept_org_invite,admin_refund,admin_set_identity_ext,approve_refund_request,'
+  'accept_org_invite,admin_refund,admin_set_identity_ext,approve_refund_request,approve_signing_key_recovery,'
   -- 2026-09-03 (package 093, slice 30 §9): +1 authenticated —
   -- authorize_org_payout_dashboard (H6/F-3). It gates the Express Dashboard login
   -- link, which is the only surface that edits the EXTERNAL BANK ACCOUNT behind a
@@ -421,7 +421,7 @@ SELECT is(
   -- org_finance/platform_admin in-body) and request_org_payout (org_owner/org_finance
   -- in-body). The two settlement seams are definer-internal. Named, not counted.
   || 'close_settlement,'
-  || 'create_organization,force_void_ticket,get_my_contact_prefs,get_my_demographics,'
+  || 'create_organization,execute_signing_key_recovery,force_void_ticket,get_my_contact_prefs,get_my_demographics,'
   -- 2026-09-02 (package 093): +2 authenticated — get_org_connect_state, the MASKED read
   -- half of RATIFIED ruling A6 (Stripe Connect ownership), and is_order_buyer, the
   -- ruling-F definer predicate venue_order_item_sel_owner now calls in place of the
@@ -496,7 +496,7 @@ SELECT is(
   -- 2026-09-03 (package 096): 64 -> 66 — record_obligation_recovery (R-5, new) and
   -- resolve_organization_obligation (R-6, RE-CLASSIFIED from service_role-only to
   -- authenticated-only). Re-derived from the live catalog.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 67 caller-authorized functions (59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; 102''s get_ticket_signing_context per credential-sign; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 69 caller-authorized functions (111''s approve/execute_signing_key_recovery per E4; 59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; 102''s get_ticket_signing_context per credential-sign; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")

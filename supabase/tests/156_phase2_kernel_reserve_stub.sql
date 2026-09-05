@@ -38,11 +38,11 @@ SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE t.tgrelid = 'kernel.rese
 SELECT ok((SELECT p.proname = 'set_updated_at' AND n.nspname = 'kernel' FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE t.tgrelid = 'kernel.reserve'::regclass AND NOT t.tgisinternal), 'A18: …the 076 kernel.set_updated_at (plan Triggers row)');
 -- nothing else was created
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 31,
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'kernel' AND c.relkind = 'r'), 32,
   -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
   -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
-  'A19: kernel holds 31 tables — 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 289,
+  'A19: kernel holds 32 tables — 111''s approval table + 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 292,
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -71,7 +71,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A20: 091 creates NO function (five-schema routines 289 post-110)');
+  'A20: 091 creates NO function (five-schema routines 292 post-111)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');
