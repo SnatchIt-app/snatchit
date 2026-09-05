@@ -272,3 +272,15 @@ contributes 36/36 passing to that total.
 
 No predicate conjunct was weakened or added; all three items above are packaging/documentation
 gaps around the predicate, not changes to `ADMIT(token)` itself.
+
+## 8. CLOSURE — SCANNER-CONTRACT-v1 (2026-09-05, commit 3039f8c)
+
+Items 1–3 above are closed by `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` and the module additions in
+`_shared/offline-verify.ts`: (1) `toDoorReason` is the documented translation layer onto door §9.2's six
+operator reasons (`null` where §9.2 defines no copy); (2) the manifest-authority gate's placement is stated in
+the contract's refusal order (immediately before 3b); (3) `decodeOfflineToken`/`verifyOfflineWire` make the
+token/claims boundary structural — every predicate field is derived from the one signed wire string, extra
+keys are malformed, and `tests/scanner-contract.test.ts` proves no parallel field can bypass the signed claims.
+New: `m1FromWire`/`m2FromWire` (fail-closed wire adapters), `verifyDoorManifestSignature` (DOOR-MANIFEST-SIG-v1),
+golden fixtures `tests/fixtures/scanner-contract-v1.json`. Finding P1-M2-HEADER (the 086 RPC body lacks
+`open/session_id/not_after`) is recorded in the contract §7. The mobile scanner remains external and unimplemented.

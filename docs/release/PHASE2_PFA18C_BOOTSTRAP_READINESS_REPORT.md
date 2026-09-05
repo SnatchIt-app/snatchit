@@ -106,7 +106,7 @@ before any issuance volume. No hardware/commitment beyond the Object-Lock retent
   (`alg_mismatch` first); EdDSA covered only within the existing verifier contract; `verifyCanonicalSignature` regression reproduced with the
   edge's exact `atob`+WebCrypto primitive shape (PEM ⇒ false before, true through the fix); `offlineVerify` admits PEM Ed25519/ES256 M1
   entries and refuses malformed ones. AWS signing remains ES256-only.
-- **Mobile / scanner boundary — UNVERIFIED, contract stated:** this repository's `app/` contains no door/scan screen and no verifier; the
+- **Mobile / scanner boundary — external, NOT implemented; contract now versioned as SCANNER-CONTRACT-v1 (`docs/phase2/SCANNER_VERIFIER_CONTRACT.md`, commit 3039f8c) with golden fixtures; P1-M2-HEADER recorded there:** this repository's `app/` contains no door/scan screen and no verifier; the
   offline predicate lives only in `supabase/functions/_shared/offline-verify.ts`. Contract for the scanner SDK: (1) it MUST call the exported
   `normalizeSpkiPublicKey(M1[kid].public_key, M1[kid].algorithm)` (or `offlineVerify`, which does) before its verify primitive and treat `null`
   as a refusal, never as a signature failure; (2) its primitive MUST accept canonical bare-base64 SPKI DER only; (3) required tests: PEM and bare

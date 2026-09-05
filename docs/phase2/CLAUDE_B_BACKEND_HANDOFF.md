@@ -195,3 +195,13 @@ No existing client contract changed. New backend surfaces for the door/scanner c
   offline device stays bounded by its downloaded `not_after` (≤ `door.manifest_ttl_interval`).
 - **Still gated:** the whole door plane is inert until the owner signs PFA-18B (revoke), PFA-26 (PIN),
   and the service_role auth-path conformance item lands on `record_scan`/`reconcile_offline_scans`.
+
+## 2f. 2026-09-05 scanner verifier contract closure — DARK, contract only (commit 3039f8c)
+
+For whoever builds the scanner: `docs/phase2/SCANNER_VERIFIER_CONTRACT.md` (SCANNER-CONTRACT-v1) is the boundary.
+Use `verifyOfflineWire(wire, ctx)` from `supabase/functions/_shared/offline-verify.ts` semantics (or reproduce them),
+`m1FromWire` / `m2FromWire` for the two manifests, `verifyDoorManifestSignature` for the `door-manifest` artifact,
+`toDoorReason` for operator copy. Conformance = reproduce every vector in `tests/fixtures/scanner-contract-v1.json`.
+Two server-side gaps you will hit until fixed (not client work): `venue.get_door_manifest` does not yet return
+`open/session_id/not_after` (a conforming scanner refuses `manifest_header_incomplete`), and the `door-manifest`
+response carries no `signature.key_id`. No client contract was changed; nothing is deployed.
