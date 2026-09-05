@@ -24,7 +24,7 @@ Files: `supabase/migrations/110_signing_key_insert_guard.sql` · `supabase/rollb
 | 7 | `pg_advisory_xact_lock(hashtext('kernel.signing_key:global_insert'))` | — | serializes global inserts |
 | 8 | `key_id` already present | `duplicate_key_id` | append-only (named, ahead of the PK) |
 | 9 | an `active`/`rotating` global row exists | `active_global_exists` | exactly one active global; rotation parked |
-| 10 | a `revoked` global row exists, none active | `post_revoke_recovery_parked` | **fail closed** until the two-person recovery migration |
+| 10 | a `revoked` global row exists, none active | `post_revoke_recovery_parked` | **fail closed** until the two-person recovery migration — **superseded by migration 111 (E4)**, which replaces this rule with the two-approval check; see `E4_MIGRATION_111_RECOVERY_SPEC_AND_REVIEW.md` |
 | 11 | keyring empty and `key_id <> …b0` | `bootstrap_key_id_required` | sanctioned lineage (ruling B) |
 
 Reads no GUC, config key, role, or env value. Zero-grant (revoked from public/anon/authenticated/service_role). The 083/103 immutable

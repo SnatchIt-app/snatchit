@@ -260,3 +260,29 @@ OUTSTANDING** (not installed). Full report: `docs/phase2/M6_MIGRATION_110_SPEC_A
 ### SESSION 5 MUTATION LEDGER
 AWS: **none.** Production DB: **none** (no connection made this session). KMS: **not created.** Secrets: **none.** Migration 110: **written,
 rehearsal-applied locally, NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
+
+---
+
+## SESSION 6 — 2026-09-05 — E4 GATED TWO-PERSON POST-REVOKE RE-BOOTSTRAP (MIGRATION 111, LOCAL / REHEARSAL ONLY)
+
+Authorization: local specification/tests/migration artifact only. **AWS FREE, unchanged. No AWS resource/KMS key/secret/organization. No
+deployment, activation, or money movement. NOT applied to production. Production ledger 124 / tip 109 / 0 keys / dark — UNCHANGED.**
+No owner ratification wording changed.
+
+Artifact: `supabase/migrations/111_signing_key_recovery_two_person.sql` (+ generated rollback embedding 110's guard verbatim, pgTAP suite 177,
+176 F2 updated, rehearsal census bumps). Adds the append-only `kernel.signing_key_recovery_approval` (RLS on, zero policies, zero client/
+service_role grants), a pure fingerprint helper, `approve_signing_key_recovery` + `execute_signing_key_recovery` (platform_admin + aal2, two
+DISTINCT identities, 30-minute window, executor must be an approver, fingerprint-bound, ES256 explicit, idempotent, audited) and re-creates the
+110 guard so rule 10 admits a post-revoke row only with two unexpired matching approvals. Preconditions everywhere: zero active, EXACTLY ONE
+revoked (0 ⇒ not applicable — the initial bootstrap is the §6.1 ceremony; >1 ⇒ lineage exceeded, needs its own ratification), unused key_id.
+PFA-18A provision/rotate parked; PFA-18B revoke untouched. Residual disclosed: one human with two admin identities is detectable, not preventable.
+
+Evidence: fresh replay through 111 (no migration skipped; Gate-2 27/70/37/26); suite 177 67/67; suite 176 51/51; full pgTAP plan 3813 · ok 3809 · not_ok 4 (only the 4
+documented local-only deltas); transaction-rollback probe (rolled-back recovery insert leaves 0 active, approvals intact); concurrency probe
+(second session blocked on the advisory lock, then refused `active_global_exists`); 111 rollback restores 110's `post_revoke_recovery_parked`,
+re-apply ×2 clean; vitest 729/729; typecheck clean; lint 0 errors; G-4 PASS; **`deno check` OUTSTANDING**. Report:
+`docs/phase2/E4_MIGRATION_111_RECOVERY_SPEC_AND_REVIEW.md`. **Tested commit: `927a02a`.**
+
+### SESSION 6 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (no connection made). KMS: **not created.** Secrets: **none.** Migrations 110/111: **rehearsal-applied
+locally, NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
