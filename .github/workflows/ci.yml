@@ -66,6 +66,12 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      # F18: the shared-package parity suites (packages/core, packages/design-
+      # tokens) import the mobile + edge originals AND the package copies; they
+      # resolve `vitest` from the ROOT install, so they run here, not in web/.
+      - name: Shared package parity tests
+        run: npx vitest run -c packages/vitest.config.ts
+
   # ---------------------------------------------------------------------------
   # db: prove the migration chain applies cleanly on a FRESH database.
   #
@@ -858,10 +864,6 @@ jobs:
       - name: Web unit tests
         if: steps.detect.outputs.exists == 'yes'
         run: npm run test
-
-      - name: Shared package parity tests (packages/core, packages/design-tokens)
-        if: steps.detect.outputs.exists == 'yes'
-        run: npm run test:packages
 
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
