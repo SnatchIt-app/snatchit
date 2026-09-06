@@ -115,7 +115,7 @@ Follow-up migration needed: relax `stripe_connect_archive.profile_id` FK so arch
 ## Integrated draft PR
 
 Branch `fix/payments-reliability` → `main`. Final local evidence: `05_VERIFICATION.md` §1 (rollback rehearsal, final run)
-and §4 (whole-branch table). CI on the final push: run id recorded below once green. The `AUTODEPLOY-VERIFIED-OFF` line in
+and §4 (whole-branch table). CI on the final code commit `ee14995`: run 34047176113 — db, web, quality, deno-check all green. The `AUTODEPLOY-VERIFIED-OFF` line in
 the PR body is left as a placeholder on purpose — the migrations guard is expected to FAIL until the owner confirms the
 Supabase deploy-on-merge integration is off in the dashboard and fills in the date. Merging never implies applying; the
 apply/deploy order is `04_RELEASE_PLAN.md` §1.
