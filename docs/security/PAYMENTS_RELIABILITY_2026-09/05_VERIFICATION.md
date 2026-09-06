@@ -7,8 +7,25 @@ production — none of the latter were executed (see §5).
 
 ## 1. Reverse rollback rehearsal (3 → 2 → 1 → re-apply 1 → 2 → 3 → re-apply again)
 
-Database `snatchit_pay_rb_rehearsal`, fresh replay of the 92-migration chain (main's 89 + the three packages).
-Census = public tables | functions | policies | triggers | md5 over the 16 package function definitions.
+Final run (2026-09-06, integrated branch incl. P1/P2/P3 rev 2) on `snatchit_pay_rehearsal`, fresh replay of the 92-migration
+chain (main's 89 + the three packages). Census = public tables | functions | policies | triggers | md5 over EVERY public
+function definition (`pg_get_functiondef`, ordered by signature). The pre-revision run is kept below for the record.
+
+| Step | Census / chain hash (final run) |
+|---|---|
+| fresh replay (all three) | `30 | 84 | 37 | 30 | 1c3ffd668ffdb96d14e28eb469fbeda7` |
+| rollback 20260906120000 (P3) | `27 | 72 | 37 | 24 | 156ca673…` |
+| rollback 20260906110000 (P2) | `27 | 70 | 37 | 24 | a594667c…` |
+| rollback 20260906100000 (P1) | `27 | 69 | 37 | 24 | c151beb8…` (= main-only baseline) |
+| apply P1 | `27 | 70 | 37 | 24 | a594667c…` (identical to post-P2-rollback state) |
+| apply P2 | `27 | 72 | 37 | 24 | 156ca673…` |
+| apply P3 | `30 | 84 | 37 | 30 | 1c3ffd668ffdb96d14e28eb469fbeda7` (identical to fresh replay) |
+| second apply of all three | succeeds (idempotent; each migration is re-runnable) |
+
+Suites on the reapplied database (harness run): plan=597 ok=595, the only deltas being the two known db-name assertions in
+`132_replay_parity.sql`. Package suites: 060 12/12 · 120 58/58 · 121 89/89 · 122 60/60 · 123 51/51 · 124 40/40.
+
+Pre-revision run (2026-09-06, before the review rounds), census over the 16 package functions only:
 
 | Step | Census / chain hash |
 |---|---|
@@ -33,6 +50,8 @@ original migration text (0590 for P1, 000 for P2; P3 adds objects only).
 | P1 rev2 (review fixes) | 120 not_ok=7 (H1–H9); vitest 11 failed | 58/58; 142/142 root |
 | P2 | pgTAP 121 `ok=0 psql_err=83`; vitest 24 failed | 121 75/75; 158 root |
 | P3 | pgTAP 122 `not_ok=5 psql_err=57`, 123 `not_ok=23 psql_err=18`, 124 `psql_err=32`; vitest 27 failed | 122 53/53, 123 51/51, 124 24/24, 060 12/12 (TODOs now real) |
+| P2 rev2 (review fixes) | pgTAP 121 `1..89` with 10 not ok (C6 C7 N1 N2 O1 F5 J10–J13); vitest 8 failed | 121 89/89; 232/232 root |
+| P3 rev2 (review fixes) | pgTAP 122 7 not ok / 124 16 not ok (+ psql errors); vitest 5 failed | 122 60/60, 124 40/40; 227/227 root |
 
 ## 3. Required scenarios → where proven
 
@@ -56,8 +75,17 @@ original migration text (0590 for P1, 000 for P2; P3 adds objects only).
 
 ## 4. Whole-branch runs (integration branch, three packages merged)
 
-Recorded in `implementation/` and the final report: replay 92/92; Gate-2 30/83/37/28; full pgTAP; root vitest; web
-vitest/typecheck/lint; package parity; CI run ids.
+Final integrated branch (`fix/payments-reliability`, all revisions merged):
+
+| Check | Result |
+|---|---|
+| fresh replay (loopback harness) | 92/92, `GATE-2 tables=30 functions=84 policies=37 triggers=30` (= `ci.yml` EXPECT_*) |
+| full pgTAP | plan=597 ok=595 (only `132_replay_parity.sql` known db-name deltas) |
+| root vitest (13 files) | 237/237 |
+| `npm run typecheck` / `npm run lint` | clean / 0 errors, 44 pre-existing warnings |
+| packages parity (`packages/vitest.config.ts`) | 108/108 |
+| web vitest / `tsc --noEmit` | 165/165 / clean |
+| CI (`db`, `web`, `quality`, `deno-check`) | see `07_DRAFT_PRS.md` for the run id of the final push |
 
 ## 5. Not executed (and why)
 
@@ -68,4 +96,4 @@ vitest/typecheck/lint; package parity; CI run ids.
   one sandbox pass per package on a staging project (never the production project).
 - Fresh replay on the pinned Supabase CLI stack: performed by CI's `db` job (Docker is unavailable locally); the
   loopback harness is the local approximation and documents its fidelity ledger.
-- `deno check`: runs in CI (advisory); not available locally.
+- `deno check`: runs in CI as the blocking `deno-check` job (all 21 pre-existing errors fixed in this branch); not available locally.
