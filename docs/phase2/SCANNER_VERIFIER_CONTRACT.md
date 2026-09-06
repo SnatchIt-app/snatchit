@@ -44,9 +44,15 @@ construct the decoded token by hand or accept any field from another channel (a 
 
 ## 2. M1 contract (key manifest)
 
-- **Source:** the world-readable `kernel.signing_key` projection `{ key_id, scope, event_id, venue_id, public_key, algorithm, status,
-  not_before, not_after }` (083 grant + 103 `algorithm`), read with a **staff JWT** (PFA-16: `authenticated`, never `anon`). A door-session
-  route for M1 does not exist (§7).
+- **Source (ONE authority: `kernel.signing_key`).** Two delivery paths, the same rows, the same 9-field public projection
+  `{ key_id, scope, event_id, venue_id, public_key, algorithm, status, not_before, not_after }` (083 grant + 103 `algorithm`):
+  - **staff / client:** the table projection, read with a staff JWT (PFA-16: `authenticated`, never `anon`) — unchanged;
+  - **bearer-only door device:** `door-session /keys` → `venue.get_signing_keys_door(session, door_session_id, token, device)` (migration
+    114, service_role-only, `kernel.assert_door_session` the sole gate; commit `2153f44`, rehearsal only). Response `{ session_id, event_id,
+    venue_id, generated_at, keys: [rows] }` → `m1FromDoorKeysResponse(resp)`. Scope is the RPC's, bound to the door session: every `global`
+    key + `per_event` keys of the bound session's event + `per_venue` keys of its venue, **all statuses and windows** (the verifier applies
+    `key_revoked`/`key_window`; the RPC never pre-filters — a device must be able to refuse a revoked key by name, not as `unknown_key`).
+    Never `kms_handle_ref`, never identity, never an unrelated event's/venue's rows. M1 refresh: at check-in setup and on every reconnect.
 - **`public_key` format:** the DB stores an SPKI **PEM** block (runbook D3); a fixture/legacy row may carry bare base64 SPKI DER. The verifier
   MUST run `normalizeSpkiPublicKey(public_key, algorithm)` before its primitive: exactly one `PUBLIC KEY` PEM block **or** bare canonical
   base64 → canonical bare-base64 SPKI DER; refuses `PRIVATE KEY` material, other labels, malformed base64, non-SEQUENCE DER, and any SPKI whose
@@ -98,27 +104,47 @@ construct the decoded token by hand or accept any field from another channel (a 
   `already_admitted` → `duplicate`; every signature/key/manifest-authority/malformed refusal → `null` (generic "not a valid pass here";
   the scanner MUST NOT map these onto a §9.2 reason).
 
-## 4. DOOR-MANIFEST-SIG-v1 (the `door-manifest` edge signature) — versioned contract for a missing integration
+## 4. DOOR-MANIFEST-SIG-v1 (the `door-manifest` edge signature) — IMPLEMENTED IN REHEARSAL (commit `2153f44`; not deployed)
 
-**Audit result.** The edge signs `canonicalManifestDigestBytes(open)` = `JSON.stringify({ manifest_id, manifest_version, session_id,
-not_after, manifest_digest })` (that key order, UTF-8) with `kmsSigner.sign(DOOR_MANIFEST_KMS_HANDLE_REF, bytes, 'ES256')` and returns
-`{ manifest, signature: { value: base64(raw R‖S), algorithm: 'ES256' } }`. **No canonical source in the repository tells a verifier which
-public key to use:** the handle comes from an env var, not from `kernel.signing_key`; `get_door_manifest` excludes `public_key`
-(PFA-24); no manifest-key registry, RPC, or M1 field names "the manifest key"; edge §5.4.2's "manifest key (also KMS)" is specified but
-nothing implements or distributes it. No live key, KMS resource, DB row or deployment path is invented here.
+**Signed bytes (unchanged):** `canonicalDoorManifestSignedBytes(header)` = `JSON.stringify({ manifest_id, manifest_version, session_id,
+not_after, manifest_digest })` in that key order, UTF-8 — byte-identical to the edge's `canonicalManifestDigestBytes` (unit-tested parity).
 
-**Contract (v1):** the artifact MUST carry `signature.key_id` — the `kernel.signing_key.key_id` whose `kms_handle_ref` is the handle the edge
-signed with — and `signature.algorithm`; `signature.encoding` is `raw-r-s`; `value` is **standard** base64 of the 64-byte raw signature.
-The verifier (`verifyDoorManifestSignature(artifact, m1, verify, now)`) rebuilds the canonical bytes from the received header (never trusts
-a supplied byte string), resolves `M1[key_id]` under the same status/window/alg-pin/normalizer rules as a ticket credential, and refuses
-`unsigned` (signature `null` — TLS-only fallback; policy is the scanner's), `missing_key_id`, `unsupported_alg`, `unknown_key`,
-`key_revoked`, `key_window`, `alg_mismatch`, `malformed_public_key`, `malformed_signature`, `signature_invalid`.
+**Envelope:** `{ manifest, signature: { value, algorithm: 'ES256', key_id } }` — EXACTLY those three signature fields
+(`buildSignatureEnvelope`, `door-manifest/pure.ts`); `value` is **standard** base64 of the 64-byte raw `R‖S`; the encoding is fixed by
+this version and is not carried as a field. No handle, no public key, no identity.
 
-**What the edge must gain before this integration is live (not done here):** resolve `key_id` for its handle (needs a definer RPC such as
-`kernel.get_manifest_signing_key_id()` reading the fenced `kms_handle_ref`, or an owner-ratified env pairing `DOOR_MANIFEST_KMS_HANDLE_REF`
-↔ `DOOR_MANIFEST_KEY_ID`), include `key_id`/`encoding` in the response, and — the owner decision edge §3.9b leaves open — whether M2 stays
-TLS-only for MVP. Fixture `door_manifest` in the golden file is a v1-conformant artifact (signed with a throwaway key) so an external verifier
-can be tested today.
+**Key identity — the source of truth.** `signature.key_id` is the `kernel.signing_key.key_id` of the **single active `global` key**
+(083 `signing_key_active_global_uq` ⇒ at most one), resolved by the edge through `venue.get_manifest_signing_context()` (114,
+service_role-only, called AFTER the caller was authorized by `venue.get_door_manifest`). That ONE row supplies `key_id`, `kms_handle_ref`
+(the handle the edge signs with), `algorithm` and `public_key`. The former env-only `DOOR_MANIFEST_KMS_HANDLE_REF` inference is **removed**:
+an environment identifier names no `key_id` and cannot be proven to correspond to one. The manifest key is therefore the same key M1
+distributes as the platform trust root — there is no second registry.
+
+**Fail-closed chain at the edge (before any KMS call):** RPC error ⇒ `manifest_signing_unavailable`; `status:'unavailable'` (stable codes
+`no_active_global_key | ambiguous_active_global_key | key_window | algorithm_not_es256`) ⇒ `manifest_signing_key_unavailable`; the edge
+re-pins ES256 / `key_status='active'` / window itself (`classifyManifestSigningContext`) ⇒ same code; a row whose `public_key` the shared
+normalizer (`normalizeSpkiPublicKey`, P1-PUBKEY-FORMAT) rejects ⇒ `manifest_signing_key_malformed`; malformed context shape ⇒
+`manifest_signing_context_malformed`. All are `500`, Sentry + audit line, KMS never reached.
+
+**Proof of handle ↔ key_id, per response (sign-after-verify, credential-sign §9 discipline):** after `kms:Sign(kms_handle_ref, bytes)`
+the edge verifies the returned bytes under the SAME row's normalized `public_key` with WebCrypto ES256. A `false` means the handle does
+not correspond to the key the response would name (mis-bound ceremony, wrong key version, DER/raw drift): `500 manifest_signing_unhealthy`,
+Sentry (SECURITY class), **nothing emitted, never retried**. Combined with E2's key-ARN scope check (`kms_handle_scope_mismatch`, region +
+role account), a signature can only leave the edge if it verifies under the public key of the row whose `key_id` it names.
+
+**Operational binding the ceremony MUST satisfy (runbook `PRODUCTION_SIGNING_KMS_CEREMONY.md`):**
+1. D4 — the §6.1 bootstrap INSERT's `kms_handle_ref` is the FULL ARN of the key created at `CreateKey` (110 guard rejects anything else);
+2. D3/D5 — `public_key` is the SPKI PEM exported from THAT key; `signing.expected_key_fingerprint` = SHA-256(DER) (099 monitor);
+3. E2 — the runtime signer role's account and region equal the ARN's (otherwise every sign fails `kms_handle_scope_mismatch`, SECURITY);
+4. nothing else: no env var names the manifest key; rotation = a new active global row (the edge follows the row; the old key stays
+   verifiable in window per §2's rotation rule); revocation = 106 (force-close) and the context turns `no_active_global_key` — the edge
+   stops signing until the E4 two-person recovery inserts a new active global row.
+
+**Verifier (unchanged rules):** `verifyDoorManifestSignature(artifact, m1, verify, now)` rebuilds the canonical bytes from the received
+header (never trusts a supplied byte string), resolves `M1[key_id]` under the same status/window/alg-pin/normalizer rules as a ticket
+credential, and refuses `unsigned`, `missing_key_id`, `unsupported_alg`, `unknown_key`, `key_revoked`, `key_window`, `alg_mismatch`,
+`malformed_public_key`, `malformed_signature`, `signature_invalid`. **Rotation:** a `rotating` key verifies while in window; **revocation:**
+refused by name on the next M1 refresh. Real-output evidence: §8.
 
 ## 5. Preserved guarantees
 
@@ -131,10 +157,11 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
 | Component | In this repo | Status |
 |---|---|---|
 | reference decoder / adapters / manifest-signature verifier / operator map | yes (`_shared/offline-verify.ts`) | implemented + tested |
-| golden fixtures + conformance suite | yes | implemented + tested (19 token vectors, 1 manifest artifact) |
+| golden fixtures + conformance suite | yes | implemented + tested (19 token vectors, 1 manifest artifact) + real-rehearsal evidence (`tests/fixtures/m2-rehearsal-evidence.json`) |
 | mobile scanner app (QR capture, primitive, M1/M2 caching, admitted set, UI) | **no** (`app/` has no door/scan code) | **NOT implemented; external; must satisfy the fixtures** |
-| `door-manifest` `key_id`/`encoding` in the response; manifest-key registry | no | **NOT implemented** (§4) |
-| M1 bundle signing (edge §5.4.2 "signed by a manifest key") | no | **NOT implemented**; M1 integrity is TLS + RLS today |
+| `door-manifest` `signature.key_id` from `kernel.signing_key` (114 `get_manifest_signing_context`); sign-after-verify | yes | **implemented in rehearsal** (`2153f44`); not deployed |
+| M1 delivery to a bearer-only door device (`door-session /keys` → 114 `get_signing_keys_door`) | yes | **implemented in rehearsal** (`2153f44`); not deployed |
+| M1 bundle signing (edge §5.4.2 "signed by a manifest key") | no | **NOT implemented — explicitly open**; M1 integrity is TLS + the door-session gate (device) / RLS (staff). Would add a second signed artifact type to the ratified protocol; not done in 114. |
 
 ## 7. Findings (external-boundary risks; nothing changed in production)
 
@@ -197,10 +224,14 @@ add a `malformed_token` refusal ahead of step 0 and adapters that fail closed.
     (even with VALID door credentials) and direct core calls ⇒ `permission denied`; closed and expired manifests ⇒ `no_open_manifest`;
     staff path unchanged. pgTAP `supabase/tests/179_get_door_manifest_door_machine_authority.sql` (45) covers the same matrix plus grants,
     definer/volatility invariants, census, and rollback→reapply.
-- **P2-MANIFEST-KEY** — §4: no verify-key distribution for the M2 signature; edge response lacks `key_id`.
-- **P2-M1-DELIVERY** — no door-session route serves M1; a door device authenticated only by a door-session bearer cannot read
+- **P2-MANIFEST-KEY — RESOLVED IN REHEARSAL (114 + `door-manifest`, `2153f44`).** `signature.key_id` now names the single active global
+  `kernel.signing_key` resolved through `venue.get_manifest_signing_context()`; the env-only handle is gone; every emitted signature is
+  verified under that row's public key before it leaves the edge (§4).
+- **P2-M1-DELIVERY — RESOLVED IN REHEARSAL (114 + `door-session /keys`, `2153f44`).** `venue.get_signing_keys_door` serves the bound
+  scope's public projection to a bearer-only device (§2). *Former text:* no door-session route serves M1; a door device authenticated only by a door-session bearer cannot read
   `kernel.signing_key` (PFA-16 grants `authenticated`). Either the staff sets up M1 with a staff JWT at check-in or a `/keys` relay is added.
-- **P3-M1-SIGNING** — edge §5.4.2's signed M1 bundle is unimplemented; M1 integrity rests on TLS + RLS.
+- **P3-M1-SIGNING — OPEN (explicitly kept).** edge §5.4.2's signed M1 bundle is unimplemented; M1 integrity rests on TLS + the door-session
+  gate (device) / RLS (staff). Implementing it would add a second signed artifact type to the ratified protocol — deliberately not bundled into 114.
 - **Operator vocabulary** — door §9.2 defines copy for 3b/3c refusals only; the scanner's generic-refusal state for signature/key/manifest
   failures is a UI decision outside this contract (recorded, not invented).
 
@@ -219,3 +250,22 @@ plan 3899 · ok 3895 · not_ok 4 (only the documented 060×2/132×2 local deltas
 venue 83, both new functions gone, 178 green / 179 absent-function errors; double reapply ⇒ venue 85, grants correct;
 `tests/door-session.test.ts` +10, `tests/m2-rehearsal-evidence.test.ts` +8 (15); full vitest 777 passed (777); typecheck clean; lint
 0 errors (45 pre-existing warnings); G-4 PASS. **`deno check` (CI):** run 33999411593 at a122a6c — Deno type-check success (door-session/pure.ts + index.ts included), Typecheck/Lint/Unit success, Migrations success, Web build success.
+
+**M1 delivery + manifest key identity train (commit `2153f44`).** Fresh rehearsal replay through 114 (Gate-2 27/70/37/26; venue 87 /
+five-schema 296); full pgTAP plan 3941 · ok 3937 · not_ok 4 (documented 060×2/132×2 only); suites 178 41/41, 179 45/45, **180 42/42**
+(grants + PUBLIC revoked + definer invariants + census; staff projection unchanged — 9 columns, `kms_handle_ref` fenced, PFA-16 policy
+intact; M1 door read = exactly the 6 in-scope rows incl. rotating/revoked/future, unrelated event + venue rows absent, 9-field projection
+per row, no handle/ARN leak; wrong token/device/session, no-credential service_role, anon/authenticated direct refused; signing context =
+the active global key with the same `public_key` M1 lists; no active global ⇒ `no_active_global_key` while M1 shows the key `rotating`;
+revoked door session refused); rollback 114 ⇒ venue 85, both functions gone, staff projection intact, double reapply idempotent.
+**Real rehearsal output** (`scripts/rehearsal_m2_evidence.sh`: a throwaway P-256 key's PUBLIC half is inserted as the active global row
+inside the rolled-back capture; its private half signs the captured open manifest's canonical header once and is discarded; the fixture
+carries no handle, secret, or private material — asserted): `tests/m2-rehearsal-evidence.test.ts` 25/25 — the real artifact verifies under
+DOOR-MANIFEST-SIG-v1 against M1 built from the real `/keys` output (`m1FromDoorKeysResponse`); missing `key_id`, unknown key, revoked key,
+out-of-window rotating key, future key, alg mismatch, tampered header, unsigned all refused with the contract's codes; key-window boundaries
+on real rows (rotating key verifiable AT `not_after`, refused after; future key refused before `not_before`, window-ok at it); direct
+anon/authenticated/service_role access outcomes; the shared normalizer accepts the real PEM. `tests/door-manifest.test.ts` +5
+(`classifyManifestSigningContext` re-pins ES256/active/window; `buildSignatureEnvelope` is exactly three fields), `tests/door-session.test.ts`
++3 (`/keys` dispatch, `buildKeysMachineCall`); full vitest 796 passed (796); typecheck clean; lint 0 errors (45 pre-existing warnings);
+G-4 PASS; CI run 34000767749 at `2153f44`: Deno type-check (edge functions incl. the rewired `door-manifest`/`door-session`) success, Typecheck/Lint/Unit
+success, Migrations success, Web build success.

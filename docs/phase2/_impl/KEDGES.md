@@ -102,6 +102,16 @@ session in the database and reads for the BOUND session it derives itself.
 mismatch); anything else is a 500 + Sentry with `redactSecret` applied. Not
 deployed. Commit `a122a6c`.
 
+### `/keys` → `venue.get_signing_keys_door` (migration 114, P2-M1-DELIVERY — rehearsal only)
+
+New relay route for M1: parse body base → `admitRelayCall` (rate limit +
+opaque auth) → `buildKeysMachineCall` → the service_role MACHINE RPC, which
+re-asserts the door session and returns the keyring for the BOUND scope
+(global + the event's per_event + the venue's per_venue keys, all statuses)
+as exactly the PFA-16+103 public projection. Same error discipline as
+`/manifest/sync` (`classifyMachineRpcError`, `redactSecret`). Scanner side:
+`m1FromDoorKeysResponse`. Commit `2153f44`. Not deployed.
+
 ## `door-manifest` (§3.9b) — routes, auth model, DARK behavior
 
 - **`verify_jwt: true`, Class A, single route.** Staff JWT
@@ -140,8 +150,9 @@ deployed. Commit `a122a6c`.
 - **Data minimization.** The response is `{manifest, signature}` where
   `manifest` is exactly what `get_door_manifest` returned (it already
   excludes `public_key`/identity per PFA-24) and `signature` is
-  `{value: base64, algorithm}` only — no key handle, no public key returned
-  to the client.
+  `{value: base64, algorithm: 'ES256', key_id}` only (114; `key_id` is the
+  non-secret row selector a verifier resolves against M1) — no key handle,
+  no public key returned to the client.
 - **Rate limit** (30/60, `check_rate_limit` keyed on the caller's
   `auth.uid()`): not literally named by §3.9b, added per the parent brief's
   general "rate-limit-fail-closed" shell requirement and mirroring
@@ -157,14 +168,19 @@ deployed. Commit `a122a6c`.
    what the tests assert. An owner ceremony should ratify (or replace) these
    values before any real deploy, since changing them later silently resets
    every derived rate-limit bucket.
-2. **`door-manifest`'s KMS key handle/algorithm.** Unlike M1
-   (`kernel.get_ticket_signing_context` resolves a per-atom pinned key), no
-   RPC in the corpus resolves a manifest-signing key/handle/algorithm for
-   M2. I read an inferred env var (`DOOR_MANIFEST_KMS_HANDLE_REF`, default
-   empty) and hardcode `ES256` (AWS KMS's only offered algorithm per
-   `kms.ts`'s own header). Both are inert while `KMS_PROVIDER` is unset
-   (the only reachable state here) — flagged as an open question for
-   whichever change first sets `KMS_PROVIDER=aws` for this function.
+2. **`door-manifest`'s KMS key handle/algorithm — RESOLVED (114, commit `2153f44`, rehearsal only).**
+   The original inference (an env var `DOOR_MANIFEST_KMS_HANDLE_REF` + hardcoded
+   `ES256`) is gone. The edge now resolves the manifest-signing key identity
+   from the canonical authority via `venue.get_manifest_signing_context()`
+   (service_role; the single active GLOBAL `kernel.signing_key` row: key_id,
+   kms_handle_ref, algorithm, public_key, window), re-pins ES256/active/window
+   itself (`classifyManifestSigningContext`, fail closed before KMS), signs
+   with that row's handle, and sign-after-verifies the bytes under that row's
+   public key before responding (`manifest_signing_unhealthy` otherwise, never
+   emitted). The envelope is exactly `{ value, algorithm:'ES256', key_id }`
+   (`buildSignatureEnvelope`). Ceremony binding: runbook D4 (full key ARN as
+   kms_handle_ref), D3/D5 (public_key/fingerprint from that key), E2 role
+   scope — see SCANNER_VERIFIER_CONTRACT.md §4.
 3. **`/mint` vs `/refresh` rate-limit action key.** §3.9a describes them as
    one combined "`/mint`+`/refresh` … 5/60" line item; I read that as one
    shared action bucket (`door-pin:mint`) rather than two separate 5/60

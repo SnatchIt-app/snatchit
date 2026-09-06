@@ -205,3 +205,21 @@ Use `verifyOfflineWire(wire, ctx)` from `supabase/functions/_shared/offline-veri
 Two server-side gaps you will hit until fixed (not client work): `venue.get_door_manifest` does not yet return
 `open/session_id/not_after` (a conforming scanner refuses `manifest_header_incomplete`), and the `door-manifest`
 response carries no `signature.key_id`. No client contract was changed; nothing is deployed.
+
+## 2g. 2026-09-05 M2 header, door machine authority, M1 delivery, manifest signature key identity — rehearsal only (commits f097115 · a122a6c · 2153f44)
+
+Both server-side gaps named in §2f are now closed **in rehearsal (not deployed, production unchanged)**, plus the door-authority gap
+found on the way:
+- **112** `venue.get_door_manifest` returns the stored header (`open, session_id, opened_at, not_after`); the `door-manifest` edge
+  classifies open / closed / malformed (malformed ⇒ `500 manifest_malformed`, never KMS).
+- **113** `venue.get_door_manifest_door` (service_role, `kernel.assert_door_session` the sole gate) — `door-session /manifest/sync`
+  relays through it; zero-grant core shared with the unchanged staff RPC.
+- **114** `venue.get_signing_keys_door` — **M1 for a bearer-only door device** via `door-session /keys` → `m1FromDoorKeysResponse`
+  (bound scope, all statuses, 9-field public projection, never `kms_handle_ref`); `venue.get_manifest_signing_context` — the
+  `door-manifest` edge's ONLY source of `signature.key_id` (the single active global `kernel.signing_key`), with sign-after-verify.
+  The envelope is `{ value, algorithm:'ES256', key_id }`; verify with `verifyDoorManifestSignature(artifact, m1, verify, now)`.
+- **Source of truth for keys: `kernel.signing_key`, one registry.** Staff/client read the table projection with a staff JWT
+  (unchanged); door devices read `/keys`; the edge names the key it signs with from the same rows. Ceremony binding (D3/D4/D5 + E2 role
+  scope) is in `SCANNER_VERIFIER_CONTRACT.md` §4. Real-rehearsal evidence: `tests/fixtures/m2-rehearsal-evidence.json` +
+  `tests/m2-rehearsal-evidence.test.ts`.
+- **Still open:** signed M1 bundles (edge §5.4.2) — M1 integrity is TLS + the door-session gate / RLS.
