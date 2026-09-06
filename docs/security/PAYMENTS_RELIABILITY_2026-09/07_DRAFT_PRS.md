@@ -1,7 +1,7 @@
 # Draft pull requests (stacked; review-ready branches — NOT to be merged or deployed without owner approval)
 
 The reviewable unit is the integrated branch `fix/payments-reliability` (lead tooling + CI gates + docs + the three
-packages with their review-round revisions merged). One draft PR is opened from it against `main` (link below); the
+packages with their review-round revisions merged). One draft PR is opened from it against `main`: https://github.com/SnatchIt-app/snatchit/pull/54; the
 package branches remain available for per-package review but are NOT independently deployable — the integrated edge
 sources depend on all three migrations (04 §1). The PR is migration-bearing:
 per `AGENTS.md` / `DEPLOYMENT_PATHS.md` it must carry `AUTODEPLOY-VERIFIED-OFF: <date>` (an owner statement that the
