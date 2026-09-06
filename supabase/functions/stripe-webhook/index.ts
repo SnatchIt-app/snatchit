@@ -725,6 +725,28 @@ serve(async (req: Request) => {
           p_error:              { source: 'webhook:transfer.created', event_id: event.id },
         });
         if (recErr) {
+          // Review round 1 MINOR-5: an attempt id we do not know (a rollback
+          // that destroyed payout_attempts, or a hand-made transfer carrying
+          // our metadata) is not transient — retrying it for 3 days helps
+          // nobody. Record it ONCE as a review row and acknowledge; only a
+          // failure to write that row keeps the event retryable.
+          if (/\bATTEMPT_NOT_FOUND\b/.test(recErr.message ?? '')) {
+            const { error: reviewErr } = await supabase.from('webhook_retries').insert({
+              payment_id:    null,
+              listing_id:    null,
+              rpc_name:      'transfer.created',
+              error_message: `ATTEMPT_NOT_FOUND:${attemptId}:${tr.id}`,
+              resolved:      false,
+            });
+            if (reviewErr) {
+              console.error('Webhook: transfer.created — ATTEMPT_NOT_FOUND and the review row could not be written:', reviewErr);
+              return await finish(false, { stripe_transfer_id: tr.id, attempt_id: attemptId }, `transfer created review row: ${reviewErr.message}`);
+            }
+            console.warn('Webhook: transfer.created — unknown attempt id, queued for review', {
+              stripe_transfer_id: tr.id, attempt_id: attemptId, amount: tr.amount, destination: tr.destination,
+            });
+            return await finish(true, { stripe_transfer_id: tr.id, attempt_id: attemptId, review: 'ATTEMPT_NOT_FOUND' });
+          }
           console.error('Webhook: transfer.created — record_payout_attempt_result failed:', recErr);
           return await finish(false, { stripe_transfer_id: tr.id, attempt_id: attemptId }, `transfer created record: ${recErr.message}`);
         }

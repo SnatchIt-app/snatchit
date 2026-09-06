@@ -18,8 +18,17 @@
  *   done      auth user deleted (CASCADE: profiles, push_tokens, prefs)
  *
  * Gate outcomes: lookup error → 503 (never proceed on a blind read);
- * blockers → 409 with their kinds. A retry at phase 'cleaned' or later never
- * re-runs the gate (the user's rows are already anonymized).
+ * blockers → 409 with their kinds.
+ *
+ * Retries (review round 1, MINOR-1): the gate AND delete_account_cleanup run
+ * on EVERY attempt while phase < done — both are idempotent, and after a
+ * cleanup the user's old rows are sentinel-owned, so the gate only sees
+ * obligations created SINCE (the user can still log in and transact between
+ * 'cleaned' and the auth delete; payments/transfers.buyer_id/seller_id →
+ * auth.users carry no ON DELETE, so such a row makes deleteUser fail with an
+ * FK violation — a retry that skipped the gate would fail forever). Only the
+ * archive / storage / auth-delete steps resume from the recorded phase, and
+ * the ledger never moves backwards.
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -197,9 +206,11 @@ serve(async (req) => {
     }
 
     // ── 1. Gate: block while ANY money obligation is open ────────────────
-    // Re-run on every attempt until cleanup has happened; after 'cleaned'
-    // the user's money rows are anonymized and the gate can no longer see them.
-    if (phase === null || rank(phase) < rank('cleaned')) {
+    // Runs on EVERY attempt until 'done' (MINOR-1). After 'cleaned' the
+    // user's earlier money rows are sentinel-owned and invisible here, so
+    // what the gate sees on a retry is exactly the set of obligations created
+    // since — the ones that would make the auth delete fail on an FK.
+    {
       const { data: blockers, error: gateErr } = await supabase
         .rpc('account_deletion_blockers', { p_user_id: userId });
       if (gateErr) {
@@ -244,7 +255,11 @@ serve(async (req) => {
     // cancels active listings, anonymizes seller_id on listings and
     // buyer_id/seller_id on payments and transfers to the sentinel UUID
     // (00000000-0000-0000-0000-000000000000). Money rows are kept.
-    if (rank(phase!) < rank('cleaned')) {
+    // Runs on EVERY attempt (MINOR-1): it is atomic and idempotent (WHERE
+    // <party> = user matches nothing the second time), and a row created
+    // between 'cleaned' and the auth delete passed the gate above only if it
+    // is settled — it still has to be anonymized before the user row goes.
+    {
       const { error: cleanupErr } = await supabase.rpc('delete_account_cleanup', {
         p_user_id: userId,
       });
@@ -254,9 +269,8 @@ serve(async (req) => {
           error: 'Failed to clean up account data. Please try again or contact support.',
         }, 500, getResponseHeaders(req));
       }
-      if (!(await advance('cleaned'))) {
-        // Cleanup is atomic and idempotent; a re-run is safe. Still refuse to
-        // continue without the ledger — the gate must not run again.
+      // The ledger only moves forward: a retry from 'storage' stays at 'storage'.
+      if (rank(phase!) < rank('cleaned') && !(await advance('cleaned'))) {
         return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
       }
       console.log('[delete-account] listings cancelled and financial records anonymized');

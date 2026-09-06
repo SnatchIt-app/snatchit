@@ -6,8 +6,11 @@
  *   • clean ⇒ the account_deletions ledger advances gate → archived →
  *     cleaned → storage → done, the Connect id is recorded BEFORE cleanup,
  *     cleanup / storage / auth delete run once;
- *   • a retry resumes from the recorded phase and never re-runs the gate
- *     after 'cleaned'; 'done' is idempotent;
+ *   • a retry re-runs the gate AND delete_account_cleanup on EVERY attempt
+ *     while phase < done (both idempotent — after cleanup the user's old rows
+ *     are sentinel-owned, so the gate only sees obligations created SINCE);
+ *     only the archive / storage / auth-delete steps resume from the recorded
+ *     phase; 'done' is idempotent (review round 1, MINOR-1);
  *   • rate limiting stays fail-closed (503 on RPC error).
  */
 import { describe, expect, it } from 'vitest';
@@ -107,13 +110,45 @@ describe('delete-account ledger', () => {
     expect(h.phases()).toEqual(['gate', 'archived']);
   });
 
-  it('retry from phase cleaned ⇒ gate NOT re-run, cleanup NOT re-run, continues storage → done', async () => {
-    const h = await load({ existingPhase: 'cleaned', blockers: 'error' });   // a gate re-run would 503
+  it('retry from phase cleaned ⇒ gate AND cleanup re-run (idempotent), ledger continues storage → done', async () => {
+    const h = await load({ existingPhase: 'cleaned', blockers: [] });
     const res = await h.call();
     expect(res.status).toBe(200);
-    expect(h.calls).not.toContain('rpc:account_deletion_blockers');
+    expect(h.calls).toContain('rpc:account_deletion_blockers');
+    expect(h.calls).toContain('rpc:delete_account_cleanup');
+    expect(h.calls).not.toContain('profiles:select');            // archive step does not repeat
+    expect(h.phases()).toEqual(['storage', 'done']);              // ledger never moves backwards
+  });
+
+  it('retry from phase cleaned with a gate lookup error ⇒ 503 (the gate is never skipped before done)', async () => {
+    const h = await load({ existingPhase: 'cleaned', blockers: 'error' });
+    expect((await h.call()).status).toBe(503);
     expect(h.calls).not.toContain('rpc:delete_account_cleanup');
-    expect(h.phases()).toEqual(['storage', 'done']);
+    expect(h.phases()).toEqual([]);
+  });
+
+  // MINOR-1: payments/transfers.buyer_id/seller_id → auth.users carry no ON
+  // DELETE, so an obligation created between 'cleaned' and the auth delete
+  // (the user can still log in) makes deleteUser fail with an FK violation.
+  // The retry must see that NEW obligation — not skip the gate forever.
+  it('retry from phase storage (auth delete failed last time) ⇒ gate re-runs and a NEW obligation blocks with 409; cleanup not run', async () => {
+    const h = await load({ existingPhase: 'storage', blockers: [{ kind: 'pending_payment', ref_id: 'p_new' }] });
+    const res = await h.call();
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ blockers: ['pending_payment'] });
+    expect(h.calls).toContain('rpc:account_deletion_blockers');
+    expect(h.calls).not.toContain('rpc:delete_account_cleanup');
+    expect(h.phases()).toEqual([]);
+  });
+
+  it('retry from phase storage, clean ⇒ gate + cleanup re-run, storage step skipped, auth delete, phase done', async () => {
+    const h = await load({ existingPhase: 'storage', blockers: [] });
+    const res = await h.call();
+    expect(res.status).toBe(200);
+    expect(h.calls).toContain('rpc:account_deletion_blockers');
+    expect(h.calls).toContain('rpc:delete_account_cleanup');
+    expect(h.calls).not.toContain('bids:delete');
+    expect(h.phases()).toEqual(['done']);
   });
 
   it('retry from phase archived ⇒ gate re-runs (still allowed), archive step skipped', async () => {

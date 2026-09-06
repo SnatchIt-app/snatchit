@@ -11,7 +11,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(53);
+SELECT plan(60);
 SELECT tap.seed_core();
 SELECT tap.logout();
 
@@ -186,6 +186,45 @@ SELECT throws_ok(
        (transfer_id, payment_id, attempt_no, state, destination, amount_cents, idempotency_key, actor, lease_expires_at)
      VALUES (tap.transfer_a(), tap.payment_a(), 5, 'requested', 'acct_A', 9000, 'k5', 'test', now()) $$,
   '23505', NULL, 'one OPEN attempt per transfer');
+
+-- ── A6 (review round 1, MINOR-2): every writer locks transfers BEFORE
+-- payout_attempts, so a transfer.created webhook racing the 2b sweep cannot
+-- deadlock (40P01). A two-session probe needs dblink/pg_background, which the
+-- rehearsal stack does not ship; the order is asserted on the function
+-- sources instead (the FOR UPDATE statements are unique strings). ───────────
+SELECT ok((SELECT position('FROM public.transfers WHERE id = p_transfer_id FOR UPDATE' IN prosrc) > 0
+             AND position('FROM public.transfers WHERE id = p_transfer_id FOR UPDATE' IN prosrc)
+               < position('FROM public.payout_attempts a' IN prosrc)
+             FROM pg_proc WHERE proname = 'claim_payout_attempt' AND pronamespace = 'public'::regnamespace),
+  'A6 claim_payout_attempt: transfers FOR UPDATE precedes payout_attempts FOR UPDATE');
+SELECT ok((SELECT position('FROM public.transfers WHERE id = v_tid FOR UPDATE' IN prosrc) > 0
+             AND position('FROM public.transfers WHERE id = v_tid FOR UPDATE' IN prosrc)
+               < position('FROM public.payout_attempts WHERE id = p_attempt_id FOR UPDATE' IN prosrc)
+             FROM pg_proc WHERE proname = 'record_payout_attempt_result' AND pronamespace = 'public'::regnamespace),
+  'A6 record_payout_attempt_result: transfers FOR UPDATE precedes payout_attempts FOR UPDATE (same order as claim)');
+SELECT ok((SELECT position('FROM public.transfers WHERE id = p_transfer_id FOR UPDATE' IN prosrc) > 0
+             AND position('FROM public.transfers WHERE id = p_transfer_id FOR UPDATE' IN prosrc)
+               < position('UPDATE public.payout_attempts' IN prosrc)
+             FROM pg_proc WHERE proname = 'flag_payout_reversal_required' AND pronamespace = 'public'::regnamespace),
+  'A6 flag_payout_reversal_required: transfers FOR UPDATE precedes the payout_attempts write');
+
+-- ── A3 (review round 1, MINOR-3): the attempt ledger is append-only — DELETE
+-- and TRUNCATE raise even for service_role (which holds both privileges and
+-- BYPASSRLS). ──────────────────────────────────────────────────────────────
+SELECT has_trigger('public'::name, 'payout_attempts'::name, 'trg_payout_attempts_no_delete'::name,
+  'BEFORE DELETE trigger exists on payout_attempts');
+CREATE TEMP TABLE _cnt AS SELECT count(*) AS n FROM public.payout_attempts;
+SELECT tap.login_service();
+SELECT throws_ok(
+  $$ DELETE FROM public.payout_attempts WHERE transfer_id = tap.transfer_a() $$,
+  'P0001', 'payout_attempts is append-only: rows are never deleted (20260906120000).',
+  'A3 service_role cannot DELETE payout_attempts rows');
+SELECT throws_ok(
+  $$ TRUNCATE public.payout_attempts $$,
+  'P0001', 'payout_attempts is append-only: rows are never deleted (20260906120000).',
+  'A3 service_role cannot TRUNCATE payout_attempts');
+SELECT tap.logout();
+SELECT is((SELECT count(*) FROM public.payout_attempts), (SELECT n FROM _cnt), 'A3 ledger row count unchanged');
 
 -- ── Grants ──────────────────────────────────────────────────────────────────
 SELECT ok(NOT has_function_privilege('anon', 'public.claim_payout_attempt(uuid, text, interval)', 'EXECUTE'),

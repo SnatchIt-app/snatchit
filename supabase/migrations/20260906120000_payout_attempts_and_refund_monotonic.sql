@@ -69,14 +69,76 @@
 -- LOCKS & RUNTIME
 --   CREATE TABLE ×3, CREATE INDEX (transfers: SHARE lock for the duration of a
 --   scan of a few-hundred-row table — milliseconds), ALTER TABLE payments ADD
---   COLUMN (NULL default, metadata only), CREATE TRIGGER ×4 (brief
+--   COLUMN (NULL default, metadata only), CREATE TRIGGER ×6 (brief
 --   ACCESS EXCLUSIVE on payments / payout_attempts / payment_refunds),
---   CREATE FUNCTION ×11. No data is rewritten. Whole file runs in one
+--   CREATE FUNCTION ×12. No data is rewritten. Whole file runs in one
 --   transaction; expected < 1 s.
 --
 -- PRE-APPLY QUERY (must return zero rows, or the DO block below aborts):
 --   SELECT stripe_transfer_id, count(*) FROM public.transfers
 --    WHERE stripe_transfer_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1;
+--
+-- REVIEW ROUND 1 (2026-09-06) — changes folded into this file BEFORE its
+-- first apply (it has never been applied anywhere):
+--   MAJOR-1  account_deletion_blockers: kind 'unresolved_review' — any
+--            webhook_retries row with resolved IS NOT TRUE on one of the
+--            user's payments blocks; 'pending_payment' keeps its 24h bound
+--            ONLY for payments without such a row (Package 2 parks a captured-
+--            but-mismatched charge there with the payment still pending).
+--   MAJOR-2  'open_manual_review' blocks regardless of payout_released_at:
+--            any manual_review decision on a transfer the user is party to,
+--            not superseded by a LATER 'release' decision, while the transfer
+--            is not 'reversed' (catches DISPUTE_LOST_AFTER_PAYOUT rows from
+--            flag_payout_reversal_required, whose evidence.attempt_id is NULL).
+--   MINOR-2  Lock order is transfers → payout_attempts in EVERY writer:
+--            claim_payout_attempt, record_payout_attempt_result (now reads the
+--            attempt's transfer_id unlocked — immutable by guard — then locks
+--            transfers, then the attempt), reconcile_payout_attempt (delegates
+--            to record_…) and flag_payout_reversal_required.
+--   MINOR-3  payout_attempts is append-only: BEFORE DELETE (row) and BEFORE
+--            TRUNCATE (statement) triggers raise, service_role included.
+--   MINOR-1  (delete-account edge) the gate AND delete_account_cleanup run on
+--            EVERY attempt while phase < done; only the archive / storage /
+--            auth-delete steps resume from the recorded phase.
+--   MINOR-5  (stripe-webhook edge) transfer.created with an unknown
+--            metadata.attempt_id is acknowledged after a webhook_retries
+--            review row (rpc_name 'transfer.created') instead of retrying.
+--
+-- PRE-ENABLE OPS QUERY (MINOR-4) — run BEFORE the new confirm-and-release /
+-- enforce-transfer-expiry edges are enabled. The first attempt on a
+-- pre-migration transfer cannot search Stripe by transfer_group (legacy POSTs
+-- sent none), so a legacy lost-response duplicate is only bounded by Stripe's
+-- source_transaction ceiling. List every live transfer that already FAILED a
+-- legacy payout and reconcile each by hand (Stripe dashboard: transfers to the
+-- seller's account for the charge) before automation retries it:
+--   SELECT t.id, t.seller_id, t.payment_id, d.decided_at, d.evidence
+--     FROM public.transfers t
+--     JOIN public.payments p ON p.id = t.payment_id
+--     JOIN public.payout_decisions d ON d.transfer_id = t.id
+--    WHERE t.stripe_transfer_id IS NULL
+--      AND p.stripe_livemode = true
+--      AND 'PAYOUT_TRANSFER_FAILED' = ANY(d.reason_codes)
+--    ORDER BY d.decided_at;
+--   Also list manual_review decisions on ALREADY-PAID transfers with no later
+--   release row: after MAJOR-2 they block those users' account deletion until
+--   ops inserts a 'release' decision or the transfer is reversed:
+--   SELECT d.transfer_id, d.reason_codes, d.decided_at
+--     FROM public.payout_decisions d JOIN public.transfers t ON t.id = d.transfer_id
+--    WHERE d.decision = 'manual_review' AND t.payout_released_at IS NOT NULL
+--      AND t.status <> 'reversed'
+--      AND NOT EXISTS (SELECT 1 FROM public.payout_decisions r
+--                       WHERE r.transfer_id = d.transfer_id AND r.decision = 'release'
+--                         AND r.decided_at > d.decided_at);
+--
+-- NOTE-3 (FK follow-up, recorded here next to the lead's disposition):
+--   public.stripe_connect_archive.profile_id → profiles has NO ON DELETE. The
+--   delete-account edge therefore keeps the Connect id on
+--   account_deletions.connect_id instead of writing an archive row. Users who
+--   ALREADY have an archive row (044 backfill, create-connect-account:251)
+--   cannot delete at all — the auth.users cascade into profiles hits the FK.
+--   Follow-up: relax that FK (ON DELETE SET NULL, keep the Stripe id) in its
+--   own migration; until then those deletions surface as the auth-delete 500
+--   and need ops.
 --
 -- ROLLBACK
 --   supabase/rollbacks/20260906120000_payout_attempts_and_refund_monotonic_rollback.sql
@@ -91,15 +153,19 @@
 --            ('claim_payout_attempt','mark_payout_requested','record_payout_attempt_result',
 --             'reconcile_payout_attempt','flag_payout_reversal_required','record_payment_refund',
 --             'account_deletion_blockers','guard_payout_attempt_columns','guard_payment_transitions',
---             'reset_payment_guard_bypass','payment_refunds_append_only')) AS functions,             -- 11
+--             'reset_payment_guard_bypass','payment_refunds_append_only',
+--             'payout_attempts_no_delete')) AS functions,                                          -- 12
 --          (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_guard_payout_attempt_columns',
 --            'trg_guard_payment_transitions','trg_reset_payment_guard_bypass',
---            'trg_payment_refunds_append_only')) AS triggers,                                      -- 4
+--            'trg_payment_refunds_append_only','trg_payout_attempts_no_delete',
+--            'trg_payout_attempts_no_truncate')) AS triggers,                                      -- 6
 --          (SELECT count(*) FROM pg_indexes WHERE indexname='transfers_stripe_transfer_id_uniq') AS idx, -- 1
 --          (SELECT count(*) FROM information_schema.columns WHERE table_schema='public'
 --            AND table_name='payments' AND column_name='amount_refunded_cents') AS col;              -- 1
 --
--- Gate-2 delta: tables +3, functions +11, triggers +4, policies +0.
+-- Gate-2 delta: tables +3, functions +12, triggers +6, policies +0.
+-- (ci.yml EXPECT_FUNCS / EXPECT_TRIGGERS must be raised by +1 / +2 relative to
+--  the round-0 values that counted 11 functions and 4 triggers for this file.)
 -- ============================================================================
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +255,29 @@ DROP TRIGGER IF EXISTS trg_guard_payout_attempt_columns ON public.payout_attempt
 CREATE TRIGGER trg_guard_payout_attempt_columns
   BEFORE UPDATE ON public.payout_attempts
   FOR EACH ROW EXECUTE FUNCTION public.guard_payout_attempt_columns();
+
+-- Append-only ledger (review round 1 MINOR-3): the attempt trail is the audit
+-- record decision 7 relies on. service_role holds DELETE/TRUNCATE and
+-- BYPASSRLS, so the guard is a trigger, not a grant. Row-level for DELETE,
+-- statement-level for TRUNCATE (row triggers do not fire on TRUNCATE).
+CREATE OR REPLACE FUNCTION public.payout_attempts_no_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $function$
+BEGIN
+  RAISE EXCEPTION 'payout_attempts is append-only: rows are never deleted (20260906120000).';
+END; $function$;
+
+DROP TRIGGER IF EXISTS trg_payout_attempts_no_delete ON public.payout_attempts;
+CREATE TRIGGER trg_payout_attempts_no_delete
+  BEFORE DELETE ON public.payout_attempts
+  FOR EACH ROW EXECUTE FUNCTION public.payout_attempts_no_delete();
+
+DROP TRIGGER IF EXISTS trg_payout_attempts_no_truncate ON public.payout_attempts;
+CREATE TRIGGER trg_payout_attempts_no_truncate
+  BEFORE TRUNCATE ON public.payout_attempts
+  FOR EACH STATEMENT EXECUTE FUNCTION public.payout_attempts_no_delete();
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. transfers.stripe_transfer_id unique (060 F-2)
@@ -574,6 +663,7 @@ AS $function$
 DECLARE
   v_a        public.payout_attempts%ROWTYPE;
   v_t        public.transfers%ROWTYPE;
+  v_tid      uuid;
   v_state    text;
   v_reasons  text[];
   v_recorded boolean := false;
@@ -582,11 +672,17 @@ BEGIN
     RAISE EXCEPTION 'INVALID_OUTCOME' USING DETAIL = coalesce(p_outcome, '<null>');
   END IF;
 
-  SELECT * INTO v_a FROM public.payout_attempts WHERE id = p_attempt_id FOR UPDATE;
+  -- Lock order (review round 1 MINOR-2): transfers FIRST, then the attempt —
+  -- the same order as claim_payout_attempt / flag_payout_reversal_required,
+  -- so a transfer.created webhook racing the 2b sweep serialises on the
+  -- transfer row instead of deadlocking (40P01). The attempt's transfer_id is
+  -- immutable (guard_payout_attempt_columns), so the unlocked read is safe.
+  SELECT a.transfer_id INTO v_tid FROM public.payout_attempts a WHERE a.id = p_attempt_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ATTEMPT_NOT_FOUND';
   END IF;
-  SELECT * INTO v_t FROM public.transfers WHERE id = v_a.transfer_id FOR UPDATE;
+  SELECT * INTO v_t FROM public.transfers WHERE id = v_tid FOR UPDATE;
+  SELECT * INTO v_a FROM public.payout_attempts WHERE id = p_attempt_id FOR UPDATE;
 
   IF p_outcome = 'unknown' THEN
     IF v_a.state IN ('claimed','requested','unknown') THEN
@@ -785,7 +881,22 @@ AS $function$
     FROM public.payments p
    WHERE (p.buyer_id = p_user_id OR p.seller_id = p_user_id)
      AND p.status IN ('pending','processing')
-     AND p.created_at > now() - interval '24 hours'
+     -- A fresh pending row may still be captured by Stripe; an aged one is an
+     -- abandoned checkout UNLESS a review row says the charge WAS captured but
+     -- could not be settled (Package 2 binding_mismatch) — then age proves
+     -- nothing and the row blocks until the review is resolved (MAJOR-1).
+     AND (p.created_at > now() - interval '24 hours'
+          OR EXISTS (SELECT 1 FROM public.webhook_retries w
+                      WHERE w.payment_id = p.id AND w.resolved IS NOT TRUE))
+  UNION ALL
+  -- MAJOR-1: every unresolved review row on one of the user's payments is an
+  -- open obligation — the platform may be holding captured money for it.
+  -- (Rows without a payment_id have no party and cannot be attributed.)
+  SELECT DISTINCT 'unresolved_review', w.payment_id
+    FROM public.webhook_retries w
+    JOIN public.payments p ON p.id = w.payment_id
+   WHERE w.resolved IS NOT TRUE
+     AND (p.buyer_id = p_user_id OR p.seller_id = p_user_id)
   UNION ALL
   SELECT 'open_dispute', d.id
     FROM public.disputes d
@@ -800,12 +911,17 @@ AS $function$
    WHERE a.state IN ('claimed','requested','unknown')
      AND (t.seller_id = p_user_id OR t.buyer_id = p_user_id)
   UNION ALL
+  -- MAJOR-2: a manual_review decision blocks BEFORE and AFTER a payout —
+  -- PAID_DURING_DISPUTE, DUPLICATE_TRANSFER and DISPUTE_LOST_AFTER_PAYOUT all
+  -- land on PAID transfers (a reversal is owed) — until a LATER 'release'
+  -- decision supersedes it or the transfer is 'reversed'. Party is taken from
+  -- the transfer, so decisions with attempt_id NULL (legacy, flag_…) count.
   SELECT DISTINCT 'open_manual_review', d.transfer_id
     FROM public.payout_decisions d
     JOIN public.transfers t ON t.id = d.transfer_id
    WHERE d.decision = 'manual_review'
      AND (t.seller_id = p_user_id OR t.buyer_id = p_user_id)
-     AND t.payout_released_at IS NULL
+     AND t.status <> 'reversed'
      AND NOT EXISTS (SELECT 1 FROM public.payout_decisions r
                       WHERE r.transfer_id = d.transfer_id AND r.decision = 'release' AND r.decided_at > d.decided_at)
   UNION ALL
@@ -831,7 +947,9 @@ GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.ac
 
 COMMENT ON TABLE public.account_deletions IS
   'Restartable account-deletion ledger: gate → archived → cleaned → storage → auth → done. '
-  'A retry resumes from the recorded phase and never re-runs the blocker gate after cleaned (20260906120000).';
+  'The blocker gate and delete_account_cleanup run on EVERY attempt until done (both idempotent; '
+  'after cleanup the gate only sees obligations created since); archive / storage / auth-delete '
+  'resume from the recorded phase (20260906120000, review round 1 MINOR-1).';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 7. Privileges (SEC-2): every new function is service_role-only or internal.
@@ -840,6 +958,7 @@ REVOKE ALL ON FUNCTION public.guard_payout_attempt_columns()                    
 REVOKE ALL ON FUNCTION public.guard_payment_transitions()                                      FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reset_payment_guard_bypass()                                     FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.payment_refunds_append_only()                                    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.payout_attempts_no_delete()                                      FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_payment_refund(text, text, text, int, text)               FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_payout_attempt(uuid, text, interval)                       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_payout_requested(uuid)                                      FROM PUBLIC, anon, authenticated;
