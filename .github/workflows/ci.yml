@@ -200,7 +200,7 @@ jobs:
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
           EXPECT_TABLES: 27
-          EXPECT_FUNCS: 70
+          EXPECT_FUNCS: 72
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 24
 
