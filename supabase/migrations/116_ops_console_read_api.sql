@@ -222,6 +222,9 @@ as $ops$
     when t.status = 'reversed'                                          then 'reversed'
     when t.status = 'expired'                                           then 'expired'
     when t.stripe_transfer_id is not null                               then 'released_to_connected_account'
+    -- dispute decided for the buyer: money is owed back but no refund has landed
+    when t.dispute_resolution in ('resolved_buyer_refunded','resolved_partial_refund')
+      and p.status <> 'refunded'                                        then 'refund_pending'
     when t.status = 'disputed'
       or (t.disputed_at is not null and t.dispute_resolved_at is null)  then 'frozen_dispute'
     when t.status = 'pending'                                           then 'awaiting_delivery'
