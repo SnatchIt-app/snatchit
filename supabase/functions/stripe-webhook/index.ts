@@ -2,6 +2,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
+import { stripeFetchRaw } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
@@ -649,7 +650,9 @@ serve(async (req: Request) => {
           new Error(`dispute upsert failed: ${upsertErr.message}`),
           { dispute_id: dispute.id, charge_id: dispute.charge, payment_id: paymentId, transfer_id: transferId },
         );
-        await markProcessed({ error: `dispute upsert: ${upsertErr.message}` });
+        // Package 3: a dispute we failed to record is NOT done — answer
+        // non-2xx so Stripe redelivers (the lease is released by finish).
+        return await finish(false, { dispute_id: dispute.id }, `dispute upsert: ${upsertErr.message}`);
       } else {
         console.log('Webhook: dispute recorded', {
           dispute_id: dispute.id, charge_id: dispute.charge, amount: dispute.amount,
@@ -661,89 +664,215 @@ serve(async (req: Request) => {
       }
 
     } else if (event.type === 'charge.dispute.closed') {
-      // ── P1-02: dispute outcome sync ───────────────────────────────────
+      // ── Package 3 (20260906120000): dispute outcome sync ───────────────
+      // A LOST dispute is a chargeback: recorded through record_payment_refund
+      // with the DISPUTE id (never as stripe_refund_id), monotonic amount, and
+      // if the seller was already paid the attempt is flagged
+      // reversal_required + manual_review DISPUTE_LOST_AFTER_PAYOUT for ops.
+      // A dispute we never recorded (missed .created) is reconciled from this
+      // event, not dropped. Every DB failure answers non-2xx (Stripe retries).
       const dispute = event.data.object as {
         id:     string;
         charge: string;
         payment_intent?: string | null;
+        amount?: number;
+        currency?: string;
+        reason?: string;
         status: string; // 'won' | 'lost' | 'warning_closed' | 'charge_refunded'
       };
 
-      // Update our disputes row's status.
-      const { data: ourDispute, error: lookupErr } = await supabase
-        .from('disputes')
-        .update({ status: dispute.status })
-        .eq('stripe_dispute_id', dispute.id)
-        .select('id, payment_id, transfer_id')
-        .maybeSingle();
-      if (lookupErr) {
-        console.error('Webhook: dispute status update failed:', lookupErr);
-        await markProcessed({ error: `dispute close update: ${lookupErr.message}` });
-      } else if (!ourDispute) {
-        console.warn('Webhook: dispute.closed for unknown dispute_id', { dispute_id: dispute.id });
-        await markProcessed();
-      } else {
-        // Won (rare under marketplace rules) → resume payout path.
-        // Lost (most common) → ops decides between transfer-reversal (if
-        // already paid out) or simply mark the payment refunded.
-        // Don't make autonomous money moves here. Just sync state.
-        if (dispute.status === 'lost' && ourDispute.payment_id) {
-          const { error: payErr } = await supabase
-            .from('payments')
-            .update({ status: 'refunded', refunded_at: new Date().toISOString() })
-            .eq('id', ourDispute.payment_id)
-            .neq('status', 'refunded');
-          if (payErr) console.error('Webhook: payment refund mark failed:', payErr);
+      let ourDispute: { id: string; payment_id: string | null; transfer_id: string | null } | null = null;
+      {
+        const { data, error: lookupErr } = await supabase
+          .from('disputes')
+          .update({ status: dispute.status })
+          .eq('stripe_dispute_id', dispute.id)
+          .select('id, payment_id, transfer_id')
+          .maybeSingle();
+        if (lookupErr) {
+          console.error('Webhook: dispute status update failed:', lookupErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute close update: ${lookupErr.message}`);
         }
-        console.log('Webhook: dispute closed', {
-          dispute_id: dispute.id, status: dispute.status,
-          payment_id: ourDispute.payment_id, transfer_id: ourDispute.transfer_id,
-        });
-        await markProcessed();
+        ourDispute = data ?? null;
       }
 
-    } else if (event.type === 'charge.refunded') {
-      // ── P1-02: refund sync (e.g. manual Dashboard refund) ─────────────
-      const charge = event.data.object as {
-        payment_intent?: string | null;
-        refunds?: { data?: Array<{ id?: string }> };
-      };
-      if (charge.payment_intent) {
-        // Persist the Stripe refund id when the event payload carries it
-        // (audit trail: ties the DB row to the re_ object). Recent API
-        // versions omit charge.refunds by default, so this is best-effort.
-        const refundId = charge.refunds?.data?.[0]?.id ?? null;
-        const { error: refErr } = await supabase
-          .from('payments')
-          .update({
-            status: 'refunded',
-            refunded_at: new Date().toISOString(),
-            ...(refundId ? { stripe_refund_id: refundId } : {}),
-          })
-          .eq('stripe_payment_intent_id', charge.payment_intent)
-          .neq('status', 'refunded');
-        if (refErr) {
-          console.error('Webhook: refund sync failed:', refErr);
-          await markProcessed({ error: `refund sync: ${refErr.message}` });
-        } else {
-          console.log('Webhook: payment marked refunded', { pi_id: charge.payment_intent });
-          await markProcessed();
+      if (!ourDispute) {
+        // Unknown dispute: reconcile it from the event so the ledger is complete.
+        console.warn('Webhook: dispute.closed for unknown dispute_id — upserting from event', { dispute_id: dispute.id });
+        let paymentId: string | null = null;
+        let transferId: string | null = null;
+        if (dispute.payment_intent) {
+          const { data: payment, error: payLookupErr } = await supabase
+            .from('payments').select('id').eq('stripe_payment_intent_id', dispute.payment_intent).maybeSingle();
+          if (payLookupErr) {
+            return await finish(false, { dispute_id: dispute.id }, `dispute close payment lookup: ${payLookupErr.message}`);
+          }
+          paymentId = payment?.id ?? null;
+          if (paymentId) {
+            const { data: transfer, error: trLookupErr } = await supabase
+              .from('transfers').select('id').eq('payment_id', paymentId).maybeSingle();
+            if (trLookupErr) {
+              return await finish(false, { dispute_id: dispute.id }, `dispute close transfer lookup: ${trLookupErr.message}`);
+            }
+            transferId = transfer?.id ?? null;
+          }
         }
-      } else {
+        const { error: upsertErr } = await supabase.from('disputes').upsert({
+          stripe_dispute_id: dispute.id,
+          stripe_charge_id:  dispute.charge,
+          stripe_pi_id:      dispute.payment_intent ?? null,
+          payment_id:        paymentId,
+          transfer_id:       transferId,
+          amount:            dispute.amount ?? 0,
+          currency:          dispute.currency ?? 'usd',
+          reason:            dispute.reason ?? 'unknown',
+          status:            dispute.status,
+        }, { onConflict: 'stripe_dispute_id' });
+        if (upsertErr) {
+          console.error('Webhook: dispute.closed upsert failed:', upsertErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute close upsert: ${upsertErr.message}`);
+        }
+        ourDispute = { id: dispute.id, payment_id: paymentId, transfer_id: transferId };
+      }
+
+      if (dispute.status === 'lost' && ourDispute.payment_id) {
+        // Resolve the PI id (event first, our payments row as fallback).
+        let piId: string | null = dispute.payment_intent ?? null;
+        if (!piId) {
+          const { data: pay, error: piErr } = await supabase
+            .from('payments').select('stripe_payment_intent_id').eq('id', ourDispute.payment_id).maybeSingle();
+          if (piErr) return await finish(false, { dispute_id: dispute.id }, `dispute lost payment lookup: ${piErr.message}`);
+          piId = pay?.stripe_payment_intent_id ?? null;
+        }
+        if (!piId) {
+          return await finish(false, { dispute_id: dispute.id }, 'dispute lost: payment has no payment_intent id');
+        }
+        const { data: refundRes, error: refundErr } = await supabase.rpc('record_payment_refund', {
+          p_payment_intent_id: piId,
+          p_stripe_refund_id:  null,
+          p_stripe_dispute_id: dispute.id,
+          p_amount_cents:      typeof dispute.amount === 'number' ? dispute.amount : null,
+          p_source:            'dispute_lost',
+        });
+        if (refundErr) {
+          console.error('Webhook: dispute lost — record_payment_refund failed:', refundErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute lost refund record: ${refundErr.message}`);
+        }
+        console.log('Webhook: dispute lost — chargeback recorded', { dispute_id: dispute.id, result: refundRes });
+
+        // Seller already paid? The transfer must be reversed by an operator.
+        if (ourDispute.transfer_id) {
+          const { data: tr, error: trErr } = await supabase
+            .from('transfers').select('id, payout_released_at, stripe_transfer_id')
+            .eq('id', ourDispute.transfer_id).maybeSingle();
+          if (trErr) return await finish(false, { dispute_id: dispute.id }, `dispute lost transfer lookup: ${trErr.message}`);
+          if (tr && (tr.payout_released_at || tr.stripe_transfer_id)) {
+            const { data: flagged, error: flagErr } = await supabase.rpc('flag_payout_reversal_required', {
+              p_transfer_id: ourDispute.transfer_id,
+              p_reason_code: 'DISPUTE_LOST_AFTER_PAYOUT',
+              p_evidence:    { dispute_id: dispute.id, dispute_amount: dispute.amount ?? null },
+            });
+            if (flagErr) {
+              console.error('Webhook: dispute lost — flag_payout_reversal_required failed:', flagErr);
+              return await finish(false, { dispute_id: dispute.id }, `dispute lost reversal flag: ${flagErr.message}`);
+            }
+            console.error('Webhook: dispute LOST after payout — reversal required', {
+              dispute_id: dispute.id, transfer_id: ourDispute.transfer_id, flagged,
+            });
+          }
+        }
+      }
+      console.log('Webhook: dispute closed', {
+        dispute_id: dispute.id, status: dispute.status,
+        payment_id: ourDispute.payment_id, transfer_id: ourDispute.transfer_id,
+      });
+      await markProcessed();
+
+    } else if (event.type === 'charge.refunded') {
+      // ── Package 3 (20260906120000): refund sync ───────────────────────
+      // Fires for partial AND full refunds. Each Stripe refund object is
+      // recorded through record_payment_refund (idempotent on re_ id, monotonic
+      // amount_refunded_cents); the payment becomes 'refunded' only when the
+      // refunded amount reaches its total — i.e. when charge.refunded is true.
+      // Recent API versions omit charge.refunds: fetch the charge with
+      // expand[]=refunds rather than guessing. DB/Stripe failures → non-2xx.
+      const charge = event.data.object as {
+        id: string;
+        payment_intent?: string | null;
+        refunded?: boolean;
+        amount_refunded?: number;
+        refunds?: { data?: Array<{ id?: string; amount?: number; metadata?: Record<string, string> }> };
+      };
+      if (!charge.payment_intent) {
         console.warn('Webhook: charge.refunded with no payment_intent', { event_id: event.id });
+        await markProcessed();
+      } else {
+        let refunds = charge.refunds?.data;
+        if (!refunds) {
+          const probe = await stripeFetchRaw(`/charges/${charge.id}?expand[]=refunds`);
+          if (!probe.ok) {
+            const msg = (probe.data as { error?: { message?: string } })?.error?.message ?? `HTTP ${probe.status}`;
+            console.error('Webhook: charge.refunded — charge fetch failed:', { charge_id: charge.id, error: msg });
+            return await finish(false, { charge_id: charge.id }, `refund sync charge fetch: ${msg}`);
+          }
+          refunds = (probe.data as typeof charge).refunds?.data ?? [];
+        }
+        const results: unknown[] = [];
+        for (const r of refunds) {
+          if (!r?.id) continue;
+          const source = r.metadata?.source?.startsWith('enforce-transfer-expiry') ? 'expiry' : 'dashboard';
+          const { data: res, error: refErr } = await supabase.rpc('record_payment_refund', {
+            p_payment_intent_id: charge.payment_intent,
+            p_stripe_refund_id:  r.id,
+            p_stripe_dispute_id: null,
+            p_amount_cents:      typeof r.amount === 'number' ? r.amount : null,
+            p_source:            source,
+          });
+          if (refErr) {
+            console.error('Webhook: refund sync failed:', { refund_id: r.id, error: refErr });
+            return await finish(false, { charge_id: charge.id, refund_id: r.id }, `refund sync: ${refErr.message}`);
+          }
+          results.push(res);
+        }
+        const last = results.at(-1) as { status?: string; payment_id?: string | null } | undefined;
+        if (charge.refunded === true && last?.payment_id && last.status !== 'refunded') {
+          console.warn('Webhook: charge fully refunded on Stripe but the recorded amount is below total', {
+            pi_id: charge.payment_intent, amount_refunded: charge.amount_refunded, result: last,
+          });
+        }
+        console.log('Webhook: refunds recorded', { pi_id: charge.payment_intent, count: results.length, refunded: charge.refunded === true });
         await markProcessed();
       }
 
     } else if (event.type === 'transfer.created') {
-      // ── P1-02: ops observability for seller-net Transfer creation ─────
-      // confirm-and-release / enforce-transfer-expiry already wrote
-      // stripe_transfer_id on our transfers row before Stripe fires this
-      // event. We just log for ops; no state change needed.
-      const tr = event.data.object as { id: string; amount: number; destination?: string };
-      console.log('Webhook: stripe Transfer created', {
-        stripe_transfer_id: tr.id, amount: tr.amount, destination: tr.destination,
-      });
-      await markProcessed();
+      // ── Package 3 (20260906120000): record the attempt from Stripe's side ─
+      // Every payout this package creates carries metadata[attempt_id]. If the
+      // edge crashed between the POST and record_payout_attempt_result, this
+      // event records it (idempotent: unique stripe_transfer_id, same-id replay
+      // is a no-op). Legacy transfers without an attempt id are logged only.
+      const tr = event.data.object as { id: string; amount: number; destination?: string; metadata?: Record<string, string> };
+      const attemptId = tr.metadata?.attempt_id ?? null;
+      if (!attemptId) {
+        console.log('Webhook: stripe Transfer created (no attempt id — legacy)', {
+          stripe_transfer_id: tr.id, amount: tr.amount, destination: tr.destination,
+        });
+        await markProcessed();
+      } else {
+        const { data: recorded, error: recErr } = await supabase.rpc('record_payout_attempt_result', {
+          p_attempt_id:         attemptId,
+          p_stripe_transfer_id: tr.id,
+          p_outcome:            'succeeded',
+          p_error:              { source: 'webhook:transfer.created', event_id: event.id },
+        });
+        if (recErr) {
+          console.error('Webhook: transfer.created — record_payout_attempt_result failed:', recErr);
+          return await finish(false, { stripe_transfer_id: tr.id, attempt_id: attemptId }, `transfer created record: ${recErr.message}`);
+        }
+        console.log('Webhook: stripe Transfer created — attempt recorded', {
+          stripe_transfer_id: tr.id, attempt_id: attemptId, amount: tr.amount, destination: tr.destination, result: recorded,
+        });
+        await markProcessed();
+      }
 
     } else if (event.type === 'transfer.reversed') {
       // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
@@ -756,7 +885,7 @@ serve(async (req: Request) => {
         .rpc('mark_transfer_reversed', { p_stripe_transfer_id: tr.id });
       if (revErr) {
         console.error('Webhook: transfer.reversed mark failed:', revErr);
-        await markProcessed({ error: `transfer reverse: ${revErr.message}` });
+        return await finish(false, { stripe_transfer_id: tr.id }, `transfer reverse: ${revErr.message}`);
       } else if (!reversed) {
         console.log('Webhook: transfer.reversed no-op (unknown transfer id or already reversed)', {
           stripe_transfer_id: tr.id,

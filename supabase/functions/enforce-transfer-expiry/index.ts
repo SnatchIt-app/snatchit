@@ -35,10 +35,13 @@
 //   Layer 3: Stripe refund API — full refunds on the same payment_intent
 //            return the existing refund (Stripe-level idempotency)
 //
-// IDEMPOTENCY — Phase 2 (3 layers):
-//   Layer 1: RPC uses FOR UPDATE SKIP LOCKED + payout_released_at IS NULL
-//   Layer 2: Edge function checks payout_released_at before Stripe call
-//   Layer 3: Atomic UPDATE ... WHERE payout_released_at IS NULL after Stripe call
+// IDEMPOTENCY — Phase 2 / 2b (payout ATTEMPT protocol, migration 20260906120000):
+//   Layer 1: apply_auto_release() claims the row (FOR UPDATE SKIP LOCKED)
+//   Layer 2: claim_payout_attempt() freezes destination/amount under a lease;
+//            one open attempt per transfer; an open attempt is reconciled
+//            against Stripe (list by transfer_group) before any new POST
+//   Layer 3: record_payout_attempt_result() ALWAYS records a transfer Stripe
+//            reports — a dispute mid-flight becomes reversal_required + review
 //
 // ERROR HANDLING:
 //   - One failed refund/payout does NOT block the batch
@@ -53,12 +56,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
-import {
-  classifyPayoutStripeError,
-  createSellerPayout,
-  reasonCodeForErrorClass,
-  shouldPageSentry,
-} from '../_shared/payouts.ts';
+import { executePayoutAttempt } from '../_shared/payouts.ts';
 import { isCrossModeStripeError, rowIsLiveActionable } from '../_shared/payout-logic.ts';
 import {
   classifyPayout,
@@ -261,7 +259,7 @@ serve(async (req: Request) => {
           // Deterministic idempotency key: a crash-and-retry (or the Phase
           // 1b self-heal sweep below) replays the SAME refund instead of
           // relying solely on Stripe's full-refund dedup semantics.
-          const refund = await stripeFetch<{ id: string }>('/refunds', {
+          const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
             method: 'POST',
             idempotencyKey: `refund_expiry_${t.transfer_id}`,
             body: {
@@ -272,15 +270,17 @@ serve(async (req: Request) => {
             },
           });
 
-          // ── 2e. Update payment record ──────────────────────────────────
+          // ── 2e. Record the refund fact (record_payment_refund, 20260906120000):
+          // append-only payment_refunds row, monotonic amount_refunded_cents,
+          // status 'refunded' once the refunded amount reaches total.
           const { error: updateErr } = await supabase
-            .from('payments')
-            .update({
-              status:          'refunded',
-              refunded_at:     new Date().toISOString(),
-              stripe_refund_id: refund.id,
-            })
-            .eq('id', t.payment_id);
+            .rpc('record_payment_refund', {
+              p_payment_intent_id: payment.stripe_payment_intent_id,
+              p_stripe_refund_id:  refund.id,
+              p_stripe_dispute_id: null,
+              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
+              p_source:            'expiry',
+            });
 
           if (updateErr) {
             // Refund was issued via Stripe but DB update failed.
@@ -384,7 +384,7 @@ serve(async (req: Request) => {
             transfer_id: row.id,
             payment_id:  row.payment_id,
           });
-          const refund = await stripeFetch<{ id: string }>('/refunds', {
+          const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
             method: 'POST',
             idempotencyKey: `refund_expiry_${row.id}`,
             body: {
@@ -394,15 +394,15 @@ serve(async (req: Request) => {
               'metadata[source]':      'enforce-transfer-expiry-selfheal',
             },
           });
+          // record_payment_refund (20260906120000): idempotent on the refund id.
           const { error: healErr } = await supabase
-            .from('payments')
-            .update({
-              status:           'refunded',
-              refunded_at:      new Date().toISOString(),
-              stripe_refund_id: refund.id,
-            })
-            .eq('id', row.payment_id)
-            .eq('status', 'succeeded');
+            .rpc('record_payment_refund', {
+              p_payment_intent_id: row.payments.stripe_payment_intent_id,
+              p_stripe_refund_id:  refund.id,
+              p_stripe_dispute_id: null,
+              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
+              p_source:            'expiry',
+            });
           if (healErr) {
             console.error('enforce-transfer-expiry: Phase 1b DB update failed after refund:', {
               payment_id: row.payment_id, stripe_refund_id: refund.id, error: healErr,
@@ -507,73 +507,19 @@ serve(async (req: Request) => {
       if (error) console.error('enforce-transfer-expiry: payout_decisions insert failed:', error);
     };
 
-    // Money mover shared by Phase 2 (fresh releases) and Phase 2b (stuck
-    // auto_released rows). The Stripe Idempotency-Key is keyed on the
-    // transfer id, so even a cron/direct race that reaches Stripe twice
-    // yields ONE Stripe Transfer.
+    // Money mover shared by Phase 2 (fresh releases) and Phase 2b (stuck rows
+    // and expired-lease attempts). One implementation for both callers:
+    // _shared/payouts.ts executePayoutAttempt — claim (frozen destination +
+    // amount, 10-min lease) → open attempt? reconcile by transfer_group, STOP
+    // → pre-flights → mark requested → POST under payout_<id>_a<n> → record.
+    // The seller profile is read once, inside the claim, never re-read.
+    //
+    // Returns 'paid' (money recorded this run), 'skipped' (benign: already
+    // released, in progress, reconciled) or 'failed' (operator attention).
     const payReleasedTransfer = async (t: {
       transfer_id: string; payment_id: string; listing_id: string;
       seller_id: string; buyer_id: string;
-    }): Promise<boolean> => {
-      const { data: sellerProfile } = await supabase
-        .from('profiles').select('stripe_connect_id').eq('id', t.seller_id).single();
-      if (!sellerProfile?.stripe_connect_id) {
-        console.error('enforce-transfer-expiry: seller has no Connect account:', t.transfer_id);
-        return false;
-      }
-
-      const { data: payment } = await supabase
-        .from('payments').select('amount, seller_fee, status, stripe_payment_intent_id').eq('id', t.payment_id).single();
-      if (!payment) {
-        console.error('enforce-transfer-expiry: payment lookup failed:', t.transfer_id);
-        return false;
-      }
-
-      // Never pay out against money the platform no longer holds: a payment
-      // refunded (or anything short of succeeded) must not release, no
-      // matter what state the transfer row is in.
-      if (payment.status !== 'succeeded') {
-        console.warn('enforce-transfer-expiry: payout skipped — payment not succeeded:', {
-          transfer_id: t.transfer_id,
-          payment_status: payment.status,
-        });
-        return false;
-      }
-
-      // Final pre-payment recheck, as close to the Stripe call as possible:
-      //   • already paid (stripe_transfer_id set) → success, nothing to do
-      //   • disputed/reversed since the claim (chargeback webhook can flip an
-      //     unpaid auto_released row to 'disputed') → ABORT, payout frozen
-      const { data: transferCheck } = await supabase
-        .from('transfers')
-        .select('stripe_transfer_id, status, disputed_at')
-        .eq('id', t.transfer_id)
-        .single();
-      if (transferCheck?.stripe_transfer_id) return true;   // already paid
-      if (
-        !transferCheck ||
-        transferCheck.disputed_at !== null ||
-        !['auto_released', 'buyer_confirmed'].includes(transferCheck.status as string)
-      ) {
-        console.warn('enforce-transfer-expiry: payout aborted — transfer no longer releasable:', {
-          transfer_id: t.transfer_id,
-          status: transferCheck?.status,
-          disputed_at: transferCheck?.disputed_at,
-        });
-        return false;
-      }
-
-      // 10/10 fee model: seller net = base amount − seller fee (both cents).
-      const sellerNetCents = (payment.amount as number) - ((payment.seller_fee as number) ?? 0);
-
-      // Canonical payout request (_shared/payouts.ts) — capability pre-flight,
-      // then a byte-identical transfer request under the same (transfer,
-      // destination) key as confirm-and-release. The old divergence
-      // (`payout_<id>` with per-caller metadata) made Stripe reject every
-      // cross-path retry with "Keys for idempotent requests can only be used
-      // with the same parameters..." (2026-08-03); the pre-flight keeps a
-      // not-yet-ready destination from burning the key for 24h (2026-08-04).
-      //
+    }): Promise<'paid' | 'skipped' | 'failed'> => {
       // Record ONE manual_review decision per transfer for the admin queue
       // (first occurrence only — repeats stay in edge logs, not Sentry).
       const recordManualReviewOnce = async (
@@ -588,22 +534,23 @@ serve(async (req: Request) => {
           .eq('decision', 'manual_review')
           .limit(1)
           .maybeSingle();
-        if (existingDecision) return;
-        const { error: decisionErr } = await supabase.from('payout_decisions').insert({
-          transfer_id: t.transfer_id,
-          payment_id:  t.payment_id,
-          seller_id:   t.seller_id,
-          buyer_id:    t.buyer_id,
-          risk_tier:   'low',
-          decision:    'manual_review',
-          reason_codes: [reasonCode],
-          evidence,
-          buyer_confirmed: false,
-          dispute_open: false,
-          actor: 'edge:enforce-transfer-expiry',
-        });
-        if (decisionErr) {
-          console.error('enforce-transfer-expiry: payout_decisions insert failed:', decisionErr);
+        if (!existingDecision) {
+          const { error: decisionErr } = await supabase.from('payout_decisions').insert({
+            transfer_id: t.transfer_id,
+            payment_id:  t.payment_id,
+            seller_id:   t.seller_id,
+            buyer_id:    t.buyer_id,
+            risk_tier:   'low',
+            decision:    'manual_review',
+            reason_codes: [reasonCode],
+            evidence,
+            buyer_confirmed: false,
+            dispute_open: false,
+            actor: 'edge:enforce-transfer-expiry',
+          });
+          if (decisionErr) {
+            console.error('enforce-transfer-expiry: payout_decisions insert failed:', decisionErr);
+          }
         }
         if (sentryErr) {
           await captureException('enforce-transfer-expiry:payout-transfer-failed', sentryErr, {
@@ -612,111 +559,138 @@ serve(async (req: Request) => {
         }
       };
 
-      let stripeTransfer: { id: string };
-      try {
-        const payoutRes = await createSellerPayout({
-          transferId:      t.transfer_id,
-          paymentId:       t.payment_id,
-          sellerId:        t.seller_id,
-          destination:     sellerProfile.stripe_connect_id,
-          paymentIntentId: payment.stripe_payment_intent_id as string,
-          sellerNetCents,
-        });
-        if (!payoutRes.ok) {
-          // Expected deferral (destination can't receive transfers yet, or
-          // the funding charge is refunded/unavailable). No Stripe POST was
-          // made, so no idempotency key was burned — the next sweep after
-          // the blocking condition clears releases cleanly. Not Sentry.
-          const deferEvidence = payoutRes.reason === 'destination_not_ready'
-            ? { seller_net_cents: sellerNetCents, ...payoutRes.destination_state }
-            : { seller_net_cents: sellerNetCents, ...payoutRes.source_state };
+      const notifyReleased = async () => {
+        const { data: listing } = await supabase
+          .from('listings').select('event_name').eq('id', t.listing_id).maybeSingle();
+        const listingTitle = listing?.event_name || 'your listing';
+        sendPush(
+          t.seller_id,
+          'Payout released',
+          `Your payout for ${listingTitle} has been released.`,
+          { listingId: t.listing_id, type: 'auto_release_seller' },
+        );
+        sendPush(
+          t.buyer_id,
+          'Order complete',
+          `Your order for ${listingTitle} is complete. If anything is wrong with your tickets, contact support.`,
+          { listingId: t.listing_id, type: 'auto_release_buyer' },
+        );
+      };
+
+      const outcome = await executePayoutAttempt(supabase, {
+        transferId: t.transfer_id,
+        paymentId:  t.payment_id,
+        sellerId:   t.seller_id,
+        actor:      'cron:enforce-transfer-expiry',
+      });
+
+      switch (outcome.kind) {
+        case 'succeeded':
+          console.log('enforce-transfer-expiry: payout released', {
+            transfer_id: t.transfer_id, stripe_transfer_id: outcome.stripeTransferId, attempt_no: outcome.attemptNo,
+          });
+          await notifyReleased();
+          return 'paid';
+
+        case 'reversal_required':
+          // Money moved while the transfer was disputed. Recorded (tr_ id +
+          // PAID_DURING_DISPUTE review row by the RPC); ops reverses it.
+          console.error('enforce-transfer-expiry: payout recorded during a dispute — reversal required:', {
+            transfer_id: t.transfer_id, stripe_transfer_id: outcome.stripeTransferId, attempt_id: outcome.attemptId,
+          });
+          await captureException(
+            'enforce-transfer-expiry:paid-during-dispute',
+            new Error(`transfer ${t.transfer_id} paid (${outcome.stripeTransferId}) while disputed`),
+            { transfer_id: t.transfer_id, stripe_transfer_id: outcome.stripeTransferId },
+          );
+          return 'failed';
+
+        case 'reconciled':
+          if (outcome.found) {
+            console.warn('enforce-transfer-expiry: open attempt reconciled — transfer found on Stripe:', {
+              transfer_id: t.transfer_id, attempt_id: outcome.attemptId,
+              stripe_transfer_id: outcome.stripeTransferId, state: outcome.state,
+            });
+            if (outcome.state === 'succeeded') { await notifyReleased(); return 'paid'; }
+            return 'failed';   // reversal_required after reconciliation
+          }
+          console.warn('enforce-transfer-expiry: open attempt reconciled — nothing on Stripe, attempt closed (next sweep opens a fresh one):', {
+            transfer_id: t.transfer_id, attempt_id: outcome.attemptId,
+          });
+          return 'skipped';
+
+        case 'already_released':
+        case 'in_progress':
+          return 'skipped';
+
+        case 'reconcile_pending':
+          console.warn('enforce-transfer-expiry: attempt reconciliation inconclusive — left open:', {
+            transfer_id: t.transfer_id, attempt_id: outcome.attemptId, error: outcome.error, unmatched: outcome.unmatched,
+          });
+          if (outcome.unmatched.length > 0) {
+            await recordManualReviewOnce('PAYOUT_UNMATCHED_TRANSFER', {
+              attempt_id: outcome.attemptId, unmatched_stripe_transfer_ids: outcome.unmatched,
+            });
+          }
+          return 'failed';
+
+        case 'unknown':
+          console.warn('enforce-transfer-expiry: Stripe transfer outcome unknown — will reconcile next sweep:', {
+            transfer_id: t.transfer_id, attempt_id: outcome.attemptId, error: outcome.error,
+          });
+          return 'failed';
+
+        case 'not_eligible':
+          // DISPUTED / PAYMENT_NOT_SUCCEEDED / PAYMENT_NOT_LIVE /
+          // SELLER_NOT_ONBOARDED / TRANSFER_NOT_RELEASABLE — no Stripe call.
+          console.warn('enforce-transfer-expiry: payout not eligible:', {
+            transfer_id: t.transfer_id, reason: outcome.reason,
+          });
+          if (outcome.reason === 'SELLER_NOT_ONBOARDED' || outcome.reason === 'PAYMENT_NOT_LIVE') {
+            await recordManualReviewOnce(outcome.reason, { seller_id: t.seller_id, payment_id: t.payment_id });
+          }
+          return 'failed';
+
+        case 'deferred':
+          // Pre-flight refusal or a definite Stripe 4xx. No transfer exists;
+          // the attempt is closed and a fresh one opens once the blocking
+          // condition clears. Operational states are not Sentry exceptions.
           console.warn('enforce-transfer-expiry: payout deferred:', {
-            transfer_id: t.transfer_id,
-            reason: payoutRes.reason,
-            evidence: deferEvidence,
+            transfer_id: t.transfer_id, reason: outcome.reasonCode, evidence: outcome.evidence,
           });
           await recordManualReviewOnce(
-            payoutRes.reason === 'destination_not_ready'
-              ? 'PAYOUT_DESTINATION_NOT_READY'
-              : 'PAYOUT_SOURCE_CHARGE_UNAVAILABLE',
-            deferEvidence,
+            outcome.reasonCode,
+            outcome.evidence,
+            outcome.page
+              ? new Error(`Stripe Transfer failed [${outcome.reasonCode}] for transfer ${t.transfer_id}: ${outcome.error ?? ''}`)
+              : undefined,
           );
-          return false;
-        }
-        stripeTransfer = payoutRes.transfer;
-      } catch (stripeErr) {
-        // A transfer Stripe refused AFTER passing pre-flights. Classify:
-        // operational states (funds/capability) → decision row only;
-        // unexpected/idempotency-bug classes → one Sentry capture.
-        const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
-        const errClass = classifyPayoutStripeError(detail);
-        console.error('enforce-transfer-expiry: Stripe Transfer failed:', {
-          transfer_id: t.transfer_id,
-          error_class: errClass,
-          error: detail,
-        });
-        await recordManualReviewOnce(
-          reasonCodeForErrorClass(errClass),
-          { stripe_error: detail, error_class: errClass, seller_net_cents: sellerNetCents },
-          shouldPageSentry(errClass)
-            ? new Error(`Stripe Transfer failed [${errClass}] for transfer ${t.transfer_id}: ${detail}`)
-            : undefined,
-        );
-        return false;
+          return 'failed';
+
+        case 'db_error':
+          if (outcome.stage === 'record' && outcome.stripeTransferId) {
+            // Money HAS moved but the DB write failed. Never silent: the
+            // attempt stays open under its lease and the next sweep reconciles
+            // it by transfer_group with the same tr_ id.
+            console.error('enforce-transfer-expiry: record_payout_attempt_result FAILED after Stripe Transfer succeeded:', {
+              transfer_id: t.transfer_id, stripe_transfer_id: outcome.stripeTransferId,
+              attempt_id: outcome.attemptId, error: outcome.error,
+            });
+            await captureException(
+              'enforce-transfer-expiry:record-payout-failed',
+              new Error(
+                `record_payout_attempt_result failed for transfer ${t.transfer_id} ` +
+                `(stripe ${outcome.stripeTransferId}): ${outcome.error}`,
+              ),
+              { transfer_id: t.transfer_id, stripe_transfer_id: outcome.stripeTransferId },
+            );
+          } else {
+            console.error('enforce-transfer-expiry: payout attempt DB error:', {
+              transfer_id: t.transfer_id, stage: outcome.stage, error: outcome.error,
+            });
+          }
+          return 'failed';
       }
-
-      // Atomic write AFTER money moved. record_transfer_payout (migration 056a)
-      // is SECURITY DEFINER and sets app.bypass_transfer_guard, so it writes the
-      // two payout columns past guard_transfer_state_columns. Its WHERE
-      // (stripe_transfer_id IS NULL AND payout_released_at IS NULL) is the same
-      // single-writer guard the direct UPDATE had, so overlapping runs still
-      // record exactly one payout. `false` means another run already recorded
-      // it — the old zero-row case, NOT an error.
-      const { data: recorded, error: recordErr } = await supabase
-        .rpc('record_transfer_payout', {
-          p_transfer_id:        t.transfer_id,
-          p_stripe_transfer_id: stripeTransfer.id,
-        });
-      if (recordErr) {
-        // Money HAS moved but the DB write failed. This must never be silent:
-        // the previous code discarded this error entirely, so a failure was
-        // indistinguishable from a race. Left unrecorded, Phase 2b re-sweeps
-        // this row every run forever — the shared Stripe idempotency key
-        // prevents a second payout, but the tr_ mapping stays lost.
-        console.error('enforce-transfer-expiry: record_transfer_payout FAILED after Stripe Transfer succeeded:', {
-          transfer_id:        t.transfer_id,
-          stripe_transfer_id: stripeTransfer.id,
-          error:              recordErr,
-        });
-        await captureException(
-          'enforce-transfer-expiry:record-payout-failed',
-          new Error(
-            `record_transfer_payout failed for transfer ${t.transfer_id} ` +
-            `(stripe ${stripeTransfer.id}): ${recordErr.message}`,
-          ),
-          { transfer_id: t.transfer_id, stripe_transfer_id: stripeTransfer.id },
-        );
-      } else if (!recorded) {
-        console.warn('enforce-transfer-expiry: payout raced (idempotency key prevented dupe):', t.transfer_id);
-      }
-
-      const { data: listing } = await supabase
-        .from('listings').select('event_name').eq('id', t.listing_id).maybeSingle();
-      const listingTitle = listing?.event_name || 'your listing';
-
-      sendPush(
-        t.seller_id,
-        'Payout released',
-        `Your payout for ${listingTitle} has been released.`,
-        { listingId: t.listing_id, type: 'auto_release_seller' },
-      );
-      sendPush(
-        t.buyer_id,
-        'Order complete',
-        `Your order for ${listingTitle} is complete. If anything is wrong with your tickets, contact support.`,
-        { listingId: t.listing_id, type: 'auto_release_buyer' },
-      );
-      return true;
     };
 
     const { data: candidates, error: candidatesErr } = await supabase
@@ -740,8 +714,9 @@ serve(async (req: Request) => {
             if (claimErr) { console.error('apply_auto_release failed:', claimErr); errorCount++; continue; }
             if (!claimed) continue;               // raced or state changed — skip
             await logDecision(c, decision);
-            if (await payReleasedTransfer(c)) autoReleasedCount++;
-            else errorCount++;
+            const paid = await payReleasedTransfer(c);
+            if (paid === 'paid') autoReleasedCount++;
+            else if (paid === 'failed') errorCount++;
           } else if (decision.action === 'hold') {
             // Only log the first time this hold is set (idempotent update).
             const alreadyHeld = c.payout_hold_until !== null &&
@@ -776,18 +751,67 @@ serve(async (req: Request) => {
     }
 
     // =====================================================================
-    // PHASE 2b — Pay stuck releases (self-heal)
+    // PHASE 2b — Pay stuck releases + reconcile open attempts (self-heal)
     // =====================================================================
-    // Two stuck shapes, both safe to retry because the Stripe Idempotency-Key
-    // (payout_<transfer_id>) makes the transfer call replay-safe:
+    // Three stuck shapes, all safe to retry because every payout goes through
+    // the attempt protocol (claim → reconcile-before-POST → record):
     //   a) status='auto_released' rows (claimed by this function, an admin
     //      release, or a crashed earlier run) never paid.
     //   b) status='buyer_confirmed' rows where confirm-and-release created
     //      the Stripe Transfer or crashed before persisting it — swept only
     //      after a 15-minute quiet period so we never race the in-flight
-    //      buyer request.
+    //      buyer request (the lease refuses the claim anyway).
+    //   c) payout_attempts still open (claimed/requested/unknown) whose lease
+    //      expired — INCLUDING attempts on transfers that have since been
+    //      disputed, which the a)/b) query deliberately excludes: a transfer
+    //      Stripe created must be recorded regardless (F07 compounding).
     try {
+      const nowIso = new Date().toISOString();
       const staleIso = new Date(Date.now() - 15 * 60_000).toISOString();
+      const swept = new Set<string>();
+      const sweepOne = async (row: { id: string; payment_id: string; listing_id: string; seller_id: string; buyer_id: string }) => {
+        if (swept.has(row.id)) return;
+        swept.add(row.id);
+        try {
+          const ok = await payReleasedTransfer({
+            transfer_id: row.id,
+            payment_id: row.payment_id,
+            listing_id: row.listing_id,
+            seller_id: row.seller_id,
+            buyer_id: row.buyer_id,
+          });
+          if (ok === 'paid') autoReleasedCount++;
+          else if (ok === 'failed') errorCount++;
+        } catch (err) {
+          await captureException('enforce-transfer-expiry:phase2b-stuck-payout', err, { transfer_id: row.id });
+          errorCount++;
+        }
+      };
+
+      // c) expired-lease attempts first: reconciliation precedes any new POST.
+      const { data: staleAttempts, error: staleErr } = await supabase
+        .from('payout_attempts')
+        .select('id, transfer_id, state, lease_expires_at, transfers!inner(id, payment_id, listing_id, seller_id, buyer_id)')
+        .in('state', ['claimed', 'requested', 'unknown'])
+        .lt('lease_expires_at', nowIso)
+        .order('lease_expires_at', { ascending: true })
+        .limit(20);
+      if (staleErr) {
+        console.error('enforce-transfer-expiry: Phase 2b stale-attempt query failed:', staleErr);
+        errorCount++;
+      }
+      for (const a of (staleAttempts ?? []) as Array<{
+        id: string; transfer_id: string; state: string;
+        transfers: { id: string; payment_id: string; listing_id: string; seller_id: string; buyer_id: string };
+      }>) {
+        if (!a.transfers) continue;
+        console.warn('enforce-transfer-expiry: Phase 2b — reconciling expired-lease payout attempt:', {
+          attempt_id: a.id, transfer_id: a.transfer_id, state: a.state,
+        });
+        await sweepOne(a.transfers);
+      }
+
+      // a) + b)
       const { data: stuck } = await supabase
         .from('transfers')
         .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at')
@@ -806,22 +830,7 @@ serve(async (req: Request) => {
             (r.buyer_confirmed_at !== null && r.buyer_confirmed_at < staleIso)),
         }));
 
-      for (const s of stuck ?? []) {
-        try {
-          const ok = await payReleasedTransfer({
-            transfer_id: s.id,
-            payment_id: s.payment_id,
-            listing_id: s.listing_id,
-            seller_id: s.seller_id,
-            buyer_id: s.buyer_id,
-          });
-          if (ok) autoReleasedCount++;
-          else errorCount++;
-        } catch (err) {
-          await captureException('enforce-transfer-expiry:phase2b-stuck-payout', err, { transfer_id: s.id });
-          errorCount++;
-        }
-      }
+      for (const s of stuck ?? []) await sweepOne(s);
     } catch (err) {
       console.error('enforce-transfer-expiry: Phase 2b sweep failed (non-fatal):', err);
     }
