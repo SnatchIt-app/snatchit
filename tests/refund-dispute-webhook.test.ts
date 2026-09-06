@@ -28,6 +28,7 @@ interface World {
   disputeRow?: { id: string; payment_id: string | null; transfer_id: string | null } | null;
   disputeUpsertError?: string;
   transferPaidOut?: boolean;
+  retriesInsertError?: string;
   stripe?: (c: StripeCall) => { ok: boolean; status?: number; data: unknown };
 }
 
@@ -52,6 +53,7 @@ async function load(w: World = {}) {
       },
       payments: () => ({ data: { id: 'p1', stripe_payment_intent_id: 'pi_1', total: 11000 } }),
       transfers: () => ({ data: { id: 't1', status: w.transferPaidOut ? 'buyer_confirmed' : 'seller_sent', payout_released_at: w.transferPaidOut ? '2026-09-01T00:00:00Z' : null, stripe_transfer_id: w.transferPaidOut ? 'tr_1' : null } }),
+      webhook_retries: (q: QueryCall) => (q.op === 'insert' && w.retriesInsertError ? { data: null, error: { message: w.retriesInsertError } } : { data: null }),
     },
   });
   const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', { supabase: sb, env: ENV, provide: { stripeFetchRaw: stripe.stripeFetchRaw } });
@@ -172,6 +174,29 @@ describe('charge.dispute.created / transfer.created / transfer.reversed', () => 
     const res = await h.send('transfer.created', { id: 'tr_1', amount: 9000, metadata: { attempt_id: 'att_1' } });
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.sb.queries.filter((q) => q.table === 'webhook_retries')).toHaveLength(0);
+  });
+
+  // Review round 1 A4 / MINOR-5: an attempt id we do not know (rollback that
+  // destroyed payout_attempts, or a hand-made transfer) must not become a
+  // 3-day retry loop — it is a review item, acknowledged once recorded.
+  it('A4 transfer.created with an UNKNOWN attempt id ⇒ webhook_retries review row + 200 (no retry loop)', async () => {
+    const h = await load({ rpcFail: { record_payout_attempt_result: 'ATTEMPT_NOT_FOUND' } });
+    const res = await h.send('transfer.created', { id: 'tr_stray', amount: 9000, destination: 'acct_A', metadata: { attempt_id: 'att_gone' } });
+    expect(res.status).toBe(200);
+    const review = h.sb.queries.filter((q) => q.table === 'webhook_retries' && q.op === 'insert');
+    expect(review).toHaveLength(1);
+    expect(review[0].body).toMatchObject({ rpc_name: 'transfer.created', error_message: 'ATTEMPT_NOT_FOUND:att_gone:tr_stray', resolved: false });
+    expect(h.rpcNames()).toContain('complete_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('fail_stripe_webhook_event');
+  });
+
+  it('A4 unknown attempt id but the review row cannot be written ⇒ non-2xx, lease released (never acknowledge an unrecorded review)', async () => {
+    const h = await load({ rpcFail: { record_payout_attempt_result: 'ATTEMPT_NOT_FOUND' }, retriesInsertError: 'disk full' });
+    const res = await h.send('transfer.created', { id: 'tr_stray', amount: 9000, metadata: { attempt_id: 'att_gone' } });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
   });
 
   it('transfer.reversed mark failure ⇒ non-2xx', async () => {
