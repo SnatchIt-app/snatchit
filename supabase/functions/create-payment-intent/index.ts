@@ -207,6 +207,67 @@ async function ensureStripeCustomerAndEphemeralKey(
   return { customerId, ephemeralKeySecret: ek.secret };
 }
 
+// ── Explicit expired / superseded handling (Package 1, decision 3) ──────────
+// When this buyer is refused for a listing they can no longer buy (their
+// reservation lapsed, another buyer holds it, the listing sold), any `pending`
+// PaymentIntent this function previously minted for the same (listing, buyer,
+// mode) is a live, confirmable client_secret bound to inventory the buyer no
+// longer has a claim on — a Stripe PaymentIntent never expires on its own.
+// Cancel it at Stripe and retire the row so a capture cannot arrive later.
+// Best-effort: failures are logged, the refusal is returned regardless.
+async function retireStalePendingIntents(
+  supabase: ReturnType<typeof createClient>,
+  listingId: string,
+  buyerId: string,
+  mode: string,
+  reason: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('id, stripe_payment_intent_id')
+    .eq('listing_id', listingId)
+    .eq('buyer_id', buyerId)
+    .eq('mode', mode)
+    .eq('status', 'pending');
+  if (error) {
+    console.warn('retire-stale-pending: lookup failed (continuing):', error.message);
+    return;
+  }
+  const rows = (data ?? []) as { id: string; stripe_payment_intent_id: string | null }[];
+  for (const row of rows) {
+    let canceled = false;
+    if (row.stripe_payment_intent_id) {
+      try {
+        const res = await stripeFetchRaw(`/payment_intents/${row.stripe_payment_intent_id}/cancel`, { method: 'POST' });
+        const err = (res.data as { error?: { code?: string; message?: string } } | null)?.error;
+        // Already-canceled is the outcome we want; anything else leaves the
+        // row alone (a PI that already succeeded must stay `pending` for the
+        // webhook / confirm-payment to settle or compensate).
+        canceled = res.ok || /status of canceled|already.*cancel/i.test(err?.message ?? '');
+        if (!canceled) {
+          console.warn('retire-stale-pending: PI cancel refused (row left pending):', {
+            pi_id: row.stripe_payment_intent_id, code: err?.code ?? null,
+          });
+        }
+      } catch (cancelErr) {
+        console.warn('retire-stale-pending: PI cancel threw (row left pending):', cancelErr);
+      }
+    } else {
+      canceled = true;
+    }
+    if (!canceled) continue;
+    const { error: retireErr } = await supabase
+      .from('payments')
+      .update({ status: 'failed' })
+      .eq('id', row.id)
+      .eq('status', 'pending');
+    if (retireErr) {
+      console.warn('retire-stale-pending: row update failed (continuing):', retireErr.message);
+    }
+    logStage('stale-pending-retired', { payment_row: row.id, pi_id: row.stripe_payment_intent_id, reason });
+  }
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -265,7 +326,7 @@ serve(async (req: Request) => {
     // Fetch listing
     const { data: listing, error: listingErr } = await supabase
       .from('listings')
-      .select('id, seller_id, current_bid, buy_now_price, buy_now_enabled, status, auction_status, winner_user_id, winning_bid_amount')
+      .select('id, seller_id, current_bid, buy_now_price, buy_now_enabled, status, auction_status, winner_user_id, winning_bid_amount, reserved_by, reserved_until, ends_at')
       .eq('id', listing_id)
       .single();
 
@@ -296,12 +357,35 @@ serve(async (req: Request) => {
     // Validate based on mode
     let amount: number;
 
+    // Reservation authority (Package 1, decisions 2-3). The PaymentIntent
+    // binds to the LIVE reservation holder — nobody else can mint a
+    // confirmable client_secret for reserved inventory, and a holder whose
+    // window lapsed must reserve again. Messages match the regexes in
+    // src/lib/payments.ts so shipped builds render them.
+    const nowMs = Date.now();
+    const reservedUntilMs = listing.reserved_until ? new Date(listing.reserved_until as string).getTime() : NaN;
+    const reservationLive = listing.status === 'reserved' && !!listing.reserved_by && reservedUntilMs > nowMs;
+    const refuse = async (status: number, error: string, reason: string) => {
+      logStage('checkout-refused', { listing_id, mode, reason, status: listing.status, reserved_by_is_buyer: listing.reserved_by === buyerId });
+      await retireStalePendingIntents(supabase, listing_id, buyerId, mode, reason);
+      return new Response(
+        JSON.stringify({ error }),
+        { status, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+      );
+    };
+
     if (mode === 'buy_now') {
       if (listing.status !== 'reserved') {
         return new Response(
           JSON.stringify({ error: 'Listing is not reserved for purchase' }),
           { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
         );
+      }
+      if (listing.reserved_by !== buyerId) {
+        return refuse(409, 'This listing is already reserved by another buyer.', 'reserved-by-another');
+      }
+      if (!reservationLive) {
+        return refuse(409, 'Your reservation expired. Please reserve the listing again.', 'reservation-expired');
       }
       if (!listing.buy_now_enabled || !listing.buy_now_price) {
         return new Response(
@@ -311,6 +395,9 @@ serve(async (req: Request) => {
       }
       amount = listing.buy_now_price;
     } else if (mode === 'auction') {
+      if (listing.status === 'sold') {
+        return refuse(409, 'This listing is already sold.', 'listing-sold');
+      }
       if (listing.auction_status !== 'ended') {
         return new Response(
           JSON.stringify({ error: 'Auction has not ended yet' }),
@@ -322,6 +409,11 @@ serve(async (req: Request) => {
           JSON.stringify({ error: 'You are not the auction winner' }),
           { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
         );
+      }
+      // A Buy-Now hold has priority over the auction win while it is live
+      // (decision 3); complete_auction_payment enforces the same rule.
+      if (reservationLive && listing.reserved_by !== buyerId) {
+        return refuse(409, 'This listing is already reserved by another buyer.', 'reserved-by-another');
       }
       amount = listing.winning_bid_amount ?? listing.current_bid;
     } else {
@@ -492,6 +584,11 @@ serve(async (req: Request) => {
       'metadata[buyer_id]':                  buyerId,
       'metadata[seller_id]':                 listing.seller_id,
       'metadata[mode]':                      mode,
+      // Forensics only (Package 1): which reservation window this intent was
+      // minted against. Buy-Now only — the auction path has no window.
+      ...(mode === 'buy_now' && listing.reserved_until
+        ? { 'metadata[reserved_until]': String(listing.reserved_until) }
+        : {}),
     };
 
     type PiResponse = { id: string; client_secret: string; status?: string; livemode?: boolean };
