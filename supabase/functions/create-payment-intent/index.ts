@@ -208,53 +208,46 @@ async function ensureStripeCustomerAndEphemeralKey(
 }
 
 // ── Explicit expired / superseded handling (Package 1, decision 3) ──────────
-// When this buyer is refused for a listing they can no longer buy (their
-// reservation lapsed, another buyer holds it, the listing sold), any `pending`
-// PaymentIntent this function previously minted for the same (listing, buyer,
-// mode) is a live, confirmable client_secret bound to inventory the buyer no
-// longer has a claim on — a Stripe PaymentIntent never expires on its own.
-// Cancel it at Stripe and retire the row so a capture cannot arrive later.
-// Best-effort: failures are logged, the refusal is returned regardless.
-async function retireStalePendingIntents(
+// A `pending` PaymentIntent is a live, confirmable client_secret — a Stripe
+// PaymentIntent never expires on its own. Two situations make one stale:
+//   * scope 'buyer': THIS buyer is refused for a listing they can no longer
+//     buy (reservation lapsed, another buyer holds it, the listing sold). Any
+//     pending PI this function minted for the same (listing, buyer, mode) is
+//     bound to inventory the buyer no longer has a claim on.
+//   * scope 'other-buyers' (review round 1, MAJOR-3): this buyer is the LIVE
+//     holder / entitled winner and is about to receive a secret. Every OTHER
+//     buyer's pending PI on the listing (any mode) is a secret its owner could
+//     still confirm without ever calling this function again — a capture that
+//     would then collide with the entitled buyer's.
+// Cancel at Stripe, and mark the row `failed` ONLY when the cancel provably
+// succeeded (a PI that already succeeded / is processing must stay `pending`
+// for the webhook / confirm-payment to settle or compensate). Best-effort:
+// failures are logged and never change the caller's response.
+type RetireScope = { kind: 'buyer'; mode: string } | { kind: 'other-buyers' };
+
+async function retirePendingIntents(
   supabase: ReturnType<typeof createClient>,
   listingId: string,
   buyerId: string,
-  mode: string,
+  scope: RetireScope,
   reason: string,
 ): Promise<void> {
-  const { data, error } = await supabase
+  let q = supabase
     .from('payments')
-    .select('id, stripe_payment_intent_id')
-    .eq('listing_id', listingId)
-    .eq('buyer_id', buyerId)
-    .eq('mode', mode)
-    .eq('status', 'pending');
+    .select('id, stripe_payment_intent_id, buyer_id')
+    .eq('listing_id', listingId);
+  q = scope.kind === 'buyer'
+    ? q.eq('buyer_id', buyerId).eq('mode', scope.mode)
+    : q.neq('buyer_id', buyerId);
+  const { data, error } = await q.eq('status', 'pending');
+  const tag = scope.kind === 'buyer' ? 'retire-stale-pending' : 'retire-other-pending';
   if (error) {
-    console.warn('retire-stale-pending: lookup failed (continuing):', error.message);
+    console.warn(`${tag}: lookup failed (continuing):`, error.message);
     return;
   }
-  const rows = (data ?? []) as { id: string; stripe_payment_intent_id: string | null }[];
+  const rows = (data ?? []) as { id: string; stripe_payment_intent_id: string | null; buyer_id: string }[];
   for (const row of rows) {
-    let canceled = false;
-    if (row.stripe_payment_intent_id) {
-      try {
-        const res = await stripeFetchRaw(`/payment_intents/${row.stripe_payment_intent_id}/cancel`, { method: 'POST' });
-        const err = (res.data as { error?: { code?: string; message?: string } } | null)?.error;
-        // Already-canceled is the outcome we want; anything else leaves the
-        // row alone (a PI that already succeeded must stay `pending` for the
-        // webhook / confirm-payment to settle or compensate).
-        canceled = res.ok || /status of canceled|already.*cancel/i.test(err?.message ?? '');
-        if (!canceled) {
-          console.warn('retire-stale-pending: PI cancel refused (row left pending):', {
-            pi_id: row.stripe_payment_intent_id, code: err?.code ?? null,
-          });
-        }
-      } catch (cancelErr) {
-        console.warn('retire-stale-pending: PI cancel threw (row left pending):', cancelErr);
-      }
-    } else {
-      canceled = true;
-    }
+    const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, tag);
     if (!canceled) continue;
     const { error: retireErr } = await supabase
       .from('payments')
@@ -262,9 +255,31 @@ async function retireStalePendingIntents(
       .eq('id', row.id)
       .eq('status', 'pending');
     if (retireErr) {
-      console.warn('retire-stale-pending: row update failed (continuing):', retireErr.message);
+      console.warn(`${tag}: row update failed (continuing):`, retireErr.message);
     }
-    logStage('stale-pending-retired', { payment_row: row.id, pi_id: row.stripe_payment_intent_id, reason });
+    logStage(scope.kind === 'buyer' ? 'stale-pending-retired' : 'other-buyer-pending-retired', {
+      payment_row: row.id, pi_id: row.stripe_payment_intent_id, reason,
+      ...(scope.kind === 'other-buyers' ? { other_buyer_id: row.buyer_id } : {}),
+    });
+  }
+}
+
+// Cancel a PaymentIntent at Stripe. Returns true only when Stripe confirms the
+// cancel (or it was already canceled); anything else — succeeded, processing,
+// network error — returns false so the caller leaves the row `pending`.
+async function cancelPaymentIntentBestEffort(piId: string | null, tag: string): Promise<boolean> {
+  if (!piId) return true;
+  try {
+    const res = await stripeFetchRaw(`/payment_intents/${piId}/cancel`, { method: 'POST' });
+    const err = (res.data as { error?: { code?: string; message?: string } } | null)?.error;
+    const canceled = res.ok || /status of canceled|already.*cancel/i.test(err?.message ?? '');
+    if (!canceled) {
+      console.warn(`${tag}: PI cancel refused (row left pending):`, { pi_id: piId, code: err?.code ?? null });
+    }
+    return canceled;
+  } catch (cancelErr) {
+    console.warn(`${tag}: PI cancel threw (row left pending):`, cancelErr);
+    return false;
   }
 }
 
@@ -365,21 +380,56 @@ serve(async (req: Request) => {
     const nowMs = Date.now();
     const reservedUntilMs = listing.reserved_until ? new Date(listing.reserved_until as string).getTime() : NaN;
     const reservationLive = listing.status === 'reserved' && !!listing.reserved_by && reservedUntilMs > nowMs;
+    // EVERY refusal of this buyer goes through refuse() so the buyer's stale
+    // pending PaymentIntent is retired (review round 1, MAJOR-2: the most
+    // common lapsed path — cron sweep flipped the hold to 'active' — used to
+    // return before retirement). Status/message are preserved per path for
+    // shipped clients.
     const refuse = async (status: number, error: string, reason: string) => {
       logStage('checkout-refused', { listing_id, mode, reason, status: listing.status, reserved_by_is_buyer: listing.reserved_by === buyerId });
-      await retireStalePendingIntents(supabase, listing_id, buyerId, mode, reason);
+      await retirePendingIntents(supabase, listing_id, buyerId, { kind: 'buyer', mode }, reason);
       return new Response(
         JSON.stringify({ error }),
         { status, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
       );
     };
 
-    if (mode === 'buy_now') {
-      if (listing.status !== 'reserved') {
+    // Sold in fact (review round 1, MAJOR-1c): a succeeded payment by ANOTHER
+    // buyer means the listing is sold whether or not the webhook / client has
+    // settled it yet (money wins — incl. over an ended auction with a
+    // different unpaid winner, NOTE-7). Nobody else may mint against it.
+    // The buyer's OWN succeeded payment is handled below ('already completed').
+    if (mode === 'buy_now' || mode === 'auction') {
+      const { data: succeededRows, error: succeededErr } = await supabase
+        .from('payments')
+        .select('id, buyer_id')
+        .eq('listing_id', listing_id)
+        .eq('status', 'succeeded');
+      if (succeededErr) {
+        // Fail closed: without this answer we cannot prove the listing is not
+        // already someone else's.
+        logStage('sold-check-failed', { listing_id, error: succeededErr.message });
         return new Response(
-          JSON.stringify({ error: 'Listing is not reserved for purchase' }),
-          { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+          JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '10', ...getResponseHeaders(req) } }
         );
+      }
+      const soldToAnother = ((succeededRows ?? []) as { id: string; buyer_id: string }[])
+        .some((p) => p.buyer_id !== buyerId);
+      if (soldToAnother) {
+        return refuse(409, 'This listing is already sold.', 'sold-to-another-buyer');
+      }
+    }
+
+    if (mode === 'buy_now') {
+      if (listing.status === 'sold') {
+        return refuse(409, 'This listing is already sold.', 'listing-sold');
+      }
+      if (listing.status !== 'reserved') {
+        // Same 400 + text as before Package 1 (shipped clients match
+        // /not reserved for purchase/), now via refuse() so the lapsed
+        // holder's pending PI is retired after the cron sweep too.
+        return refuse(400, 'Listing is not reserved for purchase', 'not-reserved');
       }
       if (listing.reserved_by !== buyerId) {
         return refuse(409, 'This listing is already reserved by another buyer.', 'reserved-by-another');
@@ -499,13 +549,20 @@ serve(async (req: Request) => {
 
     let failedAttempts = existingPayments.filter((p) => p.status === 'failed').length;
 
+    // This buyer is entitled and is about to receive a confirmable secret
+    // (reused or freshly minted). Retire every OTHER buyer's pending
+    // PaymentIntent on the listing first (review round 1, MAJOR-3): a lapsed
+    // holder who never calls back still owns a live secret otherwise.
+    // Best-effort — never fails this request.
+    await retirePendingIntents(supabase, listing_id, buyerId, { kind: 'other-buyers' }, 'entitled-buyer-checkout');
+
     const pendingPayment = existingPayments.find((p) => p.status === 'pending');
     if (pendingPayment) {
       // Retrieve existing PaymentIntent from Stripe
       const existingPi = await stripeFetchRaw(
         `/payment_intents/${pendingPayment.stripe_payment_intent_id}`,
       );
-      const existingPiData = existingPi.data as { id?: string; status?: string; client_secret?: string };
+      const existingPiData = existingPi.data as { id?: string; status?: string; client_secret?: string; amount?: number; currency?: string };
 
       if (existingPi.ok) {
         // If the PI already succeeded on Stripe's side, the payment is done —
@@ -533,8 +590,39 @@ serve(async (req: Request) => {
             console.warn('Failed to retire dead pending payment (continuing):', retireErr.message);
           }
           failedAttempts += 1;
+        } else if (existingPiData.amount !== totalCents || existingPiData.currency !== 'usd') {
+          // I1 amount binding on the REUSE path (review round 1, MINOR-4): the
+          // seller can re-price on UPDATE (072). Handing back a PI minted at
+          // the old amount would charge the buyer a number the UI no longer
+          // shows. Cancel it, retire the row, and mint fresh at today's total.
+          logStage('reuse-rejected-amount-mismatch', {
+            pi_id: existingPiData.id, pi_amount: existingPiData.amount ?? null, pi_currency: existingPiData.currency ?? null,
+            server_total_cents: totalCents,
+          });
+          const canceled = await cancelPaymentIntentBestEffort(pendingPayment.stripe_payment_intent_id, 'reuse-rejected-amount-mismatch');
+          if (!canceled) {
+            // The old PI could not be cancelled (e.g. already processing).
+            // Minting a second live PI now would risk a double charge; leave
+            // the row pending for the webhook and let the client retry.
+            return new Response(
+              JSON.stringify({
+                error: 'Price changed. Please review the updated total and try again.',
+                server_total_cents: totalCents,
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+            );
+          }
+          const { error: retireErr } = await supabase
+            .from('payments')
+            .update({ status: 'failed' })
+            .eq('id', pendingPayment.id)
+            .eq('status', 'pending');
+          if (retireErr) {
+            console.warn('Failed to retire amount-mismatched pending payment (continuing):', retireErr.message);
+          }
+          failedAttempts += 1;
         } else if (existingPiData.client_secret) {
-          logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status });
+          logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
           return new Response(
             JSON.stringify({
               clientSecret:               existingPiData.client_secret,

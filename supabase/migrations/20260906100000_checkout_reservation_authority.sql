@@ -22,14 +22,31 @@
 --      reservation per buyer (reserving another listing releases the previous
 --      one); check_rate_limit(caller,'reserve_buy_now',20,600) fail-closed.
 --      Before this p_minutes was unbounded and re-callable (F04).
+--      SOLD IN FACT (review round 1, MAJOR-1): a listing holding ANY
+--      `succeeded` payments row is sold whether or not the webhook / client
+--      has settled it yet. reserve_buy_now raises 'This listing has already
+--      been sold.' for such a listing, and neither its inline expired-hold
+--      sweep nor the caller's cross-listing release ever touches a paid row —
+--      so webhook lag can never hand paid inventory to a second buyer (who
+--      would otherwise pass create-payment-intent's holder check and mint a
+--      second live PaymentIntent). Consistent with Package 2's ratified
+--      "cleanup_expired_reservations skips paid listings".
 --
 -- FORWARD BEHAVIOUR (decisions 1-3)
 --   * Money wins. A succeeded payment settles the listing even if the buyer's
 --     reservation lapsed or another buyer currently holds a live Buy-Now
 --     reservation (that holder cannot have paid: create-payment-intent binds
---     the PaymentIntent to the live holder and idx_payments_one_success_per_
---     listing admits one success). The old "reservation expired => release +
---     raise" side effect of mark_listing_sold is removed.
+--     the PaymentIntent to the live holder, reserve_buy_now refuses paid
+--     inventory, and idx_payments_one_success_per_listing admits one
+--     success). The old "reservation expired => release + raise" side effect
+--     of mark_listing_sold is removed.
+--   * NOTE-7 (ratified, review round 1): money wins over an ENDED AUCTION
+--     too. A succeeded buy_now payment settles the listing even if the
+--     auction ended with a different, unpaid winner; that winner's
+--     complete_auction_payment / create-payment-intent then answers
+--     'already sold'. create-payment-intent refuses both branches with 409
+--     'This listing is already sold.' whenever another buyer's payment has
+--     succeeded, and retires the refused buyer's pending PaymentIntent.
 --   * A capture that can no longer be fulfilled (listing sold to a different
 --     payment, cancelled, auction not won by the payer) is 'unfulfillable';
 --     the core touches nothing and never expires/releases a reservation.
@@ -54,9 +71,13 @@
 --   behaviour: every state transition takes FOR UPDATE row locks in the fixed
 --   order payments -> listings (the core and both wrappers), so a concurrent
 --   wrapper call and a concurrent webhook settlement cannot deadlock on the
---   pair. reserve_buy_now additionally updates the caller's OTHER live holds
---   (ordinary row locks; Postgres deadlock detection resolves the pathological
---   cross-order case by failing one caller, who retries).
+--   pair. reserve_buy_now (review round 1, MINOR-5) takes every listings row
+--   it can touch — the target AND the caller's other live holds — in ONE
+--   statement, `... ORDER BY id FOR UPDATE`, before any write, so two callers
+--   swapping holds (same-buyer double-tap on two listings, two buyers
+--   exchanging lapsed holds) acquire in id order and cannot deadlock; the
+--   later UPDATEs only touch rows already locked by that statement. It reads
+--   payments without locking (EXISTS), so it adds no cross-table lock edge.
 --
 -- ROLLBACK
 --   supabase/rollbacks/20260906100000_checkout_reservation_authority_rollback.sql
@@ -236,14 +257,16 @@ END; $function$;
 
 -- ---------------------------------------------------------------------------
 -- 4. reserve_buy_now — body only. Server-owned TTL, no extension, one live
---    hold per buyer, fail-closed rate limit (decision 2).
+--    hold per buyer, fail-closed rate limit (decision 2). Paid inventory is
+--    never reservable or released (MAJOR-1); all row locks up front in id
+--    order (MINOR-5).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.reserve_buy_now(p_listing_id uuid, p_user_id uuid, p_minutes integer)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE v_caller_id uuid; v_status text; v_ends_at timestamptz;
         v_reserved_by uuid; v_reserved_until timestamptz; v_auction_status text;
-        v_minutes integer;
+        v_seller_id uuid; v_minutes integer;
 BEGIN
   v_caller_id := auth.uid();
   IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
@@ -253,19 +276,38 @@ BEGIN
   -- for wire compatibility with shipped clients (they send 10) and is ignored.
   v_minutes := 10;
 
+  -- Every listings row this call can write — the target and the caller's
+  -- other live holds — is locked HERE, once, in id order, before any write.
+  -- Two concurrent callers therefore acquire the same rows in the same order
+  -- and cannot deadlock on each other's holds. Nothing below takes a new lock.
+  PERFORM 1 FROM public.listings
+   WHERE id = p_listing_id OR (reserved_by = v_caller_id AND status = 'reserved')
+   ORDER BY id
+   FOR UPDATE;
+
+  -- Inline sweep of the target's own lapsed hold. A hold backed by a
+  -- succeeded payment is NEVER swept: that listing is sold in fact and the
+  -- settlement path (mark_listing_sold / webhook) will clear it.
   PERFORM set_config('app.bypass_listing_guard', 'on', true);
   UPDATE public.listings SET status='active', reserved_by=null, reserved_until=null
-   WHERE id = p_listing_id AND status='reserved' AND reserved_until <= now();
+   WHERE id = p_listing_id AND status='reserved' AND reserved_until <= now()
+     AND NOT EXISTS (SELECT 1 FROM public.payments p
+                      WHERE p.listing_id = public.listings.id AND p.status = 'succeeded');
 
-  SELECT status, ends_at, reserved_by, reserved_until, auction_status
-    INTO v_status, v_ends_at, v_reserved_by, v_reserved_until, v_auction_status
-    FROM public.listings WHERE id = p_listing_id FOR UPDATE;
+  SELECT status, ends_at, reserved_by, reserved_until, auction_status, seller_id
+    INTO v_status, v_ends_at, v_reserved_by, v_reserved_until, v_auction_status, v_seller_id
+    FROM public.listings WHERE id = p_listing_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'Listing not found.'; END IF;
 
-  IF EXISTS (SELECT 1 FROM public.listings WHERE id = p_listing_id AND seller_id = v_caller_id) THEN
+  IF v_seller_id = v_caller_id THEN
     RAISE EXCEPTION 'You cannot purchase your own listing.';
   END IF;
-  IF v_status = 'sold' THEN RAISE EXCEPTION 'This listing has already been sold.'; END IF;
+  -- Sold in fact: a succeeded payment exists (settled or not yet settled).
+  IF v_status = 'sold'
+     OR EXISTS (SELECT 1 FROM public.payments
+                 WHERE listing_id = p_listing_id AND status = 'succeeded') THEN
+    RAISE EXCEPTION 'This listing has already been sold.';
+  END IF;
   IF v_auction_status = 'cancelled' THEN RAISE EXCEPTION 'This listing has been cancelled.'; END IF;
   IF now() > v_ends_at THEN RAISE EXCEPTION 'This auction has ended.'; END IF;
   IF v_status = 'reserved' THEN
@@ -283,10 +325,15 @@ BEGIN
     RAISE EXCEPTION 'Too many reservation attempts. Please try again later.';
   END IF;
 
-  -- One live reservation per buyer: release the caller's OTHER holds first.
+  -- One live reservation per buyer: release the caller's OTHER holds first —
+  -- except a hold the caller has already PAID for (webhook lag), which is
+  -- sold in fact and must stay bound to the payer until settlement.
+  -- Rows here were locked by the ORDER BY id statement above.
   PERFORM set_config('app.bypass_listing_guard', 'on', true);
   UPDATE public.listings SET status='active', reserved_by=null, reserved_until=null
-   WHERE reserved_by = v_caller_id AND status='reserved' AND id <> p_listing_id;
+   WHERE reserved_by = v_caller_id AND status='reserved' AND id <> p_listing_id
+     AND NOT EXISTS (SELECT 1 FROM public.payments p
+                      WHERE p.listing_id = public.listings.id AND p.status = 'succeeded');
 
   UPDATE public.listings
      SET status='reserved', reserved_by=v_caller_id,
