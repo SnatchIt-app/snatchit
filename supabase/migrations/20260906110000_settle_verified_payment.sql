@@ -16,8 +16,12 @@
 --      stripe-webhook, confirm-payment and the reconciliation sweep in
 --      enforce-transfer-expiry. Never calls the network.
 --   2. public.get_unsettled_payments(p_limit): the sweep's work list —
---      paid-but-unsettled rows, stale pending rows (late captures), and
---      unresolved `unfulfillable` review rows joined to their payment.
+--      paid-but-unsettled rows, stale pending rows (late captures, 15 min ..
+--      2 h), unresolved `unfulfillable` review rows joined to their payment
+--      (minus the sweep's own 'unfulfillable:manual_review' operator marker),
+--      and — count-only, never fetched from Stripe — `legacy_unknown_mode`
+--      rows whose stripe_livemode is NULL (pre-045; the live key cannot
+--      address them). Test-mode rows (stripe_livemode = false) are excluded.
 --   3. cleanup_expired_reservations(): body only. Identical to 000 plus
 --      "never re-list a listing that holds a succeeded payment" (N1). Before
 --      this, a paid listing whose reservation lapsed while the webhook was
@@ -34,21 +38,33 @@
 --   binding_mismatch  (only checked once the row is found) currency not usd;
 --                     stripe_livemode set and different; metadata carries a
 --                     mode / listing_id / buyer_id / seller_id that is not the
---                     row's; or, when p_stripe_status = 'succeeded',
---                     amount_received <> total. Review row; NO writes to
---                     payments / listings / transfers. (amount_received is 0
---                     for a canceled or processing PI, so the amount check is
---                     scoped to the succeeded case — otherwise a canceled PI
---                     could never mark its row failed.)
---   refunded          row already refunded (no promotion, refund id filled in
---                     if we did not have it), OR p_amount_refunded > 0:
---                     refunded_at/stripe_refund_id are set once (coalesce);
---                     when the refund covers total the row becomes refunded —
---                     promoting pending -> succeeded first when Stripe says
---                     succeeded so the transition is succeeded -> refunded.
---                     Listing/transfer untouched.
---   canceled          p_stripe_status = 'canceled': a pending row becomes
---                     failed (failed_at = now()). Nothing else.
+--                     row's (uuids compared AS uuids after lower(trim()) — a
+--                     malformed uuid is a mismatch, review round 1 MINOR-3);
+--                     or, when p_stripe_status = 'succeeded', amount_received
+--                     <> total. Review row; NO writes to payments / listings /
+--                     transfers. (amount_received is 0 for a canceled or
+--                     processing PI, so the amount check is scoped to the
+--                     succeeded case — otherwise a canceled PI could never
+--                     mark its row failed.)
+--   refunded          row already refunded (no promotion, NO writes), OR Stripe
+--                     reports a FULL refund (p_amount_refunded >= total): the
+--                     row is promoted first when Stripe says succeeded (so the
+--                     transition is succeeded -> refunded; a one-success
+--                     collision just skips the promotion), then the refund is
+--                     recorded through Package 3's single writer
+--                     public.record_payment_refund(pi, refund_id, NULL, amount,
+--                     'dashboard') when it exists (to_regprocedure guard) and a
+--                     refund id is known; otherwise a status-guarded direct
+--                     write (status refunded, refunded_at once). Listing /
+--                     transfer untouched.
+--                     A PARTIAL refund (0 < p_amount_refunded < total) writes
+--                     NOTHING about the refund and the row continues to
+--                     settle: a partially refunded succeeded charge is still a
+--                     paid order (review round 1 MAJOR-1). Partial-refund facts
+--                     reach payments.amount_refunded_cents only through
+--                     charge.refunded -> record_payment_refund.
+--   canceled          p_stripe_status = 'canceled': a pending or processing
+--                     row becomes failed (failed_at = now()). Nothing else.
 --   not_succeeded     any other non-succeeded Stripe status. No writes.
 --   unfulfillable     the promotion collided with idx_payments_one_success_
 --                     per_listing (another payment holds the listing's one
@@ -120,9 +136,15 @@ CREATE OR REPLACE FUNCTION public.settle_verified_payment(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_p         public.payments%ROWTYPE;
-  v_core      text;
-  v_collision boolean := false;
+  v_p            public.payments%ROWTYPE;
+  v_core         text;
+  v_collision    boolean := false;
+  v_uuid_re      constant text := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  v_meta_listing text;
+  v_meta_buyer   text;
+  v_meta_seller  text;
+  v_meta_bad     boolean := false;
+  v_refund_fn    regprocedure;
 BEGIN
   -- ── 1. Lock the payment. Lock order payments -> listings (same everywhere).
   SELECT * INTO v_p FROM public.payments p
@@ -148,14 +170,26 @@ BEGIN
   SELECT t.id INTO transfer_id FROM public.transfers t WHERE t.payment_id = v_p.id;
 
   -- ── 2. Binding: Stripe's facts must describe THIS row. Never trusted, only
-  --       cross-checked. No writes on mismatch.
+  --       cross-checked. No writes on mismatch. Metadata uuids are compared as
+  --       uuids after lower(trim()) — create-payment-intent echoes the
+  --       client's listing_id unnormalized — and a malformed value is a
+  --       mismatch, never an error (MINOR-3).
+  v_meta_listing := nullif(lower(trim(coalesce(p_metadata->>'listing_id', ''))), '');
+  v_meta_buyer   := nullif(lower(trim(coalesce(p_metadata->>'buyer_id',   ''))), '');
+  v_meta_seller  := nullif(lower(trim(coalesce(p_metadata->>'seller_id',  ''))), '');
+  v_meta_bad :=
+       (v_meta_listing IS NOT NULL AND v_meta_listing !~ v_uuid_re)
+    OR (v_meta_buyer   IS NOT NULL AND v_meta_buyer   !~ v_uuid_re)
+    OR (v_meta_seller  IS NOT NULL AND v_meta_seller  !~ v_uuid_re);
+
   IF lower(coalesce(p_currency, '')) <> 'usd'
      OR (v_p.stripe_livemode IS NOT NULL AND v_p.stripe_livemode IS DISTINCT FROM p_livemode)
      OR (p_stripe_status = 'succeeded' AND (p_amount_received IS NULL OR p_amount_received <> v_p.total))
-     OR (p_metadata ? 'mode'       AND nullif(p_metadata->>'mode', '')       IS NOT NULL AND p_metadata->>'mode'       <> v_p.mode)
-     OR (p_metadata ? 'listing_id' AND nullif(p_metadata->>'listing_id', '') IS NOT NULL AND p_metadata->>'listing_id' <> v_p.listing_id::text)
-     OR (p_metadata ? 'buyer_id'   AND nullif(p_metadata->>'buyer_id', '')   IS NOT NULL AND p_metadata->>'buyer_id'   <> v_p.buyer_id::text)
-     OR (p_metadata ? 'seller_id'  AND nullif(p_metadata->>'seller_id', '')  IS NOT NULL AND p_metadata->>'seller_id'  <> v_p.seller_id::text)
+     OR (nullif(trim(coalesce(p_metadata->>'mode', '')), '') IS NOT NULL AND trim(p_metadata->>'mode') <> v_p.mode)
+     OR v_meta_bad
+     OR (v_meta_listing IS NOT NULL AND v_meta_listing::uuid <> v_p.listing_id)
+     OR (v_meta_buyer   IS NOT NULL AND v_meta_buyer::uuid   <> v_p.buyer_id)
+     OR (v_meta_seller  IS NOT NULL AND v_meta_seller::uuid  <> v_p.seller_id)
   THEN
     INSERT INTO public.webhook_retries (payment_id, listing_id, rpc_name, error_message, resolved)
     SELECT v_p.id, v_p.listing_id, 'settle_verified_payment',
@@ -174,53 +208,57 @@ BEGIN
   END IF;
 
   -- ── 3. Refund monotonicity: a refund fact is never overwritten by a success.
+  --       This contract never writes refunded_at / stripe_refund_id itself
+  --       while Package 3's single writer exists; a partial refund is not a
+  --       refund outcome at all (MAJOR-1).
   IF v_p.status = 'refunded' THEN
-    IF v_p.stripe_refund_id IS NULL AND nullif(p_stripe_refund_id, '') IS NOT NULL THEN
-      UPDATE public.payments SET stripe_refund_id = p_stripe_refund_id WHERE id = v_p.id;
-    END IF;
     outcome := 'refunded';
     RETURN NEXT; RETURN;
   END IF;
 
-  IF coalesce(p_amount_refunded, 0) > 0 THEN
-    IF coalesce(p_amount_refunded, 0) >= v_p.total THEN
-      -- Full refund of a captured charge: record the success first when Stripe
-      -- says so, so the transition is pending -> succeeded -> refunded. A
-      -- collision on the one-success index just means we skip the promotion.
-      IF p_stripe_status = 'succeeded' AND v_p.status NOT IN ('succeeded', 'refunded') THEN
-        BEGIN
-          UPDATE public.payments
-             SET status = 'succeeded',
-                 paid_at = coalesce(paid_at, now()),
-                 payment_method = coalesce(payment_method, p_payment_method)
-           WHERE id = v_p.id AND status NOT IN ('succeeded', 'refunded');
-        EXCEPTION WHEN unique_violation THEN
-          NULL;
-        END;
-      END IF;
+  IF coalesce(p_amount_refunded, 0) >= v_p.total THEN
+    -- Full refund of a captured charge: record the success first when Stripe
+    -- says so, so the transition is pending -> succeeded -> refunded. A
+    -- collision on the one-success index just means we skip the promotion.
+    IF p_stripe_status = 'succeeded' AND v_p.status NOT IN ('succeeded', 'refunded') THEN
+      BEGIN
+        UPDATE public.payments
+           SET status = 'succeeded',
+               paid_at = coalesce(paid_at, now()),
+               payment_method = coalesce(payment_method, p_payment_method)
+         WHERE id = v_p.id AND status NOT IN ('succeeded', 'refunded');
+      EXCEPTION WHEN unique_violation THEN
+        NULL;
+      END;
+    END IF;
+    v_refund_fn := to_regprocedure('public.record_payment_refund(text,text,text,integer,text)');
+    IF v_refund_fn IS NOT NULL AND nullif(p_stripe_refund_id, '') IS NOT NULL THEN
+      -- Package 3 present: the ONE writer of refund facts (append-only
+      -- payment_refunds row, monotonic amount_refunded_cents, status refunded
+      -- once the amount reaches total). Idempotent on the refund id. Source
+      -- 'dashboard' = a Stripe-side refund observed by webhook / confirm /
+      -- sweep rather than issued by our own expiry / unfulfillable paths.
+      -- Dynamic SQL so this body compiles and rolls back independently of
+      -- migration 20260906120000.
+      EXECUTE 'SELECT public.record_payment_refund($1, $2, NULL, $3, $4)'
+        USING p_payment_intent_id, p_stripe_refund_id, least(p_amount_refunded, v_p.total), 'dashboard';
+    ELSE
+      -- Package 3 absent (or Stripe gave no refund id to ledger): status only.
       UPDATE public.payments
          SET status = 'refunded',
-             refunded_at = coalesce(refunded_at, now()),
-             stripe_refund_id = coalesce(stripe_refund_id, nullif(p_stripe_refund_id, ''))
-       WHERE id = v_p.id AND status <> 'refunded'
-       RETURNING status INTO payment_status;
-    ELSE
-      -- Partial refund: keep the refund facts, do not promote or settle.
-      UPDATE public.payments
-         SET refunded_at = coalesce(refunded_at, now()),
-             stripe_refund_id = coalesce(stripe_refund_id, nullif(p_stripe_refund_id, ''))
-       WHERE id = v_p.id
-       RETURNING status INTO payment_status;
+             refunded_at = coalesce(refunded_at, now())
+       WHERE id = v_p.id AND status <> 'refunded';
     END IF;
+    SELECT p.status INTO payment_status FROM public.payments p WHERE p.id = v_p.id;
     outcome := 'refunded';
     RETURN NEXT; RETURN;
   END IF;
 
   -- ── 4. Only a succeeded PaymentIntent moves anything forward.
   IF p_stripe_status = 'canceled' THEN
-    IF v_p.status = 'pending' THEN
+    IF v_p.status IN ('pending', 'processing') THEN
       UPDATE public.payments SET status = 'failed', failed_at = coalesce(failed_at, now())
-       WHERE id = v_p.id AND status = 'pending'
+       WHERE id = v_p.id AND status IN ('pending', 'processing')
        RETURNING status INTO payment_status;
     END IF;
     outcome := 'canceled';
@@ -282,7 +320,7 @@ END; $function$;
 ALTER FUNCTION public.settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text) OWNER TO postgres;
 
 COMMENT ON FUNCTION public.settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text) IS
-  'Package 2 verified-settlement contract (service_role only). Cross-checks Stripe''s PaymentIntent facts against the payments row, enforces refund monotonicity, promotes only on succeeded, settles through settle_listing_for_payment, and records unknown_payment / binding_mismatch / unfulfillable once in webhook_retries. Outcomes: settled | already_settled | refunded | not_succeeded | canceled | unfulfillable | unknown_payment | binding_mismatch.';
+  'Package 2 verified-settlement contract (service_role only). Cross-checks Stripe''s PaymentIntent facts against the payments row (uuid-normalized metadata), enforces refund monotonicity (a full refund is ledgered through record_payment_refund when present; a partial refund still settles), promotes only on succeeded, settles through settle_listing_for_payment, and records unknown_payment / binding_mismatch / unfulfillable once in webhook_retries. Outcomes: settled | already_settled | refunded | not_succeeded | canceled | unfulfillable | unknown_payment | binding_mismatch.';
 
 -- ---------------------------------------------------------------------------
 -- 2. The reconciliation sweep's work list.
@@ -293,7 +331,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
   WITH candidates AS (
     -- review_unfulfillable: an unresolved unfulfillable review row. Highest
-    -- priority: money is held for an order that cannot be delivered.
+    -- priority: money is held for an order that cannot be delivered. The
+    -- sweep's own 'unfulfillable:manual_review' marker (a capture that already
+    -- carries a transfer — MINOR-4) is an operator item, not sweep work.
     SELECT p.id, p.stripe_payment_intent_id, p.listing_id, p.mode, p.status, p.paid_at, p.created_at,
            'review_unfulfillable'::text AS kind, 1 AS priority
       FROM public.webhook_retries w
@@ -301,12 +341,14 @@ AS $function$
      WHERE w.rpc_name = 'settle_verified_payment'
        AND w.resolved IS NOT TRUE
        AND w.error_message LIKE 'unfulfillable%'
+       AND w.error_message <> 'unfulfillable:manual_review'
        AND p.status <> 'refunded'
     UNION ALL
     -- paid_unsettled: the money fact is recorded but the listing is not sold
     -- or the seller has no transfer obligation yet.
     SELECT p.id, p.stripe_payment_intent_id, p.listing_id, p.mode, p.status, p.paid_at, p.created_at,
-           'paid_unsettled'::text, 2
+           CASE WHEN p.stripe_livemode IS NULL THEN 'legacy_unknown_mode' ELSE 'paid_unsettled' END::text,
+           CASE WHEN p.stripe_livemode IS NULL THEN 4 ELSE 2 END
       FROM public.payments p
       JOIN public.listings l ON l.id = p.listing_id
      WHERE p.status = 'succeeded'
@@ -315,17 +357,22 @@ AS $function$
        AND (l.status <> 'sold' OR NOT EXISTS (SELECT 1 FROM public.transfers t WHERE t.payment_id = p.id))
     UNION ALL
     -- pending_stale: a late capture whose success event may have been missed.
-    -- Bounded to the last 24 hours so abandoned checkouts do not become a
-    -- permanent Stripe look-up every run (card captures land within seconds;
-    -- the webhook and confirm-payment remain the primary paths).
+    -- Window 15 min .. 2 h: the cron runs every 2 minutes (034), so a wider
+    -- window turns every abandoned checkout into hundreds of Stripe GETs
+    -- (MINOR-5); card captures land within seconds and the webhook and
+    -- confirm-payment remain the primary paths.
     SELECT p.id, p.stripe_payment_intent_id, p.listing_id, p.mode, p.status, p.paid_at, p.created_at,
-           'pending_stale'::text, 3
+           CASE WHEN p.stripe_livemode IS NULL THEN 'legacy_unknown_mode' ELSE 'pending_stale' END::text,
+           CASE WHEN p.stripe_livemode IS NULL THEN 4 ELSE 3 END
       FROM public.payments p
      WHERE p.status = 'pending'
        AND p.stripe_payment_intent_id IS NOT NULL
        AND p.created_at < now() - interval '15 minutes'
-       AND p.created_at > now() - interval '24 hours'
+       AND p.created_at > now() - interval '2 hours'
   ),
+  -- legacy_unknown_mode (priority 4): stripe_livemode IS NULL — a pre-045 row
+  -- the live key cannot address (404 on every run). Phase 0 only counts these;
+  -- it never calls Stripe for them. Test-mode rows (= false) are dropped.
   deduped AS (
     SELECT DISTINCT ON (c.id) c.*
       FROM candidates c
@@ -341,7 +388,7 @@ $function$;
 ALTER FUNCTION public.get_unsettled_payments(integer) OWNER TO postgres;
 
 COMMENT ON FUNCTION public.get_unsettled_payments(integer) IS
-  'Package 2 reconciliation work list (service_role only): review_unfulfillable (unresolved unfulfillable review rows), paid_unsettled (succeeded > 5 min, listing not sold or no transfer), pending_stale (pending 15 min .. 24 h with a PaymentIntent). Test-mode rows (stripe_livemode = false) are excluded — the live key cannot see them. One row per payment, highest priority kind wins, oldest first.';
+  'Package 2 reconciliation work list (service_role only): review_unfulfillable (unresolved unfulfillable review rows, minus the unfulfillable:manual_review operator marker), paid_unsettled (succeeded > 5 min, listing not sold or no transfer), pending_stale (pending 15 min .. 2 h with a PaymentIntent), legacy_unknown_mode (either of the last two with stripe_livemode NULL — count only, never fetched). Test-mode rows (stripe_livemode = false) are excluded — the live key cannot see them. One row per payment, highest priority kind wins, oldest first.';
 
 -- ---------------------------------------------------------------------------
 -- 3. cleanup_expired_reservations — body only. 000 text plus the N1 guard.
