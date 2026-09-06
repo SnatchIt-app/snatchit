@@ -370,6 +370,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('reset_transfer_guard_bypass()',                                  'no-client-execute'),
   ('resolve_transfer_dispute(uuid, text, uuid, text, text)',         'no-client-execute'),
   ('set_updated_at()',                                               'no-client-execute'),
+  -- Package 1 (20260906100000): settlement core, reached only through owner
+  -- functions (mark_listing_sold, complete_auction_payment, Package 2's
+  -- settle_verified_payment). service_role is revoked too — asserted in 120.
+  ('settle_listing_for_payment(uuid)',                               'no-client-execute'),
   ('sweep_auth_password_changes()',                                  'no-client-execute'),
   ('sync_listing_current_bid()',                                     'no-client-execute'),
   ('validate_and_apply_bid()',                                       'no-client-execute'),
