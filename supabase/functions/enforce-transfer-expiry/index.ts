@@ -3,6 +3,12 @@
 // =============================================================================
 // PURPOSE: Cron-triggered function that runs TWO phases per invocation:
 //
+//   PHASE 0 — Settlement reconciliation (Package 2, migration 20260906110000):
+//     get_unsettled_payments() -> re-fetch each PaymentIntent from Stripe ->
+//     settle_verified_payment(); unfulfillable captures are refunded once and
+//     recorded (record_payment_refund, or a guarded payments update until it
+//     exists). Runs first; never blocks the phases below.
+//
 //   PHASE 1 — Expiry + Refund (Day 2):
 //     1. Calls enforce_transfer_expiry() RPC to atomically expire pending
 //        transfers past their 24h deadline
@@ -173,6 +179,202 @@ serve(async (req: Request) => {
     let refundedCount = 0;
     let autoReleasedCount = 0;
     let errorCount = 0;
+
+    // ── Phase 0 — settlement reconciliation (Package 2) ──────────────────
+    // =====================================================================
+    // Repairs every way a verified charge can end up unsettled: the webhook
+    // was down or failed terminally, confirm-payment never ran, a late
+    // capture landed after the reservation lapsed, or a capture could not be
+    // fulfilled (listing already sold to another payment). The work list is
+    // get_unsettled_payments() (migration 20260906110000); every row's
+    // PaymentIntent is RE-FETCHED from Stripe (never trusted from the row)
+    // and settled through settle_verified_payment(p_source 'sweep'), the same
+    // contract the webhook and confirm-payment use. An `unfulfillable`
+    // capture is refunded in full EXACTLY once (deterministic idempotency
+    // key) and recorded through record_payment_refund (Package 3) — or, until
+    // that RPC exists, a status-guarded payments update — then its review
+    // row is resolved. Bounded: 50 rows, one Stripe GET each, fetch failures
+    // are skipped and counted. No DB lock is held across a network call.
+    // =====================================================================
+    let reconciledSettled  = 0;
+    let reconciledRefunded = 0;
+    let reconciledErrors   = 0;
+    try {
+      type UnsettledRow = { payment_id: string; stripe_payment_intent_id: string; listing_id: string; mode: string; status: string; paid_at: string | null; kind: string };
+      type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: Array<{ id?: string }> } };
+      type StripePI = {
+        id?: string; status?: string; amount_received?: number; currency?: string; livemode?: boolean;
+        payment_method_types?: string[]; metadata?: Record<string, string>; latest_charge?: StripeCharge | string | null;
+      };
+      type SettleRow = { payment_id: string | null; payment_status: string | null; listing_status: string | null; transfer_id: string | null; outcome: string };
+
+      const { data: unsettled, error: unsettledErr } = await supabase
+        .rpc('get_unsettled_payments', { p_limit: 50 });
+      if (unsettledErr) {
+        console.error('enforce-transfer-expiry: Phase 0 get_unsettled_payments failed:', unsettledErr);
+        reconciledErrors++;
+      } else if (unsettled && unsettled.length > 0) {
+        console.log(`enforce-transfer-expiry: Phase 0 reconciling ${unsettled.length} payment(s)`);
+
+        for (const row of unsettled as UnsettledRow[]) {
+          try {
+            // 0a. Re-fetch the PaymentIntent (refund facts ride on latest_charge).
+            let pi: StripePI;
+            try {
+              pi = await stripeFetch<StripePI>(`/payment_intents/${row.stripe_payment_intent_id}?expand[]=latest_charge`);
+            } catch (fetchErr) {
+              console.warn('enforce-transfer-expiry: Phase 0 Stripe fetch failed — skipping row:', {
+                payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind,
+                error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+              });
+              reconciledErrors++;
+              continue;
+            }
+            const charge = (pi.latest_charge && typeof pi.latest_charge === 'object') ? pi.latest_charge : null;
+
+            // 0b. Settle through the contract.
+            const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
+              p_payment_intent_id: row.stripe_payment_intent_id,
+              p_stripe_status:     pi.status ?? 'unknown',
+              p_amount_received:   typeof pi.amount_received === 'number' ? pi.amount_received : null,
+              p_currency:          pi.currency ?? null,
+              p_livemode:          typeof pi.livemode === 'boolean' ? pi.livemode : null,
+              p_amount_refunded:   typeof charge?.amount_refunded === 'number' ? charge.amount_refunded : 0,
+              p_stripe_refund_id:  charge?.refunds?.data?.[0]?.id ?? null,
+              p_payment_method:    pi.payment_method_types?.[0] ?? 'card',
+              p_metadata:          pi.metadata ?? {},
+              p_source:            'sweep',
+            });
+            if (settleErr) {
+              console.error('enforce-transfer-expiry: Phase 0 settle_verified_payment failed:', { payment_id: row.payment_id, error: settleErr });
+              reconciledErrors++;
+              continue;
+            }
+            const settled = (Array.isArray(settleRows) ? settleRows[0] : settleRows) as SettleRow | null | undefined;
+            const outcome = settled?.outcome ?? 'unknown';
+            console.log('enforce-transfer-expiry: Phase 0 outcome', { payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind, outcome, transfer_id: settled?.transfer_id ?? null });
+
+            if (outcome === 'settled' || outcome === 'already_settled') {
+              if (outcome === 'settled') reconciledSettled++;
+              if (row.kind === 'review_unfulfillable') {
+                // A stale review row: the capture turned out to be fulfillable.
+                await supabase.from('webhook_retries').update({ resolved: true })
+                  .eq('payment_id', row.payment_id).eq('resolved', false).like('error_message', 'unfulfillable%');
+              }
+              continue;
+            }
+
+            if (outcome === 'refunded' && row.kind === 'review_unfulfillable') {
+              // Already refunded (by a previous run, the Dashboard, or a
+              // chargeback): nothing owed; close the review row.
+              await supabase.from('webhook_retries').update({ resolved: true })
+                .eq('payment_id', row.payment_id).eq('resolved', false).like('error_message', 'unfulfillable%');
+              continue;
+            }
+
+            if (outcome !== 'unfulfillable') {
+              // not_succeeded / canceled / binding_mismatch / unknown_payment:
+              // nothing to compensate here (binding_mismatch and
+              // unknown_payment sit in the review queue for an operator).
+              continue;
+            }
+
+            // 0c. Unfulfillable: the buyer was charged for an order that cannot
+            //     be delivered. Refund in full, exactly once.
+            const { data: payRow, error: payErr } = await supabase
+              .from('payments')
+              .select('id, status, stripe_refund_id, stripe_livemode, total, listing_id')
+              .eq('id', row.payment_id)
+              .single();
+            if (payErr || !payRow) {
+              console.error('enforce-transfer-expiry: Phase 0 payment lookup failed:', { payment_id: row.payment_id, error: payErr });
+              reconciledErrors++;
+              continue;
+            }
+            const resolveReview = () => supabase.from('webhook_retries').update({ resolved: true })
+              .eq('payment_id', row.payment_id).eq('resolved', false).like('error_message', 'unfulfillable%');
+
+            if (payRow.status === 'refunded' || payRow.stripe_refund_id) {
+              console.log('enforce-transfer-expiry: Phase 0 already refunded, skipping:', { payment_id: row.payment_id, stripe_refund_id: payRow.stripe_refund_id });
+              await resolveReview();
+              continue;
+            }
+            // Never refund a capture that already carries a transfer
+            // obligation: that order is being delivered (or is in Phase 1's
+            // expiry path). Leave the review row for an operator.
+            const { data: existingTransfer } = await supabase
+              .from('transfers').select('id, status').eq('payment_id', row.payment_id).maybeSingle();
+            if (existingTransfer) {
+              console.warn('enforce-transfer-expiry: Phase 0 unfulfillable row has a transfer — leaving for manual review:', {
+                payment_id: row.payment_id, transfer_id: existingTransfer.id, transfer_status: existingTransfer.status,
+              });
+              continue;
+            }
+
+            console.warn('enforce-transfer-expiry: Phase 0 refunding unfulfillable capture:', {
+              payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind,
+            });
+            const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
+              method: 'POST',
+              idempotencyKey: `refund_unfulfillable_${row.payment_id}`,
+              body: {
+                'payment_intent':        row.stripe_payment_intent_id,
+                'metadata[payment_id]':  row.payment_id,
+                'metadata[reason]':      'unfulfillable',
+                'metadata[source]':      'enforce-transfer-expiry',
+              },
+            });
+
+            // Record through Package 3's monotonic refund writer; until it is
+            // deployed, fall back to a status-guarded payments update.
+            const { error: recordErr } = await supabase.rpc('record_payment_refund', {
+              p_payment_intent_id: row.stripe_payment_intent_id,
+              p_stripe_refund_id:  refund.id,
+              p_stripe_dispute_id: null,
+              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
+              p_source:            'unfulfillable',
+            });
+            if (recordErr) {
+              const missing = recordErr.code === 'PGRST202' || recordErr.code === '42883'
+                || /record_payment_refund/.test(recordErr.message ?? '') && /not find|does not exist/i.test(recordErr.message ?? '');
+              if (!missing) {
+                console.error('enforce-transfer-expiry: Phase 0 record_payment_refund FAILED after Stripe refund:', {
+                  payment_id: row.payment_id, stripe_refund_id: refund.id, error: recordErr,
+                });
+                await captureException('enforce-transfer-expiry:phase0-record-refund-failed',
+                  new Error(`record_payment_refund failed for payment ${row.payment_id} (refund ${refund.id}): ${recordErr.message}`),
+                  { payment_id: row.payment_id, stripe_refund_id: refund.id });
+                reconciledErrors++;
+                continue;   // next run re-selects the row (no stripe_refund_id yet) and replays the same idempotent refund
+              }
+              const { error: fallbackErr } = await supabase
+                .from('payments')
+                .update({ status: 'refunded', refunded_at: new Date().toISOString(), stripe_refund_id: refund.id })
+                .eq('stripe_payment_intent_id', row.stripe_payment_intent_id)
+                .not('status', 'in', '("refunded")');
+              if (fallbackErr) {
+                console.error('enforce-transfer-expiry: Phase 0 fallback refund write failed:', { payment_id: row.payment_id, stripe_refund_id: refund.id, error: fallbackErr });
+                reconciledErrors++;
+                continue;
+              }
+            }
+            await resolveReview();
+            reconciledRefunded++;
+            console.log('enforce-transfer-expiry: Phase 0 refund complete:', { payment_id: row.payment_id, stripe_refund_id: refund.id });
+          } catch (err) {
+            await captureException('enforce-transfer-expiry:phase0-reconcile', err, { payment_id: row.payment_id, kind: row.kind });
+            reconciledErrors++;
+          }
+        }
+      } else {
+        console.log('enforce-transfer-expiry: Phase 0 — nothing to reconcile');
+      }
+    } catch (err) {
+      console.error('enforce-transfer-expiry: Phase 0 failed (non-fatal):', err);
+      reconciledErrors++;
+    }
+    errorCount += reconciledErrors;
+    // ── end Phase 0 — settlement reconciliation (Package 2) ──────────────
 
     // =====================================================================
     // PHASE 1 — Expiry + Refund (Day 2)
@@ -898,6 +1100,9 @@ serve(async (req: Request) => {
     // COMBINED SUMMARY
     // =====================================================================
     const summary = {
+      reconciled_settled:  reconciledSettled,
+      reconciled_refunded: reconciledRefunded,
+      reconciled_errors:   reconciledErrors,
       expired:       expiredCount,
       refunded:      refundedCount,
       auto_released: autoReleasedCount,

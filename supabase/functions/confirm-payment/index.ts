@@ -1,19 +1,22 @@
 // =============================================================================
-// confirm-payment — Best-effort payment confirmation + transfer creation
+// confirm-payment — Stripe-verified settlement after PaymentSheet succeeds
 // =============================================================================
-// PURPOSE: Client-triggered bookkeeping after Stripe PaymentSheet succeeds.
+// PURPOSE: Client-triggered settlement after Stripe PaymentSheet succeeds.
 //   1. Authenticates the buyer via JWT
-//   2. Verifies payment status with Stripe API
-//   3. Updates payment record to 'succeeded'
-//   4. Creates transfer row (idempotent — UNIQUE constraints prevent duplicates)
+//   2. Fetches the PaymentIntent from Stripe (latest_charge expanded) and
+//      refuses (403) unless metadata.buyer_id is the caller
+//   3. Settles through settle_verified_payment (Package 2 contract): the row
+//      is promoted, the listing sold and the transfer created atomically in
+//      the database — this function never writes payments/transfers itself
 //
-// NON-FATAL: This function is best-effort. The checkout flow does NOT depend
-// on it returning 200. ensure_transfer_exists (RPC) and stripe-webhook are
-// independent fallbacks. Therefore:
-//   - Already-processed payments → 200 (idempotent)
-//   - Transfer already exists → 200 (idempotent)
-//   - Stripe verification fails → 200 with warning (bookkeeping deferred to webhook)
-//   - Only auth failures and missing input return non-2xx
+// CONTRACT (unchanged for shipped clients):
+//   - Stripe says succeeded and the contract ran → 200 {success, stripe_verified:true,
+//     outcome, transfer_id}
+//   - Stripe not reachable / PI not succeeded → 200 {stripe_verified:false},
+//     no DB write (webhook + reconciliation sweep are independent fallbacks)
+//   - Contract error → 500 (client treats the purchase as unverified: "don't
+//     pay again")
+//   - Auth failures, missing input, foreign PaymentIntent → 401 / 400 / 403
 //
 // AUTH: Manual JWT verification via auth.getUser(token). Requires "Verify JWT"
 // to be DISABLED in the Supabase Dashboard for this function.
@@ -168,31 +171,22 @@ serve(async (req: Request) => {
     }
 
     // ── Verify with Stripe that payment succeeded ───────────────────────
-    // If Stripe verification fails for any reason, we still return 200.
-    // This function is best-effort bookkeeping — the webhook and
-    // ensure_transfer_exists RPC are independent fallbacks.
-    let stripeVerified = false;
-    let stripePaymentMethod: string = 'card';
+    // If the Stripe look-up fails for any reason we still return 200 with
+    // stripe_verified:false and write NOTHING: the webhook and the
+    // reconciliation sweep are independent, Stripe-verified fallbacks.
+    // latest_charge is expanded so refund facts travel with the status.
+    type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: Array<{ id?: string }> } };
+    type StripePI = {
+      id?: string; status?: string; amount_received?: number; currency?: string; livemode?: boolean;
+      payment_method_types?: string[]; metadata?: Record<string, string>;
+      latest_charge?: StripeCharge | string | null;
+    };
+    let stripePI: StripePI | null = null;
 
     try {
-      const stripeRes = await stripeFetchRaw(`/payment_intents/${payment_intent_id}`);
-
+      const stripeRes = await stripeFetchRaw(`/payment_intents/${payment_intent_id}?expand[]=latest_charge`);
       if (stripeRes.ok) {
-        const stripeData = stripeRes.data as { status?: string; payment_method_types?: string[] };
-
-        if (stripeData.status === 'succeeded') {
-          stripeVerified = true;
-          stripePaymentMethod = stripeData.payment_method_types?.[0] ?? 'card';
-        } else {
-          // Payment not yet succeeded at Stripe. This can happen if:
-          // - PaymentSheet returned success but Stripe API has a brief delay
-          // - Payment is still 'processing' (e.g. bank transfers)
-          // Log but don't fail — the webhook will handle it when it settles.
-          console.warn('confirm-payment: Stripe PI not succeeded yet:', {
-            payment_intent_id,
-            stripe_status: stripeData.status,
-          });
-        }
+        stripePI = stripeRes.data as StripePI;
       } else {
         console.warn('confirm-payment: Stripe API returned non-OK:', {
           payment_intent_id,
@@ -206,94 +200,93 @@ serve(async (req: Request) => {
       });
     }
 
-    // ── Update payment record ───────────────────────────────────────────
-    // Only update if Stripe verified the payment. If not, leave the
-    // payment in 'pending' — the webhook or ensure_transfer_exists will
-    // promote it later.
+    const unverified = () => new Response(
+      JSON.stringify({ success: true, stripe_verified: false }),
+      { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+    );
+
+    if (!stripePI) return unverified();
+
+    // ── Ownership: only the PaymentIntent's buyer may confirm it ─────────
+    // create-payment-intent stamps metadata.buyer_id on every PaymentIntent
+    // (Package 1 binds it to the live reservation holder). A caller who is
+    // not that buyer gets nothing — not even a look at the outcome — so a
+    // buyer cannot settle (or probe) another buyer's purchase (A §4 item 3).
+    if (!stripePI.metadata?.buyer_id || stripePI.metadata.buyer_id !== buyerId) {
+      console.warn('confirm-payment: PaymentIntent does not belong to the caller', {
+        payment_intent_id, caller: buyerId, pi_buyer: stripePI.metadata?.buyer_id ?? null,
+      });
+      return new Response(
+        JSON.stringify({ error: 'This payment does not belong to you.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+      );
+    }
+
+    if (stripePI.status !== 'succeeded') {
+      // Payment not yet succeeded at Stripe. This can happen if:
+      // - PaymentSheet returned success but Stripe API has a brief delay
+      // - Payment is still 'processing' (e.g. bank transfers)
+      // Log but don't fail — the webhook / sweep will settle it later.
+      console.warn('confirm-payment: Stripe PI not succeeded yet:', {
+        payment_intent_id,
+        stripe_status: stripePI.status,
+      });
+      return unverified();
+    }
+
+    // ── Settle through the ONE verified-settlement contract ─────────────
+    // settle_verified_payment (migration 20260906110000) replaces the direct
+    // payments UPDATE and transfers INSERT this function used to make: it
+    // verifies amount / currency / livemode / metadata against the row,
+    // refuses to promote a refunded row (F05), promotes only on succeeded,
+    // and settles the listing + transfer through the Package 1 core. The
+    // shipped clients' follow-up RPCs (mark_listing_sold /
+    // complete_auction_payment / ensure_transfer_exists) then no-op.
+    const charge = (stripePI.latest_charge && typeof stripePI.latest_charge === 'object') ? stripePI.latest_charge : null;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
+      p_payment_intent_id: payment_intent_id,
+      p_stripe_status:     stripePI.status,
+      p_amount_received:   typeof stripePI.amount_received === 'number' ? stripePI.amount_received : null,
+      p_currency:          stripePI.currency ?? null,
+      p_livemode:          typeof stripePI.livemode === 'boolean' ? stripePI.livemode : null,
+      p_amount_refunded:   typeof charge?.amount_refunded === 'number' ? charge.amount_refunded : 0,
+      p_stripe_refund_id:  charge?.refunds?.data?.[0]?.id ?? null,
+      p_payment_method:    stripePI.payment_method_types?.[0] ?? 'card',
+      p_metadata:          stripePI.metadata ?? {},
+      p_source:            'confirm-payment',
+    });
 
-    if (stripeVerified) {
-      const { error: updateErr } = await supabase
-        .from('payments')
-        .update({
-          status: 'succeeded',
-          paid_at: new Date().toISOString(),
-          payment_method: stripePaymentMethod,
-        })
-        .eq('stripe_payment_intent_id', payment_intent_id)
-        .eq('buyer_id', buyerId);
-
-      if (updateErr) {
-        console.error('confirm-payment: payment update error:', updateErr);
-      }
+    if (settleErr) {
+      // Stripe says succeeded but we could not record it. A non-2xx tells the
+      // client the purchase is unverified (it already handles that: "don't
+      // pay again"); the webhook / sweep settle it independently.
+      console.error('confirm-payment: settle_verified_payment failed:', { payment_intent_id, error: settleErr });
+      await captureException('confirm-payment:settle', new Error(`settle_verified_payment: ${settleErr.message}`), { payment_intent_id });
+      return new Response(
+        JSON.stringify({ error: 'Payment could not be recorded. Please do not pay again; contact support if the purchase does not appear.' }),
+        { status: 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
+      );
     }
 
-    // ── Ensure transfer row exists ──────────────────────────────────────
-    // Idempotent: UNIQUE constraints on transfers.payment_id and
-    // transfers.listing_id (migration 003) prevent duplicates. A
-    // constraint violation means the webhook or ensure_transfer_exists
-    // already created the row — that's fine.
-    //
-    // GATED on a succeeded payment: a transfer row is the seller's
-    // send-tickets obligation, so it must never exist for an unpaid order.
-    // The status filter (not just this call's stripeVerified) also covers
-    // the race where the webhook promoted the row first. Unverified
-    // payments are left to the webhook path, which creates the transfer
-    // row itself after promotion.
-    try {
-      const { data: claimedPayment } = await supabase
-        .from('payments')
-        .select('id, listing_id, seller_id, buyer_id')
-        .eq('stripe_payment_intent_id', payment_intent_id)
-        .eq('buyer_id', buyerId)
-        .eq('status', 'succeeded')
-        .single();
+    const settled = (Array.isArray(settleRows) ? settleRows[0] : settleRows) as
+      | { payment_id: string | null; payment_status: string | null; listing_status: string | null; transfer_id: string | null; outcome: string }
+      | null
+      | undefined;
+    console.log('confirm-payment: settlement outcome', {
+      payment_intent_id, outcome: settled?.outcome ?? null, payment_id: settled?.payment_id ?? null,
+      listing_status: settled?.listing_status ?? null, transfer_id: settled?.transfer_id ?? null,
+    });
 
-      if (claimedPayment) {
-        const { data: listing } = await supabase
-          .from('listings')
-          .select('transfer_method')
-          .eq('id', claimedPayment.listing_id)
-          .maybeSingle();
-
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-        const { error: transferErr } = await supabase.from('transfers').insert({
-          listing_id:      claimedPayment.listing_id,
-          payment_id:      claimedPayment.id,
-          seller_id:       claimedPayment.seller_id,
-          buyer_id:        claimedPayment.buyer_id,
-          transfer_method: listing?.transfer_method ?? 'mobile_transfer',
-          status:          'pending',
-          expires_at:      expiresAt,
-        });
-
-        if (transferErr) {
-          // Unique constraint violation = another path already created the row — safe.
-          console.log('confirm-payment: transfer insert skipped (likely already exists):', {
-            payment_id: claimedPayment.id,
-            listing_id: claimedPayment.listing_id,
-            code:       transferErr.code,
-          });
-        } else {
-          console.log('confirm-payment: transfer row created', {
-            payment_id: claimedPayment.id,
-            listing_id: claimedPayment.listing_id,
-          });
-        }
-      }
-    } catch (transferCreateErr) {
-      // Non-fatal — the webhook and ensure_transfer_exists are fallbacks.
-      console.warn('confirm-payment: transfer creation threw:', transferCreateErr);
-    }
-
-    // ── Always return 200 ───────────────────────────────────────────────
-    // This function is best-effort bookkeeping. The checkout does not
-    // depend on it. Returning 200 prevents noisy client-side error logs.
+    // ── Response ────────────────────────────────────────────────────────
+    // `stripe_verified` is what the web client reads (finalizePurchase);
+    // outcome / transfer_id are additive.
     return new Response(
       JSON.stringify({
-        success: true,
-        stripe_verified: stripeVerified,
+        success:         true,
+        stripe_verified: true,
+        outcome:         settled?.outcome ?? null,
+        transfer_id:     settled?.transfer_id ?? null,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
     );

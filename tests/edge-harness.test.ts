@@ -35,7 +35,7 @@ describe('edge-vm harness', () => {
 
   it('loads confirm-payment with a mocked Stripe transport and records the query it makes', async () => {
     const sb = mockSupabase({ user: { id: 'buyer-1' }, rpc: () => ({ data: true }), tables: { payments: () => ({ data: null }) } });
-    const stripe = mockStripe(() => ({ ok: true, data: { status: 'requires_payment_method' } }));
+    const stripe = mockStripe(() => ({ ok: true, data: { status: 'requires_payment_method', metadata: { buyer_id: 'buyer-1' } } }));
     const edge = await loadEdgeHandler('supabase/functions/confirm-payment/index.ts', {
       supabase: sb,
       env: { SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test', SUPABASE_ANON_KEY: 'anon' },
@@ -44,7 +44,7 @@ describe('edge-vm harness', () => {
     const res = await edge.handler(authedJsonRequest({ payment_intent_id: 'pi_test' }));
     const body = await json(res);
     expect(res.status).toBe(200);
-    expect(stripe.calls[0]?.path).toBe('/payment_intents/pi_test');
+    expect(stripe.calls[0]?.path).toBe('/payment_intents/pi_test?expand[]=latest_charge');
     expect(body).toBeTruthy();
   });
 });

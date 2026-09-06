@@ -259,281 +259,141 @@ serve(async (req: Request) => {
     }
 
     if (event.type === 'payment_intent.succeeded') {
-      // FIX: Use .neq('status', 'succeeded') so this UPDATE is a "claim" operation.
-      // If the payment is already 'succeeded' (replay or race with confirm-payment),
-      // the UPDATE matches 0 rows and maybeSingle() returns null. We exit early,
-      // skipping the RPC call, transfer insert, Stripe payout, and push notifications.
-      // This makes the entire handler idempotent at the DB level.
-      const { data: payment, error: lookupErr } = await supabase
-        .from('payments')
-        .update({ status: 'succeeded', paid_at: new Date().toISOString() })
-        .eq('stripe_payment_intent_id', piId)
-        .neq('status', 'succeeded')          // FIX: only claim if not yet processed
-        .select('id, listing_id, amount, buyer_fee, seller_fee')
-        .maybeSingle();                        // FIX: was .single() — returns null instead of error when 0 rows
+      // ── Package 2: ONE call to the verified-settlement contract ─────────
+      // settle_verified_payment (migration 20260906110000) verifies the
+      // PaymentIntent's facts against the stored row (amount / currency /
+      // livemode / metadata), enforces refund monotonicity, promotes only on
+      // Stripe `succeeded`, settles the listing + transfer through the
+      // Package 1 core, and records every non-settling outcome once in
+      // webhook_retries. It replaces the old claim-UPDATE + client RPC +
+      // transfer INSERT sequence AND the "already processed" fallback branch
+      // (investigation F02: the retry used to skip the sale RPC forever).
+      //
+      // Acknowledgment: any RPC ERROR is NOT terminal — 500 + fail, so Stripe
+      // redelivers and the retry calls the contract AGAIN (it is guarded by
+      // current state, not by "did I run before"). Every RPC OUTCOME is
+      // terminal — 200 + complete — because the contract already recorded
+      // unknown_payment / binding_mismatch / unfulfillable for the sweep and
+      // for ops; retrying a terminal outcome for three days helps nobody.
+      // Refund facts arrive via charge.refunded (Package 3's branch), so this
+      // event passes amount_refunded 0 / refund id NULL: the contract still
+      // refuses to promote a row that is already refunded.
+      const pi = paymentIntent as {
+        status?: string; amount_received?: number; currency?: string; livemode?: boolean;
+        payment_method_types?: string[]; metadata?: Record<string, string>;
+      };
+      const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
+        p_payment_intent_id: piId,
+        p_stripe_status:     pi.status ?? 'succeeded',
+        p_amount_received:   typeof pi.amount_received === 'number' ? pi.amount_received : null,
+        p_currency:          pi.currency ?? null,
+        p_livemode:          typeof pi.livemode === 'boolean' ? pi.livemode : null,
+        p_amount_refunded:   0,
+        p_stripe_refund_id:  null,
+        p_payment_method:    pi.payment_method_types?.[0] ?? 'card',
+        p_metadata:          metadata,
+        p_source:            `webhook:${event.id}`,
+      });
 
-      if (lookupErr) {
-        // A real database failure on the claim UPDATE. We do not know whether
-        // the payment was marked succeeded, so this is NOT complete — answer
-        // non-2xx and let Stripe redeliver.
-        console.error('Webhook: payment update error', piId, lookupErr);
-        return await finish(false, { stage: 'payment_claim' }, `payment claim: ${lookupErr.message}`);
+      if (settleErr) {
+        console.error('Webhook: settle_verified_payment failed', { pi_id: piId, event_id: event.id, error: settleErr });
+        return await finish(false, { stage: 'settle_verified_payment' }, `settle_verified_payment: ${settleErr.message}`);
       }
 
-      if (!payment) {
-        // Payment already processed (confirm-payment won the race) or not found.
-        // The listing RPC and push notifications were already handled by the
-        // checkout flow, so we skip those. BUT we must still ensure a transfer
-        // row exists — the checkout flow does not create one.
-        console.log('Webhook: payment already processed, checking transfer row', piId);
+      const settled = (Array.isArray(settleRows) ? settleRows[0] : settleRows) as
+        | { payment_id: string | null; payment_status: string | null; listing_status: string | null; transfer_id: string | null; outcome: string }
+        | null
+        | undefined;
+      if (!settled?.outcome) {
+        // The contract always returns exactly one row; no row means the call
+        // did not run to completion (PostgREST hiccup) — not terminal.
+        console.error('Webhook: settle_verified_payment returned no row', { pi_id: piId, event_id: event.id });
+        return await finish(false, { stage: 'settle_verified_payment' }, 'settle_verified_payment: no row');
+      }
 
-        // Look up the existing payment row to get its id for the transfer insert.
-        const { data: existingPayment } = await supabase
-          .from('payments')
-          .select('id')
-          .eq('stripe_payment_intent_id', piId)
-          .maybeSingle();
+      const outcomeLog = {
+        pi_id: piId, event_id: event.id, outcome: settled.outcome,
+        payment_id: settled.payment_id, payment_status: settled.payment_status,
+        listing_status: settled.listing_status, transfer_id: settled.transfer_id,
+      };
+      if (settled.outcome === 'settled' || settled.outcome === 'already_settled') {
+        console.log('Webhook: settlement outcome', outcomeLog);
+      } else {
+        // unfulfillable / binding_mismatch / unknown_payment are in the
+        // webhook_retries review queue (the sweep refunds unfulfillable);
+        // refunded / not_succeeded / canceled are benign state facts.
+        console.warn('Webhook: non-settling outcome (terminal, recorded by the contract)', outcomeLog);
+      }
 
-        if (!existingPayment) {
-          // No payments row for this PaymentIntent at all. Retrying will not
-          // conjure one, so this is terminal — complete rather than loop
-          // Stripe for three days.
-          console.log('Webhook: payment not found at all, skipping', piId);
-          return await finish(true, { skipped: 'payment_not_found' });
-        }
-
-        // Check whether a transfer row already exists for this payment.
-        const { data: existingTransfer } = await supabase
-          .from('transfers')
-          .select('id')
-          .eq('payment_id', existingPayment.id)
-          .maybeSingle();
-
-        if (existingTransfer) {
-          // Transfer already exists — genuinely nothing left to do.
-          console.log('Webhook: transfer already exists, nothing to do', {
-            payment_id: existingPayment.id,
-            transfer_id: existingTransfer.id,
-          });
-          return await finish(true, { skipped: 'transfer_exists' });
-        }
-
-        // Transfer row is missing — create it now.
-        // The listing is already sold (checkout called mark_listing_sold /
-        // complete_auction_payment directly). We only need the transfer row.
-        const { data: fallbackListing } = await supabase
+      if (settled.outcome === 'settled' && metadata.buyer_id && metadata.seller_id) {
+        // First and only time this sale settled: notify both parties. The
+        // transfer id (from the contract) deep-links to the send/receive
+        // screens; listingId remains the fallback route.
+        const { data: listing } = await supabase
           .from('listings')
-          .select('transfer_method')
+          .select('event_name')
           .eq('id', metadata.listing_id)
           .maybeSingle();
+        const listingTitle = listing?.event_name || 'your listing';
+        const transferIdData = settled.transfer_id ? { transferId: String(settled.transfer_id) } : {};
 
-        const fallbackExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-        const { error: fallbackTransferErr } = await supabase.from('transfers').insert({
-          listing_id:       metadata.listing_id,
-          payment_id:       existingPayment.id,
-          seller_id:        metadata.seller_id,
-          buyer_id:         metadata.buyer_id,
-          transfer_method:  fallbackListing?.transfer_method ?? 'mobile_transfer',
-          status:           'pending',
-          expires_at:       fallbackExpiresAt,
-        });
-
-        if (fallbackTransferErr) {
-          // 23505 means a concurrent replay already created the row, which is
-          // success. Anything else — a NOT NULL violation from empty metadata,
-          // an FK violation — means the buyer is paid up with no transfer row.
-          // That used to be logged and then ACKed as if it had worked.
-          const benign = fallbackTransferErr.code === '23505';
-          console.error('Webhook: fallback transfer insert failed:', {
-            payment_id:  existingPayment.id,
-            listing_id:  metadata.listing_id,
-            error:       fallbackTransferErr,
-            benign,
-          });
-          if (!benign) {
-            return await finish(
-              false,
-              { stage: 'fallback_transfer' },
-              `fallback transfer insert: ${fallbackTransferErr.message}`,
-            );
-          }
-        } else {
-          console.log('Webhook: fallback transfer row created', {
-            payment_id: existingPayment.id,
-            listing_id: metadata.listing_id,
-            seller_id:  metadata.seller_id,
-            buyer_id:   metadata.buyer_id,
-          });
-        }
-
-        return await finish(true, { path: 'fallback_transfer' });
+        sendPush(
+          metadata.buyer_id,
+          'Payment Confirmed!',
+          `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
+          { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
+        );
+        sendPush(
+          metadata.seller_id,
+          'Your ticket sold!',
+          `Send the transfer now for ${listingTitle}.`,
+          { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
+        );
       }
 
-      let rpcName: string;
-      let rpcParams: Record<string, string>;
-
-      if (metadata.mode === 'buy_now') {
-        rpcName = 'mark_listing_sold';
-        rpcParams = {
-          p_listing_id: metadata.listing_id,
-          p_user_id:    metadata.buyer_id,
-        };
-      } else if (metadata.mode === 'auction') {
-        rpcName = 'complete_auction_payment';
-        rpcParams = {
-          p_listing_id: metadata.listing_id,
-          p_user_id:    metadata.buyer_id,
-        };
-      } else {
-        // Payment was just claimed as succeeded but metadata.mode is neither
-        // buy_now nor auction, so the listing never gets marked sold. The
-        // buyer is charged and the order is half-finished — record it as
-        // incomplete so it shows up in get_incomplete_webhook_events rather
-        // than looking like a clean success.
-        console.error('Webhook: unknown mode in metadata', metadata.mode, piId);
-        return await finish(false, { stage: 'unknown_mode' }, `unknown metadata.mode: ${metadata.mode}`);
-      }
-
-      console.log('Webhook: calling RPC', {
-        rpc_name:   rpcName,
-        listing_id: metadata.listing_id,
-        buyer_id:   metadata.buyer_id,
-        payment_id: payment.id,
+      return await finish(true, {
+        outcome:     settled.outcome,
+        payment_id:  settled.payment_id,
+        transfer_id: settled.transfer_id,
       });
 
-      const { error: rpcErr } = await supabase.rpc(rpcName, rpcParams);
-      if (rpcErr) {
-        // The payment is already claimed 'succeeded', so bailing here leaves
-        // the listing not marked sold. That used to be logged and then recorded
-        // as a clean success. Both RPCs are internally idempotent (SELECT ...
-        // FOR UPDATE then an early return when already sold), so redelivery is
-        // safe and is the right answer.
-        console.error('Webhook RPC failed:', {
-          listing_id: metadata.listing_id,
-          payment_id: payment.id,
-          rpc_name:   rpcName,
-          error:      rpcErr,
-        });
-        return await finish(false, { stage: rpcName }, `${rpcName}: ${rpcErr.message}`);
-      }
-      console.log('Webhook RPC succeeded:', { rpc_name: rpcName, listing_id: metadata.listing_id });
-
-      // Create transfer record.
-      // FIX: The UNIQUE constraints on transfers.payment_id and transfers.listing_id
-      // (added in migration 003) will reject any duplicate insert at the DB level.
-      // The existing error handler logs and continues, which is correct — a constraint
-      // violation on replay is expected behavior, not an application error.
-      const { data: listing } = await supabase
-        .from('listings')
-        .select('event_name, transfer_method')
-        .eq('id', metadata.listing_id)
-        .single();
-
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-      const { data: newTransfer, error: transferErr } = await supabase.from('transfers').insert({
-        listing_id:       metadata.listing_id,
-        payment_id:       payment.id,
-        seller_id:        metadata.seller_id,
-        buyer_id:         metadata.buyer_id,
-        transfer_method:  listing?.transfer_method ?? 'mobile_transfer',
-        status:           'pending',
-        expires_at:       expiresAt,
-      }).select('id').single();
-
-      if (transferErr) {
-        // 23505 is the expected replay case — the UNIQUE constraints on
-        // transfers.payment_id and transfers.listing_id (migration 003) mean
-        // another delivery already created the row. That is success.
-        // Anything else leaves a paid buyer with no transfer row, so it must
-        // stay retryable instead of being ACKed.
-        const benign = transferErr.code === '23505';
-        console.error('Webhook: transfer insert failed:', {
-          listing_id: metadata.listing_id,
-          payment_id: payment.id,
-          error:      transferErr,
-          benign,
-        });
-        if (!benign) {
-          return await finish(false, { stage: 'transfer_insert' }, `transfer insert: ${transferErr.message}`);
-        }
-      }
-
-      // ──────────────────────────────────────────────────────────────────
-      // PAYOUT DEFERRED (V1 buyer-protection architecture)
-      // The Stripe Transfer to the seller's Connect account is NOT created
-      // here. Funds remain in the SnatchIt platform Stripe balance until
-      // the buyer confirms receipt (or auto-release conditions are met).
-      // The release-payout function (to be built) will call
-      // stripe.transfers.create() at that time.
-      // ──────────────────────────────────────────────────────────────────
-      console.log('Webhook: payout deferred — no Stripe Transfer created', {
-        listing_id: metadata.listing_id,
-        payment_id: payment.id,
-        seller_id:  metadata.seller_id,
-      });
-
-      // Send push notifications. transferId (when the insert succeeded) lets
-      // the tap deep-link straight to the send/receive screens; listingId
-      // remains the fallback route.
-      const listingTitle = listing?.event_name || 'your listing';
-      const transferIdData = newTransfer?.id ? { transferId: String(newTransfer.id) } : {};
-
-      sendPush(
-        metadata.buyer_id,
-        'Payment Confirmed!',
-        `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
-        { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
-      );
-
-      sendPush(
-        metadata.seller_id,
-        'Your ticket sold!',
-        `Send the transfer now for ${listingTitle}.`,
-        { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
-      );
-
-      // Mark processed for ops visibility. Pure telemetry — no behavioral
-      // change to the P0 payment-intent flow.
-      await markProcessed();
-
-    } else if (event.type === 'payment_intent.payment_failed') {
+    } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
       // Claim guard: Stripe does NOT guarantee event ordering, and one PI
       // legitimately goes failed→succeeded when the buyer retries in the
-      // same PaymentSheet. A late-arriving payment_failed must never
-      // overwrite a payment that already succeeded (which would freeze its
-      // payout and release the reservation on a sold listing) or one
-      // already refunded.
+      // same PaymentSheet. A late-arriving payment_failed / canceled must
+      // never overwrite a payment that already succeeded (which would freeze
+      // its payout and release the reservation on a sold listing) or one
+      // already refunded. One predicate, `status NOT IN (succeeded, refunded)`,
+      // so Package 3's transition guard (refunded is terminal) never fires.
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('stripe_payment_intent_id', piId)
-        .neq('status', 'succeeded')
-        .neq('status', 'refunded')
+        .not('status', 'in', '("succeeded","refunded")')
         .select('id, listing_id')
         .maybeSingle();
 
       if (lookupErr) {
-        console.error('Webhook: payment failed-update errored', piId, lookupErr);
-        await markProcessed({ error: `failed-update: ${lookupErr.message}` });
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        // The authoritative write did not happen; we do not know the row's
+        // state. Non-terminal — Stripe redelivers (used to be ACKed with 200).
+        console.error('Webhook: payment failed/canceled update errored', { pi_id: piId, event_type: event.type, error: lookupErr });
+        return await finish(false, { stage: 'payment_failed_update' }, `${event.type}: ${lookupErr.message}`);
       }
       if (!payment) {
         // No claimable row — unknown PI, or the payment already
-        // succeeded/refunded (out-of-order delivery). Benign no-op.
-        console.log('Webhook: payment_failed ignored (no claimable row)', { pi_id: piId });
-        await markProcessed();
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        // succeeded/refunded/failed (out-of-order or duplicate delivery).
+        // Benign no-op: genuinely nothing left to do.
+        console.log('Webhook: payment_failed/canceled ignored (no claimable row)', { pi_id: piId, event_type: event.type });
+        return await finish(true, { skipped: 'no_claimable_row' });
       }
 
       if (metadata.mode === 'buy_now') {
+        // Free the Buy-Now hold so the listing is purchasable again. Best
+        // effort with a bounded backstop: the reservation is server-owned
+        // (10-minute TTL, Package 1) and cleanup_expired_reservations frees
+        // it when it lapses, so a failure here is logged, not retried — a
+        // retry could not redo the failed-write above (already claimed) and
+        // release_reservation is a no-op once the hold is gone.
         const { error: rpcErr } = await supabase.rpc('release_reservation', {
           p_listing_id: metadata.listing_id,
           p_user_id:    metadata.buyer_id,
@@ -549,7 +409,7 @@ serve(async (req: Request) => {
           console.log('Webhook: release_reservation succeeded', { listing_id: metadata.listing_id });
         }
       }
-      await markProcessed();
+      return await finish(true, { path: event.type === 'payment_intent.canceled' ? 'canceled' : 'payment_failed', payment_id: payment.id });
 
     // ─────────────────────────────────────────────────────────────────────
     // P1-02 — Full event coverage with dedup at the top of the handler.
