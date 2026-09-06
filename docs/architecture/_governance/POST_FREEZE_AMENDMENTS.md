@@ -3497,3 +3497,33 @@ OWNER SIGNATURE REQUIRED: YES.  OWNER SIGNATURE: RECORDED 2026-09-04 — "PFA-18
          Engineering did NOT self-ratify. Consumed once; future signing-key lifecycle returns to two-person
          control (fail closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
 ```
+
+## PFA-32 — live-rail money obligations join the closed-world deletion predicate set as BP-13 (packages 20260906120000/130000, DRAFT — not applied)
+
+```
+ID:      PFA-32  (amends DELETION_STATE_MACHINE_SPEC §2 — the closed-world blocking predicate set — by ONE arm)
+STATUS:  FILED 2026-09-06 with the payments-reliability release candidate (PR #54, commit 972619f). NOT applied,
+         NOT deployed. Owner ratification requested with the release decision (option B, 09_CONVERGENCE.md §3).
+SUMMARY: §2 closes the predicate set over the Phase-2 kernel/venue/market tables plus the live-rail analogs named
+         in BP-6..BP-9. The live rail carries money facts §2 never enumerated: a SUCCEEDED capture with no
+         transfer row (paid_no_transfer), a released transfer whose seller payout has not been PAID
+         (unpaid_seller_obligation), a refund in flight (pending_refund), a payout attempt that requires
+         reversal, an open manual_review decision, and a pending capture younger than 24 h (pending_payment).
+         BP-13 = public.account_deletion_block_reason(identity) IS NOT NULL, evaluated by kernel.sweep_deletion_pending
+         AFTER BP-12, so every ratified arm keeps its precedence and its text. Semantics unchanged from §1.2:
+         the request is ALWAYS accepted (BRIEF-B B3/B4), the account stays usable, money/dispute processing is
+         preserved, nothing is forfeited; BP-13 only blocks the TERMINAL transition until the obligation resolves by
+         "event, scan, or settlement — never the user": capture settled or refunded, payout paid or reversed,
+         refund landed, review resolved. The request-time edge surfaces the same predicate as informational
+         `pending_obligations` (additive response field; the deployed client contract `{success:true}` is kept).
+         A predicate read failure at the edge does not block the request; inside the sweep it fails that identity
+         CLOSED for the pass (no tombstone on an unknown answer).
+ALTERNATIVE CONSIDERED: refuse the request with 409 while obligations exist (recommended by one independent
+         reviewer). Rejected for the draft: it changes §1.2's acceptance rule and leaves a person unable to start
+         the grace window for obligations only the platform can settle (a held payout, a pending refund).
+         Switchable later at the edge alone.
+PROOF:   supabase/tests/125_deletion_sweep_live_rail.sql (28) + 141 unchanged (213): 078 body verbatim + one call
+         site; predicate NULL for clean identities; BP-7/BP-8 still fire before BP-13; end-to-end request →
+         held on BP-13 → refund → tombstoned.
+OWNER SIGNATURE REQUIRED: YES (amends a ratified closed-world set).  OWNER SIGNATURE: NOT YET RECORDED.
+```

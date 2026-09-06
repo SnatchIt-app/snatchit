@@ -221,6 +221,39 @@ export default function SettingsScreen() {
     if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
   }
 
+  // Human labels for the live-rail obligation tokens returned by delete-account
+  // (public.account_deletion_blockers → { kind, ref_id }). Unknown kinds fall
+  // back to the token itself.
+  const OBLIGATION_LABELS: Record<string, string> = {
+    pending_payment: 'a payment that is still processing',
+    paid_no_transfer: 'a paid order whose ticket transfer has not been created',
+    active_transfer: 'a ticket transfer that has not completed',
+    unsettled_transfer: 'a ticket transfer that has not completed',
+    unpaid_seller_obligation: 'a seller payout that has not been paid',
+    pending_refund: 'a refund that is still processing',
+    reversal_required: 'a payout under review',
+    open_manual_review: 'a payout under review',
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function notifyDeletionAccepted(parsed: any): Promise<void> {
+    const raw: unknown = parsed?.pending_obligations;
+    const kinds: string[] = Array.isArray(raw)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.map((o: any) => (typeof o === 'string' ? o : String(o?.kind ?? ''))).filter(Boolean)
+      : [];
+    const labels = Array.from(new Set(kinds.map((k) => OBLIGATION_LABELS[k] ?? k)));
+    const title = 'Deletion request accepted';
+    const body = labels.length > 0
+      ? `Your account will be deleted automatically once the following settle:\n\n• ${labels.join('\n• ')}\n\nYou will be signed out now. You can sign back in at any time to check on it or withdraw the request.`
+      : 'Your account will be deleted automatically after the grace period. You will be signed out now. You can sign back in at any time to withdraw the request.';
+    if (Platform.OS === 'web') {
+      window.alert(`${title}\n\n${body}`);
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, body, [{ text: 'OK', onPress: () => resolve() }], { cancelable: false, onDismiss: () => resolve() });
+    });
+  }
   async function executeDeleteAccount() {
     setDeleting(true);
     try {
@@ -245,7 +278,12 @@ export default function SettingsScreen() {
         return;
       }
 
-      // Success — sign out locally and navigate immediately
+      // Accepted (OR-17: a request is always accepted). Say so, and say what is
+      // still pending BEFORE signing out: the terminal step waits for every
+      // money obligation to settle (option B, PFA-32) and the person must know
+      // completion is not immediate. `pending_obligations` is additive — an
+      // older edge simply omits it.
+      await notifyDeletionAccepted(parsed);
       await supabase.auth.signOut();
       router.replace('/(auth)/login');
     } catch {
