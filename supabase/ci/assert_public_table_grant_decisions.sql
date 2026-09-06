@@ -345,6 +345,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('get_auto_release_candidates()',                                  'no-client-execute'),
   ('get_disputes_awaiting_refund()',                                 'no-client-execute'),
   ('get_incomplete_webhook_events(integer, integer)',                'no-client-execute'),
+  -- Package 2 (20260906110000): the reconciliation sweep's work list.
+  -- service_role only — asserted in 121.
+  ('get_unsettled_payments(integer)',                                'no-client-execute'),
   ('get_payout_review_queue()',                                      'no-client-execute'),
   ('guard_listing_identity_columns()',                               'no-client-execute'),
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
@@ -374,6 +377,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- functions (mark_listing_sold, complete_auction_payment, Package 2's
   -- settle_verified_payment). service_role is revoked too — asserted in 120.
   ('settle_listing_for_payment(uuid)',                               'no-client-execute'),
+  -- Package 2 (20260906110000): the ONE verified-settlement contract used by
+  -- stripe-webhook / confirm-payment / the sweep. service_role only — 121.
+  ('settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text)', 'no-client-execute'),
   ('sweep_auth_password_changes()',                                  'no-client-execute'),
   ('sync_listing_current_bid()',                                     'no-client-execute'),
   ('validate_and_apply_bid()',                                       'no-client-execute'),
