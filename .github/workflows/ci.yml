@@ -845,6 +845,24 @@ jobs:
         if: steps.detect.outputs.exists == 'yes'
         run: npm ci
 
+      # F18 (audit 2026-09-05): the web app's own unit tests, lint and type
+      # check, plus the shared-package parity suites, were not gated anywhere.
+      - name: Web typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Web lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Web unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run test
+
+      - name: Shared package parity tests (packages/core, packages/design-tokens)
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run test:packages
+
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
         # The web app fails closed without these (by design — see web/src/lib/env).
@@ -856,3 +874,29 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # deno-check: type-check the Supabase Edge Functions under the Deno toolchain
+  # they actually run on (F18: the root tsconfig excludes supabase/functions, so
+  # `npm run typecheck` never sees them; the vitest vm harness exercises
+  # behavior but not Deno's type resolution). Network is used only to fetch the
+  # pinned https imports (deno.land std, esm.sh supabase-js). No deploy, no
+  # secrets.
+  # ---------------------------------------------------------------------------
+  deno-check:
+    name: Deno type-check (edge functions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      - name: deno check — every edge entrypoint
+        run: |
+          set -euo pipefail
+          deno check supabase/functions/*/index.ts
