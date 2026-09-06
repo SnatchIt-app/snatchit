@@ -1,6 +1,9 @@
 # Draft pull requests (stacked; review-ready branches — NOT to be merged or deployed without owner approval)
 
-All three branches build on `fix/payments-reliability` (lead tooling + CI gates + docs). Each PR is migration-bearing:
+The reviewable unit is the integrated branch `fix/payments-reliability` (lead tooling + CI gates + docs + the three
+packages with their review-round revisions merged). One draft PR is opened from it against `main` (link below); the
+package branches remain available for per-package review but are NOT independently deployable — the integrated edge
+sources depend on all three migrations (04 §1). The PR is migration-bearing:
 per `AGENTS.md` / `DEPLOYMENT_PATHS.md` it must carry `AUTODEPLOY-VERIFIED-OFF: <date>` (an owner statement that the
 Supabase deploy-on-merge integration is off, confirmed visually in the dashboard) before it may merge to `main`, and
 the migration is applied only by an owner-authorized path afterwards. Reviewer must not be the author. Merging never
@@ -35,7 +38,7 @@ REQUEST CHANGES → all five findings fixed in rev 2 (reviews/P1_review_round1.m
 `create-payment-intent`.
 
 **Blast radius.** Checkout entry (`reserve_buy_now`, `create-payment-intent`) and the sale wrappers. Client
-compatibility: build 13 and web unchanged (see 04 §2). Gate-2: functions +1.
+compatibility: build 13 and web unchanged (see 04 §2). Gate-2 (whole branch): 30 / 84 / 37 / 30.
 
 **Migration fields.** Rollback path above · verification query 04 §4 (P1) · failure behavior: the migration is a
 single transaction of CREATE OR REPLACE statements; a failure leaves the prior bodies · owner approval point: apply.
@@ -59,8 +62,9 @@ unfulfillable captures with a deterministic refund key.
 
 **Why.** Audit F02/F05 (writer half)/F06 (ack semantics) + N1/N2. Invariants 4–9.
 
-**Verification evidence.** pgTAP `121_settlement.sql` 75/75 (red: 0/75 before); vitest settlement-webhook 16,
-settlement-confirm 6, settlement-sweep 7 (red: 24 failed before) incl. the audit's F02 reproduction turned green;
+**Verification evidence.** pgTAP `121_settlement.sql` 89/89 after rev 2 (red: 0/75 before P2; 10 not ok before rev 2);
+vitest settlement-webhook / settlement-confirm / settlement-sweep (red: 24 failed before P2, 8 before rev 2) incl. the
+audit's F02 reproduction turned green;
 rollback restores `cleanup_expired_reservations` verbatim; independent review round 1 → APPROVE WITH CHANGES →
 MAJOR-1 (partial refunds) and minors fixed in rev 2 (reviews/P2_review_round1.md).
 
@@ -91,9 +95,9 @@ delete-account fails closed on blockers/lookup errors and is restartable.
 
 **Why.** Audit F05 (DB half)/F06 (branches)/F07/F08/F10 + F15 (partial). Invariants 8, 10, 11, 12, 13.
 
-**Verification evidence.** pgTAP 122 53/53, 123 51/51, 124 24/24, 060 12/12 (its two TODO markers are now real
-assertions — the masking ratchets moved to 0); vitest payout-attempts, delete-account, refund-dispute-webhook,
-payout-races (now against the real `payouts.ts`), 167 tests; independent review round 1 → APPROVE WITH CHANGES →
+**Verification evidence.** pgTAP 122 60/60, 123 51/51, 124 40/40 after rev 2 (053/024 before), 060 12/12 (its two
+TODO markers are now real assertions — the masking ratchets moved to 0); vitest payout-attempts, delete-account,
+refund-dispute-webhook, payout-races (now against the real `payouts.ts`); independent review round 1 → APPROVE WITH CHANGES →
 MAJOR-1/2 (deletion gate coverage) and minors fixed in rev 2 (reviews/P3_review_round1.md).
 
 **Rollback.** `supabase/rollbacks/20260906120000_payout_attempts_and_refund_monotonic_rollback.sql` (drops the ledger
@@ -105,3 +109,13 @@ the attempt RPCs; a pre-enable query for legacy transfers with `stripe_transfer_
 Follow-up migration needed: relax `stripe_connect_archive.profile_id` FK so archived users can be deleted.
 
 `AUTODEPLOY-VERIFIED-OFF: <owner fills in>`
+
+---
+
+## Integrated draft PR
+
+Branch `fix/payments-reliability` → `main`. Final local evidence: `05_VERIFICATION.md` §1 (rollback rehearsal, final run)
+and §4 (whole-branch table). CI on the final push: run id recorded below once green. The `AUTODEPLOY-VERIFIED-OFF` line in
+the PR body is left as a placeholder on purpose — the migrations guard is expected to FAIL until the owner confirms the
+Supabase deploy-on-merge integration is off in the dashboard and fills in the date. Merging never implies applying; the
+apply/deploy order is `04_RELEASE_PLAN.md` §1.
