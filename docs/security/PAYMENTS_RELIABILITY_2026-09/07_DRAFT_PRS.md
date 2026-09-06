@@ -129,4 +129,8 @@ diff against `main` therefore ALSO contains the Phase-2 migrations 076..109 and 
 runs; merging PR #54 makes `main` describe production again. Still DO NOT MERGE without the owner's
 `AUTODEPLOY-VERIFIED-OFF` line and the release decision; merging never applies.
 
-Reviewed commit and CI run: recorded in the final report / below once the push completes.
+**Reviewed commit:** `972619f` (`release/payments-converged-rc` = PR #54 head). **CI on that head:** run 34065941037 —
+`db` (fresh replay, Gate-2 30|86|37|32, pgTAP, grant manifests), `web`, `quality` (typecheck/lint/vitest/parity) and
+`deno-check` (eleven deployed entrypoints blocking; the seven never-deployed Phase-2 native edges are checked visibly
+but advisory until their first deploy) — all four jobs GREEN (2026-09-06). Migrations guard:
+fails ONLY on the `AUTODEPLOY-VERIFIED-OFF` placeholder, by design.
