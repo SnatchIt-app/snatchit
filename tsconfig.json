@@ -18,6 +18,7 @@
   "exclude": [
     "supabase/functions",
     "web",
+    "admin",
     "packages"
   ]
 }

@@ -22,6 +22,7 @@ import {
   sanitizeErrorMessage,
   stripeKeyMode,
   validateRequest,
+  type StripeRefundObject,
 } from '../supabase/functions/ops-refund-execute/classify';
 
 const ACTION_ID = '11111111-2222-4333-8444-555555555555';
@@ -239,7 +240,7 @@ describe('Stripe outcome classification → ops.action state', () => {
 });
 
 describe('resolving an ambiguous outcome from GET /v1/refunds', () => {
-  const list = { data: [
+  const list: { data: StripeRefundObject[] } = { data: [
     { id: 're_other', metadata: { source: 'dashboard' } },
     { id: 're_ours', metadata: { ops_action_id: ACTION_ID, source: 'ops-refund-execute' } },
   ] };
