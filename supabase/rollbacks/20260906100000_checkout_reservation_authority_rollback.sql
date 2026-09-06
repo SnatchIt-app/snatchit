@@ -16,7 +16,8 @@
 --   select proname from pg_proc where pronamespace='public'::regnamespace
 --     and proname='settle_listing_for_payment';   -- expect 0 rows
 --   supabase/tests/120_reservation_lifecycle.sql must FAIL its new-behaviour
---   assertions (A2/A4/A6/A9/B1/B3 ...); 030/040/110 #17 revert to 0590 text.
+--   assertions (A2/A4/A6/A9/B1/B3 ... and H1-H4/H6/H8/H9: paid inventory
+--   becomes re-reservable again); 030/040/110 #17 revert to 0590 text.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.mark_listing_sold(p_listing_id uuid, p_user_id uuid)
