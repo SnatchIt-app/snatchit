@@ -32,13 +32,20 @@ run ahead of the migration they call.
 | P2-d | add `payment_intent.canceled` to the Stripe webhook endpoint's event list | STRIPE DASHBOARD SETTING | owner |
 | P3-a | pre-flight `SELECT stripe_transfer_id, count(*) FROM transfers WHERE stripe_transfer_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1` must be empty (the migration also aborts on duplicates) | read-only | — |
 | P3-b | apply `20260906120000_payout_attempts_and_refund_monotonic.sql` | PRODUCTION DB MUTATION | owner |
+| P3-b2 | apply `20260906130000_deletion_sweep_live_rail_obligations.sql` (BP-13 arm; requires 078 + 120000 — both asserted by the file) | PRODUCTION DB MUTATION | owner |
+| P3-b3 | **legacy orphan reconciliation** (R3 §2.2): `SELECT id, seller_id, status FROM transfers WHERE status IN ('buyer_confirmed','auto_released') AND stripe_transfer_id IS NULL;` — for each row list the seller's Stripe transfers (`stripe transfers list --destination acct_… --limit 100`) and match `metadata.transfer_id`; where a `tr_` exists, `SELECT record_transfer_payout(<id>, '<tr_>')`. The new edges ALSO run this check before every first POST (legacy-aware pre-flight), so this step is belt-and-braces, not the only defence | read-only + owner SQL | owner |
 | P3-c | verify §4 | read-only | — |
+| P3-c2 | **pause the payout cron** (`cron.unschedule` of the enforce-transfer-expiry job) for the duration of P3-d so the old sweep and the new edges never run in the same window (R2 NOTE-7); re-schedule after P3-d | PRODUCTION CRON SETTING | owner |
 | P3-d | deploy `confirm-payment`, `confirm-and-release`, `enforce-transfer-expiry`, `stripe-webhook`, `delete-account` (tombstone variant + blockers) — one step, after all three migrations | EDGE DEPLOY | owner |
 | P3-e | update `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` Part 2 to `reconcile_payout_attempt` / `record_payout_attempt_result`; manual dashboard transfers are no longer a supported path | docs | — |
 
 Old edge versions keep working after each migration (`record_transfer_payout`, `mark_listing_sold`, `ensure_transfer_exists`
 signatures unchanged), so a migration can be applied before its edge deploy; the reverse is not safe for P2/P3 edges.
-The safe order is therefore: P1-a → P1-c → P2-a → P3-a/b → P3-d → P2-d. Between P2-a and P3-d the old webhook keeps
+The safe order is therefore: P1-a → P1-c → P2-a → P3-a/b/b2/b3 → P3-c2 (pause cron) → P3-d → re-schedule cron → P2-d.
+**Source of the deploy**: the converged branch `release/payments-converged-rc` (= PR #54 head after fast-forward), never the
+original main-only branch — the edges there would regress the deployed Phase-2 deletion guards and tombstone flow
+(`09_CONVERGENCE.md` §1). `supabase db push --linked --include-all` from that checkout plans exactly the four `20260906*`
+versions because the checkout's ledger set equals production's plus those four (rehearsed: `payments_rc_prod_order_rehearsal.sh` A1). Between P2-a and P3-d the old webhook keeps
 settling through `mark_listing_sold` (now payment-gated by P1) — no window in which a paid listing is unsettleable.
 
 ## 2. Client compatibility
@@ -57,6 +64,8 @@ settling through `mark_listing_sold` (now payment-gated by P1) — no window in 
 | Package | Rollback | Recovery notes |
 |---|---|---|
 | P1 | `20260906100000_…_rollback.sql` restores the 0590 bodies verbatim and drops the core; redeploy `create-payment-intent` previous version | Reservations made under the 10-min rule remain valid rows; nothing to migrate back |
+| 130000 | `20260906130000_…_rollback.sql` restores the 078 sweep body verbatim, drops `account_deletion_block_reason` | none (BP-13 no longer evaluated; Package 3 predicate untouched) |
+| P3 (with records) | **BEFORE the SQL**: (0) pause the payout cron and take confirm-and-release offline; (1) DRAIN every open attempt (`state IN ('claimed','requested','unknown')`) — reconcile against Stripe (`transfer_group` and destination listings) with `reconcile_payout_attempt`; (2) EXPORT `payout_attempts`, `payment_refunds`, `account_deletions`, `payments` refund columns (`\copy … csv header`); then redeploy the previous edges, run the rollback SQL; (3) post-rollback reconcile: every transfer with money moved carries its `tr_` (money facts on `transfers` SURVIVE the rollback — rehearsed F6); partial-refund amounts have no home in the old schema — the CSV is the ledger of record; (4) re-apply restores the tables empty; re-import the CSVs (`\copy` INSERT is accepted by the append-only ledgers — rehearsed F12/F13) | see `scripts/release/payments_rc_prod_order_rehearsal.sh` §F (51/51) |
 | P2 | `20260906110000_…_rollback.sql` drops `settle_verified_payment`/`get_unsettled_payments`, restores `cleanup_expired_reservations` (000 body); redeploy previous webhook/confirm-payment/expiry | `webhook_retries` review rows written by P2 stay (harmless, ops-visible) |
 | P3 | `20260906120000_…_rollback.sql` drops the tables/indexes/guards/functions; redeploy previous edges | Rows in `payout_attempts`/`payment_refunds`/`account_deletions` are lost on rollback — export first if any exist; `transfers.stripe_transfer_id` values recorded by attempts remain |
 
@@ -90,3 +99,16 @@ select state, count(*) from public.payout_attempts group by 1;                  
 - Stripe: any `payment_intent.canceled` deliveries acknowledged 200; no 500 loops older than one hour in
   `get_incomplete_webhook_events()`.
 - Edge logs: `checkout-refused` reasons, `settle` outcomes, Phase 0 counts.
+
+
+## 6. Open follow-ups (not blockers for this release; recorded from review round 2)
+
+- R2 MINOR-6: captures that succeed more than 2 h after PaymentIntent creation with a lost webhook are not in the
+  `pending_stale` window; they are settled when the buyer's app calls `confirm-payment`, and they block deletion via
+  `pending_payment` (24 h) — a widened window plus Stripe-side cancellation of abandoned intents is a follow-up.
+- R2 NOTE-8: `binding_mismatch` / `unknown_payment` review rows are ops-visible (`webhook_retries`) but raise no alert;
+  add a Sentry `captureMessage` or a daily digest.
+- R2 NOTE-9: a `reversal_required` attempt whose dispute is later WON keeps its decision open until an operator records
+  a `release` decision or the transfer is reversed.
+- CI: run the rollback scripts in the `db` job (R3 §4); today they are release-time rehearsals only.
+- `stripe_connect_archive.profile_id` FK relaxation (archived sellers cannot be erased) — separate migration.

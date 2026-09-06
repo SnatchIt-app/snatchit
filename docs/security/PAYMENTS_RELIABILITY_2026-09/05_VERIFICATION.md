@@ -97,3 +97,24 @@ Final integrated branch (`fix/payments-reliability`, all revisions merged):
 - Fresh replay on the pinned Supabase CLI stack: performed by CI's `db` job (Docker is unavailable locally); the
   loopback harness is the local approximation and documents its fidelity ledger.
 - `deno check`: runs in CI as the blocking `deno-check` job (all 21 pre-existing errors fixed in this branch); not available locally.
+
+
+## 6. Converged release candidate (2026-09-06, `release/payments-converged-rc`)
+
+| Check | Result |
+|---|---|
+| fresh replay, full converged chain (128 = production's 124 + four) | 128/128, `GATE-2 tables=30 functions=86 policies=37 triggers=32` |
+| full pgTAP, 59 files incl. every Phase-2 suite | **4046/4046** (local harness deltas: none — `known_notok` list empty) |
+| vitest (26 files) | 854/854 |
+| typecheck | clean |
+| reverse rollback 4→3→2→1→reapply (census + function hash) | exact inversion at every step; fresh hash restored; second apply idempotent |
+| production-order upgrade rehearsal (`scripts/release/payments_rc_prod_order_rehearsal.sh`) | 51/51 — see `09_CONVERGENCE.md` §6 |
+| Package suites | 120 58/58 · 121 95/95 · 122 69/69 · 123 53/53 · 124 42/42 · 125 28/28 · 132 11/11 |
+| Phase-2 suites touched | 141 213/213 (unchanged expectations), 153 367/367 (fixture bypass), 162 86/86 (census pins moved) |
+| CI | see `07_DRAFT_PRS.md` (run id of the RC push) |
+
+Why CI was green while the local harness reported 595/597: the two `132_replay_parity.sql` assertions compared
+`cron.job.database` to the literal `'postgres'` — the database name of the Supabase CLI stack CI replays into — while the
+local harness forbids that name. The invariant (the job targets the database that holds the function) is unchanged; the
+assertion now uses `current_database()`. CI would still have caught a genuine drift in schedule, command bytes, or
+duplicate jobs — those fields were never masked.

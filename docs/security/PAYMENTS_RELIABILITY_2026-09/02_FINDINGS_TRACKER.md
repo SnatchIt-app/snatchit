@@ -42,3 +42,20 @@ New findings from this program's investigation (not in the audit):
 | N4 (fixed P1: Buy-Now hold priority) | `finalize_auction` is EXECUTE `authenticated` and does not consider a live Buy-Now reservation (dual eligibility) | A §3(e) | 1 (priority rule) — `finalize_auction` grant itself out of scope |
 | N5 (docs update = launch blocker P3-e) | `DAY5_MANUAL_REFUND_PLAYBOOK.md` Part 2 direct `UPDATE transfers` is blocked by the 0562 guard; its manual dashboard transfer is the double-pay path | C §7 | docs (P3 report) |
 | N6 (launch blocker, owner decision) | Production edge code ahead of `main` (deletion guards, tombstone delete-account) — release dependency | baseline | lead |
+
+
+## Round 2 (converged RC, 2026-09-06) — independent review findings and dispositions
+
+| Id | Finding | Source | Status |
+|---|---|---|---|
+| R2-M1 | Production `payments` shape (093: `native_primary`, NULL listing/seller) breaks the transition guard, blockers and contract | R2 §1 | FIXED-IN-RC (NULL-safe guard; `not_external_rail`; external-rail-only predicates; confirm-payment 409) |
+| R2-M2 | Full/partial refund after payout never flags a reversal | R2 §2 | FIXED-IN-RC (`REFUNDED_AFTER_PAYOUT` / `PARTIAL_REFUND_AFTER_PAYOUT`) |
+| R2-m3 | Payout amount ignores partial refunds | R2 §3 | FIXED-IN-RC (`PAYMENT_PARTIALLY_REFUNDED`, operator decision) |
+| R2-m4 | Cumulative refund ledgered under one id | R2 §4 | FIXED-IN-RC (increment) |
+| R2-m5 | Dispute freeze failure ACKed; no last-moment payout re-check | R2 §5 | FIXED-IN-RC |
+| R2-m6 | Late captures (>2 h) outside `pending_stale` | R2 §6 | OPEN follow-up (04 §6) |
+| R3-2.2 | Legacy orphan double-pay (no `transfer_group` on pre-ledger transfers) | R3 §2 | FIXED-IN-RC (legacy-aware pre-flight) + release step P3-b3 |
+| R3-3.2 | Open attempt at rollback ⇒ old edge re-POST | R3 §3 | PROCEDURE (04 §3, rehearsed) |
+| R3-1 | 132 env-dependent expectation; CI green explained | R3 §1 | FIXED-IN-RC |
+| R1 | Production-only edge behaviours must survive convergence | R1 | FIXED-IN-RC (09 §2) |
+| R1-policy | Request-time 409 vs always-accept | R1 / lead | OWNER DECISION — (B) implemented, (A) documented (09 §3) |

@@ -119,3 +119,14 @@ and §4 (whole-branch table). CI on the final code commit `ee14995`: run 3404717
 the PR body is left as a placeholder on purpose — the migrations guard is expected to FAIL until the owner confirms the
 Supabase deploy-on-merge integration is off in the dashboard and fills in the date. Merging never implies applying; the
 apply/deploy order is `04_RELEASE_PLAN.md` §1.
+
+
+## Converged release candidate (supersedes the three-PR framing above for deployment)
+
+PR #54's head is fast-forwarded to the converged branch `release/payments-converged-rc` — main's payments work merged
+onto production's actual commit (Phase-2 `10ad9e4`), plus review-round-2 fixes and migration `20260906130000`. Its
+diff against `main` therefore ALSO contains the Phase-2 migrations 076..109 and `20260902003623` that production already
+runs; merging PR #54 makes `main` describe production again. Still DO NOT MERGE without the owner's
+`AUTODEPLOY-VERIFIED-OFF` line and the release decision; merging never applies.
+
+Reviewed commit and CI run: recorded in the final report / below once the push completes.
