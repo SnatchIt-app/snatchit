@@ -1354,6 +1354,63 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
+  # admin: the founder operating console in admin/ (Next.js 16, Node 22).
+  # Typecheck + lint + unit tests + build. NOT a required status check (adding
+  # a never-reported required context deadlocks merges — ENGINEERING_STANDARDS
+  # §"required checks"); promote it via the branch ruleset in its own change.
+  # No secrets: the app fails closed without public env (admin/src/lib/env.ts),
+  # so CI compiles with well-formed placeholders and discards the artifact.
+  # ---------------------------------------------------------------------------
+  admin:
+    name: Admin console (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Detect admin app
+        id: detect
+        working-directory: .
+        run: echo "exists=$([ -f admin/package.json ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: steps.detect.outputs.exists == 'yes'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install (clean, from lockfile)
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm test
+
+      - name: Build
+        if: steps.detect.outputs.exists == 'yes'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
+          NEXT_PUBLIC_ENV_LABEL: ci
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
   # deno-check: type-check the Supabase Edge Function entrypoints and their
   # shared pure modules under the Deno toolchain they actually run on. Closes
   # the "deno check OUTSTANDING" item from the signing/door trains: the local
