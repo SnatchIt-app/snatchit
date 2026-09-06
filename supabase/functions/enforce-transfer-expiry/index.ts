@@ -7,7 +7,11 @@
 //     get_unsettled_payments() -> re-fetch each PaymentIntent from Stripe ->
 //     settle_verified_payment(); unfulfillable captures are refunded once and
 //     recorded (record_payment_refund, or a guarded payments update until it
-//     exists). Runs first; never blocks the phases below.
+//     exists); an unfulfillable capture that already carries a transfer is
+//     parked as 'unfulfillable:manual_review' (one Sentry capture); a first
+//     settlement retires every other pending PaymentIntent on the listing;
+//     legacy_unknown_mode rows (stripe_livemode NULL) are counted, never
+//     fetched. Runs first; never blocks the phases below.
 //
 //   PHASE 1 — Expiry + Refund (Day 2):
 //     1. Calls enforce_transfer_expiry() RPC to atomically expire pending
@@ -37,7 +41,8 @@
 //   Layer 1: RPC uses FOR UPDATE SKIP LOCKED — concurrent runs never
 //            double-process the same row
 //   Layer 2: Payment refund check — skip if status='refunded' or
-//            stripe_refund_id IS NOT NULL
+//            amount_refunded_cents >= total (never stripe_refund_id: a
+//            partial refund leaves a real remaining balance — MAJOR-1)
 //   Layer 3: Stripe refund API — full refunds on the same payment_intent
 //            return the existing refund (Stripe-level idempotency)
 //
@@ -197,6 +202,62 @@ serve(async (req: Request) => {
     let reconciledSettled  = 0;
     let reconciledRefunded = 0;
     let reconciledErrors   = 0;
+    let reconciledManualReview = 0;
+    let reconciledLegacyUnknownMode = 0;
+
+    // A row is "already refunded" only by its money facts — status, or
+    // amount_refunded_cents reaching total — never by stripe_refund_id alone:
+    // a partial (goodwill) refund sets the id and leaves a real balance owed.
+    const fullyRefunded = (p: { status?: string | null; total?: number | null; amount_refunded_cents?: number | null }) =>
+      p.status === 'refunded' || (typeof p.total === 'number' && (p.amount_refunded_cents ?? 0) >= p.total);
+
+    // NOTE-9 (money wins): after a settlement, every OTHER pending
+    // PaymentIntent on the listing is a live hold for an order that can no
+    // longer be fulfilled — cancel it at Stripe (best effort) and retire its
+    // row, but only when Stripe confirmed the cancel; a PI that already
+    // captured stays pending for the contract to see (mirrors
+    // create-payment-intent's retirePendingIntents; kept local on purpose).
+    const retireOtherPendingIntents = async (listingId: string, settledPaymentId: string): Promise<void> => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id, stripe_payment_intent_id, buyer_id')
+        .eq('listing_id', listingId)
+        .eq('status', 'pending')
+        .neq('id', settledPaymentId);
+      if (error) {
+        console.warn('enforce-transfer-expiry: Phase 0 retire-other-pending lookup failed (continuing):', { listing_id: listingId, error: error.message });
+        return;
+      }
+      for (const other of (data ?? []) as Array<{ id: string; stripe_payment_intent_id: string | null; buyer_id: string }>) {
+        let canceled = true;
+        if (other.stripe_payment_intent_id) {
+          try {
+            await stripeFetch(`/payment_intents/${other.stripe_payment_intent_id}/cancel`, { method: 'POST' });
+          } catch (cancelErr) {
+            const msg = cancelErr instanceof Error ? cancelErr.message : String(cancelErr);
+            canceled = /status of canceled|already.*cancel/i.test(msg);
+            if (!canceled) {
+              console.warn('enforce-transfer-expiry: Phase 0 retire-other-pending: PI cancel refused (row left pending):', {
+                listing_id: listingId, payment_row: other.id, pi_id: other.stripe_payment_intent_id, error: msg,
+              });
+            }
+          }
+        }
+        if (!canceled) continue;
+        const { error: retireErr } = await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('id', other.id)
+          .eq('status', 'pending');
+        if (retireErr) {
+          console.warn('enforce-transfer-expiry: Phase 0 retire-other-pending: row update failed (continuing):', { payment_row: other.id, error: retireErr.message });
+          continue;
+        }
+        console.log('enforce-transfer-expiry: Phase 0 other-buyer pending PaymentIntent retired', {
+          listing_id: listingId, settled_payment_id: settledPaymentId, payment_row: other.id, pi_id: other.stripe_payment_intent_id, other_buyer_id: other.buyer_id,
+        });
+      }
+    };
     try {
       type UnsettledRow = { payment_id: string; stripe_payment_intent_id: string; listing_id: string; mode: string; status: string; paid_at: string | null; kind: string };
       type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: Array<{ id?: string }> } };
@@ -216,10 +277,20 @@ serve(async (req: Request) => {
 
         for (const row of unsettled as UnsettledRow[]) {
           try {
-            // 0a. Re-fetch the PaymentIntent (refund facts ride on latest_charge).
+            if (row.kind === 'legacy_unknown_mode') {
+              // stripe_livemode NULL (pre-045): the live key cannot address
+              // this PaymentIntent (404 every run). Counted for ops, never
+              // fetched (MINOR-5).
+              reconciledLegacyUnknownMode++;
+              continue;
+            }
+
+            // 0a. Re-fetch the PaymentIntent (refund facts ride on latest_charge;
+            //     its refunds list must be expanded explicitly under API
+            //     2024-09-30 or the refund id is never seen).
             let pi: StripePI;
             try {
-              pi = await stripeFetch<StripePI>(`/payment_intents/${row.stripe_payment_intent_id}?expand[]=latest_charge`);
+              pi = await stripeFetch<StripePI>(`/payment_intents/${row.stripe_payment_intent_id}?expand[]=latest_charge&expand[]=latest_charge.refunds`);
             } catch (fetchErr) {
               console.warn('enforce-transfer-expiry: Phase 0 Stripe fetch failed — skipping row:', {
                 payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind,
@@ -253,7 +324,10 @@ serve(async (req: Request) => {
             console.log('enforce-transfer-expiry: Phase 0 outcome', { payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind, outcome, transfer_id: settled?.transfer_id ?? null });
 
             if (outcome === 'settled' || outcome === 'already_settled') {
-              if (outcome === 'settled') reconciledSettled++;
+              if (outcome === 'settled') {
+                reconciledSettled++;
+                await retireOtherPendingIntents(row.listing_id, row.payment_id);
+              }
               if (row.kind === 'review_unfulfillable') {
                 // A stale review row: the capture turned out to be fulfillable.
                 await supabase.from('webhook_retries').update({ resolved: true })
@@ -281,7 +355,7 @@ serve(async (req: Request) => {
             //     be delivered. Refund in full, exactly once.
             const { data: payRow, error: payErr } = await supabase
               .from('payments')
-              .select('id, status, stripe_refund_id, stripe_livemode, total, listing_id')
+              .select('id, status, stripe_refund_id, stripe_livemode, total, listing_id, amount_refunded_cents')
               .eq('id', row.payment_id)
               .single();
             if (payErr || !payRow) {
@@ -292,20 +366,35 @@ serve(async (req: Request) => {
             const resolveReview = () => supabase.from('webhook_retries').update({ resolved: true })
               .eq('payment_id', row.payment_id).eq('resolved', false).like('error_message', 'unfulfillable%');
 
-            if (payRow.status === 'refunded' || payRow.stripe_refund_id) {
-              console.log('enforce-transfer-expiry: Phase 0 already refunded, skipping:', { payment_id: row.payment_id, stripe_refund_id: payRow.stripe_refund_id });
+            if (fullyRefunded(payRow)) {
+              console.log('enforce-transfer-expiry: Phase 0 already refunded, skipping:', {
+                payment_id: row.payment_id, status: payRow.status, amount_refunded_cents: payRow.amount_refunded_cents ?? null, total: payRow.total,
+              });
               await resolveReview();
               continue;
             }
             // Never refund a capture that already carries a transfer
             // obligation: that order is being delivered (or is in Phase 1's
-            // expiry path). Leave the review row for an operator.
+            // expiry path). Park the review row under a marker the work list
+            // excludes and page ONCE (MINOR-4) — an operator decides.
             const { data: existingTransfer } = await supabase
               .from('transfers').select('id, status').eq('payment_id', row.payment_id).maybeSingle();
             if (existingTransfer) {
-              console.warn('enforce-transfer-expiry: Phase 0 unfulfillable row has a transfer — leaving for manual review:', {
+              console.warn('enforce-transfer-expiry: Phase 0 unfulfillable row has a transfer — parking for manual review:', {
                 payment_id: row.payment_id, transfer_id: existingTransfer.id, transfer_status: existingTransfer.status,
               });
+              const { error: markErr } = await supabase.from('webhook_retries')
+                .update({ error_message: 'unfulfillable:manual_review' })
+                .eq('payment_id', row.payment_id).eq('resolved', false).like('error_message', 'unfulfillable%');
+              if (markErr) {
+                console.error('enforce-transfer-expiry: Phase 0 manual_review marker write failed:', { payment_id: row.payment_id, error: markErr });
+                reconciledErrors++;
+                continue;
+              }
+              await captureException('enforce-transfer-expiry:phase0-unfulfillable-manual-review',
+                new Error(`unfulfillable capture ${row.payment_id} already has transfer ${existingTransfer.id} (${existingTransfer.status}) — manual review`),
+                { payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, listing_id: row.listing_id, transfer_id: existingTransfer.id, transfer_status: existingTransfer.status });
+              reconciledManualReview++;
               continue;
             }
 
@@ -343,7 +432,7 @@ serve(async (req: Request) => {
                   new Error(`record_payment_refund failed for payment ${row.payment_id} (refund ${refund.id}): ${recordErr.message}`),
                   { payment_id: row.payment_id, stripe_refund_id: refund.id });
                 reconciledErrors++;
-                continue;   // next run re-selects the row (no stripe_refund_id yet) and replays the same idempotent refund
+                continue;   // next run re-selects the row (not yet refunded by its money facts) and replays the same idempotent refund
               }
               const { error: fallbackErr } = await supabase
                 .from('payments')
@@ -401,7 +490,7 @@ serve(async (req: Request) => {
           // ── 2a. Look up the payment ────────────────────────────────────
           const { data: payment, error: payErr } = await supabase
             .from('payments')
-            .select('id, stripe_payment_intent_id, status, stripe_refund_id, stripe_livemode')
+            .select('id, stripe_payment_intent_id, status, stripe_refund_id, stripe_livemode, total, amount_refunded_cents')
             .eq('id', t.payment_id)
             .single();
 
@@ -428,11 +517,16 @@ serve(async (req: Request) => {
           }
 
           // ── 2b. Idempotency: skip if already refunded ──────────────────
-          if (payment.status === 'refunded' || payment.stripe_refund_id) {
+          // Keyed on the money facts (status / amount_refunded_cents >= total),
+          // never on stripe_refund_id: a partial refund leaves a balance the
+          // buyer is still owed on expiry (MAJOR-1). An amount-less POST
+          // /refunds below refunds exactly the remaining balance.
+          if (fullyRefunded(payment)) {
             console.log('enforce-transfer-expiry: payment already refunded, skipping:', {
               transfer_id:      t.transfer_id,
               payment_id:       t.payment_id,
               stripe_refund_id: payment.stripe_refund_id,
+              amount_refunded_cents: payment.amount_refunded_cents ?? null,
             });
             refundedCount++;
             continue;
@@ -555,8 +649,10 @@ serve(async (req: Request) => {
     // /refunds call — used to strand the buyer's money forever: the
     // transfer was already 'expired' and nothing ever retried the refund.
     // This sweep mirrors Phase 2b: any expired transfer whose payment is
-    // still 'succeeded' with no stripe_refund_id gets the refund
-    // re-attempted under the same deterministic idempotency key.
+    // still 'succeeded' (a fully refunded row is 'refunded' — record_payment_
+    // refund flips it once amount_refunded_cents reaches total; a partial
+    // refund is still owed the balance, MAJOR-1) gets the refund re-attempted
+    // under the same deterministic idempotency key.
     try {
       // MODE BOUNDARY: only payments explicitly marked live
       // (stripe_livemode = true, migration 045 — set from Stripe's own
@@ -567,10 +663,9 @@ serve(async (req: Request) => {
       // are inert. NULL (unclassified) is also excluded — fail closed.
       const { data: unrefunded } = await supabase
         .from('transfers')
-        .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id, stripe_livemode)')
+        .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id, stripe_livemode, total, amount_refunded_cents)')
         .eq('status', 'expired')
         .eq('payments.status', 'succeeded')
-        .is('payments.stripe_refund_id', null)
         .eq('payments.stripe_livemode', true)
         .order('created_at', { ascending: true })
         .limit(20);
@@ -578,10 +673,11 @@ serve(async (req: Request) => {
       for (const row of (unrefunded ?? []) as Array<{
         id: string; payment_id: string; listing_id: string;
         buyer_id: string; seller_id: string;
-        payments: { id: string; status: string; stripe_payment_intent_id: string | null; stripe_refund_id: string | null; stripe_livemode: boolean | null };
+        payments: { id: string; status: string; stripe_payment_intent_id: string | null; stripe_refund_id: string | null; stripe_livemode: boolean | null; total: number | null; amount_refunded_cents: number | null };
       }>) {
         try {
           if (!row.payments?.stripe_payment_intent_id) continue;
+          if (fullyRefunded(row.payments)) continue;   // money facts say nothing is owed (MAJOR-1 predicate)
           console.warn('enforce-transfer-expiry: Phase 1b — re-attempting dropped expiry refund:', {
             transfer_id: row.id,
             payment_id:  row.payment_id,
@@ -1112,6 +1208,8 @@ serve(async (req: Request) => {
       reconciled_settled:  reconciledSettled,
       reconciled_refunded: reconciledRefunded,
       reconciled_errors:   reconciledErrors,
+      reconciled_manual_review:        reconciledManualReview,
+      reconciled_legacy_unknown_mode:  reconciledLegacyUnknownMode,
       expired:       expiredCount,
       refunded:      refundedCount,
       auto_released: autoReleasedCount,

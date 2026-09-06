@@ -3,8 +3,10 @@
 // =============================================================================
 // PURPOSE: Client-triggered settlement after Stripe PaymentSheet succeeds.
 //   1. Authenticates the buyer via JWT
-//   2. Fetches the PaymentIntent from Stripe (latest_charge expanded) and
-//      refuses (403) unless metadata.buyer_id is the caller
+//   2. Fetches the PaymentIntent from Stripe (latest_charge + its refunds
+//      expanded) and refuses (403) unless the caller owns it: metadata.buyer_id
+//      is the caller OR the payments row for that PaymentIntent has
+//      buyer_id = caller (legacy PIs without metadata; review round 1 MINOR-2)
 //   3. Settles through settle_verified_payment (Package 2 contract): the row
 //      is promoted, the listing sold and the transfer created atomically in
 //      the database — this function never writes payments/transfers itself
@@ -174,7 +176,10 @@ serve(async (req: Request) => {
     // If the Stripe look-up fails for any reason we still return 200 with
     // stripe_verified:false and write NOTHING: the webhook and the
     // reconciliation sweep are independent, Stripe-verified fallbacks.
-    // latest_charge is expanded so refund facts travel with the status.
+    // latest_charge is expanded so refund facts travel with the status;
+    // latest_charge.refunds must be expanded explicitly under the pinned API
+    // version (2024-09-30: a Charge no longer embeds its refunds list) or the
+    // refund id the contract ledgers would always be null.
     type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: Array<{ id?: string }> } };
     type StripePI = {
       id?: string; status?: string; amount_received?: number; currency?: string; livemode?: boolean;
@@ -184,7 +189,7 @@ serve(async (req: Request) => {
     let stripePI: StripePI | null = null;
 
     try {
-      const stripeRes = await stripeFetchRaw(`/payment_intents/${payment_intent_id}?expand[]=latest_charge`);
+      const stripeRes = await stripeFetchRaw(`/payment_intents/${payment_intent_id}?expand[]=latest_charge&expand[]=latest_charge.refunds`);
       if (stripeRes.ok) {
         stripePI = stripeRes.data as StripePI;
       } else {
@@ -209,12 +214,30 @@ serve(async (req: Request) => {
 
     // ── Ownership: only the PaymentIntent's buyer may confirm it ─────────
     // create-payment-intent stamps metadata.buyer_id on every PaymentIntent
-    // (Package 1 binds it to the live reservation holder). A caller who is
-    // not that buyer gets nothing — not even a look at the outcome — so a
-    // buyer cannot settle (or probe) another buyer's purchase (A §4 item 3).
-    if (!stripePI.metadata?.buyer_id || stripePI.metadata.buyer_id !== buyerId) {
+    // (Package 1 binds it to the live reservation holder). When the metadata
+    // does not name the caller, the authoritative payments row for that
+    // PaymentIntent decides (one extra select; legacy PIs carry no metadata —
+    // MINOR-2). A caller who owns neither gets nothing — not even a look at
+    // the outcome — so a buyer cannot settle (or probe) another buyer's
+    // purchase (A §4 item 3). No row and no metadata ⇒ 403.
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    let ownsPI = !!stripePI.metadata?.buyer_id && stripePI.metadata.buyer_id === buyerId;
+    let rowBuyer: string | null = null;
+    if (!ownsPI) {
+      const { data: payRow, error: payErr } = await supabase
+        .from('payments')
+        .select('buyer_id')
+        .eq('stripe_payment_intent_id', payment_intent_id)
+        .maybeSingle();
+      if (payErr) {
+        console.warn('confirm-payment: payments ownership lookup failed (treating as not owned):', { payment_intent_id, error: payErr.message });
+      }
+      rowBuyer = (payRow as { buyer_id?: string } | null)?.buyer_id ?? null;
+      ownsPI = !!rowBuyer && rowBuyer === buyerId;
+    }
+    if (!ownsPI) {
       console.warn('confirm-payment: PaymentIntent does not belong to the caller', {
-        payment_intent_id, caller: buyerId, pi_buyer: stripePI.metadata?.buyer_id ?? null,
+        payment_intent_id, caller: buyerId, pi_buyer: stripePI.metadata?.buyer_id ?? null, row_buyer: rowBuyer,
       });
       return new Response(
         JSON.stringify({ error: 'This payment does not belong to you.' }),
@@ -243,7 +266,6 @@ serve(async (req: Request) => {
     // shipped clients' follow-up RPCs (mark_listing_sold /
     // complete_auction_payment / ensure_transfer_exists) then no-op.
     const charge = (stripePI.latest_charge && typeof stripePI.latest_charge === 'object') ? stripePI.latest_charge : null;
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
       p_payment_intent_id: payment_intent_id,
       p_stripe_status:     stripePI.status,

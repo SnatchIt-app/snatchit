@@ -46,7 +46,7 @@ describe('edge-vm harness', () => {
     const res = await edge.handler(authedJsonRequest({ payment_intent_id: 'pi_test' }));
     const body = await json(res);
     expect(res.status).toBe(200);
-    expect(stripe.calls[0]?.path).toBe('/payment_intents/pi_test?expand[]=latest_charge');
+    expect(stripe.calls[0]?.path).toBe('/payment_intents/pi_test?expand[]=latest_charge&expand[]=latest_charge.refunds');
     expect(body).toBeTruthy();
   });
 });

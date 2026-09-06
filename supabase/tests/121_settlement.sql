@@ -23,7 +23,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(75);
+SELECT plan(89);
 
 SELECT tap.seed_core();
 
@@ -45,6 +45,20 @@ SELECT tap.seed_core();
 -- 209: Buy-Now, reservation by other_user LAPSED, no payment (cleanup control).
 -- 210: ended auction, winner buyer; pending auction payment 210.
 -- 211: Buy-Now, active; pending payment 211 created just now (NOT stale).
+-- Round-2 fixtures (review P2 round 1, MAJOR-1 / MINOR-3 / MINOR-4 / MINOR-5):
+-- 212: Buy-Now, reserved by buyer; pending payment 212 — Stripe says succeeded
+--      with a PARTIAL refund (500 of 22000): must still settle, no refund facts.
+-- 213: Buy-Now, reserved by buyer; pending payment 213 — metadata uuids arrive
+--      upper-case (client-echoed listing_id): must bind.
+-- 214: Buy-Now, reserved by buyer; pending payment 214 — malformed metadata uuid.
+-- 215: Buy-Now, reserved by buyer; PROCESSING payment 215 — canceled PI.
+-- 216: SOLD to buyer's succeeded payment 216 with its transfer; an unresolved
+--      'unfulfillable:manual_review' marker row (MINOR-4) must NOT be work.
+-- 217: SOLD, succeeded payment 217 paid 10 min ago, NO transfer, stripe_livemode
+--      NULL (pre-045 legacy row): listed as legacy_unknown_mode, never fetched.
+-- 218: Buy-Now, active; pending payment 218 created 3 h ago (outside the
+--      15 min .. 2 h pending_stale window).
+-- 219: Buy-Now, active; pending payment 219 created 20 min ago, livemode NULL.
 INSERT INTO public.listings
   (id, seller_id, event_name, venue, neighborhood, event_date, event_time,
    ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
@@ -54,15 +68,20 @@ SELECT ('aaaaaaaa-0000-0000-0000-0000000002' || n)::uuid, tap.seller(),
        'Fixture 121-' || n, 'Club ' || n, 'wynwood', current_date + 30, '21:00',
        'GA', 2, 'mobile_transfer', 100, true, 200, 24, now(),
        now() + interval '24 hours', 100, 'fixtures/121-' || n || '.jpg', 'active'
-  FROM unnest(ARRAY['01','02','03','04','05','06','07','08','09','10','11']) AS n;
+  FROM unnest(ARRAY['01','02','03','04','05','06','07','08','09','10','11',
+                    '12','13','14','15','16','17','18','19']) AS n;
 
 SELECT set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET status='reserved', reserved_by=tap.buyer(), reserved_until=now() + interval '5 minutes'
  WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000201','aaaaaaaa-0000-0000-0000-000000000202',
               'aaaaaaaa-0000-0000-0000-000000000203','aaaaaaaa-0000-0000-0000-000000000204',
-              'aaaaaaaa-0000-0000-0000-000000000206');
+              'aaaaaaaa-0000-0000-0000-000000000206',
+              'aaaaaaaa-0000-0000-0000-000000000212','aaaaaaaa-0000-0000-0000-000000000213',
+              'aaaaaaaa-0000-0000-0000-000000000214','aaaaaaaa-0000-0000-0000-000000000215');
 UPDATE public.listings SET status='reserved', reserved_by=tap.buyer(), reserved_until=now() - interval '1 minute'
  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000207';
+UPDATE public.listings SET status='sold', auction_status='sold', sold_at=now()
+ WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000216','aaaaaaaa-0000-0000-0000-000000000217');
 UPDATE public.listings SET status='reserved', reserved_by=tap.other_user(), reserved_until=now() - interval '1 minute'
  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000209';
 UPDATE public.listings SET status='sold', auction_status='sold', sold_at=now()
@@ -86,12 +105,26 @@ VALUES
   ('bbbbbbbb-0000-0000-0000-000000000207', 'aaaaaaaa-0000-0000-0000-000000000207', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_207', 'succeeded', 'buy_now', now() - interval '10 minutes', NULL, NULL, true, now() - interval '12 minutes'),
   ('bbbbbbbb-0000-0000-0000-000000000208', 'aaaaaaaa-0000-0000-0000-000000000208', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_208', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now() - interval '20 minutes'),
   ('bbbbbbbb-0000-0000-0000-000000000210', 'aaaaaaaa-0000-0000-0000-000000000210', tap.buyer(),      tap.seller(), 15000, 1500, 1500, 16500, 'pi_121_210', 'pending',   'auction', NULL,  NULL,  NULL,     true, now()),
-  ('bbbbbbbb-0000-0000-0000-000000000211', 'aaaaaaaa-0000-0000-0000-000000000211', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_211', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now());
+  ('bbbbbbbb-0000-0000-0000-000000000211', 'aaaaaaaa-0000-0000-0000-000000000211', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_211', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now()),
+  ('bbbbbbbb-0000-0000-0000-000000000212', 'aaaaaaaa-0000-0000-0000-000000000212', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_212', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now()),
+  ('bbbbbbbb-0000-0000-0000-000000000213', 'aaaaaaaa-0000-0000-0000-000000000213', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_213', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now()),
+  ('bbbbbbbb-0000-0000-0000-000000000214', 'aaaaaaaa-0000-0000-0000-000000000214', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_214', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now()),
+  ('bbbbbbbb-0000-0000-0000-000000000215', 'aaaaaaaa-0000-0000-0000-000000000215', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_215', 'processing','buy_now', NULL,  NULL,  NULL,     true, now()),
+  ('bbbbbbbb-0000-0000-0000-000000000216', 'aaaaaaaa-0000-0000-0000-000000000216', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_216', 'succeeded', 'buy_now', now() - interval '10 minutes', NULL, NULL, true, now() - interval '12 minutes'),
+  ('bbbbbbbb-0000-0000-0000-000000000217', 'aaaaaaaa-0000-0000-0000-000000000217', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_217', 'succeeded', 'buy_now', now() - interval '10 minutes', NULL, NULL, NULL, now() - interval '12 minutes'),
+  ('bbbbbbbb-0000-0000-0000-000000000218', 'aaaaaaaa-0000-0000-0000-000000000218', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_218', 'pending',   'buy_now', NULL,  NULL,  NULL,     true, now() - interval '3 hours'),
+  ('bbbbbbbb-0000-0000-0000-000000000219', 'aaaaaaaa-0000-0000-0000-000000000219', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_121_219', 'pending',   'buy_now', NULL,  NULL,  NULL,     NULL, now() - interval '20 minutes');
 
 INSERT INTO public.transfers
   (id, listing_id, payment_id, seller_id, buyer_id, transfer_method, status, expires_at)
 VALUES
-  ('cccccccc-0000-0000-0000-000000000291', 'aaaaaaaa-0000-0000-0000-000000000205', 'bbbbbbbb-0000-0000-0000-000000000291', tap.seller(), tap.other_user(), 'mobile_transfer', 'expired', now() - interval '1 hour');
+  ('cccccccc-0000-0000-0000-000000000291', 'aaaaaaaa-0000-0000-0000-000000000205', 'bbbbbbbb-0000-0000-0000-000000000291', tap.seller(), tap.other_user(), 'mobile_transfer', 'expired', now() - interval '1 hour'),
+  ('cccccccc-0000-0000-0000-000000000216', 'aaaaaaaa-0000-0000-0000-000000000216', 'bbbbbbbb-0000-0000-0000-000000000216', tap.seller(), tap.buyer(),      'mobile_transfer', 'pending', now() + interval '20 hours');
+
+-- MINOR-4: the sweep parks an unfulfillable capture that already carries a
+-- transfer under this marker; it is an operator item, not sweep work.
+INSERT INTO public.webhook_retries (payment_id, listing_id, rpc_name, error_message, resolved)
+VALUES ('bbbbbbbb-0000-0000-0000-000000000216', 'aaaaaaaa-0000-0000-0000-000000000216', 'settle_verified_payment', 'unfulfillable:manual_review', false);
 
 -- Metadata helper: what create-payment-intent stamps on every PaymentIntent.
 CREATE FUNCTION pg_temp.meta(p_listing uuid, p_buyer uuid, p_mode text DEFAULT 'buy_now')
@@ -180,6 +213,28 @@ SELECT results_eq(
               pg_temp.meta('aaaaaaaa-0000-0000-0000-000000000203', tap.buyer()), 'webhook:evt_c2') $$,
   $$ VALUES ('refunded'::text, 'refunded'::text) $$,
   'C5 a later plain succeeded event cannot un-refund it');
+SELECT is(
+  (SELECT count(*) FROM public.payment_refunds r
+     WHERE r.payment_id = 'bbbbbbbb-0000-0000-0000-000000000203' AND r.stripe_refund_id = 're_203'
+       AND r.amount_cents = 22000 AND r.source = 'dashboard'),
+  1::bigint, 'C6 the full refund is ledgered through record_payment_refund (one payment_refunds row, source dashboard)');
+SELECT is(
+  (SELECT amount_refunded_cents FROM public.payments WHERE id = 'bbbbbbbb-0000-0000-0000-000000000203'),
+  22000, 'C7 ...amount_refunded_cents = total');
+
+-- ── N. PARTIAL refund: a partially refunded succeeded charge is still a paid order
+SELECT results_eq(
+  $$ SELECT payment_status, listing_status, outcome, transfer_id IS NOT NULL
+       FROM public.settle_verified_payment('pi_121_212', 'succeeded', 22000, 'usd', true, 500, 're_212', 'card',
+              pg_temp.meta('aaaaaaaa-0000-0000-0000-000000000212', tap.buyer()), 'sweep') $$,
+  $$ VALUES ('succeeded'::text, 'sold'::text, 'settled'::text, true) $$,
+  'N1 a partial refund (500 of 22000) on a pending row still promotes AND settles (MAJOR-1)');
+SELECT ok(
+  (SELECT status = 'succeeded' AND refunded_at IS NULL AND stripe_refund_id IS NULL AND amount_refunded_cents IS NULL
+     FROM public.payments WHERE id = 'bbbbbbbb-0000-0000-0000-000000000212'),
+  'N2 ...no refund fact is written by the contract on a partial refund');
+SELECT is((SELECT count(*) FROM public.payment_refunds WHERE payment_id = 'bbbbbbbb-0000-0000-0000-000000000212'),
+  0::bigint, 'N3 ...and nothing is ledgered');
 
 -- ── D. binding mismatch: no writes, ONE review row ──────────────────────────
 SELECT is(
@@ -215,6 +270,24 @@ SELECT is(
      WHERE payment_id = 'bbbbbbbb-0000-0000-0000-000000000204' AND rpc_name = 'settle_verified_payment'
        AND error_message LIKE 'binding_mismatch%' AND resolved IS NOT TRUE),
   1::bigint, 'D9 ...exactly ONE unresolved binding_mismatch review row across five mismatching calls');
+
+-- ── O. metadata uuids are compared as uuids, not text (MINOR-3) ─────────────
+SELECT results_eq(
+  $$ SELECT payment_status, listing_status, outcome
+       FROM public.settle_verified_payment('pi_121_213', 'succeeded', 22000, 'usd', true, 0, NULL, 'card',
+              jsonb_build_object('mode', 'buy_now',
+                                 'listing_id', upper('aaaaaaaa-0000-0000-0000-000000000213'),
+                                 'buyer_id',   ' ' || upper(tap.buyer()::text) || ' ',
+                                 'seller_id',  upper(tap.seller()::text)), 'webhook:evt_o1') $$,
+  $$ VALUES ('succeeded'::text, 'sold'::text, 'settled'::text) $$,
+  'O1 upper-case / padded metadata uuids bind to the row (uuid-normalized compare)');
+SELECT is(
+  (SELECT outcome FROM public.settle_verified_payment('pi_121_214', 'succeeded', 22000, 'usd', true, 0, NULL, 'card',
+              jsonb_build_object('mode', 'buy_now', 'listing_id', 'not-a-uuid', 'buyer_id', tap.buyer()::text), 'webhook:evt_o2')),
+  'binding_mismatch', 'O2 a malformed metadata uuid is binding_mismatch');
+SELECT ok(
+  (SELECT status = 'pending' FROM public.payments WHERE id = 'bbbbbbbb-0000-0000-0000-000000000214'),
+  'O3 ...row untouched');
 
 -- ── E. not succeeded: no writes ─────────────────────────────────────────────
 SELECT results_eq(
@@ -253,6 +326,12 @@ SELECT results_eq(
 SELECT ok(
   (SELECT status = 'reserved' FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000204'),
   'F4 ...the contract never releases a reservation (the webhook does that explicitly)');
+SELECT results_eq(
+  $$ SELECT payment_status, outcome
+       FROM public.settle_verified_payment('pi_121_215', 'canceled', 0, 'usd', true, 0, NULL, 'card',
+              pg_temp.meta('aaaaaaaa-0000-0000-0000-000000000215', tap.buyer()), 'webhook:evt_f5') $$,
+  $$ VALUES ('failed'::text, 'canceled'::text) $$,
+  'F5 a canceled PaymentIntent marks a PROCESSING row failed too (MINOR-4 C1)');
 
 -- ── G. unfulfillable: listing already sold to a DIFFERENT payment ───────────
 SELECT results_eq(
@@ -344,6 +423,22 @@ SELECT is(
   (SELECT count(*) FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000205'),
   1::bigint, 'J8 a payment is listed once even when it matches two kinds');
 SELECT is((SELECT count(*) FROM public.get_unsettled_payments(1)), 1::bigint, 'J9 p_limit is honoured');
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000216'),
+  'J10 an unfulfillable:manual_review marker row is an operator item, not sweep work (MINOR-4)');
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000218'),
+  'J11 a pending row created 3 h ago is outside the pending_stale window (MINOR-5)');
+SELECT is(
+  (SELECT u.kind FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000217'),
+  'legacy_unknown_mode', 'J12 a paid-unsettled row with stripe_livemode NULL is legacy_unknown_mode, never paid_unsettled');
+SELECT is(
+  (SELECT u.kind FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000219'),
+  'legacy_unknown_mode', 'J13 a stale pending row with stripe_livemode NULL is legacy_unknown_mode, never pending_stale');
+SELECT ok(
+  (SELECT bool_and(u.kind IN ('review_unfulfillable','paid_unsettled','pending_stale')) FROM public.get_unsettled_payments(50) u
+     JOIN public.payments p ON p.id = u.payment_id WHERE p.stripe_livemode IS NOT NULL),
+  'J14 every live row keeps its real kind (legacy_unknown_mode is only for NULL livemode)');
 SELECT tap.logout();
 
 -- ── K. cleanup_expired_reservations never re-lists a paid listing ───────────

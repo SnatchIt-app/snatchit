@@ -2,8 +2,10 @@
  * tests/settlement-confirm.test.ts — Package 2 (PAYMENTS_RELIABILITY_2026-09).
  *
  * Loads the REAL confirm-payment handler (tests/helpers/edge-vm.ts) and pins:
- *   * the buyer can only confirm a PaymentIntent that Stripe says is theirs
- *     (metadata.buyer_id === JWT user) — otherwise 403 and no settle call;
+ *   * the buyer can only confirm a PaymentIntent that is theirs: Stripe's
+ *     metadata.buyer_id === JWT user OR the payments row for that PI has
+ *     buyer_id === JWT user (review round 1, MINOR-2) — otherwise 403 and no
+ *     settle call; a missing row with no metadata is 403;
  *   * a succeeded PaymentIntent settles through settle_verified_payment with
  *     the facts from the expanded latest_charge, and the handler no longer
  *     writes payments or inserts transfers itself (F05);
@@ -30,7 +32,7 @@ function pi(over: Record<string, unknown> = {}) {
   };
 }
 
-async function scenario(opts: { user?: string; pi?: Record<string, unknown> | null; stripeOk?: boolean; rpcError?: string; outcome?: string } = {}) {
+async function scenario(opts: { user?: string; pi?: Record<string, unknown> | null; stripeOk?: boolean; rpcError?: string; outcome?: string; paymentRow?: { buyer_id: string } | null } = {}) {
   const sb = mockSupabase({
     user: { id: opts.user ?? BUYER },
     rpc: (name) => {
@@ -41,7 +43,7 @@ async function scenario(opts: { user?: string; pi?: Record<string, unknown> | nu
       }
       return { data: null };
     },
-    tables: { payments: () => ({ data: null }), transfers: () => ({ data: null }), listings: () => ({ data: null }) },
+    tables: { payments: () => ({ data: opts.paymentRow ?? null }), transfers: () => ({ data: null }), listings: () => ({ data: null }) },
   });
   const stripe = mockStripe((c: StripeCall) => {
     if (opts.stripeOk === false) return { ok: false, status: 500, data: { error: { message: 'stripe down' } } };
@@ -67,7 +69,10 @@ describe('confirm-payment — settles through settle_verified_payment', () => {
     expect(s.body).toEqual({ success: true, stripe_verified: true, outcome: 'settled', transfer_id: 'tr_row_1' });
 
     expect(s.stripe.calls).toHaveLength(1);
-    expect(s.stripe.calls[0]).toMatchObject({ method: 'GET', path: `/payment_intents/${PI}?expand[]=latest_charge` });
+    // latest_charge.refunds must be expanded explicitly: under the pinned API
+    // version (2024-09-30) a Charge no longer embeds its refunds list, so the
+    // refund id the contract records would otherwise always be null.
+    expect(s.stripe.calls[0]).toMatchObject({ method: 'GET', path: `/payment_intents/${PI}?expand[]=latest_charge&expand[]=latest_charge.refunds` });
 
     const calls = settleCalls(s.sb);
     expect(calls).toHaveLength(1);
@@ -93,11 +98,39 @@ describe('confirm-payment — settles through settle_verified_payment', () => {
     expect(settleCalls(s.sb)[0].params).toMatchObject({ p_amount_refunded: 22000, p_stripe_refund_id: 're_1' });
   });
 
-  it('PI whose metadata.buyer_id is NOT the caller => 403 and NO settle call', async () => {
-    const s = await scenario({ user: OTHER });
+  it('PI whose metadata.buyer_id is NOT the caller (and the row is not theirs either) => 403 and NO settle call', async () => {
+    const s = await scenario({ user: OTHER, paymentRow: { buyer_id: BUYER } });
     expect(s.res.status).toBe(403);
     expect(settleCalls(s.sb)).toHaveLength(0);
     expect(directWrites(s.sb)).toHaveLength(0);
+  });
+
+  it('legacy PI without metadata: the payments row for that PI is owned by the caller => settles (MINOR-2)', async () => {
+    const s = await scenario({ pi: pi({ metadata: {} }), paymentRow: { buyer_id: BUYER } });
+    expect(s.res.status).toBe(200);
+    expect(s.body).toMatchObject({ success: true, stripe_verified: true, outcome: 'settled' });
+    const lookup = s.sb.queries.find((q) => q.table === 'payments' && q.op === 'select');
+    expect(lookup?.filters).toEqual([['eq', 'stripe_payment_intent_id', PI]]);
+    expect(settleCalls(s.sb)).toHaveLength(1);
+    expect(settleCalls(s.sb)[0].params).toMatchObject({ p_metadata: {} });
+  });
+
+  it('legacy PI without metadata: the payments row belongs to someone else => 403, no settle call', async () => {
+    const s = await scenario({ pi: pi({ metadata: {} }), user: OTHER, paymentRow: { buyer_id: BUYER } });
+    expect(s.res.status).toBe(403);
+    expect(settleCalls(s.sb)).toHaveLength(0);
+  });
+
+  it('no metadata and no payments row => 403 (ownership cannot be established)', async () => {
+    const s = await scenario({ pi: pi({ metadata: {} }), paymentRow: null });
+    expect(s.res.status).toBe(403);
+    expect(settleCalls(s.sb)).toHaveLength(0);
+  });
+
+  it('metadata.buyer_id === caller settles without consulting the payments row', async () => {
+    const s = await scenario({ paymentRow: null });
+    expect(s.res.status).toBe(200);
+    expect(s.sb.queries.filter((q) => q.table === 'payments')).toHaveLength(0);
   });
 
   it('PI not succeeded => 200 stripe_verified:false, no RPC, no DB write (current client contract)', async () => {
