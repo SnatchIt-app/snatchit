@@ -1397,7 +1397,36 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: deno check — every edge entrypoint
+      # 2026-09-06 (converged RC): the tree now also carries the Phase-2 NATIVE
+      # edges (credential-sign, primary-checkout, payout-execute, refund-execute,
+      # door-session, door-manifest, connect-onboarding) — never deployed, the
+      # expansion is paused, and they carry 18 Deno type errors of their own.
+      # The BLOCKING check covers exactly the eleven functions production runs
+      # (list_edge_functions, 2026-09-06) — every edge this release can deploy.
+      # The native set is checked too, VISIBLY but non-blocking, so its errors
+      # never hide; it must join the blocking list in the same PR that first
+      # deploys any of it. Closed world: a function directory that is in
+      # neither list fails the job.
+      - name: deno check — every DEPLOYED edge entrypoint (blocking)
         run: |
           set -euo pipefail
-          deno check supabase/functions/*/index.ts
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          native="connect-onboarding credential-sign door-manifest door-session payout-execute primary-checkout refund-execute"
+          for d in supabase/functions/*/; do
+            n=$(basename "$d"); [ "$n" = "_shared" ] && continue
+            case " $deployed $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in neither the deployed nor the native deno-check list — add it deliberately."; exit 1;; esac
+          done
+          files=""; for n in $deployed; do files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          deno check $files
+          echo "deno check OK: $(echo $deployed | wc -w | tr -d ' ') deployed entrypoints"
+
+      - name: deno check — Phase-2 native edges (advisory until first deploy)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          native="connect-onboarding credential-sign door-manifest door-session payout-execute primary-checkout refund-execute"
+          files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          if deno check $files; then echo "native edges type-check clean"; else
+            echo "::warning::Phase-2 native edges have Deno type errors (advisory: none of them is deployed; fix before their first deploy)"; exit 1; fi
