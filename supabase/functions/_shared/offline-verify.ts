@@ -568,7 +568,13 @@ export function offlineVerify(token: OfflineToken, ctx: OfflineVerifyContext): O
 //     (key order as written, `JSON.stringify`, UTF-8) with ES256 and returns
 //     `signature.value` = standard base64 of the RAW `R||S` (64 bytes). The
 //     verify key is `M1[signature.key_id]` — the contract REQUIRES the
-//     artifact to name `key_id` (today's edge omits it; see the contract doc).
+//     artifact to name `key_id`. The edge names the single active GLOBAL
+//     `kernel.signing_key` (114 `venue.get_manifest_signing_context`) and
+//     verifies its own signature under that row's public key before
+//     responding, so `key_id` and the signing handle come from ONE row.
+//   • `m1FromDoorKeysResponse(resp)` — the `door-session /keys` response
+//     (`venue.get_signing_keys_door`, 114: `{session_id, event_id, venue_id,
+//     generated_at, keys:[rows]}`) → `M1Manifest`, via `m1FromWire(keys)`.
 //   • `toDoorReason(reason, atom)` — this module's per-conjunct codes → door
 //     §9.2's operator vocabulary; `null` where door §9.2 defines no copy.
 // ═════════════════════════════════════════════════════════════════════════
@@ -721,6 +727,18 @@ export function m1EntryFromWire(row: unknown): M1Entry | null {
 
 /** An array of projection rows → `M1Manifest`; ANY malformed row ⇒ `null`
  *  (a partially-trusted keyring is worse than none). Duplicate key_id ⇒ null. */
+/** `door-session /keys` (114 `venue.get_signing_keys_door`) response →
+ *  `M1Manifest`. The envelope is `{ session_id, event_id, venue_id,
+ *  generated_at, keys: [public-projection rows] }`; only `keys` feeds the
+ *  keyring (the ids are informational — the RPC already bound the read to the
+ *  door session). Fails closed on any shape deviation. */
+export function m1FromDoorKeysResponse(resp: unknown): M1Manifest | null {
+  if (!resp || typeof resp !== 'object' || Array.isArray(resp)) return null;
+  const r = resp as Record<string, unknown>;
+  if (!Array.isArray(r.keys)) return null;
+  return m1FromWire(r.keys);
+}
+
 export function m1FromWire(rows: unknown): M1Manifest | null {
   if (!Array.isArray(rows)) return null;
   const out: M1Manifest = {};

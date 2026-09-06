@@ -19,7 +19,8 @@ import { describe, expect, it } from 'vitest';
 import { buildCanonicalPayload, encodeToken } from '../supabase/functions/credential-sign/credential';
 import { classifyDoorManifestResponse } from '../supabase/functions/door-manifest/pure';
 import { classifyMachineRpcError } from '../supabase/functions/door-session/pure';
-import { m1FromWire, m2FromWire, verifyOfflineWire, type OfflineVerifyContext, type VerifyPrimitive } from '../supabase/functions/_shared/offline-verify';
+import { m1FromDoorKeysResponse, m1FromWire, m2FromWire, normalizeSpkiPublicKey, verifyDoorManifestSignature, verifyOfflineWire, type OfflineVerifyContext, type VerifyPrimitive } from '../supabase/functions/_shared/offline-verify';
+import { classifyManifestSigningContext } from '../supabase/functions/door-manifest/pure';
 
 const PATH = resolve(__dirname, 'fixtures/m2-rehearsal-evidence.json');
 const ev: Record<string, any> | null = existsSync(PATH) ? JSON.parse(readFileSync(PATH, 'utf8')) : null;
@@ -186,6 +187,107 @@ describe('M2 rehearsal evidence (real RPC output)', () => {
       const text = readFileSync(PATH, 'utf8');
       expect(text).not.toMatch(/"secret"|"p_session_token"|"token_hash"|door_session:/);
       expect(Object.keys(ev.ids).sort()).toEqual(['device_id', 'door_session_id', 'event_id', 'manifest_id', 'session_id', 'signing_key_id', 'venue_id']);
+    });
+  });
+
+  // ── 114: M1 delivery to a bearer-only door device + the manifest signature
+  // key identity, from ONE authority (kernel.signing_key). Real RPC output;
+  // the artifact was signed at capture with a throwaway key whose PUBLIC half
+  // is the captured active global row (private half discarded). ────────────
+  describe('M1 delivery + manifest signature key identity (migration 114)', () => {
+    const ids = ev.signing_key_ids;
+    const captured = Math.floor(Date.parse(ev.rpc_source.captured_at) / 1000);
+    const PROJECTION = ['algorithm', 'event_id', 'key_id', 'not_after', 'not_before', 'public_key', 'scope', 'status', 'venue_id'];
+
+    it('/keys (get_signing_keys_door): bound scope only — global (active/rotating/revoked) + the event\'s per_event + the venue\'s per_venue; unrelated rows absent', () => {
+      expect(ev.door_keys.session_id).toBe(ev.ids.session_id);
+      expect(ev.door_keys.event_id).toBe(ev.ids.event_id);
+      expect(ev.door_keys.venue_id).toBe(ev.ids.venue_id);
+      const got = ev.door_keys.keys.map((k: any) => k.key_id).sort();
+      expect(got).toEqual([ids.g_active, ids.g_rotating, ids.g_revoked, ids.e_active, ids.e_future, ids.v_venue].sort());
+      expect(got).not.toContain(ids.e_other_unrelated);
+      expect(got).not.toContain(ids.v_other_unrelated);
+      expect(new Set(ev.door_keys.keys.map((k: any) => k.status))).toEqual(new Set(['active', 'rotating', 'revoked']));
+    });
+    it('every row is EXACTLY the PFA-16+103 public projection; no handle / ARN / private material anywhere in the response', () => {
+      for (const k of ev.door_keys.keys) expect(Object.keys(k).sort()).toEqual(PROJECTION);
+      const text = JSON.stringify(ev.door_keys);
+      expect(text).not.toMatch(/kms_handle_ref|arn:aws|kms-ev|PRIVATE KEY/);
+    });
+    it('passes the scanner adapter (m1FromDoorKeysResponse) and the shared normalizer accepts the real PEM as a P-256 SPKI', () => {
+      const m1 = m1FromDoorKeysResponse(ev.door_keys)!;
+      expect(m1).not.toBeNull();
+      expect(Object.keys(m1)).toHaveLength(6);
+      expect(normalizeSpkiPublicKey(m1[ids.g_active].public_key, 'ES256')).not.toBeNull();
+      expect(m1[ids.g_active].not_after).toBe(Number.POSITIVE_INFINITY);
+      expect(m1[ids.g_rotating].status).toBe('rotating');
+      expect(m1[ids.g_revoked].status).toBe('revoked');
+      expect(m1[ids.e_future].not_before).toBeGreaterThan(captured);
+      expect(m1FromDoorKeysResponse({ keys: 'nope' })).toBeNull();
+      expect(m1FromDoorKeysResponse(ev.door_keys.keys)).toBeNull(); // the envelope, not the bare array
+    });
+    it('the manifest-signing context names the SAME key M1 lists as the single active global key; the handle is present (a key ARN) but never in the fixture', () => {
+      const ctx = ev.manifest_signing_context;
+      expect(ctx.status).toBe('ok');
+      expect(ctx.key_id).toBe(ids.g_active);
+      expect(ctx.kms_handle_ref).toBeUndefined();
+      expect(ctx.kms_handle_ref_present).toBe(true);
+      expect(ctx.kms_handle_ref_is_key_arn).toBe(true);
+      const m1 = m1FromDoorKeysResponse(ev.door_keys)!;
+      expect(ctx.public_key).toBe(m1[ids.g_active].public_key);
+      expect(classifyManifestSigningContext({ ...ctx, kms_handle_ref: 'arn:aws:kms:us-east-1:000000000000:key/' + ctx.key_id }, captured).kind).toBe('ok');
+    });
+    it('the real artifact verifies under DOOR-MANIFEST-SIG-v1 against M1[signature.key_id] (real manifest header, real key row)', () => {
+      const m1 = m1FromDoorKeysResponse(ev.door_keys)!;
+      const art = ev.door_manifest_artifact;
+      expect(Object.keys(art.signature).sort()).toEqual(['algorithm', 'key_id', 'value']);
+      expect(art.signature.algorithm).toBe('ES256');
+      expect(art.signature.key_id).toBe(ev.manifest_signing_context.key_id);
+      expect(verifyDoorManifestSignature(art, m1, verifyNode, captured)).toEqual({ ok: true, keyId: ids.g_active });
+    });
+    it('missing or mismatched manifest-signing key identity is refused: absent key_id, unknown key, a revoked key, an out-of-window rotating key, a future key, a tampered header', () => {
+      const m1 = m1FromDoorKeysResponse(ev.door_keys)!;
+      const art = ev.door_manifest_artifact;
+      const withKey = (key_id: string | undefined) => ({ manifest: art.manifest, signature: { ...art.signature, key_id } });
+      expect(verifyDoorManifestSignature(withKey(undefined), m1, verifyNode, captured)).toEqual({ ok: false, reason: 'missing_key_id' });
+      expect(verifyDoorManifestSignature(withKey('00000000-0000-4000-8000-00000000dead'), m1, verifyNode, captured)).toEqual({ ok: false, reason: 'unknown_key' });
+      expect(verifyDoorManifestSignature(withKey(ids.g_revoked), m1, verifyNode, captured)).toEqual({ ok: false, reason: 'key_revoked' });
+      expect(verifyDoorManifestSignature(withKey(ids.g_rotating), m1, verifyNode, captured)).toEqual({ ok: false, reason: 'key_window' });
+      expect(verifyDoorManifestSignature(withKey(ids.e_future), m1, verifyNode, captured)).toEqual({ ok: false, reason: 'key_window' });
+      expect(verifyDoorManifestSignature({ manifest: art.manifest, signature: { ...art.signature, algorithm: 'EdDSA' } }, m1, verifyNode, captured)).toEqual({ ok: false, reason: 'alg_mismatch' });
+      expect(verifyDoorManifestSignature({ ...art, manifest: { ...art.manifest, manifest_digest: 'f'.repeat(32) } }, m1, verifyNode, captured)).toEqual({ ok: false, reason: 'signature_invalid' });
+      expect(verifyDoorManifestSignature({ manifest: art.manifest, signature: null }, m1, verifyNode, captured)).toEqual({ ok: false, reason: 'unsigned' });
+    });
+    it('key-window boundaries on real rows: rotating key verifiable AT its not_after and refused after; future key refused before its not_before and window-ok at it', () => {
+      const m1 = m1FromDoorKeysResponse(ev.door_keys)!;
+      const art = ev.door_manifest_artifact;
+      const withKey = (key_id: string) => ({ manifest: art.manifest, signature: { ...art.signature, key_id } });
+      const rot = m1[ids.g_rotating];
+      expect(verifyDoorManifestSignature(withKey(ids.g_rotating), m1, verifyNode, rot.not_after + 1)).toEqual({ ok: false, reason: 'key_window' });
+      expect(verifyDoorManifestSignature(withKey(ids.g_rotating), m1, verifyNode, rot.not_after).ok).toBe(true); // rotation rule: in-window rotating keys stay verifiable (shares the capture PEM)
+      expect(verifyDoorManifestSignature(withKey(ids.g_rotating), m1, verifyNode, rot.not_before - 1)).toEqual({ ok: false, reason: 'key_window' });
+      const fut = m1[ids.e_future];
+      expect(verifyDoorManifestSignature(withKey(ids.e_future), m1, verifyNode, fut.not_before - 1)).toEqual({ ok: false, reason: 'key_window' });
+      expect(verifyDoorManifestSignature(withKey(ids.e_future), m1, verifyNode, fut.not_before).ok).toBe(true);
+    });
+    it('valid vs invalid door sessions and direct callers for /keys; the signing context is service_role-only', () => {
+      expect(ev.door_keys_wrong_token).toBe('42501 door_session_invalid');
+      expect(ev.door_keys_wrong_session).toBe('42501 door_session_invalid');
+      expect(ev.door_keys_service_role_no_credentials).toBe('42501 door_session_invalid');
+      expect(ev.door_keys_anon_direct).toMatch(/^42501 permission denied/);
+      expect(ev.door_keys_authenticated_direct).toBe('42501 permission denied for function get_signing_keys_door');
+      expect(ev.manifest_signing_context_anon).toMatch(/^42501 permission denied/);
+      expect(ev.manifest_signing_context_authenticated).toBe('42501 permission denied for function get_manifest_signing_context');
+    });
+    it('the staff/client M1 projection is unchanged (authenticated: exactly the 9 public columns, kms_handle_ref still fenced)', () => {
+      expect(ev.staff_m1_projection_row_keys).toEqual(PROJECTION);
+      expect(ev.staff_kms_handle_ref_read).toMatch(/^42501 permission denied/);
+    });
+    it('with no ACTIVE global key the context is unavailable with a stable code (the edge never signs) while M1 still lists the key as rotating', () => {
+      expect(ev.manifest_signing_context_no_active_global).toEqual({ status: 'unavailable', code: 'no_active_global_key' });
+      expect(classifyManifestSigningContext(ev.manifest_signing_context_no_active_global, captured)).toEqual({ kind: 'unavailable', code: 'no_active_global_key' });
+      const m1b = m1FromDoorKeysResponse(ev.door_keys_after_rotation)!;
+      expect(m1b[ids.g_active].status).toBe('rotating');
     });
   });
 });

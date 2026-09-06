@@ -58,17 +58,22 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { KmsSignError, selectKmsSignerFromEnv, type KmsErrorClass, type KmsSigner } from '../credential-sign/kms.ts';
-import { canonicalManifestDigestBytes, classifyDoorManifestResponse, type DoorManifestOpen } from './pure.ts';
+import { normalizeSpkiPublicKey } from '../_shared/offline-verify.ts';
+import {
+  buildSignatureEnvelope,
+  canonicalManifestDigestBytes,
+  classifyDoorManifestResponse,
+  classifyManifestSigningContext,
+  type DoorManifestOpen,
+} from './pure.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
-// Declared per the frozen secrets list (§3.9b). Not used by any call in this
-// handler today — every DB read here is caller-identity (`has_venue_role`),
-// never service_role. Kept read (not removed) so a future addition (an
-// audit-log write, a rate-limit table keyed differently, etc.) does not need
-// a new secret wired in.
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-void SUPABASE_SERVICE_ROLE_KEY;
+// service_role is used for exactly ONE read here: `venue.get_manifest_signing_context()`
+// (114) — the manifest-signing key identity, AFTER the caller was authorized
+// by `venue.get_door_manifest` (has_venue_role). The manifest read itself
+// stays caller-identity, never service_role.
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 // ── CORS + security headers (house style, copied shape from credential-sign)
 const ALLOWED_ORIGINS = ['https://snatchitapp.com', 'https://www.snatchitapp.com'];
@@ -169,18 +174,37 @@ function selectKmsSigner(): KmsSigner {
 }
 const kmsSigner: KmsSigner = selectKmsSigner();
 
-// The KMS handle for the M2 manifest signing key. UNLIKE M1 (per-atom
-// pinned via `kernel.signing_key`, resolved by `get_ticket_signing_context`)
-// there is no RPC in the frozen contract that resolves a manifest-signing
-// key/handle/algorithm — `§3.9b` names no such lookup and no such env var.
-// `INFERENCE`, flagged here and in KEDGES.md: this file reads a
-// `DOOR_MANIFEST_KMS_HANDLE_REF` env var (default empty) and signs with
-// ES256 (AWS KMS's only offered algorithm — `kms.ts`'s file header). Both
-// are inert while `KMS_PROVIDER` is unset (`UnconfiguredKmsSigner` throws
-// before either value is read), so this inference has zero live effect
-// until an owner ceremony both selects `aws` AND resolves this gap.
-const DOOR_MANIFEST_KMS_HANDLE_REF = Deno.env.get('DOOR_MANIFEST_KMS_HANDLE_REF') ?? '';
+// The manifest-signing key IDENTITY comes from the canonical authority —
+// `kernel.signing_key`, the same registry M1 is projected from — via the
+// service_role RPC `venue.get_manifest_signing_context()` (114): key_id,
+// kms_handle_ref, algorithm and public_key from ONE row (the single active
+// GLOBAL key). The former `DOOR_MANIFEST_KMS_HANDLE_REF` env-only inference
+// is GONE: an environment identifier names no key_id and cannot be proven to
+// correspond to one. Step 6b below proves handle ↔ key_id per response by
+// verifying the freshly produced signature under that row's public key.
 const DOOR_MANIFEST_SIGNING_ALGORITHM: 'ES256' = 'ES256';
+
+function serviceVenueClient(): SupabaseClient {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    db: { schema: 'venue' },
+  }) as unknown as SupabaseClient;
+}
+
+// ── Sign-after-verify primitive (credential-sign §9 discipline): ES256 over
+// the exact signed bytes under the canonical bare-base64 SPKI DER the shared
+// normalizer produced. `false`/thrown ⇒ "does not verify" — never rethrown. ──
+async function verifyEs256WithWebCrypto(publicKeyB64: string, message: Uint8Array, signature: Uint8Array): Promise<boolean> {
+  try {
+    const binary = atob(publicKeyB64);
+    const der = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) der[i] = binary.charCodeAt(i);
+    const key = await crypto.subtle.importKey('spki', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, new Uint8Array(signature), new Uint8Array(message));
+  } catch {
+    return false;
+  }
+}
 
 // ── KMS error taxonomy (mirrors credential-sign/index.ts's classifyKmsError)
 interface KmsErrorClassification {
@@ -306,14 +330,46 @@ serve(async (req: Request) => {
     }
     const manifest: DoorManifestOpen = classified.manifest;
 
-    // ── 5. KMS-sign the digest object (§3.9b). ──────────────────────────
+    // ── 5. Resolve the manifest-signing key IDENTITY from the canonical
+    // authority (114 `venue.get_manifest_signing_context`, service_role). The
+    // key_id the response will name, the handle to sign with, the algorithm
+    // and the verify key all come from ONE `kernel.signing_key` row. Any
+    // unavailable/malformed answer fails CLOSED with a stable code; KMS is
+    // never reached from here. ───────────────────────────────────────────
+    const { data: ctxData, error: ctxErr } = await serviceVenueClient().rpc('get_manifest_signing_context');
+    if (ctxErr) {
+      await captureException('door-manifest', new Error(ctxErr.message), { session_id, manifest_id: manifest.manifest_id });
+      logOutcome(session_id, manifest.manifest_id, 'signing_context_rpc_error');
+      return json({ error: 'The signed manifest is temporarily unavailable. Please try again shortly.', code: 'manifest_signing_unavailable' }, 500, H);
+    }
+    const signingCtx = classifyManifestSigningContext(ctxData, Date.now() / 1000);
+    if (signingCtx.kind !== 'ok') {
+      await captureException('door-manifest', new Error(`manifest_signing_context_${signingCtx.kind}:${signingCtx.code}`), { session_id, manifest_id: manifest.manifest_id });
+      logOutcome(session_id, manifest.manifest_id, `signing_context_${signingCtx.kind}:${signingCtx.code}`);
+      return json(
+        { error: 'The signed manifest is temporarily unavailable. Please try again shortly.',
+          code: signingCtx.kind === 'unavailable' ? 'manifest_signing_key_unavailable' : 'manifest_signing_context_malformed' },
+        500,
+        H,
+      );
+    }
+    const signingKey = signingCtx.context;
+    // The verify key, normalized by the SAME routine the scanner contract uses
+    // (P1-PUBKEY-FORMAT): a row whose public_key is not a P-256 SPKI fails
+    // closed here — before KMS — never after a signature exists.
+    const canonicalVerifyKey = normalizeSpkiPublicKey(signingKey.public_key, signingKey.algorithm);
+    if (canonicalVerifyKey === null) {
+      await captureException('door-manifest', new Error('manifest_signing_key_malformed'), { session_id, manifest_id: manifest.manifest_id, key_id: signingKey.key_id });
+      logOutcome(session_id, manifest.manifest_id, 'signing_key_malformed');
+      return json({ error: 'The signed manifest is temporarily unavailable. Please try again shortly.', code: 'manifest_signing_key_malformed' }, 500, H);
+    }
+
+    // ── 6. KMS-sign the canonical bytes (§3.9b) with the handle from the
+    // SAME row. ──────────────────────────────────────────────────────────
+    const signedBytes = canonicalManifestDigestBytes(manifest);
     let signatureBytes: Uint8Array;
     try {
-      signatureBytes = await kmsSigner.sign(
-        DOOR_MANIFEST_KMS_HANDLE_REF,
-        canonicalManifestDigestBytes(manifest),
-        DOOR_MANIFEST_SIGNING_ALGORITHM,
-      );
+      signatureBytes = await kmsSigner.sign(signingKey.kms_handle_ref, signedBytes, DOOR_MANIFEST_SIGNING_ALGORITHM);
     } catch (kmsErr) {
       const { status, retryAfterSeconds, taxonomy } = classifyKmsError(kmsErr);
       await captureException('door-manifest', kmsErr, { session_id, manifest_id: manifest.manifest_id, kms_error_class: taxonomy });
@@ -327,18 +383,29 @@ serve(async (req: Request) => {
       );
     }
 
-    // ── 6. Response — pass through only what `get_door_manifest` returned,
-    // plus the signature. No key handle, no public key, nothing beyond
-    // what the RPC already excludes (PFA-24: no identity column). ────────
+    // ── 6b. Sign-after-verify (mandatory, as credential-sign §9): the bytes
+    // KMS returned MUST verify under the public key of the row whose key_id
+    // the response is about to name. A `false` here means the handle does not
+    // correspond to that key (mis-bound ceremony, wrong key version, DER/raw
+    // drift): SECURITY class — fail closed, alert, never retry, never emit. ──
+    let signVerified = false;
+    try {
+      signVerified = await verifyEs256WithWebCrypto(canonicalVerifyKey, signedBytes, signatureBytes);
+    } catch {
+      signVerified = false;
+    }
+    if (!signVerified) {
+      await captureException('door-manifest', new Error('sign_verify_failed'), { session_id, manifest_id: manifest.manifest_id, key_id: signingKey.key_id });
+      logOutcome(session_id, manifest.manifest_id, 'sign_verify_failed');
+      return json({ error: 'The signed manifest is temporarily unavailable. Please try again shortly.', code: 'manifest_signing_unhealthy' }, 500, H);
+    }
+
+    // ── 7. Response — pass through only what `get_door_manifest` returned,
+    // plus the DOOR-MANIFEST-SIG-v1 envelope `{ value, algorithm, key_id }`.
+    // No key handle, no public key (PFA-24: no identity column either). ──
     logOutcome(session_id, manifest.manifest_id, 'signed');
     return json(
-      {
-        manifest,
-        signature: {
-          value: bytesToBase64(signatureBytes),
-          algorithm: DOOR_MANIFEST_SIGNING_ALGORITHM,
-        },
-      },
+      { manifest, signature: buildSignatureEnvelope(bytesToBase64(signatureBytes), signingKey.key_id) },
       200,
       H,
     );

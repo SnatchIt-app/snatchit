@@ -194,7 +194,8 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 294,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 296,
+  -- 2026-09-05 (package 114): 294 -> 296 (+2 venue: get_signing_keys_door, get_manifest_signing_context).
   -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core, get_door_manifest_door).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
@@ -216,7 +217,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A46: five-schema routines 294 (111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue)');
+  'A46: five-schema routines 296 (111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

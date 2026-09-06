@@ -89,10 +89,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.oid IN ('venue.get_door_m
   'A6: all three are SECURITY DEFINER with pinned search_path (066 invariant)');
 SELECT is((SELECT provolatile FROM pg_proc WHERE oid = 'venue.get_door_manifest_door(uuid,uuid,text,uuid,integer)'::regprocedure), 'v',
   'A7: the machine entrypoint is VOLATILE (assert_door_session touches last_seen_at)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 85,
-  'A8: venue holds 85 functions — 83 post-108 + 113''s core and machine entrypoint');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 294,
-  'A9: five-schema routine census 294 (292 post-111 + 113''s two)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 87,
+  -- 2026-09-05 (package 114): 85 -> 87 (+2 M1 door read + manifest signing context).
+  'A8: venue holds 87 functions — 83 post-108 + 113''s core and machine entrypoint + 114''s two');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 296,
+  'A9: five-schema routine census 296 (292 post-111 + 113''s two + 114''s two)');
 
 -- ── B. valid bound device — full + incremental sync, identical to the staff read ──
 SELECT tap.login_service();

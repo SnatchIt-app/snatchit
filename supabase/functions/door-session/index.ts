@@ -73,6 +73,7 @@ import {
   deviceIdsMatch,
   dispatchDoorSessionRoute,
   doorPinRateLimitName,
+  buildKeysMachineCall,
   buildManifestSyncMachineCall,
   classifyMachineRpcError,
   hasForbiddenDeviceIdField,
@@ -482,6 +483,44 @@ async function handleManifestSync(req: Request, headers: Record<string, string>)
   return json(data, 200, headers);
 }
 
+// ── `/keys` — assert → `venue.get_signing_keys_door` (114): M1 for THIS door
+// session's bound scope (global + its event's per_event + its venue's
+// per_venue keys, all statuses — the verifier applies revoked/window rules),
+// exactly the PFA-16+103 public projection per row. Closes P2-M1-DELIVERY:
+// a bearer-only device previously had no route to a keyring (the table grant
+// is `authenticated`). Pass through only what the RPC returns. ─────────────
+async function handleKeys(req: Request, headers: Record<string, string>): Promise<Response> {
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return json({ error: 'Body must be valid JSON' }, 400, headers);
+  }
+  const base = parseRelayBodyBase(rawBody);
+  if (!base.ok) return json({ error: base.error }, 400, headers);
+  const { session_id, device_id } = base.value;
+
+  const admission = await admitRelayCall(req, 'keys', session_id, device_id, headers);
+  if (!admission.ok) return admission.response;
+
+  const call = buildKeysMachineCall(admission.admission);
+  const venueSvc = serviceClient('venue');
+  const { data, error } = await venueSvc.rpc(call.fn, call.args);
+
+  if (error) {
+    if (classifyMachineRpcError(error.code ?? null, error.message ?? null) === 'door_session_invalid') {
+      logOutcome({ route: 'keys', door_session_id: admission.admission.doorSessionId, session_id: admission.admission.boundSessionId, venue_id: null, outcome: 'keys_assert_refused' });
+      return opaqueAuthFailure(headers);
+    }
+    await captureException('door-session', new Error(redactSecret(error.message, admission.admission.secret)), { route: 'keys', session_id: admission.admission.boundSessionId });
+    logOutcome({ route: 'keys', door_session_id: null, session_id: admission.admission.boundSessionId, venue_id: null, outcome: 'keys_rpc_error' });
+    return json({ error: 'Key manifest is temporarily unavailable. Please try again shortly.' }, 500, headers);
+  }
+
+  logOutcome({ route: 'keys', door_session_id: null, session_id: admission.admission.boundSessionId, venue_id: null, outcome: 'keys_synced' });
+  return json(data, 200, headers);
+}
+
 // ── `/scan` — relay to `venue.record_scan_door` (108, service_role machine
 // path; it re-asserts + derives scope). `p_scan_meta.device_id` is
 // REJECTED, not ignored (RPC §9.4, matrix X-5). ────────────────────────────
@@ -600,6 +639,8 @@ serve(async (req: Request) => {
         return await handleMintOrRefresh(req, H);
       case 'manifest_sync':
         return await handleManifestSync(req, H);
+      case 'keys':
+        return await handleKeys(req, H);
       case 'scan':
         return await handleScan(req, H);
       case 'offline_batch':

@@ -106,3 +106,64 @@ export function canonicalManifestDigestBytes(open: DoorManifestOpen): Uint8Array
   };
   return new TextEncoder().encode(JSON.stringify(canonical));
 }
+
+// ── Manifest-signing key identity (114 `venue.get_manifest_signing_context`).
+// The edge names `signature.key_id` from THIS — the single active GLOBAL
+// `kernel.signing_key` row — and signs with the SAME row's `kms_handle_ref`.
+// No env-only identifier is trusted. Everything the DB decided is re-checked
+// here (ES256 pin, status, window) so a stale/foreign row still fails closed
+// BEFORE any KMS call. ───────────────────────────────────────────────────────
+
+export interface ManifestSigningContext {
+  key_id: string;
+  kms_handle_ref: string;
+  algorithm: 'ES256';
+  public_key: string;
+  not_before: string;
+  not_after: string | null;
+}
+
+export type ManifestSigningContextClassification =
+  | { kind: 'ok'; context: ManifestSigningContext }
+  | { kind: 'unavailable'; code: string }
+  | { kind: 'malformed'; code: string };
+
+const STABLE_CODE_RE = /^[a-z0-9_]{1,64}$/;
+
+export function classifyManifestSigningContext(v: unknown, nowSeconds: number): ManifestSigningContextClassification {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { kind: 'malformed', code: 'not_an_object' };
+  const r = v as Record<string, unknown>;
+  if (r.status === 'unavailable') {
+    const code = typeof r.code === 'string' && STABLE_CODE_RE.test(r.code) ? r.code : 'unspecified';
+    return { kind: 'unavailable', code };
+  }
+  if (r.status !== 'ok') return { kind: 'malformed', code: 'unknown_status' };
+  if (typeof r.key_id !== 'string' || !UUID_RE.test(r.key_id)) return { kind: 'malformed', code: 'invalid:key_id' };
+  if (typeof r.kms_handle_ref !== 'string' || r.kms_handle_ref.length === 0) return { kind: 'malformed', code: 'invalid:kms_handle_ref' };
+  if (typeof r.public_key !== 'string' || r.public_key.length === 0) return { kind: 'malformed', code: 'invalid:public_key' };
+  if (r.algorithm !== 'ES256') return { kind: 'unavailable', code: 'algorithm_not_es256' };
+  if (r.key_status !== 'active') return { kind: 'unavailable', code: 'key_not_active' };
+  if (!isIsoTimestamp(r.not_before)) return { kind: 'malformed', code: 'invalid:not_before' };
+  if (r.not_after !== null && r.not_after !== undefined && !isIsoTimestamp(r.not_after)) return { kind: 'malformed', code: 'invalid:not_after' };
+  const nb = Date.parse(r.not_before) / 1000;
+  const na = typeof r.not_after === 'string' ? Date.parse(r.not_after) / 1000 : null;
+  if (nowSeconds < nb || (na !== null && nowSeconds >= na)) return { kind: 'unavailable', code: 'key_window' };
+  return {
+    kind: 'ok',
+    context: {
+      key_id: r.key_id,
+      kms_handle_ref: r.kms_handle_ref,
+      algorithm: 'ES256',
+      public_key: r.public_key,
+      not_before: r.not_before,
+      not_after: na === null ? null : (r.not_after as string),
+    },
+  };
+}
+
+/** DOOR-MANIFEST-SIG-v1 envelope — EXACTLY `{ value, algorithm, key_id }`.
+ *  Built from primitives (never from the context object) so a KMS handle or
+ *  public key can never ride along into the response. */
+export function buildSignatureEnvelope(valueB64: string, keyId: string): { value: string; algorithm: 'ES256'; key_id: string } {
+  return { value: valueB64, algorithm: 'ES256', key_id: keyId };
+}

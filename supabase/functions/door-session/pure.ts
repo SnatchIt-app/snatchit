@@ -82,11 +82,12 @@ export function parseDoorSessionBearer(header: string | null | undefined): Parse
 // slash, since the exact `req.url` pathname shape Supabase's edge runtime
 // hands the handler is not something this module should assume. ──────────
 
-export type DoorSessionRoute = 'mint' | 'refresh' | 'manifest_sync' | 'scan' | 'offline_batch';
+export type DoorSessionRoute = 'mint' | 'refresh' | 'manifest_sync' | 'scan' | 'offline_batch' | 'keys';
 
 export function dispatchDoorSessionRoute(pathname: string): DoorSessionRoute | null {
   const trimmed = pathname.replace(/\/+$/, '');
   if (trimmed.endsWith('/manifest/sync')) return 'manifest_sync';
+  if (trimmed.endsWith('/keys')) return 'keys';
   if (trimmed.endsWith('/offline-batch')) return 'offline_batch';
   if (trimmed.endsWith('/mint')) return 'mint';
   if (trimmed.endsWith('/refresh')) return 'refresh';
@@ -205,6 +206,29 @@ export function buildManifestSyncMachineCall(
       p_session_token: admission.secret,
       p_device_id: admission.bodyDeviceId,
       p_since_delta_seq: typeof sinceDeltaSeq === 'number' ? sinceDeltaSeq : null,
+    },
+  };
+}
+
+// ── `/keys` → `venue.get_signing_keys_door` (migration 114): M1 for a
+// bearer-only door device, bound by the RPC to the door session's own
+// (device, session) — same builder discipline as `/manifest/sync`. ────────
+
+export interface KeysMachineCall {
+  fn: 'get_signing_keys_door';
+  args: { p_session_id: string; p_door_session_id: string; p_session_token: string; p_device_id: string };
+}
+
+export function buildKeysMachineCall(
+  admission: { doorSessionId: string; secret: string; bodySessionId: string; bodyDeviceId: string },
+): KeysMachineCall {
+  return {
+    fn: 'get_signing_keys_door',
+    args: {
+      p_session_id: admission.bodySessionId,
+      p_door_session_id: admission.doorSessionId,
+      p_session_token: admission.secret,
+      p_device_id: admission.bodyDeviceId,
     },
   };
 }

@@ -7,7 +7,7 @@
  * to the SCANNER-CONTRACT-v1 verifier's canonical bytes.
  */
 import { describe, expect, it } from 'vitest';
-import { canonicalManifestDigestBytes, classifyDoorManifestResponse } from '../supabase/functions/door-manifest/pure';
+import { buildSignatureEnvelope, canonicalManifestDigestBytes, classifyDoorManifestResponse, classifyManifestSigningContext } from '../supabase/functions/door-manifest/pure';
 import { canonicalDoorManifestSignedBytes } from '../supabase/functions/_shared/offline-verify';
 
 const SESSION = '5e55e55e-0000-4000-8000-000000000001';
@@ -69,5 +69,51 @@ describe('signed bytes parity with SCANNER-CONTRACT-v1', () => {
     });
     expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
     expect(Buffer.from(a).toString()).not.toContain('entries');
+  });
+});
+
+// ── 114: manifest-signing key identity from the canonical authority ────────
+describe('classifyManifestSigningContext', () => {
+  const NOW = Date.parse('2026-09-05T12:00:00Z') / 1000;
+  const KEY = '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b01';
+  const ok = (over: Record<string, unknown> = {}) => ({
+    status: 'ok', key_id: KEY, scope: 'global', kms_handle_ref: 'arn:aws:kms:us-east-1:000000000000:key/' + KEY,
+    algorithm: 'ES256', public_key: '-----BEGIN PUBLIC KEY-----\nMFkw\n-----END PUBLIC KEY-----', key_status: 'active',
+    not_before: '2026-09-05T11:00:00+00:00', not_after: null, ...over,
+  });
+  it('a well-formed active ES256 global key in window ⇒ ok with exactly the fields the edge needs', () => {
+    const c = classifyManifestSigningContext(ok(), NOW);
+    expect(c.kind).toBe('ok');
+    if (c.kind !== 'ok') return;
+    expect(Object.keys(c.context).sort()).toEqual(['algorithm', 'key_id', 'kms_handle_ref', 'not_after', 'not_before', 'public_key']);
+    expect(c.context.key_id).toBe(KEY);
+  });
+  it('the RPC\'s own unavailable answers pass through with their stable code (no active global key etc.)', () => {
+    expect(classifyManifestSigningContext({ status: 'unavailable', code: 'no_active_global_key' }, NOW)).toEqual({ kind: 'unavailable', code: 'no_active_global_key' });
+    expect(classifyManifestSigningContext({ status: 'unavailable', code: 'Weird Code!' }, NOW)).toEqual({ kind: 'unavailable', code: 'unspecified' });
+  });
+  it('the edge re-pins what the DB decided: not ES256 / not active / outside the window ⇒ unavailable (never KMS)', () => {
+    expect(classifyManifestSigningContext(ok({ algorithm: 'EdDSA' }), NOW)).toEqual({ kind: 'unavailable', code: 'algorithm_not_es256' });
+    expect(classifyManifestSigningContext(ok({ key_status: 'rotating' }), NOW)).toEqual({ kind: 'unavailable', code: 'key_not_active' });
+    expect(classifyManifestSigningContext(ok({ not_before: '2026-09-05T12:00:01+00:00' }), NOW)).toEqual({ kind: 'unavailable', code: 'key_window' });
+    expect(classifyManifestSigningContext(ok({ not_after: '2026-09-05T12:00:00+00:00' }), NOW)).toEqual({ kind: 'unavailable', code: 'key_window' });
+    expect(classifyManifestSigningContext(ok({ not_before: '2026-09-05T12:00:00+00:00' }), NOW).kind).toBe('ok');
+    expect(classifyManifestSigningContext(ok({ not_after: '2026-09-05T12:00:01+00:00' }), NOW).kind).toBe('ok');
+  });
+  it('shape deviations ⇒ malformed with a stable code', () => {
+    expect(classifyManifestSigningContext(null, NOW)).toEqual({ kind: 'malformed', code: 'not_an_object' });
+    expect(classifyManifestSigningContext({ status: 'ready' }, NOW)).toEqual({ kind: 'malformed', code: 'unknown_status' });
+    expect(classifyManifestSigningContext(ok({ key_id: 'x' }), NOW)).toEqual({ kind: 'malformed', code: 'invalid:key_id' });
+    expect(classifyManifestSigningContext(ok({ kms_handle_ref: '' }), NOW)).toEqual({ kind: 'malformed', code: 'invalid:kms_handle_ref' });
+    expect(classifyManifestSigningContext(ok({ public_key: '' }), NOW)).toEqual({ kind: 'malformed', code: 'invalid:public_key' });
+    expect(classifyManifestSigningContext(ok({ not_before: 'soon' }), NOW)).toEqual({ kind: 'malformed', code: 'invalid:not_before' });
+  });
+});
+
+describe('buildSignatureEnvelope', () => {
+  it('is EXACTLY { value, algorithm: ES256, key_id } — a handle or public key can never ride along', () => {
+    const env = buildSignatureEnvelope('AAAA', '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b01');
+    expect(env).toEqual({ value: 'AAAA', algorithm: 'ES256', key_id: '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b01' });
+    expect(Object.keys(env)).toEqual(['value', 'algorithm', 'key_id']);
   });
 });

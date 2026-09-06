@@ -69,6 +69,7 @@ import {
   parseDoorSessionBearer,
   sha256Hex,
   uuidv5,
+  buildKeysMachineCall,
   buildManifestSyncMachineCall,
   classifyMachineRpcError,
   redactSecret,
@@ -114,6 +115,8 @@ describe('dispatchDoorSessionRoute', () => {
     ['/mint', 'mint'],
     ['/refresh', 'refresh'],
     ['/manifest/sync', 'manifest_sync'],
+    ['/keys', 'keys'],
+    ['/door-session/keys/', 'keys'],
     ['/scan', 'scan'],
     ['/offline-batch', 'offline_batch'],
     ['/door-session/mint', 'mint'],
@@ -333,5 +336,20 @@ describe('redactSecret', () => {
     expect(redactSecret('unchanged', '')).toBe('unchanged');
     expect(redactSecret('unchanged', null)).toBe('unchanged');
     expect(redactSecret(null, 'x')).toBe('');
+  });
+});
+
+// ── /keys → venue.get_signing_keys_door (114, P2-M1-DELIVERY) ──────────────
+describe('buildKeysMachineCall', () => {
+  const admission = { doorSessionId: 'd0000000-0000-4000-8000-000000000001', secret: 's3cr3t-value', bodySessionId: '5e550000-0000-4000-8000-000000000001', bodyDeviceId: 'de000000-0000-4000-8000-000000000001' };
+  it('targets the MACHINE M1 RPC with the body ids as cross-checks and the bearer as the credential', () => {
+    const call = buildKeysMachineCall(admission);
+    expect(call.fn).toBe('get_signing_keys_door');
+    expect(call.args).toEqual({ p_session_id: admission.bodySessionId, p_door_session_id: admission.doorSessionId, p_session_token: admission.secret, p_device_id: admission.bodyDeviceId });
+  });
+  it('the secret appears ONLY as p_session_token', () => {
+    const call = buildKeysMachineCall(admission);
+    const others = Object.entries(call.args).filter(([k]) => k !== 'p_session_token').map(([, v]) => String(v));
+    expect(others.some((v) => v.includes(admission.secret))).toBe(false);
   });
 });
