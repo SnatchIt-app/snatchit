@@ -293,6 +293,8 @@ cases). Design + operations: `docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`. Sui
 > **P1-M2-DOOR-AUTHZ — CLOSED IN REHEARSAL (2026-09-05, commit `a122a6c`).** Migration 113 (`venue._get_door_manifest_core` zero-grant + `venue.get_door_manifest_door` service_role, `kernel.assert_door_session` the sole gate) and the `door-session /manifest/sync` rewire; census venue 83→85 / five-schema 292→294. Rehearsal-tested (179 45/45, real-RPC evidence), not deployed, production unchanged. Still open: M1 distribution, `door-manifest` signature.key_id, signed M1 bundles.
 
 > **M1 distribution + manifest signature key identity — CLOSED IN REHEARSAL (2026-09-05, commit `2153f44`).** Migration 114 (`venue.get_signing_keys_door` for bearer-only devices via `door-session /keys`; `venue.get_manifest_signing_context` as the door-manifest edge's only source of `signature.key_id` — the single active global `kernel.signing_key`; env-only handle inference removed; sign-after-verify per response). Ceremony binding recorded in `SCANNER_VERIFIER_CONTRACT.md` §4: D4 full-ARN `kms_handle_ref`, D3/D5 `public_key`/fingerprint from that key, E2 role scope. Census venue 85→87 / five-schema 294→296. Rehearsal-tested (180 42/42, real-RPC artifact verification), not deployed, production unchanged. Still open: signed M1 bundles.
+
+> **Dark pre-ceremony audit (2026-09-06, commit `1f3fc19`):** `docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md`; owner runbook `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBOOK.md` (NO-GO: CreateKey remains NO-GO in `652872010073` while the Free plan is kept).
 Supabase secrets, billing: UNAPPROVED.
 
 **Tested commit (P1-PUBKEY-FORMAT):** `c150283` (branch `feature/venue-native-and-product-v2`). **Production deployment: PENDING** — the corrected
