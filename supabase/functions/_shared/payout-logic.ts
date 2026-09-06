@@ -8,21 +8,55 @@
  */
 
 /**
- * Deterministic Stripe Idempotency-Key for one logical seller payout.
+ * Deterministic Stripe Idempotency-Key for ONE payout attempt.
  *
- * `payout_<transferId>_<destination>_src`
- *   • same logical payout (same transfer row, same connected account) →
- *     same key from every caller, so races and retries replay ONE Stripe
- *     Transfer — never two;
- *   • destination change (seller re-onboarded) → new key → genuinely new
- *     attempt instead of a stale 24h replay;
- *   • `_src` marks the source_transaction request generation, keeping it
- *     disjoint from keys burned by earlier code (`payout_<id>`,
- *     `..._r1`, `..._ready`) whose parameters differ.
+ * `payout_<transferId>_a<attemptNo>`
+ *   • the key belongs to the attempt row in public.payout_attempts, whose
+ *     request parameters (destination, amount, currency) are frozen at claim
+ *     time — so any replay of this key carries byte-identical parameters
+ *     from every caller (confirm-and-release, the cron sweep, recovery);
+ *   • a new attempt (new number, new key) opens ONLY after the previous one
+ *     is terminal (succeeded / failed / reversal_required), and only after an
+ *     open attempt was reconciled against Stripe (list by transfer_group) —
+ *     that, not the key, is what prevents a second real transfer once
+ *     Stripe forgets the key after 24h (F08);
+ *   • the `_a<n>` suffix keeps the space disjoint from every earlier
+ *     generation (`payout_<id>`, `..._r1`, `..._ready`, `..._<acct>_src`).
  * No randomness: every key is reconstructible from audit data.
  */
-export function buildPayoutIdempotencyKey(transferId: string, destination: string): string {
-  return `payout_${transferId}_${destination}_src`;
+export function buildPayoutIdempotencyKey(transferId: string, attemptNo: number): string {
+  if (!Number.isInteger(attemptNo) || attemptNo < 1) {
+    throw new Error(`buildPayoutIdempotencyKey: attemptNo must be a positive integer (got ${attemptNo})`);
+  }
+  return `payout_${transferId}_a${attemptNo}`;
+}
+
+/**
+ * What a failed POST /v1/transfers means for the attempt ledger.
+ *
+ *   failed_not_created — Stripe DEFINITELY did not create a transfer: a
+ *                        4xx that is not an idempotency/in-flight signal.
+ *                        The attempt closes; a fresh attempt may open later.
+ *   unknown            — a transfer MAY exist: network error (no status),
+ *                        5xx, 409 (idempotency key in flight elsewhere),
+ *                        429, or `idempotency_error` (key reused with other
+ *                        parameters — the ORIGINAL transfer under that key
+ *                        exists). The attempt stays open under its lease
+ *                        and is reconciled by listing transfer_group before
+ *                        any new POST.
+ */
+export type PayoutPostOutcome = 'failed_not_created' | 'unknown';
+
+export function classifyPayoutPostFailure(
+  status: number | null,
+  error: { type?: string; code?: string; message?: string } | null | undefined,
+): PayoutPostOutcome {
+  if (status === null || status === undefined) return 'unknown';
+  if (status >= 500) return 'unknown';
+  if (status === 409 || status === 429) return 'unknown';
+  if (error?.type === 'idempotency_error') return 'unknown';
+  if (status >= 400) return 'failed_not_created';
+  return 'unknown';
 }
 
 /**

@@ -1,15 +1,25 @@
 /**
  * supabase/functions/delete-account/index.ts
  *
- * Deletes the authenticated user's account.
+ * Deletes the authenticated user's account. FAILS CLOSED (F10, migration
+ * 20260906120000): no deletion while the user is party to any open money
+ * obligation, and every step is recorded in the public.account_deletions
+ * ledger so a retry resumes where it stopped.
  *
- * Strategy (App Store compliant, marketplace safe):
- *   1. Block if user has active transfers (pending seller_sent / buyer needs to confirm)
- *   2. Cancel any active listings (set auction_status = 'cancelled')
- *   3. Anonymize user references in payments/transfers using sentinel UUID (legal/financial records kept)
- *   4. Delete bids placed by user
- *   5. Delete storage files (avatars, auction-media)
- *   6. Delete auth user (CASCADE handles profiles, push_tokens, notification_preferences)
+ * Phases (ledger `phase`):
+ *   gate      account_deletion_blockers(user) returned zero rows
+ *   archived  the seller's Stripe Connect id is preserved on the ledger row
+ *             (the profile is cascade-deleted with auth.users, so this is the
+ *             last place the destination survives; stripe_connect_archive
+ *             cannot be used — its profile_id FK would block the cascade)
+ *   cleaned   delete_account_cleanup ran (listings cancelled, money rows
+ *             anonymized to the sentinel — never deleted)
+ *   storage   bids + storage objects removed
+ *   done      auth user deleted (CASCADE: profiles, push_tokens, prefs)
+ *
+ * Gate outcomes: lookup error → 503 (never proceed on a blind read);
+ * blockers → 409 with their kinds. A retry at phase 'cleaned' or later never
+ * re-runs the gate (the user's rows are already anonymized).
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -146,81 +156,164 @@ serve(async (req) => {
 
     console.log('[delete-account] starting for user:', userId);
 
-    // ── 1. Block if active transfers in progress ─────────────────────────
-    const { data: activeTransfers } = await supabase
-      .from('transfers')
-      .select('id')
-      .or(`seller_id.eq.${userId},buyer_id.eq.${userId}`)
-      .in('status', ['pending', 'seller_sent'])
-      .limit(1);
+    // ── 0. Ledger: where did a previous attempt stop? ────────────────────
+    const PHASES = ['gate', 'archived', 'cleaned', 'storage', 'done'] as const;
+    type Phase = typeof PHASES[number];
+    const rank = (p: Phase) => PHASES.indexOf(p);
 
-    if (activeTransfers && activeTransfers.length > 0) {
-      return json({
-        error: 'You have active ticket transfers in progress. Please complete or wait for them to expire before deleting your account.',
-      }, 409, getResponseHeaders(req));
+    const { data: ledger, error: ledgerErr } = await supabase
+      .from('account_deletions')
+      .select('user_id, phase, connect_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (ledgerErr) {
+      console.error('[delete-account] ledger lookup failed:', ledgerErr.message);
+      return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
     }
+    let phase: Phase | null = (ledger?.phase as Phase | undefined) ?? null;
+    let connectId: string | null = (ledger?.connect_id as string | null | undefined) ?? null;
 
-    // ── 2 & 3. Cancel listings + anonymize financial records ────────────
-    // Uses the delete_account_cleanup RPC (migration 020) which runs as
-    // SECURITY DEFINER to bypass:
-    //   - guard_listing_state_columns (blocks direct auction_status changes)
-    //   - guard_listing_identity_columns (blocks ALL seller_id changes)
-    // The RPC cancels active listings, anonymizes seller_id on all listings,
-    // and anonymizes buyer_id/seller_id on payments and transfers using the
-    // sentinel UUID (00000000-0000-0000-0000-000000000000).
-    const { error: cleanupErr } = await supabase.rpc('delete_account_cleanup', {
-      p_user_id: userId,
-    });
-
-    if (cleanupErr) {
-      console.error('[delete-account] cleanup RPC error:', cleanupErr.message);
-      return json({
-        error: 'Failed to clean up account data. Please try again or contact support.',
-      }, 500, getResponseHeaders(req));
-    }
-
-    console.log('[delete-account] listings cancelled and financial records anonymized');
-
-    // ── 4. Delete bids ───────────────────────────────────────────────────
-    await supabase
-      .from('bids')
-      .delete()
-      .eq('bidder_id', userId);
-
-    // ── 5. Delete storage files ──────────────────────────────────────────
-    // Avatars
-    try {
-      const { data: avatarFiles } = await supabase.storage
-        .from('avatars')
-        .list(userId);
-      if (avatarFiles && avatarFiles.length > 0) {
-        const paths = avatarFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('avatars').remove(paths);
+    const advance = async (next: Phase, extra: Record<string, unknown> = {}): Promise<boolean> => {
+      const { error } = await supabase
+        .from('account_deletions')
+        .upsert({
+          user_id: userId,
+          phase: next,
+          updated_at: new Date().toISOString(),
+          ...(next === 'done' ? { finished_at: new Date().toISOString() } : {}),
+          ...extra,
+        }, { onConflict: 'user_id' });
+      if (error) {
+        console.error('[delete-account] ledger write failed:', { phase: next, error: error.message });
+        return false;
       }
-    } catch {
-      console.warn('[delete-account] avatar cleanup error (non-fatal)');
+      phase = next;
+      return true;
+    };
+
+    if (phase === 'done') {
+      console.log('[delete-account] already completed for user:', userId);
+      return json({ success: true, already_deleted: true }, 200, getResponseHeaders(req));
     }
 
-    // Auction media
-    try {
-      const { data: mediaFiles } = await supabase.storage
-        .from('auction-media')
-        .list(userId);
-      if (mediaFiles && mediaFiles.length > 0) {
-        const paths = mediaFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('auction-media').remove(paths);
+    // ── 1. Gate: block while ANY money obligation is open ────────────────
+    // Re-run on every attempt until cleanup has happened; after 'cleaned'
+    // the user's money rows are anonymized and the gate can no longer see them.
+    if (phase === null || rank(phase) < rank('cleaned')) {
+      const { data: blockers, error: gateErr } = await supabase
+        .rpc('account_deletion_blockers', { p_user_id: userId });
+      if (gateErr) {
+        // A blind gate is no gate: never proceed on a lookup failure.
+        console.error('[delete-account] blocker lookup failed (refusing):', gateErr.message);
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
       }
-    } catch {
-      console.warn('[delete-account] media cleanup error (non-fatal)');
+      const rows = (Array.isArray(blockers) ? blockers : []) as Array<{ kind: string; ref_id: string }>;
+      if (rows.length > 0) {
+        const kinds = Array.from(new Set(rows.map((r) => r.kind)));
+        console.warn('[delete-account] blocked by open obligations:', { user_id: userId, kinds, count: rows.length });
+        return json({
+          error: 'You have open ticket transfers, payouts, refunds or disputes. Please wait until they are settled before deleting your account.',
+          blockers: kinds,
+        }, 409, getResponseHeaders(req));
+      }
+      if (phase === null && !(await advance('gate'))) {
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
     }
 
-    // ── 6. Delete auth user ──────────────────────────────────────────────
-    // CASCADE handles: profiles, push_tokens, notification_preferences
+    // ── 2. Archive the Connect id BEFORE anything is anonymized/deleted ──
+    if (rank(phase!) < rank('archived')) {
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('stripe_connect_id')
+        .eq('id', userId)
+        .maybeSingle();
+      if (profileErr) {
+        console.error('[delete-account] profile lookup failed:', profileErr.message);
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
+      connectId = (profile?.stripe_connect_id as string | null | undefined) ?? null;
+      if (!(await advance('archived', { connect_id: connectId }))) {
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
+      console.log('[delete-account] connect id archived on ledger:', { has_connect_id: connectId !== null });
+    }
+
+    // ── 3. Cancel listings + anonymize financial records ─────────────────
+    // delete_account_cleanup (migration 020/0563) runs as SECURITY DEFINER:
+    // cancels active listings, anonymizes seller_id on listings and
+    // buyer_id/seller_id on payments and transfers to the sentinel UUID
+    // (00000000-0000-0000-0000-000000000000). Money rows are kept.
+    if (rank(phase!) < rank('cleaned')) {
+      const { error: cleanupErr } = await supabase.rpc('delete_account_cleanup', {
+        p_user_id: userId,
+      });
+      if (cleanupErr) {
+        console.error('[delete-account] cleanup RPC error:', cleanupErr.message);
+        return json({
+          error: 'Failed to clean up account data. Please try again or contact support.',
+        }, 500, getResponseHeaders(req));
+      }
+      if (!(await advance('cleaned'))) {
+        // Cleanup is atomic and idempotent; a re-run is safe. Still refuse to
+        // continue without the ledger — the gate must not run again.
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
+      console.log('[delete-account] listings cancelled and financial records anonymized');
+    }
+
+    // ── 4. Delete bids + storage files ───────────────────────────────────
+    if (rank(phase!) < rank('storage')) {
+      await supabase
+        .from('bids')
+        .delete()
+        .eq('bidder_id', userId);
+
+      // Avatars
+      try {
+        const { data: avatarFiles } = await supabase.storage
+          .from('avatars')
+          .list(userId);
+        if (avatarFiles && avatarFiles.length > 0) {
+          const paths = avatarFiles.map(f => `${userId}/${f.name}`);
+          await supabase.storage.from('avatars').remove(paths);
+        }
+      } catch {
+        console.warn('[delete-account] avatar cleanup error (non-fatal)');
+      }
+
+      // Auction media
+      try {
+        const { data: mediaFiles } = await supabase.storage
+          .from('auction-media')
+          .list(userId);
+        if (mediaFiles && mediaFiles.length > 0) {
+          const paths = mediaFiles.map(f => `${userId}/${f.name}`);
+          await supabase.storage.from('auction-media').remove(paths);
+        }
+      } catch {
+        console.warn('[delete-account] media cleanup error (non-fatal)');
+      }
+
+      if (!(await advance('storage'))) {
+        return json({ error: 'Service temporarily unavailable. Please try again shortly.' }, 503, getResponseHeaders(req));
+      }
+    }
+
+    // ── 5. Delete auth user ──────────────────────────────────────────────
+    // CASCADE handles: profiles, push_tokens, notification_preferences.
+    // A failure leaves phase='storage'; the next attempt resumes here.
     const { error: deleteErr } = await supabase.auth.admin.deleteUser(userId);
 
     if (deleteErr) {
       console.error('[delete-account] auth delete error:', deleteErr.message);
       return json({ error: 'Failed to delete account. Please contact support.' }, 500, getResponseHeaders(req));
+    }
+
+    if (!(await advance('done'))) {
+      // The account IS gone; the ledger just did not record it. Log loudly
+      // (a retry cannot authenticate any more), never fail the user.
+      console.error('[delete-account] auth user deleted but ledger not marked done:', userId);
     }
 
     console.log('[delete-account] completed for user:', userId);
