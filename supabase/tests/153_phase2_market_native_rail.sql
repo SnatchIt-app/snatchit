@@ -300,8 +300,15 @@ SELECT tap._store153('pay5', tap._newpayment153(tap.other_user(), tap.seller(), 
 -- listing_id/seller_id null, satisfied below) so the guard's mode arm passes while the
 -- payment_native lookup still finds nothing — the one shape 097 still lets reach the no-link
 -- arm (record, zero freeze legs, 'no_link' alert) rather than refusing outright.
+-- 2026-09-06 (payments reliability 20260906120000): payments money/identity
+-- columns are IMMUTABLE once succeeded (guard_payment_transitions). This flip is
+-- a TEST-ONLY fixture mutation (no production writer re-rails a succeeded
+-- payment), so it runs under the guard's transaction-local bypass GUC and
+-- switches it off again immediately. Nothing else in this file needs it.
+SELECT set_config('app.bypass_payment_guard', 'on', true);
 UPDATE public.payments SET mode = 'native_primary', listing_id = NULL, seller_id = NULL
  WHERE id = tap._u153('pay5');
+SELECT set_config('app.bypass_payment_guard', 'off', true);
 SELECT tap._store153('pay6', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_6')::text);
 SELECT tap._store153('pay7', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_7')::text);
 -- mint through the money path (issuance flag ON inside the txn only)

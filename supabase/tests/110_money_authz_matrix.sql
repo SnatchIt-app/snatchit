@@ -90,6 +90,21 @@ VALUES
    100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/e.jpg',
    'active', 'reserved', tap.seller(), now() + interval '1 hour');
 
+-- Package 1 (20260906100000): mark_listing_sold() now settles ONLY against a
+-- bound SUCCEEDED payment for auth.uid() (investigation F03) and no longer
+-- consults reserved_by. The discriminator for 17/18 therefore moves from the
+-- reservation to the payment: the reservation holder ALSO owns the one
+-- succeeded buy_now payment on this row, the attacker owns none.
+--   * forgery REFUSED  -> v_caller_id = attacker -> no payment -> raises
+--   * forgery HONOURED -> v_caller_id = seller   -> payment found -> the call
+--                         SUCCEEDS and the listing is sold, so throws_ok fails.
+INSERT INTO public.payments
+  (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
+   stripe_payment_intent_id, status, mode, paid_at)
+VALUES
+  ('bbbbbbbb-0000-0000-0000-000000000005', 'aaaaaaaa-0000-0000-0000-000000000005',
+   tap.seller(), tap.seller(), 20000, 2000, 2000, 22000, 'pi_fixture_e', 'succeeded', 'buy_now', now());
+
 -- ── 4-6: the LEGACY SINGULAR GUC decides, and a claim alone grants ──────────
 -- 071 point 4, first and second properties, made executable.
 SELECT tap.set_claims(tap.other_user(), 'authenticated');
@@ -181,7 +196,7 @@ SELECT throws_ok(
 -- holder. Keep them together — deleting 18 makes 17 unfalsifiable again.
 SELECT throws_ok(
   $$ SELECT public.mark_listing_sold('aaaaaaaa-0000-0000-0000-000000000005'::uuid, tap.seller()) $$,
-  'P0001', 'This listing is not reserved by you.',
+  'P0001', 'No verified payment found for this listing. Payment must be confirmed before the sale can complete.',
   'forged p_user_id naming the true reservation holder: mark_listing_sold refuses the impostor');
 
 -- Positive control. Same row, same forged singular GUC, same transaction —

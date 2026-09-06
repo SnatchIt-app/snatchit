@@ -97,6 +97,15 @@
 -- and INSERT triggers vary across storage-api versions, and cron.job_run_details
 -- would require actually waiting for a scheduled tick.
 -- ============================================================================
+-- ENVIRONMENT NOTE (2026-09-06, converged release candidate): pg_cron records
+-- the database the schedule() call ran in — current_database() — and production's
+-- is named 'postgres' (the ground-truth read above). The Supabase CLI stack CI
+-- replays into also names it 'postgres', so a literal matched there; a local
+-- harness database (e.g. snatchit_rc_rehearsal) does not. Assertions 8 and 9
+-- therefore compare against current_database(): the INVARIANT — the job targets
+-- the same database that holds public.sweep_auth_password_changes() — is what
+-- production exhibits and is asserted unchanged; only the literal name is no
+-- longer hard-coded. Nothing else in the two assertions moved.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
@@ -240,7 +249,7 @@ SELECT is(
             ' ;; ' ORDER BY j.jobid)
      FROM cron.job j
     WHERE j.jobname = 'sweep-auth-password-changes'),
-  'schedule=*/5 * * * *|database=postgres|username=postgres|active=true|command=select public.sweep_auth_password_changes();|len=44|md5=a8688b5b2add782b9a988d1f3850cd07',
+  'schedule=*/5 * * * *|database=' || current_database() || '|username=postgres|active=true|command=select public.sweep_auth_password_changes();|len=44|md5=a8688b5b2add782b9a988d1f3850cd07',
   'D-5/8 (parity): schedule, database, username, active and the exact command bytes match production jobid 10');
 
 -- 9. NO DUPLICATE, NO DRIFT — and NOT VACUOUS. The assertion this replaces was
@@ -259,7 +268,7 @@ SELECT is(
   (SELECT format('canonical=%s total=%s',
             count(*) FILTER (
               WHERE schedule   = '*/5 * * * *'
-                AND "database" = 'postgres'
+                AND "database" = current_database()
                 AND username   = 'postgres'
                 AND command    = 'select public.sweep_auth_password_changes();'
                 AND active),

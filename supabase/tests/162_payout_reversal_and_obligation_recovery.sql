@@ -695,18 +695,18 @@ SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'release_payout')
 -- rehearsal_reset.sh baseline read, which runs before pgtap exists); tables/
 -- policies/triggers carry no such pollution and need no filter.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='public' AND c.relkind='r'), 27,
-  'P1: GATE-2 tables=27 — 096 adds no public table');
+            WHERE n.nspname='public' AND c.relkind='r'), 30,
+  'P1: GATE-2 tables=30 — 096 adds no public table (27 through 109; +3 from 20260906120000: payout_attempts, payment_refunds, account_deletions)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public'
-              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 70,
-  'P2: GATE-2 functions=70 — 096 adds no public function (pgtap''s own extension-owned functions excluded)');
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 86,
+  'P2: GATE-2 functions=86 — 096 adds no public function (70 through 20260902003623; +1 P1, +2 P2, +12 P3, +1 20260906130000; pgtap''s own extension-owned functions excluded)');
 SELECT is((SELECT count(*)::int FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='public'), 37,
   'P3: GATE-2 policies=37 — 096 adds no public policy');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='public' AND NOT t.tgisinternal), 26,
-  'P4: GATE-2 triggers=26 — 096 adds no public trigger');
+            WHERE n.nspname='public' AND NOT t.tgisinternal), 32,
+  'P4: GATE-2 triggers=32 — 096 adds no public trigger (26 through 109; +6 from 20260906120000 guards)');
 
 SELECT finish();
 ROLLBACK;

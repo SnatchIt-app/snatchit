@@ -1,0 +1,18 @@
+{
+  // Vitest in web/ aliases @snatchit/* straight at these sources
+  // (web/vitest.config.ts), and vite's oxc transform refuses a .ts file whose
+  // package has no discoverable tsconfig — a behavior that arrived with the
+  // 16.3.x audit-fix lockfile and silently failed 3 of web's test files.
+  // Minimal on purpose: type-checking of these sources happens in the apps
+  // that compile them (web transpiles the vendored tarballs; mobile compiles
+  // in place), not here.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
+}
