@@ -378,6 +378,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('notify_transfer_event()',                                        'no-client-execute'),
   ('notify_transfer_state_inbox()',                                  'no-client-execute'),
   ('payment_refunds_append_only()',                                  'no-client-execute'),
+  ('payout_attempts_no_delete()',                                    'no-client-execute'),
   ('reconcile_payout_attempt(uuid, text)',                           'no-client-execute'),
   ('record_payment_refund(text, text, text, integer, text)',         'no-client-execute'),
   ('record_payout_attempt_result(uuid, text, text, jsonb)',          'no-client-execute'),

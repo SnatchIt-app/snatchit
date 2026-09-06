@@ -20,7 +20,8 @@
 --     ('claim_payout_attempt','mark_payout_requested','record_payout_attempt_result',
 --      'reconcile_payout_attempt','flag_payout_reversal_required','record_payment_refund',
 --      'account_deletion_blockers','guard_payout_attempt_columns','guard_payment_transitions',
---      'reset_payment_guard_bypass','payment_refunds_append_only');           -- 0
+--      'reset_payment_guard_bypass','payment_refunds_append_only',
+--      'payout_attempts_no_delete');                                         -- 0
 --   SELECT count(*) FROM pg_tables WHERE schemaname='public'
 --     AND tablename IN ('payout_attempts','payment_refunds','account_deletions'); -- 0
 -- ============================================================================
@@ -29,6 +30,8 @@ BEGIN;
 
 -- Triggers first (they reference the functions).
 DROP TRIGGER IF EXISTS trg_guard_payout_attempt_columns  ON public.payout_attempts;
+DROP TRIGGER IF EXISTS trg_payout_attempts_no_delete     ON public.payout_attempts;
+DROP TRIGGER IF EXISTS trg_payout_attempts_no_truncate   ON public.payout_attempts;
 DROP TRIGGER IF EXISTS trg_payment_refunds_append_only   ON public.payment_refunds;
 DROP TRIGGER IF EXISTS trg_guard_payment_transitions     ON public.payments;
 DROP TRIGGER IF EXISTS trg_reset_payment_guard_bypass    ON public.payments;
@@ -44,6 +47,7 @@ DROP FUNCTION IF EXISTS public.record_payment_refund(text, text, text, int, text
 
 -- Trigger functions.
 DROP FUNCTION IF EXISTS public.guard_payout_attempt_columns();
+DROP FUNCTION IF EXISTS public.payout_attempts_no_delete();
 DROP FUNCTION IF EXISTS public.guard_payment_transitions();
 DROP FUNCTION IF EXISTS public.reset_payment_guard_bypass();
 DROP FUNCTION IF EXISTS public.payment_refunds_append_only();
