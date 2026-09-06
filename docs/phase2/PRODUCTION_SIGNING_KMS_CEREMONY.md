@@ -637,6 +637,15 @@ for f in \
 done
 ```
 
+> **2026-09-05 CORRECTION (dark pre-ceremony audit).** The loop above is stale: since migration **106**
+> (applied in production — numeric tip 109) `kernel.revoke_signing_key` is **UN-parked** (PFA-18B:
+> platform_admin + aal2, single-control emergency tightening) and will NOT raise
+> `dual_control_unavailable` — the loop prints a false `!! NOT PARKED — STOP` for it. The parked set is
+> now **five**: `provision_signing_key`, `rotate_signing_key`, `provision_pass_type_cert`,
+> `rotate_pass_type_cert`, `revoke_pass_type_cert`. `revoke_signing_key` is expected to refuse with
+> `insufficient_privilege` (no platform_admin/aal2 on the preflight session), never to succeed. The
+> owner runbook `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBOOK.md` §A carries the corrected check.
+
 ### 7.4 No second key, no shadow key
 
 ```bash
@@ -1019,9 +1028,21 @@ control that actually stops signing.** The database has no power here.
 
 ### Step 3 — the database side, honestly
 
-`kernel.revoke_signing_key` is **parked** — rehearsed, it raises
-`dual_control_unavailable` and changes nothing, even for a platform admin. There is no
-supported in-band revocation. Options, in order of preference:
+> **2026-09-05 CORRECTION (dark pre-ceremony audit).** The paragraph below is superseded by
+> migrations **105/106/109** (all in production, numeric tip 109) and by **110/111** (rehearsal only):
+> `kernel.revoke_signing_key` is **UN-parked** — platform_admin + aal2, single-control by design,
+> `p_ack_live_credentials` must acknowledge the live credential count, status `active|rotating → revoked`
+> (terminal), and it **force-closes every open door episode** in the key's scope (105
+> `kernel.force_close_key_manifests`, 109 terminal-session force-close) so a reconnecting device loses M2
+> authority. After a revoke, a NEW global key can be inserted only through the gated two-person recovery
+> (110 guard rule 10 `post_revoke_recovery_parked` + 111 `approve_/execute_signing_key_recovery`,
+> two distinct platform_admin+aal2 approvals within 30 minutes, fingerprint-bound) — never by a plain
+> INSERT. Option 2 below (superuser status flip) is therefore no longer the path; use
+> `kernel.revoke_signing_key`. See `docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md` §5.
+
+`kernel.revoke_signing_key` was **parked** at the time this section was written — rehearsed, it raised
+`dual_control_unavailable` and changed nothing, even for a platform admin. There was no
+supported in-band revocation. Options, in order of preference (historical; see the correction above):
 
 1. **Rotate (§12)** to a fresh key. New issuance moves; old atoms keep verifying against
    the compromised key, which is the correct behaviour if the compromise is *custody* of
