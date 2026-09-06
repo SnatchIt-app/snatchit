@@ -28,16 +28,18 @@ run ahead of the migration they call.
 | P1-c | deploy `create-payment-intent` (with the Phase-2 guard block preserved) | EDGE DEPLOY | owner |
 | P2-a | apply `20260906110000_settle_verified_payment.sql` | PRODUCTION DB MUTATION | owner |
 | P2-b | verify §4 | read-only | — |
-| P2-c | deploy `stripe-webhook`, `confirm-payment`, `enforce-transfer-expiry` (Phase 0 only depends on P2; its refund recording falls back gracefully until P3) | EDGE DEPLOY | owner |
+| P2-c | **(collapsed into P3-d)** — the integrated `stripe-webhook`, `confirm-payment` and `enforce-transfer-expiry` sources read `payments.amount_refunded_cents` and call the Package 3 payout RPCs, so they must not be deployed before P3-b. Only `create-payment-intent` (P1-c) is deployable between migrations. | — | — |
 | P2-d | add `payment_intent.canceled` to the Stripe webhook endpoint's event list | STRIPE DASHBOARD SETTING | owner |
 | P3-a | pre-flight `SELECT stripe_transfer_id, count(*) FROM transfers WHERE stripe_transfer_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1` must be empty (the migration also aborts on duplicates) | read-only | — |
 | P3-b | apply `20260906120000_payout_attempts_and_refund_monotonic.sql` | PRODUCTION DB MUTATION | owner |
 | P3-c | verify §4 | read-only | — |
-| P3-d | deploy `confirm-and-release`, `enforce-transfer-expiry`, `stripe-webhook`, `delete-account` (tombstone variant + blockers) | EDGE DEPLOY | owner |
+| P3-d | deploy `confirm-payment`, `confirm-and-release`, `enforce-transfer-expiry`, `stripe-webhook`, `delete-account` (tombstone variant + blockers) — one step, after all three migrations | EDGE DEPLOY | owner |
 | P3-e | update `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` Part 2 to `reconcile_payout_attempt` / `record_payout_attempt_result`; manual dashboard transfers are no longer a supported path | docs | — |
 
 Old edge versions keep working after each migration (`record_transfer_payout`, `mark_listing_sold`, `ensure_transfer_exists`
 signatures unchanged), so a migration can be applied before its edge deploy; the reverse is not safe for P2/P3 edges.
+The safe order is therefore: P1-a → P1-c → P2-a → P3-a/b → P3-d → P2-d. Between P2-a and P3-d the old webhook keeps
+settling through `mark_listing_sold` (now payment-gated by P1) — no window in which a paid listing is unsettleable.
 
 ## 2. Client compatibility
 
