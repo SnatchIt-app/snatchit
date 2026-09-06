@@ -17,6 +17,15 @@
 --     'unfulfillable' with NO side effects; zero client EXECUTE.
 --   * complete_auction_payment refuses while another buyer's Buy-Now hold is
 --     live (ratified decision 3).
+--   * Review round 1 (MAJOR-1 / MINOR-5): a listing holding ANY succeeded
+--     payment is sold in fact — reserve_buy_now refuses it, and neither its
+--     inline expired-hold sweep nor the caller's cross-listing release ever
+--     touches such a row (webhook lag must not hand paid inventory to a second
+--     buyer). reserve_buy_now takes every row lock it can need in ONE
+--     fixed-order statement (ORDER BY id FOR UPDATE) before any write, so two
+--     callers releasing each other's holds cannot deadlock; the shape is pinned
+--     by inspecting prosrc (a live two-session deadlock cannot be staged from a
+--     single pgTAP transaction).
 --
 -- Every fixture lives and dies inside this file's transaction. now() is
 -- frozen for the transaction, so "lapsed" windows are set explicitly and the
@@ -25,7 +34,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(49);
+SELECT plan(58);
 
 SELECT tap.seed_core();
 
@@ -40,6 +49,11 @@ SELECT tap.seed_core();
 --      succeeded payment by other_user arrives late.
 -- 110: ended auction, winner buyer, other_user holds LIVE and has a succeeded
 --      auction payment although NOT the winner.
+-- 111: buyer's hold LAPSED, buyer's succeeded payment not yet settled (webhook lag).
+-- 112: buyer's hold LIVE, buyer's succeeded payment not yet settled.
+-- 113: free Buy-Now listing (target of the cross-listing reserve in H).
+-- 114: hold already swept to status=active by the cron, succeeded payment exists.
+-- 115: buyer's hold LIVE, NO payment (the release rule must still apply here).
 INSERT INTO public.listings
   (id, seller_id, event_name, venue, neighborhood, event_date, event_time,
    ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
@@ -49,13 +63,16 @@ SELECT ('aaaaaaaa-0000-0000-0000-0000000001' || n)::uuid, tap.seller(),
        'Fixture 120-' || n, 'Club ' || n, 'wynwood', current_date + 30, '21:00',
        'GA', 2, 'mobile_transfer', 100, true, 200, 24, now(),
        now() + interval '24 hours', 100, 'fixtures/120-' || n || '.jpg', 'active'
-  FROM unnest(ARRAY['01','02','03','04','05','06','07','08','09','10']) AS n;
+  FROM unnest(ARRAY['01','02','03','04','05','06','07','08','09','10',
+                    '11','12','13','14','15']) AS n;
 
 SELECT set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET status='reserved', reserved_by=tap.other_user(), reserved_until=now() + interval '5 minutes'
  WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000104','aaaaaaaa-0000-0000-0000-000000000108','aaaaaaaa-0000-0000-0000-000000000110');
 UPDATE public.listings SET status='reserved', reserved_by=tap.buyer(), reserved_until=now() - interval '1 minute'
- WHERE id = 'aaaaaaaa-0000-0000-0000-000000000105';
+ WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000105','aaaaaaaa-0000-0000-0000-000000000111');
+UPDATE public.listings SET status='reserved', reserved_by=tap.buyer(), reserved_until=now() + interval '5 minutes'
+ WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000112','aaaaaaaa-0000-0000-0000-000000000115');
 UPDATE public.listings SET auction_status='ended', winner_user_id=tap.buyer(), winning_bid_amount=150, ends_at=now() - interval '1 minute'
  WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000106','aaaaaaaa-0000-0000-0000-000000000107',
               'aaaaaaaa-0000-0000-0000-000000000108','aaaaaaaa-0000-0000-0000-000000000110');
@@ -74,6 +91,9 @@ VALUES
   ('bbbbbbbb-0000-0000-0000-000000000191', 'aaaaaaaa-0000-0000-0000-000000000109', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_109a', 'refunded',  'buy_now', now()),
   ('bbbbbbbb-0000-0000-0000-000000000192', 'aaaaaaaa-0000-0000-0000-000000000109', tap.other_user(), tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_109b', 'succeeded', 'buy_now', now()),
   ('bbbbbbbb-0000-0000-0000-000000000110', 'aaaaaaaa-0000-0000-0000-000000000110', tap.other_user(), tap.seller(), 15000, 1500, 1500, 16500, 'pi_120_110',  'succeeded', 'auction', now()),
+  ('bbbbbbbb-0000-0000-0000-000000000111', 'aaaaaaaa-0000-0000-0000-000000000111', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_111',  'succeeded', 'buy_now', now()),
+  ('bbbbbbbb-0000-0000-0000-000000000112', 'aaaaaaaa-0000-0000-0000-000000000112', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_112',  'succeeded', 'buy_now', now()),
+  ('bbbbbbbb-0000-0000-0000-000000000114', 'aaaaaaaa-0000-0000-0000-000000000114', tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_114',  'succeeded', 'buy_now', now()),
   ('bbbbbbbb-0000-0000-0000-000000000103', tap.listing_c(),                        tap.buyer(),      tap.seller(), 20000, 2000, 2000, 22000, 'pi_120_c',    'succeeded', 'buy_now', now());
 
 INSERT INTO public.transfers
@@ -282,6 +302,50 @@ SELECT ok(has_function_privilege('authenticated', 'public.complete_auction_payme
   'G9 complete_auction_payment still EXECUTE for authenticated');
 SELECT ok(has_function_privilege('authenticated', 'public.reserve_buy_now(uuid,uuid,integer)', 'EXECUTE'),
   'G10 reserve_buy_now still EXECUTE for authenticated');
+
+-- ── H. sold in fact: a succeeded payment is never re-reservable / released ──
+-- (review round 1, MAJOR-1 R1/R1b/R2b/R2c; MINOR-5 lock shape)
+SELECT tap.login(tap.other_user());
+SELECT throws_ok(
+  $$ SELECT public.reserve_buy_now('aaaaaaaa-0000-0000-0000-000000000111', tap.other_user(), 10) $$,
+  'P0001', 'This listing has already been sold.',
+  'H1 (R1) another buyer cannot reserve a listing whose hold lapsed but which already has a SUCCEEDED payment');
+SELECT ok(
+  (SELECT status = 'reserved' AND reserved_by = tap.buyer() AND reserved_until = now() - interval '1 minute'
+     FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000111'),
+  'H2 (R1b) ...the paid buyer keeps the hold: the inline expired-hold sweep skipped the paid row');
+SELECT throws_ok(
+  $$ SELECT public.reserve_buy_now('aaaaaaaa-0000-0000-0000-000000000114', tap.other_user(), 10) $$,
+  'P0001', 'This listing has already been sold.',
+  'H3 a hold the cron already swept to status=active is still not reservable while a succeeded payment exists');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(
+  $$ SELECT public.reserve_buy_now('aaaaaaaa-0000-0000-0000-000000000111', tap.buyer(), 10) $$,
+  'P0001', 'This listing has already been sold.',
+  'H4 not even the payer re-reserves paid inventory — settlement (mark_listing_sold) is the only path forward');
+SELECT lives_ok(
+  $$ SELECT public.reserve_buy_now('aaaaaaaa-0000-0000-0000-000000000113', tap.buyer(), 10) $$,
+  'H5 (R2) the buyer reserves a second listing');
+SELECT ok(
+  (SELECT status = 'reserved' AND reserved_by = tap.buyer() AND reserved_until = now() + interval '5 minutes'
+     FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000112'),
+  'H6 (R2b) ...the cross-listing release did NOT release the buyer''s PAID live hold');
+SELECT ok(
+  (SELECT status = 'active' AND reserved_by IS NULL AND reserved_until IS NULL
+     FROM public.listings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000115'),
+  'H7 ...but it did release the buyer''s UNPAID live hold (one live reservation per buyer still holds)');
+SELECT tap.logout();
+SELECT tap.login(tap.other_user());
+SELECT throws_ok(
+  $$ SELECT public.reserve_buy_now('aaaaaaaa-0000-0000-0000-000000000112', tap.other_user(), 10) $$,
+  'P0001', 'This listing has already been sold.',
+  'H8 (R2c) another buyer cannot take the paid hold either');
+SELECT tap.logout();
+SELECT ok(
+  (SELECT p.prosrc ~ 'WHERE id = p_listing_id OR \(reserved_by = v_caller_id AND status = ''reserved''\)\s+ORDER BY id\s+FOR UPDATE'
+     FROM pg_proc p WHERE p.oid = 'public.reserve_buy_now(uuid,uuid,integer)'::regprocedure),
+  'H9 (MINOR-5) reserve_buy_now takes all its row locks in ONE fixed-order statement (ORDER BY id FOR UPDATE) before any write');
 
 SELECT * FROM finish();
 ROLLBACK;

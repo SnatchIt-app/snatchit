@@ -10,6 +10,15 @@
  *   * A refused buyer's stale `pending` PaymentIntent is cancelled at Stripe
  *     and its row marked `failed` (explicit expired/superseded handling).
  *   * The legitimate holder still gets the byte-compatible 200 response.
+ * Review round 1 (ported reproductions X1/X2/X3 + sold-in-fact):
+ *   * MAJOR-1c: a succeeded payment by ANOTHER buyer means the listing is sold
+ *     in fact — 409 'already sold' in both branches, before any mint.
+ *   * MAJOR-2: EVERY refusal path (incl. the shipped-client 400 'not reserved
+ *     for purchase' and the sold path) retires the refused buyer's stale PI.
+ *   * MAJOR-3: minting or reusing for the entitled buyer cancels every OTHER
+ *     buyer's pending PI on the listing (best-effort, never fails the request).
+ *   * MINOR-4: a reused PI whose Stripe amount/currency disagrees with the
+ *     current server total is cancelled, its row retired, and a fresh PI minted.
  * Every DB query and Stripe call the handler makes is recorded by the mocks
  * and asserted on exactly — no network, no database, no real key.
  */
@@ -44,7 +53,15 @@ function listing(over: Partial<ListingRow> = {}): ListingRow {
 
 interface PaymentRow { id: string; stripe_payment_intent_id: string; status: string; listing_id: string; buyer_id: string; mode: string }
 
-async function scenario(opts: { listing: ListingRow; user: string; payments?: PaymentRow[]; piStatus?: string }) {
+interface ScenarioOpts {
+  listing: ListingRow; user: string; payments?: PaymentRow[]; piStatus?: string;
+  /** overrides for GET /payment_intents/:id (amount/currency default to the fixture's 22000 usd) */
+  existingPi?: Record<string, unknown>;
+  /** make POST /payment_intents/:id/cancel fail (Stripe refuses, e.g. PI already processing) */
+  cancelRefused?: boolean;
+}
+
+async function scenario(opts: ScenarioOpts) {
   const payments = opts.payments ?? [];
   const sb = mockSupabase({
     user: { id: opts.user, email: `${opts.user}@example.test` },
@@ -55,7 +72,11 @@ async function scenario(opts: { listing: ListingRow; user: string; payments?: Pa
       payments: (q) => {
         if (q.op === 'select') {
           let rows = payments;
-          for (const f of q.filters) if (f[0] === 'eq') rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[f[1] as string] === f[2]);
+          for (const f of q.filters) {
+            const col = f[1] as string;
+            if (f[0] === 'eq')  rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[col] === f[2]);
+            if (f[0] === 'neq') rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[col] !== f[2]);
+          }
           return { data: q.terminal === 'list' ? rows : rows[0] ?? null };
         }
         return { data: null };
@@ -66,8 +87,11 @@ async function scenario(opts: { listing: ListingRow; user: string; payments?: Pa
     if (c.method === 'GET' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
     if (c.method === 'POST' && c.path === '/ephemeral_keys') return { ok: true, data: { secret: 'ek_test_secret' } };
     if (c.method === 'POST' && c.path === '/payment_intents') return { ok: true, data: { id: 'pi_new', client_secret: 'pi_new_secret', status: 'requires_payment_method', livemode: false } };
-    if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) return { ok: true, data: { id: c.path.split('/')[2], status: opts.piStatus ?? 'requires_payment_method', client_secret: 'pi_old_secret' } };
-    if (c.method === 'POST' && c.path.endsWith('/cancel')) return { ok: true, data: { id: c.path.split('/')[2], status: 'canceled' } };
+    if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) return { ok: true, data: { id: c.path.split('/')[2], status: opts.piStatus ?? 'requires_payment_method', client_secret: 'pi_old_secret', amount: 22000, currency: 'usd', ...(opts.existingPi ?? {}) } };
+    if (c.method === 'POST' && c.path.endsWith('/cancel')) {
+      if (opts.cancelRefused) return { ok: false, status: 400, data: { error: { code: 'payment_intent_unexpected_state', message: 'This PaymentIntent cannot be canceled because it has a status of processing.' } } };
+      return { ok: true, data: { id: c.path.split('/')[2], status: 'canceled' } };
+    }
     return { ok: false, status: 404, data: { error: { message: `unmocked ${c.method} ${c.path}` } } };
   });
   const edge = await loadEdgeHandler('supabase/functions/create-payment-intent/index.ts', {
@@ -83,6 +107,15 @@ async function scenario(opts: { listing: ListingRow; user: string; payments?: Pa
 }
 
 const paymentInserts = (qs: QueryCall[]) => qs.filter((q) => q.table === 'payments' && q.op === 'insert');
+const paymentSelects = (qs: QueryCall[]) => qs.filter((q) => q.table === 'payments' && q.op === 'select');
+const paymentUpdates = (qs: QueryCall[]) => qs.filter((q) => q.table === 'payments' && q.op === 'update');
+/** the retire-lookup for ONE buyer's pending rows: [listing, buyer, mode, status=pending] */
+const buyerPendingLookup = (qs: QueryCall[], buyer: string) => paymentSelects(qs).find((q) => q.filters.some((f) => f[0] === 'eq' && f[1] === 'buyer_id' && f[2] === buyer) && q.filters.some((f) => f[0] === 'eq' && f[1] === 'status' && f[2] === 'pending'));
+/** the MAJOR-3 lookup for every OTHER buyer's pending rows: [listing, buyer<>me, status=pending] */
+const otherPendingLookup = (qs: QueryCall[]) => paymentSelects(qs).find((q) => q.filters.some((f) => f[0] === 'neq' && f[1] === 'buyer_id'));
+/** the MAJOR-1c sold-in-fact lookup: [listing, status=succeeded] */
+const soldLookup = (qs: QueryCall[]) => paymentSelects(qs).find((q) => q.filters.some((f) => f[0] === 'eq' && f[1] === 'status' && f[2] === 'succeeded'));
+const stages = (logs: Array<{ args: unknown[] }>) => logs.map((l) => { try { return JSON.parse(String(l.args[0])) as { tag?: string; stage?: string }; } catch { return {}; } }).filter((o) => o.tag === 'cpi-stage').map((o) => o.stage);
 const piCreates = (cs: StripeCall[]) => cs.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
 const piCancels = (cs: StripeCall[]) => cs.filter((c) => c.method === 'POST' && c.path.endsWith('/cancel'));
 
@@ -111,7 +144,7 @@ describe('create-payment-intent — Buy-Now reservation authority', () => {
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
 
     // Exactly this buyer's pending row for this (listing, mode) is looked up ...
-    const lookup = s.sb.queries.find((q) => q.table === 'payments' && q.op === 'select');
+    const lookup = buyerPendingLookup(s.sb.queries, HOLDER);
     expect(lookup?.filters).toEqual([['eq', 'listing_id', LISTING], ['eq', 'buyer_id', HOLDER], ['eq', 'mode', 'buy_now'], ['eq', 'status', 'pending']]);
     // ... its PaymentIntent is cancelled at Stripe ...
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_stale/cancel']);
@@ -177,7 +210,7 @@ describe('create-payment-intent — auction branch', () => {
     expect(String(body.error)).toMatch(/already sold/i);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_stale_a/cancel']);
-    const lookup = s.sb.queries.find((q) => q.table === 'payments' && q.op === 'select');
+    const lookup = buyerPendingLookup(s.sb.queries, HOLDER);
     expect(lookup?.filters).toEqual([['eq', 'listing_id', LISTING], ['eq', 'buyer_id', HOLDER], ['eq', 'mode', 'auction'], ['eq', 'status', 'pending']]);
     const retire = s.sb.queries.find((q) => q.table === 'payments' && q.op === 'update');
     expect(retire?.body).toEqual({ status: 'failed' });
@@ -207,5 +240,161 @@ describe('create-payment-intent — auction branch', () => {
     expect(res.status).toBe(400);
     expect(String(body.error)).toMatch(/not the (auction )?winner/i);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
+  });
+});
+
+// ── Review round 1: ported reproductions ─────────────────────────────────────
+describe('create-payment-intent — sold in fact (MAJOR-1c): a succeeded payment by ANOTHER buyer', () => {
+  const otherPaid: PaymentRow = { id: 'pay_other_ok', stripe_payment_intent_id: 'pi_other_ok', status: 'succeeded', listing_id: LISTING, buyer_id: OTHER, mode: 'buy_now' };
+
+  it('Buy-Now: the LIVE holder is refused 409 "already sold" before any mint; its own stale pending PI is retired', async () => {
+    const mine: PaymentRow = { id: 'pay_mine', stripe_payment_intent_id: 'pi_mine', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'buy_now' };
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [otherPaid, mine] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(409);
+    expect(String(body.error)).toMatch(/already sold/i);
+    expect(soldLookup(s.sb.queries)?.filters).toEqual([['eq', 'listing_id', LISTING], ['eq', 'status', 'succeeded']]);
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_mine/cancel']);
+    expect(paymentUpdates(s.sb.queries).map((q) => [q.body, q.filters])).toEqual([[{ status: 'failed' }, [['eq', 'id', 'pay_mine'], ['eq', 'status', 'pending']]]]);
+  });
+
+  it('auction: the entitled winner is refused 409 "already sold" when a buy_now payment by another buyer succeeded (NOTE-7, money wins)', async () => {
+    const mine: PaymentRow = { id: 'pay_win', stripe_payment_intent_id: 'pi_win', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'auction' };
+    const s = await scenario({ listing: listing({ status: 'active', auction_status: 'ended', winner_user_id: HOLDER, winning_bid_amount: 150 }), user: HOLDER, payments: [otherPaid, mine] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'auction' });
+    expect(res.status).toBe(409);
+    expect(String(body.error)).toMatch(/already sold/i);
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_win/cancel']);
+  });
+
+  it('control: the buyer\'s OWN succeeded payment is not "sold to another" — the unchanged 400 "already completed" answers, nothing is cancelled', async () => {
+    const minePaid: PaymentRow = { ...otherPaid, id: 'pay_mine_ok', stripe_payment_intent_id: 'pi_mine_ok', buyer_id: HOLDER };
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [minePaid] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(400);
+    expect(String(body.error)).toMatch(/already completed/i);
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(piCancels(s.stripe.calls)).toHaveLength(0);
+  });
+});
+
+describe('create-payment-intent — every refusal retires the stale PI (MAJOR-2)', () => {
+  it('X1: after the cron sweep (status=active) the lapsed holder\'s stale pending PI is still cancelled — message/status unchanged for shipped clients', async () => {
+    const stale: PaymentRow = { id: 'pay_stale', stripe_payment_intent_id: 'pi_stale', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'buy_now' };
+    const s = await scenario({ listing: listing({ status: 'active', reserved_by: null, reserved_until: null }), user: HOLDER, payments: [stale] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(400);
+    expect(String(body.error)).toBe('Listing is not reserved for purchase');
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_stale/cancel']);
+    const retire = paymentUpdates(s.sb.queries)[0];
+    expect(retire?.body).toEqual({ status: 'failed' });
+    expect(retire?.filters).toEqual([['eq', 'id', 'pay_stale'], ['eq', 'status', 'pending']]);
+  });
+
+  it('X1b: Buy-Now on a SOLD listing is refused 409 "already sold" and the stale pending PI is cancelled', async () => {
+    const stale: PaymentRow = { id: 'pay_stale', stripe_payment_intent_id: 'pi_stale', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'buy_now' };
+    const s = await scenario({ listing: listing({ status: 'sold', auction_status: 'sold' }), user: HOLDER, payments: [stale] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(409);
+    expect(String(body.error)).toMatch(/already sold/i);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_stale/cancel']);
+  });
+});
+
+describe('create-payment-intent — reuse binds the amount (MINOR-4)', () => {
+  const pending: PaymentRow = { id: 'pay_p', stripe_payment_intent_id: 'pi_old', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'buy_now' };
+  const repriced = () => listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture(), buy_now_price: 300 }); // PI was minted at 22000
+
+  it('X2: amount mismatch ⇒ the old PI is cancelled, its row retired, and a FRESH PI minted under a salted key', async () => {
+    const s = await scenario({ listing: repriced(), user: HOLDER, payments: [pending], existingPi: { amount: 22000 } });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_new_secret', paymentIntentId: 'pi_new', total: 33000 });
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_old/cancel']);
+    const retire = paymentUpdates(s.sb.queries)[0];
+    expect(retire?.body).toEqual({ status: 'failed' });
+    expect(retire?.filters).toEqual([['eq', 'id', 'pay_p'], ['eq', 'status', 'pending']]);
+    const create = piCreates(s.stripe.calls);
+    expect(create).toHaveLength(1);
+    expect(create[0].body).toMatchObject({ amount: '33000', currency: 'usd' });
+    expect(create[0].idempotencyKey).toBe(`pi_${LISTING}_${HOLDER}_buy_now_33000_c${CUSTOMER}_r1`);
+    expect(stages(s.edge.logs)).toContain('reuse-rejected-amount-mismatch');
+  });
+
+  it('X2b: currency mismatch is rejected the same way', async () => {
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [pending], existingPi: { amount: 22000, currency: 'eur' } });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_new_secret', total: 22000 });
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_old/cancel']);
+    expect(piCreates(s.stripe.calls)).toHaveLength(1);
+  });
+
+  it('X2c: a matching pending PI is still reused as before (no cancel, no mint)', async () => {
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [pending] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_old_secret', paymentIntentId: 'pi_old', total: 22000 });
+    expect(piCancels(s.stripe.calls)).toHaveLength(0);
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
+  });
+
+  it('X2d: if Stripe refuses to cancel the mismatched PI, no second PI is minted and the row stays pending (409 price changed)', async () => {
+    const s = await scenario({ listing: repriced(), user: HOLDER, payments: [pending], existingPi: { amount: 22000 }, cancelRefused: true });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(String(body.error)).toMatch(/price changed/i);
+    expect(body.server_total_cents).toBe(33000);
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
+    expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+  });
+});
+
+describe('create-payment-intent — minting for the entitled buyer retires OTHER buyers\' pending PIs (MAJOR-3)', () => {
+  const otherPending: PaymentRow = { id: 'pay_other', stripe_payment_intent_id: 'pi_other', status: 'pending', listing_id: LISTING, buyer_id: OTHER, mode: 'buy_now' };
+
+  it('X3: Buy-Now mint for the live holder cancels the other buyer\'s pending PI and marks that row failed', async () => {
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [otherPending] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_new_secret' });
+    expect(piCreates(s.stripe.calls)).toHaveLength(1);
+    expect(otherPendingLookup(s.sb.queries)?.filters).toEqual([['eq', 'listing_id', LISTING], ['neq', 'buyer_id', HOLDER], ['eq', 'status', 'pending']]);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
+    expect(paymentUpdates(s.sb.queries).map((q) => [q.body, q.filters])).toEqual([[{ status: 'failed' }, [['eq', 'id', 'pay_other'], ['eq', 'status', 'pending']]]]);
+    expect(stages(s.edge.logs)).toContain('other-buyer-pending-retired');
+  });
+
+  it('X3b: the auction winner\'s mint (lapsed foreign hold) cancels that lapsed holder\'s pending Buy-Now PI — cross-mode, no mode filter', async () => {
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: OTHER, reserved_until: inPast(), auction_status: 'ended', winner_user_id: HOLDER, winning_bid_amount: 150 }), user: HOLDER, payments: [otherPending] });
+    const { res } = await s.run({ listing_id: LISTING, mode: 'auction' });
+    expect(res.status).toBe(200);
+    expect(piCreates(s.stripe.calls)).toHaveLength(1);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
+  });
+
+  it('X3c: the REUSE path also retires the other buyer\'s pending PI', async () => {
+    const mine: PaymentRow = { id: 'pay_p', stripe_payment_intent_id: 'pi_old', status: 'pending', listing_id: LISTING, buyer_id: HOLDER, mode: 'buy_now' };
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [mine, otherPending] });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_old_secret' });
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
+  });
+
+  it('X3d: a refused cancel never fails the request and never marks the other row failed', async () => {
+    const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [otherPending], cancelRefused: true });
+    const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ clientSecret: 'pi_new_secret' });
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
+    expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
   });
 });
