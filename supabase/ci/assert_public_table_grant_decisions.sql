@@ -163,6 +163,11 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   ('transfer_notifications',       'no-client-access'),
   -- webhook_retries is the table this whole assertion exists because of.
   ('webhook_retries',              'no-client-access'),
+  -- 20260906120000 (Package 3): payout attempt ledger, append-only refund
+  -- facts, account-deletion phase ledger. All service_role only.
+  ('account_deletions',            'no-client-access'),
+  ('payment_refunds',              'no-client-access'),
+  ('payout_attempts',              'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -324,6 +329,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- ── no-client-execute ────────────────────────────────────────────────────
   -- Trigger functions, cron/maintenance entry points, and service-role-only
   -- money and webhook internals. Nothing a browser may call.
+  ('account_deletion_blockers(uuid)',                                'no-client-execute'),
   ('admin_release_held_payout(uuid, uuid, text)',                    'no-client-execute'),
   ('admin_resolve_dispute(uuid, text, uuid)',                        'no-client-execute'),
   ('apply_auto_release(uuid)',                                       'no-client-execute'),
@@ -331,6 +337,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('apply_payout_hold(uuid, timestamp with time zone, text, text[])','no-client-execute'),
   ('auto_finalize_expired_auctions()',                               'no-client-execute'),
   ('check_rate_limit(uuid, text, integer, integer)',                 'no-client-execute'),
+  ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),
   ('complete_stripe_webhook_event(text)',                            'no-client-execute'),
@@ -341,6 +348,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('enforce_transfer_expiry()',                                      'no-client-execute'),
   ('enqueue_notification(uuid, text, text, text, text, text, jsonb)','no-client-execute'),
   ('fail_stripe_webhook_event(text, text)',                          'no-client-execute'),
+  ('flag_payout_reversal_required(uuid, text, jsonb)',               'no-client-execute'),
   ('freeze_transfer_for_dispute(uuid)',                              'no-client-execute'),
   ('get_auto_release_candidates()',                                  'no-client-execute'),
   ('get_disputes_awaiting_refund()',                                 'no-client-execute'),
@@ -349,11 +357,14 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_listing_identity_columns()',                               'no-client-execute'),
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
   ('guard_listing_state_columns()',                                  'no-client-execute'),
+  ('guard_payment_transitions()',                                    'no-client-execute'),
+  ('guard_payout_attempt_columns()',                                 'no-client-execute'),
   ('guard_proof_status()',                                           'no-client-execute'),
   ('guard_transfer_state_columns()',                                 'no-client-execute'),
   ('handle_new_user()',                                              'no-client-execute'),
   ('handle_new_user_notification_prefs()',                           'no-client-execute'),
   ('is_admin()',                                                     'no-client-execute'),
+  ('mark_payout_requested(uuid)',                                    'no-client-execute'),
   ('mark_transfer_reversed(text)',                                   'no-client-execute'),
   ('notify_auction_won_inbox()',                                     'no-client-execute'),
   ('notify_bid_inbox()',                                             'no-client-execute'),
@@ -363,10 +374,15 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('notify_transfer_created_inbox()',                                'no-client-execute'),
   ('notify_transfer_event()',                                        'no-client-execute'),
   ('notify_transfer_state_inbox()',                                  'no-client-execute'),
+  ('payment_refunds_append_only()',                                  'no-client-execute'),
+  ('reconcile_payout_attempt(uuid, text)',                           'no-client-execute'),
+  ('record_payment_refund(text, text, text, integer, text)',         'no-client-execute'),
+  ('record_payout_attempt_result(uuid, text, text, jsonb)',          'no-client-execute'),
   ('record_transfer_payout(uuid, text)',                             'no-client-execute'),
   ('refresh_all_seller_risk_scores()',                               'no-client-execute'),
   ('refresh_seller_risk_score(uuid)',                                'no-client-execute'),
   ('request_is_service_role()',                                      'no-client-execute'),
+  ('reset_payment_guard_bypass()',                                   'no-client-execute'),
   ('reset_transfer_guard_bypass()',                                  'no-client-execute'),
   ('resolve_transfer_dispute(uuid, text, uuid, text, text)',         'no-client-execute'),
   ('set_updated_at()',                                               'no-client-execute'),
