@@ -77,7 +77,7 @@ bash "$ROOT/scripts/local/runtests.sh" "$DB" "$@" 2>&1 | tee "$OUT"
 #                            its own name. DB-NAME ARTIFACT, NOT SCHEMA DRIFT —
 #                            the schedule, username, active flag and the exact
 #                            command bytes/md5 all match.
-known_notok() { case "$1" in 060_payments_money.sql) echo 2 ;; 132_replay_parity.sql) echo 2 ;; *) echo 0 ;; esac; }
+known_notok() { case "$1" in 132_replay_parity.sql) echo 2 ;; *) echo 0 ;; esac; }   # 060's F-2/F-3 todo() markers became real assertions in 20260906120000 (Package 3)
 
 echo
 echo "=============================================================="

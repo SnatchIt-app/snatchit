@@ -15,6 +15,7 @@ describe('edge-vm harness', () => {
     const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
       supabase: sb,
       env: { STRIPE_WEBHOOK_SECRET: SECRET, SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }) },
     });
     const bad = new Request('https://edge.test/stripe-webhook', { method: 'POST', body: '{}', headers: { 'stripe-signature': 't=1,v1=00' } });
     const res = await edge.handler(bad);
@@ -27,6 +28,7 @@ describe('edge-vm harness', () => {
     const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
       supabase: sb,
       env: { STRIPE_WEBHOOK_SECRET: SECRET, SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }) },
     });
     const res = await edge.handler(signedStripeWebhookRequest(SECRET, { id: 'evt_1', type: 'some.unhandled.event', data: { object: {} } }));
     expect(res.status).toBe(200);

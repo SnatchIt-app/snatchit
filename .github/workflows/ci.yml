@@ -199,10 +199,13 @@ jobs:
           # already existed. Until 072 is applied to production, the fresh replay
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
-          EXPECT_TABLES: 27
-          EXPECT_FUNCS: 72
+          # 2026-09-06 payments-reliability packages 1-3: tables 27->30 (payout_attempts,
+          # payment_refunds, account_deletions), functions 69->83 (+1 P1, +2 P2, +11 P3),
+          # triggers 24->28 (P3 guards). Every object is named in the package migrations.
+          EXPECT_TABLES: 30
+          EXPECT_FUNCS: 83
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 24
+          EXPECT_TRIGGERS: 28
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
