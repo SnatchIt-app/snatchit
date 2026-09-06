@@ -1,203 +1,176 @@
 /**
- * AUDIT 5 — deterministic simulation of the payout release protocol.
+ * AUDIT 5 (rewritten for the attempt protocol, PAYMENTS_RELIABILITY_2026-09
+ * Package 3) — deterministic simulation of the payout release protocol.
  *
  * WHAT THIS PROVES (and what it doesn't): Postgres and Stripe are separate
  * systems — there is NO cross-system atomicity, and these tests don't claim
- * any. Instead they verify the PROTOCOL the production code implements:
+ * any. They verify the PROTOCOL the production code implements, running the
+ * REAL _shared/payouts.ts (executePayoutAttempt) against:
  *
- *   1. Claim/transition guards are atomic per-row in Postgres (FOR UPDATE /
- *      conditional UPDATE ... WHERE). Modeled here as serialized state
- *      transitions with the exact same predicates as migration 039 +
- *      confirm_transfer_received (migration 002).
- *   2. Every money-moving path uses the SAME Stripe Idempotency-Key,
- *      `payout_<transfer_id>` — so even when two paths reach Stripe, Stripe
- *      materializes ONE Transfer object.
- *   3. Recovery when Stripe succeeds but the DB write fails: nothing is
- *      recorded, the row stays claimed-but-unpaid, and the Phase 2b sweep
- *      retries with the same key — replay, not double-pay.
+ *   1. AttemptLedger — the payout_attempts RPC predicates of migration
+ *      20260906120000 (claim with lease + frozen params, one open attempt,
+ *      state only advances, a transfer Stripe reports is ALWAYS recorded)
+ *      plus the pre-existing transfer state machine (039 apply_auto_release,
+ *      002 confirm_transfer_received, 056a freeze, 065 seller-win).
+ *   2. StripeTransfersMock — real Idempotency-Key semantics INCLUDING the
+ *      24h key expiry that made the old `payout_<id>_<acct>_src` scheme
+ *      double-pay (F08), and transfer_group listing.
  *
- * Every interleaving asserted below must end with exactly ONE Stripe
- * Transfer and a consistent DB row.
+ * Every interleaving asserted below must end with exactly ONE real Stripe
+ * Transfer per obligation and a DB row that knows its id.
  */
 import { describe, expect, it } from 'vitest';
+import { mockStripe, type StripeCall } from './helpers/edge-vm';
+import { loadPayoutsModule } from './helpers/payouts-vm';
+import { AttemptLedger, HOUR, LEASE_MS, StripeTransfersMock } from './helpers/payout-protocol';
 
-// ── Stripe mock with real idempotency-key semantics ─────────────────────────
-class StripeMock {
-  private byKey = new Map<string, { id: string }>();
-  created = 0;
-  /** timeoutAfterCreate: request "times out" client-side AFTER Stripe created the transfer. */
-  createTransfer(idempotencyKey: string, opts: { timeoutAfterCreate?: boolean } = {}): { id: string } {
-    let obj = this.byKey.get(idempotencyKey);
-    if (!obj) {
-      obj = { id: `tr_${this.created + 1}` };
-      this.byKey.set(idempotencyKey, obj);
-      this.created += 1;
-    }
-    if (opts.timeoutAfterCreate) throw new Error('network timeout');
-    return obj;
-  }
+const CRON  = { transferId: 't1', paymentId: 'p1', sellerId: 'seller-1', actor: 'cron:enforce-transfer-expiry' };
+const BUYER = { transferId: 't1', paymentId: 'p1', sellerId: 'seller-1', actor: 'edge:confirm-and-release' };
+
+function world(opts: { onStripe?: (c: StripeCall) => void } = {}) {
+  const ledger = new AttemptLedger();
+  const stripe = new StripeTransfersMock();
+  const transport = mockStripe(async (c) => { const r = await stripe.route(c); opts.onStripe?.(c); return r; });
+  const payouts = loadPayoutsModule(transport);
+  const pay = (args = CRON) => payouts.executePayoutAttempt({ rpc: ledger.rpc }, args);
+  const row = () => ledger.transfers.get('t1')!;
+  return { ledger, stripe, transport, pay, row };
 }
 
-// ── Transfer row + the exact production guards ──────────────────────────────
-interface Row {
-  status: 'pending' | 'seller_sent' | 'buyer_confirmed' | 'auto_released' | 'disputed';
-  payout_released_at: string | null;
-  stripe_transfer_id: string | null;
-  disputed_at: string | null;
-  payout_review_status: 'held' | 'manual_review' | null;
-}
-
-const freshRow = (): Row => ({
-  status: 'seller_sent',
-  payout_released_at: null,
-  stripe_transfer_id: null,
-  disputed_at: null,
-  payout_review_status: null,
-});
-
-// migration 039 apply_auto_release(): WHERE status='seller_sent' AND
-// payout_released_at IS NULL AND review IS DISTINCT FROM 'manual_review'
-function applyAutoRelease(row: Row): boolean {
-  if (row.status !== 'seller_sent' || row.payout_released_at !== null ||
-      row.payout_review_status === 'manual_review') return false;
-  row.status = 'auto_released';
-  row.payout_review_status = null;
-  return true;
-}
-
-// migration 002 confirm_transfer_received(): seller_sent → buyer_confirmed
-function confirmTransferReceived(row: Row): boolean {
-  if (row.status === 'buyer_confirmed') return true; // tolerated (idempotent)
-  if (row.status !== 'seller_sent') return false;
-  row.status = 'buyer_confirmed';
-  return true;
-}
-
-// migration 039 admin_release_held_payout(): seller_sent + unpaid only
-function adminRelease(row: Row): boolean {
-  if (row.status !== 'seller_sent' || row.payout_released_at !== null) return false;
-  row.status = 'auto_released';
-  row.payout_review_status = null;
-  return true;
-}
-
-// The shared money-mover (payReleasedTransfer / confirm-and-release step 8+):
-// final dispute recheck → Stripe with payout_<id> key → conditional persist.
-function payOut(
-  row: Row,
-  stripe: StripeMock,
-  transferId: string,
-  opts: { allowedStatuses: Row['status'][]; dbWriteFails?: boolean; stripeTimesOut?: boolean } ,
-): 'paid' | 'aborted' | 'stripe-error' | 'db-write-failed' {
-  // pre-payment recheck (as close to the money as possible)
-  if (row.stripe_transfer_id) return 'paid'; // already done
-  if (row.disputed_at !== null || !opts.allowedStatuses.includes(row.status)) return 'aborted';
-
-  let tr: { id: string };
-  try {
-    tr = stripe.createTransfer(`payout_${transferId}`, { timeoutAfterCreate: opts.stripeTimesOut });
-  } catch {
-    return 'stripe-error'; // nothing persisted; retry later replays the key
-  }
-
-  if (opts.dbWriteFails) return 'db-write-failed'; // Stripe moved money; row still unpaid
-
-  // atomic conditional persist (UPDATE ... WHERE stripe_transfer_id IS NULL)
-  if (row.stripe_transfer_id === null) {
-    row.stripe_transfer_id = tr.id;
-    row.payout_released_at = 'now';
-  }
-  return 'paid';
-}
-
-const CRON = { allowedStatuses: ['auto_released', 'buyer_confirmed'] as Row['status'][] };
-const BUYER = { allowedStatuses: ['buyer_confirmed'] as Row['status'][] };
-
-describe('payout race simulations (protocol model)', () => {
-  it('cron claim vs buyer confirmation — cron wins the row: buyer path cannot pay twice', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    expect(applyAutoRelease(row)).toBe(true);          // cron claims (row lock)
-    expect(confirmTransferReceived(row)).toBe(false);  // buyer RPC loses: not seller_sent
-    payOut(row, stripe, 't1', CRON);
-    expect(stripe.created).toBe(1);
-    expect(row.stripe_transfer_id).toBe('tr_1');
+describe('payout race simulations (attempt protocol)', () => {
+  it('cron claim vs buyer confirmation — cron wins the row: buyer path cannot pay twice', async () => {
+    const w = world(); w.ledger.seedReleasable();
+    expect(w.ledger.applyAutoRelease('t1')).toBe(true);           // cron claims (row lock)
+    expect(w.ledger.confirmTransferReceived('t1')).toBe(true);    // tolerated (auto_released ⊇ confirmed)
+    expect((await w.pay(CRON)).kind).toBe('succeeded');
+    expect((await w.pay(BUYER)).kind).toBe('already_released');
+    expect(w.stripe.created).toBe(1);
+    expect(w.row().stripe_transfer_id).toBe('tr_1');
   });
 
-  it('cron claim vs buyer confirmation — buyer wins the row: cron cannot claim', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    expect(confirmTransferReceived(row)).toBe(true);   // buyer confirms first
-    expect(applyAutoRelease(row)).toBe(false);         // cron claim fails
-    payOut(row, stripe, 't1', BUYER);
-    expect(stripe.created).toBe(1);
+  it('cron claim vs buyer confirmation — buyer wins the row: cron cannot claim', async () => {
+    const w = world(); w.ledger.seedReleasable();
+    expect(w.ledger.confirmTransferReceived('t1')).toBe(true);
+    expect(w.ledger.applyAutoRelease('t1')).toBe(false);
+    expect((await w.pay(BUYER)).kind).toBe('succeeded');
+    expect((await w.pay(CRON)).kind).toBe('already_released');
+    expect(w.stripe.created).toBe(1);
   });
 
-  it('both paths somehow reach Stripe → idempotency key still yields ONE transfer', () => {
-    // Even if a future refactor broke the state machine, the shared
-    // payout_<id> key is the last line of defense.
-    const row = freshRow(); const stripe = new StripeMock();
-    stripe.createTransfer('payout_t1');                // path A hits Stripe
-    stripe.createTransfer('payout_t1');                // path B hits Stripe
-    expect(stripe.created).toBe(1);
-    payOut(row, stripe, 't1', BUYER);                  // aborted (still seller_sent)
-    expect(stripe.created).toBe(1);
+  it('two releasers overlap in time: the second claim is refused while the first holds the lease', async () => {
+    const w = world({ onStripe: (c) => {
+      if (c.method === 'POST') expect(() => w.ledger.claim('t1', 'B')).toThrow('PAYOUT_ATTEMPT_IN_PROGRESS');
+    } });
+    w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    expect((await w.pay(CRON)).kind).toBe('succeeded');
+    expect(w.stripe.posts).toBe(1);
+    expect(w.ledger.attempts).toHaveLength(1);
   });
 
-  it('cron vs admin release racing — one claim wins, one payout', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    expect(applyAutoRelease(row)).toBe(true);
-    expect(adminRelease(row)).toBe(false);             // admin loses: not seller_sent
-    payOut(row, stripe, 't1', CRON);
-    payOut(row, stripe, 't1', CRON);                   // 2b sweep sees it again
-    expect(stripe.created).toBe(1);
+  it('cron vs admin release racing — one claim wins, one payout, sweep replays are no-ops', async () => {
+    const w = world(); w.ledger.seedReleasable();
+    expect(w.ledger.applyAutoRelease('t1')).toBe(true);
+    expect(w.ledger.applyAutoRelease('t1')).toBe(false);          // admin release loses: not seller_sent
+    expect((await w.pay()).kind).toBe('succeeded');
+    expect((await w.pay()).kind).toBe('already_released');        // 2b sweep sees it again
+    expect(w.stripe.created).toBe(1);
   });
 
-  it('Stripe succeeds, DB write fails → 2b sweep replays the key, no double pay', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    applyAutoRelease(row);
-    expect(payOut(row, stripe, 't1', { ...CRON, dbWriteFails: true })).toBe('db-write-failed');
-    expect(row.stripe_transfer_id).toBeNull();         // honest: DB doesn't know yet
-    expect(stripe.created).toBe(1);                    // money DID move once
-    // next cron run, Phase 2b picks up the auto_released+unpaid row:
-    expect(payOut(row, stripe, 't1', CRON)).toBe('paid');
-    expect(stripe.created).toBe(1);                    // replay, not a second transfer
-    expect(row.stripe_transfer_id).toBe('tr_1');
+  it('Stripe succeeds, DB record fails → the tr_ id is surfaced, the next sweep reconciles it, no double pay', async () => {
+    const w = world(); w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    w.ledger.failNext.set('record_payout_attempt_result', 'connection reset');
+    expect(await w.pay()).toMatchObject({ kind: 'db_error', stage: 'record', stripeTransferId: 'tr_1' });
+    expect(w.row().stripe_transfer_id).toBeNull();                // honest: DB doesn't know yet
+    expect(w.stripe.created).toBe(1);                             // money DID move once
+    w.ledger.advance(LEASE_MS + 1);
+    expect(await w.pay()).toMatchObject({ kind: 'reconciled', found: true });
+    expect(w.stripe.created).toBe(1);                             // reconcile, not a second transfer
+    expect(w.stripe.posts).toBe(1);
+    expect(w.row().stripe_transfer_id).toBe('tr_1');
   });
 
-  it('duplicate function invocation (two overlapping crons) → one transfer', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    const claimA = applyAutoRelease(row);
-    const claimB = applyAutoRelease(row);              // second invocation
+  it('duplicate function invocation (two overlapping crons) → one transfer', async () => {
+    const w = world(); w.ledger.seedReleasable();
+    const claimA = w.ledger.applyAutoRelease('t1');
+    const claimB = w.ledger.applyAutoRelease('t1');
     expect([claimA, claimB].filter(Boolean)).toHaveLength(1);
-    if (claimA) payOut(row, stripe, 't1', CRON);
-    if (claimB) payOut(row, stripe, 't1', CRON);
-    payOut(row, stripe, 't1', CRON);                   // both also sweep in 2b
-    expect(stripe.created).toBe(1);
+    await w.pay(); await w.pay(); await w.pay();                  // both runs + a 2b sweep
+    expect(w.stripe.created).toBe(1);
   });
 
-  it('retry after a network timeout where Stripe DID create the transfer → one transfer', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    applyAutoRelease(row);
-    expect(payOut(row, stripe, 't1', { ...CRON, stripeTimesOut: true })).toBe('stripe-error');
-    expect(row.stripe_transfer_id).toBeNull();
-    expect(stripe.created).toBe(1);                    // created despite the timeout
-    expect(payOut(row, stripe, 't1', CRON)).toBe('paid'); // retry replays the key
-    expect(stripe.created).toBe(1);
-    expect(row.stripe_transfer_id).toBe('tr_1');
+  it('network timeout where Stripe DID create the transfer → reconciled by transfer_group, one transfer', async () => {
+    const w = world(); w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    w.stripe.nextPostFault = { kind: 'lost_response' };
+    expect((await w.pay()).kind).toBe('unknown');
+    expect(w.row().stripe_transfer_id).toBeNull();
+    expect(w.stripe.created).toBe(1);
+    w.ledger.advance(LEASE_MS + 1);
+    expect(await w.pay()).toMatchObject({ kind: 'reconciled', found: true, stripeTransferId: 'tr_1' });
+    expect(w.stripe.created).toBe(1);
+    expect(w.stripe.posts).toBe(1);
+    expect(w.row().stripe_transfer_id).toBe('tr_1');
   });
 
-  it('a dispute arriving between claim and payment freezes the money', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    applyAutoRelease(row);
-    row.status = 'disputed'; row.disputed_at = 'now';  // chargeback webhook fires
-    expect(payOut(row, stripe, 't1', CRON)).toBe('aborted');
-    expect(stripe.created).toBe(0);
+  it('F08(d): retry AFTER Stripe forgot the idempotency key (>24h) → still one transfer', async () => {
+    const w = world(); w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    w.stripe.nextPostFault = { kind: 'lost_response' };
+    await w.pay();
+    w.ledger.advance(25 * HOUR); w.stripe.advance(25 * HOUR);
+    expect(await w.pay()).toMatchObject({ kind: 'reconciled', found: true });
+    expect(w.stripe.created).toBe(1);
+    expect(w.stripe.posts).toBe(1);
   });
 
-  it('a dispute before the buyer-confirm payment aborts it too', () => {
-    const row = freshRow(); const stripe = new StripeMock();
-    confirmTransferReceived(row);
-    row.disputed_at = 'now';                           // dispute recorded mid-flight
-    expect(payOut(row, stripe, 't1', BUYER)).toBe('aborted');
-    expect(stripe.created).toBe(0);
+  it('F08(e): destination changes during recovery → the attempt replays its frozen destination, one transfer', async () => {
+    const w = world(); w.ledger.seedReleasable({ destination: 'acct_A' }); w.ledger.applyAutoRelease('t1');
+    w.stripe.nextPostFault = { kind: 'lost_response' };
+    await w.pay();
+    w.ledger.profiles.set('seller-1', { stripe_connect_id: 'acct_B' });
+    w.ledger.advance(LEASE_MS + 1);
+    expect(await w.pay()).toMatchObject({ kind: 'reconciled', found: true });
+    expect(w.stripe.transfers.map((t) => t.destination)).toEqual(['acct_A']);
+  });
+
+  it('the OLD key-only scheme really did double-pay after 24h (the hazard the ledger replaces)', () => {
+    const stripe = new StripeTransfersMock();
+    const params = { amount: 9000, destination: 'acct_A', transfer_group: null, metadata: {} };
+    stripe.createTransfer('payout_t1_acct_A_src', params);
+    stripe.advance(25 * HOUR);
+    stripe.createTransfer('payout_t1_acct_A_src', params);        // "recovery" replay after key expiry
+    expect(stripe.created).toBe(2);                               // two real transfers — F08(d)
+  });
+
+  it('F07: a dispute arriving between claim and record → money recorded, attempt reversal_required, review row', async () => {
+    const w = world({ onStripe: (c) => { if (c.method === 'POST') w.ledger.freezeForDispute('t1'); } });
+    w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    expect((await w.pay()).kind).toBe('reversal_required');
+    expect(w.row().status).toBe('disputed');
+    expect(w.row().stripe_transfer_id).toBe('tr_1');
+    expect(w.ledger.decisions).toEqual([expect.objectContaining({ reason_codes: ['PAID_DURING_DISPUTE'] })]);
+    // seller-win resolution afterwards must NOT pay again (the §7 compounding path)
+    w.ledger.resolveSellerWin('t1');
+    expect((await w.pay()).kind).toBe('already_released');
+    expect(w.stripe.created).toBe(1);
+  });
+
+  it('a dispute BEFORE the claim aborts with no Stripe traffic (cron and buyer paths)', async () => {
+    const w = world(); w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    w.ledger.freezeForDispute('t1');
+    expect(await w.pay(CRON)).toMatchObject({ kind: 'not_eligible', reason: 'DISPUTED' });
+    expect(await w.pay(BUYER)).toMatchObject({ kind: 'not_eligible', reason: 'DISPUTED' });
+    expect(w.stripe.posts).toBe(0);
+    // seller-win reopens it; exactly one transfer follows
+    w.ledger.resolveSellerWin('t1');
+    expect((await w.pay(CRON)).kind).toBe('succeeded');
+    expect(w.stripe.created).toBe(1);
+  });
+
+  it('a refunded / non-live payment never reaches Stripe', async () => {
+    const w = world(); w.ledger.seedReleasable(); w.ledger.applyAutoRelease('t1');
+    w.ledger.payments.get('p1')!.status = 'refunded';
+    expect(await w.pay()).toMatchObject({ kind: 'not_eligible', reason: 'PAYMENT_NOT_SUCCEEDED' });
+    w.ledger.payments.get('p1')!.status = 'succeeded'; w.ledger.payments.get('p1')!.stripe_livemode = null;
+    expect(await w.pay()).toMatchObject({ kind: 'not_eligible', reason: 'PAYMENT_NOT_LIVE' });
+    expect(w.stripe.posts).toBe(0);
   });
 });
