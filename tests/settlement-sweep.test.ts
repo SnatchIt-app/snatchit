@@ -84,6 +84,8 @@ async function scenario(opts: {
       stripeFetch: stripe.stripeFetch,
       classifyPayoutStripeError, reasonCodeForErrorClass, shouldPageSentry,
       createSellerPayout: async () => ({ ok: false, error: 'not under test' }),
+      // Package 3 replaced the payout call with the attempt protocol; Phase 2/2b is not under test here.
+      executePayoutAttempt: async () => ({ ok: false, outcome: 'not_under_test' }),
       isCrossModeStripeError, rowIsLiveActionable,
       classifyPayout, DEFAULT_POLICY, PayoutCandidate: undefined, PayoutPolicyConfig: undefined,
     },

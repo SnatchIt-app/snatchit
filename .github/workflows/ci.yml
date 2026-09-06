@@ -331,9 +331,9 @@ jobs:
           # and nothing about it can be accidental.
           # Current truth, computed from the tree (see the OK line the gate
           # prints): 2 todo() calls masking 2 assertions, 0 skip(), 0 todo_start.
-          MASK_MAX_TODO_FAILURES=2      # runtime: '# Failed (TODO) test' lines in the TAP stream
+          MASK_MAX_TODO_FAILURES=0      # runtime: '# Failed (TODO) test' lines in the TAP stream
           MASK_MAX_TODO_CALLS=2         # static:  number of todo(...) call sites
-          MASK_MAX_MASKED_ASSERTIONS=2  # static:  SUM of how_many over all todo(...) calls
+          MASK_MAX_MASKED_ASSERTIONS=0  # static:  SUM of how_many over all todo(...) calls
           MASK_MAX_SKIP_CALLS=0         # static:  skip(...) call sites — banned
           MASK_MAX_TODO_BLOCKS=0        # static:  todo_start(/todo_end( — banned, unbounded by construction
           # >>> MASK-GATE-CONSTANTS-END

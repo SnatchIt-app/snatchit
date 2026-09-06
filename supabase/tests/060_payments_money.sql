@@ -55,7 +55,7 @@ SELECT throws_ok(
      VALUES (tap.listing_a(), tap.payment_d(), tap.seller(), tap.buyer(), 'email', now() + interval '1 day') $$,
   '23505', NULL, 'duplicate transfer for the same listing rejected (transfers_listing_id_key)');
 
--- ── F-2 / F-3 — formerly todo() markers, real assertions since 20260906120000 ─
+-- ── F-2 / F-3 — formerly deferred (masked) markers; real assertions since 20260906120000 ─
 -- F-2: transfers.stripe_transfer_id was not unique (056a: mark_transfer_reversed
 -- had to use "> 0"). transfers_stripe_transfer_id_uniq (partial, non-NULL)
 -- closes it; 122_payout_attempts.sql proves the 23505.

@@ -73,6 +73,8 @@ function harness(opts: { settle?: SettleStep[]; paymentsUpdate?: (q: unknown) =>
     supabase: sb,
     env: { STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_SECRET_KEY: 'sk_test_only', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
     fetch: fetchMock,
+    // Package 3 added a stripeFetchRaw import (charge.refunded branch); not exercised here.
+    provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }) },
   });
   const deliver = async (event: Record<string, unknown>) => {
     const edge = await load();
@@ -185,6 +187,7 @@ describe('stripe-webhook — payment_intent.succeeded settles through settle_ver
     const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
       supabase: sbEmpty,
       env: { STRIPE_WEBHOOK_SECRET: SECRET, SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }) },
     });
     const res = await edge.handler(signedStripeWebhookRequest(SECRET, piEvent('evt_empty', 'payment_intent.succeeded')));
     expect(res.status).toBe(500);
