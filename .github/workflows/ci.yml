@@ -332,7 +332,7 @@ jobs:
           # Current truth, computed from the tree (see the OK line the gate
           # prints): 2 todo() calls masking 2 assertions, 0 skip(), 0 todo_start.
           MASK_MAX_TODO_FAILURES=0      # runtime: '# Failed (TODO) test' lines in the TAP stream
-          MASK_MAX_TODO_CALLS=2         # static:  number of todo(...) call sites
+          MASK_MAX_TODO_CALLS=0         # static:  number of todo(...) call sites (ratcheted to 0 on 2026-09-06 — 060 F-2/F-3 are real assertions)
           MASK_MAX_MASKED_ASSERTIONS=0  # static:  SUM of how_many over all todo(...) calls
           MASK_MAX_SKIP_CALLS=0         # static:  skip(...) call sites — banned
           MASK_MAX_TODO_BLOCKS=0        # static:  todo_start(/todo_end( — banned, unbounded by construction
@@ -791,7 +791,9 @@ jobs:
           # These remain deliberately blunt textual checks: they would also fire
           # on the string "skip(" in a comment or an identifier. A false positive
           # is a cheap, obvious fix; a missed skip() is silent.
-          todo_src=$(grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          # `|| true` inside the pipeline: under `set -o pipefail` a zero-match grep
+          # (exit 1) would abort the step silently once the last todo() is gone.
+          todo_src=$( { grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null || true; } | wc -l | tr -d ' ')
           todo_src=${todo_src:-0}
           if [ "$todo_src" -gt "$MASK_MAX_TODO_CALLS" ]; then
             echo "::error::grep tripwire: $todo_src todo() calls in the suite, ratchet is $MASK_MAX_TODO_CALLS."
