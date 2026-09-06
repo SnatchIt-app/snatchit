@@ -182,8 +182,11 @@ export async function loadEdgeHandler(relPath: string, opts: LoadEdgeOptions): P
     const inner = m[0].replace(/^import\s*/, '').replace(/\s*from[\s\S]*$/, '');
     const braces = inner.match(/\{([\s\S]*)\}/);
     if (braces) {
+      const typeOnly = /^import\s+type\s/.test(m[0]);
       for (const part of braces[1].split(',')) {
-        const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()?.trim();
+        const trimmed = part.trim();
+        if (!trimmed || typeOnly || /^type\s/.test(trimmed)) continue; // erased at transpile time
+        const name = trimmed.split(/\s+as\s+/).pop()?.trim();
         if (name) needed.add(name);
       }
     }

@@ -30,7 +30,7 @@
 // =============================================================================
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { executePayoutAttempt } from '../_shared/payouts.ts';
 
@@ -104,7 +104,7 @@ async function getAuthenticatedUserId(req: Request): Promise<string> {
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
 
 async function checkRateLimit(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   userId: string,
   action: string,
   maxRequests: number,

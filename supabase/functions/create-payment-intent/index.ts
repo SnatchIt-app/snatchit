@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw, STRIPE_MOBILE_API_VERSION } from '../_shared/stripe.ts';
 import { feeBreakdown, dollarsToCents, totalMismatch } from '../_shared/money.ts';
@@ -29,7 +29,7 @@ function logStage(stage: string, detail: Record<string, unknown> = {}) {
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
 
 async function checkRateLimit(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   userId: string,
   action: string,
   maxRequests: number,
@@ -130,7 +130,7 @@ async function getAuthenticatedUser(req: Request): Promise<{ id: string; email: 
 // The returned object is consumed by the JSON response below and by
 // initPaymentSheet on the client (P1-03).
 async function ensureStripeCustomerAndEphemeralKey(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   userId: string,
   email: string | null,
 ): Promise<{ customerId: string; ephemeralKeySecret: string }> {
@@ -141,7 +141,7 @@ async function ensureStripeCustomerAndEphemeralKey(
     .eq('id', userId)
     .single();
 
-  let customerId = (profile?.stripe_customer_id as string | null) ?? null;
+  let customerId = ((profile as { stripe_customer_id?: string | null } | null)?.stripe_customer_id as string | null) ?? null;
 
   // ── (b) Verify the cached id still exists in Stripe (test-mode wipes,
   //         account migrations, etc. can leave stale rows). ─────────────────
@@ -226,7 +226,7 @@ async function ensureStripeCustomerAndEphemeralKey(
 type RetireScope = { kind: 'buyer'; mode: string } | { kind: 'other-buyers' };
 
 async function retirePendingIntents(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   listingId: string,
   buyerId: string,
   scope: RetireScope,
@@ -245,7 +245,7 @@ async function retirePendingIntents(
     console.warn(`${tag}: lookup failed (continuing):`, error.message);
     return;
   }
-  const rows = (data ?? []) as { id: string; stripe_payment_intent_id: string | null; buyer_id: string }[];
+  const rows = (data ?? []) as unknown as { id: string; stripe_payment_intent_id: string | null; buyer_id: string }[];
   for (const row of rows) {
     const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, tag);
     if (!canceled) continue;

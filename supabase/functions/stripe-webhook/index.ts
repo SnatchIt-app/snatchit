@@ -336,7 +336,7 @@ serve(async (req: Request) => {
           .eq('id', metadata.listing_id)
           .maybeSingle();
         const listingTitle = listing?.event_name || 'your listing';
-        const transferIdData = settled.transfer_id ? { transferId: String(settled.transfer_id) } : {};
+        const transferIdData: Record<string, string> = settled.transfer_id ? { transferId: String(settled.transfer_id) } : {};
 
         sendPush(
           metadata.buyer_id,
