@@ -8,10 +8,12 @@ admin/                      Next.js 16 app (Vercel project snatchit-admin, Root 
   src/lib/ops.ts            the only data path: ops.* RPCs with the founder's JWT
   src/lib/actions.ts        server actions → ops.execute_action / ops.approve_action
   scripts/                  Docker-free local harness (PostgREST + auth stub + fixtures)
-supabase/migrations/115..117_ops_console_*.sql   schema `ops` (tables, read API, automation)
-supabase/rollbacks/115..117_*                    mechanical reversals
-supabase/tests/181..183_*                        pgTAP (128 + 45 + 65 assertions)
-supabase/functions/ops-refund-execute/           refund executor (not deployed by this PR)
+supabase/migrations/115..118_ops_console_*.sql   schema `ops` (tables, read API, automation, corrections)
+supabase/migrations/119_listing_block_insert_guard.sql   public listing guard (Gate-2 +1 fn/+1 trigger)
+supabase/rollbacks/115..119_*                    mechanical reversals (rehearsal DBs only)
+supabase/tests/181..185_*                        pgTAP (128 + 45 + 65 + 90 + 24 assertions)
+supabase/functions/ops-refund-execute/           refund executor: handler.ts (Node-testable) + Deno index.ts (not deployed)
+tests/ops-refund-{handler,classify}.test.ts      root vitest, 105 handler/classifier cases
 docs/admin-console/                              this folder
 ```
 
@@ -62,10 +64,17 @@ with `select ops.run_all_detectors();`).
 cd admin && npm run typecheck && npm run lint && npm test && npm run build
 ./scripts/rehearsal_test.sh snatchit_rehearsal_admin supabase/tests/000_helpers.sql \
   supabase/tests/181_ops_console_foundation.sql supabase/tests/182_ops_console_read_api.sql \
-  supabase/tests/183_ops_console_automation.sql
+  supabase/tests/183_ops_console_automation.sql supabase/tests/184_ops_console_corrections.sql \
+  supabase/tests/185_listing_block_insert_guard.sql
+npm test -- tests/ops-refund-handler.test.ts tests/ops-refund-classify.test.ts   # repo root
+# exact production shape (110–114 omitted):
+REHEARSAL_UPTO=109_terminal_session_manifest_forceclose.sql ./scripts/rehearsal_reset.sh snatchit_rehears_prodpath
+# then apply the five 2026* files and 115→119 with psql, and rerun the tests above
 ```
-CI: job `Admin console (Next.js)` in `.github/workflows/ci.yml` (non-required);
-the `db` job's pgTAP step picks up 181–183 automatically.
+CI: job `Admin console (Next.js)` (non-required); the `db` job's pgTAP step picks
+up 181–185 automatically; the `deno-check` job type-checks `ops-refund-execute`;
+the root quality job runs the handler tests. What CI does NOT cover: real
+GoTrue MFA, real Storage signing, live Stripe (see FINAL_REPORT §4).
 
 ## Production / staging
 

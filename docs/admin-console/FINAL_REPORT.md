@@ -1,73 +1,57 @@
-# Operating console — final report (first release, 2026-09-06)
+# Operating console — final report (release candidate 2, 2026-09-07)
 
-Branch `admin/operating-console` (base `feature/venue-native-and-product-v2` @ aa74cc2 —
-the lineage production's migration chain is on; production ledger numeric tip **109**).
-Nothing in this branch has been applied to or deployed on production.
+Branch `admin/operating-console` → draft PR #55 (base
+`feature/venue-native-and-product-v2` @ aa74cc2, the lineage production's
+migration chain is on; production ledger numeric tip **109**, 124 rows,
+read-only verified 2026-09-07). Nothing in this branch has been applied to or
+deployed on production. Refund execution remains **disabled**.
 
-## 1. What works
+## 1. Independent review findings — status
 
-| Area | Delivered |
-|---|---|
-| Founder access | Individual accounts; `public.admin_users` ∪ `kernel.platform_role` via `kernel.is_platform()`; TOTP MFA enrol/verify in-app; every route needs `aal2` (proxy) and every RPC re-checks role + `aal2` server-side; non-operators land on `/denied`. No service-role key anywhere in the app. |
-| Search & investigation | `/search` over payment/transfer/listing/user ids, `pi_ tr_ re_ dp_`, exact email/phone, event name. `/orders` server-side filters + keyset pagination. `/orders/:paymentId` unified detail (payment, transfer, parties masked, disputes, resolutions, payout decisions, refund facts, evidence via signed URLs, seller-funds state) + merged chronological timeline. |
-| Exception queues & ownership | 14 case types detected every 5 min (pg_cron) with dedupe, auto-resolve and priority escalation; Today queue with All/Mine/Unassigned; cases with assign/status/priority/due/notes; optimistic versioning rejects conflicting founder edits. |
-| Verified interventions | Resolve dispute (`resolve_transfer_dispute`), release held payout (`admin_release_held_payout`, second-founder approval), relist listing (`admin_relist_listing`), report triage, block/unblock listing creation (`seller_risk_scores.is_listing_blocked`), manual case, run console job, settings — all through `ops.execute_action` with reason, idempotency key, expected-state check, durable action row and append-only audit. |
-| Money | `/money`: six defined metrics (definition/source/basis/currency on each tile), payouts table with explicit funds vocabulary (connected-account transfer ≠ bank payout, which is labelled *not tracked*), reconciliation queue of live mismatches. Refunds, disputes, transfers and captures are never conflated. |
-| Users & trust | `/users/:id` history, listings, orders, onboarding booleans (never the Connect id), reports, flags, risk score, restriction history. Contact data masked. No impersonation. |
-| Marketplace | Listings/auctions with filters and detail; reported-content queue; no price/fee editing; relist only for admin-owned never-transacted cancelled inventory (domain rule). |
-| System | Cron job health (with honest "not available" when `cron.job_run_details` is absent), console job runs/backoff/last success, webhook backlog, notify delivery counts, alerts, approvals inbox, settings (typed, audited), audit log, actions list, latest daily summary (portal-only). |
-| Automation | Detectors, metric snapshots and a daily summary as SQL jobs under `ops.run_job` (advisory-lock overlap guard, exception-isolated bodies, consecutive-failure backoff, durable `ops.job_run`), scheduled by two cron entries. Alerts dedupe (`ops.alert`) and recover. |
+| # | Finding | Status | Evidence |
+|---|---|---|---|
+| 1 | Deny sent `reject`; RPC accepts `approve\|deny` → denial failed | **Fixed** | `admin/src/lib/types.ts` `ApprovalDecision` + strict `parseApprovalDecision`; forms send `deny`; malformed → `invalid decision`, never approve. Verified through the real form in the browser: action `rejected/denied`, approval `denied` by the other founder, transfer untouched (no `payout_decisions` row), audit `approval.denied`; afterwards `executor_claim` → `wrong_type`, re-approve → `stale_state`, literal `reject` → `invalid_input`. pgTAP 184 §A; vitest `approval-decision.test.ts` drives `submitActionForm` with a recording fake. |
+| 2 | Founder evidence access had no storage authorization | **Fixed (DB + app); real Storage verification outstanding** | 118: storage policy `proof-docs operator read` (operator role + aal2 + path referenced by a transfer/listing) and `ops.evidence_access` (resolves path from the record, audits `evidence.viewed`). App never signs a caller-supplied path. pgTAP 184 §H: founder aal2 sees only referenced objects, aal1 sees none, unrelated user sees none, buyer/seller policies unchanged; test 132's production policy fixture updated (12 policies). Browser: button resolves + audits; signing fails on the harness (no Storage API) — see §4. |
+| 3 | Listing block was client-advisory | **Fixed** | 119: `public.guard_listing_seller_not_blocked()` BEFORE INSERT on `listings` (FOR SHARE against a concurrent block; service_role / no-context paths pass; INSERT only). Direct authenticated insert by a blocked seller → `listing_blocked`; relist path already refuses non-admin sellers; state columns already guarded. pgTAP 185 (24) incl. console `user_restrict` → insert refused → `user_unrestrict` → allowed. Gate-2 counters 70→71 / 26→27; SEC-2 decision recorded. |
+| 4A | Partial refunds mis-accounted | **Fixed by restriction + honest reporting** | Full refunds only: rejected in `ops.action_precheck` and `action_dispatch` (`not_supported`), in the handler (defence in depth), and the UI has no amount field. `refunded_volume` reports `value_cents: null`, `upper_bound_cents`, `certainty: uncertain` (local model stores refund status only; `charge.refunded` also fires for partials); the tile says "not available locally". Existing partial refunds from other routes remain indistinguishable locally — stated, not hidden. |
+| 4B | Refund objects classified as success regardless of status | **Fixed** | `classifyRefundObject` reads `status` (succeeded / pending / requires_action / failed / canceled / unknown); identity (payment_intent, amount, currency, `metadata.ops_action_id`) validated for created and adopted objects; `ops.executor_claim` re-checks enabled flag, pause, approval + hash and takes a lease; reconcile-before-retry via `GET /v1/refunds`; `ops.record_action_outcome` is monotonic and pins `provider_ref`; stale `processing` opens a case; webhook completion moves `succeeded_at_provider → succeeded`. 105 handler/classifier vitest cases; pgTAP 184 §C–F. |
+| 5 | Deno CI did not check the new endpoint; report overstated | **Fixed** | `ci.yml` deno-check now lists `ops-refund-execute/{classify,handler,index}.ts`; handler tests run in the root `npm test` (quality job). This report separates evidence classes (§2). |
+| 6 | Rollback plan dropped `ops` and restored the insecure portal | **Fixed** | `RUNBOOK.md` §5: non-destructive containment (pause switch `actions_enabled`, detector pause, in-flight action triage, PostgREST un-expose, known-safe authenticated build); destructive rollback confined to rehearsal DBs (§6); old portal explicitly never a fallback; §7 go-live now lives in the runbook; blast radius distinguishes definitions vs runtime writes. |
+| 7 | Proposed path 000→109 + 115→117 never rehearsed | **Rehearsed** | Isolated DB: `REHEARSAL_UPTO=109_…`, then the five timestamp files, then 115→119, 110–114 omitted (kernel `signing_key` at its 109 shape). pgTAP 181–185 pass there; reads, a mutation, `run_all_detectors` and metric snapshots work. Ledger procedure for 115–119 and the pending-by-design 110–114 in `RUNBOOK.md` §1. |
+| 8 | Real Supabase Auth not exercised | **Blocked locally — outstanding** | No Docker on this host; the only Supabase project is production (no staging). MFA/aal2 enforcement is verified at the database (pgTAP, `aal` claim) and in the proxy unit tests; browser flows ran against the auth stub. See §4 for the exact owner verification list. |
 
-## 2. What was verified (evidence in this session)
+## 2. Verification — by evidence class
 
-- **Fresh full-chain replay** (`scripts/rehearsal_reset.sh`, 000→117) → Gate-2 parity `tables=27 functions=70 policies=37 triggers=26` unchanged; complete pgTAP suite **4179 planned / 4175 ok**, the 4 not-ok being the documented local-only deltas in 060/132. New tests: `181` (128), `182` (45), `183` (65).
-- **Admin app**: `tsc` clean, `eslint` clean, vitest **59/59**, `next build` green. Root vitest `tests/ops-refund-classify.test.ts` **46/46**.
-- **Browser, against the local harness** (PostgREST + auth stub on the rehearsal DB, synthetic fixtures): password login → MFA enrol (QR) → verify → Today; returning founder → verify-only path; `support@example.test` (not in `admin_users`) → "Your account is not an operator"; case assign (status→in progress, v2); stale submission with the old version → rejected "version 2, you had 1"; founder A requests payout release → "awaiting a second operator's approval"; founder B approves from System → action `succeeded`, transfer `auto_released`, `payout_decisions` actor = requester, approval `approved` by B, `payout_review` case auto-resolved, audit rows written; report `pending → reviewing`.
-- **Direct authz probes through the gateway**: founder `ops.whoami()` 200; non-operator `42501`; anon on `admin_users` `42501`; `is_platform` true/false as expected.
-- **Duplicate-safety**: detectors run twice on 6,000 synthetic orders → 547 cases, zero duplicates (pgTAP 183 also pins this); same idempotency key twice → `idempotent_replay`, one action row (181).
-- **Performance** (local Postgres 17, 6,000 payments / 2,000 transfers / 6,000 listings, 547 open cases): `today` 56 ms (192 KB), `list_orders` 16 ms, filtered 13 ms, `search` 3 ms, `order_detail` 1 ms, `list_cases` 14 ms, `money_overview` 2 ms, full detector sweep 108 ms first run / 53 ms second. On the 13-payment fixture set every call is under 33 ms. These are single-node local numbers, not a production capacity claim.
+**Unit tests (no I/O).** `admin/`: 14 files, **89** vitest cases (proxy decisions, decision parser + real `submitActionForm` branch with a recording fake, evidence slot allowlist, labels, metric rendering, idempotency helper). Root: `tests/ops-refund-handler.test.ts` + `tests/ops-refund-classify.test.ts`, **105** cases.
 
-## 3. Reused vs replaced
+**Database integration (pgTAP on Homebrew PG 17 with the repo's rehearsal harness).** 181 (128), 182 (45), 183 (65), 184 (90), 185 (24) = **352** assertions for this package. Full suite on a fresh 000→119 replay and on the exact production shape (000→109, timestamps, 115→119): see the run tails in the PR description; Gate-2 parity `tables=27 functions=71 policies=37 triggers=27` matches `ci.yml`.
 
-**Reused (verified domain functions and infrastructure):** `public.resolve_transfer_dispute`, `public.admin_release_held_payout`, `public.admin_relist_listing`, `public.can_create_listing` + `seller_risk_scores.is_listing_blocked`, `kernel.is_platform`, `public.admin_users` bootstrap, Supabase Auth MFA, `pg_cron`, web app conventions (`@supabase/ssr` proxy/server clients, `getClaims`, env fail-fast, CSP), the migration/rollback/pgTAP/CI conventions, `_shared/stripe.ts` transport.
+**Handler tests with mocked external services.** `runRefundExecution` with fake DB/Stripe adapters: full success; partial refused; pending / requires_action / failed / canceled / unknown objects; duplicate and concurrent requests (one POST); crash before the provider call; provider success with a lost local write and recovery by list-adopt; mismatched adoption; disabled / paused / stale / missing approval; refused outcome after a terminal state treated as a no-op; secret redaction.
 
-**Replaced:** the separate `~/snatchit-admin` portal (service-role key in the Next server, `profiles.is_admin` as authority, unauthenticated `/`, `/users`, `/listings`, `/payments`, no MFA, "Total GMV" from succeeded sums, trust auto-flag code violating `seller_flags` CHECKs). Its useful ideas (payout review queue, dispute list, seller status) live on as detectors and detail panels.
+**Browser (local harness: PostgREST 16 + auth stub + synthetic fixtures, real migrations).** Login → TOTP enrol/verify → Today; non-operator → `/denied`; case assign + stale-version rejection; two-founder approval (approve) executed; **deny** executed through the real form (finding 1); pause via the settings form → banner + refused mutation → un-pause via the same form; evidence button → `ops.evidence_access` + `evidence.viewed` audit (signing fails: no Storage in the harness). Screenshots were not captured (standing project rule).
 
-**New:** schema `ops` (migrations 115–117), edge function `ops-refund-execute`, `admin/` app, local harness.
+**Real service integration.** **None.** No live Stripe, no real GoTrue MFA, no real Storage signing. These are the outstanding items in §4.
 
-## 4. Intentionally disabled / unsupported, with exact dependency
+**Production verification.** Read-only only: ledger tip 109 / 124 rows, `admin_users` = 1, `platform_role` = 0, verified MFA factors = 0, 11 storage policies, 7 refunded payments, `git_branch: ""` on the production branch record. Nothing changed.
 
-| Capability | State | Dependency |
-|---|---|---|
-| Execute refund | Requestable and approvable; execution **rejected as `disabled`** by `ops.action_precheck` | Deploy `supabase/functions/ops-refund-execute`, then flip `ops.setting.refund_execute_enabled` (audited `setting_set`). Until then: Stripe-Dashboard SOP. |
-| Stripe webhook replay | Not offered | Stripe Dashboard re-send is the only safe path; the console shows the stuck event and its error. |
-| Account suspension | Not offered | No backend mechanism exists; only listing-creation block is enforced (`can_create_listing`, checked by clients before insert — not by a DB insert guard). |
-| Support/risk roles | Wired in the role matrix, ungrantable | `kernel.grant_platform_role` fails closed pending owner signature on PFA-4. |
-| Email/SMS/push alerts | Summaries and alerts are portal-only | No delivery adapter is configured (`notify` dispatch parked; `notify-report` email off). |
-| Native-rail money actions (kernel refunds/payouts) | Not surfaced | Rails are dark (`feature.*` false); nothing to operate yet. |
+## 3. Reused vs replaced (unchanged from RC1)
 
-## 5. Remaining blockers / open items
+Reused: `resolve_transfer_dispute`, `admin_release_held_payout`, `admin_relist_listing`, `can_create_listing`, `kernel.is_platform`, `public.admin_users`, Supabase Auth MFA, `pg_cron`, web app conventions, `_shared/stripe.ts`. Replaced: the separate `~/snatchit-admin` portal. New: schema `ops` (115–118), listing guard (119), `ops-refund-execute` (not deployed), `admin/`, local harness.
 
-1. **Second founder not bootstrapped in production** (`admin_users` has one row) — approvals cannot complete until `FOUNDER_BOOTSTRAP.md` is executed for the second founder.
-2. **PostgREST exposed schemas** must include `ops` (owner dashboard step).
-3. **Migrations 110–114 are unapplied**; `supabase db push` would apply them together with 115–117. Use the SQL-editor path in `RUNBOOK.md` or decide deliberately.
-4. **Vercel `snatchit-admin`**: the automation token here lacks scope for that project; cut-over (root directory `admin`, env vars, deleting the service-role/`ADMIN_SECRET` vars) is an owner step.
-5. **Edge function not deployed** (by design for this PR); `deno check` could not run locally (Deno not installed) — CI's `deno-check` job covers it.
-6. Harness fidelity: no real GoTrue, no Stripe, cron/net inert — MFA enforcement is verified by pgTAP (`aal` claim) and the proxy unit tests, not against live GoTrue.
-7. Recommended indexes not added (justified only at scale): `payments(paid_at)`, `payments(refunded_at)`, `transfers(payout_released_at) where stripe_transfer_id is null`, `payments(stripe_refund_id)`, `transfers(stripe_transfer_id)`.
-8. Screenshots were not captured (standing project rule: text-only verification unless explicitly asked).
+## 4. Remaining real-service gaps and owner verification
 
-## 6. How to open and use
+1. **Real Supabase Auth**: first-founder TOTP enrolment, returning-founder challenge, session refresh/expiry, lower-assurance rejection, direct RPC without role/MFA — to be exercised by the founders on the deployed console (§7 of the runbook) or on a non-production Supabase project if one is created. Database-side enforcement is tested; the GoTrue side is not.
+2. **Real Storage**: a founder who is neither buyer nor seller opens referenced evidence; an unrelated user cannot; expired links stop working. The policy and RPC are tested at the database; the Storage API call is not.
+3. **Stripe**: nothing executes until `ops-refund-execute` is deployed and `refund_execute_enabled` is flipped; the handler is verified only against fake adapters. Refunds must remain disabled until an owner-approved test-mode exercise of the deployed function has been done.
+4. **Vercel `snatchit-admin`** cut-over (root `admin`, four public vars, delete the old privileged vars) — token here lacks scope.
+5. **Second founder** bootstrap and **`ops` in PostgREST exposed schemas** (owner dashboard steps).
+6. **`deno check` locally**: Deno is not installed on this host; the CI job covers it on the PR head.
 
-Local: `SETUP.md`. Production: `RUNBOOK.md` §1–3 then `FOUNDER_BOOTSTRAP.md`; day-to-day: `OPERATING_GUIDE.md`.
+## 5. Readiness
 
-## 7. Exact steps to go live (owner)
+- **Non-refund portal**: ready for owner-approved deployment after the runbook §0 checks, with items 1–2 above verified by the founders on first use (they are exercised by the very first sign-in and the first evidence click).
+- **Refunds**: **must remain disabled** (`refund_execute_enabled=false`, edge function not deployed). The console rejects refund requests up front; the executor refuses claims while disabled.
 
-1. Bootstrap the second founder (`FOUNDER_BOOTSTRAP.md`).
-2. Confirm auto-deploy is OFF in the Supabase dashboard; record the date in the PR.
-3. Apply 115, 116, 117 via the SQL editor (or `db push --include-all` if 110–114 are meant to go too); insert the three ledger rows; run the verification queries in `RUNBOOK.md` §1–2.
-4. Add `ops` to PostgREST exposed schemas.
-5. `select ops.run_all_detectors();` once by hand; check `ops.job_run`.
-6. Vercel: connect `snatchit-admin` to this repo, root `admin`, Node 22, the four public env vars, delete the old privileged vars; add the console origin to Supabase Auth redirect URLs.
-7. Sign in as each founder, enrol MFA, confirm Today renders and `/denied` renders for a non-admin.
-8. Later, optionally: deploy `ops-refund-execute`, then enable `refund_execute_enabled`.
+## 6. Exact owner actions to go live
+
+`RUNBOOK.md` §7 (bootstrap second founder → confirm auto-deploy OFF → apply 115→119 via SQL editor + ledger rows → expose `ops` → first detector run → Vercel cut-over → founder sign-in/MFA/denied check). Refund enablement is a separate, later decision (§4).
