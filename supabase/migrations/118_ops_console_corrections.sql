@@ -65,7 +65,11 @@ declare
   v_res   jsonb;
 begin
   perform ops.assert_reader();
-  perform ops.assert_actions_enabled();
+  -- The pause switch itself stays operable, so a founder can un-pause from
+  -- the console (platform_admin only; audited like every setting change).
+  if not (p_action_type = 'setting_set' and p_subject_ref = 'actions_enabled') then
+    perform ops.assert_actions_enabled();
+  end if;
   v_role := ops.actor_role();
 
   if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9._:-]{8,80}$' then
