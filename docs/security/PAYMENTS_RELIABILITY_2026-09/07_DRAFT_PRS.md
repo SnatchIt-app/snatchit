@@ -134,3 +134,13 @@ runs; merging PR #54 makes `main` describe production again. Still DO NOT MERGE 
 `deno-check` (eleven deployed entrypoints blocking; the seven never-deployed Phase-2 native edges are checked visibly
 but advisory until their first deploy) — all four jobs GREEN (2026-09-06). Migrations guard:
 fails ONLY on the `AUTODEPLOY-VERIFIED-OFF` placeholder, by design.
+
+
+## Round 3 head (2026-09-06/07)
+
+**Reviewed code commit:** `45ac1fe` (`release/payments-converged-rc` = PR #54 head). Code commits since the round-2
+head `972619f`: `e7d4fe3` (option B docs, client message, sandbox request, cancellation reconciliation), `5d82d93`
+(sandbox money switch, rollback archive + gates, mixed-version deploy order, harness), `45ac1fe` (import fix).
+**CI on 45ac1fe:** run 34069496428 — `db`, `web`, `quality`, `deno-check` all GREEN. Migrations guard: fails ONLY on
+the `AUTODEPLOY-VERIFIED-OFF` placeholder (owner fills in). Sandbox (real Stripe test mode): not run — blocked on the
+environment request (`11_SANDBOX_ENVIRONMENT_REQUEST.md` §3).
