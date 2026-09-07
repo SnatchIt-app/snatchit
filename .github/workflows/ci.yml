@@ -579,9 +579,9 @@ jobs:
           # FUNCS is unchanged: both new kernel functions live in `kernel`, and
           # this counter reads `public` only. The kernel census is 077 A14.
           EXPECT_TABLES: 27
-          EXPECT_FUNCS: 70
+          EXPECT_FUNCS: 71
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 26
+          EXPECT_TRIGGERS: 27
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -1437,11 +1437,14 @@ jobs:
             supabase/functions/credential-sign/credential.ts \
             supabase/functions/credential-sign/kms-taxonomy.ts \
             supabase/functions/door-manifest/pure.ts \
-            supabase/functions/door-session/pure.ts
+            supabase/functions/door-session/pure.ts \
+            supabase/functions/ops-refund-execute/classify.ts \
+            supabase/functions/ops-refund-execute/handler.ts
 
-      - name: deno check — edge entrypoints (credential-sign, door-manifest, door-session)
+      - name: deno check — edge entrypoints (credential-sign, door-manifest, door-session, ops-refund-execute)
         run: |
           deno check \
             supabase/functions/credential-sign/index.ts \
             supabase/functions/door-manifest/index.ts \
-            supabase/functions/door-session/index.ts
+            supabase/functions/door-session/index.ts \
+            supabase/functions/ops-refund-execute/index.ts

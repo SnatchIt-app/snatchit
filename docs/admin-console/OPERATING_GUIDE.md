@@ -77,10 +77,10 @@ authoritative outcome, never optimistic.
 |---|---|---|---|
 | Resolve dispute (seller win / buyer win / partial) | founder, risk | none | `resolve_transfer_dispute` records the decision. Seller win un-freezes the payout path. Buyer win/partial **does not move money** — a *Refund pending* case opens. |
 | Release held payout | founder | **second founder** | `admin_release_held_payout` marks the transfer released; the payout worker moves funds to the connected account on its next run. |
-| Execute refund | founder | **second founder** | `ops-refund-execute` calls Stripe with a stable idempotency key; outcome `succeeded at provider` until the webhook records the refund locally. **Disabled** until the function is deployed — the UI says so. |
+| Execute refund | founder | **second founder** | **Full refunds only** (the local money model records refund status, not amounts, so a partial refund would be reported as a full one; partial requests are rejected by the server). `ops-refund-execute` claims the action (re-checking the enabled flag, the console pause and the approval), reconciles any earlier attempt at Stripe before sending, then records the refund object's real state: `succeeded at provider` (awaiting the local webhook), `accepted, pending / requires action` (not success), `failed`, or `unknown` (needs reconciliation). **Disabled** until the function is deployed — the UI says so. |
 | Relist listing | founder | none | `admin_relist_listing` — only admin-owned, never-transacted cancelled inventory. |
 | Resolve report | any operator | none | Sets the report status. |
-| Block listing creation / unblock | any operator / founder, risk | none | Sets `seller_risk_scores.is_listing_blocked`; enforced by `can_create_listing()` which the apps call before creating a listing. Account suspension does not exist and is not offered. |
+| Block listing creation / unblock | any operator / founder, risk | none | Sets `seller_risk_scores.is_listing_blocked`; enforced **in the database** by a BEFORE INSERT guard on listings (migration 119) — a direct API insert by the blocked seller fails with `listing_blocked` — and mirrored by `can_create_listing()` for a friendly message in the apps. Existing listings, sign-in and purchases are untouched. Account suspension does not exist and is not offered. |
 | Retry console job | founder | none | Re-runs a detector immediately. |
 
 ### Two-founder approval
@@ -91,10 +91,24 @@ or denies with a reason. Approval is bound to those terms; if anything about the
 request changes, the approval is voided. You cannot approve your own request.
 Approvals expire after 72 hours.
 
+## Evidence
+
+"Open evidence" buttons resolve the file from the record itself (never from
+the page), require your operator role and MFA at the database, record an
+`evidence.viewed` audit row, and open a link that expires in five minutes.
+Buyers and sellers keep their own access; nobody else can read proof-docs.
+
+## Pausing the console
+
+System → Settings → `actions_enabled = false` stops every mutation (yours
+included) while search, queues and detail pages keep working. Use it during an
+incident before anything else; re-enable when done. `detectors_enabled = false`
+pauses the 5-minute detectors. Both are audited.
+
 ## Escalation
 
-Anything marked *unknown* (money moved at the provider but the local record did
-not update), any *Paid but not settled* older than an hour, and any
+Anything marked *unknown* (money may have moved at the provider but the local record did
+not update), any refund left *processing* for more than 30 minutes (a case opens automatically), any *Paid but not settled* older than an hour, and any
 *Reconciliation mismatch* go to engineering with the payment id and the action
 id from the page. Do not "fix" money state by hand in the SQL editor.
 

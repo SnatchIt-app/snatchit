@@ -120,7 +120,7 @@ SELECT ok(
            WHERE i ->> 'kind' = 'total_mismatch' AND (i ->> 'subject_id')::uuid = tap.payment_d()),
   'B30: reconciliation_queue surfaces total <> amount + buyer_fee');
 
-SELECT is(jsonb_array_length(ops.settings()), 8, 'B31: settings() lists the 8 seeded console settings for a platform_admin');
+SELECT is(jsonb_array_length(ops.settings()), 9, 'B31: settings() lists the 9 seeded console settings (8 from 115 + actions_enabled from 118) for a platform_admin');
 SELECT tap.logout();
 
 -- ── Section C — grants ──────────────────────────────────────────────────────
