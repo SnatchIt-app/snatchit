@@ -43,6 +43,8 @@ import {
   providerResult,
   refundMismatch,
   sanitizeErrorMessage,
+  checkModeConsistency,
+  type StripeKeyMode,
 } from './classify.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,8 +146,13 @@ export interface Deps {
   log: Logger;
   /** Optional pager (Sentry). Called for failed/unknown/unrecorded outcomes. Never awaited-throwing. */
   alert?: (event: string, message: string, ctx: Record<string, unknown>) => Promise<void> | void;
-  /** Optional live/test mode of the configured key; validated against claim.stripe_livemode when both exist. */
-  stripeKeyMode?: 'live' | 'test' | null;
+  /**
+   * Live/test mode of the configured Stripe key, as classified by
+   * `stripeKeyMode()`; null when the key is missing or malformed. REQUIRED:
+   * the handler refuses to contact Stripe unless this is 'live' or 'test' AND
+   * the claimed payment row carries a boolean stripe_livemode that agrees.
+   */
+  stripeKeyMode: 'live' | 'test' | null | undefined;
 }
 
 export interface Caller {
@@ -421,16 +428,31 @@ async function execute(
     return respond(actionId, o);
   }
 
-  if (deps.stripeKeyMode != null && typeof claim.stripe_livemode === 'boolean'
-      && (deps.stripeKeyMode === 'live') !== claim.stripe_livemode) {
+  // ── Mode guard: no Stripe call of any kind (not even the reconciliation
+  // list) without a recognised key mode AND a boolean payment mode that agree.
+  // Missing / unknown / malformed on either side is a refusal, not a pass.
+  const keyMode: StripeKeyMode | null =
+    deps.stripeKeyMode === 'live' || deps.stripeKeyMode === 'test' ? deps.stripeKeyMode : null;
+  const rowMode: boolean | null = typeof claim.stripe_livemode === 'boolean' ? claim.stripe_livemode : null;
+  const mode = checkModeConsistency(keyMode, rowMode);
+  if (!mode.ok) {
     const o: Outcome = {
       state: 'failed',
-      result: { mode_check: 'cross_mode' },
-      error: `payment row is ${claim.stripe_livemode ? 'live' : 'test'} but the configured Stripe key is ${deps.stripeKeyMode}`,
+      result: {
+        mode_check: mode.code,
+        key_mode: keyMode ?? 'unknown',
+        row_mode: rowMode === null ? 'unclassified' : rowMode ? 'live' : 'test',
+      },
+      error: mode.detail,
       providerRef: null,
-      message: 'live/test mode mismatch between the payment row and the Stripe key; nothing sent',
+      message: mode.code === 'cross_mode'
+        ? 'live/test mode mismatch between the payment row and the Stripe key; nothing sent'
+        : mode.code === 'key_mode_unknown'
+          ? 'the configured Stripe key mode is missing or unrecognised; nothing sent'
+          : 'the payment row has no live/test classification; nothing sent',
     };
-    await safeRecord(deps, actionId, o);
+    const rec = await safeRecord(deps, actionId, o);
+    log.error('ops-refund-execute.mode_guard', { ...ctx, code: mode.code, record: rec.status });
     await page(deps, 'ops-refund-execute:mode-guard', o.error!, ctx);
     return respond(actionId, o);
   }

@@ -88,7 +88,7 @@ paid_unsettled · transfer_deadline_soon (<6h) · transfer_overdue · release_st
 | Metric | Definition | Source | Basis |
 |---|---|---|---|
 | Gross captured volume | Σ `payments.total` where status ∈ (succeeded, refunded) | `public.payments` | `paid_at` UTC date, USD |
-| Refunded volume | Σ `payments.total` where status = refunded | `public.payments` | `refunded_at` UTC |
+| Refunded payments | **count** of payments with status = refunded; the **amount is not knowable locally** (`payments` stores status only; `charge.refunded` also fires for partial refunds) — surfaces report `value_cents: null`, an explicit `upper_bound_cents` = Σ `payments.total`, and `certainty: uncertain` (118 dashboard/snapshot, 120 daily summary + legacy normalisation) | `public.payments` | `refunded_at` UTC |
 | Platform fees (gross, pre-refund) | Σ `buyer_fee + seller_fee` on succeeded | `public.payments` | `paid_at` |
 | Seller funds released to connected account | count/Σ `payments.amount - seller_fee` where `transfers.stripe_transfer_id` not null | `public.transfers`+`payments` | `payout_released_at` |
 | Seller funds pending | transfers seller_sent/buyer_confirmed/auto_released without `stripe_transfer_id` | `public.transfers` | now |

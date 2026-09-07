@@ -40,6 +40,7 @@ const CLAIMED: ClaimedAction = {
   previously_sent: false,
   provider_ref: null,
   attempt: 1,
+  stripe_livemode: false,   // test row; every fixture pairs it with a 'test' key
 };
 
 function refund(over: Partial<StripeRefundObject> = {}): StripeRefundObject {
@@ -70,6 +71,7 @@ function fake(opts: FakeOptions = {}) {
   const logs: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
   const alerts: Array<{ event: string; message: string }> = [];
   const deps: Deps = {
+    stripeKeyMode: 'test',
     db: {
       async claim(actionId, lease) {
         calls.claim += 1;
@@ -528,19 +530,47 @@ describe('adoption identity — never mark success on a refund whose facts diffe
   });
 });
 
-describe('mode guard (optional claim field)', () => {
-  it('live key on a test row → failed 422, nothing sent', async () => {
-    const f = fake({ claim: { ...CLAIMED, stripe_livemode: false } });
+describe('mode guard — required on BOTH sides before any Stripe call (incl. the reconciliation list)', () => {
+  type Case = { name: string; keyMode: unknown; rowMode: unknown; code: string };
+  const invalid: Case[] = [
+    { name: 'missing key mode (undefined)', keyMode: undefined, rowMode: false, code: 'key_mode_unknown' },
+    { name: 'null key mode', keyMode: null, rowMode: false, code: 'key_mode_unknown' },
+    { name: 'malformed key mode', keyMode: 'sandbox', rowMode: false, code: 'key_mode_unknown' },
+    { name: 'missing payment mode (field absent)', keyMode: 'test', rowMode: undefined, code: 'row_mode_unclassified' },
+    { name: 'null payment mode', keyMode: 'test', rowMode: null, code: 'row_mode_unclassified' },
+    { name: 'malformed payment mode (string)', keyMode: 'test', rowMode: 'true', code: 'row_mode_unclassified' },
+    { name: 'live key on a test row', keyMode: 'live', rowMode: false, code: 'cross_mode' },
+    { name: 'test key on a live row', keyMode: 'test', rowMode: true, code: 'cross_mode' },
+  ];
+  for (const c of invalid) {
+    it(`${c.name} → failed 422, ZERO Stripe calls (create and list), failure recorded`, async () => {
+      const claim: Record<string, unknown> = { ...CLAIMED, previously_sent: true, attempt: 2 }; // would otherwise reconcile-first
+      if (c.rowMode === undefined) delete claim.stripe_livemode; else claim.stripe_livemode = c.rowMode;
+      const f = fake({ claim: claim as unknown as ClaimedAction });
+      (f.deps as unknown as { stripeKeyMode: unknown }).stripeKeyMode = c.keyMode;
+      const res = await runRefundExecution(INPUT, f.deps);
+      expect(res.http).toBe(422);
+      expect(f.calls.create).toHaveLength(0);
+      expect(f.calls.list).toBe(0);
+      expect(lastRecord(f.calls)).toMatchObject({ state: 'failed', result: { mode_check: c.code } });
+      expect(f.calls.record.filter((r) => r.state === 'processing')).toHaveLength(0);
+      assertNoSecrets(res.body, f.calls.record, f.logs, f.alerts);
+    });
+  }
+
+  it('valid live/live → proceeds to Stripe and succeeds', async () => {
+    const f = fake({ claim: { ...CLAIMED, stripe_livemode: true } });
     f.deps.stripeKeyMode = 'live';
     const res = await runRefundExecution(INPUT, f.deps);
-    expect(res.http).toBe(422);
-    expect(f.calls.create).toHaveLength(0);
-    expect(lastRecord(f.calls)).toMatchObject({ state: 'failed', result: { mode_check: 'cross_mode' } });
+    expect(res.http).toBe(200);
+    expect(f.calls.create).toHaveLength(1);
   });
 
-  it('no stripe_livemode in the claim → no mode check (SQL owns it)', async () => {
-    const f = fake();
-    f.deps.stripeKeyMode = 'live';
-    expect((await runRefundExecution(INPUT, f.deps)).http).toBe(200);
+  it('valid test/test → proceeds to Stripe and succeeds', async () => {
+    const f = fake({ claim: { ...CLAIMED, stripe_livemode: false } });
+    f.deps.stripeKeyMode = 'test';
+    const res = await runRefundExecution(INPUT, f.deps);
+    expect(res.http).toBe(200);
+    expect(f.calls.create).toHaveLength(1);
   });
 });

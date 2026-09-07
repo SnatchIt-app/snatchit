@@ -4,6 +4,7 @@ import { Money } from "@/components/ui/Money";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { humanize } from "@/lib/format";
 import { asRecords, isRecord, num, str, type DailySummary, type JsonRecord } from "@/lib/types";
+import { refundSummary, refundSummaryText } from "@/lib/summary-money";
 import type { ReactNode } from "react";
 
 function scalar(k: string, v: unknown): ReactNode {
@@ -77,7 +78,20 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
           items={[
             { key: "captured_cents", label: "Captured", value: scalar("captured_cents", live.captured_cents) },
             { key: "captured_count", label: "Captured payments", value: scalar("captured_count", live.captured_count) },
-            { key: "refunded_cents", label: "Refunded", value: scalar("refunded_cents", live.refunded_cents) },
+            {
+              key: "refunded",
+              label: "Refunded (amount not knowable locally)",
+              value: (() => {
+                const r = refundSummary(live);
+                const t = refundSummaryText(r);
+                return (
+                  <span title={r.note ?? undefined}>
+                    <span className={r.certainty === "known" ? "font-mono tabular-nums" : "text-warning"}>{t.headline}</span>
+                    {t.detail ? <span className="block text-[11px] text-dim">{t.detail}{r.legacy ? " · legacy summary normalised" : ""}</span> : null}
+                  </span>
+                );
+              })(),
+            },
             { key: "released_to_connected_cents", label: "Released to connected account (not bank payouts)", value: scalar("released_to_connected_cents", live.released_to_connected_cents) },
             { key: "refunds_pending_count", label: "Refund pending cases", value: scalar("refunds_pending_count", live.refunds_pending_count) },
           ]}
