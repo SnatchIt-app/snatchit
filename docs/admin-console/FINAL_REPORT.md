@@ -1,10 +1,20 @@
-# Operating console — final report (release candidate 2, 2026-09-07)
+# Operating console — final report (release candidate 3, 2026-09-07)
 
 Branch `admin/operating-console` → draft PR #55 (base
 `feature/venue-native-and-product-v2` @ aa74cc2, the lineage production's
 migration chain is on; production ledger numeric tip **109**, 124 rows,
 read-only verified 2026-09-07). Nothing in this branch has been applied to or
-deployed on production. Refund execution remains **disabled**.
+deployed on production. Refund execution remains **disabled**. RC3 closes the
+two findings of the focused re-review (§1a).
+
+## 1a. Focused re-review findings — status
+
+| # | Finding | Status | Evidence |
+|---|---|---|---|
+| R1 | Daily summary summed `payments.total` over refunded rows and the view rendered it as "Refunded"; a $10 external partial refund on a $100 payment reported $100 refunded | **Fixed** (migration 120 + UI adapter) | `ops.build_daily_summary` → `refunded_cents: null`, `refunded_count`, `refunded_upper_bound_cents`, `certainty: uncertain`; legacy stored summaries normalised on read (`ops.latest_summary`) and rewritten in place; `SummaryView` renders through `refundSummary()` which never formats an unknown amount as $0 or as the total. pgTAP 186 (27): the $100/refunded row yields null amount, count 1, bound 10000; empty window; mixed statuses; legacy row normalised; dashboard, snapshot and summary agree; payment row untouched. Admin vitest `summary-money.test.ts` (7). Browser: a legacy summary shows "amount not available locally · count not recorded (legacy summary) · upper bound $100.00 USD · legacy summary normalised". |
+| R2 | Refund executor skipped the live/test check when key mode or payment mode was missing | **Fixed** | `handler.ts` requires `deps.stripeKeyMode ∈ {live,test}` and a boolean `claim.stripe_livemode` via the shared `checkModeConsistency` BEFORE the reconciliation list; missing/null/malformed on either side and both mismatch directions → `failed` (422) with the failure recorded and **zero** Stripe calls (create and list); live/live and test/test proceed. `Deps.stripeKeyMode` is now a required field so the Deno adapter cannot omit it. Handler vitest 113 (8 invalid cases + 2 valid). |
+
+Cross-check of adjacent flows after these fixes: approve/deny strictness, evidence access + MFA, listing guard, full-refund-only, lifecycle classification, approval binding/pause/lease/recovery and containment were re-run through pgTAP 181–186 and the handler suite with no regressions.
 
 ## 1. Independent review findings — status
 
@@ -22,15 +32,15 @@ deployed on production. Refund execution remains **disabled**.
 
 ## 2. Verification — by evidence class
 
-**Unit tests (no I/O).** `admin/`: 14 files, **89** vitest cases (proxy decisions, decision parser + real `submitActionForm` branch with a recording fake, evidence slot allowlist, labels, metric rendering, idempotency helper). Root: `tests/ops-refund-handler.test.ts` + `tests/ops-refund-classify.test.ts`, **105** cases.
+**Unit tests (no I/O).** `admin/`: 15 files, **96** vitest cases (proxy decisions, decision parser + real `submitActionForm` branch with a recording fake, evidence slot allowlist, labels, metric rendering, idempotency helper). Root: `tests/ops-refund-handler.test.ts` + `tests/ops-refund-classify.test.ts`, **113** cases (incl. the mode-guard matrix).
 
-**Database integration (pgTAP on Homebrew PG 17 with the repo's rehearsal harness).** 181 (128), 182 (45), 183 (65), 184 (90), 185 (24) = **352** assertions for this package. Full suite on a fresh 000→119 replay and on the exact production shape (000→109, timestamps, 115→119): see the run tails in the PR description; Gate-2 parity `tables=27 functions=71 policies=37 triggers=27` matches `ci.yml`.
+**Database integration (pgTAP on Homebrew PG 17 with the repo's rehearsal harness).** 181 (128), 182 (45), 183 (65), 184 (90), 185 (24), 186 (27) = **379** assertions for this package. Full suite on a fresh 000→120 replay (**4,320 planned / 4,316 ok**, the 4 = documented local deltas 060/132) and on the exact production shape (000→109, timestamps, 115→120): see the run tails in the PR description; Gate-2 parity `tables=27 functions=71 policies=37 triggers=27` matches `ci.yml`.
 
 **Handler tests with mocked external services.** `runRefundExecution` with fake DB/Stripe adapters: full success; partial refused; pending / requires_action / failed / canceled / unknown objects; duplicate and concurrent requests (one POST); crash before the provider call; provider success with a lost local write and recovery by list-adopt; mismatched adoption; disabled / paused / stale / missing approval; refused outcome after a terminal state treated as a no-op; secret redaction.
 
 **Browser (local harness: PostgREST 16 + auth stub + synthetic fixtures, real migrations).** Login → TOTP enrol/verify → Today; non-operator → `/denied`; case assign + stale-version rejection; two-founder approval (approve) executed; **deny** executed through the real form (finding 1); pause via the settings form → banner + refused mutation → un-pause via the same form; evidence button → `ops.evidence_access` + `evidence.viewed` audit (signing fails: no Storage in the harness). Screenshots were not captured (standing project rule).
 
-**Real service integration.** **None.** No live Stripe, no real GoTrue MFA, no real Storage signing. These are the outstanding items in §4.
+**Real service integration.** **None.** No live Stripe, no real GoTrue MFA, no real Storage signing. These are the outstanding items in §4 and the acceptance gates in `RUNBOOK.md` §6b (G1–G8), which must pass on the deployed console before founder operations switch to it.
 
 **Production verification.** Read-only only: ledger tip 109 / 124 rows, `admin_users` = 1, `platform_role` = 0, verified MFA factors = 0, 11 storage policies, 7 refunded payments, `git_branch: ""` on the production branch record. Nothing changed.
 
@@ -49,7 +59,7 @@ Reused: `resolve_transfer_dispute`, `admin_release_held_payout`, `admin_relist_l
 
 ## 5. Readiness
 
-- **Non-refund portal**: ready for owner-approved deployment after the runbook §0 checks, with items 1–2 above verified by the founders on first use (they are exercised by the very first sign-in and the first evidence click).
+- **Non-refund portal**: ready for **controlled, owner-approved deployment verification** — i.e. deploy behind the runbook §0 checks and run the §6b acceptance gates (G1–G8) before it becomes the system of action. This focused pass does not certify the whole portal; it closes the reviewed defects with regression coverage.
 - **Refunds**: **must remain disabled** (`refund_execute_enabled=false`, edge function not deployed). The console rejects refund requests up front; the executor refuses claims while disabled.
 
 ## 6. Exact owner actions to go live

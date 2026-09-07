@@ -54,8 +54,11 @@ chronological order. Terminology is deliberate:
 - *Released to connected account* — a Stripe Transfer to the seller exists
   (`stripe_transfer_id`). This is **not** a bank payout; bank payouts are not
   tracked in this system.
-- *Refunded* — `payments.status = refunded`, set by the Stripe webhook after the
-  provider refund succeeded.
+- *Refunded* — `payments.status = refunded`, set by the Stripe webhook after a
+  provider refund succeeded — including a **partial** one. The system does not
+  know the refunded amount; every screen (Money, snapshot, daily summary) shows
+  the count of refunded payments and an *upper bound*, never "$X refunded".
+  Check the amount in the Stripe Dashboard when it matters.
 
 ## Owning a problem
 

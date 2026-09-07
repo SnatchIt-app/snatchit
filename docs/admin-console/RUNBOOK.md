@@ -2,7 +2,7 @@
 
 Scope: migrations `115_ops_console_foundation`, `116_ops_console_read_api`,
 `117_ops_console_automation`, `118_ops_console_corrections`,
-`119_listing_block_insert_guard`; the `admin/` Next.js app (Vercel project
+`119_listing_block_insert_guard`, `120_ops_console_refund_semantics`; the `admin/` Next.js app (Vercel project
 `snatchit-admin`); edge function `ops-refund-execute` (optional, disabled by
 default). Nothing here is applied or deployed by merging (AUTODEPLOY-1:
 production auto-deploy is OFF — re-verify visually before every apply; record
@@ -43,14 +43,15 @@ train is explicitly going live in the same window.
 3. `117_ops_console_automation.sql` → `select jobname from cron.job where jobname like 'ops-%';` = 2 rows.
 4. `118_ops_console_corrections.sql` → `select to_regprocedure('ops.executor_claim(uuid,integer)') is not null;` and `select polname from pg_policy where polrelid='storage.objects'::regclass and polname='proof-docs operator read';`
 5. `119_listing_block_insert_guard.sql` → `select tgname from pg_trigger where tgname='trg_guard_listing_seller_not_blocked';`
+5b. `120_ops_console_refund_semantics.sql` → `select to_regprocedure('ops.normalize_summary_body(jsonb)') is not null;` (rewrites already-stored daily summaries to the uncertain refund shape; touches no payment row)
 6. **Ledger.** The SQL editor does not write `supabase_migrations.schema_migrations`. Insert one row per file so `supabase migration list` stays 1:1 with the repo, exactly as `docs/release/PHASE2_093_109_PRODUCTION_MIGRATION_EXECUTION.md` did for 093–109:
    ```sql
    insert into supabase_migrations.schema_migrations (version, name, statements)
    values ('115','ops_console_foundation','{}'), ('116','ops_console_read_api','{}'),
           ('117','ops_console_automation','{}'), ('118','ops_console_corrections','{}'),
-          ('119','listing_block_insert_guard','{}');
+          ('119','listing_block_insert_guard','{}'), ('120','ops_console_refund_semantics','{}');
    ```
-   After this the ledger reads …109, 115, 116, 117, 118, 119 (+ timestamps).
+   After this the ledger reads …109, 115, 116, 117, 118, 119, 120 (+ timestamps).
    **110–114 stay listed as pending** by `supabase migration list`; that is the
    intended state. Until the door-plane train is applied under its own
    runbook, nobody may run `supabase db push` against production — `--dry-run`
@@ -164,6 +165,26 @@ Choose one, in this order of preference:
 116/117 remain). Destroys the console's operational history — that is why it is
 confined to rehearsal databases.
 
+## 6b. Real-service acceptance gates (before founder operations switch to this portal)
+
+Nothing below has been verified by this branch's automated evidence: the
+local harness uses an auth stub and has no Storage or Stripe. Each gate is
+performed by the owner/founders on the deployed console against the real
+Supabase project, with results recorded in the PR or release record. Until
+every gate passes, the existing operating procedures (SQL packs, Stripe
+Dashboard SOPs) remain the system of action.
+
+| # | Gate | Pass criterion | Fallback if it fails |
+|---|---|---|---|
+| G1 | Both founders authenticate with real MFA | each founder: password → TOTP enrol (first time) → verify → Today renders; `auth.mfa_factors` shows two `verified` TOTP factors | keep using existing SOPs; do not add `ops` to exposed schemas |
+| G2 | Lower-assurance session is denied | a founder session before TOTP verification (aal1) lands on `/mfa` and a direct `POST /rest/v1/rpc/whoami` with that token returns `step_up_required` from `ops.execute_action`/reads | §5.4 (un-expose `ops`) |
+| G3 | Non-operator is denied | a non-`admin_users` account sees `/denied`; direct RPC returns `42501` | §5.4 |
+| G4 | Founder evidence access works | a founder who is neither buyer nor seller opens a referenced proof-docs object from an order page; `ops.audit` shows `evidence.viewed` | drop policy `proof-docs operator read` (§5.5); evidence review continues in the Supabase Storage UI |
+| G5 | Unrelated user is denied evidence | a signed-in non-party user cannot list/download that object (`storage.objects` returns nothing; direct object URL 400/403) | same as G4 |
+| G6 | Signed links expire | the link opened in G4 stops working after 300 s | same as G4 |
+| G7 | Known-safe fallback available | `actions_enabled=false` pauses every mutation and reads still work; removing `ops` from exposed schemas makes the app fail closed; the previous deployment is deleted | — |
+| G8 | Refund execution remains disabled | `ops.setting refund_execute_enabled = false`; `ops-refund-execute` not deployed; a refund request is rejected as `disabled` | — (enablement is a separately authorised test-mode exercise) |
+
 ## 7. Go-live sequence (owner)
 1. Bootstrap the second founder (`FOUNDER_BOOTSTRAP.md`).
 2. Visually confirm auto-deploy is OFF; record the date in the PR description.
@@ -171,5 +192,5 @@ confined to rehearsal databases.
 4. Add `ops` to PostgREST exposed schemas.
 5. Run `select ops.run_all_detectors();` and the §2 checks.
 6. Vercel cut-over per §3; delete the old deployment's privileged variables.
-7. Each founder signs in, enrols MFA, sees Today; a non-admin account sees `/denied`.
+7. Run the §6b acceptance gates G1–G8 and record the results.
 8. Later, optionally: deploy `ops-refund-execute`, then enable `refund_execute_enabled` (§4).
