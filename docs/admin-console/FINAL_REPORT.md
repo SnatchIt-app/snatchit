@@ -64,4 +64,7 @@ Reused: `resolve_transfer_dispute`, `admin_release_held_payout`, `admin_relist_l
 
 ## 6. Exact owner actions to go live
 
+See `RELEASE_CHECKLIST_RC3.md` (checksummed migration order, ledger rows, exposure, bootstrap, Vercel, retirement of the old deployment, containment) and `ACCEPTANCE_GATES.md` (G1–G8 procedures with `admin/scripts/acceptance/gates.sql` and `gate-probe.mjs`). Read-only production facts were re-taken on 2026-09-07 for that checklist; the Vercel project was inspected with the local CLI session (not git-linked, root `.`, service-role key present in all scopes, last production deploy 152 days old, `/users` renders unauthenticated).
+
+
 `RUNBOOK.md` §7 (bootstrap second founder → confirm auto-deploy OFF → apply 115→119 via SQL editor + ledger rows → expose `ops` → first detector run → Vercel cut-over → founder sign-in/MFA/denied check). Refund enablement is a separate, later decision (§4).

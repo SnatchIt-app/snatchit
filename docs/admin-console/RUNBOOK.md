@@ -18,6 +18,10 @@ functions: `resolve_transfer_dispute`, `admin_release_held_payout`,
 is a structural statement; the runtime effect is operator actions on live
 marketplace rows, each audited.
 
+The concrete, checksummed change package for this release is
+`RELEASE_CHECKLIST_RC3.md`; the acceptance procedures and founder-run probe are
+`ACCEPTANCE_GATES.md` + `admin/scripts/acceptance/`.
+
 ## 0. Preconditions (owner, read-only checks)
 
 | Check | How | Last verified value (2026-09-07, read-only API) |
