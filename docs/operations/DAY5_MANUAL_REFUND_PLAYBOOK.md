@@ -273,7 +273,7 @@ If `payout_released_at IS NOT NULL` but the buyer must be refunded:
    webhook ledgers it through `record_payment_refund`, which — because the
    transfer was paid — files a `REFUNDED_AFTER_PAYOUT` manual_review decision
    automatically. If webhooks are down:
-   `SELECT public.record_payment_refund('pi_xxx', 're_xxx', NULL, <amount_cents>, 'admin');`
+   `SELECT public.record_payment_refund('pi_xxx', 're_xxx', NULL, <THIS refund object's amount_cents — per refund, never the cumulative total>, 'admin');`
 3. **Do NOT** `UPDATE transfers` / `UPDATE payments` directly: the 0562 and
    `guard_payment_transitions` guards refuse it, and `refunded` is terminal.
 4. Close the review once the reversal is confirmed in Stripe: insert a

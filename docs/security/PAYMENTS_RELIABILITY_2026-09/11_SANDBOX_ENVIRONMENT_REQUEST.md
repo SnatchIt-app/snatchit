@@ -15,8 +15,29 @@ NOT an option here: AUTODEPLOY-1 (branching once bound git `main` to production;
 standing rule "never treat the existing Supabase project as staging".
 
 Stripe: no Stripe CLI is installed on this host and no test-mode key exists locally (`~/.config/stripe` absent; the repo
-carries only `web/.env.example` names). The live Stripe account's **test mode** is free and already exists; Connect
-must be usable in test mode (Express test accounts are created by the API with no real onboarding).
+carries only `web/.env.example` names). The live Stripe account already has a **test-mode webhook endpoint of unknown
+target** (`08_STRIPE_WEBHOOK_SUBSCRIPTION.md` says not to touch it), so test-mode traffic on that account would also be
+delivered there. Use a **Stripe Sandbox** (Dashboard → Sandboxes → create; an isolated test account with its own keys
+and endpoints, free) with Connect enabled and the platform profile completed — never the live account's shared test mode.
+
+## 1a. Findings from the readiness review that shape the setup (`rc/R4_sandbox_readiness.md`)
+
+- **G1 — money-out gates refuse test-mode rows.** `payments.stripe_livemode` is recorded from the PaymentIntent; the
+  attempt ledger (`PAYMENT_NOT_LIVE`), the payout pre-flight, the unsettled work list and the expiry sweep all require
+  `stripe_livemode = true`. Without a switch a sandbox proves checkout → settlement → webhooks → refunds → disputes but
+  never a real `POST /v1/transfers`. The RC therefore carries a **sandbox-only switch**, default OFF everywhere:
+  database GUC `app.allow_test_mode_money = on` (set with `ALTER DATABASE postgres SET …` on the sandbox only) and edge
+  secret `ALLOW_TEST_MODE_MONEY=1` (sandbox project only). Production sets neither; the release checklist asserts both
+  are absent. With the switch on, the payout leg runs against real Connect **test** transfers.
+- **G2 — cron jobs hard-code the production host** (migrations 032/033/099). The sandbox must re-point the
+  `enforce-transfer-expiry` job (`cron.alter_job`) and create the Vault secret `service_role_key`, or it never sweeps
+  (and POSTs to production, rejected 401). Scripted in the harness.
+- **G8 — Connect event routing.** `account.updated` / `payout.*` for Express accounts arrive only through a Connect-typed
+  endpoint. Owner check before mirroring: `stripe webhook_endpoints retrieve we_…` on the live endpoint shows
+  `"connect": true|false`; the sandbox creates the same shape.
+- **G9 — no grace window** in the deletion sweep: seed obligations BEFORE requesting deletion in the sandbox.
+- **G12 — build 13 cannot be re-pointed** (its production profile hard-codes the production URL). "Existing client"
+  rows are replayed with the exact request shapes (curl) and, optionally, a dev build from the build-13 source SHA.
 
 ## 2. Minimum isolated setup (what the sandbox pass needs, nothing more)
 
@@ -27,15 +48,19 @@ must be usable in test mode (Express test accounts are created by the API with n
    sequence the production-order rehearsal proves locally (51/51). Then `supabase/ci/parity_grants.sql` is NOT applied
    (Supabase provisions the anon/authenticated roles itself).
 3. **Edge secrets** (owner sets them in Dashboard → Edge Functions → Secrets; the assistant never handles values):
-   `STRIPE_SECRET_KEY` = a **test-mode restricted key** `rk_test_…` with: PaymentIntents write, Charges read, Refunds
-   write, Transfers write, Connect Accounts write, Balance read, Events read, Webhook Endpoints read;
-   `STRIPE_WEBHOOK_SECRET` = signing secret of the test endpoint created in step 5; `SENTRY_DSN` may stay unset;
-   `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform;
-   push/Twilio secrets unset (notify-* paths log and continue).
-4. **Deploy the seven release edges** to the sandbox: `supabase functions deploy <fn> --project-ref <sandbox-ref>` for
-   create-payment-intent, confirm-payment, stripe-webhook, enforce-transfer-expiry, confirm-and-release, delete-account,
-   notify-report. Cron: the sandbox's `cron.job` rows come from the migrations; they call the sandbox's own URLs only
-   if the `app.settings.*` GUCs point at it — verify with `select jobname, command from cron.job`.
+   `STRIPE_SECRET_KEY` = the Stripe **Sandbox** secret key (`sk_test_…` of the sandbox, or a restricted key with:
+   PaymentIntents write, Charges read, Refunds write, Transfers write, Connect Accounts write, Balance read, Events read);
+   `STRIPE_WEBHOOK_SECRET` = signing secret of the endpoint created in step 5; `ALLOW_TEST_MODE_MONEY=1` (sandbox only);
+   `INTERNAL_CRON_SECRET` = any random 32-byte hex; `STRIPE_CONNECT_REFRESH_URL` / `STRIPE_CONNECT_RETURN_URL` =
+   `https://snatchitapp.com/payout-refresh` / `…/payout-return`; `SENTRY_ENV=sandbox` (DSN may stay unset);
+   `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform; `EMAIL_ENABLED`
+   unset; push/Twilio secrets unset (notify-* paths log and continue).
+4. **Deploy the release edges plus the two the matrix needs** (`create-connect-account`, `send-push`) with
+   `--no-verify-jwt` (no `supabase/config.toml` exists; confirm-payment, confirm-and-release, delete-account, stripe-webhook
+   and enforce-transfer-expiry authenticate in code). Database side: `ALTER DATABASE postgres SET app.allow_test_mode_money = 'on'`;
+   PostgREST exposed schemas must include `kernel`; `cron.alter_job` re-points `enforce-transfer-expiry` to the sandbox
+   host and `vault.create_secret(<sandbox service_role key>, 'service_role_key')` gives it a bearer. All scripted in
+   `scripts/sandbox/` except the two secret-bearing statements, which the owner runs in the SQL editor.
 5. **Stripe test webhook endpoint** → `https://<sandbox-ref>.functions.supabase.co/stripe-webhook`, subscribed to the
    eleven events in `08_STRIPE_WEBHOOK_SUBSCRIPTION.md` (test mode has its own endpoint list; production untouched).
 6. **Stripe CLI** on this host (`brew install stripe/stripe-cli/stripe`, then `stripe login` — interactive OAuth the owner
@@ -52,11 +77,15 @@ must be usable in test mode (Express test accounts are created by the API with n
 ## 3. The exact minimum request (owner action; nothing else is needed from you)
 
 1. **Approve $10/month** and say "create the sandbox project" — the assistant then creates `snatchit-sandbox`
-   (Micro, us-west-2) via the management API with the cost confirmation, links the RC checkout, pushes the schema and
-   deploys the seven edges. (Or create it yourself in the Dashboard and give the project ref.)
-2. In Stripe **test mode**: create the restricted key described in §2.3 and the webhook endpoint of §2.5 (once the
-   project exists and the URL is known), and paste both secrets into the sandbox project's Edge Function secrets.
-   Confirm "secrets set" — no values in chat.
-3. On this Mac: `brew install stripe/stripe-cli/stripe && stripe login` (browser approval, test mode).
+   (Micro, us-west-2) via the management API with the cost confirmation, links the RC checkout, pushes the schema,
+   deploys the edges and runs the non-secret provisioning. (Or create it yourself in the Dashboard and give the ref.)
+2. In Stripe: create a **Sandbox** with Connect enabled (platform profile completed). Create its webhook endpoint
+   (`scripts/sandbox/10_provision.sh` prints the exact `stripe webhook_endpoints create` command once the project URL
+   is known — you run it after `stripe login`). Paste `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+   `ALLOW_TEST_MODE_MONEY=1` and the other §2.3 secrets into the sandbox project's Edge Function secrets; run the two
+   Vault/GUC statements the script prints in the sandbox SQL editor. Confirm "secrets set" — no values in chat.
+3. On this Mac: `brew install stripe/stripe-cli/stripe jq && stripe login` (browser approval; select the Sandbox).
+4. Create three auth users (buyer, seller, second buyer) in the sandbox Dashboard with known passwords and tell me their
+   emails (the harness signs them in to obtain JWTs; passwords go in a local untracked env file you create).
 
 After (1)–(3) the sandbox pass runs without further owner action and never touches production or live mode.

@@ -118,3 +118,15 @@ Why CI was green while the local harness reported 595/597: the two `132_replay_p
 local harness forbids that name. The invariant (the job targets the database that holds the function) is unchanged; the
 assertion now uses `current_database()`. CI would still have caught a genuine drift in schedule, command bytes, or
 duplicate jobs — those fields were never masked.
+
+
+## 7. Round 3 (2026-09-06, option B + sandbox switch + rollback archive/gates)
+
+| Check | Result |
+|---|---|
+| fresh replay, converged chain | 128/128, `GATE-2 30|86|37|32` |
+| full pgTAP (59 files; 121 → 97, 122 → 74) | **4047/4047** (plan sum 4053 = CI floor) |
+| vitest (26 files; +2 sandbox-switch tests) | 856/856 |
+| typecheck / lint | clean / 0 errors |
+| production-order rehearsal `scripts/release/payments_rc_prod_order_rehearsal.sh` | **63/63** — new §F: gates refuse (D6, O2), drain by settlement, 120000 archives in-transaction, rollback 4→1, census/hash back, money facts survive, window payout + duplicate `tr_` → re-apply aborts cleanly, restore C1/C2/C4, `ALREADY_RELEASED` on the window payout |
+| Sandbox (real Stripe test mode) | **NOT RUN** — no isolated environment exists; harness prepared (`scripts/sandbox/`), exact owner request in `11_SANDBOX_ENVIRONMENT_REQUEST.md` §3 |

@@ -36,12 +36,15 @@ run ahead of the migration they call.
 | P3-b3 | **legacy orphan reconciliation** (R3 §2.2): `SELECT id, seller_id, status FROM transfers WHERE status IN ('buyer_confirmed','auto_released') AND stripe_transfer_id IS NULL;` — for each row list the seller's Stripe transfers (`stripe transfers list --destination acct_… --limit 100`) and match `metadata.transfer_id`; where a `tr_` exists, `SELECT record_transfer_payout(<id>, '<tr_>')`. The new edges ALSO run this check before every first POST (legacy-aware pre-flight), so this step is belt-and-braces, not the only defence | read-only + owner SQL | owner |
 | P3-c | verify §4 | read-only | — |
 | P3-c2 | **pause the payout cron** (`cron.unschedule` of the enforce-transfer-expiry job) for the duration of P3-d so the old sweep and the new edges never run in the same window (R2 NOTE-7); re-schedule after P3-d | PRODUCTION CRON SETTING | owner |
-| P3-d | deploy `confirm-payment`, `confirm-and-release`, `enforce-transfer-expiry`, `stripe-webhook`, `delete-account` (tombstone variant + blockers) — one step, after all three migrations | EDGE DEPLOY | owner |
+| P3-d | deploy (in the R6 order of 13 §3, not as one step) `confirm-payment`, `confirm-and-release`, `enforce-transfer-expiry`, `stripe-webhook`, `delete-account` (tombstone variant + blockers) — one step, after all three migrations | EDGE DEPLOY | owner |
 | P3-e | update `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` Part 2 to `reconcile_payout_attempt` / `record_payout_attempt_result`; manual dashboard transfers are no longer a supported path | docs | — |
 
 Old edge versions keep working after each migration (`record_transfer_payout`, `mark_listing_sold`, `ensure_transfer_exists`
 signatures unchanged), so a migration can be applied before its edge deploy; the reverse is not safe for P2/P3 edges.
-The safe order is therefore: P1-a → P1-c → P2-a → P3-a/b/b2/b3 → P3-c2 (pause cron) → P3-d → re-schedule cron → P2-d.
+The safe order is therefore (R6, `13_MIXED_VERSION_DEPLOY.md` §3): P1-a → P1-c → P2-a → P3-a/b/b2/b3 → delete-account →
+confirm-payment → stripe-webhook → PAUSE cron + Q1–Q15 triage → enforce-transfer-expiry → confirm-and-release → one manual
+sweep → RESUME cron → P2-d → pending-intent backfill. The six edges are NOT deployed "in one step": the order above is what
+keeps every intermediate state money-safe; the 23-step stop/resume checklist is `rc/R6_mixed_version_deploy_review.md` §5.
 **Source of the deploy**: the converged branch `release/payments-converged-rc` (= PR #54 head after fast-forward), never the
 original main-only branch — the edges there would regress the deployed Phase-2 deletion guards and tombstone flow
 (`09_CONVERGENCE.md` §1). `supabase db push --linked --include-all` from that checkout plans exactly the four `20260906*`
@@ -59,18 +62,22 @@ settling through `mark_listing_sold` (now payment-gated by P1) — no window in 
   `expected_total_cents` (unchanged, optional improvement).
 - **Minimum client**: none required. Rollout dependency documented: none.
 
-## 3. Rollback / recovery
+## 3. Rollback (rewritten 2026-09-06 — see `14_ROLLBACK_RECOVERY.md`)
 
-| Package | Rollback | Recovery notes |
-|---|---|---|
-| P1 | `20260906100000_…_rollback.sql` restores the 0590 bodies verbatim and drops the core; redeploy `create-payment-intent` previous version | Reservations made under the 10-min rule remain valid rows; nothing to migrate back |
-| 130000 | `20260906130000_…_rollback.sql` restores the 078 sweep body verbatim, drops `account_deletion_block_reason` | none (BP-13 no longer evaluated; Package 3 predicate untouched) |
-| P3 (with records) | **BEFORE the SQL**: (0) pause the payout cron and take confirm-and-release offline; (1) DRAIN every open attempt (`state IN ('claimed','requested','unknown')`) — reconcile against Stripe (`transfer_group` and destination listings) with `reconcile_payout_attempt`; (2) EXPORT `payout_attempts`, `payment_refunds`, `account_deletions`, `payments` refund columns (`\copy … csv header`); then redeploy the previous edges, run the rollback SQL; (3) post-rollback reconcile: every transfer with money moved carries its `tr_` (money facts on `transfers` SURVIVE the rollback — rehearsed F6); partial-refund amounts have no home in the old schema — the CSV is the ledger of record; (4) re-apply restores the tables empty; re-import the CSVs (`\copy` INSERT is accepted by the append-only ledgers — rehearsed F12/F13) | see `scripts/release/payments_rc_prod_order_rehearsal.sh` §F (51/51) |
-| P2 | `20260906110000_…_rollback.sql` drops `settle_verified_payment`/`get_unsettled_payments`, restores `cleanup_expired_reservations` (000 body); redeploy previous webhook/confirm-payment/expiry | `webhook_retries` review rows written by P2 stay (harmless, ops-visible) |
-| P3 | `20260906120000_…_rollback.sql` drops the tables/indexes/guards/functions; redeploy previous edges | Rows in `payout_attempts`/`payment_refunds`/`account_deletions` are lost on rollback — export first if any exist; `transfers.stripe_transfer_id` values recorded by attempts remain |
+Rollback is a supported path ONLY before the first new-code money fact (before the sweep / confirm-and-release deploy).
+After that, prefer forward-fix (14 §4). Every rollback script is one transaction (`psql -1 -f …`), refuses while its
+D-detectors are non-zero (D1 open attempts, D2 partial refund + unpaid transfer, D3 unresolved review rows, D4
+paid-unsettled, D5 reversal obligations, D6 BP-13-only identities, D7 mid-flight deletions, D8 inconsistent refund facts,
+O1/O2 ordering), and the 120000 rollback archives every fact it destroys into `rollback_archive`; re-apply restores it
+and reports window payouts. Order: 130000 → 120000 → 110000 → 100000. Drain first by settlement (reconcile, refund,
+reverse, resolve, withdraw) — never by editing state. Override only with a ticket: `set_config('app.rollback_force','on',true)`.
 
-Rehearsed locally in reverse order 3 → 2 → 1 with per-step md5 checks (see `05_VERIFICATION.md`). Production is
-forward-only by policy; rollback is an emergency measure requiring its own approval.
+| Package | Rollback file | Gates | Data |
+|---|---|---|---|
+| 130000 | `20260906130000_…_rollback.sql` | D6 | none destroyed (sweep body → 078 verbatim) |
+| 120000 | `20260906120000_…_rollback.sql` | O2, D1, D2, D3, D5, D7, D8 | ledgers + refund facts ARCHIVED, restored on re-apply |
+| 110000 | `20260906110000_…_rollback.sql` | D3, D4 | review rows survive; sweep gone until re-apply |
+| 100000 | `20260906100000_…_rollback.sql` | O1 | reservations keep their rows; F03/F04 reopen |
 
 ## 4. Read-only post-apply verification queries (run by the owner; paste output)
 

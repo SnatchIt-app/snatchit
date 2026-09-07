@@ -33,7 +33,7 @@ ok()   { PASSES=$((PASSES+1)); echo "PASS  $1"; }
 bad()  { FAILS=$((FAILS+1));  echo "FAIL  $1  [$2]"; }
 q()    { psql -X -qtA -d "$DB" -v ON_ERROR_STOP=1 -c "$1" 2>&1; }
 check(){ local name="$1" sql="$2" want="${3:-t}"; local raw got; raw=$(q "$sql"); got=$(printf '%s' "$raw" | tr -d '[:space:]'); [ "$got" = "$want" ] && ok "$name" || bad "$name" "want=$want raw=$(printf '%s' "$raw" | head -c 240)"; }
-run()  { psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -f "$1" >"$OUT/last.out" 2>&1 || { echo "  (psql error in $1)"; tail -3 "$OUT/last.out"; return 1; }; }
+run()  { psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -f "$1" >"$OUT/last.out" 2>&1; local rc=$?; cp "$OUT/last.out" "$OUT/$(basename "$1").out"; [ $rc -eq 0 ] || { echo "  (psql error in $1)"; grep -E "ERROR|DETAIL" "$OUT/last.out" | head -3 | cut -c1-200; return 1; }; }
 act()  { local name="$1" sql="$2"; local raw; raw=$(q "$sql") && ok "$name → $(printf '%s' "$raw" | tr -d '\n' | head -c 120)" || bad "$name" "$(printf '%s' "$raw" | head -c 240)"; }
 apply(){ local f="$1" base; base=$(basename "$f")
   if [ "$base" = "014_frequent_cron_schedules.sql" ]; then grep -v '^create extension if not exists pg_' "$f" | psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -f - >/dev/null 2>>"$OUT/apply.err" || { echo "APPLY FAIL $base"; tail -3 "$OUT/apply.err"; exit 1; }
@@ -187,48 +187,89 @@ act "E8a-act sweep_deletion_pending" "select (kernel.sweep_deletion_pending())->
 check "E8a post-upgrade sweep still holds the buyer on BP-7 (Phase-2 arm precedes BP-13)" "select deletion_state = 'DELETION_PENDING' and deletion_block_reason like 'BP-7%' from kernel.identity_ext where identity_id = tap.buyer()" "t"
 check "E8b BP-13 predicate names the seller's live-rail obligations (open_manual_review from E7, unpaid obligations)" "select public.account_deletion_block_reason(tap.seller()) like 'BP-13:%open_manual_review%'" "t"
 
-echo "=== F. rollback with NEW financial records present → drain, export, roll back, recover, re-apply, re-import"
+echo "=== F. rollback with NEW financial records present -> gates, drain, archive, roll back, window hazards, restore"
+RB=supabase/rollbacks
+rb()   { local f="$1"; psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -f "$RB/${f}_rollback.sql" 2>&1; }   # files carry their own BEGIN/COMMIT
+# F0 — new-code facts of every class the gates watch
 cat > "$OUT/f0.sql" <<'SQL'
--- more new-code facts: a partial refund ledgered on the settled legacy capture; an OPEN attempt; a review row
+BEGIN;
+-- D2: partial refund on the settled legacy capture, whose transfer is then released and unpaid
 SELECT public.record_payment_refund('pi_legacy_e', 're_prodsim_1', NULL, 500, 'dashboard');
-SELECT * FROM public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000e2' , 'x') WHERE false;  -- no-op shape check
+-- the seller sends the ticket: a seller_sent transfer with a partial refund on its payment is exactly the
+-- row old confirm-and-release would pay in full once the buyer confirms (R5 S1)
+SELECT tap.login(tap.seller());
+SELECT public.mark_transfer_sent((SELECT id FROM public.transfers WHERE payment_id = 'eeeeeeee-0000-0000-0000-000000000001'), tap.seller());
+SELECT tap.logout();
+-- D3: a review row with no old-code reader
 SELECT public.settle_verified_payment('pi_unknown_prodsim','succeeded',1000,'usd',true,0,NULL,'card','{}'::jsonb,'webhook');
+-- D6: an identity held ONLY by BP-13 (admin user: paid capture, no transfer, nothing Phase-2)
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
+VALUES ('aaaaaaaa-0000-0000-0000-0000000000e9', tap.seller(), 'Prodsim E9', 'Club E9', 'wynwood', current_date + 30, '21:00', 'GA', 1, 'mobile_transfer', 100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/e9.jpg', 'active');
+INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at, stripe_livemode, created_at)
+VALUES ('eeeeeeee-0000-0000-0000-0000000000e9', 'aaaaaaaa-0000-0000-0000-0000000000e9', tap.admin_user(), tap.seller(), 10000, 1000, 1000, 11000, 'pi_e9', 'succeeded', 'buy_now', now() - interval '10 minutes', true, now() - interval '11 minutes');
+SELECT tap.login(tap.admin_user());
+SELECT kernel.request_account_deletion('prodsim-del-admin');
+SELECT tap.logout();
+SELECT kernel.sweep_deletion_pending();
+COMMIT;
 SQL
-psql -X -q -d "$DB" -f "$OUT/f0.sql" >"$OUT/f0.out" 2>&1
-# an OPEN attempt (POST in flight, response not yet recorded) on the released-unpaid transfer E5
+run "$OUT/f0.sql" && ok "F0 facts seeded: partial refund + unpaid seller_sent transfer (D2), review row (D3), BP-13-only identity (D6)" || bad "F0" "see $OUT/last.out"
 OPEN=$(q "select attempt_id from public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000e5', 'prodsim:open')" 2>/dev/null | head -1)
-[ -n "$OPEN" ] && ok "F0 an open attempt exists on E5 ($OPEN)" || bad "F0 claim on E5" "empty"
 q "select public.mark_payout_requested('$OPEN')" >/dev/null 2>&1
-check "F1 records exist: attempts ≥3 incl. 1 open, ≥1 payment_refunds row, amount_refunded_cents set, ≥1 review row" "select (select count(*) >= 3 from public.payout_attempts) and (select count(*) = 1 from public.payout_attempts where state in ('claimed','requested','unknown')) and (select count(*) >= 1 from public.payment_refunds) and (select amount_refunded_cents = 500 from public.payments where stripe_payment_intent_id='pi_legacy_e') and (select count(*) >= 1 from public.webhook_retries where rpc_name='settle_verified_payment' and resolved is not true)" "t"
-# (1) DRAIN: reconcile the open attempt (operator confirmed in Stripe that no transfer exists)
-check "F2 drain: the open attempt is reconciled (operator confirmed no Stripe transfer → failed)" "select (public.reconcile_payout_attempt('$OPEN', NULL))->>'state'" "failed"
-check "F2' …zero open attempts remain before any rollback" "select count(*) from public.payout_attempts where state in ('claimed','requested','unknown')" "0"
-# (2) EXPORT
+check "F0b open attempt (D1) on E5; E7 reversal_required (D5); admin held on BP-13 (D6)" "select (select count(*) from public.payout_attempts where state in ('claimed','requested','unknown')) || '|' || (select count(*) from public.payout_attempts where state='reversal_required') || '|' || (select deletion_block_reason like 'BP-13%' from kernel.identity_ext where identity_id = tap.admin_user())" "1|1|true"
+# F1 — gates refuse (and ordering is enforced)
+R=$(rb 20260906130000_deletion_sweep_live_rail_obligations); case "$R" in *"REFUSED"*"D6=1"*) ok "F1 130000 rollback REFUSED while an identity is held only by BP-13 (D6)";; *) bad "F1 130000 gate" "$(printf '%s' "$R" | head -c 200)";; esac
+R=$(rb 20260906120000_payout_attempts_and_refund_monotonic); case "$R" in *"REFUSED"*"O2=1"*) ok "F1b 120000 rollback REFUSED out of order (130000 still applied, O2)";; *) bad "F1b 120000 ordering gate" "$(printf '%s' "$R" | head -c 200)";; esac
+check "F1c nothing was dropped by the refused attempts (transaction rolled back)" "select (select count(*) from pg_proc where pronamespace='public'::regnamespace and proname='account_deletion_block_reason') || '|' || (select count(*) from pg_tables where schemaname='public' and tablename='payout_attempts')" "1|1"
+# F2 — drain every detector by the platform act that settles it (never by editing state)
+cat > "$OUT/f2.sql" <<'SQL'
+BEGIN;
+SELECT tap.login(tap.admin_user());
+SELECT kernel.withdraw_account_deletion('prodsim-del-admin-withdraw');
+SELECT tap.logout();
+SELECT public.settle_verified_payment('pi_e9','succeeded',11000,'usd',true,0,NULL,'card', jsonb_build_object('mode','buy_now','listing_id','aaaaaaaa-0000-0000-0000-0000000000e9','buyer_id',tap.admin_user()::text,'seller_id',tap.seller()::text),'sweep');
+UPDATE public.webhook_retries SET resolved = true WHERE rpc_name = 'settle_verified_payment' AND resolved IS NOT TRUE;
+SELECT public.record_payment_refund('pi_legacy_e', 're_prodsim_2', NULL, 10500, 'dashboard');   -- the remainder refund OBJECT's amount (per-refund, not cumulative)
+SELECT public.mark_transfer_reversed('tr_e7_old');
+COMMIT;
+SQL
+run "$OUT/f2.sql" && ok "F2 drain by settlement: withdraw (D6), settle e9 (D4), resolve review (D3), full refund (D2), reversal (D5)" || bad "F2" "see $OUT/last.out"
+check "F2b the open attempt is reconciled (operator confirmed no Stripe transfer -> failed) (D1)" "select (public.reconcile_payout_attempt('$OPEN', NULL))->>'state'" "failed"
+R=$(rb 20260906130000_deletion_sweep_live_rail_obligations); [ -z "$(printf '%s' "$R" | grep REFUSED)" ] && ok "F3 130000 rollback now passes its gate" || bad "F3 130000" "$(printf '%s' "$R" | head -c 200)"
+# F4 — export (belt and braces) and remember the facts
 psql -X -q -d "$DB" -c "\copy (select * from public.payout_attempts order by claimed_at) to '$OUT/payout_attempts.csv' csv header" && \
-psql -X -q -d "$DB" -c "\copy (select * from public.payment_refunds order by created_at) to '$OUT/payment_refunds.csv' csv header" && \
-psql -X -q -d "$DB" -c "\copy (select id, stripe_payment_intent_id, status, total, amount_refunded_cents, refunded_at, stripe_refund_id from public.payments where amount_refunded_cents is not null) to '$OUT/payments_refunded.csv' csv header" && \
-psql -X -q -d "$DB" -c "\copy (select * from public.account_deletions) to '$OUT/account_deletions.csv' csv header" && ok "F3 export: payout_attempts / payment_refunds / payments refund facts / account_deletions → $OUT/*.csv" || bad "F3 export" "copy failed"
-ATT_N=$(q "select count(*) from public.payout_attempts"); REF_N=$(q "select count(*) from public.payment_refunds")
+psql -X -q -d "$DB" -c "\copy (select * from public.payment_refunds order by created_at) to '$OUT/payment_refunds.csv' csv header" && ok "F4 CSV export of the ledgers (belt and braces next to the in-transaction archive)" || bad "F4 export" "copy failed"
+ATT_N=$(q "select count(*) from public.payout_attempts"); REF_N=$(q "select count(*) from public.payment_refunds"); REFUNDED_E=$(q "select amount_refunded_cents from public.payments where stripe_payment_intent_id='pi_legacy_e'")
 MONEY_BEFORE=$(q "select string_agg(id::text || ':' || coalesce(stripe_transfer_id,'-') || ':' || (payout_released_at is not null)::text, ',' order by id) from public.transfers")
-# (3) ROLL BACK 4 → 1
-for f in 20260906130000_deletion_sweep_live_rail_obligations 20260906120000_payout_attempts_and_refund_monotonic 20260906110000_settle_verified_payment 20260906100000_checkout_reservation_authority; do psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -f "supabase/rollbacks/${f}_rollback.sql" >>"$OUT/rollback.out" 2>&1 || { bad "F4 rollback $f" "see $OUT/rollback.out"; break; }; done
-check "F4 census back to production's 27|70|37|26" "$CENSUS" "27|70|37|26"
-check "F5 function definitions back to the pre-upgrade hash (bodies restored verbatim)" "select '$PRE_FN' = ($FNHASH)" "t"
-check "F6 money facts SURVIVE the rollback: every transfer keeps its tr_ / payout_released_at" "select '$MONEY_BEFORE' = (select string_agg(id::text || ':' || coalesce(stripe_transfer_id,'-') || ':' || (payout_released_at is not null)::text, ',' order by id) from public.transfers)" "t"
-check "F7 settled listings stay sold; promoted payments stay succeeded" "select (select count(*) from public.listings where id in ('aaaaaaaa-0000-0000-0000-0000000000e2','aaaaaaaa-0000-0000-0000-0000000000e3','aaaaaaaa-0000-0000-0000-0000000000e8') and status='sold') || '|' || (select count(*) from public.payments where stripe_payment_intent_id in ('pi_inflight_e2','pi_e3','pi_legacy_e') and status='succeeded')" "3|3"
-check "F8 old code works post-rollback: record_transfer_payout on the released-unpaid E5" "select public.record_transfer_payout('cccccccc-0000-0000-0000-0000000000e5', 'tr_post_rb')" "t"
-check "F8' …E5 carries tr_post_rb" "select stripe_transfer_id from public.transfers where id='cccccccc-0000-0000-0000-0000000000e5'" "tr_post_rb"
-act "F9-act sweep_deletion_pending" "select (kernel.sweep_deletion_pending())->>'tombstoned'"
-check "F9 the deployed deletion machine is intact post-rollback (sweep runs, buyer still held on BP-7)" "select deletion_state = 'DELETION_PENDING' and deletion_block_reason like 'BP-7%' from kernel.identity_ext where identity_id = tap.buyer()" "t"
-check "F10 the partial-refund fact has NO home after rollback (column dropped) — the CSV is the ledger of record" "select count(*) from information_schema.columns where table_schema='public' and table_name='payments' and column_name='amount_refunded_cents'" "0"
-# (5) RE-APPLY + RE-IMPORT
-for f in 20260906100000_checkout_reservation_authority 20260906110000_settle_verified_payment 20260906120000_payout_attempts_and_refund_monotonic 20260906130000_deletion_sweep_live_rail_obligations; do apply "supabase/migrations/$f.sql"; done
-check "F11 re-apply: census 30|86|37|32 again" "$CENSUS" "30|86|37|32"
-psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -c "\copy public.payout_attempts from '$OUT/payout_attempts.csv' csv header" >>"$OUT/reimport.out" 2>&1 && \
-psql -X -q -d "$DB" -v ON_ERROR_STOP=1 -c "\copy public.payment_refunds from '$OUT/payment_refunds.csv' csv header" >>"$OUT/reimport.out" 2>&1 && ok "F12 re-import of the exported ledgers succeeds (append-only tables accept INSERT)" || bad "F12 re-import" "see $OUT/reimport.out"
-check "F13 re-imported row counts equal the export" "select (select count(*) from public.payout_attempts) || '|' || (select count(*) from public.payment_refunds)" "$ATT_N|$REF_N"
-check "F14 amount_refunded_cents restored from the export" "update public.payments p set amount_refunded_cents = c.amt from (select 'pi_legacy_e'::text pi, 500 amt) c where p.stripe_payment_intent_id = c.pi returning p.amount_refunded_cents" "500"
-F15=$(q "select * from public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000e5', 'prodsim')" 2>&1 | grep -c ALREADY_RELEASED); [ "$F15" = "1" ] && ok "F15 after re-import + re-apply the ledger sees E5 as paid (old path tr_post_rb) → ALREADY_RELEASED, no double pay" || bad "F15" "$F15"
+R=$(rb 20260906120000_payout_attempts_and_refund_monotonic); [ -z "$(printf '%s' "$R" | grep REFUSED)" ] && ok "F5 120000 rollback passes every D-gate after the drain and ARCHIVES in-transaction" || bad "F5 120000" "$(printf '%s' "$R" | head -c 300)"
+check "F5b archive manifest holds the ledgers (attempts=$ATT_N refunds=$REF_N, partial-refund facts>0), not yet restored" "select n_attempts || '|' || n_refunds || '|' || (n_partial_refund_facts > 0)::text || '|' || (restored_at is null)::text from rollback_archive.manifest" "$ATT_N|$REF_N|true|true"
+R=$(rb 20260906110000_settle_verified_payment); [ -z "$(printf '%s' "$R" | grep REFUSED)" ] && ok "F5c 110000 rollback passes (D3/D4 drained)" || bad "F5c 110000" "$(printf '%s' "$R" | head -c 300)"
+R=$(rb 20260906100000_checkout_reservation_authority); [ -z "$(printf '%s' "$R" | grep REFUSED)" ] && ok "F5d 100000 rollback passes (110000 gone first, O1)" || bad "F5d 100000" "$(printf '%s' "$R" | head -c 300)"
+check "F6 census back to production's 27|70|37|26" "$CENSUS" "27|70|37|26"
+check "F7 function definitions back to the pre-upgrade hash (bodies restored verbatim)" "select '$PRE_FN' = ($FNHASH)" "t"
+check "F8 money facts on transfers SURVIVE: every tr_ / payout_released_at" "select '$MONEY_BEFORE' = (select string_agg(id::text || ':' || coalesce(stripe_transfer_id,'-') || ':' || (payout_released_at is not null)::text, ',' order by id) from public.transfers)" "t"
+check "F9 settled listings stay sold; promoted payments keep their status" "select (select count(*) from public.listings where id in ('aaaaaaaa-0000-0000-0000-0000000000e2','aaaaaaaa-0000-0000-0000-0000000000e3','aaaaaaaa-0000-0000-0000-0000000000e8','aaaaaaaa-0000-0000-0000-0000000000e9') and status='sold') || '|' || (select count(*) from public.payments where stripe_payment_intent_id in ('pi_inflight_e2','pi_e3','pi_e9') and status='succeeded') || '|' || (select status from public.payments where stripe_payment_intent_id='pi_legacy_e')" "4|3|refunded"
+check "F10 the partial-refund COLUMN is gone from the old schema; the fact lives in the archive" "select (select count(*) from information_schema.columns where table_schema='public' and table_name='payments' and column_name='amount_refunded_cents') || '|' || (select amount_refunded_cents from rollback_archive.payments_refund_facts where stripe_payment_intent_id='pi_legacy_e')" "0|$REFUNDED_E"
+act "F11-act sweep_deletion_pending (deployed machine intact)" "select (kernel.sweep_deletion_pending())->>'tombstoned'"
+check "F11 the buyer is still held on BP-7 post-rollback" "select deletion_state = 'DELETION_PENDING' and deletion_block_reason like 'BP-7%' from kernel.identity_ext where identity_id = tap.buyer()" "t"
+# F12 — the rollback WINDOW: old code runs against old schema
+check "F12 old code works: record_transfer_payout pays E5 (a WINDOW payout with no attempt row)" "select public.record_transfer_payout('cccccccc-0000-0000-0000-0000000000e5', 'tr_post_rb')" "t"
+q "select public.record_transfer_payout((select id from public.transfers where payment_id='eeeeeeee-0000-0000-0000-000000000001'), 'tr_post_rb')" >/dev/null 2>&1
+check "F12b the window also produced a DUPLICATE tr_ (unique index gone): two transfers carry tr_post_rb" "select count(*) from public.transfers where stripe_transfer_id='tr_post_rb'" "2"
+# F13 — re-apply: the duplicate aborts 120000 until fixed, then the archive is restored
+for f in 20260906100000_checkout_reservation_authority 20260906110000_settle_verified_payment; do apply "supabase/migrations/$f.sql"; done
+R=$(psql -X -q -1 -d "$DB" -v ON_ERROR_STOP=1 -f supabase/migrations/20260906120000_payout_attempts_and_refund_monotonic.sql 2>&1); case "$R" in *"duplicates"*) ok "F13 re-apply of 120000 ABORTS on the window duplicate (nothing half-applied)";; *) bad "F13 duplicate abort" "$(printf '%s' "$R" | head -c 200)";; esac
+q "select set_config('app.bypass_transfer_guard','on',true); update public.transfers set stripe_transfer_id = null, payout_released_at = null where payment_id='eeeeeeee-0000-0000-0000-000000000001'" >/dev/null 2>&1
+R=$(psql -X -q -1 -d "$DB" -v ON_ERROR_STOP=1 -f supabase/migrations/20260906120000_payout_attempts_and_refund_monotonic.sql 2>&1); case "$R" in *"rollback_archive restored"*) ok "F13b after the operator resolves the duplicate, 120000 re-applies and RESTORES the archive";; *) bad "F13b restore" "$(printf '%s' "$R" | grep -vE '^\s*$' | head -c 300)";; esac
+case "$R" in *"OLD code during the rollback window"*"tr_post_rb"*) ok "F13c the restore REPORTS the window payout (C4: E5=tr_post_rb has no attempt row)";; *) bad "F13c C4 report" "$(printf '%s' "$R" | head -c 300)";; esac
+apply supabase/migrations/20260906130000_deletion_sweep_live_rail_obligations.sql
+check "F14 census 30|86|37|32 again" "$CENSUS" "30|86|37|32"
+check "F14b C1: ledgers restored row-for-row from the archive (attempts, refunds)" "select (select count(*) from public.payout_attempts) || '|' || (select count(*) from public.payment_refunds)" "$ATT_N|$REF_N"
+check "F14c C2: amount_refunded_cents restored from the archive and equals the refund ledger sum" "select amount_refunded_cents || '|' || case when amount_refunded_cents = (select sum(amount_cents) from public.payment_refunds r where r.payment_id = p.id) then 't' else 'f' end from public.payments p where stripe_payment_intent_id='pi_legacy_e'" "$REFUNDED_E|t"
+check "F14d manifest stamped restored" "select restored_at is not null from rollback_archive.manifest" "t"
+F15=$(q "select * from public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000e5', 'prodsim')" 2>&1 | grep -c ALREADY_RELEASED); [ "$F15" = "1" ] && ok "F15 the restored ledger sees the window payout on E5 -> ALREADY_RELEASED (no double pay)" || bad "F15" "$F15"
+check "F16 the window payout is visible to reconciliation: tr_ on the row, no attempt row (operator matches it in Stripe by metadata.transfer_id)" "select count(*) from public.transfers t where t.stripe_transfer_id='tr_post_rb' and not exists (select 1 from public.payout_attempts a where a.transfer_id=t.id and a.stripe_transfer_id=t.stripe_transfer_id)" "1"
 
 echo "=== SUMMARY: pass=$PASSES fail=$FAILS  (artifacts in $OUT)"
 [ "$FAILS" -eq 0 ]

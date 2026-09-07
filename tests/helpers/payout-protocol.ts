@@ -55,6 +55,8 @@ export class StripeTransfersMock {
   accountCapability: 'active' | 'inactive' = 'active';
   chargeRefunded = false;
   chargeAmount = 11000;
+  /** livemode reported by the PI probe (a Stripe TEST key returns false) */
+  piLivemode = true;
   amountRefunded = 0;
 
   advance(ms: number) { this.now += ms; }
@@ -88,7 +90,7 @@ export class StripeTransfersMock {
       return { ok: true, data: { id: call.path.slice('/accounts/'.length), capabilities: { transfers: this.accountCapability }, details_submitted: true, payouts_enabled: true, requirements: {} } };
     }
     if (call.method === 'GET' && call.path.startsWith('/payment_intents/')) {
-      return { ok: true, data: { status: 'succeeded', livemode: true, latest_charge: { id: 'ch_1', amount: this.chargeAmount, amount_refunded: this.amountRefunded, refunded: this.chargeRefunded } } };
+      return { ok: true, data: { status: 'succeeded', livemode: this.piLivemode, latest_charge: { id: 'ch_1', amount: this.chargeAmount, amount_refunded: this.amountRefunded, refunded: this.chargeRefunded } } };
     }
     if (call.method === 'GET' && call.path.startsWith('/transfers?')) {
       if (this.listFault) {
@@ -156,6 +158,8 @@ export interface DecisionRow { transfer_id: string; decision: string; reason_cod
 const RANK: Record<AttemptState, number> = { claimed: 0, requested: 1, unknown: 2, failed: 3, succeeded: 4, reversal_required: 5 };
 
 export class AttemptLedger {
+  /** DB twin of the sandbox switch (GUC app.allow_test_mode_money) — default off, like production */
+  allowTestModeMoney = false;
   now = 0;
   transfers = new Map<string, TransferRow>();
   payments = new Map<string, PaymentRow>();
@@ -231,7 +235,7 @@ export class AttemptLedger {
     if (!['buyer_confirmed', 'auto_released'].includes(t.status)) throw new Error('TRANSFER_NOT_RELEASABLE');
     const p = this.payments.get(t.payment_id);
     if (!p || p.status !== 'succeeded') throw new Error('PAYMENT_NOT_SUCCEEDED');
-    if (p.stripe_livemode !== true) throw new Error('PAYMENT_NOT_LIVE');
+    if (p.stripe_livemode !== true && !(p.stripe_livemode === false && this.allowTestModeMoney)) throw new Error('PAYMENT_NOT_LIVE');
     const dest = this.profiles.get(t.seller_id)?.stripe_connect_id;
     if (!dest) throw new Error('SELLER_NOT_ONBOARDED');
     const amount = p.amount - p.seller_fee;

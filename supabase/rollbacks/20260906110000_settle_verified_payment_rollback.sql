@@ -24,6 +24,28 @@
 --   other file is unchanged.
 -- ============================================================================
 
+BEGIN;
+
+-- ── Pre-rollback gates (R5 D-detectors). Rollback is data-safe only while every
+-- detector is zero; otherwise old code re-interprets new-code facts (full-net
+-- payout on a partially refunded order, re-POST of an in-flight payout, ...).
+-- An operator may override ONLY with a ticketed decision:
+--   SELECT set_config('app.rollback_force', 'on', true);
+DO $gate$
+DECLARE v_bad text := '';
+BEGIN
+  IF current_setting('app.rollback_force', true) = 'on' THEN
+    RAISE WARNING 'rollback 20260906110000: gates OVERRIDDEN by app.rollback_force (ticketed operator decision expected)';
+    RETURN;
+  END IF;
+  IF (SELECT count(*) FROM public.webhook_retries WHERE resolved IS NOT TRUE AND rpc_name = 'settle_verified_payment' AND error_message LIKE 'unfulfillable:%') > 0 THEN v_bad := v_bad || ' D3=' || (SELECT count(*) FROM public.webhook_retries WHERE resolved IS NOT TRUE AND rpc_name = 'settle_verified_payment' AND error_message LIKE 'unfulfillable:%')::text || ' [unfulfillable captures not yet refunded - no old-code refunder]'; END IF;
+  IF (SELECT count(*) FROM public.payments p JOIN public.listings l ON l.id = p.listing_id WHERE p.status = 'succeeded' AND p.mode IN ('buy_now','auction') AND l.status <> 'sold' AND NOT EXISTS (SELECT 1 FROM public.transfers t WHERE t.payment_id = p.id)) > 0 THEN v_bad := v_bad || ' D4=' || (SELECT count(*) FROM public.payments p JOIN public.listings l ON l.id = p.listing_id WHERE p.status = 'succeeded' AND p.mode IN ('buy_now','auction') AND l.status <> 'sold' AND NOT EXISTS (SELECT 1 FROM public.transfers t WHERE t.payment_id = p.id))::text || ' [paid-but-unsettled captures - drain the sweep first, the 000 cleanup would re-list them]'; END IF;
+
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION 'rollback 20260906110000 REFUSED - unsafe state present:% (settle each, or set app.rollback_force=on with a ticket)', v_bad;
+  END IF;
+END $gate$;
+
 DROP FUNCTION IF EXISTS public.settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text);
 DROP FUNCTION IF EXISTS public.get_unsettled_payments(integer);
 
@@ -46,3 +68,5 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.cleanup_expired_reservations() FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.cleanup_expired_reservations() TO service_role;
+
+COMMIT;

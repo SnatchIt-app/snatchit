@@ -68,7 +68,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch } from '../_shared/stripe.ts';
 import { executePayoutAttempt } from '../_shared/payouts.ts';
-import { isCrossModeStripeError, rowIsLiveActionable } from '../_shared/payout-logic.ts';
+import { isCrossModeStripeError, rowIsLiveActionable, allowTestModeMoney } from '../_shared/payout-logic.ts';
 import {
   classifyPayout,
   DEFAULT_POLICY,
@@ -661,12 +661,16 @@ serve(async (req: Request) => {
       // live key can never see ("No such payment_intent … exists in test
       // mode" — Sentry REACT-NATIVE-8); they stay preserved for audit but
       // are inert. NULL (unclassified) is also excluded — fail closed.
-      const { data: unrefunded } = await supabase
+      const unrefundedBase = supabase
         .from('transfers')
         .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id, stripe_livemode, total, amount_refunded_cents)')
         .eq('status', 'expired')
-        .eq('payments.status', 'succeeded')
-        .eq('payments.stripe_livemode', true)
+        .eq('payments.status', 'succeeded');
+      // Sandbox switch (payout-logic.allowTestModeMoney): test-mode rows are
+      // admitted only under ALLOW_TEST_MODE_MONEY=1; NULL never.
+      const { data: unrefunded } = await (allowTestModeMoney()
+        ? unrefundedBase.not('payments.stripe_livemode', 'is', null)
+        : unrefundedBase.eq('payments.stripe_livemode', true))
         .order('created_at', { ascending: true })
         .limit(20);
 

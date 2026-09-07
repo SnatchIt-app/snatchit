@@ -59,3 +59,20 @@ New findings from this program's investigation (not in the audit):
 | R3-1 | 132 env-dependent expectation; CI green explained | R3 §1 | FIXED-IN-RC |
 | R1 | Production-only edge behaviours must survive convergence | R1 | FIXED-IN-RC (09 §2) |
 | R1-policy | Request-time 409 vs always-accept | R1 / lead | OWNER DECISION — (B) implemented, (A) documented (09 §3) |
+
+
+## Round 3 (2026-09-06) — sandbox readiness (R4), rollback integrity (R5), mixed versions (R6)
+
+| Id | Finding | Status |
+|---|---|---|
+| R4-G1 | money-out gates refuse test-mode rows → sandbox cannot prove payouts | FIXED-IN-RC (sandbox-only switch, default off) |
+| R4-G2/G8/G9/G12 | cron host hard-coded; Connect endpoint typing; no grace window; build 13 not re-pointable | DOCUMENTED (11 §1a) + harness handles G2 |
+| R4-G14 | later recorder overwrote attempt evidence | FIXED-IN-RC (append under `subsequent`; succeeded→succeeded is a no-op) |
+| R5-1 | rollback → old code pays full net on partially refunded orders | FIXED-IN-RC (gate D2 + archive/restore) |
+| R5-2 | dropped attempt ledger → old sweep re-POSTs | FIXED-IN-RC (gate D1; drain procedure) |
+| R5-5 | 130000 rollback tombstones BP-13-only identities; out-of-order rollbacks | FIXED-IN-RC (gates D6, O1, O2) |
+| R5-6/7 | archive design; point of no return; forward-fix per class | IMPLEMENTED + DOCUMENTED (14) |
+| R5-8 | §F gaps | FIXED (63/63) |
+| R6-2 | confirm-and-release NEW + expiry OLD with cron live = double payout | FIXED-IN-PLAN (order + pause; 13 §2–§3) |
+| R6-6 | first new sweep moves money on legacy rows | DOCUMENTED (13 §6; Q1–Q15 triage mandatory) |
+| R6-4/5 | old webhook 500-loops until new webhook; resend cannot re-drive completed events | DOCUMENTED (13 §5) |

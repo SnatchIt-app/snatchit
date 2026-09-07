@@ -4,6 +4,27 @@
 -- 2. drop public.account_deletion_block_reason (Gate-2 functions -1).
 -- After this the sweep no longer evaluates BP-13; public.account_deletion_blockers
 -- (20260906120000) is unaffected.
+BEGIN;
+
+-- ── Pre-rollback gates (R5 D-detectors). Rollback is data-safe only while every
+-- detector is zero; otherwise old code re-interprets new-code facts (full-net
+-- payout on a partially refunded order, re-POST of an in-flight payout, ...).
+-- An operator may override ONLY with a ticketed decision:
+--   SELECT set_config('app.rollback_force', 'on', true);
+DO $gate$
+DECLARE v_bad text := '';
+BEGIN
+  IF current_setting('app.rollback_force', true) = 'on' THEN
+    RAISE WARNING 'rollback 20260906130000: gates OVERRIDDEN by app.rollback_force (ticketed operator decision expected)';
+    RETURN;
+  END IF;
+  IF (SELECT count(*) FROM kernel.identity_ext WHERE deletion_state = 'DELETION_PENDING' AND deletion_block_reason LIKE 'BP-13%') > 0 THEN v_bad := v_bad || ' D6=' || (SELECT count(*) FROM kernel.identity_ext WHERE deletion_state = 'DELETION_PENDING' AND deletion_block_reason LIKE 'BP-13%')::text || ' [identities held ONLY by BP-13 - tombstoned on the next tick after this rollback; settle or have them withdraw first]'; END IF;
+
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION 'rollback 20260906130000 REFUSED - unsafe state present:% (settle each, or set app.rollback_force=on with a ticket)', v_bad;
+  END IF;
+END $gate$;
+
 create or replace function kernel.sweep_deletion_pending(p_limit int default 100)
 returns jsonb
 language plpgsql
@@ -214,3 +235,5 @@ begin
    where n.nspname = 'kernel' and p.proname = 'sweep_deletion_pending';
   if v_n <> 1 then raise exception 'rollback 20260906130000: expected 1 kernel.sweep_deletion_pending, found %', v_n; end if;
 end $$;
+
+COMMIT;

@@ -27,7 +27,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { json, loadEdgeHandler, mockStripe, mockSupabase, type QueryCall, type StripeCall } from './helpers/edge-vm';
-import { isCrossModeStripeError, rowIsLiveActionable, classifyPayoutStripeError, reasonCodeForErrorClass, shouldPageSentry } from '../supabase/functions/_shared/payout-logic';
+import { isCrossModeStripeError, rowIsLiveActionable, allowTestModeMoney, classifyPayoutStripeError, reasonCodeForErrorClass, shouldPageSentry } from '../supabase/functions/_shared/payout-logic';
 import { classifyPayout, DEFAULT_POLICY } from '../supabase/functions/_shared/payout-policy';
 
 const CRON = 'cron-secret-test';
@@ -126,7 +126,7 @@ async function scenario(opts: {
       createSellerPayout: async () => ({ ok: false, error: 'not under test' }),
       // Package 3 replaced the payout call with the attempt protocol; Phase 2/2b is not under test here.
       executePayoutAttempt: async () => ({ ok: false, outcome: 'not_under_test' }),
-      isCrossModeStripeError, rowIsLiveActionable,
+      isCrossModeStripeError, rowIsLiveActionable, allowTestModeMoney,
       classifyPayout, DEFAULT_POLICY, PayoutCandidate: undefined, PayoutPolicyConfig: undefined,
     },
   });

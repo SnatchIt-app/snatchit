@@ -44,7 +44,7 @@ into DELETION_PENDING with the obligation enforced at the terminal?
 - **(A) Refuse at request time** — the draft PR #54 semantics (fail-closed 409, blockers listed;
   the independent edge reviewer also recommended this). Changes the ratified OR-17 "always
   accepts" machine and the deployed client contract (`{success:true}` on request); leaves a
-  person unable to start the grace window for obligations only the platform can settle (a held
+  person unable to enter the pending state for obligations only the platform can settle (a held
   payout, a pending refund).
 - **(B) Accept, enforce at the terminal** — **IMPLEMENTED.** `kernel.request_account_deletion`
   keeps always-accepting; the sweep gains BP-13 (`public.account_deletion_block_reason`), evaluated
@@ -112,6 +112,18 @@ made later without touching the database. Both protections are proven in `125` (
   settled listings stay sold, old `record_transfer_payout` works, deletion machine intact,
   `amount_refunded_cents` gone (CSV = ledger of record) → re-apply → re-import (row counts equal)
   → the re-imported ledger sees the legacy-paid transfer as `ALREADY_RELEASED`.
+
+## 6a. Round-3 additions (reviews R4/R5/R6, all integrated as code + rehearsal)
+
+- **Sandbox money switch** (R4 G1): DB GUC `app.allow_test_mode_money` + edge `ALLOW_TEST_MODE_MONEY`, default off, NULL never
+  admitted — pgTAP 121 J10/J11, 122 SANDBOX, vitest ×2. Without it a Stripe test key could never reach `POST /v1/transfers`.
+- **Rollback archive + gates** (R5): all four rollbacks are one transaction with D1–D8/O1/O2 gates; 120000 archives to
+  `rollback_archive`; forward 120000 restores (C1 abort, C2/C4 warnings). Rehearsal §F 63/63. `14_ROLLBACK_RECOVERY.md`.
+- **Mixed-version deploy order** (R6): delete-account → confirm-payment → webhook → pause cron + Q1–Q15 → expiry →
+  confirm-and-release → manual sweep → resume → Stripe event → backfill. `13_MIXED_VERSION_DEPLOY.md`; checklist R6 §5.
+- **Deletion option B** verified against the ratified machine clause by clause; BP-13 filed as PFA-32; client shows
+  "completion pending" with the obligation list; no grace period exists (corrected everywhere). `10_DELETION_OPTION_B_OBLIGATIONS.md`.
+- **Pre-subscription cancellations**: `12_PRE_SUBSCRIPTION_CANCELLATION_RECONCILIATION.md` + dry-run backfill script.
 
 ## 7. Not executed here (and the minimum to do it)
 

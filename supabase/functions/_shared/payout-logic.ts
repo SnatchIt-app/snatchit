@@ -148,5 +148,23 @@ export function isCrossModeStripeError(message: string): boolean {
  * null = unclassified and therefore NOT actionable (fail closed).
  */
 export function rowIsLiveActionable(stripeLivemode: boolean | null | undefined): boolean {
-  return stripeLivemode === true;
+  return stripeLivemode === true || (stripeLivemode === false && allowTestModeMoney());
+}
+
+/**
+ * Sandbox-only switch. `ALLOW_TEST_MODE_MONEY=1` in an isolated test project's
+ * edge secrets admits stripe_livemode = false rows into the money rails so a
+ * Stripe TEST key can exercise real Connect test transfers end to end. It is
+ * never set in production (release checklist asserts its absence); NULL
+ * (unclassified) rows are never admitted by anyone. The database twin is the
+ * GUC app.allow_test_mode_money (ALTER DATABASE on the sandbox only).
+ */
+export function allowTestModeMoney(): boolean {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const d = (globalThis as any).Deno;
+    return !!d?.env?.get && d.env.get('ALLOW_TEST_MODE_MONEY') === '1';
+  } catch {
+    return false;
+  }
 }

@@ -234,18 +234,16 @@ export default function SettingsScreen() {
     reversal_required: 'a payout under review',
     open_manual_review: 'a payout under review',
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function notifyDeletionAccepted(parsed: any): Promise<void> {
     const raw: unknown = parsed?.pending_obligations;
     const kinds: string[] = Array.isArray(raw)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ? raw.map((o: any) => (typeof o === 'string' ? o : String(o?.kind ?? ''))).filter(Boolean)
       : [];
     const labels = Array.from(new Set(kinds.map((k) => OBLIGATION_LABELS[k] ?? k)));
     const title = 'Deletion request accepted';
     const body = labels.length > 0
-      ? `Your account will be deleted automatically once the following settle:\n\n• ${labels.join('\n• ')}\n\nYou will be signed out now. You can sign back in at any time to check on it or withdraw the request.`
-      : 'Your account will be deleted automatically after the grace period. You will be signed out now. You can sign back in at any time to withdraw the request.';
+      ? `Your account will be deleted automatically once the following settle:\n\n• ${labels.join('\n• ')}\n\nUntil then you can sign back in at any time to check on it or withdraw the request. You will be signed out now.`
+      : 'Nothing is pending, so your account will be deleted automatically within a few minutes. You will be signed out now.';
     if (Platform.OS === 'web') {
       window.alert(`${title}\n\n${body}`);
       return Promise.resolve();

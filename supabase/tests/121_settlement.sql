@@ -23,7 +23,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(95);
+SELECT plan(97);
 
 SELECT tap.seed_core();
 
@@ -423,6 +423,17 @@ SELECT is(
   (SELECT count(*) FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000205'),
   1::bigint, 'J8 a payment is listed once even when it matches two kinds');
 SELECT is((SELECT count(*) FROM public.get_unsettled_payments(1)), 1::bigint, 'J9 p_limit is honoured');
+-- Sandbox switch (app.allow_test_mode_money): a test-mode row is dropped by default and admitted only under the GUC.
+UPDATE public.payments SET stripe_livemode = false WHERE id = 'bbbbbbbb-0000-0000-0000-000000000207';
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000207'),
+  'J10 a test-mode (stripe_livemode=false) row is NOT listed by default');
+SELECT set_config('app.allow_test_mode_money', 'on', true);
+SELECT ok(
+  EXISTS (SELECT 1 FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000207' AND u.kind = 'paid_unsettled'),
+  'J11 ...and IS listed under the sandbox-only switch app.allow_test_mode_money = on');
+SELECT set_config('app.allow_test_mode_money', 'off', true);
+UPDATE public.payments SET stripe_livemode = true WHERE id = 'bbbbbbbb-0000-0000-0000-000000000207';
 SELECT ok(
   NOT EXISTS (SELECT 1 FROM public.get_unsettled_payments(50) u WHERE u.payment_id = 'bbbbbbbb-0000-0000-0000-000000000216'),
   'J10 an unfulfillable:manual_review marker row is an operator item, not sweep work (MINOR-4)');

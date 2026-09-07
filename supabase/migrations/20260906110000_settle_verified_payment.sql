@@ -402,11 +402,16 @@ AS $function$
   ),
   -- legacy_unknown_mode (priority 4): stripe_livemode IS NULL — a pre-045 row
   -- the live key cannot address (404 on every run). Phase 0 only counts these;
-  -- it never calls Stripe for them. Test-mode rows (= false) are dropped.
+  -- it never calls Stripe for them. Test-mode rows (= false) are dropped —
+  -- EXCEPT under the sandbox-only switch app.allow_test_mode_money = 'on'
+  -- (set with ALTER DATABASE on an isolated test project so a Stripe test key
+  -- can exercise the money rails end to end; production never sets it, and
+  -- even if it did, a live key cannot move a test-mode charge).
   deduped AS (
     SELECT DISTINCT ON (c.id) c.*
       FROM candidates c
-     WHERE NOT EXISTS (SELECT 1 FROM public.payments x WHERE x.id = c.id AND x.stripe_livemode = false)
+     WHERE current_setting('app.allow_test_mode_money', true) = 'on'
+        OR NOT EXISTS (SELECT 1 FROM public.payments x WHERE x.id = c.id AND x.stripe_livemode = false)
      ORDER BY c.id, c.priority
   )
   SELECT d.id, d.stripe_payment_intent_id, d.listing_id, d.mode, d.status, d.paid_at, d.kind

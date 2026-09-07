@@ -399,7 +399,7 @@ async function loadSweep(ledger: AttemptLedger, stripeMock: StripeTransfersMock,
     supabase: sb, env: ENV,
     provide: {
       executePayoutAttempt: payouts.executePayoutAttempt, stripeFetch: stripe.stripeFetch,
-      isCrossModeStripeError: () => false, rowIsLiveActionable: (v: unknown) => v === true,
+      isCrossModeStripeError: () => false, rowIsLiveActionable: (v: unknown) => v === true, allowTestModeMoney: () => false,
       classifyPayout: () => ({ action: 'hold', tier: 'low', reasons: [], hold_until: null }), DEFAULT_POLICY: {},
       PayoutCandidate: undefined, PayoutPolicyConfig: undefined,
     },
@@ -436,5 +436,44 @@ describe('enforce-transfer-expiry Phase 2b (real handler) on the attempt protoco
     expect(ledger.transfers.get('t1')!.stripe_transfer_id).toBe('tr_1');
     expect(s.posts()).toHaveLength(1);
     expect(stripeMock.created).toBe(1);
+  });
+});
+
+describe('sandbox switch ALLOW_TEST_MODE_MONEY / app.allow_test_mode_money (default OFF)', () => {
+  it('a test-mode payment is refused end to end by default (PAYMENT_NOT_LIVE, no POST) and admitted only with BOTH switches on', async () => {
+    const s = setup();
+    s.ledger.seedReleasable({ status: 'auto_released' });
+    s.ledger.payments.get('p1')!.stripe_livemode = false;
+    s.stripeMock.piLivemode = false;
+    expect(await s.run()).toMatchObject({ kind: 'not_eligible', reason: 'PAYMENT_NOT_LIVE' });
+    expect(s.posts()).toHaveLength(0);
+    // DB switch alone: the claim succeeds but the edge pre-flight still refuses a test-mode PI (deferred, no POST)
+    s.ledger.allowTestModeMoney = true;
+    expect(await s.run()).toMatchObject({ kind: 'deferred', reasonCode: 'PAYOUT_SOURCE_CHARGE_UNAVAILABLE' });
+    expect(s.posts()).toHaveLength(0);
+    // both switches: a real Connect TEST transfer is created under the attempt key
+    const g = globalThis as unknown as { Deno?: unknown };
+    const saved = g.Deno;
+    g.Deno = { env: { get: (k: string) => (k === 'ALLOW_TEST_MODE_MONEY' ? '1' : undefined) } };
+    try {
+      const out = await s.run();
+      expect(out.kind).toBe('succeeded');
+      expect(s.posts()).toHaveLength(1);
+      expect(s.posts()[0].idempotencyKey).toMatch(/^payout_t1_a\d+$/);
+    } finally {
+      if (saved === undefined) delete g.Deno; else g.Deno = saved;
+    }
+  });
+  it('NULL (unclassified) livemode is never admitted, even with both switches on', async () => {
+    const s = setup();
+    s.ledger.seedReleasable({ status: 'auto_released' });
+    s.ledger.payments.get('p1')!.stripe_livemode = null;
+    s.ledger.allowTestModeMoney = true;
+    const g = globalThis as unknown as { Deno?: unknown };
+    g.Deno = { env: { get: (k: string) => (k === 'ALLOW_TEST_MODE_MONEY' ? '1' : undefined) } };
+    try {
+      expect(await s.run()).toMatchObject({ kind: 'not_eligible', reason: 'PAYMENT_NOT_LIVE' });
+      expect(s.posts()).toHaveLength(0);
+    } finally { delete g.Deno; }
   });
 });

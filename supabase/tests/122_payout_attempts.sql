@@ -11,7 +11,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(69);
+SELECT plan(74);
 SELECT tap.seed_core();
 SELECT tap.logout();
 
@@ -268,6 +268,34 @@ SELECT is((SELECT count(*) FROM public.payout_decisions
   'R2 MAJOR-2: one PARTIAL_REFUND_AFTER_PAYOUT manual_review decision (deletion blocker open_manual_review)');
 SELECT is((SELECT state FROM public.payout_attempts WHERE id = (SELECT attempt_id FROM _a2)), 'reversal_required',
   'R2 MAJOR-2: the succeeded attempt is now reversal_required');
+
+-- ── Sandbox switch + evidence merge (dedicated test-mode fixture TM) ─────────
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status, status)
+VALUES ('aaaaaaaa-0000-0000-0000-0000000000f1', tap.seller(), 'TM', 'TM', 'wynwood', current_date + 30, '21:00', 'GA', 1, 'mobile_transfer', 100, true, 100, 24, now(), now() + interval '24 hours', 100, 'fixtures/tm.jpg', 'sold', 'sold')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at, stripe_livemode)
+VALUES ('eeeeeeee-0000-0000-0000-0000000000f1', 'aaaaaaaa-0000-0000-0000-0000000000f1', tap.buyer(), tap.seller(), 10000, 1000, 1000, 11000, 'pi_tm', 'succeeded', 'buy_now', now() - interval '3 days', false);
+INSERT INTO public.transfers (id, listing_id, payment_id, seller_id, buyer_id, transfer_method, status, seller_sent_at, auto_release_at, expires_at)
+VALUES ('cccccccc-0000-0000-0000-0000000000f1', 'aaaaaaaa-0000-0000-0000-0000000000f1', 'eeeeeeee-0000-0000-0000-0000000000f1', tap.seller(), tap.buyer(), 'mobile_transfer', 'auto_released', now() - interval '3 days', now() - interval '1 day', now() + interval '72 hours');
+SELECT throws_ok(
+  $$ SELECT * FROM public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000f1', 'test') $$,
+  'P0001', 'PAYMENT_NOT_LIVE',
+  'SANDBOX: a test-mode (stripe_livemode=false) payment is refused by default');
+SELECT set_config('app.allow_test_mode_money', 'on', true);
+CREATE TEMP TABLE _tm AS SELECT * FROM public.claim_payout_attempt('cccccccc-0000-0000-0000-0000000000f1', 'sandbox');
+SELECT is((SELECT state FROM public.payout_attempts WHERE id = (SELECT attempt_id FROM _tm)), 'claimed',
+  'SANDBOX: under app.allow_test_mode_money = on the test-mode payment is claimable (real Connect test transfers)');
+SELECT set_config('app.allow_test_mode_money', 'off', true);
+SELECT is(public.mark_payout_requested((SELECT attempt_id FROM _tm)), true, 'SANDBOX fixture: requested');
+SELECT is((public.record_payout_attempt_result((SELECT attempt_id FROM _tm), 'tr_tm', 'succeeded', '{"source":"edge","http":200}'::jsonb))->>'state', 'succeeded',
+  'SANDBOX fixture: edge records tr_tm with its evidence');
+SELECT public.record_payout_attempt_result((SELECT attempt_id FROM _tm), 'tr_tm', 'succeeded', '{"source":"webhook:transfer.created"}'::jsonb);
+SELECT is(
+  (SELECT (error->>'source') || '|' || (error->>'http') || '|' || (error ? 'subsequent')::text
+     FROM public.payout_attempts WHERE id = (SELECT attempt_id FROM _tm)),
+  'edge|200|false',
+  'G14: a later recorder (transfer.created after the edge) cannot overwrite the first evidence — the succeeded→succeeded call is an idempotent no-op');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -628,7 +628,14 @@ BEGIN
   IF NOT FOUND OR v_p.status <> 'succeeded' THEN
     RAISE EXCEPTION 'PAYMENT_NOT_SUCCEEDED' USING DETAIL = coalesce(v_p.status, '<missing>');
   END IF;
-  IF v_p.stripe_livemode IS DISTINCT FROM true THEN
+  -- Mode boundary (045): never pay out against a non-live capture. The
+  -- sandbox-only switch app.allow_test_mode_money = 'on' (ALTER DATABASE on an
+  -- isolated test project; never production) admits stripe_livemode = false
+  -- rows so a Stripe test key can exercise real Connect test transfers. NULL
+  -- (unclassified) is never admitted.
+  IF v_p.stripe_livemode IS DISTINCT FROM true
+     AND NOT (v_p.stripe_livemode IS NOT DISTINCT FROM false
+              AND coalesce(current_setting('app.allow_test_mode_money', true), 'off') = 'on') THEN
     RAISE EXCEPTION 'PAYMENT_NOT_LIVE';
   END IF;
   IF v_p.stripe_payment_intent_id IS NULL THEN
@@ -793,7 +800,14 @@ BEGIN
 
   UPDATE public.payout_attempts
      SET state = v_state, stripe_transfer_id = p_stripe_transfer_id,
-         resolved_at = now(), error = coalesce(p_error, error)
+         resolved_at = now(),
+         -- evidence is never overwritten: a later recorder (the transfer.created
+         -- webhook after the edge) is appended under "subsequent"
+         error = CASE WHEN p_error IS NULL THEN error
+                      WHEN error   IS NULL THEN p_error
+                      ELSE error || jsonb_build_object('subsequent',
+                             coalesce(error->'subsequent', '[]'::jsonb) || jsonb_build_array(p_error - 'subsequent'))
+                 END
    WHERE id = p_attempt_id
    RETURNING * INTO v_a;
 
@@ -1027,3 +1041,92 @@ GRANT EXECUTE ON FUNCTION public.record_payout_attempt_result(uuid, text, text, 
 GRANT EXECUTE ON FUNCTION public.reconcile_payout_attempt(uuid, text)                          TO service_role;
 GRANT EXECUTE ON FUNCTION public.flag_payout_reversal_required(uuid, text, jsonb)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.account_deletion_blockers(uuid)                               TO service_role;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 9. Restore from rollback_archive (R5 §3). A prior rollback of this package
+--    archives every fact it destroys (ledgers, refund facts, baselines) inside
+--    its own transaction and leaves manifest.restored_at NULL. On re-apply the
+--    archive is restored here, completeness is checked (C1/C2), the payouts
+--    made by OLD code in the window (no attempt row — C4) are reported, and the
+--    manifest is stamped. A fresh install has no archive and this is a no-op.
+-- ────────────────────────────────────────────────────────────────────────────
+DO $restore$
+DECLARE
+  v_cols text; v_n int; v_c1 text := ''; v_c2 int; v_c4 text;
+BEGIN
+  -- two statements on purpose: PL/pgSQL prepares each expression on first
+  -- execution, so the archive relation is never referenced on a fresh install
+  IF to_regclass('rollback_archive.manifest') IS NULL THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM rollback_archive.manifest WHERE restored_at IS NULL) THEN
+    RETURN;
+  END IF;
+
+  -- ledgers: common columns only (schema drift tolerant), append-only tables accept INSERT
+  FOR v_cols, v_n IN
+    SELECT string_agg(quote_ident(c.column_name), ', ' ORDER BY c.ordinal_position), 0
+      FROM information_schema.columns c
+      JOIN information_schema.columns a
+        ON a.table_schema = 'rollback_archive' AND a.table_name = 'payout_attempts' AND a.column_name = c.column_name
+     WHERE c.table_schema = 'public' AND c.table_name = 'payout_attempts'
+  LOOP
+    EXECUTE format('INSERT INTO public.payout_attempts (%s) SELECT %s FROM rollback_archive.payout_attempts ON CONFLICT (id) DO NOTHING', v_cols, v_cols);
+  END LOOP;
+  FOR v_cols, v_n IN
+    SELECT string_agg(quote_ident(c.column_name), ', ' ORDER BY c.ordinal_position), 0
+      FROM information_schema.columns c
+      JOIN information_schema.columns a
+        ON a.table_schema = 'rollback_archive' AND a.table_name = 'payment_refunds' AND a.column_name = c.column_name
+     WHERE c.table_schema = 'public' AND c.table_name = 'payment_refunds'
+  LOOP
+    EXECUTE format('INSERT INTO public.payment_refunds (%s) SELECT %s FROM rollback_archive.payment_refunds ON CONFLICT (id) DO NOTHING', v_cols, v_cols);
+  END LOOP;
+  FOR v_cols, v_n IN
+    SELECT string_agg(quote_ident(c.column_name), ', ' ORDER BY c.ordinal_position), 0
+      FROM information_schema.columns c
+      JOIN information_schema.columns a
+        ON a.table_schema = 'rollback_archive' AND a.table_name = 'account_deletions' AND a.column_name = c.column_name
+     WHERE c.table_schema = 'public' AND c.table_name = 'account_deletions'
+  LOOP
+    EXECUTE format('INSERT INTO public.account_deletions (%s) SELECT %s FROM rollback_archive.account_deletions ON CONFLICT DO NOTHING', v_cols, v_cols);
+  END LOOP;
+
+  -- refund facts: NULL -> archived value only (never overwrite a fact written since)
+  PERFORM set_config('app.bypass_payment_guard', 'on', true);
+  UPDATE public.payments p
+     SET amount_refunded_cents = a.amount_refunded_cents
+    FROM rollback_archive.payments_refund_facts a
+   WHERE p.id = a.id AND a.amount_refunded_cents IS NOT NULL AND p.amount_refunded_cents IS NULL;
+  PERFORM set_config('app.bypass_payment_guard', 'off', true);
+
+  -- C1 counts
+  SELECT string_agg(t || ':' || n::text, ' ') INTO v_c1 FROM (
+    SELECT 'attempts' t, (SELECT count(*) FROM rollback_archive.payout_attempts) - (SELECT count(*) FROM public.payout_attempts a WHERE EXISTS (SELECT 1 FROM rollback_archive.payout_attempts r WHERE r.id = a.id)) n
+    UNION ALL SELECT 'refunds', (SELECT count(*) FROM rollback_archive.payment_refunds) - (SELECT count(*) FROM public.payment_refunds a WHERE EXISTS (SELECT 1 FROM rollback_archive.payment_refunds r WHERE r.id = a.id))
+  ) x WHERE n <> 0;
+  IF v_c1 IS NOT NULL THEN
+    RAISE EXCEPTION 'rollback_archive restore INCOMPLETE (missing rows): %', v_c1;
+  END IF;
+  -- C2 ledger sum = column (for every payment with any refund fact)
+  SELECT count(*) INTO v_c2
+    FROM public.payments p
+   WHERE p.amount_refunded_cents IS NOT NULL
+     AND p.amount_refunded_cents <> coalesce((SELECT sum(r.amount_cents) FROM public.payment_refunds r WHERE r.payment_id = p.id), 0);
+  IF v_c2 > 0 THEN
+    RAISE WARNING 'rollback_archive restore: % payment(s) whose refund ledger sum differs from amount_refunded_cents — reconcile against Stripe before money workers resume', v_c2;
+  END IF;
+  -- C4 window payouts: a transfer paid while the ledger was gone has a tr_ but no attempt row
+  SELECT string_agg(t.id::text || '=' || t.stripe_transfer_id, ', ') INTO v_c4
+    FROM public.transfers t
+    JOIN rollback_archive.transfers_money b ON b.id = t.id
+   WHERE t.stripe_transfer_id IS NOT NULL AND b.stripe_transfer_id IS NULL
+     AND NOT EXISTS (SELECT 1 FROM public.payout_attempts a WHERE a.transfer_id = t.id AND a.stripe_transfer_id = t.stripe_transfer_id);
+  IF v_c4 IS NOT NULL THEN
+    RAISE WARNING 'rollback_archive restore: payouts made by OLD code during the rollback window (no attempt row; reconcile against Stripe by metadata.transfer_id): %', v_c4;
+  END IF;
+
+  UPDATE rollback_archive.manifest SET restored_at = now() WHERE restored_at IS NULL;
+  RAISE NOTICE 'rollback_archive restored (attempts %, refunds %)',
+    (SELECT count(*) FROM rollback_archive.payout_attempts), (SELECT count(*) FROM rollback_archive.payment_refunds);
+END $restore$;

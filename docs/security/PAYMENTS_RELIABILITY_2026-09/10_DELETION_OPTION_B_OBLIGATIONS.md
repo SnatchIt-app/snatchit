@@ -68,7 +68,11 @@ the refund path, or hold — never a manual erase. The daily report above is the
 
 - Edge: `delete-account` returns `pending_obligations: [...]` (or `obligations_check: 'unavailable'`) alongside
   `success:true` — additive, so build 13 keeps working.
-- Client (this RC, next build): the settings screen now shows the acceptance message BEFORE signing the user out, listing
+- Client (this RC, next build): the settings screen shows the acceptance message BEFORE signing the user out, listing
   what must settle when the response carries obligations, and the pending-state view (already in build 13) exposes
   Withdraw. Build 13 users receive the accepted request and see the pending state on next sign-in; the obligation list
   is visible to support via the SQL above until the client update ships.
+- **There is no grace period.** The ratified machine (078 `kernel.sweep_deletion_pending`, cron every 2 minutes) tombstones an
+  identity on the first tick at which every predicate is false — a clean account is erased within minutes of the request;
+  an obligated one stays pending exactly as long as the obligation. Withdrawal is the person's only "undo", and only
+  while pending. Copy in the edge comment and in earlier drafts that spoke of a "grace window" was wrong and is corrected.

@@ -39,8 +39,7 @@ import {
   reasonCodeForErrorClass,
   shouldPageSentry,
   type PayoutErrorClass,
-  type PayoutPostOutcome,
-} from './payout-logic.ts';
+  type PayoutPostOutcome,, allowTestModeMoney } from './payout-logic.ts';
 
 export { classifyPayoutStripeError, reasonCodeForErrorClass, shouldPageSentry };
 export type { PayoutErrorClass };
@@ -160,7 +159,7 @@ export async function createSellerPayout(
   const fundable =
     piProbe.ok &&
     pi?.status === 'succeeded' &&
-    pi?.livemode === true &&
+    (pi?.livemode === true || (pi?.livemode === false && allowTestModeMoney())) &&
     !!ch?.id &&
     ch?.refunded !== true &&
     (!args.sourceChargeId || args.sourceChargeId === ch?.id) &&

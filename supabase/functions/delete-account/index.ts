@@ -18,7 +18,9 @@
  *   - auth.admin.deleteUser is called by NOTHING. Erasure is the DB sweep's
  *     tombstone terminal (ODR-16); no CASCADE physical delete ever runs.
  *   - A second action exposes kernel.withdraw_account_deletion (§20.17.2), so
- *     a pending request is reversible until the grace window elapses.
+ *     a pending request is reversible (withdraw) for as long as it is pending;
+ *     there is NO grace period — the 2-minute sweep tombstones as soon as no
+ *     predicate holds.
  *
  *   - PRP-3 (payments reliability, F10): the sweep now also refuses to
  *     tombstone while public.account_deletion_blockers(user) names an
@@ -32,7 +34,7 @@
  *     the person what must settle first. The request is still ALWAYS
  *     ACCEPTED (OR-17): refusing here would change the ratified machine and
  *     the deployed client contract, and would leave the person unable to
- *     start the grace window for obligations only the platform can settle
+ *     enter the pending state for obligations only the platform can settle
  *     (a pending refund, a held payout). A read failure of the predicate
  *     does not block the request (the terminal re-checks); it is reported as
  *     `obligations_check: 'unavailable'` and captured to Sentry.

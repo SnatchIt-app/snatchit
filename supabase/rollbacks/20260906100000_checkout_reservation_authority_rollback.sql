@@ -20,6 +20,27 @@
 --   becomes re-reservable again); 030/040/110 #17 revert to 0590 text.
 -- ============================================================================
 
+BEGIN;
+
+-- ── Pre-rollback gates (R5 D-detectors). Rollback is data-safe only while every
+-- detector is zero; otherwise old code re-interprets new-code facts (full-net
+-- payout on a partially refunded order, re-POST of an in-flight payout, ...).
+-- An operator may override ONLY with a ticketed decision:
+--   SELECT set_config('app.rollback_force', 'on', true);
+DO $gate$
+DECLARE v_bad text := '';
+BEGIN
+  IF current_setting('app.rollback_force', true) = 'on' THEN
+    RAISE WARNING 'rollback 20260906100000: gates OVERRIDDEN by app.rollback_force (ticketed operator decision expected)';
+    RETURN;
+  END IF;
+  IF (SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname='settle_verified_payment') > 0 THEN v_bad := v_bad || ' O1=' || (SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname='settle_verified_payment')::text || ' [20260906110000 still applied - settle_verified_payment calls the core, roll it back first]'; END IF;
+
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION 'rollback 20260906100000 REFUSED - unsafe state present:% (settle each, or set app.rollback_force=on with a ticket)', v_bad;
+  END IF;
+END $gate$;
+
 CREATE OR REPLACE FUNCTION public.mark_listing_sold(p_listing_id uuid, p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -122,3 +143,5 @@ GRANT  EXECUTE ON FUNCTION public.reserve_buy_now(uuid, uuid, integer)   TO auth
 
 -- Package 1 core: nothing else references it until Package 2 lands.
 DROP FUNCTION IF EXISTS public.settle_listing_for_payment(uuid);
+
+COMMIT;
