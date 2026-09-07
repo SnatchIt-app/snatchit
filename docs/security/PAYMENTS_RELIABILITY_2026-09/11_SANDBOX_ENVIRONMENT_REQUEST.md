@@ -9,10 +9,17 @@ Status 2026-09-06: **no suitable non-production environment exists.** Nothing be
 | Snatch It | `hqycwntpfoztoinemqns` | us-west-2 | ACTIVE_HEALTHY | **NO — production.** Never a substitute. |
 | Pulse | `aihgejwdvkvngjwttxij` | us-east-1 | INACTIVE (paused) | NO — a different product's project; restoring it costs the same compute as a new project and mixes data/config. |
 
-Organization: `zcxpqolueooqkslolfrt` ("gnvprod@gmail.com's Org"). A new project in this org costs **$10 / month**
-(management API `get_cost`, type `project`, recurrence monthly). Supabase Branching on the production project is
-NOT an option here: AUTODEPLOY-1 (branching once bound git `main` to production; `git_branch` must stay empty) and the
-standing rule "never treat the existing Supabase project as staging".
+Organization: `zcxpqolueooqkslolfrt` ("gnvprod@gmail.com's Org", plan **Pro**). A new project INSIDE this org costs
+**$10 / month** (management API `get_cost`: Micro compute). That cost is avoidable: Supabase grants **two free projects per
+account** "across all organizations where you are an Owner or Administrator", paused projects do not count, and an
+account may hold several organizations on different plans (billing docs, verified 2026-09-07). Neither existing project
+is a free-plan project, so the allowance is unused → a **separate Free-plan organization** hosts the sandbox at **$0**
+while production and its Pro organization stay untouched. Free-plan limits that matter are parity/performance only:
+Nano shared compute, 500 MB database, 1-day log retention, pause after 1 week of inactivity, built-in mailer 2 emails/h
+(create the three users pre-confirmed in the Dashboard). Edge Functions (150 s wall clock, 100 secrets), Auth, pg_cron,
+pg_net, Vault and public HTTPS function URLs for Stripe webhooks are all available on Free. Supabase Branching on the
+production project is NOT an option: AUTODEPLOY-1 (branching once bound git `main` to production; `git_branch` must stay
+empty) and the standing rule "never treat the existing Supabase project as staging".
 
 Stripe: no Stripe CLI is installed on this host and no test-mode key exists locally (`~/.config/stripe` absent; the repo
 carries only `web/.env.example` names). The live Stripe account already has a **test-mode webhook endpoint of unknown
@@ -41,8 +48,10 @@ and endpoints, free) with Connect enabled and the platform profile completed —
 
 ## 2. Minimum isolated setup (what the sandbox pass needs, nothing more)
 
-1. **Supabase project** `snatchit-sandbox`, region us-west-2, smallest compute (Micro), in org `zcxpqolueooqkslolfrt`.
-   Cost $10/month; delete/pause after the pass. Database password is the owner's — never shared with the assistant.
+1. **A new Free-plan organization** (e.g. `snatchit-sandbox`) owned by the same account, with **one free project**
+   (`snatchit-sandbox`, region us-west-2, Nano). Cost **$0**. Pause/delete after the pass. Database password is the
+   owner's — never shared with the assistant. (Creating the project inside the Pro org instead would cost $10/month;
+   not needed.)
 2. **Schema**: `supabase link --project-ref <sandbox-ref>` then `supabase db push --include-all` from the RC checkout
    (`release/payments-converged-rc`), which applies production's 124 versions plus the four `20260906*` — the same
    sequence the production-order rehearsal proves locally (51/51). Then `supabase/ci/parity_grants.sql` is NOT applied
@@ -76,9 +85,9 @@ and endpoints, free) with Connect enabled and the platform profile completed —
 
 ## 3. The exact minimum request (owner action; nothing else is needed from you)
 
-1. **Approve $10/month** and say "create the sandbox project" — the assistant then creates `snatchit-sandbox`
-   (Micro, us-west-2) via the management API with the cost confirmation, links the RC checkout, pushes the schema,
-   deploys the edges and runs the non-secret provisioning. (Or create it yourself in the Dashboard and give the ref.)
+1. **Create a Free-plan organization and one free project in it** in the Supabase Dashboard (New organization → Free;
+   New project `snatchit-sandbox`, us-west-2) and give the project ref. No charge. The assistant then links the RC
+   checkout, pushes the schema, deploys the edges and runs the non-secret provisioning (`scripts/sandbox/10_provision.sh`).
 2. In Stripe: create a **Sandbox** with Connect enabled (platform profile completed). Create its webhook endpoint
    (`scripts/sandbox/10_provision.sh` prints the exact `stripe webhook_endpoints create` command once the project URL
    is known — you run it after `stripe login`). Paste `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
