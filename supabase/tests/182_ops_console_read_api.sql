@@ -92,7 +92,11 @@ SELECT is(jsonb_array_length(ops.list_orders('{"transfer_status":["seller_sent"]
 SELECT is(ops.list_orders('{"q":"Fixture Event A"}', NULL, 50) -> 'items' -> 0 ->> 'payment_id', tap.payment_a()::text, 'B20: q filter matches event_name');
 SELECT throws_like($$SELECT ops.list_orders('{}', 'not-a-cursor', 10)$$, '%malformed cursor%', 'B21: a malformed cursor is rejected');
 
-SELECT is(ops.list_cases('{}', NULL, 50) -> 'items', '[]'::jsonb, 'B22: list_cases is empty with no cases');
+-- B22 is structural, not "empty": on the real Supabase stack pg_cron fires
+-- ops-detect-tick, which can legitimately open job_failure cases (door/CRM
+-- cron ticks post to functions that do not exist locally) before this file
+-- runs. Detector behaviour is pinned in 183/184; here we only assert shape.
+SELECT is(jsonb_typeof(ops.list_cases('{}', NULL, 50) -> 'items'), 'array', 'B22: list_cases returns an items array (may be non-empty when the live cron has already opened detector cases)');
 SELECT is(jsonb_array_length(ops.list_payouts('{"state":"pending_release"}', NULL, 50) -> 'items'), 1, 'B23: list_payouts(pending_release) is transfer B');
 
 SELECT is(
