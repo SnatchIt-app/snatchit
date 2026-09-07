@@ -163,7 +163,7 @@ export function ConfirmForm({
       {state.invalid ? (
         <Alert state="failed" title={state.invalid} compact />
       ) : state.failure ? (
-        <OpsFailureAlert failure={state.failure} fn="execute_action" />
+        <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />
       ) : state.outcome ? (
         <OutcomeText outcome={state.outcome} />
       ) : null}

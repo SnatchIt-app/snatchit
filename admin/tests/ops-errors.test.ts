@@ -12,6 +12,14 @@ describe("mapOpsError", () => {
     expect(mapOpsError("execute_action", { code: "P0001", message: "STEP_UP_UNAVAILABLE for this session" })).toEqual({ ok: false, kind: "mfa" });
   });
 
+  it("maps the console pause to its own kind", () => {
+    const r = mapOpsError("execute_action", { code: "P0001", message: "precondition_failed: console_actions_paused — a founder paused console actions (ops.setting actions_enabled = false); reads remain available" });
+    expect(r).toMatchObject({ ok: false, kind: "paused" });
+    expect(mapOpsError("approve_action", { code: "P0001", message: "precondition_failed: console_actions_paused" })).toMatchObject({ kind: "paused" });
+    // other precondition failures stay generic errors
+    expect(mapOpsError("approve_action", { code: "P0001", message: "precondition_failed: no_evidence" })).toMatchObject({ kind: "error" });
+  });
+
   it("flags a missing function/schema as unavailable with a friendly message", () => {
     const r = mapOpsError("list_orders", { code: "PGRST202", message: "Could not find the function ops.list_orders(p_filters) in the schema cache" });
     expect(r).toMatchObject({ ok: false, kind: "error", unavailable: true, message: "RPC ops.list_orders not available yet" });

@@ -7,7 +7,8 @@ import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
 import { canRequest } from "@/lib/permissions";
 import { labelFor, shortId } from "@/lib/format";
-import { str, toListingDetail, type Bid, type JsonRecord, type Report } from "@/lib/types";
+import { SUPABASE_URL } from "@/lib/env";
+import { evidenceItems, str, toListingDetail, type Bid, type JsonRecord, type Report } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { KeyValue } from "@/components/ui/KeyValue";
@@ -111,9 +112,9 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                 { key: "restrictions", value: str(raw.restrictions) },
               ]}
             />
-            <h3 className="eyebrow mt-4 text-dim">Files (signed links, expire in 10 min)</h3>
+            <h3 className="eyebrow mt-4 text-dim">Files (proof of ownership: audited access, short-lived link)</h3>
             <div className="mt-2">
-              <EvidenceList items={d.evidence} />
+              <EvidenceList items={evidenceItems(d.evidence, { listingId: l.id ?? id, transferId: d.transfer?.id ?? null })} publicBase={SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public` : null} />
             </div>
           </Panel>
 

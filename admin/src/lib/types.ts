@@ -309,7 +309,69 @@ export type ActionType =
   | "approval_decide"
   | "case_create";
 
-export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | (string & {});
+export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | "not_supported" | (string & {});
+
+// ---------- §3.4 ops.approve_action decision ----------
+
+/** The only two values `ops.approve_action(p_decision)` accepts; anything else raises. */
+export type ApprovalDecision = "approve" | "deny";
+export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = ["approve", "deny"];
+
+/**
+ * Strict parser for a decision coming off a form. Unknown / malformed input
+ * is `null` — it must NEVER fall back to "approve" (a mistyped deny that
+ * executes a money action is the worst possible outcome).
+ */
+export function parseApprovalDecision(raw: unknown): ApprovalDecision | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  return v === "approve" || v === "deny" ? v : null;
+}
+
+// ---------- §3.3 ops.evidence_access ----------
+
+export type EvidenceSubjectKind = "transfer" | "listing";
+export type EvidenceSlot = "transfer_evidence" | "transfer_screenshot" | "dispute_evidence" | "proof_of_ownership";
+
+/** Client-side mirror of the slots ops.evidence_access() resolves per subject kind. */
+export const EVIDENCE_SLOTS: Record<EvidenceSubjectKind, readonly EvidenceSlot[]> = {
+  transfer: ["transfer_evidence", "transfer_screenshot", "dispute_evidence"],
+  listing: ["proof_of_ownership"],
+};
+
+export function isEvidenceSubjectKind(v: unknown): v is EvidenceSubjectKind {
+  return v === "transfer" || v === "listing";
+}
+
+export function isEvidenceSlot(kind: EvidenceSubjectKind, slot: unknown): slot is EvidenceSlot {
+  return typeof slot === "string" && (EVIDENCE_SLOTS[kind] as readonly string[]).includes(slot);
+}
+
+/** Payload of ops.evidence_access(): the bucket/path resolved from the record, never from the client. */
+export type EvidenceAccess = {
+  bucket: string;
+  path: string;
+  expires_in_seconds: number;
+  slot: string | null;
+  subject_kind: string | null;
+  subject_id: string | null;
+};
+
+export function toEvidenceAccess(v: unknown): EvidenceAccess | null {
+  if (!isRecord(v)) return null;
+  const bucket = str(v.bucket);
+  const path = str(v.path);
+  if (!bucket || !path) return null;
+  const ttl = num(v.expires_in_seconds);
+  return {
+    bucket,
+    path,
+    expires_in_seconds: ttl !== null && ttl > 0 ? Math.min(Math.floor(ttl), 3600) : 300,
+    slot: str(v.slot),
+    subject_kind: str(v.subject_kind),
+    subject_id: str(v.subject_id),
+  };
+}
 
 export type ActionOutcome =
   | { status: "succeeded"; action_id?: string; result?: unknown; raw: JsonRecord }
@@ -680,6 +742,11 @@ export function toListingSummary(v: unknown): ListingSummary | null {
   };
 }
 
+/**
+ * What order_detail / listing_detail report per evidence key. The path is
+ * used ONLY to know whether a file is recorded; the console never signs it —
+ * the signed bucket/path comes from ops.evidence_access() (see EvidenceItem).
+ */
 export type EvidenceRef = { key: string; bucket: string | null; path: string | null };
 
 export function toEvidence(v: unknown): EvidenceRef[] {
@@ -689,6 +756,50 @@ export function toEvidence(v: unknown): EvidenceRef[] {
     bucket: isRecord(val) ? str(val.bucket) : null,
     path: isRecord(val) ? str(val.path) : typeof val === "string" ? val : null,
   }));
+}
+
+/** One row of the evidence panel: a review slot bound to the record that owns it. */
+export type EvidenceItem =
+  | { kind: "audited"; key: string; slot: EvidenceSlot; subjectKind: EvidenceSubjectKind; subjectId: string; recorded: boolean }
+  | { kind: "public"; key: string; bucket: string; path: string | null; recorded: boolean }
+  | { kind: "unresolvable"; key: string; recorded: boolean };
+
+/** Buckets whose objects are public (no signing, no audit) — the cover image only. */
+export const PUBLIC_EVIDENCE_BUCKETS: readonly string[] = ["auction-media"];
+
+/**
+ * Bind detail-payload evidence keys (`<slot>_path`) to the subject that owns
+ * the slot. `cover_image_path` is public (auction-media). A key whose owning
+ * record id is unknown on this page is reported as unresolvable and rendered
+ * as "evidence not accessible" — never signed from the payload's path.
+ */
+export function evidenceItems(refs: EvidenceRef[], owners: { transferId?: string | null; listingId?: string | null }): EvidenceItem[] {
+  return refs.map((ref): EvidenceItem => {
+    const recorded = Boolean(ref.path);
+    const slot = ref.key.replace(/_path$/, "");
+    if (slot === "cover_image") {
+      const bucket = ref.bucket ?? "auction-media";
+      if (!PUBLIC_EVIDENCE_BUCKETS.includes(bucket)) return { kind: "unresolvable", key: ref.key, recorded };
+      return { kind: "public", key: ref.key, bucket, path: ref.path, recorded };
+    }
+    if (isEvidenceSlot("transfer", slot)) {
+      return owners.transferId ? { kind: "audited", key: ref.key, slot, subjectKind: "transfer", subjectId: owners.transferId, recorded } : { kind: "unresolvable", key: ref.key, recorded };
+    }
+    if (isEvidenceSlot("listing", slot)) {
+      return owners.listingId ? { kind: "audited", key: ref.key, slot, subjectKind: "listing", subjectId: owners.listingId, recorded } : { kind: "unresolvable", key: ref.key, recorded };
+    }
+    return { kind: "unresolvable", key: ref.key, recorded };
+  });
+}
+
+// ---------- refund_execute result facts ----------
+
+/** ops.action.result.refund_status for refund_execute rows (Stripe refund.status mirror). */
+export type RefundProviderStatus = "pending" | "requires_action" | "succeeded" | "failed" | "canceled" | (string & {});
+
+export function refundStatusOf(result: unknown): RefundProviderStatus | null {
+  if (!isRecord(result)) return null;
+  return str(pick(result, "refund_status", "provider_status")) as RefundProviderStatus | null;
 }
 
 export type RefundFacts = {
@@ -1094,12 +1205,17 @@ export function toListingDetail(v: unknown): ListingDetail | null {
 
 export type MoneyMetric = {
   key: string;
+  /** null = the amount is not knowable from local data (see `upper_bound_cents` / `note`). */
   value_cents: number | null;
+  /** Present only when value_cents is null: Σ over the rows, never a headline figure. */
+  upper_bound_cents: number | null;
   count: number | null;
   currency: string | null;
   from: string | null;
   to: string | null;
   definition: string | null;
+  note: string | null;
+  certainty: "exact" | "uncertain" | null;
   source: string | null;
   basis: string | null;
   tracked: boolean;
@@ -1126,6 +1242,10 @@ export const MONEY_METRIC_ORDER = [
   "bank_payouts",
 ];
 
+function toCertainty(v: unknown): MoneyMetric["certainty"] {
+  return v === "uncertain" ? "uncertain" : v === "exact" ? "exact" : null;
+}
+
 export function toMoneyOverview(v: unknown): MoneyOverview | null {
   if (!isRecord(v)) return null;
   const m = isRecord(v.metrics) ? v.metrics : {};
@@ -1134,11 +1254,14 @@ export function toMoneyOverview(v: unknown): MoneyOverview | null {
     .map(([key, val]) => ({
       key,
       value_cents: num(val.value_cents),
+      upper_bound_cents: num(val.upper_bound_cents),
       count: num(val.count),
       currency: str(val.currency),
       from: str(val.from),
       to: str(val.to),
       definition: str(val.definition),
+      note: str(val.note),
+      certainty: toCertainty(val.certainty),
       source: str(val.source),
       basis: str(val.basis),
       tracked: str(val.basis) !== "not_tracked",

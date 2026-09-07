@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { first, limitOf, type SearchParams } from "@/lib/search-params";
-import { formatMoney, humanize, labelFor, FUNDS_STATE_LABELS } from "@/lib/format";
+import { humanize, labelFor, FUNDS_STATE_LABELS } from "@/lib/format";
+import { metricDisplay } from "@/lib/metrics";
 import { str, toListPage, toMoneyOverview, toPayoutRow, toReconItem, type PayoutRow, type ReconItem } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -102,26 +103,25 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         ) : (
           <section aria-label="Money metrics">
             <MetricGrid cols={3}>
-              {overview.metrics.map((m) => (
-                <MetricTile
-                  key={m.key}
-                  label={METRIC_LABELS[m.key] ?? humanize(m.key)}
-                  definition={[m.definition, m.source ? `Source: ${m.source}.` : null, m.basis ? `Basis: ${m.basis}.` : null, m.currency ? `Currency: ${m.currency}.` : null].filter(Boolean).join(" ")}
-                  value={formatMoney(m.value_cents)}
-                  notTracked={!m.tracked}
-                  sub={
-                    m.tracked ? (
+              {overview.metrics.map((m) => {
+                const disp = metricDisplay(m);
+                return (
+                  <MetricTile
+                    key={m.key}
+                    label={METRIC_LABELS[m.key] ?? humanize(m.key)}
+                    definition={[m.definition, m.source ? `Source: ${m.source}.` : null, m.basis ? `Basis: ${m.basis}.` : null, m.currency ? `Currency: ${m.currency}.` : null].filter(Boolean).join(" ")}
+                    value={m.tracked && m.value_cents !== null ? disp.headline : null}
+                    notTracked={!m.tracked}
+                    note={disp.note}
+                    sub={
                       <>
-                        {m.count !== null ? `${m.count.toLocaleString("en-US")} row${m.count === 1 ? "" : "s"} · ` : null}
-                        {m.from && m.to ? `${m.from} → ${m.to}` : m.basis === "now()" ? "point in time (now)" : m.basis}
-                        {m.source ? <span className="block font-mono text-[10px]">{m.source}</span> : null}
+                        {disp.secondary}
+                        {m.tracked && m.source ? <span className="block font-mono text-[10px]">{m.source}</span> : null}
                       </>
-                    ) : (
-                      m.definition
-                    )
-                  }
-                />
-              ))}
+                    }
+                  />
+                );
+              })}
             </MetricGrid>
             <p className="mt-2 text-[11px] text-dim">
               Hover a tile for its definition, source and basis. Range {overview.from} → {overview.to} ({overview.currency ?? "USD"}). “Seller funds pending” is point-in-time and ignores the range.

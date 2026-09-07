@@ -76,6 +76,13 @@ export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailur
       </Alert>
     );
   }
+  if (failure.kind === "paused") {
+    return (
+      <Alert state="warning" title="Actions are paused by a founder — read-only until re-enabled from System → Settings." retryHref="/system#setting-actions_enabled" retryLabel="Open settings">
+        Nothing was changed. ops.setting <code className="font-mono">actions_enabled</code> is false; every mutation is refused until a platform_admin sets it back to true.
+      </Alert>
+    );
+  }
   return (
     <Alert state="failed" title={failure.unavailable ? "RPC not available yet" : "Request failed"} retryHref={retryHref}>
       {failure.message}

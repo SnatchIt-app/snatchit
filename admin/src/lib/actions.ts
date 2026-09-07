@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { callOps } from "@/lib/ops";
 import { isIdempotencyKey, IDEMPOTENCY_FIELD } from "@/lib/idempotency";
-import { isRecord, toActionOutcome, type ActionOutcome, type ActionType } from "@/lib/types";
+import { isRecord, parseApprovalDecision, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 
@@ -57,9 +57,14 @@ export async function executeAction(input: ExecuteActionInput): Promise<ActionFo
   return { submitted: true, outcome };
 }
 
+/**
+ * `ops.approve_action(p_action_id, p_decision, p_reason)` — the database
+ * accepts exactly 'approve' | 'deny' and raises on anything else. The
+ * decision is forwarded verbatim; parsing happens once, in submitActionForm.
+ */
 export async function approveAction(input: {
   actionId: string;
-  decision: "approve" | "reject";
+  decision: ApprovalDecision;
   reason: string;
 }): Promise<ActionFormState> {
   const res = await callOps<unknown>("approve_action", {
@@ -129,13 +134,18 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   if (!reason) return { submitted: true, invalid: "A reason is required." };
   if (reason.length > 2000) return { submitted: true, invalid: "Reason is too long (2000 characters max)." };
 
-  const state = await (actionType === "approval_decide" && typeof params.action_id === "string"
-    ? approveAction({
-        actionId: params.action_id,
-        decision: params.decision === "reject" ? "reject" : "approve",
-        reason,
-      })
-    : executeAction({ idempotencyKey, actionType, subjectKind, subjectId: subjectId || null, subjectRef: subjectRef || null, params, reason, expected }));
+  let state: ActionFormState;
+  if (actionType === "approval_decide") {
+    // Never default a decision: an unrecognised value must not approve.
+    const decision = parseApprovalDecision(params.decision);
+    if (!decision) return { submitted: true, failure: { ok: false, kind: "error", message: "invalid decision" } };
+    if (typeof params.action_id !== "string" || !params.action_id) {
+      return { submitted: true, invalid: "This form is missing its action envelope. Reload and try again." };
+    }
+    state = await approveAction({ actionId: params.action_id, decision, reason });
+  } else {
+    state = await executeAction({ idempotencyKey, actionType, subjectKind, subjectId: subjectId || null, subjectRef: subjectRef || null, params, reason, expected });
+  }
 
   if (state.outcome && typeof revalidate === "string" && revalidate.startsWith("/")) {
     revalidatePath(revalidate);
@@ -149,39 +159,52 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
 
 export type ResumeRefundState = {
   submitted?: boolean;
-  /** Authoritative state reported by the executor, when it answered. */
+  /** Authoritative ops.action state reported by the executor, when it answered. */
   state?: string;
+  /** Stripe refund status when the executor reports one (pending / requires_action / succeeded …). */
+  refundStatus?: string;
+  /** HTTP 202: Stripe accepted the refund but it has not succeeded yet. */
+  accepted?: boolean;
   actionId?: string;
   message?: string;
   /** The function is not deployed / not reachable (404/503/network). */
   notDeployed?: boolean;
+  /** HTTP 409: ops.executor_claim refused (disabled, paused, claim_busy, approval_stale, terminal …). */
+  refusedReason?: string;
   /** Any other failure (auth, 4xx, 5xx). */
   error?: string;
   httpStatus?: number;
 };
 
+type ExecutorReply = { action_id?: string; state?: string; refund_status?: string; message?: string; reason?: string; error?: string; detail?: string };
+
 /**
  * Ask the edge function to (re)drive a `refund_execute` action that is in
- * processing / succeeded_at_provider / unknown. The function is action-row
- * driven: the only input is the action id. Stripe is never called from here.
+ * processing / unknown. The function is action-row driven: the only input is
+ * the action id. Stripe is never called from here. Replies: 200 terminal,
+ * 202 accepted-not-succeeded (pending / requires_action), 409 `{reason}`
+ * when the claim is refused, 422 provider failure.
  */
 export async function resumeRefundExecution(actionId: string): Promise<ResumeRefundState> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actionId)) {
     return { submitted: true, error: "Invalid action id." };
   }
   const { callEdgeFunction } = await import("@/lib/edge-functions");
-  const res = await callEdgeFunction<{ action_id?: string; state?: string; message?: string }>("ops-refund-execute", { action_id: actionId });
+  const res = await callEdgeFunction<ExecutorReply>("ops-refund-execute", { action_id: actionId });
   if (!res.ok) {
     if (res.unreachable) {
       return { submitted: true, notDeployed: true, httpStatus: res.status, message: res.detail ?? res.error };
     }
-    const data = res.data ?? {};
+    const data = (res.data ?? {}) as ExecutorReply;
+    const reason = typeof data.reason === "string" ? data.reason : res.status === 409 ? res.error : undefined;
     return {
       submitted: true,
       httpStatus: res.status,
       error: res.error,
-      message: res.detail,
+      refusedReason: reason,
+      message: res.detail ?? (typeof data.message === "string" ? data.message : undefined),
       state: typeof data.state === "string" ? data.state : undefined,
+      refundStatus: typeof data.refund_status === "string" ? data.refund_status : undefined,
       actionId: typeof data.action_id === "string" ? data.action_id : undefined,
     };
   }
@@ -189,7 +212,9 @@ export async function resumeRefundExecution(actionId: string): Promise<ResumeRef
   return {
     submitted: true,
     httpStatus: res.status,
+    accepted: res.status === 202,
     state: res.data.state,
+    refundStatus: res.data.refund_status,
     actionId: res.data.action_id ?? actionId,
     message: res.data.message,
   };

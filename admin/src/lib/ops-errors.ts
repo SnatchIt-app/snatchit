@@ -6,7 +6,12 @@
 export type OpsFailure =
   | { ok: false; kind: "denied" }
   | { ok: false; kind: "mfa" }
+  /** ops.setting actions_enabled = false: every mutation is refused until a founder re-enables it. */
+  | { ok: false; kind: "paused"; message: string }
   | { ok: false; kind: "error"; message: string; code?: string; unavailable?: boolean };
+
+/** Marker raised by ops.assert_actions_enabled() (migration 118). */
+export const CONSOLE_PAUSED_MARKER = "console_actions_paused";
 
 export type OpsResult<T> = { ok: true; data: T } | OpsFailure;
 
@@ -37,6 +42,9 @@ export function mapOpsError(fn: string, err: PostgrestLikeError | null | undefin
   }
   if (lower.includes("step_up_required") || lower.includes("step_up_unavailable")) {
     return { ok: false, kind: "mfa" };
+  }
+  if (lower.includes(CONSOLE_PAUSED_MARKER)) {
+    return { ok: false, kind: "paused", message: message || "Console actions are paused" };
   }
   if (UNAVAILABLE_CODES.has(code) || (code === "" && lower.includes("could not find the function"))) {
     return {

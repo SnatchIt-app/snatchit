@@ -5,8 +5,8 @@ import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
-import { labelFor, shortId } from "@/lib/format";
-import { toActionDetail, type Approval } from "@/lib/types";
+import { labelFor, refundStateLabel, shortId, REFUND_STATUS_LABELS } from "@/lib/format";
+import { refundStatusOf, toActionDetail, type Approval, type ApprovalDecision } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { KeyValue } from "@/components/ui/KeyValue";
@@ -24,7 +24,8 @@ import { renderValue } from "@/components/generic/GenericRpc";
 export const metadata: Metadata = { title: "Action" };
 export const dynamic = "force-dynamic";
 
-const RESUMABLE = new Set(["processing", "succeeded_at_provider", "unknown"]);
+/** ops.executor_claim() only claims processing / unknown; succeeded_at_provider completes via the webhook + detector. */
+const RESUMABLE = new Set(["processing", "unknown"]);
 
 export default async function ActionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -58,6 +59,8 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
   const pending = d.approvals.find((ap) => ap.state === "pending");
   const isRequester = a.requested_by === me.id;
   const resumable = a.action_type === "refund_execute" && RESUMABLE.has(a.state ?? "") && me.role === "platform_admin";
+  const refundStatus = a.action_type === "refund_execute" ? refundStatusOf(a.result) : null;
+  const stateLabel = a.action_type === "refund_execute" ? refundStateLabel(a.state, refundStatus) : labelFor("action", a.state);
 
   return (
     <>
@@ -74,7 +77,7 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
         description={a.reason}
         meta={
           <span className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={a.state} label={labelFor("action", a.state)} />
+            <StatusBadge status={a.state} label={stateLabel} />
             {a.reject_reason ? <StatusBadge status={a.reject_reason} label={`reject: ${a.reject_reason.replace(/_/g, " ")}`} /> : null}
             <span>
               Subject: <span className="text-dim">{a.subject_kind}</span> <IdLink kind={a.subject_kind} id={a.subject_id} subjectRef={a.subject_ref} label={a.subject_label ?? undefined} />
@@ -94,7 +97,10 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
               items={[
                 { key: "id", value: <code className="font-mono text-[12px]">{a.id}</code> },
                 { key: "action_type", value: <code className="font-mono text-[12px]">{a.action_type}</code> },
-                { key: "state", value: <StatusBadge status={a.state} label={labelFor("action", a.state)} /> },
+                { key: "state", value: <StatusBadge status={a.state} label={stateLabel} /> },
+                ...(a.action_type === "refund_execute"
+                  ? [{ key: "refund_status", label: "Provider refund status", value: refundStatus ? <StatusBadge status={refundStatus} label={REFUND_STATUS_LABELS[refundStatus] ?? refundStatus} /> : <span className="text-dim">not reported yet</span> }]
+                  : []),
                 { key: "requested_by", value: isRequester ? "me" : a.requested_by_label ?? a.requested_by },
                 { key: "requested_at", value: <DateTime value={a.requested_at} withSeconds /> },
                 { key: "completed_at", value: <DateTime value={a.completed_at} withSeconds /> },
@@ -145,14 +151,36 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
         <div className="space-y-6">
           {a.action_type === "refund_execute" ? (
             <Panel eyebrow="Executor" title="Refund execution">
-              {resumable ? (
-                <ResumeRefundForm actionId={id} state={a.state} />
-              ) : (
-                <Alert state="info" title={RESUMABLE.has(a.state ?? "") ? "Only a founder can resume execution." : `Nothing to resume in state “${labelFor("action", a.state)}”.`} compact>
-                  {a.state === "awaiting_approval" ? "The other founder must approve first." : null}
-                  {a.state === "succeeded_at_provider" ? "Stripe accepted the refund; the local payment flips to refunded when the webhook lands." : null}
+              {a.state === "processing" ? (
+                <Alert state="warning" title={refundStatus === "requires_action" ? "Requires action at Stripe — not succeeded." : refundStatus === "pending" ? "Accepted by Stripe, not yet succeeded." : "Processing — the outcome is not yet known."} compact>
+                  {refundStatus ? (
+                    <>
+                      Stripe reports refund status <code className="font-mono">{refundStatus}</code>. This is not a completed refund; the payment shows “refunded” only after the charge.refunded webhook lands.
+                    </>
+                  ) : (
+                    "The executor has not recorded a provider status yet. Resume is safe (same idempotency key)."
+                  )}
                 </Alert>
-              )}
+              ) : null}
+              {a.state === "unknown" ? (
+                <Alert state="failed" title="Outcome unknown — needs reconciliation." compact>
+                  Stripe may or may not have refunded. Resume looks the refund up under its idempotency key before doing anything; if it stays unknown, verify in the Stripe Dashboard and escalate.
+                </Alert>
+              ) : null}
+              {a.state === "succeeded_at_provider" ? (
+                <Alert state="info" title="Succeeded at provider — awaiting local webhook." compact>
+                  Stripe refunded{a.provider_ref ? <> (<code className="font-mono">{a.provider_ref}</code>)</> : null}; the local payment flips to refunded when charge.refunded lands and the detector completes this action. Nothing to resume.
+                </Alert>
+              ) : null}
+              <div className={a.state === "processing" || a.state === "unknown" || a.state === "succeeded_at_provider" ? "mt-3" : ""}>
+                {resumable ? (
+                  <ResumeRefundForm actionId={id} state={a.state} refundStatus={refundStatus} />
+                ) : (
+                  <Alert state="info" title={RESUMABLE.has(a.state ?? "") ? "Only a founder can resume execution." : `Nothing to resume in state “${stateLabel}”.`} compact>
+                    {a.state === "awaiting_approval" ? "The other founder must approve first." : null}
+                  </Alert>
+                )}
+              </div>
             </Panel>
           ) : null}
 
@@ -174,13 +202,15 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
 }
 
 function ApprovalDecisionForms({ approval, actionId, revalidate }: { approval: Approval; actionId: string; revalidate: string }) {
+  const approve: ApprovalDecision = "approve";
+  const deny: ApprovalDecision = "deny";
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {approval.hash_current === false ? <Alert state="stale" title="Action terms changed since approval was requested — the decision will be rejected as stale." compact /> : null}
-      <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "approve" }} revalidate={revalidate} label="Approve and execute" danger reasonLabel="Approval reason">
+      <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: approve }} revalidate={revalidate} label="Approve and execute" danger reasonLabel="Approval reason">
         <p className="text-[12px] text-muted">Approving executes the action immediately with the requester as the domain actor. Bound to the exact terms shown above.</p>
       </ConfirmForm>
-      <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "reject" }} revalidate={revalidate} label="Deny" reasonLabel="Denial reason">
+      <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: deny }} revalidate={revalidate} label="Deny" reasonLabel="Denial reason">
         <p className="text-[12px] text-muted">Denying rejects the action; nothing changes.</p>
       </ConfirmForm>
     </div>

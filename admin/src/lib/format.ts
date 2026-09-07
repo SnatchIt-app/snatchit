@@ -117,11 +117,59 @@ export const ACTION_STATE_LABELS: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
   processing: "Processing",
   succeeded: "Succeeded",
-  succeeded_at_provider: "Succeeded at provider (local record pending)",
+  succeeded_at_provider: "Succeeded at provider — awaiting local webhook",
   failed: "Failed",
-  unknown: "Unknown — escalate",
+  unknown: "Outcome unknown — needs reconciliation",
   rejected: "Rejected",
 };
+
+/** Stripe refund.status as mirrored in ops.action.result.refund_status (refund_execute). */
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  pending: "Accepted by Stripe, not yet succeeded",
+  requires_action: "Requires action at Stripe",
+  succeeded: "Succeeded at Stripe",
+  failed: "Failed at Stripe",
+  canceled: "Canceled at Stripe",
+};
+
+/**
+ * Honest one-line label for a refund_execute action: the action state, and
+ * for `processing` the provider's own status (pending / requires_action is
+ * NOT success). Never says "succeeded" unless the state does.
+ */
+export function refundStateLabel(state: unknown, refundStatus: unknown): string {
+  const s = state === null || state === undefined ? "" : String(state);
+  const rs = refundStatus === null || refundStatus === undefined ? "" : String(refundStatus);
+  if (s === "processing") {
+    if (rs && REFUND_STATUS_LABELS[rs]) return `Processing — ${REFUND_STATUS_LABELS[rs].toLowerCase()}`;
+    if (rs) return `Processing — provider status ${humanize(rs).toLowerCase()}`;
+    return "Processing — outcome not yet known";
+  }
+  return labelFor("action", s);
+}
+
+/** ops.executor_claim() refusal reasons surfaced by ops-refund-execute as HTTP 409 {reason}. */
+export const EXECUTOR_REFUSAL_LABELS: Record<string, string> = {
+  disabled: "refund execution is disabled (ops.setting refund_execute_enabled = false)",
+  paused: "console actions are paused by a founder (ops.setting actions_enabled = false)",
+  claim_busy: "another executor run holds the lease — wait for it to finish, then retry",
+  approval_missing: "no approved second-founder decision exists for this action",
+  approval_stale: "the approval no longer matches the action's terms — a fresh approval is needed",
+  terminal: "the action is already in a terminal state — nothing to resume",
+  succeeded_at_provider: "Stripe already succeeded — the local record completes when the webhook lands",
+  not_executable: "the action is not in a resumable state",
+  not_found: "no such action",
+  wrong_type: "not a refund_execute action",
+  payment_missing: "the payment row no longer exists",
+  already_refunded_locally: "the payment is already refunded locally",
+  payment_not_refundable: "the payment is not in a refundable state",
+};
+
+export function executorRefusalLabel(reason: unknown): string {
+  if (reason === null || reason === undefined || reason === "") return "refused";
+  const r = String(reason);
+  return EXECUTOR_REFUSAL_LABELS[r] ?? humanize(r).toLowerCase();
+}
 
 export const APPROVAL_STATE_LABELS: Record<string, string> = {
   pending: "Pending",

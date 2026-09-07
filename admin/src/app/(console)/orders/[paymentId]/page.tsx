@@ -6,8 +6,9 @@ import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
 import { canRequest } from "@/lib/permissions";
-import { labelFor, shortId, DISPUTE_OUTCOME_LABELS } from "@/lib/format";
-import { asArray, str, num, bool, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OrderDetail } from "@/lib/types";
+import { SUPABASE_URL } from "@/lib/env";
+import { labelFor, refundStateLabel, shortId, DISPUTE_OUTCOME_LABELS } from "@/lib/format";
+import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction, type OrderDetail } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { KeyValue } from "@/components/ui/KeyValue";
@@ -198,9 +199,15 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                     { key: "id", label: "Transfer id", value: <code className="font-mono text-[12px]">{t.id}</code> },
                   ]}
                 />
-                <h3 className="eyebrow mt-4 text-dim">Evidence (signed links, expire in 10 min)</h3>
+                <h3 className="eyebrow mt-4 text-dim">Evidence (audited access, short-lived links)</h3>
                 <div className="mt-2">
-                  <EvidenceList items={d.evidence.filter((e) => e.key !== "proof_of_ownership_path")} />
+                  <EvidenceList
+                    items={evidenceItems(
+                      d.evidence.filter((e) => e.key !== "proof_of_ownership_path"),
+                      { transferId: t.id ?? null, listingId: l?.id ?? null },
+                    )}
+                    publicBase={SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public` : null}
+                  />
                 </div>
               </>
             )}
@@ -283,7 +290,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
               <div className="mt-3">
                 <h3 className="eyebrow text-dim">Refund execution attempts</h3>
                 <div className="mt-2">
-                  <ActionTable rows={d.refund.refund_actions} basePath={path} meId={me.id} hideSubject />
+                  <RefundAttemptTable rows={d.refund.refund_actions} basePath={path} meId={me.id} />
                 </div>
               </div>
             ) : null}
@@ -434,12 +441,9 @@ function OrderActions({
                 danger
                 className="mt-3"
               >
-                <div>
-                  <label htmlFor="refund-amount" className="eyebrow block text-dim">
-                    Amount in cents (optional — empty = full total <Money cents={p.total} />)
-                  </label>
-                  <input id="refund-amount" name="param.amount_cents:integer" type="number" min={1} max={p.total ?? undefined} step={1} inputMode="numeric" className="field mt-1" placeholder={p.total !== null && p.total !== undefined ? String(p.total) : ""} />
-                </div>
+                <p className="text-[12px] text-ink">
+                  Full refund of <Money cents={p.total} /> only — partial refunds are not supported by the local money model (payments records refund status, not a refunded amount; a partial would be rejected as <code className="font-mono">not_supported</code>).
+                </p>
                 <p className="text-[11px] text-dim">
                   Parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
                 </p>
@@ -457,6 +461,47 @@ function OrderActions({
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Refund attempts with the provider's own status: `processing` + pending /
+ * requires_action is shown as exactly that, never as success.
+ */
+function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; basePath: string; meId: string }) {
+  const columns: Column<OpsAction>[] = [
+    { key: "requested_at", header: "Requested", render: (a) => <DateTime value={a.requested_at ?? a.created_at} /> },
+    {
+      key: "id",
+      header: "Action",
+      render: (a) =>
+        a.id ? (
+          <Link href={`/actions/${a.id}`} className="link font-mono text-[12px]">
+            {shortId(a.id)}
+          </Link>
+        ) : (
+          <span className="text-dim">—</span>
+        ),
+    },
+    {
+      key: "state",
+      header: "State",
+      render: (a) => {
+        const rs = refundStatusOf(a.result);
+        return (
+          <span className="flex flex-col gap-0.5">
+            <StatusBadge status={a.state} label={refundStateLabel(a.state, rs)} />
+            {a.state === "processing" && rs ? <span className="text-[11px] text-dim">Stripe refund status: {rs} — not a completed refund</span> : null}
+            {a.state === "succeeded_at_provider" ? <span className="text-[11px] text-dim">Stripe succeeded; payment flips to refunded when the webhook lands</span> : null}
+            {a.state === "unknown" ? <span className="text-[11px] text-danger">verify in the Stripe Dashboard before any retry</span> : null}
+          </span>
+        );
+      },
+    },
+    { key: "provider_ref", header: "Stripe refund", render: (a) => (a.provider_ref ? <code className="font-mono text-[11px]">{a.provider_ref}</code> : <span className="text-dim">none</span>) },
+    { key: "requested_by", header: "By", render: (a) => (a.requested_by === meId ? "me" : a.requested_by_label ?? shortId(a.requested_by)) },
+    { key: "error", header: "Error", render: (a) => (a.error ? <span className="text-[12px] text-danger">{a.error}</span> : <span className="text-dim">—</span>) },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(a, i) => a.id ?? `${i}`} basePath={basePath} emptyText="No refund attempts." caption="Refund execution attempts" dense />;
+}
 
 function StripeDisputeTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
   const columns: Column<JsonRecord>[] = [

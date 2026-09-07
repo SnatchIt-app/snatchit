@@ -16,6 +16,7 @@ import {
   toListPage,
   toSettings,
   type Approval,
+  type ApprovalDecision,
   type AuditRow,
   type CronJob,
   type OpsJob,
@@ -44,6 +45,7 @@ const ACTION_STATES = Object.keys(ACTION_STATE_LABELS);
 const ACTION_TYPES = Object.keys(ACTION_TYPE_LABELS);
 
 const SETTING_HELP: Record<string, string> = {
+  actions_enabled: "Console-wide pause. false = every mutation (execute_action, approve_action, executor resume) is refused as console_actions_paused; reads stay available. Set back to true to resume.",
   refund_execute_enabled: "Gate for the refund_execute action. Flip to true only after the ops-refund-execute edge function is deployed.",
   detectors_enabled: "Master switch for the 5-minute detector tick.",
   dispute_sla_hours: "Hours before an open in-app dispute is overdue.",
@@ -398,8 +400,8 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
           <Alert state="info" title="This approval cannot be decided by you (expired or already decided)." compact />
         ) : actionId ? (
           <div className="grid gap-4 md:grid-cols-2">
-            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "approve" }} revalidate="/system" label="Approve and execute" danger reasonLabel="Approval reason" />
-            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "reject" }} revalidate="/system" label="Deny" reasonLabel="Denial reason" />
+            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "approve" satisfies ApprovalDecision }} revalidate="/system" label="Approve and execute" danger reasonLabel="Approval reason" />
+            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: "deny" satisfies ApprovalDecision }} revalidate="/system" label="Deny" reasonLabel="Denial reason" />
           </div>
         ) : null}
       </div>
@@ -429,7 +431,7 @@ function SettingsList({ settings }: { settings: Setting[] }) {
                 Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(seed)"}
               </p>
             </div>
-            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} label="Save setting" danger={s.key === "refund_execute_enabled"}>
+            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>
               <label htmlFor={inputId} className="eyebrow block text-dim">
                 New value ({kind})
               </label>
