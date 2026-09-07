@@ -39,7 +39,9 @@ import {
   reasonCodeForErrorClass,
   shouldPageSentry,
   type PayoutErrorClass,
-  type PayoutPostOutcome,, allowTestModeMoney } from './payout-logic.ts';
+  type PayoutPostOutcome,
+  allowTestModeMoney,
+} from './payout-logic.ts';
 
 export { classifyPayoutStripeError, reasonCodeForErrorClass, shouldPageSentry };
 export type { PayoutErrorClass };
