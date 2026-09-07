@@ -4,69 +4,52 @@
 // =============================================================================
 // WHAT THIS IS
 //   `ops.execute_action('refund_execute', …)` → second-founder approval →
-//   `ops.action_dispatch` leaves the action in state `processing` with
-//   result {handoff:'ops-refund-execute', stripe_payment_intent_id,
-//   amount_cents}. Nothing in Postgres talks to Stripe. This function is the
-//   handoff target: it re-verifies the caller and the action, issues
-//   `POST /v1/refunds` under the deterministic key `ops_action_<action_id>`,
-//   and reports back through `ops.record_action_outcome` (service_role only).
+//   `ops.action_dispatch` leaves the action in state `processing`. Nothing in
+//   Postgres talks to Stripe. This function is the handoff target.
+//
+//   This file is the DENO SHELL only: HTTP, auth, rate limit, and the real
+//   adapters (supabase-js → ops.executor_claim / ops.record_action_outcome;
+//   _shared/stripe.ts → POST/GET /v1/refunds). The flow itself —
+//   claim → list-before-POST → POST → classify the OBJECT → record — is
+//   `runRefundExecution` in handler.ts, which has no Deno dependency and is
+//   executed by the root vitest suite (tests/ops-refund-handler.test.ts).
 //
 // THE INVARIANT
 //   ACTION-ROW-DRIVEN. The ONLY client input is `action_id`. Payment,
-//   PaymentIntent, amount and reason are read from `ops.action` and
-//   `public.payments` inside the database; a body that names any of them is
-//   refused (`assertNoClientPaymentReference`, mirroring refund-execute).
+//   PaymentIntent, amount and reason come out of `ops.executor_claim`, which
+//   evaluates state, the enabled flag, the approval hash and the lease in one
+//   transaction. A body that names any of them is refused
+//   (`assertNoClientPaymentReference`).
 //
 // WHO MAY CALL
 //   A founder JWT: `ops.whoami()` (executed AS the caller) must return
 //   role = platform_admin and aal = aal2. The service client only ever runs
-//   after that gate, and the action must additionally carry an `approved`
-//   ops.approval row. Hidden navigation is not security; the DB is the wall.
+//   after that gate. Hidden navigation is not security; the DB is the wall.
 //
 // LOCAL STATE
 //   This function does NOT write public.payments. `payments.status` →
-//   'refunded' (and stripe_refund_id) is set by the existing
-//   `charge.refunded` handler in stripe-webhook/index.ts, exactly as for a
-//   Dashboard refund. Hence the action rests at `succeeded_at_provider` until
-//   the webhook lands; the reconciliation detector (117) tracks the gap.
-//
-// FAILURE / RETRY SEMANTICS (see README.md)
-//   2xx                → succeeded_at_provider (provider_ref = re_…)        200
-//   definite 4xx       → failed (terminal; Stripe code + message, no key)   422
-//   charge_already_refunded → list refunds; adopt existing → s_at_provider 200
-//   transport/5xx/429/409-in-use → list refunds by metadata.ops_action_id;
-//                        found → succeeded_at_provider, else `unknown`      502
-//   `unknown` is retryable from the console under the SAME idempotency key,
-//   so a retry can only replay — never mint a second refund.
+//   'refunded' is set by the `charge.refunded` handler in stripe-webhook,
+//   exactly as for a Dashboard refund. See README.md for the state machine.
 //
 // DEPLOYMENT PRECONDITIONS (owner steps, not performed by this file):
-//   1. Migration 115 applied; `ops` in PostgREST exposed schemas.
-//   2. service_role can SELECT ops.action / ops.approval (see README).
-//   3. Deployed with verify_jwt ON; then `refund_execute_enabled` flipped.
+//   1. Migrations 115 + 118 applied; `ops` in PostgREST exposed schemas.
+//   2. Deployed with verify_jwt ON; then `refund_execute_enabled` flipped.
 // =============================================================================
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetchRaw } from '../_shared/stripe.ts';
+import { type StripeRefundObject, sanitizeErrorMessage, stripeKeyMode, validateRequest } from './classify.ts';
 import {
-  type ActionRow,
-  type ApprovalRow,
-  type OutcomeState,
-  type PaymentRow,
-  type StripeRefundObject,
-  buildOpsRefundIdempotencyKey,
-  checkActionPreconditions,
-  checkPaymentPreconditions,
-  classifyRefundCreate,
-  findExistingRefund,
-  httpStatusForState,
-  planRefundBody,
-  providerResult,
-  sanitizeErrorMessage,
-  stripeKeyMode,
-  validateRequest,
-} from './classify.ts';
+  type ClaimResult,
+  type Deps,
+  type Logger,
+  type OpsDb,
+  type RecordOutcomeResult,
+  type StripeApi,
+  runRefundExecution,
+} from './handler.ts';
 
 const FN = 'ops-refund-execute';
 
@@ -124,7 +107,7 @@ function callerClient(authHeader: string): SupabaseClient {
   });
 }
 
-/** service_role. Token verification, ops.action/approval reads, outcome RPC. */
+/** service_role. Token verification, executor_claim, record_action_outcome. */
 function serviceClient(): SupabaseClient {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -132,47 +115,59 @@ function serviceClient(): SupabaseClient {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Outcome recording — the ONLY database write this function performs
+// Adapters — the only I/O the handler is allowed to perform
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function recordOutcome(
-  service: SupabaseClient,
-  actionId: string,
-  state: OutcomeState | 'processing',
-  result: Record<string, unknown> | null,
-  error: string | null,
-  providerRef: string | null,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { error: rpcErr } = await service.schema('ops').rpc('record_action_outcome', {
-    p_action_id:    actionId,
-    p_state:        state,
-    p_result:       result,
-    p_error:        error,
-    p_provider_ref: providerRef,
-  });
-  if (rpcErr) return { ok: false, message: rpcErr.message };
-  return { ok: true };
+function opsDb(service: SupabaseClient): OpsDb {
+  return {
+    async claim(actionId, leaseSeconds) {
+      const { data, error } = await service.schema('ops').rpc('executor_claim', {
+        p_action_id:     actionId,
+        p_lease_seconds: leaseSeconds,
+      });
+      if (error) throw new Error(`executor_claim: ${error.message}`);
+      return data as ClaimResult;
+    },
+    async recordOutcome(actionId, state, result, error, providerRef) {
+      const { data, error: rpcErr } = await service.schema('ops').rpc('record_action_outcome', {
+        p_action_id:    actionId,
+        p_state:        state,
+        p_result:       result,
+        p_error:        error,
+        p_provider_ref: providerRef,
+      });
+      if (rpcErr) throw new Error(`record_action_outcome: ${rpcErr.message}`);
+      return data as RecordOutcomeResult;
+    },
+  };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stripe lookups
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function listRefundsForIntent(paymentIntent: string): Promise<{ data?: StripeRefundObject[] } | null> {
-  try {
+const stripeApi: StripeApi = {
+  createRefund(body, idempotencyKey) {
+    return stripeFetchRaw('/refunds', { method: 'POST', idempotencyKey, body });
+  },
+  async listRefunds(paymentIntent) {
     const res = await stripeFetchRaw(
-      `/refunds?payment_intent=${encodeURIComponent(paymentIntent)}&limit=10`,
+      `/refunds?payment_intent=${encodeURIComponent(paymentIntent)}&limit=100`,
       { method: 'GET' },
     );
-    if (!res.ok) return null;
-    return res.data as { data?: StripeRefundObject[] };
-  } catch {
-    return null;
-  }
-}
+    if (!res.ok) {
+      const err = (res.data as { error?: { message?: string } } | null)?.error;
+      return { ok: false, status: res.status, data: [], error: sanitizeErrorMessage(err?.message ?? `HTTP ${res.status}`) };
+    }
+    const rows = (res.data as { data?: StripeRefundObject[] } | null)?.data;
+    return { ok: true, status: res.status, data: Array.isArray(rows) ? rows : [] };
+  },
+};
+
+const logger: Logger = {
+  info:  (event, fields) => console.log(JSON.stringify({ fn: FN, level: 'info',  event, ...fields })),
+  warn:  (event, fields) => console.warn(JSON.stringify({ fn: FN, level: 'warn',  event, ...fields })),
+  error: (event, fields) => console.error(JSON.stringify({ fn: FN, level: 'error', event, ...fields })),
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Handler
+// HTTP shell
 // ─────────────────────────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -228,179 +223,20 @@ serve(async (req: Request) => {
       return json({ error: rlErr ? 'rate_limit_unavailable' : 'rate_limited' }, 429, headers);
     }
 
-    // ── 6. The action and its approval ─────────────────────────────────────
-    const { data: action, error: actErr } = await service
-      .schema('ops')
-      .from('action')
-      .select('id, action_type, subject_kind, subject_id, state, params, result, approval_id')
-      .eq('id', actionId)
-      .maybeSingle();
-    if (actErr) {
-      // Most likely cause: service_role lacks SELECT on ops.action (README §grants).
-      await captureException(`${FN}:load-action`, new Error(actErr.message), { action_id: actionId });
-      return json({ error: 'action_unreadable', detail: 'could not read ops.action; see function logs' }, 500, headers);
-    }
-
-    const { data: approvals, error: apprErr } = await service
-      .schema('ops')
-      .from('approval')
-      .select('id, state')
-      .eq('action_id', actionId)
-      .eq('state', 'approved');
-    if (apprErr) {
-      await captureException(`${FN}:load-approval`, new Error(apprErr.message), { action_id: actionId });
-      return json({ error: 'approval_unreadable', detail: 'could not read ops.approval; see function logs' }, 500, headers);
-    }
-
-    const pre = checkActionPreconditions(action as ActionRow | null, approvals as ApprovalRow[] | null);
-    if (!pre.ok) {
-      return json({ action_id: actionId, error: pre.code, message: pre.detail }, 409, headers);
-    }
-    const act = action as ActionRow;
-
-    // ── 7. The payment (by action.subject_id — never from the request) ─────
-    const { data: payment, error: payErr } = await service
-      .from('payments')
-      .select('id, status, total, stripe_payment_intent_id, stripe_livemode')
-      .eq('id', act.subject_id!)
-      .maybeSingle();
-    if (payErr) {
-      await captureException(`${FN}:load-payment`, new Error(payErr.message), { action_id: actionId });
-      return json({ error: 'payment_unreadable' }, 500, headers);
-    }
-
-    const pv = checkPaymentPreconditions(payment as PaymentRow | null, STRIPE_KEY_MODE);
-    if (!pv.ok) {
-      if (pv.code === 'cross_mode' || pv.code === 'row_mode_unclassified') {
-        // Data-integrity fault: terminal for this action, and page it.
-        await recordOutcome(service, actionId, 'failed', { mode_check: pv.code }, pv.detail, null);
-        await captureException(`${FN}:mode-guard`, new Error(`${pv.code}: ${pv.detail}`), {
-          action_id: actionId, payment_id: act.subject_id, financial_operation: 'refund',
-        });
-        return json({ action_id: actionId, state: 'failed', message: pv.detail }, 422, headers);
-      }
-      return json({ action_id: actionId, error: pv.code, message: pv.detail }, 409, headers);
-    }
-
-    if (pv.kind === 'already_refunded_locally') {
-      // The webhook (or another route) already settled the local row. Nothing
-      // to send to Stripe; close the action idempotently.
-      const rec = await recordOutcome(service, actionId, 'succeeded', { note: 'already refunded locally' }, null, null);
-      if (!rec.ok) return json({ error: 'outcome_unrecordable', detail: rec.message }, 500, headers);
-      return json({ action_id: actionId, state: 'succeeded', message: 'already refunded locally' }, 200, headers);
-    }
-
-    const pay = payment as PaymentRow;
-    const body = planRefundBody({
-      actionId,
-      paymentId: pay.id,
-      paymentIntent: pv.payment_intent,
-      paymentTotal: pay.total,
-      amountCents: act.result?.amount_cents,
-      reasonCode:  act.params?.reason_code,
-    });
-    const idempotencyKey = buildOpsRefundIdempotencyKey(actionId);
-
-    // ── 8. Mark the attempt BEFORE money can move ──────────────────────────
-    //    If we cannot record, we do not call Stripe.
-    const started = await recordOutcome(
-      service, actionId, 'processing',
-      { stripe_request_started_at: new Date().toISOString(), partial: 'amount' in body },
-      null, null,
+    // ── 6. The executor (claim → reconcile → POST → classify → record) ─────
+    const deps: Deps = {
+      db: opsDb(service),
+      stripe: stripeApi,
+      now: () => new Date(),
+      log: logger,
+      alert: (event, message, ctx) => captureException(event, new Error(message), ctx),
+      stripeKeyMode: STRIPE_KEY_MODE,
+    };
+    const out = await runRefundExecution(
+      { actionId, caller: { userId: user.id, role: identity.role, aal: identity.aal } },
+      deps,
     );
-    if (!started.ok) {
-      return json({ error: 'outcome_unrecordable', detail: started.message }, 500, headers);
-    }
-
-    console.log(JSON.stringify({ fn: FN, msg: 'issuing Stripe refund', action_id: actionId, payment_id: pay.id, partial: 'amount' in body }));
-
-    // ── 9. POST /v1/refunds ────────────────────────────────────────────────
-    let res: { ok: boolean; status: number; data: unknown } | Error;
-    try {
-      res = await stripeFetchRaw('/refunds', { method: 'POST', idempotencyKey, body });
-    } catch (err) {
-      res = err instanceof Error ? err : new Error(String(err));
-    }
-    const verdict = classifyRefundCreate(res);
-
-    // ── 10. Map the verdict onto the action state machine ─────────────────
-    let state: OutcomeState;
-    let result: Record<string, unknown> | null = null;
-    let error: string | null = null;
-    let providerRef: string | null = null;
-    let message: string;
-
-    switch (verdict.kind) {
-      case 'created': {
-        state = 'succeeded_at_provider';
-        result = providerResult(verdict.refund);
-        providerRef = verdict.refund.id ?? null;
-        message = 'refund created at Stripe; local payment state follows via charge.refunded webhook';
-        break;
-      }
-      case 'already_refunded': {
-        const existing = findExistingRefund(await listRefundsForIntent(pv.payment_intent), actionId, false);
-        if (existing) {
-          state = 'succeeded_at_provider';
-          result = { ...providerResult(existing), adopted_existing_refund: true };
-          providerRef = existing.id ?? null;
-          message = 'charge was already refunded at Stripe; adopted the existing refund';
-        } else {
-          state = 'failed';
-          result = { stripe_error_class: 'charge_already_refunded' };
-          error = `${verdict.code}: ${verdict.message}`;
-          message = 'Stripe reports the charge already refunded but no refund object was listed; human reconciliation required';
-        }
-        break;
-      }
-      case 'failed': {
-        state = 'failed';
-        result = { stripe_error_class: verdict.errorClass, stripe_error_code: verdict.code };
-        error = `${verdict.code}: ${verdict.message}`;
-        message = `Stripe refused the refund (${verdict.errorClass})`;
-        break;
-      }
-      case 'unknown': {
-        // Stripe MAY hold a refund. Resolve strictly by our own metadata.
-        const ours = findExistingRefund(await listRefundsForIntent(pv.payment_intent), actionId, true);
-        if (ours) {
-          state = 'succeeded_at_provider';
-          result = { ...providerResult(ours), resolved_after: verdict.errorClass };
-          providerRef = ours.id ?? null;
-          message = 'refund found at Stripe after a transport error; recorded as succeeded_at_provider';
-        } else {
-          state = 'unknown';
-          result = { stripe_error_class: verdict.errorClass };
-          error = sanitizeErrorMessage(verdict.message);
-          message = 'Stripe outcome unresolved; retry is safe (same idempotency key)';
-        }
-        break;
-      }
-    }
-
-    const rec = await recordOutcome(service, actionId, state, result, error, providerRef);
-    if (!rec.ok) {
-      // Money may have moved and we could not say so. Page loudly with the ref.
-      await captureException(`${FN}:unrecordable-outcome`, new Error(rec.message), {
-        action_id: actionId, state, provider_ref: providerRef, financial_operation: 'refund',
-      });
-      return json({ action_id: actionId, state, provider_ref: providerRef ?? undefined,
-                    error: 'outcome_unrecordable', message: 'Stripe outcome known but ops.record_action_outcome failed' }, 500, headers);
-    }
-
-    if (state === 'failed' || state === 'unknown') {
-      await captureException(`${FN}:stripe`, new Error(`${state}: ${error ?? message}`), {
-        action_id: actionId, payment_id: pay.id, state, financial_operation: 'refund',
-      });
-    } else {
-      console.log(JSON.stringify({ fn: FN, msg: 'outcome recorded', action_id: actionId, state, provider_ref: providerRef }));
-    }
-
-    return json(
-      { action_id: actionId, state, ...(providerRef ? { provider_ref: providerRef } : {}), message },
-      httpStatusForState(state),
-      headers,
-    );
+    return json(out.body, out.http, headers);
   } catch (err) {
     await captureException(FN, err, { action_id: actionId });
     return json({ error: 'Internal server error' }, 500, headers);

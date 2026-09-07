@@ -5,8 +5,8 @@
  * the same split `refund-execute/executor.ts` uses.
  *
  * Everything that decides WHAT to send to Stripe and HOW to read what came
- * back lives here so it can be tested deterministically; index.ts is the thin
- * I/O shell around it.
+ * back lives here so it can be tested deterministically; handler.ts runs the
+ * flow over injected adapters and index.ts is the Deno shell around both.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,9 +144,16 @@ export function isCrossModeStripeMessage(message: string): boolean {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Preconditions on the action / approval / payment
+//
+// Since migration 118 the AUTHORITATIVE gate is `ops.executor_claim` (state,
+// enabled flag, approval hash, lease — all evaluated in one transaction).
+// These row-level checks are kept as the documented, testable mirror of that
+// contract; handler.ts does not load ops.action / public.payments itself.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const RETRYABLE_ACTION_STATES = ['processing', 'succeeded_at_provider', 'unknown'] as const;
+/** States `ops.executor_claim` will hand to the executor. `succeeded_at_provider`
+ *  is NOT retryable: the money moved; only the webhook / detector may close it. */
+export const RETRYABLE_ACTION_STATES = ['processing', 'unknown'] as const;
 
 export interface ActionRow {
   id: string;
@@ -190,7 +197,9 @@ export function checkActionPreconditions(
   if (!(RETRYABLE_ACTION_STATES as readonly string[]).includes(action.state)) {
     return {
       ok: false,
-      code: action.state === 'succeeded' ? 'already_succeeded' : 'not_executable',
+      code: action.state === 'succeeded' ? 'already_succeeded'
+          : action.state === 'succeeded_at_provider' ? 'succeeded_at_provider'
+          : 'not_executable',
       detail: `action is ${action.state}; only ${RETRYABLE_ACTION_STATES.join('|')} can be executed`,
     };
   }
@@ -236,32 +245,37 @@ export function mapStripeReason(reasonCode: unknown): StripeRefundReason {
 }
 
 /**
- * Partial vs full: `action.result.amount_cents` was fixed by
- * ops.action_dispatch (coalesce(params.amount_cents, payments.total)). Only a
- * strictly-smaller amount is sent; equal-or-larger (or absent / malformed)
- * means a full refund and `amount` is omitted, which is Stripe's own full-
- * refund semantics.
+ * FULL REFUNDS ONLY. The local model has no refunded-amount column:
+ * `payments.status` is the whole ledger and the `charge.refunded` webhook
+ * flips it to `refunded` unconditionally, so a partial refund would be
+ * recorded locally as a full one. `ops.executor_claim` rejects partials
+ * server-side; `runRefundExecution` refuses them again (defense in depth).
+ *
+ * `amount` is sent EXPLICITLY (= the payment total) rather than relying on
+ * Stripe's omit-means-full semantics: if the charge was partially refunded by
+ * another route, omitting `amount` would refund only the remainder and mint a
+ * refund object whose facts differ from the action. Sending the full amount
+ * makes Stripe refuse (`amount_too_large` → failed) instead of creating money
+ * movement the ledger cannot account for.
  */
 export function planRefundBody(input: {
   actionId: string;
   paymentId: string;
   paymentIntent: string;
-  paymentTotal: number;
-  amountCents: unknown;
+  amountCents: number;
   reasonCode: unknown;
 }): Record<string, string> {
-  const body: Record<string, string> = {
+  if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
+    throw new Error('ops-refund-execute: refusing to plan a refund without a positive integer amount');
+  }
+  return {
     payment_intent: input.paymentIntent,
+    amount: String(input.amountCents),
     reason: mapStripeReason(input.reasonCode),
     'metadata[ops_action_id]': input.actionId,
     'metadata[payment_id]': input.paymentId,
     'metadata[source]': 'ops-refund-execute',
   };
-  const amt = typeof input.amountCents === 'number' && Number.isInteger(input.amountCents) ? input.amountCents : null;
-  if (amt !== null && amt > 0 && amt < input.paymentTotal) {
-    body.amount = String(amt);
-  }
-  return body;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,10 +286,81 @@ export type OutcomeState = 'succeeded' | 'succeeded_at_provider' | 'failed' | 'u
 
 export interface StripeRefundObject {
   id?: string;
+  /** pending | requires_action | succeeded | failed | canceled */
   status?: string;
   amount?: number;
   currency?: string;
+  /** Stripe returns the id, or the expanded object when `expand[]` asks for it. */
+  payment_intent?: string | { id?: string } | null;
+  charge?: string | { id?: string } | null;
+  failure_reason?: string | null;
+  next_action?: Record<string, unknown> | null;
   metadata?: Record<string, string>;
+}
+
+/** What the claimed action says the refund MUST look like. */
+export interface RefundExpectation {
+  actionId: string;
+  paymentIntent: string;
+  amountCents: number;
+  currency: string;
+}
+
+export type RefundObjectVerdict =
+  | 'succeeded' | 'pending' | 'requires_action' | 'failed' | 'canceled' | 'mismatch' | 'unknown';
+
+export type RefundMismatch = Record<string, { expected: unknown; actual: unknown }>;
+
+function stripeId(v: string | { id?: string } | null | undefined): string | null {
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object' && typeof v.id === 'string') return v.id;
+  return null;
+}
+
+/**
+ * Identity check for ANY refund object the executor acts on — created or
+ * adopted. A refund whose facts differ from the action (other PI, other
+ * amount, other currency, other/no ops_action_id) is never ours to record as
+ * success, whatever its status. Returns null when every fact matches.
+ */
+export function refundMismatch(
+  refund: StripeRefundObject | null | undefined,
+  expected: RefundExpectation,
+): RefundMismatch | null {
+  const mm: RefundMismatch = {};
+  if (!refund || typeof refund !== 'object') {
+    return { object: { expected: 'refund', actual: refund === null ? null : typeof refund } };
+  }
+  const pi = stripeId(refund.payment_intent);
+  if (pi !== expected.paymentIntent) mm.payment_intent = { expected: expected.paymentIntent, actual: pi };
+  if (refund.amount !== expected.amountCents) mm.amount = { expected: expected.amountCents, actual: refund.amount ?? null };
+  const cur = typeof refund.currency === 'string' ? refund.currency.toLowerCase() : null;
+  if (cur !== expected.currency.toLowerCase()) mm.currency = { expected: expected.currency.toLowerCase(), actual: cur };
+  const meta = refund.metadata?.ops_action_id ?? null;
+  if (meta !== expected.actionId) mm.ops_action_id = { expected: expected.actionId, actual: meta };
+  return Object.keys(mm).length === 0 ? null : mm;
+}
+
+/**
+ * Classifies the refund OBJECT, not the HTTP status that carried it. A 2xx
+ * from `POST /v1/refunds` (or a listed refund) can be pending,
+ * requires_action, failed or canceled — only `succeeded` is success.
+ * Identity is checked first: a mismatching object is `mismatch` regardless
+ * of its status.
+ */
+export function classifyRefundObject(
+  refund: StripeRefundObject | null | undefined,
+  expected: RefundExpectation,
+): RefundObjectVerdict {
+  if (refundMismatch(refund, expected) !== null) return 'mismatch';
+  switch (refund!.status) {
+    case 'succeeded':       return 'succeeded';
+    case 'pending':         return 'pending';
+    case 'requires_action': return 'requires_action';
+    case 'failed':          return 'failed';
+    case 'canceled':        return 'canceled';
+    default:                return 'unknown';
+  }
 }
 
 export interface StripeErrorBody {
@@ -299,7 +384,8 @@ export type CreateVerdict =
  * `refund-execute/executor.ts#classifyStripeRefundError` for the error
  * classes, mapped onto the ops.action state machine:
  *
- *   • 2xx                                   → created (succeeded_at_provider)
+ *   • 2xx                                   → created (Stripe holds an object; its
+ *                                             STATUS decides — see classifyRefundObject)
  *   • charge_already_refunded               → already_refunded (list, adopt existing re_)
  *   • network / 5xx / api_error / 429 / 409 idempotency_key_in_use /
  *     balance_insufficient                  → unknown (not settled; retry is safe)
@@ -357,21 +443,36 @@ export function classifyRefundCreate(
 
 /**
  * Resolve an ambiguous outcome from `GET /v1/refunds?payment_intent=…`.
- * `strict` (the unknown path) requires metadata.ops_action_id === actionId —
- * a refund created by another route must NOT be claimed as ours. The
- * charge_already_refunded path is non-strict: the money is back regardless of
- * who sent it, so any existing refund settles the action (ours preferred).
+ * Returns ONLY a refund that (a) carries `metadata.ops_action_id ===
+ * expected.actionId` and (b) passes `refundMismatch` (PI, amount, currency).
+ * A refund created by another route (Dashboard, refund-execute) is never
+ * adopted: the money may be back, but it is not THIS action's money leg and
+ * the `charge.refunded` webhook settles the local row on its own.
+ *
+ * When several of our refunds exist (should not happen — one key per
+ * action) the live/succeeded one is preferred over failed/canceled ones so
+ * a retry never overlooks a refund that is still in flight.
  */
 export function findExistingRefund(
   list: { data?: StripeRefundObject[] } | null | undefined,
-  actionId: string,
-  strict: boolean,
+  expected: RefundExpectation,
 ): StripeRefundObject | null {
   const rows = Array.isArray(list?.data) ? list!.data! : [];
-  const ours = rows.find((r) => r?.metadata?.ops_action_id === actionId) ?? null;
-  if (ours) return ours;
-  if (strict) return null;
-  return rows.find((r) => typeof r?.id === 'string') ?? null;
+  const ours = rows.filter((r) =>
+    r?.metadata?.ops_action_id === expected.actionId && refundMismatch(r, expected) === null);
+  if (ours.length === 0) return null;
+  const rank = (r: StripeRefundObject) =>
+    r.status === 'succeeded' ? 0 : r.status === 'pending' || r.status === 'requires_action' ? 1 : 2;
+  return ours.slice().sort((a, b) => rank(a) - rank(b))[0];
+}
+
+/** Any refund on the intent that carries our metadata, validated or not (diagnostics only). */
+export function findOurRefundUnvalidated(
+  list: { data?: StripeRefundObject[] } | null | undefined,
+  actionId: string,
+): StripeRefundObject | null {
+  const rows = Array.isArray(list?.data) ? list!.data! : [];
+  return rows.find((r) => r?.metadata?.ops_action_id === actionId) ?? null;
 }
 
 export function providerResult(refund: StripeRefundObject): Record<string, unknown> {
@@ -380,15 +481,19 @@ export function providerResult(refund: StripeRefundObject): Record<string, unkno
     refund_status: refund.status ?? null,
     amount: typeof refund.amount === 'number' ? refund.amount : null,
     currency: refund.currency ?? null,
+    charge: stripeId(refund.charge),
+    payment_intent: stripeId(refund.payment_intent),
   };
 }
 
-/** HTTP status for the terminal response, by recorded state. */
-export function httpStatusForState(state: OutcomeState): number {
+/** HTTP status for the response, by recorded state. `processing` = refund in flight at Stripe. */
+export function httpStatusForState(state: OutcomeState | 'processing'): number {
   switch (state) {
     case 'succeeded':
     case 'succeeded_at_provider':
       return 200;
+    case 'processing':
+      return 202;
     case 'failed':
       return 422;
     case 'unknown':

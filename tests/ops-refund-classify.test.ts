@@ -4,8 +4,9 @@
  *
  * Mirrors tests/payout-logic.test.ts: what is deterministic (request guard,
  * idempotency key, mode boundary, preconditions, request body, Stripe
- * outcome classification) is tested here; the I/O shell in index.ts is
- * verified against the deployed function.
+ * outcome classification) is tested here; the executor flow over injected
+ * adapters is tests/ops-refund-handler.test.ts; the Deno shell in index.ts is
+ * type-checked in CI and verified against the deployed function.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,12 +17,15 @@ import {
   checkModeConsistency,
   checkPaymentPreconditions,
   classifyRefundCreate,
+  classifyRefundObject,
   findExistingRefund,
   httpStatusForState,
   planRefundBody,
+  refundMismatch,
   sanitizeErrorMessage,
   stripeKeyMode,
   validateRequest,
+  type RefundExpectation,
   type StripeRefundObject,
 } from '../supabase/functions/ops-refund-execute/classify';
 
@@ -119,14 +123,15 @@ describe('action preconditions', () => {
   it('processing + approved is executable', () => {
     expect(checkActionPreconditions(ACTION, APPROVED)).toEqual({ ok: true });
   });
-  it.each(['succeeded_at_provider', 'unknown'])('retry from %s is allowed', (state) => {
-    expect(checkActionPreconditions({ ...ACTION, state }, APPROVED)).toEqual({ ok: true });
+  it('retry from unknown is allowed', () => {
+    expect(checkActionPreconditions({ ...ACTION, state: 'unknown' }, APPROVED)).toEqual({ ok: true });
   });
   it.each(['requested', 'awaiting_approval', 'failed', 'rejected'])('%s is not executable', (state) => {
     expect(checkActionPreconditions({ ...ACTION, state }, APPROVED)).toMatchObject({ ok: false, code: 'not_executable' });
   });
-  it('succeeded is reported distinctly', () => {
+  it('succeeded / succeeded_at_provider are reported distinctly (money moved; not retryable)', () => {
     expect(checkActionPreconditions({ ...ACTION, state: 'succeeded' }, APPROVED)).toMatchObject({ ok: false, code: 'already_succeeded' });
+    expect(checkActionPreconditions({ ...ACTION, state: 'succeeded_at_provider' }, APPROVED)).toMatchObject({ ok: false, code: 'succeeded_at_provider' });
   });
   it('wrong action type / subject / missing action are refused', () => {
     expect(checkActionPreconditions({ ...ACTION, action_type: 'payout_release' }, APPROVED)).toMatchObject({ ok: false, code: 'wrong_action_type' });
@@ -159,46 +164,43 @@ describe('payment preconditions', () => {
   });
 });
 
-describe('Stripe request body', () => {
-  const base = { actionId: ACTION_ID, paymentId: PAYMENT_ID, paymentIntent: 'pi_123abc', paymentTotal: 5000 };
+describe('Stripe request body — full refunds only', () => {
+  const base = { actionId: ACTION_ID, paymentId: PAYMENT_ID, paymentIntent: 'pi_123abc' };
 
-  it('full refund omits amount; carries metadata and source', () => {
+  it('sends the full amount explicitly; carries metadata and source', () => {
     const b = planRefundBody({ ...base, amountCents: 5000, reasonCode: 'duplicate' });
     expect(b).toEqual({
       payment_intent: 'pi_123abc',
+      amount: '5000',
       reason: 'duplicate',
       'metadata[ops_action_id]': ACTION_ID,
       'metadata[payment_id]': PAYMENT_ID,
       'metadata[source]': 'ops-refund-execute',
     });
-    expect('amount' in b).toBe(false);
   });
 
-  it('partial refund sends amount when strictly less than total', () => {
-    expect(planRefundBody({ ...base, amountCents: 1234, reasonCode: null }).amount).toBe('1234');
-  });
-
-  it('amount ≥ total, ≤ 0, non-integer or missing → full refund', () => {
-    expect('amount' in planRefundBody({ ...base, amountCents: 6000, reasonCode: null })).toBe(false);
-    expect('amount' in planRefundBody({ ...base, amountCents: 0, reasonCode: null })).toBe(false);
-    expect('amount' in planRefundBody({ ...base, amountCents: 12.5, reasonCode: null })).toBe(false);
-    expect('amount' in planRefundBody({ ...base, amountCents: '100', reasonCode: null })).toBe(false);
-    expect('amount' in planRefundBody({ ...base, amountCents: undefined, reasonCode: null })).toBe(false);
+  it('has no partial mode: a non-positive or non-integer amount is refused, never omitted', () => {
+    expect(() => planRefundBody({ ...base, amountCents: 0, reasonCode: null })).toThrow();
+    expect(() => planRefundBody({ ...base, amountCents: 12.5, reasonCode: null })).toThrow();
+    expect(() => planRefundBody({ ...base, amountCents: -1, reasonCode: null })).toThrow();
+    expect(() => planRefundBody({ ...base, amountCents: Number.NaN, reasonCode: null })).toThrow();
   });
 
   it('unknown reason codes fall back to requested_by_customer', () => {
-    expect(planRefundBody({ ...base, amountCents: null, reasonCode: 'buyer_unhappy' }).reason).toBe('requested_by_customer');
-    expect(planRefundBody({ ...base, amountCents: null, reasonCode: 'fraudulent' }).reason).toBe('fraudulent');
-    expect(planRefundBody({ ...base, amountCents: null, reasonCode: undefined }).reason).toBe('requested_by_customer');
+    expect(planRefundBody({ ...base, amountCents: 5000, reasonCode: 'buyer_unhappy' }).reason).toBe('requested_by_customer');
+    expect(planRefundBody({ ...base, amountCents: 5000, reasonCode: 'fraudulent' }).reason).toBe('fraudulent');
+    expect(planRefundBody({ ...base, amountCents: 5000, reasonCode: undefined }).reason).toBe('requested_by_customer');
   });
 });
 
 describe('Stripe outcome classification → ops.action state', () => {
   const stripeErr = (status: number, error: Record<string, unknown>) => ({ ok: false, status, data: { error } });
 
-  it('2xx → created', () => {
+  it('2xx → created (an object exists; its status is classified separately)', () => {
     const v = classifyRefundCreate({ ok: true, status: 200, data: { id: 're_1', status: 'succeeded', amount: 5000, currency: 'usd' } });
     expect(v).toMatchObject({ kind: 'created', refund: { id: 're_1' } });
+    const p = classifyRefundCreate({ ok: true, status: 200, data: { id: 're_2', status: 'pending' } });
+    expect(p).toMatchObject({ kind: 'created', refund: { status: 'pending' } });
   });
 
   it('transport error → unknown/network', () => {
@@ -239,30 +241,73 @@ describe('Stripe outcome classification → ops.action state', () => {
   });
 });
 
-describe('resolving an ambiguous outcome from GET /v1/refunds', () => {
-  const list: { data: StripeRefundObject[] } = { data: [
-    { id: 're_other', metadata: { source: 'dashboard' } },
-    { id: 're_ours', metadata: { ops_action_id: ACTION_ID, source: 'ops-refund-execute' } },
-  ] };
+const EXPECTED: RefundExpectation = { actionId: ACTION_ID, paymentIntent: 'pi_123abc', amountCents: 5000, currency: 'usd' };
+const ours = (over: Partial<StripeRefundObject> = {}): StripeRefundObject => ({
+  id: 're_ours', status: 'succeeded', amount: 5000, currency: 'usd', payment_intent: 'pi_123abc',
+  metadata: { ops_action_id: ACTION_ID, source: 'ops-refund-execute' }, ...over,
+});
 
-  it('strict (unknown path): only our own metadata counts', () => {
-    expect(findExistingRefund(list, ACTION_ID, true)?.id).toBe('re_ours');
-    expect(findExistingRefund({ data: [{ id: 're_other', metadata: {} }] }, ACTION_ID, true)).toBeNull();
-    expect(findExistingRefund(null, ACTION_ID, true)).toBeNull();
-    expect(findExistingRefund({ data: [] }, ACTION_ID, true)).toBeNull();
+describe('refund object classification — status AND identity', () => {
+  it.each([
+    ['succeeded', 'succeeded'], ['pending', 'pending'], ['requires_action', 'requires_action'],
+    ['failed', 'failed'], ['canceled', 'canceled'], ['brand_new', 'unknown'], [undefined, 'unknown'],
+  ] as const)('status %s → %s when identity matches', (status, verdict) => {
+    expect(classifyRefundObject(ours({ status }), EXPECTED)).toBe(verdict);
   });
 
-  it('non-strict (charge_already_refunded): ours preferred, else any existing refund', () => {
-    expect(findExistingRefund(list, ACTION_ID, false)?.id).toBe('re_ours');
-    expect(findExistingRefund({ data: [{ id: 're_other', metadata: {} }] }, ACTION_ID, false)?.id).toBe('re_other');
-    expect(findExistingRefund({ data: [] }, ACTION_ID, false)).toBeNull();
+  it('identity mismatch wins over status', () => {
+    expect(classifyRefundObject(ours({ amount: 4999 }), EXPECTED)).toBe('mismatch');
+    expect(classifyRefundObject(ours({ payment_intent: 'pi_other' }), EXPECTED)).toBe('mismatch');
+    expect(classifyRefundObject(ours({ currency: 'eur' }), EXPECTED)).toBe('mismatch');
+    expect(classifyRefundObject(ours({ metadata: {} }), EXPECTED)).toBe('mismatch');
+    expect(classifyRefundObject(null, EXPECTED)).toBe('mismatch');
+    expect(classifyRefundObject({ id: 're_1', status: 'succeeded' }, EXPECTED)).toBe('mismatch');
+  });
+
+  it('currency compares case-insensitively; expanded payment_intent objects are accepted', () => {
+    expect(classifyRefundObject(ours({ currency: 'USD' }), EXPECTED)).toBe('succeeded');
+    expect(classifyRefundObject(ours({ payment_intent: { id: 'pi_123abc' } }), EXPECTED)).toBe('succeeded');
+  });
+
+  it('refundMismatch names every differing field', () => {
+    expect(refundMismatch(ours(), EXPECTED)).toBeNull();
+    expect(refundMismatch(ours({ amount: 1, currency: 'eur' }), EXPECTED)).toEqual({
+      amount: { expected: 5000, actual: 1 },
+      currency: { expected: 'usd', actual: 'eur' },
+    });
+  });
+});
+
+describe('resolving an ambiguous outcome from GET /v1/refunds', () => {
+  const list: { data: StripeRefundObject[] } = { data: [
+    ours({ id: 're_other', metadata: { source: 'dashboard' } }),
+    ours(),
+  ] };
+
+  it('only a refund with our metadata AND matching facts counts', () => {
+    expect(findExistingRefund(list, EXPECTED)?.id).toBe('re_ours');
+    expect(findExistingRefund({ data: [ours({ id: 're_other', metadata: {} })] }, EXPECTED)).toBeNull();
+    expect(findExistingRefund({ data: [ours({ amount: 100 })] }, EXPECTED)).toBeNull();
+    expect(findExistingRefund({ data: [ours({ payment_intent: 'pi_x' })] }, EXPECTED)).toBeNull();
+    expect(findExistingRefund(null, EXPECTED)).toBeNull();
+    expect(findExistingRefund({ data: [] }, EXPECTED)).toBeNull();
+  });
+
+  it('a foreign refund is never adopted, even when it is the only one (charge_already_refunded path)', () => {
+    expect(findExistingRefund({ data: [ours({ id: 're_dash', metadata: { source: 'dashboard' } })] }, EXPECTED)).toBeNull();
+  });
+
+  it('prefers a live/succeeded refund of ours over a failed one', () => {
+    const l = { data: [ours({ id: 're_failed', status: 'failed' }), ours({ id: 're_live', status: 'pending' })] };
+    expect(findExistingRefund(l, EXPECTED)?.id).toBe('re_live');
   });
 });
 
 describe('response status by recorded state', () => {
-  it('200 / 422 / 502', () => {
+  it('200 / 202 / 422 / 502', () => {
     expect(httpStatusForState('succeeded')).toBe(200);
     expect(httpStatusForState('succeeded_at_provider')).toBe(200);
+    expect(httpStatusForState('processing')).toBe(202);
     expect(httpStatusForState('failed')).toBe(422);
     expect(httpStatusForState('unknown')).toBe(502);
   });

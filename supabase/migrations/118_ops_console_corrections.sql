@@ -676,7 +676,7 @@ begin
   return jsonb_build_object(
     'status', 'claimed', 'action_id', a.id, 'payment_id', p.id,
     'stripe_payment_intent_id', p.stripe_payment_intent_id,
-    'amount_cents', p.total, 'currency', 'usd',
+    'amount_cents', p.total, 'payment_total_cents', p.total, 'currency', 'usd',
     'reason_code', a.params ->> 'reason_code',
     'previously_sent', v_prev_sent, 'provider_ref', a.provider_ref, 'attempt', a.attempt + 1,
     'stripe_livemode', p.stripe_livemode);
