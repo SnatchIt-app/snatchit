@@ -33,7 +33,7 @@ and endpoints, free) with Connect enabled and the platform profile completed —
   attempt ledger (`PAYMENT_NOT_LIVE`), the payout pre-flight, the unsettled work list and the expiry sweep all require
   `stripe_livemode = true`. Without a switch a sandbox proves checkout → settlement → webhooks → refunds → disputes but
   never a real `POST /v1/transfers`. The RC therefore carries a **sandbox-only switch**, default OFF everywhere:
-  database GUC `app.allow_test_mode_money = on` (set with `ALTER DATABASE postgres SET …` on the sandbox only) and edge
+  database GUC `app.allow_test_mode_money = on` (the platform refuses `ALTER DATABASE/ROLE` for custom parameters, so the sandbox sets it per API request through PostgREST's `pgrst.db_pre_request` hook — `scripts/sandbox/10_provision.sh`) and edge
   secret `ALLOW_TEST_MODE_MONEY=1` (sandbox project only). Production sets neither; the release checklist asserts both
   are absent. With the switch on, the payout leg runs against real Connect **test** transfers.
 - **G2 — cron jobs hard-code the production host** (migrations 032/033/099). The sandbox must re-point the
@@ -66,10 +66,10 @@ and endpoints, free) with Connect enabled and the platform profile completed —
    unset; push/Twilio secrets unset (notify-* paths log and continue).
 4. **Deploy the release edges plus the two the matrix needs** (`create-connect-account`, `send-push`) with
    `--no-verify-jwt` (no `supabase/config.toml` exists; confirm-payment, confirm-and-release, delete-account, stripe-webhook
-   and enforce-transfer-expiry authenticate in code). Database side: `ALTER DATABASE postgres SET app.allow_test_mode_money = 'on'`;
-   PostgREST exposed schemas must include `kernel`; `cron.alter_job` re-points `enforce-transfer-expiry` to the sandbox
-   host and `vault.create_secret(<sandbox service_role key>, 'service_role_key')` gives it a bearer. All scripted in
-   `scripts/sandbox/` except the two secret-bearing statements, which the owner runs in the SQL editor.
+   and enforce-transfer-expiry authenticate in code). Database side: money switch via `pgrst.db_pre_request`, `kernel` exposed via `pgrst.db_schemas` (role settings the
+   platform honours), production-host references in function bodies re-pointed, the expiry cron job unscheduled (the
+   harness invokes the sweep with `INTERNAL_CRON_SECRET`). All scripted in `scripts/sandbox/10_provision.sh`; no
+   owner SQL needed.
 5. **Stripe test webhook endpoint** → `https://<sandbox-ref>.functions.supabase.co/stripe-webhook`, subscribed to the
    eleven events in `08_STRIPE_WEBHOOK_SUBSCRIPTION.md` (test mode has its own endpoint list; production untouched).
 6. **Stripe CLI** on this host (`brew install stripe/stripe-cli/stripe`, then `stripe login` — interactive OAuth the owner

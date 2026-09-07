@@ -91,3 +91,4 @@ snatch-it-pitch-deck*.md
 snatch-it-vc-review.md
 pitch-deck-system.md
 scripts/sandbox/sandbox.env
+scripts/sandbox/sandbox.secrets.env
