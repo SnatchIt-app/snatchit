@@ -573,3 +573,8 @@ landed at 04:03:45Z), no delivery errors. Bucket: two zero-byte prefix markers (
 Per-object lock on the first written objects (CLAUDE-OBSERVED 04:04:10Z, metadata only): `AWSLogs/652872010073/CloudTrail/` and
 `…/CloudTrail-Digest/` → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:02:27Z` (= 3 years), `LegalHold null`, `SSE AES256`,
 versioned. ⇒ **3-year COMPLIANCE retention is in force on delivered objects.** Log-file delivery confirmation still pending.
+**First log-file delivery — CONFIRMED (CLAUDE-OBSERVED 04:08:09Z, metadata only, contents not read):** `LatestDeliveryTime 2026-09-08T04:07:28Z`,
+no delivery error; object `AWSLogs/652872010073/CloudTrail/us-east-1/2026/09/08/652872010073_CloudTrail_us-east-1_20260908T0410Z_….json.gz`
+(3,649 bytes) → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:07:28Z`, `LegalHold null`, `SSE AES256`. First digest delivery not
+yet (hourly). ⇒ **C1-8 VERIFIED in full.** M1 (Model B) is *configured*; it is marked complete only after the C1-9 deny-set proof and the
+Device-2 read-back (C1-10).
