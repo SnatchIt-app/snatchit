@@ -652,3 +652,19 @@ OWNER-RETURNED + CLAUDE-OBSERVED (CloudTrail event history, sanitized):
   event carries no `AccessDenied` and no authorization-failure text — consistent with the analysis above: resource validation answered; the
   identity deny's evaluation for this request is not observable. P3 stays INCONCLUSIVE. P4/P5: no `GetUser`/`AssumeRole` events by the
   ceremony role are indexed as of 04:35Z (not run, or not yet indexed).
+- **P4** `iam:GetUser jose-admin` as the ceremony role → OWNER-RETURNED `AccessDenied` **with an explicit identity-policy deny**. PASS (CloudTrail
+  corroboration: pending index at the time of writing; appended when available).
+- **P5** `sts:AssumeRole` into `SnatchIt-CredentialSign-Runtime` as the ceremony role → OWNER-RETURNED `AccessDenied`; the error does not name
+  the denying policy (the runtime trust would refuse this caller regardless). Retained as **non-discriminating** evidence. (CloudTrail
+  corroboration pending.)
+
+### C1-9 — status 2026-09-08T04:38Z: completed checks and limits
+Completed: T2 MFA-conditioned AssumeRole via serial+token (serial logged in CloudTrail); T1 recorded as a success explained by the
+MFA-authenticated login session (not a denial pass; negative control not manufactured); live trust and policy re-read identical; positive
+controls; P1 (CloudTrail deny, explicit identity deny); P2 (S3 deny, explicit bucket-policy deny); P4 (IAM deny, explicit identity deny);
+P5 (STS deny, non-discriminating); IAM simulator explicitDeny for the entire deny-set incl. `organizations:*`, `account:*`, `sso:*`,
+`sts:AssumeRole*`, KMS lifecycle/crypto, and correct scoping of CreateKey/Sign/PutKeyPolicy. **Limits:** P3 (`kms:CreateAlias`) INCONCLUSIVE —
+no live evidence for the KMS-lifecycle deny is obtainable without a key; **P3′ is deferred to C2 (separately authorized)**; destructive
+denies (`StopLogging`, `DeleteTrail`, `DeleteBucketPolicy`, non-conforming `CreateKey`) are proven by simulation only, by design.
+**M1 (Model B) status:** configured and live-probed from the ceremony role; **complete only after the Device-2 read-back (C1-10)**, which the
+ratification makes the acceptance criterion.
