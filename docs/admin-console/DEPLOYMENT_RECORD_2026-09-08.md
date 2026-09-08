@@ -103,3 +103,26 @@ verification. Release commit unchanged: `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d6
 Blocked on G2/G3/G5 (founder probe). The retirement list in the main record stands; add the two superseded same-commit deployments `snatchit-admin-q6mhr48m7-…` and `snatchit-admin-a7t1i7zi6-…` only if the owner wants them gone (they are authenticated builds of the approved commit, protected by SSO on their URLs).
 
 **Git guard proven live:** the docs push `2459bdc` to `admin/operating-console` created Git deployment `dpl_BEGD13gGY1zZLswR76xsU4UpCAMs`, which Vercel canceled: "The deployment was canceled because the Ignored Build Step command returned exit code 0"; the production alias stayed on `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`. Side effect: pushes to other branches now create *errored* preview deployments (`NOW_SANDBOX_WORKER_ROOTDIR_NOT_EXIST`, no `admin/` there) — inert and SSO-gated, but they consume Hobby build minutes; Preview → Branch Tracking can be disabled (owner decision, not changed).
+
+---
+
+# Addendum 2 — stopping the failed automatic preview deployments (2026-09-08 04:40–04:55 UTC)
+
+**Symptom.** Every push to `feature/venue-native-and-product-v2` (and other non-admin branches) created a `snatchit-admin` preview deployment that failed within seconds: `NOW_SANDBOX_WORKER_ROOTDIR_NOT_EXIST` — "The specified Root Directory "admin" does not exist." (e.g. `c4f562d` at 04:40:30Z), one failure e-mail per push.
+
+**Confirmed root cause.** The project's Root Directory is `admin` (correct for the console). The `admin/` tree exists only on `admin/operating-console`; PR #55 is unmerged, so every other branch lacks it. Vercel validates the Root Directory right after cloning and **before** running the Ignored Build Step, so the SHA-pinned guard (`test "$VERCEL_GIT_COMMIT_SHA" != …`) never executes on those branches — it only governs branches where the root exists (it did cancel the docs pushes on `admin/operating-console`, e.g. `dpl_BEGD13gGY1zZLswR76xsU4UpCAMs`, `dpl_GhWUeMBrP2zW8dMcmceJvpB4qtCk`). A `vercel.json` rule cannot help either: it would have to live under the missing `admin/` directory, and a repo-root `vercel.json` would affect `snatchit-web`.
+
+**Change (project-scoped, reversible).** Vercel → snatchit-admin → Settings → Environments → **Preview → Branch Tracking: disabled** (was enabled, matching "All unassigned branches"). Vercel's own description: "If disabled, you can still create deployments using the CLI or the Vercel API." Nothing else changed — re-read after save: Git link `SnatchIt-app/snatchit`, Production branch `admin/operating-console`, Root Directory `admin`, Node 22.x, Ignored Build Step unchanged, `ssoProtection.deploymentType = all_except_custom_domains`, no deployments deleted, notifications untouched.
+
+**Verification.**
+- Saved state re-read after a full page reload: Branch Tracking checkbox off, the branch-pattern input no longer rendered.
+- Authorized trigger: a throwaway branch `chore/vercel-preview-probe-20260908` was pushed at 04:49:44Z pointing at the same commit as the failing branch (`c4f562d`, no `admin/` directory). At 04:51:04Z the newest `snatchit-admin` deployment was still the 11-minute-old error (`…-psgvex81a`); no deployment was created. Before the change the same kind of push produced an ERROR deployment within ~5 s. The probe branch was deleted at 04:51:08Z (GitHub returns 404 for it).
+- Next real push to `feature/venue-native-and-product-v2` itself: not yet observed at the time of writing (last commit `c4f562d` 04:40:01Z); a watcher was left running and its outcome, if it lands during this session, is reported in chat. "Configuration verified" therefore rests on the saved state plus the equivalent probe push.
+- Production preserved: `snatchit-admin.vercel.app` → `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr` (Ready, commit `ab3e17f`); `/`, `/system`, `/users`, `/cases` → 307 to `/login`; login page title "Sign in · Console · production"; old deployment URLs still 302 → Vercel SSO.
+
+**How approved admin releases work from here.**
+1. Production branch pushes (`admin/operating-console`) still reach Vercel and are canceled unless the commit SHA equals the pinned one in the Ignored Build Step. To release a newly approved commit from Git: update the pinned SHA in Settings → Build and Deployment → Ignored Build Step, then push or "Redeploy" that commit.
+2. Alternatively (the path used for this release): from a clean checkout of the approved commit, `vercel deploy --prod` with `VERCEL_ORG_ID=team_rld7LG9DKzgaph97l4H4jl9d VERCEL_PROJECT_ID=prj_o17cASVVqqyGKPUtiklJRvAMVgNB` — CLI deployments ignore the Ignored Build Step and branch tracking.
+3. Preview builds of the console are on demand only: `vercel deploy` (no `--prod`) from a checkout that contains `admin/`. Nothing deploys automatically from feature branches any more.
+
+**Remaining limitation.** Pushes to `admin/operating-console` with a non-pinned SHA still create a *canceled* production-target deployment (silent, no failure e-mail, nothing promoted). Once PR #55 is merged into `feature/venue-native-and-product-v2`, that branch will contain `admin/`; automatic previews for it stay off unless Branch Tracking is re-enabled.
