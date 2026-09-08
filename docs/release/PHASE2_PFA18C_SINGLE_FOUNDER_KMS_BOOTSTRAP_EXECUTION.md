@@ -668,3 +668,9 @@ no live evidence for the KMS-lifecycle deny is obtainable without a key; **P3′
 denies (`StopLogging`, `DeleteTrail`, `DeleteBucketPolicy`, non-conforming `CreateKey`) are proven by simulation only, by design.
 **M1 (Model B) status:** configured and live-probed from the ceremony role; **complete only after the Device-2 read-back (C1-10)**, which the
 ratification makes the acceptance criterion.
+P4/P5 CloudTrail corroboration (indexed 04:39:13Z, sanitized): **P4** `iam GetUser` 04:36:16Z by `assumed-role/SnatchIt-KMS-Ceremony/
+pfa18c-ceremony` (`mfaAuthenticated true`) → `AccessDenied` "… not authorized to perform: iam:GetUser on resource: user jose-admin **with an
+explicit deny in an identity-based policy**" (eventID `1a578c07-…`). **P5** `sts AssumeRole` 04:36:50Z by the same session → `AccessDenied`
+"… not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime" — no denying policy
+named (eventID `3c27859f-…`); non-discriminating, as recorded. C1-9 closes with these limits: P3 inconclusive / P3′ at C2; destructive denies by
+simulation only. C1-10 package prepared (packet §5a′); Device-2 availability to be confirmed by the owner before D2-1.
