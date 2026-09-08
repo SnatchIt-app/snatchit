@@ -617,3 +617,32 @@ CLAUDE-OBSERVED (read-only):
    (`ECDSA_SHA_384` ⇒ implicitDeny); positive reads `cloudtrail:GetTrailStatus/DescribeTrails`, `s3:GetBucketPolicy/
    GetBucketObjectLockConfiguration`, `kms:ListKeys`, `sts:GetCallerIdentity` allowed.
 Remaining for C1-9: the owner-run live probes as the role (below), then CloudTrail evidence of their `AccessDenied` outcomes.
+
+### C1-9 — live probes as the ceremony role (session `pfa18c-ceremony`, `mfaAuthenticated true`) — 2026-09-08T04:31–04:34Z
+OWNER-RETURNED + CLAUDE-OBSERVED (CloudTrail event history, sanitized):
+- Positive controls: `GetTrailStatus` 04:31:02Z allowed (eventID `9cac770a-…`); `kms ListKeys` 04:31:10Z allowed, `[]` (eventID `c2ef9696-…`). PASS.
+- **P1** `cloudtrail:AddTags` on the trail 04:31:22Z → `AccessDenied` "**with an explicit deny in an identity-based policy**" (eventID `f00a1ecf-…`). PASS.
+- **P2** `s3:PutBucketVersioning` on the audit bucket 04:32:02Z → `AccessDenied` "**with an explicit deny in a resource-based policy**" (eventID
+  `7d56dfd9-…`) — the bucket policy's deny was cited; the identity-policy deny for the same action is proven separately by the simulator. PASS.
+- **P3** `kms:CreateAlias` targeting the all-zero dummy key → **`NotFoundException`**, not `AccessDenied`. **Recorded as INCONCLUSIVE — neither a
+  pass nor evidence that the deny is missing.** (CloudTrail event: pending index at the time of writing; recorded below when available.)
+  Analysis (read-only): the live policy statement `DenyKeyLifecycleMutationDuringCeremony` is unchanged and lists `kms:CreateAlias` with
+  `Resource "*"`; the whole inline policy is still identical to the artifact; the IAM simulator returns **explicitDeny** for `kms:CreateAlias`
+  on any key ARN. Per the CreateAlias API reference, the operation requires `kms:CreateAlias` **on the alias (IAM policy) and on the KMS key
+  (key policy)**, "A valid KMS key is required. You can't create an alias without a KMS key", and `NotFoundException` = "the specified entity
+  or resource could not be found". The request therefore named a resource that does not exist, so the key-policy half of the authorization
+  could not be evaluated and KMS answered with resource validation. What the evidence establishes: the request was rejected because the key
+  does not exist. What it does **not** establish: whether the identity-policy explicit deny was consulted for this request — AWS documents no
+  evaluation order between resource validation and authorization, and none is assumed here. The probe design was engineering's error (it
+  predicted `AccessDenied` for a non-existent target); it is withdrawn as a discriminating test. No real key was created and no other key was
+  targeted to force a denial.
+  Acceptance-criteria determination: the ratified controls require the deny-set and key policy to be **read back and verified from the M2
+  device** (ratification items 2–3, M3 "prove by reading the committed key policy from the second device"); live refusal probes are engineering's
+  additional evidence, not a ratified criterion. Standing evidence for the KMS lifecycle deny = identical policy read-back + simulator
+  explicitDeny. A **discriminating live test exists only once a key exists**: at C2, after CreateKey, the ceremony role attempts
+  `kms create-alias --target-key-id <D4>` → expected `AccessDenied` with an explicit identity-policy deny (if wrongly allowed the effect is one
+  removable alias, no cryptographic or lifecycle impact); likewise `kms verify` with the proof signature → expected `AccessDenied`. This
+  "P3′ at C2" is added to the C2 package. No safe KMS mutation probe against a non-existent key discriminates; `kms generate-random` (no
+  resource) can only show the absence of a broad Allow (implicit deny), which is weaker evidence and optional.
+- P4 (`iam get-user` as the role) and P5 (`sts assume-role` into the runtime role as the role): outcome not yet returned by the owner / not yet
+  indexed at the time of writing.
