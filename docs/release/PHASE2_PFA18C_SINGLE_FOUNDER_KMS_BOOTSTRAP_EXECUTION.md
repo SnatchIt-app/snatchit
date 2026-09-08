@@ -559,3 +559,17 @@ OWNER-RETURNED: `put-object-lock-configuration` completed. CLAUDE-OBSERVED (read
 Enabled`, `Rule.DefaultRetention.Mode: COMPLIANCE`, `Years: 3` (artifact `9a4c5a8d…`); `list-object-versions` → no versions, no delete markers;
 trails (incl. shadow) `[]`. PASS ⇒ C1-7 VERIFIED. The bucket remains empty and therefore still reversible; **C1-8 (start-logging) is the point at
 which the first COMPLIANCE-locked objects (3 years) are written.** Owner instructed for C1-8.
+
+### C1-8 — CloudTrail trail `snatchit-audit-trail` — configuration VERIFIED 2026-09-08T04:03:45Z; first delivery pending
+OWNER-RETURNED: `create-trail`, `put-event-selectors`, `start-logging` completed. CLAUDE-OBSERVED (read-only): `describe-trails` →
+`Name snatchit-audit-trail`, `TrailARN arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail`, `S3BucketName
+snatchit-audit-652872010073`, `HomeRegion us-east-1`, `IsMultiRegionTrail true`, `IncludeGlobalServiceEvents true`, `LogFileValidationEnabled
+true`, `KmsKeyId null`, `IsOrganizationTrail false`, `HasInsightSelectors false`; `list-trails` → exactly one trail. `get-event-selectors` →
+`ReadWriteType All`, `IncludeManagementEvents true`, `DataResources []`, `ExcludeManagementEventSources []` (no KMS exclusion); no advanced
+selectors. `get-trail-status` → `IsLogging true`, `StartLoggingTime 2026-09-08T04:02:41Z`, `LatestDeliveryTime null` (first delivery not yet
+landed at 04:03:45Z), no delivery errors. Bucket: two zero-byte prefix markers (`AWSLogs/652872010073/CloudTrail/`, `…/CloudTrail-Digest/`,
+04:02:28Z). **The first locked objects are now being written; the bucket is no longer reversible.** Delivery + per-object COMPLIANCE retention
+(3 years) verification: pending (background poll).
+Per-object lock on the first written objects (CLAUDE-OBSERVED 04:04:10Z, metadata only): `AWSLogs/652872010073/CloudTrail/` and
+`…/CloudTrail-Digest/` → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:02:27Z` (= 3 years), `LegalHold null`, `SSE AES256`,
+versioned. ⇒ **3-year COMPLIANCE retention is in force on delivered objects.** Log-file delivery confirmation still pending.
