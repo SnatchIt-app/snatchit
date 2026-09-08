@@ -530,3 +530,15 @@ CLAUDE-OBSERVED (read-only): `get-object-lock-configuration` → `ObjectLockEnab
 RestrictPublicBuckets all `true`; `get-bucket-encryption` → `AES256`, `BucketKeyEnabled false`, no `KMSMasterKeyID` (`BlockedEncryptionTypes: SSE-C`
 reported by S3); `get-bucket-location` → `LocationConstraint null` (= us-east-1); no bucket policy yet; zero object versions. All PASS.
 Bucket remains fully reversible (empty). Next: C1-3 (runtime principals; required before the C1-6 bucket policy).
+
+### C1-3 — runtime user + role (O1, trust only) — **VERIFIED 2026-09-08T03:53:31Z**
+OWNER-RETURNED: local file `~/pfa18c-local/m3_runtime_role_trust.filled.json` created (ExternalId length 64; value never shared); `create-user`,
+`put-user-policy`, `create-role` completed. CLAUDE-OBSERVED (read-only, ≥ 344 s after creation): user `arn:aws:iam::652872010073:user/
+snatchit-credential-sign-runtime` (UserId `AIDAZQARUJFMSTRL3SPZY`, 03:47:07Z); inline `pfa18c-runtime-assume-only` diff vs
+`m3_runtime_user_policy.json` (sha256 `a1cb8644…`) → **identical**; attached `[]`, groups `[]`, **access keys `[]`**, no login profile. Role
+`arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime` (RoleId `AROAZQARUJFMVY3CGSUOG`, 03:47:46Z, MaxSessionDuration 3600); trust:
+one statement, principal = the runtime user only, action `sts:AssumeRole` only, condition operators `[StringEquals]`, condition keys
+`[sts:ExternalId]` only, ExternalId length 64 (**value redacted**); structure identical to `m3_runtime_role_trust.json` with the placeholder
+masked; `list-role-policies` `[]`, `list-attached-role-policies` `[]` (permissions bound to the exact key ARN only at C2). Refusal test:
+`sts assume-role` into the runtime role as `jose-admin` → **AccessDenied** ("not authorized to perform: sts:AssumeRole"). All PASS ⇒ C1-3 VERIFIED.
+No access-key secret exists.
