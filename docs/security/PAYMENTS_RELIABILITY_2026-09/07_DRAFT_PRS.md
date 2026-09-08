@@ -144,3 +144,11 @@ head `972619f`: `e7d4fe3` (option B docs, client message, sandbox request, cance
 **CI on 45ac1fe:** run 34069496428 — `db`, `web`, `quality`, `deno-check` all GREEN. Migrations guard: fails ONLY on
 the `AUTODEPLOY-VERIFIED-OFF` placeholder (owner fills in). Sandbox (real Stripe test mode): not run — blocked on the
 environment request (`11_SANDBOX_ENVIRONMENT_REQUEST.md` §3).
+
+
+## Sandbox-verified head (2026-09-07)
+
+**Reviewed code commit:** `8fd4408` (PR #54 head, still draft). **CI:** run 34177379719 — `db`, `web`, `quality`,
+`deno-check` all GREEN. **Real Stripe test-mode matrix: 49/49 PASS** on Supabase `ofaidukbieeekqaboscm` (Free-plan org
+`snatchit-sandbox`, $0) against Stripe Sandbox `acct_1T6Fb1GlD5aqtxIw` — see `15_SANDBOX_RESULTS.md`. Migrations guard
+still fails only on the `AUTODEPLOY-VERIFIED-OFF` placeholder (owner fills in).
