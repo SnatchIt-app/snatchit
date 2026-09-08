@@ -57,9 +57,10 @@ if (c.aal !== 'aal2') {
   gate('G3-protected-read', !list.ok && /step_up|insufficient/.test(await list.text()), `list_cases at aal1 → ${list.status} (expect step_up refusal)`);
   const mut = await probeCase(session.access_token);
   gate('G3-mutation', !mut.ok && /step_up|insufficient/.test(await mut.text()), `execute_action at aal1 → ${mut.status} (expect refusal)`);
-  const factors = await api('/auth/v1/factors', session.access_token);
-  const fj = factors.ok ? await factors.json() : [];
-  const totp = (Array.isArray(fj) ? fj : fj.totp ?? []).find((f) => f.status === 'verified');
+  // GoTrue lists enrolled factors on the user object (GET /auth/v1/user → factors[]); /factors has no GET.
+  const me = await api('/auth/v1/user', session.access_token);
+  const mj = me.ok ? await me.json() : {};
+  const totp = (Array.isArray(mj.factors) ? mj.factors : []).find((f) => f.status === 'verified' && (f.factor_type ?? 'totp') === 'totp');
   if (totp) {
     const ch = await api(`/auth/v1/factors/${totp.id}/challenge`, session.access_token, { method: 'POST', body: '{}' });
     const chj = await ch.json();
