@@ -522,3 +522,11 @@ role `SnatchIt-KMS-Ceremony`, users `jose-admin`, `snatchit-kms-verifier`, local
 `76addba3…`, object-lock `9a4c5a8d…` (Years 3), runtime user policy `a1cb8644…`, runtime trust `8ebd036a…` (ExternalId placeholder; filled locally
 at C1-3). Dependency restated: the bucket policy (C1-6) names the runtime user/role ⇒ **C1-3 must precede C1-6**; C1-4/C1-5 have no principal
 dependency and are reversible while the bucket is empty. Owner instructed: C1-4 + C1-5.
+
+### C1-4 / C1-5 — audit bucket created and hardened — **VERIFIED 2026-09-08T03:41:07Z**
+OWNER-RETURNED: `create-bucket --object-lock-enabled-for-bucket`, `put-public-access-block`, `put-bucket-encryption` completed.
+CLAUDE-OBSERVED (read-only): `get-object-lock-configuration` → `ObjectLockEnabled: Enabled`, **no Rule** (retention applied at C1-7);
+`get-bucket-versioning` → `Enabled` (MFADelete Disabled); `get-public-access-block` → BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/
+RestrictPublicBuckets all `true`; `get-bucket-encryption` → `AES256`, `BucketKeyEnabled false`, no `KMSMasterKeyID` (`BlockedEncryptionTypes: SSE-C`
+reported by S3); `get-bucket-location` → `LocationConstraint null` (= us-east-1); no bucket policy yet; zero object versions. All PASS.
+Bucket remains fully reversible (empty). Next: C1-3 (runtime principals; required before the C1-6 bucket policy).

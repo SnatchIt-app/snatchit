@@ -59,7 +59,9 @@ Conventions unchanged (owner runs on the primary machine as `jose-admin`; `--pro
 | C1-1 role `SnatchIt-KMS-Ceremony` | **VERIFIED 02:42:58Z** | trust + inline policy identical to artifacts; only `pfa18c-ceremony`; no managed attachments |
 | C1-2 user `snatchit-kms-verifier` | **VERIFIED 03:36:38Z** (policy packaged as customer-managed after the inline-quota refusal, F7) | `SnatchIt-KMS-Verifier-ReadOnly` v1 (default, only version) **identical** to `m2_verifier_policy.json`; attached = that ARN + `SignInLocalDevelopmentAccess` only; inline `[]`; groups `[]`; access keys `[]`; login profile present (03:32:13Z); MFA `[]` — enrolled from Device 2 at C1-10 (M2 still pending) |
 | C1-3 runtime user + role (trust only) | pending (local filled trust file) | — |
-| C1-4 … C1-8 bucket → PAB/SSE → policy → **3-year COMPLIANCE** → trail (Read+Write, no KMS exclusion) | pending | — |
+| C1-4 bucket `snatchit-audit-652872010073` (Object Lock at creation) | **VERIFIED 03:41:07Z** | `ObjectLockEnabled Enabled`, no rule yet; versioning `Enabled`; location us-east-1; no policy; no objects |
+| C1-5 PAB ×4 + SSE-S3 | **VERIFIED 03:41:07Z** | all four `true`; `AES256`, `BucketKeyEnabled false`, no KMS key (S3 also reports SSE-C blocked by default) |
+| C1-6 bucket policy → C1-7 **3-year COMPLIANCE** rule → C1-8 trail (Read+Write, no KMS exclusion) | pending (C1-6 needs C1-3 principals) | — |
 | C1-9 MFA test (T2 serial+token) + deny-set proof | pending C1-0b | — |
 | C1-10 Device 2 login/attestation/read-back | **Device 2 availability not yet determined** — must be physically separate and clean; M2 is not marked satisfied until it runs | — |
 
