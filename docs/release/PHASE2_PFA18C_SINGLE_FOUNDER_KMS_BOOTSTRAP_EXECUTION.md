@@ -578,3 +578,42 @@ no delivery error; object `AWSLogs/652872010073/CloudTrail/us-east-1/2026/09/08/
 (3,649 bytes) → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:07:28Z`, `LegalHold null`, `SSE AES256`. First digest delivery not
 yet (hourly). ⇒ **C1-8 VERIFIED in full.** M1 (Model B) is *configured*; it is marked complete only after the C1-9 deny-set proof and the
 Device-2 read-back (C1-10).
+
+### C1-9 — MFA-conditioned AssumeRole test — evidence recorded 2026-09-08T04:29Z (C1-9 still PENDING the refusal probes)
+OWNER-RETURNED: **T1** (`sts assume-role` as `jose-admin` via the `aws login` session, **no explicit MFA parameters**) **SUCCEEDED** →
+`arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`. **T1 is recorded as a success, NOT as an expected-denial pass.**
+**T2** (`get-caller-identity --profile snatchit-ceremony`, CLI prompted for the `jose-admin-totp` code) SUCCEEDED with the same ARN.
+
+CLAUDE-OBSERVED (read-only):
+1. Live trust of `SnatchIt-KMS-Ceremony` re-read → **identical** to `m1_ceremony_role_trust.json`: one Allow, principal `user/jose-admin`, action
+   `sts:AssumeRole`, conditions `Bool aws:MultiFactorAuthPresent=true` AND `StringEquals sts:RoleSessionName=pfa18c-ceremony`. Inline policy
+   identical; no attached policies. Nothing was weakened; no access key was created.
+2. CloudTrail event history (sanitized; CloudTrail never logs credentials/OTPs):
+   - **T1** `AssumeRole` 2026-09-08T04:24:06Z, eventID `c1ae602c-…`: caller `IAMUser arn:aws:iam::652872010073:user/jose-admin`, temporary
+     credential (`ASIA…`), **`sessionContext.attributes.mfaAuthenticated: "true"`**, session `creationDate 2026-09-08T01:45:15Z` (the `aws login`
+     session), **requestParameters.serialNumber absent**, `roleSessionName pfa18c-ceremony`, no error; userAgent `md/command#sts.assume-role`.
+   - **T2** `AssumeRole` 04:24:43Z, eventID `15b4cd6a-…`: same caller session (`mfaAuthenticated "true"`, created 01:45:15Z),
+     **`serialNumber arn:aws:iam::652872010073:mfa/jose-admin-totp`**, `durationSeconds 3600`, no error; userAgent `md/command#sts.get-caller-identity`
+     (the profile's automatic assume). Then `GetCallerIdentity` 04:24:43Z by `AssumedRole …/SnatchIt-KMS-Ceremony/pfa18c-ceremony`,
+     `mfaAuthenticated "true"`, sessionIssuer = the ceremony role, eventID `3537a93f-…`.
+   - The login session's other calls (e.g. `CreateOAuth2Token` 04:24:06Z) also carry `mfaAuthenticated "true"`, creation 01:45:15Z.
+3. **Why T1 succeeded — verified vs inferred.** VERIFIED: the trust condition is present and unchanged; the `aws login` session used for T1 is
+   recorded by CloudTrail as MFA-authenticated (created 01:45:15Z after the passkey console sign-in). INFERRED (consistent with the official
+   condition-key semantics — the key is present for temporary credentials and is `false` when MFA was not used): IAM evaluated
+   `aws:MultiFactorAuthPresent=true` from that session's MFA context, so no explicit SerialNumber/TokenCode was needed. LIMITATION: AWS does not
+   log the evaluated condition context; a negative control (an AssumeRole from a non-MFA session) was **not** performed and will not be
+   manufactured (no access key, no trust change). Consequence: both paths satisfy the condition today; the **reviewed mechanism (T2, explicit
+   `--serial-number`/`--token-code`, recorded with the serial in CloudTrail) remains the ceremony procedure** because its MFA evidence is explicit
+   and does not depend on the login session's state.
+4. IAM policy simulation of the ceremony role's identity policy (read-only, `iam simulate-principal-policy`, run as `jose-admin`):
+   **explicitDeny** — `cloudtrail:StopLogging/DeleteTrail/UpdateTrail/PutEventSelectors/AddTags`; `s3:DeleteBucketPolicy/PutBucketPolicy/
+   PutBucketVersioning/PutBucketObjectLockConfiguration/PutLifecycleConfiguration/DeleteBucket` on the audit bucket; `s3:DeleteObject/
+   DeleteObjectVersion/PutObject/PutObjectRetention/PutObjectLegalHold/BypassGovernanceRetention` on audit objects; `iam:GetUser/PutRolePolicy/
+   CreateAccessKey/AttachRolePolicy`; `sts:AssumeRole`, `sts:AssumeRoleWithSAML`; `organizations:CreateOrganization/LeaveOrganization`;
+   `account:GetContactInformation`; `sso:ListInstances`; `kms:ScheduleKeyDeletion/DisableKey/CreateAlias/CreateGrant/Decrypt/Encrypt/Verify/
+   ImportKeyMaterial`. **allowed** — `kms:CreateKey` only with `KeySpec ECC_NIST_P256 ∧ KeyUsage SIGN_VERIFY ∧ KeyOrigin AWS_KMS ∧ MultiRegion
+   false ∧ BypassPolicyLockoutSafetyCheck false` (RSA_2048 / MultiRegion true / Bypass true ⇒ implicitDeny); `kms:Sign/GetPublicKey/PutKeyPolicy/
+   DescribeKey` only on keys tagged `snatchit:purpose=ticket-signing` (other tag ⇒ implicitDeny) and `Sign` only with `ECDSA_SHA_256`
+   (`ECDSA_SHA_384` ⇒ implicitDeny); positive reads `cloudtrail:GetTrailStatus/DescribeTrails`, `s3:GetBucketPolicy/
+   GetBucketObjectLockConfiguration`, `kms:ListKeys`, `sts:GetCallerIdentity` allowed.
+Remaining for C1-9: the owner-run live probes as the role (below), then CloudTrail evidence of their `AccessDenied` outcomes.
