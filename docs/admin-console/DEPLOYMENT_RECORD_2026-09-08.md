@@ -50,3 +50,53 @@ plus the maintenance deployment `snatchit-admin-ij7d1pvw4`. Keep `snatchit-admin
 `RUNBOOK.md` §5: `actions_enabled=false` → detectors off → remove `ops` from
 exposed schemas (or simply never add it). The old portal is not a fallback and
 its maintenance page stays in place; no deployment is promoted back.
+
+---
+
+# Addendum — configuration, redeploy and real-service acceptance (2026-09-08, 00:45–02:00 UTC)
+
+Owner approval received 2026-09-08 for the remaining configuration, redeploy
+and acceptance work; executed through the owner's authenticated Chrome
+sessions (Supabase dashboard, Vercel dashboard) plus the local CLIs for
+verification. Release commit unchanged: `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`.
+
+## Supabase (verified)
+
+| Item | Result |
+|---|---|
+| Data API exposed schemas | `public, graphql_public, kernel, ops` (was 3 of 8, now 4 of 8; saved via Integrations → Data API → Settings, toast "Successfully saved settings"). Verified from outside: `Accept-Profile: ops` on a nonexistent table → 404 (was 406 PGRST106); anon `POST rpc/whoami` with `Content-Profile: ops` → 42501 "permission denied for schema ops" (fail-closed, anon has no usage); `public`/`kernel` unchanged (404). |
+| Auth redirect URLs | `https://snatchit-admin.vercel.app/**` added (10 entries total, 9 pre-existing preserved). Site URL unchanged (`https://snatchti.com`). |
+| GitHub integration | Read-only re-check: "Deploy to production" **off**, "Automatic branching" off. Not touched. |
+
+## Vercel `snatchit-admin` (verified through the project API after each save)
+
+| Item | Result |
+|---|---|
+| Root Directory | `admin` (PATCH 200, toast "Root directory updated"). |
+| Node.js Version (project setting) | `22.x`. **Effective build runtime is 24.x** for this commit: `admin/package.json` declares `engines.node ">=22.0.0 <25.0.0"`, and Vercel documents that `engines.node` overrides the project setting (a range resolves to the highest available major, 24). Every deployment of `ab3e17f` therefore reports `nodeVersion: 24.x`. Pinning 22 requires a one-line `engines` change = a new commit; not done (exact approved commit deployed). |
+| Ignored Build Step | Behavior "Custom", command `test "$VERCEL_GIT_COMMIT_SHA" != "ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64"` (Vercel UI states: exit 1 = build, exit 0 = skip → only the approved SHA builds from Git). Saved and read back as `commandForIgnoringBuildStep` **before** connecting Git. |
+| Git | Connected `SnatchIt-app/snatchit` (GitHub) after the guard; Production branch changed from the default `main` to `admin/operating-console` (Environments → Production → Branch Tracking, toast "Branch tracking saved"). No Git-triggered deployment was created by the connection. |
+| Environment variables | Development/Preview/Production: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`; Production: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_ENV_LABEL`; Preview (all branches): `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_ENV_LABEL`. **No** `SUPABASE_SERVICE_ROLE_KEY`, **no** `ADMIN_SECRET*` in any scope. |
+| Deployment protection | Unchanged (`ssoProtection.deploymentType = all_except_custom_domains`): every old deployment URL still answers 302 → Vercel SSO. |
+| Redeploy | `vercel deploy --prod` from a detached worktree at `ab3e17f` (clean tree, `git rev-parse HEAD` verified) → production deployment `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr` (`snatchit-admin-jhe92fpqv-…`), `meta.gitCommitSha = ab3e17f…`, `gitCommitMessage` = the RC3 checklist commit, `readyState READY`, `target production`, aliased to `https://snatchit-admin.vercel.app` (CLI `vercel inspect snatchit-admin.vercel.app` → that deployment). Build log: Next.js 16.3.3, `npm run build`, Build Completed. Two earlier same-commit deployments from this session (`…-q6mhr48m7`, `…-a7t1i7zi6`) are superseded, not deleted. |
+
+## Real-service acceptance — results
+
+| Gate | Result | Evidence |
+|---|---|---|
+| G1 founder A (`g***@gmail.com`) | **PASS** | Signed in with own password, enrolled TOTP in own authenticator, Today loaded with live queue (19 open items). DB: `verified_factors = 1`, session `aal = aal2`. Signed out afterwards (0 sessions). |
+| G1 founder B (`c***@snatchitapp.com`) | **PASS** | Same flow. DB: `verified_factors = 1`, session `aal2`. Console header shows the account as ADMIN; Today, Cases, System, Orders pages render → authorised `ops.*` reads succeed at aal2 (`ops.whoami` drives the operator header). |
+| G2 non-operator denied | **awaiting founder probe** (needs a non-operator account the founders own). DB-side proof: pgTAP 181/184; anon at the REST layer → 42501. |
+| G3 lower-assurance denied | **awaiting founder probe** (`gate-probe.mjs` before TOTP). App layer: `/mfa` gate in the proxy; DB layer: pgTAP 184 step-up refusals. |
+| G4 founder opens eligible evidence | **PASS (proof-docs objects)** | Founder B (not a party) on order `7f0b099e…` / transfer `80180da9…` ("Stripe test 3"): `Open evidence · audited` → `ops.evidence_access` ok → signed URL → the 2048×1152 PNG rendered in the tab. Audit row `evidence.viewed` (actor 3b7b50af…, platform_admin, slot transfer_evidence). Storage logs: `POST /object/sign/proof-docs/… 200`, `GET … 200`. |
+| G4 — **finding** | **FAIL-CLOSED for legacy objects** | First attempt on transfer `b6e57049…` ("Beta test 4"): RPC ok + audited, but signing returned 400 and the page showed "evidence not accessible". Cause: the object lives in bucket **`auction-media`**, while `ops.evidence_access` and the policy `proof-docs operator read` assume `proof-docs`. Production census: transfer evidence 11 of 17 in `auction-media`, 6 in `proof-docs`; proof-of-ownership 16 of 35 in `auction-media`, 19 in `proof-docs`. Nothing was exposed (the console refuses). **Pre-existing exposure noted:** `auction-media` is a *public* bucket with policy `public read public buckets`, so those legacy evidence files are already world-readable by URL — unrelated to this package, needs an owner decision (move them into `proof-docs` and teach `evidence_access` the real bucket; a new migration, not authorised in this phase). |
+| G5 unrelated user / bad slot / arbitrary path | **awaiting founder probe** (bad slot + arbitrary path as operator; unrelated listing as non-operator). |
+| G6 signed links expire | **PASS** | Same signed URL: 01:52:04Z → 200 image/png; 01:56:18Z (after the 300 s TTL, `exp` in the token) → 400 `InvalidJWT: "exp" claim timestamp check failed`. |
+| G7 pause / recovery | **PASS** | Synthetic manual case `650e7344…` created by founder B (action 1b67e578; audit `action.requested` + `action.case_create succeeded`). `actions_enabled → false` with reason (action c08081fd; audit `action.setting_set succeeded false`); banner "ACTIONS PAUSED" on every page; adding a note on the synthetic case refused with "Nothing was changed … every mutation is refused" and **no action row written**; Today still rendered. `actions_enabled → true` (action b96c1739); note then recorded (`case_note succeeded`, 1 note on the case). Final state: `actions_enabled = true`. |
+| G8 refunds disabled | **PASS** | `refund_execute_enabled = false` (System → Settings shows the warning); `ops-refund-execute` absent from the edge-function list and → 404; no `refund_execute` action rows. |
+
+**Defect found (not a gate):** System → Jobs panel shows "Request failed — canceling statement due to statement timeout (57014)". `ops.job_health()` runs correlated 24-hour counts over `cron.job_run_details` (454,675 rows, only the primary-key index; `crm-export-build-tick` runs every minute) and exceeds the 8 s statement timeout. Other System sections (settings, approvals, actions, audit, summary) and every other page work. Fix = new migration (index on `cron.job_run_details(jobid, start_time)` or a bounded query) — **not applied** (no additional migrations in this phase).
+
+## Retirement — not yet executed
+
+Blocked on G2/G3/G5 (founder probe). The retirement list in the main record stands; add the two superseded same-commit deployments `snatchit-admin-q6mhr48m7-…` and `snatchit-admin-a7t1i7zi6-…` only if the owner wants them gone (they are authenticated builds of the approved commit, protected by SSO on their URLs).
