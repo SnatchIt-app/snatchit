@@ -365,3 +365,46 @@ AWS: **none** (read-only calls attempted; session expired; no login performed by
 KMS: **not created.** Secrets: **none.** Organizations/accounts/IAM/CloudTrail/S3: **none.** Migrations 110–114: **NOT applied** (rehearsal
 only). Edges: **not deployed.** Config/flags: **unchanged.** Billing plan: **unchanged (FREE last seen 2026-09-05; not re-read).**
 Repository: this record, the runbook NG-3 dated note, and the readiness packet — committed on `feature/venue-native-and-product-v2`.
+
+---
+
+## SESSION 9 — 2026-09-08 — PAID-PLAN CONFIRMATION (OWNER-CONFIRMED) + C1 PACKAGE PREPARATION (NO MUTATION)
+
+Authorization: the owner reports completing the direct AWS Paid-plan upgrade in the Console (root used for billing; `jose-admin` remains the
+engineering identity). **Recorded as OWNER-CONFIRMED until the API verifies it.** The 2026-09-05 "keep Free plan" decision is **superseded**.
+The upgrade authorizes **no** IAM/S3/CloudTrail/Organizations/KMS creation, production migration, secret, deployment, or activation. C18 unchanged.
+Pre-existing user edits preserved (`M docs/release/PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md`, `?? docs/phase2/TICKETS_READ_CONTRACT_CORE_COORDINATION.md`).
+
+### Billing / identity verification — NOT YET (CLAUDE-OBSERVED 2026-09-08T01:25Z)
+`aws sts get-caller-identity` and `aws freetier get-account-plan-state` (profile `snatchit-admin`, us-east-1) both returned:
+"Unable to refresh login credentials because of a change in your password. Please reauthenticate with your new password using 'aws login'."
+⇒ no fresh identity or plan evidence this session. **PAID will be recorded only from a fresh `get-account-plan-state`.** Runbook NG-1 carries a
+dated note (owner-confirmed; cleared on API evidence only). Nothing was purchased; the upgrade was not repeated.
+
+### Reconciliation (CLAUDE-OBSERVED 2026-09-08T01:26Z)
+Branch tip `21ac8e7` = `origin`; no later change to any PFA-18C document, artifact, or 110–114 file on any branch (`admin/operating-console` → `78a56fd`,
+its deployment record only). Production: ledger **130**, numeric tip **120**, present 115–120, **110–114 absent**, `kernel.signing_key` **0**, flags
+dark (issuance/scanning/monitor false; fingerprint/max_not_after null), tickets 0, census kernel 149 / venue 83 / kernel tables 31 — unchanged vs
+session 8. All ten artifact JSON files parse; unchanged since `aa74cc2` before this session's corrections.
+
+### Artifact validation (OFFICIAL-DOC-backed; log in `docs/release/pfa18c_artifacts/README.md`)
+F1 key-policy lockout safety → v1 gains an explicit ceremony `PutKeyPolicy/GetKeyPolicy/DescribeKey` statement (removed in v2); F2 principal
+existence/eventual consistency → C1 order corrected (IAM principals before the bucket policy and key policy; ≥ 60 s wait); F3 verifier could not
+enrol MFA or change its password → `VerifierManageOwnMFAAndPassword` (own user only) + `VerifierReadPasswordPolicy`; F4 `Years` integer; F5 never
+print `assume-role` credentials (`--query AssumedRoleUser`); F6 MFA condition satisfied only by `SerialNumber`+`TokenCode` of a TOTP device on
+`AssumeRole` (U2F/passkeys unsupported for MFA-protected API access; `aws login` MFA context undocumented — not assumed; condition never removed).
+Everything else in the ten files reviewed and left unchanged.
+
+### Deliverables (committed on `feature/venue-native-and-product-v2`)
+`PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` rewritten: §1 verification steps V0–V3; §2 single consolidated decision sheet D1–D8 (region;
+irreversible retention — not pre-selected; O1 vs O4; layout with `652872010073` as the eventual workload member; names; ceremony MFA mechanism;
+T3 interpretation for M5; C3/C4 order) with the pre-bootstrap vs pre-activation split and Model B temporary / Model A before T3; §3 cost
+reconfirmed (usage-based; no $100 package; no recurring budget); §5 **C1 package** C1-0…C1-10 with resource/purpose, prerequisites, commands,
+read-backs, refusal tests, abort conditions, cleanup limits, placeholder replacement rules; §6 110–114 sequence (venue-native lineage, no
+merge-to-main, apply tree must contain 115–120, dry run must list exactly 110–114). Runbook: NG-1 and §F dated notes. Artifacts: F1/F3.
+
+### SESSION 9 MUTATION LEDGER
+AWS: **none** (two read-only calls attempted; both refused for an expired/changed login session; no `aws login` run by Claude). Production DB:
+**none** (read-only queries only). KMS: **not created.** Secrets/ExternalId: **none generated or stored.** Organizations/accounts/IAM/CloudTrail/S3:
+**none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **upgrade OWNER-CONFIRMED, not
+API-verified; nothing purchased.** Repository: packet, execution record, runbook notes, README validation log, two artifact corrections.
