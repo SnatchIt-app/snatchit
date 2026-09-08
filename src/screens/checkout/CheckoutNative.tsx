@@ -1,26 +1,24 @@
 /**
- * src/screens/checkout/CheckoutScreen.native.tsx
+ * src/screens/checkout/CheckoutNative.tsx — the native Stripe checkout.
  *
- * Full native Stripe checkout — lives outside app/ so Expo Router's
- * require.context never touches the @stripe/stripe-react-native import.
+ * V2 presentation over the release-candidate payment path: reservation
+ * pre-check, createPaymentIntent, the Apple Pay probe and cart, initPaymentSheet
+ * with saved cards, presentPaymentSheet, then finalizePurchase — the one
+ * post-charge sequence for Buy Now and auctions alike (src/lib/payments.ts).
+ * serverBreakdown remains the sole authority for every displayed amount; this
+ * screen performs no money arithmetic of its own.
  *
- * Re-exported by app/checkout/[id].tsx via platform resolution.
+ * What the redesign adds: the event artwork, name and date, so the buyer can see
+ * what they are paying for (the old screen showed two text rows and no image); a
+ * live reservation countdown for Buy Now; and the V2 primitives. The screen is
+ * loaded only on native, through CheckoutEntry's platform resolution, so
+ * @stripe/stripe-react-native never enters the web bundle.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   isPlatformPaySupported,
   PlatformPay,
@@ -30,6 +28,7 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
+  confirmPaymentSuccess,
   createPaymentIntent,
   finalizePurchase,
   isExpectedCheckoutError,
@@ -38,8 +37,15 @@ import {
 } from '@/src/lib/payments';
 import * as Sentry from '@sentry/react-native';
 
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
+import { EventMedia } from '@/src/components/media/EventMedia';
+import { PriceDisplay } from '@/src/components/PriceDisplay';
+import { Button, IconButton, Spinner } from '@/src/components/ui';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
+import { payControl, fmtCountdown } from '@/src/lib/checkout/payControl';
+import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
+import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -60,6 +66,7 @@ function reportCheckoutFailure(stage: CheckoutStage, detail: string) {
 export default function CheckoutScreen() {
   const { user, loading: authLoading } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const insets = useSafeAreaInsets();
 
   const params = useLocalSearchParams<{
     id:         string;
@@ -104,6 +111,59 @@ export default function CheckoutScreen() {
 
   const confirmedRef = useRef(false);
   const setupPaymentRef = useRef<(() => void) | null>(null);
+  // Synchronous in-flight latch for the payment-sheet presentation. React state
+  // (`confirming`) does not update before a second tap's handler runs, so a rapid
+  // double-tap could call presentPaymentSheet() twice and the native module then
+  // throws "Tried to resolve a promise more than once". This latch blocks re-entry
+  // within the same frame; it is released in each handler's finally (so a cancel
+  // or error cleanly allows a retry). See src/lib/checkout/paymentGuard.ts.
+  const payLatchRef = useRef(createSingleFlight());
+
+  // -- Listing display: what the buyer is paying for ------------------------
+  // A read-only fetch of the event's display fields, independent of the payment
+  // flow. It touches no money and never blocks or fails payment. The old screen
+  // showed the event and venue as two text rows and no artwork at all, on the
+  // one screen where the money actually leaves.
+  const [display, setDisplay] = useState<{
+    cover: string | null; eventName: string; venue: string; date: string; time: string;
+  } | null>(null);
+  const [reservedUntil, setReservedUntil] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from('listings')
+        .select('cover_image_path, cover_image_url, event_name, venue, event_date, event_time, reserved_until')
+        .eq('id', listingId)
+        .maybeSingle();
+      if (!alive || !data) return;
+      const d = data as {
+        cover_image_path?: string | null; cover_image_url?: string | null;
+        event_name?: string | null; venue?: string | null;
+        event_date?: string | null; event_time?: string | null; reserved_until?: string | null;
+      };
+      setDisplay({
+        cover: d.cover_image_path ?? d.cover_image_url ?? null,
+        eventName: d.event_name ?? eventName,
+        venue: d.venue ?? venue,
+        date: d.event_date ?? '',
+        time: d.event_time ?? '',
+      });
+      if (isBuyNow && d.reserved_until) setReservedUntil(new Date(d.reserved_until).getTime());
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingId]);
+
+  // Live reservation countdown for Buy Now.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isBuyNow) return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isBuyNow]);
+  const reservationMsLeft = reservedUntil ? Math.max(0, reservedUntil - nowTs) : null;
 
   // -- Initialize Stripe PaymentSheet on mount ------------------------------
 
@@ -267,6 +327,44 @@ export default function CheckoutScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, authLoading, listingId]);
 
+  // -- Abandoned Buy Now hold ------------------------------------------------
+  //
+  // Dismissing the sheet leaves the listing reserved for the rest of its
+  // 10-minute TTL, which locks every other buyer out of a listing nobody is
+  // buying. But `Canceled` only says the UI closed; it does NOT say the charge
+  // failed — the PaymentIntent can already have succeeded (Apple Pay confirms
+  // before the sheet animates away). So the backend is asked first and the hold
+  // is released ONLY on a reachable "Stripe does not have the money" verdict,
+  // the one case where the payment cannot still complete without a fresh sheet.
+  // A verified payment keeps its hold and settles like any other success; an
+  // unreachable backend tells us nothing, so the server TTL stays the backstop.
+  //
+  // Returns true when the payment did land and the caller should settle it
+  // instead of treating this as a cancel.
+  async function releaseAbandonedHold(): Promise<boolean> {
+    // Nothing was created, so there is nothing to release or to settle.
+    if (!paymentIntentId || !user) return false;
+
+    const confirm = await confirmPaymentSuccess(paymentIntentId);
+    if (confirm.reachable && confirm.verified) return true;
+    if (!confirm.reachable) return false;
+
+    const { error } = await supabase.rpc('release_reservation', {
+      p_listing_id: listingId,
+      p_user_id:    user.id,
+    });
+    // Non-fatal: the 10-minute server TTL releases the hold regardless.
+    if (error) console.warn('[checkout] release_reservation failed:', error.message);
+
+    // The hold is gone, so this sheet's intent can no longer settle. Drop it and
+    // hand the control back as "Try again" rather than a live Pay button, so a
+    // retry re-runs setup (and a second Buy Now can re-reserve from scratch).
+    setPaymentReady(false);
+    setPaymentIntentId(null);
+    setPaymentError('Your hold was released. Please go back and reserve again.');
+    return false;
+  }
+
   // -- Post-payment settlement (Buy Now + auction) ---------------------------
   //
   // The card is already charged once presentPaymentSheet() returns without an
@@ -283,6 +381,7 @@ export default function CheckoutScreen() {
 
   async function runSettlement(mode: 'buy_now' | 'auction') {
     if (!paymentReady || !user) return;
+    if (!payLatchRef.current.begin()) return; // synchronous double-invocation guard
     setConfirming(true);
 
     try {
@@ -290,12 +389,22 @@ export default function CheckoutScreen() {
 
       if (paymentError) {
         if (paymentError.code === 'Canceled') {
+          // Buy Now only — an auction winner holds no reservation to give back.
+          const paid = mode === 'buy_now' ? await releaseAbandonedHold() : false;
+          if (!paid) {
+            setConfirming(false);
+            return;
+          }
+          // Stripe has the money: fall through to the normal settlement path
+          // rather than discard a real payment.
+        } else {
+          // Raw SDK text (e.g. kCFErrorDomainCFNetwork -1001) stays in the log;
+          // the customer sees one short line in the product's own vocabulary.
+          console.warn('[checkout] presentPaymentSheet failed:', paymentError.code, paymentError.message);
+          Alert.alert('Payment Failed', paymentSheetErrorCopy(paymentError));
           setConfirming(false);
           return;
         }
-        Alert.alert('Payment Failed', paymentError.message);
-        setConfirming(false);
-        return;
       }
 
       const result = await finalizePurchase({
@@ -328,6 +437,7 @@ export default function CheckoutScreen() {
         err instanceof Error ? err.message : 'Something went wrong.',
       );
     } finally {
+      payLatchRef.current.end();
       setConfirming(false);
     }
   }
@@ -335,549 +445,350 @@ export default function CheckoutScreen() {
   const handleConfirmPurchase = () => runSettlement('buy_now');
   const handleAuctionPayment  = () => runSettlement('auction');
 
-  // -- Settlement outcome UI -------------------------------------------------
-  // One screen, three faces. Only `completed` gets the success mark and the
-  // "Purchase complete!" headline; `pending` gets a calm "we're finalizing it"
-  // and `failed` says what actually happened. Copy comes from SETTLEMENT_COPY
-  // so the screen and the alert can never disagree.
+  // -- Shared display derivations ------------------------------------------
+
+  const cover     = display?.cover ?? null;
+  const showName  = display?.eventName ?? eventName;
+  const showVenue = display?.venue ?? venue;
+  const whenLabel = display?.date ? fmtWhen(display.date, display.time) : '';
+
+  // The total is always the server figure once loaded; the client estimate is a
+  // placeholder before createPaymentIntent returns. Neither is computed here.
+  const totalCents   = serverBreakdown ? serverBreakdown.total : estimatedTotalCents;
+  const ticketCents  = serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount);
+  const feeCents     = serverBreakdown ? serverBreakdown.buyerFee : estimatedTotalCents - dollarsToCents(bidAmount);
+
+  // -- Settlement outcome UI ------------------------------------------------
+  // One screen, three faces. Only `completed` is allowed to say the purchase is
+  // complete; `pending` and `failed` speak with SETTLEMENT_COPY, so the screen
+  // and the alert can never disagree.
 
   if (settlement) {
-    const copy = SETTLEMENT_COPY[settlement];
-    const completed = settlement === 'completed';
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.topBar}>
-          <View style={s.backBtn} />
-          <Text style={s.topTitle}>Checkout</Text>
-          <View style={s.backBtn} />
-        </View>
-
-        <View style={s.soldWrap}>
-          <View
-            style={[
-              s.checkCircle,
-              settlement === 'pending' && s.pendingCircle,
-              settlement === 'failed'  && s.failedCircle,
-            ]}
-          >
-            <Text style={s.checkMark}>
-              {completed ? '\u2713' : settlement === 'pending' ? '\u22ef' : '!'}
-            </Text>
-          </View>
-          <Text style={s.soldTitle}>{copy.title}</Text>
-          <Text style={s.soldSub}>
-            {completed && postPurchaseTransferId
-              ? 'Your tickets are confirmed. View transfer details to receive them.'
-              : copy.body}
-          </Text>
-          {completed && postPurchaseTransferId ? (
-            <TouchableOpacity
-              style={s.homeBtn}
-              onPress={() => {
-                router.replace(`/transfer/receive/${postPurchaseTransferId}`);
-              }}
-              activeOpacity={0.88}
-            >
-              <Text style={s.homeBtnText}>View Transfer</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={s.homeBtn}
-              onPress={() => {
-                router.replace('/(tabs)/home');
-              }}
-              activeOpacity={0.88}
-            >
-              <Text style={s.homeBtnText}>Back to Home</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </SafeAreaView>
+      <View style={s.safe}>
+        <ConfirmationView
+          outcome={settlement}
+          cover={cover}
+          eventName={showName}
+          venue={showVenue}
+          whenLabel={whenLabel}
+          isBuyNow={isBuyNow}
+          transferId={postPurchaseTransferId}
+        />
+      </View>
     );
   }
 
   // -- Normal checkout UI ---------------------------------------------------
 
-  return (
-    <SafeAreaView style={s.safe}>
+  // The pay control's single source of truth. The onPress mapping is exactly the
+  // original: ready -> the mode's handler; error/idle -> re-run setup.
+  const payHandler = isBuyNow ? handleConfirmPurchase : handleAuctionPayment;
+  const pay = payControl({
+    authLoading,
+    paymentLoading,
+    confirming,
+    paymentReady,
+    paymentError: !!paymentError,
+    formattedTotal: formatCents(totalCents),
+  });
+  const payOnPress =
+    pay.action === 'pay' ? payHandler
+    : pay.action === 'retry' ? () => setupPaymentRef.current?.()
+    : undefined;
 
+  const reservationExpired = reservationMsLeft === 0;
+
+  return (
+    <View style={s.safe}>
       {/* Header */}
-      <View style={s.topBar}>
-        <Pressable
-          onPress={() => router.back()}
-          style={s.backBtn}
-          hitSlop={8}
-        >
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Checkout</Text>
-        <View style={s.backBtn} />
+      <View style={[s.topBar, { paddingTop: insets.top + v2.space.sm }]}>
+        <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => router.back()} />
+        <Text style={[textStyle('displaySm'), s.topTitle]} accessibilityRole="header">Checkout</Text>
+        <View style={s.topSpacer} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={s.scrollBody}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Confirmed banner */}
-        <View style={s.successBanner}>
-          <Text style={s.successIcon}>{isBuyNow ? '\uD83D\uDED2' : '\uD83C\uDF89'}</Text>
-          <Text style={s.successTitle}>
-            {isBuyNow ? 'Purchase Confirmed!' : 'Bid Placed!'}
-          </Text>
-          <Text style={s.successSub}>
-            {isBuyNow
-              ? "You've secured this listing. Complete payment to receive your tickets."
-              : "You're in the lead. Complete payment to secure your tickets."}
-          </Text>
-        </View>
-
-        {/* Reservation notice (buy_now only) */}
-        {isBuyNow && (
-          <View style={s.reservationNotice}>
-            <Text style={s.reservationNoticeText}>
-              {'\uD83D\uDD12'}  This listing is reserved for you for 10 minutes. Complete payment before time runs out.
-            </Text>
-          </View>
-        )}
-
-        {/* Order summary card */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>ORDER SUMMARY</Text>
-
-          <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>Event</Text>
-            <Text style={s.summaryValue} numberOfLines={2}>{eventName}</Text>
-          </View>
-
-          <View style={s.divider} />
-
-          <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>Venue</Text>
-            <Text style={s.summaryValue} numberOfLines={1}>{venue}</Text>
-          </View>
-
-          <View style={s.divider} />
-
-          {/* Server-computed once loaded; canonical client estimate before. */}
-          <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>
-              {isBuyNow ? 'Buy Now price' : 'Winning bid'}
-            </Text>
-            <Text style={s.summaryValue}>
-              {formatCents(serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount))}
-            </Text>
-          </View>
-
-          <View style={s.divider} />
-
-          <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>Service fee (10%)</Text>
-            <Text style={s.summaryValue}>
-              {formatCents(serverBreakdown
-                ? serverBreakdown.buyerFee
-                : estimatedTotalCents - dollarsToCents(bidAmount))}
-            </Text>
-          </View>
-
-          <View style={s.divider} />
-
-          <View style={s.summaryRow}>
-            <Text style={[s.summaryLabel, s.totalLabel]}>Total</Text>
-            <Text style={[s.summaryValue, s.totalValue]}>
-              {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}
-            </Text>
+        {/* What you are buying */}
+        <View style={s.orderRow}>
+          <EventMedia
+            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
+            slot="CHECKOUT_THUMBNAIL"
+            title={showName}
+            width={72}
+            decorative
+          />
+          <View style={s.orderText}>
+            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{showName}</Text>
+            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{showVenue}</Text>
+            {whenLabel ? (
+              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
+            ) : null}
           </View>
         </View>
 
-        {/* Payment card */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>PAYMENT</Text>
-
-          <View style={s.paymentPlaceholder}>
-            {authLoading ? (
-              <>
-                <ActivityIndicator color={colors.primary} size="small" />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Authenticating...</Text>
-                  <Text style={s.paymentSub}>Verifying your session</Text>
-                </View>
-              </>
-            ) : paymentLoading ? (
-              <>
-                <ActivityIndicator color={colors.primary} size="small" />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Preparing secure payment...</Text>
-                  <Text style={s.paymentSub}>Connecting to Stripe</Text>
-                </View>
-              </>
-            ) : paymentReady ? (
-              <>
-                <Text style={s.paymentIcon}>{'\uD83D\uDCB3'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Secure checkout</Text>
-                  <Text style={s.paymentSub}>
-                    {applePayAvailable ? 'Apple Pay or card' : 'Card payment'}
-                  </Text>
-                </View>
-              </>
-            ) : paymentError ? (
-              <>
-                <Text style={s.paymentIcon}>{'\u26A0\uFE0F'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.paymentName, { color: colors.error }]}>Setup Failed</Text>
-                  <Text style={s.paymentSub}>{paymentError}</Text>
-                </View>
-                <TouchableOpacity
-                  style={s.retryBtn}
-                  onPress={() => setupPaymentRef.current?.()}
-                  activeOpacity={0.8}
-                >
-                  <Text style={s.retryBtnText}>Retry</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={s.paymentIcon}>{'\uD83D\uDCB3'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.paymentName}>Secure checkout</Text>
-                  <Text style={s.paymentSub}>Initializing{'\u2026'}</Text>
-                </View>
-              </>
-            )}
+        {/* Reservation countdown (Buy Now) */}
+        {isBuyNow && reservationMsLeft != null ? (
+          <View style={s.holdRow}>
+            <Text
+              style={[textStyle('label'), reservationExpired ? s.holdExpired : s.hold]}
+              accessibilityLiveRegion="none"
+            >
+              {reservationExpired
+                ? 'Reservation expired'
+                : `Held for you · ${fmtCountdown(reservationMsLeft)} left`}
+            </Text>
           </View>
+        ) : null}
+
+        {/* Price breakdown — the one screen where itemising is correct. Every
+            number is the server figure once loaded. */}
+        <View style={s.breakdown}>
+          <Row label={isBuyNow ? 'Ticket' : 'Winning bid'} value={formatCents(ticketCents)} />
+          <Row label="Service fee" value={formatCents(feeCents)} />
+          <View style={s.hairline} />
+          <View style={s.totalRow}>
+            <Text style={[textStyle('label'), s.totalLabel]}>Total</Text>
+            <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1}>
+              {formatCents(totalCents)}
+            </Text>
+          </View>
+          <Text style={[textStyle('bodySm'), s.meta]}>The service fee is included in this total.</Text>
         </View>
 
-        <View style={{ height: 100 }} />
+        {/* Payment method state */}
+        <View style={s.payState}>
+          {authLoading || paymentLoading ? (
+            <View style={s.payStateRow}>
+              <Spinner label="Preparing secure payment" />
+              <Text style={[textStyle('body'), s.payStateText]}>Preparing secure payment</Text>
+            </View>
+          ) : paymentReady ? (
+            <View style={s.payStateRow}>
+              <Text style={[textStyle('body'), s.payStateText]}>
+                {applePayAvailable ? 'Apple Pay or card' : 'Card payment'}
+              </Text>
+            </View>
+          ) : paymentError ? (
+            <View>
+              <Text style={[textStyle('body'), s.payError]}>{paymentError}</Text>
+            </View>
+          ) : (
+            <View style={s.payStateRow}>
+              <Spinner label="Initializing" />
+              <Text style={[textStyle('body'), s.payStateText]}>Initializing</Text>
+            </View>
+          )}
+        </View>
+
+        <Text style={[textStyle('bodySm'), s.trust]}>
+          Payment is held until your ticket reaches you. Secured by Stripe.
+        </Text>
+
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Sticky CTA */}
-      <View style={s.stickyBar}>
-        {isBuyNow ? (
-          <TouchableOpacity
-            style={[
-              s.payBtn,
-              paymentReady && !confirming && s.payBtnActive,
-              confirming && s.payBtnBusy,
-            ]}
-            onPress={paymentReady ? handleConfirmPurchase : () => setupPaymentRef.current?.()}
-            disabled={(!paymentReady && !paymentError) || confirming || paymentLoading || authLoading}
-            activeOpacity={0.88}
-          >
-            {authLoading ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.textMuted} size="small" />
-                <Text style={[s.payBtnText, { color: colors.textMuted }]}>Authenticating...</Text>
-              </View>
-            ) : paymentLoading ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.textMuted} size="small" />
-                <Text style={[s.payBtnText, { color: colors.textMuted }]}>Setting up payment...</Text>
-              </View>
-            ) : confirming ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.text} size="small" />
-                <Text style={s.payBtnText}>Processing...</Text>
-              </View>
-            ) : paymentReady ? (
-              <Text style={s.payBtnText} numberOfLines={1}>Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}</Text>
-            ) : paymentError ? (
-              <Text style={s.payBtnText} numberOfLines={1}>Try again</Text>
-            ) : (
-              <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
-            )}
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[
-              s.payBtn,
-              paymentReady && !confirming && s.payBtnActive,
-              confirming && s.payBtnBusy,
-            ]}
-            onPress={paymentReady ? handleAuctionPayment : () => setupPaymentRef.current?.()}
-            disabled={(!paymentReady && !paymentError) || confirming || paymentLoading || authLoading}
-            activeOpacity={0.88}
-          >
-            {authLoading ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.textMuted} size="small" />
-                <Text style={[s.payBtnText, { color: colors.textMuted }]}>Authenticating...</Text>
-              </View>
-            ) : paymentLoading ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.textMuted} size="small" />
-                <Text style={[s.payBtnText, { color: colors.textMuted }]}>Setting up payment...</Text>
-              </View>
-            ) : confirming ? (
-              <View style={s.payBtnRow}>
-                <ActivityIndicator color={colors.text} size="small" />
-                <Text style={s.payBtnText}>Processing...</Text>
-              </View>
-            ) : paymentReady ? (
-              <Text style={s.payBtnText} numberOfLines={1}>Pay {'\u00B7'} {formatCents(serverBreakdown ? serverBreakdown.total : estimatedTotalCents)}</Text>
-            ) : paymentError ? (
-              <Text style={s.payBtnText} numberOfLines={1}>Try again</Text>
-            ) : (
-              <Text style={[s.payBtnText, { color: colors.textMuted }]}>Payment unavailable</Text>
-            )}
-          </TouchableOpacity>
-        )}
-        <Text style={s.trustLine}>
-          Payments are secure and encrypted via Stripe
+      {/* Sticky pay bar */}
+      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
+        <View style={s.barPrice}>
+          <PriceDisplay size="sticky" label="Total" amount={formatCents(totalCents)} showTotal={false} />
+        </View>
+        <Button
+          label={pay.label}
+          onPress={payOnPress}
+          variant="primary"
+          size="md"
+          disabled={pay.disabled}
+          loading={pay.loading}
+        />
+      </View>
+    </View>
+  );
+}
+
+// -- Sub-components ----------------------------------------------------------
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.row} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Text style={[textStyle('body'), s.rowLabel]}>{label}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+// The post-charge screen, in all three of its faces. `completed` is the only
+// one allowed to claim the purchase is done; `pending` and `failed` take their
+// words from SETTLEMENT_COPY so this screen and the alert cannot diverge.
+function ConfirmationView({
+  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId,
+}: {
+  outcome: SettlementOutcome;
+  cover: string | null; eventName: string; venue: string; whenLabel: string;
+  isBuyNow: boolean; transferId: string | null;
+}) {
+  const insets = useSafeAreaInsets();
+  const copy = SETTLEMENT_COPY[outcome];
+  const completed = outcome === 'completed';
+  // Only a recorded sale has a transfer to hand off.
+  const showTransfer = completed && !!transferId;
+  return (
+    <View style={s.confirmWrap}>
+      <View style={[s.confirmBody, { paddingTop: insets.top + v2.space.xxl }]}>
+        <Text
+          style={[
+            textStyle('micro'),
+            s.confirmKicker,
+            outcome === 'pending' && s.confirmKickerPending,
+            outcome === 'failed'  && s.confirmKickerFailed,
+          ]}
+        >
+          {completed
+            ? (isBuyNow ? 'Purchase complete' : 'Payment complete')
+            : outcome === 'pending' ? 'Finalizing your order' : 'Needs attention'}
+        </Text>
+        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">
+          {completed ? "You're in." : copy.title}
+        </Text>
+
+        <View style={s.confirmCard}>
+          <EventMedia
+            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
+            slot="CHECKOUT_THUMBNAIL"
+            title={eventName}
+            width={72}
+            decorative
+          />
+          <View style={s.orderText}>
+            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{eventName}</Text>
+            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{venue}</Text>
+            {whenLabel ? (
+              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
+            ) : null}
+          </View>
+        </View>
+
+        <Text style={[textStyle('body'), s.confirmNote]}>
+          {!completed
+            ? copy.body
+            : showTransfer
+              ? 'Your ticket is confirmed. The seller sends it next, and your payment is held until it reaches you.'
+              : 'Your ticket is confirmed. Check your email for transfer instructions.'}
         </Text>
       </View>
 
-      {/* Processing overlay */}
-      {confirming && (
-        <View style={s.overlay}>
-          <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={s.overlayText}>Processing payment{'\u2026'}</Text>
-        </View>
-      )}
-
-    </SafeAreaView>
+      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
+        <Button
+          label={showTransfer ? 'View transfer' : 'Back to home'}
+          onPress={() =>
+            showTransfer
+              ? router.replace(`/transfer/receive/${transferId}`)
+              : router.replace('/(tabs)/home')
+          }
+          variant="primary"
+          size="lg"
+          block
+        />
+      </View>
+    </View>
   );
 }
+
+// -- Helpers ----------------------------------------------------------------
+
+function fmtWhen(date: string, time: string): string {
+  const d = new Date(`${date}T${time || '00:00:00'}`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).replace(/,([^,]*)$/, ' ·$1');
+}
+
 
 // --- Styles ----------------------------------------------------------------
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  safe: { flex: 1, backgroundColor: v2.surface.canvas },
 
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: v2.space.sm,
+    paddingBottom: v2.space.sm,
   },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  topTitle: { color: v2.text.primary },
+  topSpacer: { width: 44 },
 
-  soldWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-    gap: spacing.md,
-  },
-  checkCircle: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: colors.success,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: spacing.sm,
-  },
-  // Same disc, different reading: settlement not landed yet vs. unfulfillable.
-  pendingCircle: { backgroundColor: colors.warning },
-  failedCircle:  { backgroundColor: colors.error },
-  checkMark: {
-    fontSize: 36, color: '#fff', fontWeight: '900', lineHeight: 40,
-  },
-  soldTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '900',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  soldSub: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  homeBtn: {
-    marginTop: spacing.md,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  homeBtnText: { color: colors.text, fontWeight: '800', fontSize: fontSize.md },
+  scroll: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
-  scrollBody: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-  },
+  orderRow: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
+  orderText: { flex: 1, minWidth: 0, gap: 2 },
+  eventName: { color: v2.text.primary },
+  meta: { color: v2.text.muted },
 
-  successBanner: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  successIcon:  { fontSize: 48, marginBottom: spacing.sm },
-  successTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '900',
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  successSub: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: spacing.lg,
-  },
+  holdRow: { marginTop: v2.space.lg },
+  hold: { color: v2.status.warning },
+  holdExpired: { color: v2.status.error },
 
-  reservationNotice: {
-    backgroundColor: colors.bgInput,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderInput,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  reservationNoticeText: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-
-  card: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    ...shadow.card,
-  },
-  cardTitle: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-    color: colors.textDim,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    marginBottom: spacing.md,
-  },
-
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
-  },
-  summaryLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    flexShrink: 0,
-  },
-  summaryValue: {
-    fontSize: fontSize.sm,
-    color: colors.text,
-    fontWeight: '600',
-    textAlign: 'right',
-    flex: 1,
-  },
-  totalLabel: {
-    color: colors.text,
-    fontWeight: '700',
-    fontSize: fontSize.md,
-  },
-  totalValue: {
-    color: colors.primary,
-    fontWeight: '800',
-    fontSize: fontSize.md,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-  },
-
-  paymentPlaceholder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  paymentIcon: { fontSize: 28 },
-  paymentName: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-  },
-  paymentSub: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-
-  stickyBar: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    paddingBottom: spacing.lg,
+  breakdown: {
+    marginTop: v2.space.xl,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.bg,
-    gap: spacing.sm,
-    alignItems: 'center',
+    borderTopColor: v2.border.default,
+    paddingTop: v2.space.md,
+    gap: v2.space.sm,
   },
-  payBtn: {
-    width: '100%',
-    backgroundColor: colors.borderInput,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md + 2,
-    alignItems: 'center',
-    opacity: 0.6,
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
+  rowLabel: { color: v2.text.muted },
+  rowValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  hairline: { height: 1, backgroundColor: v2.border.default, marginVertical: v2.space.xs },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  totalLabel: { color: v2.text.primary },
+  totalValue: { color: v2.text.primary },
+
+  payState: {
+    marginTop: v2.space.xl,
+    borderTopWidth: 1,
+    borderTopColor: v2.border.default,
+    paddingTop: v2.space.md,
   },
-  payBtnActive: {
-    backgroundColor: colors.primary,
-    opacity: 1,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  payBtnBusy: { opacity: 0.65 },
-  payBtnRow: {
+  payStateRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
+  payStateText: { color: v2.text.secondary },
+  payError: { color: v2.status.error },
+
+  trust: { color: v2.text.muted, marginTop: v2.space.lg },
+
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: v2.space.md,
+    paddingHorizontal: v2.space.lg,
+    paddingTop: v2.space.md,
+    borderTopWidth: 1,
+    borderTopColor: v2.border.strong,
+    backgroundColor: v2.surface.surface,
   },
-  payBtnText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  trustLine: {
-    fontSize: fontSize.xs,
-    color: colors.textDim,
-    textAlign: 'center',
-  },
+  barPrice: { flex: 1, minWidth: 0 },
 
-  retryBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-  },
-  retryBtnText: {
-    color: colors.text,
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-  },
-
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
+  // Confirmation
+  confirmWrap: { flex: 1, backgroundColor: v2.surface.canvas },
+  confirmBody: { flex: 1, paddingHorizontal: v2.space.lg, gap: v2.space.md },
+  confirmKicker: { color: v2.status.success },
+  // Same kicker, three readings: settled / not landed yet / unfulfillable.
+  confirmKickerPending: { color: v2.status.warning },
+  confirmKickerFailed:  { color: v2.status.error },
+  confirmTitle: { color: v2.text.primary },
+  confirmCard: {
+    flexDirection: 'row',
+    gap: v2.space.md,
     alignItems: 'center',
-    gap: spacing.md,
-    zIndex: 10,
+    marginTop: v2.space.md,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: v2.border.default,
+    paddingVertical: v2.space.md,
   },
-  overlayText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-  },
+  confirmNote: { color: v2.text.secondary, marginTop: v2.space.md },
 });

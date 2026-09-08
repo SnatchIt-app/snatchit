@@ -1,75 +1,48 @@
 /**
- * app/profile/[id].tsx — Public seller / community profile (trust surface)
+ * app/profile/[id].tsx — Public seller / community profile (V2).
  *
- * Reached by tapping a seller's name/avatar from the listing-detail screen.
- *
- * Shows ONLY profile-safe, public information:
- *   • avatar (or initials fallback)
- *   • display name
- *   • "Verified Seller" badge when stripe_onboarding_complete = true
- *   • bio
- *   • member since (created_at)
- *   • completed sales count (listings sold by this seller)
- *   • active listings by this seller (tappable cards)
- *   • Report User / Block User (App Store Guideline 1.2)
- *
- * NEVER surfaces email, phone, Stripe IDs, wallet balance, or any payment data.
- *
- * Blocking:
- *   • If the viewer has blocked this seller, the profile renders a "blocked"
- *     state and hides all listings.
- *   • The Block action inserts into public.user_blocks and routes back; the
- *     home/explore feeds drop the seller's listings on next focus
- *     (see useBlockedUserIds).
+ * PRESENTATION rebuilt on the V2 system; behaviour and privacy are unchanged.
+ * Reached by tapping a seller from a listing. Shows ONLY public columns (avatar,
+ * name, verified badge, bio, member-since, trust counts, active listings) — never
+ * email / phone / Stripe IDs / wallet / preferences. The block check,
+ * `get_profile_trust_stats` RPC, the "history unavailable ≠ zero sales" distinction,
+ * report/block/unblock and the self-view guard are all preserved. Reputation
+ * derivation moves to src/lib/profile/reputation.ts (pure, tested). Money via the
+ * all-in helper; media via EventMedia.
  */
 
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { allInLabel } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
-import { getCoverImageUrl } from '@/src/lib/coverImage';
-import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-import type { Listing, ProfileTrustStats, SellerReputationTier } from '@/src/types';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
+import { EventMedia } from '@/src/components/media/EventMedia';
+import { Badge, Button, EmptyState, Spinner } from '@/src/components/ui';
+import { AccountSection } from '@/src/components/account/AccountSection';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import { deriveReputation, reputationTone } from '@/src/lib/profile/reputation';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
+import type { Listing, ProfileTrustStats } from '@/src/types';
 
 type PublicProfile = {
-  id:                         string;
-  display_name:               string | null;
-  avatar_url:                 string | null;
-  avatar_path:                string | null;
-  bio:                        string | null;
-  created_at:                 string | null;
-  is_verified_seller:         boolean;
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  avatar_path: string | null;
+  bio: string | null;
+  created_at: string | null;
+  is_verified_seller: boolean;
   stripe_onboarding_complete: boolean;
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 function getInitials(name: string | null): string {
   if (!name || !name.trim()) return '?';
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(w => w[0]?.toUpperCase() ?? '')
-    .join('');
+  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
 function memberSince(iso: string | null): string {
@@ -77,198 +50,67 @@ function memberSince(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-// ─── Reputation tier derivation ───────────────────────────────────────────────
-// Sales-volume × success-rate × dispute-floor ladder. Sourced strictly from
-// get_profile_trust_stats RPC fields — no hardcoded tiers.
-//
-//   Needs Review  — ANY lost dispute, OR insufficient success rate (< 95%)
-//                   relative to completed sales floor (≥ 5).
-//   New Seller    — < 5 completed sales (insufficient marketplace history).
-//   Trusted       — 5+   sales · 95%+ success · 0 lost disputes
-//   Top           — 25+  sales · 98%+ success · 0 lost disputes
-//   Elite         — 100+ sales · 99%+ success · 0 lost disputes
-//
-// Edge cases:
-//   • disputes_lost > 0 ALWAYS forces 'needs_review' regardless of sales
-//     volume or rate — a single lost dispute is the trust floor.
-//   • completed_sales < 5 → new_seller regardless of rate.
-//   • denominator zero → rate treated as 0% (caller already gates
-//     "No completed transfers yet" copy for new_seller).
-function deriveReputation(stats: ProfileTrustStats | null): {
-  tier:        SellerReputationTier;
-  label:       string;
-  blurb:       string;
-  successRate: number | null;
-} {
-  if (!stats) {
-    return {
-      tier: 'new_seller', label: 'New Seller',
-      blurb: 'No completed transfers yet', successRate: null,
-    };
-  }
-
-  const sales = stats.completed_sales;
-  const denom = stats.seller_terminal_total;
-  const num   = stats.seller_terminal_successful;
-  const rate  = denom > 0 ? num / denom : 0;
-  const ratePct = denom > 0 ? Math.round(rate * 100) : null;
-
-  // Any lost dispute → trust floor. Highest precedence after no-data.
-  if (stats.disputes_lost > 0) {
-    return {
-      tier: 'needs_review', label: 'Needs Review',
-      blurb: `${stats.disputes_lost} lost dispute${stats.disputes_lost === 1 ? '' : 's'}${ratePct == null ? '' : ` · ${ratePct}% success`}`,
-      successRate: ratePct,
-    };
-  }
-
-  // Insufficient history → new seller.
-  if (sales < 5) {
-    return {
-      tier: 'new_seller', label: 'New Seller',
-      blurb: sales === 0 ? 'No completed transfers yet' : `${sales} of 5 sales toward Trusted`,
-      successRate: ratePct,
-    };
-  }
-
-  // Elite — 100+ sales, 99%+ success
-  if (sales >= 100 && rate >= 0.99) {
-    return {
-      tier: 'elite', label: 'Elite Seller',
-      blurb: `${sales} sales · ${ratePct}% transfer success`,
-      successRate: ratePct,
-    };
-  }
-  // Top — 25+ sales, 98%+ success
-  if (sales >= 25 && rate >= 0.98) {
-    return {
-      tier: 'top', label: 'Top Seller',
-      blurb: `${sales} sales · ${ratePct}% transfer success`,
-      successRate: ratePct,
-    };
-  }
-  // Trusted — 5+ sales, 95%+ success
-  if (sales >= 5 && rate >= 0.95) {
-    return {
-      tier: 'trusted', label: 'Trusted Seller',
-      blurb: `${sales} sales · ${ratePct}% transfer success`,
-      successRate: ratePct,
-    };
-  }
-  // Has volume but rate below tier floor → review
-  return {
-    tier: 'needs_review', label: 'Needs Review',
-    blurb: `${ratePct}% transfer success`,
-    successRate: ratePct,
-  };
-}
-
-const TIER_COLORS: Record<SellerReputationTier, { bg: string; fg: string; border: string }> = {
-  elite:        { bg: 'rgba(168,85,247,0.10)',  fg: '#A855F7', border: 'rgba(168,85,247,0.45)' },
-  top:          { bg: 'rgba(34,197,94,0.10)',   fg: '#22C55E', border: 'rgba(34,197,94,0.45)'  },
-  trusted:      { bg: 'rgba(59,130,246,0.10)',  fg: '#3B82F6', border: 'rgba(59,130,246,0.45)' },
-  needs_review: { bg: 'rgba(239,68,68,0.10)',   fg: '#EF4444', border: 'rgba(239,68,68,0.45)'  },
-  new_seller:   { bg: 'rgba(148,163,184,0.10)', fg: '#94A3B8', border: 'rgba(148,163,184,0.45)' },
-};
-
-// ─── Active-listing card (compact, tappable) ────────────────────────────────
-
 function ActiveListingRow({ listing }: { listing: Listing }) {
-  const coverUrl = getCoverImageUrl(
-    listing.cover_image_path ?? (listing as any).cover_image_url ?? null,
-  );
   return (
-    <Pressable
-      style={s.listingRow}
-      onPress={() => router.push(`/listing/${listing.id}`)}
-      android_ripple={{ color: colors.primarySoft }}
-    >
-      {coverUrl ? (
-        <Image source={{ uri: coverUrl }} style={s.listingThumb} contentFit="cover" />
-      ) : (
-        <View style={[s.listingThumb, s.listingThumbPlaceholder]}>
-          <Text style={s.listingThumbEmoji}>🎟️</Text>
-        </View>
-      )}
+    <Pressable style={s.listingRow} onPress={() => router.push(`/listing/${listing.id}`)} accessibilityRole="button" accessibilityLabel={listing.event_name}>
+      <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" width={64} title={listing.event_name} decorative />
       <View style={s.listingInfo}>
-        <Text style={s.listingName} numberOfLines={1}>{listing.event_name}</Text>
-        <Text style={s.listingVenue} numberOfLines={1}>
-          {listing.venue}
-          {listing.neighborhood ? ` · ${listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase())}` : ''}
+        <Text style={[textStyle('title'), s.listingName]} numberOfLines={1}>{listing.event_name}</Text>
+        <Text style={[textStyle('bodySm'), s.listingVenue]} numberOfLines={1}>
+          {listing.venue}{listing.neighborhood ? ` · ${listing.neighborhood.replace(/\b\w/g, (c) => c.toUpperCase())}` : ''}
         </Text>
       </View>
       <View style={s.listingRight}>
-        <Text style={s.listingBidLabel}>Current bid</Text>
-        {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
-        <Text style={s.listingBid}>{allInLabel(listing.current_bid)}</Text>
+        <Text style={[textStyle('micro'), s.listingBidLabel]}>Current bid</Text>
+        <Text style={[textStyle('price'), s.listingBid]} numberOfLines={1}>{allInLabel(listing.current_bid)}</Text>
       </View>
     </Pressable>
   );
 }
 
-// ─── Trust & Activity row (compact, label + value) ─────────────────────────
-function TrustRow({
-  label,
-  value,
-  emphasize,
-  last,
-}: {
-  label:      string;
-  value:      string;
-  emphasize?: boolean;
-  last?:      boolean;
-}) {
+function TrustRow({ label, value, emphasize, last }: { label: string; value: string; emphasize?: boolean; last?: boolean }) {
   return (
     <View style={[s.trustRow, !last && s.trustRowBorder]}>
-      <Text style={s.trustRowLabel}>{label}</Text>
-      <Text style={[s.trustRowValue, emphasize && s.trustRowValueEmphasize]}>
-        {value}
-      </Text>
+      <Text style={[textStyle('body'), s.trustRowLabel]}>{label}</Text>
+      <Text style={[textStyle('body'), emphasize ? s.trustRowValueEmphasize : s.trustRowValue]}>{value}</Text>
     </View>
   );
 }
-
-// ─── Screen ────────────────────────────────────────────────────────────────
 
 export default function PublicProfileScreen() {
   const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const sellerId = id ?? '';
-
   const isSelf = !!user?.id && user.id === sellerId;
 
-  const [loading,        setLoading]        = useState(true);
-  const [profile,        setProfile]        = useState<PublicProfile | null>(null);
-  const [avatarUrl,      setAvatarUrl]      = useState<string | null>(null);
-  const [trustStats,     setTrustStats]     = useState<ProfileTrustStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<PublicProfile | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [trustStats, setTrustStats] = useState<ProfileTrustStats | null>(null);
+  // A FAILED stats query is a different fact from "no history" — see reputation.ts.
+  const [statsUnavailable, setStatsUnavailable] = useState(false);
   const [activeListings, setActiveListings] = useState<Listing[]>([]);
-  const [isBlocked,      setIsBlocked]      = useState(false);
-  const [working,        setWorking]        = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
     if (!sellerId) { setLoading(false); return; }
     setLoading(true);
 
-    // 1. Whether the current viewer has blocked this seller.
     let blocked = false;
     if (user?.id && !isSelf) {
       const { data: blockRow } = await supabase
-        .from('user_blocks')
-        .select('blocked_id')
-        .eq('blocker_id', user.id)
-        .eq('blocked_id', sellerId)
-        .maybeSingle();
+        .from('user_blocks').select('blocked_id').eq('blocker_id', user.id).eq('blocked_id', sellerId).maybeSingle();
       blocked = !!blockRow;
     }
     setIsBlocked(blocked);
 
-    // 2. Profile (safe columns only — never select phone/stripe/wallet).
+    // Safe columns only — never select phone/stripe/wallet.
     const { data: p } = await supabase
       .from('profiles')
       .select('id, display_name, avatar_url, avatar_path, bio, created_at, is_verified_seller, stripe_onboarding_complete')
       .eq('id', sellerId)
       .maybeSingle();
-
     if (p) {
       const prof = p as PublicProfile;
       setProfile(prof);
@@ -277,451 +119,224 @@ export default function PublicProfileScreen() {
       setProfile(null);
     }
 
-    // If blocked, skip loading the seller's listings entirely.
     if (blocked) {
-      setTrustStats(null);
-      setActiveListings([]);
-      setLoading(false);
-      return;
+      setTrustStats(null); setStatsUnavailable(false); setActiveListings([]); setLoading(false); return;
     }
 
-    // 3. Trust + activity stats — single RPC round-trip.
-    //    Returns counts only; never amounts/Stripe IDs/emails.
-    const { data: statsRow, error: statsErr } = await supabase
-      .rpc('get_profile_trust_stats', { p_user_id: sellerId });
+    const { data: statsRow, error: statsErr } = await supabase.rpc('get_profile_trust_stats', { p_user_id: sellerId });
     if (statsErr) {
       console.warn('[profile] get_profile_trust_stats error:', statsErr.message);
-      setTrustStats(null);
+      setTrustStats(null); setStatsUnavailable(true);
     } else {
-      // RPC returns array (TABLE function) — take first row.
       const row = Array.isArray(statsRow) ? statsRow[0] : statsRow;
-      setTrustStats((row as ProfileTrustStats) ?? null);
+      setTrustStats((row as ProfileTrustStats) ?? null); setStatsUnavailable(false);
     }
 
-    // 4. Active listings by this seller.
     const { data: actives } = await supabase
-      .from('listings')
-      .select('*')
-      .eq('seller_id', sellerId)
-      .eq('status', 'active')
-      .eq('auction_status', 'active')
-      .order('ends_at', { ascending: true });
+      .from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').eq('auction_status', 'active').order('ends_at', { ascending: true });
     setActiveListings((actives as Listing[]) ?? []);
-
     setLoading(false);
   }, [sellerId, user?.id, isSelf]);
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Report ────────────────────────────────────────────────────────────────
   function handleReport() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    router.push(`/report/user/${sellerId}` as any);
+    router.push(`/report/user/${sellerId}` as never);
   }
 
-  // ── Block / Unblock ─────────────────────────────────────────────────────────
   function handleBlock() {
-    if (!user?.id) {
-      Alert.alert('Sign in required', 'You need to be signed in to block users.');
-      return;
-    }
+    if (!user?.id) { Alert.alert('Sign in required', 'You need to be signed in to block users.'); return; }
     const name = profile?.display_name?.trim() || 'this seller';
-    Alert.alert(
-      `Block ${name}?`,
-      'Their listings will be hidden from your feed. You can unblock anytime in Settings → Blocked Users.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Block',
-          style: 'destructive',
-          onPress: async () => {
-            setWorking(true);
-            const { error } = await supabase.from('user_blocks').insert({
-              blocker_id: user.id,
-              blocked_id: sellerId,
-            });
-            setWorking(false);
-            // 23505 = unique_violation → already blocked. Treat as success.
-            if (error && error.code !== '23505') {
-              Alert.alert('Could not block', error.message);
-              return;
-            }
-            Alert.alert(
-              'Blocked',
-              `${name} is hidden from your feed.`,
-              [{ text: 'OK', onPress: () => router.back() }],
-            );
-          },
+    Alert.alert(`Block ${name}?`, 'Their listings will be hidden from your feed. You can unblock anytime in Settings → Blocked users.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block',
+        style: 'destructive',
+        onPress: async () => {
+          setWorking(true);
+          const { error } = await supabase.from('user_blocks').insert({ blocker_id: user.id, blocked_id: sellerId });
+          setWorking(false);
+          if (error && error.code !== '23505') { Alert.alert('Could not block', error.message); return; }
+          Alert.alert('Blocked', `${name} is hidden from your feed.`, [{ text: 'OK', onPress: () => router.back() }]);
         },
-      ],
-    );
+      },
+    ]);
   }
 
   async function handleUnblock() {
     if (!user?.id) return;
     setWorking(true);
-    const { error } = await supabase
-      .from('user_blocks')
-      .delete()
-      .eq('blocker_id', user.id)
-      .eq('blocked_id', sellerId);
+    const { error } = await supabase.from('user_blocks').delete().eq('blocker_id', user.id).eq('blocked_id', sellerId);
     setWorking(false);
-    if (error) {
-      Alert.alert('Could not unblock', error.message);
-      return;
-    }
+    if (error) { Alert.alert('Could not unblock', error.message); return; }
     setIsBlocked(false);
     load();
   }
 
-  // ── Header bar (shared) ──────────────────────────────────────────────────
-  // No three-dot overflow menu: moderation actions live in the dedicated
-  // "Report User" / "Block User" buttons at the bottom of the profile.
-  // A right-side spacer keeps the title visually centered.
-  const TopBar = (
-    <View style={s.topBar}>
-      <Pressable onPress={() => router.back()} style={s.iconBtn} hitSlop={8}>
-        <Text style={s.backArrow}>←</Text>
-      </Pressable>
-      <Text style={s.topTitle}>Profile</Text>
-      <View style={s.iconBtn} />
-    </View>
-  );
-
-  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={s.safe}>
-        {TopBar}
-        <View style={s.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
-      </SafeAreaView>
+      <View style={s.root}>
+        <SettingsHeader title="Profile" />
+        <View style={s.centered}><Spinner color={v2.brand.red} /></View>
+      </View>
     );
   }
 
-  // ── Not found ────────────────────────────────────────────────────────────
   if (!profile) {
     return (
-      <SafeAreaView style={s.safe}>
-        {TopBar}
-        <View style={s.centered}>
-          <Text style={s.emptyText}>This profile isn’t available.</Text>
-        </View>
-      </SafeAreaView>
+      <View style={s.root}>
+        <SettingsHeader title="Profile" />
+        <View style={s.centered}><EmptyState title="Profile unavailable" body="This profile isn't available." /></View>
+      </View>
     );
   }
 
   const displayName = profile.display_name?.trim() || 'Seller';
-  // Badge = admin-reviewed proof of ownership (is_verified_seller), matching
-  // every other surface. Stripe onboarding alone must NOT show "Verified".
-  const verified    = profile.is_verified_seller === true;
+  const verified = profile.is_verified_seller === true;
 
-  // ── Blocked state ────────────────────────────────────────────────────────
   if (isBlocked) {
     return (
-      <SafeAreaView style={s.safe}>
-        {TopBar}
+      <View style={s.root}>
+        <SettingsHeader title="Profile" />
         <View style={s.centered}>
-          <View style={s.avatarRing}>
-            <View style={s.avatarFallback}>
-              <Text style={s.avatarInitials}>{getInitials(displayName)}</Text>
-            </View>
-          </View>
-          <Text style={s.blockedTitle}>You’ve blocked {displayName}</Text>
-          <Text style={s.blockedBody}>
-            Their listings are hidden from your feed. Unblock to see this profile again.
-          </Text>
-          <TouchableOpacity
-            style={s.unblockBtn}
-            onPress={handleUnblock}
-            disabled={working}
-            activeOpacity={0.85}
-          >
-            {working
-              ? <ActivityIndicator color={colors.text} size="small" />
-              : <Text style={s.unblockBtnText}>Unblock</Text>}
-          </TouchableOpacity>
+          <View style={s.avatarRing}><View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View></View>
+          <Text style={[textStyle('title'), s.blockedTitle]}>You&apos;ve blocked {displayName}</Text>
+          <Text style={[textStyle('bodySm'), s.blockedBody]}>Their listings are hidden from your feed. Unblock to see this profile again.</Text>
+          <Button label="Unblock" onPress={handleUnblock} loading={working} disabled={working} style={s.unblock} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // ── Normal profile ───────────────────────────────────────────────────────
+  const rep = deriveReputation(trustStats);
+  const insufficientData = !trustStats || trustStats.seller_terminal_total < 1;
+
   return (
-    <SafeAreaView style={s.safe}>
-      {TopBar}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: spacing.xxl }}
-      >
-        {/* Header card */}
-        <View style={s.header}>
+    <View style={s.root}>
+      <SettingsHeader title="Profile" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        {/* Identity */}
+        <View style={s.identity}>
           <View style={s.avatarRing}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
-              <View style={s.avatarFallback}>
-                <Text style={s.avatarInitials}>{getInitials(displayName)}</Text>
-              </View>
+              <View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View>
             )}
           </View>
-
-          <Text style={s.name}>{displayName}</Text>
-
-          {verified && (
-            <View style={s.badgeWrap}>
-              <VerifiedSellerBadge isVerified={true} />
-            </View>
-          )}
-
-          {profile.bio ? <Text style={s.bio}>{profile.bio}</Text> : null}
+          <Text style={s.name} numberOfLines={1}>{displayName}</Text>
+          {verified ? <View style={s.badgeWrap}><Badge label="Verified seller" tone="success" /></View> : null}
+          {profile.bio ? <Text style={[textStyle('bodySm'), s.bio]}>{profile.bio}</Text> : null}
         </View>
 
-        {/* ── Trust & Activity ────────────────────────────────────────
-             Premium marketplace trust panel (Airbnb/StubHub/StockX pattern).
-             Hero row: Transfer Success Rate + Seller Reputation tier.
-             Detail rows: counts only — never amounts. */}
-        {(() => {
-          const rep = deriveReputation(trustStats);
-          const tone = TIER_COLORS[rep.tier];
-          const insufficientData = !trustStats || trustStats.seller_terminal_total < 1;
-          return (
+        {/* Trust & activity */}
+        <AccountSection title="Trust & activity">
+          {statsUnavailable ? (
+            <View style={s.unavailable}>
+              <Text style={[textStyle('title'), s.unavailableTitle]}>Seller history unavailable</Text>
+              <Text style={[textStyle('bodySm'), s.unavailableBody]}>We could not load this seller&apos;s history. This is not a record of zero sales.</Text>
+              <Button label="Retry" variant="secondary" onPress={load} style={s.retry} />
+            </View>
+          ) : (
             <>
-              <Text style={s.sectionHead}>TRUST & ACTIVITY</Text>
-              <View style={s.trustCard}>
-                {/* Hero row */}
-                <View style={s.trustHero}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.trustHeroLabel}>Transfer Success Rate</Text>
-                    <Text style={s.trustHeroValue}>
-                      {rep.successRate == null ? '—' : `${rep.successRate}%`}
-                    </Text>
-                    {insufficientData && (
-                      <Text style={s.trustHeroSub}>No completed transfers yet</Text>
-                    )}
-                  </View>
-                  <View style={[
-                    s.tierPill,
-                    { backgroundColor: tone.bg, borderColor: tone.border },
-                  ]}>
-                    <Text style={s.tierPillKicker}>Seller Reputation</Text>
-                    <Text style={[s.tierPillLabel, { color: tone.fg }]}>{rep.label}</Text>
-                    <Text style={s.tierPillBlurb}>{rep.blurb}</Text>
-                  </View>
+              <View style={s.hero}>
+                <View style={s.heroLeft}>
+                  <Text style={[textStyle('micro'), s.heroLabel]}>Transfer success rate</Text>
+                  <Text style={s.heroValue}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
+                  {insufficientData ? <Text style={[textStyle('bodySm'), s.heroSub]}>No completed transfers yet</Text> : null}
                 </View>
-
-                {/* Detail rows */}
-                <View style={s.trustDivider} />
-                <TrustRow
-                  label="Completed Sales"
-                  value={String(trustStats?.completed_sales ?? 0)}
-                />
-                <TrustRow
-                  label="Completed Purchases"
-                  value={String(trustStats?.completed_purchases ?? 0)}
-                />
-                <TrustRow
-                  label="Active Listings"
-                  value={String(trustStats?.active_listings ?? activeListings.length)}
-                />
-                <TrustRow
-                  label="Disputes Opened"
-                  value={String(trustStats?.disputes_opened ?? 0)}
-                />
-                <TrustRow
-                  label="Disputes Lost"
-                  value={String(trustStats?.disputes_lost ?? 0)}
-                  emphasize={!!trustStats && trustStats.disputes_lost > 0}
-                />
-                <TrustRow
-                  label="Member Since"
-                  value={memberSince(trustStats?.member_since ?? profile.created_at)}
-                  last
-                />
+                <View style={s.heroRight}>
+                  <Badge label={rep.label} tone={reputationTone(rep.tier)} />
+                  <Text style={[textStyle('bodySm'), s.heroBlurb]} numberOfLines={2}>{rep.blurb}</Text>
+                </View>
+              </View>
+              <View style={s.trustRows}>
+                <TrustRow label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} />
+                <TrustRow label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} />
+                <TrustRow label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} />
+                <TrustRow label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} />
+                <TrustRow label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} />
+                <TrustRow label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last />
               </View>
             </>
-          );
-        })()}
+          )}
+        </AccountSection>
 
         {/* Active listings */}
-        <Text style={s.sectionHead}>ACTIVE LISTINGS ({activeListings.length})</Text>
-        <View style={s.section}>
+        <AccountSection title={`Active listings (${activeListings.length})`}>
           {activeListings.length === 0 ? (
-            <Text style={s.emptyListings}>No active listings right now.</Text>
+            <Text style={[textStyle('bodySm'), s.emptyListings]}>No active listings right now.</Text>
           ) : (
-            activeListings.map(l => <ActiveListingRow key={l.id} listing={l} />)
+            <View style={s.listings}>{activeListings.map((l) => <ActiveListingRow key={l.id} listing={l} />)}</View>
           )}
-        </View>
+        </AccountSection>
 
-        {/* Safety actions — hidden on your own profile */}
-        {!isSelf && (
-          <View style={s.actionsWrap}>
-            <TouchableOpacity style={s.actionBtn} onPress={handleReport} activeOpacity={0.8}>
-              <Text style={s.actionBtnText}>Report User</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.actionBtn, s.blockBtn]}
-              onPress={handleBlock}
-              disabled={working}
-              activeOpacity={0.8}
-            >
-              <Text style={[s.actionBtnText, s.blockBtnText]}>Block User</Text>
-            </TouchableOpacity>
+        {/* Safety actions (hidden on your own profile) */}
+        {!isSelf ? (
+          <View style={s.actions}>
+            <Button label="Report user" variant="secondary" onPress={handleReport} block />
+            <Button label="Block user" variant="destructive" onPress={handleBlock} disabled={working} block />
           </View>
-        )}
+        ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const AVATAR_SIZE = 88;
-const RING_SIZE   = AVATAR_SIZE + 8;
+const AVATAR = 88;
+const RING = AVATAR + 8;
 
 const s = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: colors.bg },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
+  root: { flex: 1, backgroundColor: v2.surface.canvas },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: v2.space.xl, gap: v2.space.md },
 
-  // Top bar
-  topBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  iconBtn:   { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
-  // Header
-  header:      { alignItems: 'center', paddingTop: spacing.xl, paddingHorizontal: spacing.lg },
+  identity: { alignItems: 'center', paddingTop: v2.space.xl },
   avatarRing: {
-    width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2,
-    borderWidth: 2, borderColor: colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5, shadowRadius: 12, elevation: 8,
+    width: RING, height: RING, borderRadius: RING / 2,
+    borderWidth: 1, borderColor: v2.brand.red, alignItems: 'center', justifyContent: 'center',
   },
-  avatarImage:    { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 },
-  avatarFallback: {
-    width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center',
-  },
-  avatarInitials: { fontSize: fontSize.xl, fontWeight: '800', color: colors.primary },
+  avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
+  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: v2.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: v2.brand.red },
+  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: v2.text.primary, marginTop: v2.space.md, textAlign: 'center' },
+  badgeWrap: { marginTop: v2.space.sm },
+  bio: { color: v2.text.muted, textAlign: 'center', marginTop: v2.space.md },
 
-  name:     { color: colors.text, fontSize: fontSize.lg, fontWeight: '800', marginTop: spacing.md },
-  badgeWrap:{ marginTop: spacing.xs },
-  bio:      { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20,
-              textAlign: 'center', marginTop: spacing.md },
+  unavailable: { paddingVertical: v2.space.md, gap: v2.space.sm, alignItems: 'flex-start' },
+  unavailableTitle: { color: v2.text.primary },
+  unavailableBody: { color: v2.text.muted },
+  retry: { minWidth: 140, marginTop: v2.space.xs },
 
-  // Trust & Activity (premium marketplace pattern — Airbnb/StubHub/StockX)
-  trustCard: {
-    marginHorizontal: spacing.lg, marginTop: spacing.sm,
-    backgroundColor: colors.bgCard, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    ...shadow.card,
-  },
-  trustHero: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  trustHeroLabel: {
-    color: colors.textDim, fontSize: fontSize.xs, fontWeight: '600',
-    letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4,
-  },
-  trustHeroValue: {
-    color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5,
-  },
-  trustHeroSub: {
-    color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2,
-  },
-  tierPill: {
-    minWidth: 130,
-    borderWidth: 1, borderRadius: radius.md,
-    paddingHorizontal: spacing.sm, paddingVertical: spacing.sm,
-    alignItems: 'flex-start',
-  },
-  tierPillKicker: {
-    color: colors.textDim, fontSize: 10, fontWeight: '700',
-    letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 2,
-  },
-  tierPillLabel: {
-    fontSize: fontSize.md, fontWeight: '800', letterSpacing: -0.2,
-  },
-  tierPillBlurb: {
-    color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2, lineHeight: 16,
-  },
-  trustDivider: {
-    height: 1, backgroundColor: colors.border, marginBottom: spacing.xs,
-  },
-  trustRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: spacing.sm + 2,
-  },
-  trustRowBorder: {
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  trustRowLabel: {
-    color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '500',
-  },
-  trustRowValue: {
-    color: colors.text, fontSize: fontSize.sm, fontWeight: '700',
-  },
-  trustRowValueEmphasize: {
-    color: colors.error,
-  },
+  hero: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.lg, paddingVertical: v2.space.md },
+  heroLeft: { flex: 1 },
+  heroLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
+  heroValue: { fontFamily: v2.font.bodyBold, fontSize: 34, color: v2.text.primary, letterSpacing: -0.5 },
+  heroSub: { color: v2.text.muted, marginTop: 2 },
+  heroRight: { alignItems: 'flex-end', gap: v2.space.xs, maxWidth: 150 },
+  heroBlurb: { color: v2.text.muted, textAlign: 'right' },
 
-  // Sections
-  sectionHead: {
-    color: colors.textDim, fontSize: fontSize.xs, fontWeight: '700',
-    letterSpacing: 1.4, textTransform: 'uppercase',
-    marginHorizontal: spacing.lg, marginTop: spacing.xl, marginBottom: spacing.sm,
-  },
-  section: { marginHorizontal: spacing.lg },
-  emptyListings: {
-    color: colors.textMuted, fontSize: fontSize.sm, textAlign: 'center',
-    paddingVertical: spacing.lg,
-    backgroundColor: colors.bgCard, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-  },
+  trustRows: { borderTopWidth: 1, borderTopColor: v2.border.default },
+  trustRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: v2.space.md },
+  trustRowBorder: { borderBottomWidth: 1, borderBottomColor: v2.border.default },
+  trustRowLabel: { color: v2.text.muted },
+  trustRowValue: { color: v2.text.primary },
+  trustRowValueEmphasize: { color: v2.status.error },
 
-  // Active listing row
-  listingRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.bgCard, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.sm, marginBottom: spacing.sm,
-  },
-  listingThumb:            { width: 56, height: 56, borderRadius: radius.sm },
-  listingThumbPlaceholder: { backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center' },
-  listingThumbEmoji:       { fontSize: 22 },
-  listingInfo:  { flex: 1, marginLeft: spacing.md },
-  listingName:  { color: colors.text, fontSize: fontSize.sm, fontWeight: '700' },
-  listingVenue: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
-  listingRight: { alignItems: 'flex-end', marginLeft: spacing.sm },
-  listingBidLabel: { color: colors.textDim, fontSize: 10, fontWeight: '600',
-                     textTransform: 'uppercase', letterSpacing: 0.3 },
-  listingBid:   { color: colors.text, fontSize: fontSize.sm, fontWeight: '800', marginTop: 1 },
+  listings: { gap: v2.space.sm },
+  listingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface, padding: v2.space.md },
+  listingInfo: { flex: 1, minWidth: 0 },
+  listingName: { color: v2.text.primary },
+  listingVenue: { color: v2.text.muted, marginTop: 2 },
+  listingRight: { alignItems: 'flex-end' },
+  listingBidLabel: { color: v2.text.muted },
+  listingBid: { color: v2.text.primary, marginTop: 1 },
+  emptyListings: { color: v2.text.muted, paddingVertical: v2.space.md },
 
-  // Actions
-  actionsWrap: { marginHorizontal: spacing.lg, marginTop: spacing.xl, gap: spacing.sm },
-  actionBtn: {
-    paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center',
-    borderWidth: 1, borderColor: colors.borderInput, backgroundColor: colors.bgInput,
-  },
-  actionBtnText: { color: colors.text, fontSize: fontSize.sm, fontWeight: '700' },
-  blockBtn:      { borderColor: colors.error, backgroundColor: 'transparent' },
-  blockBtnText:  { color: colors.error },
+  actions: { marginTop: v2.space.xxl, gap: v2.space.md },
 
-  // Blocked / empty states
-  emptyText:    { color: colors.textMuted, fontSize: fontSize.md, textAlign: 'center' },
-  blockedTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: '800', textAlign: 'center' },
-  blockedBody:  { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20, textAlign: 'center' },
-  unblockBtn: {
-    marginTop: spacing.sm, backgroundColor: colors.primary,
-    paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.xl, borderRadius: radius.md,
-  },
-  unblockBtnText: { color: colors.text, fontSize: fontSize.sm, fontWeight: '800' },
+  blockedTitle: { color: v2.text.primary, textAlign: 'center' },
+  blockedBody: { color: v2.text.muted, textAlign: 'center', maxWidth: 320 },
+  unblock: { minWidth: 160, marginTop: v2.space.sm },
 });

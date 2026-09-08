@@ -22,41 +22,43 @@
  * This guarantees zero false positives on screen entry or auth-token refresh.
  */
 
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
-  Animated,
-  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
-  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
-import { getCoverImageUrl } from '@/src/lib/coverImage';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars, allInLabel, baseFromDollars, buyerFeeFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
-import TransferStatusBadge from '@/src/components/TransferStatusBadge';
+import { Button, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+import { BidActivity } from '@/src/components/listing/BidActivity';
+import { ListingHero } from '@/src/components/listing/ListingHero';
+import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
+import { OutbidToast } from '@/src/components/listing/OutbidToast';
+import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
+import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
+import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
+import { detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import type { Bid, Listing, TransferStatus } from '@/src/types';
@@ -74,13 +76,6 @@ function toTransferStatus(s: string | null | undefined): TransferStatus | null {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmt$(n: number | null | undefined) {
-  if (n == null) return '$0';
-  return n % 1 === 0
-    ? `$${n.toLocaleString('en-US')}`
-    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function fmtCountdownMs(ms: number): string {
   if (ms <= 0) return '0:00';
@@ -134,75 +129,12 @@ function timeAgo(iso: string): string {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={ir.row}>
-      <Text style={ir.label}>{label}</Text>
-      <Text style={ir.value}>{value}</Text>
-    </View>
-  );
-}
-const ir = StyleSheet.create({
-  row:   { flexDirection:'row', justifyContent:'space-between', alignItems:'center',
-           paddingVertical: 10, borderBottomWidth:1, borderBottomColor: colors.border },
-  label: { fontSize: fontSize.sm, color: colors.textMuted },
-  value: { fontSize: fontSize.sm, color: colors.text, fontWeight:'600', flexShrink:1,
-           textAlign:'right', marginLeft: spacing.md },
-});
-
-function BidRowItem({ bid }: { bid: Bid }) {
-  // Prefer display_name, fall back to a short id tag.
-  const short = bid.bidder_id ? bid.bidder_id.slice(0, 4).toUpperCase() : '----';
-  const name  = bid.profiles?.display_name
-             ?? `Bidder ${short}`;
-  const initial = name.charAt(0).toUpperCase();
-  return (
-    <View style={br.row}>
-      <View style={br.avatar}><Text style={br.initial}>{initial}</Text></View>
-      <View style={{ flex:1 }}>
-        <Text style={br.name}>{name}</Text>
-        <Text style={br.time}>{timeAgo(bid.created_at)}</Text>
-      </View>
-      <Text style={br.amount}>{fmt$(bid.amount)}</Text>
-    </View>
-  );
-}
-const br = StyleSheet.create({
-  row:     { flexDirection:'row', alignItems:'center', gap: spacing.sm,
-             paddingVertical: 10, borderBottomWidth:1, borderBottomColor: colors.border },
-  avatar:  { width:36, height:36, borderRadius:18, backgroundColor: colors.bgInput,
-             alignItems:'center', justifyContent:'center' },
-  initial: { color: colors.textMuted, fontSize: fontSize.sm, fontWeight:'700' },
-  name:    { color: colors.text, fontSize: fontSize.sm, fontWeight:'600' },
-  time:    { color: colors.textDim, fontSize: fontSize.xs, marginTop:1 },
-  amount:  { color: colors.text, fontSize: fontSize.md, fontWeight:'800' },
-});
-
-// ─── Auction status banner ────────────────────────────────────────────────────
-
-type AuctionBannerVariant = 'winning' | 'outbid' | 'won' | 'lost';
-
-function AuctionBanner({ variant }: { variant: AuctionBannerVariant }) {
-  const cfg: Record<AuctionBannerVariant, { bg: string; border: string; text: string; label: string }> = {
-    winning: { bg: 'rgba(34,197,94,0.12)',  border: colors.success, text: colors.success, label: "🏆 You're Winning" },
-    outbid:  { bg: 'rgba(255,77,109,0.10)', border: colors.error,   text: colors.error,   label: "⚡ You've Been Outbid — Bid Again" },
-    won:     { bg: 'rgba(34,197,94,0.14)',  border: colors.success, text: colors.success, label: '🎉 You Won — Tap "Pay Now" below' },
-    lost:    { bg: colors.bgCard,           border: colors.border,  text: colors.textMuted, label: 'Auction Ended' },
-  };
-  const c = cfg[variant];
-  return (
-    <View style={[ab.wrap, { backgroundColor: c.bg, borderColor: c.border }]}>
-      <Text style={[ab.text, { color: c.text }]}>{c.label}</Text>
-    </View>
-  );
-}
-const ab = StyleSheet.create({
-  wrap: { marginHorizontal: spacing.lg, marginTop: spacing.sm, marginBottom: 2,
-          borderRadius: radius.md, borderWidth: 1, paddingVertical: 9,
-          alignItems: 'center' },
-  text: { fontSize: fontSize.sm, fontWeight: '700' },
-});
+//
+// InfoRow, BidRowItem and AuctionBanner used to live here, each with its own
+// StyleSheet. They are gone, not renamed: their jobs are now done by
+// src/components/listing/{TicketDetails,BidActivity,ListingStatusBanner}, which
+// are shared, tokenised and testable. The four grey cards they produced are what
+// made this screen read as a stack of boxes.
 
 // ─── Auction-win rotating titles ──────────────────────────────────────────────
 // One title is chosen per win event using a deterministic index from listing.id
@@ -220,11 +152,9 @@ const WIN_TITLES = [
 
 export default function ListingDetailScreen({ id }: Props) {
 
-  // Sticky-bar layout: side-by-side (price | buttons) on wide screens,
-  // stacked (price row above button row) on phones and iPad compatibility
-  // mode. 480pt splits real iPads (≥744pt) from every iPhone/compat width.
-  const { width: windowWidth } = useWindowDimensions();
-  const stackBar = windowWidth < 480;
+  // Sticky-bar stacking is decided by StickyBar itself, from the live window
+  // width against a threshold derived from the layout. This screen no longer
+  // carries a device breakpoint.
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
   // authLoading is true until the stored session has been resolved once.
@@ -232,18 +162,57 @@ export default function ListingDetailScreen({ id }: Props) {
   const { user, loading: authLoading } = useAuth();
   const authReady = !authLoading;
 
+  // ── Reservation exit (owner rule) ─────────────────────────────────────────
+  // Leaving the listing back to Home releases our Buy Now hold immediately so the
+  // ticket returns to other buyers. `beforeRemove` fires when THIS screen is
+  // popped; pushing Checkout on top does not fire it, so Checkout -> Listing keeps
+  // the hold and its remaining timer. Backgrounding, the Stripe sheet, modals and
+  // the keyboard are not navigation removals and never release.
+  const navigation = useNavigation();
+  const releasedRef = useRef(false);
+  const purchasedRef = useRef(false);
+  const listingRef = useRef<Listing | null>(null);
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [listing,    setListing]    = useState<Listing | null>(null);
+
+  // Keep the latest listing for the exit listener, and latch "purchased" so an
+  // exit after a completed sale never even asks to release.
+  useEffect(() => {
+    listingRef.current = listing;
+    if (listing?.status === 'sold') purchasedRef.current = true;
+  }, [listing]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      const l = listingRef.current;
+      const decide = shouldReleaseReservation({
+        status: l?.status,
+        reservedBy: l?.reserved_by,
+        userId: user?.id,
+        alreadyReleased: releasedRef.current,
+        purchased: purchasedRef.current,
+      });
+      if (!decide || !user?.id) return;
+      releasedRef.current = true;
+      // Fire and forget: navigation is never blocked, and the server-side
+      // expiry remains the safety net if this request never lands.
+      supabase
+        .rpc('release_reservation', { p_listing_id: id, p_user_id: user.id })
+        .then(({ error }) => {
+          if (error) console.warn('[listing] release_reservation failed:', error.message);
+        });
+    });
+    return unsubscribe;
+  }, [navigation, user?.id, id]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
-  const [coverUrl,   setCoverUrl]   = useState<string | null>(null);
   const [reserving,  setReserving]  = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null>(null);
   const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
   const [transferId,            setTransferId]            = useState<string | null>(null);
   const [transferBuyerId,       setTransferBuyerId]       = useState<string | null>(null);
-  const [transferActionLoading, setTransferActionLoading] = useState(false);
 
   // ── Realtime bids hook ─────────────────────────────────────────────────────
   const rt         = useListingRealtime(id, listing?.starting_bid ?? 0, {
@@ -285,17 +254,16 @@ export default function ListingDetailScreen({ id }: Props) {
   // Always-current handleNewBid — hook calls this via a stable wrapper.
   const handleNewBidRef      = useRef<(bid: Bid, allBids: Bid[]) => void>(() => {});
 
-  // ── Animation refs ────────────────────────────────────────────────────────
-  const outbidAnimY       = useRef(new Animated.Value(-30)).current;
-  const outbidAnimOpacity = useRef(new Animated.Value(0)).current;
+  // ── Outbid notice ─────────────────────────────────────────────────────────
+  // The animation now lives inside OutbidToast, which honours reduced motion.
+  // This screen owns only WHEN it shows, which is the part that took several
+  // iterations to get free of false positives — see handleNewBid below.
+  const [outbidToastVisible, setOutbidToastVisible] = useState(false);
   const hideTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Win banner refs ───────────────────────────────────────────────────────
   // winTitleRef: holds the chosen title string for this win event (set once).
   const winTitleRef        = useRef<string>('');
-  const winAnimY           = useRef(new Animated.Value(-30)).current;
-  const winAnimOpacity     = useRef(new Animated.Value(0)).current;
-  const winHideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Notification guard refs — prevent duplicate sends ──────────────────
   const endingSoonSentRef = useRef(false);
@@ -448,38 +416,10 @@ export default function ListingDetailScreen({ id }: Props) {
     return () => { cancelled = true; };
   }, [listing?.status, listing?.id, transferId]);
 
-  // ── Animation helpers ──────────────────────────────────────────────────────
-  const animateOutbidIn = useCallback(() => {
-    outbidAnimY.setValue(-30);
-    outbidAnimOpacity.setValue(0);
-    Animated.parallel([
-      Animated.timing(outbidAnimY,       { toValue: 0,   duration: 220, useNativeDriver: true }),
-      Animated.timing(outbidAnimOpacity, { toValue: 1,   duration: 220, useNativeDriver: true }),
-    ]).start();
-  }, [outbidAnimY, outbidAnimOpacity]);
-
-  const animateOutbidOut = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(outbidAnimY,       { toValue: -30, duration: 200, useNativeDriver: true }),
-      Animated.timing(outbidAnimOpacity, { toValue: 0,   duration: 200, useNativeDriver: true }),
-    ]).start();
-  }, [outbidAnimY, outbidAnimOpacity]);
-
-  const animateWinIn = useCallback(() => {
-    winAnimY.setValue(-30);
-    winAnimOpacity.setValue(0);
-    Animated.parallel([
-      Animated.timing(winAnimY,       { toValue: 0, duration: 260, useNativeDriver: true }),
-      Animated.timing(winAnimOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-    ]).start();
-  }, [winAnimY, winAnimOpacity]);
-
-  const animateWinOut = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(winAnimY,       { toValue: -30, duration: 220, useNativeDriver: true }),
-      Animated.timing(winAnimOpacity, { toValue: 0,   duration: 220, useNativeDriver: true }),
-    ]).start();
-  }, [winAnimY, winAnimOpacity]);
+  // ── Outbid notice show/hide ────────────────────────────────────────────────
+  // Same names, same call sites, same 4-second dwell. Only the mechanism moved.
+  const animateOutbidIn  = useCallback(() => setOutbidToastVisible(true), []);
+  const animateOutbidOut = useCallback(() => setOutbidToastVisible(false), []);
 
   // ── Always-current userId ref ─────────────────────────────────────────────
   // Updated every render (no deps) so INSERT callback never reads a stale value.
@@ -694,7 +634,7 @@ export default function ListingDetailScreen({ id }: Props) {
       body:  `You won ${listing.event_name}. Complete checkout to claim your ticket.`,
       data:  { listingId: listing.id, type: 'auction_won' },
     });
-  }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id, animateWinIn, animateWinOut]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── "Auction lost" notification ─────────────────────────────────────────
   // Fires once when auction_status flips to 'ended', the user had placed a
@@ -716,20 +656,20 @@ export default function ListingDetailScreen({ id }: Props) {
     });
   }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id, bids, bidsLoaded]);
 
-  // ── Cleanup hide timers on unmount ────────────────────────────────────────
+  // ── Cleanup hide timer on unmount ─────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (hideTimerRef.current)    clearTimeout(hideTimerRef.current);
-      if (winHideTimerRef.current) clearTimeout(winHideTimerRef.current);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, []);
 
   // ── Cover image ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const raw: string | null =
-      (listing as any)?.cover_image_path || (listing as any)?.cover_image_url || null;
-    setCoverUrl(raw ? getCoverImageUrl(raw) : null);
-  }, [(listing as any)?.cover_image_path, (listing as any)?.cover_image_url]);
+  // The RAW stored value, handed straight to EventMedia. It resolves the URL
+  // itself — encoding the path, checking the host allowlist and requesting a
+  // derivative sized to the frame it measured. Pre-resolving here would bypass
+  // all three and re-introduce the full-size original.
+  const coverPath: string | null =
+    (listing as any)?.cover_image_path || (listing as any)?.cover_image_url || null;
 
   // ── Checkout navigation ─────────────────────────────────────────────────
   // Display estimates use the canonical money util (integer cents); the
@@ -790,91 +730,18 @@ export default function ListingDetailScreen({ id }: Props) {
   }
 
   // ── Transfer actions ───────────────────────────────────────────────────────
-
-  async function handleMarkSent() {
-    if (!transferId || !user?.id) return;
-    setTransferActionLoading(true);
-    const { error } = await supabase.rpc('mark_transfer_sent', {
-      p_transfer_id: transferId,
-      p_user_id:     user.id,
-    });
-    setTransferActionLoading(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    setTransferStatus('seller_sent');
-    Alert.alert('Sent!', 'Transfer marked as sent.');
-  }
-
-  async function handleConfirmReceived() {
-    if (!transferId || !user?.id) return;
-    setTransferActionLoading(true);
-
-    try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'confirm-and-release',
-        {
-          body: { transfer_id: transferId },
-        },
-      );
-
-      setTransferActionLoading(false);
-
-      if (fnError) {
-        let message = 'Something went wrong. Please try again.';
-        try {
-          const ctx = (fnError as any).context;
-          if (ctx && typeof ctx.json === 'function') {
-            const body = await ctx.json();
-            console.error('[confirm-and-release] server error:', JSON.stringify(body));
-            if (body?.error) message = body.error;
-          } else {
-            const body = typeof data === 'string' ? JSON.parse(data) : data;
-            if (body?.error) message = body.error;
-          }
-        } catch {
-        }
-        Alert.alert('Error', message);
-        return;
-      }
-
-      // Success — includes both fresh confirmations and idempotent retries
-      // (already_released: true). Either way, the transfer is confirmed
-      // and the seller payout has been released.
-      setTransferStatus('buyer_confirmed');
-      Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event! 🎉');
-    } catch (err) {
-      setTransferActionLoading(false);
-      console.error('handleConfirmReceived: unexpected error:', err);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    }
-  }
-
-  async function handleReportIssue() {
-    if (!transferId || !user?.id) return;
-    Alert.alert(
-      'Report Issue',
-      'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Report Issue',
-          style: 'destructive',
-          onPress: async () => {
-            setTransferActionLoading(true);
-            const { error } = await supabase.rpc('buyer_dispute_transfer', {
-              p_transfer_id: transferId,
-            });
-            setTransferActionLoading(false);
-            if (error) {
-              Alert.alert('Error', error.message);
-              return;
-            }
-            setTransferStatus('disputed');
-            Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
-          },
-        },
-      ],
-    );
-  }
+  //
+  // handleMarkSent, handleConfirmReceived and handleReportIssue used to live
+  // here. They were ALREADY UNREACHABLE before this redesign — lint flagged all
+  // three as defined-but-never-used on the previous revision, because the screen
+  // routes to app/transfer/send/[id] and app/transfer/receive/[id], which carry
+  // the live implementations of exactly these three calls.
+  //
+  // They are deleted rather than kept, deliberately: one of them invoked
+  // `confirm-and-release`, which releases a seller's payout. A second, divergent
+  // copy of that call sitting in a file where nothing invokes it is a hazard, not
+  // a safety net. No capability is lost — the routes that own these actions are
+  // unchanged and are still the sticky bar's destinations.
 
   // ── Seller actions on their own listing ────────────────────────────────────
   // Section is ALWAYS rendered when isSeller === true (no gate).
@@ -982,33 +849,39 @@ export default function ListingDetailScreen({ id }: Props) {
     if (!listing) return;
     const sellerId   = listing.seller_id;
     const sellerName = sellerProfile?.display_name?.trim() || 'this seller';
+    const owner      = !!user?.id && listing.seller_id === user.id;
 
-    // expo-router typed routes regenerate on next `expo prebuild` /
-    // dev-server start; until then, the string-path form bypasses the
-    // outdated route manifest cleanly.
-    const actions: { label: string; handler: () => void }[] = [
-      {
-        label: 'Report this listing',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: () => router.push(`/report/listing/${listing.id}` as any),
-      },
-      {
-        label: 'Report this seller',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: () => router.push(`/report/user/${sellerId}` as any),
-      },
-      {
-        label: `Block ${sellerName}`,
-        handler: () => handleBlockSeller(sellerId, sellerName),
-      },
-    ];
+    // Two menus behind one control. The seller of a listing manages it; everyone
+    // else reports or blocks. Owner controls used to sit in a permanent "Owner
+    // Actions" block above the artwork, in the middle of the buyer's purchase
+    // flow, with a red Delete competing with the primary action.
+    const actions: { label: string; destructive?: boolean; handler: () => void }[] = owner
+      ? [
+          { label: 'Edit listing',   handler: handleSellerEdit },
+          { label: 'Cancel listing', destructive: true, handler: handleSellerCancel },
+          { label: 'Delete listing', destructive: true, handler: handleSellerDelete },
+        ]
+      : [
+          // expo-router typed routes regenerate on the next prebuild / dev-server
+          // start; the string-path form bypasses the stale manifest cleanly.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { label: 'Report this listing', handler: () => router.push(`/report/listing/${listing.id}` as any) },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { label: 'Report this seller',  handler: () => router.push(`/report/user/${sellerId}` as any) },
+          { label: `Block ${sellerName}`, destructive: true, handler: () => handleBlockSeller(sellerId, sellerName) },
+        ];
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options:           [...actions.map(a => a.label), 'Cancel'],
-          cancelButtonIndex: actions.length,
-          destructiveButtonIndex: 2, // "Block …"
+          options:                [...actions.map(a => a.label), 'Cancel'],
+          cancelButtonIndex:      actions.length,
+          // The LAST destructive entry, found rather than hardcoded: the index
+          // used to be a literal 2, which is only correct for one of these menus.
+          destructiveButtonIndex: actions.reduce(
+            (idx, a, i) => (a.destructive ? i : idx),
+            -1,
+          ),
         },
         (idx) => {
           if (idx >= 0 && idx < actions.length) actions[idx].handler();
@@ -1020,7 +893,11 @@ export default function ListingDetailScreen({ id }: Props) {
         'More actions',
         '',
         [
-          ...actions.map(a => ({ text: a.label, onPress: a.handler, style: a.label.startsWith('Block') ? 'destructive' as const : 'default' as const })),
+          ...actions.map(a => ({
+            text: a.label,
+            onPress: a.handler,
+            style: (a.destructive ? 'destructive' : 'default') as 'destructive' | 'default',
+          })),
           { text: 'Cancel', style: 'cancel' as const },
         ],
       );
@@ -1069,35 +946,37 @@ export default function ListingDetailScreen({ id }: Props) {
   // ─── Guards ────────────────────────────────────────────────────────────────
 
   if (loading) return (
-    <SafeAreaView style={s.centered}>
-      <ActivityIndicator color={colors.primary} size="large" />
-    </SafeAreaView>
+    <View style={s.centered}>
+      <Spinner size="large" label="Loading this listing" />
+    </View>
   );
 
   if (error) return (
-    // Raw fetch failure → dedicated offline / server-error screen. The
-    // "Listing not found" (data null) case below stays its own state.
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+    // A raw fetch failure gets the dedicated offline / server-error screen.
+    // "Listing not found" (data null) stays its own state below: a listing that
+    // was deleted is not a connection problem, and saying so wastes a retry.
+    <View style={s.centered}>
       <ScreenState
         state={isNetworkError(error) ? 'offline' : 'error'}
         onRetry={() => fetchData()}
       />
-    </SafeAreaView>
+    </View>
   );
 
   if (!listing) return (
-    <SafeAreaView style={s.centered}>
-      <Text style={s.errText}>Listing not found.</Text>
-      <TouchableOpacity style={s.retryBtn} onPress={() => router.back()}>
-        <Text style={s.retryText}>Go Back</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
+    <View style={s.centered}>
+      <EmptyState
+        title="Listing not found"
+        body="It may have been sold or taken down."
+        action={{ label: 'Go back', onPress: () => router.back() }}
+      />
+    </View>
   );
 
   // ─── Derived display values ────────────────────────────────────────────────
 
   const ticketLabel   = listing.ticket_type;
-  const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile Transfer' : 'Email';
+  const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile transfer' : 'Email';
 
   const isSold          = listing.status === 'sold';
   const isSeller        = listing.seller_id === user?.id;
@@ -1115,591 +994,246 @@ export default function ListingDetailScreen({ id }: Props) {
   const iAmWinner     = auctionEnded && !!user?.id && winnerUserId === user?.id;
   const userHasBid    = myMaxBid > 0;
 
-  let auctionBannerVariant: AuctionBannerVariant | null = null;
-  if (auctionEnded) {
-    if (iAmWinner)       auctionBannerVariant = 'won';
-    else if (userHasBid) auctionBannerVariant = 'lost';
-  } else if (!ended && userHasBid) {
-    auctionBannerVariant = myMaxBid >= currentHighest ? 'winning' : 'outbid';
+  // Preformatted by the canonical money helper. Nothing downstream does arithmetic.
+  const buyNowAllIn = listing.buy_now_price != null ? allInFromDollars(listing.buy_now_price) : null;
+
+  // ─── One state object drives the whole screen ──────────────────────────────
+  // Every offer, refusal and status decision is made in src/lib/listing/detailState.ts
+  // and tested there. The render below reads it; it does not re-derive it.
+  const state = detailState({
+    listing: {
+      status:          listing.status,
+      auction_status:  listing.auction_status,
+      buy_now_enabled: listing.buy_now_enabled,
+      buy_now_price:   listing.buy_now_price,
+      seller_id:       listing.seller_id,
+      reserved_by:     listing.reserved_by,
+      winner_user_id:  listing.winner_user_id,
+      bid_count:       listing.bid_count,
+    },
+    userId:            user?.id,
+    clockEnded:        ended,
+    reservationActive: isReserved,
+    finalizing,
+    reserving,
+    transfer:          { id: transferId, status: transferStatus, buyerId: transferBuyerId },
+    isHighestBidder:   userHasBid && myMaxBid >= currentHighest,
+    hasBid:            userHasBid,
+    buyNowAllIn,
+  });
+
+  // The reservation status carries a live clock, which a pure function cannot.
+  const status = state.status && state.status.kind === 'reserved_by_you'
+    ? { ...state.status, detail: `${fmtCountdownMs(reservationMsLeft)} left to finish checkout.` }
+    : state.status;
+
+  // The sold-but-transfer-not-loaded case. The webhook writes the transfer row
+  // after the listing flips to sold, so a seller can arrive before it exists.
+  // The retry effect above polls for ten seconds; this is the manual escape.
+  const needsTransferRefresh = isSold && isSeller && !transferId;
+
+  const soldAllIn = isSold ? allInFromDollars(finalSoldPrice(listing)) : null;
+  const currentAllIn = allInFromDollars(currentHighest);
+  const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+
+  const detailRows: DetailRow[] = [
+    { label: 'Type', value: ticketLabel },
+    { label: 'Quantity', value: `${listing.quantity} ${listing.quantity === 1 ? 'ticket' : 'tickets'}` },
+    { label: 'Delivery', value: transferLabel },
+    {
+      label: 'Category',
+      value: (listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    },
+    { label: 'Started at', value: allInLabel(listing.starting_bid) },
+  ];
+  // Ownership proof appears only after a human reviewed it. It never claims
+  // verification before review (migration 033).
+  if (listing.proof_status === 'approved') {
+    detailRows.push({ label: 'Ownership proof', value: 'Reviewed by Snatch It' });
+  }
+  if (listing.restrictions) {
+    detailRows.push({ label: 'Restrictions', value: listing.restrictions, block: true });
   }
 
-  const hardLocked    = ended || isSold || reservedByOther || reserving || finalizing;
-  const bidLocked     = hardLocked || auctionEnded;
-  const buyNowVisible = listing.buy_now_enabled && listing.buy_now_price != null
-                        && !ended && !isSold && !auctionEnded && !isSeller;
-  // Buy Now CTA carries the all-in total the buyer will actually pay.
-  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy · ${allInFromDollars(listing.buy_now_price!)}`;
-  const placeBidLabel = isSold        ? 'Sold'
-    : reservedByOther                 ? 'Reserved'
-    : auctionEnded                    ? 'Ended'
-    : ended                           ? 'Ended'
-    : '⚡ Place Bid';
+  // ─── Action wiring ─────────────────────────────────────────────────────────
+  // `detailState` decides WHAT is offered; this maps it onto the existing,
+  // unchanged handlers. No new navigation target and no new RPC is introduced.
+  function runAction(kind: ActionKind) {
+    switch (kind) {
+      case 'buy_now':
+      case 'continue_reservation':
+        handleBuyNow();
+        return;
+      case 'place_bid':
+        router.push(`/bid/${listing!.id}`);
+        return;
+      case 'pay_now':
+        navigateToWinnerCheckout();
+        return;
+      case 'send_tickets':
+      case 'view_transfer':
+        if (!transferId) return;
+        router.push(isSeller ? `/transfer/send/${transferId}` : `/transfer/receive/${transferId}`);
+        return;
+      case 'review_transfer':
+      case 'view_dispute':
+        if (!transferId) return;
+        router.push(`/transfer/receive/${transferId}`);
+        return;
+      default:
+        return;
+    }
+  }
+
+  const primaryBusy =
+    (state.primary.kind === 'buy_now' || state.primary.kind === 'continue_reservation') && reserving;
+
+  const stickyPriceLabel = isSold ? 'Sold for' : state.mode === 'closed' ? 'Final bid' : 'Current bid';
+  const stickyPriceAmount = soldAllIn ?? currentAllIn;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={s.safe}>
+      <OutbidToast visible={outbidToastVisible} message="You've been outbid" />
 
-      {/* ── Top bar ─────────────────────────────────────────── */}
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>←</Text>
-        </Pressable>
-        <Text style={s.topTitle} numberOfLines={1}>{listing.event_name}</Text>
-        {/* Overflow menu — hidden for the seller's own listing (no point
-            reporting yourself), shown for everyone else (App Store 1.2). */}
-        {!isSeller ? (
-          <Pressable
-            onPress={openListingActions}
-            style={s.backBtn}
-            hitSlop={8}
-            accessibilityLabel="More actions"
-            accessibilityRole="button"
-          >
-            <Text style={s.backArrow}>{'⋯'}</Text>{/* horizontal ellipsis */}
-          </Pressable>
-        ) : (
-          <View style={{ width: 44 }} />
-        )}
-      </View>
-
-      {/* ── Animated outbid banner ──────────────────────────────────────────
-          position:absolute — always mounted, never shifts layout.
-          Starts at translateY:-60 (off-screen above the topBar).
-          Slides to translateY:56 on false→true outbid transition; auto-hides
-          after 4s.  pointerEvents="none" — never blocks taps.              */}
-      <Animated.View
-        pointerEvents="none"
-        style={[s.outbidBanner, { transform: [{ translateY: outbidAnimY }], opacity: outbidAnimOpacity }]}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}
+        // The sticky bar sits over the bottom of the content; this keeps the last
+        // section reachable instead of permanently hidden behind it.
+        contentInsetAdjustmentBehavior="never"
       >
-        <Text style={s.outbidBannerText}>You&apos;ve been outbid</Text>
-      </Animated.View>
+        <ListingHero
+          asset={{
+            path: coverPath,
+            // Legacy assets were cropped destructively to 16:9 before upload, so
+            // they are fitted against a blurred copy of themselves rather than
+            // re-cropped into the portrait frame. No black bars, no lost lineup.
+            contract: 'legacy',
+            bucket: 'auction-media',
+          }}
+          eventName={listing.event_name}
+          venue={listing.venue}
+          whenLabel={fmtDate(listing.event_date, listing.event_time)}
+          neighborhood={listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          onBack={() => router.back()}
+          onOverflow={openListingActions}
+        />
 
-      {/* ── Win notification ────────────────────────────────────────────────
-          The slide-in win banner that previously rendered here has been
-          removed — it overlapped the navigation header and only worked when
-          the user was foregrounded on this screen. The win signal is now
-          delivered via a system notification (see the win-detect effect).
-          The static "You Won — Tap Pay Now below" pill remains in
-          AuctionBanner; that one sits inside the content area and never
-          overlaps the header. */}
-
-      {/* ── Reservation / sold banners ─────────────────────── */}
-      {isSold && (
-        <View style={[s.resBanner, s.resBannerSold]}>
-          <Text style={s.resBannerText}>SOLD</Text>
-          {transferStatus && (
-            <View style={{ marginTop: 4 }}>
-              <TransferStatusBadge status={transferStatus} />
-            </View>
-          )}
-        </View>
-      )}
-      {/* ── Seller refresh hint when transfer not yet visible ─────────── */}
-      {isSold && isSeller && !transferStatus && !loading && (
-        <TouchableOpacity
-          style={s.refreshHint}
-          onPress={() => fetchData(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={s.refreshHintText}>
-            Transfer loading… tap to refresh
-          </Text>
-        </TouchableOpacity>
-      )}
-      {/* ── Transfer action buttons — route to dedicated screens ──────── */}
-      {isSold && isSeller && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={s.transferBtn}
-            onPress={() => router.push(`/transfer/send/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>
-              {transferStatus === 'pending' ? '📤 Send Tickets' : '📋 View Transfer'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {isSold && isBuyer && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={[s.transferBtn, s.transferBtnConfirm]}
-            onPress={() => router.push(`/transfer/receive/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>
-              {transferStatus === 'seller_sent' ? '📥 Review Transfer' : '📋 View Transfer'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {isSold && isBuyer && transferId && transferStatus === 'disputed' && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={[s.transferBtn, s.transferBtnDispute]}
-            onPress={() => router.push(`/transfer/receive/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>⚠️ View Dispute</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Seller-owner actions ───────────────────────────────
-          ALWAYS rendered when isSeller === true. No status/bid_count/sold
-          gate. Each handler validates legality and surfaces an alert when
-          the action isn't allowed. Debug strip shows runtime state.       */}
-      {isSeller && (
-        <View style={s.ownerActionsWrap}>
-          <Text style={s.ownerActionsHeader}>Owner Actions</Text>
-          <View style={s.ownerActionsRow}>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnEdit]}
-              onPress={handleSellerEdit}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Edit listing"
-            >
-              <Text style={s.ownerBtnText}>✏️  Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnCancel]}
-              onPress={handleSellerCancel}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel listing"
-            >
-              <Text style={s.ownerBtnText}>⛔️  Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnDelete]}
-              onPress={handleSellerDelete}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Delete listing"
-            >
-              <Text style={s.ownerBtnText}>🗑  Delete</Text>
-            </TouchableOpacity>
+        {status ? (
+          <View style={s.statusWrap}>
+            <ListingStatusBanner status={status} />
+            {needsTransferRefresh ? (
+              <Pressable
+                onPress={() => fetchData(true)}
+                style={s.refreshRow}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh transfer status"
+                hitSlop={8}
+              >
+                <Text style={[textStyle('label'), s.refreshText]}>Refresh</Text>
+              </Pressable>
+            ) : null}
           </View>
-          {/* Debug strip — dev / preview builds only. Production hides it. */}
-          {process.env.EXPO_PUBLIC_APP_ENV !== 'production' && (
-            <Text style={s.ownerActionsDebug}>
-              owner={String(isSeller)} · status={listing.status ?? 'null'} · auction={listing.auction_status ?? 'null'} · bids={listing.bid_count ?? 0}
-            </Text>
-          )}
-        </View>
-      )}
+        ) : null}
 
-      {!isSold && reservedByMe && (
-        <View style={[s.resBanner, s.resBannerMine]}>
-          <Text style={s.resBannerText}>
-            🔒  Reserved for you — {fmtCountdownMs(reservationMsLeft)} remaining
-          </Text>
-        </View>
-      )}
-      {!isSold && reservedByOther && (
-        <View style={[s.resBanner, s.resBannerOther]}>
-          <Text style={s.resBannerText}>⏳  Reserved — payment pending</Text>
-        </View>
-      )}
+        <TransactionPanel
+          mode={state.mode}
+          currentAllIn={currentAllIn}
+          buyNowAllIn={state.mode === 'auction_and_buy_now' ? buyNowAllIn : null}
+          nextBidAllIn={state.mode === 'closed' ? null : nextBidAllIn}
+          countdown={state.mode === 'closed' ? null : (countdown || null)}
+          soldAllIn={soldAllIn}
+          bidCount={listing.bid_count ?? 0}
+        />
 
-      {/* ── Static auction status banner ────────────────────── */}
-      {auctionBannerVariant !== null && <AuctionBanner variant={auctionBannerVariant} />}
+        {sellerProfile ? (
+          <SellerTrustRow
+            displayName={sellerProfile.display_name || 'Seller'}
+            avatarUrl={getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url)}
+            isVerified={sellerProfile.is_verified_seller}
+            onPress={() => router.push(`/profile/${listing.seller_id}`)}
+          />
+        ) : null}
 
-      {finalizing && (
-        <View style={s.finalizingRow}>
-          <ActivityIndicator color={colors.textMuted} size="small" />
-          <Text style={s.finalizingText}>Calculating winner…</Text>
-        </View>
-      )}
+        <TicketDetails rows={detailRows} />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        {state.showsBidActivity ? (
+          <BidActivity
+            bids={bids}
+            amountFor={(b) => allInFromDollars(b.amount)}
+            timeFor={(b) => timeAgo(b.created_at)}
+            viewerId={user?.id}
+            highlightTop={!isSold && !auctionEnded && !ended}
+          />
+        ) : null}
 
-        {coverUrl ? (
-          <Image source={{ uri: coverUrl }} style={s.cover} contentFit="cover" />
-        ) : (
-          <View style={[s.cover, s.coverPlaceholder]}>
-            <Text style={s.coverPlaceholderText}>🎟️</Text>
-          </View>
-        )}
-
-        <View style={s.body}>
-
-          {/* Hero card. flexWrap lets the TIME LEFT block drop to its own row
-              on narrow widths instead of crushing the price column — the
-              amount itself can never wrap (PriceDisplay, numberOfLines=1). */}
-          <View style={s.heroCard}>
-            <View style={s.heroLeft}>
-              {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
-              <PriceDisplay
-                size="detail"
-                label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
-                amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
-                muted={isSold}
-              />
-              <Text style={s.heroFeeNote}>
-                Includes {baseFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} ticket
-                {' + '}{buyerFeeFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} service fee
-              </Text>
-            </View>
-            <View style={s.heroRight}>
-              <Text style={s.heroLabel}>TIME LEFT</Text>
-              <Text style={[s.heroCountdown, ended && { color: colors.error }]} numberOfLines={1}>
-                {countdown || '—'}
-              </Text>
-            </View>
-          </View>
-
-          {sellerProfile && (
-            <Pressable
-              style={s.sellerRow}
-              onPress={() => router.push(`/profile/${listing.seller_id}` as any)}
-              accessibilityRole="button"
-              accessibilityLabel={`View ${sellerProfile.display_name || 'seller'}'s profile`}
-            >
-              {(() => {
-                const sellerAvatar = getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url);
-                const initial = (sellerProfile.display_name || 'S').trim().charAt(0).toUpperCase();
-                return sellerAvatar ? (
-                  <Image source={{ uri: sellerAvatar }} style={s.sellerAvatar} contentFit="cover" />
-                ) : (
-                  <View style={[s.sellerAvatar, s.sellerAvatarFallback]}>
-                    <Text style={s.sellerAvatarInitial}>{initial}</Text>
-                  </View>
-                );
-              })()}
-              <Text style={s.sellerName}>{sellerProfile.display_name || 'Seller'}</Text>
-              <VerifiedSellerBadge isVerified={sellerProfile.is_verified_seller} />
-              <Text style={s.sellerChevron}>{'›'}</Text>
-            </Pressable>
-          )}
-
-          <Text style={s.sectionHead}>EVENT DETAILS</Text>
-          <View style={s.card}>
-            <InfoRow label="Venue"        value={listing.venue} />
-            <InfoRow label="Date & Time"  value={fmtDate(listing.event_date, listing.event_time)} />
-            <InfoRow label="Area / Venue" value={listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase())} />
-            <InfoRow label="Category"
-              value={(listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} />
-          </View>
-
-          <Text style={s.sectionHead}>TICKET INFO</Text>
-          <View style={s.card}>
-            <InfoRow label="Type"     value={ticketLabel} />
-            <InfoRow label="Quantity" value={String(listing.quantity)} />
-            <InfoRow label="Transfer" value={transferLabel} />
-            {/* Ownership-proof badge: shown ONLY after manual admin approval
-                (migration 033). Never claims verification before review. */}
-            {listing.proof_status === 'approved' && (
-              <InfoRow label="Ownership proof" value="✓ Reviewed by Snatch It" />
-            )}
-            {listing.restrictions ? <InfoRow label="Restrictions" value={listing.restrictions} /> : null}
-          </View>
-
-          <Text style={s.sectionHead}>PRICING</Text>
-          <View style={s.card}>
-            {/* All-in pricing: every buyer-facing price includes the 10% service fee. */}
-            <InfoRow label="Starting bid" value={allInLabel(listing.starting_bid)} />
-            {listing.buy_now_enabled && listing.buy_now_price != null && (
-              <InfoRow label="Buy Now" value={allInLabel(listing.buy_now_price)} />
-            )}
-            <InfoRow label="Pricing" value="Totals include the 10% service fee" />
-          </View>
-
-          <Text style={s.sectionHead}>BID HISTORY ({bids.length})</Text>
-          <View style={s.card}>
-            {bids.length === 0 ? (
-              <Text style={s.emptyBids}>No bids yet — be the first!</Text>
-            ) : (
-              bids.map(bid => <BidRowItem key={bid.id} bid={bid} />)
-            )}
-          </View>
-
-        </View>
+        <View style={s.scrollTail} />
       </ScrollView>
 
-      {/* ── Sticky bottom action bar ───────────────────────────────────────
-          Wide: [price] [buttons] on one row. Narrow (all iPhones + iPad
-          compatibility mode): price row on top, full-width button row below.
-          The Jul 29 App Review screenshots showed the old flex:1 price block
-          crushed into a vertical letter-stack — PriceDisplay + this stacking
-          make that geometrically impossible. */}
-      <View style={[s.bar, stackBar && s.barStacked]}>
-        <View style={stackBar ? s.barPriceStacked : s.barPrice}>
+      {/*
+        One bar, one decision. Buy Now leads when it exists and bidding sits
+        beside it as the secondary; the old screen inverted that, giving instant
+        purchase a grey outline and the bid a red fill.
+      */}
+      <StickyBar
+        left={
           <PriceDisplay
             size="sticky"
-            label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
-            amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
-            muted={isSold}
+            label={stickyPriceLabel}
+            amount={stickyPriceAmount}
+            muted={isSold || state.mode === 'closed'}
           />
-        </View>
-
-        <View style={[s.barActions, stackBar && s.barActionsStacked]}>
-
-          {buyNowVisible && (
-            <TouchableOpacity
-              style={[s.buyBtn, hardLocked && s.buyBtnDisabled]}
-              onPress={hardLocked ? undefined : handleBuyNow}
-              disabled={hardLocked}
-              activeOpacity={0.8}
-            >
-              {reserving
-                ? <ActivityIndicator color={colors.text} size="small" />
-                : <Text style={[s.buyBtnText, hardLocked && s.btnTextDisabled]} numberOfLines={1}>{buyNowLabel}</Text>
-              }
-            </TouchableOpacity>
-          )}
-
-          {iAmWinner && (
-            <TouchableOpacity style={s.payNowBtn} onPress={navigateToWinnerCheckout} activeOpacity={0.85}>
-              <Text style={s.payNowBtnText} numberOfLines={1}>💳 Pay Now</Text>
-            </TouchableOpacity>
-          )}
-
-          {!iAmWinner && (
-            <TouchableOpacity
-              style={[s.bidBtn, bidLocked && s.bidBtnDisabled]}
-              onPress={bidLocked ? undefined : () => router.push(`/bid/${listing.id}`)}
-              disabled={bidLocked}
-              activeOpacity={0.85}
-            >
-              {finalizing ? (
-                <ActivityIndicator color={colors.text} size="small" />
-              ) : (
-                <Text style={[s.bidBtnText, bidLocked && s.btnTextDisabled]} numberOfLines={1}>{placeBidLabel}</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-        </View>
-      </View>
-
-    </SafeAreaView>
+        }
+      >
+        {state.secondary ? (
+          <Button
+            label={state.secondary.label}
+            variant="secondary"
+            size="md"
+            disabled={state.secondary.disabled}
+            onPress={() => runAction(state.secondary!.kind)}
+          />
+        ) : null}
+        <Button
+          label={state.primary.label}
+          variant="primary"
+          size="md"
+          disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
+          loading={primaryBusy}
+          onPress={() => runAction(state.primary.kind)}
+        />
+      </StickyBar>
+    </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: colors.bg },
-  centered: { flex: 1, justifyContent:'center', alignItems:'center',
-              backgroundColor: colors.bg, gap: spacing.md },
-  errText:  { color: colors.error, fontSize: fontSize.md, textAlign:'center',
-              paddingHorizontal: spacing.xl },
-  retryBtn: { backgroundColor: colors.primary, paddingHorizontal: spacing.xl,
-              paddingVertical: spacing.sm, borderRadius: radius.md },
-  retryText:{ color: colors.text, fontWeight:'700' },
+  safe: { flex: 1, backgroundColor: v2.surface.canvas },
 
-  // Animated outbid banner — absolute, sits just below the topBar.
-  // top:60 ≈ topBar height (paddingVertical:8×2 + height:44 + border:1 = 61px).
-  // translateY -30→0 slides it into its natural position; opacity 0→1 fades in.
-  // zIndex:1 keeps it visually under the topBar (zIndex:2) while animating.
-  outbidBanner: {
-    position: 'absolute', left: 0, right: 0, top: 60, zIndex: 1,
-    backgroundColor: colors.bgCard,
-    borderBottomWidth: 2, borderBottomColor: colors.primary,
-    paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
-  },
-  outbidBannerText: {
-    color: colors.text, fontWeight: '700',
-    fontSize: fontSize.sm, letterSpacing: 0.3,
-  },
+  // The artwork runs under the status bar: the hero is the first thing on the
+  // screen and a safe-area gap above it would frame it like a card.
+  scroll: { paddingBottom: v2.space.xxxl },
+  scrollTail: { height: 96 },
 
-  // Win banner — green accent, two lines (title + body)
-  winBanner: {
-    position: 'absolute', left: 0, right: 0, top: 60, zIndex: 1,
-    backgroundColor: 'rgba(20, 48, 24, 0.97)',
-    borderBottomWidth: 2, borderBottomColor: colors.success,
-    paddingVertical: 11, paddingHorizontal: spacing.lg,
-    alignItems: 'center', gap: 2,
+  statusWrap: { marginTop: v2.space.lg },
+  refreshRow: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: v2.space.lg,
   },
-  winBannerTitle: {
-    color: colors.success, fontWeight: '800',
-    fontSize: fontSize.sm, letterSpacing: 0.5, textAlign: 'center',
-  },
-  winBannerBody: {
-    color: '#a0b8a2', fontWeight: '500',
-    fontSize: fontSize.xs, textAlign: 'center',
-  },
+  refreshText: { color: v2.brand.red },
 
-  topBar:   { flexDirection:'row', alignItems:'center', justifyContent:'space-between',
-              paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-              borderBottomWidth:1, borderBottomColor: colors.border, zIndex: 2 },
-  backBtn:  { width:44, height:44, alignItems:'flex-start', justifyContent:'center' },
-  backArrow:{ color: colors.text, fontSize: fontSize.xl, fontWeight:'600' },
-  topTitle: { flex:1, textAlign:'center', color: colors.text,
-              fontSize: fontSize.md, fontWeight:'700' },
-
-  resBanner:      { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, alignItems: 'center' },
-  resBannerMine:  { backgroundColor: colors.primary },
-  resBannerOther: { backgroundColor: colors.bgInput },
-  resBannerSold:  { backgroundColor: colors.bgCard, borderBottomWidth: 1,
-                    borderBottomColor: colors.border },
-  resBannerText:  { fontSize: fontSize.sm, fontWeight: '700', color: colors.text },
-
-  finalizingRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                    gap: spacing.sm, paddingVertical: 6, backgroundColor: colors.bgInput },
-  finalizingText: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
-
-  cover:                { width:'100%', height: 220 },
-  coverPlaceholder:     { backgroundColor: colors.bgInput, alignItems:'center', justifyContent:'center' },
-  coverPlaceholderText: { fontSize: 48 },
-
-  body: { padding: spacing.lg },
-
-  heroCard: {
-    flexDirection:'row', alignItems:'center', flexWrap:'wrap', rowGap: spacing.sm,
-    backgroundColor: colors.bgCard, borderRadius: radius.lg,
-    borderWidth:1, borderColor: colors.border,
-    padding: spacing.lg, marginBottom: spacing.lg, ...shadow.card,
+  centered: {
+    flex: 1,
+    backgroundColor: v2.surface.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: v2.space.md,
+    paddingHorizontal: v2.space.xl,
   },
-  heroLabel:     { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
-                   letterSpacing:1.2, textTransform:'uppercase', marginBottom:4 },
-  // flexBasis 60% + minWidth floor: price owns the row until the row is too
-  // narrow to hold both columns, at which point TIME LEFT wraps below.
-  heroLeft:      { flexGrow:1, flexShrink:1, flexBasis:'60%', minWidth: 170 },
-  heroFeeNote:   { fontSize: fontSize.xs, color: colors.textDim, marginTop: 2 },
-  heroRight:     { flexGrow:1, flexShrink:0, alignItems:'flex-end' },
-  heroCountdown: { fontSize: fontSize.lg, fontWeight:'800', color: colors.primary,
-                   fontVariant:['tabular-nums'] },
-
-  sellerRow:   { flexDirection:'row', alignItems:'center', gap: spacing.sm, marginBottom: spacing.md },
-  sellerAvatar:{ width: 28, height: 28, borderRadius: 14 },
-  sellerAvatarFallback: { backgroundColor: colors.primarySoft, alignItems:'center', justifyContent:'center' },
-  sellerAvatarInitial:  { color: colors.primary, fontSize: fontSize.xs, fontWeight:'800' },
-  sellerName:  { fontSize: fontSize.sm, fontWeight:'600', color: colors.text },
-  sellerChevron: { marginLeft:'auto', color: colors.textDim, fontSize: fontSize.lg, fontWeight:'700' },
-
-  sectionHead: { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
-                 letterSpacing:1.4, textTransform:'uppercase', marginBottom: spacing.sm },
-  card:        { backgroundColor: colors.bgCard, borderRadius: radius.lg,
-                 borderWidth:1, borderColor: colors.border,
-                 paddingHorizontal: spacing.md, marginBottom: spacing.lg, ...shadow.card },
-  emptyBids:   { color: colors.textMuted, fontSize: fontSize.sm, textAlign:'center',
-                 paddingVertical: spacing.lg },
-
-  bar: {
-    flexDirection:'row', alignItems:'center',
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, paddingBottom: spacing.xl,
-    backgroundColor: colors.bgCard,
-    borderTopWidth:1, borderTopColor: colors.border, gap: spacing.md,
-  },
-  barStacked:      { flexDirection:'column', alignItems:'stretch', gap: spacing.sm },
-  // Wide: price keeps its intrinsic width and never gets crushed by buttons.
-  barPrice:        { flexShrink: 0, minWidth: 0 },
-  barPriceStacked: { minWidth: 0 },
-  barActions:        { flexDirection:'row', gap: spacing.sm, flex: 1, justifyContent:'flex-end' },
-  // Stacked: buttons share the full row width equally (flexGrow on each).
-  barActionsStacked: { flex: 0 },
-
-  buyBtn:         { backgroundColor: colors.bgInput, borderWidth:1, borderColor: colors.borderInput,
-                    borderRadius: radius.md, paddingVertical: spacing.sm+2, paddingHorizontal: spacing.md,
-                    alignItems:'center', justifyContent:'center', minWidth: 80, minHeight: 44,
-                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  buyBtnDisabled: { opacity: 0.4 },
-  buyBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'700',
-                    fontVariant:['tabular-nums'] },
-
-  payNowBtn:     { backgroundColor: colors.success, borderRadius: radius.md,
-                   paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                   alignItems:'center', justifyContent:'center', minHeight: 44,
-                   flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  payNowBtnText: { color: '#fff', fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
-
-  bidBtn:         { backgroundColor: colors.primary, borderRadius: radius.md,
-                    paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                    alignItems:'center', justifyContent:'center', minHeight: 44,
-                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  bidBtnDisabled: { backgroundColor: colors.borderInput },
-  bidBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
-  btnTextDisabled:{ color: colors.textDim },
-
-  // Transfer refresh hint (seller sees SOLD but transfer not yet loaded)
-  refreshHint: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical:   spacing.sm,
-    alignItems:        'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  refreshHintText: {
-    color:      colors.textMuted,
-    fontSize:   fontSize.xs,
-    fontWeight: '600',
-  },
-  disputedBanner: {
-    backgroundColor: 'rgba(139, 0, 0, 0.15)',
-    borderRadius:    10,
-    padding:         14,
-    marginTop:       10,
-  },
-  disputedBannerText: {
-    color:     '#FF6B6B',
-    fontSize:  14,
-    textAlign: 'center' as const,
-  },
-
-  // Transfer action buttons
-  transferActionRow: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical:   spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  transferBtn: {
-    backgroundColor: colors.primary,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.sm + 2,
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  transferBtnConfirm:  { backgroundColor: colors.success },
-  transferBtnDispute:  { backgroundColor: '#8B0000' },
-  transferBtnDisabled: { opacity: 0.4 },
-  transferBtnText: {
-    color:      colors.text,
-    fontSize:   fontSize.sm,
-    fontWeight: '700',
-  },
-
-  // Seller-owner action section (Edit / Cancel / Delete) — always visible
-  ownerActionsWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingTop:        spacing.sm,
-    paddingBottom:     spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor:   colors.bgCard,
-  },
-  ownerActionsHeader: {
-    color:          colors.textMuted,
-    fontSize:       fontSize.xs,
-    fontWeight:     '700',
-    letterSpacing:  1.2,
-    textTransform:  'uppercase',
-    marginBottom:   spacing.xs,
-  },
-  ownerActionsRow: {
-    flexDirection: 'row',
-    gap:           spacing.sm,
-  },
-  ownerActionsDebug: {
-    color:     colors.textDim,
-    fontSize:  10,
-    marginTop: spacing.xs,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  ownerBtn: {
-    flex:            1,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.sm + 2,
-    alignItems:      'center',
-    justifyContent:  'center',
-    borderWidth:     1,
-  },
-  ownerBtnEdit:   { backgroundColor: colors.bgInput,  borderColor: colors.primary },
-  ownerBtnDelete: { backgroundColor: colors.bgInput,  borderColor: colors.error },
-  ownerBtnCancel: { backgroundColor: '#3A1A00',       borderColor: colors.warning },
-  ownerBtnText:   { color: colors.text, fontSize: fontSize.sm, fontWeight: '700' },
+  errText: { color: v2.text.secondary, textAlign: 'center' },
 });

@@ -18,8 +18,13 @@ import {
 } from '../src/lib/media/slots';
 import {
   DEFAULT_FOCAL,
+  classifyStoredMedia,
+  encodeStoragePath,
   focalToObjectPosition,
+  isTrustedMediaUrl,
+  mediaUrlForStoredValue,
   normalizePath,
+  parseOwnStorageUrl,
   resolveImage,
   transformUrl,
   IMMUTABLE_CACHE_CONTROL,
@@ -188,11 +193,18 @@ describe('media url resolution', () => {
     expect(normalizePath('auction-media/covers/a.jpg', 'auction-media')).toBe('covers/a.jpg');
   });
 
-  it('passes absolute legacy URLs through without inventing a transform host', () => {
+  /**
+   * POLICY CHANGE, recorded deliberately. This test previously asserted that ANY
+   * absolute URL was rendered verbatim. That is the behaviour, not the intent:
+   * `listings.cover_image_url` and `profiles.avatar_url` are legacy columns whose
+   * values are row data, so passing them through let a database row choose which
+   * host the app makes requests to — leaking the viewer's IP and putting
+   * unreviewed imagery on screen. The expectation is updated because the required
+   * behaviour changed, not to accommodate a defect.
+   */
+  it('refuses an absolute URL on a host we do not control', () => {
     const r = resolveImage({ path: 'https://cdn.example.com/a.jpg' }, 'DISCOVERY_CARD');
-    expect(r.kind).toBe('image');
-    if (r.kind !== 'image') return;
-    expect(r.uri).toBe('https://cdn.example.com/a.jpg');
+    expect(r).toEqual({ kind: 'fallback', reason: 'unsafe-host' });
   });
 
   it('derives a backdrop from the same artwork, never a generated image', () => {
@@ -226,6 +238,174 @@ describe('media url resolution', () => {
     });
     expect(u).toContain('covers/a%20b.jpg');
     expect(u).toContain('width=100');
+  });
+});
+
+/**
+ * Filenames are user input. `encodeURI` leaves `#`, `?`, `&`, `+` and `=` alone,
+ * so each of these produced either a wrong object, a request with no width and
+ * quality (i.e. the multi-megabyte original), or a truncated path.
+ */
+describe('media path encoding', () => {
+  const cases: ReadonlyArray<readonly [string, string, string]> = [
+    ['space', 'covers/a b.jpg', 'covers/a%20b.jpg'],
+    ['hash', 'covers/set#2.jpg', 'covers/set%232.jpg'],
+    ['question mark', 'covers/who?.jpg', 'covers/who%3F.jpg'],
+    ['ampersand', 'covers/rock&roll.jpg', 'covers/rock%26roll.jpg'],
+    ['plus', 'covers/a+b.jpg', 'covers/a%2Bb.jpg'],
+    ['equals', 'covers/w=100.jpg', 'covers/w%3D100.jpg'],
+    ['nested folders', 'uid/covers/2026/a.jpg', 'uid/covers/2026/a.jpg'],
+  ];
+
+  for (const [name, raw, encoded] of cases) {
+    it(`encodes a ${name} without destroying the path`, () => {
+      expect(encodeStoragePath(raw)).toBe(encoded);
+      // Separators survive; the segment count never changes.
+      expect(encodeStoragePath(raw).split('/')).toHaveLength(raw.split('/').length);
+    });
+  }
+
+  it('leaves an already-encoded segment alone rather than double-encoding it', () => {
+    // Some rows were written by an older path that encoded before storing.
+    // Re-encoding would turn %20 into %2520 and 404 a working image.
+    expect(encodeStoragePath('covers/a%20b.jpg')).toBe('covers/a%20b.jpg');
+  });
+
+  it('encodes a literal percent that is not an escape sequence', () => {
+    expect(encodeStoragePath('covers/100%.jpg')).toBe('covers/100%25.jpg');
+  });
+
+  it('reaches the real request, not just the helper', () => {
+    const r = resolveImage({ path: 'covers/rock&roll?.jpg' }, 'DISCOVERY_CARD');
+    if (r.kind !== 'image') throw new Error('expected image');
+    // The query string must still be the transformation parameters, not the
+    // remains of a filename.
+    expect(r.uri).toContain('rock%26roll%3F.jpg');
+    expect(r.uri).toContain('width=');
+    expect(r.uri.split('?')[1]).toMatch(/^width=\d+&quality=\d+&resize=(cover|contain)$/);
+  });
+});
+
+describe('media host allowlist', () => {
+  // `beforeAll` sets EXPO_PUBLIC_SUPABASE_URL to https://example.supabase.co.
+  const own = 'https://example.supabase.co';
+
+  it('trusts this project\'s own storage host', () => {
+    expect(isTrustedMediaUrl(`${own}/storage/v1/object/public/auction-media/covers/a.jpg`)).toBe(
+      true,
+    );
+  });
+
+  it('refuses every other host, including a lookalike', () => {
+    expect(isTrustedMediaUrl('https://cdn.example.com/a.jpg')).toBe(false);
+    expect(isTrustedMediaUrl('https://example.supabase.co.evil.test/a.jpg')).toBe(false);
+    expect(isTrustedMediaUrl('https://evil.test/?x=example.supabase.co')).toBe(false);
+  });
+
+  it('refuses plain http, even on the right host', () => {
+    expect(isTrustedMediaUrl('http://example.supabase.co/storage/v1/object/public/x/a.jpg')).toBe(
+      false,
+    );
+  });
+
+  it('refuses non-http schemes and protocol-relative URLs outright', () => {
+    expect(classifyStoredMedia('javascript:alert(1)', 'auction-media')).toEqual({
+      kind: 'unsafe',
+      reason: 'unsafe-host',
+    });
+    expect(classifyStoredMedia('data:image/png;base64,AAAA', 'auction-media').kind).toBe('unsafe');
+    expect(classifyStoredMedia('//cdn.example.com/a.jpg', 'auction-media')).toEqual({
+      kind: 'unsafe',
+      reason: 'unsafe-host',
+    });
+  });
+
+  it('rewrites our own storage URL back into a bucket path, so legacy rows get transformed too', () => {
+    const legacy = `${own}/storage/v1/object/public/auction-media/uid/covers/a%20b.jpg`;
+    expect(parseOwnStorageUrl(legacy)).toEqual({
+      bucket: 'auction-media',
+      path: 'uid/covers/a b.jpg',
+    });
+    const r = resolveImage({ path: legacy }, 'DISCOVERY_CARD');
+    if (r.kind !== 'image') throw new Error('expected image');
+    expect(r.uri).toContain('/render/image/public/auction-media/');
+    expect(r.uri).toContain('uid/covers/a%20b.jpg');
+    expect(r.uri).toContain('width=');
+  });
+
+  it('does not let a storage URL smuggle a traversal', () => {
+    // `new URL()` resolves `..` away before any check can see it, so the raw
+    // value is what gets inspected.
+    expect(parseOwnStorageUrl(`${own}/storage/v1/object/public/auction-media/../avatars/x.png`))
+      .toBeNull();
+    expect(parseOwnStorageUrl(`${own}/storage/v1/object/public/auction-media/%2e%2e/avatars/x.png`))
+      .toBeNull();
+  });
+
+  it('refuses a storage URL that points at a different bucket than the caller asked for', () => {
+    const crossBucket = `${own}/storage/v1/object/public/avatars/uid/avatar_1.jpg`;
+    expect(classifyStoredMedia(crossBucket, 'auction-media')).toEqual({
+      kind: 'unsafe',
+      reason: 'unsafe-path',
+    });
+    // The same URL is fine when the caller is actually asking for avatars.
+    expect(classifyStoredMedia(crossBucket, 'avatars')).toEqual({
+      kind: 'path',
+      bucket: 'avatars',
+      path: 'uid/avatar_1.jpg',
+    });
+  });
+});
+
+describe('media url for legacy call sites (coverImage / avatars)', () => {
+  it('returns the plain object URL when no width is given, which is the old behaviour', () => {
+    const u = mediaUrlForStoredValue('uid/covers/a.jpg');
+    expect(u).toBe('https://example.supabase.co/storage/v1/object/public/auction-media/uid/covers/a.jpg');
+  });
+
+  it('returns a transformed derivative when a width IS given', () => {
+    const u = mediaUrlForStoredValue('uid/covers/a.jpg', { width: 64, devicePixelRatio: 2 });
+    expect(u).toContain('/render/image/public/auction-media/');
+    expect(u).toContain('width=128');
+  });
+
+  it('caps the density it will pay for', () => {
+    // A 3x device does not get a 3x request: quality scales inversely with
+    // density instead, which holds the byte count roughly flat.
+    const u = mediaUrlForStoredValue('uid/covers/a.jpg', { width: 100, devicePixelRatio: 3 });
+    expect(u).toContain('width=200');
+  });
+
+  it('applies the same host rule as the slot system', () => {
+    expect(mediaUrlForStoredValue('https://cdn.example.com/a.jpg')).toBeNull();
+    expect(mediaUrlForStoredValue(null)).toBeNull();
+    expect(mediaUrlForStoredValue('   ')).toBeNull();
+    expect(mediaUrlForStoredValue('../avatars/secret.png')).toBeNull();
+  });
+
+  it('handles the avatars bucket through the same policy', () => {
+    const u = mediaUrlForStoredValue('uid/avatar_1.jpg', { bucket: 'avatars', width: 48 });
+    expect(u).toContain('/render/image/public/avatars/');
+  });
+});
+
+describe('media slot width contract', () => {
+  it('never requests the nominal slot width when a measured width is supplied', () => {
+    // The nominal mobile hero width is 390, which overflows a 375pt iPhone SE.
+    const measured = resolveImage({ path: 'covers/a.jpg' }, 'EVENT_HERO', {
+      devicePixelRatio: 2,
+      layoutWidth: 343,
+    });
+    if (measured.kind !== 'image') throw new Error('expected image');
+    expect(measured.uri).toContain('width=686');
+    expect(measured.uri).not.toContain('width=780');
+  });
+
+  it('derives the height from the measured width, not from the slot table', () => {
+    const r = resolveImage({ path: 'covers/a.jpg' }, 'DISCOVERY_CARD', { layoutWidth: 168 });
+    if (r.kind !== 'image') throw new Error('expected image');
+    // 4:5 portrait: the height must follow the width that was actually laid out.
+    expect(r.height).toBe(Math.round(r.width / MEDIA_SLOTS.DISCOVERY_CARD.aspectRatio));
   });
 });
 

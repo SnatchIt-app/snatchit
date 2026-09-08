@@ -27,6 +27,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
 
+import { IMMUTABLE_CACHE_CONTROL, mediaUrlForStoredValue } from '@/src/lib/media/url';
 import { supabase } from '@/src/lib/supabase';
 import { validateImage } from '@/src/utils/validateImage';
 
@@ -40,14 +41,22 @@ const BUCKET = 'avatars'; // must match bucket name in Supabase dashboard exactl
  * Convert an avatar storage path to a renderable URL.
  *
  * - null / empty → null  (caller renders initials placeholder)
- * - "http…"      → return as-is  (legacy avatar_url full-URL rows)
- * - path string  → getPublicUrl  (public bucket, sync, no RLS needed)
+ * - an absolute URL (legacy `profiles.avatar_url` rows) → rendered only if it is
+ *   on a trusted host; one of our own storage URLs is rewritten to a bucket path
+ * - path string  → public URL, or a transformed derivative when a width is given
+ *
+ * Routed through `src/lib/media/url.ts` so avatars obey the same path encoding and
+ * the same host allowlist as event artwork. There is one media policy.
  */
-export function getAvatarUrl(path: string | null | undefined): string | null {
-  if (!path) return null;
-  if (path.startsWith('http')) return path;
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl ?? null;
+export function getAvatarUrl(
+  path: string | null | undefined,
+  opts: { width?: number; devicePixelRatio?: number } = {},
+): string | null {
+  return mediaUrlForStoredValue(path, {
+    bucket: BUCKET,
+    width: opts.width,
+    devicePixelRatio: opts.devicePixelRatio,
+  });
 }
 
 // ─── Upload result type ───────────────────────────────────────────────────────
@@ -143,8 +152,10 @@ export async function pickAndUploadAvatar(
     .from(BUCKET)
     .upload(path, bytes, {
       contentType:  mime,
-      upsert:       true,   // overwrite previous avatar at this path
-      cacheControl: '3600',
+      upsert:       true,   // defensive; the timestamped path is already unique
+      // Immutable: `avatar_<timestamp>.<ext>` is a new object on every change, and
+      // the profile row points at the new path, so nothing needs to re-validate.
+      cacheControl: IMMUTABLE_CACHE_CONTROL,
     });
 
   if (uploadError) {

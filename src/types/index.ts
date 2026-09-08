@@ -109,14 +109,20 @@ export type Listing = {
   transfer_method:  TransferMethod;
   restrictions:     string | null;
 
-  starting_bid:     number;
+  // ── Prices: WHOLE DOLLARS ────────────────────────────────────────────────
+  // Every price column on public.listings is an integer of WHOLE DOLLARS, not
+  // minor units. Conversion to cents happens exactly once, through
+  // dollarsToCents() / centsFromDollars(); see src/lib/money.ts. Note that
+  // market.listing_unified.price_minor IS cents — two units exist in this
+  // system, one dollar-denominated surface, and this is it.
+  starting_bid:     number;                          // WHOLE DOLLARS
   buy_now_enabled:  boolean;
-  buy_now_price:    number | null;
+  buy_now_price:    number | null;                   // WHOLE DOLLARS
   duration_hours:   DurationHours;
 
   starts_at:        string;   // ISO timestamptz
   ends_at:          string;   // ISO timestamptz
-  current_bid:      number;
+  current_bid:      number;                          // WHOLE DOLLARS
 
   cover_image_path: string;   // storage path, e.g. "uuid/covers/1715000000000.jpg"
 
@@ -143,7 +149,7 @@ export type Listing = {
   // ── Auction intelligence fields (added by finalize_auction migration) ─────
   auction_status:       'active' | 'ended' | 'sold' | 'cancelled'; // separate from buy-now status
   winner_user_id:       string | null;               // uuid of winning bidder
-  winning_bid_amount:   number | null;               // winning bid in cents
+  winning_bid_amount:   number | null;               // WHOLE DOLLARS (stamped from bids.amount)
   ended_at:             string | null;               // ISO timestamptz when finalized
 };
 

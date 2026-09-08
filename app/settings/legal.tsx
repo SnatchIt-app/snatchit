@@ -5,16 +5,10 @@
 
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import * as v2 from '@/src/theme/v2';
 
 // ─── Section component ────────────────────────────────────────────────────────
 
@@ -46,15 +40,8 @@ export default function LegalScreen() {
   const [fullTermsOpen, setFullTermsOpen] = useState(false);
 
   return (
-    <SafeAreaView style={s.safe}>
-      {/* Top bar */}
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>←</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Terms of Service</Text>
-        <View style={s.backBtn} />
-      </View>
+    <View style={s.safe}>
+      <SettingsHeader title="Terms of service" />
 
       <ScrollView
         style={s.scroll}
@@ -137,6 +124,8 @@ export default function LegalScreen() {
           <Pressable
             style={s.privacyLink}
             onPress={() => router.push('/settings/privacy')}
+            accessibilityRole="link"
+            accessibilityLabel="View full privacy policy"
           >
             <Text style={s.privacyLinkText}>View Full Privacy Policy {'\u2192'}</Text>
           </Pressable>
@@ -160,6 +149,9 @@ export default function LegalScreen() {
             style={s.fullTermsHeader}
             onPress={() => setFullTermsOpen(v => !v)}
             hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel="Key Terms Summary"
+            accessibilityState={{ expanded: fullTermsOpen }}
           >
             <Text style={s.sectionTitle}>Key Terms Summary</Text>
             <Text style={s.chevron}>{fullTermsOpen ? '▲' : '▼'}</Text>
@@ -313,74 +305,50 @@ export default function LegalScreen() {
 
         <View style={s.bottomPad} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  safe:         { flex: 1, backgroundColor: colors.bg },
+  safe:         { flex: 1, backgroundColor: v2.surface.canvas },
 
-  // Top bar (matches app pattern)
-  topBar:       { flexDirection: 'row', alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-                  borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:      { width: 44, height: 44, alignItems: 'flex-start',
-                  justifyContent: 'center' },
-  backArrow:    { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:     { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-
-  // Scroll
   scroll:       { flex: 1 },
-  content:      { paddingHorizontal: spacing.md, paddingTop: spacing.lg },
+  content:      { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
-  // Page header
-  pageTitle:    { color: colors.text, fontSize: fontSize.lg, fontWeight: '800',
-                  marginBottom: spacing.xs },
-  effectiveDate:{ color: colors.textMuted, fontSize: fontSize.xs,
-                  marginBottom: spacing.lg },
+  pageTitle:    { fontFamily: v2.font.display, fontSize: 26, lineHeight: 33, letterSpacing: -0.5,
+                  textTransform: 'uppercase', color: v2.text.primary, marginBottom: v2.space.xs },
+  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+                  marginBottom: v2.space.lg },
 
-  // Section
-  section:      { marginBottom: spacing.lg },
-  sectionTitle: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '700',
-                  textTransform: 'uppercase', letterSpacing: 0.8,
-                  marginBottom: spacing.sm },
-  body:         { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20,
-                  marginBottom: spacing.sm },
+  section:      { marginBottom: v2.space.lg },
+  sectionTitle: { fontFamily: v2.font.bodyMedium, fontSize: 10, lineHeight: 14, letterSpacing: 3,
+                  textTransform: 'uppercase', color: v2.text.muted, marginBottom: v2.space.sm },
+  body:         { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary,
+                  marginBottom: v2.space.sm },
 
-  // Bullet
-  bulletRow:    { flexDirection: 'row', marginBottom: spacing.xs,
-                  paddingLeft: spacing.xs },
-  bulletDot:    { color: colors.primary, fontSize: fontSize.md,
-                  marginRight: spacing.sm, lineHeight: 20 },
-  bulletText:   { flex: 1, color: colors.textMuted, fontSize: fontSize.sm,
-                  lineHeight: 20 },
+  bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
+  bulletDot:    { color: v2.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
+  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary },
 
-  // Contact email
-  contactEmail: { color: colors.text, fontSize: fontSize.sm, fontWeight: '600',
-                  marginBottom: spacing.sm },
+  contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+                  marginBottom: v2.space.sm },
 
-  // Full Terms accordion
-  fullTermsHeader: { flexDirection: 'row', alignItems: 'center',
-                     justifyContent: 'space-between' },
-  chevron:         { color: colors.primary, fontSize: fontSize.sm },
-  fullTermsBody:   { marginTop: spacing.sm, backgroundColor: colors.bgCard,
-                     borderRadius: radius.md, padding: spacing.md,
-                     borderWidth: 1, borderColor: colors.border },
-  ftSubhead:       { color: colors.text, fontSize: fontSize.sm, fontWeight: '700',
-                     marginTop: spacing.md, marginBottom: spacing.xs },
-  ftBody:          { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
-  ftNote:          { color: colors.textDim, fontSize: fontSize.xs, lineHeight: 18,
-                     marginTop: spacing.lg, textAlign: 'center' },
+  fullTermsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  chevron:         { color: v2.brand.red, fontSize: 20 },
+  fullTermsBody:   { marginTop: v2.space.sm, backgroundColor: v2.surface.surface, padding: v2.space.md,
+                     borderWidth: 1, borderColor: v2.border.default },
+  ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+                     marginTop: v2.space.md, marginBottom: v2.space.xs },
+  ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.muted },
+  ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+                     marginTop: v2.space.lg, textAlign: 'center' },
 
-  // Privacy link
-  privacyLink:     { backgroundColor: colors.bgCard, borderRadius: radius.md,
-                     borderWidth: 1, borderColor: colors.border,
-                     paddingVertical: spacing.md, paddingHorizontal: spacing.md,
-                     alignItems: 'center', marginTop: spacing.xs },
-  privacyLinkText: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '700' },
+  privacyLink:     { borderWidth: 1, borderColor: v2.border.strong, paddingVertical: v2.space.md,
+                     paddingHorizontal: v2.space.md, alignItems: 'center', marginTop: v2.space.sm },
+  privacyLinkText: { fontFamily: v2.font.bodyBold, fontSize: 12, letterSpacing: 2.2,
+                     textTransform: 'uppercase', color: v2.brand.red },
 
-  bottomPad:    { height: spacing.xxl },
+  bottomPad:    { height: v2.space.xxxl },
 });

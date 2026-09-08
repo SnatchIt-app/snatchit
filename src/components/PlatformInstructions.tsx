@@ -53,7 +53,7 @@ export default function PlatformInstructions({
     <View style={s.container}>
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.icon}>{instruction.icon}</Text>
+        <Text style={s.icon} importantForAccessibility="no" accessibilityElementsHidden>{instruction.icon}</Text>
         <View style={s.headerText}>
           <Text style={s.title}>{info.title}</Text>
           <Text style={s.time}>{info.estimatedTime}</Text>
@@ -92,6 +92,9 @@ export default function PlatformInstructions({
             style={s.tipsToggle}
             onPress={() => setTipsExpanded((v) => !v)}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Tips"
+            accessibilityState={{ expanded: tipsExpanded }}
           >
             <Text style={s.tipsToggleText}>
               {tipsExpanded ? '\u25BC' : '\u25B6'}  Tips

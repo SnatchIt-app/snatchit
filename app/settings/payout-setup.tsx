@@ -1,36 +1,29 @@
-import { router, useFocusEffect } from 'expo-router';
+/**
+ * app/settings/payout-setup.tsx — Payout setup (V2).
+ *
+ * PRESENTATION-ONLY pass. Stripe Connect is untouched: the debounced status probe
+ * (`get_my_profile` + the `create-connect-account` status_only edge function with
+ * its 6s timeout), the mount/focus/AppState re-checks, the
+ * `openAuthSessionAsync` deep-link onboarding flow with the `snatchit://`
+ * callback, and the "never regress status on a network error" rule are all
+ * preserved. Status is derived from Stripe's authoritative `details_submitted`;
+ * the UI never implies money is available before that.
+ */
+
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import type { AppStateStatus } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 
 import { supabase } from '@/src/lib/supabase';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
+import { Badge, Button, Spinner } from '@/src/components/ui';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 
-// Deep-link the Stripe-hosted onboarding return back into the app via the
-// `snatchit://` scheme (declared in app.json `scheme` + CFBundleURLSchemes
-// in Info.plist). iOS's ASWebAuthenticationSession watches for any URL
-// starting with this pattern and auto-closes the in-app browser as soon as
-// it sees one — returning the seller seamlessly to the app.
-//
-// Stripe's actual `return_url` / `refresh_url` are HTTPS (per Stripe's
-// requirements); the hosted /payout-return and /payout-refresh pages may
-// optionally trigger the deep link via `window.location.href` to invoke
-// auto-close. With or without that optimization, the session always
-// terminates cleanly when the user taps Done, and we re-check status on
-// every result type.
 const PAYOUT_AUTH_CALLBACK = 'snatchit://payout-return';
 
 type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
@@ -43,36 +36,16 @@ export default function PayoutSetupScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // ── Debounced status check ──────────────────────────────────────────────
-  // Mount, focus, and AppState all call requestStatusCheck(). A debounce
-  // timer ensures only one real network call fires per burst.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkingRef = useRef(false);
 
   const checkStatusReal = useCallback(async () => {
-    if (checkingRef.current) return;   // already in-flight
+    if (checkingRef.current) return;
     checkingRef.current = true;
-
-    if (!userId) {
-      setLoading(false);
-      checkingRef.current = false;
-      return;
-    }
-
+    if (!userId) { setLoading(false); checkingRef.current = false; return; }
     try {
-      // Quick local check: does a stripe_connect_id even exist?
       const { data: profile } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
-
-      if (!profile?.stripe_connect_id) {
-        setStatus('not_connected');
-        setLoading(false);
-        checkingRef.current = false;
-        return;
-      }
-
-      // Account exists — ask the edge function for the real Stripe status
-      // (details_submitted). 6 s hard timeout so a slow Stripe round-trip
-      // can never freeze this screen behind the loading spinner.
+      if (!profile?.stripe_connect_id) { setStatus('not_connected'); setLoading(false); checkingRef.current = false; return; }
       const result = await Promise.race([
         supabase.functions.invoke('create-connect-account', { body: { status_only: true } }),
         new Promise<{ data: null; error: { message: string } }>((resolve) =>
@@ -80,76 +53,45 @@ export default function PayoutSetupScreen() {
         ),
       ]);
       const { data, error } = result as { data: unknown; error: { message: string } | null };
-
       if (!error && data) {
         const parsed = typeof data === 'string' ? JSON.parse(data) : data;
         const serverStatus = parsed?.status as PayoutStatus | undefined;
         if (serverStatus === 'connected' || serverStatus === 'onboarding_required' || serverStatus === 'not_connected') {
           setStatus(serverStatus);
         }
-        // If serverStatus is unrecognised, keep previous status — don't regress
       }
-      // On error: keep whatever status we already have. Never regress to
-      // onboarding_required just because a network call failed.
+      // On error / unrecognised: keep the current status. Never regress on a blip.
     } catch {
-      // Keep current status on network errors
+      // keep current status
     }
-
     setLoading(false);
     checkingRef.current = false;
   }, [userId]);
 
   const requestStatusCheck = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      checkStatusReal();
-    }, 300);
+    debounceRef.current = setTimeout(() => { checkStatusReal(); }, 300);
   }, [checkStatusReal]);
 
-  // ── Refresh on mount ─────────────────────────────────────────────────────
-  useEffect(() => {
-    requestStatusCheck();
-  }, [requestStatusCheck]);
+  useEffect(() => { requestStatusCheck(); }, [requestStatusCheck]);
 
-  // ── Refresh when app returns to foreground ──────────────────────────────
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
-        requestStatusCheck();
-      }
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') requestStatusCheck();
       appStateRef.current = nextState;
     });
     return () => sub.remove();
   }, [requestStatusCheck]);
 
-  // ── Refresh when screen regains focus (e.g. navigating back) ───────────
-  useFocusEffect(
-    useCallback(() => {
-      requestStatusCheck();
-    }, [requestStatusCheck]),
-  );
+  useFocusEffect(useCallback(() => { requestStatusCheck(); }, [requestStatusCheck]));
 
-  // ── Handle button tap ───────────────────────────────────────────────────
   async function handleSetup() {
     setSubmitting(true);
-
-    // Web: pre-open a blank tab BEFORE the async call so the browser treats
-    // it as part of the user gesture. Popup blockers kill window.open()
-    // calls that happen after an await.
     let webWindow: Window | null = null;
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      webWindow = window.open('', '_blank');
-    }
-
+    if (Platform.OS === 'web' && typeof window !== 'undefined') webWindow = window.open('', '_blank');
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<{ url: string; status: string }>(
-        'create-connect-account',
-        {
-          body: {},
-        },
-      );
-
+      const { data, error: fnError } = await supabase.functions.invoke<{ url: string; status: string }>('create-connect-account', { body: {} });
       if (fnError || !data) {
         let reason = fnError?.message ?? 'Failed to set up payouts';
         try {
@@ -157,222 +99,108 @@ export default function PayoutSetupScreen() {
           if (ctx && typeof ctx.json === 'function') {
             const body = await ctx.json();
             reason = body.error ?? body.message ?? reason;
-            if (body.status) {
-              setStatus(body.status as PayoutStatus);
-            }
+            if (body.status) setStatus(body.status as PayoutStatus);
           }
         } catch {}
         if (webWindow) webWindow.close();
-        if (Platform.OS === 'web') {
-          window.alert(reason);
-        } else {
-          Alert.alert('Error', reason);
-        }
+        if (Platform.OS === 'web') window.alert(reason); else Alert.alert('Error', reason);
         setSubmitting(false);
         return;
       }
-
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
       const url: string | undefined = parsed?.url;
       const returnedStatus = parsed?.status as PayoutStatus | undefined;
-
-      if (returnedStatus) {
-        setStatus(returnedStatus);
-      }
-
+      if (returnedStatus) setStatus(returnedStatus);
       if (!url || typeof url !== 'string' || !(url.startsWith('https://') || url.startsWith('http://'))) {
         if (webWindow) webWindow.close();
-        if (Platform.OS === 'web') {
-          window.alert('Unable to open payout dashboard right now. Please try again.');
-        } else {
-          Alert.alert('Error', 'Unable to open payout dashboard right now. Please try again.');
-        }
+        const msg = 'Unable to open payout dashboard right now. Please try again.';
+        if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Error', msg);
         setSubmitting(false);
         return;
       }
-
       if (Platform.OS === 'web') {
-        // Navigate the pre-opened tab to the Stripe URL.
-        if (webWindow) {
-          webWindow.location.href = url;
-        } else {
-          // Fallback: direct navigation if pre-open was blocked
-          window.location.href = url;
-        }
+        if (webWindow) webWindow.location.href = url; else window.location.href = url;
       } else {
-        // ── In-app browser flow (iOS / Android native) ───────────────────
-        // Use ASWebAuthenticationSession (iOS) / Chrome Custom Tabs (Android)
-        // via expo-web-browser so the seller never leaves the app shell.
-        // The session auto-closes if the in-browser page navigates to
-        // PAYOUT_AUTH_CALLBACK, and resolves with `type: 'dismiss'` if the
-        // user taps Done before that. We re-check Stripe status on every
-        // outcome — success, cancel, or dismiss — so the visible state is
-        // always derived from Stripe's authoritative `details_submitted`
-        // rather than from the browser-session result.
         try {
-          const result = await WebBrowser.openAuthSessionAsync(
-            url,
-            PAYOUT_AUTH_CALLBACK,
-          );
-          // result.type ∈ 'success' | 'cancel' | 'dismiss' | 'locked' | 'opened'
-          // We log only for observability; do NOT branch behavior on it.
+          const result = await WebBrowser.openAuthSessionAsync(url, PAYOUT_AUTH_CALLBACK);
           console.log('[payout-setup] auth session ended:', result.type);
         } catch (browserErr) {
-          // openAuthSessionAsync can throw if the OS denies the session
-          // (e.g. another auth session already running). Treat exactly
-          // like a dismiss and let the status check be the source of truth.
           console.warn('[payout-setup] openAuthSessionAsync threw:', browserErr);
         }
-        // Force-refresh status now (not waiting on AppState change) so the
-        // seller sees their new "Connected" state immediately on return.
         await checkStatusReal();
       }
-      // AppState listener + useFocusEffect will also re-check when user returns
     } catch {
       if (webWindow) webWindow.close();
-      if (Platform.OS === 'web') {
-        window.alert('Something went wrong. Please try again.');
-      } else {
-        Alert.alert('Error', 'Something went wrong. Please try again.');
-      }
+      const msg = 'Something went wrong. Please try again.';
+      if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Error', msg);
     }
-
     setSubmitting(false);
   }
 
-  // ── UI copy per state ───────────────────────────────────────────────────
-  const uiMap: Record<PayoutStatus, {
-    icon: string;
-    title: string;
-    description: string;
-    dotColor: string;
-    statusLabel: string;
-    statusSub: string;
-    btnLabel: string;
-  }> = {
+  const uiMap: Record<PayoutStatus, { title: string; description: string; tone: 'success' | 'warning'; statusLabel: string; statusSub: string; btnLabel: string }> = {
     not_connected: {
-      icon: '\u{1F3E6}',
-      title: 'Set Up Payouts',
-      description: 'Verify your identity and add a bank account to get paid. This usually takes about 2 minutes. Anyone can sell — no business registration needed.',
-      dotColor: colors.warning,
-      statusLabel: 'Not connected',
-      statusSub: 'Selling as an individual is the default.',
-      btnLabel: 'Set Up Payouts',
+      title: 'Set up payouts',
+      description: 'Verify your identity and add a bank account to get paid. This usually takes about 2 minutes. Anyone can sell, no business registration needed.',
+      tone: 'warning', statusLabel: 'Not connected', statusSub: 'Selling as an individual is the default.', btnLabel: 'Set up payouts',
     },
     onboarding_required: {
-      icon: '\u{1F3E6}',
-      title: 'Complete Payout Setup',
-      description: 'Almost there — finish verifying your identity and adding a bank account to get paid. This usually takes about 2 minutes.',
-      dotColor: colors.warning,
-      statusLabel: 'Onboarding incomplete',
-      statusSub: 'Tap below to continue where you left off.',
-      btnLabel: 'Continue Setup',
+      title: 'Complete payout setup',
+      description: 'Almost there. Finish verifying your identity and adding a bank account to get paid. This usually takes about 2 minutes.',
+      tone: 'warning', statusLabel: 'Onboarding incomplete', statusSub: 'Continue where you left off.', btnLabel: 'Continue setup',
     },
     connected: {
-      icon: '\u2705',
-      title: 'Payouts Connected',
-      description: 'Your Stripe account is connected. Payouts will be deposited automatically when your listings sell.',
-      dotColor: colors.success,
-      statusLabel: 'Connected',
-      statusSub: 'Your banking details are securely managed by Stripe.',
-      btnLabel: 'Manage Payouts',
+      title: 'Payouts connected',
+      description: 'Your account is connected. Payouts deposit automatically when your listings sell.',
+      tone: 'success', statusLabel: 'Connected', statusSub: 'Your banking details are securely managed by Stripe.', btnLabel: 'Manage payouts',
     },
   };
-
   const ui = uiMap[status];
 
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Payout Setup</Text>
-        <View style={s.backBtn} />
-      </View>
-
+    <View style={s.root}>
+      <SettingsHeader title="Payout setup" />
       {loading ? (
-        <View style={s.center}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
+        <View style={s.center}><Spinner color={v2.brand.red} /></View>
       ) : (
         <View style={s.body}>
-          <Text style={s.icon}>{ui.icon}</Text>
-          <Text style={s.title}>{ui.title}</Text>
-          <Text style={s.description}>{ui.description}</Text>
+          <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">{ui.title}</Text>
+          <Text style={[textStyle('body'), s.description]}>{ui.description}</Text>
 
           <View style={s.statusCard}>
-            <View style={s.statusRow}>
-              <View style={[s.statusDot, { backgroundColor: ui.dotColor }]} />
-              <Text style={[s.statusText, { color: ui.dotColor }]}>
-                {ui.statusLabel}
-              </Text>
-            </View>
-            <Text style={s.statusSub}>{ui.statusSub}</Text>
+            <Badge label={ui.statusLabel} tone={ui.tone} />
+            <Text style={[textStyle('bodySm'), s.statusSub]}>{ui.statusSub}</Text>
           </View>
 
-          <Pressable
-            style={[s.actionBtn, submitting && s.actionBtnDisabled]}
-            onPress={handleSetup}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : (
-              <Text style={s.actionBtnText}>{ui.btnLabel}</Text>
-            )}
-          </Pressable>
-
-          {status !== 'connected' && (
-            <Pressable
-              style={s.refreshBtn}
-              onPress={() => { setLoading(true); checkStatusReal(); }}
-            >
-              <Text style={s.refreshBtnText}>Refresh Status</Text>
-            </Pressable>
-          )}
-
-          <View style={s.infoNote}>
-            <Text style={s.infoNoteText}>
-              Your banking details are never stored on our servers. All payouts are processed securely through Stripe Connect.
-            </Text>
+          <View style={s.actions}>
+            <Button label={ui.btnLabel} onPress={handleSetup} loading={submitting} disabled={submitting} block />
+            {status !== 'connected' ? (
+              <Button label="Refresh status" variant="ghost" onPress={() => { setLoading(true); checkStatusReal(); }} block />
+            ) : null}
           </View>
+
+          <Text style={[textStyle('bodySm'), s.note]}>
+            Your banking details are never stored on our servers. Payouts are processed securely through Stripe Connect.
+          </Text>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  root: { flex: 1, backgroundColor: v2.surface.canvas },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  topBar:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-               paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-               borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  body: { flex: 1, paddingHorizontal: v2.space.lg, paddingTop: v2.space.xxl, gap: v2.space.lg },
+  title: { color: v2.text.primary },
+  description: { color: v2.text.secondary },
 
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
-  icon: { fontSize: 56 },
-  title: { fontSize: fontSize.xl, fontWeight: '900', color: colors.text, textAlign: 'center' },
-  description: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 22, paddingHorizontal: spacing.md },
+  statusCard: {
+    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    padding: v2.space.lg, gap: v2.space.sm, alignItems: 'flex-start',
+  },
+  statusSub: { color: v2.text.muted },
 
-  statusCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
-                padding: spacing.lg, width: '100%', marginTop: spacing.sm, gap: spacing.sm, ...shadow.card },
-  statusRow:  { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  statusDot:  { width: 8, height: 8, borderRadius: 4 },
-  statusText: { fontSize: fontSize.sm, fontWeight: '700' },
-  statusSub:  { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
-
-  actionBtn:         { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: spacing.xl, alignItems: 'center', width: '100%', marginTop: spacing.sm },
-  actionBtnDisabled: { opacity: 0.6 },
-  actionBtnText:     { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-
-  refreshBtn:        { alignItems: 'center', paddingVertical: 10, width: '100%' },
-  refreshBtnText:    { color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '600', textDecorationLine: 'underline' },
-
-  infoNote:     { paddingHorizontal: spacing.md, marginTop: spacing.sm },
-  infoNoteText: { fontSize: fontSize.xs, color: colors.textDim, lineHeight: 16, textAlign: 'center' },
+  actions: { gap: v2.space.sm, marginTop: v2.space.sm },
+  note: { color: v2.text.muted, marginTop: v2.space.md },
 });
