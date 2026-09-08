@@ -542,3 +542,14 @@ one statement, principal = the runtime user only, action `sts:AssumeRole` only, 
 masked; `list-role-policies` `[]`, `list-attached-role-policies` `[]` (permissions bound to the exact key ARN only at C2). Refusal test:
 `sts assume-role` into the runtime role as `jose-admin` → **AccessDenied** ("not authorized to perform: sts:AssumeRole"). All PASS ⇒ C1-3 VERIFIED.
 No access-key secret exists.
+
+### C1-6 — audit bucket policy — **VERIFIED 2026-09-08T04:0xZ**
+OWNER-RETURNED: `put-bucket-policy` completed. CLAUDE-OBSERVED (read-only): `get-bucket-policy` decoded and normalized (objects key-sorted,
+scalar arrays sorted, statement order preserved) **equals** `m1_audit_bucket_policy.json` (sha256 `76addba3…`); the only raw difference is S3's
+reordering of the four-ARN `Principal.AWS` array. Statements intact: `AWSCloudTrailAclCheck20150319` (Allow `cloudtrail.amazonaws.com`
+`s3:GetBucketAcl`, `aws:SourceArn` = `arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail`); `AWSCloudTrailWrite20150319`
+(Allow `s3:PutObject` on `AWSLogs/652872010073/*`, `bucket-owner-full-control`, same SourceArn); `DenyInsecureTransport` (Deny `s3:*`, Principal
+`*`, `aws:SecureTransport=false`); `DenyCeremonyAndVerifierFromMutatingAuditEvidence` (Deny 17 mutation actions on bucket + objects for
+`role/SnatchIt-KMS-Ceremony`, `user/snatchit-kms-verifier`, `role/SnatchIt-CredentialSign-Runtime`, `user/snatchit-credential-sign-runtime`).
+Object Lock still `Enabled` with no rule; zero object versions. (Coordinator note: two earlier comparison attempts were tooling errors —
+double-encoded JSON, then a normalizer that stringified statements — corrected before recording.) PASS ⇒ C1-6 VERIFIED.
