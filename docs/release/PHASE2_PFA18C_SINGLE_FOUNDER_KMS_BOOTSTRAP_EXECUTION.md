@@ -408,3 +408,39 @@ AWS: **none** (two read-only calls attempted; both refused for an expired/change
 **none** (read-only queries only). KMS: **not created.** Secrets/ExternalId: **none generated or stored.** Organizations/accounts/IAM/CloudTrail/S3:
 **none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **upgrade OWNER-CONFIRMED, not
 API-verified; nothing purchased.** Repository: packet, execution record, runbook notes, README validation log, two artifact corrections.
+
+---
+
+## SESSION 10 — 2026-09-08 — PAID VERIFIED · C1 AUTHORIZED · PREFLIGHT DONE · LATER STAGES PREPARED (NO MUTATION)
+
+Authorization received (owner, 2026-09-08): **PFA-18C M1/M2/M3 SETUP within the reviewed C1 package**, subject to its prerequisites and the
+five remaining confirmations (R1 region, R2 names, R3 layout, R4 TOTP, R5 M5 scope + ordering). Owner-confirmed decisions: PAID/ACTIVE;
+`jose-admin` engineering principal; root 0 keys + MFA; **Object-Lock COMPLIANCE 3 years**; **O1**; keep-Free-plan superseded; pay-as-you-go
+(no $100 purchase, no recurring $100 budget). Not authorized: Organizations/accounts, CreateKey, DB insert, migrations, secrets, deploy, activation.
+Pre-existing user edits preserved.
+
+### Billing / identity / security — VERIFIED (CLAUDE-OBSERVED 2026-09-08T01:50:26Z; corroborates the OWNER-RETURNED output)
+`sts get-caller-identity` → `arn:aws:iam::652872010073:user/jose-admin` (UserId `AIDAZQARUJFMXKFV5U5JY`). `freetier get-account-plan-state` →
+**`PAID · ACTIVE · remaining credits 100.0 USD`**. `iam get-account-summary` → `AccountAccessKeysPresent 0 · AccountMFAEnabled 1 · Users 1 ·
+Roles 3 · MFADevices 2`. **NG-1 CLEARED** (runbook dated note). No upgrade repeated; nothing purchased.
+
+### C1-0a preflight — DONE (read-only, CLAUDE-OBSERVED 2026-09-08T01:51Z)
+CloudTrail trails `[]` · S3 buckets `[]` · roles = the 3 service-linked only (no `SnatchIt*`) · users `["jose-admin"]` · KMS keys `[]` ·
+`jose-admin` access keys `[]` · `jose-admin` MFA = **one passkey** (`u2f/user/jose-admin/jose-admin-touchid-…`), **no TOTP** · groups
+`SnatchIt-admins` (AdministratorAccess) + direct `IAMUserChangePassword` · Organizations not in use · `head-bucket snatchit-audit-652872010073`
+→ 404 (name free). Production DB (01:49:58Z): ledger 130 · tip 120 · 115–120 present · 110–114 absent · 0 keys · dark · census 149/83/31.
+Repository: `614c53d` = origin; CI green (`34177096660`, `34177101087`); no PFA-18C/110–114/edge change since `1f3fc19`; admin `78a56fd`
+`supabase/` identical to `ab3e17f`; local `supabase` CLI 2.115.0.
+
+### Prepared this session
+`m1_object_lock_configuration.json` Years = 3 (integer). Packet rewritten in place: §2 approvals + the single R1–R5 confirmation; §5 C1 execution
+log (C1-0a done; C1-0b…C1-10 pending R1/R2/R4 and Device 2); §5b exact packages for C4 (apply tree `78a56fd`, dry run must list exactly
+110–114, read-backs), C2 (CreateKey + independent binding proof), C3 (§6.1/§6.2 guarded bootstrap), C5, C6 (O1 secrets via env-file; dark
+deploy with verify_jwt postures true/true/false), C7 (M5) — including the **open engineering question** that `kernel.issue_ticket_atoms`
+refuses while issuance is dark, so the credential-sign half of M5 has no atom source without a custody-table test INSERT that would pin the
+key; to be ruled on before C7.
+
+### SESSION 10 MUTATION LEDGER
+AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS: **not created.** Secrets/ExternalId: **none.**
+IAM/S3/CloudTrail/Organizations: **none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.**
+Billing: **PAID (verified), unchanged.** Repository: packet, runbook notes, README note, object-lock artifact (Years 3), this record.
