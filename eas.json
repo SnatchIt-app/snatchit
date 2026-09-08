@@ -37,6 +37,20 @@
         "EXPO_PUBLIC_SENTRY_DSN": "https://f83fffa8c787e41e509b17b384787aed@o4511123980877825.ingest.us.sentry.io/4511123983695872",
         "SENTRY_ALLOW_FAILURE": "true"
       }
+    },
+    "sandbox": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "sandbox",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ofaidukbieeekqaboscm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "",
+        "EXPO_PUBLIC_SENTRY_DSN": "",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
