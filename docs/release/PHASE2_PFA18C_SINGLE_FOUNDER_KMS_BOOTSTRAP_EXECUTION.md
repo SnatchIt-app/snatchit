@@ -498,3 +498,12 @@ trust policy `jq -S` diff vs `m1_ceremony_role_trust.json` (sha256 `89540f61…`
 ### C1-2 — pre-mutation inspection 2026-09-08T02:42:58Z (read-only)
 `get-user snatchit-kms-verifier` → NoSuchEntity; users = `["jose-admin"]`. Artifact `m2_verifier_policy.json` sha256 `3082cc74…` (F3 in force).
 Managed policy `arn:aws:iam::aws:policy/SignInLocalDevelopmentAccess` exists (default v3, updated 2026-02-12). Owner instructed.
+
+### C1-2 — IAM user `snatchit-kms-verifier` — **PARTIAL** (2026-09-08T03:12:09Z inspection)
+OWNER-RETURNED: `create-user` succeeded; `put-user-policy pfa18c-verifier-readonly` **failed** — `LimitExceeded: maximum user inline policy size
+2048` (the artifact is 2,544 characters compacted). CLAUDE-OBSERVED (read-only): user `arn:aws:iam::652872010073:user/snatchit-kms-verifier`
+(UserId `AIDAZQARUJFM7MUXJXPMR`, created 02:44:06Z); inline policies `[]`; attached managed `[]`; groups `[]`; login profile none; access keys `[]`;
+MFA `[]`; customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` does **not** exist (`list-policies --scope Local` → `[]`); quotas
+`UserPolicySizeQuota 2048`, `PolicySizeQuota 6144`. **Correction (packaging only, F7):** apply the identical `m2_verifier_policy.json` (sha256
+`3082cc74…`) as customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` and attach it; permissions and denies unchanged; no split. Owner instructed
+(create-policy, attach ×2). The user is NOT recreated. C1-2 is not complete; M2 remains pending Device 2.
