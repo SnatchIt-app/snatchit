@@ -48,7 +48,6 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://ofaidukbieeekqaboscm.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mYWlkdWtiaWVlZWtxYWJvc2NtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3OTA4MDgsImV4cCI6MjEwNDM2NjgwOH0.kQ08y8s262XP8yuPzHeNABTwdqMnyMgoJj2mZ8TMILA",
         "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51T6Fb1GlD5aqtxIwnyq1nqV4nWAXQGs6L1VjDBGuRRpxnSCpTFlHId4uwykci77bqmuKM7bkNs4OPk1ENF9VUMsr00erfSllCG",
-        "EXPO_PUBLIC_SENTRY_DSN": "",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }
