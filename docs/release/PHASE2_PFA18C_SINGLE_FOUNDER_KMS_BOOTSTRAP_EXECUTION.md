@@ -553,3 +553,9 @@ reordering of the four-ARN `Principal.AWS` array. Statements intact: `AWSCloudTr
 `role/SnatchIt-KMS-Ceremony`, `user/snatchit-kms-verifier`, `role/SnatchIt-CredentialSign-Runtime`, `user/snatchit-credential-sign-runtime`).
 Object Lock still `Enabled` with no rule; zero object versions. (Coordinator note: two earlier comparison attempts were tooling errors —
 double-encoded JSON, then a normalizer that stringified statements — corrected before recording.) PASS ⇒ C1-6 VERIFIED.
+
+### C1-7 — Object-Lock default retention — **VERIFIED 2026-09-08T04:01:20Z**
+OWNER-RETURNED: `put-object-lock-configuration` completed. CLAUDE-OBSERVED (read-only): `get-object-lock-configuration` → `ObjectLockEnabled:
+Enabled`, `Rule.DefaultRetention.Mode: COMPLIANCE`, `Years: 3` (artifact `9a4c5a8d…`); `list-object-versions` → no versions, no delete markers;
+trails (incl. shadow) `[]`. PASS ⇒ C1-7 VERIFIED. The bucket remains empty and therefore still reversible; **C1-8 (start-logging) is the point at
+which the first COMPLIANCE-locked objects (3 years) are written.** Owner instructed for C1-8.

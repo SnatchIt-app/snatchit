@@ -62,7 +62,8 @@ Conventions unchanged (owner runs on the primary machine as `jose-admin`; `--pro
 | C1-4 bucket `snatchit-audit-652872010073` (Object Lock at creation) | **VERIFIED 03:41:07Z** | `ObjectLockEnabled Enabled`, no rule yet; versioning `Enabled`; location us-east-1; no policy; no objects |
 | C1-5 PAB ×4 + SSE-S3 | **VERIFIED 03:41:07Z** | all four `true`; `AES256`, `BucketKeyEnabled false`, no KMS key (S3 also reports SSE-C blocked by default) |
 | C1-6 bucket policy | **VERIFIED 04:0xZ** | live policy equals the artifact after normalization (objects key-sorted; scalar arrays sorted — the only raw difference is S3 reordering the four-ARN `Principal.AWS` array); statements: CloudTrail `GetBucketAcl` + `PutObject` (`AWSLogs/652872010073/*`, `bucket-owner-full-control`) both conditioned on `aws:SourceArn` = the trail; `DenyInsecureTransport` (`aws:SecureTransport=false`, `s3:*`, Principal `*`); `DenyCeremonyAndVerifierFromMutatingAuditEvidence` — all four principals present, 17 mutation actions, bucket + objects |
-| C1-7 **3-year COMPLIANCE** rule → C1-8 trail (Read+Write, no KMS exclusion) | pending | bucket still empty (no versions) |
+| C1-7 Object-Lock default retention | **VERIFIED 04:01:20Z** | `ObjectLockEnabled Enabled`, `Rule.DefaultRetention = {Mode: COMPLIANCE, Years: 3}`; zero object versions / delete markers (rule still editable, bucket still deletable until the first object) |
+| C1-8 trail `snatchit-audit-trail` (multi-region, validation, `ReadWriteType All`, management events, no KMS exclusion, logging) — **first immutable audit objects are written here** | pending | trails `[]` (incl. shadow) at 04:01Z |
 | C1-9 MFA test (T2 serial+token) + deny-set proof | pending C1-0b | — |
 | C1-10 Device 2 login/attestation/read-back | **Device 2 availability not yet determined** — must be physically separate and clean; M2 is not marked satisfied until it runs | — |
 
