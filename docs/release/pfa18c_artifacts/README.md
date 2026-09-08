@@ -55,3 +55,9 @@ Checked against the AWS API/CLI references read that day (CreateKey, AssumeRole,
 | — | Unchanged after review: ceremony role trust/policy (CreateKey conditions, tag scoping, deny-set), bucket policy (CloudTrail `aws:SourceArn`, TLS-only, principal deny), runtime user/role/policy shapes, v2 key policy, trail selectors requirement (`ReadWriteType All`, management events, no `kms.amazonaws.com` exclusion). | — |
 
 **2026-09-08 (session 10):** `m1_object_lock_configuration.json` — `<RETENTION_YEARS>` replaced by the integer **3** (owner-approved COMPLIANCE retention, explicit). Remaining placeholders by design: `<KMS_SIGNER_EXTERNAL_ID>` (local copy only, never committed) and `<PRODUCTION_KMS_KEY_ARN>` (filled after CreateKey).
+
+## Model A (organization + audit account) — DRAFT artifacts, 2026-09-08 (session 11). NOT authorized, NOT applied.
+
+`model_a/scp_workload_guardrails.json` — SCP for the **Workloads** OU (binds `652872010073` incl. its root): denies CloudTrail Stop/Delete/Update/selector changes; denies mutation of both audit buckets (the Model-B bucket and the org audit bucket); denies `kms:ScheduleKeyDeletion` / `DeleteImportedKeyMaterial` on the exact production key (`DisableKey` deliberately **not** denied — PFA-18B emergency path stays available); denies `organizations:LeaveOrganization`. `FullAWSAccess` stays attached alongside.
+`model_a/org_audit_bucket_policy.json` — bucket policy for `snatchit-org-audit-<AUDIT_ACCOUNT_ID>` (audit account; Object Lock COMPLIANCE; SSE-S3): CloudTrail write for the **organization trail** `snatchit-org-trail` owned by the management account, org + management log prefixes, TLS-only.
+Placeholders: `<MGMT_ACCOUNT_ID>`, `<AUDIT_ACCOUNT_ID>`, `<ORG_ID>` (known only after the accounts/organization exist), `<PRODUCTION_KMS_KEY_ARN>` (after C2). Package and verification: `PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` §5c.

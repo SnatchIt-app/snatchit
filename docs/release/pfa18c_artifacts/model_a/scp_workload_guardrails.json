@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyDefeatingAuditTrailsEvenForAccountAdmins",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:StopLogging", "cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors", "cloudtrail:PutInsightSelectors"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyMutatingAuditEvidence",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:DeleteBucket", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy",
+        "s3:PutLifecycleConfiguration", "s3:PutBucketVersioning", "s3:PutObjectRetention", "s3:PutObjectLegalHold",
+        "s3:BypassGovernanceRetention", "s3:PutEncryptionConfiguration", "s3:PutReplicationConfiguration",
+        "s3:PutBucketObjectLockConfiguration", "s3:PutBucketPublicAccessBlock", "s3:PutBucketAcl", "s3:PutBucketOwnershipControls"
+      ],
+      "Resource": [
+        "arn:aws:s3:::snatchit-audit-652872010073",
+        "arn:aws:s3:::snatchit-audit-652872010073/*",
+        "arn:aws:s3:::snatchit-org-audit-<AUDIT_ACCOUNT_ID>",
+        "arn:aws:s3:::snatchit-org-audit-<AUDIT_ACCOUNT_ID>/*"
+      ]
+    },
+    {
+      "Sid": "DenyDeletingTheProductionSigningKey",
+      "Effect": "Deny",
+      "Action": [ "kms:ScheduleKeyDeletion", "kms:DeleteImportedKeyMaterial" ],
+      "Resource": "<PRODUCTION_KMS_KEY_ARN>"
+    },
+    {
+      "Sid": "DenyLeavingTheOrganization",
+      "Effect": "Deny",
+      "Action": [ "organizations:LeaveOrganization" ],
+      "Resource": "*"
+    }
+  ]
+}

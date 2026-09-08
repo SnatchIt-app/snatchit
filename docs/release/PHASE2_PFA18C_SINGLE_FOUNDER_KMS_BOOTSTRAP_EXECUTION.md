@@ -444,3 +444,34 @@ key; to be ruled on before C7.
 AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS: **not created.** Secrets/ExternalId: **none.**
 IAM/S3/CloudTrail/Organizations: **none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.**
 Billing: **PAID (verified), unchanged.** Repository: packet, runbook notes, README note, object-lock artifact (Years 3), this record.
+
+---
+
+## SESSION 11 — 2026-09-08 — C1 EXECUTION STARTED (C1-0b) · R5 CORRECTED · M5 PLAN · MODEL A PACKAGE (NO MUTATION)
+
+Owner decisions confirmed 2026-09-08: R1 us-east-1 · R2 reviewed names at `6372538` · retention 3 y COMPLIANCE · O1 · R3 (`652872010073` future
+workload member; Model B temporary; Model A before T3) · R4 (additional TOTP on `jose-admin`; serial/token on AssumeRole; passkey kept; MFA
+condition never weakened) · 110–114 before the DB insert. **R5 CORRECTION recorded:** no pre-T3 exception; the prior packet text proposing that a
+throwaway credential on a non-saleable test event is "not T3", and any attribution of such a ruling to the owner, is withdrawn (packet §2, runbook
+C7 dated note). Canonical T3 quoted verbatim in the packet. C7/M5 PENDING until its procedure satisfies governance; no custody insert, issuance
+flip, guard disable or bypass. The §5.3 challenge signature is a nonce signature required by the bootstrap, not a production credential.
+
+### State (CLAUDE-OBSERVED)
+Repo `6372538` = origin, CI green; admin `2459bdc` (docs addendum; `supabase/` identical to `ab3e17f`; CI green) — **C4 apply tree candidate is
+now `2459bdc`**, to be re-verified on apply day. Production 02:14:51Z: ledger 130 · tip 120 · 115–120 present · 110–114 absent · 0 keys · dark.
+AWS session valid as `jose-admin`; `list-mfa-devices jose-admin` → passkey only (`u2f/…touchid…`, enabled 2026-09-05) ⇒ C1-0b required.
+
+### C1 log
+- C1-0a preflight: DONE (session 10, read-only).
+- **C1-0b TOTP enrolment: owner instructed** (console: Users → jose-admin → Security credentials → Assign MFA device → Authenticator app; QR/seed/
+  codes never leave the owner's screen). Verification = `list-mfa-devices` shows the passkey + `arn:aws:iam::652872010073:mfa/<name>`. Pending.
+- C1-1…C1-10: not started. Device 2 availability: **not yet determined** (must be physically separate and clean; M2 not satisfied until it runs).
+
+### Prepared
+Packet rewritten in place (§2 confirmations + R5 correction; §5 execution log; §5b C4 tree `2459bdc`; §5c Model A package with responsibilities,
+order, SCP/bucket-policy artifacts under `pfa18c_artifacts/model_a/`, costs, refusal probes; §5d M5 test plan with the exact conflicting
+requirements and the smallest clarification proposed for review). Runbook C7 dated note. README Model A entry.
+
+### SESSION 11 MUTATION LEDGER
+AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS/secrets/IAM/S3/CloudTrail/Organizations: **none.**
+Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.** Billing: PAID, unchanged. Repository: docs + 2 draft artifacts.
