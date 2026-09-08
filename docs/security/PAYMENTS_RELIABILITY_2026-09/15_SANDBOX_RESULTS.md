@@ -29,7 +29,7 @@ sandbox" (`acct_1T6Fb1GlD5aqtxIw`, an existing account sandbox — no new one cr
 
 ## 2. Real Stripe test-mode results (provider results — NOT mocked)
 
-Run `RESULTS_20260907_205044.md` (`scripts/sandbox/20_matrix.sh`) against Stripe Sandbox `acct_1T6Fb1GlD5aqtxIw`
+Authoritative run `RESULTS_20260907_213548.md` — **49/49 PASS, 0 FAIL** (`scripts/sandbox/20_matrix.sh`) against Stripe Sandbox `acct_1T6Fb1GlD5aqtxIw`
 (`livemode=false` asserted on every object) and Supabase `ofaidukbieeekqaboscm`. Every row below was produced by a real
 Stripe API call and a real webhook delivery to the deployed edge, verified by SQL on the sandbox database.
 
@@ -56,11 +56,44 @@ Stripe API call and a real webhook delivery to the deployed edge, verified by SQ
 | S9.4 | withdraw | back to `ACTIVE` | PASS |
 | S12 | run-scoped audit | no unresolved review rows, every webhook event of the run processed, no open attempts, and **no live-mode payment row exists in the sandbox** | PASS |
 
-Two failures in the first corrected run were defects in the harness, not the product, and are fixed in
-`scripts/sandbox/20_matrix.sh`: the old-client `mark_listing_sold` assertion expected 200 where the documented,
-client-tolerated refusal is correct; and the payout leg had no balance precondition. Earlier runs also failed for three
-environment reasons now fixed in the harness: `listings.buy_now_price` is denominated in DOLLARS (payments are cents),
-PostgREST returns 204 for void RPCs, and the Stripe CLI prints a context banner that broke JSON parsing.
+### 2a. Payout success path and self-heal — REAL Connect test transfer
+
+After topping up the sandbox platform balance with Stripe's designated test card, the sweep was invoked directly
+(`enforce-transfer-expiry` with `INTERNAL_CRON_SECRET`; the cron job is unscheduled in the sandbox). Phase 2b picked up
+the stuck `buyer_confirmed` row once its 15-minute quiet period had elapsed and completed the payout:
+
+| Fact | Value |
+|---|---|
+| Sweep summary | `auto_released: 1`, `errors: 0` |
+| Attempt ledger | attempt **2** (attempt 1 remains `failed` with its recorded Stripe error), key `payout_<transfer_id>_a2`, state `succeeded` |
+| Real Stripe transfer | `tr_3UDDL9GlD5aqtxIw0MLmppEH`, amount **9000** (= 10000 − 1000 seller fee, the 10/10 model), destination the Connect test account, `transfer_group` = the transfer id, `source_transaction` = the funding charge, `livemode=false` |
+| Transfer row | `stripe_transfer_id` recorded, `payout_released_at` set |
+| Reversal | `trr_1UDDbtGlD5aqtxIwwdZcz08j` posted → real `transfer.reversed` webhook → transfer status `reversed` |
+
+This proves, against the real provider: exactly one Stripe transfer per obligation; a failed attempt is retried under a
+NEW idempotency key rather than replaying the old one; the frozen amount and destination are honoured; the transfer is
+attributable to the obligation via `transfer_group`; and the reversal path closes the row.
+
+Additional real-provider evidence from the same run: the payout leg created a REAL Stripe test transfer
+(`tr_3UDDz1GlD5aqtxIw1kqdzBDb`, amount 9000 = 10000 − 1000 seller fee, `transfer_group` = the transfer id,
+`livemode=false`), the repeat call was an idempotent no-op (`already_released=true`, still exactly one attempt and one
+`tr_`), and the reversal (`trr_1UDDzHGlD5aqtxIwiX8benIz`) drove the transfer to `reversed` through the real
+`transfer.reversed` webhook.
+
+### 2b. Every failure seen before the clean run was a harness defect or an environment fact — none was a product defect
+
+| Observed | Root cause | Disposition |
+|---|---|---|
+| Mint refused: "Price changed", server total 100× expected | `listings.buy_now_price` / `starting_bid` are **dollars**; `payments.*` are **cents**. The fixture used cents. | harness fixed |
+| `reserve_buy_now` / `mark_transfer_sent` "non-200" | PostgREST returns **204** for a void RPC | harness fixed (200/204) |
+| `jq: parse error` on every Stripe read | the Stripe CLI prints a sandbox context banner before JSON | harness fixed (`sjson` helper) |
+| Assertions passing on empty ids | no guard on required values | harness fixed (`req` guard) |
+| old-client `mark_listing_sold` expected 200 | after settlement the correct answer is the refusal `This listing has already been sold.`, which the shipped client tolerates (`/already sold/i`) and pgTAP 120 asserts | assertion corrected |
+| Payout attempt `failed`, `PAYOUT_TRANSFER_FAILED` | the sandbox platform held 8 802 c available vs 9 000 c needed; **Stripe refused, the ledger recorded the failure, filed one manual review and moved no money** — the designed failure path | balance precondition added |
+| Payout not retried immediately | Phase 2b deliberately waits **15 minutes** after `buyer_confirmed` so it never races an in-flight buyer request | behaviour confirmed correct (§2a) |
+| S8 mint empty on a fast run | `create-payment-intent` is rate limited to **5 calls / 60 s per user**, fail-closed. The matrix legitimately exceeds it. | harness paces and retries; the 429 is recorded as evidence the limiter works |
+| `livemode` assertion "not false" | jq's `//` operator treats `false` as absent | assertion corrected |
+| repeat `confirm-and-release` | documented contract is `{success:true, already_released:true}` | assertion corrected |
 
 ## 3. Mocked coverage relied on (not sandbox evidence)
 pgTAP 4047, vitest 856, rehearsal 63/63 — see `05_VERIFICATION.md` §7.
