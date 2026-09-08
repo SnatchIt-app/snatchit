@@ -475,3 +475,26 @@ requirements and the smallest clarification proposed for review). Runbook C7 dat
 ### SESSION 11 MUTATION LEDGER
 AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS/secrets/IAM/S3/CloudTrail/Organizations: **none.**
 Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.** Billing: PAID, unchanged. Repository: docs + 2 draft artifacts.
+
+### C1-0b — TOTP enrolment on `jose-admin` — DONE 2026-09-08T02:38:37Z
+OWNER-RETURNED: user `jose-admin`; TOTP serial `arn:aws:iam::652872010073:mfa/jose-admin-totp`; enabled 2026-09-08T02:38:37+00:00; the
+existing Touch ID passkey remains enrolled. CLAUDE-OBSERVED corroboration (read-only `list-mfa-devices`, 02:40:41Z): two devices —
+`arn:aws:iam::652872010073:mfa/jose-admin-totp` (2026-09-08T02:38:37Z) and `u2f/user/jose-admin/jose-admin-touchid-…` (2026-09-05).
+**SERIAL for C1-9 = `arn:aws:iam::652872010073:mfa/jose-admin-totp`.** Enrolment does not prove the trust condition; that is tested at C1-9.
+No seed, QR, code or password was exchanged.
+
+### C1-1 — pre-mutation inspection 2026-09-08T02:40:41Z (read-only)
+`get-role SnatchIt-KMS-Ceremony` → NoSuchEntity; `SnatchIt*` roles → none. Artifacts to apply: `m1_ceremony_role_trust.json` sha256
+`89540f61…`, `m1_ceremony_role_policy.json` sha256 `1fddd53b…` (last changed at `239983e`; unchanged since the reviewed package). Owner instructed.
+
+### C1-1 — IAM role `SnatchIt-KMS-Ceremony` — **VERIFIED 2026-09-08T02:42:58Z**
+OWNER-RETURNED: `create-role` and `put-role-policy` completed successfully on the primary machine (owner-executed).
+CLAUDE-OBSERVED read-backs (read-only, `snatchit-admin` profile): `Arn arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony` · `RoleId
+AROAZQARUJFMULUKHKRAG` · `CreateDate 2026-09-08T02:41:45Z` · `MaxSessionDuration 3600` · `Description "PFA-18C ceremony principal"` ·
+trust policy `jq -S` diff vs `m1_ceremony_role_trust.json` (sha256 `89540f61…`) → **identical** · inline policy `pfa18c-ceremony` diff vs
+`m1_ceremony_role_policy.json` (sha256 `1fddd53b…`) → **identical** · `list-role-policies` → `["pfa18c-ceremony"]` only · `list-attached-role-policies`
+→ `[]`. Refusal tests deferred to C1-9 (need a role session). All comparisons pass ⇒ C1-1 VERIFIED.
+
+### C1-2 — pre-mutation inspection 2026-09-08T02:42:58Z (read-only)
+`get-user snatchit-kms-verifier` → NoSuchEntity; users = `["jose-admin"]`. Artifact `m2_verifier_policy.json` sha256 `3082cc74…` (F3 in force).
+Managed policy `arn:aws:iam::aws:policy/SignInLocalDevelopmentAccess` exists (default v3, updated 2026-02-12). Owner instructed.
