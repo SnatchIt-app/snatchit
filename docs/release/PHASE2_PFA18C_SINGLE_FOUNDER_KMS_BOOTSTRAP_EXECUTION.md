@@ -507,3 +507,18 @@ MFA `[]`; customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` does **not** 
 `UserPolicySizeQuota 2048`, `PolicySizeQuota 6144`. **Correction (packaging only, F7):** apply the identical `m2_verifier_policy.json` (sha256
 `3082cc74…`) as customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` and attach it; permissions and denies unchanged; no split. Owner instructed
 (create-policy, attach ×2). The user is NOT recreated. C1-2 is not complete; M2 remains pending Device 2.
+
+### C1-2 — IAM user `snatchit-kms-verifier` — **VERIFIED 2026-09-08T03:36:38Z**
+OWNER-RETURNED: `create-policy SnatchIt-KMS-Verifier-ReadOnly`, `attach-user-policy` ×2 and the console password step completed.
+CLAUDE-OBSERVED (read-only): policy `arn:aws:iam::652872010073:policy/SnatchIt-KMS-Verifier-ReadOnly` created 03:18:03Z, `DefaultVersionId v1`,
+`AttachmentCount 1`, versions = [`v1` default]; `get-policy-version v1` document `jq -S` diff vs `m2_verifier_policy.json` (sha256 `3082cc74…`)
+→ **identical**; user attachments = exactly [`…policy/SnatchIt-KMS-Verifier-ReadOnly`, `arn:aws:iam::aws:policy/SignInLocalDevelopmentAccess`];
+inline `[]`; groups `[]`; access keys `[]`; login profile created 03:32:13Z (`PasswordResetRequired false`); MFA `[]` (Device 2 enrols its own at
+C1-10). Refusal probes deferred to C1-10 (Device 2). C1-2 VERIFIED; **M2 not satisfied** until Device 2 runs.
+
+### C1-3…C1-8 — preflight 2026-09-08T03:36:38Z (read-only)
+`head-bucket snatchit-audit-652872010073` → 404 (free); buckets `[]`; trails `[]` (incl. shadow); runtime user/role → NoSuchEntity; present:
+role `SnatchIt-KMS-Ceremony`, users `jose-admin`, `snatchit-kms-verifier`, local policy `SnatchIt-KMS-Verifier-ReadOnly`. Artifacts: bucket policy
+`76addba3…`, object-lock `9a4c5a8d…` (Years 3), runtime user policy `a1cb8644…`, runtime trust `8ebd036a…` (ExternalId placeholder; filled locally
+at C1-3). Dependency restated: the bucket policy (C1-6) names the runtime user/role ⇒ **C1-3 must precede C1-6**; C1-4/C1-5 have no principal
+dependency and are reversible while the bucket is empty. Owner instructed: C1-4 + C1-5.

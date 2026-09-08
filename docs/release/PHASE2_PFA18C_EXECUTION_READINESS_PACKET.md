@@ -55,9 +55,9 @@ Conventions unchanged (owner runs on the primary machine as `jose-admin`; `--pro
 | Step | Status | Evidence / notes |
 |---|---|---|
 | C1-0a preflight (read-only) | **DONE 01:51Z** | §0 |
-| **C1-0b** TOTP enrolment on `jose-admin` (owner, console) | **IN PROGRESS — owner instructed** | verification = `aws iam list-mfa-devices --user-name jose-admin` shows the passkey **and** `arn:aws:iam::652872010073:mfa/<name>` (non-secret metadata only) |
+| C1-0b TOTP enrolment on `jose-admin` | **DONE 02:38:37Z** (owner-returned; corroborated read-only) | `arn:aws:iam::652872010073:mfa/jose-admin-totp` + the passkey; trust condition tested at C1-9 |
 | C1-1 role `SnatchIt-KMS-Ceremony` | **VERIFIED 02:42:58Z** | trust + inline policy identical to artifacts; only `pfa18c-ceremony`; no managed attachments |
-| C1-2 user `snatchit-kms-verifier` | **PARTIAL** — user created 02:44:06Z (owner); `put-user-policy` **failed `LimitExceeded` (inline user policy max 2048 chars; artifact compacts to 2544)**; repackaged as customer-managed policy **`SnatchIt-KMS-Verifier-ReadOnly`** (same JSON, same denies; managed policy quota 6144) — creation/attachment pending owner | inline `[]`, attached `[]`, groups `[]`, login profile none, access keys `[]`, MFA `[]` (read-only, 03:12Z) |
+| C1-2 user `snatchit-kms-verifier` | **VERIFIED 03:36:38Z** (policy packaged as customer-managed after the inline-quota refusal, F7) | `SnatchIt-KMS-Verifier-ReadOnly` v1 (default, only version) **identical** to `m2_verifier_policy.json`; attached = that ARN + `SignInLocalDevelopmentAccess` only; inline `[]`; groups `[]`; access keys `[]`; login profile present (03:32:13Z); MFA `[]` — enrolled from Device 2 at C1-10 (M2 still pending) |
 | C1-3 runtime user + role (trust only) | pending (local filled trust file) | — |
 | C1-4 … C1-8 bucket → PAB/SSE → policy → **3-year COMPLIANCE** → trail (Read+Write, no KMS exclusion) | pending | — |
 | C1-9 MFA test (T2 serial+token) + deny-set proof | pending C1-0b | — |
