@@ -13,13 +13,15 @@ import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 import { colors } from '@/src/theme';
+import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
 // .web.tsx is a passthrough.
@@ -38,6 +40,13 @@ export const unstable_settings = {
 function RootLayout() {
   const { session, loading } = useAuth();
   const [isRecovery, setIsRecovery] = useState(false);
+
+  // Brand typefaces. The navigator is held until these register, because
+  // `fontFamily()` resolves when a StyleSheet is constructed: a screen built
+  // before the faces land would keep the system face for its whole life, since
+  // nothing re-renders it when loading completes. The wait is over bundled
+  // assets, and a load failure reports ready, so the app can never wedge here.
+  const fontsReady = useBrandFonts();
 
   // Native-only: deep link handling, push token registration.
   // No-op on web.
@@ -79,6 +88,7 @@ function RootLayout() {
     <AppShell>
     <SafeAreaProvider>
     <ThemeProvider value={DarkTheme}>
+      {fontsReady ? (
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
@@ -104,14 +114,38 @@ function RootLayout() {
         <Stack.Screen name="settings/blocked-users" />
         <Stack.Screen name="profile/[id]" />
       </Stack>
+      ) : null}
 
-      {loading && (
+      {(loading || !fontsReady) && (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <View style={styles.splash}>
             <ActivityIndicator color={colors.accent} size="large" />
           </View>
         </View>
       )}
+
+      {/* Environment pairing failure: a non-dismissible blocker. Rendered last so
+          it covers everything, and it captures touches (no pointerEvents="none")
+          so the app underneath cannot be used. */}
+      {ENV_GUARD_FAILURE ? (
+        <View style={StyleSheet.absoluteFill}>
+          <View style={styles.envBlock}>
+            <Text style={styles.envBlockTitle}>Build misconfigured</Text>
+            <Text style={styles.envBlockBody}>
+              This build pairs the wrong Supabase project with the wrong Stripe account and has been
+              stopped before any network call.
+            </Text>
+            <Text style={styles.envBlockCode}>{ENV_GUARD_FAILURE}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Unmistakable label so a sandbox build is never mistaken for production. */}
+      {IS_SANDBOX_BUILD ? (
+        <View style={styles.sandboxBadge} pointerEvents="none">
+          <Text style={styles.sandboxBadgeText}>SANDBOX — TEST MONEY ONLY</Text>
+        </View>
+      ) : null}
 
       <StatusBar style="light" />
     </ThemeProvider>
@@ -125,6 +159,28 @@ function RootLayout() {
 export default wrapRootComponent(RootLayout);
 
 const styles = StyleSheet.create({
+  envBlock: {
+    flex: 1,
+    backgroundColor: '#1a0000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    gap: 14,
+  },
+  envBlockTitle: { color: '#FF1A1A', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  envBlockBody: { color: '#fff', fontSize: 15, textAlign: 'center', lineHeight: 21 },
+  envBlockCode: { color: '#ffb3b3', fontSize: 12, textAlign: 'center', fontFamily: 'Courier' },
+  sandboxBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#7a3b00',
+    paddingTop: 52,
+    paddingBottom: 6,
+    alignItems: 'center',
+  },
+  sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   splash: {
     flex: 1,
     backgroundColor: colors.bg,

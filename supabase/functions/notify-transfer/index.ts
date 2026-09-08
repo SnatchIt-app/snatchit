@@ -19,7 +19,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -52,7 +52,7 @@ async function sendPush(userId: string, title: string, body: string, data?: Reco
  * THIS call inserted the row (i.e. the notification has not been sent before).
  */
 async function claim(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   transferId: string,
   eventType: string,
 ): Promise<boolean> {

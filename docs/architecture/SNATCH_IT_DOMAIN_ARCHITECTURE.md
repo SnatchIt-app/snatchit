@@ -62,7 +62,17 @@ The specialist panel challenged the canonical core. These amendments are **ratif
 - **Multi-session passes = one ticket per session** (A3), authoritatively.
 - **`dual-control` / step-up MFA are config-gated seams, not hard preconditions:** a single-operator org satisfies them via single-approver-with-mandatory-audit until a second admin identity exists (a 2-person team must never be deadlocked out of releasing its own funds); the dual-control threshold is itself under dual-control (C11).
 
-**Open questions (tracked in `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md`):** **O2** offline first-admit-wins consensus under clock skew/partition (arbitration + fraud-queue design before offline at scale); **O3** resale-policy snapshot drift (decide before native resale — Gate M); **O4** per-event identity-verification strength (name-match vs custody-follows-credential); **O6** cross-region native-resale saga/escrow vs intra-region-only (C50 — a joint commercial + technical decision before multi-region resale). Two formerly-deferred items are resolved: cross-rail same-physical-seat dedup by **C17** (external-seat-reference, confirmed-enforced at Gate P for events with external inventory, per O5); cancellation refund liability + the reserve that funds it by **C29/C30/C31** (Gate M).
+> **`O1`…`O8` here are OPEN QUESTIONS. `O-1`…`O-5` (hyphenated) are OWNER RULINGS, and they are a different
+> series. Read the hyphen.** `O3` is resale-policy snapshot drift; **`O-3`** is payout visibility and requests.
+> `O4` is per-event identity-verification strength; **`O-4`** is door-manifest authority. The collision is
+> accidental and both series are already cited across the corpus, so neither is renumbered — the disambiguation
+> is the fix. The five owner rulings **O-1** (refund authority) · **O-2** (canonical role model) · **O-3**
+> (payout visibility/requests) · **O-4** (door-manifest authority) · **O-5** (`door_open_at` lifecycle) were
+> ratified 2026-08-27 and are integrated into this document's body and into
+> `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md`; each has a row in
+> `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`. (D4)
+
+**Open questions (tracked in `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md`):** **O2** offline first-admit-wins consensus under clock skew/partition (arbitration + fraud-queue design before offline at scale); **O3** resale-policy snapshot drift (decide before native resale — Gate M); **O4** per-event identity-verification strength (name-match vs custody-follows-credential); **O6** cross-region native-resale saga/escrow vs intra-region-only (C50 — a joint commercial + technical decision before multi-region resale); **O7** **the event outbox** — §6.2/§6.3 promise *"one outbox table and a drainer on the cron that already runs"* as the carrier for every eventual-consistency flow and for CDM C12's event envelope, and **no Phase-2 implementation spec schedules one** (C51 — the two readings and the consequence of each are recorded in the ratification record; neither is chosen); **O8** **the `notify` schema** — ratified Gate-P/MVP by C7, placed at Gate L / do-not-build by all four implementation specs (C52). Two formerly-deferred items are resolved: cross-rail same-physical-seat dedup by **C17** (external-seat-reference, confirmed-enforced at Gate P for events with external inventory, per O5); cancellation refund liability + the reserve that funds it by **C29/C30/C31** (Gate M).
 
 ### 0.5 Post-review ratified corrections (BINDING — supersede any conflicting body text)
 
@@ -129,7 +139,7 @@ A ticket is *born* in ring 2, *lives* in ring 1, and *travels* in ring 3. Money 
 | Object | What it represents in the business | Key conceptual attributes | Relates to | Why it is a distinct object |
 |---|---|---|---|---|
 | **user / profile** | One human, one identity, for every context they ever act in — buyer, seller, promoter, door staff, org finance lead. | handle, contact identifiers, id-verification level, risk tier, credential/notification prefs. | Owns tickets; places orders; is a member of orgs; holds staff roles. | Capabilities must come from *relationships*, never a `user_type` flag. A single person can be all roles at once; collapsing that into a type column re-introduces the exact rigidity Phase 2 exists to remove. |
-| **organization** | The legal business that signs up to sell primary tickets — a venue LLC, a promoter collective, a venue group. The **payee** for primary sales. | legal + display name, Stripe Connect account, onboarding status, default settlement schedule, tax registration. | Operates venues; promotes events; receives settlements/payouts; has members. | The org, not the user, is the financial and contractual counterparty for primary sales. A person is never a primary-sale merchant of record; an org is. |
+| **organization** | The legal business that signs up to sell primary tickets — a venue LLC, a promoter collective, a venue group. The **payee** for primary sales. | legal + display name, Stripe Connect account, onboarding status, default settlement schedule, tax registration. | Operates venues; promotes events; receives settlements/payouts; has members. | The org, not the user, is the financial and contractual counterparty for primary sales. A person is never the counterparty or payee for a primary sale; an organization is. The **merchant of record is the platform** — owner ruling A1, `docs/phase2/PRIMARY_TICKETING_OWNER_RATIFICATION.md` (PFA-PT-1, 2026-09-02), superseding the previous merchant-of-record wording in this cell. The counterparty rule itself is unchanged and remains binding. |
 | **org_member** | The typed link between a user and an organization. | org role (owner/admin/finance/member), invitation state. | user ↔ organization. | Org authority is a graded relationship (finance ≠ door ≠ owner), and one user belongs to several orgs. That is an edge with attributes, not a property of either endpoint. |
 | **role (platform)** | The platform-operator allowlist — Snatch It's own staff. | platform_admin / support / risk_ops. | user ↔ platform; every use writes admin_audit_log. | Platform authority is categorically different from org authority (it can void any ticket, in any org). It must be a separate, tightly-audited allowlist, never conflated with org roles. |
 
@@ -153,7 +163,7 @@ The single most opinionated decision in this part is **event vs. event_session**
 | **inventory_batch** | A distinct *release* of a ticket_type — public on-sale, promoter hold, comp block, door allocation, presale. | quantity, released_at, reason, counters (sold/held/reserved/remaining). | Child of ticket_type; drawn down by orders/holds/comps/door. | Capacity is allocated in tranches with different rules and audiences. The batch's **locked counter is the authoritative operational truth**: oversell is prevented by `remaining ≥ 0` on a locked read-modify-write (C4); the accounting identity `sold + held + reserved + remaining = quantity` is a **reconciliation check** against the audit movement ledger, not the guard (C27). |
 | **inventory_hold** | A time-boxed reservation of units before purchase — checkout hold, promoter set-aside, box-office pull. | holder (user/staff/promoter), quantity, expiry, release-on-expiry, **server-enforced max duration**. | Draws from a batch; may convert to an order. | Generalizes today's `reserve_buy_now`. The server-max-duration is a first-class attribute because unbounded holds are the classic capacity leak. |
 | **order / order_item** | The **primary-purchase container** and its lines. The order is the buyer's transaction; each paid item *issues tickets atomically*. | buyer, event, totals (face/fees/tax/total), status, source (app/web/door/promoter_link), attribution, idempotency key; item snapshots unit price + qty per type. | Placed by a user; draws inventory; issues tickets; paid by payment; rolled into settlement. | The order is the money/commercial event; the ticket is the asset. Refunds, receipts, and attribution attach to the order; custody attaches to the ticket. Keeping them separate is what lets a partial refund void one ticket without disturbing the rest of the order. |
-| **staff_role** | A user's operational authority at a venue or a single event. | role (owner/manager/finance/marketing/door/promoter_manager), per-event scan scopes. | user ↔ venue/event. | Door and back-office authority is scoped and revocable per event; it is neither org membership nor platform admin. |
+| **staff_role** | A user's operational authority at a venue or a single event. | role ∈ the venue-plane label set `venue_manager` / `venue_finance` / `venue_box_office` / `venue_marketing` / `venue_promoter_manager` / `venue_scanner` (C36/O-2 — stored labels are plane-prefixed and disjoint; §7.2's catalogue names are display names, never stored values), per-event scan scopes (deferred extension point). | user ↔ venue/event. | Door and back-office authority is scoped and revocable per event; it is neither org membership nor platform admin. |
 | **door_pin** | A **loginless, event-scoped, expiring** scanner credential for a device, not a person. | event scope, expiry, revocable, device label ("Main door iPad"). | Belongs to an event; authors scans. | Doors are staffed by transient workers on shared hardware at 1 a.m. A device identity that needs no account, expires automatically, and revokes instantly is a genuinely different thing from a staff_role. |
 | **scan** | An **append-only admission attempt** at a door. | result (admitted/duplicate/void/wrong_gate/offline_pending), direction (`in`/`out`, default `in` — the C41 re-entry hedge), device, gate, session, offline_batch, timestamp. | References a ticket + session; authored by staff_role or door_pin. | The door's ledger. First-admit-wins arbitration, duplicate detection, and offline reconciliation all read this immutable stream. MVP admits are `in`-only (no re-entry, C41); `direction` is the reserved extension point for future re-entry. |
 | **settlement** | A **money rollup** for an org over an event or period that generates payouts. | gross, fees, refunds, chargebacks, resale royalties, adjustments, net; state (open→closed→paid); line-item source refs. | Belongs to an org; aggregates orders/sales/refunds; emits payouts. | The reconcilable boundary between many money events and one disbursement. It never touches ticket custody — a hard firewall (Invariant 3). |
@@ -757,13 +767,13 @@ Ownership statements below reference a fixed vocabulary of principals. Capabilit
 | Principal | Backing relationship | What it authorizes |
 |---|---|---|
 | **platform_admin / support / risk_ops** | `core.roles` allowlist | Force-cancel, force-refund, delist, void, freeze — every action writes `core.admin_audit_log` |
-| **org_owner / org_admin / org_finance / org_member** | `core.org_members` | Control the organization, its venues, events, settlements, payouts-in |
-| **venue staff** (`manager` / `finance` / `marketing` / `door` / `promoter_manager`) | `venue.staff_roles` (venue- or event-scoped) | Operate events, inventory, scans within `scan_scopes` |
-| **door device** | `venue.door_pins` (loginless, expiring) | Append scans only; no user identity, carries a device label |
+| **org_owner / org_admin / org_finance / org_marketing / org_promoter_manager / org_member** | `core.org_members` | Control the organization, its venues, events, settlements, payouts-in |
+| **venue staff** (`venue_manager` / `venue_finance` / `venue_box_office` / `venue_marketing` / `venue_promoter_manager` / `venue_scanner`) | `venue.staff_role` (venue- or event-scoped) | Operate events, inventory, scans within `scan_scopes` |
+| **door device** | `venue.door_pins` (loginless, expiring) | Append scans only; no user identity, carries a device label. **Not a role**: a door session satisfies no `has_venue_role` test (O-2/O-4) |
 | **current_owner** | head of `core.ticket_ownership_log` | The one principal a ticket credential admits; the sellable/transferable party |
 | **buyer** | `venue.orders.buyer_id` / `market_sales.buyer_id` | Places order, becomes current_owner on issuance/settlement |
 | **seller** | `market.listings.seller_id` | Lists a ticket (native) or a claim (external); receives resale payout |
-| **promoter / affiliate** | `venue.promoters` / `promoter_links` / `affiliates` | Owns the link; earns attributed commission |
+| **promoter / affiliate** | `venue.promoters` / `promoter_links` / `affiliates` | Owns the link; earns attributed commission. **A relationship, never a role label** — no promoter holds a row in any of the three role enums (O-2); authority is link/attribution row ownership |
 | **system / transfer-engine** | `core.transfer_ticket_ownership()` and sibling single-writer fns | The only writer of derived heads and ownership log |
 
 ### Data ownership vs. custody/entry control — the load-bearing distinction
@@ -838,7 +848,7 @@ For every major object in the canonical catalog: who **owns** it (principal resp
 ### Hard cases, resolved explicitly
 
 - **A ticket.** Issued by the venue, owned (as data) by the current_owner, governed by the event's `resale_policy`. Custody-to-issue belongs to the venue; the admission right belongs to the holder; the *rules of exit* (can it be transferred? resold? at what price cap? with what royalty?) belong to the venue policy snapshotted at list time. Three principals, three non-overlapping authorities — never collapsed into one "owner."
-- **An order.** The buyer owns it as data (it is about their purchase), but the venue holds refund authority because the venue is the merchant of record for primary sales. The order itself never changes hands; only the *tickets it issued* move, through the engine. This prevents "refund the order but the ticket already sold on the marketplace" incoherence — the refund engine must check ticket `resale_state` before voiding.
+- **An order.** The buyer owns it as data (it is about their purchase), but the venue-side organization holds refund-*request* authority. **Snatch It is the merchant of record for primary sales** — owner ruling A1, `docs/phase2/PRIMARY_TICKETING_OWNER_RATIFICATION.md` (PFA-PT-1, 2026-09-02), superseding the previous wording here. Refund authority itself is the buyer, `org_owner`, `org_finance` and the platform; `org_admin` and every venue role are forbidden callers (`PHASE_2_MONEY_AUTHORITY_SPEC.md:673`, and the §7.6 matrix below, which wins on any money cell). The order itself never changes hands; only the *tickets it issued* move, through the engine. This prevents "refund the order but the ticket already sold on the marketplace" incoherence — the refund engine must check ticket `resale_state` before voiding.
 - **An event.** The org owns it, but the platform retains force-cancel as a safety valve (fraud, legal, venue insolvency). Force-cancel is an admin action that cascades: refunds fan orders, voids issued tickets (`refund_void`), and unwinds open listings for those tickets — one privileged path, fully logged.
 - **A listing.** The seller owns the offer; the venue's resale_policy governs whether it may exist and its price ceiling; the platform can delist for fraud/policy. A native listing additionally *locks* its ticket, so listing custody and ticket custody are deliberately coupled: you cannot own-and-list a ticket you no longer own.
 - **An organization.** Owned by its owner-member(s). There is no free-floating "org owner" column — ownership is an `org_members` role, so succession is a membership operation (promote then demote), which keeps it inside RLS and the audit log rather than a raw `UPDATE`.
@@ -1252,6 +1262,31 @@ sequenceDiagram
 
 > **Anti-over-engineering guarantee:** the only new infrastructure Phase 2 introduces is **one outbox table and a drainer on the cron that already runs**. No broker, no queue service, no saga framework ships until real load justifies it. The catalog above is the durable artifact; the transport is replaceable underneath it.
 
+> #### C51 / O7 — OPEN: this document promises an outbox that nothing builds
+>
+> **The contradiction, both sides, neither chosen here.** The guarantee above, §6.2's "Eventual (outbox) set",
+> the table row directly above it, and CDM C12's event-envelope guarantees (per-aggregate monotonic `sequence`,
+> `causation_id`, `correlation_id`, at-least-once delivery with idempotent consumers) all rest on an outbox
+> table and a drainer, and the door, promoter and notification designs each emit envelope messages into it.
+> **No Phase-2 implementation spec schedules one.** The word appears exactly once in the physical schema spec,
+> inside the *Gate-L* list ("projection checkpoints … + outbox retention/compaction"), and the migration plan
+> allocates no package for it — so the artifact that MVP's entire eventual-consistency story depends on is
+> currently a Gate-L line item.
+>
+> Both readings have a real consequence, and choosing between them is **open decision O7**:
+>
+> - **If this constitution is right**, an outbox package (table + envelope columns + drainer on the existing
+>   `pg_cron` heartbeat) is **Gate-P / MVP work missing from the migration plan**, and until it is scheduled
+>   every "eventual" flow named above is unimplementable as specified.
+> - **If the implementation specs are right**, this section must stop claiming an outbox exists in Phase 2,
+>   C12's envelope guarantees have **no carrier at MVP**, and every design that emits an envelope message —
+>   door-manifest events, promoter attribution, notifications — needs a stated alternative transport before it
+>   can be built.
+>
+> Recorded as row **C51**, status `OPEN-GATED(O7)`. It is **not** resolved by this pass, and the paragraph above
+> is left standing rather than quietly softened, because softening it would hide the contradiction instead of
+> deciding it.
+
 **Outbox hardening + rebuildability floors (C48/C49 — Gate L, modeled-not-built in MVP).** The single outbox + cron drainer is acceptable for MVP and is explicitly *not* the end-state. Before scale: (a) **poison messages quarantine** instead of blocking the stream, and the drainer becomes **partitioned (per-aggregate) / multi-drainer**, so one stuck aggregate cannot head-of-line-block every consumer (C49); (b) any future **region hand-off** of an aggregate's event stream is a specified protocol, never an implicit two-phase commit (C49); (c) outbox **compaction respects a retention floor for canonical inputs** — a projection whose only inputs are ephemeral events (risk, notify, social) is either rebuildable from retained canonical inputs or explicitly **marked non-rebuildable** and excluded from the "projections are disposable" claim (C48).
 
 ---
@@ -1329,7 +1364,6 @@ sequenceDiagram
 2. **"Payments never determine ownership" + the two-phase `paid_pending_transfer` state is a genuine, principled seam, but it is the one place the invariant is *relaxed in practice*.** The canonical core allows a cron-swept gap; §6.2 names it. The challenge: this gap must be **bounded and alarmed** (max dwell time, monitored count), or it silently becomes the implicit gap Invariant 3 forbids. Recommend the canonical core commit to an explicit SLO on `paid_pending_transfer` dwell, elevating it from "allowed" to "allowed, bounded, and observable."
 
 3. **The frozen money core and "config, not constants" are in mild tension for the *existing* 20% take.** Principle 23 says move fees to config; canonical §0 freezes the money core. Fee *values* moving to `platform_config` is additive and safe, but the *fee-application code* is frozen. Recommend the canonical core clarify that Phase 2 may relocate the fee **values** to config while leaving the frozen **application** untouched — otherwise the two constants stay hard-coded forever and the drift risk the audit flagged is never actually closed.
-```
 
 
 ---
@@ -1543,8 +1577,8 @@ erDiagram
         uuid user_id FK
         uuid venue_id "OR"
         uuid event_id "event-scoped temp staff"
-        text role "owner|manager|finance|marketing|door|promoter_manager"
-        array scan_scopes "which ticket_types a door role may validate"
+        text role "venue_manager|venue_finance|venue_box_office|venue_marketing|venue_promoter_manager|venue_scanner"
+        array scan_scopes "which ticket_types a scanner grant may validate (deferred extension point)"
     }
     DOOR_PINS {
         uuid id PK
@@ -1617,17 +1651,44 @@ Why this specific hybrid, and not pure RBAC or pure ABAC:
 **How it lands on the modular monolith + RLS (Canonical §1):**
 
 - **Relationship rows live where the scope lives.** Platform-level allowlist in `core.roles`
-  (`platform_admin`/`support`/`risk_ops`); org membership in `core.org_members`
-  (`owner`/`admin`/`finance`/`member`); venue/event grants in `venue.staff_roles`; commissioned selling in
-  `venue.promoters`/`promoter_links`; marketplace seller status in `market.seller_onboarding`. Each schema
-  owns its own authz surface — no cross-schema role table to drift.
-- **Role labels are structurally scope-typed (C36).** The three planes use **disjoint label sets** — no label
-  exists in more than one plane (physically: three separate enums with scope-prefixed labels, `org_*` /
-  `venue_*` / `platform_*`, e.g. `org_finance` vs `venue_finance`) — so an org-vs-venue conflation is a *type
-  error*, not a lint finding. The scope-specific helpers (`has_org_role`, `has_venue_role`,
-  `is_platform_role`) are the only legal role tests; a bare `role='…'` comparison cannot even name a valid
-  cross-scope role. (The role names in §7.2's catalog are display names; the stored labels are the disjoint
-  scope-prefixed sets.)
+  (`platform_admin`/`platform_support`/`platform_risk`); org membership in `core.org_members`
+  (`org_owner`/`org_admin`/`org_finance`/`org_marketing`/`org_promoter_manager`/`org_member`); venue/event
+  grants in `venue.staff_role`; commissioned selling in `venue.promoters`/`promoter_links`; marketplace seller
+  status in `market.seller_onboarding`. Each schema owns its own authz surface — no cross-schema role table to
+  drift.
+- **Role labels are structurally scope-typed (C36), and O-2 fixes the membership.** The three planes use
+  **disjoint label sets** — no label exists in more than one plane (physically: three separate scope-typed
+  columns with plane-prefixed labels, `org_*` / `venue_*` / `platform_*`, e.g. `org_finance` vs
+  `venue_finance`) — so an org-vs-venue conflation is a *type error*, not a lint finding. The scope-specific
+  helpers (`has_org_role`, `has_venue_role`, `is_platform_role`) are the only legal role tests; a bare
+  `role='…'` comparison cannot even name a valid cross-scope role.
+
+  **The canonical fifteen stored labels (O-2 — this list is closed; adding one is an amendment):**
+
+  | Plane | Grant row | Stored labels |
+  |---|---|---|
+  | **org** | `core.org_members` | `org_owner` · `org_admin` · `org_finance` · `org_marketing` · `org_promoter_manager` · `org_member` |
+  | **venue** | `venue.staff_role` | `venue_manager` · `venue_finance` · `venue_box_office` · `venue_marketing` · `venue_promoter_manager` · `venue_scanner` |
+  | **platform** | `core.roles` | `platform_admin` · `platform_support` · `platform_risk` |
+
+  Fifteen labels, fifteen distinct strings, three prefixes none of which is a prefix of another — so a
+  label's plane is decidable from its first token alone, without consulting the enum. Standing rule
+  **RM-1: every role label MUST begin with its plane token**; a proposed label that does not is rejected at
+  review. Two labels changed under O-2 and the change is substantive, not cosmetic: `venue_door` is renamed
+  **`venue_scanner`** (the door *session* is a device principal, not a role — §7.2), and **`venue_promoter`
+  is removed entirely** — a promoter's authority is `promoter_link` row ownership, and a promoter sitting in
+  the administrative grant table is an administrator with an empty capability set.
+
+> **The two namespaces, stated so they cannot be confused.** **§7.2's catalogue holds *display names*; the
+> *stored* labels are the disjoint plane-prefixed sets above.** They are two namespaces, deliberately. A
+> display name is what an operator reads in the dashboard ("Box Office"); a stored label is what a policy
+> compares (`venue_box_office`). **A display name is never a stored value and never legal in a predicate** —
+> `has_venue_role(v,['box_office'])` is exactly as illegal as `role = 'finance'`, because `box_office` is not
+> a member of any enum. Owner ruling O-2 is expressed in the display-name namespace (it rules *which jobs
+> exist and what each may do*); C36 governs the stored namespace. That is why O-2's own list is half-prefixed
+> — `org_owner` and `venue_manager` beside `box_office` and `scanner` — and why it is not a C36 violation.
+> This reading is the one this document has always carried, and it is now stated here rather than left in a
+> parenthesis. (D5)
 - **Capability is resolved by `SECURITY DEFINER` helper functions, not inline predicates.** Following the
   audit's Deliverable 7 pattern: `has_org_role(org_id, role)`, `has_venue_role(venue_id, role)`,
   `can_scan(event_id, ticket_type_id)`, `is_platform_role(role)` — each `SECURITY DEFINER`, each pinned
@@ -1645,35 +1706,51 @@ Why this specific hybrid, and not pure RBAC or pure ABAC:
 ### 7.2 The full role catalog
 
 Roles are grouped by the **plane** they act in. Scope column: `platform` / `org` / `venue` / `event`.
-"Inherits" means the role is a strict superset of the named role's capabilities *within the same scope*.
+
+> **Read this before the tables. The bolded names below are DISPLAY NAMES. The `code` beside each is the
+> STORED LABEL** — the only string a policy or a role predicate may ever compare (§7.1, C36/O-2). The two are
+> deliberately different namespaces and neither substitutes for the other.
+>
+> **"Inherits" is documentation, not a mechanism — and for money actions it is nothing at all (O-1).**
+> `org_member.role` is **single-valued**, so no `org_owner` row can ever satisfy `has_org_role([org_finance])`.
+> Every money authority a role holds is granted to *its own* label explicitly in §7.6 and in the RLS matrices;
+> none is derived by inheritance. Where this column once implied otherwise it has been corrected in place.
+
+**Not roles, and never added to any enum** (they appear in §7.6's columns because they are *principals*, not
+because they are grants): **Promoter** and **Affiliate** — authority is `promoter_link`/`attribution` row
+ownership (O-2); **Ambassador**, **Buyer**, **Seller**, **Attendee** — derived predicates over the consumer
+plane; and the **door session**, a loginless device principal (`door_pin` + `scan_device`) that satisfies no
+`has_venue_role` test at all (O-2/O-4). A promoter, an ambassador and a door session hold **no row** in any of
+the three grant tables, which is what makes escalation from any of them structurally impossible rather than
+merely unlikely.
 
 #### Platform plane (Snatch It operator — governed by `core.roles` allowlist)
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Platform Admin** | platform | Full internal admin plane: approve venues/orgs, resolve disputes/refunds (within dual-control), manage feature flags, hold/release payouts (dual-control), moderate users/content, configure `platform_config`. Every action audited. | **Cannot** unilaterally move money above threshold (needs the *second* approver — SoD); cannot change a payout *destination* **and** approve a payout to it; cannot edit or delete `admin_audit_log`; cannot bypass MFA on step-up actions. | Support, Risk Ops (read paths) |
-| **Support** | platform | Read customer records for assistance; **propose** refunds/dispute resolutions; issue account messages; view (not edit) audit trail; toggle non-financial user flags per runbook. | **Cannot** approve/execute payouts, refunds above micro-threshold, or venue approvals — *propose only*; cannot view full PAN/bank/KYC docs; cannot change roles. | — |
-| **Risk / Trust Ops** | platform | Review fraud/risk queues, risk scores, cluster/link-analysis; freeze/unfreeze accounts and payouts; force step-up; place holds and reserves; open investigations. | **Cannot** *release* held funds it froze (SoD — release is Admin/Finance with a second approver); cannot resolve the underlying dispute financially alone; cannot edit audit log. | Support (read) |
-| **Read-only Analyst** | platform (or org) | Read `analytics` rollups and aggregate/venue-scoped reporting. | **Cannot** read raw PII, cannot see individual payment/bank details, cannot mutate anything, cannot export beyond policy. | — |
+| **Platform Admin** `platform_admin` | platform | Full internal admin plane: approve venues/orgs, resolve disputes/refunds (within dual-control), manage feature flags, hold/release payouts (dual-control), moderate users/content, configure `platform_config`. Every action audited. | **Cannot** unilaterally move money above threshold (needs the *second* approver — SoD); cannot change a payout *destination* **and** approve a payout to it; cannot edit or delete `admin_audit_log`; cannot bypass MFA on step-up actions. | Support, Risk Ops (read paths) |
+| **Support** `platform_support` | platform | Read customer records for assistance; **propose** refunds/dispute resolutions; issue account messages; view (not edit) audit trail; toggle non-financial user flags per runbook. | **Cannot** approve/execute payouts, refunds above micro-threshold, or venue approvals — *propose only*; cannot view full PAN/bank/KYC docs; cannot change roles. | — |
+| **Risk / Trust Ops** `platform_risk` | platform | Review fraud/risk queues, risk scores, cluster/link-analysis; freeze/unfreeze accounts and payouts; force step-up; place holds and reserves; open investigations. | **Cannot** *release* held funds it froze (SoD — release is Admin/Finance with a second approver); cannot resolve the underlying dispute financially alone; cannot edit audit log. | Support (read) |
+| **Read-only Analyst** *(no stored label — a derived reporting scope, not a grant)* | platform (or org) | Read `analytics` rollups and aggregate/venue-scoped reporting. | **Cannot** read raw PII, cannot see individual payment/bank details, cannot mutate anything, cannot export beyond policy. | — |
 
 #### Organization plane (`core.org_members`) — a User acting *for* an Org
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Organization Owner** | org | Everything within the org: manage members/roles, all venues/events, initiate finance actions (with dual-control), accept platform terms for the org, manage Stripe Connect onboarding. The org's ultimate human authority. | **Cannot** self-approve a payout **and** change the payout bank account in one act (SoD, even as owner); cannot act outside their org; cannot see platform-plane data. | Org Admin, Org Finance |
-| **Org Admin** | org | Manage venues, events, ticket types, staff roles, promoters; run day-to-day operations across the org's venues. | **Cannot** view or initiate payouts/bank changes (that's Finance/Owner); cannot manage the Owner's role. | Venue Manager (all venues) |
-| **Org Finance** | org | View settlements/payouts/finance across the org; initiate payout and bank-account changes **subject to dual-control + step-up**; download financial reports. | **Cannot** edit events/inventory or manage staff; cannot *both* initiate and approve the same high-value payout; cannot approve a payout to an account they just changed. | — |
+| **Organization Owner** `org_owner` | org | Everything within the org: manage members/roles, all venues/events, accept platform terms for the org, manage Stripe Connect onboarding. **Money (O-1/O-3):** may **request** a refund on the org's own orders and **request** a payout, may read the org refund and payout ledgers, and is the **only** role that may change the payout destination. The org's ultimate human authority. | **Cannot** execute a refund directly — org refund authority is a *request*, resolved by tier (§7.6); **cannot** request a payout to a destination this same identity set (SoD-1, permanent, per-destination — §7.4); cannot close a settlement (that is Finance's certification); cannot act outside their org; cannot see platform-plane data. | Org Admin (operational surfaces only). **Role inheritance is not implemented for money actions**: `org_member.role` is single-valued (C36), so every money authority the Owner holds is granted to the `org_owner` label explicitly in §7.6 and the RLS matrices — never derived from Org Finance (O-1). |
+| **Org Admin** `org_admin` | org | Manage venues, events, ticket types, staff roles, promoters; run day-to-day operations across the org's venues; open and close the door manifest for the org's venues (O-4). | **DENY across the entire money plane** — cannot view, request, approve or execute a payout or a refund, cannot change or view the payout destination, cannot close a settlement, and is not eligible as the second approver on any money approval (O-1/O-2: *general administration, not unrestricted financial authority*). This is the constitution's own long-standing *"cannot view or initiate payouts/bank changes (that's Finance/Owner)"*, now stated as a total denial and made explicit in the RLS matrices too. Cannot manage the Owner's role. | Venue Manager (all venues) — **operational surfaces only; confers no money authority.** |
+| **Org Finance** `org_finance` | org | View settlements/payouts/finance across the org; read the org refund and payout ledgers; **request** refunds and **initiate payouts** subject to threshold + step-up; **view** the payout destination; close settlements; download financial reports. | **Cannot change the payout destination** — that is `org_owner`-only and SoD-separated from payout initiation (§7.4 SoD-1), because under O-3 `org_finance` also requests payouts and one role may not hold both halves of the fraud primitive; cannot edit events/inventory or manage staff; cannot *both* initiate and approve the same high-value payout or refund (`approver ≠ requester`, always); **cannot release held funds** (SoD-3 — release is platform risk/admin). | — |
 
 #### Venue / Event plane (`venue.staff_roles`) — scoped grants
 
 | Role | Scope | Can | Cannot (explicitly) | Inherits |
 |---|---|---|---|---|
-| **Venue Manager** | venue (all its events) | Build/edit events, ticket types, inventory batches, holds, comps; view venue orders and operational reporting; manage venue-scoped staff and door PINs; run box office. | **Cannot** view org-wide finances or initiate payouts; cannot change resale policy beyond delegated fields; cannot act on other venues. | Venue Staff, Door |
-| **Venue Staff — Box Office** | venue or event | Sell/comp at the door, issue tickets, process in-person orders, manage guest lists, look up an order/attendee for service. | **Cannot** see aggregate finance/payouts; cannot edit prices/policy; cannot manage staff or door PINs. | Door |
-| **Venue Staff — Marketing** | venue or event | Manage event public pages, media, descriptions, promo codes; view marketing analytics. | **Cannot** touch inventory pricing, orders, PII beyond aggregates, finance, or scanning. | — |
-| **Door (scanner)** | **event** (+ `scan_scopes`) | Submit scans for the bound event, within allowed ticket types; see the minimal attendee-verification result (name/ticket validity), guest-list check-in. **May be a human staff grant or a loginless `door_pin`.** | **Cannot** list attendees in bulk, see contact/PII beyond scan verification, see prices/finance, or scan ticket types outside `scan_scopes`, or scan other events. | — |
-| **Promoter Manager** | venue or event | Create/manage promoters and their `promoter_links`; view attribution/commission reporting for their venue/events; set commission terms within policy. | **Cannot** change ticket prices/inventory, initiate payouts (commission payouts run through settlement), or see full buyer PII. | Promoter (view own) |
-| **Promoter** | **event** (via `promoter_links`) | Generate/share own tracking links; view **own** attributed sales, stats, and commission owed; sub-links where allowed. | **Cannot** see other promoters' or the venue's aggregate finances, edit inventory, access back-office, or see buyer PII beyond own attributed aggregate counts. | — |
+| **Venue Manager** `venue_manager` | venue (all its events) | Build/edit events, ticket types, inventory batches, holds, comps; view venue orders and operational reporting; manage venue-scoped staff and door PINs; run box office. **Opens and closes the door manifest, sets `door_open_at`, and changes event security configuration for its venue (O-4/O-5)** — the only venue-plane role that may. | **Cannot** view org-wide finances or initiate payouts; cannot change resale policy beyond delegated fields; cannot act on other venues; **cannot disable a transfer freeze** (`platform_admin` under step-up). | Venue Staff, Door — **documentation only; the stored label is single-valued and grants nothing by inheritance.** |
+| **Venue Staff — Box Office** `venue_box_office` | venue or event | Sell/comp at the door, issue tickets, process in-person orders, manage guest lists, look up an order/attendee for service. | **Cannot** see aggregate finance/payouts; cannot edit prices/policy; cannot manage staff or door PINs; **cannot open, close or reconfigure the door manifest, and does not inherit manifest administration (O-4, explicit)**. Consequence stated rather than left implicit: until per-capability venue scoping ships, a person granted `venue_manager` *in order to sell at the box office* thereby also gains manifest-open authority — which is why the `venue_box_office` label exists. | Door |
+| **Venue Staff — Marketing** `venue_marketing` (venue grain) / `org_marketing` (org grain) | venue or event | Manage event public pages, media, descriptions, promo codes; view marketing analytics. **May export the contactable-audience CRM slice at its plane's grain, money columns excluded** (O-2). | **Cannot** touch inventory pricing, orders, finance, or scanning. The plane of the grant *is* the export scope: `venue_marketing` exports its venue's audience, `org_marketing` the org's. | — |
+| **Door (scanner)** `venue_scanner` — **or a door session, which is not a role at all** | **event** (+ `scan_scopes`) | Sync an **already-open** manifest to its own device, submit scans for the bound event within allowed ticket types, admit, queue offline scans for reconciliation; see the minimal attendee-verification result (name/ticket validity), guest-list check-in. Two distinct principals share this row: the authenticated **`venue_scanner`** staff grant (individually attributable) and the loginless **door session** (`door_pin` + registered device), which holds no row in any role enum and satisfies no `has_venue_role` test. | **Cannot open, close or re-open the door manifest, move `door_open_at`, or change event security configuration (O-4)** — opening the manifest freezes custody platform-wide for the session, and a scanner may not create the security boundary it stands inside. Cannot disable a transfer freeze; cannot authorize a refund (C46); cannot list attendees in bulk, see contact/PII beyond scan verification, see prices/finance, scan ticket types outside `scan_scopes`, or scan other events. | — |
+| **Promoter Manager** `venue_promoter_manager` (venue grain) / `org_promoter_manager` (org grain) | venue or event | Create/manage promoters and their `promoter_links`; view attribution/commission reporting for their venue/events; set commission terms within policy. | **Cannot** change ticket prices/inventory, initiate payouts (commission payouts run through settlement), or see full buyer PII. | Promoter (view own) |
+| **Promoter** *(not a role — `promoter_link` row ownership, O-2)* | **event** (via `promoter_links`) | Generate/share own tracking links; view **own** attributed sales, stats, and commission owed; sub-links where allowed. | **Cannot** see other promoters' or the venue's aggregate finances, edit inventory, access back-office, or see buyer PII beyond own attributed aggregate counts. | — |
 
 #### Consumer & growth plane (derived predicates, not stored account types)
 
@@ -1725,6 +1802,44 @@ permission model must make *structurally impossible* to violate — not merely d
 5. **Role management is itself SoD-governed.** Granting oneself or a confederate a powerful role is an audited
    action; role escalation above a threshold requires a second approver (audit 7.3).
 
+> #### SoD-1 under O-3 — a ratified trade-off, not an unqualified capability grant
+>
+> **What changed, stated without euphemism. O-3 collapses SoD-1's structural guarantee.** Before O-3,
+> `set_org_payout_destination` was `org_owner`-only *and* `org_owner` held no payout authority, so rule 1 held
+> **by construction**: the identity that could point the money somewhere could not send money anywhere. O-3
+> grants `org_owner` the payout request. One identity now holds **both halves of the exact fraud primitive rule
+> 1 names** — redirect the bank account, then release funds to it. That is a real reduction in structural
+> safety and it is recorded here as such, not buried in a matrix cell.
+>
+> **The ruling is ratified with its compensating control, and the control is the reason it is acceptable.**
+>
+> 1. **A permanent requester-vs-setter identity split (the control that actually restores rule 1).** The
+>    organization records *who* set the current payout destination, and a payout request from **that same
+>    identity is rejected — permanently, for that destination**, not merely during a cool-down. **A cool-down
+>    does not fix this**: it is a delay, and an attacker holding the credentials simply waits it out. The pair
+>    must be split by *identity*, not by *time*. Rule 1 is therefore restored structurally, at the cost named
+>    below.
+> 2. **Destination probation.** The **first** payout to a destination changed inside the probation window is
+>    created *held* and released only by platform risk/admin — a human between "the destination just changed"
+>    and "money left the platform", which is strictly stronger than any timer.
+> 3. **Out-of-band notification.** A destination change notifies **every** `org_owner` and `org_finance` of the
+>    org, **including the actor**, immediately, by push and email, with a one-tap *"I did not authorize this"*
+>    that holds every pending payout. Without this the cool-down protects nobody, because nobody is watching:
+>    it is what converts a delay into a detection.
+> 4. **Fresh step-up** at the action boundary, and **audited denials** — repeated *failed* attempts to change a
+>    destination or fire a payout are the highest-value fraud signal in the system and must leave a trace even
+>    though the failing transaction rolls back.
+> 5. **The cool-down is retained and demoted.** It is a *detection window*, not a control, and it is the
+>    **weakest** member of this set. O-3's requirement that destination change carry *strictly stronger*
+>    controls than a payout request is met by 1–4, not by the timer that already existed.
+>
+> **The cost, stated honestly.** An organization with exactly **one** money principal is **blocked** from
+> payouts after a destination change — that is what a real separation of duties costs. The sanctioned escape is
+> escalation, never a bypass: the first payout after a destination change may be released by platform risk/admin
+> through the existing hold/release seam, so the second human in the SoD pair is a Snatch It operator. **No code
+> path relaxes rule 1**, and `org_finance` is excluded from destination changes entirely for the same reason —
+> under O-3 it, too, requests payouts. (O-3)
+
 ### 7.5 Step-up / MFA for high-risk actions (ABAC gate)
 
 MFA is mandatory (`aal2`) for **all staff and admin principals** and for **sellers** (audit Deliverable 1.6,
@@ -1734,9 +1849,9 @@ boundary against the **live** grant (never a stale JWT claim):
 
 | High-risk action | Requirement |
 |---|---|
-| Change payout/bank account | Step-up (fresh `aal2`) **+ SoD** (separate from approver) **+ payout cool-down freeze** |
+| Change payout/bank account | **`org_owner` only** (`org_finance` excluded — O-3). Step-up (fresh re-authentication at the action boundary) **+ SoD-1 permanent requester-vs-setter split** (the setter may never later request a payout to that destination) **+ destination probation** (first payout held for platform release) **+ out-of-band notification to every org money principal** **+ audited denials**. The legacy cool-down freeze is retained as a detection window, and is the weakest control in the set (§7.4) |
 | Initiate/approve payout above threshold | Step-up **+ dual control** (two distinct approvers) |
-| Issue refund above micro-threshold | Step-up **+ dual control** + reason code |
+| Issue refund above the org auto-execute threshold | Step-up **+ dual control** (`approver ≠ requester`, structurally, not by convention) + reason code. Org authority is a **request**, resolved server-side into one of three tiers — auto-execute · in-org dual control · platform review — from configured thresholds, never chosen by the caller (O-1, §7.6) |
 | Approve a venue/org (grant platform access) | Step-up + reason code + audit |
 | Ownership override / manual ticket custody change | Step-up + dual control + reason code (Invariant 2 — never a raw write) |
 | Resolve dispute affecting escrow | Step-up + dual control + evidence link |
@@ -1751,7 +1866,15 @@ step-up, longer holds, or manual review even below the fixed thresholds.
 ### 7.6 Permission matrix — roles × key privileged actions
 
 Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two approvers) · **✔ᴾ** propose-only ·
-**◐** scoped/limited (own or aggregate) · **✱** requires step-up (fresh `aal2`) · blank = denied.
+**◐** scoped/limited (own or aggregate) · **✱** requires step-up (fresh `aal2`) · **ᔆ** SoD-constrained —
+allowed, but structurally excluded from the paired act by the *same identity* (O-3) · blank = denied.
+
+**Columns are display names; the stored labels are §7.1's fifteen.** `Org Owner`=`org_owner` ·
+`Org Admin`=`org_admin` · `Org Finance`=`org_finance` · `Venue Mgr`=`venue_manager` ·
+`Box Office`=`venue_box_office` · `Marketing`=`venue_marketing`/`org_marketing` ·
+`Promoter Mgr`=`venue_promoter_manager`/`org_promoter_manager` · `Door`=`venue_scanner` **or a door session
+(not a role)** · `Plat Admin`/`Support`/`Risk Ops`=`platform_admin`/`platform_support`/`platform_risk`.
+`Promoter`, `Seller`, `Buyer`, `Ambassador` are **not roles** — they are derived principals (§7.2).
 
 | Privileged action | Plat Admin | Support | Risk Ops | Org Owner | Org Admin | Org Finance | Venue Mgr | Box Office | Marketing | Door | Promoter Mgr | Promoter | Seller | Buyer | Ambassador |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
@@ -1759,11 +1882,14 @@ Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two appro
 | Configure feature flags / `platform_config` | ✔✱ | | | | | | | | | | | | | | |
 | Manage platform user moderation / bans | ✔ | ✔ᴾ | ✔ | | | | | | | | | | | | |
 | Freeze account / payouts (risk) | ✔ | | ✔ | | | | | | | | | | | | |
-| Release held funds | ✔ᴰ✱ | | | | | ✔ᴰ✱ | | | | | | | | | |
+| Release held funds | ✔ᴰ✱ | | | | | | | | | | | | | | |
 | Initiate payout (≤ threshold) | | | | ✔✱ | | ✔✱ | | | | | | | | | |
 | Initiate/approve payout (> threshold) | ✔ᴰ✱ | | | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
-| Change payout/bank account | | | | ✔✱ | | ✔✱ | | | | | | | | | |
-| Issue refund (> micro) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | ◐(own request) | |
+| Change payout/bank account | | | | ✔✱ᔆ | | | | | | | | | | | |
+| Issue refund (≤ auto-execute threshold) | ✔ | ✔(capped) | ✔ | ✔✱ | | ✔✱ | | | | | | | | ◐(own, capped) | |
+| Issue refund (> auto-execute threshold) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | ✔ᴰ✱ | | ✔ᴰ✱ | | | | | | | | | |
+| Issue refund (> org ceiling / exceptional) | ✔ᴰ✱ | ✔ᴾ | ✔ᴰ✱ | ✔ᴾ | | ✔ᴾ | | | | | | | | | |
+| Approve someone else's refund request | ✔ | ✔(tiered) | ✔ | ✔ᔆ | | ✔ᔆ | | | | | | | | | |
 | Resolve dispute (escrow) | ✔ᴰ✱ | ✔ᴾ | ✔ᴾ | | | | | | | | | | | | |
 | Ownership override (manual custody) | ✔ᴰ✱ | | | | | | | | | | | | | | |
 | Build/edit events & ticket types | | | | ✔ | ✔ | | ✔ | | ◐(pages) | | | | | | |
@@ -1771,15 +1897,66 @@ Legend: **✔** allowed · **✔ᴰ** allowed only under dual-control (two appro
 | Set/edit resale policy | ✔(platform) | | | ✔ | ✔ | | ◐(delegated) | | | | | | | | |
 | Manage staff roles & door PINs | | | | ✔ | ✔ | | ◐(venue) | | | | | | | | |
 | Create/manage promoter links | | | | ✔ | ✔ | | ✔ | | | | ✔ | ◐(sub-links) | | | |
-| Scan / validate entry | | | | | | | ✔ | ✔ | | ✔(scoped) | | | | | |
+| Scan / validate entry (admit) | | | | | | | ✔ | ◐(guest-list check-in only) | | ✔(scoped) | | | | | |
+| **Open / close the door manifest** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Move the door-freeze time (`door_open_at`)** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Change event security configuration** | ✔ | | | ✔ | ✔ | | ✔ | | | | | | | | |
+| **Disable a transfer freeze (override)** | ✔✱ | | | | | | | | | | | | | | |
 | View buyer PII | ◐ | ◐ | ◐ | ◐ | ◐ | ◐(limited) | ◐(limited) | ◐(service) | | ◐(scan-only) | | | | (self) | |
 | Create listing / run auction | | | | | | | | | | | | | ✔ | | |
 | Buy / bid / hold / p2p transfer | | | | | | | | | | | | | ✔ | ✔ | |
 | View org/venue finance reports | ◐ | | ◐(risk) | ✔ | | ✔ | ◐(venue ops) | | | | ◐(commission) | ◐(own) | ◐(own) | | ◐(own) |
+| **View payout ledger & status** | ✔ | ◐ | ◐ | **✔(own org)** | | ✔(own org) | | | | | | ◐(own commission) | ◐(own) | | ◐(own) |
+| **View refund ledger** | ✔ | ◐ | ✔ | **✔(own org)** | | ✔(own org) | ◐(own venue, `venue_finance` only) | | | | | | | ◐(own) | |
+| **Close settlement (→ payout)** | ✔ | | | | | ✔ | | | | | | | | | |
 | Referral/affiliate program | | | | | | | | | | | | | | | ✔ |
 
-*The matrix is illustrative of the design intent; the authoritative source is the relationship rows +
-`SECURITY DEFINER` helpers, re-checked live for every ✔ᴰ/✱ cell.*
+#### Reading the money rows (O-1 / O-3 — these three readings are load-bearing)
+
+1. **A refund cell is authority to *request*, not to execute.** `Issue refund` ✔ for `org_owner`/`org_finance`
+   means the org may open **one** door — a refund *request* — and the server decides its tier from configured
+   thresholds: below the auto-execute threshold it completes in the same transaction; above it, it parks a
+   durable approval that a **different** identity in the org must approve; beyond the org ceiling it goes to
+   platform review. The caller never chooses the tier, and no org role ever invokes the money writer directly.
+   That is why the row is split into three and why the old undefined *"> micro"* row is gone: "micro" was never
+   defined and had no configuration home.
+2. **The two payout rows are NOT the same authority, and must never be read as one.** *Initiate payout* is held
+   by `org_owner` **and** `org_finance`. *Change payout/bank account* is held by **`org_owner` alone** —
+   `org_finance` is blank, deliberately, because under O-3 it also requests payouts and one identity may not
+   hold both halves of SoD-1's fraud primitive. The `ᔆ` on the owner's cell is the rest of the difference:
+   destination change carries **strictly stronger** controls than a payout request (permanent
+   requester-vs-setter identity split, destination probation, out-of-band notification, step-up, audited
+   denials — §7.4), and an owner who set the current destination can **never** later request a payout to it.
+   Two ✔ cells in the same column are not two equal capabilities.
+3. **`Org Admin` is blank down the entire money block, and that is a decision.** Not an omission, not
+   "inherited from Owner": `org_admin` holds no money authority of any kind — not read, not request, not
+   approve, and it is not eligible as the second approver on any money approval (§7.2, O-1/O-2).
+
+*Every ✔ᴰ/✱ cell is re-checked **live** against the relationship rows through the `SECURITY DEFINER`
+helpers at the action boundary — a stale JWT claim never satisfies one (C9).*
+
+> #### Precedence — which document governs which half of this matrix (D6)
+>
+> Two Phase-2 delta specs rewrote this section, and their instructions were mutually exclusive:
+> `PHASE_2_MONEY_AUTHORITY_SPEC.md` §12 supplied a corrected money block for this matrix, while
+> `PHASE_2_ROLE_MODEL_SPEC.md` edit `D-6` instructed that the matrix be **deleted** and replaced with a pointer
+> to that spec's §5. **The matrix stays, with the corrected money block applied. The delete-and-point is
+> rejected**, because `PHASE_2_ROLE_MODEL_SPEC.md` §5's money block is, by its own §15, *transcribed from the
+> frozen corpus, not decided there* — it carries `⚠` on payout-destination authority and on settlement close and
+> explicitly defers both to the money ruling. Replacing this matrix with a pointer to it would have deleted the
+> only ratified statement of O-1/O-3 and re-opened the payout-destination question on the day O-3 closed it.
+>
+> The resulting division of authority, stated once so it cannot drift:
+>
+> | Question | Governing text |
+> |---|---|
+> | **Stored role labels** (what a predicate may compare) | §7.1's fifteen labels · `PHASE_2_ROLE_MODEL_SPEC.md` §3 |
+> | **Money authority** — refunds, payouts, payout destination, settlement close, money-ledger reads | **This matrix** (O-1/O-3). It governs over `PHASE_2_ROLE_MODEL_SPEC.md` §5's section B, whose money cells are transcription, not ruling |
+> | **Non-money capability detail** at 20-principal grain (door session vs `venue_scanner`, the five new labels, attendee-data column scoping, promoter/ambassador derivation) | `PHASE_2_ROLE_MODEL_SPEC.md` §5, which is finer-grained than this matrix and supersedes it wherever this matrix is silent or coarser |
+> | **Door lifecycle authority** | This matrix's door rows + §1.8 (O-4/O-5) |
+>
+> Where the two disagree on a **money** cell, this matrix wins. Where they disagree on a **non-money** cell, the
+> role model wins. There is no third case, and neither document is a pointer to the other.
 
 ```mermaid
 graph TD
@@ -1943,6 +2120,10 @@ removed, risk-based holds):
 ## CHALLENGE to the Canonical Core
 
 **One challenge, scoped and minor — the Canonical Core is otherwise adopted verbatim.**
+
+> **The two label lists quoted in the next paragraph are the PRE-C36 state — the defect being reported, not
+> current design.** They are retained verbatim so the challenge still reads as it was written. The current
+> labels are §7.1's fifteen plane-prefixed strings, and no bare label is legal anywhere. (D5)
 
 The Catalog defines `core.org_members` role as `owner/admin/finance/member` while `venue.staff_roles` uses
 `owner/manager/finance/marketing/door/promoter_manager`. Having a role named **`owner`** *and* **`finance`**
@@ -2204,9 +2385,26 @@ is dictated by two operational truths: **promoters run on cash flow**, and **pro
 
 | Object | Definition | Class |
 |---|---|---|
-| **promoter** | A user (or off-platform party) engaged by an org/event with commission terms: flat-per-ticket or %, `tier ∈ {professional_invited, public_ambassador}`. A promoter is a *relationship*, not a user type — same identity, new capability. | MUTABLE |
+| **promoter** | A user (or off-platform party) engaged by an org/event with commission terms. The terms are **constitutionally required to express all three of**: (a) **flat-per-ticket _or_ percentage** — flat-per-ticket is the *dominant* nightlife term, not an alternative to model later; (b) `tier ∈ {professional_invited, public_ambassador}`; (c) the `party_kind` discriminator (`promoter` \| `affiliate`) that lets one attribution engine serve both party kinds. A promoter is a *relationship*, not a user type — same identity, new capability, and **never a role label** (O-2). | MUTABLE |
 | **promoter_link** | A unique-slug tracking link, scoped to (promoter, event\|org), optionally backed by a `promoter_hold` batch. IMMUTABLE once minted (the slug is a permanent attribution key). | IMMUTABLE |
-| **attribution** | Append-only credit row: (order, promoter_link, commission_cents, state). Written when an attributed order is paid; never mutated, only superseded. | APPEND-ONLY |
+| **attribution** | Append-only credit row: (order, promoter_link, commission_cents, state). **Written in the same transaction that marks the order `paid` — never at order creation** (D7, and the emphasis is deliberate: see below). Never mutated, only superseded. | APPEND-ONLY |
+
+> **Attribution write timing — stated so it cannot drift back (D7).** The attribution row is written **when
+> the order is paid**, in that transaction, and **not** when the order is created. The reason is structural,
+> not stylistic: attribution is an **immutable Ledger** carrying a promoter's commission claim. An order that is
+> created and never paid is ordinary — abandoned checkouts, expired holds, declined cards — and a credit row
+> written at creation cannot be deleted when that happens, only *superseded*, which means every abandoned
+> checkout leaves a permanent phantom credit in a promoter's ledger and in every settlement projection that
+> reads it. Order creation is not a commercial fact; payment is. Where an implementation contract states that
+> attribution is recorded inside order creation, **the contract is wrong and moves** — this constitution does
+> not narrow to match it (`ARCHITECTURE_FREEZE.md` Rule 2).
+
+> **Commercial-terms gap, named rather than smoothed (D8).** The terms ratified above are **not currently
+> expressible**: the physical promoter object carries a percentage (`commission_bps`) and nothing else — no
+> flat-per-ticket amount, no `tier`, no `party_kind`. Percentage-only silently drops the dominant nightlife
+> term, collapses the ambassador tier into the professional one, and leaves the affiliate party kind with
+> nowhere to live despite the affiliate model below depending on it. The requirement stands as written here and
+> the columns are additive; **the schema owns closing the gap**, not this document.
 
 Because promoters are also fans, a promoter's link and their own fan account are the same identity — which is
 exactly why **self-dealing detection** is required: commission attribution excludes self-purchases and
@@ -2232,7 +2430,7 @@ no reason to make one.** Two objects answer this:
 
 | Object | Definition |
 |---|---|
-| **staff_role** | user ↔ venue (or ↔ *event*, for temp staff) with role ∈ `owner`/`manager`/`finance`/`marketing`/`door`/`promoter_manager`, plus per-event `scan_scopes` (which ticket_types this door role may validate — e.g., "VIP door only"). Event-scoped roles auto-expire, so temp staff access evaporates when the night ends. |
+| **staff_role** | user ↔ venue (or ↔ *event*, for temp staff) with role ∈ the venue-plane label set `venue_manager`/`venue_finance`/`venue_box_office`/`venue_marketing`/`venue_promoter_manager`/`venue_scanner` (C36/O-2 — three disjoint plane-prefixed enums; these are the **stored** labels, and §7.2's catalogue names are the display names above them), plus per-event `scan_scopes` (which ticket_types a scanner grant may validate — e.g., "VIP door only"; a deferred extension point). Event-scoped roles auto-expire, so temp staff access evaporates when the night ends. |
 | **door_pin** | A **loginless, event-scoped, expiring, revocable** scanner credential (Posh mechanic). Carries a device `label` ("Main door iPad") so scans attribute to a device identity with no user account behind them. Two taps to generate, one tap to revoke. |
 | **scan_device** | The registered device a PIN or staff scanner runs on; anchors the offline manifest and the scan attribution. |
 
@@ -2246,6 +2444,28 @@ not offer pass-outs. **(2) A door_pin can never authorize a refund (C46).** Refu
 requiring an authenticated staff principal with refund authority (org/finance plane, §7); the loginless device
 principal appends scans and nothing else. Any "door refund" product flow routes to an authenticated role —
 resolving the refund-authz-vs-loginless contradiction in favor of the money rule.
+
+**(3) The scanner may not create the security boundary (O-4).** A door session — the loginless `door_pin` +
+device principal — and the authenticated `venue_scanner` staff grant may sync an already-open manifest, scan,
+admit, and queue offline scans. Neither may **open** or **close** the door manifest, **move** the door-freeze
+time (`door_open_at`), or **change event security configuration**: those are `org_owner` / `org_admin` /
+`venue_manager` only, and disabling a transfer freeze is `platform_admin` under step-up. Opening the manifest
+freezes custody platform-wide for the session, which is a security act, not a door act. The operational
+objection is real and is answered by scheduling (`door_open_at` is set in advance) plus remote org-plane action
+(the dashboard is online), never by a weaker credential at the door. **Admission itself is never gated on
+manifest state** — the manifest gates *offline* scanning only; gating admission on it would fail closed
+against paying fans at the door, which the online live-read (C37) already makes unnecessary.
+
+**(4) `door_open_at` is a monotone head, not a mutable flag (O-5).** It is the cached head of an append-only
+door-episode ledger — `MIN(opened_at)` over the session's manifest opens — written only by the authorized open
+RPC, the same head-of-ledger pattern C27 already ratified for `current_owner_id`/`credential_version`. It is
+never written by a client, never cleared by a close, and never moved backwards; a re-open starts a new episode
+without moving it. Monotonicity is therefore arithmetic, not a rule someone must remember. The **effective**
+freeze boundary is total and fail-closed — `LEAST(door_open_at, COALESCE(doors_at, starts_at) + configured
+offset)` — so a NULL `door_open_at` can never mean "never frozen"; before O-5 the column was read in four
+places and written by nothing, which made the C6/C23/C43 freeze, and the stale-pass safety property that rests
+on it, false. Overrides are explicit, `platform_admin`-only, TTL-bounded, reason-coded, audited, and never move
+the boundary.
 
 ### 1.9 Resale policy & settlements (the venue-governance surface)
 
@@ -2707,7 +2927,7 @@ The competitive field has spent a decade proving each half of this in isolation:
 
 ---
 
-# Appendix — Correction Index (C1–C50, D1–D3)
+# Appendix — Correction Index (C1–C52, D1–D8, O-1…O-5)
 
 Every ratified correction, mapped to where the body now states it. Gates: **P** pre-native-issuance · **M** pre-money-rail (native resale + instant payout) · **L** pre-legal-scale · **—** doc/ongoing (definitions in §0.6; per-correction ratification detail in `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`). "DA" = this document; "CDM" = `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md`. Statuses: **Ratified·MVP** (Gate-P; implemented before the first native ticket) · **Ratified·gated-ext** (modeled in the constitution; built at its gate, not in MVP) · **Doc-fix applied** · **Open-gated**.
 
@@ -2767,3 +2987,15 @@ Every ratified correction, mapped to where the body now states it. Gates: **P** 
 | **D2** | Ticket state diagrams: no `refunded` terminal — `voided (refund_void)` | DA §3.1 (diagram, transition + illegal tables), §0.4 note | — | Doc-fix applied |
 | **D3** | One canonical cause-code registry | DA §5.2.1 ≡ CDM §11 (verbatim); partial lists tagged as subsets | — | Doc-fix applied |
 | **O6** | Cross-region native-resale form (saga/escrow vs intra-region-only) | DA §0.4 open questions, §6.2 · CDM §15 C50 | **M**/region | Open-gated decision (with C50) |
+| **O-1** | Refund authority: `org_owner`/`org_finance` **request**, never execute; three server-decided tiers replace "> micro"; `org_admin` none; §7.2's money "Inherits" deleted as a mechanism | DA §7.2, §7.4, §7.5, §7.6 · CDM §1.1 Refund, §15 | **P** | Ratified·MVP (owner ruling) |
+| **O-2** | Canonical role model: display names vs the fifteen plane-prefixed stored labels; `venue_door`→`venue_scanner`; `venue_promoter` removed; five new labels; rule RM-1 | DA §7.1, §7.2, §7.3, §7.6, §1 catalog/principals/ER, §1.8 · CDM §1.3, §8, §15 C36 | **P** | Ratified·MVP (owner ruling) |
+| **O-3** | Payout visibility & requests; destination change is `org_owner`-only under strictly stronger controls; **collapses SoD-1**, ratified with a permanent requester-vs-setter split + probation + out-of-band notice | DA §7.2, §7.4 (trade-off), §7.5, §7.6 · CDM §1.1 Payout, §15 | **P** | Ratified·MVP (owner ruling) |
+| **O-4** | Door-manifest authority: open/close, `door_open_at`, security config = `org_owner`/`org_admin`/`venue_manager` only; scanner and door session may sync/scan/admit and nothing else; admission is never gated on the manifest | DA §7.2, §7.6 door rows, §1.8 · CDM §1.3 | **P** | Ratified·MVP (owner ruling) |
+| **O-5** | `door_open_at` is the monotone head of an append-only episode ledger; effective freeze boundary is total and fail-closed; overrides are elevated, TTL-bounded and never move it | DA §1.8, §3.7, §5 ¶1.8, §7.6 · CDM §1.2, §1.3, §15 | **P** | Ratified·MVP (owner ruling) |
+| **C51** | The event outbox is promised by §6.2/§6.3 and CDM C12 and scheduled by no implementation spec — **open decision O7** | DA §6.2, §6.3 · CDM §2, §7, §15 C12/C48/C49 | **P** (if the constitution is right) | **Open-gated (O7)** |
+| **C52** | `notify` is RATIFIED Gate-P/MVP under C7 and do-not-build in all four implementation specs — **open decision O8** | CDM header/§1.6/§15 C7 · DA §6.2/§6.3 | P per C7 / L per the specs | **Open-gated (O8)** |
+| **D4** | The two `O` namespaces disambiguated (`O1`…`O8` open questions vs `O-1`…`O-5` owner rulings); neither renumbered | DA §0.4 note · ratification record · ARCHITECTURE_FREEZE.md | — | Doc-fix applied |
+| **D5** | The four pre-C36 bare-label role lists purged; §7.2 gains stored labels + the display-name rule at its head | DA §1 catalog, principals, ER diagram, §1.8, §7.1, §7.2 · CDM §1.3, §15 C36 | — | Doc-fix applied |
+| **D6** | §7.6 collision resolved: the money spec's corrected matrix applied in place; the role model's delete-and-point rejected; precedence stated | DA §7.6 (matrix + precedence note) | — | Doc-fix applied |
+| **D7** | Attribution is written **when the order is paid**, never at order creation — the constitutions are right; the implementation contracts move | DA §1.7 · CDM §1.3 | — | Doc-fix applied (RPC/RLS correction owed) |
+| **D8** | `venue.promoter` cannot express the ratified terms (flat-per-ticket, `tier`, `party_kind`); requirement restated, gap named, schema owns the columns | DA §1.7 · CDM §1.3 | — | Doc-fix applied (schema columns owed) |

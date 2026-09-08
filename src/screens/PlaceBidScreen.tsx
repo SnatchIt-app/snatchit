@@ -104,6 +104,32 @@ export default function PlaceBidScreen({ id }: Props) {
 
     setSubmitting(true);
 
+    // F-5 live-rail acquisition guard (OR-17 release train; FR-9; DSM §3.2
+    // F-5): a signed-in user whose account deletion is pending must not place
+    // a live bid (a bid is a purchase obligation — an acquisition). Reads the
+    // caller's OWN kernel.identity_ext row (owner-scoped SELECT policy,
+    // migration 077). Before the Phase-2 DB apply the kernel schema is not
+    // exposed and the probe errors → treated as not-pending (the DB sweep's
+    // blocker re-check is the hard wall; this layer is the frozen UX guard).
+    try {
+      const { data: ext } = await supabase
+        .schema('kernel')
+        .from('identity_ext')
+        .select('deletion_state')
+        .eq('identity_id', user.id)
+        .maybeSingle();
+      if (ext?.deletion_state === 'DELETION_PENDING') {
+        setSubmitting(false);
+        Alert.alert(
+          'Account deletion pending',
+          'Your account deletion request is pending. Withdraw it in Settings to place new bids.',
+        );
+        return;
+      }
+    } catch {
+      // pre-Phase-2 world or transient probe failure — proceed; the DB wall holds
+    }
+
     // Insert bid row — the DB trigger updates listings.current_bid atomically
     const { error } = await supabase.from('bids').insert({
       listing_id: id,

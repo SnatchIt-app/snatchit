@@ -18,7 +18,29 @@ Every blocking condition is an **additive prose correction** to the design docum
 
 ## Blocking conditions
 
-### Gate P — before the FIRST native ticket is issued (correctness + irreversible)
+> **`SPEC CORRECTION R4-6b` (2026-08-28; ratification rows `C125` / `D33`) — THE GATE LISTS BELOW ARE THE
+> **2026-08-24** SET AND PREDATE EVERY OPEN DECISION FROM `O9` ON. READ THE RECORD, NOT THIS MEMO, FOR WHAT
+> BLOCKS A GATE.**
+>
+> **What is still true and is not reopened:** the verdict (**READY WITH CONDITIONS**), the reasoning behind
+> it, the three-gate structure, and every item 1–16 below — each remains a real condition, and the nine
+> Gate-P items were the correct set **as of 2026-08-24**. Nothing here is withdrawn.
+>
+> **What is stale:** the lists are **not exhaustive of what blocks a gate today**. Gate P below names `C26`,
+> `C27`, `C33`, `C35`, `C28`, `C36`, `C41`, `C42` and `D1/D2/D3` — **nine items, all corrections** — and
+> **names no open decision at all**; Gate M names `O6` and `O3`. Since this memo was written, the record has
+> grown from 29 rows to **114**, and **eleven** open decisions now block a gate — **`O6` … `O16`** — of which
+> **ten name Gate P** (all but `O6`; `O7` and `O8` conditionally). **Eight of the eleven — `O9`, `O10`,
+> `O11`, `O12`, `O13`, `O14`, `O15`, `O16` — did not exist when this memo was written and appear nowhere
+> below.** Six of them are Gate P unconditionally.
+>
+> **The authority for the current gate composition is
+> `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`** — its status table and its Gate column,
+> recounted mechanically, with the full eleven-row decision table reproduced in `ARCHITECTURE_FREEZE.md`.
+> **This memo is the 2026-08-24 decision record and is preserved as one; it is not the live gate register**,
+> and it is **not** updated item-by-item here because doing so would rewrite a dated decision after the fact.
+
+### Gate P — before the FIRST native ticket is issued (correctness + irreversible) — *the 2026-08-24 set; see the correction above*
 1. **C26** — Redesign the double-write guard: `UNIQUE(cause, cause_ref, ticket_id)` **plus** a per-`market_sale` terminal state machine enforcing compensate-XOR-complete under one lock. *(The current `UNIQUE(cause,cause_ref)` is provably wrong for one-cause→many-ticket flows; the "double-transfer impossible" guarantee does not hold as written.)*
 2. **C27** — Decide the single source of truth for `remaining` (locked counter authoritative, ledger derived — or vice versa). *(Currently defined both ways; mutually exclusive.)*
 3. **C33** — Specify C1 signing-key lifecycle: per-event/venue scope, KMS/HSM custody, rotation, compromise runbook, signer HA/throughput, door public-key distribution. *(Hardest-to-reverse decision in the system; a global key is an existential single point.)*
@@ -30,7 +52,7 @@ Every blocking condition is an **additive prose correction** to the design docum
 9. **D1/D2/D3** — Doc-consistency pass so the frozen source of truth stops contradicting itself (stale `refunded` diagrams, "one cross-aggregate transaction" line, divergent cause-code enum).
    *(Plus the prior 15.A items still standing: C1, C2, C5, C6-model, C9, C17.)*
 
-### Gate M — before native resale + instant payout (Phase 2C/2D)
+### Gate M — before native resale + instant payout (Phase 2C/2D) — *the 2026-08-24 set*
 10. **C29** — First-class Reserve/Clawback object + payout-timing policy (this is what O1 actually is).
 11. **C30** — Represent fan-side chargeback/clawback liability.
 12. **C31** — Adopt an additive **double-entry money-ledger schema** beside the frozen Stripe core (the recommended home for C29/C30 and the fix for unbalanced royalty/rounding). Keep the ownership log for custody.
@@ -38,7 +60,7 @@ Every blocking condition is an **additive prose correction** to the design docum
 14. **C50 / O6** — Decide cross-region native resale: saga/escrow, or explicitly intra-region only. *(C8×C14 leave it undefined today.)*
 15. Resolve **O3** (resale-policy snapshot drift); confirm **C17/O5** (cross-rail dedup) enforced.
 
-### Gate L — before international / erasure claims / enterprise
+### Gate L — before international / erasure claims / enterprise — *the 2026-08-24 set*
 16. **C32** first-class multi-currency · **C34** provable erasure spec · **C47** DR design (RPO/RTO, PITR/standby, restore drill, snapshot rebuild budget) · **C48** projection rebuildability · **C49** outbox hardening · **C37** online-door live verify · **C38** merge grant reconciliation · **C39** comp step-up · **C40** static callback allowlist · **C44** virtual queue/bot defense · **C45/C46** full venue-ops model.
 
 ---

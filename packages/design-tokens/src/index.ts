@@ -1,6 +1,15 @@
 /**
- * src/theme/index.ts — Central design tokens
- * All screens import from here. Never hard-code values inline.
+ * @snatchit/design-tokens — LEGACY LAYER
+ *
+ * These are the values the mobile app shipped with. They are NOT the Snatch It
+ * brand: the canvas is blue-black, the red is `#E10600` rather than `#FF1A1A`,
+ * and the geometry is rounded where the brand is square.
+ *
+ * They remain exported because ~50 shipped screens import them, and repainting
+ * every screen at once is not authorized. New work imports the BRAND layer from
+ * `./brand` instead; screens migrate one at a time during the Tier-1 redesign.
+ *
+ * @deprecated for new code. Use `brandTokens` from `@snatchit/design-tokens/brand`.
  */
 
 export const colors = {
@@ -84,3 +93,13 @@ export const shadow = {
     elevation:     12,
   },
 } as const;
+
+
+/*
+ * The brand layer is the source of truth for new work. It is exported as a
+ * NAMESPACE rather than star-exported, because both layers define `radius` and
+ * `font`-adjacent names with deliberately different values (the legacy layer's
+ * 6/10/16/24 radius ladder versus the brand's square geometry). Keeping them
+ * namespaced makes every call site say which system it is using.
+ */
+export * as v2 from './brand.ts';

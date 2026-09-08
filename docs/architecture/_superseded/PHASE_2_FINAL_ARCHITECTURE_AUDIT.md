@@ -1,5 +1,35 @@
 # Snatch It — Phase 2 Final Architecture Audit
 
+> ## ⛔ SUPERSEDED — this document is NOT current design. Banner added 2026-08-28 (`R4-8`; ratification rows `C127` / `D34`).
+>
+> **Why this banner exists.** This file sits under `docs/architecture/_superseded/` and **carried no
+> supersession notice at all**, while the one `_governance/` document that was salvaged the same way
+> (`PHASE_2_FINAL_PREIMPLEMENTATION_GATE.md`) does carry one. A directory name is not a banner: a reader who
+> opens the file directly, follows a cross-reference into it, or reads a printed copy sees only live-sounding
+> present-tense prose. **Nothing below is deleted** — these documents are the provenance of ratified
+> decisions and are still cited by name — but nothing below may be implemented from.
+>
+> **Superseded by:** `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`. Every correction in
+> this audit's **§4 correction table** was ratified as a row (`C26`–`C52` and onward) and **folded into the
+> constitutions' body text**; the record, not this table, is the live statement of what was decided and what
+> is still open. The audit's companions —
+> `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md`,
+> `docs/architecture/_governance/IMPLEMENTATION_READINESS_SCORE.md` and
+> `docs/architecture/_governance/CTO_DECISION_MEMO.md` — carry its risk, score and gate outputs forward.
+>
+> **Deliberate and important exception.** The ratification record's own **`Authority:`** line names this
+> file's §4 correction table, and `PHASE_2_SPEC_FOUNDATION.md` places it in its source-authority order.
+> **Those citations stand**: they are citations to the *provenance* of ratified rows. **`RETRACTED` rows
+> `RET-1`…`RET-6` are the case that proves the rule** — text this audit or its descendants asserted, deleted
+> as false. **A claim found here and nowhere in the record is not authority**, and six such claims have
+> already been retracted by name.
+>
+> **Reading rule.** Cite this file for **provenance** — what was found, by whom, and why a decision was
+> taken. **Never for current design, current numbers, or current scope.** Where it disagrees with the
+> superseding document named above, **the superseding document governs**, and that determination needs no
+> precedence rule: this one is dated and closed.
+
+
 **Final architectural due diligence before implementation. Design-validation only — no code, SQL, migrations, or UI produced or authorized by this document.** Its job was not to approve the architecture; it was to try to kill it.
 
 **Artifacts under review (treated as frozen):** `docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md` (constitution; A1–A11, C1–C11), `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` (data constitution; §0–§15, C12–C25), `docs/architecture/_superseded/PHASE_2_ARCHITECTURE_REVIEW.md` (prior multi-persona critique; risk register 15.A–15.F; O1–O5), `docs/architecture/_superseded/PHASE_2_IMPLEMENTATION_ROADMAP.md`.

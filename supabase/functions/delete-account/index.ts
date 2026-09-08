@@ -1,33 +1,73 @@
 /**
  * supabase/functions/delete-account/index.ts
  *
- * Deletes the authenticated user's account.
+ * THE OR-17 CUTOVER (edge spec §1.8a; DELETION_STATE_MACHINE_SPEC §5; 077
+ * release-train artifact — recorded in POST_FREEZE_AMENDMENTS.md "077
+ * RELEASE-TRAIN GATE"). This is the DEPLOYED production body (v19, 2026-09-02),
+ * converged 2026-09-06 with the payments reliability program (Package 3,
+ * migrations 20260906120000 + 20260906130000). Everything the deployed body
+ * did, it still does; the additions are marked "PRP-3" below.
  *
- * Strategy (App Store compliant, marketplace safe):
- *   1. Block if user has active transfers (pending seller_sent / buyer needs to confirm)
- *   2. Cancel any active listings (set auction_status = 'cancelled')
- *   3. Anonymize user references in payments/transfers using sentinel UUID (legal/financial records kept)
- *   4. Delete bids placed by user
- *   5. Delete storage files (avatars, auction-media)
- *   6. Delete auth user (CASCADE handles profiles, push_tokens, notification_preferences)
+ *   - The physical-delete orchestration is RETIRED. This function is a thin
+ *     Class A caller (EA-1: the RPC client is built from the caller's own
+ *     Authorization header) of kernel.request_account_deletion — the
+ *     always-accepts entry into DELETION_PENDING (RPC §20.17.1).
+ *   - The PR #28-era request-time 409s are RETIRED: an active transfer becomes
+ *     blocker BP-7 inside kernel.sweep_deletion_pending; the dispute 409 lifts
+ *     (16d) because the tombstone terminal never clears that column.
+ *   - auth.admin.deleteUser is called by NOTHING. Erasure is the DB sweep's
+ *     tombstone terminal (ODR-16); no CASCADE physical delete ever runs.
+ *   - A second action exposes kernel.withdraw_account_deletion (§20.17.2), so
+ *     a pending request is reversible (withdraw) for as long as it is pending;
+ *     there is NO grace period — the 2-minute sweep tombstones as soon as no
+ *     predicate holds.
+ *
+ *   - PRP-3 (payments reliability, F10): the sweep now also refuses to
+ *     tombstone while public.account_deletion_blockers(user) names an
+ *     UNSETTLED LIVE-RAIL MONEY OBLIGATION (BP-13, migration 20260906130000):
+ *     a succeeded payment with no transfer, an auto_released transfer never
+ *     paid out, an expired transfer never refunded, an open payout attempt,
+ *     an open manual review, an unresolved webhook review row, an open
+ *     dispute, an active transfer. That is the ENFORCEMENT (terminal, in the
+ *     database, fail-closed). THIS edge surfaces the same predicate to the
+ *     caller at request time as `pending_obligations` so the client can tell
+ *     the person what must settle first. The request is still ALWAYS
+ *     ACCEPTED (OR-17): refusing here would change the ratified machine and
+ *     the deployed client contract, and would leave the person unable to
+ *     enter the pending state for obligations only the platform can settle
+ *     (a pending refund, a held payout). A read failure of the predicate
+ *     does not block the request (the terminal re-checks); it is reported as
+ *     `obligations_check: 'unavailable'` and captured to Sentry.
+ *     OWNER SWITCH (documented alternative, not implemented): refuse the
+ *     request with 409 while pending_obligations is non-empty.
+ *
+ * Client compatibility: the deployed mobile build POSTs with an empty body and
+ * expects { success: true }. An empty body maps to action='request' and the
+ * response keeps `success: true`; the added fields are additive.
+ *
+ * DEPLOYMENT PRECONDITIONS (release train, in order — see the Phase-2
+ * production runbook and 04_RELEASE_PLAN.md):
+ *   1. Migrations 076..109 applied (kernel.request_account_deletion exists) —
+ *      TRUE in production since 2026-09-04.
+ *   2. The project's PostgREST exposed schemas include `kernel`
+ *      (Dashboard → API → db_schemas) — TRUE in production.
+ *   3. PRP-3: 20260906120000 applied (public.account_deletion_blockers). If it
+ *      is absent the obligations read errs and is reported 'unavailable'; the
+ *      request still succeeds (no new hard dependency at the edge).
+ *
+ * Storage note: no storage object is deleted at request time — a pending
+ * request is withdrawable, and the terminal storage step is a separate
+ * engineering cell of the release train (DSM §4.5).
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-// Sentinel UUID for anonymized financial records. Payments and transfers have
-// NOT NULL constraints on buyer_id/seller_id, so we replace the real user ID
-// with this placeholder rather than setting NULL. A matching row exists in
-// auth.users and profiles (created by migration 019).
-const ANONYMIZED_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-// ── CORS origin whitelist ────────────────────────────────────────────────────
-// React Native apps don't send an Origin header, so CORS only affects
-// browser-based requests. Restrict to known web domains.
 const ALLOWED_ORIGINS = [
   'https://snatchitapp.com',
   'https://www.snatchitapp.com',
@@ -56,179 +96,159 @@ function getSecurityHeaders(): Record<string, string> {
 }
 
 function getResponseHeaders(req: Request): Record<string, string> {
-  return {
-    ...getCorsHeaders(req),
-    ...getSecurityHeaders(),
-  };
+  return { ...getCorsHeaders(req), ...getSecurityHeaders() };
 }
 
-// ── Rate limiting ─────────────────────────────────────────────────────────────
-// Fail-CLOSED: distinguishes 'allowed' / 'over_limit' / 'error' so callers
-// can return 429 vs 503 instead of silently bypassing rate limits on RPC
-// errors. Account deletion is irreversible; we will not let a DB hiccup
-// open the door to abuse.
+function json(body: unknown, status: number, headers: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+}
+
+// Fail-CLOSED rate limiting via the service client (EA-2: the limiter takes no
+// authority from the caller and is unreachable from `authenticated`).
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
 
 async function checkRateLimit(
-  supabase: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   userId: string,
-  action: string,
-  maxRequests: number,
-  windowSeconds: number,
 ): Promise<RateLimitResult> {
   try {
-    const { data, error } = await supabase.rpc('check_rate_limit', {
-      p_user_id:        userId,
-      p_action:         action,
-      p_max:            maxRequests,
-      p_window_seconds: windowSeconds,
+    const { data, error } = await service.rpc('check_rate_limit', {
+      p_user_id: userId,
+      p_action: 'delete_account',
+      p_max: 5,
+      p_window_seconds: 3600,
     });
-    if (error) {
-      console.warn('Rate limit RPC error (failing closed):', error.message);
-      return 'error';
-    }
+    if (error) return 'error';
     return data === true ? 'allowed' : 'over_limit';
-  } catch (err) {
-    console.warn('Rate limit check threw (failing closed):', err);
+  } catch {
     return 'error';
   }
 }
 
-function json(body: Record<string, unknown>, status = 200, headers: Record<string, string> = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...headers },
-  });
+// PRP-3: the live-rail obligation predicate (public.account_deletion_blockers,
+// 20260906120000; service_role EXECUTE only). Informational at the edge; the
+// sweep evaluates the same predicate as BP-13 at the terminal.
+type Obligation = { kind: string; ref_id: string };
+type ObligationsRead =
+  | { check: 'ok'; obligations: Obligation[] }
+  | { check: 'unavailable'; obligations: null };
+
+async function readPendingObligations(service: SupabaseClient, userId: string): Promise<ObligationsRead> {
+  try {
+    const { data, error } = await service.rpc('account_deletion_blockers', { p_user_id: userId });
+    if (error) {
+      console.warn('[delete-account] account_deletion_blockers read failed (terminal re-checks):', error.message);
+      await captureException('delete-account', new Error(`account_deletion_blockers: ${error.message}`));
+      return { check: 'unavailable', obligations: null };
+    }
+    const rows = (Array.isArray(data) ? data : []) as Array<{ kind?: unknown; ref_id?: unknown }>;
+    return {
+      check: 'ok',
+      obligations: rows
+        .filter((r) => typeof r?.kind === 'string')
+        .map((r) => ({ kind: String(r.kind), ref_id: String(r.ref_id ?? '') })),
+    };
+  } catch (err) {
+    console.warn('[delete-account] account_deletion_blockers read threw (terminal re-checks):', err);
+    await captureException('delete-account', err);
+    return { check: 'unavailable', obligations: null };
+  }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: getResponseHeaders(req) });
+    return new Response(null, { status: 204, headers: getResponseHeaders(req) });
+  }
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405, getResponseHeaders(req));
   }
 
   try {
-    // ── Auth ──────────────────────────────────────────────────────────────
-    const authHeader = req.headers.get('Authorization');
+    // EA-7: Class A — a missing caller Authorization header fails closed.
+    const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return json({ error: 'Missing authorization' }, 401, getResponseHeaders(req));
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-    // Verify token and get user
-    const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
+    const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser(token);
 
-    if (authErr || !user) {
+    const { data: { user }, error: userErr } = await service.auth.getUser(
+      authHeader.replace('Bearer ', ''),
+    );
+    if (userErr || !user) {
       return json({ error: 'Invalid or expired token' }, 401, getResponseHeaders(req));
     }
 
-    const userId = user.id;
-
-    // ── Rate limit ───────────────────────────────────────────────────────
-    // 3 requests per 300 seconds (5 minutes). Account deletion is rare;
-    // anything faster is likely abuse or a runaway retry loop.
-    // Fail-closed: any RPC failure returns 503 instead of bypassing limits.
-    const rl = await checkRateLimit(supabase, userId, 'delete_account', 3, 300);
-    if (rl === 'error') {
-      return json(
-        { error: 'Service temporarily unavailable. Please try again shortly.' },
-        503,
-        getResponseHeaders(req),
-      );
-    }
-    if (rl === 'over_limit') {
+    const limit = await checkRateLimit(service, user.id);
+    if (limit === 'over_limit') {
       return json({ error: 'Too many requests. Please try again later.' }, 429, getResponseHeaders(req));
     }
-
-    console.log('[delete-account] starting for user:', userId);
-
-    // ── 1. Block if active transfers in progress ─────────────────────────
-    const { data: activeTransfers } = await supabase
-      .from('transfers')
-      .select('id')
-      .or(`seller_id.eq.${userId},buyer_id.eq.${userId}`)
-      .in('status', ['pending', 'seller_sent'])
-      .limit(1);
-
-    if (activeTransfers && activeTransfers.length > 0) {
-      return json({
-        error: 'You have active ticket transfers in progress. Please complete or wait for them to expire before deleting your account.',
-      }, 409, getResponseHeaders(req));
+    if (limit === 'error') {
+      return json({ error: 'Service temporarily unavailable.' }, 503, getResponseHeaders(req));
     }
 
-    // ── 2 & 3. Cancel listings + anonymize financial records ────────────
-    // Uses the delete_account_cleanup RPC (migration 020) which runs as
-    // SECURITY DEFINER to bypass:
-    //   - guard_listing_state_columns (blocks direct auction_status changes)
-    //   - guard_listing_identity_columns (blocks ALL seller_id changes)
-    // The RPC cancels active listings, anonymizes seller_id on all listings,
-    // and anonymizes buyer_id/seller_id on payments and transfers using the
-    // sentinel UUID (00000000-0000-0000-0000-000000000000).
-    const { error: cleanupErr } = await supabase.rpc('delete_account_cleanup', {
-      p_user_id: userId,
+    let action = 'request';
+    try {
+      const body = await req.json();
+      if (body && typeof body.action === 'string') action = body.action;
+    } catch {
+      /* empty body = request (deployed-client compatibility) */
+    }
+    if (action !== 'request' && action !== 'withdraw') {
+      return json({ error: "action must be 'request' or 'withdraw'" }, 400, getResponseHeaders(req));
+    }
+
+    // PRP-3: read the live-rail obligations BEFORE entering DELETION_PENDING so
+    // the response can name them. Informational — see the header. Not read on
+    // withdraw (nothing to settle to withdraw).
+    const obligations: ObligationsRead | null =
+      action === 'request' ? await readPendingObligations(service, user.id) : null;
+
+    // EA-1: the kernel RPC derives its subject from auth.uid() — the client
+    // MUST carry the caller's own JWT, never the service key.
+    const caller = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'kernel' },
     });
 
-    if (cleanupErr) {
-      console.error('[delete-account] cleanup RPC error:', cleanupErr.message);
+    const fn = action === 'request' ? 'request_account_deletion' : 'withdraw_account_deletion';
+    const commandKey = `edge-${action}-${crypto.randomUUID()}`;
+    const { data, error } = await caller.rpc(fn, { p_command_key: commandKey });
+
+    if (error) {
+      console.error(`[delete-account] ${fn} error:`, error.message);
+      await captureException('delete-account', new Error(`${fn}: ${error.message}`));
       return json({
-        error: 'Failed to clean up account data. Please try again or contact support.',
+        error: action === 'request'
+          ? 'Failed to submit your deletion request. Please try again or contact support.'
+          : 'Failed to withdraw your deletion request. Please try again or contact support.',
       }, 500, getResponseHeaders(req));
     }
 
-    console.log('[delete-account] listings cancelled and financial records anonymized');
-
-    // ── 4. Delete bids ───────────────────────────────────────────────────
-    await supabase
-      .from('bids')
-      .delete()
-      .eq('bidder_id', userId);
-
-    // ── 5. Delete storage files ──────────────────────────────────────────
-    // Avatars
-    try {
-      const { data: avatarFiles } = await supabase.storage
-        .from('avatars')
-        .list(userId);
-      if (avatarFiles && avatarFiles.length > 0) {
-        const paths = avatarFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('avatars').remove(paths);
-      }
-    } catch {
-      console.warn('[delete-account] avatar cleanup error (non-fatal)');
-    }
-
-    // Auction media
-    try {
-      const { data: mediaFiles } = await supabase.storage
-        .from('auction-media')
-        .list(userId);
-      if (mediaFiles && mediaFiles.length > 0) {
-        const paths = mediaFiles.map(f => `${userId}/${f.name}`);
-        await supabase.storage.from('auction-media').remove(paths);
-      }
-    } catch {
-      console.warn('[delete-account] media cleanup error (non-fatal)');
-    }
-
-    // ── 6. Delete auth user ──────────────────────────────────────────────
-    // CASCADE handles: profiles, push_tokens, notification_preferences
-    const { error: deleteErr } = await supabase.auth.admin.deleteUser(userId);
-
-    if (deleteErr) {
-      console.error('[delete-account] auth delete error:', deleteErr.message);
-      return json({ error: 'Failed to delete account. Please contact support.' }, 500, getResponseHeaders(req));
-    }
-
-    console.log('[delete-account] completed for user:', userId);
-    return json({ success: true }, 200, getResponseHeaders(req));
-
+    const status = (data as { status?: string } | null)?.status ?? 'ok';
+    console.log(`[delete-account] ${fn} for ${user.id}: ${status}` +
+      (obligations ? ` pending_obligations=${obligations.check === 'ok' ? obligations.obligations.length : 'unavailable'}` : ''));
+    return json({
+      success: true,
+      action,
+      status,
+      deletion_state: action === 'request' ? 'DELETION_PENDING' : 'ACTIVE',
+      ...(obligations
+        ? {
+            // PRP-3 (additive): what the terminal will wait for. Empty array =
+            // nothing outstanding on the live rail at request time.
+            pending_obligations: obligations.obligations,
+            obligations_check: obligations.check,
+          }
+        : {}),
+    }, 200, getResponseHeaders(req));
   } catch (err) {
-    // Account deletion is irreversible — every unexpected failure here
-    // demands ops attention, so capture unconditionally.
     await captureException('delete-account', err);
     return json({ error: 'Internal server error' }, 500, getResponseHeaders(req));
   }

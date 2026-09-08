@@ -47,6 +47,374 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
+      # -----------------------------------------------------------------------
+      # OFFLINE-VERIFY-v1 byte-identity gate (docs-only; touches no database).
+      #
+      # PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3 states the offline door admission
+      # predicate ONCE, tagged `OFFLINE-VERIFY-v1`, and permits sanctioned
+      # mirrors elsewhere under docs/architecture/** on condition that they are
+      # reproduced byte-for-byte. Clause 3 of that single-source rule promises
+      # "a docs job ... fails the build unless every one is byte-identical".
+      # THIS IS THAT JOB. Until it existed the property held by inspection, not
+      # by construction — the exact defect class (a control described as
+      # structural that is only prose) the C53 correction was raised against.
+      #
+      # Why the predicate is worth a gate: ratification record C53. Four
+      # documents each held an editable copy of the offline door check; one was
+      # corrected and the others were not, and the copy that stayed wrong was
+      # the one a scanner SDK implements. It carried TWO conjuncts at 3b where
+      # FIVE are required, which made the OFFLINE door strictly more permissive
+      # than the ONLINE one: it admitted `paid_pending_transfer` and
+      # `refund_hold` atoms the online door refuses.
+      #
+      # Runs first, before `npm ci`, so a broken lockfile cannot take the gate
+      # offline. It is a step in an ALREADY-REQUIRED job rather than a new
+      # workflow: the check name "Typecheck / Lint / Unit tests" is load-bearing
+      # in branch protection (.github/workflows/README.md), so a gate added here
+      # blocks merge today with no branch-protection change and no rename.
+      #
+      # FAIL CLOSED, four ways. Byte-identity alone is not enough:
+      #   1. non-vacuity  — a scan over ZERO blocks passes silently forever.
+      #      This repo has shipped that bug: a bare UPDATE reported success
+      #      against zero rows and every audit that read the migration source
+      #      concluded the limits were in place. They were not. Hence a FLOOR.
+      #   2. anti-emptying — four blocks emptied together are byte-identical and
+      #      four in number. Hence a minimum body size.
+      #   3. anti-coordinated-weakening — four copies that all drop conjunct
+      #      3b.v are byte-identical too, and that is C53 reproduced exactly.
+      #      Hence the content anchors: the gate asserts the predicate's
+      #      STRENGTH, not merely its uniformity.
+      #   4. normative home — if §5.4.3's own block were deleted, the surviving
+      #      mirrors would happily agree with each other. Hence the requirement
+      #      that the edge spec contribute at least one block.
+      #
+      # Ratchets. Raise OFFLINE_VERIFY_MIN_BLOCKS when a mirror is added; NEVER
+      # lower it to make a red build pass. Removing a sanctioned mirror is a
+      # reviewed decision that lowers it deliberately, in the same commit that
+      # removes the mirror and amends §5.4.3's list of sanctioned mirrors.
+      # -----------------------------------------------------------------------
+      - name: OFFLINE-VERIFY-v1 spec byte-identity gate
+        env:
+          # Floor, not an equality. 4 today: edge §5.4.3 (normative) + door
+          # §9.2 + Wallet §2.3 + Wallet §11.9 — the Wallet spec carries TWO,
+          # which is why "three mirrors" and "three documents" are not the same
+          # number and why this is counted rather than assumed.
+          OFFLINE_VERIFY_MIN_BLOCKS: 4
+          # The canonical body is 2017 bytes / 34 lines. This floor exists only
+          # to catch a wholesale emptying or truncation of every copy at once;
+          # it is not a second copy of the length and must stay well under it.
+          OFFLINE_VERIFY_MIN_BODY_BYTES: 1900
+          # The normative home. At least one block MUST come from this file.
+          OFFLINE_VERIFY_NORMATIVE_FILE: docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md
+        run: |
+          set -uo pipefail
+
+          scan_root="docs/architecture"
+          if [ ! -d "$scan_root" ]; then
+            echo "::error::${scan_root} does not exist — the OFFLINE-VERIFY-v1 gate cannot certify a tree it cannot read."
+            exit 1
+          fi
+
+          # Recursive on purpose. _governance/ and _superseded/ are real
+          # subdirectories of docs/architecture, and a mirror that lands in one
+          # of them must be gated, not silently exempted by a flat glob.
+          files_list="$RUNNER_TEMP/ov_files.txt"
+          find "$scan_root" -type f -name '*.md' | LC_ALL=C sort > "$files_list"
+          files_n=$(wc -l < "$files_list" | tr -d ' ')
+          if [ "${files_n:-0}" -eq 0 ]; then
+            echo "::error::no .md files found under ${scan_root} — refusing to certify an empty scan."
+            exit 1
+          fi
+          echo "OFFLINE-VERIFY-v1 gate: scanning ${files_n} markdown file(s) under ${scan_root}/"
+
+          ov_awk="$RUNNER_TEMP/ov_scan.awk"
+          cat > "$ov_awk" <<'OVAWK'
+          # ov_scan.awk — extract every fenced OFFLINE-VERIFY-v1 block under
+          # docs/architecture/**.
+          #
+          # Each qualifying block's body is written VERBATIM to
+          # OUTDIR/block_<n>.txt so the hash below is over bytes on disk, not
+          # over anything this script re-serialised. Emits on stdout:
+          #
+          #   BLOCK        <n> <file> <open_line> <body_lines> <outfile>
+          #   LOOSE        <file> <line> <source>
+          #   UNTERMINATED <file> <open_line>
+          #   TOTALS       <blocks> <loose> <unterminated>
+          #
+          # A block QUALIFIES when its FIRST body line begins with the tag. That
+          # is the same rule §5.4.3 clause 2 states for a sanctioned mirror
+          # ("inside a fence whose first line is the OFFLINE-VERIFY-v1 tag"), so
+          # the gate and the prose agree on what a mirror is.
+          #
+          # LOOSE: the tag at column 1 OUTSIDE any fence. That is a mirror whose
+          # fence was lost — the copy is still there and still editable, but it
+          # is no longer gated. Under a count-only check it would vanish from
+          # the census; here it is a hard failure.
+          #
+          # UNTERMINATED: a fence opened and never closed. FAIL CLOSED — an
+          # unterminated fence silently swallows the rest of the file, so every
+          # later block in it disappears from the scan.
+
+          BEGIN { blocks = 0; loose = 0; unterm = 0; infence = 0 }
+
+          FNR == 1 {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", curfile, openline; unterm++ }
+            infence = 0; nbody = 0
+            curfile = FILENAME
+          }
+
+          {
+            line = $0
+            isfence = 0
+            if (match(line, /^`+/) && RLENGTH >= 3)      { isfence = 1; mchar = "`"; mlen = RLENGTH }
+            else if (match(line, /^~+/) && RLENGTH >= 3) { isfence = 1; mchar = "~"; mlen = RLENGTH }
+
+            # Opening fence. An info string ("```text") is allowed and is NOT
+            # part of the body, so a mirror may be fenced as ```text or ``` and
+            # still be byte-identical to the normative block.
+            if (isfence && !infence) {
+              infence = 1; fencechar = mchar; fencelen = mlen
+              openline = FNR; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            # Closing fence: same character, at least as long, nothing after it.
+            # A shorter or different marker inside the fence is body text, which
+            # is what lets a fenced block quote a fence.
+            if (isfence && infence && mchar == fencechar && mlen >= fencelen && substr(line, mlen + 1) ~ /^[ \t]*$/) {
+              if (nbody > 0 && bodyfirst ~ /^OFFLINE-VERIFY-v1/) {
+                blocks++
+                out = OUTDIR "/block_" blocks ".txt"
+                for (i = 1; i <= nbody; i++) print bodyline[i] > out
+                close(out)
+                printf "BLOCK\t%d\t%s\t%d\t%d\t%s\n", blocks, FILENAME, openline, nbody, out
+              }
+              infence = 0; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            if (infence) {
+              nbody++
+              bodyline[nbody] = line
+              if (nbody == 1) bodyfirst = line
+              next
+            }
+
+            if (line ~ /^OFFLINE-VERIFY-v1/) { loose++; printf "LOOSE\t%s\t%d\t%s\n", FILENAME, FNR, line }
+          }
+
+          END {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", FILENAME, openline; unterm++ }
+            printf "TOTALS\t%d\t%d\t%d\n", blocks + 0, loose + 0, unterm + 0
+          }
+          OVAWK
+
+          ov_out="$RUNNER_TEMP/ov_blocks"
+          rm -rf "$ov_out"; mkdir -p "$ov_out"
+          ov_index="$RUNNER_TEMP/ov_index.txt"
+
+          # A bash array rather than xargs: one awk invocation (the block
+          # counter and OUTDIR numbering are global across files), safe with
+          # spaces in paths, and identical on GNU and BSD userlands so a
+          # developer can run this exact logic locally before pushing.
+          ov_files=()
+          while IFS= read -r f; do ov_files+=("$f"); done < "$files_list"
+          if ! awk -v OUTDIR="$ov_out" -f "$ov_awk" "${ov_files[@]}" > "$ov_index"; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner failed to run — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+
+          # sha256sum on the runner; shasum is the BSD/macOS fallback so the
+          # gate is reproducible by hand off-CI. Neither is optional.
+          if command -v sha256sum >/dev/null 2>&1; then
+            ov_sha() { sha256sum "$1" | cut -d' ' -f1; }
+          elif command -v shasum >/dev/null 2>&1; then
+            ov_sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          else
+            echo "::error::neither sha256sum nor shasum is available — refusing to certify byte-identity without a hash."
+            exit 1
+          fi
+
+          totals=$(grep -m1 '^TOTALS' "$ov_index" || true)
+          if [ -z "$totals" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner produced no TOTALS line — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+          found=$(printf '%s\n' "$totals" | cut -f2)
+          loose=$(printf '%s\n' "$totals" | cut -f3)
+          unterm=$(printf '%s\n' "$totals" | cut -f4)
+          for v in "$found" "$loose" "$unterm"; do
+            case "$v" in
+              ''|*[!0-9]*) echo "::error::the OFFLINE-VERIFY-v1 scanner emitted a non-numeric total (\"$v\") in: $totals"; exit 1 ;;
+            esac
+          done
+
+          awk -F'\t' '$1 == "BLOCK" { printf "  block %s  %s:%s  (%s lines)\n", $2, $3, $4, $5 }' "$ov_index"
+
+          # Guard 1 — a fence that never closed. Fail before counting anything.
+          if [ "$unterm" -gt 0 ]; then
+            echo "::error::${unterm} unterminated code fence(s) under ${scan_root} — every block after one is invisible to this scan."
+            awk -F'\t' '$1 == "UNTERMINATED" { printf "  %s: fence opened at line %s never closed\n", $2, $3 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 2 — the tag at column 1 outside a fence: an ungated copy.
+          if [ "$loose" -gt 0 ]; then
+            echo "::error::${loose} OFFLINE-VERIFY-v1 tag(s) at column 1 outside any code fence. An unfenced copy is an ungated copy — it is exactly the fourth editable copy C53 was raised about. Re-fence it, or delete it and cite §5.4.3."
+            awk -F'\t' '$1 == "LOOSE" { printf "  %s:%s  %s\n", $2, $3, $4 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 3 — NON-VACUITY. A scan over zero blocks is not a pass.
+          if [ "${found:-0}" -lt "$OFFLINE_VERIFY_MIN_BLOCKS" ]; then
+            echo "::error::found ${found} OFFLINE-VERIFY-v1 block(s), floor is ${OFFLINE_VERIFY_MIN_BLOCKS}. Either a sanctioned mirror was deleted or renamed out of ${scan_root}, or the tag was altered so the scan no longer sees it. A gate that scans nothing passes forever — that is why this is a floor and not a comparison against whatever happens to be there."
+            exit 1
+          fi
+
+          # Guard 4 — the normative home must still exist and still be tagged.
+          normative_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { n++ } END { print n + 0 }' "$ov_index")
+          if [ "${normative_n:-0}" -lt 1 ]; then
+            echo "::error::no OFFLINE-VERIFY-v1 block found in ${OFFLINE_VERIFY_NORMATIVE_FILE} — the normative home (§5.4.3). Without it the mirrors would agree with each other and with nothing authoritative."
+            exit 1
+          fi
+          # The normative block's index, used below as the diff base.
+          norm_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { print $2; exit }' "$ov_index")
+
+          # Guard 5 — BYTE-IDENTITY. The gate §5.4.3 clause 3 promises.
+          hash_list="$RUNNER_TEMP/ov_hashes.txt"
+          : > "$hash_list"
+          while IFS=$'\t' read -r _tag n file openline _lines out; do
+            printf '%s\t%s\t%s:%s\n' "$(ov_sha "$out")" "$n" "$file" "$openline" >> "$hash_list"
+          done < <(awk -F'\t' '$1 == "BLOCK"' "$ov_index")
+
+          distinct=$(cut -f1 "$hash_list" | LC_ALL=C sort -u | wc -l | tr -d ' ')
+          canonical=$(awk -F'\t' -v n="$norm_n" '$2 == n { print $1; exit }' "$hash_list")
+          body_bytes=$(wc -c < "$ov_out/block_${norm_n}.txt" | tr -d ' ')
+
+          {
+            echo ""
+            echo "### OFFLINE-VERIFY-v1 spec byte-identity gate"
+            echo ""
+            echo "| metric | value | gate |"
+            echo "|---|---|---|"
+            echo "| tagged blocks found | ${found} | at least ${OFFLINE_VERIFY_MIN_BLOCKS} |"
+            echo "| distinct body hashes | ${distinct} | exactly 1 |"
+            echo "| canonical body bytes | ${body_bytes} | at least ${OFFLINE_VERIFY_MIN_BODY_BYTES} |"
+            echo "| unfenced tags at column 1 | ${loose} | 0 (fail closed) |"
+            echo "| unterminated fences | ${unterm} | 0 (fail closed) |"
+            echo "| canonical sha256 | \`${canonical}\` | — |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${distinct:-0}" -ne 1 ]; then
+            echo "::error::the ${found} OFFLINE-VERIFY-v1 blocks are NOT byte-identical (${distinct} distinct bodies). §5.4.3 is the single normative statement; a mirror that differs is a defect in that mirror, never a change to the predicate. Copy §5.4.3's block verbatim."
+            LC_ALL=C sort "$hash_list" | awk -F'\t' '{ printf "  %s  %s\n", substr($1,1,16), $3 }'
+            echo "--- each divergent body, diffed against the normative block ---"
+            while IFS=$'\t' read -r _h n where; do
+              [ "$n" = "$norm_n" ] && continue
+              if ! cmp -s "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt"; then
+                echo "### ${where}"
+                diff -u "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt" | head -60 || true
+              fi
+            done < "$hash_list"
+            exit 1
+          fi
+
+          # Guard 6 — ANTI-EMPTYING. Four empty blocks are byte-identical and
+          # four in number, and would sail through every guard above.
+          if [ "${body_bytes:-0}" -lt "$OFFLINE_VERIFY_MIN_BODY_BYTES" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 body is ${body_bytes} bytes, floor is ${OFFLINE_VERIFY_MIN_BODY_BYTES}. Identical copies of a truncated predicate are still identical — uniformity is not strength."
+            exit 1
+          fi
+
+          # Guard 7 — ANTI-COORDINATED-WEAKENING. This is the guard that would
+          # have caught C53 itself. Byte-identity says the four copies agree; it
+          # says nothing about WHAT they agree on. Four copies that all drop
+          # conjunct 3b.v are byte-identical, four in number, and full length —
+          # and the offline door is once again strictly more permissive than the
+          # online one. Each anchor below is a load-bearing clause of the
+          # ratified predicate (ratification record C53). Editing this list is a
+          # reviewed change to the predicate, made in §5.4.3 first.
+          anchors="$RUNNER_TEMP/ov_anchors.txt"
+          cat > "$anchors" <<'OVANCHORS'
+          Single source: PHASE_2_EDGE_FUNCTION_SPEC.md
+          The device MUST evaluate against the APPLIED set.
+          3b   FIVE conjuncts, ALL required
+          i    atom ∈ M2
+          ii   M2[atom] carries no applied
+          iii  token.credential_version == M2[atom].credential_version
+          iv   M2[atom].ticket_state  == 'active'
+          v    M2[atom].resale_state  == 'none'
+          3c   token.key_id == M2[atom].signing_key_id
+          MUST NOT admit
+          OVANCHORS
+          anchors_n=$(grep -c . "$anchors" | tr -d ' ')
+          if [ "${anchors_n:-0}" -lt 10 ]; then
+            echo "::error::the anchor list has ${anchors_n} entries, expected at least 10 — the heredoc was truncated and this guard would be vacuous."
+            exit 1
+          fi
+          missing=0
+          while IFS= read -r anchor; do
+            [ -z "$anchor" ] && continue
+            if ! grep -qF -- "$anchor" "$ov_out/block_${norm_n}.txt"; then
+              echo "::error::OFFLINE-VERIFY-v1 no longer contains the required clause: ${anchor}"
+              missing=$((missing + 1))
+            fi
+          done < "$anchors"
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::${missing} load-bearing clause(s) missing from the predicate. All ${found} copies agreeing is not a defence — C53 is precisely the case where the offline door was weakened and every copy of it read consistently. Conjunct 3b.v in particular is load-bearing, not defence in depth: without it the offline door admits paid_pending_transfer and refund_hold atoms the ONLINE door refuses."
+            exit 1
+          fi
+
+          echo "OFFLINE-VERIFY-v1 gate OK: ${found} tagged block(s) (floor ${OFFLINE_VERIFY_MIN_BLOCKS}), 1 distinct body, ${body_bytes} bytes (floor ${OFFLINE_VERIFY_MIN_BODY_BYTES}), ${anchors_n} clause anchors present, ${loose} unfenced tags, ${unterm} unterminated fences; sha256=${canonical}"
+
+      # ---------------------------------------------------------------------
+      # Precedence gate — owner ruling OR-6 (ODR-7 / O11: HYBRID PRECEDENCE).
+      #
+      # OR-6 rule 4 is not advice: "an unresolved same-tier contradiction must
+      # FAIL CI / readiness, be registered, and be resolved explicitly. The
+      # implementer does not choose." A rule that only lives in prose is the
+      # defect class this corpus keeps re-discovering (C53: four editable copies
+      # of one predicate, one corrected, three not). So the rule gets a gate.
+      #
+      # Deliberately small: one parseable map, one script, this existing
+      # required job. It checks six mechanical properties and refuses to guess
+      # about anything else.
+      #
+      # --selftest runs FIRST and is the anti-vacuity control. It drives seven
+      # deliberately-broken fixtures through the checkers and fails the build if
+      # any of them PASSES. A parser that silently matches nothing therefore
+      # cannot go green — which is exactly how a gate like this dies quietly.
+      #
+      # Runs before `npm ci`, alongside the OFFLINE-VERIFY gate, so a broken
+      # lockfile cannot take the governance gates down with it.
+      - name: Precedence gate (OR-6 / ODR-7)
+        run: |
+          set -euo pipefail
+          python3 scripts/precedence_gate.py --selftest
+          python3 scripts/precedence_gate.py
+
+      # X-6 export-source gate (CRM EXPORT SPEC §10.2; X6_POSTGRES_OWNED_ASSURANCE_PLAN
+      # T-CI-X6-01/02/03). Text-only, no database, runs BEFORE `npm ci` for the
+      # same reason the OFFLINE-VERIFY gate does: a broken lockfile must not be
+      # able to take the gate offline. The scan set, the forbidden-term list, the
+      # column manifest and every floor live under supabase/ci/ — no check carries
+      # its own copy of a list; the pgTAP suite's embedded copies are diffed
+      # against the manifests here. Positive controls run against the poison
+      # directory so a broken scanner fails here, never silently passes a tree.
+      - name: X-6 export-source gate (T-CI-X6-01/02/03)
+        run: |
+          set -uo pipefail
+          scripts/ci/x6_gate.sh 2>&1 | tee "$RUNNER_TEMP/x6_gate.txt"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "### X-6 export-source gate"
+            echo
+            echo '```'
+            grep -E '^(X-6|column manifest|positive control|suite manifests|### )' "$RUNNER_TEMP/x6_gate.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -57,6 +425,13 @@ jobs:
       - name: Install (clean, from lockfile)
         run: npm ci
 
+      # A build profile must never pair one environment's database with another
+      # environment's Stripe account (a TEST key against the PRODUCTION project
+      # reads and writes real data while payments silently cannot work). This is
+      # the build-time twin of src/config/envGuard.ts.
+      - name: Environment pairing gate (eas.json profiles)
+        run: node scripts/ci/assert-env-pairing.mjs
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -65,6 +440,12 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+
+      # F18: the shared-package parity suites (packages/core, packages/design-
+      # tokens) import the mobile + edge originals AND the package copies; they
+      # resolve `vitest` from the ROOT install, so they run here, not in web/.
+      - name: Shared package parity tests
+        run: npx vitest run -c packages/vitest.config.ts
 
   # ---------------------------------------------------------------------------
   # db: prove the migration chain applies cleanly on a FRESH database.
@@ -193,10 +574,19 @@ jobs:
           # already existed. Until 072 is applied to production, the fresh replay
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
-          EXPECT_TABLES: 27
-          EXPECT_FUNCS: 69
+          # 2026-09-02 (release-readiness): functions 69 -> 70 — production's
+          # 20260902003623_admin_relist_listing_rpc adds public.admin_relist_listing.
+          # 2026-09-03 (package 093, slice 30 §10): triggers 24 -> 26 —
+          # tg_profiles_connect_id_not_org_bound on public.profiles and
+          # tg_connect_archive_not_org_bound on public.stripe_connect_archive.
+          # 2026-09-06 payments-reliability packages 1-3 (converged RC): tables 27->30
+          # (payout_attempts, payment_refunds, account_deletions), functions 70->85
+          # (+1 P1, +2 P2, +12 P3, +1 BP-13 predicate 20260906130000), triggers 26->32 (P3 guards incl. the append-only
+          # ledger DELETE/TRUNCATE guards). Every object is named in the package migrations.
+          EXPECT_TABLES: 30
+          EXPECT_FUNCS: 86
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 24
+          EXPECT_TRIGGERS: 32
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -322,9 +712,9 @@ jobs:
           # and nothing about it can be accidental.
           # Current truth, computed from the tree (see the OK line the gate
           # prints): 2 todo() calls masking 2 assertions, 0 skip(), 0 todo_start.
-          MASK_MAX_TODO_FAILURES=2      # runtime: '# Failed (TODO) test' lines in the TAP stream
-          MASK_MAX_TODO_CALLS=2         # static:  number of todo(...) call sites
-          MASK_MAX_MASKED_ASSERTIONS=2  # static:  SUM of how_many over all todo(...) calls
+          MASK_MAX_TODO_FAILURES=0      # runtime: '# Failed (TODO) test' lines in the TAP stream
+          MASK_MAX_TODO_CALLS=0         # static:  number of todo(...) call sites (ratcheted to 0 on 2026-09-06 — 060 F-2/F-3 are real assertions)
+          MASK_MAX_MASKED_ASSERTIONS=0  # static:  SUM of how_many over all todo(...) calls
           MASK_MAX_SKIP_CALLS=0         # static:  skip(...) call sites — banned
           MASK_MAX_TODO_BLOCKS=0        # static:  todo_start(/todo_end( — banned, unbounded by construction
           # >>> MASK-GATE-CONSTANTS-END
@@ -405,8 +795,124 @@ jobs:
           # matching positive control that proves 17 raises on IDENTITY rather
           # than on listing state. It carries no todo()/skip(), so none of the
           # five masking ratchets below moves.
-          MIN_FILES=17
-          MIN_ASSERTIONS=305
+          # Ratchets raised 2026-08-30 with supabase/tests/140_phase2_outbox_foundation.sql
+          # (Phase-2 package 076): 17 -> 18 files, 305 -> 358 assertions.
+          # Recomputed from the tree at this commit, not carried from a note:
+          #   ls supabase/tests/*.sql | wc -l                             -> 18
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | ... | bc     -> 358
+          # The file plans 53: five schemas + nine USAGE booleans + the OR-1
+          # inverted-D-1 role assertion + helper/default-priv/envelope catalog
+          # checks + hostile-role direct-mutation probes + the OR-14
+          # REQUIRED-rollback and BEST-EFFORT-survival transactional proofs +
+          # the per-aggregate UNIQUE concurrency backstop.
+          # Raised again 2026-08-30 (review hardenings A/B/C/D/E): 140 plans 59.
+          # Ratchets raised 2026-08-30 with supabase/tests/141_phase2_identity_orgs_deletion.sql
+          # (Phase-2 package 077): 18 -> 19 files, 364 -> 552 assertions.
+          # Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 19
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 552
+          # 141 plans 188: the twelve-table closed world + 15-label role columns
+          # + INV-NOFORCE + the 8-policy register + hostile grants + the
+          # PFA-1 walled-function ACL sweep + EXEC-set equalities + the eight
+          # approval_request CHECKs + AO guards + demographics/contact-pref
+          # contracts + org lifecycle + connect bind-once + platform-role
+          # PFA-4 posture + the OR-13 deletion machine (request/withdraw/Q5/
+          # sweep/BP live arms/terminal entry/ERASED refusals) + R2 emits +
+          # the eleven SEAM-2 stub identities.
+          # 143 plans 154: the 079 custody closed world (15 tables / 48 fns /
+          # 10 policies) + the C26 rig + T-SCHEMA-CUSTODY-01..-05 + the MB-4
+          # trigger + T-SCHEMA-EXPIRY-01 + is_transfer_frozen (total, session-
+          # wide, override subtraction) + lock/unlock/scan overlays +
+          # update_event_session time guard + BP-1 routing + the REAL
+          # T-SCHEMA-SENTINEL-05 + AO guards + adversarial RLS.
+          # 144 plans 114: the 080 authz closed world (six-label CHECK, the four
+          # predicates, AUTHZ-M7 tier guard, the four AUTHZ-PKG1 policies
+          # behaviourally per label, live revocation, INV #23/#24 through the
+          # sweep, the PFA-10 activation boundary, deny-by-default). 142 +1
+          # (Gate-M anchor split for the venue.staff_role arrival).
+          # 145 plans 94: the 081 inventory substrate (five tables, the C27
+          # oversell CHECK + generated remaining, the eight RPCs, set_batch_capacity's
+          # below-committed floor incl. platform_admin, the G-24 hold sweep both
+          # arms, publish_event's empty-inventory guard, the F-1 clause, E-28's
+          # fail-safe unseeded keys, E-29 counter-column hide, E-30 anon wall).
+          # 146 plans 68: the 082 order/consent closed world (venue.order +
+          # order_item, the two org_contact_consent tables, create_primary_checkout
+          # with the E-23 buyer-ACTIVE gate + F-1, cancel_pending_order service-role
+          # + noop, the 3 consent RPCs with AO event append, deletion_blockers_orders
+          # BP-12 pending arm, the IMM + candidate-freeze guards, order RLS).
+          # 147 plans 89: the 083 credential/wallet closed world (5 tables + .pkpass,
+          # C33/PFA-16 custody, PFA-18A + PFA-20 fail-closed parks with zero-mutation
+          # proof, the mint activation boundary + coherence + REAL idempotency replay
+          # + mint-path C27 oversell, the implemented wallet RPCs behaviorally, the
+          # four immutability guards FIRING, BP-2, the SEAM-2 no-op stub).
+          # 148 plans 14: the 084 ADOPT step (both late-binding tickets FKs
+          # validated + RESTRICT, unit_row_id bare (C42), the dumping-ground
+          # guard — zero relations/routines created — and both FKs biting).
+          # 149 plans 108: the 085 money kernel (four ledgers + the closed world,
+          # PFA-15/21 walls, finalize end-to-end with E-40/E-47(b) draw + replay,
+          # the void/refund executors with the Σ-guard, the NULL-fails-closed
+          # tier ladder + the full dual-control loop, payout holds + state sync,
+          # obligations/BP-10, PFA-22 BP-12 semantics, Q5, the denial witness,
+          # the destination SoD/step-up ladder).
+          # 150 plans 62: the 086 door/scan substrate (12 tables, the manifest
+          # engine open/snapshot/delta/get/close, PFA-24 no-public_key, the SEAM
+          # bodies, revoke_signing_key PARKED (PFA-18A), tokenized door sessions,
+          # RV-1, scan dark-gate, holder-mix R2 floor).
+          # 151 plans 235: the 087 settlement money engine (waterfall CHECK, AO
+          # lines, zero-net/no-payout, seeded-line rollup → pending payout, SoD-1,
+          # maturity, NULL-threshold park, on_payout_settled negative predicate
+          # T-SCHEMA-SETTLE-01) + the CRM export lifecycle (grammar, caps, X-9,
+          # history, claim/lease, finalize count_mismatch + canary, download
+          # template re-check T-RLS-CRM-06, revoke, sweep, purge claim/confirm,
+          # orphan pass both directions, EX-5 audit) + PFA-28 fail-closed parks
+          # (E1-E17) + cross-org isolation.
+          # 152 plans 27: X-6 under the postgres-owned builder — T-RPC-CRM-14
+          # (text+catalog limbs over 13 entry points), -15 (transitive closure to
+          # a fixed point with depth/view witnesses + poison pill), -19 (no dynamic
+          # SQL in the closure + positive control), OR-1 ownership.
+          # 153 plans 367: the 088 native rail (six tables / 24 routines / the
+          # seven SEAM-2a body-only replacements incl. PFA-13, ODR-16 SEAM state),
+          # grants + the 076 wall, dark rails, listing lifecycle + E-98 cap, the
+          # PFA-30 fail-closed parks (buy-now ⑦ and offer-accept: zero rows), the
+          # transfer engine E-22/E-23/R-40 + finalize/mark/bind/cancel/lapsed, the
+          # R-40 dispute surface (record legs, no-link arm, mark forward-only,
+          # PFA-31 park with zero mutation, PFA-13 re-arm + E-103), the PFA-29
+          # chargeback/royalty seam (owner tests A-E: +100 → gross, −N → next
+          # settlement, prior unchanged, no duplicate, both classes in one call),
+          # p2p (TTL park; accept/decline/cancel/sweep; F-4; E-99/E-101), door
+          # drain + freeze enforcement, C26 compensate (E-95), cancel_event
+          # (per-order refunds, E-102 skip, REQUIRED emits, re-entrancy), the
+          # deletion twins + 16d erase, the integer-exact split CHECK.
+          # Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 31
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2166
+          # 154 plans 64: the 089 ADOPT step — the bridge VIEW (security_invoker, the
+          # exact discovery projection, the exact relation set it reads, not insertable,
+          # SELECT-only grants with NO anon arm per E-106/PFA-14, external-rail parity
+          # byte-identical to public.listings with the E-114 rail and E-115 unit rules,
+          # the native arm's own discovery+flag predicate — owner drafts never surface,
+          # dark ⇒ zero native rows even to a superuser, discovery opens no buying path)
+          # and the adopted payment_native.sale_id FK (validated, RESTRICT bites both ways).
+          # Recomputed from the tree at this commit:
+          # 2026-09-02 (package 090): 32 -> 33 files (155_phase2_venue_promoter_engine: the
+          # promoter engine — closed world, posture, normalization/immutability, the RPC
+          # contracts, eligibility, the P0–P10 precedence table, the freeze, self-deal,
+          # the commission seam/hold/release/deny, cross-settlement uniqueness, reads/RLS
+          # isolation, ODR-16; red-team remediation: held commission payouts, replay
+          # binding, currency, channel-preserving bind, cross-org confusables, review
+          # SoD/E-76, platform read arm), 2230 -> 2593 assertions.
+          # 2026-09-02 (package 091): 33 -> 34 files (156_phase2_kernel_reserve_stub: the Gate-M
+          # stub is a CHECKED property — one table, empty, deny-all, no writer, no routine
+          # references it, nothing else created), 2593 -> 2632 assertions.
+          #   ls supabase/tests/*.sql | wc -l                         -> 34
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2632
+          # 2026-09-06 (payments reliability, converged RC): 35 -> 59 files (the Phase-2
+          # 14x/15x/16x suites already in the tree + 120..125 payments suites), 2927 -> 4053
+          # assertions. Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 59
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 4053
+          MIN_FILES=59
+          MIN_ASSERTIONS=4053
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
@@ -782,7 +1288,9 @@ jobs:
           # These remain deliberately blunt textual checks: they would also fire
           # on the string "skip(" in a comment or an identifier. A false positive
           # is a cheap, obvious fix; a missed skip() is silent.
-          todo_src=$(grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          # `|| true` inside the pipeline: under `set -o pipefail` a zero-match grep
+          # (exit 1) would abort the step silently once the last todo() is gone.
+          todo_src=$( { grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null || true; } | wc -l | tr -d ' ')
           todo_src=${todo_src:-0}
           if [ "$todo_src" -gt "$MASK_MAX_TODO_CALLS" ]; then
             echo "::error::grep tripwire: $todo_src todo() calls in the suite, ratchet is $MASK_MAX_TODO_CALLS."
@@ -845,6 +1353,20 @@ jobs:
         if: steps.detect.outputs.exists == 'yes'
         run: npm ci
 
+      # F18 (audit 2026-09-05): the web app's own unit tests, lint and type
+      # check, plus the shared-package parity suites, were not gated anywhere.
+      - name: Web typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Web lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Web unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run test
+
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
         # The web app fails closed without these (by design — see web/src/lib/env).
@@ -856,3 +1378,62 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # deno-check: type-check the Supabase Edge Functions under the Deno toolchain
+  # they actually run on (F18: the root tsconfig excludes supabase/functions, so
+  # `npm run typecheck` never sees them; the vitest vm harness exercises
+  # behavior but not Deno's type resolution). Network is used only to fetch the
+  # pinned https imports (deno.land std, esm.sh supabase-js). No deploy, no
+  # secrets.
+  # ---------------------------------------------------------------------------
+  deno-check:
+    name: Deno type-check (edge functions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # BLOCKING since 2026-09-06: the 21 pre-existing Deno type errors found on
+    # its first run (docs/security/PAYMENTS_RELIABILITY_2026-09/deno_check_baseline_errors.txt)
+    # were fixed type-level-only in the payments-reliability branch (run
+    # 34046189039 green).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      # 2026-09-06 (converged RC): the tree now also carries the Phase-2 NATIVE
+      # edges (credential-sign, primary-checkout, payout-execute, refund-execute,
+      # door-session, door-manifest, connect-onboarding) — never deployed, the
+      # expansion is paused, and they carry 18 Deno type errors of their own.
+      # The BLOCKING check covers exactly the eleven functions production runs
+      # (list_edge_functions, 2026-09-06) — every edge this release can deploy.
+      # The native set is checked too, VISIBLY but non-blocking, so its errors
+      # never hide; it must join the blocking list in the same PR that first
+      # deploys any of it. Closed world: a function directory that is in
+      # neither list fails the job.
+      - name: deno check — every DEPLOYED edge entrypoint (blocking)
+        run: |
+          set -euo pipefail
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          native="connect-onboarding credential-sign door-manifest door-session payout-execute primary-checkout refund-execute"
+          for d in supabase/functions/*/; do
+            n=$(basename "$d"); [ "$n" = "_shared" ] && continue
+            case " $deployed $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in neither the deployed nor the native deno-check list — add it deliberately."; exit 1;; esac
+          done
+          files=""; for n in $deployed; do files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          deno check $files
+          echo "deno check OK: $(echo $deployed | wc -w | tr -d ' ') deployed entrypoints"
+
+      - name: deno check — Phase-2 native edges (advisory until first deploy)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          native="connect-onboarding credential-sign door-manifest door-session payout-execute primary-checkout refund-execute"
+          files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          if deno check $files; then echo "native edges type-check clean"; else
+            echo "::warning::Phase-2 native edges have Deno type errors (advisory: none of them is deployed; fix before their first deploy)"; exit 1; fi

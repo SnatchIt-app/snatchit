@@ -1,5 +1,37 @@
 # Snatch It — Phase 2 Implementation Roadmap
 
+> ## ⛔ SUPERSEDED — this document is NOT current design. Banner added 2026-08-28 (`R4-8`; ratification rows `C127` / `D34`).
+>
+> **Why this banner exists.** This file sits under `docs/architecture/_superseded/` and **carried no
+> supersession notice at all**, while the one `_governance/` document that was salvaged the same way
+> (`PHASE_2_FINAL_PREIMPLEMENTATION_GATE.md`) does carry one. A directory name is not a banner: a reader who
+> opens the file directly, follows a cross-reference into it, or reads a printed copy sees only live-sounding
+> present-tense prose. **Nothing below is deleted** — these documents are the provenance of ratified
+> decisions and are still cited by name — but nothing below may be implemented from.
+>
+> **Superseded by:** `docs/architecture/PHASE_2_SUPABASE_MIGRATION_PLAN.md` (the package-by-package build
+> order), `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md` (the canonical migration-package map) and
+> `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` (how a package is executed).
+> Scope additions since are in `docs/architecture/PHASE_2_SCOPE_AMENDMENT_2026_08.md`.
+>
+> **This is the file the `R4-8` pass was raised against, because it reads as live.** Its
+> *"Operating rules (apply to every phase)"* is present-tense instruction with no date and no banner, and its
+> **phase numbering predates the `076`–`091` package scale entirely** — any migration number appearing below
+> is on a retired scale (`_governance/PHASE_2_PREIMPLEMENTATION_CLOSEOUT.md` records the shift; `071`–`075`
+> now mean applied production security migrations, never Phase-2 packages). **Its 15.A gate is not the live
+> gate:** Gate P/M/L composition is the ratification record's Gate column, tabulated in
+> `ARCHITECTURE_FREEZE.md`.
+>
+> **Still cited, legitimately:** `PHASE_2_SUPABASE_MIGRATION_PLAN.md` §0 binding input 4 cites this file for
+> **phase order** and for the *"marketplace never stops shipping / money core never moves"* rules — both of
+> which survive verbatim in the plan and in freeze Rule 6. That citation is to those two things only.
+>
+> **Reading rule.** Cite this file for **provenance** — what was found, by whom, and why a decision was
+> taken. **Never for current design, current numbers, or current scope.** Where it disagrees with the
+> superseding document named above, **the superseding document governs**, and that determination needs no
+> precedence rule: this one is dated and closed.
+
+
 **Companion to `docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md` + `docs/architecture/_superseded/PHASE_2_ARCHITECTURE_REVIEW.md`.** Design/sequencing only — no code, SQL, migrations, or UI here. This is the layer the review identified as essential: the constitution is a **complete map**; this is the **short, ruthless path through it.** Build in this order, not in document order.
 
 ## Operating rules (apply to every phase)

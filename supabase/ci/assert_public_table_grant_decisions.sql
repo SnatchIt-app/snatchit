@@ -163,6 +163,11 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   ('transfer_notifications',       'no-client-access'),
   -- webhook_retries is the table this whole assertion exists because of.
   ('webhook_retries',              'no-client-access'),
+  -- 20260906120000 (Package 3): payout attempt ledger, append-only refund
+  -- facts, account-deletion phase ledger. All service_role only.
+  ('account_deletions',            'no-client-access'),
+  ('payment_refunds',              'no-client-access'),
+  ('payout_attempts',              'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -324,6 +329,12 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- ── no-client-execute ────────────────────────────────────────────────────
   -- Trigger functions, cron/maintenance entry points, and service-role-only
   -- money and webhook internals. Nothing a browser may call.
+  -- 2026-09-02 (release-readiness): production's 20260902003623 admin relist
+  -- verb, reconstructed into the repo — REVOKE PUBLIC/anon/authenticated +
+  -- GRANT EXECUTE service_role in the migration itself (E-164).
+  ('admin_relist_listing(uuid, timestamp with time zone, uuid)',     'no-client-execute'),
+  ('account_deletion_blockers(uuid)',                                'no-client-execute'),
+  ('account_deletion_block_reason(uuid)',                            'no-client-execute'),
   ('admin_release_held_payout(uuid, uuid, text)',                    'no-client-execute'),
   ('admin_resolve_dispute(uuid, text, uuid)',                        'no-client-execute'),
   ('apply_auto_release(uuid)',                                       'no-client-execute'),
@@ -331,6 +342,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('apply_payout_hold(uuid, timestamp with time zone, text, text[])','no-client-execute'),
   ('auto_finalize_expired_auctions()',                               'no-client-execute'),
   ('check_rate_limit(uuid, text, integer, integer)',                 'no-client-execute'),
+  ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),
   ('complete_stripe_webhook_event(text)',                            'no-client-execute'),
@@ -341,19 +353,26 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('enforce_transfer_expiry()',                                      'no-client-execute'),
   ('enqueue_notification(uuid, text, text, text, text, text, jsonb)','no-client-execute'),
   ('fail_stripe_webhook_event(text, text)',                          'no-client-execute'),
+  ('flag_payout_reversal_required(uuid, text, jsonb)',               'no-client-execute'),
   ('freeze_transfer_for_dispute(uuid)',                              'no-client-execute'),
   ('get_auto_release_candidates()',                                  'no-client-execute'),
   ('get_disputes_awaiting_refund()',                                 'no-client-execute'),
   ('get_incomplete_webhook_events(integer, integer)',                'no-client-execute'),
+  -- Package 2 (20260906110000): the reconciliation sweep's work list.
+  -- service_role only — asserted in 121.
+  ('get_unsettled_payments(integer)',                                'no-client-execute'),
   ('get_payout_review_queue()',                                      'no-client-execute'),
   ('guard_listing_identity_columns()',                               'no-client-execute'),
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
   ('guard_listing_state_columns()',                                  'no-client-execute'),
+  ('guard_payment_transitions()',                                    'no-client-execute'),
+  ('guard_payout_attempt_columns()',                                 'no-client-execute'),
   ('guard_proof_status()',                                           'no-client-execute'),
   ('guard_transfer_state_columns()',                                 'no-client-execute'),
   ('handle_new_user()',                                              'no-client-execute'),
   ('handle_new_user_notification_prefs()',                           'no-client-execute'),
   ('is_admin()',                                                     'no-client-execute'),
+  ('mark_payout_requested(uuid)',                                    'no-client-execute'),
   ('mark_transfer_reversed(text)',                                   'no-client-execute'),
   ('notify_auction_won_inbox()',                                     'no-client-execute'),
   ('notify_bid_inbox()',                                             'no-client-execute'),
@@ -363,13 +382,26 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('notify_transfer_created_inbox()',                                'no-client-execute'),
   ('notify_transfer_event()',                                        'no-client-execute'),
   ('notify_transfer_state_inbox()',                                  'no-client-execute'),
+  ('payment_refunds_append_only()',                                  'no-client-execute'),
+  ('payout_attempts_no_delete()',                                    'no-client-execute'),
+  ('reconcile_payout_attempt(uuid, text)',                           'no-client-execute'),
+  ('record_payment_refund(text, text, text, integer, text)',         'no-client-execute'),
+  ('record_payout_attempt_result(uuid, text, text, jsonb)',          'no-client-execute'),
   ('record_transfer_payout(uuid, text)',                             'no-client-execute'),
   ('refresh_all_seller_risk_scores()',                               'no-client-execute'),
   ('refresh_seller_risk_score(uuid)',                                'no-client-execute'),
   ('request_is_service_role()',                                      'no-client-execute'),
+  ('reset_payment_guard_bypass()',                                   'no-client-execute'),
   ('reset_transfer_guard_bypass()',                                  'no-client-execute'),
   ('resolve_transfer_dispute(uuid, text, uuid, text, text)',         'no-client-execute'),
   ('set_updated_at()',                                               'no-client-execute'),
+  -- Package 1 (20260906100000): settlement core, reached only through owner
+  -- functions (mark_listing_sold, complete_auction_payment, Package 2's
+  -- settle_verified_payment). service_role is revoked too — asserted in 120.
+  ('settle_listing_for_payment(uuid)',                               'no-client-execute'),
+  -- Package 2 (20260906110000): the ONE verified-settlement contract used by
+  -- stripe-webhook / confirm-payment / the sweep. service_role only — 121.
+  ('settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text)', 'no-client-execute'),
   ('sweep_auth_password_changes()',                                  'no-client-execute'),
   ('sync_listing_current_bid()',                                     'no-client-execute'),
   ('validate_and_apply_bid()',                                       'no-client-execute'),

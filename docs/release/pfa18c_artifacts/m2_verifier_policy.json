@@ -1,0 +1,61 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "VerifierKmsReadOnly",
+      "Effect": "Allow",
+      "Action": [ "kms:DescribeKey", "kms:GetPublicKey", "kms:GetKeyPolicy", "kms:ListKeyPolicies", "kms:ListResourceTags" ],
+      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*"
+    },
+    {
+      "Sid": "VerifierListAndIdentity",
+      "Effect": "Allow",
+      "Action": [ "kms:ListKeys", "kms:ListAliases", "sts:GetCallerIdentity" ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "VerifierAuditReadBack",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails", "cloudtrail:GetTrailStatus", "cloudtrail:GetEventSelectors", "cloudtrail:LookupEvents",
+        "cloudtrail:ListTrails"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "VerifierAuditBucketReadBack",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket", "s3:ListBucketVersions", "s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectRetention",
+        "s3:GetObjectLegalHold", "s3:GetBucketObjectLockConfiguration", "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:GetBucketLocation"
+      ],
+      "Resource": [ "arn:aws:s3:::snatchit-audit-652872010073", "arn:aws:s3:::snatchit-audit-652872010073/*" ]
+    },
+    {
+      "Sid": "VerifierIamDenySetReadBack",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+        "iam:GetUser", "iam:GetUserPolicy", "iam:ListUserPolicies", "iam:ListAttachedUserPolicies",
+        "iam:ListGroupsForUser", "iam:GetGroupPolicy", "iam:ListGroupPolicies", "iam:ListAttachedGroupPolicies",
+        "iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListAccessKeys", "iam:GetAccountSummary", "iam:ListMFADevices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyEverythingThatCouldMutateOrSign",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Sign", "kms:Verify", "kms:CreateKey", "kms:PutKeyPolicy", "kms:ScheduleKeyDeletion", "kms:DisableKey",
+        "kms:EnableKey", "kms:TagResource", "kms:UntagResource", "kms:CreateAlias", "kms:CreateGrant",
+        "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*",
+        "iam:Put*", "iam:Attach*", "iam:Detach*", "iam:Create*", "iam:Delete*", "iam:Update*", "iam:Add*", "iam:Remove*",
+        "iam:PassRole", "iam:SetDefaultPolicyVersion", "sts:AssumeRole",
+        "cloudtrail:StopLogging", "cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail", "cloudtrail:PutEventSelectors",
+        "s3:Put*", "s3:Delete*", "s3:BypassGovernanceRetention"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
