@@ -646,3 +646,9 @@ OWNER-RETURNED + CLAUDE-OBSERVED (CloudTrail event history, sanitized):
   resource) can only show the absence of a broad Allow (implicit deny), which is weaker evidence and optional.
 - P4 (`iam get-user` as the role) and P5 (`sts assume-role` into the runtime role as the role): outcome not yet returned by the owner / not yet
   indexed at the time of writing.
+  P3 CloudTrail event (indexed 04:34:57Z, sanitized): `CreateAlias` 2026-09-08T04:32:32Z by `assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`
+  (`mfaAuthenticated true`), `errorCode NotFoundException`, `errorMessage "Key 'arn:aws:kms:us-east-1:652872010073:key/00000000-0000-0000-0000-
+  000000000000' does not exist"`, request parameters not recorded by KMS for this failure, eventID `a99105a8-e773-44fd-915b-377706050837`. The
+  event carries no `AccessDenied` and no authorization-failure text — consistent with the analysis above: resource validation answered; the
+  identity deny's evaluation for this request is not observable. P3 stays INCONCLUSIVE. P4/P5: no `GetUser`/`AssumeRole` events by the
+  ceremony role are indexed as of 04:35Z (not run, or not yet indexed).
