@@ -312,3 +312,56 @@ Evidence: full pgTAP plan 3941 · ok 3937 · not_ok 4 (documented 060×2/132×2)
 AWS: **none.** Production DB: **none** (no connection made). KMS: **not created.** Secrets: **none.** Migrations 110–114: **rehearsal only,
 NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
 
+
+---
+
+## SESSION 8 — 2026-09-08 — BILLING STEP PREPARATION + STATE RECONCILIATION (NO MUTATION)
+
+Authorization: the owner approved moving beyond the AWS Free plan (pay-as-you-go; **not** a $100 purchase, subscription, support plan, or credit
+package; **not** a recurring budget or spending authorization). That approval authorizes **no** KMS key, Organization, account, IAM resource,
+CloudTrail trail, Object-Lock bucket, production migration, deployment, secret, or activation. C18 unchanged. Pre-existing user edits preserved
+(`M docs/release/PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md`, `?? docs/phase2/TICKETS_READ_CONTRACT_CORE_COORDINATION.md` untouched).
+
+### Reconciliation (CLAUDE-OBSERVED unless stated)
+- Audit commits `1f3fc19` / `aa74cc2` remain current: `aa74cc2` = tip of `feature/venue-native-and-product-v2` = `origin`; CI green on both.
+  `admin/operating-console @ ab3e17f` (= `aa74cc2` + ops-console 115–120; PR #55; CI green) touches no PFA-18C document or 110–114 file.
+- **Production drift from the recorded baseline (owner-approved, not an incident):** ledger **130** rows, numeric tip **120** — migrations 115–120
+  (ops console RC3) were applied 2026-09-08 ~00:2xZ per `docs/admin-console/DEPLOYMENT_RECORD_2026-09-08.md` (admin branch); owner visually
+  confirmed auto-deploy OFF on 2026-09-07; `git_branch: ""` (mechanical read). **110–114 remain unapplied** (`guard_110_present=false`,
+  `recovery_111_present=false`, `venue.get_signing_keys_door` absent). Signing substrate unchanged: `kernel.signing_key` 0 · issuance false ·
+  scanning false · monitor false · fingerprint null · max_not_after null · tickets 0 · door_session 0 · census kernel 149 / venue 83 / kernel
+  tables 31 · native edges not deployed (11 legacy edges only). Read 2026-09-08T00:38Z via Supabase MCP `execute_sql`, read-only.
+  Runbook NG-3 re-baselined by dated note (ledger 130 / tip 120 / 110–114 absent / 0 keys).
+- **AWS plan: NOT re-verified** — `aws sts get-caller-identity` / `aws freetier get-account-plan-state` returned "Your session has expired.
+  Please reauthenticate using 'aws login'." Last state remains OWNER-RETURNED 2026-09-05 (FREE, $100 remaining, expires 2027-03-05T17:57:11Z).
+  PAID will be recorded only from a fresh `get-account-plan-state`.
+
+### Production-order rehearsal (REHEARSAL, local harness, 2026-09-08T00:46Z)
+Because production now carries 115–120 without 110–114, the apply order will be 115–120 → 110–114 (not the CI fresh-replay order).
+Replayed the chain without 110–114 ⇒ census 149/83/ops 90/31 (= production), applied 110→114 ⇒ 153/87/90/32 with guard + recovery present;
+canonical-order replay ⇒ identical census, Gate-2 27/71/37/27 (= CI baseline); function/trigger/policy definitions + routine grants across
+seven schemas (682 lines) **IDENTICAL** between the two databases; full pgTAP on the production-order DB `plan 4320 · ok 4316 · not_ok 4`
+(documented 060×2/132×2 only). Details: `PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` §7.1.
+
+### Deliverable
+`docs/release/PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` — billing state + owner steps (B0–B5), Model-A account-layout recommendation
+(reuse `652872010073` as the workload member; management + audit accounts later; no Organization now), cost estimate from official pricing
+read this session (≈ $1.06–1.15/month dark, ≈ $1.00 of it the key; + $0.015 per 1,000 credentials live; credits treatment + exclusions; budget
+alerts are notifications, not caps), M1–M6 / recovery / Model-A reconciliation (PFA controls distinguished from the scanner's M1/M2 manifests),
+exact names / bindings / execution order / verification / abort conditions, 110–114 release sequence and dependencies (apply tree must contain
+115–120; `db push --include-all --dry-run` must list exactly 110–114; dark deployment separated from activation), remaining owner decisions
+(region pin; irreversible Object-Lock years; O1 vs O4 runtime credentials; layout confirmation; names; MFA mechanism for the ceremony trust;
+C3/C4 ordering), and the next authorization-bearing action (C1 / M1-1 after NG-1 clears).
+
+### Official-documentation facts read this session (for the billing step)
+Upgrade = Console home → Cost and Usage widget → "Upgrade plan" (`https://console.aws.amazon.com/billing/home?#/freetier/upgrade`) → review →
+"Upgrade account"; CLI equivalent `aws freetier upgrade-account-plan --account-plan-type PAID`. Remaining credits apply automatically after the
+upgrade until 12 months after account creation; upgrading **via** Organizations/Control Tower expires them immediately; a Free plan auto-upgrades
+on joining an Organization. Payment method is not charged until the upgrade; afterwards only pay-as-you-go usage beyond credits. Free plans
+"don't have access to certain AWS services" (not enumerated).
+
+### SESSION 8 MUTATION LEDGER
+AWS: **none** (read-only calls attempted; session expired; no login performed by Claude). Production DB: **none** (read-only queries only).
+KMS: **not created.** Secrets: **none.** Organizations/accounts/IAM/CloudTrail/S3: **none.** Migrations 110–114: **NOT applied** (rehearsal
+only). Edges: **not deployed.** Config/flags: **unchanged.** Billing plan: **unchanged (FREE last seen 2026-09-05; not re-read).**
+Repository: this record, the runbook NG-3 dated note, and the readiness packet — committed on `feature/venue-native-and-product-v2`.
