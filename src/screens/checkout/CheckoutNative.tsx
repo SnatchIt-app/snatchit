@@ -29,7 +29,13 @@ import {
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
-import { createPaymentIntent, confirmPaymentSuccess, isExpectedCheckoutError } from '@/src/lib/payments';
+import {
+  createPaymentIntent,
+  finalizePurchase,
+  isExpectedCheckoutError,
+  SETTLEMENT_COPY,
+  type SettlementOutcome,
+} from '@/src/lib/payments';
 import * as Sentry from '@sentry/react-native';
 
 import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
@@ -78,7 +84,9 @@ export default function CheckoutScreen() {
   // -- State ----------------------------------------------------------------
 
   const [confirming,      setConfirming]      = useState(false);
-  const [sold,            setSold]            = useState(false);
+  // null until the PaymentSheet has settled one way or another. Replaces the
+  // old boolean `sold`, which was set even when settlement had NOT completed.
+  const [settlement,      setSettlement]      = useState<SettlementOutcome | null>(null);
   const [postPurchaseTransferId, setPostPurchaseTransferId] = useState<string | null>(null);
   const [paymentReady,    setPaymentReady]    = useState(false);
   const [paymentLoading,  setPaymentLoading]  = useState(false);
@@ -259,9 +267,21 @@ export default function CheckoutScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, authLoading, listingId]);
 
-  // -- Confirm Buy Now purchase ---------------------------------------------
+  // -- Post-payment settlement (Buy Now + auction) ---------------------------
+  //
+  // The card is already charged once presentPaymentSheet() returns without an
+  // error, so the ONLY thing left to decide is what the buyer is told. That
+  // decision lives in finalizePurchase / classifySettlement (src/lib/payments.ts)
+  // and has exactly three answers:
+  //   completed — success screen
+  //   pending   — the settlement has not landed YET (Stripe hasn't flipped the
+  //               PaymentIntent, or the RPC never reached us). Nothing is lost;
+  //               the webhook and the reconciliation sweep settle it. Calm
+  //               screen, no alert. This used to raise "contact support" on a
+  //               perfectly good purchase.
+  //   failed    — money captured, order unfulfillable. Alert + no success screen.
 
-  async function handleConfirmPurchase() {
+  async function runSettlement(mode: 'buy_now' | 'auction') {
     if (!paymentReady || !user) return;
     setConfirming(true);
 
@@ -278,41 +298,30 @@ export default function CheckoutScreen() {
         return;
       }
 
-      if (paymentIntentId) {
-        await confirmPaymentSuccess(paymentIntentId);
-      }
-
-      const { error: rpcError } = await supabase.rpc('mark_listing_sold', {
-        p_listing_id: listingId,
-        p_user_id: user.id,
+      const result = await finalizePurchase({
+        listingId,
+        userId: user.id,
+        paymentIntentId,
+        mode,
       });
 
-      if (rpcError) {
-        Alert.alert(
-          'Payment Received',
-          'Your payment was processed but we had trouble updating the listing. Please contact support.',
+      if (result.outcome === 'failed') {
+        Sentry.captureMessage(
+          `checkout_settlement_failed — ${result.detail ?? 'unknown'}`,
+          'error',
         );
-        console.error('mark_listing_sold error after payment:', rpcError.message, rpcError.code);
+        Alert.alert(
+          SETTLEMENT_COPY.failed.title,
+          SETTLEMENT_COPY.failed.body,
+        );
       }
 
-      const { error: transferErr } = await supabase.rpc('ensure_transfer_exists', {
-        p_listing_id: listingId,
-      });
-      if (transferErr) {
-        console.warn('[checkout] ensure_transfer_exists error:', transferErr.message);
+      if (result.transferId) {
+        setPostPurchaseTransferId(result.transferId);
       }
 
-      const { data: transferRow } = await supabase
-        .from('transfers')
-        .select('id')
-        .eq('listing_id', listingId)
-        .maybeSingle();
-      if (transferRow?.id) {
-        setPostPurchaseTransferId(transferRow.id);
-      }
-
-      confirmedRef.current = true;
-      setSold(true);
+      confirmedRef.current = result.outcome === 'completed';
+      setSettlement(result.outcome);
     } catch (err: unknown) {
       Alert.alert(
         'Error',
@@ -323,73 +332,18 @@ export default function CheckoutScreen() {
     }
   }
 
-  // -- Auction winner payment -----------------------------------------------
+  const handleConfirmPurchase = () => runSettlement('buy_now');
+  const handleAuctionPayment  = () => runSettlement('auction');
 
-  async function handleAuctionPayment() {
-    if (!paymentReady || !user) return;
-    setConfirming(true);
+  // -- Settlement outcome UI -------------------------------------------------
+  // One screen, three faces. Only `completed` gets the success mark and the
+  // "Purchase complete!" headline; `pending` gets a calm "we're finalizing it"
+  // and `failed` says what actually happened. Copy comes from SETTLEMENT_COPY
+  // so the screen and the alert can never disagree.
 
-    try {
-      const { error: paymentError } = await presentPaymentSheet();
-
-      if (paymentError) {
-        if (paymentError.code === 'Canceled') {
-          setConfirming(false);
-          return;
-        }
-        Alert.alert('Payment Failed', paymentError.message);
-        setConfirming(false);
-        return;
-      }
-
-      if (paymentIntentId) {
-        await confirmPaymentSuccess(paymentIntentId);
-      }
-
-      const { error: rpcError } = await supabase.rpc('complete_auction_payment', {
-        p_listing_id: listingId,
-        p_user_id: user.id,
-      });
-
-      if (rpcError) {
-        Alert.alert(
-          'Payment Received',
-          'Your payment was processed but we had trouble updating the listing. Please contact support.',
-        );
-        console.error('complete_auction_payment error after payment:', rpcError.message, rpcError.code);
-      }
-
-      const { error: transferErr2 } = await supabase.rpc('ensure_transfer_exists', {
-        p_listing_id: listingId,
-      });
-      if (transferErr2) {
-        console.warn('[checkout] ensure_transfer_exists error:', transferErr2.message);
-      }
-
-      const { data: transferRow2 } = await supabase
-        .from('transfers')
-        .select('id')
-        .eq('listing_id', listingId)
-        .maybeSingle();
-      if (transferRow2?.id) {
-        setPostPurchaseTransferId(transferRow2.id);
-      }
-
-      confirmedRef.current = true;
-      setSold(true);
-    } catch (err: unknown) {
-      Alert.alert(
-        'Error',
-        err instanceof Error ? err.message : 'Something went wrong.',
-      );
-    } finally {
-      setConfirming(false);
-    }
-  }
-
-  // -- Sold UI --------------------------------------------------------------
-
-  if (sold) {
+  if (settlement) {
+    const copy = SETTLEMENT_COPY[settlement];
+    const completed = settlement === 'completed';
     return (
       <SafeAreaView style={s.safe}>
         <View style={s.topBar}>
@@ -399,16 +353,24 @@ export default function CheckoutScreen() {
         </View>
 
         <View style={s.soldWrap}>
-          <View style={s.checkCircle}>
-            <Text style={s.checkMark}>{'\u2713'}</Text>
+          <View
+            style={[
+              s.checkCircle,
+              settlement === 'pending' && s.pendingCircle,
+              settlement === 'failed'  && s.failedCircle,
+            ]}
+          >
+            <Text style={s.checkMark}>
+              {completed ? '\u2713' : settlement === 'pending' ? '\u22ef' : '!'}
+            </Text>
           </View>
-          <Text style={s.soldTitle}>Purchase complete!</Text>
+          <Text style={s.soldTitle}>{copy.title}</Text>
           <Text style={s.soldSub}>
-            {postPurchaseTransferId
+            {completed && postPurchaseTransferId
               ? 'Your tickets are confirmed. View transfer details to receive them.'
-              : 'Your tickets are confirmed. Check your email for transfer instructions.'}
+              : copy.body}
           </Text>
-          {postPurchaseTransferId ? (
+          {completed && postPurchaseTransferId ? (
             <TouchableOpacity
               style={s.homeBtn}
               onPress={() => {
@@ -708,6 +670,9 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginBottom: spacing.sm,
   },
+  // Same disc, different reading: settlement not landed yet vs. unfulfillable.
+  pendingCircle: { backgroundColor: colors.warning },
+  failedCircle:  { backgroundColor: colors.error },
   checkMark: {
     fontSize: 36, color: '#fff', fontWeight: '900', lineHeight: 40,
   },

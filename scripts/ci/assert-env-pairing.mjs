@@ -17,19 +17,18 @@ const SANDBOX_ACCT = '51T6Fb1';
 const LIVE_ACCT = '51T6Far';
 
 /**
- * KNOWN, PRE-EXISTING violations, recorded here so CI fails on anything NEW
- * while the owner decides how to repoint these profiles. Both `development` and
- * `preview` pair the LIVE account's TEST publishable key with the PRODUCTION
- * Supabase project: a build from either reads and writes production data while
- * payments silently cannot work. The runtime guard (src/config/envGuard.ts, F4)
- * refuses to run such a build, so these profiles are unusable until repointed —
- * that is deliberate. Remove an entry the moment its profile is fixed; never
- * add one for a new profile.
+ * Tolerated violations. EMPTY, and it must stay empty.
+ *
+ * It held two entries until 2026-09-07: `development` and `preview` paired the
+ * LIVE account's TEST publishable key with the PRODUCTION Supabase project, so a
+ * build from either read and wrote production data while payments could not work
+ * (runtime guard F4 refused to run them). Both profiles now target the sandbox
+ * pair — sandbox Supabase project + sandbox Stripe account — so the entries were
+ * removed rather than carried. Never add a profile here to make this check pass:
+ * fix the pairing instead. A profile that legitimately cannot be paired yet
+ * leaves its client identifiers empty (see the note branch below).
  */
-const KNOWN_VIOLATIONS = new Set([
-  'development: F4 TEST Stripe key paired with the PRODUCTION project',
-  'preview: F4 TEST Stripe key paired with the PRODUCTION project',
-]);
+const KNOWN_VIOLATIONS = new Set([]);
 
 const eas = JSON.parse(readFileSync(new URL('../../eas.json', import.meta.url), 'utf8'));
 const problems = [];

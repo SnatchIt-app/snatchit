@@ -425,6 +425,13 @@ jobs:
       - name: Install (clean, from lockfile)
         run: npm ci
 
+      # A build profile must never pair one environment's database with another
+      # environment's Stripe account (a TEST key against the PRODUCTION project
+      # reads and writes real data while payments silently cannot work). This is
+      # the build-time twin of src/config/envGuard.ts.
+      - name: Environment pairing gate (eas.json profiles)
+        run: node scripts/ci/assert-env-pairing.mjs
+
       - name: Typecheck
         run: npm run typecheck
 

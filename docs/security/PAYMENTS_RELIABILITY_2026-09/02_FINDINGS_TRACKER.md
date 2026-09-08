@@ -20,7 +20,7 @@ verification is not production verification.
 | F10 | Deletion severs unsettled obligations | CONFIRMED on `main`; PARTIAL on deployed code | deployed tombstone sweep (Phase-2 `078`) already blocks BP-6..BP-11; remaining gaps: paid-with-no-transfer, expired-unrefunded, deferred seller payouts without review status; `payout_decisions`/`disputes` not anonymized | 3 | FIXED-IN-BRANCH on main-based code (P3 rev2; `account_deletion_blockers` fail-closed, 124 40/40); RELEASE DEPENDENCY: deployed tombstone sweep must call the predicate (04 §0) |
 | F11 | $0.90 fee rollout hazards | not in scope | — | — | OWNER DECISION: not implemented (10%+10% preserved) |
 | F12 | Lot vs unit price semantics | not in scope | — | — | OWNER DECISION required before any fee change |
-| F13 | Dev/preview builds share prod backend | acknowledged | — | — | DEFERRED (infra; this program never used production as staging) |
+| F13 | Dev/preview builds share prod backend | CONFIRMED (`eas.json` development/preview: `pk_test_51T6Far…` + production project) | worse than "share the backend": the TEST key belonged to the LIVE Stripe account, so those builds read/wrote production data while payments could not work at all | lead | FIXED-IN-BRANCH (2026-09-07: both profiles repointed to the sandbox pair; `KNOWN_VIOLATIONS` emptied; see `16_MOBILE_SANDBOX_BUILD.md` §6) |
 | F14 | Connect onboarding readiness/idempotency | not verified here | — | — | DEFERRED |
 | F15 | Partial refunds/disputes ledger | partially addressed | `payment_refunds` + `amount_refunded_cents` (P3) record amounts going forward; no full ledger | 3 | partial |
 | F16 | Recovery throughput/fairness | not verified here | — | — | DEFERRED |
@@ -76,3 +76,17 @@ New findings from this program's investigation (not in the audit):
 | R6-2 | confirm-and-release NEW + expiry OLD with cron live = double payout | FIXED-IN-PLAN (order + pause; 13 §2–§3) |
 | R6-6 | first new sweep moves money on legacy rows | DOCUMENTED (13 §6; Q1–Q15 triage mandatory) |
 | R6-4/5 | old webhook 500-loops until new webhook; resend cannot re-drive completed events | DOCUMENTED (13 §5) |
+
+
+## Round 4 (2026-09-08) — mobile sandbox build, checkout settlement UX, environment pairing
+
+| Id | Finding | Status |
+|---|---|---|
+| M1 | `development` / `preview` profiles paired the live account's TEST key with the PRODUCTION Supabase project | FIXED-IN-BRANCH: both repointed to the sandbox pair; production byte-identical; pairing gate now runs in CI |
+| M2 | No fail-fast on a wrong environment pairing | FIXED-IN-BRANCH: `src/config/envGuard.ts` (F1–F8) + build-time twin + 10 tests |
+| M3 | Post-charge path set sold state unconditionally (support alert then "Purchase complete!") | FIXED-IN-BRANCH (`classifySettlement`), 22 regression tests |
+| M4 | False "contact support" on a successful purchase | FIXED-IN-BRANCH — cause was the "No verified payment found" refusal during the normal Stripe verification window, not `already sold`; the latter is genuinely terminal post-charge and is now reported as `failed`, never swallowed |
+| M5 | Shipped tolerance pattern `/already sold/i` never matched the SQL wording | FIXED-IN-BRANCH (`/already (been )?sold/i`) |
+| M6 | Simulator unavailable: Xcode 26.6 platform is iOS 26.5, only the 26.2 runtime installed | OPEN — needs an ~8.4 GB Apple download; disk headroom insufficient (owner decision) |
+| M7 | Physical device unavailable: iPhone runs iOS 26.6.1, newer than Xcode's 26.5 platform; DDI will not mount | OPEN — the platform download is necessary but likely NOT sufficient; a newer Xcode is probably required |
+| M8 | No local signing exists at all (no identities, no profiles, no Apple ID in Xcode); a free personal team cannot carry the required entitlements | OPEN — owner must sign in with the paid team, or build via EAS cloud |
