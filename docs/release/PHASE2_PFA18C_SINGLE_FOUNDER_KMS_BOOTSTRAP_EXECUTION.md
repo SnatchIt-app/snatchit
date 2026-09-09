@@ -969,3 +969,18 @@ Verifier 05:58:15–05:58:25Z: `CreateOAuth2Token` (fresh `aws login`), `Describ
 all `mfaAuthenticated "true"`, no errors. Since 05:30Z: `PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`TagResource`/`UntagResource`/`CreateGrant`/`Sign` **0**.
 Owner instruction for C2-5 (more conservative than package §4.8, adopted): the nonce and signature bytes are **not** pasted in chat or recorded; only their SHA-256
 digests, byte counts and the verify outcomes are recorded. Nothing changed on the key (policy v1, no alias, no deletion); no DB row; no secret.
+
+### SESSION 18 (cont.) — C2-5 §5.3 BINDING PROOF PASS (OWNER-RETURNED) · EXACTLY ONE `Sign` CORROBORATED (06:29Z) · NOT A PRODUCTION CREDENTIAL (R5)
+
+OWNER-RETURNED: challenge minted on Device 2 (nonce kept private; not recorded); signed once by the ceremony role on the primary; **signature SHA-256
+`83c3938e03ac82f5b8ba01687e9f7cc32d366606ba8dd3a206d053fd147eeb15`, 70 bytes (DER ECDSA)**; primary verified against its own `get-public-key` export → `Verified OK`;
+Device 2 verified against its own `pub.pem` → `Verified OK`; altered challenge → verification failure; wrong key → verification failure. D5 restated by the owner
+= `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` (= coordinator's). Both devices' chal/sig hash lines were stated by the owner as matching.
+CLAUDE-OBSERVED: **exactly one `Sign` event since 2026-09-08** — 06:20:13Z eventID `ca5a2602-a9a6-4dc9-967d-37616efd9c37`, `AssumedRole`
+`arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`, issuer the ceremony role, `keyId` = D4,
+`messageType RAW`, `signingAlgorithm ECDSA_SHA_256`, no error, us-east-1 (CloudTrail classifies KMS `Sign` as `readOnly: true` — an AWS classification, noted).
+Preceded by `GetPublicKey` + `GetCallerIdentity` 06:20:12Z by the same session (the primary's own export). Since 06:09Z: `Verify`/`PutKeyPolicy`/`CreateAlias`/
+`TagResource`/`ScheduleKeyDeletion`/`DisableKey`/`CreateGrant` **0**; verifier **0** AWS calls (Device 2 verified offline with its earlier export — correct); root 0;
+only one ceremony `AssumeRole` (05:44:21Z, serial `…:mfa/jose-admin-totp`). Key `Enabled`, `MultiRegion false`, customer aliases `[]`.
+Production 06:29:53Z: `signing_key` 0 · ledger 135 · tickets 0 · issuance/scanning/monitor `false` · fingerprint `null`. **Key ↔ handle ↔ public key ↔ D5 binding proven.**
+The signed message is a random nonce — not a ticket credential; T3 not reached. **Next gated step: C2-6 (P3′-b `verify` denial + D2C-6 verifier probes), then C2-7 (policy v2).**
