@@ -905,3 +905,21 @@ packet header + §5b C2 row + §6 ledger; runbook dated notes (C2, C4 order, §D
 ### SESSION 17 MUTATION LEDGER
 AWS: **none** (reads + `simulate-principal-policy`). KMS: **not created** (0 keys). Production DB: **none** (read-only selects). Secrets/edges/flags:
 **none / not deployed / unchanged.** Local: throwaway rehearsal keys in the session scratchpad, deleted. Repository: package + this entry + packet + runbook.
+
+## SESSION 18 — 2026-09-09 — C2 AUTHORIZED ("AUTHORIZE PFA-18C CREATEKEY") · COORDINATOR PREFLIGHT PASSED · AWAITING OWNER C2-1 (NO MUTATION YET)
+
+Authorization (OWNER, 2026-09-09): exact phrase **"AUTHORIZE PFA-18C CREATEKEY"**, scoped to `docs/release/PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md`
+at commit `6455dc28366e5c0c02e164608ca5c60a599a011a` (package SHA-256 `e59145e6338f10294c1f7e2df1ed61d0150f1f4ce9f2fb0d6c127b21d79cc744`), with the
+owner-confirmed parameters: us-east-1 · ECC_NIST_P256 · SIGN_VERIFY · AWS_KMS · single-region · lockout safety check ON · required tag
+`snatchit:purpose=ticket-signing` · **informational tags CONFIRMED** `snatchit:program=pfa18c`, `snatchit:db_key_id=00000000-0000-0000-0000-0000000000b0`.
+Explicitly excluded by the owner: C3 insert / any signing_key row, edge deploy, Supabase secrets, issuance/scanning, M5/T3, Model A changes, any
+exposure of passwords/tokens/private material/nonce values/ExternalId. Abort A1–A16 ⇒ stop and report the safe error summary only.
+
+Coordinator preflight (CLAUDE-OBSERVED 05:31:24–05:31:40Z): **P1** HEAD = `6455dc28…`, only the owner's two pre-existing uncommitted files; C2
+artifact digests `e0560a96…` / `430677d0…` / `bb3a2c4f…` and ceremony policy `1fddd53b…` unchanged; v1 JSON valid. **P5** `kms list-keys` `[]`.
+**P6** ledger 135 · `signing_key` 0 · guard `O` · recovery rows 0 · tickets 0 · `get_manifest_signing_context()` `no_active_global_key` ·
+issuance/scanning/monitor `false` · fingerprint `null`. **P7** runtime role: inline `[]`, attached `[]`; access keys 0/0/0; ceremony role trust
+condition unchanged (`aws:MultiFactorAuthPresent true`, `sts:RoleSessionName pfa18c-ceremony`, MaxSessionDuration 3600); trail logging, no error.
+**P8** 0 `CreateKey`/`PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`CreateGrant` since 2026-09-08; root `[]`.
+C18 hand-off: C2-1/C2-3/C2-5/C2-6/C2-7 run under the ceremony-role session, whose TOTP prompt only the owner can answer; D2C-* run on Device 2.
+The coordinator performs C2-2/C2-9/C2-10/C2-11 read-backs on owner-returned outputs. **No key created at the time of this entry.**
