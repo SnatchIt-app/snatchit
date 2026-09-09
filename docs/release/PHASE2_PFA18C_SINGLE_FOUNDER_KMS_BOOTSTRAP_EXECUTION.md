@@ -1016,3 +1016,5 @@ then C2-10 CloudTrail corroboration, C2-11 precheck, Device 2 D2C-7/D2C-8, coord
 AWS — by the owner (ceremony role): `CreateKey` (05:44:33Z), `Sign` ×1 proof (06:20:13Z), `PutKeyPolicy` v2 (06:35:16Z); by the coordinator (`jose-admin`, owner-instructed):
 `PutRolePolicy` `pfa18c-runtime-sign` (06:40:33Z). Denied probes: `CreateAlias` ×2 (ceremony), `Verify` ×2, verifier `Sign`/`CreateAlias`/`TagResource`. KMS: **one key**
 `45907419-8894-4582-ba79-71e9c29c549e`, Enabled, policy v2, 3 tags, no alias/grant. Access keys: **none.** Secrets/edges/flags/DB rows: **none.**
+CLAUDE-OBSERVED (06:42:52Z): **`PutRolePolicy` ×1** — 06:40:34Z eventID `944261d5-a411-419f-95cc-484de1ebb11a`, `arn:aws:iam::652872010073:user/jose-admin`,
+`mfaAuthenticated "true"`, role `SnatchIt-CredentialSign-Runtime`, policy `pfa18c-runtime-sign`, no error. `CreateAccessKey`/`AttachRolePolicy`/`UpdateAssumeRolePolicy` since 05:30Z: 0.
