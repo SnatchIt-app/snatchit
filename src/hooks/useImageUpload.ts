@@ -33,6 +33,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
+import { IMMUTABLE_CACHE_CONTROL } from '@/src/lib/media/url';
 import { supabase } from '@/src/lib/supabase';
 import { validateImage } from '@/src/utils/validateImage';
 
@@ -182,7 +183,11 @@ export function useImageUpload({
         .upload(path, bytes, {
           contentType:  mime,
           upsert:       false,  // timestamp makes each path unique
-          cacheControl: '3600',
+          // Immutable: the path carries a timestamp, so this object's bytes never
+          // change. One year, which is what `IMMUTABLE_CACHE_CONTROL` states in
+          // one place for both upload paths. '3600' re-fetched artwork hourly
+          // forever for no reason.
+          cacheControl: IMMUTABLE_CACHE_CONTROL,
         });
 
       if (uploadError) {

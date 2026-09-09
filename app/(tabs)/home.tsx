@@ -1,42 +1,58 @@
 /**
- * app/(tabs)/home.tsx — Home / Feed screen
+ * app/(tabs)/home.tsx — Home / discovery feed.
  *
- * Features:
- *  • Quick-filter chip bar: All, Your Scene, GA, VIP, Buy Now, Auction
- *  • Filters modal: neighborhood multi-select + price range
- *  • One shared `now` ticker (1 s interval) drives ALL card countdowns
- *  • Status pill badges: SOLD, RESERVED, ENDED, ENDING SOON, ACTIVE
- *  • Realtime INSERT/UPDATE via Supabase channel
+ * V2. The data layer below is UNCHANGED from the previous revision: the same
+ * three queries, the same realtime channel, the same blocked-seller filtering,
+ * the same neighbourhood preference sort, the same lazy sold/ended loads and the
+ * same one-second ticker. Only the presentation was rewritten.
+ *
+ * What the presentation changed, and why:
+ *  - The feed was listing-first: a full-width 180pt landscape band per row with a
+ *    red "ACTIVE" pill on every card. It is now event-first — a two-up 4:5 grid
+ *    of artwork, the shape the media system was designed around and the same one
+ *    the approved listing detail hero uses.
+ *  - Every card said "Current bid" and "Bid now", including on Buy Now listings
+ *    and on listings with no bids at all. Card copy is now mode-aware, decided in
+ *    src/lib/listing/cardState.ts and tested there.
+ *  - The header hardcoded `paddingTop: 56`. It reads the real safe-area inset.
+ *  - The floating "List Tickets" button is gone: Create is a tab, and the button
+ *    was a second route to the same screen.
  */
 
 import { router } from 'expo-router';
-import { Image } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Animated, FlatList, RefreshControl, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
-import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars } from '@/src/lib/money';
-import { PriceDisplay } from '@/src/components/PriceDisplay';
-import { resolveCoverUrls } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
-import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
+import { Chip, EmptyState } from '@/src/components/ui';
+import { useDockScroll } from '@/src/components/nav/dockContext';
+import { useDockClearance } from '@/src/lib/nav/navInsets';
+import {
+  initialFilterBarState,
+  reduceFilterBarScroll,
+  type FilterBarState,
+} from '@/src/lib/home/filterBarMachine';
+import {
+  DEFAULT_FILTERS,
+  activeFilterCount,
+  hasPriceFilter,
+  hasSheetFilters,
+  sheetFilterCount,
+  type Filters,
+  type QuickChip,
+} from '@/src/lib/home/filterModel';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
+import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
+import { FilterSheet } from '@/src/components/discovery/FilterSheet';
+import { HomeHeader } from '@/src/components/discovery/HomeHeader';
+import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
+import * as v2 from '@/src/theme/v2';
 import type { Listing, MyProfileRPC } from '@/src/types';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
@@ -60,306 +76,75 @@ function sortByNeighborhoods(listings: Listing[], prefs: Set<string>): Listing[]
 
 // ─── Filter types ────────────────────────────────────────────────────────────
 
-type QuickChip = 'all' | 'your_scene' | 'ga' | 'vip' | 'buy_now' | 'auction' | 'ended' | 'recently_sold';
-
-const QUICK_CHIPS: { key: QuickChip; label: string }[] = [
-  { key: 'all',             label: 'All' },
-  { key: 'your_scene',      label: 'Your Scene' },
-  { key: 'ga',              label: 'GA' },
-  { key: 'vip',             label: 'VIP' },
-  { key: 'buy_now',         label: 'Buy Now' },
-  { key: 'auction',         label: 'Auction' },
-  { key: 'ended',           label: 'Ended' },
-  { key: 'recently_sold',   label: 'Recently Sold' },
-];
-
-type Filters = {
-  chip: QuickChip;
-  neighborhoods: Set<string>;
-  categories: Set<string>;
-  priceMin: string;
-  priceMax: string;
-};
-
-const DEFAULT_FILTERS: Filters = {
-  chip: 'all',
-  neighborhoods: new Set(),
-  categories: new Set(),
-  priceMin: '',
-  priceMax: '',
-};
-
-function hasAdvancedFilters(f: Filters): boolean {
-  return f.neighborhoods.size > 0 || f.categories.size > 0 || f.priceMin !== '' || f.priceMax !== '';
-}
+// The filter model (QuickChip, Filters, DEFAULT_FILTERS, active-state helpers)
+// lives in src/lib/home/filterModel.ts so the quick row and the full FilterSheet
+// read exactly one model. The Home quick row shows three controls; the rest of
+// the taxonomy lives inside the sheet.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function imagePath(listing: Listing): string | null {
+/**
+ * The RAW stored cover value. EventMedia resolves it: path encoding, the trusted
+ * host check, and a derivative sized to the frame it measured. The previous
+ * revision pre-resolved these into full-size public URLs and cached them in a
+ * Map, which is what shipped multi-megabyte originals into a small card.
+ */
+function coverPath(listing: Listing): string | null {
   return (listing as any).cover_image_path
       || (listing as any).cover_image_url
       || null;
 }
 
-function timeRemaining(endsAt: string, now: number): string {
-  const diff = new Date(endsAt).getTime() - now;
-  if (diff <= 0) return 'Ended';
-  const totalSec = Math.floor(diff / 1000);
-  const h   = Math.floor(totalSec / 3600);
-  const m   = Math.floor((totalSec % 3600) / 60);
-  const sec = totalSec % 60;
-  if (h > 23) return `${Math.floor(h / 24)}d ${h % 24}h left`;
-  if (h > 0)  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+/** "Sat, Oct 17 · 10:00 PM" */
+function whenLabel(date: string, time: string): string {
+  const d = new Date(`${date}T${time}`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).replace(/,([^,]*)$/, ' ·$1');
 }
-
-// ─── Status badge logic ──────────────────────────────────────────────────────
-
-type CardStatus = 'SOLD' | 'RESERVED' | 'ENDED' | 'ENDING SOON' | 'ACTIVE';
-
-function getCardStatus(listing: Listing, now: number): CardStatus {
-  if (listing.status === 'sold') return 'SOLD';
-  if (
-    listing.status === 'reserved' &&
-    listing.reserved_until &&
-    new Date(listing.reserved_until).getTime() > now
-  ) return 'RESERVED';
-  const auctionEnded =
-    listing.auction_status === 'ended' ||
-    new Date(listing.ends_at).getTime() <= now;
-  if (auctionEnded) return 'ENDED';
-  const msLeft = new Date(listing.ends_at).getTime() - now;
-  if (msLeft <= 15 * 60 * 1000) return 'ENDING SOON';
-  return 'ACTIVE';
-}
-
-const CARD_STATUS_STYLE: Record<CardStatus, { bg: string; border: string; text: string }> = {
-  'ACTIVE':       { bg: colors.primarySoft,            border: colors.primary,  text: colors.primary },
-  'ENDING SOON':  { bg: 'rgba(255,77,109,0.15)',       border: colors.error,    text: colors.error },
-  'ENDED':        { bg: 'rgba(255,255,255,0.06)',       border: colors.border,   text: colors.textMuted },
-  'RESERVED':     { bg: 'rgba(255,165,0,0.12)',         border: '#FFA500',       text: '#FFA500' },
-  'SOLD':         { bg: 'rgba(255,255,255,0.06)',       border: colors.border,   text: colors.textMuted },
-};
-
-// ─── Card ────────────────────────────────────────────────────────────────────
-
-function ListingCard({
-  listing,
-  coverUrl,
-  now,
-}: {
-  listing: Listing;
-  coverUrl: string | null;
-  now: number;
-}) {
-  const status    = getCardStatus(listing, now);
-  const timeLabel = timeRemaining(listing.ends_at, now);
-  const isEnded   = status === 'ENDED' || status === 'SOLD';
-  const statusStyle = CARD_STATUS_STYLE[status];
-
-  return (
-    <Pressable
-      style={s.card}
-      onPress={() => router.push(`/listing/${listing.id}`)}
-      android_ripple={{ color: colors.primarySoft }}
-    >
-      <View style={s.cardImageWrap}>
-        {coverUrl ? (
-          <Image source={{ uri: coverUrl }} style={s.cardImage} contentFit="cover" />
-        ) : (
-          <View style={[s.cardImage, s.cardImagePlaceholder]}>
-            <Text style={s.cardImagePlaceholderText}>🎟️</Text>
-          </View>
-        )}
-        <View style={[s.timeBadge, isEnded && s.timeBadgeEnded]}>
-          <Text style={s.timeBadgeText}>{timeLabel}</Text>
-        </View>
-        <View style={s.typeBadge}>
-          <Text style={s.typeBadgeText}>{listing.ticket_type}</Text>
-        </View>
-        <View style={[s.statusPill, {
-          backgroundColor: statusStyle.bg,
-          borderColor:     statusStyle.border,
-        }]}>
-          <Text style={[s.statusPillText, { color: statusStyle.text }]}>{status}</Text>
-        </View>
-      </View>
-
-      <View style={s.cardBody}>
-        <Text style={s.cardEvent} numberOfLines={1}>{listing.event_name}</Text>
-        <Text style={s.cardVenue} numberOfLines={1}>
-          {listing.venue} · {listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? ''}
-        </Text>
-        <View style={s.cardFooter}>
-          <View style={s.cardPrice}>
-            {/* All-in pricing: the first price a buyer sees includes the 10% service fee. */}
-            <PriceDisplay
-              size="card"
-              label={status === 'SOLD' ? 'Sold for' : 'Current bid'}
-              amount={allInFromDollars(status === 'SOLD' ? finalSoldPrice(listing) : listing.current_bid)}
-              muted={status === 'SOLD'}
-            />
-          </View>
-          <View style={[s.bidNowBtn, isEnded && s.bidNowBtnEnded]}>
-            <Text style={s.bidNowText}>{isEnded ? 'View' : 'Bid now'}</Text>
-          </View>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-// ─── Filter Modal ────────────────────────────────────────────────────────────
-
-function FiltersModal({
-  visible,
-  filters,
-  onApply,
-  onClose,
-}: {
-  visible: boolean;
-  filters: Filters;
-  onApply: (f: Filters) => void;
-  onClose: () => void;
-}) {
-  const [localHoods, setLocalHoods] = useState<Set<string>>(new Set(filters.neighborhoods));
-  const [localCats,  setLocalCats]  = useState<Set<string>>(new Set(filters.categories));
-  const [minP, setMinP] = useState(filters.priceMin);
-  const [maxP, setMaxP] = useState(filters.priceMax);
-
-  // Sync when modal opens
-  useEffect(() => {
-    if (visible) {
-      setLocalHoods(new Set(filters.neighborhoods));
-      setLocalCats(new Set(filters.categories));
-      setMinP(filters.priceMin);
-      setMaxP(filters.priceMax);
-    }
-  }, [visible]);
-
-  function toggleHood(h: string) {
-    setLocalHoods(prev => {
-      const next = new Set(prev);
-      next.has(h) ? next.delete(h) : next.add(h);
-      return next;
-    });
-  }
-
-  function toggleCat(c: string) {
-    setLocalCats(prev => {
-      const next = new Set(prev);
-      next.has(c) ? next.delete(c) : next.add(c);
-      return next;
-    });
-  }
-
-  function apply() {
-    onApply({ ...filters, neighborhoods: localHoods, categories: localCats, priceMin: minP, priceMax: maxP });
-  }
-
-  function clearAll() {
-    setLocalHoods(new Set());
-    setLocalCats(new Set());
-    setMinP('');
-    setMaxP('');
-  }
-
-  return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={ms.overlay}>
-        <View style={ms.sheet}>
-          {/* Header */}
-          <View style={ms.header}>
-            <Text style={ms.title}>Filters</Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <Text style={ms.closeBtn}>✕</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.lg }}>
-            {/* Categories */}
-            <Text style={ms.sectionLabel}>CATEGORY</Text>
-            <View style={ms.chipGrid}>
-              {CATEGORIES.map(c => {
-                const active = localCats.has(c);
-                return (
-                  <Pressable
-                    key={c}
-                    style={[ms.chip, active && ms.chipActive]}
-                    onPress={() => toggleCat(c)}
-                  >
-                    <Text style={[ms.chipText, active && ms.chipTextActive]}>
-                      {CATEGORY_LABELS[c]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Neighborhoods */}
-            <Text style={ms.sectionLabel}>AREA / VENUE</Text>
-            <View style={ms.chipGrid}>
-              {NEIGHBORHOODS.map(h => {
-                const active = localHoods.has(h);
-                return (
-                  <Pressable
-                    key={h}
-                    style={[ms.chip, active && ms.chipActive]}
-                    onPress={() => toggleHood(h)}
-                  >
-                    <Text style={[ms.chipText, active && ms.chipTextActive]}>
-                      {NEIGHBORHOOD_LABELS[h]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Price range */}
-            <Text style={ms.sectionLabel}>PRICE RANGE</Text>
-            <View style={ms.priceRow}>
-              <TextInput
-                style={ms.priceInput}
-                placeholder="Min"
-                placeholderTextColor={colors.textPlaceholder}
-                keyboardType="numeric"
-                value={minP}
-                onChangeText={setMinP}
-              />
-              <Text style={ms.priceDash}>—</Text>
-              <TextInput
-                style={ms.priceInput}
-                placeholder="Max"
-                placeholderTextColor={colors.textPlaceholder}
-                keyboardType="numeric"
-                value={maxP}
-                onChangeText={setMaxP}
-              />
-            </View>
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={ms.footer}>
-            <Pressable onPress={clearAll} style={ms.clearBtn}>
-              <Text style={ms.clearBtnText}>Clear All</Text>
-            </Pressable>
-            <Pressable onPress={apply} style={ms.applyBtn}>
-              <Text style={ms.applyBtnText}>Apply</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
+  // Adaptive dock: feed scroll direction in, and give the list bottom clearance
+  // so its last row is not hidden behind the floating dock.
+  const { onScroll: onHomeScroll, expand } = useDockScroll('home');
+  const dockClearance = useDockClearance();
+
+  // ── Quick-filter bar (disappearing toolbar) ────────────────────────────────
+  // The bar is an OVERLAY on the feed, moved with a transform on the native
+  // driver. The previous revision animated its layout HEIGHT above the list,
+  // which re-laid out the scroll container on every frame of an active gesture
+  // and fed the resulting offset changes straight back into the same state
+  // machine — the loop that made a half-finished collapse stick or judder when
+  // the finger reversed. Nothing about the feed's layout changes while scrolling
+  // now: the list carries a constant top padding equal to the bar, and only the
+  // bar's translateY moves, so a reversal simply retargets a UI-thread animation.
+  const reduceMotion = useReducedMotion();
+  const [filterBar, setFilterBar] = useState<FilterBarState>(initialFilterBarState);
+  const [filterBarHeight, setFilterBarHeight] = useState(0);
+  const barAnim = useRef(new Animated.Value(0)).current; // 0 = shown, 1 = hidden
+
+  useEffect(() => {
+    Animated.timing(barAnim, {
+      toValue: filterBar.hidden ? 1 : 0,
+      duration: reduceMotion ? 0 : 200,
+      useNativeDriver: true, // transform + opacity only
+    }).start();
+  }, [filterBar.hidden, reduceMotion, barAnim]);
+
+  // Which section the sheet opens on: PRICE lands on price, FILTERS on the top.
+  const [sheetFocus, setSheetFocus] = useState<'price' | undefined>(undefined);
+
+  const onFeedScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    onHomeScroll(e); // bottom dock — independent state, unchanged
+    const y = e.nativeEvent.contentOffset.y;
+    setFilterBar((prev) => reduceFilterBarScroll(prev, y));
+  }, [onHomeScroll]);
+
   const [allListings,   setAllListings]   = useState<Listing[]>([]);
   const [soldListings,  setSoldListings]  = useState<Listing[]>([]);
   const [endedListings, setEndedListings] = useState<Listing[]>([]);
-  const [coverUrls,     setCoverUrls]     = useState<Map<string, string | null>>(new Map());
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
   const [loadError,     setLoadError]     = useState<'offline' | 'error' | null>(null);
@@ -409,9 +194,6 @@ export default function HomeScreen() {
     const rows = data as Listing[];
     setAllListings(rows);
 
-    const paths  = rows.map(r => imagePath(r));
-    const urlMap = await resolveCoverUrls(paths);
-    setCoverUrls(prev => new Map([...prev, ...urlMap]));
   }
 
   async function fetchSoldListings() {
@@ -430,9 +212,6 @@ export default function HomeScreen() {
     setSoldListings(rows);
     soldLoadedOnce.current = true;
 
-    const paths  = rows.map(r => imagePath(r));
-    const urlMap = await resolveCoverUrls(paths);
-    setCoverUrls(prev => new Map([...prev, ...urlMap]));
   }
 
   async function fetchEndedListings() {
@@ -453,9 +232,6 @@ export default function HomeScreen() {
     setEndedListings(rows);
     endedLoadedOnce.current = true;
 
-    const paths  = rows.map(r => imagePath(r));
-    const urlMap = await resolveCoverUrls(paths);
-    setCoverUrls(prev => new Map([...prev, ...urlMap]));
   }
 
   useEffect(() => {
@@ -464,9 +240,11 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Returning to Home always shows the full dock.
+      expand();
       if (!initialLoadDone.current) return;
       fetchListings();
-    }, []),
+    }, [expand]),
   );
 
   // ── Realtime ──────────────────────────────────────────────────────────────
@@ -485,8 +263,6 @@ export default function HomeScreen() {
             // Re-check after the round trip in case the user just blocked.
             if (blockedIdsRef.current.has(nl.seller_id)) return;
             setAllListings(prev => [nl, ...prev]);
-            const urlMap = await resolveCoverUrls([imagePath(nl)]);
-            setCoverUrls(prev => new Map([...prev, ...urlMap]));
           }
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'listings' },
@@ -569,21 +345,17 @@ export default function HomeScreen() {
     if (nextChip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
   }
 
-  function clearAllFilters() {
-    setFilters(DEFAULT_FILTERS);
-  }
-
-  function onModalApply(f: Filters) {
-    setFilters(f);
+  function onFiltersApply(next: {
+    chip: QuickChip; neighborhoods: Set<string>; categories: Set<string>; priceMin: string; priceMax: string;
+  }) {
+    setFilters(prev => ({ ...prev, ...next }));
     setModalOpen(false);
+    // Same lazy-load the quick chips did: these two are separate datasets.
+    if (next.chip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
+    if (next.chip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
   }
 
-  const activeCount =
-    (filters.chip !== 'all' ? 1 : 0) +
-    filters.neighborhoods.size +
-    filters.categories.size +
-    (filters.priceMin ? 1 : 0) +
-    (filters.priceMax ? 1 : 0);
+  const activeCount = activeFilterCount(filters);
 
   // ── Pull-to-refresh ───────────────────────────────────────────────────────
   async function onRefresh() {
@@ -593,134 +365,129 @@ export default function HomeScreen() {
     else                                      await fetchListings();
     setRefreshing(false);
   }
-
   // ── Render ────────────────────────────────────────────────────────────────
+
+  // FILTERS signals what the sheet owns. Price and Your scene have their own
+  // controls, so they are not counted here and never double-signalled.
+  const sheetCount = sheetFilterCount(filters);
+  const priceActive = hasPriceFilter(filters);
+  const yourSceneActive = filters.chip === 'your_scene';
+
+  const emptyCopy =
+    filters.chip === 'recently_sold' ? { title: 'Nothing sold yet', body: 'Completed sales show up here.' }
+    : filters.chip === 'ended'       ? { title: 'No ended auctions', body: 'Auctions that closed without a sale show up here.' }
+    : activeCount > 0                ? { title: 'No matches', body: 'Try fewer filters.' }
+    :                                  { title: 'Nothing live right now', body: 'Check back, or list the tickets you cannot use.' };
+
   return (
     <View style={s.container}>
-      <View style={s.header}>
-        <Text style={s.logo}>Snatch It</Text>
-        <Text style={s.subtitle}>Live auctions, snatched.</Text>
-      </View>
+      {/* Brand header stays put: the owner's note was about the filter controls. */}
+      <HomeHeader onSearch={() => router.push('/(tabs)/explore')} />
 
-      {/* ── Filter bar ─────────────────────────────────────────────────────── */}
-      <View style={s.filterBar}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.filterChips}
-        >
-          {QUICK_CHIPS.map(({ key, label }) => {
-            const active = filters.chip === key;
-            return (
-              <Pressable
-                key={key}
-                style={[s.filterChip, active && s.filterChipActive]}
-                onPress={() => onChipTap(key)}
-              >
-                <Text style={[s.filterChipText, active && s.filterChipTextActive]}>
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-
-          {/* Filters button */}
-          <Pressable
-            style={[s.filterChip, s.filterChipOutline, hasAdvancedFilters(filters) && s.filterChipActive]}
-            onPress={() => setModalOpen(true)}
-          >
-            <Text style={[
-              s.filterChipText,
-              hasAdvancedFilters(filters) && s.filterChipTextActive,
-            ]}>
-              Filters{hasAdvancedFilters(filters) ? ` (${filters.neighborhoods.size + filters.categories.size + (filters.priceMin ? 1 : 0) + (filters.priceMax ? 1 : 0)})` : ''}
-            </Text>
-          </Pressable>
-        </ScrollView>
-
-        {activeCount > 0 && (
-          <Pressable onPress={clearAllFilters} style={s.clearAll} hitSlop={6}>
-            <Text style={s.clearAllText}>Clear</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {/* ── Feed ───────────────────────────────────────────────────────────── */}
-      {loading ? (
-        <View style={s.list}>
-          {[0, 1, 2].map(i => (
-            <View key={i} style={s.skeletonCard}>
-              <View style={s.skeletonImage} />
-              <View style={s.skeletonBody}>
-                <View style={[s.skeletonLine, { width: '70%' }]} />
-                <View style={[s.skeletonLine, { width: '50%', marginTop: 6 }]} />
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
-                  <View style={[s.skeletonLine, { width: '30%' }]} />
-                  <View style={[s.skeletonLine, { width: 60, height: 28, borderRadius: radius.md }]} />
-                </View>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : loadError && allListings.length === 0 ? (
-        // Connectivity/server fallback only when there's nothing cached to show.
-        <ScreenState
-          state={loadError}
-          onRetry={() => fetchListings().finally(() => setLoading(false))}
-        />
-      ) : (
-        <FlatList
-          data={filteredListings}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={s.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-          }
-          ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>🎟️</Text>
-              <Text style={s.emptyTitle}>
-                {filters.chip === 'recently_sold'
-                  ? 'No sold listings yet'
-                  : filters.chip === 'ended'
-                    ? 'No ended auctions'
-                    : activeCount > 0 ? 'No matches' : 'No listings yet'}
-              </Text>
-              <Text style={s.emptyText}>
-                {filters.chip === 'recently_sold'
-                  ? 'Sold listings will appear here.'
-                  : filters.chip === 'ended'
-                    ? 'Ended auctions will appear here.'
-                    : activeCount > 0
-                      ? 'Try adjusting your filters.'
-                      : 'Be the first to list your tickets!'}
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <ListingCard
-              listing={item}
-              coverUrl={coverUrls.get(imagePath(item) ?? '') ?? null}
-              now={now}
+      {/* The feed and the quick-filter overlay share this region. `overflow:
+          hidden` clips the bar as it slides up, so it never rides over the
+          header. */}
+      <View style={s.feed}>
+      <FlatList
+        data={loading ? [] : filteredListings}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={s.column}
+        // Constant top inset for the bar: the feed's layout never changes while
+        // scrolling, which is what keeps the gesture smooth and interruptible.
+        contentContainerStyle={[s.list, { paddingTop: filterBarHeight, paddingBottom: dockClearance }]}
+        showsVerticalScrollIndicator={false}
+        onScroll={onFeedScroll}
+        scrollEventThrottle={16}
+        // The ticker drives every countdown on screen; without this the cells
+        // memoize and the clocks freeze.
+        extraData={now}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={v2.brand.red}
+          />
+        }
+        ListHeaderComponent={loading ? <DiscoveryGridSkeleton /> : null}
+        ListEmptyComponent={
+          loading ? null : loadError ? (
+            <ScreenState
+              state={loadError}
+              onRetry={() => fetchListings().finally(() => setLoading(false))}
             />
-          )}
-          extraData={now}
-        />
-      )}
+          ) : (
+            <EmptyState title={emptyCopy.title} body={emptyCopy.body} />
+          )
+        }
+        renderItem={({ item }) => {
+          const presentation = cardPresentation(item, now);
+          return (
+            <DiscoveryCard
+              eventName={item.event_name}
+              venue={item.venue}
+              whenLabel={whenLabel(item.event_date, item.event_time)}
+              coverPath={coverPath(item)}
+              presentation={presentation}
+              // All-in, through the one money helper. No arithmetic here.
+              priceAllIn={allInFromDollars(presentation.priceDollars)}
+              altAllIn={presentation.altDollars != null ? allInFromDollars(presentation.altDollars) : null}
+              countdown={presentation.showsCountdown ? countdownLabel(item.ends_at, now) : null}
+              onPress={() => router.push(`/listing/${item.id}`)}
+            />
+          );
+        }}
+      />
 
-      {/* Create FAB */}
-      <TouchableOpacity
-        style={s.fab}
-        onPress={() => router.push('/(tabs)/create')}
-        activeOpacity={0.85}>
-        <Text style={s.fabText}>＋ List Tickets</Text>
-      </TouchableOpacity>
+      {/* Quick controls: three, and only three. Everything else is behind
+          Filters. Hidden state is removed from the a11y tree and untappable. */}
+      <Animated.View
+        style={[
+          s.filterBar,
+          {
+            opacity: barAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+            transform: [{
+              translateY: barAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -(filterBarHeight || 0)],
+              }),
+            }],
+          },
+        ]}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          if (h > 0 && h !== filterBarHeight) setFilterBarHeight(h);
+        }}
+        pointerEvents={filterBar.hidden ? 'none' : 'auto'}
+        accessibilityElementsHidden={filterBar.hidden}
+        importantForAccessibility={filterBar.hidden ? 'no-hide-descendants' : 'auto'}
+      >
+        <View style={s.quickRow}>
+          <Chip
+            label="Your scene"
+            selected={yourSceneActive}
+            onPress={() => onChipTap('your_scene')}
+          />
+          <Chip
+            label="Price"
+            selected={priceActive}
+            onPress={() => { setSheetFocus('price'); setModalOpen(true); }}
+          />
+          <Chip
+            label="Filters"
+            count={sheetCount > 0 ? sheetCount : undefined}
+            selected={hasSheetFilters(filters)}
+            onPress={() => { setSheetFocus(undefined); setModalOpen(true); }}
+          />
+        </View>
+      </Animated.View>
+      </View>
 
-      {/* Filters modal */}
-      <FiltersModal
+      <FilterSheet
         visible={modalOpen}
-        filters={filters}
-        onApply={onModalApply}
+        value={filters}
+        focus={sheetFocus}
+        onApply={onFiltersApply}
         onClose={() => setModalOpen(false)}
       />
     </View>
@@ -730,276 +497,36 @@ export default function HomeScreen() {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-
-  header: {
-    paddingTop: 56, paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  logo:     { fontSize: 28, fontWeight: '900', color: colors.text, letterSpacing: 1 },
-  subtitle: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: 2 },
-
-  // ── Filter bar ────────────────────────────────────────────────────────────
+  container: { flex: 1, backgroundColor: v2.surface.canvas },
+  // Holds the feed and the overlay bar; clips the bar as it slides up so it
+  // never rides over the brand header.
+  feed: { flex: 1, overflow: 'hidden' },
+  // Overlay, not a layout row: moving it never re-lays out the feed.
   filterBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: v2.surface.canvas,
+  },
+  quickRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingRight: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  filterChips: {
-    paddingLeft: spacing.md,
-    paddingRight: spacing.xs,
-    gap: spacing.xs,
+    gap: v2.space.sm,
+    paddingHorizontal: v2.space.lg,
+    paddingBottom: v2.space.lg,
     alignItems: 'center',
   },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterChipActive: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-  },
-  filterChipOutline: {
-    borderStyle: 'dashed' as any,
-  },
-  filterChipText: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-    color: colors.textMuted,
-  },
-  filterChipTextActive: {
-    color: colors.primary,
-  },
-  clearAll: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-  },
-  clearAllText: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-    color: colors.error,
-  },
-
-  // ── Feed ──────────────────────────────────────────────────────────────────
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list:   { padding: spacing.md, paddingBottom: 120 },
-
-  card: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-    ...shadow.card,
-  },
-  cardImageWrap:            { position: 'relative', height: 180 },
-  cardImage:                { width: '100%', height: '100%' },
-  cardImagePlaceholder:     { backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center' },
-  cardImagePlaceholderText: { fontSize: 40 },
-
-  timeBadge: {
-    position: 'absolute', top: 10, right: 10,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  timeBadgeEnded: { borderColor: colors.error },
-  timeBadgeText:  {
-    color: colors.text, fontSize: fontSize.xs, fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-
-  typeBadge: {
-    position: 'absolute', top: 10, left: 10,
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.primary,
-  },
-  typeBadgeText: { color: colors.primary, fontSize: fontSize.xs, fontWeight: '700' },
-
-  statusPill: {
-    position: 'absolute', bottom: 10, left: 10,
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: radius.full,
-    borderWidth: 1,
-  },
-  statusPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-
-  cardBody:     { padding: spacing.md },
-  cardEvent:    { fontSize: fontSize.md, fontWeight: '700', color: colors.text, marginBottom: 2 },
-  cardVenue:    { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: spacing.sm },
-  cardFooter:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 4, gap: spacing.sm },
-  // flex+minWidth so the price column shrinks gracefully instead of pushing
-  // the CTA off-card; PriceDisplay guarantees the amount itself never wraps.
-  cardPrice:    { flex: 1, minWidth: 0 },
-
-  bidNowBtn:      { backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 7, flexShrink: 0 },
-  bidNowBtnEnded: { backgroundColor: colors.bgInput },
-  bidNowText:     { color: colors.text, fontSize: fontSize.xs, fontWeight: '700' },
-
-  empty:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: spacing.sm },
-  emptyIcon:  { fontSize: 48 },
-  emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
-  emptyText:  { fontSize: fontSize.sm, color: colors.textMuted },
-
-  fab: {
-    position: 'absolute', bottom: spacing.xl, left: spacing.lg, right: spacing.lg,
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  fabText: { color: colors.text, fontWeight: '800', fontSize: fontSize.md, letterSpacing: 0.5 },
-
-  skeletonCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-  },
-  skeletonImage: { width: '100%', height: 180, backgroundColor: colors.bgInput },
-  skeletonBody:  { padding: spacing.md },
-  skeletonLine:  { height: 14, borderRadius: radius.sm, backgroundColor: colors.bgInput },
-});
-
-// ─── Modal styles ────────────────────────────────────────────────────────────
-
-const ms = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colors.bg,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    maxHeight: '80%',
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  title: {
-    fontSize: fontSize.lg,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  closeBtn: {
-    fontSize: fontSize.lg,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-
-  sectionLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-    color: colors.textDim,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-  },
-
-  chipGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgCard,
-  },
-  chipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  chipText: {
-    fontSize: fontSize.xs,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  chipTextActive: {
-    color: colors.primary,
-  },
-
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  priceInput: {
-    flex: 1,
-    backgroundColor: colors.bgInput,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    color: colors.text,
-    fontSize: fontSize.sm,
-  },
-  priceDash: {
-    color: colors.textMuted,
-    fontSize: fontSize.md,
-  },
-
-  footer: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  clearBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm + 2,
+  chips: {
+    paddingHorizontal: v2.space.lg,
+    paddingBottom: v2.space.lg,
+    gap: v2.space.sm,
     alignItems: 'center',
   },
-  clearBtnText: {
-    color: colors.textMuted,
-    fontWeight: '700',
-    fontSize: fontSize.sm,
-  },
-  applyBtn: {
-    flex: 2,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm + 2,
-    alignItems: 'center',
-  },
-  applyBtnText: {
-    color: colors.text,
-    fontWeight: '800',
-    fontSize: fontSize.sm,
+  // The tab bar sits over the last row; this keeps it reachable.
+  list: { paddingBottom: 96 },
+  column: {
+    paddingHorizontal: v2.space.lg,
+    gap: v2.space.lg,
+    marginBottom: v2.space.xl,
   },
 });

@@ -1,3 +1,5 @@
+import { envValue } from './envValue';
+
 export const APP_CONFIG = {
   // ── Marketplace fees (10/10 model) ──────────────────────────────────────
   // Buyer pays listing × (1 + BUYER_FEE_RATE) at checkout.
@@ -17,5 +19,9 @@ export const APP_CONFIG = {
   MAX_AVATAR_SIZE_MB: 5,            // avatars bucket
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic'],
 
-  STRIPE_PUBLISHABLE_KEY: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '',
+  // envValue() strips whitespace and wrapping quotes, straight OR curly. A key
+  // pasted with smart quotes is non-empty but malformed, which previously failed
+  // silently at boot and only surfaced as a network timeout when the payment
+  // sheet tried to load. See src/config/envValue.ts.
+  STRIPE_PUBLISHABLE_KEY: envValue(process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY),
 } as const;

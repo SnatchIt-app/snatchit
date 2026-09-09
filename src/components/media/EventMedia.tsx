@@ -24,15 +24,17 @@
  */
 
 import { Image } from 'expo-image';
-import { memo } from 'react';
-import { PixelRatio, StyleSheet, Text, View, type ViewStyle } from 'react-native';
-
+import { memo, useState, type ReactNode } from 'react';
 import {
-  MEDIA_SLOTS,
-  slotHeight,
-  type Breakpoint,
-  type MediaSlotName,
-} from '@/src/lib/media/slots';
+  PixelRatio,
+  StyleSheet,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type ViewStyle,
+} from 'react-native';
+
+import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName } from '@/src/lib/media/slots';
 import { resolveImage, type MediaAsset } from '@/src/lib/media/url';
 import { fontFamily } from '@/src/theme/fonts';
 import * as v2 from '@/src/theme/v2';
@@ -41,13 +43,37 @@ export interface EventMediaProps {
   asset: MediaAsset;
   slot: MediaSlotName;
   breakpoint?: Breakpoint;
-  /** Overrides the slot width. Use only for a genuinely fluid container. */
+  /**
+   * The width this instance is ACTUALLY laid out at, in points.
+   *
+   * The slot's own `layoutWidth` is a REFERENCE, not a layout: the hero slots
+   * carry a nominal 390, which overflows a 375pt iPhone SE and under-fills a
+   * 430pt Pro Max. Pass a measured width, or set `fluid` and let this component
+   * measure itself.
+   */
   width?: number;
+  /**
+   * Fill the parent's width and derive the height from the slot ratio, measuring
+   * the real width before any image is requested. This is the correct mode for
+   * anything full-bleed or grid-sized, and it is why no screen has to know a
+   * device width.
+   */
+  fluid?: boolean;
   /** Used by the fallback plate and as the accessibility label. */
   title?: string;
   style?: ViewStyle;
   /** Decorative images (a backdrop behind text that repeats it) pass true. */
   decorative?: boolean;
+  /**
+   * Content layered over the artwork, inside the frame and above the scrim —
+   * a title over a hero, a badge in a corner.
+   *
+   * The layer is `box-none`, so it never swallows a touch that belongs to the
+   * card underneath; a child that wants a press must be pressable itself. This
+   * component still owns media presentation only. If you find yourself passing an
+   * event's information architecture in here, build a card component instead.
+   */
+  children?: ReactNode;
 }
 
 /** A deterministic, brand-safe plate for when there is no renderable image. */
@@ -72,13 +98,50 @@ function EventMediaImpl({
   slot,
   breakpoint = 'mobile',
   width,
+  fluid = false,
   title,
   style,
   decorative = false,
+  children,
 }: EventMediaProps) {
   const spec = MEDIA_SLOTS[slot];
-  const boxWidth = width ?? spec.layoutWidth[breakpoint];
-  const boxHeight = width ? Math.round(width / spec.aspectRatio) : slotHeight(slot, breakpoint);
+
+  // Fluid frames measure themselves. Nothing is requested until the real width is
+  // known, because requesting the slot's nominal width and then laying out at a
+  // different one is the defect this mode exists to remove.
+  const [measured, setMeasured] = useState<number | null>(null);
+  const onLayout = (e: LayoutChangeEvent) => {
+    const w = Math.round(e.nativeEvent.layout.width);
+    if (w > 0 && w !== measured) setMeasured(w);
+  };
+
+  const resolvedWidth = fluid ? measured : (width ?? spec.layoutWidth[breakpoint]);
+
+  if (fluid && resolvedWidth == null) {
+    // One frame, at the right shape, before the width is known. It holds the exact
+    // geometry the image will occupy, so nothing shifts when the image arrives.
+    return (
+      <View
+        onLayout={onLayout}
+        style={[
+          styles.edge,
+          {
+            width: '100%',
+            aspectRatio: spec.aspectRatio,
+            borderRadius: spec.radius,
+            overflow: 'hidden',
+            backgroundColor: v2.surface.surface,
+          },
+          style,
+        ]}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      />
+    );
+  }
+
+  const boxWidth = resolvedWidth as number;
+  const boxHeight = Math.round(boxWidth / spec.aspectRatio);
 
   const resolved = resolveImage(asset, slot, {
     breakpoint,
@@ -99,7 +162,9 @@ function EventMediaImpl({
       };
 
   const frame: ViewStyle = {
-    width: boxWidth,
+    // Fluid frames keep a percentage width so they reflow on rotation; the
+    // measured width still drives the pixel request above.
+    width: fluid ? '100%' : boxWidth,
     height: boxHeight,
     borderRadius: spec.radius,
     overflow: 'hidden',
@@ -108,8 +173,13 @@ function EventMediaImpl({
 
   if (resolved.kind === 'fallback') {
     return (
-      <View style={[frame, styles.edge, style]} {...a11y}>
+      <View style={[frame, styles.edge, style]} onLayout={fluid ? onLayout : undefined} {...a11y}>
         <FallbackPlate title={title} height={boxHeight} />
+        {children ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            {children}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -117,7 +187,7 @@ function EventMediaImpl({
   const isFit = resolved.fit === 'fit';
 
   return (
-    <View style={[frame, styles.edge, style]} {...a11y}>
+    <View style={[frame, styles.edge, style]} onLayout={fluid ? onLayout : undefined} {...a11y}>
       {/*
         The `fit` backdrop: a heavily blurred copy of the same artwork filling the
         slack, so a portrait poster in a landscape frame never shows black bars.
@@ -168,6 +238,17 @@ function EventMediaImpl({
           ]}
           pointerEvents="none"
         />
+      ) : null}
+
+      {/*
+        The content layer. Above the scrim — which is the whole reason the scrim
+        exists — and `box-none`, so it never intercepts a touch meant for the row
+        this artwork sits in.
+      */}
+      {children ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          {children}
+        </View>
       ) : null}
     </View>
   );

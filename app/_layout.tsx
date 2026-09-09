@@ -12,15 +12,20 @@
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
+import { authPhase, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
-import { colors } from '@/src/theme';
+// Imported from the leaf module (not the ui barrel) so the web-safe root layout
+// pulls in no native-only siblings. Spinner's own deps are all platform-safe.
+import { Spinner } from '@/src/components/ui/Spinner';
+import * as v2 from '@/src/theme/v2';
 import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
@@ -40,6 +45,17 @@ export const unstable_settings = {
 function RootLayout() {
   const { session, loading } = useAuth();
   const [isRecovery, setIsRecovery] = useState(false);
+  // Sign up creates the account partway through, so a session appears while the
+  // person still has steps to answer. While that flag is raised the signup screen
+  // owns navigation and this gate stays out of the way. It gates routing only:
+  // it grants nothing and blocks nothing else.
+  const onboarding = useIsOnboarding();
+  // The phase this layout last navigated for. Navigation follows a change of
+  // authentication phase, never a change of session object identity: Supabase
+  // hands out a fresh session on USER_UPDATED and TOKEN_REFRESHED too, and
+  // treating those as sign-ins is what threw a signed-in person out of Settings
+  // phone verification and onto Home the moment the code was sent.
+  const routedPhaseRef = useRef<AuthPhase | null>(null);
 
   // Brand typefaces. The navigator is held until these register, because
   // `fontFamily()` resolves when a StyleSheet is constructed: a screen built
@@ -70,18 +86,27 @@ function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Identity reporting tracks the current user on every change, including the
+  // ones that must not navigate.
   useEffect(() => {
     if (loading) return;
-    if (isRecovery) return;
+    setSentryUser(session ? { id: session.user.id, email: session.user.email ?? undefined } : null);
+  }, [session, loading]);
 
-    if (session) {
-      setSentryUser({ id: session.user.id, email: session.user.email ?? undefined });
-      router.replace('/(tabs)/home');
-    } else {
-      setSentryUser(null);
-      router.replace('/(auth)/login');
-    }
-  }, [session, loading, isRecovery]);
+  // Navigation is a separate concern and runs only on a real phase boundary.
+  useEffect(() => {
+    const phase = authPhase(session);
+    const decision = rootRouteDecision({
+      loading,
+      isRecovery,
+      onboarding,
+      phase,
+      lastRoutedPhase: routedPhaseRef.current,
+    });
+    if (!decision.navigate) return;
+    routedPhaseRef.current = phase;
+    router.replace(decision.to);
+  }, [session, loading, isRecovery, onboarding]);
 
   return (
     <ErrorBoundary>
@@ -119,7 +144,7 @@ function RootLayout() {
       {(loading || !fontsReady) && (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <View style={styles.splash}>
-            <ActivityIndicator color={colors.accent} size="large" />
+            <Spinner size="large" color={v2.brand.red} label="Loading Snatch It" />
           </View>
         </View>
       )}
@@ -183,7 +208,7 @@ const styles = StyleSheet.create({
   sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   splash: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: v2.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
   },

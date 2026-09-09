@@ -1,80 +1,39 @@
 /**
- * app/(tabs)/_layout.tsx — Bottom tab navigator
+ * app/(tabs)/_layout.tsx — Primary navigation (V2 adaptive dock).
  *
- * Tabs: Home · Create · Bids · Profile
- * The old `index` and `explore` files are hidden from the tab bar;
- * they still exist on disk but are not shown as tabs.
+ * Routing is Home · Create · Bids · Tickets · Profile (with the legacy index /
+ * explore hidden). The default tab bar is replaced by the Snatch It floating
+ * `AdaptiveDock` via the `tabBar` render prop — same routes, same lazy mounting,
+ * same route names, so analytics/deep-links are unaffected. `NavDockProvider`
+ * holds the per-route collapse state; the dock reads it.
+ *
+ * Tickets (Phase 11) is the fifth destination now that Core exposes the ownership
+ * read (public.get_my_tickets). It slots between Bids and Profile — the order
+ * `navItems({ tickets: true })` already returns — with no dock change.
  */
 
 import { Tabs } from 'expo-router';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { colors } from '@/src/theme';
+import { AdaptiveDock } from '@/src/components/nav/AdaptiveDock';
+import { NavDockProvider } from '@/src/components/nav/dockContext';
 
 export default function TabLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarButton: HapticTab,
-        // Dark tab bar matching the app theme
-        tabBarStyle: {
-          backgroundColor: colors.bg,
-          borderTopColor: colors.border,
-        },
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textMuted,
-      }}>
+    <NavDockProvider>
+      <Tabs
+        screenOptions={{ headerShown: false }}
+        tabBar={(props) => <AdaptiveDock {...props} />}
+      >
+        <Tabs.Screen name="home" options={{ title: 'Home' }} />
+        <Tabs.Screen name="create" options={{ title: 'Create' }} />
+        <Tabs.Screen name="bids" options={{ title: 'Bids' }} />
+        <Tabs.Screen name="tickets" options={{ title: 'Tickets' }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
 
-      {/* ── Home ── */}
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={26} name="house.fill" color={color} />
-          ),
-        }}
-      />
-
-      {/* ── Create ── */}
-      <Tabs.Screen
-        name="create"
-        options={{
-          title: 'Create',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={26} name="plus.circle.fill" color={color} />
-          ),
-        }}
-      />
-
-      {/* ── Bids ── */}
-      <Tabs.Screen
-        name="bids"
-        options={{
-          title: 'Bids',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={26} name="tag.fill" color={color} />
-          ),
-        }}
-      />
-
-      {/* ── Profile ── */}
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={26} name="person.fill" color={color} />
-          ),
-        }}
-      />
-
-      {/* ── Hidden legacy screens (still usable via router.push) ── */}
-      <Tabs.Screen name="index"   options={{ href: null }} />
-      <Tabs.Screen name="explore" options={{ href: null }} />
-
-    </Tabs>
+        {/* Hidden legacy screens (still reachable via router.push) */}
+        <Tabs.Screen name="index" options={{ href: null }} />
+        <Tabs.Screen name="explore" options={{ href: null }} />
+      </Tabs>
+    </NavDockProvider>
   );
 }

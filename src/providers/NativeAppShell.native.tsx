@@ -19,6 +19,7 @@ import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { usePushToken } from '@/src/hooks/usePushToken';
 import { APP_CONFIG } from '@/src/config/app';
+import { looksLikeStripePublishableKey } from '@/src/config/envValue';
 
 // ── Sentry bootstrap (module-level, runs once) ──────────────────────────────
 
@@ -95,6 +96,22 @@ interface AppShellProps {
  *   in the Apple Developer portal, attached to the App ID, and uploaded
  *   to Stripe Dashboard (verified `merchant.com.snatchit`).
  */
+// A key that is PRESENT but MALFORMED is the dangerous case: the SDK boots, the
+// PaymentIntent is created server-side, initPaymentSheet accepts its parameters,
+// and the failure only appears when the sheet loads — as a bare network timeout
+// (kCFErrorDomainCFNetwork -1001) with nothing pointing at configuration. Say so
+// at boot instead. Shape is checked; the value is never logged.
+if (
+  APP_CONFIG.STRIPE_PUBLISHABLE_KEY &&
+  !looksLikeStripePublishableKey(APP_CONFIG.STRIPE_PUBLISHABLE_KEY)
+) {
+  console.error(
+    '[SnatchIt] EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is set but MALFORMED — it must look like pk_test_… or pk_live_….\n' +
+    '  • Most often the value is wrapped in smart quotes (‘ ’ or “ ”) pasted from a document or chat; dotenv strips straight quotes only.\n' +
+    '  • Checkout fails when the payment sheet loads, typically as a network timeout.',
+  );
+}
+
 if (!APP_CONFIG.STRIPE_PUBLISHABLE_KEY) {
   // Soft warning, NOT a throw. A throw here would terminate the JS runtime
   // before React mounts; the app would crash on launch with no UI to

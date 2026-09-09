@@ -1,25 +1,19 @@
 /**
- * app/transfer/receive/[id].tsx — Buyer Transfer Receive Screen
+ * app/transfer/receive/[id].tsx — Buyer transfer receive (V2).
  *
- * Phase A enhancements:
- *   - Collects buyer delivery info (email/phone) via DeliveryInfoForm
- *   - Shows platform-specific receiving instructions via PlatformInstructions
- *   - Preserves existing confirm / dispute / countdown behaviour
+ * PRESENTATION rebuilt on the V2 system; the transfer path is unchanged: the
+ * owner-scoped fetch, `mark_transfer_viewed`, the seller's signed proof URL, the
+ * countdown, the delivery-info gate (`set_transfer_delivery_info` via
+ * DeliveryInfoForm), confirm (`confirm-and-release` edge function) and dispute
+ * (`buyer_dispute_transfer`). Countdown + status vocabulary come from
+ * src/lib/transfer/transferState.ts. The proof viewer and platform instructions
+ * are untouched. Ownership is never implied before authoritative confirmation.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -29,10 +23,11 @@ import PlatformInstructions from '@/src/components/PlatformInstructions';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
+import { formatCountdown, buyerNeedsDelivery, transferStatusMeta } from '@/src/lib/transfer/transferState';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
-
-// ─── Local types ─────────────────────────────────────────────────────────────
 
 type TransferData = {
   id: string;
@@ -43,30 +38,14 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   seller: { display_name: string | null };
-  listing: {
-    event_name: string | null;
-    ticket_platform: TicketPlatform | null;
-  };
+  listing: { event_name: string | null; ticket_platform: TicketPlatform | null };
 };
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatCountdown(expiresAt: string | null): string | null {
-  if (!expiresAt) return null;
-  const diff = new Date(expiresAt).getTime() - Date.now();
-  if (diff <= 0) return 'Expired';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 0) return `${h}h ${m}m remaining`;
-  return `${m}m remaining`;
-}
-
-// ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function TransferReceiveScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
+  const insets = useSafeAreaInsets();
 
   const [transfer, setTransfer] = useState<TransferData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,8 +55,6 @@ export default function TransferReceiveScreen() {
   const [countdown, setCountdown] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Seller's sent-proof: signed URL into the PRIVATE proof-docs bucket. RLS
-  // (migration 034) only lets this transfer's buyer/seller read the object.
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [proofViewerOpen, setProofViewerOpen] = useState(false);
 
@@ -91,12 +68,9 @@ export default function TransferReceiveScreen() {
     return () => { active = false; };
   }, [transfer?.transfer_evidence_path, transfer?.status]);
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-
   const fetchTransfer = useCallback(async () => {
     if (!userId || !id) return;
     setLoading(true);
-
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
@@ -109,8 +83,6 @@ export default function TransferReceiveScreen() {
       .single();
 
     if (fetchErr || !data) {
-      // Connectivity failure gets the offline screen; a genuine miss
-      // (bad id / not this buyer's transfer) keeps "Transfer not found".
       setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
     } else {
       setError('');
@@ -121,9 +93,7 @@ export default function TransferReceiveScreen() {
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
-  // Record that the buyer opened the transfer screen (buyer-only RPC, sets
-  // transfers.buyer_viewed_at once). This is a payout risk signal: a buyer
-  // who never even viewed the transfer weighs against silent auto-release.
+  // Record that the buyer opened the transfer (payout risk signal).
   useEffect(() => {
     if (!userId || !id) return;
     supabase.rpc('mark_transfer_viewed', { p_transfer_id: id }).then(({ error: rpcErr }) => {
@@ -131,64 +101,35 @@ export default function TransferReceiveScreen() {
     });
   }, [userId, id]);
 
-  // ── Countdown ──────────────────────────────────────────────────────────────
-
   useEffect(() => {
     if (!transfer?.expires_at) return;
     setCountdown(formatCountdown(transfer.expires_at));
-    timerRef.current = setInterval(() => {
-      setCountdown(formatCountdown(transfer.expires_at));
-    }, 60_000);
+    timerRef.current = setInterval(() => setCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [transfer?.expires_at]);
-
-  // ── Delivery info submit ───────────────────────────────────────────────────
 
   async function handleDeliverySubmit(email: string | null, phone: string | null) {
     if (!id) return;
     setSavingDelivery(true);
-
-    // Defense in depth: DeliveryInfoForm normalizes before calling us, but
-    // re-normalize here so even programmatic callers (tests, future hooks)
-    // can't push a malformed phone into the RPC.
+    // Re-normalize defensively even though DeliveryInfoForm already did.
     const safePhone = phone ? normalizeUSPhone(phone) : null;
-
     const { error: rpcErr } = await supabase.rpc('set_transfer_delivery_info', {
-      p_transfer_id:    id,
+      p_transfer_id: id,
       p_delivery_email: email,
       p_delivery_phone: safePhone,
     });
-
     setSavingDelivery(false);
-
-    if (rpcErr) {
-      Alert.alert('Error', rpcErr.message);
-      return;
-    }
-
-    // Update local state immediately so the gate clears
-    setTransfer(prev =>
-      prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev,
-    );
-
-    // Also re-fetch to ensure server state is fully in sync
+    if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
+    setTransfer((prev) => (prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev));
     fetchTransfer();
   }
-
-  // ── Confirm received ───────────────────────────────────────────────────────
 
   async function handleConfirm() {
     if (!id) return;
     setSubmitting(true);
-
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'confirm-and-release',
-        { body: { transfer_id: id } },
-      );
-
+      const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
       setSubmitting(false);
-
       if (fnError) {
         let message = 'Something went wrong. Please try again.';
         try {
@@ -204,42 +145,33 @@ export default function TransferReceiveScreen() {
         Alert.alert('Error', message);
         return;
       }
-
-      setTransfer(prev => prev ? { ...prev, status: 'buyer_confirmed' } : prev);
-      Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event!');
-    } catch (err) {
+      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed' } : prev));
+      Alert.alert('Confirmed', 'Transfer complete. Enjoy the event.');
+    } catch {
       setSubmitting(false);
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }
   }
 
-  // ── Dispute ────────────────────────────────────────────────────────────────
-
-  async function handleDispute() {
+  function handleDispute() {
     Alert.alert(
-      'Report Issue',
+      'Report issue',
       'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Report Issue',
+          text: 'Report issue',
           style: 'destructive',
           onPress: async () => {
             setSubmitting(true);
-            const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', {
-              p_transfer_id: id,
-            });
+            const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', { p_transfer_id: id });
             setSubmitting(false);
-
             if (rpcErr) {
-              Alert.alert(
-                "Couldn't submit dispute",
-                'Please try again in a moment. If the problem persists, contact support.',
-              );
+              Alert.alert("Couldn't submit dispute", 'Please try again in a moment. If the problem persists, contact support.');
               console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
               return;
             }
-            setTransfer(prev => prev ? { ...prev, status: 'disputed' } : prev);
+            setTransfer((prev) => (prev ? { ...prev, status: 'disputed' } : prev));
             Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
           },
         },
@@ -247,313 +179,203 @@ export default function TransferReceiveScreen() {
     );
   }
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const transferMethod: TransferMethod = (transfer?.transfer_method as TransferMethod) ?? 'email';
+  const needsDeliveryInfo = transfer != null && buyerNeedsDelivery(transfer);
 
-  const needsDeliveryInfo =
-    transfer != null &&
-    (transfer.status === 'pending' || transfer.status === 'seller_sent') &&
-    !transfer.delivery_email &&
-    !transfer.delivery_phone;
-
-  // ── Loading state ──────────────────────────────────────────────────────────
-
-  if (loading) {
+  function Header() {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.center}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
-      </SafeAreaView>
+      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Receive transfer</Text>
+        <View style={s.headerSpacer} />
+      </View>
     );
   }
 
-  // ── Error state ────────────────────────────────────────────────────────────
+  if (loading) {
+    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+  }
 
   if (error || !transfer) {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.topBar}>
-          <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-            <Text style={s.backArrow}>{'\u2190'}</Text>
-          </Pressable>
-          <Text style={s.topTitle}>Receive Transfer</Text>
-          <View style={s.backBtn} />
-        </View>
+      <View style={s.root}>
+        <Header />
         {error === '__offline__' ? (
           <ScreenState state="offline" onRetry={fetchTransfer} />
         ) : (
-          <View style={s.center}>
-            <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
-          </View>
+          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>{error || 'Transfer not found'}</Text></View>
         )}
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // ── Main render ────────────────────────────────────────────────────────────
+  const meta = transferStatusMeta(transfer.status);
 
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Receive Transfer</Text>
-        <View style={s.backBtn} />
-      </View>
-
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-
-        {/* ── Delivery info form (REQUIRED before any other action) ── */}
-        {needsDeliveryInfo && (
+    <View style={s.root}>
+      <Header />
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+        {/* Delivery info gate (required before any other action) */}
+        {needsDeliveryInfo ? (
           <>
-            <View style={s.deliveryGateBanner}>
-              <Text style={s.deliveryGateText}>
+            <View style={s.gate}>
+              <Text style={[textStyle('bodySm'), s.gateText]}>
                 Please provide your delivery info so the seller knows where to send your tickets.
               </Text>
             </View>
-            <DeliveryInfoForm
-              transferMethod={transferMethod}
-              onSubmit={handleDeliverySubmit}
-              loading={savingDelivery}
-            />
+            <DeliveryInfoForm transferMethod={transferMethod} onSubmit={handleDeliverySubmit} loading={savingDelivery} />
           </>
-        )}
+        ) : null}
 
-        {/* ── Platform-specific receiving instructions ────────────── */}
-        {(transfer.status === 'pending' || transfer.status === 'seller_sent') && !needsDeliveryInfo && (
-          <PlatformInstructions
-            platform={platform}
-            role="buyer"
-            buyerEmail={transfer.delivery_email}
-            buyerPhone={transfer.delivery_phone}
-          />
-        )}
+        {(transfer.status === 'pending' || transfer.status === 'seller_sent') && !needsDeliveryInfo ? (
+          <PlatformInstructions platform={platform} role="buyer" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
+        ) : null}
 
-        {/* ── Countdown ───────────────────────────────────────────── */}
-        {countdown && transfer.status !== 'buyer_confirmed' && (
-          <View style={[s.countdownBanner, countdown === 'Expired' && s.countdownExpired]}>
-            <Text style={[s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
-              {countdown === 'Expired'
-                ? '\u26A0\uFE0F  Transfer window expired'
-                : `\u23F1  ${countdown}`}
+        {countdown && transfer.status !== 'buyer_confirmed' ? (
+          <View style={[s.countdown, countdown === 'Expired' && s.countdownExpired]}>
+            <Text style={[textStyle('bodySm'), s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
+              {countdown === 'Expired' ? 'Transfer window expired' : countdown}
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {/* ── Transfer details card ───────────────────────────────── */}
-        <View style={s.card}>
-          <Text style={s.label}>Event</Text>
-          <Text style={s.value}>{transfer.listing?.event_name || 'Untitled'}</Text>
-
-          <Text style={s.label}>Seller</Text>
-          <Text style={s.value}>{transfer.seller?.display_name || 'Unknown'}</Text>
-
-          <Text style={s.label}>Transfer Method</Text>
-          <Text style={s.value}>{transfer.transfer_method.replace('_', ' ')}</Text>
-
-          {transfer.delivery_email && (
-            <>
-              <Text style={s.label}>Your Delivery Email</Text>
-              <Text style={s.value}>{transfer.delivery_email}</Text>
-            </>
-          )}
-          {transfer.delivery_phone && (
-            <>
-              <Text style={s.label}>Your Delivery Phone</Text>
-              <Text style={s.value}>{transfer.delivery_phone}</Text>
-            </>
-          )}
+        {/* Details */}
+        <View style={s.section}>
+          <View style={s.detailHead}>
+            <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
+            <Badge label={meta.label} tone={meta.tone} />
+          </View>
+          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} />
+          <Row label="Seller" value={transfer.seller?.display_name || 'Unknown'} />
+          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} />
+          {transfer.delivery_email ? <Row label="Delivery email" value={transfer.delivery_email} /> : null}
+          {transfer.delivery_phone ? <Row label="Delivery phone" value={transfer.delivery_phone} /> : null}
         </View>
 
-        {/* ── Pending state ───────────────────────────────────────── */}
-        {transfer.status === 'pending' && !needsDeliveryInfo && (
-          <View style={s.banner}>
-            <Text style={s.bannerText}>
-              Waiting for the seller to send the transfer
-            </Text>
+        {/* PENDING */}
+        {transfer.status === 'pending' && !needsDeliveryInfo ? (
+          <View style={s.stateBlock}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the seller to send the transfer.</Text>
           </View>
-        )}
+        ) : null}
 
-        {/* ── Seller sent → confirm / dispute ─────────────────────── */}
-        {transfer.status === 'seller_sent' && !needsDeliveryInfo && (
+        {/* SELLER_SENT — confirm / dispute */}
+        {transfer.status === 'seller_sent' && !needsDeliveryInfo ? (
           <>
-            {proofUrl && (
+            {proofUrl ? (
               <View style={s.proofBlock}>
-                <Text style={s.proofLabel}>{"Seller's proof of transfer"}</Text>
-                <Pressable
-                  onPress={() => setProofViewerOpen(true)}
-                  accessibilityRole="imagebutton"
-                  accessibilityLabel="View proof of transfer full screen"
-                >
+                <Text style={[textStyle('micro'), s.sectionLabel]}>{"Seller's proof of transfer"}</Text>
+                <Pressable onPress={() => setProofViewerOpen(true)} accessibilityRole="imagebutton" accessibilityLabel="View proof of transfer full screen">
                   <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
                 </Pressable>
-                <Text style={s.proofHint}>Tap to view full screen. Review it before confirming.</Text>
+                <Text style={[textStyle('bodySm'), s.hint]}>Tap to view full screen. Review it before confirming.</Text>
               </View>
-            )}
+            ) : null}
 
             <View style={s.confirmPrompt}>
-              <Text style={s.confirmPromptText}>
-                By confirming, you release payment to the seller. Only confirm if
-                you can see the tickets in your account.
+              <Text style={[textStyle('bodySm'), s.confirmPromptText]}>
+                By confirming, you release payment to the seller. Only confirm if you can see the tickets in your account.
               </Text>
             </View>
 
-            <Pressable
-              style={[s.confirmBtn, submitting && s.btnDisabled]}
-              onPress={handleConfirm}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color={colors.text} size="small" />
-              ) : (
-                <Text style={s.btnText}>I Got My Tickets</Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={[s.disputeBtn, submitting && s.btnDisabled]}
-              onPress={handleDispute}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color={colors.error} size="small" />
-              ) : (
-                <Text style={s.disputeBtnText}>{"I Haven't Received Them"}</Text>
-              )}
-            </Pressable>
+            <Button label="I got my tickets" onPress={handleConfirm} loading={submitting} disabled={submitting} block style={s.cta} />
+            <Button label="I haven't received them" variant="destructive" onPress={handleDispute} disabled={submitting} block style={s.disputeCta} />
           </>
-        )}
+        ) : null}
 
-        {/* ── Confirmed state ─────────────────────────────────────── */}
-        {transfer.status === 'buyer_confirmed' && (
-          <View style={s.banner}>
-            <Text style={[s.bannerText, { color: colors.success }]}>
-              Transfer complete!
+        {/* CONFIRMED */}
+        {transfer.status === 'buyer_confirmed' ? (
+          <StateBlock title="Transfer complete" tone="success">
+            <Text style={[textStyle('bodySm'), s.stateText]}>Enjoy the event.</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* DISPUTED */}
+        {transfer.status === 'disputed' ? (
+          <StateBlock title="Issue reported" tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateText]}>
+              Our team typically reviews within 24 hours. Your payment stays on hold until this is resolved.
             </Text>
-          </View>
-        )}
+          </StateBlock>
+        ) : null}
 
-        {/* ── Disputed state ──────────────────────────────────────── */}
-        {transfer.status === 'disputed' && (
-          <View style={s.banner}>
-            <Text style={[s.bannerText, { color: colors.warning }]}>
-              Issue reported — our team typically reviews within 24 hours.{'\n'}
-              Your payment stays on hold until this is resolved.
-            </Text>
-          </View>
-        )}
-
-        <View style={{ height: 48 }} />
+        <View style={{ height: v2.space.xxl }} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
-      <ProofImageViewer
-        uri={proofViewerOpen ? proofUrl : null}
-        onClose={() => setProofViewerOpen(false)}
-      />
-    </SafeAreaView>
+      <ProofImageViewer uri={proofViewerOpen ? proofUrl : null} onClose={() => setProofViewerOpen(false)} />
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.row}>
+      <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function StateBlock({ title, tone, children }: { title: string; tone: 'success' | 'warning'; children: React.ReactNode }) {
+  const color = tone === 'success' ? v2.status.success : v2.status.warning;
+  return (
+    <View style={s.stateBlock}>
+      <Text style={[textStyle('title'), { color }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
 
 const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: colors.bg },
-  center:  { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  root: { flex: 1, backgroundColor: v2.surface.canvas },
+  flex: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  errorText: { color: v2.status.error },
 
-  topBar:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-               paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-               borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-
-  content: { padding: spacing.md },
-  card:    { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.md,
-             marginBottom: spacing.lg },
-
-  label: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '600', marginTop: spacing.sm },
-  value: { color: colors.text, fontSize: fontSize.md, fontWeight: '500', marginTop: spacing.xs },
-
-  banner:     { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.lg,
-                alignItems: 'center' },
-  bannerText: { color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '600',
-                textAlign: 'center', lineHeight: 22 },
-
-  proofBlock: {
-    marginBottom: spacing.md,
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
+    borderBottomWidth: 1, borderBottomColor: v2.border.default,
   },
-  proofLabel: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  proofImage: {
-    width: '100%',
-    height: 220,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgCard,
-  },
-  proofHint: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: spacing.xs,
-  },
+  headerTitle: { color: v2.text.primary },
+  headerSpacer: { width: 44 },
 
-  confirmPrompt: {
-    backgroundColor: 'rgba(251,191,36,0.10)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  confirmPromptText: {
-    color: colors.warning,
-    fontSize: fontSize.xs,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
+  content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
-  confirmBtn:  { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14,
-                 alignItems: 'center', marginBottom: spacing.sm },
-  disputeBtn:  { backgroundColor: 'transparent', borderRadius: radius.md, borderWidth: 1,
-                 borderColor: colors.border, paddingVertical: 14, alignItems: 'center',
-                 marginBottom: spacing.lg },
-  btnDisabled: { opacity: 0.6 },
-  btnText:        { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-  disputeBtnText: { color: colors.error, fontSize: fontSize.md, fontWeight: '600' },
-
-  errorText: { color: colors.error, fontSize: fontSize.md },
-
-  // Delivery info gate
-  deliveryGateBanner: {
-    backgroundColor: 'rgba(251,191,36,0.12)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+  section: {
+    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    padding: v2.space.md, marginBottom: v2.space.md,
   },
-  deliveryGateText: {
-    color: colors.warning,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  sectionLabel: { color: v2.text.muted, marginBottom: v2.space.sm },
+  detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
-  // Countdown
-  countdownBanner: {
-    backgroundColor: 'rgba(251,191,36,0.12)', borderRadius: radius.md,
-    padding: spacing.sm, alignItems: 'center', marginBottom: spacing.md,
-    borderWidth: 1, borderColor: colors.warning,
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
+  rowLabel: { color: v2.text.muted },
+  rowValue: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
+
+  gate: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.md, marginBottom: v2.space.md },
+  gateText: { color: v2.status.warning },
+
+  countdown: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
+  countdownExpired: { borderColor: v2.status.error },
+  countdownText: { color: v2.status.warning },
+  countdownExpiredText: { color: v2.status.error },
+
+  proofBlock: { marginBottom: v2.space.md },
+  proofImage: { width: '100%', height: 220, backgroundColor: v2.surface.surface, marginTop: v2.space.xs },
+  hint: { color: v2.text.muted, marginTop: v2.space.xs },
+
+  confirmPrompt: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, marginBottom: v2.space.md },
+  confirmPromptText: { color: v2.status.warning },
+  cta: { marginTop: v2.space.xs },
+  disputeCta: { marginTop: v2.space.sm },
+
+  stateBlock: {
+    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
   },
-  countdownExpired: { backgroundColor: 'rgba(255,77,109,0.1)', borderColor: colors.error },
-  countdownText:    { color: colors.warning, fontSize: fontSize.sm, fontWeight: '700' },
-  countdownExpiredText: { color: colors.error },
+  stateText: { color: v2.text.secondary },
 });

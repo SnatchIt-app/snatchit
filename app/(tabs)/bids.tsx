@@ -1,47 +1,42 @@
 /**
- * app/(tabs)/bids.tsx — My Bids screen
+ * app/(tabs)/bids.tsx — Bids and purchases.
  *
- * Fetches every bid the logged-in user has placed from Supabase,
- * joins the related listing row so we can show the event name,
- * cover image, and auction status.
+ * V2. The DATA LAYER below is unchanged from the previous revision: the same bids
+ * query, the same collapse-by-listing (one card per listing at the user's max
+ * bid), the same merge of transfers (Buy Now purchases and completed auction wins
+ * that have no or stale bid rows), the same refresh and focus behaviour.
  *
- * Card states (C — status badges)
- *  WINNING  — auction active, user's highest bid == listing.current_bid
- *  OUTBID   — auction active, user's highest bid <  listing.current_bid
- *  WON 🏆   — auction_status === 'ended' AND winner_user_id === me
- *  LOST     — auction_status === 'ended' AND winner_user_id !== me
- *  SOLD     — listing.status === 'sold' (Buy Now by someone else)
- *
- * Multiple bids on the same listing are collapsed: the card represents the
- * listing, but we use the user's MAX bid for WINNING/OUTBID detection.
+ * The presentation is rebuilt. Status, grouping, copy, action and the one price to
+ * show per state now live in src/lib/bids/bidState.ts, which is pure and tested.
+ * The six-pill filter strip is replaced by two segments, Active and Past, because
+ * the dataset is small and the states collapse cleanly into "needs me / settled";
+ * within Active the most urgent card sorts to the top. No My Tickets, no ticket
+ * object: kernel.tickets is not queried and nothing here claims ticket ownership
+ * beyond the transfer state machine the client is already granted.
  */
 
 import { router } from 'expo-router';
-import { Image } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInLabel } from '@/src/lib/money';
+import { allInFromDollars } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
-import StatCardStrip from '@/src/components/StatCardStrip';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
+import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
+import { useDockScroll } from '@/src/components/nav/dockContext';
+import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { BidCard } from '@/src/components/bids/BidCard';
+import { bidPresentation, bidGroupOf, bidStatusOf, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types (data layer — unchanged) ────────────────────────────────────────────
 
 type ListingJoin = {
   id: string;
@@ -85,233 +80,36 @@ type BidRow = {
   coverUrl: string | null;
 };
 
-type BidStatus =
-  | 'winning'
-  | 'outbid'
-  | 'won'
-  | 'lost'
-  | 'sold'
-  // Purchases the buyer made — transfer is in-flight or done.
-  | 'awaiting_transfer'   // transfer.status = 'pending'
-  | 'seller_sent'         // transfer.status = 'seller_sent'
-  | 'purchase_disputed'   // transfer.status = 'disputed'
-  | 'purchase_confirmed'; // 'buyer_confirmed' | 'auto_released'
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function timeLabel(endsAt: string): string {
-  const diff = new Date(endsAt).getTime() - Date.now();
-  if (diff <= 0) return 'Ended';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 23) return `${Math.floor(h / 24)}d left`;
-  if (h > 0) return `${h}h ${m}m left`;
-  return `${m}m left`;
+function coverPath(row: BidRow): string | null {
+  // getCoverImageUrl was previously resolved into row.coverUrl. EventMedia now
+  // resolves the raw path itself (encoding, host allowlist, slot-sized transform),
+  // so the card takes the path and the pre-resolved URL is no longer needed.
+  return (row.listing as { cover_image_path?: string | null } | null)?.cover_image_path ?? null;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+function whenLabel(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-/**
- * Determine badge status for a bid row.
- * Priority:
- *   1. listing.status === 'sold' (Buy Now sale)     → 'sold'
- *   2. listing.auction_status === 'ended'            → check winner_user_id
- *   3. auction still live                            → winning vs outbid
- */
-function getBidStatus(bid: BidRow, userId: string): BidStatus {
-  // Purchase-track takes precedence — once the buyer owns the ticket,
-  // the bid history is no longer the source of truth for this card.
-  switch (bid.purchaseTransferStatus) {
-    case 'pending':         return 'awaiting_transfer';
-    case 'seller_sent':     return 'seller_sent';
-    case 'disputed':        return 'purchase_disputed';
-    case 'buyer_confirmed':
-    case 'auto_released':   return 'purchase_confirmed';
-  }
-
-  const listing = bid.listing;
-  if (!listing) return 'lost';
-
-  // Buy Now sold (separate from auction ending)
-  if (listing.status === 'sold') return 'sold';
-
-  // Auction finalised
-  if (listing.auction_status === 'ended') {
-    return listing.winner_user_id === userId ? 'won' : 'lost';
-  }
-
-  // Auction active but clock may have run out (finalize_auction not called yet)
-  const clockExpired = new Date(listing.ends_at) <= new Date();
-  if (clockExpired) return 'lost'; // conservative until finalized
-
-  // Still live
-  return bid.amount >= listing.current_bid ? 'winning' : 'outbid';
-}
-
-const STATUS_LABELS: Record<BidStatus, string> = {
-  winning:             '● Winning',
-  outbid:              '● Outbid',
-  won:                 '🏆 Won',
-  lost:                'Ended',
-  sold:                'Sold',
-  awaiting_transfer:   '⏳ Awaiting seller transfer',
-  seller_sent:         '📨 Seller sent — confirm receipt',
-  purchase_disputed:   '⚠️ Disputed — support reviewing',
-  purchase_confirmed:  '✅ Confirmed',
-};
-
-const STATUS_COLORS: Record<BidStatus, string> = {
-  winning:             colors.success,
-  outbid:              colors.error,
-  won:                 '#FFD700',      // gold
-  lost:                colors.textMuted,
-  sold:                colors.textMuted,
-  awaiting_transfer:   colors.accent,
-  seller_sent:         colors.success,
-  purchase_disputed:   colors.error,
-  purchase_confirmed:  colors.success,
-};
-
-// ─── Card ─────────────────────────────────────────────────────────────────────
-
-function BidCard({ bid, userId }: { bid: BidRow; userId: string }) {
-  const listing = bid.listing;
-  if (!listing) return null;
-
-  const status = getBidStatus(bid, userId);
-  const ended  = listing.auction_status === 'ended' || new Date(listing.ends_at) <= new Date();
-
-  // In-flight purchases route straight to the receive/confirm screen — the
-  // buyer's next action lives there, not on the listing page.
-  const inFlight = status === 'awaiting_transfer' || status === 'seller_sent' || status === 'purchase_disputed';
-  const target = inFlight && bid.transferId
-    ? `/transfer/receive/${bid.transferId}`
-    : `/listing/${bid.listing_id}`;
-
-  return (
-    <Pressable
-      style={s.card}
-      onPress={() => router.push(target as any)}
-      android_ripple={{ color: colors.primarySoft }}
-    >
-      {/* Cover image */}
-      <View style={s.imageWrap}>
-        {bid.coverUrl ? (
-          <Image
-            source={{ uri: bid.coverUrl }}
-            style={s.image}
-            contentFit="cover"
-          />
-        ) : (
-          <View style={[s.image, s.imagePlaceholder]} />
-        )}
-
-        {/* Status badge overlay */}
-        <View style={[s.statusBadge, { borderColor: STATUS_COLORS[status] }]}>
-          <Text style={[s.statusText, { color: STATUS_COLORS[status] }]}>
-            {status === 'awaiting_transfer' && bid.needsDeliveryInfo
-              ? '📇 Add your transfer info'
-              : STATUS_LABELS[status]}
-          </Text>
-        </View>
-      </View>
-
-      {/* Body */}
-      <View style={s.body}>
-        {/* Event + venue */}
-        <Text style={s.eventName} numberOfLines={1}>{listing.event_name}</Text>
-        <Text style={s.venue} numberOfLines={1}>{listing.venue}</Text>
-
-        {/* Bid info row */}
-        <View style={s.bidRow}>
-          <View>
-            <Text style={s.bidLabel}>You pay if you win</Text>
-            {/* All-in: bid + 10% service fee — matches the total shown at bid time. */}
-            <Text style={s.bidAmount}>{allInLabel(bid.amount)}</Text>
-          </View>
-          <View style={s.rightCol}>
-            <Text style={s.timeText}>
-              {ended ? `Ended ${formatDate(listing.ends_at)}` : timeLabel(listing.ends_at)}
-            </Text>
-            <Text style={s.placedText}>Placed {formatDate(bid.created_at)}</Text>
-          </View>
-        </View>
-
-        {/* Current bid (when still live) */}
-        {!ended && listing.status !== 'sold' && (
-          <View style={s.currentBidRow}>
-            <Text style={s.currentBidLabel}>Current bid</Text>
-            <Text style={[
-              s.currentBidValue,
-              { color: status === 'winning' ? colors.success : colors.error },
-            ]}>
-              {allInLabel(listing.current_bid)}
-            </Text>
-          </View>
-        )}
-
-        {/* Winning bid amount (ended auctions) */}
-        {listing.auction_status === 'ended' && listing.winning_bid_amount != null && (
-          <View style={s.currentBidRow}>
-            <Text style={s.currentBidLabel}>Winning bid</Text>
-            <Text style={[
-              s.currentBidValue,
-              { color: status === 'won' ? '#FFD700' : colors.textMuted },
-            ]}>
-              {allInLabel(listing.winning_bid_amount)}
-            </Text>
-          </View>
-        )}
-
-        {/* Outbid CTA */}
-        {status === 'outbid' && (
-          <View style={s.outbidBanner}>
-            <Text style={s.outbidBannerText}>{"⚡ You've been outbid — tap to rebid"}</Text>
-          </View>
-        )}
-
-        {/* Won banner */}
-        {status === 'won' && (
-          <View style={s.wonBanner}>
-            <Text style={s.wonBannerText}>🎉 You won — tap to pay</Text>
-          </View>
-        )}
-
-        {/* Lost banner */}
-        {status === 'lost' && (
-          <View style={s.soldBanner}>
-            <Text style={s.soldBannerText}>Auction ended</Text>
-          </View>
-        )}
-
-        {/* Sold (Buy Now) banner */}
-        {status === 'sold' && (
-          <View style={s.soldBanner}>
-            <Text style={s.soldBannerText}>🔒 Listing sold via Buy Now</Text>
-          </View>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// ─── Screen ─────────────────────────────────────────────────────────────────
 
 export default function BidsScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
+  const insets = useSafeAreaInsets();
+  const dockClearance = useDockClearance();
+  const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('bids');
 
   const [bids,       setBids]       = useState<BidRow[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(null);
+  const [segment,    setSegment]    = useState<BidGroup>('active');
 
   const initialLoadDone = useRef(false);
 
@@ -444,9 +242,10 @@ export default function BidsScreen() {
   // Silent refetch when tab regains focus
   useFocusEffect(
     useCallback(() => {
+      expandDock(); // arrive with the full dock
       if (!initialLoadDone.current) return;
       fetchMyBids(true);
-    }, [fetchMyBids]),
+    }, [fetchMyBids, expandDock]),
   );
 
   async function onRefresh() {
@@ -455,266 +254,142 @@ export default function BidsScreen() {
     setRefreshing(false);
   }
 
-  // ── Filter state ────────────────────────────────────────────────────────────
-  type BidFilter = 'total' | 'winning' | 'outbid' | 'won' | 'needs_action' | 'purchases';
-  const [bidFilter, setBidFilter] = useState<BidFilter>('total');
-
-  // ── Summary counts ─────────────────────────────────────────────────────────
-  const counts = useMemo(() => {
-    const c = { winning: 0, outbid: 0, won: 0, lost: 0, needsAction: 0, purchases: 0 };
+  // ── Grouping (replaces the six-pill filter) ─────────────────────────────────
+  const { active, past, needsActionCount } = useMemo(() => {
+    const a: BidRow[] = [];
+    const p: BidRow[] = [];
+    let n = 0;
     for (const bid of bids) {
-      const status = getBidStatus(bid, userId);
-      if (status === 'winning') c.winning++;
-      else if (status === 'outbid') c.outbid++;
-      else if (status === 'won') c.won++;
-      else if (status === 'lost') c.lost++;
-      else if (
-        status === 'awaiting_transfer' ||
-        status === 'seller_sent' ||
-        status === 'purchase_disputed' ||
-        status === 'purchase_confirmed'
-      ) {
-        c.purchases++;
-        // Unfinished purchases — buyer still has a step to take (add transfer
-        // info, confirm receipt, or follow a dispute).
-        if (status !== 'purchase_confirmed') c.needsAction++;
-      }
+      const status = bidStatusOf(toInput(bid), userId);
+      if (needsAction(status)) n++;
+      (bidGroupOf(status) === 'active' ? a : p).push(bid);
     }
-    return c;
+    // Most urgent first within Active; Past keeps newest-first from the query.
+    a.sort((x, y) =>
+      bidPresentation(toInput(x), userId).priority - bidPresentation(toInput(y), userId).priority);
+    return { active: a, past: p, needsActionCount: n };
   }, [bids, userId]);
 
-  const filteredBids = useMemo(() => {
-    if (bidFilter === 'total') return bids;
-    return bids.filter(b => {
-      const status = getBidStatus(b, userId);
-      if (bidFilter === 'winning')   return status === 'winning';
-      if (bidFilter === 'outbid')    return status === 'outbid';
-      if (bidFilter === 'won')       return status === 'won';
-      if (bidFilter === 'needs_action') return (
-        status === 'awaiting_transfer' ||
-        status === 'seller_sent' ||
-        status === 'purchase_disputed'
-      );
-      if (bidFilter === 'purchases') return (
-        status === 'awaiting_transfer' ||
-        status === 'seller_sent' ||
-        status === 'purchase_disputed' ||
-        status === 'purchase_confirmed'
-      );
-      return true;
-    });
-  }, [bids, bidFilter, userId]);
+  const shown = segment === 'active' ? active : past;
 
-  function onPillTap(key: BidFilter) {
-    setBidFilter(prev => prev === key ? 'total' : key);
-  }
-
-  const PILLS: { key: BidFilter; label: string; count: number; color: string }[] = [
-    { key: 'needs_action', label: 'Needs Action', count: counts.needsAction, color: colors.warning },
-    { key: 'winning',   label: 'Winning',   count: counts.winning,   color: colors.success },
-    { key: 'outbid',    label: 'Outbid',    count: counts.outbid,    color: colors.error },
-    { key: 'won',       label: 'Won',       count: counts.won,       color: '#FFD700' },
-    { key: 'purchases', label: 'Purchases', count: counts.purchases, color: colors.accent },
-    { key: 'total',     label: 'Total',     count: bids.length,      color: colors.text },
-  ];
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      {/* ── Header ── */}
-      <View style={s.header}>
-        <Text style={s.pageTitle}>My Bids</Text>
-        <Text style={s.subtitle}>{'Your bids & purchases'}</Text>
+      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+        <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">Your bids</Text>
       </View>
 
-      {/* ── Interactive summary stat strip ── */}
-      {!loading && bids.length > 0 && (
-        <StatCardStrip
-          style={s.summaryStrip}
-          activeKey={bidFilter}
-          onItemPress={(key) => onPillTap(key as BidFilter)}
-          items={PILLS.map(({ key, label, count, color }) => ({
-            key, label, value: count, color,
-          }))}
-        />
-      )}
+      {!loading && bids.length > 0 ? (
+        <View style={s.segments}>
+          <Chip
+            label="Active"
+            count={needsActionCount > 0 ? needsActionCount : undefined}
+            selected={segment === 'active'}
+            onPress={() => setSegment('active')}
+          />
+          <Chip label="Past" selected={segment === 'past'} onPress={() => setSegment('past')} />
+        </View>
+      ) : null}
 
-      {/* ── Content ── */}
       {loading ? (
-        <View style={s.loader}>
-          <ActivityIndicator color={colors.primary} size="large" />
+        <View style={s.list}>
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} style={s.skeletonRow}>
+              <Skeleton width={72} height={72} />
+              <View style={s.skeletonBody}>
+                <Skeleton height={14} width="40%" />
+                <Skeleton height={16} width="80%" style={{ marginTop: 8 }} />
+                <Skeleton height={12} width="55%" style={{ marginTop: 6 }} />
+              </View>
+            </View>
+          ))}
         </View>
       ) : loadError && bids.length === 0 ? (
-        // Connectivity/server fallback only when there's nothing cached to show.
         <ScreenState state={loadError} onRetry={() => fetchMyBids(false)} />
       ) : (
         <FlatList
-          data={filteredBids}
+          data={shown}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.list, { paddingBottom: dockClearance }]}
+          showsVerticalScrollIndicator={false}
+          onScroll={onDockScroll}
+          scrollEventThrottle={16}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
           }
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>🎯</Text>
-              <Text style={s.emptyTitle}>
-                {bidFilter === 'total' ? 'No bids yet'
-                  : bidFilter === 'winning' ? 'No winning bids'
-                  : bidFilter === 'outbid' ? 'No outbid auctions'
-                  : bidFilter === 'needs_action' ? 'All caught up — nothing needs your action'
-                  : bidFilter === 'purchases' ? 'No purchases yet'
-                  : 'No won auctions'}
-              </Text>
-              <Text style={s.emptyText}>
-                {bidFilter === 'total'
-                  ? 'Head to the Home tab and place your first bid!'
-                  : 'Try a different filter.'}
-              </Text>
-            </View>
+            <EmptyState
+              title={segment === 'active' ? 'No active bids' : 'Nothing here yet'}
+              body={
+                segment === 'active'
+                  ? 'Bids you place and tickets you buy show up here.'
+                  : 'Ended auctions and completed purchases show up here.'
+              }
+              action={
+                segment === 'active'
+                  ? { label: 'Find something', onPress: () => router.push('/(tabs)/home') }
+                  : undefined
+              }
+            />
           }
-          renderItem={({ item }) => <BidCard bid={item} userId={userId} />}
+          renderItem={({ item }) => {
+            const p = bidPresentation(toInput(item), userId);
+            const target = p.routesToTransfer && item.transferId
+              ? `/transfer/receive/${item.transferId}`
+              : `/listing/${item.listing_id}`;
+            return (
+              <BidCard
+                eventName={item.listing?.event_name ?? 'Listing'}
+                venue={item.listing?.venue ?? ''}
+                whenLabel={whenLabel(item.listing?.ends_at)}
+                coverPath={coverPath(item)}
+                presentation={p}
+                priceAllIn={allInFromDollars(p.priceDollars)}
+                secondaryAllIn={p.secondaryDollars != null ? allInFromDollars(p.secondaryDollars) : null}
+                onPress={() => router.push(target as never)}
+              />
+            );
+          }}
         />
       )}
     </View>
   );
 }
 
+// bidState works on a minimal shape; adapt a BidRow to it. finalSoldPrice is the
+// same authority the fetch already uses for a purchase row's amount.
+function toInput(row: BidRow) {
+  return {
+    amount: row.amount,
+    purchaseTransferStatus: row.purchaseTransferStatus,
+    needsDeliveryInfo: row.needsDeliveryInfo,
+    transferId: row.transferId,
+    listing: row.listing
+      ? {
+          status: row.listing.status,
+          auction_status: row.listing.auction_status,
+          ends_at: row.listing.ends_at,
+          current_bid: row.listing.current_bid,
+          winner_user_id: row.listing.winner_user_id,
+          winning_bid_amount: row.listing.winning_bid_amount,
+        }
+      : null,
+  };
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-
-  header: {
-    paddingTop: 56,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  pageTitle: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text },
-  subtitle:  { fontSize: fontSize.sm, color: colors.textMuted, marginTop: 2 },
-
-  // Summary stat strip (cards live in StatCardStrip)
-  summaryStrip: {
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list:   { padding: spacing.md, paddingBottom: 120 },
-
-  // Card
-  card: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-    ...shadow.card,
-  },
-
-  imageWrap: { position: 'relative', height: 140 },
-  image:     { width: '100%', height: '100%' },
-  imagePlaceholder: { backgroundColor: colors.bgInput },
-
-  statusBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-    borderWidth: 1,
-  },
-  statusText: { fontSize: fontSize.xs, fontWeight: '700' },
-
-  body: { padding: spacing.md },
-
-  eventName: {
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 2,
-  },
-  venue: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginBottom: spacing.sm,
-  },
-
-  bidRow: {
+  container: { flex: 1, backgroundColor: v2.surface.canvas },
+  header: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
+  title: { color: v2.text.primary },
+  segments: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: 4,
+    gap: v2.space.sm,
+    paddingHorizontal: v2.space.lg,
+    paddingBottom: v2.space.md,
   },
-  bidLabel:  { fontSize: fontSize.xs, color: colors.textDim, textTransform: 'uppercase', letterSpacing: 0.8 },
-  bidAmount: { fontSize: fontSize.lg, fontWeight: '800', color: colors.text },
-
-  rightCol:   { alignItems: 'flex-end', gap: 2 },
-  timeText:   { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
-  placedText: { fontSize: fontSize.xs, color: colors.textDim },
-
-  currentBidRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  currentBidLabel: { fontSize: fontSize.xs, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
-  currentBidValue: { fontSize: fontSize.sm, fontWeight: '800' },
-
-  outbidBanner: {
-    marginTop: spacing.sm,
-    backgroundColor: 'rgba(255,77,109,0.10)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.error,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  outbidBannerText: { color: colors.error, fontWeight: '700', fontSize: fontSize.sm },
-
-  wonBanner: {
-    marginTop: spacing.sm,
-    backgroundColor: 'rgba(255,215,0,0.10)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: '#FFD700',
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  wonBannerText: { color: '#FFD700', fontWeight: '700', fontSize: fontSize.sm },
-
-  soldBanner: {
-    marginTop: spacing.sm,
-    backgroundColor: colors.bgInput,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  soldBannerText: { color: colors.textMuted, fontWeight: '600', fontSize: fontSize.sm },
-
-  // Empty state
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 80,
-    gap: spacing.sm,
-  },
-  emptyIcon:  { fontSize: 48 },
-  emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
-  emptyText:  { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center', paddingHorizontal: spacing.xl },
+  list: { paddingHorizontal: v2.space.lg, paddingBottom: 96 },
+  skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
+  skeletonBody: { flex: 1, justifyContent: 'center' },
 });

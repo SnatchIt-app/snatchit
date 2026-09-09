@@ -1,38 +1,35 @@
 /**
- * app/transfer/send/[id].tsx — Seller Transfer Send Screen
+ * app/transfer/send/[id].tsx — Seller transfer send (V2).
  *
- * Phase A enhancements:
- *   - Shows buyer delivery info (email / phone) so seller knows where to send
- *   - Shows platform-specific sending instructions via PlatformInstructions
- *   - Requires transfer evidence upload before marking as sent
- *   - Calls extended mark_transfer_sent RPC with evidence path
- *   - Shows post-send waiting state with auto-release countdown
+ * PRESENTATION rebuilt on the V2 system; the transfer path is unchanged: the same
+ * owner-scoped fetch, the expiry + auto-release countdowns, the required evidence
+ * upload, the `mark_transfer_sent` RPC, and every post-send state (seller_sent
+ * with its payout-review sub-states, buyer_confirmed, auto_released, disputed).
+ * Countdown + status vocabulary come from src/lib/transfer/transferState.ts.
+ * DeliveryInfo/PlatformInstructions and the proof bucket/paths are untouched.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
-import { ImageUploadTile } from '@/src/components/ImageUploadTile';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
+import {
+  formatCountdown,
+  sellerAlreadySent,
+  sellerDeliveryMissing,
+  transferStatusMeta,
+} from '@/src/lib/transfer/transferState';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
-
-// ─── Local types ─────────────────────────────────────────────────────────────
 
 type TransferData = {
   id: string;
@@ -47,57 +44,36 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   buyer: { display_name: string | null };
-  listing: {
-    event_name: string | null;
-    ticket_platform: TicketPlatform | null;
-  };
+  listing: { event_name: string | null; ticket_platform: TicketPlatform | null };
 };
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatCountdown(ts: string | null): string | null {
-  if (!ts) return null;
-  const diff = new Date(ts).getTime() - Date.now();
-  if (diff <= 0) return 'Expired';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 0) return `${h}h ${m}m remaining`;
-  return `${m}m remaining`;
-}
-
-// ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function TransferSendScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
+  const insets = useSafeAreaInsets();
 
   const [transfer, setTransfer] = useState<TransferData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Countdown timers
   const [expiryCountdown, setExpiryCountdown] = useState<string | null>(null);
   const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
   const expiryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Evidence upload
   const evidenceUpload = useImageUpload({
     userId,
     folder: 'transfer-evidence',
     aspect: null,
     quality: 0.85,
-    bucket: 'proof-docs',   // PRIVATE — only buyer/seller/admin can read (migration 034)
+    bucket: 'proof-docs', // PRIVATE — buyer/seller/admin only (migration 034)
   });
-
-  // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchTransfer = useCallback(async () => {
     if (!userId || !id) return;
     setLoading(true);
-
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
@@ -111,8 +87,6 @@ export default function TransferSendScreen() {
       .single();
 
     if (fetchErr || !data) {
-      // Connectivity failure gets the offline screen; a genuine miss
-      // (bad id / not this seller's transfer) keeps "Transfer not found".
       setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
     } else {
       setError('');
@@ -123,509 +97,269 @@ export default function TransferSendScreen() {
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
-  // ── Expiry countdown (pending state — seller has 24h to send) ──────────────
-
+  // Expiry countdown (pending — seller has 24h to send)
   useEffect(() => {
     if (!transfer?.expires_at || transfer.status !== 'pending') return;
     setExpiryCountdown(formatCountdown(transfer.expires_at));
-    expiryTimerRef.current = setInterval(() => {
-      setExpiryCountdown(formatCountdown(transfer.expires_at));
-    }, 60_000);
+    expiryTimerRef.current = setInterval(() => setExpiryCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (expiryTimerRef.current) clearInterval(expiryTimerRef.current); };
   }, [transfer?.expires_at, transfer?.status]);
 
-  // ── Auto-release countdown (seller_sent state — buyer has 72h to confirm) ──
-
+  // Auto-release countdown (seller_sent — buyer review window)
   useEffect(() => {
     if (!transfer?.auto_release_at || transfer.status !== 'seller_sent') return;
     setReleaseCountdown(formatCountdown(transfer.auto_release_at));
-    releaseTimerRef.current = setInterval(() => {
-      setReleaseCountdown(formatCountdown(transfer.auto_release_at));
-    }, 60_000);
+    releaseTimerRef.current = setInterval(() => setReleaseCountdown(formatCountdown(transfer.auto_release_at)), 60_000);
     return () => { if (releaseTimerRef.current) clearInterval(releaseTimerRef.current); };
   }, [transfer?.auto_release_at, transfer?.status]);
 
-  // ── Mark as sent ───────────────────────────────────────────────────────────
-
   async function handleMarkSent() {
     if (!id || !userId) return;
-
-    // Evidence image is required
     if (!evidenceUpload.localUri) {
       Alert.alert('Evidence required', 'Please upload a screenshot of the transfer confirmation before marking as sent.');
       return;
     }
-
     setSubmitting(true);
-
     try {
-      // 1. Upload evidence image
       const evidencePath = await evidenceUpload.uploadImage();
       if (!evidencePath) {
-        const msg = evidenceUpload.error ?? 'Unknown upload error.';
-        Alert.alert('Upload failed', msg);
+        Alert.alert('Upload failed', evidenceUpload.error ?? 'Unknown upload error.');
         setSubmitting(false);
         return;
       }
-
-      // 2. Call extended RPC
       const { error: rpcErr } = await supabase.rpc('mark_transfer_sent', {
         p_transfer_id: id,
         p_user_id: userId,
         p_transfer_evidence_path: evidencePath,
       });
-
       setSubmitting(false);
-
-      if (rpcErr) {
-        Alert.alert('Error', rpcErr.message);
-        return;
-      }
-
-      // 3. Update local state
-      setTransfer(prev => prev ? {
-        ...prev,
-        status: 'seller_sent',
-        transfer_evidence_path: evidencePath,
-      } : prev);
-      Alert.alert('Sent!', 'Transfer marked as sent. Waiting for buyer to confirm receipt.');
-    } catch (err) {
+      if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
+      setTransfer((prev) => (prev ? { ...prev, status: 'seller_sent', transfer_evidence_path: evidencePath } : prev));
+      Alert.alert('Sent', 'Transfer marked as sent. Waiting for the buyer to confirm receipt.');
+    } catch {
       setSubmitting(false);
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }
   }
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
-  const alreadySent = transfer?.status === 'seller_sent'
-    || transfer?.status === 'buyer_confirmed'
-    || transfer?.status === 'auto_released';
+  const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
   const busy = submitting || evidenceUpload.status === 'uploading';
-  const buyerDeliveryMissing = !transfer?.delivery_email && !transfer?.delivery_phone;
+  const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
 
-  // ── Loading state ──────────────────────────────────────────────────────────
-
-  if (loading) {
+  function Header() {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.center}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
-      </SafeAreaView>
+      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Send transfer</Text>
+        <View style={s.headerSpacer} />
+      </View>
     );
   }
 
-  // ── Error state ────────────────────────────────────────────────────────────
+  if (loading) {
+    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+  }
 
   if (error || !transfer) {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.topBar}>
-          <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-            <Text style={s.backArrow}>{'\u2190'}</Text>
-          </Pressable>
-          <Text style={s.topTitle}>Send Transfer</Text>
-          <View style={s.backBtn} />
-        </View>
+      <View style={s.root}>
+        <Header />
         {error === '__offline__' ? (
           <ScreenState state="offline" onRetry={fetchTransfer} />
         ) : (
-          <View style={s.center}>
-            <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
-          </View>
+          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>{error || 'Transfer not found'}</Text></View>
         )}
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // ── Main render ────────────────────────────────────────────────────────────
+  const meta = transferStatusMeta(transfer.status);
 
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Send Transfer</Text>
-        <View style={s.backBtn} />
-      </View>
-
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-
-        {/* ── Buyer delivery info card ────────────────────────────── */}
-        <View style={s.deliveryCard}>
-          <Text style={s.deliveryTitle}>Send tickets to</Text>
-          {transfer.delivery_email ? (
-            <View style={s.deliveryRow}>
-              <Text style={s.deliveryLabel}>Email</Text>
-              <Text style={s.deliveryValue}>{transfer.delivery_email}</Text>
-            </View>
-          ) : null}
-          {transfer.delivery_phone ? (
-            <View style={s.deliveryRow}>
-              <Text style={s.deliveryLabel}>Phone</Text>
-              <Text style={s.deliveryValue}>{transfer.delivery_phone}</Text>
-            </View>
-          ) : null}
-          {buyerDeliveryMissing && (
-            <View style={s.deliveryMissingBox}>
-              <Text style={s.deliveryMissingTitle}>Delivery info not yet provided</Text>
-              <Text style={s.deliveryMissingText}>
-                {"The buyer must provide their delivery info before you can send tickets. They'll be prompted to do so when they open the transfer."}
+    <View style={s.root}>
+      <Header />
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {/* Buyer delivery target */}
+        <View style={s.section}>
+          <Text style={[textStyle('micro'), s.sectionLabel]}>Send tickets to</Text>
+          {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} /> : null}
+          {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} /> : null}
+          {buyerDeliveryMissing ? (
+            <View style={s.warnBox}>
+              <Text style={[textStyle('bodySm'), s.warnTitle]}>Delivery info not yet provided</Text>
+              <Text style={[textStyle('bodySm'), s.warnText]}>
+                The buyer must provide their delivery info before you can send tickets. They are prompted for it when they open the transfer.
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
-        {/* ── Platform-specific sending instructions ──────────────── */}
-        {!alreadySent && (
-          <PlatformInstructions
-            platform={platform}
-            role="seller"
-            buyerEmail={transfer.delivery_email}
-            buyerPhone={transfer.delivery_phone}
-          />
-        )}
+        {!alreadySent ? (
+          <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
+        ) : null}
 
-        {/* ── Expiry countdown (pending) ──────────────────────────── */}
-        {expiryCountdown && transfer.status === 'pending' && (
-          <View style={[s.countdownBanner, expiryCountdown === 'Expired' && s.countdownExpired]}>
-            <Text style={[s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
-              {expiryCountdown === 'Expired'
-                ? '\u26A0\uFE0F  Transfer window expired'
-                : `\u23F1  ${expiryCountdown} to send`}
+        {expiryCountdown && transfer.status === 'pending' ? (
+          <View style={[s.countdown, expiryCountdown === 'Expired' && s.countdownExpired]}>
+            <Text style={[textStyle('bodySm'), s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
+              {expiryCountdown === 'Expired' ? 'Transfer window expired' : `${expiryCountdown} to send`}
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {/* ── Transfer details card ───────────────────────────────── */}
-        <View style={s.card}>
-          <Text style={s.label}>Event</Text>
-          <Text style={s.value}>{transfer.listing?.event_name || 'Untitled'}</Text>
-
-          <Text style={s.label}>Buyer</Text>
-          <Text style={s.value}>{transfer.buyer?.display_name || 'Unknown'}</Text>
-
-          <Text style={s.label}>Transfer Method</Text>
-          <Text style={s.value}>{transfer.transfer_method.replace('_', ' ')}</Text>
-
-          <Text style={s.label}>Status</Text>
-          <Text style={[s.value, alreadySent && s.statusSent]}>
-            {transfer.status.replace(/_/g, ' ')}
-          </Text>
+        {/* Details */}
+        <View style={s.section}>
+          <View style={s.detailHead}>
+            <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
+            <Badge label={meta.label} tone={meta.tone} />
+          </View>
+          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} />
+          <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} />
+          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} />
         </View>
 
-        {/* ── PENDING: evidence upload + mark as sent ─────────────── */}
-        {transfer.status === 'pending' && (
-          <>
-            <Text style={s.sectionLabel}>Transfer evidence *</Text>
-            <Text style={s.sectionHint}>
-              Upload a screenshot of the transfer confirmation from your ticketing app.
-            </Text>
-            <ImageUploadTile
+        {/* PENDING — upload + mark sent */}
+        {transfer.status === 'pending' ? (
+          <View style={s.block}>
+            <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer evidence</Text>
+            <MediaUpload
+              variant="compact"
               localUri={evidenceUpload.localUri}
               status={evidenceUpload.status}
               error={evidenceUpload.error}
               onPress={evidenceUpload.pickImage}
-              label="Upload transfer proof"
-              hint="Screenshot of transfer confirmation"
-              icon={'\u{1F4F8}'}
-              height={140}
-              hasError={false}
+              onRemove={evidenceUpload.reset}
+              label="Transfer proof"
+              helper="Screenshot of the transfer confirmation"
+              icon="doc.text"
               disabled={busy}
             />
-
-            <View style={s.sendConfirmBox}>
-              <Text style={s.sendConfirmText}>
-                I have transferred the ticket(s) to the buyer using the instructions above.
-              </Text>
-            </View>
-
-            {buyerDeliveryMissing && (
-              <View style={s.sendBlockedBanner}>
-                <Text style={s.sendBlockedText}>
-                  Buyer must provide delivery info before you can send tickets.
-                </Text>
-              </View>
-            )}
-
-            <Pressable
-              style={[s.sendBtn, (busy || buyerDeliveryMissing) && s.sendBtnDisabled]}
-              onPress={handleMarkSent}
-              disabled={busy || buyerDeliveryMissing}
-            >
-              {busy ? (
-                <ActivityIndicator color={colors.text} size="small" />
-              ) : (
-                <Text style={s.sendBtnText}>Mark as Sent</Text>
-              )}
-            </Pressable>
-          </>
-        )}
-
-        {/* ── SELLER_SENT: waiting for buyer ──────────────────────── */}
-        {transfer.status === 'seller_sent' && (
-          <View style={s.sentBanner}>
-            <Text style={s.sentTitle}>Transfer sent</Text>
-            <Text style={s.sentText}>
-              Waiting for the buyer to confirm receipt.
+            <Text style={[textStyle('bodySm'), s.confirmNote]}>
+              I have transferred the ticket(s) to the buyer using the instructions above.
             </Text>
-            {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' && (
-              <Text style={s.releaseText}>
-                Buyer review window: {releaseCountdown}. Your payout releases once it clears
-                review — sooner if the buyer confirms receipt.
-              </Text>
-            )}
-            {transfer.payout_review_status == null && releaseCountdown === 'Expired' && (
-              <Text style={s.releaseText}>
-                The buyer review window has passed. Payout pending — it releases automatically
-                once it clears review.
-              </Text>
-            )}
-            {transfer.payout_review_status === 'held' && (
-              <Text style={s.releaseText}>
-                Payout pending — funds are held until shortly after the event as a standard
-                protection. No action needed unless the buyer reports an issue.
-              </Text>
-            )}
-            {transfer.payout_review_status === 'manual_review' && (
-              <Text style={s.releaseText}>
-                Payout pending — this transfer is under manual review. Our team may contact
-                you; you can also reach support@snatchitapp.com.
-              </Text>
-            )}
-            <Text style={s.sentWarning}>
-              If the buyer reports an issue, your payout will be held for review.
-            </Text>
+            {buyerDeliveryMissing ? (
+              <Text style={[textStyle('bodySm'), s.blockedText]}>Buyer must provide delivery info before you can send tickets.</Text>
+            ) : null}
+            <Button label="Mark as sent" onPress={handleMarkSent} loading={busy} disabled={busy || buyerDeliveryMissing} block style={s.cta} />
           </View>
-        )}
+        ) : null}
 
-        {/* ── BUYER_CONFIRMED: done ───────────────────────────────── */}
-        {transfer.status === 'buyer_confirmed' && (
-          <View style={s.sentBanner}>
-            <Text style={[s.sentTitle, { color: colors.success }]}>
-              Transfer complete
-            </Text>
-            <Text style={s.sentText}>
+        {/* SELLER_SENT */}
+        {transfer.status === 'seller_sent' ? (
+          <StateBlock title="Transfer sent" tone="neutral">
+            <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm receipt.</Text>
+            {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' ? (
+              <Text style={[textStyle('bodySm'), s.stateSub]}>Buyer review window: {releaseCountdown}. Your payout releases once it clears review, sooner if the buyer confirms.</Text>
+            ) : null}
+            {transfer.payout_review_status == null && releaseCountdown === 'Expired' ? (
+              <Text style={[textStyle('bodySm'), s.stateSub]}>The buyer review window has passed. Payout pending, it releases automatically once it clears review.</Text>
+            ) : null}
+            {transfer.payout_review_status === 'held' ? (
+              <Text style={[textStyle('bodySm'), s.stateSub]}>Payout pending, funds are held until shortly after the event as a standard protection. No action needed unless the buyer reports an issue.</Text>
+            ) : null}
+            {transfer.payout_review_status === 'manual_review' ? (
+              <Text style={[textStyle('bodySm'), s.stateSub]}>Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.</Text>
+            ) : null}
+            <Text style={[textStyle('bodySm'), s.stateWarn]}>If the buyer reports an issue, your payout will be held for review.</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* BUYER_CONFIRMED */}
+        {transfer.status === 'buyer_confirmed' ? (
+          <StateBlock title="Transfer complete" tone="success">
+            <Text style={[textStyle('bodySm'), s.stateText]}>
               {transfer.payout_released_at
                 ? 'The buyer has confirmed receipt. Your payout has been released.'
-                : 'The buyer has confirmed receipt. Your payout is being processed — ' +
-                  'make sure your payout account is set up in Settings.'}
+                : 'The buyer has confirmed receipt. Your payout is being processed, make sure your payout account is set up in Settings.'}
             </Text>
-          </View>
-        )}
+          </StateBlock>
+        ) : null}
 
-        {/* ── AUTO_RELEASED: done ─────────────────────────────────── */}
-        {transfer.status === 'auto_released' && (
-          <View style={s.sentBanner}>
-            <Text style={[s.sentTitle, { color: colors.success }]}>
-              Payout released
-            </Text>
-            <Text style={s.sentText}>
-              The buyer review window passed without a dispute. Your payout has been released.
-            </Text>
-          </View>
-        )}
+        {/* AUTO_RELEASED */}
+        {transfer.status === 'auto_released' ? (
+          <StateBlock title="Payout released" tone="success">
+            <Text style={[textStyle('bodySm'), s.stateText]}>The buyer review window passed without a dispute. Your payout has been released.</Text>
+          </StateBlock>
+        ) : null}
 
-        {/* ── DISPUTED ────────────────────────────────────────────── */}
-        {transfer.status === 'disputed' && (
-          <View style={s.sentBanner}>
-            <Text style={[s.sentTitle, { color: colors.warning }]}>
-              Dispute in progress
-            </Text>
-            <Text style={s.sentText}>
-              The buyer has reported an issue with the transfer. Your payout is on hold pending review.
-            </Text>
-          </View>
-        )}
+        {/* DISPUTED */}
+        {transfer.status === 'disputed' ? (
+          <StateBlock title="Dispute in progress" tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateText]}>The buyer has reported an issue with the transfer. Your payout is on hold pending review.</Text>
+          </StateBlock>
+        ) : null}
 
-        <View style={{ height: 48 }} />
+        <View style={{ height: v2.space.xxl }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.row}>
+      <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function StateBlock({ title, tone, children }: { title: string; tone: 'neutral' | 'success' | 'warning'; children: React.ReactNode }) {
+  const color = tone === 'success' ? v2.status.success : tone === 'warning' ? v2.status.warning : v2.text.primary;
+  return (
+    <View style={s.stateBlock}>
+      <Text style={[textStyle('title'), { color }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
 
 const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: colors.bg },
-  center:  { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  root: { flex: 1, backgroundColor: v2.surface.canvas },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  errorText: { color: v2.status.error },
 
-  topBar:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-               paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-               borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
+    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+  },
+  headerTitle: { color: v2.text.primary },
+  headerSpacer: { width: 44 },
 
-  content: { padding: spacing.md },
+  content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
-  // Delivery info card
-  deliveryCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.primary,
+  section: {
+    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    padding: v2.space.md, marginBottom: v2.space.md,
   },
-  deliveryTitle: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
-  deliveryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  deliveryLabel: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    fontWeight: '600',
-  },
-  deliveryValue: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '600',
-  },
-  deliveryMissingBox: {
-    backgroundColor: 'rgba(255,77,109,0.08)',
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-  },
-  deliveryMissingTitle: {
-    color: colors.error,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    marginBottom: spacing.xs,
-  },
-  deliveryMissingText: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    lineHeight: 18,
-  },
+  sectionLabel: { color: v2.text.muted, marginBottom: v2.space.sm },
+  detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
-  // Details card
-  card: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  label: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '600', marginTop: spacing.sm },
-  value: { color: colors.text, fontSize: fontSize.md, fontWeight: '500', marginTop: spacing.xs },
-  statusSent: { color: colors.success },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
+  rowLabel: { color: v2.text.muted },
+  rowValue: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  // Section labels (evidence)
-  sectionLabel: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    marginBottom: spacing.xs,
-  },
-  sectionHint: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginBottom: spacing.sm,
-    lineHeight: 18,
-  },
+  warnBox: { marginTop: v2.space.sm, borderWidth: 1, borderColor: v2.status.error, padding: v2.space.sm },
+  warnTitle: { color: v2.status.error, marginBottom: v2.space.xs },
+  warnText: { color: v2.text.muted },
 
-  // Send confirmation
-  sendConfirmBox: {
-    backgroundColor: 'rgba(251,191,36,0.10)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    padding: spacing.sm,
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  sendConfirmText: {
-    color: colors.warning,
-    fontSize: fontSize.xs,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
+  countdown: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
+  countdownExpired: { borderColor: v2.status.error },
+  countdownText: { color: v2.status.warning },
+  countdownExpiredText: { color: v2.status.error },
 
-  sendBlockedBanner: {
-    backgroundColor: 'rgba(255,77,109,0.10)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.error,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  sendBlockedText: {
-    color: colors.error,
-    fontSize: fontSize.xs,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
+  block: { marginBottom: v2.space.md },
+  hint: { color: v2.text.muted, marginBottom: v2.space.sm },
+  confirmNote: { color: v2.text.secondary, marginTop: v2.space.md },
+  blockedText: { color: v2.status.error, marginTop: v2.space.sm },
+  cta: { marginTop: v2.space.md },
 
-  sendBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: spacing.lg,
+  stateBlock: {
+    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
   },
-  sendBtnDisabled: { opacity: 0.6 },
-  sendBtnText: { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-
-  // Post-send banner
-  sentBanner: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sentTitle: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    marginBottom: spacing.xs,
-  },
-  sentText: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: spacing.xs,
-  },
-  releaseText: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-  },
-  sentWarning: {
-    color: colors.warning,
-    fontSize: fontSize.xs,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    lineHeight: 18,
-  },
-
-  errorText: { color: colors.error, fontSize: fontSize.md },
-
-  // Countdown
-  countdownBanner: {
-    backgroundColor: 'rgba(251,191,36,0.12)',
-    borderRadius: radius.md,
-    padding: spacing.sm,
-    alignItems: 'center',
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-  },
-  countdownExpired: { backgroundColor: 'rgba(255,77,109,0.1)', borderColor: colors.error },
-  countdownText:    { color: colors.warning, fontSize: fontSize.sm, fontWeight: '700' },
-  countdownExpiredText: { color: colors.error },
+  stateText: { color: v2.text.secondary },
+  stateSub: { color: v2.text.muted, marginTop: v2.space.xs },
+  stateWarn: { color: v2.status.warning, marginTop: v2.space.sm },
 });

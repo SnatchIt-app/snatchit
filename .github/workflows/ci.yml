@@ -583,8 +583,11 @@ jobs:
           # (payout_attempts, payment_refunds, account_deletions), functions 70->85
           # (+1 P1, +2 P2, +12 P3, +1 BP-13 predicate 20260906130000), triggers 26->32 (P3 guards incl. the append-only
           # ledger DELETE/TRUNCATE guards). Every object is named in the package migrations.
+          # 2026-09-09 tickets ownership read (20260909000000): functions 86->87 —
+          # exactly one new public function, public.get_my_tickets(). Additive and
+          # read-only: no table, policy or trigger is created or altered.
           EXPECT_TABLES: 30
-          EXPECT_FUNCS: 86
+          EXPECT_FUNCS: 87
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 32
 
