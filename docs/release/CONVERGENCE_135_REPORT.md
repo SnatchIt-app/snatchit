@@ -117,6 +117,22 @@ contain `rehears`, scrubs every remote connection variable).
 | Environment pairing gate | OK (4 profiles) |
 | `scripts/rehearsal_reset.sh` Gate-2 read-out | `tables=30 functions=87 policies=37 triggers=33` — matches the new `EXPECT_*` |
 
+### CI on this branch — run 34314381166, all jobs green
+
+Pushed 2026-09-09; every job succeeded, including the two that were previously red or unrunnable.
+
+| Job | Result |
+|---|---|
+| **Migrations apply cleanly (fresh DB)** | **success** — the stack booted (the port fix works), Gate-2 read back `tables=30 functions=87 policies=37 triggers=33`, matching the summed `EXPECT_*` exactly |
+| **pgTAP database security suite** | **`Files=70, Tests=4678 … Result: PASS`, all tests successful** — the full suite on the real Supabase stack, which is what the local harness cannot reproduce |
+| **Deno type-check (edge functions)** | **success** — `deno check OK: 15 entrypoints (11 deployed + 4 production-aligned)`; the never-deployed native arm reported 10 type errors as a **warning only**, exactly as intended |
+| Typecheck / Lint / Unit tests | success |
+| Admin console (Next.js) | success |
+| Web build (Next.js) | success |
+
+CI's 4678 passing assertions confirm the local pgTAP result below is a harness artefact and not a
+property of this tree.
+
 ### Local pgTAP: a harness limitation, not a convergence regression
 
 The local no-Docker pgTAP runner reports 6–7 files passing and the rest erroring at fixture setup with
@@ -175,9 +191,8 @@ and it needs an owner decision on whether the 7 unreferenced objects are deleted
 2. **Physical-device retest** of the consumer UI on the converged tree. The device evidence recorded so
    far (D3/D4 + auth-logo) was gathered on build `d9b7c85b` from `9942a94`; cases D1, D2, D5–D11 are
    still untested on a device.
-3. **CI has not yet run on this branch.** The fresh-DB port fix and the three-tier deno gate are
-   verified locally and by YAML parse only; the authoritative fresh replay and the Deno type-check are
-   CI-only (no Docker-backed Supabase stack and no Deno on this host).
+3. ~~CI has not yet run on this branch.~~ **Cleared** — run 34314381166 is green on every job,
+   including the fresh-DB replay (4678 pgTAP assertions) and the Deno type-check.
 4. **Partial refunds are invisible to the ops console.** The RC introduces
    `payments.amount_refunded_cents` and an append-only refund ledger; migrations 116–120 read only
    `status='refunded'` and `refunded_at`, so a partially refunded payment still reports as unrefunded in
