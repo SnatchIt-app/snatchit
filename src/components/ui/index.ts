@@ -16,7 +16,7 @@ export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { IconButton, type IconButtonProps, type IconGlyph } from './IconButton';
 export { Input, type InputProps } from './Input';
 export { MediaUpload, type MediaUploadProps } from './MediaUpload';
-export { Sheet, type SheetProps } from './Sheet';
+export { Sheet, SheetAction, type SheetProps } from './Sheet';
 export { Skeleton, type SkeletonProps } from './Skeleton';
 export { Spinner } from './Spinner';
 export { StickyBar, STACK_WIDTH, type StickyBarProps } from './StickyBar';

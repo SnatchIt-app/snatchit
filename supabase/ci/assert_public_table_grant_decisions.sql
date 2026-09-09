@@ -418,6 +418,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('ensure_transfer_exists(uuid, uuid)',                             'authenticated-execute'),
   ('finalize_auction(uuid)',                                         'authenticated-execute'),
   ('get_my_profile()',                                               'authenticated-execute'),
+  -- 20260909000000: zero-argument, owner-scoped Tickets read. Same shape as
+  -- get_my_profile(): binds to auth.uid(), REVOKEd from PUBLIC/anon, EXECUTE to
+  -- authenticated only. Asserted in 187.
+  ('get_my_tickets()',                                               'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
   ('mark_listing_sold(uuid, uuid)',                                  'authenticated-execute'),
   ('mark_transfer_sent(uuid, uuid)',                                 'authenticated-execute'),

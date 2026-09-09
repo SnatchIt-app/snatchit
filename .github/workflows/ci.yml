@@ -616,9 +616,17 @@ jobs:
           # (payout_attempts, payment_refunds, account_deletions), functions +16
           # (+1 P1, +2 P2, +12 P3, +1 BP-13 predicate 20260906130000), triggers +6
           # (P3 guards incl. the append-only ledger DELETE/TRUNCATE guards).
-          # Convergence totals = production 135-line + payments packages.
+          # 2026-09-09 tickets ownership read (20260909000000): functions +1 —
+          # exactly one new public function, public.get_my_tickets(). Additive and
+          # read-only: no table, policy or trigger is created or altered.
+          # Convergence totals = production 135-line + payments packages + tickets.
+          # NOTE: the payments line and the admin line each independently moved
+          # this counter to 87 for DIFFERENT objects (get_my_tickets vs 119's
+          # guard_listing_seller_not_blocked). A textual merge silently keeps 87;
+          # the tree carries both, so the value below is read from the catalog of
+          # an actual replay, never inherited from either side.
           EXPECT_TABLES: 30
-          EXPECT_FUNCS: 87
+          EXPECT_FUNCS: 88
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 33
 

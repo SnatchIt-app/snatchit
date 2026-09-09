@@ -699,8 +699,8 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   'P1: GATE-2 tables=30 — 096 adds no public table (27 through 109; +3 from 20260906120000: payout_attempts, payment_refunds, account_deletions)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public'
-              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 87,
-  'P2: GATE-2 functions=87 — 096 adds no public function (70 through 20260902003623; +1 from 119''s guard_listing_seller_not_blocked; +1 P1, +2 P2, +12 P3, +1 20260906130000; pgtap''s own extension-owned functions excluded)');
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 88,
+  'P2: GATE-2 functions=88 — 096 adds no public function (70 through 20260902003623; +1 from 119''s guard_listing_seller_not_blocked; +1 P1, +2 P2, +12 P3, +1 20260906130000; +1 from 20260909000000''s public.get_my_tickets; pgtap''s own extension-owned functions excluded)');
 SELECT is((SELECT count(*)::int FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='public'), 37,
   'P3: GATE-2 policies=37 — 096 adds no public policy');

@@ -10,6 +10,13 @@
  *    screen reader instead of an invisible view.
  *  - They ignore the home indicator. This one pads by the safe-area inset.
  *  - Their corners are rounded 24. Square is the brand.
+ *
+ * FOOTER CONTRACT. The footer is a ROW. React Native defaults `flexShrink: 0`,
+ * so a child sized `width: '100%'` — which is what `<Button block>` is — takes
+ * the whole row and refuses to give any of it back. Two of them ask for 200%
+ * plus the gap, and the second one is pushed off the right edge of the screen.
+ * That is what clipped Apply in the Home filter sheet. Wrap each action in
+ * `<SheetAction>` so the row divides itself into equal shares instead.
  */
 
 import {
@@ -27,6 +34,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+
+/**
+ * One action in a Sheet footer. `flex: 1` with a zero basis makes every action an
+ * equal share of whatever width the row actually has, and `minWidth: 0` lets that
+ * share fall below the button's natural content width instead of overflowing.
+ * No fixed widths and no screen measurements, so it holds at any device width and
+ * in any orientation.
+ */
+export function SheetAction({ children }: { children: React.ReactNode }) {
+  return <View style={styles.action}>{children}</View>;
+}
 
 export interface SheetProps {
   visible: boolean;
@@ -110,10 +128,13 @@ const styles = StyleSheet.create({
   body: { gap: v2.space.md },
   footer: {
     flexDirection: 'row',
+    // Actions divide this row; nothing in it may size itself from the screen.
+    alignItems: 'stretch',
     gap: v2.space.sm,
     marginTop: v2.space.lg,
     paddingTop: v2.space.md,
     borderTopWidth: 1,
     borderTopColor: v2.border.default,
   },
+  action: { flex: 1, flexBasis: 0, minWidth: 0 },
 });
