@@ -314,3 +314,84 @@ correct facts, and refund monotonicity is enforced regardless of what the consol
 closed before refund execution is enabled, since an operator would otherwise be looking at figures that
 understate refunds.
 
+
+## 12. Sandbox QA enablement — 2026-09-09
+
+Sandbox `ofaidukbieeekqaboscm` only. Production `hqycwntpfoztoinemqns` was read, never written.
+
+### Dry run
+
+| | |
+|---|---|
+| Sandbox ledger before | **128** rows, numeric tip `109`, max `20260906130000` |
+| Branch chain | 140 |
+| Pending | **12**: `110`–`120` (11) **and** `20260909000000` |
+| Applied in sandbox but absent from the branch | none |
+| Target ambiguity | none — `preview` resolves to one project; `TEST_DB_URL` was asserted to contain the sandbox ref and to contain no production ref before any statement ran |
+
+The sandbox was built from the payments RC line, so the admin/native line `110`–`120` had never been applied
+there. **Only `20260909000000` was applied**; `110`–`120` were deliberately left pending. Its real
+prerequisites — `kernel.tickets` and `kernel.ticket_ownership_log` — already existed at `109`, and it declares
+no dependency on `110`–`120`.
+
+### Migration proof
+
+```
+ledger rows           128 -> 129        (exactly one migration applied)
+version               20260909000000    name kernel_my_tickets_read
+110-120               still pending, untouched
+```
+
+The MCP apply path stamps its own timestamp version (`20260909063550`); that row was corrected in place to the
+repo's canonical `20260909000000` so the sandbox ledger matches the tree and a later push cannot re-apply it. No
+stray version remains.
+
+### RPC verification
+
+| Check | Result |
+|---|---|
+| `public.get_my_tickets` exists | yes, `pronargs = 0` |
+| `SECURITY DEFINER` | `prosecdef = true` |
+| Explicit search path | `search_path=public, pg_temp` |
+| Volatility | `stable` |
+| EXECUTE grants | `authenticated` ✔ · `anon` ✘ · `PUBLIC` ✘ |
+| Authenticated caller owning no tickets | `POST /rest/v1/rpc/get_my_tickets` → **HTTP 200, body `[]`** (valid empty result, not an error) |
+| Anonymous caller | **HTTP 401**, PostgreSQL `42501 permission denied for function get_my_tickets` — denied at the ACL, never served an empty set |
+| `kernel.tickets` rows | 0 (the empty-state precondition) |
+
+### Preview build
+
+| | |
+|---|---|
+| Build ID | `aeb89616-a539-4e42-a5fa-bb7c46beb0e8` |
+| Source SHA | `9aae63fa2c9f062c8097c9876710499cd6e814a0` |
+| Profile / distribution | `preview` / internal, iOS, v1.0.0 build 13 |
+| Fingerprint | `e6e8156ee8874deb3061d77e1ebf6fad25ddc951` |
+
+**Bundled environment proof** — taken from the shipped IPA's `main.jsbundle` (Hermes bytecode), not from
+`eas.json`:
+
+- Supabase URLs in the bundle: **exactly one**, `https://ofaidukbieeekqaboscm.supabase.co`.
+- JWTs in the bundle: **exactly one**, decoding to `ref = ofaidukbieeekqaboscm`, `role = anon`. No production
+  key, no `service_role`.
+- Stripe publishable key: `pk_test_51T6Fb1Gl…` → sandbox account **`acct_1T6Fb1GlD5aqtxIw`**. No live key: the
+  one `pk_live_` hit is the env guard's own prefix literal, adjacent to unrelated minified strings.
+- Secrets: **zero** matches for `sk_test`/`sk_live`/`service_role`/`SUPABASE_SERVICE`.
+- The production ref and the live account fragment appear only as **env-guard constants** — the fail-closed guard
+  must recognise production in order to refuse it. `ENV_GUARD_FAILURE`, `IS_SANDBOX_BUILD` and
+  `Build misconfigured` are all present.
+- Visible marker: `SANDBOX — TEST MONEY ONLY` is present **once**, stored UTF-16LE in Hermes's string table
+  (the em dash puts it there, which is why an ASCII `strings`/`grep` pass does not find it — checked both
+  encodings to be sure).
+- Feature code present: `get_my_tickets` and `FilterSheet`.
+
+### Production comparison — read-only, unchanged
+
+```
+ledger rows                     135        (unchanged before and after)
+20260909000000 in ledger        absent
+public.get_my_tickets           absent
+feature.native_issuance_enabled false
+feature.native_scanning_enabled false
+kernel.signing_key rows         0
+```
