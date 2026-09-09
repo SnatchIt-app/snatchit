@@ -517,10 +517,36 @@ jobs:
       # first start; a failure in any migration fails this step. We exclude
       # cosmetic / non-schema services to keep the run fast — everything that
       # creates schema (db, auth, storage, rest, realtime, pooler) stays up.
+      # 2026-09-09 (convergence): PR #56's run of this job failed with
+      #   failed to bind host port for 0.0.0.0:54322 ... address already in use
+      # The stack never booted, so the migration chain and the pgTAP suite never
+      # ran — an infrastructure collision, NOT a migration or test result. Free
+      # the ports deterministically first, then retry the boot once. A genuine
+      # migration error still fails the step on both attempts.
+      - name: Free the local stack ports
+        run: |
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          docker ps -aq --filter "publish=54322" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          if ss -ltn 2>/dev/null | grep -q ':54322 '; then
+            echo "::warning::port 54322 is still bound after cleanup"
+            ss -ltnp 2>/dev/null | grep ':54322 ' || true
+          fi
+
       - name: Apply migration chain on fresh DB
         run: |
-          supabase start \
-            -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+          set -euo pipefail
+          start() {
+            supabase start \
+              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+          }
+          if ! start; then
+            echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+            supabase stop --no-backup >/dev/null 2>&1 || true
+            docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+            sleep 5
+            start
+          fi
 
       - name: Show applied migrations
         if: always()
