@@ -34,8 +34,9 @@ Production facts confirmed read-only on 2026-09-09:
 ## 2. Branch and commits
 
 - Branch: **`release/convergence-135`**, based on `562fda9` (production-aligned 135 line).
-- `477226f` — the merge of `b6580cf` with the four conflicts resolved.
-- Convergence head: see the tip of the branch; the report commit follows the merge.
+- `477226f` — the merge of `b6580cf` (payments RC + v2 consumer UI), four conflicts resolved.
+- `ce81942`, `54f7a93`, `dde4453` — rehearsal harness, report, CI evidence.
+- `2f5b800` — the merge of `597533e` (tickets RPC + filter-sheet fix); see §9 and §10.
 
 ## 3. Migration inventory and version conflicts
 
@@ -45,10 +46,11 @@ Production facts confirmed read-only on 2026-09-09:
 |---|---|---|
 | admin/native line | `110`–`114` (signing/door), `115`–`120` (ops console, `119` listing-block guard) | `ops.*` + exactly one `public` function and trigger (119) |
 | payments RC | `20260906100000`, `…110000`, `…120000`, `…130000` | `public.*` + a body-only replace of `kernel.sweep_deletion_pending` |
+| consumer line | `20260909000000` (tickets ownership read) | one `public` function + its grant; reads `kernel.tickets` |
 
 Canonical order is `LC_ALL=C` filename sort, so every numeric version sorts before every timestamped
-one: `000…120` → `20260714…` → `20260730…`×2 → `20260731…` → `20260902003623` → `20260906100000…130000`.
-Total **139**.
+one: `000…120` → `20260714…` → `20260730…`×2 → `20260731…` → `20260902003623` → `20260906100000…130000`
+→ `20260909000000`. Total **140**, with the tickets migration last.
 
 Production's *actual* order is different and was rehearsed as such (§6): the four 2026-07 website-form
 migrations landed between `075` and `076`; `20260902003623` landed before `093`; the ops console
@@ -106,16 +108,18 @@ contain `rehears`, scrubs every remote connection variable).
 
 | Rehearsal | Result |
 |---|---|
-| **Fresh DB, canonical `LC_ALL=C` order** (139 migrations, `110`–`114` before `115`–`120`) | **6/6 PASS** — chain applies clean; Gate-2 census `30 \| 87 \| 37 \| 33`; payments tables, ops console, 119's guard and `settle_verified_payment` all present |
-| **Production's actual order**: 124-version line → `115`–`120` → `110`–`114` (= 135) → the four payment migrations | **7/7 PASS** — census at 109 is production's `27\|70\|37\|26`; census at the production tip is `27\|71\|37\|27`; after the release `30\|87\|37\|33` |
-| **Order independence** | **2/2 PASS** — identical Gate-2 census *and* identical function-definition hash (`56793098ac862824d1edea056b0ead76`) across both orders |
+| **Fresh DB, canonical `LC_ALL=C` order** (140 migrations, `110`–`114` before `115`–`120`) | **7/7 PASS** — chain applies clean; Gate-2 census `30 \| 88 \| 37 \| 33`; payments tables, ops console, 119's guard, `settle_verified_payment`, and `get_my_tickets()` zero-argument/authenticated-only all present |
+| **Production's actual order**: 124-version line → `115`–`120` → `110`–`114` (= 135) → the four payment migrations → the tickets migration | **9/9 PASS** — census at 109 is production's `27\|70\|37\|26`; at the production tip `27\|71\|37\|27`; after the payment migrations `30\|87\|37\|33`; after the tickets migration `30\|88\|37\|33` |
+| **Order independence** | **2/2 PASS** — identical Gate-2 census *and* identical function-definition hash (`ecdecf3a72b3d03bc877e7551daf07b2`) across both orders |
 | Payments RC production-order + rollback battery (`payments_rc_prod_order_rehearsal.sh`) | **63/63 PASS** on the converged tree — including rollback gates, in-transaction archive, deploy-window duplicate hazard, restore, and no-double-pay |
-| Repo unit tests (root) | **1515/1515 PASS**, 58 files |
+| Repo unit tests (root, incl. the ported filter-sheet tests) | **1531/1531 PASS**, 59 files |
 | Admin console unit tests (`admin/`) | **96/96 PASS**, 15 files |
 | Typecheck | clean |
 | Lint | 0 errors, 29 warnings |
 | Environment pairing gate | OK (4 profiles) |
-| `scripts/rehearsal_reset.sh` Gate-2 read-out | `tables=30 functions=87 policies=37 triggers=33` — matches the new `EXPECT_*` |
+| `scripts/rehearsal_reset.sh` Gate-2 read-out | `tables=30 functions=88 policies=37 triggers=33` — matches the new `EXPECT_*` |
+| Web build (Next.js) | success |
+| Grant-decisions closed-world manifest | passes after adding `get_my_tickets()` (§9) |
 
 ### CI on this branch — run 34314381166, all jobs green
 
@@ -193,40 +197,94 @@ and it needs an owner decision on whether the 7 unreferenced objects are deleted
    still untested on a device.
 3. ~~CI has not yet run on this branch.~~ **Cleared** — run 34314381166 is green on every job,
    including the fresh-DB replay (4678 pgTAP assertions) and the Deno type-check.
-4. **Partial refunds are invisible to the ops console.** The RC introduces
-   `payments.amount_refunded_cents` and an append-only refund ledger; migrations 116–120 read only
-   `status='refunded'` and `refunded_at`, so a partially refunded payment still reports as unrefunded in
-   ops summaries and money reports. Not a merge conflict and not a regression — a reporting gap the
-   admin console should close before refunds are enabled.
+4. **Partial refunds are invisible to the ops console** — see §11. Recorded, deliberately not fixed
+   here; close it before refund execution is enabled.
 5. **`auction-media` legacy evidence** (§7) — 27 objects awaiting a remediation change and an owner
    decision on the 7 unreferenced objects.
 6. **Twilio Account SID rotation** decision still open from the publish work.
 
-## 9. Drift observed after this convergence was built — read this before merging anything
+## 9. Consumer branch integrated — tickets RPC + filter-sheet fix (2026-09-09)
 
-`publish/ui-v2-integration` has moved since the head this task pinned. It is now `597533e`, two commits
-ahead of `b6580cf`:
+`origin/publish/ui-v2-integration` at `597533e` was merged into this branch after the base convergence
+was verified. It brought two commits:
 
-| Commit | When | What |
-|---|---|---|
-| `ca5d56b` | 2026-09-08 23:04 −04 | cherry-pick: filter-sheet footer row divides instead of overflowing |
-| `597533e` | 2026-09-09 01:09 −04 | new migration `20260909000000_kernel_my_tickets_read` + rollback + `supabase/tests/176_my_tickets_read.sql` |
+| Commit | What |
+|---|---|
+| `ca5d56b` | filter-sheet footer row divides instead of overflowing (`FilterSheet.tsx`, `Sheet.tsx`, `ui/index.ts`, `app/_dev/foundation.tsx`, + `tests/filter-sheet-action-bar.test.ts`) |
+| `597533e` | migration `20260909000000_kernel_my_tickets_read` + its rollback + pgTAP suite + GATE-2 updates |
 
-`release/convergence-135` was built from `b6580cf` as specified, so it does **not** contain these. Do
-not fast-forward or naively merge them — three concrete hazards:
+Everything §1–§8 established is preserved: the 110–120 lineage, payments P1–P3, the deletion/tombstone
+machine, payout and refund integrity, the native-arm exclusion, and the 139-migration order — the
+tickets migration is appended as **140**, last in the canonical chain.
 
-1. **The function count collides at the same number for different reasons.** `597533e` raises
-   `EXPECT_FUNCS` 86 → **87** because `20260909000000` adds `public.get_my_tickets`. This convergence
-   raises it 86 → **87** because migration `119` adds `public.guard_listing_seller_not_blocked`. A
-   merge that sees "87 on both sides" and takes either one is wrong: the correct converged value is
-   **88**, and Gate-2 would fail on a tree carrying both.
-2. **A pgTAP filename number is taken twice.** The converged tree already has
-   `supabase/tests/176_signing_key_insert_guard.sql` (admin line); `597533e` adds
-   `supabase/tests/176_my_tickets_read.sql`. Both would run, but the numbering no longer identifies a
-   test — renumber one before merging.
-3. **A new migration version lands after the four payment migrations.** `20260909000000` sorts last in
-   the canonical chain, making it 140 migrations. The rehearsal in §6 covers 139; it must be re-run.
+### The count trap this merge contained, and how it was resolved
 
-Recommended order of operations: land this convergence first, then rebase the two UI commits on top of
-it, renumber the test, set `EXPECT_FUNCS: 88` (and `162`'s P2 assertion to 88), and re-run
-`scripts/release/convergence_prod_order_rehearsal.sh`.
+Both lines had independently moved `EXPECT_FUNCS` to **87**, for **different** objects: the admin line
+because `119` adds `public.guard_listing_seller_not_blocked`, the consumer line because
+`20260909000000` adds `public.get_my_tickets`. Git saw `87` on both sides of the count line and
+auto-merged it silently — only the *comment* conflicted. A tree carrying both objects has **88**.
+
+Per the integration requirement, the numbers were taken from the catalog of an actual replay, not from
+either branch's text. A fresh replay of all 140 migrations reads:
+
+```
+GATE-2  tables=30 functions=88 policies=37 triggers=33
+```
+
+`ci.yml` `EXPECT_*` and `supabase/tests/162` (P2) are now `30 / 88 / 37 / 33`. Tables, policies and
+triggers are unchanged because the tickets migration is additive and read-only — one function plus its
+grant, no table, policy or trigger.
+
+### A real gap in the incoming work, fixed here
+
+`supabase/ci/assert_public_table_grant_decisions.sql` is closed-world over public functions, and
+`public.get_my_tickets()` had no row in it. Run against the replayed 140-migration database it failed:
+
+> `ERROR: Public function(s) with NO recorded EXECUTE decision: get_my_tickets().`
+
+Added as `('get_my_tickets()', 'authenticated-execute')` — the same posture as the precedent
+`get_my_profile()`. The manifest's posture check then passes ("every recorded function posture matches
+the catalog"), which independently confirms the migration's `REVOKE … FROM PUBLIC, anon` +
+`GRANT EXECUTE … TO authenticated` is what the catalog actually holds.
+
+### Tickets contract, verified
+
+| Requirement | Evidence |
+|---|---|
+| Zero-argument, owner-scoped RPC | `public.get_my_tickets()` takes no arguments and binds to `auth.uid()`; fail-closed when it is NULL. Asserted in the rehearsal (`F7`) and in `187`. |
+| Authenticated-only execution | `REVOKE ALL … FROM public, anon` then `GRANT EXECUTE … TO authenticated`; confirmed against the live catalog by the grant-decisions posture check and by `F7` (`authenticated` yes, `anon` no). |
+| Cross-user reads impossible | Structural: the body's only ownership predicate is `auth.uid()`; no argument exists through which another user could be named. |
+| Empty native issuance returns a valid empty result | Native issuance is dark, so `kernel.tickets` is empty and the function returns the defined empty set — the migration header states this and `187` asserts it. |
+| No QR / barcode / Wallet behaviour | No `qr`, `barcode`, `wallet` or `pkpass` token appears anywhere in the migration; it projects a status vocabulary only, and carries no payment or Stripe identifier. |
+
+## 10. Duplicate pgTAP number — decision
+
+Both lines contributed a suite numbered `176`:
+
+- `176_signing_key_insert_guard.sql` — admin/native line, pairs with migration `110` inside the
+  contiguous `176`–`186` block that covers migrations `110`–`120`, and is cited by
+  `docs/phase2/M6_MIGRATION_110_SPEC_AND_REVIEW.md`.
+- `176_my_tickets_read.sql` — the incoming tickets suite.
+
+**Decision: the incoming suite was renumbered to `187_my_tickets_read.sql`; nothing was deleted.**
+Renaming the established file would have broken the `176`–`186` ↔ `110`–`120` mapping and an existing
+document reference. `187` is the next free number and is also the correct ordinal: `20260909000000` is
+the last migration in the chain. The rename was done with `git mv` (history preserved), the suite's own
+header records the renumber and its reason, and the reference in
+`docs/product-v2/RC_TICKETS_RPC_AND_FILTER_SHEET.md` was updated.
+
+## 11. Partial-refund reporting gap (recorded, not fixed)
+
+Migrations `116`–`120` build the ops console's money reporting on `payments.status = 'refunded'` and
+`payments.refunded_at` only. The payments RC introduces `payments.amount_refunded_cents` and an
+append-only `payment_refunds` ledger, and marks a payment `'refunded'` **only when the refunded amount
+reaches its total**. Consequently a *partially* refunded payment is reported by the ops console as not
+refunded at all: it is absent from refunded-volume sums, from the refunded count, and from the daily
+summary's refund basis.
+
+This is a reporting gap, not a data-integrity defect — the ledger and `amount_refunded_cents` hold the
+correct facts, and refund monotonicity is enforced regardless of what the console displays. It is
+**not** addressed in this task: no reporting was changed and refunds remain disabled. It should be
+closed before refund execution is enabled, since an operator would otherwise be looking at figures that
+understate refunds.
+
