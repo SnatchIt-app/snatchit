@@ -23,6 +23,7 @@
     "supabase/functions",
     "web",
     "admin",
+    "venue",
     "packages"
   ]
 }

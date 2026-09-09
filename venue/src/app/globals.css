@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+/*
+ * Snatch It venue dashboard (preview) — same brand system as web/ (snatchitapp.com
+ * measured values): #000 canvas, #0a0a0a card, #FF1A1A red with black-on-red
+ * CTAs, red-tinted hairlines, radius 0 everywhere. Inter for everything —
+ * this is a dense tool, not a marketing surface, so no display face.
+ */
+@theme inline {
+  --color-bg: #000;
+  --color-card: #0a0a0a;
+  --color-field: #0a0a0a;
+  --color-raised: #111;
+  --color-overlay: rgba(0, 0, 0, 0.72);
+
+  --color-ink: #fff;
+  --color-muted: rgba(255, 255, 255, 0.7);
+  --color-dim: rgba(255, 255, 255, 0.45);
+  --color-placeholder: rgba(255, 255, 255, 0.3);
+
+  --color-primary: #ff1a1a;
+  --color-primary-muted: #cc0000;
+  --color-primary-soft: rgba(255, 26, 26, 0.1);
+
+  --color-line: rgba(255, 26, 26, 0.15);
+  --color-line-strong: rgba(255, 26, 26, 0.3);
+  --color-line-neutral: rgba(255, 255, 255, 0.1);
+
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ff1a1a;
+  --color-info: #60a5fa;
+
+  --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-none: 0;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  border-radius: 0 !important;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background: #000;
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #ff1a1a;
+  color: #000;
+}
+
+:focus-visible {
+  outline: 2px solid #ff1a1a;
+  outline-offset: 2px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* Form controls: flat, square, hairline. */
+.field {
+  width: 100%;
+  background: #0a0a0a;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.5rem 0.75rem;
+  font-size: 14px;
+}
+.field:focus {
+  border-color: #ff1a1a;
+  outline: none;
+}
+.field::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+select.field {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #fff 50%),
+    linear-gradient(135deg, #fff 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: #ff1a1a;
+  color: #000;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #ff4d4d;
+}
+.btn-ghost {
+  background: transparent;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: #ff1a1a;
+}
+.btn-sm {
+  padding: 0.3rem 0.65rem;
+  font-size: 11px;
+}
+
+.link {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 26, 26, 0.5);
+  text-underline-offset: 2px;
+}
+.link:hover {
+  color: #ff1a1a;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Data tables. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 26, 26, 0.3);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  vertical-align: top;
+}
+.data-table tbody tr:hover {
+  background: rgba(255, 26, 26, 0.05);
+}
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@import "./globals-preview.css";

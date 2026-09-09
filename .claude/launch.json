@@ -4,33 +4,64 @@
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "snatchit",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start"],
+      "runtimeArgs": [
+        "expo",
+        "start"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-ios",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--ios"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--ios"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-android",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--android"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--android"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web"
+      ],
       "port": 8081
+    },
+    {
+      "name": "venue",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "venue",
+        "run",
+        "dev"
+      ],
+      "port": 3300
     }
   ]
 }

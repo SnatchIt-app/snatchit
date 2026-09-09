@@ -1,0 +1,60 @@
+/* Preview-only additions layered on the shared brand sheet (globals.css). */
+
+/* The "Preview data" indicator: always visible, never dismissible. */
+.preview-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: repeating-linear-gradient(135deg, #f59e0b 0 12px, #d97706 12px 24px);
+  color: #000;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Skeleton blocks for loading states. */
+.skel {
+  background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%);
+  background-size: 200% 100%;
+  animation: skel 1.4s ease-in-out infinite;
+  min-height: 0.9rem;
+}
+@keyframes skel {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Capacity bar: sold | held | remaining, three written numbers beside it. */
+.capbar {
+  display: flex;
+  height: 10px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.capbar > span {
+  display: block;
+  height: 100%;
+}
+.capbar .sold {
+  background: #ff1a1a;
+}
+.capbar .held {
+  background: #f59e0b;
+}
+
+/* Door surfaces: large targets, one decision per screen (spec §2.8). */
+.door-counter {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.5rem, 12vw, 5rem);
+  line-height: 1;
+  font-weight: 800;
+}
+.touch-row {
+  min-height: 56px;
+}
