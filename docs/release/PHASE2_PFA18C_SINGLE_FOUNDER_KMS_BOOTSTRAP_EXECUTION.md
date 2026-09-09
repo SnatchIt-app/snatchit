@@ -795,3 +795,49 @@ under its own authorization.
 ### SESSION 13 MUTATION LEDGER
 AWS: **none** (read-only CloudTrail/IAM/KMS/S3/STS calls only). Production DB: **none** (one read-only query). KMS: **not created.** Secrets/keys/
 IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + gate report revision 2.
+
+---
+
+## SESSION 14 — 2026-09-09 — R-M2 REMEDIATION CORROBORATED · M2 SATISFIED · M1 MODEL B COMPLETE · C1 PHASE-1 GATE CLOSED (NO MUTATION)
+
+Scope: coordinator read-only corroboration + governance recording. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Full report (revision 3): `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### R-M2 (OWNER-RETURNED): Device 2 ran `aws logout --profile verifier`, signed out of the console, signed in again as `snatchit-kms-verifier`
+with password + the enrolled passkey `verifier-device2-passkey`, ran `aws login --profile verifier --region us-east-1` (identity `Account
+652872010073`, `Arn arn:aws:iam::652872010073:user/snatchit-kms-verifier`), re-ran D2-6 (PutBucketVersioning/AssumeRole/CreateAccessKey/AddTags →
+AccessDenied; CreateAlias → NotFoundException, non-discriminating), D2-5 (all comparisons/state checks passed), D2-7 (expected results), and
+`kms list-keys` → `[]`.
+
+### D2-8 corroboration (CLAUDE-OBSERVED 2026-09-09T04:02:56Z–04:03:13Z, read-only, sanitized)
+1. New verifier `ConsoleLogin` (us-east-2): 03:51:35Z (`96ff9126…`) and 03:55:08Z (`64488a49…`), both **`MFAUsed: Yes`**, `MFAIdentifier =
+   arn:aws:iam::652872010073:u2f/user/snatchit-kms-verifier/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA`, Success; `CheckMfa` 03:50:59Z,
+   03:51:25Z, 03:54:30Z precede them.
+2. New `aws login`: `AuthorizeOAuth2Access` + `CreateOAuth2Token` 03:55:45Z (`62f3281b…`, `e2d682a3…`), session created 03:55:08Z,
+   **`mfaAuthenticated: "true"`**; `GetCallerIdentity` 03:56:06Z (`df3c879f…`) `"true"`. Distribution after 03:46Z: **84 events `"true"`, 0 `"false"`,
+   0 successful mutations.**
+3. D2-6 under the verifier identity, all `mfaAuthenticated "true"`: PutBucketVersioning 03:56:53Z AccessDenied (`f692cf37…`); AssumeRole 03:57:20Z
+   AccessDenied (`2f6579df…`); CreateAccessKey 03:57:43Z AccessDenied (`f390806f…`); AddTags 03:58:44Z AccessDenied (`a5fe0f75…`); CreateAlias
+   03:59:45Z NotFoundException (`c9b23820…`). No success.
+4. D2-5 reads 03:59:56–04:00:10Z (IAM Get/List ×14, S3 Get ×5, CloudTrail Describe/Get ×3) — all read-only, no errors; D2-7 LookupEvents ×7
+   04:00:45–04:00:49Z; `kms ListKeys` 04:01:00Z (`7cebef0d…`). Nothing outside the envelope.
+5. Verifier state: access keys `[]`; attachments exactly `SnatchIt-KMS-Verifier-ReadOnly` + `SignInLocalDevelopmentAccess`; inline `[]`; groups
+   `[]`; MFA = the single passkey; policy v1 unchanged (2026-09-08T03:18:03Z). Root since 2026-09-08T02:40Z `[]`. KMS `list-keys` `[]`; no
+   CreateKey/PutKeyPolicy/ScheduleKeyDeletion/DisableKey since 2026-09-08T00:00Z. `jose-admin`: no non-read-only events since 03:46Z. Inventory
+   unchanged; access keys `[]` on all three users; runtime role has no permissions. Trail logging, no delivery error.
+6. Production (04:03:13Z): ledger 130 · tip 120 · 110–114 absent · `kernel.signing_key` **0** · guard absent · tickets 0 · door sessions 0 · flags
+   dark (issuance/scanning/monitor false; fingerprint/max_not_after null). No trust-root bootstrap occurred.
+
+### GATE DECISION (all M2 completion conditions satisfied — handoff §F items 1–7)
+**M2 SATISFIED.**
+**M1 MODEL B COMPLETE** (audit plane configured, ceremony-probed at C1-9, independently read back from the MFA-authenticated verifier on the
+physically separate Device 2; residual: P3′ live KMS-lifecycle deny test at C2; Model B temporary — Model A required before T3).
+**C1 PHASE-1 GATE CLOSED** (C1-0a … C1-10 verified; artifacts at `c4f562d…`; execution record sessions 10–14).
+**C2 NOT BEGUN** — CreateKey requires the separate exact owner authorization **"AUTHORIZE PFA-18C CREATEKEY"**. Confirmed ordering preserved:
+**C4 (migrations 110–114) before the trust-root DB insert (C3), under "AUTHORIZE PFA-18C MIGRATIONS 110-114"**; neither executed.
+Carried forward: C7/M5 pending governance clarification (packet §5d); Model A package (packet §5c) not authorized; root password-recovery events
+2026-09-08T01:17–01:18Z (out of window) awaiting owner acknowledgement; no account password policy (hardening note).
+
+### SESSION 14 MUTATION LEDGER
+AWS: **none** (read-only CloudTrail/IAM/KMS/S3/STS only). Production DB: **none** (one read-only query). KMS: **not created.** Secrets/keys/IAM/S3/
+CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + gate report revision 3 + packet log row.
