@@ -859,3 +859,22 @@ dark (ledger 130 / tip 120 / 110–114 absent / 0 keys, re-read 2026-09-09).**
 ### SESSION 15 MUTATION LEDGER
 AWS: **none** (read-only). Production DB: **none** (read-only ledger/state reads). KMS: **not created.** Migrations: **NOT applied; no `db push`
 run.** Repository: the C4 package + this record.
+
+---
+
+## SESSION 16 — 2026-09-09 — C4 EXECUTED: MIGRATIONS 110–114 APPLIED TO PRODUCTION AND VERIFIED
+
+Authorization: owner phrase "AUTHORIZE PFA-18C MIGRATIONS 110-114" (2026-09-09), scoped to `562fda9aba261d7929ee772a4fd1ce50485c4294` and digests
+`3134f6f6…`, `d13cf6cb…`, `97d33d08…`, `32d42324…`, `9974eb91…`; owner visual auto-deploy-OFF confirmation "auto-deploy OFF confirmed 2026-09-09"
+(OWNER-RETURNED); PR #55 `AUTODEPLOY-VERIFIED-OFF: 2026-09-09` written by the coordinator. Full record: `docs/release/PHASE2_PFA18C_C4_EXECUTION_RECORD.md`.
+Preflight P1–P8 PASS (dry run exactly 110–114). Apply 04:22:39–04:22:52Z: `supabase db push --linked --include-all --yes` (CLI 2.115.0) from the
+admin worktree — "Finished supabase db push.", no error. Verification (read-only): ledger **135**, numeric tip **120**, rows 110–114 present;
+guard function + trigger enabled; recovery table RLS on / 0 policies / 0 client grants / 0 rows; recovery functions granted to `authenticated`
+only; census **153 / 87 / 32**; door RPC grants as reviewed; `get_manifest_signing_context()` → `unavailable/no_active_global_key`; guard probe
+refused `bootstrap_key_id_required` inside a rolled-back transaction; `kernel.signing_key` **0**; tickets 0; flags dark; edges not deployed;
+AWS `kms list-keys` `[]`. **M6 (110) and the gated two-person recovery (111) are now LIVE in production (dark).**
+**C2 NOT BEGUN — returned to owner review; CreateKey requires "AUTHORIZE PFA-18C CREATEKEY".**
+
+### SESSION 16 MUTATION LEDGER
+Production DB: **migrations 110–114 applied** (DDL/grants only; no data rows). AWS: **none.** KMS: **not created.** Secrets/edges/flags: **none /
+not deployed / unchanged.** Repository: C4 record, this entry, packet row; PR #55 body line.
