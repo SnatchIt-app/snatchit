@@ -739,3 +739,59 @@ authorization.
 ### SESSION 12 MUTATION LEDGER
 AWS: **none** (read-only calls attempted; all refused — expired session). Production DB: **none** (one read-only query). KMS: **not created.**
 Secrets/keys/IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + the gate report.
+
+---
+
+## SESSION 13 — 2026-09-09 — D2-8 COORDINATOR CORROBORATION (READ-ONLY) · M2 BLOCKED ON VERIFIER MFA POSTURE (NO MUTATION)
+
+Scope: coordinator verification + governance recording only. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Coordinator session: `jose-admin` re-established by the owner (CloudTrail `CheckMfa` 03:39:38Z + `ConsoleLogin` 03:39:49Z, `MFAUsed Yes`, passkey).
+Full report (revision 2): `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### D2-8 results (CLAUDE-OBSERVED 2026-09-09T03:41–03:46Z unless stated)
+1. **Verifier identity/posture — FAIL (blocker).** `ConsoleLogin` for `snatchit-kms-verifier` at **2026-09-09T02:44:39Z in us-east-2**, **`MFAUsed: No`**,
+   Success (eventID `c6596194…`) — the only verifier ConsoleLogin in any enabled region (fan-out across all regions; verifier events exist only in
+   us-east-1 (88) and us-east-2 (7)). `EnableMFADevice` (passkey self-enrolment, F3) 02:47:51Z success (eventID `4c3706e4…`) — **the only successful
+   verifier mutation**. `aws login`: `AuthorizeOAuth2Access` + `CreateOAuth2Token` 02:49:44Z (refreshes 03:07:28Z, 03:18:13Z, 03:29:00Z);
+   `GetCallerIdentity` 02:50:06Z / 03:23:01Z. **All 88 us-east-1 verifier events carry `mfaAuthenticated: "false"`; none `"true"`.** No later MFA
+   sign-in exists. ⇒ handoff §F.2 / packet §5a′ D2-3 posture condition NOT met. Live verifier state: passkey
+   `u2f/user/snatchit-kms-verifier/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA` (02:47:51Z); access keys `[]`; **no successful
+   CreateAccessKey**; attachments exactly `SnatchIt-KMS-Verifier-ReadOnly` (v1, AttachmentCount 1, unchanged since 2026-09-08T03:18:03Z) +
+   `SignInLocalDevelopmentAccess`; inline `[]`; groups `[]`.
+   us-east-2 verifier events (7, itemized): 02:44:39Z ConsoleLogin (MFAUsed No; LoginTo console home, oauth-flow); 02:44:46Z ec2 DescribeRegions
+   ×1 (Client.UnauthorizedOperation), health DescribeEventAggregates ×3 (AccessDenied); 02:44:47Z notifications ListNotificationHubs (AccessDenied);
+   02:45:45Z ec2 DescribeRegions (UnauthorizedOperation) — all read-only console background, all denied.
+2. **D2-6 probes — PASS, corroborated under the verifier identity (us-east-1):** CreateAlias 03:20:13Z NotFoundException (`a7899dcf…`, non-
+   discriminating); PutBucketVersioning 03:23:31Z AccessDenied (`c793341a…`); AssumeRole 03:24:14Z AccessDenied (`a6ed84a8…`); CreateAccessKey
+   03:24:49Z AccessDenied (`14c7eee4…`); AddTags 03:25:41Z AccessDenied (`12dcc545…`). None succeeded.
+3. **D2-5 reads — PASS:** IAM Get/List (GetRole ×4, GetRolePolicy, ListAttachedRolePolicies ×2, GetPolicy, GetPolicyVersion, ListAttachedUserPolicies,
+   ListUserPolicies, ListAccessKeys ×2, ListMFADevices, GetUserPolicy, ListRolePolicies), S3 Get ×5, CloudTrail DescribeTrails/GetTrailStatus/
+   GetEventSelectors, LookupEvents ×11, kms ListKeys 03:32:27Z. Console background reads 02:44–02:47Z all `readOnly true` (mostly AccessDenied;
+   `GetAccountPasswordPolicy` NoSuchEntity = no custom account password policy — hardening note, out of scope). Nothing outside the envelope.
+4. **jose-admin — PASS:** non-read-only events since 2026-09-08T02:40Z = exactly the authorized C1 set (CreateRole 02:41:45, PutRolePolicy 02:41:57,
+   CreateUser 02:44:06, PutUserPolicy→LimitExceeded 02:44:15, CreatePolicy 03:18:03, AttachUserPolicy 03:18:10/03:18:21, CreateLoginProfile 03:32:14,
+   CreateBucket 03:39:06, PutBucketPublicAccessBlock 03:39:16, PutBucketEncryption 03:39:24, CreateUser 03:47:07, PutUserPolicy 03:47:28, CreateRole
+   03:47:46, PutBucketPolicy 03:56:17, PutObjectLockConfiguration 04:00:44, CreateTrail 04:02:27, PutEventSelectors 04:02:33, StartLogging 04:02:41;
+   2026-09-09 CheckMfa 03:39:38 + ConsoleLogin 03:39:49 = coordinator re-login). TOTP enrolment `CreateVirtualMFADevice` 02:37:28Z / `EnableMFADevice`
+   02:38:38Z precede the window (C1-0b). **Variance confirmed read-only** (`readOnly true`, `managementEvent true`, no error, console UA):
+   DescribeEventAggregates ×6, ListNotificationHubs ×3, ListManagedNotificationEvents ×42, GetAccountPlanState ×3, DescribeRegions ×2,
+   GetAccountColor ×3 — acceptable console background. D2-7 expectation amended: non-read-only jose-admin events = C1 set; read-only console
+   background reads acceptable.
+5. **Root/KMS — PASS in window:** root since 02:40Z `[]`; `kms list-keys` `[]`; no CreateKey/ScheduleKeyDeletion/PutKeyPolicy/DisableKey since
+   2026-09-08T00:00Z. **Out-of-window root observation (flagged for owner acknowledgement):** `PasswordRecoveryRequested` 2026-09-08T01:17:49Z and
+   `PasswordRecoveryCompleted` 01:18:21Z (Root) — before the C1 window and the trail; consistent with the owner's stated root use for billing;
+   root still 0 access keys + MFA. Inventory as expected; runtime role has no permissions; access keys `[]` on all three users; digest delivery
+   2026-09-09T03:13:09Z.
+6. **Production — PASS (03:42:25Z):** ledger 130 · tip 120 · 110–114 absent · signing_key 0 · guard absent · tickets 0 · door sessions 0 · flags dark.
+
+### Gate decision
+**M2 NOT SATISFIED · M1 (Model B) NOT marked complete · C1 PHASE-1 GATE OPEN.** Blocker: verifier working session not MFA-authenticated.
+Remediation R-M2 (Device 2 only): `aws logout --profile verifier`; console sign-out; sign in again with password + passkey (expect ConsoleLogin
+`MFAUsed Yes`, `MFAIdentifier` = the verifier's u2f ARN); `aws login --profile verifier`; `get-caller-identity`; re-run D2-6, D2-5 and D2-7 (no
+re-download; D2-4 stands); coordinator re-corroborates `mfaAuthenticated "true"` and, if held, records M2 SATISFIED / M1 MODEL B COMPLETE /
+C1 PHASE-1 GATE CLOSED. **C2 NOT BEGUN** — requires the separate exact owner authorization "AUTHORIZE PFA-18C CREATEKEY"; C4 (110–114) first,
+under its own authorization.
+
+### SESSION 13 MUTATION LEDGER
+AWS: **none** (read-only CloudTrail/IAM/KMS/S3/STS calls only). Production DB: **none** (one read-only query). KMS: **not created.** Secrets/keys/
+IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + gate report revision 2.
