@@ -52,3 +52,48 @@ out of Wi-Fi range mid-payment, which is optional.
 Settlement, webhook duplicate/out-of-order delivery, abandonment, partial and full refunds, dispute chargeback, the
 whole payout leg including a real Connect transfer with idempotent repeat and reversal, deletion state machine, rate
 limiting, and the live/test mode boundary. Do not spend device time on these.
+
+---
+
+# Results — physical iPhone, build `d9b7c85b` (source `9942a94`)
+
+Recorded 2026-09-09. Device observation on the left, sandbox server-side truth on the right. Only cases run on the
+**new** build count; the 2026-09-08 04:0x session ran the old-UI build and its rows are treated as pre-existing state,
+not as evidence.
+
+| # | Case | Listing | Device observation | Server-side verification | Verdict |
+|---|---|---|---|---|---|
+| D3 | PaymentSheet cancellation | `Phone P2` | Sheet dismissed; app returned to Home; listing still buyable | No new payment row, no charge, `reserved_by`/`reserved_until` both NULL — no hold left behind | **PASS (device)** |
+| D4 | Retry after cancellation | `Phone P2` | Reopened checkout, paid, "Purchase complete!" | Exactly one payment row `2e1a1cf6` `succeeded`, one PaymentIntent `pi_3UDGN3…` `succeeded`, one charge `ch_3UDGN3…` captured; listing `sold` | **PASS (device)** |
+| UI | Auth logo position | — | Logo stays near the top with the keyboard open and closed | n/a (client-only) | **PASS (device)** |
+
+## Settlement detail for `Phone P2` (`cfd4e7b9-7aa1-4b9a-a98e-186b0630314b`)
+
+| Field | Value | Check |
+|---|---|---|
+| Buyer | `contact@snatchitapp.com` (`1fcd0c69…`) | matches the signed-in device account |
+| Seller | `sandbox-seller@snatchit.test` (`2f5844b4…`) | matches the staged listing owner |
+| Item | $100.00 | as staged |
+| Buyer fee | $10.00 | 10% — fee model intact |
+| Seller fee | $10.00 | 10% — fee model intact |
+| Charged total | $110.00 | no fixed fee; $110.90 would have failed the check |
+| `stripe_livemode` | `false` | test money only |
+| Payment rows for the listing | 1 | **no duplicate payment** |
+| PaymentIntents in Stripe for the listing | 1 (`succeeded`) | **no duplicate PaymentIntent** |
+| Charges | 1, captured, `amount_refunded=0`, not disputed | clean |
+| Transfer rows | 1, `status=pending`, `stripe_transfer_id` NULL | **no duplicate transfer**; payout correctly withheld until delivery is confirmed |
+| Stripe transfers referencing this payment | 0 | no money left the platform balance |
+| Listing state | `sold`, `sold_at` set, holds released | stays sold |
+
+Note on the payment row: it was created 2026-09-08 04:10:58 by the *old* build's abandoned attempt and settled
+2026-09-09 02:55:59 by this test. The new build reused that pending row instead of opening a second one — which is the
+behaviour the reservation-cancellation fix intends, and it is why the duplicate counts above are 1 and not 2.
+
+## Pre-existing sandbox residue (not caused by this session)
+
+Five payment rows remain `pending` from the 2026-09-08 old-build session (`Diag`, `Device D1`, `Device D2`,
+`Sandbox L4`, `Phone P1`). Every one of their PaymentIntents is `requires_payment_method`: no payment method attached,
+nothing capturable, no charge. Their listings are `active` with no reservation hold, so browse is unaffected. Left in
+place deliberately as abandonment evidence; the sandbox expiry cron is disabled by design.
+
+**Clean listings for the remaining cases** (no payment row of any kind): `Device D3`, `Device D4`, `Device D5`.
