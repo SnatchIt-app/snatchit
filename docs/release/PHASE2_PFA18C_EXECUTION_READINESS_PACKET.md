@@ -2,6 +2,7 @@
 
 **Date:** 2026-09-08 (sessions 8–11) · **Branch:** `feature/venue-native-and-product-v2` · **Reviewed tree:** `6372538` (branch tip = `origin`; CI green) · **Coordinator:** Claude A (read-back only; C18 unchanged)
 **Authorization in force (2026-09-08):** **PFA-18C M1/M2/M3 SETUP within the reviewed C1 package (§5)** — R1–R4 confirmed by the owner (below); routine setup choices delegated to the main engineer. **Not authorized:** Organizations/account creation, `CreateKey`, the signing-key DB insert, production migration application, production secrets, deployment, issuance/scanning activation. The owner executes every mutation under the ratified single-founder procedure with independent verification from the separate clean device (M2).
+**2026-09-09 (dated update):** C1 PHASE-1 GATE CLOSED (M2 SATISFIED, M1 Model B COMPLETE) · C4 APPLIED + VERIFIED (migrations 110–114; `PHASE2_PFA18C_C4_EXECUTION_RECORD.md`) · **C2 package prepared** (`PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md`) — **C2 NOT BEGUN; "AUTHORIZE PFA-18C CREATEKEY" not given.**
 
 Evidence classes: **CLAUDE-OBSERVED**, **OWNER-RETURNED**, **OFFICIAL-DOC**, **REHEARSAL**, **NOT OBSERVED**.
 
@@ -98,7 +99,7 @@ Not part of C1-10: any KMS key, signing, secrets, migrations, deployment. The ve
 | Stage | Package status |
 |---|---|
 | **C4 — migrations 110–114** | **APPLIED 2026-09-09T04:22:52Z and VERIFIED** (authorization "AUTHORIZE PFA-18C MIGRATIONS 110-114"; commit `562fda9…`; ledger 130→135, tip 120; guard + recovery live; census 153/87/32; darkness intact). Record: `PHASE2_PFA18C_C4_EXECUTION_RECORD.md`. |
-| **C2 — CreateKey + §5.3 binding proof** ("AUTHORIZE PFA-18C CREATEKEY") | **+ P3′ (added 2026-09-08):** immediately after CreateKey, as the ceremony role: `kms create-alias --alias-name alias/pfa18c-probe --target-key-id <D4>` → expected `AccessDenied` (explicit identity deny; if wrongly allowed: one removable alias, no lifecycle effect) and `kms verify` with the proof signature → expected `AccessDenied`. Otherwise unchanged from `6372538` §5b (ceremony role session; v1 policy with F1; Device 2 `get-public-key` → D5; challenge signed by the ceremony role, verified by Device 2 with its own exported key; altered-message + wrong-key FAIL; v2 policy; exact-ARN runtime policy; ceremony `Sign` → AccessDenied). **The challenge signature is not a production credential (R5).** |
+| **C2 — CreateKey + §5.3 binding proof + P3′** ("AUTHORIZE PFA-18C CREATEKEY") | **PACKAGE READY FOR OWNER AUTHORIZATION (2026-09-09, session 17) — NOT AUTHORIZED, NOTHING EXECUTED:** `docs/release/PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md` — reviewed `6372538` §5b sequence + P3′ (2026-09-08) + post-110–114 updates U1–U12 (D4 validated with the guard rule-4 regex; `pub.der` 91-byte/prefix checks and three-way D5; tag set `snatchit:purpose=ticket-signing` (permission-bearing) + informational `snatchit:program=pfa18c`, `snatchit:db_key_id=…b0` for owner confirmation; CloudTrail expectation corrected to `PutKeyPolicy` ×1; lifecycle denies proven by simulator, live P3′ limited to alias/verify/sign/tag; rollback by `jose-admin` only under "AUTHORIZE PFA-18C C2 ROLLBACK"). Simulator + local rehearsal results in the package §5. **The challenge signature is not a production credential (R5).** |
 | **C3 — trust-root DB commit** | unchanged (§6.1 artifact verbatim, §6.2 invocation, four NOTICEs + COMMIT, §7 read-backs; after C4). |
 | **C5 — monitor arming** | unchanged. |
 | **C6 — O1 secrets + dark deploy** | unchanged (access key created **only at C6**, secret to a local file; `supabase secrets set --env-file`; deploy `credential-sign` / `door-manifest` with verify_jwt true, `door-session --no-verify-jwt`; no call made). |
@@ -148,10 +149,10 @@ Not part of C1-10: any KMS key, signing, secrets, migrations, deployment. The ve
 |---|---|---|---|---|
 | Paid plan | n/a | n/a | **VERIFIED (API)** | yes |
 | C1-0a preflight | — | — | done (read-only) | evidence §0 |
-| C1-0b TOTP enrolment | — | — | **in progress (owner)** | pending read-back |
-| C1-1 … C1-10 | artifacts final | n/a | **not started** | no |
-| Migrations 110–114 | yes | yes (+ production order) | **no** (fresh: absent) | no |
-| KMS key / DB trust root | n/a | M4 proven | no | no |
+| C1-0b TOTP enrolment | — | — | **done 2026-09-08** (`jose-admin-totp`; T2 AssumeRole with serial logged) | yes |
+| C1-1 … C1-10 | artifacts final | n/a | **done 2026-09-08/09** (all rows VERIFIED; M2 SATISFIED; C1 PHASE-1 GATE CLOSED rev 3) | yes |
+| Migrations 110–114 | yes | yes (+ production order) | **APPLIED 2026-09-09T04:22:52Z** (ledger 135, tip 120) | yes (V1–V9) |
+| KMS key / DB trust root | n/a | M4 proven; C2 package rehearsed (simulator + local) | **no — C2 NOT BEGUN** (package ready; 0 keys) | no |
 | O1 secrets / edges | code present | mocked | no | no |
 | M5 | plan §5d (pending clarification) | mocked only | no | no |
 | Model A | package §5c + 2 draft artifacts | — | no | no |

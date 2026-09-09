@@ -878,3 +878,30 @@ AWS `kms list-keys` `[]`. **M6 (110) and the gated two-person recovery (111) are
 ### SESSION 16 MUTATION LEDGER
 Production DB: **migrations 110–114 applied** (DDL/grants only; no data rows). AWS: **none.** KMS: **not created.** Secrets/edges/flags: **none /
 not deployed / unchanged.** Repository: C4 record, this entry, packet row; PR #55 body line.
+
+## SESSION 17 — 2026-09-09 — C1-10/M2 STATUS RE-CONFIRMED · C2 CREATEKEY PACKAGE PREPARED (READ-ONLY; NOTHING EXECUTED; C2 NOT BEGUN)
+
+Task: finish the read-only/device-verification portion and prepare the C2 package; stop before CreateKey. **No Device-2 step was outstanding:**
+C1-10 completed and was corroborated on 2026-09-09T04:03Z (gate report rev 3; sessions 12–14) — retrieval at pin `c4f562d…` 10/10, verifier identity,
+Device-2 passkey enrolled and used (`ConsoleLogin MFAUsed: Yes`), read-only checks only, 0 successful verifier mutations. **M2 FULLY SATISFIED.**
+Fresh CLAUDE-OBSERVED state 05:12–05:17Z: `kms list-keys` `[]`; CloudTrail 0 `CreateKey`/`PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/
+`CreateGrant` since 2026-09-08; `CreateAlias` ×3 / `CreateAccessKey` ×2 = the known denied probes (`a99105a8…`, `a7899dcf…`, `c9b23820…`,
+`14c7eee4…`, `f390806f…`); verifier events since 04:03Z `[]`; runtime user 0 events; root `[]`; `jose-admin` since 04:03Z read-only only;
+verifier MFA = the single Device-2 passkey; access keys `[]` ×3; runtime role has no permissions policy; trail logging. Production (read-only):
+ledger 135 · tip 120 · `signing_key` 0 · guard `O` · recovery rows 0 · tickets 0 · `get_manifest_signing_context()` `no_active_global_key` ·
+census 153/87/32 · `feature.native_issuance_enabled`/`native_scanning_enabled`/`signing.monitor_enabled` `false` · fingerprint/max_not_after `null`.
+Artifacts unchanged since the pin (`git diff c4f562d HEAD -- pfa18c_artifacts/` empty; all 13 digests re-listed in the package §6).
+**Package:** `docs/release/PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md` — READY FOR OWNER AUTHORIZATION: exact `create-key` command
+(ECC_NIST_P256 / SIGN_VERIFY / AWS_KMS / single-region / lockout check on / v1 policy / description / tag set), key-policy binding v1→v2, §5.3
+challenge-signature procedure (Device-2 nonce; not a production credential — R5), P3′ alias/verify denial probes, Device-2 procedure D2C-0…D2C-9,
+abort conditions A1–A16, rollback (`jose-admin` only; "AUTHORIZE PFA-18C C2 ROLLBACK"), and the post-110–114 review U1–U12 (guard rule-4 ARN
+regex and rule-6 91-byte SPKI checks folded into C2; informational tags `snatchit:program`, `snatchit:db_key_id=…b0` proposed for owner
+confirmation; CloudTrail `PutKeyPolicy` ×1 correction; tag-key trap `snatchit:purpose` vs `purpose`). Tests: IAM simulator (CreateKey allowed only
+with the reviewed spec; bypass/RSA implicitDeny; lifecycle/verify explicitDeny for ceremony and verifier; runtime role implicitDeny today) and a
+local throwaway-key rehearsal (91-byte DER, prefix, three-way D5, `Verified OK` / two `Verification failure` controls, regex). Governance edits:
+packet header + §5b C2 row + §6 ledger; runbook dated notes (C2, C4 order, §D After C4, §E C2 rollback).
+**C2 NOT BEGUN — requires the exact owner phrase "AUTHORIZE PFA-18C CREATEKEY".** C3/C5/C6 not begun; C7 pending §5d; Model A before T3.
+
+### SESSION 17 MUTATION LEDGER
+AWS: **none** (reads + `simulate-principal-policy`). KMS: **not created** (0 keys). Production DB: **none** (read-only selects). Secrets/edges/flags:
+**none / not deployed / unchanged.** Local: throwaway rehearsal keys in the session scratchpad, deleted. Repository: package + this entry + packet + runbook.
