@@ -14,6 +14,10 @@
  * RULE: screens reference a slot by name. No screen hard-codes an image width,
  * height or aspect ratio again.
  *
+ * RULE: `layoutWidth` is a REFERENCE, not a layout. Real consumers pass their
+ * measured width (`EventMedia fluid` does the measuring), because the nominal
+ * mobile widths here overflow a 375pt device.
+ *
  * Evidence and rationale: `docs/product-v2/EVENT_MEDIA_SYSTEM.md`.
  */
 
@@ -35,7 +39,18 @@ export type FitMode = 'cover' | 'fit';
 export interface SlotSpec {
   /** width / height. */
   aspectRatio: number;
-  /** Layout width in points at the base (1x) size, per breakpoint. */
+  /**
+   * REFERENCE width in points, per breakpoint. NOT a layout instruction.
+   *
+   * These are the widths the slot was designed against, and they are used only
+   * when a caller has no measured width to give. They must never be trusted as a
+   * layout: `mobile: 390` overflows a 375pt iPhone SE and 13 mini, and leaves a
+   * 40pt dead margin on a 430pt Pro Max, and the two-up discovery grid needs 384pt
+   * of a 375pt screen.
+   *
+   * Every real consumer passes its measured width — `EventMedia`'s `fluid` mode
+   * measures it for you. See `slotPixelWidth`'s `overrideLayoutWidth`.
+   */
   layoutWidth: { mobile: number; tablet: number; web: number };
   /** Default fill behaviour when the asset does not declare one. */
   defaultFit: FitMode;

@@ -17,7 +17,15 @@ const MAPPING = {
   'house.fill': 'home',
   'plus.circle.fill': 'add-circle',
   'tag.fill': 'local-offer',
+  // Reserved for the future Tickets destination (ownership, not scanning).
+  'ticket.fill': 'confirmation-number',
   'person.fill': 'person',
+  // Media / file upload controls.
+  'photo': 'image',
+  'doc.text': 'description',
+  'checkmark.circle.fill': 'check-circle',
+  'plus': 'add',
+  'xmark': 'close',
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',

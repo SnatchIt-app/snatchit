@@ -425,6 +425,13 @@ jobs:
       - name: Install (clean, from lockfile)
         run: npm ci
 
+      # A build profile must never pair one environment's database with another
+      # environment's Stripe account (a TEST key against the PRODUCTION project
+      # reads and writes real data while payments silently cannot work). This is
+      # the build-time twin of src/config/envGuard.ts.
+      - name: Environment pairing gate (eas.json profiles)
+        run: node scripts/ci/assert-env-pairing.mjs
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -433,6 +440,12 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+
+      # F18: the shared-package parity suites (packages/core, packages/design-
+      # tokens) import the mobile + edge originals AND the package copies; they
+      # resolve `vitest` from the ROOT install, so they run here, not in web/.
+      - name: Shared package parity tests
+        run: npx vitest run -c packages/vitest.config.ts
 
   # ---------------------------------------------------------------------------
   # db: prove the migration chain applies cleanly on a FRESH database.
@@ -562,26 +575,26 @@ jobs:
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
           # 2026-09-02 (release-readiness): functions 69 -> 70 — production's
-          # 20260902003623_admin_relist_listing_rpc (applied to prod that day,
-          # reconstructed into the repo from the production ledger, md5-verified)
-          # adds public.admin_relist_listing. Ledger parity is restored: the
-          # repo's version set now equals production's plus exactly 076-092.
-          # 2026-09-03 (package 093, slice 30 §10): triggers 24 -> 26 — the
-          # BIDIRECTIONAL cross-plane guard (H6/F-4). §2b/§4/§5 already refused
-          # an individual-plane acct_ on the org side; nothing refused an
-          # org-bound acct_ being written onto public.profiles.stripe_connect_id,
-          # which mis-routes seller payouts AND permanently bricks that org's
-          # re-point (the refusal then matches the org's own identifier forever).
+          # 20260902003623_admin_relist_listing_rpc adds public.admin_relist_listing.
+          # 2026-09-03 (package 093, slice 30 §10): triggers 24 -> 26 —
           # tg_profiles_connect_id_not_org_bound on public.profiles and
           # tg_connect_archive_not_org_bound on public.stripe_connect_archive.
           # A trigger, not an edge check, because the column is written by a
           # direct service-role UPDATE with no RLS in the way (threat G-12).
-          # FUNCS is unchanged: both new kernel functions live in `kernel`, and
-          # this counter reads `public` only. The kernel census is 077 A14.
-          EXPECT_TABLES: 27
-          EXPECT_FUNCS: 71
+          # FUNCS is unchanged by the kernel: both new kernel functions live in
+          # `kernel`, and this counter reads `public` only. The kernel census is 077 A14.
+          # 2026-09-08 (admin/native line, migration 119): functions 70 -> 71 and
+          # triggers 26 -> 27 — public.guard_listing_seller_not_blocked and its
+          # trigger. 110-118 and 120 add nothing to `public` (ops.* only).
+          # 2026-09-06 payments-reliability packages 1-3 (converged RC): tables 27->30
+          # (payout_attempts, payment_refunds, account_deletions), functions +16
+          # (+1 P1, +2 P2, +12 P3, +1 BP-13 predicate 20260906130000), triggers +6
+          # (P3 guards incl. the append-only ledger DELETE/TRUNCATE guards).
+          # Convergence totals = production 135-line + payments packages.
+          EXPECT_TABLES: 30
+          EXPECT_FUNCS: 87
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 27
+          EXPECT_TRIGGERS: 33
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -707,9 +720,9 @@ jobs:
           # and nothing about it can be accidental.
           # Current truth, computed from the tree (see the OK line the gate
           # prints): 2 todo() calls masking 2 assertions, 0 skip(), 0 todo_start.
-          MASK_MAX_TODO_FAILURES=2      # runtime: '# Failed (TODO) test' lines in the TAP stream
-          MASK_MAX_TODO_CALLS=2         # static:  number of todo(...) call sites
-          MASK_MAX_MASKED_ASSERTIONS=2  # static:  SUM of how_many over all todo(...) calls
+          MASK_MAX_TODO_FAILURES=0      # runtime: '# Failed (TODO) test' lines in the TAP stream
+          MASK_MAX_TODO_CALLS=0         # static:  number of todo(...) call sites (ratcheted to 0 on 2026-09-06 — 060 F-2/F-3 are real assertions)
+          MASK_MAX_MASKED_ASSERTIONS=0  # static:  SUM of how_many over all todo(...) calls
           MASK_MAX_SKIP_CALLS=0         # static:  skip(...) call sites — banned
           MASK_MAX_TODO_BLOCKS=0        # static:  todo_start(/todo_end( — banned, unbounded by construction
           # >>> MASK-GATE-CONSTANTS-END
@@ -901,8 +914,13 @@ jobs:
           # references it, nothing else created), 2593 -> 2632 assertions.
           #   ls supabase/tests/*.sql | wc -l                         -> 34
           #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2632
-          MIN_FILES=35
-          MIN_ASSERTIONS=2927
+          # 2026-09-06 (payments reliability, converged RC): 35 -> 59 files (the Phase-2
+          # 14x/15x/16x suites already in the tree + 120..125 payments suites), 2927 -> 4053
+          # assertions. Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 59
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 4053
+          MIN_FILES=59
+          MIN_ASSERTIONS=4053
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
@@ -1278,7 +1296,9 @@ jobs:
           # These remain deliberately blunt textual checks: they would also fire
           # on the string "skip(" in a comment or an identifier. A false positive
           # is a cheap, obvious fix; a missed skip() is silent.
-          todo_src=$(grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          # `|| true` inside the pipeline: under `set -o pipefail` a zero-match grep
+          # (exit 1) would abort the step silently once the last todo() is gone.
+          todo_src=$( { grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null || true; } | wc -l | tr -d ' ')
           todo_src=${todo_src:-0}
           if [ "$todo_src" -gt "$MASK_MAX_TODO_CALLS" ]; then
             echo "::error::grep tripwire: $todo_src todo() calls in the suite, ratchet is $MASK_MAX_TODO_CALLS."
@@ -1340,6 +1360,20 @@ jobs:
       - name: Install (clean, from lockfile)
         if: steps.detect.outputs.exists == 'yes'
         run: npm ci
+
+      # F18 (audit 2026-09-05): the web app's own unit tests, lint and type
+      # check, plus the shared-package parity suites, were not gated anywhere.
+      - name: Web typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Web lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Web unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run test
 
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
@@ -1411,16 +1445,23 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
-  # deno-check: type-check the Supabase Edge Function entrypoints and their
-  # shared pure modules under the Deno toolchain they actually run on. Closes
-  # the "deno check OUTSTANDING" item from the signing/door trains: the local
-  # engineering host has no Deno, so this is the sanctioned place to run it.
-  # No deploy, no secrets, no network beyond module fetches (deno.land/esm.sh).
+  # deno-check: type-check the Supabase Edge Functions under the Deno toolchain
+  # they actually run on (F18: the root tsconfig excludes supabase/functions, so
+  # `npm run typecheck` never sees them; the vitest vm harness exercises
+  # behavior but not Deno's type resolution). Also closes the "deno check
+  # OUTSTANDING" item from the signing/door trains: the local engineering host
+  # has no Deno, so this is the sanctioned place to run it. Network is used only
+  # to fetch the pinned https imports (deno.land std, esm.sh supabase-js). No
+  # deploy, no secrets.
   # ---------------------------------------------------------------------------
   deno-check:
     name: Deno type-check (edge functions)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # BLOCKING since 2026-09-06: the 21 pre-existing Deno type errors found on
+    # its first run (docs/security/PAYMENTS_RELIABILITY_2026-09/deno_check_baseline_errors.txt)
+    # were fixed type-level-only in the payments-reliability branch (run
+    # 34046189039 green).
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -1430,10 +1471,24 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: deno check — shared pure modules
+      # 2026-09-09 (convergence): three tiers, closed world. A function directory
+      # in none of the lists fails the job, so nothing can be added silently.
+      #  * deployed  — the eleven functions production actually runs
+      #                (list_edge_functions, 2026-09-09). BLOCKING.
+      #  * aligned   — the admin/ops and signing/door edges the production-aligned
+      #                135 line already type-checks clean (110-114 applied, ops
+      #                console live with refunds disabled). BLOCKING, so the
+      #                admin line cannot regress.
+      #  * native    — the never-deployed native arm. The expansion is paused and
+      #                native issuance stays dark, so its errors must be VISIBLE
+      #                but must not gate this release. It joins `deployed` in the
+      #                same PR that first deploys any of it.
+      - name: deno check — shared pure modules (blocking)
         run: |
           deno check \
             supabase/functions/_shared/offline-verify.ts \
+            supabase/functions/_shared/payout-logic.ts \
+            supabase/functions/_shared/payouts.ts \
             supabase/functions/credential-sign/credential.ts \
             supabase/functions/credential-sign/kms-taxonomy.ts \
             supabase/functions/door-manifest/pure.ts \
@@ -1441,10 +1496,27 @@ jobs:
             supabase/functions/ops-refund-execute/classify.ts \
             supabase/functions/ops-refund-execute/handler.ts
 
-      - name: deno check — edge entrypoints (credential-sign, door-manifest, door-session, ops-refund-execute)
+      - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |
-          deno check \
-            supabase/functions/credential-sign/index.ts \
-            supabase/functions/door-manifest/index.ts \
-            supabase/functions/door-session/index.ts \
-            supabase/functions/ops-refund-execute/index.ts
+          set -euo pipefail
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          aligned="credential-sign door-manifest door-session ops-refund-execute"
+          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          for d in supabase/functions/*/; do
+            n=$(basename "$d"); [ "$n" = "_shared" ] && continue
+            case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
+          done
+          files=""; for n in $deployed $aligned; do files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          deno check $files
+          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (11 deployed + 4 production-aligned)"
+
+      - name: deno check — never-deployed native arm (advisory until first deploy)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          if deno check $files; then echo "native arm type-checks clean"; else
+            echo "::warning::the never-deployed native arm has Deno type errors (advisory: none of it is deployed; fix before its first deploy)"; exit 1; fi

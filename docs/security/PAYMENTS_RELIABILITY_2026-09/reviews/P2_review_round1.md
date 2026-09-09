@@ -1,0 +1,50 @@
+# P2 review — reliable settlement (`fix/payments-p2-settlement`, fbf8313..a22c8e3)
+
+**Verdict: APPROVE WITH CHANGES** — one MAJOR (partial-refund semantics) must land before merge; the rest are lead-discretion.
+
+Files: `M` = `supabase/migrations/20260906110000_settle_verified_payment.sql`, `W` = `supabase/functions/stripe-webhook/index.ts`, `C` = `supabase/functions/confirm-payment/index.ts`, `E` = `supabase/functions/enforce-transfer-expiry/index.ts`. All paths under `/Users/josetascon/snatchit-pay-p2/`.
+
+## Findings
+
+**MAJOR-1 — Partial refund path is wrong on three axes (deviation 6). M:208-215, M:180-206; E:297; E:433.** Repro (scratch pgTAP A1–A4, green): pending row, sweep/confirm-payment sees `amount_refunded=500` → outcome `refunded`, row stays `pending` but `refunded_at`+`stripe_refund_id` are written; the next webhook delivery (always passes `p_amount_refunded 0`, W:285) promotes and settles the same row → final state `succeeded` + `stripe_refund_id` set. Consequences: (a) outcome is caller-dependent, not state-dependent; (b) a partially refunded charge (goodwill fee refund) blocks settlement from the sweep/confirm paths forever and stays on the `paid_unsettled` work list every 2 min; (c) `stripe_refund_id IS NOT NULL` is the "already refunded" predicate in Phase 1 (E:433) and Phase 0 (E:297), so this buyer never gets the remaining refund on transfer expiry; (d) P3 defines `refunded_at` as the full-refund timestamp and `record_payment_refund` as the only writer of refund facts (append-only `payment_refunds`) — the contract's direct writes (partial and full, M:183-215) bypass that ledger. Fix: on partial refund write nothing and continue to settle (a partially refunded succeeded charge is still a paid order); on full refund call `record_payment_refund(...,'sweep'/'webhook')` when `to_regprocedure('public.record_payment_refund(text,text,text,int,text)')` is not null, else the current write; lead: Phase 0/1 "already refunded" must key on `status='refunded'` / `amount_refunded_cents >= total`, never on `stripe_refund_id`.
+
+**MINOR-2 — Ownership check ignores the authoritative row. C:215.** A PI with no `metadata.buyer_id` returns 403 to its real buyer without ever reading `payments.buyer_id` (scratch vitest V1). create-payment-intent has stamped `buyer_id` since the initial commit (4ba53b3), so no field exposure today, but the check is metadata-only. Fix: `metadata.buyer_id === caller OR payments.buyer_id (by PI) === caller`. Side effect (V2): 404-PI → 200 unverified, foreign PI → 403 — an existence oracle; PI ids are unguessable, acceptable.
+
+**MINOR-3 — Text compare of UUID metadata. M:156-158.** create-payment-intent echoes the client's `listing_id` unnormalised; an upper-case UUID yields `binding_mismatch` and a captured payment parked in review (scratch B1–B2). Compare via `::uuid` (guarded) or `lower()`.
+
+**MINOR-4 — Permanent warn loop for unfulfillable-with-own-transfer. E:307-312; M:269.** Scratch D1–D3 + vitest: seller-cancelled listing whose payment already has a transfer → `unfulfillable`, review row never resolved, `review_unfulfillable` re-listed and Stripe-GET'd every run, warning every 2 min, `reconciled_errors` 0 so nobody is paged. Fix: update the row's `error_message` to `unfulfillable:manual_review` (excluded from the work list) and `captureException` once. Same file: C1 — a `processing` row is not marked failed on `canceled` (M:220-226; predicate `status='pending'`).
+
+**MINOR-5 — `pending_stale` cost at the real cadence. M:314-323.** The cron is every 2 minutes (034), not hourly: each abandoned checkout costs ~720 Stripe GETs over 24 h, and legacy `stripe_livemode IS NULL` paid-unsettled rows 404 on every run forever (M:332 only excludes `false`). Add a reconcile-attempt timestamp/backoff, or narrow to 15 min–2 h.
+
+**NOTE-6** — `unknown_payment` review-row dedupe (M:127-134) runs under no lock (no payments row); concurrent deliveries can insert duplicates. Harmless. All other dedupes are under the payments `FOR UPDATE`, so no `FOR UPDATE` on `webhook_retries` is needed.
+**NOTE-7** — Dispute before settlement: the contract does not consult `disputes`; `charge.dispute.created` (W:433-448) finds no transfer, settlement later creates an unfrozen transfer. Pre-existing (investigation §3), P3 integration item.
+**NOTE-8** — `stripe_verified:true` is returned with `outcome` `unfulfillable`/`binding_mismatch` (C:284-291); mobile then calls `mark_listing_sold` and gets P1's "already been sold" string. Acceptable; document.
+**NOTE-9** — Money-wins side effect: after A's late capture settles, B's live-hold PI remains confirmable; B's capture → collision → sweep refund within ~2–4 min. Ratified (decision 1), but nothing cancels B's pending PI — candidate follow-up.
+**NOTE-10** — Seller push is skipped on `already_settled` (the common mobile race where confirm-payment wins). Not a regression: the old fallback branch (fbf8313 W:284-370) never pushed either, and `notify_transfer_created_inbox` (058:131-148) writes the seller's "send them now" inbox row on transfer insert.
+
+## Invariants (evidence)
+- I3 two fulfilled sales impossible: `transfers_listing_id_key` + core's transfer-bound-to-other check + `idx_payments_one_success_per_listing`; 121 G/H green; two-session probe (scratch `concurrent.sh`): s1 `settled`, s2 blocked 2 s then `already_settled`, transfers=1, listing=sold, review_rows=0.
+- I4 uniqueness → compensation: M:243-259 `unique_violation` → `unfulfillable:one_success_per_listing` (only that partial index can fire on the status UPDATE; PI id is not written). 121 H1–H4.
+- I5 server settles: webhook (W:283-358) + sweep Phase 0 (E:183-377); 121 J/K5.
+- I6 retry resumes by state: promotion predicate `status NOT IN ('succeeded','refunded')`, core heals sold-without-transfer (`already_settled`); 121 A2/A4; vitest F02 retry calls the RPC again.
+- I7 compensation: review row + sweep refund with key `refund_unfulfillable_<payment_id>` (E:319); refuses when `status='refunded'`/refund id (E:297) or a transfer exists (E:307); record failure → no resolve, next run replays the same key (scratch vitest V5). Never double-refunds within Stripe's key window; after 24 h a replay is rejected by Stripe, surfaced via Sentry.
+- I8 refund monotonic: 121 B/C5, scratch E2–E5, vitest V3 (charge.refunded → succeeded through the real handler: row stays `refunded`, `stripe_refund_id re_1`, no push, both 200; listing stays reserved and is re-listed by cleanup since no succeeded payment exists).
+- I9 return paths, P2 branches: W:300 RPC error → 500+fail ✔; W:311 no row → 500+fail ✔; W:354 every outcome → 200+complete ✔ (settled/already_settled/refunded/canceled/not_succeeded terminal; unfulfillable/binding_mismatch/unknown_payment terminal with review row, per plan); W:380 failed-write error → 500 ✔; W:387 no claimable row → 200 ✔; W:412 → 200 ✔ (release_reservation error logged; retry could not redo the claimed write — accepted); preamble: claim error 500, already_processed 200, in_flight 409; catch-all 500+fail. None classified wrong.
+
+## Attack surface / SQL
+Both new functions 42501 for anon/authenticated (121 L9–L12); `settle_listing_for_payment` remains zero-grant. Metadata can only cause `binding_mismatch`, never re-bind (scratch H1–H2); empty metadata settles on the PI-id binding (G1); NULL `p_livemode` against a live row → `binding_mismatch` (my scratch G2 expected otherwise — conservative and correct; edges always pass a boolean). Lock order payments→listings matches P1 (M:120, core); `cleanup_expired_reservations` and `reserve_buy_now` touch listings only — no cycle. Sweep refunds only rows the contract just returned `unfulfillable` for, after re-fetching Stripe; no lock held across network.
+
+## Migration hygiene
+Header has purpose/forward/compat/locks/rollback/verification; `CREATE OR REPLACE` only; explicit `REVOKE ... FROM PUBLIC, anon, authenticated` + `GRANT service_role`; `OWNER TO postgres`; `search_path` pinned; manifest lines present (`assert_public_table_grant_decisions.sql:348-350, 380-382`). Rollback restores the 000 body — `diff` against `000_baseline_schema.sql:335-350` is IDENTICAL. Gate-2: functions 70→72 (`EXPECT_FUNCS` lead edit); local triggers=24 vs CI 26 is the same figure the author reports — verify on the real stack.
+
+## Deviations
+1 amount binding only on `succeeded` — ACCEPT (needed for `canceled`; 121 E1/F1). 2 `pending_stale` 15 min–24 h — ACCEPT with MINOR-5. 3 exclude `livemode=false` — ACCEPT; NULL-livemode rows noted in MINOR-5. 4 never refund with own transfer — ACCEPT the safety, fix the loop (MINOR-4). 5 `release_reservation` failure → 200 — ACCEPT. 6 partial refund — REJECT (MAJOR-1). 7 `tests/edge-harness.test.ts` edit — ACCEPT (lead file, 2 lines).
+
+## Scope
+Within the ratified plan (decisions 1, 4, 5, 6, 9). `payment_intent.canceled` added (ratified in B §5; needs the Stripe endpoint event list updated at deploy). Not done: `deno check` (no Deno here either). Cross-package: P3's `record_payment_refund` usage and the Phase 0/1 "already refunded" predicate (MAJOR-1) need the lead's integration ruling.
+
+## Evidence run
+`rehearsal_reset.sh snatchit_rev2_rehearsal` → 91/91 (twice); `rehearsal_test.sh` → plan=423 ok=419 not_ok=4 (060×2 TODO, 132×2 db-name — expected baseline), 121 = 75/75; `npx vitest run` → 10 files, 158/158. Scratch (`…/scratchpad/review2/`): `adv_121.sql` 21/22 (the 1 "failure" is my wrong expectation, see above); `adv.test.ts` 5/5 against the real handlers; `concurrent.sh` two-session race as reported.
+
+## Lead disposition
+Accepted: MAJOR-1 (partial refund settles; full refund via record_payment_refund when present; "already refunded" keyed on status/amount_refunded_cents), MINOR-2 (metadata OR payments.buyer_id), MINOR-3 (uuid-normalized compare), MINOR-4 (manual_review marker + one Sentry; canceled also marks processing), MINOR-5 (narrow pending_stale to 15 min–2 h; NULL-livemode rows excluded from Stripe re-fetch), NOTE-9 (settled outcome in Phase 0 cancels other buyers' pending PIs, best-effort). NOTE-7/8/10 recorded.

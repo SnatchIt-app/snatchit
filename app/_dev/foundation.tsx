@@ -12,10 +12,17 @@
  *
  * It deliberately shows the ugly cases first: the artwork shapes that break the
  * current product are the reason the media system exists.
+ *
+ * PHASE 0 ADDITION: every primitive in `src/components/ui` is rendered here in
+ * every state it claims to have, because a component is not finished until each
+ * of its states has been looked at. The sample copy is representative text inside
+ * a development-only route; nothing here reads or writes production data, and no
+ * control does anything but demonstrate itself.
  */
 
 import { Redirect } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -28,7 +35,25 @@ import {
   priceLadder,
 } from '@/src/lib/pricing/allIn';
 import { provenanceLabel, type InventoryKind } from '@/src/lib/pricing/provenance';
+import { detailState, type DetailStateInput } from '@/src/lib/listing/detailState';
+import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
+import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
+import { resolveImage } from '@/src/lib/media/url';
+import {
+  Badge,
+  Button,
+  Chip,
+  EmptyState,
+  FromAFanBadge,
+  IconButton,
+  Input,
+  Sheet,
+  Skeleton,
+  StickyBar,
+  STACK_WIDTH,
+} from '@/src/components/ui';
 import { brandFontsActive, fontFamily } from '@/src/theme/fonts';
+import { safeLineHeight, textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
 /**
@@ -48,6 +73,102 @@ const QA_ASSETS = [
   { label: 'Low-resolution legacy', path: 'qa/tiny.jpg', contract: 'legacy' as const },
   { label: 'Missing image (fallback)', path: null, contract: 'v2' as const },
   { label: 'Unsafe path (fallback)', path: '../secret.jpg', contract: 'v2' as const },
+];
+
+/**
+ * Representative listing shapes for the state gallery below. They are inputs to a
+ * pure function, not product data: no id, no seller, no price that is presented
+ * as real inventory.
+ */
+const SCENARIO_VIEWER = 'viewer';
+const SCENARIO_SELLER = 'seller';
+
+type ScenarioOver = Partial<Omit<DetailStateInput, 'listing'>> & {
+  listing?: Partial<DetailStateInput['listing']>;
+};
+
+function scenario(over: ScenarioOver = {}): DetailStateInput {
+  const { listing: listingOver, ...rest } = over;
+  return {
+    userId: SCENARIO_VIEWER,
+    clockEnded: false,
+    reservationActive: false,
+    finalizing: false,
+    reserving: false,
+    transfer: { id: null, status: null, buyerId: null },
+    isHighestBidder: false,
+    hasBid: false,
+    buyNowAllIn: null,
+    ...rest,
+    listing: {
+      status: 'active',
+      auction_status: 'active',
+      buy_now_enabled: false,
+      buy_now_price: null,
+      seller_id: SCENARIO_SELLER,
+      reserved_by: null,
+      winner_user_id: null,
+      bid_count: 3,
+      ...(listingOver ?? {}),
+    },
+  };
+}
+
+const LISTING_SCENARIOS: { label: string; input: DetailStateInput }[] = [
+  { label: 'Auction only', input: scenario() },
+  {
+    label: 'Buy Now + auction',
+    input: scenario({
+      listing: { buy_now_enabled: true, buy_now_price: 60 },
+      buyNowAllIn: '$66',
+    }),
+  },
+  { label: 'You are winning', input: scenario({ hasBid: true, isHighestBidder: true }) },
+  { label: 'You were outbid', input: scenario({ hasBid: true, isHighestBidder: false }) },
+  {
+    label: 'Held for you',
+    input: scenario({ listing: { reserved_by: SCENARIO_VIEWER }, reservationActive: true }),
+  },
+  {
+    label: 'Held for someone else',
+    input: scenario({ listing: { reserved_by: 'someone' }, reservationActive: true }),
+  },
+  {
+    label: 'You won',
+    input: scenario({
+      listing: { auction_status: 'ended', winner_user_id: SCENARIO_VIEWER },
+      hasBid: true,
+    }),
+  },
+  {
+    label: 'Ended, you did not win',
+    input: scenario({ listing: { auction_status: 'ended' }, hasBid: true }),
+  },
+  {
+    label: 'Sold, you are the buyer, seller has sent',
+    input: scenario({
+      listing: { status: 'sold', auction_status: 'ended' },
+      transfer: { id: 't1', status: 'seller_sent', buyerId: SCENARIO_VIEWER },
+    }),
+  },
+  {
+    label: 'Sold, you are the seller, tickets not sent',
+    input: scenario({
+      listing: { status: 'sold', auction_status: 'ended' },
+      userId: SCENARIO_SELLER,
+      transfer: { id: 't1', status: 'pending', buyerId: 'buyer' },
+    }),
+  },
+  {
+    label: 'Owner viewing their live listing',
+    input: scenario({
+      userId: SCENARIO_SELLER,
+      listing: { buy_now_enabled: true, buy_now_price: 60 },
+      buyNowAllIn: '$66',
+    }),
+  },
+  { label: 'Closing the auction', input: scenario({ finalizing: true, hasBid: true }) },
+  { label: 'Cancelled', input: scenario({ listing: { auction_status: 'cancelled' } }) },
 ];
 
 const TITLES = {
@@ -74,9 +195,25 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export default function FoundationPreview() {
+  // Hooks run BEFORE the guard. The guard used to sit above them, which was fine
+  // while this component had none and would have become a Rules-of-Hooks
+  // violation the moment it had one. It now has several.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const [chip, setChip] = useState<string>('all');
+  const { width: windowWidth } = useWindowDimensions();
+
   if (!__DEV__) return <Redirect href="/(tabs)/home" />;
 
   const slotNames = Object.keys(MEDIA_SLOTS) as MediaSlotName[];
+
+  // What the media layer actually asks the CDN for, at this device's real width
+  // and density. Printed rather than described, so a wrong number is visible.
+  const sampleResolved = resolveImage(
+    { path: 'qa/portrait-4x5.jpg', contract: 'v2' },
+    'DISCOVERY_CARD',
+    { layoutWidth: Math.round((windowWidth - v2.space.lg * 2 - v2.space.md) / 2) },
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -103,23 +240,21 @@ export default function FoundationPreview() {
             ] as const
           ).map(([role, sample]) => {
             const t = v2.type[role];
+            const resolved = safeLineHeight(t.size, t.lineHeight);
+            const raised = resolved !== t.lineHeight;
             return (
               <View key={role} style={styles.typeRow}>
-                <Text style={[styles.typeKey, { fontFamily: fontFamily('bodyMedium') }]}>{role}</Text>
-                <Text
-                  style={{
-                    fontFamily: t.family.startsWith('Oswald')
-                      ? fontFamily('display')
-                      : fontFamily('body'),
-                    fontSize: t.size,
-                    lineHeight: t.lineHeight,
-                    letterSpacing: t.letterSpacing,
-                    color: v2.text.primary,
-                    textTransform: t.uppercase ? 'uppercase' : 'none',
-                  }}
-                >
-                  {sample}
+                <Text style={[styles.typeKey, { fontFamily: fontFamily('bodyMedium') }]}>
+                  {role} · {t.size}/{resolved}
+                  {raised ? ` (token ${t.lineHeight}, raised for Android)` : ''}
                 </Text>
+                {/*
+                  Rendered through `textStyle`, which is how every screen will get
+                  its type. Reading `v2.type[role].lineHeight` directly is what
+                  this row used to do, and it reproduced the Android clipping the
+                  resolver exists to prevent.
+                */}
+                <Text style={[textStyle(role), { color: v2.text.primary }]}>{sample}</Text>
               </View>
             );
           })}
@@ -319,7 +454,274 @@ export default function FoundationPreview() {
             })}
           </View>
         </Section>
+
+        <Section title="Listing detail: every state">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            The state machine behind the listing screen, resolved for each case it has to handle.
+            Representative shapes, not real inventory: nothing here reads or writes anything.
+          </Text>
+          {LISTING_SCENARIOS.map(({ label, input }) => {
+            const st = detailState(input);
+            return (
+              <View key={label} style={styles.scenario}>
+                <Text style={[styles.typeKey, { fontFamily: fontFamily('bodyMedium') }]}>{label}</Text>
+                <Text style={[styles.tiny, { fontFamily: fontFamily('body') }]}>
+                  {st.mode} · primary {st.primary.kind}
+                  {st.primary.disabled ? ' (disabled)' : ''}
+                  {st.secondary ? ` · secondary ${st.secondary.kind}` : ''}
+                  {st.status ? ` · status ${st.status.kind}` : ' · no status'}
+                </Text>
+                {st.status ? <ListingStatusBanner status={st.status} /> : null}
+              </View>
+            );
+          })}
+        </Section>
+
+        <Section title="Listing detail: the transaction block">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            Buy Now leads when it exists. The bid sits under a hairline, one step down, and every
+            amount shown is all-in.
+          </Text>
+          <TransactionPanel
+            mode="auction_and_buy_now"
+            currentAllIn="$44"
+            buyNowAllIn="$66"
+            nextBidAllIn="$49.50"
+            countdown="02:14:08"
+            bidCount={7}
+          />
+          <TransactionPanel
+            mode="auction_only"
+            currentAllIn="$44"
+            nextBidAllIn="$49.50"
+            countdown="00:04:12"
+            bidCount={0}
+          />
+          <TransactionPanel mode="closed" currentAllIn="$44" countdown={null} soldAllIn="$66" bidCount={7} />
+        </Section>
+
+        <Section title="Listing detail: artwork edge cases">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            A long lineup title and a listing with no cover at all. The hero measures itself, so
+            neither case depends on a device width.
+          </Text>
+          <View style={styles.heroPreview}>
+            <EventMedia
+              asset={{ path: 'qa/legacy-16x9.jpg', contract: 'legacy' }}
+              slot="EVENT_HERO"
+              title={TITLES.long}
+              fluid
+            />
+            <Text
+              numberOfLines={2}
+              style={[styles.cardTitle, { fontFamily: fontFamily('bodySemi') }]}
+            >
+              {TITLES.long}
+            </Text>
+          </View>
+          <View style={styles.heroPreview}>
+            <EventMedia asset={{ path: null }} slot="EVENT_HERO" title="Space" fluid />
+            <Text style={[styles.tiny, { fontFamily: fontFamily('body') }]}>
+              No artwork: the branded plate, not a broken image.
+            </Text>
+          </View>
+        </Section>
+
+        <Section title="Buttons">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            Primary is red with a black label. Destructive is a different red and is never a filled
+            block, so a delete cannot be mistaken for a purchase.
+          </Text>
+          <View style={styles.stack}>
+            <Button label="Buy · $66" onPress={() => {}} variant="primary" size="lg" block />
+            <Button label="Place bid" onPress={() => {}} variant="secondary" size="lg" block />
+            <Button label="Cancel listing" onPress={() => {}} variant="destructive" size="md" />
+            <Button label="See all" onPress={() => {}} variant="ghost" size="sm" />
+          </View>
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>States</Text>
+          <View style={styles.stack}>
+            <Button label="Loading" onPress={() => {}} loading block />
+            <Button label="Disabled" onPress={() => {}} disabled block />
+            <Button label="Disabled secondary" onPress={() => {}} variant="secondary" disabled block />
+          </View>
+          <View style={styles.iconRow}>
+            <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => {}} />
+            <IconButton glyph="close" accessibilityLabel="Close" onPress={() => {}} />
+            <IconButton glyph="more" accessibilityLabel="More actions" onPress={() => {}} />
+            <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => {}} onArt />
+          </View>
+        </Section>
+
+        <Section title="Inputs">
+          <View style={styles.stack}>
+            <Input
+              label="Email"
+              value={inputValue}
+              onChangeText={setInputValue}
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              helper="We only use this to sign you in."
+            />
+            <Input label="Password" value="" secureTextEntry placeholder="••••••••" />
+            <Input
+              label="Starting bid"
+              value="0"
+              keyboardType="numeric"
+              error="Enter an amount above $1."
+            />
+            <Input label="Venue" value="Space" disabled />
+          </View>
+        </Section>
+
+        <Section title="Chips">
+          <View style={styles.chipRow}>
+            {['all', 'tonight', 'this weekend', 'buy now', 'auction'].map((c) => (
+              <Chip key={c} label={c} selected={chip === c} onPress={() => setChip(c)} />
+            ))}
+            <Chip label="sold out" disabled />
+            <Chip label="filters" count={3} onPress={() => setSheetOpen(true)} />
+          </View>
+        </Section>
+
+        <Section title="Badges">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            Meaning is carried by the word, never by the colour alone. There is no venue-direct
+            badge here: no venue-issued ticket exists yet, and a badge that can lie is worse than
+            no badge.
+          </Text>
+          <View style={styles.chipRow}>
+            <FromAFanBadge />
+            <Badge label="Ending soon" tone="warning" />
+            <Badge label="Delivered" tone="success" />
+            <Badge label="Disputed" tone="danger" />
+            <Badge label="3" tone="count" />
+          </View>
+        </Section>
+
+        <Section title="Skeleton">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            Opacity pulse only, and it holds still under reduce motion. A skeleton mirrors the exact
+            geometry of what replaces it, so nothing shifts on load.
+          </Text>
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <Skeleton aspectRatio={v2.ratio.portrait} />
+              <Skeleton height={14} style={{ marginTop: v2.space.sm }} />
+              <Skeleton height={12} width="60%" style={{ marginTop: 6 }} />
+            </View>
+            <View style={styles.gridItem}>
+              <EventMedia
+                asset={{ path: 'qa/portrait-4x5.jpg', contract: 'v2' }}
+                slot="DISCOVERY_CARD"
+                title={TITLES.short}
+                width={150}
+              />
+              <Text
+                numberOfLines={2}
+                style={[styles.cardTitle, { fontFamily: fontFamily('bodySemi') }]}
+              >
+                {TITLES.short}
+              </Text>
+            </View>
+          </View>
+        </Section>
+
+        <Section title="Empty state">
+          <EmptyState
+            title="Nothing here yet"
+            body="Listings you save will show up here."
+            action={{ label: 'Browse tonight', onPress: () => {} }}
+          />
+        </Section>
+
+        <Section title="Sheet">
+          <Button label="Open sheet" onPress={() => setSheetOpen(true)} variant="secondary" />
+        </Section>
+
+        <Section title="Media: fluid width and the content layer">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            The frame measures itself and requests a derivative at that width. Nothing here knows a
+            device width, which is what stops a nominal 390pt slot overflowing a 375pt phone. The
+            title sits in the content layer, above the scrim, inside the frame.
+          </Text>
+          <EventMedia
+            asset={{ path: 'qa/portrait-4x5.jpg', contract: 'v2' }}
+            slot="FEATURED_EVENT"
+            title={TITLES.short}
+            fluid
+          >
+            <View style={styles.overlay}>
+              <FromAFanBadge />
+              <Text style={[textStyle('title'), { color: v2.text.primary }]} numberOfLines={2}>
+                {TITLES.long}
+              </Text>
+              <Text style={[textStyle('bodySm'), { color: v2.text.secondary }]}>
+                III Points · Sat, Oct 17
+              </Text>
+            </View>
+          </EventMedia>
+        </Section>
+
+        <Section title="Transformed image request">
+          <Text style={[styles.note, { fontFamily: fontFamily('body') }]}>
+            What the media layer actually asks for at this device&apos;s width and density. If this
+            shows no width parameter, transformations are off and every card is downloading an
+            original.
+          </Text>
+          <Text style={[styles.tiny, { fontFamily: fontFamily('body') }]} selectable>
+            {sampleResolved.kind === 'image'
+              ? sampleResolved.uri
+              : `fallback (${sampleResolved.reason})`}
+          </Text>
+          <Text style={[styles.tiny, { fontFamily: fontFamily('body') }]}>
+            Window {Math.round(windowWidth)}pt · sticky bar stacks below {STACK_WIDTH}pt ·{' '}
+            {windowWidth < STACK_WIDTH ? 'STACKED' : 'side by side'}
+          </Text>
+          <Text style={[styles.tiny, { fontFamily: fontFamily('body') }]} selectable>
+            {resolveImage({ path: 'https://cdn.example.com/a.jpg' }, 'DISCOVERY_CARD').kind ===
+            'fallback'
+              ? 'untrusted absolute host: refused (correct)'
+              : 'untrusted absolute host: RENDERED (defect)'}
+          </Text>
+        </Section>
       </ScrollView>
+
+      {/* The sticky bar is pinned, so it sits outside the scroll view. */}
+      <StickyBar
+        left={
+          <View>
+            <Text style={[textStyle('micro'), { color: v2.text.muted }]}>Current bid</Text>
+            <Text style={[textStyle('price'), { color: v2.text.primary }]} numberOfLines={1}>
+              $66 total
+            </Text>
+          </View>
+        }
+      >
+        <Button label="Place bid" onPress={() => {}} variant="primary" size="md" />
+      </StickyBar>
+
+      <Sheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Filters"
+        footer={
+          <>
+            <Button label="Clear" variant="secondary" onPress={() => setSheetOpen(false)} block />
+            <Button label="Apply" variant="primary" onPress={() => setSheetOpen(false)} block />
+          </>
+        }
+      >
+        <Text style={[textStyle('body'), { color: v2.text.secondary }]}>
+          Tap the scrim, or the Android back button, to dismiss. Both work, which is more than the
+          sheets in the product do today.
+        </Text>
+        <View style={styles.chipRow}>
+          {['wynwood', 'downtown', 'south beach', 'little haiti'].map((c) => (
+            <Chip key={c} label={c} selected={chip === c} onPress={() => setChip(c)} />
+          ))}
+        </View>
+      </Sheet>
     </SafeAreaView>
   );
 }
@@ -327,10 +729,17 @@ export default function FoundationPreview() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: v2.surface.canvas },
   body: { padding: v2.space.lg, paddingBottom: 64 },
-  h1: { fontSize: 34, lineHeight: 34, color: v2.text.primary, textTransform: 'uppercase' },
+  // Line heights come from `safeLineHeight`, not from the raw token: this file
+  // used to hardcode 34/34, which is the Android clipping case itself.
+  h1: {
+    fontSize: 34,
+    lineHeight: safeLineHeight(34, 34),
+    color: v2.text.primary,
+    textTransform: 'uppercase',
+  },
   h2: {
     fontSize: 20,
-    lineHeight: 22,
+    lineHeight: safeLineHeight(20, 22),
     color: v2.text.primary,
     textTransform: 'uppercase',
     marginBottom: v2.space.md,
@@ -374,4 +783,22 @@ const styles = StyleSheet.create({
   badgeWrap: { gap: 4 },
   badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4 },
   badgeText: { fontSize: 10, letterSpacing: 1.6, textTransform: 'uppercase' },
+  stack: { gap: v2.space.sm, marginTop: v2.space.md, alignItems: 'flex-start' },
+  iconRow: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: v2.space.sm,
+    marginTop: v2.space.md,
+    alignItems: 'center',
+  },
+  scenario: { marginTop: v2.space.lg, gap: v2.space.xs },
+  heroPreview: { marginTop: v2.space.lg },
+  overlay: {
+    position: 'absolute',
+    left: v2.space.md,
+    right: v2.space.md,
+    bottom: v2.space.md,
+    gap: 4,
+  },
 });

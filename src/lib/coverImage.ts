@@ -14,15 +14,20 @@
  *
  * Input cases handled:
  *   1. null / undefined / '' → return null  (caller shows placeholder).
- *   2. Starts with "http"   → already a full URL (legacy cover_image_url
- *      rows). Return as-is.
+ *   2. An absolute URL (legacy cover_image_url rows) → rendered ONLY if it is on
+ *      a trusted host, and rewritten back into a bucket path when it points at
+ *      our own storage so it gets the same treatment as every other image.
  *   3. Starts with "auction-media/" → accidental bucket-name prefix stored
  *      in old rows. Strip it so the path is bucket-root-relative.
- *   4. Otherwise → treat as a bucket-root-relative Storage object path and
- *      call getPublicUrl(path).
+ *   4. Otherwise → treat as a bucket-root-relative Storage object path.
  *
- * No caching is needed: getPublicUrl is a pure URL construction (no fetch),
- * so it is effectively free to call on every render.
+ * ONE POLICY, NOT TWO. The path encoding and the absolute-host allowlist live in
+ * `src/lib/media/url.ts` and this file calls into them. It previously returned any
+ * `http…` value verbatim, which let a database row choose which host the app made
+ * requests to. Do not reintroduce a local URL builder here.
+ *
+ * No caching is needed: URL construction is pure (no fetch), so it is effectively
+ * free to call on every render.
  *
  * Usage
  * ─────
@@ -38,7 +43,7 @@
  *   const urlMap = await resolveCoverUrls(listings.map(l => l.cover_image_path));
  */
 
-import { supabase } from '@/src/lib/supabase';
+import { mediaUrlForStoredValue } from '@/src/lib/media/url';
 
 const BUCKET = 'auction-media';
 
@@ -53,23 +58,13 @@ const BUCKET = 'auction-media';
  */
 export function getCoverImageUrl(
   pathOrUrl: string | null | undefined,
+  opts: { width?: number; devicePixelRatio?: number } = {},
 ): string | null {
-  if (!pathOrUrl) return null;
-
-  // ── 1. Already an absolute URL (legacy cover_image_url rows) ─────────────
-  if (pathOrUrl.startsWith('http')) return pathOrUrl;
-
-  // ── 2. Strip accidental bucket-name prefix ────────────────────────────────
-  // Some rows were stored as "auction-media/<userId>/…" instead of just
-  // "<userId>/…". Strip so getPublicUrl receives a clean bucket-relative path.
-  const BUCKET_PREFIX = `${BUCKET}/`;
-  const cleanPath = pathOrUrl.startsWith(BUCKET_PREFIX)
-    ? pathOrUrl.slice(BUCKET_PREFIX.length)
-    : pathOrUrl;
-
-  // ── 3. Build public URL (synchronous, zero-cost, no RLS required) ─────────
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(cleanPath);
-  return data.publicUrl ?? null;
+  return mediaUrlForStoredValue(pathOrUrl, {
+    bucket: BUCKET,
+    width: opts.width,
+    devicePixelRatio: opts.devicePixelRatio,
+  });
 }
 
 /**
@@ -81,8 +76,9 @@ export function getCoverImageUrl(
  */
 export async function resolveCoverUrls(
   paths: (string | null | undefined)[],
+  opts: { width?: number; devicePixelRatio?: number } = {},
 ): Promise<Map<string, string | null>> {
   const unique = [...new Set(paths.filter(Boolean))] as string[];
-  const entries = unique.map((p) => [p, getCoverImageUrl(p)] as const);
+  const entries = unique.map((p) => [p, getCoverImageUrl(p, opts)] as const);
   return new Map(entries);
 }

@@ -2,69 +2,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
-// Pure decision logic for the NATIVE PRIMARY rail and the account.updated
-// organization arm. Import-free by construction so vitest can exercise every
-// branch below without loading a single https specifier — see native.ts's
-// header and tests/stripe-webhook-native.test.ts.
-import {
-  type Decision,
-  type PaymentRow,
-  buildCancelCommandKey,
-  buildFinalizeCommandKey,
-  buildOrgSyncCommandKey,
-  classifyCancelError,
-  classifyFinalizeError,
-  classifyOrgSyncError,
-  decideAccountUpdatedOutcome,
-  decideClaimOutcome,
-  deriveTransfersActive,
-  dispositionForRoute,
-  eventAgeSeconds,
-  extractInstrumentFingerprint,
-  interpretPaymentClaim,
-  isConnectAccountRef,
-  isTerminalPaymentIntent,
-  latestChargeId,
-  observedAtIso,
-  type OrgArmOutcome,
-  readNativeMetadata,
-  resolveRail,
-  selectAccountPlane,
-  verifyNativePaymentRow,
-  CANCEL_REASON_PAYMENT_FAILED,
-} from './native.ts';
-// Pure decision logic for the NATIVE arm of `charge.dispute.*` and the native
-// routing of `transfer.reversed` (KH §4.5 / §4.6 decision tables). Import-free
-// by construction — see native-dispute.ts's header and
-// tests/stripe-webhook-dispute.test.ts.
-import {
-  type DisputeEventKind,
-  type DisputeLike,
-  type DisputePaymentRow,
-  type MarkDisputeResult,
-  type RecordDisputeResult,
-  type RecordPayoutReversalResult,
-  type ReversalFact,
-  type TransferLike,
-  DISPUTE_PAYMENT_COLUMNS,
-  aggregateDecisions,
-  buildDisputeCommandKey,
-  classifyDisputeError,
-  classifyReversalError,
-  disputeMarkArgs,
-  disputeRecordArgs,
-  disputeStatusKnown,
-  interpretMarkResult,
-  interpretRecordResult,
-  interpretReversalResult,
-  isDisputeNotFound,
-  mergeReversals,
-  planDisputeVerb,
-  planReversalRecording,
-  readInlineReversals,
-  resolveDisputeRail,
-  resolveTransferRail,
-} from './native-dispute.ts';
+import { stripeFetchRaw } from '../_shared/stripe.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
@@ -179,107 +117,6 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
     .join('');
 
   return v1Signatures.some((candidate) => timingSafeEqual(expected, candidate));
-}
-
-/**
- * The columns the native branch reads off `public.payments`. Kept in one place
- * because the claim UPDATE and the follow-up SELECT must project identically —
- * `interpretPaymentClaim` compares the two.
- */
-const NATIVE_PAYMENT_COLUMNS = 'id, status, mode, listing_id, seller_id, buyer_id, total';
-
-/** How long the fingerprint read may take before issuance stops waiting for it. */
-const CHARGE_READ_TIMEOUT_MS = 4000;
-
-/**
- * ONE authenticated Stripe GET, used for exactly one thing: recovering the
- * promoter self-deal detector's `instrument_fingerprint` from the succeeded
- * PaymentIntent's `latest_charge` (spec §4, RPC §6.3). The pinned post-2022 API
- * version sends only the charge ID in the event payload.
- *
- * READ-ONLY BY CONSTRUCTION — `GET` only, no body, no idempotency key, and it
- * moves no money. Its result is advisory: per RPC §17.14 no attribution input
- * may delay or fail issuance, so every failure path here returns `null` and
- * finalize proceeds. The fingerprint is NEVER logged (PROMO §1.8).
- */
-async function readInstrumentFingerprint(paymentIntent: unknown): Promise<string | null> {
-  try {
-    // If the endpoint is configured with expansion, or the payload already
-    // carries the object, no network call happens at all.
-    const inline = (paymentIntent as { latest_charge?: unknown })?.latest_charge;
-    if (inline && typeof inline === 'object') return extractInstrumentFingerprint(inline);
-
-    const chargeId = latestChargeId(paymentIntent as { latest_charge?: unknown });
-    if (!chargeId || !STRIPE_SECRET_KEY) return null;
-
-    const res = await fetch(`https://api.stripe.com/v1/charges/${encodeURIComponent(chargeId)}`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
-      signal: AbortSignal.timeout(CHARGE_READ_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      console.warn('Webhook: charge read for fingerprint failed (non-fatal)', { status: res.status });
-      return null;
-    }
-    return extractInstrumentFingerprint(await res.json());
-  } catch (err) {
-    console.warn('Webhook: charge read for fingerprint threw (non-fatal)', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
-/** How long one page of a transfer's reversal list may take. */
-const REVERSAL_READ_TIMEOUT_MS = 4000;
-/** Hard cap on pages: 100 reversals per page × 10 is far beyond any real transfer. */
-const REVERSAL_READ_MAX_PAGES = 10;
-
-/**
- * READ-ONLY BY CONSTRUCTION — the `readInstrumentFingerprint` pattern: `GET`
- * only, no body, no idempotency key, a hard timeout, and it moves no money.
- *
- * `transfer.reversed` carries `reversals.data[]` inline, but the list is
- * paginated (`has_more`). A Σ over a SHORT list would under-record what came
- * back, and `record_payout_reversal`'s facts are the only ledger of it
- * (DESIGN §1.3 / §2.2) — so when `has_more` is true the remaining pages are
- * read here before any verb is called. Unlike the fingerprint read this one
- * is NOT advisory: a failed page makes the delivery RETRY (the caller maps
- * `ok:false` to `ack:false`), because a redelivery genuinely can succeed.
- */
-async function readTransferReversalsAfter(
-  transferId: string,
-  startingAfter: string | null,
-): Promise<{ ok: true; reversals: ReversalFact[] } | { ok: false; detail: string }> {
-  try {
-    if (!STRIPE_SECRET_KEY) return { ok: false, detail: 'no STRIPE_SECRET_KEY' };
-    const collected: ReversalFact[] = [];
-    let cursor = startingAfter;
-    for (let page = 0; page < REVERSAL_READ_MAX_PAGES; page++) {
-      const qs = new URLSearchParams({ limit: '100' });
-      if (cursor) qs.set('starting_after', cursor);
-      const res = await fetch(
-        `https://api.stripe.com/v1/transfers/${encodeURIComponent(transferId)}/reversals?${qs.toString()}`,
-        {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
-          signal: AbortSignal.timeout(REVERSAL_READ_TIMEOUT_MS),
-        },
-      );
-      if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
-      const body = (await res.json()) as { data?: unknown; has_more?: unknown };
-      const parsed = readInlineReversals({ reversals: { data: body.data, has_more: body.has_more } });
-      if (!parsed.ok) return { ok: false, detail: parsed.detail };
-      collected.push(...parsed.reversals);
-      if (!parsed.hasMore) return { ok: true, reversals: collected };
-      const last = parsed.reversals[parsed.reversals.length - 1];
-      if (!last) return { ok: false, detail: 'has_more with an empty page' };
-      cursor = last.id;
-    }
-    return { ok: false, detail: `more than ${REVERSAL_READ_MAX_PAGES} pages of reversals` };
-  } catch (err) {
-    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
-  }
 }
 
 async function sendPush(userId: string, title: string, body: string, data?: Record<string, string>) {
@@ -422,872 +259,142 @@ serve(async (req: Request) => {
       );
     }
 
-    /**
-     * Ends the request from a `Decision` produced by native.ts.
-     *
-     * `ack:true`  → 200 + complete (terminal — Stripe never delivers it again)
-     * `ack:false` → 500 + fail    (lease released — Stripe retries)
-     * `alert:true` → Sentry, independently of which of the two it is.
-     *
-     * The two bits are orthogonal on purpose: the branch's most important
-     * outcomes are "ACK loudly" (an event no redelivery can fix) and "retry
-     * quietly" (a race we expect to win next time), and a single ok/error flag
-     * cannot express either.
-     */
-    async function finishDecision(
-      decision: Decision,
-      body: Record<string, unknown>,
-      cause?: unknown,
-    ): Promise<Response> {
-      if (decision.alert) {
-        await captureException(
-          `stripe-webhook:${decision.reason}`,
-          cause instanceof Error ? cause : new Error(decision.reason),
-          { event_id: event.id, event_type: event.type, ...body },
-        );
-      }
-      return await finish(decision.ack, { reason: decision.reason, ...body }, decision.ack ? undefined : decision.reason);
-    }
-
-    // Schema-scoped service clients. PostgREST selects the schema at client
-    // CONSTRUCTION time, so `venue.` / `kernel.` verbs each need their own
-    // client (the house pattern — primary-checkout:914, connect-onboarding:680).
-    // Built lazily so the legacy resale path constructs nothing new.
-    const venueService = () =>
-      createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        db:   { schema: 'venue' },
-      });
-    const kernelService = () =>
-      createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        db:   { schema: 'kernel' },
-      });
-
-    /**
-     * The alert half of `finishDecision`, WITHOUT ending the request. Used by
-     * the native dispute / reversal arms on their ACK paths: the native work is
-     * done and alerted, and the legacy arm below it still runs and produces the
-     * response exactly as it does today (KH §4.3: the legacy `disputes` upsert
-     * and the `payments.status='refunded'` write are kept for native rows).
-     * A native `ack:false` never reaches here — it returns 500 through
-     * `finishDecision` BEFORE the legacy arm runs (KH §4.5 ordering note).
-     */
-    async function alertDecision(
-      decision: Decision,
-      body: Record<string, unknown>,
-      cause?: unknown,
-    ): Promise<void> {
-      if (!decision.alert) return;
-      await captureException(
-        `stripe-webhook:${decision.reason}`,
-        cause instanceof Error ? cause : new Error(decision.reason),
-        { event_id: event.id, event_type: event.type, ...body },
-      );
-    }
-
-    type NativeArmResult = { decision: Decision; body: Record<string, unknown>; cause?: Error } | null;
-
-    /**
-     * ═══════════════════════════════════════════════════════════════════════
-     * NATIVE PRIMARY dispute arm — KH §4.5 is the normative table.
-     *
-     * Returns null when the event is legacy-only (no PaymentIntent, no
-     * payments row, or `mode` is a resale mode) — the caller then runs the
-     * legacy arm alone, exactly as today. Otherwise returns the Decision.
-     *
-     * THE DISCRIMINATOR IS DB-DERIVED (KH P1-2). A Dispute has no metadata of
-     * its own; `public.payments.mode === 'native_primary'` for the dispute's
-     * `payment_intent`, read through the service client, is the rail. Nothing
-     * here reads metadata off the Dispute.
-     *
-     * THE VERBS: `created` ⇒ `record_dispute_native` (replay-safe by
-     * `stripe_dispute_ref`; NEVER `mark`, which is unordered inside the open
-     * set — KH P1-4). `updated` / `closed` / `funds_*` ⇒ `mark_dispute_state`;
-     * P0002 ⇒ record at the payload's status; if THAT is `noop_replay` a
-     * concurrent `created` won the insert race and `mark` is re-issued once.
-     *
-     * WHAT IS ACKED AND ALERTED, NEVER RETRIED: `state_conflict` (the row is
-     * terminal — 088:887-892), `not_found` from record, `invalid_input`, an
-     * unknown status, a non-live event or row. What is RETRIED: 42501 /
-     * PGRST202 (with alert), transient Postgres classes.
-     *
-     * `won` releases nothing (PFA-31). No obligation is booked here (KH P1-6).
-     * ═══════════════════════════════════════════════════════════════════════
-     */
-    async function runNativeDisputeArm(eventKind: DisputeEventKind): Promise<NativeArmResult> {
-      const d = event.data.object as DisputeLike;
-      const disputeRef = typeof d?.id === 'string' ? d.id : null;
-      const piRef = typeof d?.payment_intent === 'string' && d.payment_intent.length > 0 ? d.payment_intent : null;
-      const base: Record<string, unknown> = { stage: 'native_dispute', event_kind: eventKind, dispute_id: disputeRef, pi_id: piRef };
-
-      if (!piRef) {
-        console.log('Webhook: dispute carries no payment_intent — legacy arm only', base);
-        return null;
-      }
-
-      // ── 0-2. the discriminator: public.payments by PI, service client ──────
-      const { data: row, error: rowErr } = await supabase
-        .from('payments')
-        .select(DISPUTE_PAYMENT_COLUMNS)
-        .eq('stripe_payment_intent_id', piRef)
-        .maybeSingle();
-      if (rowErr) {
-        // We do not know which rail this is. Retryable: the read is idempotent.
-        console.error('Webhook: native dispute payment read errored', { ...base, error: rowErr.message });
-        return {
-          decision: { ack: false, alert: true, reason: 'native_dispute_payment_read_error' },
-          body: base,
-          cause: new Error(rowErr.message),
-        };
-      }
-      const paymentRow = (row as DisputePaymentRow | null) ?? null;
-      const rail = resolveDisputeRail(paymentRow, d, event.livemode);
-      if (rail.route === 'legacy') {
-        console.log('Webhook: dispute routed to the legacy arm', { ...base, why: rail.why, mode: paymentRow?.mode ?? null });
-        return null;
-      }
-      const body: Record<string, unknown> = { ...base, payment_id: rail.paymentId };
-
-      // ── 3. the livemode gate — no native write; legacy still runs ──────────
-      if (rail.route === 'not_livemode') {
-        console.error('Webhook: native dispute refused — not livemode', {
-          ...body, event_livemode: event.livemode ?? null, payment_livemode: paymentRow?.stripe_livemode ?? null,
-        });
-        return { decision: rail.decision, body };
-      }
-
-      // ── 4. the status must be one the kernel CHECK admits ─────────────────
-      const status = d.status;
-      if (!disputeStatusKnown(status)) {
-        console.error('Webhook: native dispute status outside the kernel set', { ...body, status: String(status) });
-        return {
-          decision: { ack: true, alert: true, reason: 'native_dispute_unknown_status' },
-          body: { ...body, status: String(status) },
-        };
-      }
-      if (!disputeRef) {
-        return {
-          decision: { ack: true, alert: true, reason: 'native_dispute_event_malformed' },
-          body: { ...body, detail: 'dispute.id missing' },
-        };
-      }
-
-      const commandKey = buildDisputeCommandKey(eventKind, event.id);
-      const recordArgs = disputeRecordArgs(d, commandKey);
-      if (!recordArgs.ok) {
-        console.error('Webhook: native dispute event malformed', { ...body, detail: recordArgs.detail });
-        return { decision: recordArgs.decision, body: { ...body, detail: recordArgs.detail } };
-      }
-      const kernel = kernelService();
-
-      const callRecord = async (): Promise<
-        | { kind: 'error'; decision: Decision; cause: Error }
-        | { kind: 'result'; outcome: ReturnType<typeof interpretRecordResult> }
-      > => {
-        const { data, error } = await kernel.rpc('record_dispute_native', recordArgs.args);
-        if (error) {
-          const decision = classifyDisputeError(error, { verb: 'record', eventKind });
-          console.error('Webhook: record_dispute_native failed', {
-            ...body, code: error.code, message: error.message, reason: decision.reason, ack: decision.ack,
-          });
-          return { kind: 'error', decision, cause: new Error(error.message) };
-        }
-        const result = (data as RecordDisputeResult | null) ?? null;
-        const outcome = interpretRecordResult(result, { eventKind, payloadStatus: status });
-        console.log('Webhook: record_dispute_native returned', {
-          ...body, rpc_status: outcome.rpcStatus, dispute_row_id: outcome.disputeId, status,
-          atoms_held: result?.atoms_held ?? null, atoms_skipped: result?.atoms_skipped ?? null,
-          payouts_held: result?.payouts_held ?? null, linked: result?.linked ?? null,
-          reason: outcome.decision.reason, flags: outcome.flags,
-        });
-        return { kind: 'result', outcome };
-      };
-
-      const callMark = async (): Promise<
-        | { kind: 'error'; error: { code?: string | null; message: string } }
-        | { kind: 'result'; outcome: ReturnType<typeof interpretMarkResult> }
-      > => {
-        const { data, error } = await kernel.rpc('mark_dispute_state', disputeMarkArgs(disputeRef, status, commandKey));
-        if (error) return { kind: 'error', error };
-        const outcome = interpretMarkResult((data as MarkDisputeResult | null) ?? null, { eventKind, newStatus: status });
-        console.log('Webhook: mark_dispute_state returned', {
-          ...body, rpc_status: outcome.rpcStatus, dispute_row_id: outcome.disputeId, status,
-          reason: outcome.decision.reason,
-        });
-        return { kind: 'result', outcome };
-      };
-
-      const plan = planDisputeVerb(eventKind);
-
-      if (plan.kind === 'record') {
-        const r = await callRecord();
-        if (r.kind === 'error') return { decision: r.decision, body, cause: r.cause };
-        return { decision: r.outcome.decision, body: { ...body, rpc_status: r.outcome.rpcStatus, flags: r.outcome.flags } };
-      }
-
-      // mark_then_record
-      const m1 = await callMark();
-      if (m1.kind === 'result') {
-        return { decision: m1.outcome.decision, body: { ...body, rpc_status: m1.outcome.rpcStatus } };
-      }
-      if (!isDisputeNotFound(m1.error)) {
-        const decision = classifyDisputeError(m1.error, { verb: 'mark', eventKind });
-        console.error('Webhook: mark_dispute_state failed', {
-          ...body, code: m1.error.code, message: m1.error.message, reason: decision.reason, ack: decision.ack,
-        });
-        return { decision, body, cause: new Error(m1.error.message) };
-      }
-      // P0002: `updated`/`closed` arrived before `created`. Record at the
-      // payload's status (KH B2/C2 — zero freeze legs at terminal, alerted by
-      // interpretRecordResult).
-      console.log('Webhook: mark_dispute_state not_found — recording at payload status', { ...body, status });
-      const r = await callRecord();
-      if (r.kind === 'error') return { decision: r.decision, body, cause: r.cause };
-      if (r.outcome.rpcStatus === 'ok') {
-        return { decision: r.outcome.decision, body: { ...body, rpc_status: 'ok', fallback: 'record', flags: r.outcome.flags } };
-      }
-      // noop_replay: a concurrent `created` won the insert race (088:799-803,
-      // KH P2-7). The row exists now, so `mark` is re-issued exactly once.
-      const m2 = await callMark();
-      if (m2.kind === 'result') {
-        return { decision: m2.outcome.decision, body: { ...body, rpc_status: m2.outcome.rpcStatus, fallback: 'record_then_mark' } };
-      }
-      const decision = classifyDisputeError(m2.error, { verb: 'mark', eventKind });
-      console.error('Webhook: mark_dispute_state failed after record replay', {
-        ...body, code: m2.error.code, message: m2.error.message, reason: decision.reason, ack: decision.ack,
-      });
-      return { decision, body: { ...body, fallback: 'record_then_mark' }, cause: new Error(m2.error.message) };
-    }
-
-    /**
-     * ═══════════════════════════════════════════════════════════════════════
-     * NATIVE `transfer.reversed` arm — KH §4.6 routing, DESIGN §2.2 verb.
-     *
-     * A Transfer carries its OWN metadata, so the rail is read off the object
-     * (`metadata.source='payout-execute'` + `metadata.payout_id`, or
-     * `transfer_group = payout_<uuid>`); the legacy rail is
-     * `metadata.transfer_id` with no group. Both / neither / disagreeing ⇒
-     * ACK + alert `transfer_rail_ambiguous`, nothing guessed; the legacy arm
-     * then runs as today (its `mark_transfer_reversed` answers `false` for an
-     * unknown `tr_` — harmless).
-     *
-     * One `kernel.record_payout_reversal` per reversal fact (`trr_`), paging
-     * the list read-only when `has_more`. Replay is the verb's (`trr_` unique).
-     * ═══════════════════════════════════════════════════════════════════════
-     */
-    async function runNativeTransferReversedArm(): Promise<NativeArmResult> {
-      const tr = event.data.object as TransferLike;
-      const trRef = typeof tr?.id === 'string' ? tr.id : null;
-      const rail = resolveTransferRail(tr);
-      const base: Record<string, unknown> = {
-        stage: 'native_transfer_reversed', stripe_transfer_ref: trRef,
-        transfer_group: typeof tr?.transfer_group === 'string' ? tr.transfer_group : null,
-      };
-      if (rail.route === 'legacy') return null;
-      if (rail.route === 'ambiguous') {
-        console.error('Webhook: transfer.reversed rail ambiguous — nothing recorded', { ...base, why: rail.why });
-        return { decision: rail.decision, body: { ...base, why: rail.why } };
-      }
-      const body: Record<string, unknown> = { ...base, payout_id: rail.payoutId, via: rail.via };
-
-      // ── the reversal list: inline page, then the wire when has_more ────────
-      const inline = readInlineReversals(tr);
-      if (!inline.ok) {
-        console.error('Webhook: transfer.reversed reversal list unreadable', { ...body, detail: inline.detail });
-        return { decision: { ack: true, alert: true, reason: 'native_reversal_list_unreadable' }, body: { ...body, detail: inline.detail } };
-      }
-      let reversals = inline.reversals;
-      if (inline.hasMore) {
-        if (!trRef) {
-          return { decision: { ack: true, alert: true, reason: 'native_reversal_transfer_ref_malformed' }, body };
-        }
-        const paged = await readTransferReversalsAfter(trRef, reversals[reversals.length - 1]?.id ?? null);
-        if (!paged.ok) {
-          console.error('Webhook: transfer.reversed reversal page read failed — retrying', { ...body, detail: paged.detail });
-          return { decision: { ack: false, alert: true, reason: 'native_reversal_list_read_failed' }, body: { ...body, detail: paged.detail } };
-        }
-        reversals = mergeReversals(reversals, paged.reversals);
-      }
-
-      const plan = planReversalRecording(tr, rail.payoutId, reversals, event.id);
-      if (plan.kind === 'decision') {
-        console.error('Webhook: transfer.reversed not recordable', { ...body, reason: plan.decision.reason, detail: plan.detail });
-        return { decision: plan.decision, body: { ...body, detail: plan.detail } };
-      }
-
-      const kernel = kernelService();
-      const decisions: Decision[] = [];
-      let cause: Error | undefined;
-      for (const args of plan.calls) {
-        const { data, error } = await kernel.rpc('record_payout_reversal', args);
-        if (error) {
-          const decision = classifyReversalError(error);
-          console.error('Webhook: record_payout_reversal failed', {
-            ...body, stripe_reversal_ref: args.p_stripe_reversal_ref, amount_minor: args.p_amount_minor,
-            code: error.code, message: error.message, reason: decision.reason, ack: decision.ack,
-          });
-          decisions.push(decision);
-          cause = cause ?? new Error(error.message);
-          if (!decision.ack) break;
-          continue;
-        }
-        const result = (data as RecordPayoutReversalResult | null) ?? null;
-        const decision = interpretReversalResult(result);
-        console.log('Webhook: record_payout_reversal returned', {
-          ...body, stripe_reversal_ref: args.p_stripe_reversal_ref, amount_minor: args.p_amount_minor,
-          rpc_status: result?.status ?? null, payout_status: result?.payout_status ?? null,
-          total_reversed_minor: result?.total_reversed_minor ?? null, fully_reversed: result?.fully_reversed ?? null,
-          reason: decision.reason,
-        });
-        decisions.push(decision);
-      }
-      return {
-        decision: aggregateDecisions(decisions),
-        body: { ...body, reversal_count: plan.calls.length, outcomes: decisions.map((x) => x.reason) },
-        cause,
-      };
-    }
-
     if (event.type === 'payment_intent.succeeded') {
-      // ═══════════════════════════════════════════════════════════════════
-      // RAIL DISPATCH (spec §4:1206 — "all branches keyed off metadata.rail").
+      // ── Package 2: ONE call to the verified-settlement contract ─────────
+      // settle_verified_payment (migration 20260906110000) verifies the
+      // PaymentIntent's facts against the stored row (amount / currency /
+      // livemode / metadata), enforces refund monotonicity, promotes only on
+      // Stripe `succeeded`, settles the listing + transfer through the
+      // Package 1 core, and records every non-settling outcome once in
+      // webhook_retries. It replaces the old claim-UPDATE + client RPC +
+      // transfer INSERT sequence AND the "already processed" fallback branch
+      // (investigation F02: the retry used to skip the sale RPC forever).
       //
-      // THE THIRD BRANCH. Before this existed, a `native_primary` PaymentIntent
-      // fell through the CLOSED two-branch selection below to its explicit
-      // error return (the old :388-395) → `finish(false, …)` → HTTP 500 →
-      // Stripe retried the charge for three days and then gave up, with the
-      // buyer charged, no order finalized and no ticket minted. That is the
-      // failure mode this block removes.
-      //
-      // `resolveRail` is rail-first and asserts `mode === rail`; an absent
-      // `rail` is the ONLY legitimate legacy signal, and every other value
-      // fails closed rather than falling through to a resale money path.
-      // ═══════════════════════════════════════════════════════════════════
-      const route = resolveRail(metadata);
+      // Acknowledgment: any RPC ERROR is NOT terminal — 500 + fail, so Stripe
+      // redelivers and the retry calls the contract AGAIN (it is guarded by
+      // current state, not by "did I run before"). Every RPC OUTCOME is
+      // terminal — 200 + complete — because the contract already recorded
+      // unknown_payment / binding_mismatch / unfulfillable for the sweep and
+      // for ops; retrying a terminal outcome for three days helps nobody.
+      // Refund facts arrive via charge.refunded (Package 3's branch), so this
+      // event passes amount_refunded 0 / refund id NULL: the contract still
+      // refuses to promote a row that is already refunded.
+      const pi = paymentIntent as {
+        status?: string; amount_received?: number; currency?: string; livemode?: boolean;
+        payment_method_types?: string[]; metadata?: Record<string, string>;
+      };
+      const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
+        p_payment_intent_id: piId,
+        p_stripe_status:     pi.status ?? 'succeeded',
+        p_amount_received:   typeof pi.amount_received === 'number' ? pi.amount_received : null,
+        p_currency:          pi.currency ?? null,
+        p_livemode:          typeof pi.livemode === 'boolean' ? pi.livemode : null,
+        p_amount_refunded:   0,
+        p_stripe_refund_id:  null,
+        p_payment_method:    pi.payment_method_types?.[0] ?? 'card',
+        p_metadata:          metadata,
+        p_source:            `webhook:${event.id}`,
+      });
 
-      if (route.route === 'rail_mode_mismatch' || route.route === 'unknown_rail') {
-        const decision = dispositionForRoute(route);
-        console.error('Webhook: rail dispatch refused', {
-          pi_id: piId, route: route.route, reason: decision.reason, ack: decision.ack,
-        });
-        return await finishDecision(decision, { stage: 'rail_dispatch', pi_id: piId });
+      if (settleErr) {
+        console.error('Webhook: settle_verified_payment failed', { pi_id: piId, event_id: event.id, error: settleErr });
+        return await finish(false, { stage: 'settle_verified_payment' }, `settle_verified_payment: ${settleErr.message}`);
       }
 
-      if (route.route === 'native_primary') {
-        // ───────────────────────────────────────────────────────────────
-        // NATIVE PRIMARY — money-in becomes tickets (rulings A2/A3).
-        // ───────────────────────────────────────────────────────────────
-        const meta = readNativeMetadata(metadata);
-        if (!meta.ok) {
-          // A redelivery carries the SAME metadata, so this can never resolve.
-          console.error('Webhook: native_primary metadata incomplete', { pi_id: piId, reason: meta.reason });
-          return await finishDecision(
-            { ack: true, alert: true, reason: `native_${meta.reason}` },
-            { stage: 'native_metadata', pi_id: piId },
-          );
-        }
-        const ref = meta.ref;
-        const ageSeconds = eventAgeSeconds(event.created, Date.now());
-
-        // ── 1. Claim the payments row ───────────────────────────────────
-        // Same idempotent-claim idiom as the legacy arm, plus one native-only
-        // guard: `.neq('status','refunded')`. Without it an out-of-order
-        // `charge.refunded` would be silently overwritten back to 'succeeded'.
-        const { data: claimed, error: claimErr } = await supabase
-          .from('payments')
-          .update({ status: 'succeeded', paid_at: new Date().toISOString() })
-          .eq('stripe_payment_intent_id', piId)
-          .neq('status', 'succeeded')
-          .neq('status', 'refunded')
-          .select(NATIVE_PAYMENT_COLUMNS)
-          .maybeSingle();
-
-        if (claimErr) {
-          // We do not know whether the claim landed. Retryable by construction:
-          // the claim is idempotent, so a redelivery either claims or reads.
-          console.error('Webhook: native payment claim errored', { pi_id: piId, error: claimErr });
-          return await finishDecision(
-            { ack: false, alert: true, reason: 'native_payment_claim_error' },
-            { stage: 'native_payment_claim', pi_id: piId },
-            new Error(claimErr.message),
-          );
-        }
-
-        let existingPayment: PaymentRow | null = null;
-        if (!claimed) {
-          const { data: found, error: readErr } = await supabase
-            .from('payments')
-            .select(NATIVE_PAYMENT_COLUMNS)
-            .eq('stripe_payment_intent_id', piId)
-            .maybeSingle();
-          if (readErr) {
-            return await finishDecision(
-              { ack: false, alert: true, reason: 'native_payment_read_error' },
-              { stage: 'native_payment_read', pi_id: piId },
-              new Error(readErr.message),
-            );
-          }
-          existingPayment = (found as PaymentRow | null) ?? null;
-        }
-
-        const claimOutcome = interpretPaymentClaim((claimed as PaymentRow | null) ?? null, existingPayment);
-        if (claimOutcome.kind !== 'claimed' && claimOutcome.kind !== 'already_succeeded') {
-          const decision = decideClaimOutcome(claimOutcome, ageSeconds);
-          console.error('Webhook: native payment row not finalizable', {
-            pi_id: piId, order_id: ref.orderId, outcome: claimOutcome.kind,
-            reason: decision.reason, ack: decision.ack, event_age_seconds: ageSeconds,
-          });
-          return await finishDecision(decision, {
-            stage: 'native_payment_state', pi_id: piId, order_id: ref.orderId, outcome: claimOutcome.kind,
-          });
-        }
-        const paymentRow = claimOutcome.row;
-
-        // ── 2. The row must be a DIRECT-RAIL row for THIS buyer ─────────
-        const verdict = verifyNativePaymentRow(paymentRow, ref);
-        if (!verdict.ok) {
-          console.error('Webhook: native payment row failed rail verification', {
-            pi_id: piId, order_id: ref.orderId, payment_id: paymentRow.id, reason: verdict.decision.reason,
-          });
-          return await finishDecision(verdict.decision, {
-            stage: 'native_payment_verify', pi_id: piId, order_id: ref.orderId, payment_id: paymentRow.id,
-          });
-        }
-
-        // ── 3. Instrument fingerprint — advisory, never blocking ────────
-        const fingerprint = await readInstrumentFingerprint(paymentIntent);
-
-        // ── 4. Finalize: the ONLY function that turns money into tickets ─
-        // The command key is derived from (order, PaymentIntent), NOT from
-        // event.id — see buildFinalizeCommandKey. That is what makes the
-        // domain-level dedupe survive a second event id for the same payment.
-        const commandKey = buildFinalizeCommandKey(ref.orderId, piId);
-        console.log('Webhook: finalizing native primary order', {
-          order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
-          claim: claimOutcome.kind, has_fingerprint: fingerprint !== null,
-        });
-
-        const { data: finalizeData, error: finalizeErr } = await venueService().rpc('finalize_primary_order', {
-          p_order_id:               ref.orderId,
-          p_payment_id:             paymentRow.id,
-          p_command_key:            commandKey,
-          p_instrument_fingerprint: fingerprint,
-        });
-
-        if (finalizeErr) {
-          const decision = classifyFinalizeError(finalizeErr);
-          console.error('Webhook: finalize_primary_order failed', {
-            order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
-            code: finalizeErr.code, reason: decision.reason, ack: decision.ack,
-            message: finalizeErr.message,
-          });
-          return await finishDecision(
-            decision,
-            { stage: 'finalize_primary_order', order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId },
-            new Error(finalizeErr.message),
-          );
-        }
-
-        const finalizeStatus = (finalizeData as { status?: string } | null)?.status ?? 'ok';
-        const atomCount = ((finalizeData as { atom_ids?: unknown[] } | null)?.atom_ids ?? []).length;
-        console.log('Webhook: native primary order finalized', {
-          order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
-          status: finalizeStatus, atom_count: atomCount,
-        });
-        // No push here. There is no listing and no individual seller on this
-        // rail; primary notification is `notify-dispatch`'s pipeline (spec
-        // §3.13), and inventing a `send-push` call would create a contract this
-        // branch is not entitled to define.
-        return await finishDecision(
-          { ack: true, alert: false, reason: `native_primary_${finalizeStatus}` },
-          { order_id: ref.orderId, payment_id: paymentRow.id, atom_count: atomCount },
-        );
+      const settled = (Array.isArray(settleRows) ? settleRows[0] : settleRows) as
+        | { payment_id: string | null; payment_status: string | null; listing_status: string | null; transfer_id: string | null; outcome: string }
+        | null
+        | undefined;
+      if (!settled?.outcome) {
+        // The contract always returns exactly one row; no row means the call
+        // did not run to completion (PostgREST hiccup) — not terminal.
+        console.error('Webhook: settle_verified_payment returned no row', { pi_id: piId, event_id: event.id });
+        return await finish(false, { stage: 'settle_verified_payment' }, 'settle_verified_payment: no row');
       }
 
-      // ═══════════════════════════════════════════════════════════════════
-      // LEGACY RESALE — byte-for-byte unchanged below this line.
-      // ═══════════════════════════════════════════════════════════════════
-      // FIX: Use .neq('status', 'succeeded') so this UPDATE is a "claim" operation.
-      // If the payment is already 'succeeded' (replay or race with confirm-payment),
-      // the UPDATE matches 0 rows and maybeSingle() returns null. We exit early,
-      // skipping the RPC call, transfer insert, Stripe payout, and push notifications.
-      // This makes the entire handler idempotent at the DB level.
-      const { data: payment, error: lookupErr } = await supabase
-        .from('payments')
-        .update({ status: 'succeeded', paid_at: new Date().toISOString() })
-        .eq('stripe_payment_intent_id', piId)
-        .neq('status', 'succeeded')          // FIX: only claim if not yet processed
-        .select('id, listing_id, amount, buyer_fee, seller_fee')
-        .maybeSingle();                        // FIX: was .single() — returns null instead of error when 0 rows
-
-      if (lookupErr) {
-        // A real database failure on the claim UPDATE. We do not know whether
-        // the payment was marked succeeded, so this is NOT complete — answer
-        // non-2xx and let Stripe redeliver.
-        console.error('Webhook: payment update error', piId, lookupErr);
-        return await finish(false, { stage: 'payment_claim' }, `payment claim: ${lookupErr.message}`);
+      const outcomeLog = {
+        pi_id: piId, event_id: event.id, outcome: settled.outcome,
+        payment_id: settled.payment_id, payment_status: settled.payment_status,
+        listing_status: settled.listing_status, transfer_id: settled.transfer_id,
+      };
+      if (settled.outcome === 'settled' || settled.outcome === 'already_settled') {
+        console.log('Webhook: settlement outcome', outcomeLog);
+      } else {
+        // unfulfillable / binding_mismatch / unknown_payment are in the
+        // webhook_retries review queue (the sweep refunds unfulfillable);
+        // refunded / not_succeeded / canceled are benign state facts.
+        console.warn('Webhook: non-settling outcome (terminal, recorded by the contract)', outcomeLog);
       }
 
-      if (!payment) {
-        // Payment already processed (confirm-payment won the race) or not found.
-        // The listing RPC and push notifications were already handled by the
-        // checkout flow, so we skip those. BUT we must still ensure a transfer
-        // row exists — the checkout flow does not create one.
-        console.log('Webhook: payment already processed, checking transfer row', piId);
-
-        // Look up the existing payment row to get its id for the transfer insert.
-        const { data: existingPayment } = await supabase
-          .from('payments')
-          .select('id')
-          .eq('stripe_payment_intent_id', piId)
-          .maybeSingle();
-
-        if (!existingPayment) {
-          // No payments row for this PaymentIntent at all. Retrying will not
-          // conjure one, so this is terminal — complete rather than loop
-          // Stripe for three days.
-          console.log('Webhook: payment not found at all, skipping', piId);
-          return await finish(true, { skipped: 'payment_not_found' });
-        }
-
-        // Check whether a transfer row already exists for this payment.
-        const { data: existingTransfer } = await supabase
-          .from('transfers')
-          .select('id')
-          .eq('payment_id', existingPayment.id)
-          .maybeSingle();
-
-        if (existingTransfer) {
-          // Transfer already exists — genuinely nothing left to do.
-          console.log('Webhook: transfer already exists, nothing to do', {
-            payment_id: existingPayment.id,
-            transfer_id: existingTransfer.id,
-          });
-          return await finish(true, { skipped: 'transfer_exists' });
-        }
-
-        // Transfer row is missing — create it now.
-        // The listing is already sold (checkout called mark_listing_sold /
-        // complete_auction_payment directly). We only need the transfer row.
-        const { data: fallbackListing } = await supabase
+      if (settled.outcome === 'settled' && metadata.buyer_id && metadata.seller_id) {
+        // First and only time this sale settled: notify both parties. The
+        // transfer id (from the contract) deep-links to the send/receive
+        // screens; listingId remains the fallback route.
+        const { data: listing } = await supabase
           .from('listings')
-          .select('transfer_method')
+          .select('event_name')
           .eq('id', metadata.listing_id)
           .maybeSingle();
+        const listingTitle = listing?.event_name || 'your listing';
+        const transferIdData: Record<string, string> = settled.transfer_id ? { transferId: String(settled.transfer_id) } : {};
 
-        const fallbackExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-        const { error: fallbackTransferErr } = await supabase.from('transfers').insert({
-          listing_id:       metadata.listing_id,
-          payment_id:       existingPayment.id,
-          seller_id:        metadata.seller_id,
-          buyer_id:         metadata.buyer_id,
-          transfer_method:  fallbackListing?.transfer_method ?? 'mobile_transfer',
-          status:           'pending',
-          expires_at:       fallbackExpiresAt,
-        });
-
-        if (fallbackTransferErr) {
-          // 23505 means a concurrent replay already created the row, which is
-          // success. Anything else — a NOT NULL violation from empty metadata,
-          // an FK violation — means the buyer is paid up with no transfer row.
-          // That used to be logged and then ACKed as if it had worked.
-          const benign = fallbackTransferErr.code === '23505';
-          console.error('Webhook: fallback transfer insert failed:', {
-            payment_id:  existingPayment.id,
-            listing_id:  metadata.listing_id,
-            error:       fallbackTransferErr,
-            benign,
-          });
-          if (!benign) {
-            return await finish(
-              false,
-              { stage: 'fallback_transfer' },
-              `fallback transfer insert: ${fallbackTransferErr.message}`,
-            );
-          }
-        } else {
-          console.log('Webhook: fallback transfer row created', {
-            payment_id: existingPayment.id,
-            listing_id: metadata.listing_id,
-            seller_id:  metadata.seller_id,
-            buyer_id:   metadata.buyer_id,
-          });
-        }
-
-        return await finish(true, { path: 'fallback_transfer' });
-      }
-
-      let rpcName: string;
-      let rpcParams: Record<string, string>;
-
-      if (metadata.mode === 'buy_now') {
-        rpcName = 'mark_listing_sold';
-        rpcParams = {
-          p_listing_id: metadata.listing_id,
-          p_user_id:    metadata.buyer_id,
-        };
-      } else if (metadata.mode === 'auction') {
-        rpcName = 'complete_auction_payment';
-        rpcParams = {
-          p_listing_id: metadata.listing_id,
-          p_user_id:    metadata.buyer_id,
-        };
-      } else {
-        // Payment was just claimed as succeeded but metadata.mode is neither
-        // buy_now nor auction, so the listing never gets marked sold. The
-        // buyer is charged and the order is half-finished — record it as
-        // incomplete so it shows up in get_incomplete_webhook_events rather
-        // than looking like a clean success.
-        console.error('Webhook: unknown mode in metadata', metadata.mode, piId);
-        return await finish(false, { stage: 'unknown_mode' }, `unknown metadata.mode: ${metadata.mode}`);
-      }
-
-      console.log('Webhook: calling RPC', {
-        rpc_name:   rpcName,
-        listing_id: metadata.listing_id,
-        buyer_id:   metadata.buyer_id,
-        payment_id: payment.id,
-      });
-
-      const { error: rpcErr } = await supabase.rpc(rpcName, rpcParams);
-      if (rpcErr) {
-        // The payment is already claimed 'succeeded', so bailing here leaves
-        // the listing not marked sold. That used to be logged and then recorded
-        // as a clean success. Both RPCs are internally idempotent (SELECT ...
-        // FOR UPDATE then an early return when already sold), so redelivery is
-        // safe and is the right answer.
-        console.error('Webhook RPC failed:', {
-          listing_id: metadata.listing_id,
-          payment_id: payment.id,
-          rpc_name:   rpcName,
-          error:      rpcErr,
-        });
-        return await finish(false, { stage: rpcName }, `${rpcName}: ${rpcErr.message}`);
-      }
-      console.log('Webhook RPC succeeded:', { rpc_name: rpcName, listing_id: metadata.listing_id });
-
-      // Create transfer record.
-      // FIX: The UNIQUE constraints on transfers.payment_id and transfers.listing_id
-      // (added in migration 003) will reject any duplicate insert at the DB level.
-      // The existing error handler logs and continues, which is correct — a constraint
-      // violation on replay is expected behavior, not an application error.
-      const { data: listing } = await supabase
-        .from('listings')
-        .select('event_name, transfer_method')
-        .eq('id', metadata.listing_id)
-        .single();
-
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-      const { data: newTransfer, error: transferErr } = await supabase.from('transfers').insert({
-        listing_id:       metadata.listing_id,
-        payment_id:       payment.id,
-        seller_id:        metadata.seller_id,
-        buyer_id:         metadata.buyer_id,
-        transfer_method:  listing?.transfer_method ?? 'mobile_transfer',
-        status:           'pending',
-        expires_at:       expiresAt,
-      }).select('id').single();
-
-      if (transferErr) {
-        // 23505 is the expected replay case — the UNIQUE constraints on
-        // transfers.payment_id and transfers.listing_id (migration 003) mean
-        // another delivery already created the row. That is success.
-        // Anything else leaves a paid buyer with no transfer row, so it must
-        // stay retryable instead of being ACKed.
-        const benign = transferErr.code === '23505';
-        console.error('Webhook: transfer insert failed:', {
-          listing_id: metadata.listing_id,
-          payment_id: payment.id,
-          error:      transferErr,
-          benign,
-        });
-        if (!benign) {
-          return await finish(false, { stage: 'transfer_insert' }, `transfer insert: ${transferErr.message}`);
-        }
-      }
-
-      // ──────────────────────────────────────────────────────────────────
-      // PAYOUT DEFERRED (V1 buyer-protection architecture)
-      // The Stripe Transfer to the seller's Connect account is NOT created
-      // here. Funds remain in the SnatchIt platform Stripe balance until
-      // the buyer confirms receipt (or auto-release conditions are met).
-      // The release-payout function (to be built) will call
-      // stripe.transfers.create() at that time.
-      // ──────────────────────────────────────────────────────────────────
-      console.log('Webhook: payout deferred — no Stripe Transfer created', {
-        listing_id: metadata.listing_id,
-        payment_id: payment.id,
-        seller_id:  metadata.seller_id,
-      });
-
-      // Send push notifications. transferId (when the insert succeeded) lets
-      // the tap deep-link straight to the send/receive screens; listingId
-      // remains the fallback route.
-      const listingTitle = listing?.event_name || 'your listing';
-      const transferIdData = newTransfer?.id ? { transferId: String(newTransfer.id) } : {};
-
-      sendPush(
-        metadata.buyer_id,
-        'Payment Confirmed!',
-        `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
-        { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
-      );
-
-      sendPush(
-        metadata.seller_id,
-        'Your ticket sold!',
-        `Send the transfer now for ${listingTitle}.`,
-        { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
-      );
-
-      // Mark processed for ops visibility. Pure telemetry — no behavioral
-      // change to the P0 payment-intent flow.
-      await markProcessed();
-
-    } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
-      // ═══════════════════════════════════════════════════════════════════
-      // RAIL DISPATCH for the failure/cancel events.
-      //
-      // `payment_intent.canceled` previously fell into the terminal `else`
-      // (ack-only). It still does for the legacy rail — untouched — but on the
-      // native rail it is THE terminal signal, and the only one: Stripe emits
-      // no other event from which "this PaymentIntent can never be confirmed"
-      // can be read.
-      // ═══════════════════════════════════════════════════════════════════
-      const failRoute = resolveRail(metadata);
-
-      if (failRoute.route === 'rail_mode_mismatch' || failRoute.route === 'unknown_rail') {
-        const decision = dispositionForRoute(failRoute);
-        console.error('Webhook: rail dispatch refused on failure event', {
-          pi_id: piId, event_type: event.type, route: failRoute.route, reason: decision.reason,
-        });
-        return await finishDecision(decision, { stage: 'rail_dispatch', pi_id: piId });
-      }
-
-      if (failRoute.route === 'native_primary') {
-        const meta = readNativeMetadata(metadata);
-        if (!meta.ok) {
-          console.error('Webhook: native_primary failure metadata incomplete', { pi_id: piId, reason: meta.reason });
-          return await finishDecision(
-            { ack: true, alert: true, reason: `native_${meta.reason}` },
-            { stage: 'native_metadata', pi_id: piId },
-          );
-        }
-        const ref = meta.ref;
-
-        // Record the money fact first. Guarded against BOTH terminal states:
-        // one PI legitimately goes failed→succeeded when the buyer retries in
-        // the same PaymentSheet, and a refund must not be reopened as 'failed'.
-        const { error: failErr } = await supabase
-          .from('payments')
-          .update({ status: 'failed' })
-          .eq('stripe_payment_intent_id', piId)
-          .neq('status', 'succeeded')
-          .neq('status', 'refunded');
-        if (failErr) {
-          return await finishDecision(
-            { ack: false, alert: true, reason: 'native_payment_fail_mark_error' },
-            { stage: 'native_fail_mark', pi_id: piId, order_id: ref.orderId },
-            new Error(failErr.message),
-          );
-        }
-
-        // SPEC §4: cancel the pending order ONLY on a TERMINAL PaymentIntent.
-        // A per-attempt decline cancels NOTHING — §3.1's retry contract lets
-        // the buyer re-confirm the same PI in the same sheet, and cancelling
-        // the order would destroy an order still being paid for. Capacity
-        // returns via the §20.3.3 hold-TTL sweep, not from here: 082 persists
-        // no order→hold linkage to release directly.
-        if (!isTerminalPaymentIntent(paymentIntent)) {
-          console.log('Webhook: native_primary payment attempt failed, order left pending', {
-            pi_id: piId, order_id: ref.orderId, pi_status: paymentIntent?.status ?? null,
-          });
-          return await finishDecision(
-            { ack: true, alert: false, reason: 'native_attempt_failed_order_pending' },
-            { order_id: ref.orderId, pi_id: piId },
-          );
-        }
-
-        const { data: cancelData, error: cancelErr } = await venueService().rpc('cancel_pending_order', {
-          p_order_id:    ref.orderId,
-          p_reason_code: CANCEL_REASON_PAYMENT_FAILED,
-          p_command_key: buildCancelCommandKey(ref.orderId, piId),
-        });
-
-        if (cancelErr) {
-          const decision = classifyCancelError(cancelErr);
-          console.error('Webhook: cancel_pending_order failed', {
-            order_id: ref.orderId, pi_id: piId, code: cancelErr.code,
-            reason: decision.reason, ack: decision.ack, message: cancelErr.message,
-          });
-          return await finishDecision(
-            decision,
-            { stage: 'cancel_pending_order', order_id: ref.orderId, pi_id: piId },
-            new Error(cancelErr.message),
-          );
-        }
-
-        const cancelStatus = (cancelData as { status?: string } | null)?.status ?? 'cancelled';
-        console.log('Webhook: native primary order cancelled', {
-          order_id: ref.orderId, pi_id: piId, status: cancelStatus,
-        });
-        return await finishDecision(
-          { ack: true, alert: false, reason: `native_order_${cancelStatus}` },
-          { order_id: ref.orderId, pi_id: piId },
+        sendPush(
+          metadata.buyer_id,
+          'Payment Confirmed!',
+          `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
+          { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
+        );
+        sendPush(
+          metadata.seller_id,
+          'Your ticket sold!',
+          `Send the transfer now for ${listingTitle}.`,
+          { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
         );
       }
 
-      if (event.type === 'payment_intent.canceled') {
-        // Legacy rail, unchanged from the pre-existing terminal `else`: ack only.
-        console.log('Webhook: unhandled event type (ack only)', { event_type: event.type });
-        await markProcessed();
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
-      }
+      return await finish(true, {
+        outcome:     settled.outcome,
+        payment_id:  settled.payment_id,
+        transfer_id: settled.transfer_id,
+      });
 
-      // ═══════════════════════════════════════════════════════════════════
-      // LEGACY RESALE payment_failed — byte-for-byte unchanged below.
-      // ═══════════════════════════════════════════════════════════════════
+    } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
       // Claim guard: Stripe does NOT guarantee event ordering, and one PI
       // legitimately goes failed→succeeded when the buyer retries in the
-      // same PaymentSheet. A late-arriving payment_failed must never
-      // overwrite a payment that already succeeded (which would freeze its
-      // payout and release the reservation on a sold listing) or one
-      // already refunded.
+      // same PaymentSheet. A late-arriving payment_failed / canceled must
+      // never overwrite a payment that already succeeded (which would freeze
+      // its payout and release the reservation on a sold listing) or one
+      // already refunded. One predicate, `status NOT IN (succeeded, refunded)`,
+      // so Package 3's transition guard (refunded is terminal) never fires.
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('stripe_payment_intent_id', piId)
-        .neq('status', 'succeeded')
-        .neq('status', 'refunded')
+        .not('status', 'in', '("succeeded","refunded")')
         .select('id, listing_id')
         .maybeSingle();
 
       if (lookupErr) {
-        console.error('Webhook: payment failed-update errored', piId, lookupErr);
-        await markProcessed({ error: `failed-update: ${lookupErr.message}` });
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        // The authoritative write did not happen; we do not know the row's
+        // state. Non-terminal — Stripe redelivers (used to be ACKed with 200).
+        console.error('Webhook: payment failed/canceled update errored', { pi_id: piId, event_type: event.type, error: lookupErr });
+        return await finish(false, { stage: 'payment_failed_update' }, `${event.type}: ${lookupErr.message}`);
       }
       if (!payment) {
         // No claimable row — unknown PI, or the payment already
-        // succeeded/refunded (out-of-order delivery). Benign no-op.
-        console.log('Webhook: payment_failed ignored (no claimable row)', { pi_id: piId });
-        await markProcessed();
-        return new Response(JSON.stringify({ received: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) },
-        });
+        // succeeded/refunded/failed (out-of-order or duplicate delivery).
+        // Benign no-op: genuinely nothing left to do.
+        console.log('Webhook: payment_failed/canceled ignored (no claimable row)', { pi_id: piId, event_type: event.type });
+        return await finish(true, { skipped: 'no_claimable_row' });
       }
 
       if (metadata.mode === 'buy_now') {
+        // Free the Buy-Now hold so the listing is purchasable again. Best
+        // effort with a bounded backstop: the reservation is server-owned
+        // (10-minute TTL, Package 1) and cleanup_expired_reservations frees
+        // it when it lapses, so a failure here is logged, not retried — a
+        // retry could not redo the failed-write above (already claimed) and
+        // release_reservation is a no-op once the hold is gone.
         const { error: rpcErr } = await supabase.rpc('release_reservation', {
           p_listing_id: metadata.listing_id,
           p_user_id:    metadata.buyer_id,
@@ -1303,7 +410,7 @@ serve(async (req: Request) => {
           console.log('Webhook: release_reservation succeeded', { listing_id: metadata.listing_id });
         }
       }
-      await markProcessed();
+      return await finish(true, { path: event.type === 'payment_intent.canceled' ? 'canceled' : 'payment_failed', payment_id: payment.id });
 
     // ─────────────────────────────────────────────────────────────────────
     // P1-02 — Full event coverage with dedup at the top of the handler.
@@ -1318,14 +425,6 @@ serve(async (req: Request) => {
     // ─────────────────────────────────────────────────────────────────────
 
     } else if (event.type === 'charge.dispute.created') {
-      // ═══ NATIVE PRIMARY arm FIRST (KH §4.5) — the legacy arm below is unchanged ═══
-      // A native `ack:false` returns 500 here, before the legacy arm runs; a
-      // native ACK (with or without alert) lets the legacy arm run and answer.
-      {
-        const native = await runNativeDisputeArm('created');
-        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
-        if (native) await alertDecision(native.decision, native.body, native.cause);
-      }
       // ── P1-02: real dispute handling + transfer freeze ────────────────
       // event.data.object is a Stripe Dispute, NOT a PaymentIntent.
       const dispute = event.data.object as {
@@ -1370,9 +469,15 @@ serve(async (req: Request) => {
             const { data: frozen, error: freezeErr } = await supabase
               .rpc('freeze_transfer_for_dispute', { p_transfer_id: transferId });
             if (freezeErr) {
+              // Review round 2 (MINOR-5): a dispute we could not freeze is NOT
+              // done — the transfer stays releasable while the dispute is open.
+              // Answer non-2xx so Stripe redelivers; the upsert below is
+              // idempotent and the lease is released by finish().
               console.error('Webhook: dispute transfer freeze failed:', {
                 transfer_id: transferId, dispute_id: dispute.id, error: freezeErr,
               });
+              return await finish(false, { dispute_id: dispute.id, transfer_id: transferId },
+                `dispute freeze: ${freezeErr.message}`);
             } else if (!frozen) {
               // Not an error: the row was paid out or already frozen between
               // our read above and this call.
@@ -1411,7 +516,9 @@ serve(async (req: Request) => {
           new Error(`dispute upsert failed: ${upsertErr.message}`),
           { dispute_id: dispute.id, charge_id: dispute.charge, payment_id: paymentId, transfer_id: transferId },
         );
-        await markProcessed({ error: `dispute upsert: ${upsertErr.message}` });
+        // Package 3: a dispute we failed to record is NOT done — answer
+        // non-2xx so Stripe redelivers (the lease is released by finish).
+        return await finish(false, { dispute_id: dispute.id }, `dispute upsert: ${upsertErr.message}`);
       } else {
         console.log('Webhook: dispute recorded', {
           dispute_id: dispute.id, charge_id: dispute.charge, amount: dispute.amount,
@@ -1422,119 +529,240 @@ serve(async (req: Request) => {
         await markProcessed();
       }
 
-    } else if (
-      event.type === 'charge.dispute.updated' ||
-      event.type === 'charge.dispute.funds_withdrawn' ||
-      event.type === 'charge.dispute.funds_reinstated'
-    ) {
-      // ═══ NEW BRANCH — native status sync (KH P2-4). No legacy write exists
-      // for these types: before this branch they fell to the terminal `else`
-      // (ack only), and for the legacy rail they still do, verbatim below. ═══
-      {
-        const native = await runNativeDisputeArm('updated');
-        if (native) return await finishDecision(native.decision, native.body, native.cause);
-      }
-      console.log('Webhook: unhandled event type (ack only)', { event_type: event.type });
-      await markProcessed();
-
     } else if (event.type === 'charge.dispute.closed') {
-      // ═══ NATIVE PRIMARY arm FIRST (KH §4.5) — the legacy arm below is unchanged ═══
-      {
-        const native = await runNativeDisputeArm('closed');
-        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
-        if (native) await alertDecision(native.decision, native.body, native.cause);
-      }
-      // ── P1-02: dispute outcome sync ───────────────────────────────────
+      // ── Package 3 (20260906120000): dispute outcome sync ───────────────
+      // A LOST dispute is a chargeback: recorded through record_payment_refund
+      // with the DISPUTE id (never as stripe_refund_id), monotonic amount, and
+      // if the seller was already paid the attempt is flagged
+      // reversal_required + manual_review DISPUTE_LOST_AFTER_PAYOUT for ops.
+      // A dispute we never recorded (missed .created) is reconciled from this
+      // event, not dropped. Every DB failure answers non-2xx (Stripe retries).
       const dispute = event.data.object as {
         id:     string;
         charge: string;
         payment_intent?: string | null;
+        amount?: number;
+        currency?: string;
+        reason?: string;
         status: string; // 'won' | 'lost' | 'warning_closed' | 'charge_refunded'
       };
 
-      // Update our disputes row's status.
-      const { data: ourDispute, error: lookupErr } = await supabase
-        .from('disputes')
-        .update({ status: dispute.status })
-        .eq('stripe_dispute_id', dispute.id)
-        .select('id, payment_id, transfer_id')
-        .maybeSingle();
-      if (lookupErr) {
-        console.error('Webhook: dispute status update failed:', lookupErr);
-        await markProcessed({ error: `dispute close update: ${lookupErr.message}` });
-      } else if (!ourDispute) {
-        console.warn('Webhook: dispute.closed for unknown dispute_id', { dispute_id: dispute.id });
-        await markProcessed();
-      } else {
-        // Won (rare under marketplace rules) → resume payout path.
-        // Lost (most common) → ops decides between transfer-reversal (if
-        // already paid out) or simply mark the payment refunded.
-        // Don't make autonomous money moves here. Just sync state.
-        if (dispute.status === 'lost' && ourDispute.payment_id) {
-          const { error: payErr } = await supabase
-            .from('payments')
-            .update({ status: 'refunded', refunded_at: new Date().toISOString() })
-            .eq('id', ourDispute.payment_id)
-            .neq('status', 'refunded');
-          if (payErr) console.error('Webhook: payment refund mark failed:', payErr);
+      let ourDispute: { id: string; payment_id: string | null; transfer_id: string | null } | null = null;
+      {
+        const { data, error: lookupErr } = await supabase
+          .from('disputes')
+          .update({ status: dispute.status })
+          .eq('stripe_dispute_id', dispute.id)
+          .select('id, payment_id, transfer_id')
+          .maybeSingle();
+        if (lookupErr) {
+          console.error('Webhook: dispute status update failed:', lookupErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute close update: ${lookupErr.message}`);
         }
-        console.log('Webhook: dispute closed', {
-          dispute_id: dispute.id, status: dispute.status,
-          payment_id: ourDispute.payment_id, transfer_id: ourDispute.transfer_id,
-        });
-        await markProcessed();
+        ourDispute = data ?? null;
       }
 
-    } else if (event.type === 'charge.refunded') {
-      // ── P1-02: refund sync (e.g. manual Dashboard refund) ─────────────
-      const charge = event.data.object as {
-        payment_intent?: string | null;
-        refunds?: { data?: Array<{ id?: string }> };
-      };
-      if (charge.payment_intent) {
-        // Persist the Stripe refund id when the event payload carries it
-        // (audit trail: ties the DB row to the re_ object). Recent API
-        // versions omit charge.refunds by default, so this is best-effort.
-        const refundId = charge.refunds?.data?.[0]?.id ?? null;
-        const { error: refErr } = await supabase
-          .from('payments')
-          .update({
-            status: 'refunded',
-            refunded_at: new Date().toISOString(),
-            ...(refundId ? { stripe_refund_id: refundId } : {}),
-          })
-          .eq('stripe_payment_intent_id', charge.payment_intent)
-          .neq('status', 'refunded');
-        if (refErr) {
-          console.error('Webhook: refund sync failed:', refErr);
-          await markProcessed({ error: `refund sync: ${refErr.message}` });
-        } else {
-          console.log('Webhook: payment marked refunded', { pi_id: charge.payment_intent });
-          await markProcessed();
+      if (!ourDispute) {
+        // Unknown dispute: reconcile it from the event so the ledger is complete.
+        console.warn('Webhook: dispute.closed for unknown dispute_id — upserting from event', { dispute_id: dispute.id });
+        let paymentId: string | null = null;
+        let transferId: string | null = null;
+        if (dispute.payment_intent) {
+          const { data: payment, error: payLookupErr } = await supabase
+            .from('payments').select('id').eq('stripe_payment_intent_id', dispute.payment_intent).maybeSingle();
+          if (payLookupErr) {
+            return await finish(false, { dispute_id: dispute.id }, `dispute close payment lookup: ${payLookupErr.message}`);
+          }
+          paymentId = payment?.id ?? null;
+          if (paymentId) {
+            const { data: transfer, error: trLookupErr } = await supabase
+              .from('transfers').select('id').eq('payment_id', paymentId).maybeSingle();
+            if (trLookupErr) {
+              return await finish(false, { dispute_id: dispute.id }, `dispute close transfer lookup: ${trLookupErr.message}`);
+            }
+            transferId = transfer?.id ?? null;
+          }
         }
-      } else {
+        const { error: upsertErr } = await supabase.from('disputes').upsert({
+          stripe_dispute_id: dispute.id,
+          stripe_charge_id:  dispute.charge,
+          stripe_pi_id:      dispute.payment_intent ?? null,
+          payment_id:        paymentId,
+          transfer_id:       transferId,
+          amount:            dispute.amount ?? 0,
+          currency:          dispute.currency ?? 'usd',
+          reason:            dispute.reason ?? 'unknown',
+          status:            dispute.status,
+        }, { onConflict: 'stripe_dispute_id' });
+        if (upsertErr) {
+          console.error('Webhook: dispute.closed upsert failed:', upsertErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute close upsert: ${upsertErr.message}`);
+        }
+        ourDispute = { id: dispute.id, payment_id: paymentId, transfer_id: transferId };
+      }
+
+      if (dispute.status === 'lost' && ourDispute.payment_id) {
+        // Resolve the PI id (event first, our payments row as fallback).
+        let piId: string | null = dispute.payment_intent ?? null;
+        if (!piId) {
+          const { data: pay, error: piErr } = await supabase
+            .from('payments').select('stripe_payment_intent_id').eq('id', ourDispute.payment_id).maybeSingle();
+          if (piErr) return await finish(false, { dispute_id: dispute.id }, `dispute lost payment lookup: ${piErr.message}`);
+          piId = pay?.stripe_payment_intent_id ?? null;
+        }
+        if (!piId) {
+          return await finish(false, { dispute_id: dispute.id }, 'dispute lost: payment has no payment_intent id');
+        }
+        const { data: refundRes, error: refundErr } = await supabase.rpc('record_payment_refund', {
+          p_payment_intent_id: piId,
+          p_stripe_refund_id:  null,
+          p_stripe_dispute_id: dispute.id,
+          p_amount_cents:      typeof dispute.amount === 'number' ? dispute.amount : null,
+          p_source:            'dispute_lost',
+        });
+        if (refundErr) {
+          console.error('Webhook: dispute lost — record_payment_refund failed:', refundErr);
+          return await finish(false, { dispute_id: dispute.id }, `dispute lost refund record: ${refundErr.message}`);
+        }
+        console.log('Webhook: dispute lost — chargeback recorded', { dispute_id: dispute.id, result: refundRes });
+
+        // Seller already paid? The transfer must be reversed by an operator.
+        if (ourDispute.transfer_id) {
+          const { data: tr, error: trErr } = await supabase
+            .from('transfers').select('id, payout_released_at, stripe_transfer_id')
+            .eq('id', ourDispute.transfer_id).maybeSingle();
+          if (trErr) return await finish(false, { dispute_id: dispute.id }, `dispute lost transfer lookup: ${trErr.message}`);
+          if (tr && (tr.payout_released_at || tr.stripe_transfer_id)) {
+            const { data: flagged, error: flagErr } = await supabase.rpc('flag_payout_reversal_required', {
+              p_transfer_id: ourDispute.transfer_id,
+              p_reason_code: 'DISPUTE_LOST_AFTER_PAYOUT',
+              p_evidence:    { dispute_id: dispute.id, dispute_amount: dispute.amount ?? null },
+            });
+            if (flagErr) {
+              console.error('Webhook: dispute lost — flag_payout_reversal_required failed:', flagErr);
+              return await finish(false, { dispute_id: dispute.id }, `dispute lost reversal flag: ${flagErr.message}`);
+            }
+            console.error('Webhook: dispute LOST after payout — reversal required', {
+              dispute_id: dispute.id, transfer_id: ourDispute.transfer_id, flagged,
+            });
+          }
+        }
+      }
+      console.log('Webhook: dispute closed', {
+        dispute_id: dispute.id, status: dispute.status,
+        payment_id: ourDispute.payment_id, transfer_id: ourDispute.transfer_id,
+      });
+      await markProcessed();
+
+    } else if (event.type === 'charge.refunded') {
+      // ── Package 3 (20260906120000): refund sync ───────────────────────
+      // Fires for partial AND full refunds. Each Stripe refund object is
+      // recorded through record_payment_refund (idempotent on re_ id, monotonic
+      // amount_refunded_cents); the payment becomes 'refunded' only when the
+      // refunded amount reaches its total — i.e. when charge.refunded is true.
+      // Recent API versions omit charge.refunds: fetch the charge with
+      // expand[]=refunds rather than guessing. DB/Stripe failures → non-2xx.
+      const charge = event.data.object as {
+        id: string;
+        payment_intent?: string | null;
+        refunded?: boolean;
+        amount_refunded?: number;
+        refunds?: { data?: Array<{ id?: string; amount?: number; metadata?: Record<string, string> }> };
+      };
+      if (!charge.payment_intent) {
         console.warn('Webhook: charge.refunded with no payment_intent', { event_id: event.id });
+        await markProcessed();
+      } else {
+        let refunds = charge.refunds?.data;
+        if (!refunds) {
+          const probe = await stripeFetchRaw(`/charges/${charge.id}?expand[]=refunds`);
+          if (!probe.ok) {
+            const msg = (probe.data as { error?: { message?: string } })?.error?.message ?? `HTTP ${probe.status}`;
+            console.error('Webhook: charge.refunded — charge fetch failed:', { charge_id: charge.id, error: msg });
+            return await finish(false, { charge_id: charge.id }, `refund sync charge fetch: ${msg}`);
+          }
+          refunds = (probe.data as typeof charge).refunds?.data ?? [];
+        }
+        const results: unknown[] = [];
+        for (const r of refunds) {
+          if (!r?.id) continue;
+          const source = r.metadata?.source?.startsWith('enforce-transfer-expiry') ? 'expiry' : 'dashboard';
+          const { data: res, error: refErr } = await supabase.rpc('record_payment_refund', {
+            p_payment_intent_id: charge.payment_intent,
+            p_stripe_refund_id:  r.id,
+            p_stripe_dispute_id: null,
+            p_amount_cents:      typeof r.amount === 'number' ? r.amount : null,
+            p_source:            source,
+          });
+          if (refErr) {
+            console.error('Webhook: refund sync failed:', { refund_id: r.id, error: refErr });
+            return await finish(false, { charge_id: charge.id, refund_id: r.id }, `refund sync: ${refErr.message}`);
+          }
+          results.push(res);
+        }
+        const last = results.at(-1) as { status?: string; payment_id?: string | null } | undefined;
+        if (charge.refunded === true && last?.payment_id && last.status !== 'refunded') {
+          console.warn('Webhook: charge fully refunded on Stripe but the recorded amount is below total', {
+            pi_id: charge.payment_intent, amount_refunded: charge.amount_refunded, result: last,
+          });
+        }
+        console.log('Webhook: refunds recorded', { pi_id: charge.payment_intent, count: results.length, refunded: charge.refunded === true });
         await markProcessed();
       }
 
     } else if (event.type === 'transfer.created') {
-      // ── P1-02: ops observability for seller-net Transfer creation ─────
-      // confirm-and-release / enforce-transfer-expiry already wrote
-      // stripe_transfer_id on our transfers row before Stripe fires this
-      // event. We just log for ops; no state change needed.
-      const tr = event.data.object as { id: string; amount: number; destination?: string };
-      console.log('Webhook: stripe Transfer created', {
-        stripe_transfer_id: tr.id, amount: tr.amount, destination: tr.destination,
-      });
-      await markProcessed();
+      // ── Package 3 (20260906120000): record the attempt from Stripe's side ─
+      // Every payout this package creates carries metadata[attempt_id]. If the
+      // edge crashed between the POST and record_payout_attempt_result, this
+      // event records it (idempotent: unique stripe_transfer_id, same-id replay
+      // is a no-op). Legacy transfers without an attempt id are logged only.
+      const tr = event.data.object as { id: string; amount: number; destination?: string; metadata?: Record<string, string> };
+      const attemptId = tr.metadata?.attempt_id ?? null;
+      if (!attemptId) {
+        console.log('Webhook: stripe Transfer created (no attempt id — legacy)', {
+          stripe_transfer_id: tr.id, amount: tr.amount, destination: tr.destination,
+        });
+        await markProcessed();
+      } else {
+        const { data: recorded, error: recErr } = await supabase.rpc('record_payout_attempt_result', {
+          p_attempt_id:         attemptId,
+          p_stripe_transfer_id: tr.id,
+          p_outcome:            'succeeded',
+          p_error:              { source: 'webhook:transfer.created', event_id: event.id },
+        });
+        if (recErr) {
+          // Review round 1 MINOR-5: an attempt id we do not know (a rollback
+          // that destroyed payout_attempts, or a hand-made transfer carrying
+          // our metadata) is not transient — retrying it for 3 days helps
+          // nobody. Record it ONCE as a review row and acknowledge; only a
+          // failure to write that row keeps the event retryable.
+          if (/\bATTEMPT_NOT_FOUND\b/.test(recErr.message ?? '')) {
+            const { error: reviewErr } = await supabase.from('webhook_retries').insert({
+              payment_id:    null,
+              listing_id:    null,
+              rpc_name:      'transfer.created',
+              error_message: `ATTEMPT_NOT_FOUND:${attemptId}:${tr.id}`,
+              resolved:      false,
+            });
+            if (reviewErr) {
+              console.error('Webhook: transfer.created — ATTEMPT_NOT_FOUND and the review row could not be written:', reviewErr);
+              return await finish(false, { stripe_transfer_id: tr.id, attempt_id: attemptId }, `transfer created review row: ${reviewErr.message}`);
+            }
+            console.warn('Webhook: transfer.created — unknown attempt id, queued for review', {
+              stripe_transfer_id: tr.id, attempt_id: attemptId, amount: tr.amount, destination: tr.destination,
+            });
+            return await finish(true, { stripe_transfer_id: tr.id, attempt_id: attemptId, review: 'ATTEMPT_NOT_FOUND' });
+          }
+          console.error('Webhook: transfer.created — record_payout_attempt_result failed:', recErr);
+          return await finish(false, { stripe_transfer_id: tr.id, attempt_id: attemptId }, `transfer created record: ${recErr.message}`);
+        }
+        console.log('Webhook: stripe Transfer created — attempt recorded', {
+          stripe_transfer_id: tr.id, attempt_id: attemptId, amount: tr.amount, destination: tr.destination, result: recorded,
+        });
+        await markProcessed();
+      }
 
     } else if (event.type === 'transfer.reversed') {
-      // ═══ NATIVE routing FIRST (KH §4.6, DESIGN §2.2) — legacy arm below unchanged ═══
-      {
-        const native = await runNativeTransferReversedArm();
-        if (native && !native.decision.ack) return await finishDecision(native.decision, native.body, native.cause);
-        if (native) await alertDecision(native.decision, native.body, native.cause);
-      }
       // ── P1-02: mark our transfer 'reversed' when Stripe reverses ──────
       const tr = event.data.object as { id: string; amount_reversed?: number };
       // mark_transfer_reversed (migration 056a) carries the same
@@ -1545,7 +773,7 @@ serve(async (req: Request) => {
         .rpc('mark_transfer_reversed', { p_stripe_transfer_id: tr.id });
       if (revErr) {
         console.error('Webhook: transfer.reversed mark failed:', revErr);
-        await markProcessed({ error: `transfer reverse: ${revErr.message}` });
+        return await finish(false, { stripe_transfer_id: tr.id }, `transfer reverse: ${revErr.message}`);
       } else if (!reversed) {
         console.log('Webhook: transfer.reversed no-op (unknown transfer id or already reversed)', {
           stripe_transfer_id: tr.id,
@@ -1636,115 +864,15 @@ serve(async (req: Request) => {
         });
         await markProcessed({ error: `account.updated profile update: ${profileErr.message}` });
       } else {
-        // ═══════════════════════════════════════════════════════════════
-        // ORGANIZATION ARM (ruling A6/A8 · 093 §2).
-        //
-        // The individual-seller arm above is unchanged and still runs first.
-        // What changes is what happens when it matches NOTHING: that used to
-        // be logged as `matched_profiles: 0` inside a success line, which is
-        // exactly how an ORGANIZATION Connect account got created and then
-        // never monitored again — no capability loss ever reached Postgres,
-        // and 093 §3's checkout gate read a column nothing wrote.
-        //
-        // `transfers_active` is derived from `capabilities.transfers`, NEVER
-        // from charges_enabled/payouts_enabled. connect-onboarding requests
-        // `transfers` and deliberately NOT `card_payments` (:544), so
-        // `charges_enabled` is false forever on a correct org account and a
-        // gate built on it would keep every venue dark permanently.
-        // ═══════════════════════════════════════════════════════════════
-        const accountMetadata = (account as { metadata?: Record<string, unknown> }).metadata ?? {};
-        const plane = selectAccountPlane(accountMetadata);
-        const transfersActive = deriveTransfersActive(account);
-        let orgArm: OrgArmOutcome = 'skipped';
-        let orgSyncDecision: Decision | null = null;
-        let orgSyncCause: Error | null = null;
-
-        if (plane.organization) {
-          if (!isConnectAccountRef(accountId)) {
-            // The RPC refuses a malformed ref outright; refusing here keeps the
-            // refusal legible and costs no round trip.
-            orgArm = 'refused';
-            orgSyncDecision = { ack: true, alert: true, reason: 'org_sync_malformed_account_ref' };
-          } else {
-            // p_observed_at is the EVENT's instant, not now(): that is what
-            // makes 093:1352-1360's out-of-order guard work. A redelivered
-            // stale event must not present itself as a fresher observation.
-            const { data: syncData, error: syncErr } = await kernelService().rpc('sync_org_connect_state', {
-              p_org_id:              plane.orgId,
-              p_connect_account_ref: accountId,
-              p_transfers_active:    transfersActive,
-              p_observed_at:         observedAtIso(event.created),
-              p_command_key:         buildOrgSyncCommandKey(event.id),
-            });
-
-            if (syncErr) {
-              orgSyncDecision = classifyOrgSyncError(syncErr);
-              orgSyncCause = new Error(syncErr.message);
-              orgArm = orgSyncDecision.reason === 'org_sync_org_not_bound'
-                ? 'org_not_bound'
-                : (orgSyncDecision.ack ? 'refused' : 'failed');
-              console.error('Webhook: sync_org_connect_state failed', {
-                account_id: accountId, org_id: plane.orgId, code: syncErr.code,
-                reason: orgSyncDecision.reason, ack: orgSyncDecision.ack, message: syncErr.message,
-              });
-            } else {
-              const status = (syncData as { status?: string } | null)?.status ?? 'ok';
-              orgArm = status === 'noop_replay' ? 'noop_replay' : 'ok';
-              console.log('Webhook: org connect state synced', {
-                account_id:        accountId,
-                org_id:            (syncData as { org_id?: string } | null)?.org_id ?? plane.orgId,
-                transfers_active:  transfersActive,
-                status,
-              });
-            }
-          }
-        }
-
-        const matchedProfiles = updatedProfiles?.length ?? 0;
-        const outcome = decideAccountUpdatedOutcome(matchedProfiles, orgArm);
-
-        // Preserve the pre-existing success line verbatim, then say which
-        // plane(s) actually took the write. `matched: 'none'` is no longer a
-        // success line — it is an alert.
-        const summary = {
+        console.log('Webhook: account.updated synced', {
           account_id:           accountId,
           onboarding_complete:  onboardingComplete,
           details_submitted:    account.details_submitted ?? false,
           charges_enabled:      account.charges_enabled ?? false,
           payouts_enabled:      account.payouts_enabled ?? false,
-          matched_profiles:     matchedProfiles,
-          // Ruling A8's actual operand.
-          transfers_active:     transfersActive,
-          org_plane:            plane.organization,
-          org_id:               plane.orgId,
-          org_arm:              orgArm,
-          matched:              outcome.matched,
-        };
-        if (outcome.alert) console.error('Webhook: account.updated UNMATCHED or contested', summary);
-        else console.log('Webhook: account.updated synced', summary);
-
-        // A transient org-sync failure is the one case worth retrying: losing a
-        // capability-LOST observation leaves an organization selling tickets it
-        // can no longer be paid for. Both arms are idempotent, so redelivery
-        // re-runs them safely.
-        if (orgSyncDecision && !orgSyncDecision.ack) {
-          return await finishDecision(
-            orgSyncDecision,
-            { stage: 'sync_org_connect_state', account_id: accountId, org_id: plane.orgId },
-            orgSyncCause ?? undefined,
-          );
-        }
-
-        // ACK CONTRACT PRESERVED: Stripe always gets a 2xx here. The alert is
-        // what makes a zero match visible, not the status code.
-        return await finishDecision(
-          { ack: true, alert: outcome.alert, reason: outcome.reason },
-          {
-            account_id: accountId, matched: outcome.matched,
-            org_arm: orgArm, transfers_active: transfersActive,
-          },
-          orgSyncCause ?? undefined,
-        );
+          matched_profiles:     updatedProfiles?.length ?? 0,
+        });
+        await markProcessed();
       }
 
     } else {

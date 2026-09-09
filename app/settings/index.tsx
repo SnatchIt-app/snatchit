@@ -1,37 +1,30 @@
 /**
- * app/settings/index.tsx — Settings Hub
+ * app/settings/index.tsx — Settings hub (V2).
  *
- * Navigated to from Profile header gear icon.
- * Groups all setting routes into labelled sections.
+ * PRESENTATION rebuilt on the V2 account primitives (AccountSection + SettingsRow,
+ * no emoji, no cards); ALL behaviour is unchanged. The OR-17 tombstone deletion
+ * machine keeps its tri-state (unknown / pending / active) read from the caller's
+ * own kernel.identity_ext row, the probe-failed retry, the withdraw flow, the
+ * AppState foreground re-check, the sign-out confirm, and the double-confirm
+ * delete-account flow — every edge-function call and confirmation is preserved. A
+ * failed probe is still never read as "not pending".
  *
- * Sections:
- *   ACCOUNT    — Edit Profile, Notifications
- *   PAYMENTS   — Payout Method
- *   PREFERENCES— Neighborhood
- *   SUPPORT    — Help & Support, Terms & Privacy
- *   DANGER     — Log Out
+ * The settings SUB-screens (edit profile, notifications, preferences, blocked
+ * users, payout setup, legal, privacy, support) are separate routes and keep their
+ * current UI this batch; the hub only links to them.
  */
 
 import { router } from 'expo-router';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { Button, IconButton } from '@/src/components/ui';
+import { AccountSection } from '@/src/components/account/AccountSection';
+import { SettingsRow } from '@/src/components/account/SettingsRow';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 
 type SettingsRoute =
   | '/settings/edit-profile'
@@ -44,73 +37,16 @@ type SettingsRoute =
   | '/settings/privacy'
   | '/settings/blocked-users';
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-/** Section header label */
-function SectionLabel({ text }: { text: string }) {
-  return <Text style={s.sectionLabel}>{text}</Text>;
-}
-
-/** A single tappable settings row */
-function SettingsRow({
-  icon,
-  label,
-  onPress,
-  showBorder = true,
-}: {
-  icon:        string;
-  label:       string;
-  onPress:     () => void;
-  showBorder?: boolean;
-}) {
-  return (
-    <Pressable
-      style={[row.container, !showBorder && row.noBorder]}
-      onPress={onPress}
-      android_ripple={{ color: colors.primarySoft }}
-    >
-      <Text style={row.icon}>{icon}</Text>
-      <Text style={row.label}>{label}</Text>
-      <Text style={row.chevron}>›</Text>
-    </Pressable>
-  );
-}
-
-const row = StyleSheet.create({
-  container: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    paddingVertical:   spacing.md,
-    paddingHorizontal: spacing.md,
-    gap:               spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  noBorder: { borderBottomWidth: 0 },
-  icon:     { fontSize: 18, width: 24, textAlign: 'center' },
-  label:    { flex: 1, fontSize: fontSize.md, color: colors.text, fontWeight: '500' },
-  chevron:  { color: colors.textMuted, fontSize: fontSize.lg, fontWeight: '300' },
-});
-
-/** Card container that wraps a group of rows */
-function SettingsCard({ children }: { children: React.ReactNode }) {
-  return <View style={s.card}>{children}</View>;
-}
-
-// ─── Screen ───────────────────────────────────────────────────────────────────
-
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
+
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // OR-17 tombstone deletion machine (Phase-2 cutover, 2026-09-02): own
-  // deletion state, read from the caller's own kernel.identity_ext row
-  // (owner-scoped SELECT policy; requires the kernel schema to be exposed via
-  // PostgREST — live since the dark-substrate deploy). Pre-cutover backends
-  // make the probe throw; we then show nothing, exactly like before.
-  // Tri-state on purpose. A failed probe must NOT be read as "not pending":
-  // the banner is the only route to withdrawing a deletion request, so hiding
-  // it on a network blip would strand the user with no way to cancel.
-  // 'unknown' keeps whatever we last knew and offers a retry instead.
+
+  // OR-17 tombstone deletion machine. Tri-state ON PURPOSE: a failed probe must
+  // NOT be read as "not pending" — the banner is the only route to withdrawing,
+  // so hiding it on a blip would strand the user. 'unknown' holds the last view
+  // and offers a retry.
   type DeletionView = 'unknown' | 'pending' | 'active';
   const [deletionView, setDeletionView] = useState<DeletionView>('unknown');
   const [deletionProbeFailed, setDeletionProbeFailed] = useState(false);
@@ -127,24 +63,12 @@ export default function SettingsScreen() {
         .select('deletion_state')
         .eq('identity_id', user.id)
         .maybeSingle();
-      if (error) {
-        // Could not read. Hold the previous view and show a retry.
-        setDeletionProbeFailed(true);
-        return;
-      }
+      if (error) { setDeletionProbeFailed(true); return; }
       setDeletionProbeFailed(false);
-      if (ext?.deletion_state === 'DELETION_PENDING') {
-        setDeletionView('pending');
-        return;
-      }
-      // A null row is ambiguous: identity_ext is lazy-created, so "no row"
-      // legitimately means active, but an expired session or a policy miss also
-      // returns null with no error. Never let that ambiguity CANCEL a banner we
-      // have already shown, because the banner is the only route to withdrawing.
-      if (!ext && deletionView === 'pending') {
-        setDeletionProbeFailed(true);
-        return;
-      }
+      if (ext?.deletion_state === 'DELETION_PENDING') { setDeletionView('pending'); return; }
+      // A null row is ambiguous (lazy-created row, expired session, policy miss).
+      // Never let that CANCEL a banner already shown.
+      if (!ext && deletionView === 'pending') { setDeletionProbeFailed(true); return; }
       setDeletionView('active');
     } catch {
       setDeletionProbeFailed(true);
@@ -153,8 +77,6 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     refreshDeletionState();
-    // Re-check when the app returns to the foreground: a pending request can be
-    // resolved by the sweep while the user is away.
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') refreshDeletionState();
     });
@@ -164,9 +86,7 @@ export default function SettingsScreen() {
   async function handleWithdrawDeletion() {
     setWithdrawing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('delete-account', {
-        body: { action: 'withdraw' },
-      });
+      const { data, error } = await supabase.functions.invoke('delete-account', { body: { action: 'withdraw' } });
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
       if (error || parsed?.error) {
         alertWeb(parsed?.error ?? 'Could not withdraw the deletion request. Please try again.');
@@ -187,18 +107,18 @@ export default function SettingsScreen() {
   }
 
   function nav(path: SettingsRoute) {
-    // The new "/settings/blocked-users" route hasn't been picked up by
-    // expo-router's typed-route manifest until the next dev-server
-    // start / prebuild — cast through `any` so this compiles today.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     router.push(path as any);
   }
 
+  function alertWeb(msg: string) {
+    if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
+  }
+
   async function handleSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: 'Sign out',
         style: 'destructive',
         onPress: async () => {
           setSigningOut(true);
@@ -206,8 +126,6 @@ export default function SettingsScreen() {
             await supabase.auth.signOut();
             router.replace('/(auth)/login');
           } catch {
-            // Sign-out errors are surfaced to the user via the alert below.
-            // The full error is captured by Sentry's auth state listener.
             alertWeb('Failed to sign out. Please try again.');
           } finally {
             setSigningOut(false);
@@ -217,15 +135,41 @@ export default function SettingsScreen() {
     ]);
   }
 
-  function alertWeb(msg: string) {
-    if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
+  // Human labels for the live-rail obligation tokens returned by delete-account
+  // (public.account_deletion_blockers → { kind, ref_id }). Unknown kinds fall
+  // back to the token itself.
+  const OBLIGATION_LABELS: Record<string, string> = {
+    pending_payment: 'a payment that is still processing',
+    paid_no_transfer: 'a paid order whose ticket transfer has not been created',
+    active_transfer: 'a ticket transfer that has not completed',
+    unsettled_transfer: 'a ticket transfer that has not completed',
+    unpaid_seller_obligation: 'a seller payout that has not been paid',
+    pending_refund: 'a refund that is still processing',
+    reversal_required: 'a payout under review',
+    open_manual_review: 'a payout under review',
+  };
+  function notifyDeletionAccepted(parsed: any): Promise<void> {
+    const raw: unknown = parsed?.pending_obligations;
+    const kinds: string[] = Array.isArray(raw)
+      ? raw.map((o: any) => (typeof o === 'string' ? o : String(o?.kind ?? ''))).filter(Boolean)
+      : [];
+    const labels = Array.from(new Set(kinds.map((k) => OBLIGATION_LABELS[k] ?? k)));
+    const title = 'Deletion request accepted';
+    const body = labels.length > 0
+      ? `Your account will be deleted automatically once the following settle:\n\n• ${labels.join('\n• ')}\n\nUntil then you can sign back in at any time to check on it or withdraw the request. You will be signed out now.`
+      : 'Nothing is pending, so your account will be deleted automatically within a few minutes. You will be signed out now.';
+    if (Platform.OS === 'web') {
+      window.alert(`${title}\n\n${body}`);
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, body, [{ text: 'OK', onPress: () => resolve() }], { cancelable: false, onDismiss: () => resolve() });
+    });
   }
-
   async function executeDeleteAccount() {
     setDeleting(true);
     try {
       const { data, error } = await supabase.functions.invoke('delete-account', { body: {} });
-
       if (error) {
         let reason = 'Failed to delete account. Please try again or contact support.';
         try {
@@ -238,14 +182,18 @@ export default function SettingsScreen() {
         alertWeb(reason);
         return;
       }
-
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
       if (parsed?.error) {
         alertWeb(parsed.error);
         return;
       }
 
-      // Success — sign out locally and navigate immediately
+      // Accepted (OR-17: a request is always accepted). Say so, and say what is
+      // still pending BEFORE signing out: the terminal step waits for every
+      // money obligation to settle (option B, PFA-32) and the person must know
+      // completion is not immediate. `pending_obligations` is additive — an
+      // older edge simply omits it.
+      await notifyDeletionAccepted(parsed);
       await supabase.auth.signOut();
       router.replace('/(auth)/login');
     } catch {
@@ -268,12 +216,12 @@ export default function SettingsScreen() {
       executeDeleteAccount();
     } else {
       Alert.alert(
-        'Delete Account',
+        'Delete account',
         'This submits an account deletion request. Active listings will be cancelled and you will be signed out. While the request is pending you can sign back in and withdraw it from Settings.\n\nUntil it completes you can withdraw it from Settings. After it completes this cannot be undone.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Delete My Account',
+            text: 'Delete my account',
             style: 'destructive',
             onPress: () => {
               Alert.alert(
@@ -281,11 +229,7 @@ export default function SettingsScreen() {
                 'Once the deletion request completes, this account can no longer be used to sign in.',
                 [
                   { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Yes, Request Deletion',
-                    style: 'destructive',
-                    onPress: executeDeleteAccount,
-                  },
+                  { text: 'Yes, request deletion', style: 'destructive', onPress: executeDeleteAccount },
                 ],
               );
             },
@@ -296,233 +240,107 @@ export default function SettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={s.safe}>
-
-      {/* ── Top bar ───────────────────────────────────────────────────────── */}
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>←</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Settings</Text>
-        <View style={s.backBtn} />
+    <View style={s.root}>
+      {/* ── Header ──────────────────────────────────────────── */}
+      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Settings</Text>
+        <View style={s.headerSpacer} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={s.scrollBody}
-        showsVerticalScrollIndicator={false}
-      >
-
-        {deletionProbeFailed && !deletionPending && (
-          <View style={{ borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, padding: 12, marginBottom: 16 }}>
-            <Text style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-              We could not check your account status.
-            </Text>
-            <Pressable onPress={refreshDeletionState}>
-              <Text style={{ color: '#FF1A1A', fontWeight: '700' }}>Retry</Text>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        {/* ── Deletion banners ──────────────────────────────── */}
+        {deletionProbeFailed && !deletionPending ? (
+          <View style={s.probeBanner} accessibilityRole="alert">
+            <Text style={[textStyle('bodySm'), s.probeText]}>We could not check your account status.</Text>
+            <Pressable onPress={refreshDeletionState} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry">
+              <Text style={[textStyle('label'), s.retry]}>Retry</Text>
             </Pressable>
           </View>
-        )}
+        ) : null}
 
-        {deletionPending && (
-          <View style={{ backgroundColor: '#FFF4F4', borderColor: '#FF1A1A', borderWidth: 1, borderRadius: 0, padding: 14, marginBottom: 16 }}>
-            <Text style={{ fontWeight: '700', marginBottom: 6 }}>Account deletion requested</Text>
-            <Text style={{ marginBottom: 10 }}>
+        {deletionPending ? (
+          <View style={s.pendingBanner} accessibilityRole="alert">
+            <Text style={[textStyle('title'), s.pendingTitle]}>Account deletion requested</Text>
+            <Text style={[textStyle('bodySm'), s.pendingBody]}>
               Your account deletion request is pending. You can withdraw it to keep your account.
             </Text>
-            <Pressable
+            <Button
+              label="Withdraw deletion request"
               onPress={handleWithdrawDeletion}
+              loading={withdrawing}
               disabled={withdrawing}
-              style={{ backgroundColor: '#FF1A1A', paddingVertical: 10, alignItems: 'center', opacity: withdrawing ? 0.6 : 1 }}
-            >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
-                {withdrawing ? 'Withdrawing…' : 'Withdraw deletion request'}
-              </Text>
-            </Pressable>
+              block
+            />
           </View>
-        )}
+        ) : null}
 
-        {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
-        <SectionLabel text="Account" />
-        <SettingsCard>
-          <SettingsRow
-            icon="👤"
-            label="Edit Profile"
-            onPress={() => nav('/settings/edit-profile')}
-          />
-          <SettingsRow
-            icon="🔔"
-            label="Notifications"
-            onPress={() => nav('/settings/notifications')}
-          />
-          <SettingsRow
-            icon="📱"
-            label="Phone Verification"
-            onPress={() => nav('/settings/verify-phone')}
-            showBorder={false}
-          />
-        </SettingsCard>
+        {/* ── Account ───────────────────────────────────────── */}
+        <AccountSection title="Account">
+          <SettingsRow label="Edit profile" onPress={() => nav('/settings/edit-profile')} />
+          <SettingsRow label="Notifications" onPress={() => nav('/settings/notifications')} />
+          <SettingsRow label="Phone verification" onPress={() => nav('/settings/verify-phone')} />
+        </AccountSection>
 
-        {/* ── PAYMENTS ────────────────────────────────────────────────────── */}
-        <SectionLabel text="Payments" />
-        <SettingsCard>
-          <SettingsRow
-            icon="🏦"
-            label="Payout Setup"
-            onPress={() => nav('/settings/payout-setup')}
-            showBorder={false}
-          />
-        </SettingsCard>
+        {/* ── Payments ──────────────────────────────────────── */}
+        <AccountSection title="Payments">
+          <SettingsRow label="Payout setup" onPress={() => nav('/settings/payout-setup')} />
+        </AccountSection>
 
-        {/* ── PREFERENCES ─────────────────────────────────────────────────── */}
-        <SectionLabel text="Preferences" />
-        <SettingsCard>
-          <SettingsRow
-            icon="📍"
-            label="Your Scene"
-            onPress={() => nav('/settings/preferences')}
-            showBorder={false}
-          />
-        </SettingsCard>
+        {/* ── Preferences ───────────────────────────────────── */}
+        <AccountSection title="Preferences">
+          <SettingsRow label="Your scene" description="Neighborhoods you follow" onPress={() => nav('/settings/preferences')} />
+        </AccountSection>
 
-        {/* ── SAFETY ──────────────────────────────────────────────────────── */}
-        <SectionLabel text="Safety" />
-        <SettingsCard>
-          <SettingsRow
-            icon="🚫"
-            label="Blocked Users"
-            onPress={() => nav('/settings/blocked-users')}
-            showBorder={false}
-          />
-        </SettingsCard>
+        {/* ── Safety ────────────────────────────────────────── */}
+        <AccountSection title="Safety">
+          <SettingsRow label="Blocked users" onPress={() => nav('/settings/blocked-users')} />
+        </AccountSection>
 
-        {/* ── SUPPORT ─────────────────────────────────────────────────────── */}
-        <SectionLabel text="Support" />
-        <SettingsCard>
-          <SettingsRow
-            icon="🙋"
-            label="Help & Support"
-            onPress={() => nav('/settings/support')}
-          />
-          <SettingsRow
-            icon="📄"
-            label="Terms of Service"
-            onPress={() => nav('/settings/legal')}
-          />
-          <SettingsRow
-            icon="🔒"
-            label="Privacy Policy"
-            onPress={() => nav('/settings/privacy')}
-            showBorder={false}
-          />
-        </SettingsCard>
+        {/* ── Support ───────────────────────────────────────── */}
+        <AccountSection title="Support">
+          <SettingsRow label="Help & support" onPress={() => nav('/settings/support')} />
+          <SettingsRow label="Terms of service" onPress={() => nav('/settings/legal')} />
+          <SettingsRow label="Privacy policy" onPress={() => nav('/settings/privacy')} />
+        </AccountSection>
 
-        {/* ── DANGER ──────────────────────────────────────────────────────── */}
-        <SectionLabel text="Danger Zone" />
-        <TouchableOpacity
-          style={[s.signOutBtn, signingOut && { opacity: 0.6 }]}
-          onPress={handleSignOut}
-          disabled={signingOut}
-          activeOpacity={0.8}
-        >
-          {signingOut
-            ? <ActivityIndicator color={colors.error} size="small" />
-            : <Text style={s.signOutText}>Sign Out</Text>
-          }
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[s.deleteBtn, deleting && { opacity: 0.6 }]}
-          onPress={handleDeleteAccount}
-          disabled={deleting}
-          activeOpacity={0.8}
-        >
-          {deleting
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={s.deleteText}>Delete Account</Text>
-          }
-        </TouchableOpacity>
-
-        <View style={{ height: spacing.xxl }} />
+        {/* ── Account actions ───────────────────────────────── */}
+        <View style={s.actions}>
+          <Button label="Sign out" variant="secondary" onPress={handleSignOut} loading={signingOut} disabled={signingOut} block />
+          <Button label="Delete account" variant="destructive" onPress={handleDeleteAccount} loading={deleting} disabled={deleting} block />
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: v2.surface.canvas },
 
-  // ── Top bar ────────────────────────────────────────────────────────────────
-  topBar: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    justifyContent:    'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical:   spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
+    borderBottomWidth: 1, borderBottomColor: v2.border.default,
   },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  headerTitle: { color: v2.text.primary },
+  headerSpacer: { width: 44 },
 
-  // ── Scroll body ───────────────────────────────────────────────────────────
-  scrollBody: {
-    paddingHorizontal: spacing.lg,
-    paddingTop:        spacing.lg,
-  },
+  scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
-  // ── Section label ─────────────────────────────────────────────────────────
-  sectionLabel: {
-    fontSize:      fontSize.xs,
-    fontWeight:    '700',
-    color:         colors.textDim,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    marginBottom:  spacing.sm,
-    marginTop:     spacing.md,
+  probeBanner: {
+    marginTop: v2.space.lg, padding: v2.space.md,
+    borderWidth: 1, borderColor: v2.border.strong,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md,
   },
+  probeText: { color: v2.text.secondary, flex: 1 },
+  retry: { color: v2.brand.red },
 
-  // ── Card ──────────────────────────────────────────────────────────────────
-  card: {
-    backgroundColor: colors.bgCard,
-    borderRadius:    radius.lg,
-    borderWidth:     1,
-    borderColor:     colors.border,
-    overflow:        'hidden',   // clips ripple + last-row border
-    marginBottom:    spacing.sm,
-    ...shadow.card,
+  pendingBanner: {
+    marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
+    backgroundColor: v2.surface.surface, borderWidth: 1, borderColor: v2.brand.red,
   },
+  pendingTitle: { color: v2.text.primary },
+  pendingBody: { color: v2.text.secondary, marginBottom: v2.space.xs },
 
-  // ── Sign Out button ───────────────────────────────────────────────────────
-  signOutBtn: {
-    borderWidth:     1,
-    borderColor:     colors.error,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.md,
-    alignItems:      'center',
-    marginBottom:    spacing.sm,
-  },
-  signOutText: {
-    color:         colors.error,
-    fontWeight:    '700',
-    fontSize:      fontSize.md,
-    letterSpacing: 0.5,
-  },
-
-  // ── Delete Account button ─────────────────────────────────────────────
-  deleteBtn: {
-    backgroundColor: colors.error,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.md,
-    alignItems:      'center',
-    marginBottom:    spacing.sm,
-  },
-  deleteText: {
-    color:         '#fff',
-    fontWeight:    '700',
-    fontSize:      fontSize.md,
-    letterSpacing: 0.5,
-  },
+  actions: { marginTop: v2.space.xxl, gap: v2.space.md },
 });

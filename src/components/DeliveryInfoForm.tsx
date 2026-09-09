@@ -96,6 +96,7 @@ export default function DeliveryInfoForm({
             autoCapitalize="none"
             autoCorrect={false}
             editable={!loading}
+            accessibilityLabel="Email for ticket transfer"
           />
         </>
       )}
@@ -117,6 +118,7 @@ export default function DeliveryInfoForm({
             autoComplete="tel-national"
             maxLength={PHONE_DISPLAY_MAXLENGTH}
             editable={!loading}
+            accessibilityLabel="Phone number for ticket transfer"
           />
           {phoneErrorText && <Text style={s.errorText}>{phoneErrorText}</Text>}
         </>
@@ -126,6 +128,9 @@ export default function DeliveryInfoForm({
         style={[s.submitBtn, (!canSubmit || loading) && s.submitBtnDisabled]}
         onPress={handleSubmit}
         disabled={!canSubmit || loading}
+        accessibilityRole="button"
+        accessibilityLabel="Save delivery info"
+        accessibilityState={{ disabled: !canSubmit || loading, busy: loading }}
       >
         {loading ? (
           <ActivityIndicator color={colors.text} size="small" />

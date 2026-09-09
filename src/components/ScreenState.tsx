@@ -66,6 +66,9 @@ export default function ScreenState({ state, onRetry }: Props) {
           onPress={retry}
           disabled={retrying}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Retry"
+          accessibilityState={{ busy: retrying, disabled: retrying }}
         >
           {retrying ? (
             <ActivityIndicator color={colors.text} size="small" />

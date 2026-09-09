@@ -25,7 +25,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { captureException } from '../_shared/sentry.ts';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
@@ -43,7 +43,7 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function sendPush(supabase: ReturnType<typeof createClient>, userId: string, title: string, body: string, data?: Record<string, string>) {
+async function sendPush(supabase: SupabaseClient, userId: string, title: string, body: string, data?: Record<string, string>) {
   try {
     await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
       method: 'POST',
@@ -82,7 +82,7 @@ async function sendEmail(to: string, subject: string, text: string) {
   }
 }
 
-async function emailForUser(supabase: ReturnType<typeof createClient>, userId: string): Promise<string | null> {
+async function emailForUser(supabase: SupabaseClient, userId: string): Promise<string | null> {
   try {
     const { data } = await supabase.auth.admin.getUserById(userId);
     return data?.user?.email ?? null;

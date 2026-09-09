@@ -3,17 +3,10 @@
  * Effective Date: March 20, 2026
  */
 
-import { router } from 'expo-router';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import * as v2 from '@/src/theme/v2';
 
 // ─── Shared components ───────────────────────────────────────────────────────
 
@@ -43,15 +36,8 @@ function Bullet({ children }: { children: string }) {
 
 export default function PrivacyPolicyScreen() {
   return (
-    <SafeAreaView style={s.safe}>
-      {/* Top bar */}
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Privacy Policy</Text>
-        <View style={s.backBtn} />
-      </View>
+    <View style={s.safe}>
+      <SettingsHeader title="Privacy policy" />
 
       <ScrollView
         style={s.scroll}
@@ -180,52 +166,39 @@ export default function PrivacyPolicyScreen() {
 
         <View style={s.bottomPad} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  safe:         { flex: 1, backgroundColor: colors.bg },
-
-  topBar:       { flexDirection: 'row', alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-                  borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:      { width: 44, height: 44, alignItems: 'flex-start',
-                  justifyContent: 'center' },
-  backArrow:    { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:     { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+  safe:         { flex: 1, backgroundColor: v2.surface.canvas },
 
   scroll:       { flex: 1 },
-  content:      { paddingHorizontal: spacing.md, paddingTop: spacing.lg },
+  content:      { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
-  pageTitle:    { color: colors.text, fontSize: fontSize.lg, fontWeight: '800',
-                  marginBottom: spacing.xs },
-  effectiveDate:{ color: colors.textMuted, fontSize: fontSize.xs,
-                  marginBottom: spacing.md },
+  pageTitle:    { fontFamily: v2.font.display, fontSize: 26, lineHeight: 33, letterSpacing: -0.5,
+                  textTransform: 'uppercase', color: v2.text.primary, marginBottom: v2.space.xs },
+  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+                  marginBottom: v2.space.md },
 
-  section:      { marginBottom: spacing.lg },
-  sectionTitle: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '700',
-                  textTransform: 'uppercase', letterSpacing: 0.8,
-                  marginBottom: spacing.sm },
-  subhead:      { color: colors.text, fontSize: fontSize.sm, fontWeight: '700',
-                  marginTop: spacing.sm, marginBottom: spacing.xs },
-  body:         { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 20,
-                  marginBottom: spacing.sm },
+  section:      { marginBottom: v2.space.lg },
+  sectionTitle: { fontFamily: v2.font.bodyMedium, fontSize: 10, lineHeight: 14, letterSpacing: 3,
+                  textTransform: 'uppercase', color: v2.text.muted, marginBottom: v2.space.sm },
+  subhead:      { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+                  marginTop: v2.space.sm, marginBottom: v2.space.xs },
+  body:         { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary,
+                  marginBottom: v2.space.sm },
 
-  bulletRow:    { flexDirection: 'row', marginBottom: spacing.xs,
-                  paddingLeft: spacing.xs },
-  bulletDot:    { color: colors.primary, fontSize: fontSize.md,
-                  marginRight: spacing.sm, lineHeight: 20 },
-  bulletText:   { flex: 1, color: colors.textMuted, fontSize: fontSize.sm,
-                  lineHeight: 20 },
+  bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
+  bulletDot:    { color: v2.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
+  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary },
 
-  contactEmail: { color: colors.text, fontSize: fontSize.sm, fontWeight: '600',
-                  marginBottom: spacing.sm },
-  footerNote:   { color: colors.textDim, fontSize: fontSize.xs, lineHeight: 18,
-                  marginTop: spacing.lg, textAlign: 'center' },
+  contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+                  marginBottom: v2.space.sm },
+  footerNote:   { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+                  marginTop: v2.space.lg, textAlign: 'center' },
 
-  bottomPad:    { height: spacing.xxl },
+  bottomPad:    { height: v2.space.xxxl },
 });
