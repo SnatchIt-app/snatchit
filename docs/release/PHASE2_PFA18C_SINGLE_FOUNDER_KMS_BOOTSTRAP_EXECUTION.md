@@ -674,3 +674,26 @@ explicit deny in an identity-based policy**" (eventID `1a578c07-…`). **P5** `s
 "… not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime" — no denying policy
 named (eventID `3c27859f-…`); non-discriminating, as recorded. C1-9 closes with these limits: P3 inconclusive / P3′ at C2; destructive denies by
 simulation only. C1-10 package prepared (packet §5a′); Device-2 availability to be confirmed by the owner before D2-1.
+
+### C1-10 — Device-2 retrieval manifest (pinned 2026-09-09T02:53:40Z; read-only verification)
+OWNER-RETURNED: Device 2 authenticated as `snatchit-kms-verifier` (`aws login --profile verifier`) — CloudTrail corroboration at D2-8.
+Manifest commit: **`c4f562dad36ffcdcacb1fe3ba1387f7ab1bbf4cd`** on `feature/venue-native-and-product-v2` of `https://github.com/SnatchIt-app/snatchit`
+(**public** repository; commit present on GitHub, committer date 2026-09-08T04:40:01Z; local HEAD = origin tip; no working-tree change to any
+listed file). Every SHA-256 below was computed from the committed blob (`git show <sha>:<path>`) and matched byte-for-byte against the bytes
+GitHub serves at that ref (`contents/<path>?ref=<sha>`, raw).
+| Path | SHA-256 |
+|---|---|
+| docs/release/pfa18c_artifacts/m1_ceremony_role_trust.json | 89540f612449a3e540f851f1e62082b2c3263e2a9849f6b0f4fcbbec41baf4b7 |
+| docs/release/pfa18c_artifacts/m1_ceremony_role_policy.json | 1fddd53beee238063da99a26db3f301c546ee9c111685c5a5f630e0f930bd4d5 |
+| docs/release/pfa18c_artifacts/m2_verifier_policy.json | 3082cc74824ef68c47cd2fc39caf0d45b7765f2880936cdb8bb0d08a2cb46889 |
+| docs/release/pfa18c_artifacts/m3_runtime_user_policy.json | a1cb864406c73fc674fc264e8a73efe93ebdbbf5f4aed0a05a9ee94641569c9f |
+| docs/release/pfa18c_artifacts/m3_runtime_role_trust.json (placeholder; structure comparison only) | 8ebd036a5a71c914b5c8f44589505c9ba71dc5907e0e856403ed0961e5412fd8 |
+| docs/release/pfa18c_artifacts/m1_audit_bucket_policy.json | 76addba388521b9c04806ab81d560e1563ae59a75b33ea3fe61ed0cd2b4392f0 |
+| docs/release/pfa18c_artifacts/m1_object_lock_configuration.json | 9a4c5a8dad1f6bc7f6a8cb5510e3f8af9e5ec5065fedf75c0997e48698ef7ab0 |
+| docs/release/pfa18c_artifacts/m3_runtime_role_policy.json (C2; placeholder ARN) | bb3a2c4f86f532d2d0743e4755e9aaa67fd77d3997a820c211efbb90b0517b52 |
+| docs/release/pfa18c_artifacts/kms_key_policy_v1_binding_proof.json (C2) | e0560a960a28d146476bbdfd35654949f9aeebad9ce69d7cc488d1f5d7515dc1 |
+| docs/release/pfa18c_artifacts/kms_key_policy_v2_final.json (C2) | 430677d0510ed67987d04a012223fe947ccd0fa1948044215cb52dbf775b2d9d |
+| docs/release/pfa18c_artifacts/README.md | 505fe850bdcf6cc8336d8e53d37514eea4a28df40810f24475096f76d813443c |
+| docs/release/PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md (C1-10 procedure §5a′) | 8b11d567c758b490e3a4645e44a8f2e072e46e0b3d4e1344afd2b0bbc6ce34ae |
+| docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md (record as of c4f562d) | eb8b246292105f15ef4e7ab73b75436f21ad8b6a95b513aed4ce8d8ce58c0fe7 |
+Excluded by design: the filled runtime trust file, the ExternalId, any credential or session data (none are committed anywhere).
