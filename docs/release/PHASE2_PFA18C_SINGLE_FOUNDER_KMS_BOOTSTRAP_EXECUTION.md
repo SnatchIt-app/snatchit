@@ -984,3 +984,35 @@ Preceded by `GetPublicKey` + `GetCallerIdentity` 06:20:12Z by the same session (
 only one ceremony `AssumeRole` (05:44:21Z, serial `…:mfa/jose-admin-totp`). Key `Enabled`, `MultiRegion false`, customer aliases `[]`.
 Production 06:29:53Z: `signing_key` 0 · ledger 135 · tickets 0 · issuance/scanning/monitor `false` · fingerprint `null`. **Key ↔ handle ↔ public key ↔ D5 binding proven.**
 The signed message is a random nonce — not a ticket credential; T3 not reached. **Next gated step: C2-6 (P3′-b `verify` denial + D2C-6 verifier probes), then C2-7 (policy v2).**
+
+### SESSION 18 (cont.) — C2-6 P3′-b + D2C-6 DENIALS · C2-7 POLICY v2 APPLIED (OWNER) · C2-8 RUNTIME BINDING APPLIED (COORDINATOR, jose-admin, 06:40:33Z)
+
+OWNER-RETURNED: C2-6 primary `kms verify` → denied; Device 2 `sign`/`verify`/`create-alias`/`tag-resource` → all denied; C2-7 `put-key-policy` v2 applied by the ceremony
+role, owner-side normalized diff `V2-DIFF-EMPTY`. (The owner's message wrote the ARN without `:key/`; the AWS-verified D4 with `:key/` was used throughout.)
+CLAUDE-OBSERVED (06:39:50Z): `Verify` `AccessDenied` 06:33:12Z (ceremony session, MFA) and 06:34:09Z (verifier, MFA); verifier `Sign` 06:34:09Z, `CreateAlias` 06:34:09Z,
+`TagResource` 06:34:10Z all `AccessDenied` (MFA); **`PutKeyPolicy` ×1** 06:35:16Z eventID `6b3d8526-62fe-4955-a2e6-55f5c94d3d6b` by the ceremony session (MFA,
+`policyName default`, `bypassPolicyLockoutSafetyCheck false`, no error — **no F1 fallback needed**); coordinator normalized diff of the live policy vs
+`kms_key_policy_v2_final.json` (`430677d0…`) **EMPTY**; statements now exactly root-NotAction / `RuntimeSignOnly` / verifier+ceremony reads (ceremony `Sign` and
+`PutKeyPolicy` statements gone); `ScheduleKeyDeletion`/`DisableKey`/`CreateGrant`/`UntagResource` 0; customer aliases `[]`; tags unchanged (3).
+**P3′ PASS: -a (ceremony alias), -b (ceremony verify), -c (verifier sign/verify/alias/tag).**
+**C2-8 (executed by the coordinator under the owner's explicit instruction "Proceed to C2-8", using the owner's `jose-admin` login session; reversible):**
+preflight — role `arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime`, MaxSession 3600, trust principal = the runtime user, condition keys `["sts:ExternalId"]`
+(value never read), inline `[]`, attached `[]`; key `Enabled`/`ECC_NIST_P256`; artifact `m3_runtime_role_policy.json` `bb3a2c4f…`; filled locally with D4 via
+`jq '.Statement[0].Resource = $arn'` → `$HOME/pfa18c-local/m3_runtime_role_policy.filled.json` SHA-256 `5706ebfacac3487562748d4beb731631fcf81354b060f56c7fa3c244ae709b3a`
+(ARN count 1, placeholders 0; Allow `kms:Sign` on D4 with `ECDSA_SHA_256`+`RAW`; Deny `NotAction kms:Sign` on `*`). Apply 06:40:33Z:
+`aws iam put-role-policy --role-name SnatchIt-CredentialSign-Runtime --policy-name pfa18c-runtime-sign --policy-document file://…filled.json` → OK.
+Read-back 06:40:34Z: `get-role-policy` canonical (`jq -S`) diff vs the filled artifact **EMPTY**; inline policies exactly `["pfa18c-runtime-sign"]`; attached `[]`; trust unchanged.
+Simulator (runtime role, identity policies): `kms:Sign` on D4 with `ECDSA_SHA_256`+`RAW` **allowed**; with `ECDSA_SHA_384` or `MessageType DIGEST` **implicitDeny**;
+`kms:Sign` on another key ARN **implicitDeny**; on D4 `Verify`/`GetPublicKey`/`DescribeKey`/`CreateAlias`/`TagResource`/`UntagResource`/`ScheduleKeyDeletion`/`DisableKey`/
+`EnableKey`/`CreateGrant`/`PutKeyPolicy`/`Decrypt`/`Encrypt`/`GenerateDataKey` **explicitDeny**; `CreateKey`/`ListKeys`/`iam:CreateAccessKey`/`sts:AssumeRole` implicitDeny.
+(The combined identity+resource-policy simulation was rejected by the simulator because the key policy uses `Resource "*"` — tooling limitation; the live key policy is
+independently verified as v2, whose `RuntimeSignOnly` grants the same scoped `Sign`.) Access keys 0/0/0 — **none created**. Supabase secrets (names only): no
+`KMS_*`/`AWS_*`/`DOOR_*` entry — **no secret written**. Production 06:40:47Z: `signing_key` 0 · ledger 135 · tickets 0 · guard `O` · issuance/scanning/monitor `false` ·
+fingerprint `null` · `get_manifest_signing_context()` `no_active_global_key` — **no DB or flag change**.
+**Next gated step: C2-9** — owner re-assumes the ceremony role (session of 05:44Z expired 06:44Z) and runs the post-v2 `kms sign` → expected `AccessDenied` (P3′-d);
+then C2-10 CloudTrail corroboration, C2-11 precheck, Device 2 D2C-7/D2C-8, coordinator D2C-9 → C2 CLOSED. **C3 not started.**
+
+### SESSION 18 MUTATION LEDGER (so far)
+AWS — by the owner (ceremony role): `CreateKey` (05:44:33Z), `Sign` ×1 proof (06:20:13Z), `PutKeyPolicy` v2 (06:35:16Z); by the coordinator (`jose-admin`, owner-instructed):
+`PutRolePolicy` `pfa18c-runtime-sign` (06:40:33Z). Denied probes: `CreateAlias` ×2 (ceremony), `Verify` ×2, verifier `Sign`/`CreateAlias`/`TagResource`. KMS: **one key**
+`45907419-8894-4582-ba79-71e9c29c549e`, Enabled, policy v2, 3 tags, no alias/grant. Access keys: **none.** Secrets/edges/flags/DB rows: **none.**
