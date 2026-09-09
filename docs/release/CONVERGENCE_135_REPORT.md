@@ -3,8 +3,16 @@
 Date: 2026-09-09 · Branch: `release/convergence-135` · Author: payments & release integration
 
 **Nothing in this report was deployed. No migration was applied to production, no Stripe setting,
-cron schedule or production flag was changed, no KMS key was created, native issuance stays dark,
-and nothing was merged into `main`.** Every production interaction below is a read-only query or
+cron schedule or production flag was changed, **no KMS key was created by this work**, native issuance
+stays dark, and nothing was merged into `main`.**
+
+> **2026-09-09 addendum.** A ticket-signing KMS key now EXISTS in AWS — created by the owner's PFA-18C
+> C2–C5 ceremony, outside this release work:
+> `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` (ECC_NIST_P256,
+> ECDSA_SHA_256). Evidence and read-only corroboration are in
+> `docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md` §SESSION 8. It changes nothing
+> here: the key is **not** in `kernel.signing_key` (still 0 rows), all three native gates are still
+> `false`, and no native edge is deployed. C3 remains unauthorized. Every production interaction below is a read-only query or
 API read.
 
 ---
@@ -90,7 +98,9 @@ Four files were modified on both sides. **None was resolved by taking a branch w
   `amount_refunded_cents` all present; the rollback battery re-verified end to end (§6).
 - **Native webhook arm stays excluded** — `stripe-webhook` contains **no** `kernel.*` or native call
   site (verified by grep); the four native-arm edges remain undeployed and non-blocking in CI; no
-  native issuance is enabled and no KMS key was created.
+  native issuance is enabled, and this release work created no KMS key. (A KMS key does exist in AWS as
+  of 2026-09-09 from the separate PFA-18C ceremony — see the addendum at the top of this report. It is
+  not referenced by anything in this tree, is not in `kernel.signing_key`, and gates nothing here.)
 
 ## 5. Release blockers addressed
 

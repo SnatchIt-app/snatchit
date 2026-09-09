@@ -313,3 +313,30 @@ DO NOT MOVE MONEY.
 DO NOT ACTIVATE PAYOUTS.
 
 ============================================================
+
+------------------------------------------------------------
+ADDENDUM 2026-09-09 — SUPERSEDED IN PART: A KMS KEY NOW EXISTS
+------------------------------------------------------------
+
+Every "no key exists" / "TRUST ROOT: NOT ESTABLISHED" statement above was accurate **on its own date** and is kept
+verbatim as the record of that session. It is superseded as of **2026-09-09**: the owner completed PFA-18C C2–C5 and
+an AWS ticket-signing key now exists —
+
+    arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+    ECC_NIST_P256 · SIGN_VERIFY · ECDSA_SHA_256 · Enabled · created 2026-09-09
+
+The parts of this record that remain TRUE and unchanged:
+
+    SIGNING KEYS (Supabase):  0        the key is in AWS KMS only; kernel.signing_key is still empty
+    NATIVE ISSUANCE:          false
+    NATIVE SCANNING:          false
+    NATIVE EDGES:             NOT DEPLOYED
+    TICKETS:                  0
+
+What changed is only that the *AWS-side* trust material exists and has been corroborated read-only (DescribeKey,
+GetPublicKey fingerprint match, and exactly one MFA-authenticated `Sign` event with `RAW` / `ECDSA_SHA_256` by
+`SnatchIt-KMS-Ceremony/pfa18c-ceremony`). Full evidence:
+`docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md` §SESSION 8.
+
+C3 — establishing the trust root inside Supabase — is **still not authorized and still not performed**, so
+"TRUST ROOT: NOT ESTABLISHED" continues to describe the database correctly.

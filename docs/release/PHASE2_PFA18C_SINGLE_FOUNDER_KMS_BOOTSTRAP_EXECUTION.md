@@ -12,15 +12,16 @@
 ## OVERALL STATE
 
 ```
-OVERALL:                 PREPARATION — AWS baseline RECEIVED; plan state RECEIVED (FREE, owner keeps it) ⇒ CreateKey
-                         NO-GO in account 652872010073 under current decisions; M1/M2/M3 NOT STARTED;
-                         P1-PUBKEY-FORMAT FIXED in repo (deploy pending)
-KMS KEY CREATED:         NO
-SIGNING KEYS IN PROD:    0
+OVERALL:                 C2-C5 COMPLETE — the AWS trust root EXISTS and is corroborated (session 8).
+                         C3 (insert into kernel.signing_key) NOT AUTHORIZED, NOT PERFORMED.
+KMS KEY CREATED:         YES — arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+                         ECC_NIST_P256 / SIGN_VERIFY / ECDSA_SHA_256, Enabled, created 2026-09-09
+                         (superseded "KMS KEY CREATED: NO", true through session 7 / 2026-09-06)
+SIGNING KEYS IN PROD:    0   ← still zero: the key lives ONLY in AWS KMS, not in Supabase
 PRODUCTION MUTATION:     NONE
 NATIVE ISSUANCE:         FALSE
 NATIVE SCANNING:         FALSE
-LAST UPDATED (UTC):      2026-09-05 (session 3 — plan-state evidence + P1-PUBKEY-FORMAT fix)
+LAST UPDATED (UTC):      2026-09-09 (session 8 — C2-C5 evidence recorded and corroborated read-only)
 ```
 
 ---
@@ -312,3 +313,99 @@ Evidence: full pgTAP plan 3941 · ok 3937 · not_ok 4 (documented 060×2/132×2)
 AWS: **none.** Production DB: **none** (no connection made). KMS: **not created.** Secrets: **none.** Migrations 110–114: **rehearsal only,
 NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
 
+
+---
+
+## SESSION 8 — 2026-09-09 — C2–C5 CEREMONY COMPLETE — **AWS TRUST ROOT ESTABLISHED, SUPABASE UNCHANGED**
+
+The owner ran PFA-18C C2–C5 (key creation, public-key export, challenge signing, two-machine verification). This session
+**recorded** that evidence and **independently corroborated** it with read-only AWS reads. No AWS mutation, no Supabase
+write, no flag, no deploy, no secret. C3 (insertion of the trust root into `kernel.signing_key`) remains **separately
+unauthorized and NOT performed**.
+
+### Owner-reported ceremony evidence
+
+| Item | Value |
+|---|---|
+| KMS key (as reported) | `arn:aws:kms:us-east-1:652872010073/45907419-8894-4582-ba79-71e9c29c549e` |
+| KMS key (**canonical, corrected**) | `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` |
+| D5 public-key fingerprint | `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` |
+| Challenge signature SHA-256 | `83c3938e03ac82f5b8ba01687e9f7cc32d366606ba8dd3a206d053fd147eeb15` |
+| Signature size | 70 bytes |
+| Mac 1 verification | Verified OK |
+| Mac 2, correct key | Verified OK |
+| Altered challenge | verification FAILED (expected) |
+| Wrong key | verification FAILED (expected) |
+
+**Transcription correction.** The reported ARN separates account and key id with `/`. A KMS key ARN uses
+`:key/`. `DescribeKey` returns the canonical form above; the account id, region and key id in the reported string are
+all correct, only the separator was wrong. **The canonical form is authoritative in this record**; anything downstream
+that consumes the ARN (a future C3 insert, the runtime credential provider) must use it.
+
+### Independent corroboration — read-only AWS reads, 2026-09-09
+
+Performed with the `snatchit-admin` read profile. No mutating API was called.
+
+**1. `kms:DescribeKey`** — the key exists and is shaped for ES256 ticket signing:
+
+```
+AWSAccountId  652872010073          KeyState   Enabled
+KeyId         45907419-8894-4582-ba79-71e9c29c549e
+Arn           arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+Description   Snatch It ticket-signing trust root (PFA-18C)
+KeyUsage      SIGN_VERIFY           KeySpec    ECC_NIST_P256
+SigningAlgorithms  ["ECDSA_SHA_256"]           Origin     AWS_KMS
+CreationDate  2026-09-09T01:44:33-04:00        MultiRegion false
+```
+
+**2. `kms:GetPublicKey` — D5 fingerprint reproduced exactly.** The exported SubjectPublicKeyInfo is 91 bytes of DER;
+its SHA-256 is
+
+```
+562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415
+```
+
+— byte-identical to the owner's D5 value. This is the strongest single corroboration available without re-running the
+ceremony: it proves the fingerprint in the record belongs to *this* key.
+
+**3. `cloudtrail:LookupEvents` — exactly ONE `Sign` event for this key.** Window 2026-09-08T00:00:00Z → now,
+`EventName=Sign`, us-east-1: **1 event returned, 0 others, no failed attempts.**
+
+| Field | Value | Required | Match |
+|---|---|---|---|
+| `eventID` | `ca5a2602-a9a6-4dc9-967d-37616efd9c37` | — | — |
+| `eventTime` | `2026-09-09T06:20:13Z` | — | — |
+| `eventSource` / `eventName` | `kms.amazonaws.com` / `Sign` | one Sign | **✓ exactly one** |
+| `userIdentity.arn` | `arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony` | `SnatchIt-KMS-Ceremony/pfa18c-ceremony` | **✓** |
+| `sessionContext.attributes.mfaAuthenticated` | `true` | MFA | **✓** |
+| `requestParameters.messageType` | `RAW` | `RAW` | **✓** |
+| `requestParameters.signingAlgorithm` | `ECDSA_SHA_256` | `ECDSA_SHA_256` | **✓** |
+| `requestParameters.keyId` | the canonical ARN above | this key | **✓** |
+| `errorCode` | none | — | clean |
+| session `creationDate` | `2026-09-09T05:44:21Z` | — | role assumed ~36 min before the Sign |
+
+The 70-byte signature size is consistent with a DER-encoded ECDSA P-256 signature (70–72 bytes depending on
+integer padding) and is recorded as owner-reported; CloudTrail does not carry the signature or its digest, so the
+`83c3938e…` challenge-signature SHA-256 stands on the owner's two-machine verification, not on an AWS read.
+
+### Production state — re-read read-only this session, UNCHANGED
+
+```
+migration ledger rows           135          (numeric tip 120, max 20260902003623)
+kernel.signing_key rows         0            ← the trust root is NOT in Supabase
+feature.native_issuance_enabled false
+feature.native_scanning_enabled false
+feature.native_resale_enabled   false
+public.get_my_tickets           absent
+```
+
+### SESSION 8 MUTATION LEDGER
+AWS: **none** (DescribeKey, GetPublicKey, LookupEvents are read-only). Supabase production: **none** — reads only; the
+KMS key was **NOT** inserted into `kernel.signing_key`. Secrets: **none created**. Flags: **unchanged, all three native
+gates false**. Edges: **not deployed**. Issuance/scanning: **none performed**. Migrations: **none applied**. Billing:
+unchanged.
+
+### NEXT GATED STAGE
+**C3 — insertion of the trust root into `kernel.signing_key`** (migration 110's insert guard governs it; two-person
+recovery is 111). C3 is **separately unauthorized** and was not begun. Everything after it — key delivery to the door
+plane (114), enabling `feature.native_issuance_enabled`, deploying the native edges — remains behind its own gates.
