@@ -697,3 +697,45 @@ GitHub serves at that ref (`contents/<path>?ref=<sha>`, raw).
 | docs/release/PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md (C1-10 procedure §5a′) | 8b11d567c758b490e3a4645e44a8f2e072e46e0b3d4e1344afd2b0bbc6ce34ae |
 | docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md (record as of c4f562d) | eb8b246292105f15ef4e7ab73b75436f21ad8b6a95b513aed4ce8d8ce58c0fe7 |
 Excluded by design: the filled runtime trust file, the ExternalId, any credential or session data (none are committed anywhere).
+
+---
+
+## SESSION 12 — 2026-09-09 — C1-10 DEVICE-2 RESULTS (OWNER-RETURNED) · D2-8 COORDINATOR CORROBORATION PENDING (NO MUTATION)
+
+Scope: coordinator verification + governance recording only. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Full report: `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### D2-3 (OWNER-RETURNED, 2026-09-09): Device 2 = physically separate Mac; AWS CLI 2.36.41; jq 1.7.1; LibreSSL 3.3.6; no primary-machine
+credentials/files copied; console login as `snatchit-kms-verifier`; Device-2 passkey enrolled; `aws login --profile verifier` → `Account
+652872010073`, `Arn arn:aws:iam::652872010073:user/snatchit-kms-verifier`.
+### D2-4 — PASS (OWNER-RETURNED): 10/10 files from `c4f562dad36ffcdcacb1fe3ba1387f7ab1bbf4cd`; all SHA-256 matched the manifest (session 11 pin,
+coordinator-verified against committed blobs + GitHub bytes); no C2-only artifact downloaded.
+### D2-5 — PASS (OWNER-RETURNED): ceremony role trust/policy matched, no managed policies; verifier managed policy matched, attachments exactly
+`SnatchIt-KMS-Verifier-ReadOnly` + `SignInLocalDevelopmentAccess`, inline `[]`, access keys `[]`, passkey present; runtime user policy matched,
+access keys `[]`; runtime role trust structure matched (`ExternalIdLength 64`, **value never displayed**), inline `[]`, managed `[]`; bucket policy
+equivalent; PAB 4×true; SSE-S3 AES256; Object Lock COMPLIANCE 3 y; versioning Enabled; trail multi-region, validation on, no KMS key, logging,
+no delivery error, selectors correct. All values equal the coordinator's 2026-09-08 read-backs.
+### D2-6 — PASS (OWNER-RETURNED): CreateAlias(non-existent key) → NotFoundException (non-discriminating, as specified); PutBucketVersioning →
+AccessDenied (explicit deny, `SnatchIt-KMS-Verifier-ReadOnly`); AssumeRole SnatchIt-KMS-Ceremony → AccessDenied; CreateAccessKey (self) →
+AccessDenied (explicit deny); AddTags → AccessDenied. No key created.
+### D2-7 — PASS with classified variance (OWNER-RETURNED): ceremony AssumeRole 04:24:06Z (mfa true, serial null = T1) and 04:24:43Z (mfa true,
+serial `…:mfa/jose-admin-totp` = T2) seen from Device 2; root activity `[]`; refusal events 04:31:22Z AddTags / 04:32:02Z PutBucketVersioning /
+04:32:32Z CreateAlias(NotFound) / 04:36:16Z GetUser / 04:36:50Z AssumeRole — match session-11 event IDs. **Variance:** broader `jose-admin` lookup
+also showed `DescribeEventAggregates`, `ListNotificationHubs`, `ListManagedNotificationEvents`, `GetAccountPlanState`, `DescribeRegions`,
+`GetAccountColor` — classified as acceptable console background/telemetry **reads** (Health, User Notifications, Free Tier, EC2 region list,
+console settings); D2-7 expectation amended to "non-read-only jose-admin events = exactly the C1 setup set"; `readOnly:true` confirmation is a
+D2-8 item.
+### Final Device-2 safety check (OWNER-RETURNED): `kms list-keys` → `[]`.
+### D2-8 — coordinator corroboration — **PENDING / BLOCKED (CLAUDE-OBSERVED 2026-09-09T03:34Z):** every read-only CloudTrail/IAM/KMS query
+via `snatchit-admin` returned "Your session has expired. Please reauthenticate using 'aws login'" (the 2026-09-08T01:45Z login session lapsed).
+Production DB read-only (03:34:37Z): ledger 130 · tip 120 · 110–114 absent · `kernel.signing_key` 0 · guard absent · tickets 0 · flags dark —
+unchanged. Outstanding D2-8 checks: verifier ConsoleLogin/EnableMFADevice/CreateOAuth2Token/GetCallerIdentity under the verifier identity with
+MFA; D2-6 outcomes under the verifier identity; D2-5 reads only; jose-admin non-read-only events = C1 set + `readOnly:true` on the variance list;
+root none; KMS `[]` + no CreateKey event.
+### Governance status: **M2 NOT YET SATISFIED · M1 (Model B) NOT marked complete · C1 PHASE-1 GATE OPEN** (pending D2-8).
+**C2 has NOT begun; it requires the separate exact owner authorization "AUTHORIZE PFA-18C CREATEKEY".** C4 (110–114) precedes C3 and needs its own
+authorization.
+
+### SESSION 12 MUTATION LEDGER
+AWS: **none** (read-only calls attempted; all refused — expired session). Production DB: **none** (one read-only query). KMS: **not created.**
+Secrets/keys/IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + the gate report.
