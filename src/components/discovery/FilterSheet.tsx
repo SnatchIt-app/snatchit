@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Button, Chip, Input, Sheet } from '@/src/components/ui';
+import { Button, Chip, Input, Sheet, SheetAction } from '@/src/components/ui';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CHIP_GROUPS, type QuickChip } from '@/src/lib/home/filterModel';
@@ -86,26 +86,33 @@ export function FilterSheet({ visible, value, onApply, onClose, focus }: FilterS
       title="Filters"
       footer={
         <>
-          <Button
-            label="Clear"
-            variant="secondary"
-            block
-            onPress={() => {
-              setChip('all');
-              setHoods(new Set());
-              setCats(new Set());
-              setMin('');
-              setMax('');
-            }}
-          />
-          <Button
-            label="Apply"
-            variant="primary"
-            block
-            onPress={() =>
-              onApply({ chip, neighborhoods: hoods, categories: cats, priceMin: min, priceMax: max })
-            }
-          />
+          {/* Each action takes an equal share of the footer row. Without the
+              wrappers both buttons ask for the full width and Apply lands off
+              the right edge of the screen. */}
+          <SheetAction>
+            <Button
+              label="Clear"
+              variant="secondary"
+              block
+              onPress={() => {
+                setChip('all');
+                setHoods(new Set());
+                setCats(new Set());
+                setMin('');
+                setMax('');
+              }}
+            />
+          </SheetAction>
+          <SheetAction>
+            <Button
+              label="Apply"
+              variant="primary"
+              block
+              onPress={() =>
+                onApply({ chip, neighborhoods: hoods, categories: cats, priceMin: min, priceMax: max })
+              }
+            />
+          </SheetAction>
         </>
       }
     >

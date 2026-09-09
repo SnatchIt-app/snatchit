@@ -47,7 +47,7 @@ import {
   FromAFanBadge,
   IconButton,
   Input,
-  Sheet,
+  Sheet, SheetAction,
   Skeleton,
   StickyBar,
   STACK_WIDTH,
@@ -707,8 +707,12 @@ export default function FoundationPreview() {
         title="Filters"
         footer={
           <>
-            <Button label="Clear" variant="secondary" onPress={() => setSheetOpen(false)} block />
-            <Button label="Apply" variant="primary" onPress={() => setSheetOpen(false)} block />
+            <SheetAction>
+              <Button label="Clear" variant="secondary" onPress={() => setSheetOpen(false)} block />
+            </SheetAction>
+            <SheetAction>
+              <Button label="Apply" variant="primary" onPress={() => setSheetOpen(false)} block />
+            </SheetAction>
           </>
         }
       >
