@@ -39,6 +39,10 @@ Suggested walk-through: events → Saturday Music Night → inventory → attend
 `role=venue_scanner`, then `state=error`) → create event wizard (`role=org_member` shows the
 denial). Resize to 375px for the mobile-critical surfaces (attendees, inventory, door).
 
+## Screenshots
+
+`docs/venue-dashboard/screenshots/` — 17 headless-Chrome captures of the sample data: the five surfaces at 1400px, the small-breakpoint attendees/inventory/door views at 500px (Chrome headless clamps narrower windows; a real 375px viewport was verified overflow-free in the browser pane), the inventory matrix collapse at 1024px, the create wizard, and the loading / empty / no-match / error / denied / finance-role / blocked-on-sale states.
+
 ## Sample-data source
 
 `venue/src/fixtures/venue.ts` — invented names, ids prefixed `smp_`, clock frozen at

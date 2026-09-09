@@ -38,8 +38,12 @@ export function EventsTable({
 }) {
   const counters = inventoryView(ctx.role) === "counters";
   const liveIds = new Set(events.flatMap((e) => e.sessions.filter((s) => s.status === "live").map((s) => s.sessionId)));
+  // Warnings only matter for events that can still sell (spec §6.1 zone 6 is about tonight and upcoming).
+  const sellingIds = new Set(events.filter((e) => e.status !== "completed" && e.status !== "cancelled").map((e) => e.eventId));
   const warnEventIds = new Set(
-    inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now }).map((w) => types.find((t) => t.ticketTypeId === batches.find((b) => b.batchId === w.batchId)?.ticketTypeId)?.eventId),
+    inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now })
+      .map((w) => types.find((t) => t.ticketTypeId === batches.find((b) => b.batchId === w.batchId)?.ticketTypeId)?.eventId)
+      .filter((id) => id && sellingIds.has(id)),
   );
 
   let rows = events;
@@ -118,7 +122,7 @@ export function EventsTable({
                   <td>
                     <StatusPill status={e.status} />
                   </td>
-                  <td className="num">{sc ? (counters ? `${sc.sold} / ${sc.capacity}` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} available` : "None available") : <PartialCell why="Sold/capacity unavailable" />}</td>
+                  <td className="num">{sc && sc.capacity > 0 ? (counters ? `${sc.sold} / ${sc.capacity}` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} available` : "None available") : <PartialCell why={sc ? "No releases yet" : "Sold/capacity unavailable"} />}</td>
                   {canReadResalePolicy(ctx.role) ? <td className="hidden lg:table-cell">{RESALE_LABEL[e.resaleMode]}</td> : null}
                   <td className="num hidden lg:table-cell">{e.promoterCount}</td>
                 </tr>
@@ -141,7 +145,7 @@ export function EventsTable({
                 <StatusPill status={e.status} />
               </div>
               <p className="mt-1 text-xs text-muted">
-                {s ? venueDate(s.startsAt, timeZone) : "—"} · {sc ? (counters ? `${sc.sold} / ${sc.capacity} sold` : `${Math.max(0, sc.capacity - sc.sold)} available`) : "—"}
+                {s ? venueDate(s.startsAt, timeZone) : "—"} · {sc && sc.capacity > 0 ? (counters ? `${sc.sold} / ${sc.capacity} sold` : `${Math.max(0, sc.capacity - sc.sold)} available`) : "no releases yet"}
               </p>
             </li>
           );
