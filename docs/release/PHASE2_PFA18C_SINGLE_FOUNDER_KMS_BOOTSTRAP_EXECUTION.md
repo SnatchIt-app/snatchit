@@ -923,3 +923,38 @@ condition unchanged (`aws:MultiFactorAuthPresent true`, `sts:RoleSessionName pfa
 **P8** 0 `CreateKey`/`PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`CreateGrant` since 2026-09-08; root `[]`.
 C18 hand-off: C2-1/C2-3/C2-5/C2-6/C2-7 run under the ceremony-role session, whose TOTP prompt only the owner can answer; D2C-* run on Device 2.
 The coordinator performs C2-2/C2-9/C2-10/C2-11 read-backs on owner-returned outputs. **No key created at the time of this entry.**
+
+### SESSION 18 (cont.) — C2-1 DONE BY THE OWNER · C2-2 COORDINATOR READ-BACKS ALL PASS (05:52–05:54Z, read-only, `jose-admin`)
+
+OWNER-RETURNED: C2-1 completed; D4 = `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e`; "D4 passed". Not returned in chat
+(corroborated from CloudTrail instead): the P4 identity line; Device 2's D2C-2 `list-keys` output (requested again with D2C-3).
+CLAUDE-OBSERVED:
+- **DescribeKey PASS** — account 652872010073 · KeyId `45907419-8894-4582-ba79-71e9c29c549e` · CreationDate 2026-09-09T05:44:33.137Z · `Enabled`/`KeyState Enabled` ·
+  `Description "Snatch It ticket-signing trust root (PFA-18C)"` · `SIGN_VERIFY` · `AWS_KMS` · `KeyManager CUSTOMER` · `KeySpec ECC_NIST_P256` ·
+  `SigningAlgorithms ["ECDSA_SHA_256"]` · `MultiRegion false`. `list-keys` = exactly this one key; customer aliases `[]`; key policies `["default"]`.
+- **ListResourceTags PASS** — exactly `snatchit:db_key_id=00000000-0000-0000-0000-0000000000b0`, `snatchit:program=pfa18c`, `snatchit:purpose=ticket-signing`.
+- **GetKeyPolicy PASS** — live `default` policy, normalized (`jq -S` + order-insensitive scalar arrays), **diff vs `kms_key_policy_v1_binding_proof.json` (`e0560a96…`) EMPTY**.
+  Statements exactly: root NotAction(13 crypto ops) · ceremony `Sign` (ECDSA_SHA_256) [REMOVED_IN_V2] · ceremony `DescribeKey/GetKeyPolicy/PutKeyPolicy` [REMOVED_IN_V2] ·
+  runtime `Sign` (ECDSA_SHA_256 + RAW) · verifier+ceremony reads. Distinct principals = root, ceremony role, runtime role, verifier user — no others.
+- **GetPublicKey PASS** — `KeySpec ECC_NIST_P256`, `SIGN_VERIFY`, `["ECDSA_SHA_256"]`; DER **91 bytes**; 27-byte prefix `3059301306072a8648ce3d020106082a8648ce3d03010703420004`;
+  PEM = one 4-line `PUBLIC KEY` block, 0 `PRIVATE KEY`; `Public-Key: (256 bit)`, `prime256v1` / `NIST CURVE: P-256`.
+  **D5 (coordinator, three ways identical) = `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`.** Guard rules 4/5/6 pre-satisfied for C3.
+- **CloudTrail PASS** — exactly **one** `CreateKey` on this ARN: eventID `13b0dd38-b378-4820-bcbf-8e4fdc3cfc7c`, 05:44:33Z, `AssumedRole`
+  `arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`, issuer the ceremony role, request =
+  ECC_NIST_P256 / SIGN_VERIFY / AWS_KMS / multiRegion false / bypass false / the description / the three tags, response keyId = the key, no error, us-east-1.
+  Preceded by `AssumeRole` 05:44:21Z (eventID `2f7cc9d0-1b07-48ae-8a6a-062be065b7b6`, `jose-admin`, serial `…:mfa/jose-admin-totp`, session `pfa18c-ceremony`, success) and
+  `GetCallerIdentity` 05:44:22Z by the ceremony session. Since 05:30Z: `PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`CreateAlias`/`TagResource`/`UntagResource`/`CreateGrant`/`Sign` **0**; root **0**.
+  Trail `IsLogging true`, last delivery 05:49:15Z (after the event), no error.
+- **A15 PASS** — production 05:53:10Z: ledger 135 · `signing_key` 0 · guard `O` · tickets 0 · issuance/scanning/monitor `false` · fingerprint `null`.
+- Coordinator tooling note: the first read pass wrapped every call in a helper that forced `--output json`, which double-encoded the policy/PublicKey text and produced the
+  empty-input hash `e3b0c442…` — discarded; the pass was repeated with explicit `--output text` (results above). Same error class as C1 (recorded).
+- Ceremony session assumed 05:44:21Z, 3600 s ⇒ **expires 06:44:21Z**; C2-3/C2-5/C2-6/C2-7 must complete before then or re-assume (new TOTP; record the 2nd `AssumeRole`).
+**C2-3 is safe to begin.** Nothing changed on the key: policy still v1; no alias; no deletion scheduled; no DB row; no secret.
+
+Coordinator export of the public key (PUBLIC material, evidence per runbook §B; Device 2 must export its own independently — D2C-4):
+```
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEg0TJ5KCP4Lj99ZkBbliR4FtS/h3H
+/Tyh9RWh6fdbhh/1O6i/wMwi/wimxdjrP8yfAUYvyLCHB/QOOTaAOCae8w==
+-----END PUBLIC KEY-----
+```
