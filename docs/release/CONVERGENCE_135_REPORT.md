@@ -201,3 +201,32 @@ and it needs an owner decision on whether the 7 unreferenced objects are deleted
 5. **`auction-media` legacy evidence** (§7) — 27 objects awaiting a remediation change and an owner
    decision on the 7 unreferenced objects.
 6. **Twilio Account SID rotation** decision still open from the publish work.
+
+## 9. Drift observed after this convergence was built — read this before merging anything
+
+`publish/ui-v2-integration` has moved since the head this task pinned. It is now `597533e`, two commits
+ahead of `b6580cf`:
+
+| Commit | When | What |
+|---|---|---|
+| `ca5d56b` | 2026-09-08 23:04 −04 | cherry-pick: filter-sheet footer row divides instead of overflowing |
+| `597533e` | 2026-09-09 01:09 −04 | new migration `20260909000000_kernel_my_tickets_read` + rollback + `supabase/tests/176_my_tickets_read.sql` |
+
+`release/convergence-135` was built from `b6580cf` as specified, so it does **not** contain these. Do
+not fast-forward or naively merge them — three concrete hazards:
+
+1. **The function count collides at the same number for different reasons.** `597533e` raises
+   `EXPECT_FUNCS` 86 → **87** because `20260909000000` adds `public.get_my_tickets`. This convergence
+   raises it 86 → **87** because migration `119` adds `public.guard_listing_seller_not_blocked`. A
+   merge that sees "87 on both sides" and takes either one is wrong: the correct converged value is
+   **88**, and Gate-2 would fail on a tree carrying both.
+2. **A pgTAP filename number is taken twice.** The converged tree already has
+   `supabase/tests/176_signing_key_insert_guard.sql` (admin line); `597533e` adds
+   `supabase/tests/176_my_tickets_read.sql`. Both would run, but the numbering no longer identifies a
+   test — renumber one before merging.
+3. **A new migration version lands after the four payment migrations.** `20260909000000` sorts last in
+   the canonical chain, making it 140 migrations. The rehearsal in §6 covers 139; it must be re-run.
+
+Recommended order of operations: land this convergence first, then rebase the two UI commits on top of
+it, renumber the test, set `EXPECT_FUNCS: 88` (and `162`'s P2 assertion to 88), and re-run
+`scripts/release/convergence_prod_order_rehearsal.sh`.
