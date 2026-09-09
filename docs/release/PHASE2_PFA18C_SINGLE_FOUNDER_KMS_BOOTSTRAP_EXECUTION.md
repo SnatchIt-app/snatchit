@@ -958,3 +958,14 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEg0TJ5KCP4Lj99ZkBbliR4FtS/h3H
 /Tyh9RWh6fdbhh/1O6i/wMwi/wimxdjrP8yfAUYvyLCHB/QOOTaAOCae8w==
 -----END PUBLIC KEY-----
 ```
+
+### SESSION 18 (cont.) — C2-3 / P3′-a DENIED · D2C-3 / D2C-4 PASS (OWNER-RETURNED) · CORROBORATED (06:03Z)
+
+OWNER-RETURNED: C2-3 `create-alias alias/pfa18c-probe → D4` as the ceremony role → **denied, explicit identity-based deny**. Device 2 (verifier): key metadata PASS,
+tags PASS, exactly one KMS key, no non-AWS aliases, DER 91 bytes, private material 0, **D5 matched independently** (values stated on Device 2; not pasted in chat).
+CLAUDE-OBSERVED: `CreateAlias` 05:56:52Z eventID `e44887e2-43e4-4ded-8e93-c4710f2d150f` by `assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`,
+`errorCode AccessDenied` ("…is not authorized to perform: kms:CreateAlias…"); `list-aliases` customer entries `[]` — **P3′-a PASS (discriminating; replaces P3 INCONCLUSIVE).**
+Verifier 05:58:15–05:58:25Z: `CreateOAuth2Token` (fresh `aws login`), `DescribeKey`, `ListKeys`, `ListResourceTags`, `ListAliases`, `GetPublicKey` — all `readOnly true`,
+all `mfaAuthenticated "true"`, no errors. Since 05:30Z: `PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`TagResource`/`UntagResource`/`CreateGrant`/`Sign` **0**.
+Owner instruction for C2-5 (more conservative than package §4.8, adopted): the nonce and signature bytes are **not** pasted in chat or recorded; only their SHA-256
+digests, byte counts and the verify outcomes are recorded. Nothing changed on the key (policy v1, no alias, no deletion); no DB row; no secret.
