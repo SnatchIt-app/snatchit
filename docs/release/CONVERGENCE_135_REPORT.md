@@ -137,6 +137,22 @@ Pushed 2026-09-09; every job succeeded, including the two that were previously r
 CI's 4678 passing assertions confirm the local pgTAP result below is a harness artefact and not a
 property of this tree.
 
+**Re-run after the tickets/filter-sheet integration — run 34315327074, all jobs green:**
+
+| Job | Result |
+|---|---|
+| Migrations apply cleanly (fresh DB) | success — Gate-2 `tables=30 functions=88 policies=37 triggers=33` |
+| pgTAP database security suite | **`Files=71, Tests=4698 … Result: PASS`** (+1 file, +20 assertions — the renumbered `187_my_tickets_read.sql` ran) |
+| Deno type-check (edge functions) | success — `deno check OK: 15 entrypoints`; native arm advisory-only, unchanged |
+| Typecheck / Lint / Unit tests · Admin console · Web build | success |
+
+**Migration immutability + ordering.** `migrations-guard.yml` is `pull_request`-only, so its checks were
+run locally against base `562fda9` from the workflow's own step bodies: immutability (no existing
+migration modified, deleted or renamed), name format, version-prefix uniqueness, prefix-freeness and
+monotonic ordering — **all pass, zero `::error::`**. The separate G-4 gate,
+`scripts/ci/assembled_migration_integrity.sh --require-committed`, also passes: every assembled
+migration is exactly its committed assembler's output over exactly the committed slices.
+
 ### Local pgTAP: a harness limitation, not a convergence regression
 
 The local no-Docker pgTAP runner reports 6–7 files passing and the rest erroring at fixture setup with
