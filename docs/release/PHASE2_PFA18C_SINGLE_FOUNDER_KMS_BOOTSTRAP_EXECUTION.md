@@ -1106,3 +1106,12 @@ G5 ledger **135**, tip **120**, `get_manifest_signing_context()` `unavailable/no
 empty) · G7 runtime bound to D4 (diff empty), access keys 0/0/0 · events since 17:20Z: ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateAccessKey all **0** ·
 root since 09-09 **0** · trail logging, no delivery error. **G9** artifact sha256 `380f434d…` / 118 lines (18:01Z). **All coordinator-side preconditions PASS. No mutation.** Awaiting the owner's Mac 1
 step 0–2 outputs (connection PASS line; owner-side DB read `0|135|…|0|false`; artifact hash + 118; inputs line with D5 and pem sha `cf5da142…`) before step 3 is issued.
+**C3 step 0 result (OWNER-RETURNED, 2026-09-10):** Mac 1 connection validation PASS (production project, session pooler); `psql` read-only attempt → `FATAL: password authentication failed for user "postgres"`; no SQL ran.
+**Coordinator search for the documented local DB-password location (read-only; names/locations only, no values):** repo docs define `$PROD_DB_URL` as "postgres role, owner's shell only"
+(`PRIMARY_TICKETING_PRODUCTION_ACTIVATION_RUNBOOK.md:31`) and never document a storage location; `~/.zshrc`/`~/.zprofile` export no DB URL/password variables; no `~/.pgpass`, no `~/.pg_service.conf`;
+no Snatch It `.env*` file carries a DB URL/password key (the two matches under `~/JDT-inc website/` belong to an unrelated project and do not mention the Snatch It ref); `supabase/.temp/pooler-url`
+is passwordless; the login keychain holds only the CLI access token (`Supabase CLI` / `supabase`) and a GitHub item (`SnatchIt-app`); `~/.supabase` holds telemetry only; the edge secret
+`SUPABASE_DB_URL` is platform-populated, not a local source. **Conclusion: no production DB password is stored locally in the documented setup.**
+**C-5 (dated correction 2026-09-10):** the C4 record's sentence "the DB password resolved from the OS keychain" was an assumption; the C4 apply output shows `Initialising login role...`, i.e. CLI 2.115
+`db push --linked` authenticated through its Management-API login-role mechanism (the stored CLI access token), not a stored DB password. The read-only MCP likewise needs no DB password.
+C3 remains withheld; no reset requested; no connection settings changed.
