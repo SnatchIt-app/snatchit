@@ -150,3 +150,25 @@ invariant — at most one `succeeded` payment and one captured charge per listin
 
 Resume order after R1–R5 pass: D6 on Device D3 (baseline 1 pending intent),
 D7, D8 on Device D5, D9 on Phone P1, D10, D11, T, F.
+
+## Build 15 cold-launch gate — COMPLETE (2026-09-10)
+
+Build `cbb3fbbe-0bc1-4898-987b-ad9b8de03b72`, iOS 15, EAS `gitCommitHash`
+`5bf2daa` (contains `9196123`), profile `preview`, sandbox pair.
+
+| Check | Device | Server-side (sandbox) |
+|---|---|---|
+| Cold launch, fresh install | badge visible, sign-in screen, signed in, Home | one `password` login 19:31:49Z, session `dd928989`, 1 token, 0 revoked |
+| Force-quit, cold launch again | still signed in, badge visible, no error, no Sentry event | `dd928989` remains the newest session; **0** sessions and **0** `/token` or `/logout` requests after 19:31:50Z; no error codes |
+
+So the v3 blob written on build 15 restored across a cold launch with no
+re-authentication — the path build 14 died on now works on the device.
+
+**Documented gap, accepted by the owner:** the reinstall wiped AsyncStorage, so
+the build-13 → 15 legacy-blob migration was not exercised on a device. It is
+proven only by `npm run smoke:hermes` under the Hermes engine with an injected
+RNG. Any device that still holds a build-13 session will exercise it on first
+launch of 15; that is the remaining unverified path.
+
+D1 on build 15 is satisfied by the same evidence (badge, sign-in, Home, session
+on the sandbox project). Payment matrix resumes at D2.
