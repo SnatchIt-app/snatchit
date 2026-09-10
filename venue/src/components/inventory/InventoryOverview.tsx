@@ -2,6 +2,7 @@ import { RELEASE_LABEL, availability, capacityFloor, doorHoldback, inventoryWarn
 import { usd, venueTime, relative } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import { canChangeCapacity, canReadHolds, canReleaseHold, inventoryView, showCounters } from "@/lib/roles";
+
 import type { Event, InventoryBatch, InventoryHold, TicketType } from "@/lib/types";
 import { AuditNote, CapacityBar, Chip, Panel } from "@/components/ui/Bits";
 import { EmptyState, LargerScreenBanner } from "@/components/ui/State";
@@ -14,6 +15,7 @@ import { PreviewHidden } from "@/components/events/EventSetup";
  */
 export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date }) {
   const view = showCounters(ctx.role, ctx) ? "counters" : inventoryView(ctx.role) === "none" ? "none" : "remaining_only";
+  const mayRelease = canReleaseHold(ctx.role) && ctx.writesEnabled !== false;
   const session = event.sessions[0];
   const self = `${basePath}/events/${event.eventId}/inventory`;
   const releases = (["public_sale", "presale", "promoter_hold", "comp", "door"] as const).filter((k) => batches.some((b) => b.releaseKind === k));
@@ -32,7 +34,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         {session ? <p className="mt-1 text-sm text-muted">Session {session.label ?? venueTime(session.startsAt, timeZone)} · capacity is per session</p> : null}
       </header>
 
-      {canChangeCapacity(ctx.role) ? <LargerScreenBanner /> : null}
+      {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner /> : null}
 
       {view === "counters" && warnings.length > 0 ? (
         <Panel title="Inventory warnings" eyebrow="One row per release and condition">
@@ -213,7 +215,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                             {RELEASE_LABEL[b?.releaseKind ?? "public_sale"]} · {h.kind} · {expired ? "expired" : `expires ${relative(h.expiresAt, now)}`}
                           </p>
                         </div>
-                        {canReleaseHold(ctx.role) ? (
+                        {mayRelease ? (
                           <form method="get" action={self} className="flex items-center gap-2">
                             <input type="hidden" name="did" value="venue.release_inventory_hold" />
                             <PreviewHidden ctx={ctx} />
@@ -227,7 +229,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                   })}
               </ul>
             )}
-            {canReleaseHold(ctx.role) ? (
+            {mayRelease ? (
               <div className="mt-3">
                 <AuditNote rpc="venue.release_inventory_hold" />
                 <p className="mt-1 text-xs text-dim">Releasing this puts the tickets back on sale immediately. Double-release is a no-op.</p>

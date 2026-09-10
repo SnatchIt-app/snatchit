@@ -26,6 +26,8 @@ export async function createSupabaseServerClient() {
   }
   const cookieStore = await cookies();
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    // Authenticated reads must never be served from Next's fetch cache to another request/user.
+    global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: "no-store" }) },
     cookies: {
       getAll() {
         return cookieStore.getAll();

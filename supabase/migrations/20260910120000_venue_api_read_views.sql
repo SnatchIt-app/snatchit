@@ -2,7 +2,7 @@
 -- 20260910120000_venue_api_read_views.sql — a narrow, read-only API surface for
 -- the venue dashboard (slice 1: events list + event setup, read side).
 --
--- WHAT THIS MIGRATION IS. Additive only. Creates schema `venue_api` holding six
+-- WHAT THIS MIGRATION IS. Additive only. Creates schema `venue_api` holding eight
 -- SECURITY INVOKER views over the Phase-2 catalog/venue tables, projecting
 -- ONLY columns those tables already GRANT to `authenticated` (078 §1.1–1.3,
 -- §1.5; 081 §9.1/§9.2). Because the views are security_invoker, every read
@@ -33,7 +33,7 @@
 --
 -- Rollback: supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql
 -- Verification:
---   select count(*) from pg_views where schemaname='venue_api';           -- 6
+--   select count(*) from pg_views where schemaname='venue_api';           -- 8
 --   select relname, reloptions from pg_class c join pg_namespace n on n.oid=c.relnamespace
 --    where n.nspname='venue_api' and c.relkind='v';   -- every row has security_invoker=true
 -- Locks/runtime: CREATE VIEW only; no table is locked beyond a brief
@@ -112,8 +112,31 @@ CREATE OR REPLACE VIEW venue_api.inventory_batches
     FROM venue.inventory_batch b;
 COMMENT ON VIEW venue_api.inventory_batches IS 'venue.inventory_batch, remaining only (no capacity/held/sold); caller''s RLS applies.';
 
+-- ---------------------------------------------------------------------------
+-- The caller's OWN grants (dashboard entry policy, spec §5: a signed-in user
+-- with no org/venue role has no dashboard; the app derives what to show from
+-- these rows, never from a client-supplied role). Filtered to auth.uid() on top
+-- of the base tables' RLS (080 venue_staff_role_sel_venue: staff read their own
+-- venue's roster; 077 kernel_org_member_sel_org: affiliates read their org's
+-- roster). identity_id is not projected — the row set is already "mine".
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW venue_api.my_staff_roles
+  WITH (security_invoker = true, security_barrier = true) AS
+  SELECT s.venue_id, s.role
+    FROM venue.staff_role s
+   WHERE s.identity_id = auth.uid();
+COMMENT ON VIEW venue_api.my_staff_roles IS 'The caller''s own venue.staff_role rows (venue_id, role); caller''s RLS applies.';
+
+CREATE OR REPLACE VIEW venue_api.my_org_roles
+  WITH (security_invoker = true, security_barrier = true) AS
+  SELECT m.org_id, m.role
+    FROM kernel.org_member m
+   WHERE m.identity_id = auth.uid();
+COMMENT ON VIEW venue_api.my_org_roles IS 'The caller''s own kernel.org_member rows (org_id, role); caller''s RLS applies.';
+
 GRANT SELECT ON venue_api.venues, venue_api.events, venue_api.event_sessions,
-                venue_api.resale_policies, venue_api.ticket_types, venue_api.inventory_batches
+                venue_api.resale_policies, venue_api.ticket_types, venue_api.inventory_batches,
+                venue_api.my_staff_roles, venue_api.my_org_roles
   TO authenticated;
 
 COMMIT;

@@ -4,6 +4,7 @@
  * renders as a legal state.
  */
 import type { Event, EventSession, EventStatus, InventoryBatch, ReleaseKind, ResaleMode, SessionStatus, TicketKind, TicketType, Visibility } from "@/lib/types";
+import { isOrgRole, isVenueRole, type GrantSet } from "@/lib/roles";
 
 export type EventRow = { event_id: string; venue_id: string; org_id: string; title: string; status: string };
 export type SessionRow = { session_id: string; event_id: string; session_label: string | null; starts_at: string; ends_at: string | null; doors_at: string | null; door_open_at: string | null; status: string };
@@ -65,4 +66,15 @@ export function mapBatches(rows: BatchRow[]): InventoryBatch[] {
     lowThreshold: 0,
     countersKnown: false,
   }));
+}
+
+export type StaffRoleRow = { venue_id: string; role: string };
+export type OrgRoleRow = { org_id: string; role: string };
+
+/** Only grants for the route's venue/org count; unknown labels are dropped, never guessed. */
+export function mapGrants(staff: StaffRoleRow[], org: OrgRoleRow[], venueId: string, orgId: string): GrantSet {
+  return {
+    venueRoles: staff.filter((r) => r.venue_id === venueId).map((r) => r.role).filter(isVenueRole),
+    orgRoles: org.filter((r) => r.org_id === orgId).map((r) => r.role).filter(isOrgRole),
+  };
 }

@@ -3,7 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 import { mapReadError, transportFailure, type ReadFailure, type ReadResult } from "@/lib/db/read-result";
-import { mapBatches, mapEvents, mapTicketTypes, type BatchRow, type EventRow, type PolicyRow, type SessionRow, type TicketTypeRow } from "@/lib/db/rows";
+import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type SessionRow, type StaffRoleRow, type TicketTypeRow } from "@/lib/db/rows";
+import type { GrantSet } from "@/lib/roles";
 import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 
 /**
@@ -86,4 +87,15 @@ export async function dbListBatches(eventId: string): Promise<ReadResult<Invento
   const rows = await select<BatchRow[]>("venue_api.inventory_batches", cl.c.from("inventory_batches").select("batch_id,ticket_type_id,event_session_id,release_kind,remaining").in("ticket_type_id", ids));
   if (!rows.ok) return rows;
   return { ok: true, data: mapBatches(rows.data) };
+}
+
+/** Entry policy — the caller's own grants at this venue/org (venue_api.my_staff_roles / my_org_roles). */
+export async function dbMyGrants(venueId: string, orgId: string): Promise<ReadResult<GrantSet>> {
+  const cl = await client("venue_api.my_staff_roles");
+  if (!cl.ok) return cl;
+  const staff = await select<StaffRoleRow[]>("venue_api.my_staff_roles", cl.c.from("my_staff_roles").select("venue_id,role"));
+  if (!staff.ok) return staff;
+  const org = await select<OrgRoleRow[]>("venue_api.my_org_roles", cl.c.from("my_org_roles").select("org_id,role"));
+  if (!org.ok) return org;
+  return { ok: true, data: mapGrants(staff.data, org.data, venueId, orgId) };
 }

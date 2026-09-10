@@ -6,8 +6,10 @@ import { CreateEventWizard } from "@/components/events/CreateEventWizard";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, Skeleton } from "@/components/ui/State";
 import { NotWiredState } from "@/components/ui/DataSourceError";
+import { EntryGate } from "@/components/ui/EntryGate";
 
 export const metadata = { title: "Create event" };
+export const dynamic = "force-dynamic";
 
 export default async function NewEventPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
@@ -18,8 +20,8 @@ export default async function NewEventPage({ params, searchParams }: { params: P
   const denied = ctx.state === "denied" || !canEditEvents(ctx.role);
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
-      <PreviewOutcome did={p.first("did")} />
-      {ctx.source === "database" ? <NotWiredState surface="Create event" /> : denied ? <DeniedState /> : ctx.state === "loading" ? <Skeleton rows={6} /> : <CreateEventWizard ctx={ctx} basePath={p.scope.basePath} step={step} venueApproved={ctx.state === "error" ? false : VENUE.approvalStatus === "approved"} venueName={VENUE.name} />}
+      {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
+      {ctx.source === "database" ? (p.entry.kind === "ok" ? <NotWiredState surface="Create event" /> : <EntryGate entry={p.entry} loginHref="/login" retryHref={p.scope.basePath} />) : denied ? <DeniedState /> : ctx.state === "loading" ? <Skeleton rows={6} /> : <CreateEventWizard ctx={ctx} basePath={p.scope.basePath} step={step} venueApproved={ctx.state === "error" ? false : VENUE.approvalStatus === "approved"} venueName={VENUE.name} />}
     </Shell>
   );
 }

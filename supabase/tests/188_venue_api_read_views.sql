@@ -1,6 +1,7 @@
 -- ============================================================================
--- 187_venue_api_read_views.sql — migration 20260910120000 (venue_api read views).
---   Section A: shape — schema, six views, security_invoker on every one, no
+-- 188_venue_api_read_views.sql — migration 20260910120000 (venue_api read views).
+--   (187 is taken by the release candidate's my_tickets test.)
+--   Section A: shape — schema, eight views, security_invoker on every one, no
 --     function of any kind in the schema, grants exactly {authenticated}.
 --   Section B: projection — no counter column (capacity/held/sold) and no
 --     ungranted catalog column reaches a view.
@@ -15,7 +16,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(40);
+SELECT plan(47);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -55,7 +56,7 @@ INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, r
 
 -- ── Section A — shape ────────────────────────────────────────────────────────
 SELECT has_schema('venue_api', 'A1: schema venue_api exists');
-SELECT is((SELECT count(*) FROM pg_views WHERE schemaname = 'venue_api'), 6::bigint, 'A2: exactly six views');
+SELECT is((SELECT count(*) FROM pg_views WHERE schemaname = 'venue_api'), 8::bigint, 'A2: exactly eight views');
 SELECT is((SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0::bigint, 'A3: no functions in venue_api (no definer surface)');
 SELECT is((SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'
              AND NOT EXISTS (SELECT 1 FROM unnest(c.reloptions) o WHERE o = 'security_invoker=true')), 0::bigint, 'A4: every view is security_invoker');
@@ -112,6 +113,25 @@ SELECT tap.logout();
 -- anon: schema usage denied outright.
 SELECT tap.login_anon();
 SELECT throws_ok($$ SELECT count(*) FROM venue_api.events $$, '42501', NULL, 'C21: anon is refused at the schema/view grant');
+SELECT tap.logout();
+
+-- ── Section E — own grants (dashboard entry policy) ─────────────────────────
+SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name IN ('my_staff_roles','my_org_roles') AND column_name = 'identity_id'), 0::bigint, 'E1: grant views do not project identity_id');
+SELECT tap.login('18700000-0000-4000-8000-0000000000a1');
+SELECT is((SELECT string_agg(venue_id::text || ':' || role, ',') FROM venue_api.my_staff_roles), '18700000-0000-4000-8000-0000000000aa:venue_manager', 'E2: manager A sees exactly its own staff grant');
+SELECT is((SELECT count(*) FROM venue_api.my_org_roles), 0::bigint, 'E3: manager A has no org role');
+SELECT tap.logout();
+SELECT tap.login('18700000-0000-4000-8000-0000000000a2');
+SELECT is((SELECT string_agg(org_id::text || ':' || role, ',') FROM venue_api.my_org_roles), '18700000-0000-4000-8000-00000000000a:org_owner', 'E4: org owner A sees exactly its own org grant');
+SELECT tap.logout();
+SELECT tap.login('18700000-0000-4000-8000-0000000000b1');
+SELECT is((SELECT count(*) FROM venue_api.my_staff_roles WHERE venue_id = '18700000-0000-4000-8000-0000000000aa'), 0::bigint, 'E5: finance B holds no grant at Room A (cross-venue entry denied by the app)');
+SELECT tap.logout();
+SELECT tap.login('18700000-0000-4000-8000-0000000000c1');
+SELECT is((SELECT count(*) FROM venue_api.my_staff_roles) + (SELECT count(*) FROM venue_api.my_org_roles), 0::bigint, 'E6: outsider has no grants at all -> no dashboard');
+SELECT tap.logout();
+SELECT tap.login_anon();
+SELECT throws_ok($$ SELECT count(*) FROM venue_api.my_staff_roles $$, '42501', NULL, 'E7: anon cannot read grant views');
 SELECT tap.logout();
 
 -- ── Section D — the views never widen ─────────────────────────────────────────

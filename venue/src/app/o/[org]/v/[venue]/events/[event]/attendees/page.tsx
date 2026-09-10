@@ -7,8 +7,10 @@ import { Attendees } from "@/components/attendees/Attendees";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { NotWiredState } from "@/components/ui/DataSourceError";
+import { EntryGate } from "@/components/ui/EntryGate";
 
 export const metadata = { title: "Attendees" };
+export const dynamic = "force-dynamic";
 
 export default async function AttendeesPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
@@ -16,7 +18,7 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs}>
-        <NotWiredState surface="Attendees" />
+        {p.entry.kind === "ok" ? <NotWiredState surface="Attendees" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
   }

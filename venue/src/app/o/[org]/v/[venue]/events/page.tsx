@@ -3,7 +3,8 @@ import { VENUE } from "@/fixtures/venue";
 import { listBatches, listEvents, listHolds, listTicketTypes, PreviewReadError } from "@/lib/data";
 import { dbListBatches, dbListEvents, dbListTicketTypes } from "@/lib/db/adapters";
 import type { ReadFailure } from "@/lib/db/read-result";
-import { readPage, sessionFailure, type PageParams } from "@/lib/page";
+import { readPage, type PageParams } from "@/lib/page";
+import { EntryGate } from "@/components/ui/EntryGate";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canEditEvents, canReadEvents } from "@/lib/roles";
 import type { Event, InventoryBatch, InventoryHold, TicketType } from "@/lib/types";
@@ -14,6 +15,7 @@ import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PreviewHidden } from "@/components/events/EventSetup";
 
 export const metadata = { title: "Events" };
+export const dynamic = "force-dynamic";
 
 type Loaded = { events: Event[]; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[] };
 
@@ -28,11 +30,11 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
   let failedRead: string | null = null;
   let dbFailure: ReadFailure | null = null;
 
-  if (readable && ctx.state !== "loading") {
+  const entryOpen = p.entry.kind === "fixtures" || p.entry.kind === "ok";
+  if (readable && ctx.state !== "loading" && entryOpen) {
     if (ctx.source === "database") {
       // Reads run as the signed-in user; RLS on the base tables is the only scoping.
-      dbFailure = sessionFailure(p.session, "venue_api.events");
-      if (!dbFailure) {
+      {
         const ev = await dbListEvents(venueId);
         if (!ev.ok) dbFailure = ev;
         else {
@@ -73,19 +75,19 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
   const venueName = ctx.source === "database" ? "Venue" : VENUE.name;
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
-      <PreviewOutcome did={p.first("did")} />
+      {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow text-dim">{venueName}</p>
           <h1 className="text-2xl font-bold">Events</h1>
         </div>
-        {readable && canEditEvents(ctx.role) ? (
+        {readable && entryOpen && canEditEvents(ctx.role) && ctx.writesEnabled !== false ? (
           <Link className="btn btn-primary btn-sm" href={withPreview(`${basePath}/events/new`, ctx)}>
             Create event
           </Link>
         ) : null}
       </header>
-      {readable ? (
+      {readable && entryOpen ? (
         <form method="get" className="mb-3 flex flex-wrap gap-2">
           <PreviewHidden ctx={ctx} />
           <input className="field !w-auto" name="q" placeholder="Search title" defaultValue={p.first("q") ?? ""} aria-label="Search events" />
@@ -102,7 +104,9 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
           </button>
         </form>
       ) : null}
-      {!readable ? (
+      {!entryOpen ? (
+        <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(`${basePath}/events`, ctx))}`} retryHref={withPreview(`${basePath}/events`, ctx)} />
+      ) : !readable ? (
         <DeniedState />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={7} />

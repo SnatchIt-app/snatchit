@@ -19,6 +19,31 @@ export type Principal = (typeof PREVIEW_PRINCIPALS)[number];
 
 export const DEFAULT_PRINCIPAL: Principal = "venue_manager";
 
+/** The caller's verified grants for one route (venue_api.my_staff_roles / my_org_roles, filtered to the route's venue and org). */
+export type GrantSet = { venueRoles: VenueRole[]; orgRoles: OrgRole[] };
+
+/**
+ * Database mode: the display principal is derived from verified grants, never
+ * from a client parameter. Precedence = widest capability first (spec §5 rows:
+ * owner/admin/manager hold the union; then the money plane; then the narrower
+ * venue labels). A caller with no grant at this venue/org has no dashboard
+ * (spec §5: "anon and fan have no dashboard at all") — returns null.
+ */
+const PRECEDENCE: Principal[] = [
+  "org_owner", "org_admin", "venue_manager", "org_finance", "venue_finance", "venue_box_office",
+  "org_marketing", "venue_marketing", "org_promoter_manager", "venue_promoter_manager", "venue_scanner", "org_member",
+];
+export function derivePrincipal(g: GrantSet): Principal | null {
+  const held = new Set<Principal>([...g.venueRoles, ...g.orgRoles]);
+  return PRECEDENCE.find((r) => held.has(r)) ?? null;
+}
+export function isVenueRole(x: string): x is VenueRole {
+  return (VENUE_ROLES as readonly string[]).includes(x);
+}
+export function isOrgRole(x: string): x is OrgRole {
+  return (ORG_ROLES as readonly string[]).includes(x);
+}
+
 export function isPrincipal(x: string | null | undefined): x is Principal {
   return !!x && (PREVIEW_PRINCIPALS as readonly string[]).includes(x);
 }

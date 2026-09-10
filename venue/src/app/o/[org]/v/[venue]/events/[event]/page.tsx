@@ -1,7 +1,8 @@
 import { listBatches, listManifestEpisodes, listTicketTypes, PreviewReadError } from "@/lib/data";
 import { dbListBatches, dbListTicketTypes } from "@/lib/db/adapters";
 import type { ReadFailure } from "@/lib/db/read-result";
-import { readPage, sessionFailure, type PageParams } from "@/lib/page";
+import { readPage, type PageParams } from "@/lib/page";
+import { EntryGate } from "@/components/ui/EntryGate";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
@@ -11,6 +12,7 @@ import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 
 export const metadata = { title: "Event setup" };
+export const dynamic = "force-dynamic";
 
 export default async function EventPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
@@ -21,13 +23,14 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const self = `${basePath}/events/${p.params.event}`;
 
   // Database mode: session/config failures first, then the event by id (RLS decides visibility).
-  const dbFailure: ReadFailure | null = ctx.source === "database" ? (sessionFailure(p.session, "venue_api.events") ?? p.eventFailure) : null;
+  const entryOpen = p.entry.kind === "fixtures" || p.entry.kind === "ok";
+  const dbFailure: ReadFailure | null = ctx.source === "database" ? p.eventFailure : null;
   const event = p.event;
 
   let loaded: { types: TicketType[]; batches: InventoryBatch[]; open: Set<string> } | null = null;
   let failedRead: string | null = null;
   let dbLoadFailure: ReadFailure | null = null;
-  if (readable && ctx.state !== "loading" && event && !dbFailure) {
+  if (readable && entryOpen && ctx.state !== "loading" && event && !dbFailure) {
     if (ctx.source === "database") {
       const t = await dbListTicketTypes(event.eventId);
       const b = t.ok ? await dbListBatches(event.eventId) : null;
@@ -49,8 +52,10 @@ export default async function EventPage({ params, searchParams }: { params: Prom
 
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
-      <PreviewOutcome did={p.first("did")} />
-      {!readable ? (
+      {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
+      {!entryOpen ? (
+        <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
+      ) : !readable ? (
         <DeniedState />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={8} />

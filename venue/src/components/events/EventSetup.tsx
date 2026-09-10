@@ -53,6 +53,8 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
               {next === "on_sale" ? <p className="text-sm text-muted">On-sale starts when you set it to On sale. Scheduling isn&apos;t available yet.</p> : null}
               {blocker ? (
                 <p className="border border-warning bg-warning/10 px-3 py-2 text-sm text-warning">{blocker}</p>
+              ) : editor && ctx.writesEnabled === false ? (
+                <p className="text-sm text-dim">Status changes are not available in database mode: the write path (catalog.set_event_status / publish_event) is not wired in this slice. Nothing you see here is a saved change.</p>
               ) : editor ? (
                 <form method="get" action={withPreview(self, ctx)} className="hidden space-y-2 lg:block">
                   <input type="hidden" name="did" value="catalog.set_event_status" />
@@ -71,7 +73,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           )}
         </Panel>
 
-        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline">Add session → catalog.create_event_session</span> : null}>
+        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && ctx.writesEnabled !== false && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline">Add session → catalog.create_event_session</span> : null}>
           <ul className="divide-y divide-line-neutral">
             {event.sessions.map((s) => {
               const hb = doorHoldback(batches, s.sessionId);
@@ -131,12 +133,12 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
             </p>
             <p className="mt-1 text-sm text-muted">Resale is off unless you turn it on.</p>
             <p className="mt-1 text-sm text-muted">Tickets already listed keep the policy they were listed under.</p>
-            {editor ? <p className="mt-2 hidden text-xs text-dim lg:block">Change → catalog.set_resale_policy (creates a new version, never an edit)</p> : null}
+            {editor && ctx.writesEnabled !== false ? <p className="mt-2 hidden text-xs text-dim lg:block">Change → catalog.set_resale_policy (creates a new version, never an edit)</p> : null}
           </Panel>
         ) : null}
       </div>
 
-      {editor && event.status !== "cancelled" && event.status !== "completed" ? (
+      {editor && ctx.writesEnabled !== false && event.status !== "cancelled" && event.status !== "completed" ? (
         <Panel title="Danger zone" eyebrow="Cancel event">
           <p className="text-sm text-muted">
             Cancelling shows the blast radius as counts before the confirm enables: sessions to cancel · tickets to void · orders to refund · open listings and transfers to cancel. A reason code and typing the event title are required. Nothing is deleted.

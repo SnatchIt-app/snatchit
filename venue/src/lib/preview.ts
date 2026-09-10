@@ -23,6 +23,8 @@ export type PreviewContext = {
   source?: DataSource;
   /** false when capacity/held/sold are not readable (database mode) — surfaces then show `remaining` only. */
   countersAvailable?: boolean;
+  /** false in database mode: no write path is wired, so no action control is offered. */
+  writesEnabled?: boolean;
 };
 
 function first(v: string | string[] | undefined): string | undefined {
@@ -32,9 +34,13 @@ function first(v: string | string[] | undefined): string | undefined {
 export function readPreviewContext(sp: SearchParams | undefined): PreviewContext {
   const roleRaw = first(sp?.role);
   const stateRaw = first(sp?.state);
+  if (DATA_SOURCE === "database") {
+    // Preview controls are fixture-mode only: the role comes from verified grants (lib/page.ts) and no state is forced.
+    return { role: DEFAULT_PRINCIPAL, state: "live", source: "database", countersAvailable: false, writesEnabled: false };
+  }
   const role = isPrincipal(roleRaw) ? roleRaw : DEFAULT_PRINCIPAL;
   const state = (PREVIEW_STATES as readonly string[]).includes(stateRaw ?? "") ? (stateRaw as PreviewState) : "live";
-  return { role, state, source: DATA_SOURCE, countersAvailable: DATA_SOURCE === "fixtures" };
+  return { role, state, source: "fixtures", countersAvailable: true, writesEnabled: true };
 }
 
 /** Build a link that keeps the current role/state so the reviewer can walk the flow in one persona. */

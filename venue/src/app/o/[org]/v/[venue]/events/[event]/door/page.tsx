@@ -7,8 +7,10 @@ import { DoorStatus } from "@/components/door/DoorStatus";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { NotWiredState } from "@/components/ui/DataSourceError";
+import { EntryGate } from "@/components/ui/EntryGate";
 
 export const metadata = { title: "Door" };
+export const dynamic = "force-dynamic";
 
 type Loaded = { pins: DoorPin[]; devices: ScanDevice[]; episodes: ManifestEpisode[]; scans: ScanCounters; flags: FlagRow[]; lookup: { q: string; result: RosterRow | null } | null };
 
@@ -18,7 +20,7 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs}>
-        <NotWiredState surface="Door status" />
+        {p.entry.kind === "ok" ? <NotWiredState surface="Door status" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
   }

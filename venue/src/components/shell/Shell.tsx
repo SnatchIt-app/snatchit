@@ -68,12 +68,21 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
 }
 
 function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
+  // The context (not the process env) decides the mode, so a rendered tree is self-describing.
+  const dbMode = ctx.source === "database";
   const info = sourceInfo();
+  const label = dbMode ? (info.source === "database" ? info.label : "Database mode") : info.label;
   return (
-    <div className={`preview-banner px-3 py-1.5 ${info.source === "database" ? "preview-banner-db" : ""}`} role="status" aria-live="polite">
+    <div className={`preview-banner px-3 py-1.5 ${dbMode ? "preview-banner-db" : ""}`} role="status" aria-live="polite">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2">
-        <span>◆ {info.label}</span>
-        <PreviewControls ctx={ctx} />
+        <span>◆ {label}</span>
+        {dbMode ? (
+          <span className="text-[11px] normal-case tracking-normal">
+            Capabilities come from your grants: <strong>{PRINCIPAL_LABEL[ctx.role]}</strong>. Write actions are not available in this mode.
+          </span>
+        ) : (
+          <PreviewControls ctx={ctx} />
+        )}
       </div>
     </div>
   );
