@@ -150,3 +150,54 @@ invariant — at most one `succeeded` payment and one captured charge per listin
 
 Resume order after R1–R5 pass: D6 on Device D3 (baseline 1 pending intent),
 D7, D8 on Device D5, D9 on Phone P1, D10, D11, T, F.
+
+## Build 15 cold-launch gate — COMPLETE (2026-09-10)
+
+Build `cbb3fbbe-0bc1-4898-987b-ad9b8de03b72`, iOS 15, EAS `gitCommitHash`
+`5bf2daa` (contains `9196123`), profile `preview`, sandbox pair.
+
+| Check | Device | Server-side (sandbox) |
+|---|---|---|
+| Cold launch, fresh install | badge visible, sign-in screen, signed in, Home | one `password` login 19:31:49Z, session `dd928989`, 1 token, 0 revoked |
+| Force-quit, cold launch again | still signed in, badge visible, no error, no Sentry event | `dd928989` remains the newest session; **0** sessions and **0** `/token` or `/logout` requests after 19:31:50Z; no error codes |
+
+So the v3 blob written on build 15 restored across a cold launch with no
+re-authentication — the path build 14 died on now works on the device.
+
+**Documented gap, accepted by the owner:** the reinstall wiped AsyncStorage, so
+the build-13 → 15 legacy-blob migration was not exercised on a device. It is
+proven only by `npm run smoke:hermes` under the Hermes engine with an injected
+RNG. Any device that still holds a build-13 session will exercise it on first
+launch of 15; that is the remaining unverified path.
+
+D1 on build 15 is satisfied by the same evidence (badge, sign-in, Home, session
+on the sandbox project). Payment matrix resumes at D2.
+
+## D5 on build 15 (Device D5) — payment CLEAN, automatic return FAILED
+
+Financial truth, read-only: payment `0417d2ee` succeeded; intent
+`pi_3UEDzXGlD5aqtxIw0Hcu4jNl` succeeded, the only intent created on the test
+account in 45 minutes; charge `ch_3UEDzX…` captured 11000, refunded 0, not
+disputed, 3-D Secure `authenticated`; listing sold 19:50:57Z, hold released;
+one transfer `pending` with no payout id; zero webhook retries; session intact
+through the handoff (no `/token`, no `/logout`). **No duplicate intent** — the
+manual browser exit and any remount created nothing, so the settled-first
+re-entry guard held on hardware. **Device D5 is settled once; not to be retried.**
+
+Acceptance failure: after Authorize the browser did not return to the app on
+its own; the buyer exited it manually, after which checkout completed normally.
+A wiring defect, not a money defect.
+
+Cause (confirmed in source, device-confirmed only by the symptom): the Stripe
+SDK dismisses its browser and resolves the PaymentSheet only when the app hands
+the return URL back through `handleURLCallback`. Nothing in the app called it.
+`urlScheme` was set and the URL resolved to a real route, so the route opened
+underneath while the browser stayed up.
+
+Fix: every incoming URL now goes through `dispatchDeepLink` (pure, tested with
+mocked effects), which asks the module-level `handleURLCallback` FIRST and
+returns when it consumes the URL; the H-5 auth contract runs otherwise,
+unchanged. One funnel covers `getInitialURL()` (cold start after iOS killed the
+app behind the browser) and the `'url'` event. A rejection from Stripe cannot
+take the auth path down. The wiring is behaviourally tested; the real browser
+return remains device-only and is the gate on build 16.

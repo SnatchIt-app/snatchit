@@ -12,12 +12,13 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
-import { StripeProvider } from '@stripe/stripe-react-native';
+import { StripeProvider, handleURLCallback } from '@stripe/stripe-react-native';
 import 'react-native-reanimated';
 
 import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
+import { attachDeepLinkFunnel, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
 import { assertDeviceRandomness } from '@/src/lib/randomness';
 import { NativeModules } from 'react-native';
 import { usePushToken } from '@/src/hooks/usePushToken';
@@ -195,57 +196,20 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
   // and switch Supabase redirect/email URLs to https links. That hosting/DNS
   // step is OUT OF SCOPE for this mobile-only change.
   useEffect(() => {
-    async function handleUrl(url: string) {
-      if (!url) return;
-
-      // Parse BOTH the query string and the fragment; treat all as untrusted.
-      const queryStr = url.includes('?') ? url.split('?')[1].split('#')[0] : '';
-      const hashStr  = url.includes('#') ? url.split('#')[1] : '';
-      const qp = new URLSearchParams(queryStr);
-      const hp = new URLSearchParams(hashStr);
-      const get = (k: string) => qp.get(k) ?? hp.get(k);
-
-      const type       = get('type');        // 'recovery' | 'signup' | 'email' | …
-      const code        = get('code');        // PKCE authorization code
-      const token_hash  = get('token_hash');  // OTP / recovery verification hash
-      const errParam    = get('error') ?? get('error_code');
-
-      if (errParam) {
-        console.warn('[auth] deep-link error:', errParam, get('error_description') ?? '');
-      }
-
-      // Route to the reset screen for recovery links. The recovery SESSION is
-      // established below (verifyOtp / exchangeCodeForSession), never by
-      // trusting tokens in the URL. Routing first just shows the UI promptly;
-      // reset-password.tsx calls updateUser({password}) once the session lands.
-      if (type === 'recovery') {
-        setIsRecovery(true);
-        router.replace('/(auth)/reset-password');
-      }
-
-      try {
-        if (token_hash && type) {
-          const { error } = await supabase.auth.verifyOtp({
-            // EmailOtpType subset carried by Supabase email links.
-            type: type as 'recovery' | 'signup' | 'email' | 'magiclink' | 'invite' | 'email_change',
-            token_hash,
-          });
-          if (error) console.warn('[auth] verifyOtp error:', error.message);
-        } else if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) console.warn('[auth] exchangeCodeForSession error:', error.message);
-        }
-        // NOTE: the previous unconditional
-        //   supabase.auth.setSession({ access_token, refresh_token })
-        // path is REMOVED. Do NOT reintroduce a setSession-from-URL path.
-      } catch (e) {
-        console.warn('[auth] deep-link session exchange failed:', e);
-      }
-    }
-
-    Linking.getInitialURL().then(url => { if (url) handleUrl(url); });
-    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
-    return () => sub.remove();
+    // Stripe is asked FIRST (module-level handleURLCallback needs no provider
+    // context, and this hook runs outside StripeProvider). `true` = the 3DS /
+    // redirect return was consumed and the browser dismissed; nothing else runs.
+    // Otherwise the H-5 auth contract handles the link exactly as before.
+    // One funnel: getInitialURL (cold start after iOS killed the app behind the
+    // browser) and the 'url' event (warm return) both land here.
+    return attachDeepLinkFunnel(Linking, (url) => {
+      void dispatchDeepLink(url, {
+        stripeCallback: handleURLCallback,
+        verifyOtp: ({ type, token_hash }) => supabase.auth.verifyOtp({ type, token_hash }),
+        exchangeCodeForSession: (code) => supabase.auth.exchangeCodeForSession(code),
+        onRecovery: () => { setIsRecovery(true); router.replace('/(auth)/reset-password'); },
+      });
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Notification tap → deep link routing ────────────────────────────────
