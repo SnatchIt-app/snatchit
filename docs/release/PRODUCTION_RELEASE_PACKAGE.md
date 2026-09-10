@@ -159,7 +159,7 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **RESUMED** | D2 and D5 passed on build 16; D6–D11 outstanding (§16) | Claude C |
+| **Handset QA — 11 cases on the preview build** | **RESUMED** | D2 and D5 passed on build 16, plus a second 3-D Secure completion on `Device D2`; **D6 not yet run** (§17); D6–D11 outstanding | Claude C |
 | **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
@@ -578,3 +578,72 @@ allocation, since D8 and D9 each consume one and D6 consumes none:
 * **D10/D11** (deletion messaging and withdrawal) → need an unsettled order; run after D8 or D9
 
 `Device D4` and `Device D5` payments stay untouched — neither is to be retried or modified.
+
+
+## 17. Second 3-D Secure completion, and the D6 setup (2026-09-10)
+
+### `Device D2` — a completion, not a cancellation
+
+The run on `Device D2` tapped **Complete authentication**, not Cancel or Fail. It is recorded as **another
+successful authentication/payment flow**, and **D6 remains un-run**.
+
+Server-side, the same clean pattern as `Device D3`:
+
+| Check | Result |
+|---|---|
+| Listing | **sold** 20:58:47, hold released |
+| Payment rows | 2: `f7762166` **failed** (the superseded 2026-09-08 intent), `be791912` **succeeded** |
+| **Succeeded payments** | **exactly one** — $100.00 + $10.00 + $10.00 = **$110.00**, `livemode=false` |
+| Stripe intents | 2: `pi_3UEF3IG…` **succeeded** with `ch_3UEF3IG…`; `pi_3UDGM3G…` **canceled**, no charge |
+| **Captured charges** | **exactly one** |
+| Transfer | 1 row, `pending`, no payout id — payout withheld |
+| Webhook retries | 0 |
+
+That is now **two independent 3-D Secure completions** on build 16 (`Device D3`, `Device D2`), each settling
+exactly once on a listing that already carried a stale pending row. `Device D2` stays settled once and must
+not be retried.
+
+### Sandbox prepared for D6
+
+**`Device D6` created** — `c46a79a3-cc78-4997-819e-db4ca20c0c30`, $100 buy-now, `active`, **zero payment
+history**, ends in 14 days. Synthetic fixture matching the existing staged listings; no financial state
+touched.
+
+**Two expiry problems found and fixed while preparing it**, without which D8 and D9 would have failed for the
+wrong reason:
+
+* **`Phone P1` had already expired** — `ends_at` 2026-09-10 03:44:25, nearly **20 hours** in the past. It
+  still read `active` only because the sandbox expiry cron is disabled by design, so browse hid nothing but
+  checkout would have refused it.
+* **`Device D1` was ~4 hours from expiry.**
+
+Both were extended to **14 days**. Nothing else about them changed — `Device D1` keeps its two stale pending
+rows and `Phone P1` its one, which are harmless for D8 and D9.
+
+Current inventory: `Device D1` (active, 2 pending), `Device D6` (active, clean), `Phone P1` (active, 1
+pending). `Device D2`, `D3`, `D4`, `D5`, `Phone P2`, `P3` sold.
+
+### The exact cancellation control for D6
+
+The Stripe test 3-D Secure page for `4000 0025 0000 3155` offers **two** buttons, and **neither is a
+cancellation**:
+
+* **Complete authentication** → the challenge succeeds and the payment goes through. This is what was tapped
+  on `Device D2`.
+* **Fail authentication** → the challenge completes with a *failure*; the PaymentIntent is **declined**. This
+  is a decline, not a cancellation — a different case.
+
+**D6's cancellation is the browser's own control, not a button on the Stripe page:** the **Cancel** (or
+**Done**) control in the **top-left of the browser bar** above the page content. Tapping it abandons the
+challenge and returns a *canceled* result to the PaymentSheet.
+
+| Case | Control | Expected |
+|---|---|---|
+| **D6 — cancellation** | **Cancel / Done, top-left of the browser bar** | returns into the app, **no charge**, no alarming alert, listing still buyable |
+| D6b — decline (optional) | **Fail authentication** on the page | returns into the app, payment declined, **no charge**, listing still buyable |
+
+Neither consumes the listing, so `Device D6` can serve both. Run **D6 first**; if it passes, D6b is a free
+extra on the same listing.
+
+`Device D1` stays reserved for **D8**, `Phone P1` for **D9**. Device D2, D3, D4 and D5 payments are settled
+and must not be retried or modified.
