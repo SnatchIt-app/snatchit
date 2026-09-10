@@ -1138,3 +1138,8 @@ platform services connected after the reset: PostgREST (`authenticator`) ×3, `s
 (e.g. create-payment-intent 45→46, notify-transfer 5→6) — consistent with the platform re-injecting the refreshed default secret (`SUPABASE_DB_URL`) into deployed functions after the password reset. Not a
 deploy by the owner or coordinator; no source changed; 0 functions read `SUPABASE_DB_URL`. **V8 PASS** — KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key; 0 ScheduleKeyDeletion/DisableKey/
 PutKeyPolicy/Sign events since 18:40Z; flags false. Pending from the owner: R2 (`PROD_DB_URL=set`), R3 = V1/V2/V3 lines; optional V6/V7 (app read, test sign-in).
+**OWNER-RETURNED (R3):** `project_match=True mode=session PASS` (V1) · `1` (V2 — `psql` authenticates with the new password) · `0|135|tg_signing_key_immutable=O,tg_signing_key_insert_guard=O,
+tg_signing_key_updated_at=O|0|false` (V3). CLAUDE-OBSERVED 18:51:49Z: `Supavisor` session as `postgres` present (the owner's new-password connection), `Supavisor (auth_query)` as `pgbouncer`; cron 86
+succeeded / 0 failed in 10 min. **DB PASSWORD RESET COMPLETE AND VALIDATED (V1–V5, V8; V6/V7 owner-optional).** The only updated consumer is the owner's shell `PROD_DB_URL`; nothing else changed.
+**C3 resumes** under the existing authorization ("AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT", rev 3 scope) at Mac 1 step 1 (artifact staging) and step 2 (inputs); step 3 (the mutation) is withheld until
+their outputs are read back. No production mutation has occurred.
