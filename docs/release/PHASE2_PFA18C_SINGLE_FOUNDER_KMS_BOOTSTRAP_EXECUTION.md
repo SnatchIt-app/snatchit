@@ -1070,3 +1070,18 @@ connection required** — local marker `aws-0-us-west-2.pooler.supabase.com:5432
 ### SESSION 18 MUTATION LEDGER (final)
 AWS: `CreateKey`, proof `Sign`, `PutKeyPolicy` v2 (owner, ceremony role, MFA); `PutRolePolicy` (coordinator with `jose-admin`, owner-instructed). Denied probes only otherwise. **KMS: one key, Enabled, v2, no alias/grant/deletion. Access keys: none.**
 Production DB: **none** (read-only). Secrets/edges/flags: **none / not deployed / unchanged**. Repository: C2 record, C3 package rev 2, packet rows, this entry.
+
+## SESSION 19 — 2026-09-10 — C3 FINAL HANDOFF (rev 3) PREPARED · READ-ONLY · NOT AUTHORIZED · NOTHING EXECUTED
+
+Owner instruction: prepare the final C3 handoff; Option A (Mac 2 = independent Supabase Dashboard login with MFA; privileged `postgres` session, read-only by procedure) selected as the recommended path.
+CLAUDE-OBSERVED (read-only): **connection verification** — CLI link markers in both worktrees: project ref `hqycwntpfoztoinemqns`, URL user contains the ref, session pooler host, port 5432, mode **session**,
+no embedded password → **PASS ×2** (only match/mode/pass printed); project identity via Management API: "Snatch It", org `zcxpqolueooqkslolfrt`, region us-west-2 (= pooler host region), Postgres 17.6,
+ACTIVE_HEALTHY, direct host `db.<ref>.supabase.co`; owner-side `$PROD_DB_URL` check snippet dry-run against a dummy URL prints only `project_match/mode/PASS`.
+**Definition review (not a live test):** `kernel.revoke_signing_key` source read in full — authz order (1) `auth.uid()` null → insufficient_privilege, (2) `kernel.is_platform(platform_admin)`,
+(3) aal claim absent → step_up_unavailable, (4) aal ≠ aal2 → step_up_required, then input gates, `for update` locks, idempotent no-op, ack check; **first write = `update … status='revoked'`** (step 10),
+then audit insert + force-close cascade. The five parked lifecycle functions' bodies are single `raise … dual_control_unavailable` statements (no write reachable).
+Package rev 3: `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md` — §1 exact mutation scope (one INSERT of one row; probes listed as write attempts), §2 connection verification,
+§3 named ceremony backend (`PGAPPNAME`, `-c pg_backend_pid()` first on the same connection), §4 definition review + explicit deviation (no live revoke probe), §5 Mac-2 Option A guide (A0 access
+confirmation; pinned A1–A7), §6 final invocation, §7 outcome determination identifying only the recorded backend, §8 read-only vs write-attempt probes (scripts with `ON_ERROR_STOP off`, `begin…rollback`,
+post-read, shell PASS/STOP), §9 rollback limits, §10 owner decisions (Option A; V-1; deviation; then the phrase).
+Mutation ledger: **none** (AWS none; DB read-only; no secrets/edges/flags). Repository: package rev 3, packet row, this entry.
