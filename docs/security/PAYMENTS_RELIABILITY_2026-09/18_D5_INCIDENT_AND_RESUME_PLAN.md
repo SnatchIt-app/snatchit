@@ -22,36 +22,53 @@ Sandbox `ofaidukbieeekqaboscm`. All evidence gathered read-only; nothing changed
 `+not-found`. The completed challenge deep-linked into expo-router's default
 unmatched (sitemap) screen — the reported "404". Fixed in `8f94cda`.
 
-## Cause 2 — session loss: what is confirmed and what is not
+## Cause 2 — session loss: confirmed, corrected, and still open
 
-**Confirmed from the sandbox auth log and `auth.sessions`:**
-- three `password` logins 17:38:31 / 17:42:57 / 17:45:30; **zero** refresh grants
-- **zero** `/logout` calls in the window
-- each session: one refresh token, **none revoked**, `refreshed_at` null
-- the access-token lifetime (1 h) could not have elapsed in the 9-minute window
+**Confirmed (sandbox `auth.sessions` / `auth.refresh_tokens`, corroborated by
+Claude A's independent read):** the three sessions created 17:38 / 17:42 /
+17:45 each hold one refresh token, zero revoked, zero rotations. **The refresh
+loop never ran.** No `/logout` was received.
 
-So the server never saw an expiry, a failed refresh, a revocation or a sign-out.
-Whatever signed the buyer out happened **entirely on the device, silently**.
+**Corrected statement of the visible chain (per review item 5).** The earlier
+wording "the app read the failure as a stale token and signed the buyer out" is
+withdrawn: `useAuth` signs out only on `Invalid Refresh Token` / `Refresh Token
+Not Found`, no token on those sessions was revoked, and no sign-out reached the
+server. The supported chain is: the access token was no longer usable on return,
+`getSession()` yielded **no session and no error**, and `useAuth`'s else-branch
+set the session to null. Nothing signed anyone out; the client simply had no
+session to show. `Buy Now` then correctly refused (`user?.id` null) while Home
+kept stale profile text. Worth stating positively: the stale-token phrase list is
+narrow, so transient network failure was never treated as revocation, and this
+branch does not change that.
 
-**Withdrawn as the D5 cause:** "the token expired unrefreshed". The missing
-`AppState` auto-refresh wiring is a **real latent defect** (`startAutoRefresh`
-appeared nowhere) and stays fixed in `8f94cda`, but the timeline rules it out as
-what happened here. `useAuth`'s stale-token `signOut()` path is also ruled out —
-it would have produced a `/logout`.
+**Still open — why was the token unusable inside nine minutes?** Two candidate
+mechanisms; neither is device-confirmed:
 
-**Leading HYPOTHESIS, structurally supported, not device-confirmed:** a torn
-write in `LargeSecureStore`. It minted a new AES key on every write and stored
-it in the Keychain *before* the blob reached AsyncStorage. A suspend or relaunch
-between those two writes — the 3-D Secure handoff, the deep-link relaunch — left
-key N+1 against blob N; the next `getItem` failed to decrypt and **deleted the
-session locally with no server call**. That is the only mechanism found that
-matches every server-side observation. Hardened in this branch by reusing one
-key per storage key (tested). Confirmation needs a device artefact: the
-`[secureStorage] decrypt failed; clearing entry` warning in a Sentry breadcrumb
-or device log from the D5 session.
+- *A's reading:* the access token expired while the app was backgrounded behind
+  the 3-D Secure browser, and with the refresh loop stopped nothing renewed it.
+  Sufficient **only if the sandbox access-token lifetime is well under nine
+  minutes**; that setting could not be read from here (connector dropped
+  mid-investigation). If `jwt_exp` is the 3600 s default, expiry alone does not
+  fit the window.
+- *Torn-write in `LargeSecureStore`* (hardened in `a050125`): a fresh AES key
+  written to the Keychain before the blob reached AsyncStorage; a suspend between
+  the two leaves an undecryptable blob, and `getItem` clears it locally. Fits
+  every server-side fact including the missing refresh grant. Confirmed only by a
+  device artefact: the `[secureStorage] decrypt failed; clearing entry` warning
+  in Sentry breadcrumbs or a device log from the D5 session.
 
-`Home` showing "sandbox buyer" while `Buy Now` refused: both read `useAuth()`,
-so this was stale rendered profile text, not a disagreement between guards.
+Both fixes ship regardless: the refresh loop now follows the foreground, and
+key/blob can no longer disagree. Which one *caused* D5 is settled by `jwt_exp`
+plus the breadcrumb, not by argument.
+
+**Re-entry (review item 1, blocking) — CONFIRMED and fixed in this commit.** The
+return URL lands on `checkout/[id]`; a remount ran the reservation pre-check
+first and reported "Your reservation has expired" for a listing that was sold
+*because this buyer paid*, and auction mode would have created a second intent.
+`decideCheckoutSetup` now asks "already settled?" before anything else, renders
+the completed settlement, and creates/initialises/presents nothing; two rapid
+re-entries share one in-flight setup. Covered behaviourally with mocked
+dependencies (tests/checkout-setup-reentry.test.ts).
 
 ## Re-pinned baselines (read 2026-09-10 ~18:05Z)
 

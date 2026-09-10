@@ -40,7 +40,19 @@ const LIVE_ACCT_FRAGMENT = '51T6Far'; // acct_1T6FarGdOzCmGbHw (live account)
  * the app; restating them here makes an edit to either one fail the guard
  * instead of silently breaking the 3DS round trip.
  */
-export const EXPECTED_RETURN_URL = 'snatchit://checkout';
+/**
+ * The return URL carries the listing id (`snatchit://checkout/<id>`), so the
+ * guard checks a prefix plus a non-empty id rather than one literal. The bare
+ * form and any other path are still refused.
+ */
+export const EXPECTED_RETURN_URL_PREFIX = 'snatchit://checkout/';
+/** A well-formed instance, used only as the guard's default input. */
+export const EXPECTED_RETURN_URL = EXPECTED_RETURN_URL_PREFIX + 'listing';
+export function isExpectedReturnUrl(url: string): boolean {
+  if (!url.startsWith(EXPECTED_RETURN_URL_PREFIX)) return false;
+  const id = url.slice(EXPECTED_RETURN_URL_PREFIX.length);
+  return id.length > 0 && !id.includes('/');
+}
 export const EXPECTED_URL_SCHEME = 'snatchit';
 
 export type EnvVerdict = {
@@ -112,7 +124,7 @@ export function evaluateEnv(input: {
     return verdict(fail('F2', 'APP_ENV=production but the target is not the production pair'));
   }
   // F8 — the deep-link contract the 3DS round trip depends on.
-  if (returnUrl !== EXPECTED_RETURN_URL || urlScheme !== EXPECTED_URL_SCHEME) {
+  if (!isExpectedReturnUrl(returnUrl) || urlScheme !== EXPECTED_URL_SCHEME) {
     return verdict(fail('F8', 'PaymentSheet return URL / scheme no longer match the guard'));
   }
   return verdict(null);

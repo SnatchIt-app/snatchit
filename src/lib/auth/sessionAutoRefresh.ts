@@ -36,9 +36,9 @@ export { isForeground };
  * Safe to call more than once; each call owns its own subscription.
  */
 export function startSessionAutoRefresh(): () => void {
-  // The app is already foreground when this mounts, so start immediately rather
-  // than waiting for the first transition.
-  supabase.auth.startAutoRefresh();
+  // Start only if the app is actually in front. A push-launched shell can
+  // mount while backgrounded; the loop then waits for the first 'active'.
+  if (isForeground(AppState.currentState)) supabase.auth.startAutoRefresh();
 
   const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
     if (isForeground(state)) supabase.auth.startAutoRefresh();
