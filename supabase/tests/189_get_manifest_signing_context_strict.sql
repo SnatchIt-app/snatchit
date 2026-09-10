@@ -1,13 +1,15 @@
 -- ============================================================================
--- 189_get_manifest_signing_context_strict.sql — migration 121 (PFA-18C forward
--- fix for 114 L121). Focused regression: the row read inside
--- venue.get_manifest_signing_context() is STRICT with no_data_found /
--- too_many_rows mapped to the stable unavailable codes; the non-STRICT form is
--- gone; signature, definer/search_path shape, grants and the 0-row / 1-row /
--- rotated behaviours are unchanged from 114 (suite 180 still passes). The race
--- itself (a status flip between the count and the read) cannot be interleaved
--- inside one pgTAP transaction; STRICT semantics are Postgres-guaranteed, so the
--- regression pins the definition (A) and the observable contract (C).
+-- 189_get_manifest_signing_context_strict.sql — migration 121 (PFA-18C
+-- defensive hardening of the active-global row read). Focused regression: the
+-- row read inside venue.get_manifest_signing_context() is STRICT with
+-- no_data_found / too_many_rows mapped to the stable unavailable codes; the
+-- non-STRICT form is gone; signature, definer/search_path shape, grants and the
+-- 0-row / 1-row / rotated behaviours are unchanged from 114 (suite 180 still
+-- passes). No race is claimed: the function is STABLE, so its reads share the
+-- calling query's snapshot (Claude A, PR #58); STRICT states the "exactly one
+-- row" invariant in the code so it holds by construction even if the function
+-- were later made VOLATILE. The regression pins the definition (A) and the
+-- observable contract (C).
 -- ============================================================================
 BEGIN;
 SELECT plan(19);

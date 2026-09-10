@@ -1,7 +1,8 @@
 -- ============================================================================
 -- 121_get_manifest_signing_context_strict_rollback.sql — restores the 114 body
--- of venue.get_manifest_signing_context() verbatim (114:108-137), re-opening
--- the 114 L121 non-STRICT read. Body-only; grants and comment restored to the
+-- of venue.get_manifest_signing_context() verbatim (114:108-137), i.e. the
+-- non-STRICT row read (safe in the current STABLE function; 121 was defensive
+-- hardening, not a defect fix). Body-only; grants and comment restored to the
 -- 114 text; census 0. Production is forward-only by policy — this is an
 -- emergency measure requiring its own authorization.
 -- ============================================================================
