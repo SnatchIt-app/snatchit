@@ -1115,3 +1115,10 @@ is passwordless; the login keychain holds only the CLI access token (`Supabase C
 **C-5 (dated correction 2026-09-10):** the C4 record's sentence "the DB password resolved from the OS keychain" was an assumption; the C4 apply output shows `Initialising login role...`, i.e. CLI 2.115
 `db push --linked` authenticated through its Management-API login-role mechanism (the stored CLI access token), not a stored DB password. The read-only MCP likewise needs no DB password.
 C3 remains withheld; no reset requested; no connection settings changed.
+**DB-password reset impact inventory prepared (read-only; NOT a reset; C3 paused):** `docs/release/PHASE2_PFA18C_DB_PASSWORD_RESET_IMPACT_INVENTORY.md`. CLAUDE-OBSERVED 18:29:43Z baseline:
+auth_users 18 · ledger 135 · signing_key 0 · flags false · kernel tables 32 · 24 pg_cron jobs active · login roles = platform roles + `postgres` + `cli_login_postgres` · client backends now:
+PostgREST (`authenticator`), Realtime/exporter (`supabase_admin`), Storage (`supabase_storage_admin`/`pgbouncer`), `mgmt-api` (`postgres`). Consumers of the `postgres` password: **only the owner's
+`psql "$PROD_DB_URL"`** — CLI `db push --linked` (login role), CI (guard only; the GitHub integration applies via project link), read-only MCP (access token), Mac 2 Dashboard (account login), rehearsal
+scripts (localhost), cron/exporter (internal roles) do not use it. 11 ACTIVE edge functions all use `supabase-js createClient` (service-role JWT); **zero** reference `SUPABASE_DB_URL`/direct Postgres.
+Reset cannot alter schema, data, KMS (AWS), Stripe secrets, `catalog.platform_config` flags, or `auth.users`. Post-reset update = `PROD_DB_URL` only; validations V1–V8. Required phrase:
+**"AUTHORIZE PFA-18C DB PASSWORD RESET"**. No reset performed; no settings changed.
