@@ -1085,3 +1085,16 @@ Package rev 3: `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PAC
 confirmation; pinned A1–A7), §6 final invocation, §7 outcome determination identifying only the recorded backend, §8 read-only vs write-attempt probes (scripts with `ON_ERROR_STOP off`, `begin…rollback`,
 post-read, shell PASS/STOP), §9 rollback limits, §10 owner decisions (Option A; V-1; deviation; then the phrase).
 Mutation ledger: **none** (AWS none; DB read-only; no secrets/edges/flags). Repository: package rev 3, packet row, this entry.
+
+## SESSION 20 — 2026-09-10 — C3 AUTHORIZED ("AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT", rev 3 scope) · PRECONDITIONS REFRESHED · OWNER RUNS THE BOOTSTRAP (NO MUTATION YET)
+
+OWNER-RETURNED: Mac 2 A0 (Dashboard, Supabase MFA, Option A confirmed — privileged `postgres` session, read-only by procedure): `postgres | postgres | <ts> | 0 signing keys | 135 migrations`.
+Acknowledged by the owner: V-1 (Device 2 verified final v2, not interim v1); omission of the live `revoke_signing_key` probe (definition review instead).
+**Authorization (OWNER):** exact phrase **"AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT"** — scope: C3 package rev 3 only — one guarded trust-root INSERT via the pinned artifact (commit `1f3fc19d…`, block sha256
+`380f434d…`), key_id `…b0`, ES256, verified KMS ARN, D5 `562b5e87…`, plus the specified rolled-back refusal probes. Excluded: monitor arming, credentials/secrets, deployment, issuance, scanning, any AWS
+change; no automatic retry of an uncertain commit. Execution model: the owner runs the bootstrap personally on Mac 1 in small steps; the coordinator reads back; Mac 2 reads back independently.
+CLAUDE-OBSERVED preflight 18:01:52Z: **G6** key `Enabled ECC_NIST_P256 SIGN_VERIFY AWS_KMS MultiRegion false`, 1 key, 0 customer aliases, 3 tags, key policy = v2 (diff empty); **G7** runtime role bound
+(diff empty), access keys 0/0/0; lifecycle/`Sign`/`PutKeyPolicy` events since 17:20Z **0**; **G9** artifact block reproduced from commit `1f3fc19d…`: sha256 `380f434d…`, 118 lines; repo tip `f27ccf6c…`;
+coordinator's own public-key copy: DER 91 bytes, D5 `562b5e87…` (Device 2's export is the authoritative input on Mac 1). Supabase `query_logs` for the A0 statement: no matching entries in the queried
+sources (NOT OBSERVED — A0 stands as OWNER-RETURNED). **G1–G5 (DB) re-read:** the read-only MCP connector was unresponsive at 18:02Z; re-read to be completed before step 3 (the mutation) and
+mirrored by the owner's own `psql -tAc` count in step 0. No mutation of any kind at the time of this entry.
