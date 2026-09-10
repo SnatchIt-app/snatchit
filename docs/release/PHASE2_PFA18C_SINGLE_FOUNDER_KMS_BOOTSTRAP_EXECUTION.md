@@ -1146,3 +1146,8 @@ their outputs are read back. No production mutation has occurred.
 **OWNER-RETURNED (Mac 1 steps 2a/2b):** `PEM-DER-MATCH` · `der=91 private=0 blocks=1` · `D5=562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` · `pemsha=cf5da142cbd8ad0f550cc49d3bcd46d242d5a60f886f5c6f131f2ccfe90a8c27` · `INPUTS-PASS`
 (Device 2's `pub.pem`/`pub.der` copied to Mac 1; PEM decodes to the same 91-byte DER; D5 and PEM hash equal the coordinator's independent export). **Step 1 output (artifact hash `380f434d…` / 118 lines /
 `ARTIFACT-PASS`) not yet returned — requested; step 3 withheld until it is read back.** No mutation.
+**OWNER-RETURNED (Mac 1 step 1 re-run):** `ARTIFACT-PASS` (emitted only when sha256 = `380f434d…` and lines = 118) · `handle=arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` ·
+`fingerprint=562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`. (The `hash=…/lines=…` echo line itself was not pasted; the PASS token is conditional on both equalities.)
+**Final gate re-read before step 3 (CLAUDE-OBSERVED 19:06:21–19:06:25Z):** G1 `signing_key` **0** · G2 triggers `immutable=O, insert_guard=O, updated_at=O` · G3 flags false, fingerprint null · G4 refs
+0/0/0/0 · G5 ledger/tip 135/120, ctx `no_active_global_key` · `pfa18c-c3%` backends 0 · G6 key `Enabled ECC_NIST_P256 MultiRegion false`, policy v2 · G7 runtime bound. **ALL GATES PASS → step 3 issued to
+the owner (the single guarded INSERT via the pinned artifact; owner runs it personally on Mac 1). No mutation at the time of this entry.**
